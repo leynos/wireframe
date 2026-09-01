@@ -67,8 +67,22 @@ boundaries for Epic 635:
   client-pool scheduler a single persistent owner task and index-based slot
   leases beneath one `PoolCore` root.
 
-These records are proposed, not yet accepted; the review checklist derived from
-ADR 011's rules lands with their implementation epic.
+The first implementation slice is now in place: consuming
+`WireframeApp::prepare().await` returns an immutable `PreparedApp` or a typed
+`PrepareError`. Preparation consumes route and middleware registrations and
+builds each route chain once. Connection tasks borrow the prepared route table,
+so a single prepared application can serve multiple connections without
+repeating middleware transforms. `WireframeApp` remains the registration
+builder, and its direct connection methods are compatibility APIs.
+
+Server factory evaluation and readiness semantics remain unchanged in this
+slice. The server-runtime work tracked by issue
+[#642](https://github.com/leynos/wireframe/issues/642) will prepare the factory
+result before server readiness; connection-local state and the
+`ConnectionRuntime` follow in issue
+[#643](https://github.com/leynos/wireframe/issues/643). The records remain
+proposed, and the review checklist derived from ADR 011's rules lands with
+their implementation epic.
 
 ### Server supervisor lifecycle
 
@@ -233,6 +247,23 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
 Install Whitaker through the standalone installer described in the
 [Whitaker user's guide](whitaker-users-guide.md) so local linting matches
 continuous integration (CI).
+
+### CodeScene coverage baseline
+
+The `Coverage (main)` workflow in `.github/workflows/coverage-main.yml` runs on
+pushes to `main`. After the test suite succeeds, it generates a ratcheted LCOV
+report and uploads that report to CodeScene. The workflow checks out
+`leynos/wireframe`, so CodeScene records the coverage under the repository
+identity `github.com/leynos/wireframe`, and targets project `68308` explicitly.
+
+The upload reads `CS_ACCESS_TOKEN` from the repository secret into the job
+environment, then passes that value through the upload action's required
+`access-token` input. This workflow input is permitted because the value still
+comes from the repository secret; never hard-code the token in workflow or
+source files, and never log it. The pull-request workflow's CodeScene coverage
+check uses the same project and repository identity. It consumes the report
+published for `main` as the baseline for its changed-line gate, so the main
+workflow must publish successfully before that gate can evaluate a pull request.
 
 ## Mutation testing
 

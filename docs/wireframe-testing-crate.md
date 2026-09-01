@@ -59,8 +59,19 @@ rstest = "0.18.2"
 
 ## Codec-aware drivers
 
-The helpers remain centred on a single in-memory driver that runs
-`WireframeApp::handle_connection` against a `tokio::io::duplex` stream. The
+The helpers use an in-memory driver over a `tokio::io::duplex` stream. New
+tests should prepare a builder before driving a connection: `prepare().await`
+consumes the `WireframeApp`, applies each route's middleware transforms once,
+and returns an immutable `PreparedApp`. The prepared value can then be borrowed
+by `drive_prepared_with_frames` for multiple connections without rebuilding its
+route services. Both prepared helpers preserve the prepared codec type, so
+custom `FrameCodec` implementations can use this migration path as well.
+`PrepareError` is the typed preparation error; the convenience helper
+`prepare_and_drive_with_frames` maps it to the helper's `io::Result` surface.
+
+The existing builder-oriented drivers remain compatibility paths for tests that
+have not migrated. They call the deprecated `WireframeApp::handle_connection`
+methods and therefore rebuild route chains for each driven connection. The
 driver is responsible for framing inbound and outbound data using the selected
 `FrameCodec` and for surfacing server panics as `io::Error` values prefixed with
 `server task failed`.
@@ -88,7 +99,8 @@ length-delimited framing.
 
 ```rust,no_run
 use std::io;
-use wireframe::app::{Packet, WireframeApp};
+use wireframe::app::{Packet, PreparedApp, WireframeApp};
+use wireframe::codec::FrameCodec;
 
 pub async fn drive_with_frames<S, C, E>(
     app: WireframeApp<S, C, E>,
@@ -125,6 +137,26 @@ where
     S: TestSerializer,
     C: Send + 'static,
     E: Packet;
+
+pub async fn prepare_and_drive_with_frames<S, C, E, F>(
+    app: WireframeApp<S, C, E, F>,
+    frames: Vec<Vec<u8>>,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec;
+
+pub async fn drive_prepared_with_frames<S, C, E, F>(
+    app: &PreparedApp<S, C, E, F>,
+    frames: Vec<Vec<u8>>,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec;
 ```
 
 Codec-aware helpers should be added as non-breaking extensions, so tests can
@@ -140,8 +172,12 @@ Behavioural details:
   `drive_with_frames`.
 - `drive_with_bincode` encodes a message with bincode and then length-prefixes
   the output before driving the app.
+- `prepare_and_drive_with_frames` prepares a builder and drives one connection.
+- `drive_prepared_with_frames` borrows a `PreparedApp`, so tests can reuse the
+  same prepared route services across connections.
 - Mutable variants (`drive_with_frames_mut` and `drive_with_payloads_mut`)
-  accept `&mut WireframeApp` so tests can reuse a configured instance.
+  accept `&mut WireframeApp` and remain available for compatibility coverage;
+  they use the deprecated builder connection path.
 - I/O failures, framing errors, and server task panics are all returned as
   `io::Error` values, so tests can assert on error handling.
 

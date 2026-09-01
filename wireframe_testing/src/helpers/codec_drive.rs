@@ -38,7 +38,7 @@ async fn drive_codec_frames_internal<F, H, Fut>(
 where
     F: FrameCodec,
     H: FnOnce(DuplexStream) -> Fut,
-    Fut: std::future::Future<Output = ()> + Send,
+    Fut: std::future::Future<Output = io::Result<()>> + Send,
 {
     let encoded = encode_payloads_with_codec(codec, payloads)?;
     let raw = drive_internal(handler, encoded, capacity).await?;
@@ -176,6 +176,10 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn drive_with_codec_payloads_with_capacity_mut<S, C, E, F>(
     app: &mut WireframeApp<S, C, E, F>,
     codec: &F,
@@ -189,7 +193,7 @@ where
     F: FrameCodec,
 {
     let frames = drive_codec_frames_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         codec,
         payloads,
         capacity,
@@ -257,6 +261,10 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn drive_with_codec_frames_with_capacity<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,
@@ -270,7 +278,7 @@ where
     F: FrameCodec,
 {
     drive_codec_frames_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         codec,
         payloads,
         capacity,

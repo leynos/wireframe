@@ -44,8 +44,11 @@ For invariants and naming rules used across internal modules, see the
 
 A `WireframeApp` collects route handlers and middleware. Each handler is stored
 as an `Arc` pointing to an async function that receives a packet reference and
-returns `()`. The builder caches these registrations until `handle_connection`
-constructs the middleware chain for an accepted stream.[^2]
+returns `()`. For manually accepted streams, consume the builder with
+`prepare().await` after registration to construct immutable middleware chains
+once and obtain a `PreparedApp`. The transition returns
+`Result<PreparedApp, PrepareError>`; a preparation failure therefore produces
+no partially usable runtime.[^2]
 
 ```no_run
 use std::sync::Arc;
@@ -175,11 +178,31 @@ fn inspect_transport_source(error: &WireframeError) -> Option<&dyn Error> {
 }
 ```
 
-Once a stream is accepted—either from a manual accept loop or via
-`WireframeServer`—`handle_connection(stream)` builds (or reuses) the middleware
-chain, wraps the transport in the configured frame codec (length-delimited by
-default), enforces per-frame read timeouts, and writes responses. Serialization
-helpers `send_response` and `send_response_framed` (or
+For a manually accepted stream, prepare the application once and then call
+`PreparedApp::handle_connection_result(stream)` (or the logging
+`PreparedApp::handle_connection(stream)` wrapper) for every connection. The
+prepared application reuses its middleware chains, wraps each transport in the
+configured frame codec (length-delimited by default), enforces per-frame read
+timeouts, and writes responses. The deprecated
+`WireframeApp::handle_connection` methods rebuild route chains for
+compatibility and should not be used in new code.
+
+```rust,no_run
+use tokio::io::duplex;
+use wireframe::app::{PreparedApp, WireframeApp};
+
+# async fn example() -> Result<(), Box<dyn std::error::Error>> {
+let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
+let (client, server) = duplex(64);
+drop(client);
+prepared.handle_connection_result(server).await?;
+# Ok(())
+# }
+```
+
+`WireframeServer` still accepts a builder factory and retains its existing
+per-connection factory evaluation semantics until the server-runtime migration
+lands. Serialization helpers `send_response` and `send_response_framed` (or
 `send_response_framed_with_codec` for custom codecs) return typed `SendError`
 variants when encoding or I/O fails, and the connection closes after ten
 consecutive deserialization errors.[^6][^7]
@@ -1359,11 +1382,13 @@ additional ergonomics on top of the core primitives.[^13]
 
 `WireframeApp` supports optional setup and teardown callbacks that run once per
 connection. Setup can return arbitrary state retained until teardown executes
-after the stream finishes processing.[^2] During `handle_connection` the
-framework caches middleware chains, enforces read timeouts, and records metrics
-for inbound frames, serialization failures, and handler errors before logging
-warnings.[^6][^7] `PacketParts::inherit_correlation` ensures response packets
-carry the correct correlation identifier even when middleware omits it.[^8]
+after the stream finishes processing.[^2] Preparation moves those callback
+definitions into the immutable `PreparedApp`; `PreparedApp::handle_connection`
+reuses the prepared middleware chains, enforces read timeouts, and records
+metrics for inbound frames, serialization failures, and handler errors before
+logging warnings.[^6][^7] `PacketParts::inherit_correlation` ensures response
+packets carry the correct correlation identifier even when middleware omits
+it.[^8]
 
 Immediate responses are available through `send_response` and
 `send_response_framed`, both of which report serialization or I/O problems via
@@ -2543,8 +2568,25 @@ When the optional `metrics` feature is enabled, Wireframe updates the
 `wireframe_connections_active` gauge, frame counters tagged by direction, error
 counters tagged by kind, and a counter for panicking connection tasks. All
 helpers become no-ops when the feature is disabled so instrumentation can stay
-in place.[^33] `handle_connection`, the connection actor, and the panic wrapper
-call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
+in place.[^33] `PreparedApp::handle_connection`, the connection actor, and the
+panic wrapper call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
+
+Prepared application lifecycle metrics are also emitted when the `metrics`
+feature is enabled:
+
+- `wireframe_application_preparations_total` counts each preparation attempt.
+  Its bounded `outcome` label is `"success"` when an immutable `PreparedApp` is
+  produced and `"failure"` when preparation returns an error.
+- `wireframe_application_preparation_duration_seconds` records the duration of
+  each preparation attempt, using the same `outcome` label values.
+- `wireframe_prepared_connection_uses_total` counts each connection handled by
+  `PreparedApp::handle_connection_result` or its logging wrapper. It has no
+  labels.
+
+These metrics are emitted around preparation and prepared-application
+connection handling, so repeated connections show reuse of the already-built
+route services without repeating middleware transforms. All three helpers are
+no-ops when the `metrics` feature is disabled.
 
 ## Mutation testing
 

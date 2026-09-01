@@ -61,7 +61,9 @@ impl ChunkConfig {
 /// of the public `drive_with_partial_*` wrappers instead.
 ///
 /// ```rust,ignore
-/// async fn echo(mut s: DuplexStream) { let _ = s.write_all(&[1, 2]).await; }
+/// async fn echo(mut s: DuplexStream) -> std::io::Result<()> {
+///     s.write_all(&[1, 2]).await
+/// }
 ///
 /// let out = drive_chunked_internal(
 ///     echo,
@@ -80,17 +82,17 @@ pub(super) async fn drive_chunked_internal<F, Fut>(
 ) -> io::Result<Vec<u8>>
 where
     F: FnOnce(DuplexStream) -> Fut,
-    Fut: std::future::Future<Output = ()> + Send,
+    Fut: std::future::Future<Output = io::Result<()>> + Send,
 {
     let (mut client, server) = duplex(capacity);
 
     let server_fut = async {
         use futures::FutureExt as _;
-        let result = std::panic::AssertUnwindSafe(server_fn(server))
+        let result = std::panic::AssertUnwindSafe(async { server_fn(server).await })
             .catch_unwind()
             .await;
         match result {
-            Ok(()) => Ok(()),
+            Ok(result) => result,
             Err(panic) => {
                 let panic_msg = wireframe::panic::format_panic(&panic);
                 Err(io::Error::new(
@@ -139,7 +141,7 @@ async fn drive_partial_frames_internal<F, H, Fut>(
 where
     F: FrameCodec,
     H: FnOnce(DuplexStream) -> Fut,
-    Fut: std::future::Future<Output = ()> + Send,
+    Fut: std::future::Future<Output = io::Result<()>> + Send,
 {
     let encoded = encode_payloads_with_codec(codec, payloads)?;
     let wire_bytes: Vec<u8> = encoded.into_iter().flatten().collect();
@@ -215,6 +217,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_partial_frames_with_capacity<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,
@@ -229,7 +232,7 @@ where
     F: FrameCodec,
 {
     let frames = drive_partial_frames_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         codec,
         payloads,
         ChunkConfig::with_capacity(chunk_size, capacity),
@@ -261,6 +264,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_partial_frames_mut<S, C, E, F>(
     app: &mut WireframeApp<S, C, E, F>,
     codec: &F,
@@ -274,7 +278,7 @@ where
     F: FrameCodec,
 {
     let frames = drive_partial_frames_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         codec,
         payloads,
         ChunkConfig::new(chunk_size),
@@ -311,6 +315,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_partial_codec_frames<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,
@@ -324,7 +329,7 @@ where
     F: FrameCodec,
 {
     drive_partial_frames_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         codec,
         payloads,
         ChunkConfig::new(chunk_size),

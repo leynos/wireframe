@@ -115,6 +115,10 @@ impl MessageAssemblyInboundWorld {
     ///
     /// Returns an error if the fragmentation config, app builder, or runtime
     /// initialization fails.
+    #[expect(
+        deprecated,
+        reason = "fixture covers the legacy builder connection API"
+    )]
     pub fn start_app(&mut self, timeout_ms: u64) -> TestResult {
         let message_limit =
             NonZeroUsize::new(BUFFER_CAPACITY.saturating_mul(16)).unwrap_or(NonZeroUsize::MIN);

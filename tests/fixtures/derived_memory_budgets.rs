@@ -225,6 +225,10 @@ impl DerivedMemoryBudgetsWorld {
         self.start_with_app(app, rx)
     }
 
+    #[expect(
+        deprecated,
+        reason = "fixture covers the legacy builder connection API"
+    )]
     fn start_with_app(
         &mut self,
         app: WireframeApp,

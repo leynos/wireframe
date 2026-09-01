@@ -877,3 +877,21 @@ and usability.
 - [ ] 19.4.1. Ensure all public items have clear, useful documentation
   examples.
 - [ ] 19.4.2. Publish documentation to `docs.rs`.
+
+## 20. Prepared application and runtime ownership (in progress)
+
+This phase makes the builder-to-runtime ownership boundary explicit while
+sequencing the remaining server and connection-runtime work separately.
+
+### 20.1. Prepared application transition
+
+- [x] 20.1.1. Add the consuming `WireframeApp::prepare().await` transition and
+  immutable `PreparedApp`, building route middleware chains once and providing
+  prepared connection drivers. See issue
+  [#641](https://github.com/leynos/wireframe/issues/641) and
+  [ADR 012](adr-012-prepared-application-and-connection-runtime.md).
+- [ ] 20.1.2. Prepare the application factory before server readiness. See
+  issue [#642](https://github.com/leynos/wireframe/issues/642).
+- [ ] 20.1.3. Extract connection-local runtime ownership and lifecycle
+  finalization. See issue
+  [#643](https://github.com/leynos/wireframe/issues/643).

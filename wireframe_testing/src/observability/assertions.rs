@@ -23,7 +23,7 @@ impl ObservabilityHandle {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use wireframe_testing::{ObservabilityHandle, observability::Labels};
     ///
     /// let mut obs = ObservabilityHandle::new();
@@ -54,6 +54,54 @@ impl ObservabilityHandle {
         } else {
             Err(format!(
                 "counter {name} with labels {labels:?}: expected {expected}, got {actual}"
+            ))
+        }
+    }
+
+    /// Assert that a histogram contains at least one recorded value.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` when no matching histogram contains a sample.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe_testing::ObservabilityHandle;
+    ///
+    /// let mut obs = ObservabilityHandle::new();
+    /// obs.snapshot();
+    /// assert!(
+    ///     obs.assert_histogram_recorded("wireframe_example_duration_seconds", [])
+    ///         .is_err()
+    /// );
+    /// ```
+    pub fn assert_histogram_recorded(
+        &self,
+        name: &str,
+        labels: impl Into<Labels>,
+    ) -> Result<(), String> {
+        let labels = labels.into();
+        let recorded = self
+            .captured
+            .iter()
+            .filter(|(key, ..)| key.key().name() == name)
+            .filter(|(key, ..)| {
+                labels
+                    .as_str_pairs()
+                    .iter()
+                    .all(|(label, value)| {
+                        key.key()
+                            .labels()
+                            .any(|actual| actual.key() == *label && actual.value() == *value)
+                    })
+            })
+            .any(|(.., value)| matches!(value, DebugValue::Histogram(samples) if !samples.is_empty()));
+        if recorded {
+            Ok(())
+        } else {
+            Err(format!(
+                "histogram {name} with labels {labels:?} did not record a value"
             ))
         }
     }

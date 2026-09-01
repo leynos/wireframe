@@ -1,76 +1,138 @@
-//! Inbound connection handling and response utilities for `WireframeApp`.
+//! Inbound connection handling and route preparation utilities.
+
+mod core;
 
 use std::{collections::HashMap, sync::Arc};
 
-use futures::StreamExt;
-use log::{debug, warn};
-use tokio::{
-    io::{self, AsyncRead, AsyncWrite},
-    time::{Duration, timeout},
-};
-use tokio_util::codec::Framed;
+use log::warn;
+use tokio::io::{self, AsyncRead, AsyncWrite};
 
 use super::{
     builder::WireframeApp,
-    codec_driver::FramePipeline,
-    combined_codec::{CombinedCodec, ConnectionCodec},
     envelope::{Envelope, Packet},
-    frame_handling,
+    lifecycle::{ConnectionSetup, ConnectionTeardown},
+    memory_budgets::MemoryBudgets,
+    middleware_types::{Handler, Middleware},
 };
 use crate::{
-    codec::{FrameCodec, MAX_FRAME_LENGTH, clamp_frame_length},
+    codec::FrameCodec,
     frame::FrameMetadata,
-    message::{DecodeWith, DeserializeContext, EncodeWith},
-    message_assembler::MessageAssemblyState,
+    message::{DecodeWith, EncodeWith},
+    message_assembler::MessageAssembler,
     middleware::HandlerService,
     serializer::Serializer,
 };
 
-/// Remove stale fragment-reassembly and message-assembly state after an idle
-/// interval.
-fn purge_expired(
-    pipeline: &mut FramePipeline,
-    message_assembly: &mut Option<MessageAssemblyState>,
-) {
-    pipeline.purge_expired();
-    frame_handling::purge_expired_assemblies(message_assembly);
-}
 /// Maximum consecutive deserialization failures before closing a connection.
-const MAX_DESER_FAILURES: u32 = 10;
+pub(super) const MAX_DESER_FAILURES: u32 = 10;
 
-/// Per-frame processing state bundled for `handle_frame`.
-struct FrameHandlingContext<'a, E, W, F>
+/// Immutable inputs required to drive one connection through prepared routes.
+pub(crate) struct ConnectionProcessingContext<'a, S, C, E, F>
+where
+    S: Serializer + Send + Sync,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec,
+{
+    /// Immutable middleware chains used to dispatch decoded envelopes.
+    pub(crate) routes: &'a HashMap<u32, HandlerService<E>>,
+    /// Serializer shared by all frames on the connection.
+    pub(crate) serializer: &'a S,
+    /// Codec configuration shared by all frames on the connection.
+    pub(crate) codec: &'a F,
+    /// Optional hook that creates per-connection state.
+    pub(crate) on_connect: Option<&'a Arc<ConnectionSetup<C>>>,
+    /// Optional hook that releases per-connection state after processing.
+    pub(crate) on_disconnect: Option<&'a Arc<ConnectionTeardown<C>>>,
+    /// Optional assembly strategy for multi-frame protocol messages.
+    pub(crate) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    /// Fragmentation settings used to initialize the frame pipeline.
+    pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
+    /// Optional byte budgets enforced while processing the connection.
+    pub(crate) memory_budgets: Option<MemoryBudgets>,
+    /// Maximum interval to wait for the next inbound frame.
+    pub(crate) read_timeout_ms: u64,
+}
+
+/// Drive a connection using immutable application inputs and prepared routes.
+pub(crate) async fn process_connection<S, C, E, F, W>(
+    stream: W,
+    context: ConnectionProcessingContext<'_, S, C, E, F>,
+) -> io::Result<()>
+where
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec,
+    W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    Envelope: DecodeWith<S> + EncodeWith<S>,
+{
+    let ConnectionProcessingContext {
+        routes,
+        serializer,
+        codec,
+        on_connect,
+        on_disconnect,
+        message_assembler,
+        fragmentation,
+        memory_budgets,
+        read_timeout_ms,
+    } = context;
+    let state = if let Some(setup) = on_connect {
+        Some(setup().await)
+    } else {
+        None
+    };
+
+    let processing_result = core::process_stream(
+        stream,
+        core::StreamProcessingContext {
+            routes,
+            serializer,
+            codec,
+            message_assembler,
+            fragmentation,
+            memory_budgets,
+            read_timeout_ms,
+        },
+    )
+    .await;
+
+    if let (Some(teardown), Some(state)) = (on_disconnect, state) {
+        teardown(state).await;
+    }
+
+    if let Err(error) = processing_result {
+        warn!(
+            "connection terminated with error: correlation_id={:?}, error={error:?}",
+            None::<u64>
+        );
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+/// Construct each route's middleware chain from registered builder inputs.
+///
+/// Middleware is folded in reverse registration order, preserving the first
+/// registered middleware as the outermost service layer.
+pub(crate) async fn build_route_chains<E>(
+    handlers: &HashMap<u32, Handler<E>>,
+    middleware: &[Box<dyn Middleware<E>>],
+) -> HashMap<u32, HandlerService<E>>
 where
     E: Packet,
-    W: AsyncRead + AsyncWrite + Unpin,
-    F: FrameCodec,
 {
-    /// Framed transport borrowed for response writes during frame handling.
-    framed: &'a mut Framed<W, ConnectionCodec<F>>,
-    /// Connection-wide malformed-frame counter shared with all stages.
-    deser_failures: &'a mut u32,
-    /// Immutable middleware chains used to dispatch decoded envelopes.
-    routes: &'a HashMap<u32, HandlerService<E>>,
-    /// Pipeline for inbound fragment reassembly and outbound response
-    /// processing.
-    pipeline: &'a mut FramePipeline,
-    /// Connection-local state for assembling multi-frame messages.
-    message_assembly: &'a mut Option<MessageAssemblyState>,
-}
-
-/// State needed to turn a raw frame into a dispatchable envelope.
-struct DispatchBuildContext<'a, F>
-where
-    F: FrameCodec,
-{
-    /// Raw frame borrowed while decoding its envelope metadata and payload.
-    frame: &'a F::Frame,
-    /// Pipeline needed to reassemble fragmented input and emit responses.
-    pipeline: &'a mut FramePipeline,
-    /// Mutable assembly state retained across inbound frames.
-    message_assembly: &'a mut Option<MessageAssemblyState>,
-    /// Failure counter used to enforce the malformed-input limit.
-    deser_failures: &'a mut u32,
+    let mut routes = HashMap::new();
+    for (&id, handler) in handlers {
+        let mut service = HandlerService::new(id, handler.clone());
+        for mw in middleware.iter().rev() {
+            service = mw.transform(service).await;
+        }
+        routes.insert(id, service);
+    }
+    routes
 }
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
@@ -81,260 +143,50 @@ where
     F: FrameCodec,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    /// Try parsing the frame using [`FrameMetadata::parse`], falling back to
-    /// full deserialization on failure.
-    fn parse_envelope(
-        &self,
-        payload: &[u8],
-    ) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>> {
-        match self.serializer.parse(payload) {
-            Ok((parsed_envelope, metadata_bytes_consumed)) => {
-                if !self.serializer.should_deserialize_after_parse() {
-                    return Ok((parsed_envelope, metadata_bytes_consumed));
-                }
-
-                let context = DeserializeContext {
-                    frame_metadata: payload.get(..metadata_bytes_consumed),
-                    message_id: Some(parsed_envelope.id),
-                    correlation_id: parsed_envelope.correlation_id,
-                    metadata_bytes_consumed: Some(metadata_bytes_consumed),
-                };
-                self.serializer
-                    .deserialize_with_context::<Envelope>(payload, &context)
-            }
-            Err(_) => self.serializer.deserialize::<Envelope>(payload),
-        }
-    }
-
-    /// Handle an accepted connection end-to-end, returning any processing error.
+    /// Handle a connection through a compatibility route preparation path.
     ///
     /// # Errors
     ///
     /// Returns an [`io::Error`] if stream processing or handler execution fails.
+    #[deprecated(note = "prepare the app once, then call PreparedApp::handle_connection_result")]
     pub async fn handle_connection_result<W>(&self, stream: W) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
-        let state = if let Some(setup) = &self.on_connect {
-            Some((setup)().await)
-        } else {
-            None
-        };
-
-        let routes = self
-            .routes
-            .get_or_init(|| async { Arc::new(self.build_chains().await) })
-            .await
-            .clone();
-
-        if let Err(e) = self.process_stream(stream, &routes).await {
-            warn!(
-                "connection terminated with error: correlation_id={:?}, error={e:?}",
-                None::<u64>
-            );
-            return Err(e);
-        }
-
-        if let (Some(teardown), Some(state)) = (&self.on_disconnect, state) {
-            teardown(state).await;
-        }
-
-        Ok(())
+        let routes = build_route_chains(&self.handlers, &self.middleware).await;
+        process_connection(
+            stream,
+            ConnectionProcessingContext {
+                routes: &routes,
+                serializer: &self.serializer,
+                codec: &self.codec,
+                on_connect: self.on_connect.as_ref(),
+                on_disconnect: self.on_disconnect.as_ref(),
+                message_assembler: self.message_assembler.as_ref(),
+                fragmentation: self.fragmentation,
+                memory_budgets: self.memory_budgets,
+                read_timeout_ms: self.read_timeout_ms,
+            },
+        )
+        .await
     }
 
-    /// Handle an accepted connection end-to-end, logging errors and swallowing the result.
+    /// Handle a connection through the compatibility preparation path.
+    #[deprecated(note = "prepare the app once, then call PreparedApp::handle_connection")]
     pub async fn handle_connection<W>(&self, stream: W)
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
-        if let Err(e) = self.handle_connection_result(stream).await {
+        #[expect(
+            deprecated,
+            reason = "compatibility wrapper delegates to its fallible counterpart"
+        )]
+        if let Err(error) = self.handle_connection_result(stream).await {
             warn!(
-                "connection handling completed with error: correlation_id={:?}, error={e:?}",
+                "connection handling completed with error: correlation_id={:?}, error={error:?}",
                 None::<u64>
             );
         }
-    }
-
-    /// Build middleware chains once, preserving reverse wrapping order.
-    async fn build_chains(&self) -> HashMap<u32, HandlerService<E>> {
-        let mut routes = HashMap::new();
-        for (&id, handler) in &self.handlers {
-            let mut service = HandlerService::new(id, handler.clone());
-            for mw in self.middleware.iter().rev() {
-                service = mw.transform(service).await;
-            }
-            routes.insert(id, service);
-        }
-        routes
-    }
-
-    /// Read frames until EOF, timeout, or a transport/handler error occurs.
-    async fn process_stream<W>(
-        &self,
-        stream: W,
-        routes: &Arc<HashMap<u32, HandlerService<E>>>,
-    ) -> io::Result<()>
-    where
-        W: AsyncRead + AsyncWrite + Unpin,
-    {
-        let codec = self.codec.clone();
-        let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
-        let mut framed = Framed::new(stream, combined);
-        let requested_frame_length = codec.max_frame_length();
-        let max_frame_length = clamp_frame_length(requested_frame_length);
-        if requested_frame_length > MAX_FRAME_LENGTH {
-            warn!(
-                "codec max frame length exceeds guardrail; clamping to {MAX_FRAME_LENGTH} bytes \
-                 (requested={requested_frame_length})"
-            );
-        }
-        framed.read_buffer_mut().reserve(max_frame_length);
-        let effective_budgets =
-            frame_handling::resolve_effective_budgets(self.memory_budgets, requested_frame_length);
-        let mut deser_failures = 0u32;
-        let mut message_assembly = self.message_assembler.as_ref().map(|_| {
-            frame_handling::new_message_assembly_state(
-                self.fragmentation,
-                requested_frame_length,
-                Some(effective_budgets),
-            )
-        });
-        let mut pipeline = FramePipeline::new(self.fragmentation);
-        let timeout_dur = Duration::from_millis(self.read_timeout_ms);
-
-        loop {
-            let pressure = frame_handling::evaluate_memory_pressure(
-                message_assembly.as_ref(),
-                Some(effective_budgets),
-            );
-            frame_handling::apply_memory_pressure(pressure, || {
-                purge_expired(&mut pipeline, &mut message_assembly);
-            })
-            .await?;
-
-            match timeout(timeout_dur, framed.next()).await {
-                Ok(Some(Ok(frame))) => {
-                    self.handle_frame(
-                        &frame,
-                        FrameHandlingContext {
-                            framed: &mut framed,
-                            deser_failures: &mut deser_failures,
-                            routes,
-                            message_assembly: &mut message_assembly,
-                            pipeline: &mut pipeline,
-                        },
-                        &codec,
-                    )
-                    .await?;
-                }
-                Ok(Some(Err(e))) => return Err(e),
-                Ok(None) => break,
-                Err(_) => {
-                    debug!("read timeout elapsed; continuing to wait for next frame");
-                    purge_expired(&mut pipeline, &mut message_assembly);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Decode one frame, apply reassembly, and dispatch its response.
-    async fn handle_frame<W>(
-        &self,
-        frame: &F::Frame,
-        ctx: FrameHandlingContext<'_, E, W, F>,
-        codec: &F,
-    ) -> io::Result<()>
-    where
-        W: AsyncRead + AsyncWrite + Unpin,
-    {
-        let FrameHandlingContext {
-            framed,
-            deser_failures,
-            routes,
-            message_assembly,
-            pipeline,
-        } = ctx;
-
-        crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
-        let Some(env) = self.build_dispatchable_envelope(DispatchBuildContext {
-            frame,
-            pipeline,
-            message_assembly,
-            deser_failures,
-        })?
-        else {
-            return Ok(());
-        };
-
-        if let Some(service) = routes.get(&env.id) {
-            frame_handling::forward_response(
-                env,
-                service,
-                frame_handling::ResponseContext::<S, W, F> {
-                    serializer: &self.serializer,
-                    framed,
-                    pipeline,
-                    codec,
-                },
-            )
-            .await?;
-        } else {
-            warn!(
-                "no handler for message id: id={}, correlation_id={:?}",
-                env.id, env.correlation_id
-            );
-        }
-
-        Ok(())
-    }
-
-    /// Run decode, fragment reassembly, and message assembly in order.
-    fn build_dispatchable_envelope(
-        &self,
-        ctx: DispatchBuildContext<'_, F>,
-    ) -> io::Result<Option<Envelope>> {
-        let DispatchBuildContext {
-            frame,
-            pipeline,
-            message_assembly,
-            deser_failures,
-        } = ctx;
-        let mut failure_tracker =
-            frame_handling::DeserFailureTracker::new(deser_failures, MAX_DESER_FAILURES);
-        let Some(env) = frame_handling::decode_envelope::<F>(
-            self.parse_envelope(F::frame_payload(frame)),
-            frame,
-            &mut failure_tracker,
-        )?
-        else {
-            return Ok(None);
-        };
-        let Some(env) = frame_handling::reassemble_if_needed(
-            pipeline,
-            deser_failures,
-            env,
-            MAX_DESER_FAILURES,
-        )?
-        else {
-            return Ok(None);
-        };
-        let Some(env) = frame_handling::assemble_if_needed(
-            frame_handling::AssemblyRuntime::new(self.message_assembler.as_ref(), message_assembly),
-            deser_failures,
-            env,
-            MAX_DESER_FAILURES,
-        )?
-        else {
-            return Ok(None);
-        };
-
-        // Reset failure counter only after the entire inbound pipeline
-        // (decode, reassemble, assemble) succeeds, so that assembly-stage
-        // failures accumulate towards the threshold.
-        *deser_failures = 0;
-        Ok(Some(env))
     }
 }
 

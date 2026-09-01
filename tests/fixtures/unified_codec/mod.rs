@@ -70,6 +70,10 @@ impl UnifiedCodecWorld {
     ///
     /// # Errors
     /// Returns an error if app creation or spawning fails.
+    #[expect(
+        deprecated,
+        reason = "fixture covers the legacy builder connection API"
+    )]
     pub fn start_server(
         &mut self,
         runtime: &Runtime,

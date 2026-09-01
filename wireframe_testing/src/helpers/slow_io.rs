@@ -205,7 +205,7 @@ async fn drive_slow_internal<F, Fut>(
 ) -> io::Result<Vec<u8>>
 where
     F: FnOnce(DuplexStream) -> Fut,
-    Fut: std::future::Future<Output = ()>,
+    Fut: std::future::Future<Output = io::Result<()>>,
 {
     let config = config.validate()?;
     let (client, server) = tokio::io::duplex(config.capacity);
@@ -217,7 +217,7 @@ where
             .catch_unwind()
             .await;
         match result {
-            Ok(()) => Ok(()),
+            Ok(result) => result,
             Err(panic) => {
                 let panic_msg = wireframe::panic::format_panic(&panic);
                 Err(io::Error::other(format!("server task failed: {panic_msg}")))
@@ -266,6 +266,7 @@ fn encode_length_delimited_payloads(payloads: Vec<Vec<u8>>) -> io::Result<Vec<u8
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_slow_frames<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
@@ -278,7 +279,7 @@ where
 {
     let wire_bytes: Vec<u8> = frames.into_iter().flatten().collect();
     drive_slow_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         wire_bytes,
         config,
     )
@@ -287,6 +288,7 @@ where
 
 /// Encode payloads with the default length-delimited codec and drive `app`
 /// using optional slow writer and reader pacing.
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_slow_payloads<S, C, E>(
     app: WireframeApp<S, C, E>,
     payloads: Vec<Vec<u8>>,
@@ -299,7 +301,7 @@ where
 {
     let wire_bytes = encode_length_delimited_payloads(payloads)?;
     drive_slow_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         wire_bytes,
         config,
     )
@@ -355,6 +357,7 @@ where
 
 /// Drive `app` with codec-encoded payloads using optional slow I/O pacing and
 /// return decoded response frames.
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_slow_codec_frames<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,
@@ -370,7 +373,7 @@ where
     let encoded = encode_payloads_with_codec(codec, payloads)?;
     let wire_bytes: Vec<u8> = encoded.into_iter().flatten().collect();
     let raw = drive_slow_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         wire_bytes,
         config,
     )

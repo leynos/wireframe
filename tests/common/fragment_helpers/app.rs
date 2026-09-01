@@ -50,6 +50,7 @@ pub fn make_app(
 }
 
 /// Spawn an app and return the client connection and server task handle.
+#[expect(deprecated, reason = "fragment helper drives the legacy builder API")]
 pub fn spawn_app(
     app: WireframeApp,
 ) -> (
