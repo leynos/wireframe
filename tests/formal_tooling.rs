@@ -258,8 +258,8 @@ fn test_verification_executes_the_configured_cargo_command() -> TestResult {
         "`make test-verification` should execute the configured Cargo command",
     )?;
     ensure(
-        stdout.contains("test -p wireframe-verification"),
-        "`make test-verification` should pass `test -p wireframe-verification` to Cargo",
+        stdout.contains("echo test -p wireframe-verification"),
+        "`make test-verification` should invoke `CARGO=echo` with `test -p wireframe-verification`",
     )
 }
 

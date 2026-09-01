@@ -840,43 +840,50 @@ invocation. The `<ref>` comes from `tools/rust-prover-tools/REF`, and
 checksum verification, local binary resolution, Rust toolchain handling, and
 proof-run behaviour.
 
-Later roadmap items should add the formal verification targets that consume
-those installed tools:
+The current formal-target interface is a tool-free interim boundary. The
+verification crate is exercised directly, while the Kani and Verus targets
+return the normal `FORMAL-SKIP` success until their named roadmap work
+activates them. Setting `FORMAL_STRICT=1` turns those placeholder successes
+into failures. Later activation must explicitly replace the corresponding
+stub recipes with the pinned tool routes above; it must not select tools
+implicitly from `PATH`.
 
 ```make
-.PHONY: test-verification stateright kani kani-full verus formal formal-pr \
+.PHONY: test-verification kani kani-full verus formal formal-pr \
 	formal-nightly
 
-test-verification: ## Run the Stateright verification crate
- cargo test -p wireframe-verification
+test-verification: ## Run the verification crate tests
+	RUSTFLAGS="-D warnings" $(CARGO) test -p $(VERIFICATION_CRATE) $(BUILD_JOBS)
 
-stateright: test-verification ## Alias for verification models
+kani: ## Run Kani smoke harnesses (stub until roadmap 15.3.1)
+	@$(FORMAL_STUB) kani "roadmap 15.3.1 adds src/frame Kani smoke harnesses"
 
-kani: ## Run Kani smoke harnesses
- cargo kani -p wireframe --harness verify_length_prefix_roundtrip_smoke
- cargo kani -p wireframe --harness verify_fragment_series_small_trace
- cargo kani -p wireframe --harness verify_message_series_small_trace
+kani-full: ## Run every Kani harness (stub until roadmap 15.3.x)
+	@$(FORMAL_STUB) kani-full "roadmap 15.3.x adds the full Kani harness set"
 
-kani-full: ## Run all Kani harnesses
- cargo kani -p wireframe
+verus: ## Run Verus proofs (stub until roadmap 15.5.2)
+	@$(FORMAL_STUB) verus "roadmap 15.5.2 adds verus/wireframe_proofs.rs"
 
-verus: ## Run Verus proofs
- $(MAKE) run-verus
+formal-pr: test-verification kani verus ## Fast pull-request formal gate
 
-formal-pr: test-verification kani verus ## Fast PR gate
+formal-nightly: test-verification kani-full verus ## Deeper scheduled formal gate
 
-formal-nightly: test-verification kani-full verus ## Deeper scheduled gate
-
-formal: formal-pr ## Default formal suite
+formal: formal-pr ## Default formal suite (alias for the PR gate)
 ```
 
-Two notes:
+There is no `stateright` alias in the current Makefile. The aggregate targets
+are intentionally explicit: `formal-pr` runs `test-verification`, `kani`, and
+`verus`, while `formal-nightly` substitutes `kani-full` for `kani`.
 
-1. `cargo test` is the better starting point for the Stateright crate because
-   it minimizes the delta from current Wireframe practice. If the wider repo
-   later migrates to `nextest`, this target should change to match.
-2. The Kani target names should stay **explicit**. Chutoro’s smoke targets are
-   explicit harness names, not magical directory scans, and that is a good
+Two notes about the eventual activation:
+
+1. The `test-verification` command deliberately keeps the verification crate
+   explicit through `VERIFICATION_CRATE` and preserves the repository's
+   warning policy. If the wider repo later migrates to `nextest`, this target
+   should change to match.
+2. The Kani target names should stay **explicit**. Once roadmap 15.3.x
+   provides the execution route, its replacement recipes should retain named
+   smoke harnesses rather than use magical directory scans; that is a good
    pattern.[^7]
 
 ## Recommended CI changes
