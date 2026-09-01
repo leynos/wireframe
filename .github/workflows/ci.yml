@@ -22,7 +22,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@794e4801babcf68065c660fdf4781ad62be5d061
+        uses: leynos/shared-actions/.github/actions/setup-rust@910880eb4d30eeaa304df09ceacfc30681cd0e5e
       - name: Format
         run: make check-fmt
       - name: Cache Whitaker installer
@@ -66,7 +66,7 @@ jobs:
       # main-push runs to avoid doing the work twice.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/generate-coverage@794e4801babcf68065c660fdf4781ad62be5d061
+        uses: leynos/shared-actions/.github/actions/generate-coverage@910880eb4d30eeaa304df09ceacfc30681cd0e5e
         with:
           output-path: lcov.info
           format: lcov
@@ -75,7 +75,7 @@ jobs:
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
         if: env.CS_ACCESS_TOKEN != '' && github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@794e4801babcf68065c660fdf4781ad62be5d061
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@910880eb4d30eeaa304df09ceacfc30681cd0e5e
         with:
           format: lcov
           mode: check
