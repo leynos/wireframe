@@ -6,11 +6,13 @@ APIs and refactors.
 
 ## Namespace GitHub Actions runners
 
-Wireframe's repository-owned Linux CI, coverage, advanced-test, maintenance,
-and delayed-comment jobs run on `namespace-profile-default`: the shared Ubuntu
+Wireframe's repository-owned Linux coverage, advanced-test, maintenance, and
+delayed-comment jobs run on `namespace-profile-default`: the shared Ubuntu
 22.04 Linux/amd64 profile with 4 vCPU and 16 GB memory. Its Namespace cache
 volume is disabled for this baseline rollout. Existing workflow cache actions
-remain unchanged; they are not backed by a Namespace cache volume.
+remain unchanged; they are not backed by a Namespace cache volume. CI remains
+on GitHub-hosted Linux because Whitaker's prebuilt `cargo-dylint` does not
+verify on the shared Ubuntu 22.04 profile.
 
 ## Layer model and glossary
 
