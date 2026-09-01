@@ -1,4 +1,10 @@
-"""Guard Wireframe's repository-owned Namespace runner assignments."""
+"""Guard Wireframe's repository-owned Namespace runner assignments.
+
+This module loads workflow YAML and verifies the reviewed runner assignments.
+
+Run with:
+    pytest tests/workflow_contracts/namespace_runners_test.py
+"""
 
 from pathlib import Path
 
