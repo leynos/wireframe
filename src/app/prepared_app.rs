@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use monotony::{MonotonicClock, StdMonotonicClock};
 use tokio::{
     io::{self, AsyncRead, AsyncWrite},
     sync::mpsc,
@@ -99,29 +100,6 @@ trait PreparationTimeSource {
 struct SystemPreparationTimeSource;
 
 impl PreparationTimeSource for SystemPreparationTimeSource {
-    type StartedAt = Instant;
-
-    fn start(&self) -> Self::StartedAt { Instant::now() }
-
-    fn elapsed(&self, started_at: Self::StartedAt) -> Duration { started_at.elapsed() }
-}
-
-/// Supplies elapsed durations for prepared-connection instrumentation.
-trait ConnectionTimeSource {
-    /// Opaque point captured at the beginning of prepared connection handling.
-    type StartedAt;
-
-    /// Capture a point from which connection duration is measured.
-    fn start(&self) -> Self::StartedAt;
-
-    /// Return the elapsed duration since a captured connection point.
-    fn elapsed(&self, started_at: Self::StartedAt) -> Duration;
-}
-
-/// Production time source backed by the monotonic standard-library clock.
-struct SystemConnectionTimeSource;
-
-impl ConnectionTimeSource for SystemConnectionTimeSource {
     type StartedAt = Instant;
 
     fn start(&self) -> Self::StartedAt { Instant::now() }
@@ -234,22 +212,21 @@ where
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
-        self.handle_connection_with_time_source(stream, &SystemConnectionTimeSource)
+        self.handle_connection_with_clock(stream, &StdMonotonicClock)
             .await
     }
 
-    /// Handle a connection with an injectable instrumentation time source.
-    async fn handle_connection_with_time_source<W, T>(
+    /// Handle a connection with an injectable monotonic clock.
+    async fn handle_connection_with_clock<W>(
         &self,
         stream: W,
-        time_source: &T,
+        clock: &dyn MonotonicClock,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-        T: ConnectionTimeSource,
     {
         metrics::inc_prepared_connection_uses();
-        let started_at = time_source.start();
+        let started_at = clock.now();
         let span = tracing::info_span!(
             "prepared_connection",
             outcome = tracing::field::Empty,
@@ -273,7 +250,7 @@ where
         .await;
         span.record("outcome", if result.is_ok() { "success" } else { "error" });
         let elapsed_ms =
-            u64::try_from(time_source.elapsed(started_at).as_millis()).unwrap_or(u64::MAX);
+            u64::try_from(clock.now().duration_since(started_at).as_millis()).unwrap_or(u64::MAX);
         span.record("elapsed_ms", elapsed_ms);
         result
     }
