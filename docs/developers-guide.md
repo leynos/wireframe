@@ -248,7 +248,6 @@ Install Whitaker through the standalone installer described in the
 [Whitaker user's guide](whitaker-users-guide.md) so local linting matches
 continuous integration (CI).
 
-
 ### CodeScene coverage baseline
 
 The `Coverage (main)` workflow in `.github/workflows/coverage-main.yml` runs on
