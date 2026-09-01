@@ -217,7 +217,7 @@ fn build_frame(id: u32, payload: Vec<u8>) -> TestResult<Vec<u8>> {
 }
 
 /// Decodes one response frame and returns its envelope payload.
-fn response_payload(bytes: Vec<u8>) -> TestResult<Vec<u8>> {
+fn response_payload(bytes: &[u8]) -> TestResult<Vec<u8>> {
     let frames = decode_frames(bytes)?;
     let [frame] = frames.as_slice() else {
         return Err("expected one response frame".into());
@@ -265,8 +265,8 @@ async fn connection_startup_records_counts_before_and_after_preparation() -> Tes
     let second = drive_prepared_with_frames(&prepared, vec![build_frame(2, vec![b'Y'])?]).await?;
 
     assert_eq!(instrumentation.snapshot(), prepared_counts);
-    assert_eq!(response_payload(first)?, [b'X', b'A', b'B', b'B', b'A']);
-    assert_eq!(response_payload(second)?, [b'Y', b'A', b'B', b'B', b'A']);
+    assert_eq!(response_payload(&first)?, [b'X', b'A', b'B', b'B', b'A']);
+    assert_eq!(response_payload(&second)?, [b'Y', b'A', b'B', b'B', b'A']);
     Ok(())
 }
 
@@ -340,8 +340,8 @@ async fn prepared_app_reuses_services_across_overlapping_connections() -> TestRe
     })
     .await
     .map_err(|_| "prepared connections did not overlap")?;
-    assert_eq!(response_payload(first?)?, [b'X', b'A', b'A']);
-    assert_eq!(response_payload(second?)?, [b'Y', b'A', b'A']);
+    assert_eq!(response_payload(&first?)?, [b'X', b'A', b'A']);
+    assert_eq!(response_payload(&second?)?, [b'Y', b'A', b'A']);
     assert_eq!(transforms.load(Ordering::SeqCst), 1);
     Ok(())
 }
@@ -425,7 +425,7 @@ async fn exercise_prepared_app_property_case(
         let mut expected = vec![u8::try_from(route_id)?];
         expected.extend(tags.iter().copied());
         expected.extend(tags.iter().rev().copied());
-        if response_payload(response)? != expected {
+        if response_payload(&response)? != expected {
             return Err(
                 format!("route {route_id} did not preserve generated middleware order").into(),
             );

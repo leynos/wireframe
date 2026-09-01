@@ -72,7 +72,7 @@ fn build_frame(payload: Vec<u8>) -> TestResult<Vec<u8>> {
 }
 
 /// Decode the response envelope and return its payload.
-fn response_payload(bytes: Vec<u8>) -> TestResult<Vec<u8>> {
+fn response_payload(bytes: &[u8]) -> TestResult<Vec<u8>> {
     let frames = decode_frames(bytes)?;
     let [frame] = frames.as_slice() else {
         return Err("expected one response frame".into());
@@ -114,7 +114,7 @@ async fn prepared_app_serves_tcp_connection_without_retransforming() -> TestResu
     client.read_to_end(&mut response).await?;
     server.await??;
 
-    assert_eq!(response_payload(response)?, [b'X', b'A', b'A']);
+    assert_eq!(response_payload(&response)?, [b'X', b'A', b'A']);
     assert_eq!(transforms.load(Ordering::SeqCst), 1);
     Ok(())
 }
