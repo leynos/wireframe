@@ -301,9 +301,9 @@ Wireframe tests:
 ```rust,no_run
 use tokio_util::codec::LengthDelimitedCodec;
 
-pub fn decode_frames(bytes: Vec<u8>) -> Vec<Vec<u8>>;
+pub fn decode_frames(bytes: &[u8]) -> Vec<Vec<u8>>;
 
-pub fn decode_frames_with_max(bytes: Vec<u8>, max_len: usize) -> Vec<Vec<u8>>;
+pub fn decode_frames_with_max(bytes: &[u8], max_len: usize) -> Vec<Vec<u8>>;
 
 pub fn encode_frame(codec: &mut LengthDelimitedCodec, bytes: Vec<u8>) -> Vec<u8>;
 ```
@@ -336,7 +336,7 @@ use wireframe_testing::{decode_frames, drive_with_bincode};
 struct Ping(u8);
 
 let bytes = drive_with_bincode(app, Ping(1)).await?;
-let frames = decode_frames(bytes);
+let frames = decode_frames(&bytes);
 assert!(!frames.is_empty(), "expected at least one response frame");
 ```
 
@@ -569,7 +569,7 @@ async fn round_trips_with_codec() -> std::io::Result<()> {
         .route(1, Arc::new(|_: &Envelope| Box::pin(async {})))?;
     let env = Envelope::new(1, Some(5), vec![1, 2, 3]);
     let out = drive_with_bincode(app, env).await?;
-    let frames = decode_frames(out);
+    let frames = decode_frames(&out);
     assert_eq!(frames.len(), 1);
     Ok(())
 }

@@ -63,7 +63,7 @@ async fn drive_with_payloads_wraps_frames() -> io::Result<()> {
     })?;
 
     let out = drive_with_payloads(app, vec![encoded]).await?;
-    let frames = decode_frames(out)?;
+    let frames = decode_frames(&out)?;
     if frames.len() != 1 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,

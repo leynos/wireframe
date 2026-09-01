@@ -52,7 +52,7 @@ impl CodecFixturesWorld {
     /// unexpectedly.
     pub fn decode_valid_fixture(&mut self) -> TestResult {
         let wire = wireframe_testing::valid_hotline_wire(b"fixture-payload", 7);
-        self.decode_fixture(wire)
+        self.decode_fixture(&wire)
     }
 
     /// Decode an oversized fixture frame and store the error.
@@ -62,7 +62,7 @@ impl CodecFixturesWorld {
     pub fn decode_oversized_fixture(&mut self) -> TestResult {
         let codec = self.codec.as_ref().ok_or("codec not configured")?;
         let wire = wireframe_testing::oversized_hotline_wire(codec.max_frame_length());
-        self.decode_fixture(wire)
+        self.decode_fixture(&wire)
     }
 
     /// Decode a truncated fixture frame and store the error.
@@ -71,7 +71,7 @@ impl CodecFixturesWorld {
     /// Returns an error if the codec is not configured.
     pub fn decode_truncated_fixture(&mut self) -> TestResult {
         let wire = wireframe_testing::truncated_hotline_header();
-        self.decode_fixture(wire)
+        self.decode_fixture(&wire)
     }
 
     /// Decode correlated fixture frames and store the results.
@@ -81,11 +81,11 @@ impl CodecFixturesWorld {
     /// unexpectedly.
     pub fn decode_correlated_fixture(&mut self) -> TestResult {
         let wire = wireframe_testing::correlated_hotline_wire(42, &[b"a", b"b", b"c"]);
-        self.decode_fixture(wire)
+        self.decode_fixture(&wire)
     }
 
     /// Decode `wire` with the configured codec, storing frames or error.
-    fn decode_fixture(&mut self, wire: Vec<u8>) -> TestResult {
+    fn decode_fixture(&mut self, wire: &[u8]) -> TestResult {
         self.decoded_frames.clear();
         self.decode_error = None;
         let codec = self.codec.as_ref().ok_or("codec not configured")?;

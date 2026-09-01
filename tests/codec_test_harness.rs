@@ -49,7 +49,7 @@ fn encode_payloads_with_codec_produces_decodable_frames() -> io::Result<()> {
     let encoded = encode_payloads_with_codec(&codec, payloads.clone())?;
 
     let wire: Vec<u8> = encoded.into_iter().flatten().collect();
-    let frames = decode_frames_with_codec(&codec, wire)?;
+    let frames = decode_frames_with_codec(&codec, &wire)?;
 
     let extracted = extract_payloads::<HotlineFrameCodec>(&frames);
     if extracted != payloads {
@@ -61,7 +61,7 @@ fn encode_payloads_with_codec_produces_decodable_frames() -> io::Result<()> {
 #[test]
 fn decode_frames_with_codec_handles_empty_input() -> io::Result<()> {
     let codec = hotline_codec();
-    let frames = decode_frames_with_codec(&codec, vec![])?;
+    let frames = decode_frames_with_codec(&codec, &[])?;
     if !frames.is_empty() {
         return Err(io::Error::other("empty input should produce no frames"));
     }

@@ -23,7 +23,7 @@ fn hotline_codec() -> HotlineFrameCodec { HotlineFrameCodec::new(4096) }
 
 /// Decode `wire` with a fresh `HotlineFrameCodec` and verify that decoding
 /// fails with an error message containing `expected_error_substring`.
-fn assert_decode_fails_with(wire: Vec<u8>, expected_error_substring: &str) -> io::Result<()> {
+fn assert_decode_fails_with(wire: &[u8], expected_error_substring: &str) -> io::Result<()> {
     let codec = hotline_codec();
     let result = decode_frames_with_codec(&codec, wire);
 
@@ -58,7 +58,7 @@ fn assert_frame_count(
 fn valid_hotline_wire_decodes_successfully() -> io::Result<()> {
     let wire = valid_hotline_wire(b"hello", 7);
     let codec = hotline_codec();
-    let frames = decode_frames_with_codec(&codec, wire)?;
+    let frames = decode_frames_with_codec(&codec, &wire)?;
 
     assert_frame_count(&frames, 1)?;
 
@@ -90,13 +90,13 @@ fn valid_hotline_frame_has_correct_metadata() {
 #[test]
 fn oversized_hotline_wire_rejected_by_decoder() -> io::Result<()> {
     let wire = oversized_hotline_wire(4096);
-    assert_decode_fails_with(wire, "payload too large")
+    assert_decode_fails_with(&wire, "payload too large")
 }
 
 #[test]
 fn mismatched_total_size_rejected_by_decoder() -> io::Result<()> {
     let wire = mismatched_total_size_wire(b"test");
-    assert_decode_fails_with(wire, "invalid total size")
+    assert_decode_fails_with(&wire, "invalid total size")
 }
 
 // ── Incomplete frame fixtures ───────────────────────────────────────────
@@ -104,13 +104,13 @@ fn mismatched_total_size_rejected_by_decoder() -> io::Result<()> {
 #[test]
 fn truncated_header_produces_decode_error() -> io::Result<()> {
     let wire = truncated_hotline_header();
-    assert_decode_fails_with(wire, "bytes remaining")
+    assert_decode_fails_with(&wire, "bytes remaining")
 }
 
 #[test]
 fn truncated_payload_produces_decode_error() -> io::Result<()> {
     let wire = truncated_hotline_payload(100);
-    assert_decode_fails_with(wire, "bytes remaining")
+    assert_decode_fails_with(&wire, "bytes remaining")
 }
 
 #[test]
@@ -152,7 +152,7 @@ fn assert_transaction_ids(
 fn correlated_frames_share_transaction_id() -> io::Result<()> {
     let wire = correlated_hotline_wire(42, &[b"a", b"b", b"c"]);
     let codec = hotline_codec();
-    let frames = decode_frames_with_codec(&codec, wire)?;
+    let frames = decode_frames_with_codec(&codec, &wire)?;
 
     assert_frame_count(&frames, 3)?;
     assert_transaction_ids(&frames, &[42, 42, 42])
@@ -162,7 +162,7 @@ fn correlated_frames_share_transaction_id() -> io::Result<()> {
 fn sequential_frames_have_incrementing_ids() -> io::Result<()> {
     let wire = sequential_hotline_wire(10, &[b"x", b"y", b"z"]);
     let codec = hotline_codec();
-    let frames = decode_frames_with_codec(&codec, wire)?;
+    let frames = decode_frames_with_codec(&codec, &wire)?;
 
     assert_frame_count(&frames, 3)?;
     assert_transaction_ids(&frames, &[10, 11, 12])

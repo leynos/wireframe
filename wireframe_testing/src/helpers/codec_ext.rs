@@ -74,20 +74,16 @@ pub fn encode_payloads_with_codec<F: FrameCodec>(
 ///     .into_iter()
 ///     .flatten()
 ///     .collect();
-/// let frames = decode_frames_with_codec(&codec, wire)
+/// let frames = decode_frames_with_codec(&codec, &wire)
 ///     .expect("decoding should succeed for well-formed wire bytes");
 /// assert_eq!(frames.len(), 1);
 /// ```
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "The public fixture helper owns wire bytes just like the concrete codec helpers"
-)]
 pub fn decode_frames_with_codec<F: FrameCodec>(
     codec: &F,
-    bytes: Vec<u8>,
+    bytes: &[u8],
 ) -> io::Result<Vec<F::Frame>> {
     let mut decoder = codec.decoder();
-    let mut buf = BytesMut::from(bytes.as_slice());
+    let mut buf = BytesMut::from(bytes);
     let mut frames = Vec::new();
     while let Some(frame) = decoder.decode(&mut buf)? {
         frames.push(frame);

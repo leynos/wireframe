@@ -737,7 +737,7 @@ manual framing.
   `codec`, drive the server, and return decoded response frames.
 - `drive_with_codec_payloads(app, codec, payloads)` – as above but returns
   decoded payload byte vectors.
-- `decode_frames_with_codec(codec, bytes)` – decode a raw byte sequence
+- `decode_frames_with_codec(codec, &bytes)` – decode a raw byte sequence
   into typed frames using the codec's decoder.
 - `encode_payloads_with_codec(codec, payloads)` – encode payload vectors
   into wire bytes.
