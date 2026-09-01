@@ -63,7 +63,7 @@ const HEADER_LEN: usize = 20;
 ///
 /// let wire = valid_hotline_wire(b"hello", 7);
 /// let codec = HotlineFrameCodec::new(4096);
-/// let frames = decode_frames_with_codec(&codec, wire).expect("valid fixture should decode");
+/// let frames = decode_frames_with_codec(&codec, &wire).expect("valid fixture should decode");
 /// assert_eq!(frames.len(), 1);
 /// ```
 #[must_use]
@@ -117,7 +117,7 @@ pub fn valid_hotline_frame(
 /// let wire = oversized_hotline_wire(64);
 /// let codec = HotlineFrameCodec::new(64);
 /// let err =
-///     decode_frames_with_codec(&codec, wire).expect_err("oversized frame should be rejected");
+///     decode_frames_with_codec(&codec, &wire).expect_err("oversized frame should be rejected");
 /// assert!(err.to_string().contains("payload too large"));
 /// ```
 #[must_use]
@@ -147,7 +147,7 @@ pub fn oversized_hotline_wire(max_frame_length: impl Into<MaxFrameLength>) -> Ve
 ///
 /// let wire = mismatched_total_size_wire(b"test");
 /// let codec = HotlineFrameCodec::new(4096);
-/// let err = decode_frames_with_codec(&codec, wire)
+/// let err = decode_frames_with_codec(&codec, &wire)
 ///     .expect_err("mismatched total_size should be rejected");
 /// assert!(err.to_string().contains("invalid total size"));
 /// ```
@@ -177,7 +177,7 @@ pub fn mismatched_total_size_wire(payload: &[u8]) -> Vec<u8> {
 ///
 /// let wire = truncated_hotline_header();
 /// let codec = HotlineFrameCodec::new(4096);
-/// let err = decode_frames_with_codec(&codec, wire)
+/// let err = decode_frames_with_codec(&codec, &wire)
 ///     .expect_err("truncated header should cause a decode error");
 /// assert!(err.to_string().contains("bytes remaining"));
 /// ```
@@ -205,7 +205,7 @@ pub fn truncated_hotline_header() -> Vec<u8> {
 ///
 /// let wire = truncated_hotline_payload(100);
 /// let codec = HotlineFrameCodec::new(4096);
-/// let err = decode_frames_with_codec(&codec, wire)
+/// let err = decode_frames_with_codec(&codec, &wire)
 ///     .expect_err("truncated payload should cause a decode error");
 /// assert!(err.to_string().contains("bytes remaining"));
 /// ```
@@ -241,7 +241,8 @@ pub fn truncated_hotline_payload(payload_len: impl Into<PayloadLength>) -> Vec<u
 ///
 /// let wire = correlated_hotline_wire(42, &[b"a", b"b"]);
 /// let codec = HotlineFrameCodec::new(4096);
-/// let frames = decode_frames_with_codec(&codec, wire).expect("correlated fixtures should decode");
+/// let frames =
+///     decode_frames_with_codec(&codec, &wire).expect("correlated fixtures should decode");
 /// assert_eq!(frames.len(), 2);
 /// assert!(frames.iter().all(|f| f.transaction_id == 42));
 /// ```
@@ -272,7 +273,8 @@ pub fn correlated_hotline_wire(
 ///
 /// let wire = sequential_hotline_wire(10, &[b"x", b"y", b"z"]);
 /// let codec = HotlineFrameCodec::new(4096);
-/// let frames = decode_frames_with_codec(&codec, wire).expect("sequential fixtures should decode");
+/// let frames =
+///     decode_frames_with_codec(&codec, &wire).expect("sequential fixtures should decode");
 /// assert_eq!(frames.len(), 3);
 /// ```
 #[must_use]

@@ -29,7 +29,7 @@ pub fn new_test_codec(max_len: usize) -> LengthDelimitedCodec {
 ///
 /// ```rust
 /// # use wireframe_testing::decode_frames;
-/// let frames = decode_frames(vec![0, 0, 0, 1, 42])?;
+/// let frames = decode_frames(&[0, 0, 0, 1, 42])?;
 /// assert_eq!(frames, vec![vec![42]]);
 /// # Ok::<(), std::io::Error>(())
 /// ```
@@ -37,7 +37,7 @@ pub fn new_test_codec(max_len: usize) -> LengthDelimitedCodec {
 /// # Errors
 ///
 /// Returns invalid-data errors for malformed frames or a trailing partial frame.
-pub fn decode_frames(bytes: Vec<u8>) -> io::Result<Vec<Vec<u8>>> {
+pub fn decode_frames(bytes: &[u8]) -> io::Result<Vec<Vec<u8>>> {
     decode_frames_with_max(bytes, TEST_MAX_FRAME)
 }
 
@@ -49,13 +49,9 @@ pub fn decode_frames(bytes: Vec<u8>) -> io::Result<Vec<Vec<u8>>> {
 /// # Errors
 ///
 /// Returns invalid-data errors for malformed frames or trailing partial bytes.
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "The public fixture helper accepts ownership consistently with decode_frames"
-)]
-pub fn decode_frames_with_max(bytes: Vec<u8>, max_len: usize) -> io::Result<Vec<Vec<u8>>> {
+pub fn decode_frames_with_max(bytes: &[u8], max_len: usize) -> io::Result<Vec<Vec<u8>>> {
     let mut codec = new_test_codec(max_len);
-    let mut buf = BytesMut::from(&bytes[..]);
+    let mut buf = BytesMut::from(bytes);
     let mut frames = Vec::new();
     while let Some(frame) = codec.decode(&mut buf).map_err(|error| {
         io::Error::new(
