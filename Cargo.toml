@@ -49,6 +49,7 @@ leaky-bucket = "1.1.2"
 tracing = { version = "0.1.41", features = ["log", "log-always"] }
 tracing-subscriber = "0.3.18"
 metrics = { version = "0.24.2", optional = true }
+monotony = "0.1.0"
 thiserror = "2.0.16"
 itoa = "1.0"
 static_assertions = "1.1.0"
@@ -75,6 +76,7 @@ serial_test = "4.0.1"
 metrics-util = "0.20.0"
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 mockall = "0.15.0"
+monotony = { version = "0.1.0", features = ["test-util"] }
 criterion = "0.8.2"
 cap-std = { version = "4.0.2", features = ["fs_utf8"] }
 camino = "1.2.2"
