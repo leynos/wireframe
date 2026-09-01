@@ -5,7 +5,7 @@ on:
 
 jobs:
   refresh-sha:
-    runs-on: ubuntu-latest
+    runs-on: namespace-profile-default
     permissions:
       actions: write
     steps:
