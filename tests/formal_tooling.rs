@@ -4,7 +4,19 @@
 //! `rust-prover-tools` metadata and exposes concise Makefile targets that
 //! delegate to `prover-tools` rather than carrying bespoke installer logic.
 
-use std::process::Command;
+use std::{
+    env,
+    io::Write,
+    process::{self, Command},
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+use camino::Utf8PathBuf;
+use cap_std::{
+    ambient_authority,
+    fs::{OpenOptions, Permissions, PermissionsExt},
+    fs_utf8::Dir,
+};
 
 #[path = "common/formal_tooling_support.rs"]
 mod formal_tooling_support;
@@ -31,6 +43,58 @@ use formal_tooling_support::{
 };
 use proptest::prelude::*;
 use rstest::rstest;
+
+static CARGO_WRAPPER_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+const CARGO_WRAPPER_SCRIPT: &str = r#"#!/bin/sh
+printf 'WRAPPER_RUSTFLAGS=%s\n' "${RUSTFLAGS-}"
+for argument in "$@"; do
+    printf 'WRAPPER_ARG=%s\n' "$argument"
+done
+"#;
+
+struct TemporaryCargoWrapper {
+    directory: Dir,
+    filename: Utf8PathBuf,
+    path: Utf8PathBuf,
+}
+
+impl TemporaryCargoWrapper {
+    fn new() -> std::io::Result<Self> {
+        let temporary_directory = Utf8PathBuf::from_path_buf(env::temp_dir()).map_err(|path| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("temporary directory path is not UTF-8: {}", path.display()),
+            )
+        })?;
+        let directory = Dir::open_ambient_dir(&temporary_directory, ambient_authority())?;
+        let sequence = CARGO_WRAPPER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let filename = Utf8PathBuf::from(format!(
+            "wireframe-formal-cargo-wrapper-{}-{sequence}",
+            process::id()
+        ));
+        let path = temporary_directory.join(&filename);
+        let wrapper = Self {
+            directory,
+            filename,
+            path,
+        };
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        let mut wrapper_file = wrapper.directory.open_with(&wrapper.filename, &options)?;
+
+        wrapper_file.write_all(CARGO_WRAPPER_SCRIPT.as_bytes())?;
+        wrapper
+            .directory
+            .set_permissions(&wrapper.filename, Permissions::from_mode(0o700))?;
+
+        Ok(wrapper)
+    }
+}
+
+impl Drop for TemporaryCargoWrapper {
+    fn drop(&mut self) { let _ = self.directory.remove_file(&self.filename); }
+}
 
 fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
     if condition {
@@ -247,19 +311,32 @@ fn direct_recipe_targets_have_expected_content(
 
 #[rstest]
 fn test_verification_executes_the_configured_cargo_command() -> TestResult {
+    let cargo_wrapper = TemporaryCargoWrapper::new()?;
     let output = Command::new("make")
-        .args(["test-verification", "CARGO=echo"])
+        .arg("test-verification")
+        .arg(format!("CARGO={}", cargo_wrapper.path.as_str()))
         .current_dir(repo_access::repo_root()?)
         .output()?;
     let stdout = String::from_utf8(output.stdout)?;
+    let wrapper_output = stdout
+        .lines()
+        .filter(|line| line.starts_with("WRAPPER_"))
+        .collect::<Vec<_>>();
 
     ensure(
         output.status.success(),
         "`make test-verification` should execute the configured Cargo command",
     )?;
     ensure(
-        stdout.contains("echo test -p wireframe-verification"),
-        "`make test-verification` should invoke `CARGO=echo` with `test -p wireframe-verification`",
+        wrapper_output
+            == [
+                "WRAPPER_RUSTFLAGS=-D warnings",
+                "WRAPPER_ARG=test",
+                "WRAPPER_ARG=-p",
+                "WRAPPER_ARG=wireframe-verification",
+            ],
+        "`make test-verification` should invoke Cargo with `RUSTFLAGS=-D warnings` and `test -p \
+         wireframe-verification`",
     )
 }
 
@@ -290,10 +367,13 @@ fn aggregate_targets_declare_expected_prerequisites(
 }
 
 #[rstest]
-#[case::kani("kani")]
-#[case::kani_full("kani-full")]
-#[case::verus("verus")]
-fn stub_targets_skip_and_exit_zero(#[case] target: &str) -> TestResult {
+#[case::kani("kani", "roadmap 15.3.1 adds src/frame Kani smoke harnesses")]
+#[case::kani_full("kani-full", "roadmap 15.3.x adds the full Kani harness set")]
+#[case::verus("verus", "roadmap 15.5.2 adds verus/wireframe_proofs.rs")]
+fn stub_targets_skip_and_exit_zero(
+    #[case] target: &str,
+    #[case] roadmap_message: &str,
+) -> TestResult {
     let (status, _stdout, stderr) = run_make(target, false)?;
 
     ensure(
@@ -301,25 +381,30 @@ fn stub_targets_skip_and_exit_zero(#[case] target: &str) -> TestResult {
         format!("`make {target}` should exit zero"),
     )?;
     ensure(
-        stderr.contains("FORMAL-SKIP:") && stderr.contains(target),
-        format!("`make {target}` should identify its formal skip"),
+        stderr == format!("FORMAL-SKIP: {target} not yet implemented — {roadmap_message}\n"),
+        format!("`make {target}` should report its complete formal skip"),
     )
 }
 
 #[rstest]
-#[case::kani("kani")]
-#[case::kani_full("kani-full")]
-#[case::verus("verus")]
-fn stub_targets_fail_under_formal_strict(#[case] target: &str) -> TestResult {
+#[case::kani("kani", "roadmap 15.3.1 adds src/frame Kani smoke harnesses")]
+#[case::kani_full("kani-full", "roadmap 15.3.x adds the full Kani harness set")]
+#[case::verus("verus", "roadmap 15.5.2 adds verus/wireframe_proofs.rs")]
+fn stub_targets_fail_under_formal_strict(
+    #[case] target: &str,
+    #[case] roadmap_message: &str,
+) -> TestResult {
     let (status, _stdout, stderr) = run_make(target, true)?;
+    let expected_skip = format!("FORMAL-SKIP: {target} not yet implemented — {roadmap_message}");
 
     ensure(
         !status.success(),
         format!("`FORMAL_STRICT=1 make {target}` should fail"),
     )?;
+    // GNU Make appends its failure diagnostic after the stub's fixed line.
     ensure(
-        stderr.contains("FORMAL-SKIP:"),
-        format!("`FORMAL_STRICT=1 make {target}` should identify its formal skip"),
+        stderr.lines().next() == Some(&expected_skip),
+        format!("`FORMAL_STRICT=1 make {target}` should first report its complete formal skip"),
     )
 }
 
