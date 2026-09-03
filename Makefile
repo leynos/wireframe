@@ -1,7 +1,8 @@
 .PHONY: help all clean test test-doc test-workflow-contracts doctest-benchmark
 .PHONY: bench-codec build release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling spelling-phrase-check spelling-config spelling-config-write spelling-helper-test
-.PHONY: install-kani check-kani-version install-verus run-verus
+.PHONY: install-kani check-kani-version install-verus run-verus test-verification kani \
+	kani-full verus formal-pr formal-nightly formal
 
 CRATE ?= wireframe
 CARGO ?= cargo
@@ -20,7 +21,7 @@ UV ?= uv
 UV_ENV = UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools
 NIXIE = $(UV_ENV) $(UV) tool run --python 3.14 \
 	--from nixie-cli@$(NIXIE_VERSION) nixie
-TYPOS_CONFIG_BUILDER_COMMIT := b604f198797fdd36a567dd0f8f07b13f9539b241
+TYPOS_CONFIG_BUILDER_COMMIT := 4b8c7f8ba36e7ecf91a5e762010dcf12820c3634
 TYPOS_CONFIG_BUILDER_SOURCE := git+https://github.com/leynos/typos-config-builder.git@$(TYPOS_CONFIG_BUILDER_COMMIT)
 TYPOS_CONFIG_BUILDER := $(UV_ENV) $(UV) tool run --python 3.14 \
 	--from "$(TYPOS_CONFIG_BUILDER_SOURCE)" typos-config-builder
@@ -39,6 +40,10 @@ PROVER_TOOLS_REF ?= $(shell awk '/^ref:/ { print $$2 }' $(PROVER_TOOLS_REF_FILE)
 PROVER_TOOLS_SOURCE ?= git+https://github.com/leynos/rust-prover-tools.git@$(PROVER_TOOLS_REF)
 PROVER_TOOLS ?= uv tool run --python 3.14 --from "$(PROVER_TOOLS_SOURCE)" prover-tools
 VERUS_PROOF_FILE ?= verus/wireframe_proofs.rs
+VERIFICATION_CRATE ?= wireframe-verification
+FORMAL_STUB ?= ./scripts/formal-stub.sh
+FORMAL_STRICT ?=
+export FORMAL_STRICT
 
 build: target/debug/lib$(CRATE).rlib ## Build debug binary
 release: target/release/lib$(CRATE).rlib ## Build release binary
@@ -128,6 +133,24 @@ install-verus: ## Install the pinned Verus verifier
 
 run-verus: ## Run the configured Verus proof entry point
 	$(PROVER_TOOLS) verus run --repo-root . --proof-file "$(VERUS_PROOF_FILE)"
+
+test-verification: ## Run the Stateright verification crate tests
+	RUSTFLAGS="-D warnings" $(CARGO) test -p $(VERIFICATION_CRATE) $(BUILD_JOBS)
+
+kani: ## Run Kani smoke harnesses (stub until roadmap 15.3.1)
+	@$(FORMAL_STUB) kani "roadmap 15.3.1 adds src/frame Kani smoke harnesses"
+
+kani-full: ## Run every Kani harness (stub until roadmap 15.3.x)
+	@$(FORMAL_STUB) kani-full "roadmap 15.3.x adds the full Kani harness set"
+
+verus: ## Run Verus proofs (stub until roadmap 15.5.2)
+	@$(FORMAL_STUB) verus "roadmap 15.5.2 adds verus/wireframe_proofs.rs"
+
+formal-pr: test-verification kani verus ## Fast pull-request formal gate
+
+formal-nightly: test-verification kani-full verus ## Deeper scheduled formal gate
+
+formal: formal-pr ## Default formal suite (alias for the PR gate)
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \

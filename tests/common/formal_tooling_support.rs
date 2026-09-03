@@ -1,6 +1,8 @@
 //! Shared helpers for formal-tooling metadata tests.
 
-use crate::repo_access::read_repo_file;
+use std::process::{Command, ExitStatus};
+
+use crate::repo_access::{read_repo_file, repo_root};
 
 pub(crate) type FormalToolingResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -15,13 +17,46 @@ pub(crate) struct MakefileContent<'a>(pub(crate) &'a str);
 impl MakefileContent<'_> {
     pub(crate) fn has_phony_target(&self, target: impl AsRef<str>) -> bool {
         let target = target.as_ref();
-        self.0.lines().any(|line| {
-            line.strip_prefix(".PHONY:").is_some_and(|targets| {
-                targets
+        let mut declaration = String::new();
+
+        for line in self.0.lines() {
+            if let Some(names) = line.strip_prefix(".PHONY:") {
+                declaration.clear();
+                declaration.push_str(names.trim());
+            } else if declaration.trim_end().ends_with('\\') {
+                declaration.push(' ');
+                declaration.push_str(line.trim());
+            } else {
+                continue;
+            }
+
+            if !declaration.trim_end().ends_with('\\')
+                && declaration
                     .split_whitespace()
+                    .filter(|name| *name != "\\")
                     .any(|candidate| candidate == target)
-            })
-        })
+            {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub(crate) fn target_prerequisites(&self, target: impl AsRef<str>) -> Option<Vec<String>> {
+        let target_prefix = format!("{}:", target.as_ref());
+        let rule = self
+            .0
+            .lines()
+            .find(|line| line.starts_with(&target_prefix))?;
+        let prerequisites = rule
+            .strip_prefix(&target_prefix)?
+            .split("##")
+            .next()?
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect();
+        Some(prerequisites)
     }
 
     pub(crate) fn target_recipe(&self, target: impl AsRef<str>) -> Option<String> {
@@ -90,6 +125,41 @@ pub(crate) fn prover_tools_ref_metadata() -> FormalToolingResult<String> {
 }
 
 pub(crate) fn makefile() -> FormalToolingResult<String> { read_repo_file(MAKEFILE_PATH) }
+
+pub(crate) fn run_make_dry_run(target: impl AsRef<str>) -> FormalToolingResult<String> {
+    let target = target.as_ref();
+    let output = Command::new("make")
+        .args(["--dry-run", target])
+        .current_dir(repo_root()?)
+        .output()?;
+    if !output.status.success() {
+        return Err(format!(
+            "`make --dry-run {target}` failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
+    }
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+pub(crate) fn run_make(
+    target: impl AsRef<str>,
+    formal_strict: bool,
+) -> FormalToolingResult<(ExitStatus, String, String)> {
+    let mut command = Command::new("make");
+    command.arg(target.as_ref()).current_dir(repo_root()?);
+    if formal_strict {
+        command.env("FORMAL_STRICT", "1");
+    } else {
+        command.env_remove("FORMAL_STRICT");
+    }
+    let output = command.output()?;
+    Ok((
+        output.status,
+        String::from_utf8(output.stdout)?,
+        String::from_utf8(output.stderr)?,
+    ))
+}
 
 pub(crate) fn is_three_part_numeric_version(version: impl AsRef<str>) -> bool {
     let version = version.as_ref();

@@ -383,10 +383,10 @@ Reach for `--workspace` when a task is explicitly meant to cover every current
 workspace member, for example repository-wide validation in CI or when a change
 also touches `crates/wireframe-verification` or `wireframe_testing`.
 
-Use `cargo test -p wireframe-verification` to exercise the Stateright crate in
-isolation. The existing `Makefile` targets still focus on the root `wireframe`
-crate because the dedicated formal-verification targets belong to later roadmap
-items.
+Use `make test-verification` to run `cargo test -p wireframe-verification`.
+`make kani`, `make kani-full`, and `make verus` are tool-free placeholders until
+their named roadmap work activates them. Ordinary root-level Cargo commands
+still target the root package because `default-members = ["."]`.
 
 Use `cargo test -p wireframe_testing` when changing shared test fixtures,
 observability helpers, codec drivers, or other support APIs exported by the
@@ -470,6 +470,28 @@ Keep Verus proof files outside the normal Cargo build under `verus/`. The
 `run-verus` target is expected to fail with a clear missing-proof-file
 diagnostic until later formal-verification roadmap work adds
 `verus/wireframe_proofs.rs`.
+
+### Formal verification execution targets
+
+Run `make test-verification` to execute the Stateright verification crate with
+the repository's ordinary Rust test runner. `make kani`, `make kani-full`, and
+`make verus` are deliberately tool-free placeholders until their owned roadmap
+work supplies Kani harnesses and Verus proofs. Each writes a `FORMAL-SKIP:`
+marker to standard error and succeeds on a clean checkout.
+
+Use `FORMAL_STRICT=1` with any placeholder target to make that skip fail. This
+is the tripwire for a CI job that must detect a placeholder left behind after
+the target should have been activated. `make formal-pr` combines
+`test-verification`, `kani`, and `verus`; `make formal-nightly` replaces the
+smoke target with `kani-full`; `make formal` aliases the pull-request gate.
+
+The owning roadmap item must replace the corresponding one-line placeholder
+recipe rather than adding an automatic readiness check. Roadmap 15.3.1 owns the
+`kani` smoke harnesses, later 15.3.x work owns the full Kani harness set, and
+15.5.2 owns `verus/wireframe_proofs.rs`. Kani activation must use the pinned
+tooling route, and a change that turns a placeholder into a real tool command
+must move or guard its execution test: the default `make test` suite must not
+install or invoke Kani or Verus.
 
 ### Formal tooling test support
 
@@ -639,7 +661,7 @@ favour of `handwritten`. `make markdownlint` depends on the same spelling gate.
 The tracked `typos.toml` is generated from the shared Oxford dictionary and the
 repository-specific `typos.local.toml` overlay. The generator is the focused
 `typos-config-builder` command pinned to commit
-`b604f198797fdd36a567dd0f8f07b13f9539b241`. It refreshes the untracked
+`4b8c7f8ba36e7ecf91a5e762010dcf12820c3634`. It refreshes the untracked
 `.typos-oxendict-base.toml` cache only when the authority is newer than the
 local copy; `.typos-oxendict-base.json` records refresh metadata.
 
@@ -648,6 +670,15 @@ Use `make spelling-config-write` after changing `typos.local.toml`, and use
 directly. Keep repository exceptions narrow: preserve public APIs, external
 tooling keys, formal names, and immutable diagnostics without adding ordinary
 bare-word exceptions.
+
+The local overlay must never mask every Markdown inline-code span. When adding
+an exception, use one exact, documented pattern rather than disabling a whole
+syntax class. The current exceptions are limited to the `PoolServerBehavior`
+test-server fixture, the former `BackoffConfig::normalised` public method,
+exact generic-bound fragments in RFC 0001, immutable en-GB diagnostic
+fixtures, Tokio test attributes and the literal GitHub product phrase. Add a
+new pattern only when a narrower correction or wording change would alter a
+public API, external-tool key, formal name, or deliberately fixed diagnostic.
 
 The standalone phrase helper and its tests require Python 3.13 or later and pin
 Pathspec 1.1.1 and Hypothesis 6.156.6; Ruff targets Python 3.13 compatibility.

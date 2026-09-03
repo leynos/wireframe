@@ -3,14 +3,21 @@
 import importlib
 from pathlib import Path
 import subprocess
+import tomllib
 import types
 
 from hypothesis import HealthCheck, given, settings, strategies as st
 import pytest
 
 SCRIPTS = Path(__file__).resolve().parents[1]
+REPOSITORY = SCRIPTS.parent
 PROHIBITED = "hand" + "-written"
 TITLE_PROHIBITED = "Hand" + "-written"
+INLINE_CODE_EXCLUSION = r"`[^`\n]+`"
+SPELLING_POLICY_PATTERNS = (
+    ("typos.local.toml", "patterns", "ignore"),
+    ("typos.toml", "default", "extend-ignore-re"),
+)
 
 
 @pytest.fixture
@@ -74,6 +81,38 @@ class TestPhrasePolicyChecker:
         (tmp_path / ".typos-oxendict-base.toml").unlink()
         with pytest.raises(FileNotFoundError, match=r"docs/developers-guide\.md"):
             checker.load_policy(tmp_path)
+
+    @pytest.mark.parametrize(
+        ("filename", "table_name", "field_name"), SPELLING_POLICY_PATTERNS
+    )
+    def test_spelling_policies_do_not_mask_every_inline_code_span(
+        self, filename: str, table_name: str, field_name: str
+    ) -> None:
+        """Reject the retired repository-wide inline-code spelling exemption."""
+        with (REPOSITORY / filename).open("rb") as stream:
+            document = tomllib.load(stream)
+
+        patterns = document[table_name]
+        assert isinstance(patterns, dict), (
+            f"the {filename} spelling patterns are absent"
+        )
+        assert INLINE_CODE_EXCLUSION not in patterns[field_name], (
+            f"the {filename} spelling policy masks every inline-code span"
+        )
+
+    def test_effective_spelling_policy_does_not_mask_every_inline_code_span(
+        self, checker: types.ModuleType, tmp_path: Path
+    ) -> None:
+        """Reject the exemption after loading an isolated repository policy."""
+        for filename in ("typos.toml", "typos.local.toml"):
+            source = REPOSITORY / filename
+            (tmp_path / filename).write_bytes(source.read_bytes())
+        (tmp_path / ".typos-oxendict-base.toml").write_text("[phrases.corrections]\n")
+
+        policy = checker.load_policy(tmp_path)
+        assert INLINE_CODE_EXCLUSION not in policy.ignore_patterns, (
+            "the effective spelling policy masks every inline-code span"
+        )
 
     def test_checker_preserves_boundaries_masking_and_exclusions(
         self, checker: types.ModuleType, tmp_path: Path
@@ -198,12 +237,12 @@ def test_phrase_boundaries_hold_for_generated_neighbours(
 @given(content=st.text(alphabet=" abcdefghijklmnopqrstuvwxyz-", max_size=40))
 # Each example uses the same immutable imported module, so fixture reuse is safe.
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
-def test_generated_ignored_spans_remain_masked(
+def test_generated_narrow_ignored_span_remains_masked(
     checker: types.ModuleType, content: str
 ) -> None:
-    """Prevent prohibited phrases inside generated ignored spans from leaking."""
-    text = f"`{content}{PROHIBITED}{content}`"
-    masked = checker._masked(text, (r"`[^`\n]+`",))
+    """Prevent a deliberately narrow generated ignored span from leaking."""
+    text = f"{content}`{PROHIBITED}`{content}"
+    masked = checker._masked(text, (rf"`{PROHIBITED}`",))
 
     assert len(masked) == len(text), "masking changed source offsets"
     assert (

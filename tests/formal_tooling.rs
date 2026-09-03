@@ -4,13 +4,25 @@
 //! `rust-prover-tools` metadata and exposes concise Makefile targets that
 //! delegate to `prover-tools` rather than carrying bespoke installer logic.
 
+use std::{
+    env,
+    io::Write,
+    process::{self, Command},
+    sync::atomic::{AtomicU64, Ordering},
+};
+
+use camino::Utf8PathBuf;
+use cap_std::{
+    ambient_authority,
+    fs::{OpenOptions, Permissions, PermissionsExt},
+    fs_utf8::Dir,
+};
+
 #[path = "common/formal_tooling_support.rs"]
 mod formal_tooling_support;
 
 #[path = "common/repo_access.rs"]
 mod repo_access;
-
-use std::process::Command;
 
 use formal_tooling_support::{
     ChecksumsContent,
@@ -23,13 +35,66 @@ use formal_tooling_support::{
     makefile,
     prover_tools_ref_metadata,
     read_trimmed_repo_file,
+    run_make,
+    run_make_dry_run,
     verus_checksums,
     verus_linux_archive_name,
     verus_version,
 };
 use proptest::prelude::*;
-use repo_access::repo_root;
 use rstest::rstest;
+
+static CARGO_WRAPPER_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+const CARGO_WRAPPER_SCRIPT: &str = r#"#!/bin/sh
+printf 'WRAPPER_RUSTFLAGS=%s\n' "${RUSTFLAGS-}"
+for argument in "$@"; do
+    printf 'WRAPPER_ARG=%s\n' "$argument"
+done
+"#;
+
+struct TemporaryCargoWrapper {
+    directory: Dir,
+    filename: Utf8PathBuf,
+    path: Utf8PathBuf,
+}
+
+impl TemporaryCargoWrapper {
+    fn new() -> std::io::Result<Self> {
+        let temporary_directory = Utf8PathBuf::from_path_buf(env::temp_dir()).map_err(|path| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("temporary directory path is not UTF-8: {}", path.display()),
+            )
+        })?;
+        let directory = Dir::open_ambient_dir(&temporary_directory, ambient_authority())?;
+        let sequence = CARGO_WRAPPER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let filename = Utf8PathBuf::from(format!(
+            "wireframe-formal-cargo-wrapper-{}-{sequence}",
+            process::id()
+        ));
+        let path = temporary_directory.join(&filename);
+        let wrapper = Self {
+            directory,
+            filename,
+            path,
+        };
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        let mut wrapper_file = wrapper.directory.open_with(&wrapper.filename, &options)?;
+
+        wrapper_file.write_all(CARGO_WRAPPER_SCRIPT.as_bytes())?;
+        wrapper
+            .directory
+            .set_permissions(&wrapper.filename, Permissions::from_mode(0o700))?;
+
+        Ok(wrapper)
+    }
+}
+
+impl Drop for TemporaryCargoWrapper {
+    fn drop(&mut self) { let _ = self.directory.remove_file(&self.filename); }
+}
 
 fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
     if condition {
@@ -37,22 +102,6 @@ fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
     } else {
         Err(message.into().into())
     }
-}
-
-fn run_make_dry_run(target: impl AsRef<str>) -> TestResult<String> {
-    let target = target.as_ref();
-    let output = Command::new("make")
-        .args(["--dry-run", target])
-        .current_dir(repo_root()?)
-        .output()?;
-    if !output.status.success() {
-        return Err(format!(
-            "`make --dry-run {target}` failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )
-        .into());
-    }
-    Ok(String::from_utf8(output.stdout)?)
 }
 
 #[rstest]
@@ -216,6 +265,181 @@ fn makefile_targets_do_not_embed_bespoke_installer_logic(#[case] target: &str) -
         )?;
     }
     Ok(())
+}
+
+#[rstest]
+#[case::test_verification("test-verification")]
+#[case::kani("kani")]
+#[case::kani_full("kani-full")]
+#[case::verus("verus")]
+#[case::formal_pr("formal-pr")]
+#[case::formal_nightly("formal-nightly")]
+fn formal_execution_targets_are_declared(#[case] target: &str) -> TestResult {
+    let makefile_str = makefile()?;
+    let makefile = MakefileContent(&makefile_str);
+
+    ensure(
+        makefile.has_phony_target(target),
+        format!("`{target}` should be declared as a phony Make target"),
+    )?;
+    ensure(
+        makefile.target_prerequisites(target).is_some(),
+        format!("`{target}` should have a Make rule"),
+    )
+}
+
+#[rstest]
+#[case::test_verification("test-verification", "test -p $(VERIFICATION_CRATE)")]
+#[case::kani("kani", "$(FORMAL_STUB) kani")]
+#[case::kani_full("kani-full", "$(FORMAL_STUB) kani-full")]
+#[case::verus("verus", "$(FORMAL_STUB) verus")]
+fn direct_recipe_targets_have_expected_content(
+    #[case] target: &str,
+    #[case] expected_content: &str,
+) -> TestResult {
+    let makefile_str = makefile()?;
+    let makefile = MakefileContent(&makefile_str);
+    let recipe = makefile
+        .target_recipe(target)
+        .ok_or_else(|| format!("expected `{target}` target in Makefile"))?;
+
+    ensure(
+        recipe.contains(expected_content),
+        format!("`{target}` should contain `{expected_content}`"),
+    )
+}
+
+#[rstest]
+fn test_verification_executes_the_configured_cargo_command() -> TestResult {
+    let cargo_wrapper = TemporaryCargoWrapper::new()?;
+    let output = Command::new("make")
+        .arg("test-verification")
+        .arg(format!("CARGO={}", cargo_wrapper.path.as_str()))
+        .current_dir(repo_access::repo_root()?)
+        .output()?;
+    let stdout = String::from_utf8(output.stdout)?;
+    let wrapper_output = stdout
+        .lines()
+        .filter(|line| line.starts_with("WRAPPER_"))
+        .collect::<Vec<_>>();
+
+    ensure(
+        output.status.success(),
+        "`make test-verification` should execute the configured Cargo command",
+    )?;
+    ensure(
+        wrapper_output
+            == [
+                "WRAPPER_RUSTFLAGS=-D warnings",
+                "WRAPPER_ARG=test",
+                "WRAPPER_ARG=-p",
+                "WRAPPER_ARG=wireframe-verification",
+            ],
+        "`make test-verification` should invoke Cargo with `RUSTFLAGS=-D warnings` and `test -p \
+         wireframe-verification`",
+    )
+}
+
+#[rstest]
+#[case::formal_pr("formal-pr", &["test-verification", "kani", "verus"])]
+#[case::formal_nightly(
+    "formal-nightly",
+    &["test-verification", "kani-full", "verus"]
+)]
+fn aggregate_targets_declare_expected_prerequisites(
+    #[case] target: &str,
+    #[case] expected_prerequisites: &[&str],
+) -> TestResult {
+    let makefile_str = makefile()?;
+    let makefile = MakefileContent(&makefile_str);
+    let prerequisites = makefile
+        .target_prerequisites(target)
+        .ok_or_else(|| format!("expected `{target}` target in Makefile"))?;
+    let expected_prerequisites = expected_prerequisites
+        .iter()
+        .map(|prerequisite| (*prerequisite).to_owned())
+        .collect::<Vec<_>>();
+
+    ensure(
+        prerequisites == expected_prerequisites,
+        format!("`{target}` should have the expected prerequisites"),
+    )
+}
+
+#[rstest]
+#[case::kani("kani", "roadmap 15.3.1 adds src/frame Kani smoke harnesses")]
+#[case::kani_full("kani-full", "roadmap 15.3.x adds the full Kani harness set")]
+#[case::verus("verus", "roadmap 15.5.2 adds verus/wireframe_proofs.rs")]
+fn stub_targets_skip_and_exit_zero(
+    #[case] target: &str,
+    #[case] roadmap_message: &str,
+) -> TestResult {
+    let (status, _stdout, stderr) = run_make(target, false)?;
+
+    ensure(
+        status.success(),
+        format!("`make {target}` should exit zero"),
+    )?;
+    ensure(
+        stderr == format!("FORMAL-SKIP: {target} not yet implemented — {roadmap_message}\n"),
+        format!("`make {target}` should report its complete formal skip"),
+    )
+}
+
+#[rstest]
+#[case::kani("kani", "roadmap 15.3.1 adds src/frame Kani smoke harnesses")]
+#[case::kani_full("kani-full", "roadmap 15.3.x adds the full Kani harness set")]
+#[case::verus("verus", "roadmap 15.5.2 adds verus/wireframe_proofs.rs")]
+fn stub_targets_fail_under_formal_strict(
+    #[case] target: &str,
+    #[case] roadmap_message: &str,
+) -> TestResult {
+    let (status, _stdout, stderr) = run_make(target, true)?;
+    let expected_skip = format!("FORMAL-SKIP: {target} not yet implemented — {roadmap_message}");
+
+    ensure(
+        !status.success(),
+        format!("`FORMAL_STRICT=1 make {target}` should fail"),
+    )?;
+    // GNU Make appends its failure diagnostic after the stub's fixed line.
+    ensure(
+        stderr.lines().next() == Some(&expected_skip),
+        format!("`FORMAL_STRICT=1 make {target}` should first report its complete formal skip"),
+    )
+}
+
+#[rstest]
+#[case::test_verification("test-verification", "wireframe-verification")]
+#[case::formal_pr("formal-pr", "formal-stub.sh")]
+#[case::formal_nightly("formal-nightly", "formal-stub.sh")]
+fn aggregate_targets_dry_run_zero(
+    #[case] target: &str,
+    #[case] expected_content: &str,
+) -> TestResult {
+    let output = run_make_dry_run(target)?;
+
+    ensure(
+        output.contains(expected_content),
+        format!("`make --dry-run {target}` should emit `{expected_content}`"),
+    )
+}
+
+#[rstest]
+fn formal_alias_delegates_to_formal_pr() -> TestResult {
+    let makefile_str = makefile()?;
+    let makefile = MakefileContent(&makefile_str);
+    let prerequisites = makefile
+        .target_prerequisites("formal")
+        .ok_or_else(|| "expected `formal` target in Makefile".to_owned())?;
+
+    ensure(
+        makefile.has_phony_target("formal"),
+        "`formal` should be declared as a phony Make target",
+    )?;
+    ensure(
+        prerequisites == ["formal-pr"],
+        "`formal` should delegate to `formal-pr`",
+    )
 }
 
 proptest! {

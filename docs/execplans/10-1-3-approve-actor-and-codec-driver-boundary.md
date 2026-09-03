@@ -140,7 +140,7 @@ escalation, not a workaround.
 
 - [x] (2026-06-24) Stage A: research and propose — gather code, prior art, and
   the sibling-item delivery pattern; draft the resolved decisions. (completed
-  during planning; see `Context and orientation` and `Artifacts and notes`.)
+  during planning; see `Context and orientation` and `Artefacts and notes`.)
 - [x] (2026-06-24) Stage B: author the accepted ADR 010 rewrite (status, dates,
   Decision Outcome expansion, resolved Outstanding Decisions, tracked call-site
   note). Commit: `813898b`.
@@ -242,7 +242,7 @@ edit and its propagation can be reviewed independently.
   wrapper layer without removing copies. Prior art corroborates: tonic reuses
   the message type plus an `Encoder` rather than a bespoke packet trait, and
   keeps gRPC length-framing in a separate buffer layer (see
-  `Artifacts and notes`). Date: 2026-06-22
+  `Artefacts and notes`). Date: 2026-06-22
 
 - Decision: Record the canonical production `wrap_payload` call site in the ADR
   and require a guard against new non-driver callers (implemented in phase 11).

@@ -38,3 +38,17 @@ fn then_makefile_entry_points_delegate_to_prover_tools(
 ) -> TestResult {
     formal_tooling_world.verify_makefile_targets_delegate_to_prover_tools()
 }
+
+#[then("the Makefile exposes the formal verification execution targets")]
+fn then_makefile_exposes_formal_verification_execution_targets(
+    formal_tooling_world: &mut FormalToolingWorld,
+) -> TestResult {
+    formal_tooling_world.verify_formal_execution_targets()
+}
+
+#[then("the formal execution stubs skip cleanly on a clean tree")]
+fn then_formal_execution_stubs_skip_cleanly_on_a_clean_tree(
+    formal_tooling_world: &mut FormalToolingWorld,
+) -> TestResult {
+    formal_tooling_world.verify_formal_execution_stubs_skip_cleanly()
+}

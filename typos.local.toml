@@ -10,6 +10,11 @@ accepted = []
 
 [patterns]
 ignore = [
+  # Public test-server fixture identifier. This preserves the externally
+  # visible helper name without accepting a bare word.
+  "\\bPoolServerBehavior\\b",
+  # Pool-test-server Rust fixtures. These exact source fragments preserve the
+  # public test helper's identifier and deliberately malformed response names.
   "\\ \\ \\ \\ PoolServerBehavior,",
   "\\ \\ \\ \\ \\ \\ CARGO_TERM_COLOR:\\ always",
   "\\ \\ \\ \\ \\ \\ \\ Self::start_with_behavior\\(PoolServerBehavior::Ech",
@@ -20,6 +25,8 @@ ignore = [
   "\\ \\ \\ \\ \\ format!\\(\"failed\\ to\\ deserialise\\ envelope:\\ \\{error\\}\"\\),",
   "\\ \\ \\ \\ \\#\\[error\\(\"serialisation\\ error:\\ \\{0\\}\"\\)\\]",
   "\\ \\ \\ \\ behavior:\\ PoolServerBehavior,",
+  # Rust diagnostic fixtures use established en-GB messages that Typos must
+  # not reinterpret as prose corrections.
   "\\ \\ return\\ Err\\(\"state\\ not\\ initialised\"\\.into\\(\\)\\);",
   "\\ fn\\ start_with_behavior\\(behavior:\\ PoolServerBehavior\\)\\ \\->",
   "\\ let\\ payload\\ =\\ if\\ state\\.behavior\\ ==\\ PoolServerBehavior::",
@@ -27,6 +34,15 @@ ignore = [
   "\\#\\[tokio::test\\(flavor\\ =\\ \"current_thread\",\\ sta",
   "\\#\\[tokio::test\\(flavor\\ =\\ \"current_thread\"\\)\\]",
   "\\|\\|\\ \"fragment\\ series\\ not\\ initialised\"\\.into\\(\\)\\)",
+  # Migration documentation records the immutable former public method name.
+  "BackoffConfig::normalised",
+  # RFC generic-bound examples use the declared `Ser` parameter only in these
+  # exact type fragments, without accepting the bare word elsewhere.
+  "AppFactory<Ser,",
+  "Ser: Serializer",
+  "DecodeWith<Ser>",
+  "EncodeWith<Ser>",
+  # Documentation preserves GitHub's product spelling in this literal phrase.
   "ask\\ items\\ with\\ a\\ GitHub\\ Flavored",
   "e\\.behavior\\ ==\\ PoolServerBehavior::MalformedFirstResponse",
   "ior\\(behavior:\\ PoolServerBehavior\\)\\ \\->\\ std::io::Result<Sel",

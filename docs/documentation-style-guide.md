@@ -20,7 +20,7 @@ consistent, and easy to maintain across projects.
   - suffix -ogue in words such as _analogue_ and _catalogue_,
   - and so forth.
 - The words **"outwith"** and **"caveat"** are acceptable.
-- Keep United States (US) spelling when used in an API, for example, `color`.
+- Keep United States (US) spelling when used in an external API name.
 - The project uses the filename `LICENSE` for community consistency.
 
 ## Punctuation and grammar
