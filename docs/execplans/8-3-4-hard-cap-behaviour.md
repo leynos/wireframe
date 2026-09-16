@@ -388,16 +388,16 @@ Run from the repository root (`/home/user/project`).
 7. Implement Stage D documentation updates.
 8. Run full quality gates:
 
-```shell
-set -o pipefail
-make fmt 2>&1 | tee /tmp/wireframe-8-3-4-fmt.log
-make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 \
-  2>&1 | tee /tmp/wireframe-8-3-4-markdownlint.log
-make check-fmt 2>&1 | tee /tmp/wireframe-8-3-4-check-fmt.log
-make lint 2>&1 | tee /tmp/wireframe-8-3-4-lint.log
-make test 2>&1 | tee /tmp/wireframe-8-3-4-test.log
-make nixie 2>&1 | tee /tmp/wireframe-8-3-4-nixie.log
-```
+   ```shell
+   set -o pipefail
+   make fmt 2>&1 | tee /tmp/wireframe-8-3-4-fmt.log
+   make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 \
+     2>&1 | tee /tmp/wireframe-8-3-4-markdownlint.log
+   make check-fmt 2>&1 | tee /tmp/wireframe-8-3-4-check-fmt.log
+   make lint 2>&1 | tee /tmp/wireframe-8-3-4-lint.log
+   make test 2>&1 | tee /tmp/wireframe-8-3-4-test.log
+   make nixie 2>&1 | tee /tmp/wireframe-8-3-4-nixie.log
+   ```
 
 ## Validation and acceptance
 

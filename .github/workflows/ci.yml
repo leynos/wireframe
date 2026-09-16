@@ -33,6 +33,11 @@ jobs:
       - name: Format
         run: make check-fmt
 
+      - name: Check spelling
+        # `make markdownlint` carried the spelling gate as a prerequisite;
+        # the action replaced that step, so spelling runs on its own.
+        run: make spelling
+
       - name: Lint Markdown
         # The upstream action rather than an installation of our own: its
         # release carries the linter's whole dependency graph, so nothing is
