@@ -10,6 +10,8 @@ accepted = []
 
 [patterns]
 ignore = [
+  # Inline code spans are masked; the shared dictionary does not mask them yet.
+  '`[^`\n]+`',
   # Public test-server fixture identifier. This preserves the externally
   # visible helper name without accepting a bare word.
   "\\bPoolServerBehavior\\b",
@@ -42,8 +44,6 @@ ignore = [
   "Ser: Serializer",
   "DecodeWith<Ser>",
   "EncodeWith<Ser>",
-  # Documentation preserves GitHub's product spelling in this literal phrase.
-  "ask\\ items\\ with\\ a\\ GitHub\\ Flavored",
   "e\\.behavior\\ ==\\ PoolServerBehavior::MalformedFirstResponse",
   "ior\\(behavior:\\ PoolServerBehavior\\)\\ \\->\\ std::io::Result<Sel",
   "lTestServer::start_with_behavior\\(PoolServerBehavior::Mal",
