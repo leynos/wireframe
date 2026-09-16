@@ -323,41 +323,41 @@ Run from the repository root (`.`).
 
 2. Run focused unit tests for helper and inbound assembly behaviour:
 
-```shell
-set -o pipefail
-cargo test --lib frame_handling 2>&1 | tee /tmp/wireframe-8-3-3-unit-a.log
-cargo test --lib message_assembler 2>&1 | tee /tmp/wireframe-8-3-3-unit-b.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --lib frame_handling 2>&1 | tee /tmp/wireframe-8-3-3-unit-a.log
+   cargo test --lib message_assembler 2>&1 | tee /tmp/wireframe-8-3-3-unit-b.log
+   ```
 
-1. Integrate Stage B inbound loop pausing and re-run focused unit tests:
+3. Integrate Stage B inbound loop pausing and re-run focused unit tests:
 
-```shell
-set -o pipefail
-cargo test --lib inbound_handler 2>&1 | tee /tmp/wireframe-8-3-3-unit-c.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --lib inbound_handler 2>&1 | tee /tmp/wireframe-8-3-3-unit-c.log
+   ```
 
-1. Add Stage C behavioural suite and run targeted BDD scenarios:
+4. Add Stage C behavioural suite and run targeted BDD scenarios:
 
-```shell
-set -o pipefail
-cargo test --test bdd --all-features memory_budget_backpressure 2>&1 | tee /tmp/wireframe-8-3-3-bdd.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --test bdd --all-features memory_budget_backpressure 2>&1 | tee /tmp/wireframe-8-3-3-bdd.log
+   ```
 
-1. Update Stage D docs and roadmap.
+5. Update Stage D docs and roadmap.
 
-2. Run full quality gates:
+6. Run full quality gates:
 
-```shell
-set -o pipefail
-make fmt 2>&1 | tee /tmp/wireframe-8-3-3-fmt.log
-make markdownlint 2>&1 | tee /tmp/wireframe-8-3-3-markdownlint.log
-make check-fmt 2>&1 | tee /tmp/wireframe-8-3-3-check-fmt.log
-make lint 2>&1 | tee /tmp/wireframe-8-3-3-lint.log
-make test 2>&1 | tee /tmp/wireframe-8-3-3-test.log
-make nixie 2>&1 | tee /tmp/wireframe-8-3-3-nixie.log
-```
+   ```shell
+   set -o pipefail
+   make fmt 2>&1 | tee /tmp/wireframe-8-3-3-fmt.log
+   make markdownlint 2>&1 | tee /tmp/wireframe-8-3-3-markdownlint.log
+   make check-fmt 2>&1 | tee /tmp/wireframe-8-3-3-check-fmt.log
+   make lint 2>&1 | tee /tmp/wireframe-8-3-3-lint.log
+   make test 2>&1 | tee /tmp/wireframe-8-3-3-test.log
+   make nixie 2>&1 | tee /tmp/wireframe-8-3-3-nixie.log
+   ```
 
-1. If any gate fails, fix only the failing area and rerun the failing command
+7. If any gate fails, fix only the failing area and rerun the failing command
    until green, then rerun affected downstream gates.
 
 ## Validation and acceptance

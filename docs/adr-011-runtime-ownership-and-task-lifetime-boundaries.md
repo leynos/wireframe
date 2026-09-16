@@ -358,8 +358,8 @@ Implementation work governed by this ADR should demonstrate:
   backpressure, or graceful shutdown, except for the documented
   server-supervisor drop/abort contract: abandoning `run_with_shutdown`
   eventually cancels its accept loops and releases the listener; the graceful
-  shutdown path and in-flight connection-task drain remain unchanged. The
-  other intentional behaviour changes are recorded in
+  shutdown path and in-flight connection-task drain remain unchanged. The other
+  intentional behaviour changes are recorded in
   [ADR 012](adr-012-prepared-application-and-connection-runtime.md) (factory
   evaluation frequency, readiness timing, startup error surfacing) and
   [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) (lease-drop

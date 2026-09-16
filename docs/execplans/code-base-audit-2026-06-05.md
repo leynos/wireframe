@@ -138,8 +138,8 @@ API.
   `make test`, and Markdown lint successfully.
 - [x] 2026-06-05: Resolved CodeRabbit's remaining Milestone 4 spelling finding
   by changing the helper module comment to avoid the disputed word entirely,
-  then reran
-  `make check-fmt`, `make lint`, `make test`, and Markdown lint successfully.
+  then reran `make check-fmt`, `make lint`, `make test`, and Markdown lint
+  successfully.
 - [x] 2026-06-05: Fixed CodeRabbit's Milestone 4 encapsulation and metric
   findings by narrowing `lock_or_recover` to `pub(super)` and adding
   `wireframe_pool_bookkeeping_poison_recoveries_total`, then reran
@@ -241,10 +241,9 @@ API.
   `F::Frame` need not be cloneable for an encoding probe, remove the
   payload-length preallocation rather than guessing overhead.
 - 2026-06-05: Decline CodeRabbit's request to change the Oxford `serialize` and
-  `serialization` comments in
-  `src/app/outbound_response.rs`. The repository requires en-GB-oxendict, which
-  favours `-ize` forms, and the surrounding app comments consistently use
-  `serialize`/`serialization`.
+  `serialization` comments in `src/app/outbound_response.rs`. The repository
+  requires en-GB-oxendict, which favours `-ize` forms, and the surrounding app
+  comments consistently use `serialize`/`serialization`.
 - 2026-06-05: Accept CodeRabbit's bound-tightening finding for
   `send_response_framed_with_codec`; the method only sends through a framed
   sink, so `W: AsyncWrite + Unpin` is sufficient.
@@ -270,9 +269,9 @@ API.
   `Vec<u8>` output to preserve source compatibility and avoid turning a
   refactor into an API migration.
 - 2026-06-05: Decline repeated CodeRabbit requests to change the Oxford
-  `serialization` comments in `src/app/outbound_encoding.rs`
-  and `src/app/outbound_response.rs` for the same repository-style reason
-  already recorded above.
+  `serialization` comments in `src/app/outbound_encoding.rs` and
+  `src/app/outbound_response.rs` for the same repository-style reason already
+  recorded above.
 - 2026-06-05: Accept CodeRabbit's request for direct tests around
   `encode_message_frame` and the public framed response send helpers. Add
   lightweight test-only serializers, codecs, and writers to cover success,
@@ -329,9 +328,9 @@ API.
   `tracing::warn` before recovering, and the poison test proves the spawned
   thread panicked and the mutex entered the poisoned state before recovery.
 - 2026-06-05: Resolve CodeRabbit's Oxford-spelling conflict on the module-level
-  wording by replacing the sentence with "Pool lock helper
-  shared across client pool internals." This preserves the repository's
-  documented Oxford `-ize` style without leaving a repeated review finding.
+  wording by replacing the sentence with "Pool lock helper shared across client
+  pool internals." This preserves the repository's documented Oxford `-ize`
+  style without leaving a repeated review finding.
 - 2026-06-05: Accept CodeRabbit's follow-up request to keep the pool poison
   policy local to the pool module and observable through metrics. Change
   `lock_or_recover` from `pub(crate)` to `pub(super)` and add
@@ -589,8 +588,8 @@ CodeRabbit concerns cleared, and a pushed draft pull request.
   `/tmp/test-wireframe-code-base-audit-2026-06-05-m4-rerun5.out`, and
   `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`.
 - 2026-06-05: CodeRabbit's third Milestone 4 review requested a different
-  spelling. The module comment now avoids that word. Validation
-  passed: `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`,
+  spelling. The module comment now avoids that word. Validation passed:
+  `/tmp/check-fmt-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`,
   `/tmp/lint-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`,
   `/tmp/test-wireframe-code-base-audit-2026-06-05-m4-rerun6.out`, and
   `/tmp/markdownlint-wireframe-code-base-audit-2026-06-05-m4-rerun8.out`.

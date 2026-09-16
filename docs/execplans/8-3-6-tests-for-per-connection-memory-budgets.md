@@ -477,32 +477,32 @@ Run from the repository root (`/home/user/project`).
 2. Implement Stage A unit tests.
 3. Run focused unit tests:
 
-```shell
-set -o pipefail
-cargo test --lib frame_handling::backpressure \
-  2>&1 | tee /tmp/wireframe-8-3-6-unit-a.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --lib frame_handling::backpressure \
+     2>&1 | tee /tmp/wireframe-8-3-6-unit-a.log
+   ```
 
-1. Implement Stage B BDD suite (`budget_cleanup`).
-2. Run targeted BDD scenarios:
+4. Implement Stage B BDD suite (`budget_cleanup`).
+5. Run targeted BDD scenarios:
 
-```shell
-set -o pipefail
-cargo test --test bdd --all-features budget_cleanup \
-  2>&1 | tee /tmp/wireframe-8-3-6-bdd-cleanup.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --test bdd --all-features budget_cleanup \
+     2>&1 | tee /tmp/wireframe-8-3-6-bdd-cleanup.log
+   ```
 
-1. Implement Stage C BDD suite (`budget_transitions`).
-2. Run targeted BDD scenarios:
+6. Implement Stage C BDD suite (`budget_transitions`).
+7. Run targeted BDD scenarios:
 
-```shell
-set -o pipefail
-cargo test --test bdd --all-features budget_transitions \
-  2>&1 | tee /tmp/wireframe-8-3-6-bdd-transitions.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --test bdd --all-features budget_transitions \
+     2>&1 | tee /tmp/wireframe-8-3-6-bdd-transitions.log
+   ```
 
-1. Implement Stage D documentation updates.
-2. Run full quality gates (Stage E).
+8. Implement Stage D documentation updates.
+9. Run full quality gates (Stage E).
 
 ## Validation and acceptance
 

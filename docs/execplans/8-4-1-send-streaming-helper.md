@@ -413,38 +413,38 @@ Create the four BDD files following the established pattern:
 
 1. `tests/features/client_send_streaming.feature`:
 
-```gherkin
-@client_send_streaming
-Feature: Client outbound streaming sends
-  The client can send large request bodies as multiple frames by reading
-  from an AsyncRead source with protocol-provided frame headers.
+   ```gherkin
+   @client_send_streaming
+   Feature: Client outbound streaming sends
+     The client can send large request bodies as multiple frames by reading
+     from an AsyncRead source with protocol-provided frame headers.
 
-  Background:
-    Given a send-streaming receiving server
+     Background:
+       Given a send-streaming receiving server
 
-  Scenario: Client sends a multi-chunk body
-    When the client streams 300 bytes with a 4 byte header and 100 byte chunks
-    Then the server receives 3 frames
-    And each received frame starts with the protocol header
+     Scenario: Client sends a multi-chunk body
+       When the client streams 300 bytes with a 4 byte header and 100 byte chunks
+       Then the server receives 3 frames
+       And each received frame starts with the protocol header
 
-  Scenario: Client sends an empty body
-    When the client streams 0 bytes with a 4 byte header and 100 byte chunks
-    Then the server receives 0 frames
+     Scenario: Client sends an empty body
+       When the client streams 0 bytes with a 4 byte header and 100 byte chunks
+       Then the server receives 0 frames
 
-  Scenario: Client send operation times out on a slow body reader
-    Given a send-streaming body reader that blocks indefinitely
-    When the client streams with a 100 ms timeout
-    Then a TimedOut error is returned
-    And the send-streaming error hook is invoked
+     Scenario: Client send operation times out on a slow body reader
+       Given a send-streaming body reader that blocks indefinitely
+       When the client streams with a 100 ms timeout
+       Then a TimedOut error is returned
+       And the send-streaming error hook is invoked
 
-  Scenario: Client handles transport failure during streaming send
-    Given a send-streaming server that disconnects immediately
-    When the client streams 300 bytes with a 4 byte header and 100 byte chunks
-    Then a transport error is returned
-    And the send-streaming error hook is invoked
-```
+     Scenario: Client handles transport failure during streaming send
+       Given a send-streaming server that disconnects immediately
+       When the client streams 300 bytes with a 4 byte header and 100 byte chunks
+       Then a transport error is returned
+       And the send-streaming error hook is invoked
+   ```
 
-1. `tests/fixtures/client_send_streaming.rs`:
+2. `tests/fixtures/client_send_streaming.rs`:
    - `ClientSendStreamingWorld` struct holding: `runtime`, `runtime_error`,
      `addr`, `server` handle, `client`, `received_frames` (`Vec<Vec<u8>>`),
      `frames_sent` (outcome), `last_error`, `error_hook_invoked`, `protocol_header`.
@@ -454,14 +454,14 @@ Feature: Client outbound streaming sends
      `do_send_streaming_with_timeout(duration)`.
    - Uses the `block_on` pattern from `ClientStreamingWorld`.
 
-2. `tests/steps/client_send_streaming_steps.rs`:
+3. `tests/steps/client_send_streaming_steps.rs`:
    - Step functions with `send-streaming`-prefixed step text to avoid
      collisions.
 
-3. `tests/scenarios/client_send_streaming_scenarios.rs`:
+4. `tests/scenarios/client_send_streaming_scenarios.rs`:
    - `#[scenario]` functions for each scenario.
 
-4. Register in:
+5. Register in:
    - `tests/fixtures/mod.rs`: `pub mod client_send_streaming;`
    - `tests/steps/mod.rs`: `mod client_send_streaming_steps;`
    - `tests/scenarios/mod.rs`: `mod client_send_streaming_scenarios;`
@@ -520,52 +520,52 @@ Run from the repository root (`/home/user/project`).
 
 3. Verify compilation:
 
-```shell
-set -o pipefail
-cargo check 2>&1 | tee /tmp/wireframe-8-4-1-check.log
-```
+   ```shell
+   set -o pipefail
+   cargo check 2>&1 | tee /tmp/wireframe-8-4-1-check.log
+   ```
 
-1. Create `src/client/tests/send_streaming.rs` (and
+4. Create `src/client/tests/send_streaming.rs` (and
    `src/client/tests/send_streaming_infra.rs` if needed). Update
    `src/client/tests/mod.rs`.
 
-2. Run focused unit tests:
+5. Run focused unit tests:
 
-```shell
-set -o pipefail
-cargo test --lib send_streaming 2>&1 | tee /tmp/wireframe-8-4-1-unit.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --lib send_streaming 2>&1 | tee /tmp/wireframe-8-4-1-unit.log
+   ```
 
-1. Create BDD test files:
+6. Create BDD test files:
    `tests/features/client_send_streaming.feature`,
    `tests/fixtures/client_send_streaming.rs`,
    `tests/steps/client_send_streaming_steps.rs`,
    `tests/scenarios/client_send_streaming_scenarios.rs`. Register in
    `tests/fixtures/mod.rs`, `tests/steps/mod.rs`, `tests/scenarios/mod.rs`.
 
-2. Run focused BDD tests:
+7. Run focused BDD tests:
 
-```shell
-set -o pipefail
-cargo test --test bdd --all-features client_send_streaming 2>&1 \
-  | tee /tmp/wireframe-8-4-1-bdd.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --test bdd --all-features client_send_streaming 2>&1 \
+     | tee /tmp/wireframe-8-4-1-bdd.log
+   ```
 
-1. Update documentation: ADR 0002, users-guide, roadmap.
+8. Update documentation: ADR 0002, users-guide, roadmap.
 
-2. Run full quality gates:
+9. Run full quality gates:
 
-```shell
-set -o pipefail
-make fmt 2>&1 | tee /tmp/wireframe-8-4-1-fmt.log
-make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 2>&1 \
-  | tee /tmp/wireframe-8-4-1-markdownlint.log
-make check-fmt 2>&1 | tee /tmp/wireframe-8-4-1-check-fmt.log
-make lint 2>&1 | tee /tmp/wireframe-8-4-1-lint.log
-make test 2>&1 | tee /tmp/wireframe-8-4-1-test.log
-```
+   ```shell
+   set -o pipefail
+   make fmt 2>&1 | tee /tmp/wireframe-8-4-1-fmt.log
+   make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 2>&1 \
+     | tee /tmp/wireframe-8-4-1-markdownlint.log
+   make check-fmt 2>&1 | tee /tmp/wireframe-8-4-1-check-fmt.log
+   make lint 2>&1 | tee /tmp/wireframe-8-4-1-lint.log
+   make test 2>&1 | tee /tmp/wireframe-8-4-1-test.log
+   ```
 
-1. If any gate fails, fix only the failing area and rerun the failing command
+10. If any gate fails, fix only the failing area and rerun the failing command
     until green, then rerun affected downstream gates.
 
 ## Validation and acceptance

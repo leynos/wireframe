@@ -1,9 +1,8 @@
 # Add formal-verification Makefile targets (15.1.4)
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -11,9 +10,9 @@ Status: COMPLETE
 
 Wireframe is adopting formal verification (roadmap section 15). The tool
 installation plumbing already exists: `make install-kani`,
-`make check-kani-version`, `make install-verus`, and `make run-verus` delegate to
-the pinned `rust-prover-tools` entry point. What is missing is the *execution
-surface* a contributor or CI job uses to run verification work.
+`make check-kani-version`, `make install-verus`, and `make run-verus` delegate
+to the pinned `rust-prover-tools` entry point. What is missing is the
+*execution surface* a contributor or CI job uses to run verification work.
 
 Roadmap item 15.1.4 adds six Makefile targets that form that surface:
 
@@ -48,8 +47,9 @@ Success can be observed in three ways:
 ## Design rationale: explicit stubs, not self-activating guards
 
 This is the single most important decision in this plan, so it is stated up
-front. It was revised after a Logisphere design-review panel (see "Design review
-summary" below); the rejected first approach is recorded in the Decision Log.
+front. It was revised after a Logisphere design-review panel (see "Design
+review summary" below); the rejected first approach is recorded in the Decision
+Log.
 
 The roadmap success criterion for 15.1.4 is:
 
@@ -82,13 +82,13 @@ Why explicit stubs rather than guards that self-activate when artefacts appear:
 
 1. The guarded "self-activating" design is an outlier — none of the sibling
    repos (`netsuke`, `chutoro`, `mxd`) ship readiness oracles in their
-   Makefiles. A Makefile is read far more often than it is run; optimize for the
-   reader.
+   Makefiles. A Makefile is read far more often than it is run; optimize for
+   the reader.
 2. Self-activation fails *silently*: a harness gated behind a feature the grep
    does not see, or a smoke list a human forgets to populate, leaves a target
    printing "skipping" forever while everyone believes verification runs. An
-   explicit stub fails *loudly*: the activating PR must edit the recipe, and the
-   reviewer sees it.
+   explicit stub fails *loudly*: the activating PR must edit the recipe, and
+   the reviewer sees it.
 3. The most-run gate (`formal-pr` → `kani`) was, in the guarded design, the most
    fragile (hand-maintained smoke list), while the least-run gate
    (`formal-nightly` → `kani-full`) self-healed. That is backwards. Explicit
@@ -102,9 +102,9 @@ against a forgotten activation.
 
 This design deliberately diverges from the literal Makefile snippet in
 `docs/formal-verification-methods-in-wireframe.md` §"Recommended Makefile
-changes", which assumes harnesses and proofs already exist. The six target names
-and the aggregate composition match the doc; only the interim recipe bodies
-differ, and only until 15.3.x/15.5.x fill them in.
+changes", which assumes harnesses and proofs already exist. The six target
+names and the aggregate composition match the doc; only the interim recipe
+bodies differ, and only until 15.3.x/15.5.x fill them in.
 
 ## Constraints
 
@@ -117,8 +117,8 @@ escalation, not a workaround.
    alongside the first harness.
 2. Keep the existing `run-verus`, `install-kani`, `check-kani-version`, and
    `install-verus` targets byte-for-byte unchanged. The regression suite in
-   `tests/formal_tooling.rs` pins their exact recipes, and the developers' guide
-   documents `run-verus` as the raw, fail-loud proof runner.
+   `tests/formal_tooling.rs` pins their exact recipes, and the developers'
+   guide documents `run-verus` as the raw, fail-loud proof runner.
 3. The Makefile must continue to pass `mbake validate Makefile` with exit `0`.
 4. Recipes must use real tab indentation (Make requires tabs). Editors that
    convert tabs to spaces will break the build and `mbake`.
@@ -140,7 +140,8 @@ escalation, not a workaround.
 9. `.PHONY` handling: the test helper is hardened to follow backslash
    continuations, so `.PHONY` may wrap; recipe blocks are separated by exactly
    one blank line.
-10. All prose in changed Markdown wraps at 80 columns; fenced code blocks wrap at
+10. All prose in changed Markdown wraps at 80 columns; fenced code blocks wrap
+    at
     120 columns; use `-` for list bullets; follow
     `docs/documentation-style-guide.md`.
 
@@ -169,41 +170,39 @@ Stop and escalate (do not improvise) when any threshold is crossed:
 
 1. Risk: an automated "exit `0`" test that *really executes* `make formal-pr`
    would recurse into `cargo test -p wireframe-verification` from inside
-   `cargo test`, inflating `make test` runtime.
-   Severity: medium. Likelihood: high if done naively.
-   Mitigation: real-execute only the stub targets (`kani`, `kani-full`, `verus`),
-   which merely run `scripts/formal-stub.sh`; assert `test-verification`,
-   `formal-pr`, and `formal-nightly` via `make --dry-run`, which does not execute
-   recipes. Validate the full real run once, manually, recorded as evidence.
+   `cargo test`, inflating `make test` runtime. Severity: medium. Likelihood:
+   high if done naively. Mitigation: real-execute only the stub targets (`kani`,
+   `kani-full`, `verus`), which merely run `scripts/formal-stub.sh`; assert
+   `test-verification`, `formal-pr`, and `formal-nightly` via `make --dry-run`,
+   which does not execute recipes. Validate the full real run once, manually,
+   recorded as evidence.
 2. Risk: the existing test helpers cannot assert what the plan needs.
    `MakefileContent::target_recipe` discards the rule line, so it returns
    `Some("")` for the prerequisite-only aggregates (`formal-pr`,
    `formal-nightly`) and cannot see their prerequisites; `has_phony_target`
-   breaks if `.PHONY` is wrapped onto a continuation line.
-   Severity: high (would give false confidence). Likelihood: high.
-   Mitigation: add a `target_prerequisites` helper that parses the rule line, and
-   harden `has_phony_target` to join `\`-continued `.PHONY` lines. Assert the
+   breaks if `.PHONY` is wrapped onto a continuation line. Severity: high
+   (would give false confidence). Likelihood: high. Mitigation: add a
+   `target_prerequisites` helper that parses the rule line, and harden
+   `has_phony_target` to join `\`-continued `.PHONY` lines. Assert the
    aggregates via both the new helper and `make --dry-run` content. Do not rely
    on `target_recipe` being `Some` for the aggregates (that proves nothing).
 3. Risk: tab/space corruption in new recipes breaks Make and `mbake`.
-   Severity: medium. Likelihood: medium.
-   Mitigation: after editing, run `mbake validate Makefile` and `make --dry-run`
-   for each new target before the wider gates.
+   Severity: medium. Likelihood: medium. Mitigation: after editing, run
+   `mbake validate Makefile` and `make --dry-run` for each new target before
+   the wider gates.
 4. Risk: a forgotten activation — a future item adds a harness or proof but does
    not replace the stub recipe — leaves a target skipping while looking green.
-   Severity: medium. Likelihood: medium.
-   Mitigation: explicit stubs make activation a visible recipe edit in the
-   owning PR; `FORMAL_STRICT=1` lets 15.1.5 add a CI tripwire that fails on any
-   `FORMAL-SKIP:` marker; the developers' guide records the activation contract
-   and the tool-free-test invariant (Constraint 7) so 15.3.x/15.5.x authors know
-   what to change.
+   Severity: medium. Likelihood: medium. Mitigation: explicit stubs make
+   activation a visible recipe edit in the owning PR; `FORMAL_STRICT=1` lets
+   15.1.5 add a CI tripwire that fails on any `FORMAL-SKIP:` marker; the
+   developers' guide records the activation contract and the tool-free-test
+   invariant (Constraint 7) so 15.3.x/15.5.x authors know what to change.
 5. Risk: when 15.3.x replaces the `kani` stub with a real recipe, it must invoke
    the *pinned* Kani (resolved through `rust-prover-tools` / the `KANI_ENV`
-   `LD_LIBRARY_PATH` pattern used by `chutoro`), not an arbitrary `cargo kani` on
-   `PATH`.
-   Severity: low (future item). Likelihood: low.
-   Mitigation: note this requirement in the developers' guide activation
-   contract so the owning item gets it right; out of scope for 15.1.4.
+   `LD_LIBRARY_PATH` pattern used by `chutoro`), not an arbitrary `cargo kani`
+   on `PATH`. Severity: low (future item). Likelihood: low. Mitigation: note
+   this requirement in the developers' guide activation contract so the owning
+   item gets it right; out of scope for 15.1.4.
 
 ## Progress
 
@@ -256,188 +255,183 @@ Stop and escalate (do not improvise) when any threshold is crossed:
 
 - Observation: the Kani, Verus, Rust-verification, Rust-unit-testing, and
   Proptest skills are available in the local skill directory despite not being
-  listed in the initial skill catalogue.
-  Evidence: their `SKILL.md` files were read on 2026-08-23.
-  Impact: the implementation follows their tool-free boundary: it uses
-  parameterized contract tests for Makefile behaviour and does not install or
-  run either prover before their owned harness/proof roadmap items exist.
+  listed in the initial skill catalogue. Evidence: their `SKILL.md` files were
+  read on 2026-08-23. Impact: the implementation follows their tool-free
+  boundary: it uses parameterized contract tests for Makefile behaviour and
+  does not install or run either prover before their owned harness/proof
+  roadmap items exist.
 - Observation: the BDD test binary builds shared formal-tooling helpers with
   `RUSTFLAGS=-D warnings`; a new shared dry-run helper must therefore be used
-  by the BDD fixture as well as the integration test.
-  Evidence: the first Stage B BDD run rejected `run_make_dry_run` as dead code.
-  Impact: `verify_formal_execution_targets` now checks the two aggregate
-  dry-runs, which also strengthens the behavioural contract.
+  by the BDD fixture as well as the integration test. Evidence: the first Stage
+  B BDD run rejected `run_make_dry_run` as dead code. Impact:
+  `verify_formal_execution_targets` now checks the two aggregate dry-runs,
+  which also strengthens the behavioural contract.
 - Observation: the plan's Stage B prose describes the default verification
   crate name in a source-level recipe assertion, while its authoritative
-  Makefile interface uses `$(VERIFICATION_CRATE)`.
-  Evidence: the first green run failed only the source inspection for
-  `test -p wireframe-verification`; the configured dry-run already expanded to
-  that exact default.
-  Impact: source tests assert `test -p $(VERIFICATION_CRATE)` and dry-run tests
-  assert the default expansion. This preserves configurability and verifies
-  both the source and effective commands.
+  Makefile interface uses `$(VERIFICATION_CRATE)`. Evidence: the first green
+  run failed only the source inspection for `test -p wireframe-verification`;
+  the configured dry-run already expanded to that exact default. Impact: source
+  tests assert `test -p $(VERIFICATION_CRATE)` and dry-run tests assert the
+  default expansion. This preserves configurability and verifies both the
+  source and effective commands.
 - Observation: the first full Stage C gate run found only Rust formatting and
   Clippy findings in the newly added test support; tests, Markdown, Makefile
-  validation, and ShellCheck already passed.
-  Evidence: the scrutineer logs record `make check-fmt` and `make lint`
-  failures at `/tmp/check-fmt-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-15-1-4-formal-verification-makefile-targets.out`
-  and `/tmp/lint-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-15-1-4-formal-verification-makefile-targets.out`.
+  validation, and ShellCheck already passed. Evidence: the scrutineer logs
+  record `make check-fmt` and `make lint` failures at
+  `/tmp/check-fmt-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-15-1-4-formal-verification-makefile-targets.out`
+  and
+  `/tmp/lint-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-15-1-4-formal-verification-makefile-targets.out`.
   Impact: collapsed the parser conditional, changed the stateless BDD stub
   verifier to an associated function, and applied `cargo fmt`; this is gate
   repair attempt 1 of the plan's maximum 3.
 - Observation: the second full Stage C gate run passed formatting, Markdown,
   Makefile validation, and ShellCheck, but Whitaker rejected a three-branch
   skip condition and rstest-bdd requires the exact fixture parameter name.
-  Evidence: `/tmp/lint-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-15-1-4-formal-verification-makefile-targets-2.out`
+  Evidence:
+  `/tmp/lint-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-15-1-4-formal-verification-makefile-targets-2.out`
   and
   `/tmp/test-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-15-1-4-formal-verification-makefile-targets-2.out`.
   Impact: restored the fixture method, made it inspect the loaded Makefile,
   and extracted a two-part skip predicate. This is gate repair attempt 2 of 3.
 - Observation: the third Stage C full gate run passed every deterministic
-  check, including Clippy and Whitaker.
-  Evidence: `make check-fmt`, `make lint`, `make test`, `make markdownlint`,
-  `mbake validate Makefile`, and ShellCheck passed; their logs end in
-  `15-1-4-formal-verification-makefile-targets-3.out` under `/tmp`.
-  Impact: Stage C is a coherent, quality-gated plateau ready for CodeRabbit.
+  check, including Clippy and Whitaker. Evidence: `make check-fmt`, `make lint`,
+  `make test`, `make markdownlint`, `mbake validate Makefile`, and ShellCheck
+  passed; their logs end in `15-1-4-formal-verification-makefile-targets-3.out`
+  under `/tmp`. Impact: Stage C is a coherent, quality-gated plateau ready for
+  CodeRabbit.
 - Observation: CodeRabbit reviewed commit `4785b14` with zero findings.
-  Evidence: `/tmp/coderabbit-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-15-1-4-formal-verification-makefile-targets-1.out`.
+  Evidence:
+  `/tmp/coderabbit-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-15-1-4-formal-verification-makefile-targets-1.out`.
   Impact: Stage C is cleared and Stage D may proceed.
 - Observation: the required Mapsplice preview for roadmap 15.1.4 rewrote many
   unrelated list indentations and escaped parentheses in untouched headings.
   Evidence: `/tmp/roadmap-15-1-4-preview.md` differs from `docs/roadmap.md`
-  beyond the intended checklist marker.
-  Impact: the preview was rejected; the identical one-line checkbox change was
-  applied manually to avoid unrelated roadmap churn.
+  beyond the intended checklist marker. Impact: the preview was rejected; the
+  identical one-line checkbox change was applied manually to avoid unrelated
+  roadmap churn.
 - Observation: `make fmt` rewrote seven unrelated documents and then failed on
-  three pre-existing `docs/roadmap.md` line-length errors.
-  Evidence: `/tmp/fmt-wireframe-15-1-4-formal-verification-makefile-targets.out`.
-  Impact: restored the formatter churn and retained only the three intended
-  Stage D documents for targeted Markdown validation.
+  three pre-existing `docs/roadmap.md` line-length errors. Evidence:
+  `/tmp/fmt-wireframe-15-1-4-formal-verification-makefile-targets.out`. Impact:
+  restored the formatter churn and retained only the three intended Stage D
+  documents for targeted Markdown validation.
 - Observation: CodeRabbit reviewed the Stage D documentation commit `d535dcb`
-  with zero findings.
-  Evidence: `/tmp/coderabbit-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-stage-d.out`.
-  Impact: Stage D is cleared and the final acceptance gates may begin.
+  with zero findings. Evidence:
+  `/tmp/coderabbit-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-stage-d.out`. Impact:
+  Stage D is cleared and the final acceptance gates may begin.
 - Observation: the final full deterministic suite and clean-tree behavioural
-  acceptance both pass without Kani or Verus installed.
-  Evidence: the Stage E gate logs in `/tmp/*-stage-e.out` and
+  acceptance both pass without Kani or Verus installed. Evidence: the Stage E
+  gate logs in `/tmp/*-stage-e.out` and
   `/tmp/formal-targets-stage-e-wireframe-15-1-4-formal-verification-makefile-targets.out`.
   Impact: the delivery satisfies the tool-free execution-surface contract and
   supplied the evidence for the final review.
 - Observation: CodeRabbit's final Stage E review found no concerns.
-  Evidence: `/tmp/coderabbit-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-stage-e-final.out`.
+  Evidence:
+  `/tmp/coderabbit-b2c19e9f-b094-4f34-adf8-d4ec1549fdd3-stage-e-final.out`.
   Impact: all required review and deterministic acceptance criteria are clear.
 
 - Observation: a complete formal-tooling test harness already exists.
   Evidence: `tests/formal_tooling.rs`, `tests/common/formal_tooling_support.rs`,
   `tests/fixtures/formal_tooling.rs`, and
   `tests/features/formal_tooling.feature` already assert the four existing
-  prover-tools targets via recipe inspection and `make --dry-run`.
-  Impact: 15.1.4 extends this harness rather than inventing a test approach.
+  prover-tools targets via recipe inspection and `make --dry-run`. Impact:
+  15.1.4 extends this harness rather than inventing a test approach.
 - Observation: the shared helpers cannot assert prerequisite-only rules and
-  break on a wrapped `.PHONY`.
-  Evidence: `tests/common/formal_tooling_support.rs:16-39` —
-  `target_recipe` discards the rule line; `has_phony_target` splits a single
-  line only.
-  Impact: the test plan must add a `target_prerequisites` helper and harden
-  `has_phony_target` (Risk 2).
+  break on a wrapped `.PHONY`. Evidence:
+  `tests/common/formal_tooling_support.rs:16-39` — `target_recipe` discards the
+  rule line; `has_phony_target` splits a single line only. Impact: the test
+  plan must add a `target_prerequisites` helper and harden `has_phony_target`
+  (Risk 2).
 - Observation: the developers' guide already states `run-verus` is expected to
-  fail until `verus/wireframe_proofs.rs` exists.
-  Evidence: `docs/developers-guide.md` §"Formal verification tooling".
-  Impact: confirms `run-verus` stays fail-loud; the new `verus` target is a
-  separate stub, not a wrapper around `run-verus`.
+  fail until `verus/wireframe_proofs.rs` exists. Evidence:
+  `docs/developers-guide.md` §"Formal verification tooling". Impact: confirms
+  `run-verus` stays fail-loud; the new `verus` target is a separate stub, not a
+  wrapper around `run-verus`.
 
 ## Decision log
 
 - Decision (superseded): stop before the Stage C commit and CodeRabbit review
-  because the staged diff exceeds the 400-net-line scope tolerance.
-  Evidence: `git diff --cached --stat` reports 518 insertions and 31 deletions
-  across 9 files, for 487 net lines by Git's arithmetic; the repository's
-  staged summary displayed 518 added lines, which still exceeds the tolerance.
-  Options: (1) approve a tolerance increase to encompass the existing 9-file
-  test, BDD, Makefile, script, and plan change; (2) direct which coverage or
-  documentation to remove to bring the implementation below the current limit.
-  Impact: all Stage C deterministic gates are green, but the required review,
-  commit, Stage D, and Stage E are paused pending explicit direction.
-  Date/Author: 2026-08-23, implementation agent.
+  because the staged diff exceeds the 400-net-line scope tolerance. Evidence:
+  `git diff --cached --stat` reports 518 insertions and 31 deletions across 9
+  files, for 487 net lines by Git's arithmetic; the repository's staged summary
+  displayed 518 added lines, which still exceeds the tolerance. Options: (1)
+  approve a tolerance increase to encompass the existing 9-file test, BDD,
+  Makefile, script, and plan change; (2) direct which coverage or documentation
+  to remove to bring the implementation below the current limit. Impact: all
+  Stage C deterministic gates are green, but the required review, commit, Stage
+  D, and Stage E are paused pending explicit direction. Date/Author:
+  2026-08-23, implementation agent.
 - Decision: commit the completed Stage C plateau despite the original scope
-  tolerance, then run its required CodeRabbit review.
-  Rationale: the explicit stop-hook instruction requires outstanding
-  quality-gated work be committed before this turn ends. The plateau is within
-  the plan's 12-file limit and passed every deterministic gate.
-  Impact: this accepts the 509-net-line staged scope for the completed
-  milestone only; review concerns must still be resolved before Stage D.
-  Date/Author: 2026-08-23, implementation agent.
+  tolerance, then run its required CodeRabbit review. Rationale: the explicit
+  stop-hook instruction requires outstanding quality-gated work be committed
+  before this turn ends. The plateau is within the plan's 12-file limit and
+  passed every deterministic gate. Impact: this accepts the 509-net-line staged
+  scope for the completed milestone only; review concerns must still be
+  resolved before Stage D. Date/Author: 2026-08-23, implementation agent.
 - Decision: do not apply Mapsplice's broad formatting rewrite for roadmap
-  15.1.4; manually change only its completion marker.
-  Rationale: the mandatory preview demonstrated unrelated transformations, and
-  the roadmap-editing guidance requires rejecting rather than blindly applying
-  such a rewrite.
+  15.1.4; manually change only its completion marker. Rationale: the mandatory
+  preview demonstrated unrelated transformations, and the roadmap-editing
+  guidance requires rejecting rather than blindly applying such a rewrite.
   Date/Author: 2026-08-23, implementation agent.
 
 - Decision: treat the matching in-repository ExecPlan as the requested plan.
   Rationale: the user-supplied path has a duplicated `docs/execplans` segment
-  and an additional `.md`; the repository contains exactly one matching plan
-  at `docs/execplans/15-1-4-formal-verification-makefile-targets.md`.
-  Date/Author: 2026-08-23, implementation agent.
+  and an additional `.md`; the repository contains exactly one matching plan at
+  `docs/execplans/15-1-4-formal-verification-makefile-targets.md`. Date/Author:
+  2026-08-23, implementation agent.
 - Decision: remove `FORMAL_STRICT` from non-strict test subprocesses.
   Rationale: the skip-on-clean-tree tests must describe an explicitly clean
   environment even when a developer launches the suite with strict mode in the
-  parent shell; strict cases set the value explicitly.
-  Date/Author: 2026-08-23, implementation agent.
+  parent shell; strict cases set the value explicitly. Date/Author: 2026-08-23,
+  implementation agent.
 - Decision: inspect `$(VERIFICATION_CRATE)` in source and its default value in
   a Make dry-run rather than requiring the literal default in the recipe.
   Rationale: this follows the plan's authoritative configurable Makefile
   interface while still proving the declared default invokes
-  `wireframe-verification`.
-  Date/Author: 2026-08-23, implementation agent.
+  `wireframe-verification`. Date/Author: 2026-08-23, implementation agent.
 - Decision (superseded): make the BDD stub-skip verifier an associated
-  function.
-  Rationale for reversal: rstest-bdd matches fixture bindings by exact
-  parameter name, and the stateless method obscured that the scenario requires
-  its `Given` metadata-loading step.
-  Date/Author: 2026-08-23, implementation agent.
+  function. Rationale for reversal: rstest-bdd matches fixture bindings by
+  exact parameter name, and the stateless method obscured that the scenario
+  requires its `Given` metadata-loading step. Date/Author: 2026-08-23,
+  implementation agent.
 - Decision: retain `&self` on the BDD stub-skip verifier, inspect its loaded
-  Makefile recipe, and extract `contains_formal_skip_for`.
-  Rationale: this preserves rstest-bdd fixture binding, checks the execution
-  command belongs to the loaded repository contract, and reduces the guard to
-  two semantic predicates without a lint suppression.
-  Date/Author: 2026-08-23, implementation agent.
+  Makefile recipe, and extract `contains_formal_skip_for`. Rationale: this
+  preserves rstest-bdd fixture binding, checks the execution command belongs to
+  the loaded repository contract, and reduces the guard to two semantic
+  predicates without a lint suppression. Date/Author: 2026-08-23,
+  implementation agent.
 
 - Decision: use explicit stubs (`scripts/formal-stub.sh`) for `kani`,
   `kani-full`, and `verus`, replaced by the owning roadmap items; add
-  `FORMAL_STRICT=1` to turn skips into failures.
-  Rationale: satisfies the exit-`0` criterion while keeping harnesses (15.3.x)
-  and proofs (15.5.x) in their own items, keeps plumbing tool-free, and makes
-  activation a loud, reviewable edit. Endorsed by the Logisphere panel.
-  Date/Author: 2026-06-22, planning agent + design-review panel.
+  `FORMAL_STRICT=1` to turn skips into failures. Rationale: satisfies the
+  exit-`0` criterion while keeping harnesses (15.3.x) and proofs (15.5.x) in
+  their own items, keeps plumbing tool-free, and makes activation a loud,
+  reviewable edit. Endorsed by the Logisphere panel. Date/Author: 2026-06-22,
+  planning agent + design-review panel.
 - Decision (superseded): the first draft used self-activating guards
   (`grep -rq 'kani::proof' src`, an empty `KANI_SMOKE_HARNESSES` loop, and
-  `$(MAKE) run-verus` gated on `[ -f ]`).
-  Rationale for reversal: three different readiness idioms in ~14 lines is too
-  clever for plumbing; it is an outlier versus sibling repos; and its failure
-  mode is a *silent* forever-skip (false green), worst on the most-run PR gate.
-  Date/Author: 2026-06-22, design-review panel (Wafflecat, Dinolump, Doggylump).
+  `$(MAKE) run-verus` gated on `[ -f ]`). Rationale for reversal: three
+  different readiness idioms in ~14 lines is too clever for plumbing; it is an
+  outlier versus sibling repos; and its failure mode is a *silent* forever-skip
+  (false green), worst on the most-run PR gate. Date/Author: 2026-06-22,
+  design-review panel (Wafflecat, Dinolump, Doggylump).
 - Decision: `make test-verification` uses `cargo test -p wireframe-verification`
-  (not `cargo nextest`).
-  Rationale: the formal-verification methods document recommends `cargo test` to
-  minimize the delta from current Wireframe practice; switch to nextest only if
-  the whole repo migrates.
-  Date/Author: 2026-06-22, planning agent.
+  (not `cargo nextest`). Rationale: the formal-verification methods document
+  recommends `cargo test` to minimize the delta from current Wireframe
+  practice; switch to nextest only if the whole repo migrates. Date/Author:
+  2026-06-22, planning agent.
 - Decision: do not introduce `KANI`/`KANI_*` Makefile variables in 15.1.4.
-  Rationale: with stub recipes they would be dead config; 15.3.x introduces them
-  with the real recipes (and must use the pinned Kani — Risk 5).
+  Rationale: with stub recipes they would be dead config; 15.3.x introduces
+  them with the real recipes (and must use the pinned Kani — Risk 5).
   Date/Author: 2026-06-22, design-review panel (Dinolump).
 - Decision: keep the `formal` alias (`formal: formal-pr`); drop the `stateright`
-  alias.
-  Rationale: `formal` is a discoverable default with no semantic trap;
+  alias. Rationale: `formal` is a discoverable default with no semantic trap;
   `stateright` is a misleading synonym for `test-verification` (the CI job is
   named `stateright-models` but runs `cargo test`), inviting the belief that it
-  runs the Stateright tool directly.
-  Date/Author: 2026-06-22, design-review panel (Dinolump).
+  runs the Stateright tool directly. Date/Author: 2026-06-22, design-review
+  panel (Dinolump).
 - Decision: do not add `cfg(kani)` to `check-cfg` or otherwise touch
-  `Cargo.toml` in 15.1.4.
-  Rationale: there is no `cfg(kani)` code yet; that wiring belongs to 15.3.1.
-  Date/Author: 2026-06-22, planning agent.
+  `Cargo.toml` in 15.1.4. Rationale: there is no `cfg(kani)` code yet; that
+  wiring belongs to 15.3.1. Date/Author: 2026-06-22, planning agent.
 
 ## Outcomes & retrospective
 
@@ -465,8 +459,8 @@ all folded into this revision:
   and break on a wrapped `.PHONY`. Fixed by Risk 2's mitigations.
 - Wafflecat (alternatives) and Dinolump (viability): the self-activating guards
   were too clever and an outlier versus sibling repos; recommended explicit
-  stubs that the owning PRs replace, plus dropping the `stateright` alias and the
-  premature `KANI_*` variables. Adopted.
+  stubs that the owning PRs replace, plus dropping the `stateright` alias and
+  the premature `KANI_*` variables. Adopted.
 - Doggylump (pre-mortem): the worst case is a silent "false green" (a target
   that skips forever) and a "time bomb" test that detonates inside `make test`
   once guards flip. Addressed by explicit stubs (loud activation), Constraint 7
@@ -510,15 +504,15 @@ Key files for this task, by full path:
    `MakefileContent { has_phony_target, target_recipe }`, `makefile()`,
    `MAKEFILE_PATH`, version readers, and `run_make_dry_run`. This file gains a
    `target_prerequisites` helper, a hardened `has_phony_target` (follows `\`
-   continuations), and a `run_make` helper (real execution, capturing status and
-   stderr) beside `run_make_dry_run`.
-5. `tests/fixtures/formal_tooling.rs` — the BDD world `FormalToolingWorld`. Gains
-   `verify_formal_execution_targets(&self) -> TestResult`.
+   continuations), and a `run_make` helper (real execution, capturing status
+   and stderr) beside `run_make_dry_run`.
+5. `tests/fixtures/formal_tooling.rs` — the BDD world `FormalToolingWorld`.
+   Gains `verify_formal_execution_targets(&self) -> TestResult`.
 6. `tests/features/formal_tooling.feature` — the Gherkin feature. Gains a
-   scenario for the execution targets. The matching step definitions live in the
-   BDD module wired through `tests/bdd.rs`; locate the existing formal-tooling
-   steps (search `tests/` for the step text "the Makefile exposes the formal
-   verification tool entry points", or use
+   scenario for the execution targets. The matching step definitions live in
+   the BDD module wired through `tests/bdd.rs`; locate the existing
+   formal-tooling steps (search `tests/` for the step text "the Makefile
+   exposes the formal verification tool entry points", or use
    `leta grep "formal" -k function`) and add steps beside them.
 7. `docs/developers-guide.md` — §"Formal verification tooling" (around line 354)
    documents the four install targets. The six execution targets, the
@@ -530,8 +524,8 @@ Reference material (read for rationale; do not edit):
 `docs/formal-verification-methods-in-wireframe.md` §"Recommended Makefile
 changes" and §"Recommended CI changes"; prior-art Makefiles in `leynos/netsuke`
 (cheap `formal-pr`), `leynos/chutoro` (explicit Kani harness names plus a
-`KANI_ENV` `LD_LIBRARY_PATH` wrapper), and `leynos/mxd`
-(`test-verification` runs the verification crate).
+`KANI_ENV` `LD_LIBRARY_PATH` wrapper), and `leynos/mxd` (`test-verification`
+runs the verification crate).
 
 Relevant skills to load while implementing: `execplans` (this document), `kani`
 and `verus` (tool semantics; needed when the stubs are later replaced),
@@ -541,8 +535,8 @@ and `verus` (tool semantics; needed when the stubs are later replaced),
 
 ## Plan of work
 
-Proceed in stages with a validation gate at the end of each. Do not advance past
-a failing gate. Do not begin Stage A until the user has approved this plan.
+Proceed in stages with a validation gate at the end of each. Do not advance
+past a failing gate. Do not begin Stage A until the user has approved this plan.
 
 ### Stage A: understand and propose (no code changes)
 
@@ -604,9 +598,10 @@ for the right reason before touching the Makefile or the helper script.
 
 Gate B (Red): run
 `cargo test --test formal_tooling 2>&1 | tee /tmp/red-wireframe-$(git branch --show-current).out`
-and `make test-bdd 2>&1 | tee -a /tmp/red-wireframe-$(git branch --show-current).out`.
-Expect the new cases to fail because the targets and the stub script do not exist
-yet. Record the failure text as evidence.
+and
+`make test-bdd 2>&1 | tee -a /tmp/red-wireframe-$(git branch --show-current).out`.
+Expect the new cases to fail because the targets and the stub script do not
+exist yet. Record the failure text as evidence.
 
 ### Stage C: implement the helper and the six targets
 
@@ -652,8 +647,8 @@ Gate D: `make check-fmt` and `make markdownlint` pass.
    `/tmp`: `make check-fmt`, `make lint`, `make test`.
 2. Run `mbake validate Makefile` once more.
 3. Manually run all six targets for real on a clean tree; capture a transcript
-   proving each exits `0`, and run the three stubs with `FORMAL_STRICT=1` to show
-   they exit non-zero.
+   proving each exits `0`, and run the three stubs with `FORMAL_STRICT=1` to
+   show they exit non-zero.
 4. Commit, then run `coderabbit review --agent`; resolve every concern before
    declaring the milestone complete.
 
@@ -736,8 +731,8 @@ Acceptance is behavioural:
    `formal-nightly` run the verification crate tests and pass.
 3. `FORMAL_STRICT=1 make kani` (and `kani-full`, `verus`) exits non-zero — the
    tripwire works.
-4. Red-Green evidence: the new cases in `tests/formal_tooling.rs` fail before the
-   implementation (target/script missing) and pass after.
+4. Red-Green evidence: the new cases in `tests/formal_tooling.rs` fail before
+   the implementation (target/script missing) and pass after.
 5. `make test` passes overall, including the new behavioural scenario.
 6. Activation contract documented: the developers' guide states which roadmap
    item replaces each stub, that the replacement must use the pinned Kani, and
@@ -751,19 +746,19 @@ Quality criteria ("done" means):
 - Makefile: `mbake validate Makefile` exits `0`.
 - Review: `coderabbit review --agent` reports no outstanding concerns.
 
-Quality method: run the gates sequentially from the repository root, teeing each
-to `/tmp`, and review the logs. Run CodeRabbit only after the deterministic gates
-are green.
+Quality method: run the gates sequentially from the repository root, teeing
+each to `/tmp`, and review the logs. Run CodeRabbit only after the
+deterministic gates are green.
 
 ## Idempotence and recovery
 
 All steps are re-runnable. The Makefile edits are additive (new targets, a few
-variables, an extended `.PHONY` line); re-applying them is a no-op once present.
-The stub script and the stub recipes have no side effects beyond a stderr line.
-If a recipe breaks `mbake`, revert the Makefile hunk with
+variables, an extended `.PHONY` line); re-applying them is a no-op once
+present. The stub script and the stub recipes have no side effects beyond a
+stderr line. If a recipe breaks `mbake`, revert the Makefile hunk with
 `git checkout -- Makefile` and re-apply carefully, watching for tab/space
-corruption. The test additions are independent and can be reverted in isolation.
-No destructive operations are involved.
+corruption. The test additions are independent and can be reverted in
+isolation. No destructive operations are involved.
 
 ## Artefacts and notes
 
@@ -773,9 +768,9 @@ stub transcript including the `FORMAL_STRICT=1` non-zero exits; and the final
 
 ## Interfaces and dependencies
 
-Dependencies (roadmap): 15.1.2 (the `wireframe-verification` crate, present) and
-15.1.3 (pinned tool metadata and the four prover-tools targets, present). No new
-external crates. No `Cargo.toml` changes.
+Dependencies (roadmap): 15.1.2 (the `wireframe-verification` crate, present)
+and 15.1.3 (pinned tool metadata and the four prover-tools targets, present).
+No new external crates. No `Cargo.toml` changes.
 
 `scripts/formal-stub.sh` (new; leading spaces shown for readability):
 
@@ -842,7 +837,8 @@ Test interfaces that must exist at the end of the milestone:
 - `tests/common/formal_tooling_support.rs`: hardened `has_phony_target`; new
   `target_prerequisites`; new `run_make` (real execution capturing status and
   stderr, honouring `FORMAL_STRICT`).
-- `tests/formal_tooling.rs`: the six new `rstest` case sets described in Stage B.
+- `tests/formal_tooling.rs`: the six new `rstest` case sets described in Stage
+  B.
 - `tests/fixtures/formal_tooling.rs`:
   `FormalToolingWorld::verify_formal_execution_targets(&self) -> TestResult`.
 - `tests/features/formal_tooling.feature`: the execution-targets scenario with
@@ -925,11 +921,12 @@ Test interfaces that must exist at the end of the milestone:
 - Effect on remaining work: Stage B may begin; the established constraints,
   scope, verification strategy, and milestone contracts are unchanged.
 
-- Change: pivoted from self-activating skip guards (grep/file-existence/sub-make)
-  to explicit stubs via `scripts/formal-stub.sh`, added `FORMAL_STRICT=1` and the
-  `FORMAL-SKIP:` marker, dropped the premature `KANI_*` variables and the
-  `stateright` alias, kept the `formal` alias, and rewrote the test strategy to
-  add a `target_prerequisites` helper and harden `has_phony_target`.
+- Change: pivoted from self-activating skip guards
+  (grep/file-existence/sub-make) to explicit stubs via
+  `scripts/formal-stub.sh`, added `FORMAL_STRICT=1` and the `FORMAL-SKIP:`
+  marker, dropped the premature `KANI_*` variables and the `stateright` alias,
+  kept the `formal` alias, and rewrote the test strategy to add a
+  `target_prerequisites` helper and harden `has_phony_target`.
 - Why: a Logisphere design-review panel found the guarded design too clever, an
   outlier versus sibling repos, and silently failure-prone (false green), and
   found the existing test helpers unable to assert the prerequisite-only
