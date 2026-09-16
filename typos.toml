@@ -32,9 +32,11 @@ locale = "en-gb"
 extend-ignore-re = [
     "(?s)```.*?```",
     "AppFactory<Ser,",
+    "Azure\\s+Architecture\\s+Center\\s*\\|\\s*Microsoft\\s+Learn\\b",
     "BackoffConfig::normalised",
     "DecodeWith<Ser>",
     "EncodeWith<Ser>",
+    "GitHub\\s+Flavored\\s+Markdown\\b(?:\\s\\(GFM\\))?",
     "Ser: Serializer",
     "\\ \\ \\ \\ PoolServerBehavior,",
     "\\ \\ \\ \\ \\ \\ CARGO_TERM_COLOR:\\ always",
@@ -55,7 +57,7 @@ extend-ignore-re = [
     "\\bPoolServerBehavior\\b",
     "\\brust-analyzer\\b",
     "\\|\\|\\ \"fragment\\ series\\ not\\ initialised\"\\.into\\(\\)\\)",
-    "ask\\ items\\ with\\ a\\ GitHub\\ Flavored",
+    "`[^`\\n]+`",
     "e\\.behavior\\ ==\\ PoolServerBehavior::MalformedFirstResponse",
     "ior\\(behavior:\\ PoolServerBehavior\\)\\ \\->\\ std::io::Result<Sel",
     "lTestServer::start_with_behavior\\(PoolServerBehavior::Mal",
@@ -791,6 +793,10 @@ extend-ignore-re = [
 "equalizers" = "equalizers"
 "equalizes" = "equalizes"
 "equalizing" = "equalizing"
+"exercize" = "exercise"
+"exercized" = "exercised"
+"exercizes" = "exercises"
+"exercizing" = "exercising"
 "externalisable" = "externalizable"
 "externalisably" = "externalizably"
 "externalisation" = "externalization"
@@ -1734,6 +1740,7 @@ extend-ignore-re = [
 "organizers" = "organizers"
 "organizes" = "organizes"
 "organizing" = "organizing"
+"otherwize" = "otherwise"
 "oxendict" = "oxendict"
 "oxidisable" = "oxidizable"
 "oxidisably" = "oxidizably"
@@ -2055,6 +2062,10 @@ extend-ignore-re = [
 "quantizers" = "quantizers"
 "quantizes" = "quantizes"
 "quantizing" = "quantizing"
+"raize" = "raise"
+"raized" = "raised"
+"raizes" = "raises"
+"raizing" = "raising"
 "randomisable" = "randomizable"
 "randomisably" = "randomizably"
 "randomisation" = "randomization"

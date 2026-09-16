@@ -1,6 +1,6 @@
 .PHONY: help all clean test test-doc test-workflow-contracts doctest-benchmark
 .PHONY: bench-codec build release lint fmt check-fmt markdownlint nixie typecheck
-.PHONY: spelling spelling-phrase-check spelling-config spelling-config-write spelling-helper-test
+.PHONY: spelling
 .PHONY: install-kani check-kani-version install-verus run-verus test-verification kani \
 	kani-full verus formal-pr formal-nightly formal
 
@@ -13,28 +13,15 @@ MARKDOWNLINT_CLI2_VERSION ?= 0.22.1
 MDLINT ?= npx --yes markdownlint-cli2@$(MARKDOWNLINT_CLI2_VERSION)
 WHITAKER ?= whitaker
 NIXIE_VERSION ?= 1.1.0
-HYPOTHESIS_VERSION ?= 6.156.6
-PATHSPEC_VERSION ?= 1.1.1
-RUFF_VERSION ?= 0.15.12
-TYPOS_VERSION ?= 1.48.0
 UV ?= uv
 UV_ENV = UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools
 NIXIE = $(UV_ENV) $(UV) tool run --python 3.14 \
 	--from nixie-cli@$(NIXIE_VERSION) nixie
-TYPOS_CONFIG_BUILDER_COMMIT := 4b8c7f8ba36e7ecf91a5e762010dcf12820c3634
-TYPOS_CONFIG_BUILDER_SOURCE := git+https://github.com/leynos/typos-config-builder.git@$(TYPOS_CONFIG_BUILDER_COMMIT)
-TYPOS_CONFIG_BUILDER := $(UV_ENV) $(UV) tool run --python 3.14 \
-	--from "$(TYPOS_CONFIG_BUILDER_SOURCE)" typos-config-builder
-SPELLING_PY_SRCS := \
-	scripts/typos_rollout_check.py scripts/tests/test_typos_rollout_check.py
-SPELLING_PY_TESTS := scripts/tests/test_typos_rollout_check.py
-SPELLING_COVERAGE_ARGS := --cov=typos_rollout_check --cov-fail-under=90
+TYPOS_CONFIG_BUILDER_VERSION ?= v0.1.1
+TYPOS_CONFIG_BUILDER = $(UV_ENV) $(UV) tool run --python 3.14 --from \
+	"git+https://github.com/leynos/typos-config-builder.git@$(TYPOS_CONFIG_BUILDER_VERSION)" \
+	typos-config-builder
 PYTHON_NO_BYTECODE_ENV := PYTHONDONTWRITEBYTECODE=1
-SPELLING_COVERAGE_FILE ?= /tmp/wireframe-spelling-helper.coverage
-SPELLING_HELPER_PYTEST = PYTHONPATH=scripts $(PYTHON_NO_BYTECODE_ENV) \
-	COVERAGE_FILE=$(SPELLING_COVERAGE_FILE) $(UV_ENV) $(UV) run --no-project \
-	--python 3.14 --with pathspec==$(PATHSPEC_VERSION) --with pytest==9.0.2 \
-	--with hypothesis==$(HYPOTHESIS_VERSION) --with pytest-cov==7.0.0 python -m pytest
 PROVER_TOOLS_REF_FILE ?= tools/rust-prover-tools/REF
 PROVER_TOOLS_REF ?= $(shell awk '/^ref:/ { print $$2 }' $(PROVER_TOOLS_REF_FILE))
 PROVER_TOOLS_SOURCE ?= git+https://github.com/leynos/rust-prover-tools.git@$(PROVER_TOOLS_REF)
@@ -99,25 +86,8 @@ check-fmt: ## Verify formatting
 markdownlint: spelling ## Lint Markdown and enforce en-GB-oxendict spelling
 	$(MDLINT) "**/*.md"
 
-spelling: spelling-phrase-check ## Enforce en-GB-oxendict spelling
-	@git ls-files -z | xargs -0 -r env $(UV_ENV) \
-		$(UV) tool run typos@$(TYPOS_VERSION) --config typos.toml --force-exclude --hidden --
-
-spelling-phrase-check: spelling-config
-	@PYTHONPATH=scripts $(PYTHON_NO_BYTECODE_ENV) $(UV_ENV) $(UV) run --no-project --python 3.14 \
-		scripts/typos_rollout_check.py --repository .
-
-spelling-config: spelling-helper-test
-	@git ls-files --error-unmatch typos.toml >/dev/null
-	@$(TYPOS_CONFIG_BUILDER) --repository . --check
-
-spelling-config-write: spelling-helper-test
-	@$(TYPOS_CONFIG_BUILDER) --repository .
-
-spelling-helper-test:
-	@$(UV_ENV) $(UV) tool run ruff@$(RUFF_VERSION) format --isolated --target-version py313 --check $(SPELLING_PY_SRCS)
-	@$(UV_ENV) $(UV) tool run ruff@$(RUFF_VERSION) check --isolated --target-version py313 $(SPELLING_PY_SRCS)
-	@$(SPELLING_HELPER_PYTEST) $(SPELLING_PY_TESTS) -c /dev/null --rootdir=. -p no:cacheprovider $(SPELLING_COVERAGE_ARGS)
+spelling: ## Enforce en-GB-oxendict spelling
+	$(TYPOS_CONFIG_BUILDER) gate --repository . --scope all
 
 nixie: ## Validate Mermaid diagrams
 	$(NIXIE) --no-sandbox
