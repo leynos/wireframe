@@ -653,36 +653,40 @@ Run `make fmt` to reformat and rewrap after editing, then `make markdownlint`.
 
 ## Spelling policy
 
-The `make spelling` gate enforces en-GB-oxendict spelling across tracked text.
-It runs Typos 1.48.0 and a phrase checker that rejects the hyphenated form in
-favour of `handwritten`. `make markdownlint` depends on the same spelling gate.
+Run the spelling gate with:
 
-The tracked `typos.toml` is generated from the shared Oxford dictionary and the
-repository-specific `typos.local.toml` overlay. The generator is the focused
-`typos-config-builder` command pinned to commit
-`4b8c7f8ba36e7ecf91a5e762010dcf12820c3634`. It refreshes the untracked
-`.typos-oxendict-base.toml` cache only when the authority is newer than the
-local copy; `.typos-oxendict-base.json` records refresh metadata.
+```bash
+make spelling
+```
 
-Use `make spelling-config-write` after changing `typos.local.toml`, and use
-`make spelling-config` to check deterministic output. Never edit `typos.toml`
-directly. Keep repository exceptions narrow: preserve public APIs, external
-tooling keys, formal names, and immutable diagnostics without adding ordinary
-bare-word exceptions.
+The gate enforces en-GB-oxendict spelling across every tracked file. It runs
+Typos and a phrase checker that rejects the hyphenated form in favour of
+`handwritten`. `make markdownlint` depends on the same gate.
 
-The local overlay must never mask every Markdown inline-code span. When adding
-an exception, use one exact, documented pattern rather than disabling a whole
-syntax class. The current exceptions are limited to the `PoolServerBehavior`
-test-server fixture, the former `BackoffConfig::normalised` public method,
-exact generic-bound fragments in RFC 0001, immutable en-GB diagnostic fixtures,
-Tokio test attributes and the literal GitHub product phrase. Add a new pattern
-only when a narrower correction or wording change would alter a public API,
-external-tool key, formal name, or deliberately fixed diagnostic.
+The tracked `typos.toml` is regenerated on every run from the live shared
+dictionary and the repository-specific `typos.local.toml` overlay. The
+generator is the shared `typos-config-builder` command, pinned by release tag
+in the Makefile. It refreshes the untracked `.typos-oxendict-base.toml` cache
+only when the authority is newer than the local copy;
+`.typos-oxendict-base.json` records refresh metadata. A valid cache remains
+usable when the network is unavailable. Because the dictionary is live,
+`typos.toml` must never be drift checked in continuous integration.
 
-The standalone phrase helper and its tests require Python 3.13 or later and pin
-Pathspec 1.1.1 and Hypothesis 6.156.6; Ruff targets Python 3.13 compatibility.
-The property suite protects phrase boundaries and source locations across
-generated neighbouring characters. Eligible tracked files must remain readable
-UTF-8 text so the gate cannot silently omit them. Continuous integration
-installs Nixie 1.1.0 with Python 3.14 and Merman CLI 0.7.0 before validating
-the repository's Mermaid diagrams with `make nixie`.
+Never edit `typos.toml` directly; add narrow repository terminology to the
+overlay instead. Keep repository exceptions narrow: preserve public APIs,
+external tooling keys, formal names, and immutable diagnostics without adding
+ordinary bare-word exceptions.
+
+Apart from the inline-code span, which the overlay masks until the shared
+dictionary does so itself, use one exact documented pattern per exception
+rather than disabling a whole syntax class. The remaining exceptions are
+limited to the `PoolServerBehavior` test-server fixture, the former
+`BackoffConfig::normalised` public method, exact generic-bound fragments in RFC
+0001, immutable en-GB diagnostic fixtures, and Tokio test attributes. Add a new
+pattern only when a narrower correction or wording change would alter a public
+API, external-tool key, formal name, or deliberately fixed diagnostic.
+
+Eligible tracked files must remain readable UTF-8 text so the gate cannot
+silently omit them. Continuous integration installs Nixie 1.1.0 with Python
+3.14 and Merman CLI 0.7.0 before validating the repository's Mermaid diagrams
+with `make nixie`.
