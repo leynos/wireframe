@@ -1,6 +1,12 @@
 """Contract tests for runner placement, ceilings, and the actionlint registry.
 
-This module replaces ``namespace_runners_test.py``, which pinned four lanes to
+This module holds the assertions. The reviewed decisions and the reasons for
+them live in ``runner_placement_policy``, and the machinery that reads the
+workflow tree lives in ``runner_placement_reader``. The split is by role
+rather than by size: what a person decided, what is derived from the tree,
+and what enforces the one against the other.
+
+It replaces ``namespace_runners_test.py``, which pinned four lanes to
 ``namespace-profile-default`` and the CI lane to ``ubuntu-latest``. Those
 assignments are gone: the scheduled, delayed-comment and CodeScene-SHA lanes
 are GitHub-hosted, where the placement rule keeps them and public-repository
@@ -11,12 +17,13 @@ The retired module's CI assertion carried a reason worth preserving rather
 than deleting silently. It required ``ubuntu-latest`` to keep CI "on a runner
 compatible with Whitaker's prebuilt cargo-dylint". That constraint is about
 the Namespace image specifically, not about non-GitHub-hosted runners:
-repovec-appliance runs the same ``whitaker-installer`` 0.2.6 on
-``ubicloud-standard-4``, green, and this repository's CI lane has now done
-so too. The
-constraint is therefore satisfied by the new placement, not waived by it.
+``whitaker-installer`` needs glibc 2.39, Namespace's shared profile is Ubuntu
+22.04 with glibc 2.35, and ``ubicloud-standard-4`` is Ubuntu 24.04.
+repovec-appliance runs the same installer 0.2.6 on Ubicloud, green, and this
+repository's CI lane has now done so too. The constraint is therefore
+satisfied by the new placement, not waived by it.
 
-Three things here are easy to get wrong in ways a green run does not show.
+Four things here are easy to get wrong in ways a green run does not show.
 
 First, the folded scalar. Written as
 
@@ -44,7 +51,18 @@ would otherwise have sat there indefinitely, authorizing a runner family the
 repository no longer uses. The registered labels and the labels in use are
 compared as sets.
 
-Mutation proof, recorded 2026-09-16; each applied alone and reverted:
+Fourth, the totality of the tables themselves. Both are keyed by coordinate,
+and a table that is merely iterated can never report what is missing from it.
+``test_the_reviewed_tables_are_total`` compares each table against the set it
+is supposed to cover, so a lane cannot escape review by being left out of one
+of them. Without it, a new GitHub-hosted job added to the placement table
+with no ceiling entry passes every ceiling test, because the per-coordinate
+test iterates the ceiling table and the tree walk reads only ``ubicloud-``
+lanes; and a second ``None`` placement value escapes both the label test,
+which skips ``None``, and the expression tests, which look only at the one
+fork-fallback coordinate.
+
+Mutation proof; each applied alone and reverted:
 
 - indenting the continuation line of ``build-test``'s ``runs-on`` one level
   deeper fails ``test_the_runner_expression_parses_to_one_line``, and
@@ -61,15 +79,14 @@ Mutation proof, recorded 2026-09-16; each applied alone and reverted:
   ``test_no_lane_uses_a_foreign_runner_family`` because ``namespace`` is on
   the prohibited list. Three independent readings catch the same drift, which
   is what makes a retirement hard to undo by accident;
-- reverting either lane to ``ubicloud-standard-2`` fails the pinned reading
-  for that lane alone plus the registry, which is not a contrived mutation:
-  it is what the suite did, unprompted, when the two-vCPU shape proved too
-  small and the label was changed before the registry was. The ceiling tree
-  walk stayed green through it, because it tests the ``ubicloud-`` prefix
-  rather than a literal label; written against a literal it would have
-  silently stopped noticing an unbounded lane at that moment;
 - removing the ``advanced`` entry from ``EXPECTED_PLACEMENT`` fails
-  ``test_every_job_is_pinned_by_coordinate`` alone;
+  ``test_every_job_is_pinned_by_coordinate`` and, because the ceiling table
+  still holds that coordinate, ``test_the_reviewed_tables_are_total``;
+- removing the ``advanced`` entry from ``EXPECTED_CEILING_MINUTES`` fails
+  ``test_the_reviewed_tables_are_total`` alone, and nothing else: that is the
+  gap the totality test was added to close;
+- giving a second coordinate the ``None`` placement value fails
+  ``test_the_reviewed_tables_are_total`` alone, for the same reason;
 - deleting ``timeout-minutes`` from ``coverage-upload`` fails
   ``test_the_job_declares_its_reviewed_ceiling`` and
   ``test_every_ubicloud_job_has_a_ceiling``;
@@ -77,196 +94,53 @@ Mutation proof, recorded 2026-09-16; each applied alone and reverted:
   ``test_the_delayed_comment_lane_declares_no_ceiling``, which is the point:
   the absence there is a decision, not an oversight.
 
+A ninth is not a mutation but a real event, recorded because it is better
+evidence than a contrived one. Moving both Ubicloud lanes from
+``ubicloud-standard-2`` to ``ubicloud-standard-4`` after the smaller shape
+killed a test failed ``test_the_job_carries_its_reviewed_label``,
+``test_the_runner_expression_is_exactly_the_reviewed_one`` and
+``test_the_actionlint_registry_matches_the_labels_in_use`` the moment the
+label changed and before the registry was updated, unprompted.
+``test_every_ubicloud_job_has_a_ceiling`` stayed green throughout, because it
+tests the ``ubicloud-`` prefix rather than a literal label; written against a
+literal it would have silently stopped noticing an unbounded lane at exactly
+that moment, which is a dead-guard defect repovec-appliance found in its own
+placement contract.
+
 Run via ``make test-workflow-contracts``.
 """
 
 from __future__ import annotations
 
-import re
-import typing as typ
-from pathlib import Path
-
 import pytest
-import yaml
-
-REPO_ROOT: typ.Final = Path(__file__).resolve().parents[2]
-WORKFLOW_DIR: typ.Final = REPO_ROOT / ".github" / "workflows"
-ACTIONLINT_CONFIG: typ.Final = REPO_ROOT / ".github" / "actionlint.yaml"
-
-#: Both spellings GitHub accepts for a workflow file's extension. Reading one
-#: of them would let a lane in the other sit outside every check here.
-WORKFLOW_FILE_PATTERNS: typ.Final = ("*.yml", "*.yaml")
-
-UBICLOUD_LABEL_PREFIX: typ.Final = "ubicloud-"
-
-#: The reviewed Ubicloud shape. Four vCPU rather than two, and that is a
-#: measurement: ``tests/compile_error.rs`` spawns its own cargo build of the
-#: whole dependency tree while the other 987 tests compete for the same cores,
-#: and on ``ubicloud-standard-2`` nextest killed it at its default 180 s. Both
-#: lanes that run the suite carry this shape, so one constant serves both;
-#: placement is still pinned per coordinate, so they can diverge without this
-#: constant becoming a lie.
-UBICLOUD_LABEL: typ.Final = "ubicloud-standard-4"
-GITHUB_HOSTED_LABEL: typ.Final = "ubuntu-latest"
-
-#: The one guard the fork fallback may key on. Compared by equality, because a
-#: sibling field such as ``head.repo.private`` yields an expression of exactly
-#: the same shape that selects the wrong runner on every fork pull request.
-FORK_GUARD: typ.Final = "github.event.pull_request.head.repo.fork"
-
-#: The lane that carries the fork fallback: the only one serving pull requests.
-FORK_FALLBACK_JOB: typ.Final = ("ci.yml", "build-test")
-
-#: Every job this repository places, with its reviewed label. A literal label
-#: is written as itself; the fork-fallback lane is checked by
-#: ``test_the_runner_expression_is_exactly_the_reviewed_one`` instead and
-#: appears here as ``None`` so the coordinate set stays total.
-EXPECTED_PLACEMENT: typ.Final = {
-    ("ci.yml", "build-test"): None,
-    ("coverage-main.yml", "coverage-upload"): UBICLOUD_LABEL,
-    ("advanced-tests.yml", "advanced"): GITHUB_HOSTED_LABEL,
-    ("delayed-pr-comment.yml", "delay_and_comment"): GITHUB_HOSTED_LABEL,
-    ("get-codescene-sha.yml", "refresh-sha"): GITHUB_HOSTED_LABEL,
-}
-
-#: Ceilings, pinned by value rather than bounded, because a ceiling can drift
-#: to a number nobody chose while every inequality still holds. The
-#: measurements behind each are in the pull request and the commit message.
-EXPECTED_CEILING_MINUTES: typ.Final = {
-    ("ci.yml", "build-test"): 30,
-    ("coverage-main.yml", "coverage-upload"): 20,
-    ("advanced-tests.yml", "advanced"): 60,
-    ("get-codescene-sha.yml", "refresh-sha"): 10,
-}
-
-#: The one lane that must NOT declare a ceiling. Its whole duration is a
-#: ``sleep`` of the caller's ``delay_minutes`` input, so a fixed ceiling
-#: cancels a legitimate longer delay. It is GitHub-hosted, so the six-hour
-#: default costs nothing.
-CEILING_FREE_JOB: typ.Final = ("delayed-pr-comment.yml", "delay_and_comment")
-
-#: Jobs this repository does not place: thin callers of reusable workflows,
-#: whose runner is the callee's to choose.
-DELEGATED_JOBS: typ.Final = {
-    ("mutation-testing.yml", "mutation"),
-    ("dependabot-automerge.yml", "automerge"),
-}
-
-#: GitHub-hosted labels this repository may use without registering them.
-GITHUB_HOSTED_LABELS: typ.Final = frozenset({GITHUB_HOSTED_LABEL})
-
-#: Prohibited runner families. A prohibition reads by substring on purpose: a
-#: renamed or neutered label still leaves its family's text behind.
-#: ``namespace`` is listed because this repository has just left it, and a
-#: lane drifting back would otherwise be invisible.
-FOREIGN_RUNNER_FRAGMENTS: typ.Final = ("windows", "macos", "self-hosted", "namespace")
-
-#: One expression, anchored end to end. ``[^'\n]`` in the arms and ``\S`` in
-#: the guard keep a value carrying an embedded line break from matching here
-#: as well, so the line-break failure is reported by its own test.
-RUNNER_EXPRESSION: typ.Final = re.compile(
-    r"^\$\{\{ (?P<guard>\S+)"
-    r" && '(?P<fork_arm>[^'\n]*)'"
-    r" \|\| '(?P<default_arm>[^'\n]*)' \}\}$"
+from runner_placement_policy import (
+    CEILING_FREE_JOB,
+    DELEGATED_JOBS,
+    EXPECTED_CEILING_MINUTES,
+    EXPECTED_PLACEMENT,
+    FOREIGN_RUNNER_FRAGMENTS,
+    FORK_FALLBACK_JOB,
+    FORK_GUARD,
+    GITHUB_HOSTED_LABEL,
+    GITHUB_HOSTED_LABELS,
+    UBICLOUD_LABEL,
+    UBICLOUD_LABEL_PREFIX,
 )
-
-#: Every quoted literal in an expression, used to read the labels a lane can
-#: actually select.
-EXPRESSION_LITERAL: typ.Final = re.compile(r"'([^'\n]*)'")
+from runner_placement_reader import (
+    RUNNER_EXPRESSION,
+    WORKFLOW_DIR,
+    case_id,
+    job_labels,
+    jobs,
+    labels_in_use,
+    registered_labels,
+    runner_value,
+)
 
 pytestmark = pytest.mark.skipif(
     not WORKFLOW_DIR.is_dir(),
     reason="workflow files not present in this working copy",
 )
-
-
-def _case_id(value: object) -> str:
-    """Render one parametrized case identifier."""
-    if isinstance(value, tuple):
-        return "-".join(str(item) for item in value)
-    return str(value)
-
-
-def _workflow_paths() -> list[Path]:
-    """Return every workflow document's path, in a stable order.
-
-    GitHub accepts both spellings of the extension and runs a workflow
-    written either way. Reading only one of them would leave a lane in
-    ``.github/workflows/*.yaml`` outside every assertion below.
-    """
-    return sorted(
-        path
-        for pattern in WORKFLOW_FILE_PATTERNS
-        for path in WORKFLOW_DIR.glob(pattern)
-    )
-
-
-def _workflows() -> dict[str, dict[str, object]]:
-    """Parse every workflow document, keyed by file name."""
-    documents = {
-        path.name: yaml.safe_load(path.read_text(encoding="utf-8"))
-        for path in _workflow_paths()
-    }
-    assert documents, "the repository should define at least one workflow"
-    return documents
-
-
-def _jobs() -> dict[tuple[str, str], dict[str, object]]:
-    """Return every job in the repository, keyed by ``(workflow, job id)``."""
-    keyed: dict[tuple[str, str], dict[str, object]] = {}
-    for name, document in _workflows().items():
-        for job_id, definition in ((document or {}).get("jobs") or {}).items():
-            keyed[(name, job_id)] = definition
-    return keyed
-
-
-def _runner_value(definition: dict[str, object]) -> object | None:
-    """Return a job's ``runs-on`` value, if it declares one."""
-    return definition.get("runs-on")
-
-
-def _runner_declarations(definition: dict[str, object]) -> list[object]:
-    """Return a job's ``runs-on`` declarations, which may be a list of labels."""
-    value = _runner_value(definition)
-    if value is None:
-        return []
-    return value if isinstance(value, list) else [value]
-
-
-def _declaration_labels(declaration: object) -> set[str]:
-    """Return every label one ``runs-on`` declaration can select.
-
-    Both arms of an expression count. A label reachable only on the fork
-    branch is as much in use as one reachable on the other.
-    """
-    text = str(declaration)
-    if "${{" in text:
-        return set(EXPRESSION_LITERAL.findall(text))
-    return {text.strip()}
-
-
-def _job_labels(definition: dict[str, object]) -> set[str]:
-    """Return every label one job can select, across all its declarations."""
-    return {
-        label
-        for declaration in _runner_declarations(definition)
-        for label in _declaration_labels(declaration)
-    }
-
-
-def _labels_in_use() -> set[str]:
-    """Return every label any lane in the repository can select."""
-    return {label for definition in _jobs().values() for label in _job_labels(definition)}
-
-
-def _registered_labels() -> set[str]:
-    """Return the labels ``.github/actionlint.yaml`` registers."""
-    assert ACTIONLINT_CONFIG.exists(), (
-        "this repository uses a runner label actionlint does not know, so "
-        f"{ACTIONLINT_CONFIG.relative_to(REPO_ROOT)} must exist"
-    )
-    config = yaml.safe_load(ACTIONLINT_CONFIG.read_text(encoding="utf-8")) or {}
-    return set((config.get("self-hosted-runner") or {}).get("labels") or [])
 
 
 def test_every_job_is_pinned_by_coordinate() -> None:
@@ -277,7 +151,7 @@ def test_every_job_is_pinned_by_coordinate() -> None:
     listed, so a new lane could carry any label at all and satisfy every
     other assertion here.
     """
-    observed = set(_jobs())
+    observed = set(jobs())
     expected = set(EXPECTED_PLACEMENT) | DELEGATED_JOBS
     assert observed == expected, (
         "runner placement is pinned per job; unpinned jobs "
@@ -286,12 +160,47 @@ def test_every_job_is_pinned_by_coordinate() -> None:
     )
 
 
+def test_the_reviewed_tables_are_total() -> None:
+    """Scenario: a lane is added to one reviewed table but not the others.
+
+    Invariant: each table covers exactly the coordinates it is supposed to.
+    Every other test here iterates a table, and an iterated table cannot
+    report what was never put in it. Two gaps close here.
+
+    A placed job absent from the ceiling table passes both ceiling tests: the
+    per-coordinate one iterates that table, and the tree walk reads only
+    ``ubicloud-`` lanes, so a new GitHub-hosted lane would inherit the
+    six-hour default unremarked.
+
+    A second coordinate carrying the ``None`` placement value escapes the
+    label test, which skips ``None``, and the expression tests, which read
+    only ``FORK_FALLBACK_JOB``. Its runner would then be checked by nothing
+    at all.
+    """
+    expression_jobs = {
+        coordinate
+        for coordinate, label in EXPECTED_PLACEMENT.items()
+        if label is None
+    }
+    assert expression_jobs == {FORK_FALLBACK_JOB}, (
+        "only the fork-fallback lane may be checked by expression rather than "
+        f"by label; {sorted(expression_jobs - {FORK_FALLBACK_JOB})} would have "
+        "no runner assertion at all"
+    )
+    needing_ceilings = set(EXPECTED_PLACEMENT) - {CEILING_FREE_JOB}
+    assert set(EXPECTED_CEILING_MINUTES) == needing_ceilings, (
+        "every placed job except the ceiling-free lane needs a reviewed "
+        f"ceiling; missing {sorted(needing_ceilings - set(EXPECTED_CEILING_MINUTES))} "
+        f"and stale {sorted(set(EXPECTED_CEILING_MINUTES) - needing_ceilings)}"
+    )
+
+
 @pytest.mark.parametrize(
     ("coordinate", "label"),
     sorted(
         (key, value) for key, value in EXPECTED_PLACEMENT.items() if value is not None
     ),
-    ids=_case_id,
+    ids=case_id,
 )
 def test_the_job_carries_its_reviewed_label(
     coordinate: tuple[str, str], label: str
@@ -305,7 +214,7 @@ def test_the_job_carries_its_reviewed_label(
     ride along. Size is the thing being reviewed here, so the reading that
     ignores it is the wrong one.
     """
-    declared = _runner_value(_jobs()[coordinate])
+    declared = runner_value(jobs()[coordinate])
     assert declared == label, (
         f"{coordinate[0]}:{coordinate[1]} must run on exactly {label!r}, "
         f"got {declared!r}"
@@ -320,7 +229,7 @@ def test_the_runner_expression_parses_to_one_line() -> None:
     expression. GitHub evaluates the broken value and the job runs, so a
     green run is not evidence; only the parsed value shows it.
     """
-    value = _runner_value(_jobs()[FORK_FALLBACK_JOB])
+    value = runner_value(jobs()[FORK_FALLBACK_JOB])
     assert isinstance(value, str), (
         f"{FORK_FALLBACK_JOB[0]}:{FORK_FALLBACK_JOB[1]} should declare runs-on "
         f"as one scalar, got {value!r}"
@@ -341,7 +250,7 @@ def test_the_runner_expression_is_exactly_the_reviewed_one() -> None:
     exactly the same form that sends every fork pull request to a runner it
     cannot obtain, and every other pull request to the wrong place.
     """
-    value = str(_runner_value(_jobs()[FORK_FALLBACK_JOB]))
+    value = str(runner_value(jobs()[FORK_FALLBACK_JOB]))
     match = RUNNER_EXPRESSION.match(value)
     assert match is not None, (
         f"{FORK_FALLBACK_JOB[0]}:{FORK_FALLBACK_JOB[1]} should declare the "
@@ -364,7 +273,7 @@ def test_the_runner_expression_is_exactly_the_reviewed_one() -> None:
 @pytest.mark.parametrize(
     ("coordinate", "minutes"),
     sorted(EXPECTED_CEILING_MINUTES.items()),
-    ids=_case_id,
+    ids=case_id,
 )
 def test_the_job_declares_its_reviewed_ceiling(
     coordinate: tuple[str, str], minutes: int
@@ -377,7 +286,7 @@ def test_the_job_declares_its_reviewed_ceiling(
     other, because it cancels the run at the moment the overrun becomes
     interesting and discards the log that would explain it.
     """
-    declared = _jobs()[coordinate].get("timeout-minutes")
+    declared = jobs()[coordinate].get("timeout-minutes")
     assert declared == minutes, (
         f"{coordinate[0]}:{coordinate[1]} must set timeout-minutes: "
         f"{minutes}, got {declared!r}"
@@ -394,10 +303,10 @@ def test_every_ubicloud_job_has_a_ceiling() -> None:
     """
     unbounded = [
         coordinate
-        for coordinate, definition in _jobs().items()
+        for coordinate, definition in jobs().items()
         if any(
             label.startswith(UBICLOUD_LABEL_PREFIX)
-            for label in _job_labels(definition)
+            for label in job_labels(definition)
         )
         and definition.get("timeout-minutes") is None
     ]
@@ -416,19 +325,19 @@ def test_the_delayed_comment_lane_declares_no_ceiling() -> None:
     nothing. The absence is asserted rather than merely left, so it reads as
     a decision and not as the gap the previous test looks for.
     """
-    definition = _jobs()[CEILING_FREE_JOB]
+    definition = jobs()[CEILING_FREE_JOB]
     assert definition.get("timeout-minutes") is None, (
         f"{CEILING_FREE_JOB[0]}:{CEILING_FREE_JOB[1]} must not declare a "
         "ceiling: it sleeps for the caller's delay_minutes input, and a "
         "ceiling would cancel a legitimate longer delay"
     )
-    assert _runner_value(definition) == GITHUB_HOSTED_LABEL, (
+    assert runner_value(definition) == GITHUB_HOSTED_LABEL, (
         "the ceiling-free exception is only safe on a runner that does not "
         f"bill per minute, so this lane must stay on {GITHUB_HOSTED_LABEL!r}"
     )
 
 
-@pytest.mark.parametrize("coordinate", sorted(DELEGATED_JOBS), ids=_case_id)
+@pytest.mark.parametrize("coordinate", sorted(DELEGATED_JOBS), ids=case_id)
 def test_a_reusable_caller_declares_no_runner(coordinate: tuple[str, str]) -> None:
     """Scenario: a scheduled or administrative lane acquires a runner label.
 
@@ -436,14 +345,14 @@ def test_a_reusable_caller_declares_no_runner(coordinate: tuple[str, str]) -> No
     runner, so the callee places them. A ``runs-on`` appearing here is the
     repository taking a placement decision it has not reviewed.
     """
-    definition = _jobs()[coordinate]
+    definition = jobs()[coordinate]
     assert "uses" in definition, (
         f"{coordinate[0]}:{coordinate[1]} is recorded as a reusable-workflow "
         "caller but declares no uses key"
     )
-    assert _runner_value(definition) is None, (
+    assert runner_value(definition) is None, (
         f"{coordinate[0]}:{coordinate[1]} calls a reusable workflow, so its "
-        f"runner is the callee's; found runs-on {_runner_value(definition)!r}"
+        f"runner is the callee's; found runs-on {runner_value(definition)!r}"
     )
 
 
@@ -457,8 +366,8 @@ def test_the_actionlint_registry_matches_the_labels_in_use() -> None:
     for whatever lane adopts it next. This is what retires
     ``namespace-profile-default`` rather than leaving it behind.
     """
-    needing_registration = _labels_in_use() - set(GITHUB_HOSTED_LABELS)
-    registered = _registered_labels()
+    needing_registration = labels_in_use() - set(GITHUB_HOSTED_LABELS)
+    registered = registered_labels()
     assert registered == needing_registration, (
         "the actionlint runner registry must hold exactly the labels in use; "
         f"unregistered {sorted(needing_registration - registered)} and stale "
@@ -475,7 +384,7 @@ def test_no_lane_uses_a_foreign_runner_family() -> None:
     """
     offenders = sorted(
         label
-        for label in _labels_in_use()
+        for label in labels_in_use()
         if any(fragment in label.lower() for fragment in FOREIGN_RUNNER_FRAGMENTS)
     )
     assert not offenders, (

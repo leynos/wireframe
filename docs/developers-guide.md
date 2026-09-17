@@ -101,14 +101,21 @@ lands. `refresh-sha` has never run at all.
 `delay_and_comment` declares no ceiling, deliberately. Its entire duration is
 a `sleep` of the caller's `delay_minutes` input, so any fixed ceiling cancels
 a legitimate longer delay: it would fire exactly when the delay became
-interesting. The lane is GitHub-hosted, so the six-hour default costs nothing.
+interesting, which inverts the failure a ceiling exists to prevent. The lane
+is GitHub-hosted, so the six-hour default costs nothing.
 `ci_runner_placement_test.py` asserts that absence with its reason, so it
 reads as a decision rather than as the gap the neighbouring test looks for.
 
 ### The contract
 
 `tests/workflow_contracts/ci_runner_placement_test.py` replaces
-`namespace_runners_test.py`. It reads every job's `runs-on` from the parsed
+`namespace_runners_test.py`. It sits beside two modules it imports, split by
+role rather than by size: `runner_placement_policy.py` holds the reviewed
+decisions and the reason for each, and `runner_placement_reader.py` holds the
+machinery that derives facts from the workflow tree. A reviewer who wants to
+know what was decided reads the policy module alone.
+
+The contract reads every job's `runs-on` from the parsed
 document and fails on an embedded line break; compares the fork guard and both
 arms against exact strings, so a sibling field cannot stand in for
 `head.repo.fork`; pins placement by `(workflow, job id)` coordinate and
@@ -119,6 +126,14 @@ declare no runner; and compares `.github/actionlint.yaml` against the labels in
 use in both directions. That last comparison is what retires
 `namespace-profile-default` from the registry rather than leaving it behind to
 authorize a runner family nobody uses.
+
+It also checks that the reviewed tables are total against each other, which
+is what stops a lane escaping review by being left out of one of them. Every
+other assertion iterates a table, and an iterated table cannot report what
+was never put in it: a placed job with no ceiling entry would pass both
+ceiling checks, because one iterates the ceiling table and the other reads
+only `ubicloud-` lanes, and a second expression-checked coordinate would have
+no runner assertion at all.
 
 ## Layer model and glossary
 

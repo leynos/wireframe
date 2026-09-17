@@ -20,10 +20,11 @@ jobs:
     # Deliberately NO `timeout-minutes`. This job's entire duration is a
     # `sleep` of the caller's `delay_minutes` input, so any fixed ceiling
     # cancels a legitimate longer delay: the ceiling would fire exactly when
-    # the delay became interesting, which is the failure it exists to prevent
-    # inverted. GitHub's six-hour default costs nothing here because the lane
-    # is not on a per-minute runner. `ci_runner_placement_test.py` asserts the
-    # absence with this reason, so it reads as a decision rather than a gap.
+    # the delay became interesting, which inverts the failure a ceiling exists
+    # to prevent. GitHub's six-hour default costs nothing here because the
+    # lane is not on a per-minute runner. `ci_runner_placement_test.py`
+    # asserts the absence with this reason, so it reads as a decision rather
+    # than a gap.
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write   # needed to post comments
