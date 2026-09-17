@@ -104,11 +104,13 @@ The test helpers are in `src/test_helpers.rs` and
   escalation, not a decision.
 - Loom stays at the pinned `0.7.2`. Its absence of a Tokio-compatible channel
   is a fact to plan around, not a version to chase.
-- No production behaviour changes. Every edit is to configuration predicates,
-  the `cfg(loom)` half of the `sync` alias module, tests, or documentation. If
-  a repair appears to require changing what `try_push` or `route_to_dlq` does
-  under `cfg(not(loom))`, stop: that is a behaviour change wearing a test
-  repair's clothes.
+- No production behaviour changes. Every edit is to configuration
+  predicates, the `cfg(loom)` arms of the synchronization aliases, the
+  `Makefile`, tests, or documentation. The `Makefile` is named explicitly
+  because EP-M2 adds a target there; an earlier draft of this list omitted it
+  and so forbade the milestone it describes. If a repair appears to require
+  changing what `try_push` or `route_to_dlq` does under `cfg(not(loom))`, stop:
+  that is a behaviour change wearing a test repair's clothes.
 
 ## Tolerances (exception triggers)
 
@@ -186,10 +188,16 @@ issue #683; the second and third were not, and they change what the work is.
   so feature unification enables `pool` in the library build even though the
   lane requests only `advanced-tests`. Runs 35143307834, 35017357350 and
   34895037905 each fail with the same eight errors and exit 101. Impact: the
-  models never run. There is a second layer: the `bdd_pool` test target declares
-  `required-features = ["advanced-tests", "pool"]`, so the unified feature
-  selects a TCP test into the Loom build as well. Narrowing the predicate does
-  not deselect it; narrowing the command does.
+  models never run.
+
+  An earlier draft claimed a second layer, that the `bdd_pool` target would
+  also fail to compile because feature unification selects it. **That claim is
+  withdrawn.** `tests/bdd_pool/mod.rs` opens with
+  `#![cfg(all(not(loom), feature = "pool"))]`, so under `--cfg loom` it is an
+  empty crate that compiles cleanly: selected, and harmless. Whether the lane's
+  command needs narrowing at all is therefore an open question that EP-M1's
+  reproduction answers, not something this plan asserts. The library failure is
+  the only one there is evidence for.
 
 - **Observation**: Almost nothing the models touch is instrumented.
   Evidence: the `cfg(loom)` arm of the `sync` module in
@@ -356,10 +364,10 @@ EP-M2 the contract of V-2 is written before the predicates are repaired, and
 must fail on the current tree for the right reason.
 
 **Stage C, implementation with verification.** EP-M2 repairs the predicates and
-the target selection alongside the contract. EP-M3 widens the alias module and
-writes the guide statement together, so the statement is derived from the code
-rather than from intent. EP-M4 rewrites the models and proves each assertion by
-mutation in the same change.
+the target selection alongside the contract. EP-M3 widens the aliases across
+all three sites that use them and writes the guide statement together, so the
+statement is derived from the code rather than from intent. EP-M4 rewrites the
+models and proves each assertion by mutation in the same change.
 
 **Stage D, refactor and wider validation.** After EP-M4, re-read the guide
 statement against the alias module, run the repository's full gates, and update
@@ -396,17 +404,31 @@ the end of this milestone**, if the models fail once they run. That is a valid
 plateau and must not be papered over. Compatibility decision: none required;
 the affected surface is test-only.
 
-**EP-M3: the seam, and the statement.** Outcome: D-1 implemented; the `sync`
-alias module widened to cover `Arc` and `Weak`; a section of
+**EP-M3: the seam, and the statement.** Outcome: D-1 implemented; the
+synchronization aliases widened to cover `Arc` and `Weak` **at every site that
+constructs or consumes them**, not only in `handle.rs`; a section of
 `docs/developers-guide.md` naming every field of `PushHandleInner` and whether
-Loom schedules it. Requirements and gaps: discharges finding two, and makes
-finding two impossible to lose. Acceptance evidence: V-3, plus the models still
-executing. Conformance check: if D-1 resolved to route (a), a new dependency or
-a new trait in a public module may be required; either is a tolerance breach
-and must have been approved as part of D-1 rather than decided here. Recovery:
-the alias module is one file; the guide section is additive. Remaining gaps:
-the models still do not reach the instrumented path. Compatibility decision:
-none under `cfg(not(loom))`.
+Loom schedules it.
+
+The seam is wider than one file, and an earlier draft of this plan said
+otherwise. `src/push/queues/mod.rs` imports `std::sync::Arc` and calls
+`Arc::new(inner)` to build the value `PushHandle::from_arc` receives, and
+`src/session.rs` imports `std::sync::{Arc, Weak}` and stores
+`Weak<PushHandleInner<F>>` in its `DashMap`, upgrading each entry back to an
+`Arc`. Swapping the alias in `handle.rs` alone therefore does not compile under
+`cfg(loom)`: the constructor and the registry would still hand it the standard
+types. Those three sites move together or not at all.
+
+Requirements and gaps: discharges finding two, and makes finding two impossible
+to lose. Acceptance evidence: V-3, plus the models still executing, plus a
+clean build under `--cfg loom` covering all three sites. Conformance check: if
+D-1 resolved to route (a), a new dependency or a new trait in a public module
+may be required; either is a tolerance breach and must have been approved as
+part of D-1 rather than decided here. `SessionRegistry` is public, so confirm
+its signature is unchanged under `cfg(not(loom))`. Recovery: three files and an
+additive guide section; revert the commit. Remaining gaps: the models still do
+not reach the instrumented path. Compatibility decision: none under
+`cfg(not(loom))`.
 
 **EP-M4: models that can fail.** Outcome: the DLQ models rewritten to fill or
 close the dead-letter channel so `route_to_dlq` takes its error branch; every
@@ -414,9 +436,14 @@ assertion in the file mutation-proved, including the three that exist today;
 the guide statement re-read against the code and updated. Requirements and
 gaps: discharges finding three. Acceptance evidence: V-4, with the mutation
 table filled in. Conformance check: tests and documentation only. Recovery:
-test-only; revert the commit. Remaining gaps: none planned. If a model finds a
-defect in the push queue, that is R-2 and becomes separate work. Compatibility
-decision: none required.
+test-only; revert the commit. Remaining gaps: **the lane's command, which this
+plan may not edit.** If EP-M1 shows narrowing is needed, the one-line change to
+`.github/workflows/advanced-tests.yml` is a dependency of completion, not a
+hand-off: EP-M4 is not complete until that line is landed, by whoever owns the
+file. Tracking it elsewhere does not make it happen, and a plan that declares
+itself finished while the scheduled lane still runs the wrong command has not
+repaired the lane. If a model finds a defect in the push queue, that is R-2 and
+becomes separate work. Compatibility decision: none required.
 
 Until EP-M4 is complete, `docs/developers-guide.md` describes this lane as a
 compile check for the `cfg(loom)` configuration, and not as verification of the
