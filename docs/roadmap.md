@@ -795,12 +795,16 @@ document so larger deployments can adopt the library confidently.
   source-compatible wrappers. Cover the shutdown-idempotence, readiness, and
   concurrent-handle invariants with `proptest` alongside the example-based
   `rstest` cases. See RFC 0001 for the lifecycle harness and
-  `RunningWireframeServer` requirements (
-  [§5.2][rfc0001-52-running-server-handle],
-  [§5.3][rfc0001-53-lifecycle-guarantees],
-  [§5.5][rfc0001-55-existing-pair-compatibility]) and for the `rstest` and
-  `proptest` requirements ([§7.1][rfc0001-71-lifecycle-integration-tests],
-  [§7.5][rfc0001-75-property-based-invariant-coverage]).
+  `RunningWireframeServer` requirements
+  ([§5.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#52-running-server-handle)
+  and
+  [§5.3](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#53-lifecycle-guarantees)
+  and
+  [§5.5](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#55-existing-pair-compatibility))
+  and for the `rstest` and `proptest` requirements
+  ([§7.1](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#71-lifecycle-integration-tests)
+  and
+  [§7.5](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#75-property-based-invariant-coverage)).
 - [ ] 17.3.4. Add a caller-supplied asynchronous connector that composes the
   running server with any protocol-specific client while cleaning up the server
   if connection fails. Prove the public API with a non-default codec, a typed
@@ -810,9 +814,10 @@ document so larger deployments can adopt the library confidently.
   17.3.3. See RFC 0001 for the caller-supplied connector and connection-failure
   cleanup
   ([§5.4](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#54-caller-supplied-client-connector))
-  and for protocol-generic and `trybuild` verification (
-  [§7.2][rfc0001-72-protocol-generic-proof],
-  [§7.3][rfc0001-73-compatibility-and-compile-time-coverage]).
+  and for protocol-generic and `trybuild` verification
+  ([§7.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#72-protocol-generic-proof)
+  and
+  [§7.3](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#73-compatibility-and-compile-time-coverage)).
 - [ ] 17.3.5. Make `wireframe_testing` an explicit quality-gate target. Run
   `cargo test -p wireframe_testing --all-targets --all-features` and
   `cargo test -p wireframe_testing --doc --all-features` in the Makefile and
@@ -876,11 +881,3 @@ and usability.
 - [ ] 19.4.1. Ensure all public items have clear, useful documentation
   examples.
 - [ ] 19.4.2. Publish documentation to `docs.rs`.
-
-[rfc0001-52-running-server-handle]: rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#52-running-server-handle
-[rfc0001-53-lifecycle-guarantees]: rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#53-lifecycle-guarantees
-[rfc0001-55-existing-pair-compatibility]: rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#55-existing-pair-compatibility
-[rfc0001-71-lifecycle-integration-tests]: rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#71-lifecycle-integration-tests
-[rfc0001-75-property-based-invariant-coverage]: rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#75-property-based-invariant-coverage
-[rfc0001-72-protocol-generic-proof]: rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#72-protocol-generic-proof
-[rfc0001-73-compatibility-and-compile-time-coverage]: rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#73-compatibility-and-compile-time-coverage
