@@ -215,3 +215,38 @@ def registered_labels() -> set[str]:
     )
     config = yaml.safe_load(ACTIONLINT_CONFIG.read_text(encoding="utf-8")) or {}
     return set((config.get("self-hosted-runner") or {}).get("labels") or [])
+
+
+def job_steps(coordinate: tuple[str, str]) -> list[dict[str, object]]:
+    """Return one job's steps, in order.
+
+    Examples
+    --------
+    >>> bool(job_steps(("ci.yml", "build-test")))
+    True
+    """
+    steps = jobs()[coordinate].get("steps") or []
+    assert isinstance(steps, list), (
+        f"{coordinate[0]}:{coordinate[1]} should declare a list of steps"
+    )
+    return [step for step in steps if isinstance(step, dict)]
+
+
+def step_named(coordinate: tuple[str, str], name: str) -> dict[str, object]:
+    """Return the one step with the given ``name``.
+
+    Exactly one, not the first: two steps sharing a name means the contract
+    is asserting against whichever happens to come first, and which one that
+    is can change without anything failing.
+
+    Examples
+    --------
+    >>> "uses" in step_named(("ci.yml", "build-test"), "Cache Whitaker installer")
+    True
+    """
+    matches = [step for step in job_steps(coordinate) if step.get("name") == name]
+    assert len(matches) == 1, (
+        f"expected exactly one step named {name!r} in "
+        f"{coordinate[0]}:{coordinate[1]}, found {len(matches)}"
+    )
+    return matches[0]

@@ -93,3 +93,28 @@ GITHUB_HOSTED_LABELS: typ.Final = frozenset({GITHUB_HOSTED_LABEL})
 #: ``namespace`` is listed because this repository has just left it, and a
 #: lane drifting back would otherwise be invisible.
 FOREIGN_RUNNER_FRAGMENTS: typ.Final = ("windows", "macos", "self-hosted", "namespace")
+
+#: The step that restores the compiled Whitaker installer, and the exact key
+#: it must use.
+#:
+#: ``runner.environment`` is in the key because the CI lane now runs on two
+#: runner environments: Ubicloud normally, GitHub-hosted on a fork's pull
+#: request. It resolves to ``self-hosted`` on Ubicloud and ``github-hosted``
+#: otherwise. The cached artefact is a compiled binary and
+#: ``whitaker-installer`` requires glibc 2.39, so restoring one built against
+#: a newer image onto an older one fails at run time rather than at restore,
+#: which is the expensive way to find out. Both images are Ubuntu 24.04
+#: today, so the key would not collide yet; it is keyed now because the lane
+#: gained a second environment in the change that could later give it a
+#: second glibc.
+#:
+#: Pinned whole rather than by substring. A key checked for containing
+#: ``runner.environment`` still passes if a different segment is dropped, and
+#: every segment here is load-bearing: the version segment is what stops a
+#: bumped installer restoring its predecessor, and the architecture segment
+#: is what stops an arm64 lane restoring an amd64 binary.
+WHITAKER_CACHE_STEP: typ.Final = "Cache Whitaker installer"
+WHITAKER_CACHE_KEY: typ.Final = (
+    "whitaker-installer-${{ runner.os }}-${{ runner.arch }}-"
+    "${{ runner.environment }}-${{ env.WHITAKER_INSTALLER_VERSION }}"
+)
