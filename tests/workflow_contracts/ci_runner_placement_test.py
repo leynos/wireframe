@@ -12,7 +12,8 @@ than deleting silently. It required ``ubuntu-latest`` to keep CI "on a runner
 compatible with Whitaker's prebuilt cargo-dylint". That constraint is about
 the Namespace image specifically, not about non-GitHub-hosted runners:
 repovec-appliance runs the same ``whitaker-installer`` 0.2.6 on
-``ubicloud-standard-4``, and previously on ``ubicloud-standard-2``, green. The
+``ubicloud-standard-4``, green, and this repository's CI lane has now done
+so too. The
 constraint is therefore satisfied by the new placement, not waived by it.
 
 Three things here are easy to get wrong in ways a green run does not show.
@@ -23,7 +24,7 @@ First, the folded scalar. Written as
 
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-          && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+          && 'ubuntu-latest' || 'ubicloud-standard-4' }}
 
 the more-indented continuation keeps its line break, so the parsed value
 carries a newline in the middle of the expression. GitHub evaluates it
@@ -60,6 +61,13 @@ Mutation proof, recorded 2026-09-16; each applied alone and reverted:
   ``test_no_lane_uses_a_foreign_runner_family`` because ``namespace`` is on
   the prohibited list. Three independent readings catch the same drift, which
   is what makes a retirement hard to undo by accident;
+- reverting either lane to ``ubicloud-standard-2`` fails the pinned reading
+  for that lane alone plus the registry, which is not a contrived mutation:
+  it is what the suite did, unprompted, when the two-vCPU shape proved too
+  small and the label was changed before the registry was. The ceiling tree
+  walk stayed green through it, because it tests the ``ubicloud-`` prefix
+  rather than a literal label; written against a literal it would have
+  silently stopped noticing an unbounded lane at that moment;
 - removing the ``advanced`` entry from ``EXPECTED_PLACEMENT`` fails
   ``test_every_job_is_pinned_by_coordinate`` alone;
 - deleting ``timeout-minutes`` from ``coverage-upload`` fails
@@ -90,7 +98,15 @@ ACTIONLINT_CONFIG: typ.Final = REPO_ROOT / ".github" / "actionlint.yaml"
 WORKFLOW_FILE_PATTERNS: typ.Final = ("*.yml", "*.yaml")
 
 UBICLOUD_LABEL_PREFIX: typ.Final = "ubicloud-"
-UBICLOUD_LABEL: typ.Final = "ubicloud-standard-2"
+
+#: The reviewed Ubicloud shape. Four vCPU rather than two, and that is a
+#: measurement: ``tests/compile_error.rs`` spawns its own cargo build of the
+#: whole dependency tree while the other 987 tests compete for the same cores,
+#: and on ``ubicloud-standard-2`` nextest killed it at its default 180 s. Both
+#: lanes that run the suite carry this shape, so one constant serves both;
+#: placement is still pinned per coordinate, so they can diverge without this
+#: constant becoming a lie.
+UBICLOUD_LABEL: typ.Final = "ubicloud-standard-4"
 GITHUB_HOSTED_LABEL: typ.Final = "ubuntu-latest"
 
 #: The one guard the fork fallback may key on. Compared by equality, because a
@@ -283,9 +299,11 @@ def test_the_job_carries_its_reviewed_label(
     """Scenario: a lane drifts back to Namespace, or onto a larger shape.
 
     Invariant: the job declares exactly the reviewed label and nothing
-    beside it. Equality, not containment: a substring reading lets
-    ``ubicloud-standard-8`` satisfy a check for ``standard-2``, and a list
-    reading lets a second label ride along.
+    beside it. Equality, not containment: a check that the declaration
+    merely contains ``ubicloud-`` accepts ``ubicloud-standard-16`` as
+    readily as the reviewed shape, and a list reading lets a second label
+    ride along. Size is the thing being reviewed here, so the reading that
+    ignores it is the wrong one.
     """
     declared = _runner_value(_jobs()[coordinate])
     assert declared == label, (

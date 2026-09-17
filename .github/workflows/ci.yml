@@ -11,6 +11,15 @@ jobs:
     # The one developer-blocking lane, so the one that moves. It waited 461 s
     # for a GitHub-hosted runner on 2026-09-16 to do 556 s of work.
     #
+    # Four vCPU, not two, and that is a measurement rather than a preference.
+    # `tests/compile_error.rs` is a trybuild case that spawns its own cargo
+    # build of the whole dependency tree while the other 987 tests run beside
+    # it. On four vCPU it takes 64.5 s of the suite's 65.4 s; on
+    # `ubicloud-standard-2` it was still running when nextest killed it at
+    # 180.0 s, which is its default 60 s slow-timeout times three. Halving the
+    # cores does not halve that test, because its siblings are competing for
+    # the same two.
+    #
     # A pull request from a fork cannot obtain an Ubicloud runner, so the
     # expression falls back to a GitHub-hosted one for forks only. The
     # continuation line sits at the SAME indent as the line above it: a
@@ -22,10 +31,10 @@ jobs:
     # stated reason was Whitaker's prebuilt cargo-dylint. That constraint is
     # about the Namespace image, not about non-GitHub-hosted runners:
     # repovec-appliance runs the same `whitaker-installer` 0.2.6 on
-    # `ubicloud-standard-4`, and previously `ubicloud-standard-2`, green.
+    # `ubicloud-standard-4`, green, and this lane has now done so too.
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-4' }}
     timeout-minutes: 30
     permissions:
       contents: read

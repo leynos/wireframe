@@ -11,8 +11,8 @@ rather than all four repository-owned lanes sharing one profile.
 
 | Workflow | Job | Trigger | Runner | Ceiling |
 | --- | --- | --- | --- | --- |
-| `ci.yml` | `build-test` | pull request, push | `ubicloud-standard-2` | 30 min |
-| `coverage-main.yml` | `coverage-upload` | push | `ubicloud-standard-2` | 20 min |
+| `ci.yml` | `build-test` | pull request, push | `ubicloud-standard-4` | 30 min |
+| `coverage-main.yml` | `coverage-upload` | push | `ubicloud-standard-4` | 20 min |
 | `advanced-tests.yml` | `advanced` | schedule | `ubuntu-latest` | 60 min |
 | `delayed-pr-comment.yml` | `delay_and_comment` | dispatch | `ubuntu-latest` | none |
 | `get-codescene-sha.yml` | `refresh-sha` | dispatch | `ubuntu-latest` | 10 min |
@@ -31,7 +31,7 @@ carries the fork fallback:
 ```yaml
 runs-on: >-
   ${{ github.event.pull_request.head.repo.fork
-  && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+  && 'ubuntu-latest' || 'ubicloud-standard-4' }}
 ```
 
 The continuation line sits at the same indent as the line above it. A
@@ -47,16 +47,42 @@ Ubuntu 22.04 profile". That reason was real, and it was specific to the image
 rather than to the provider. `whitaker-installer` requires glibc 2.39;
 Namespace's shared profile is Ubuntu 22.04, which carries glibc 2.35.
 
-`ubicloud-standard-2` is Ubuntu 24.04, which carries glibc 2.39, so the
+`ubicloud-standard-4` is Ubuntu 24.04, which carries glibc 2.39, so the
 constraint is satisfied rather than waived. repovec-appliance runs the same
-`whitaker-installer` 0.2.6 on Ubicloud, green. Should a lane ever need the
-`-ubuntu-2204` variant, the old constraint returns with it.
+`whitaker-installer` 0.2.6 on Ubicloud, green, and so does this lane. Should
+a lane ever need the `-ubuntu-2204` variant, the old constraint returns with
+it.
 
 The Whitaker installer cache key now includes `runner.environment`, because
 this lane runs on two environments and the cached artefact is a compiled
 binary. Both images are Ubuntu 24.04 today, so the key would not yet collide;
 it is keyed now because the lane gained a second environment in the change
 that could later give it a second glibc.
+
+### Why four vCPU and not two
+
+Both Ubicloud lanes are `ubicloud-standard-4`. That is a measurement, not a
+preference for the larger shape.
+
+`tests/compile_error.rs` is a trybuild case: it spawns its own cargo build of
+the whole dependency tree, and it does so while the other 987 tests in the
+suite are running beside it. On a four-vCPU runner it takes 64.5 seconds of
+the suite's 65.4. On `ubicloud-standard-2` it was still running when nextest
+killed it at 180.0 seconds, which is that tool's default 60-second
+slow-timeout times three, and the coverage step failed at exit 100 with 987
+of 988 tests passed.
+
+Halving the cores does not halve that test. Its siblings are competing for
+the same two, so the test that most wants a whole machine is the one that
+gets least of one. Both lanes carry the shape because both run the same
+`generate-coverage` over the same workspace; `coverage-upload`'s
+240-second sample was taken on Namespace's shared profile, which is four
+vCPU, so two was never a size it had been measured at.
+
+The alternative would have been to give that one test a longer deadline.
+This repository has no nextest configuration at all, so that means new
+machinery introduced to make a smaller runner tolerable, which is the wrong
+direction: the cost is what should move, not the victim's deadline.
 
 ### Ceilings, and the one lane that has none
 
@@ -66,11 +92,11 @@ is the other one, because it cancels the run at the moment an overrun becomes
 interesting and discards the log that would explain it.
 
 Two ceilings are measured: `build-test` at 556 seconds and `coverage-upload`
-at 240 seconds. Two are judgements, and the guide says so rather than
-implying otherwise. `advanced` has failed every night since at least
-2026-09-09 and its last green run was in 2025, so 60 minutes is generous
-enough not to mask the repair when it lands. `refresh-sha` has never run at
-all.
+at 240 seconds, both on four-vCPU runners. Two are judgements, and the guide
+says so rather than implying otherwise. `advanced` has failed every night
+since at least 2026-09-09 and its last green run was 2025-10-04 at 32
+seconds, so 60 minutes is generous enough not to mask the repair when it
+lands. `refresh-sha` has never run at all.
 
 `delay_and_comment` declares no ceiling, deliberately. Its entire duration is
 a `sleep` of the caller's `delay_minutes` input, so any fixed ceiling cancels

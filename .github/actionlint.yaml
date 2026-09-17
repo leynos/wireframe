@@ -16,4 +16,4 @@
 # reviewed for whatever lane adopts it next.
 self-hosted-runner:
   labels:
-    - ubicloud-standard-2
+    - ubicloud-standard-4
