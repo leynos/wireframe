@@ -1476,8 +1476,8 @@ until they finish. Each worker runs `accept_loop`, which clones the factory,
 rewinds leftover preamble bytes, and hands the stream to the application.
 Transient accept failures trigger exponential backoff capped by the configured
 maximum delay.[^18][^19] Preamble hooks support asynchronous success handlers
-and asynchronous failure callbacks that receive the stream, enabling replies
-or decode-error logging before the application runs. An optional
+and asynchronous failure callbacks that receive the stream, enabling replies or
+decode-error logging before the application runs. An optional
 `preamble_timeout` caps how long `read_preamble` waits; timeouts use the
 failure callback path.[^20]
 

@@ -563,38 +563,38 @@ Run from the repository root (`/home/user/project`).
    `resolve_effective_budgets()` + unit tests.
 2. Run focused unit tests:
 
-```shell
-set -o pipefail
-cargo test --lib builder_defaults 2>&1 | tee /tmp/wireframe-8-3-5-unit-a1.log
-cargo test --lib frame_handling 2>&1 | tee /tmp/wireframe-8-3-5-unit-a2.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --lib builder_defaults 2>&1 | tee /tmp/wireframe-8-3-5-unit-a1.log
+   cargo test --lib frame_handling 2>&1 | tee /tmp/wireframe-8-3-5-unit-a2.log
+   ```
 
-1. Implement Stage B: wire into `process_stream`.
-2. Run focused tests and lint:
+3. Implement Stage B: wire into `process_stream`.
+4. Run focused tests and lint:
 
-```shell
-set -o pipefail
-cargo test --lib 2>&1 | tee /tmp/wireframe-8-3-5-unit-b.log
-make lint 2>&1 | tee /tmp/wireframe-8-3-5-lint-b.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --lib 2>&1 | tee /tmp/wireframe-8-3-5-unit-b.log
+   make lint 2>&1 | tee /tmp/wireframe-8-3-5-lint-b.log
+   ```
 
-1. Verify line count:
+5. Verify line count:
 
-```shell
-wc -l src/app/inbound_handler.rs
-```
+   ```shell
+   wc -l src/app/inbound_handler.rs
+   ```
 
-1. Implement Stage C: BDD tests.
-2. Run targeted BDD scenarios:
+6. Implement Stage C: BDD tests.
+7. Run targeted BDD scenarios:
 
-```shell
-set -o pipefail
-cargo test --test bdd --all-features derived_memory_budgets \
-  2>&1 | tee /tmp/wireframe-8-3-5-bdd.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --test bdd --all-features derived_memory_budgets \
+     2>&1 | tee /tmp/wireframe-8-3-5-bdd.log
+   ```
 
-1. Implement Stage D: documentation updates.
-2. Run full quality gates (Stage E).
+8. Implement Stage D: documentation updates.
+9. Run full quality gates (Stage E).
 
 ## Validation and acceptance
 

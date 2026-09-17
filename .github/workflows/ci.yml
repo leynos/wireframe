@@ -23,8 +23,16 @@ jobs:
           fetch-depth: 0
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
+      - name: Install mdtablefix
+        # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
+        # first release with `--check` and `--git`.
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
+        with:
+          version: "0.6.0"
+
       - name: Format
         run: make check-fmt
+
       - name: Cache Whitaker installer
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
@@ -53,8 +61,19 @@ jobs:
         run: cargo +1.95.0 install merman-cli --version "=0.7.0" --locked
       - name: Install Nixie
         run: uv tool install --python 3.14 "nixie-cli==1.1.0"
-      - name: Lint Markdown and enforce en-GB-oxendict spelling
-        run: make markdownlint
+      - name: Lint Markdown
+        # The upstream action rather than an installation of our own: its
+        # release carries the linter's whole dependency graph, so nothing is
+        # resolved from the registry at run time, and Dependabot manages the
+        # pin alongside the other actions. It reads .markdownlint-cli2.jsonc
+        # from the workspace, so the rules and ignores match `make markdownlint`.
+        uses: DavidAnson/markdownlint-cli2-action@4580e1612f6407034edd6c0e4e316d725920867b  # v24.2.0
+        with:
+          globs: '**/*.md'
+      - name: Enforce en-GB-oxendict spelling
+        # `make markdownlint` carried the spelling gate as a prerequisite;
+        # the action replaced that step, so spelling runs on its own here.
+        run: make spelling
       - name: Validate Mermaid diagrams
         run: make nixie
       - name: Workflow contract tests

@@ -796,11 +796,14 @@ document so larger deployments can adopt the library confidently.
   concurrent-handle invariants with `proptest` alongside the example-based
   `rstest` cases. See RFC 0001 for the lifecycle harness and
   `RunningWireframeServer` requirements
-  ([§5.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#52-running-server-handle),
-  [§5.3](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#53-lifecycle-guarantees),
+  ([§5.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#52-running-server-handle)
+  and
+  [§5.3](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#53-lifecycle-guarantees)
+  and
   [§5.5](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#55-existing-pair-compatibility))
   and for the `rstest` and `proptest` requirements
-  ([§7.1](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#71-lifecycle-integration-tests),
+  ([§7.1](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#71-lifecycle-integration-tests)
+  and
   [§7.5](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#75-property-based-invariant-coverage)).
 - [ ] 17.3.4. Add a caller-supplied asynchronous connector that composes the
   running server with any protocol-specific client while cleaning up the server
@@ -808,11 +811,12 @@ document so larger deployments can adopt the library confidently.
   preamble, type-changing builder configuration, downstream-style behavioural
   tests, and a `trybuild` compile-time test that pins the retained pair
   helpers' inferred types and rejects misconfigured lifecycle calls. Requires
-  17.3.3. See RFC 0001 for the caller-supplied connector and
-  connection-failure cleanup
+  17.3.3. See RFC 0001 for the caller-supplied connector and connection-failure
+  cleanup
   ([§5.4](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#54-caller-supplied-client-connector))
   and for protocol-generic and `trybuild` verification
-  ([§7.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#72-protocol-generic-proof),
+  ([§7.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#72-protocol-generic-proof)
+  and
   [§7.3](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#73-compatibility-and-compile-time-coverage)).
 - [ ] 17.3.5. Make `wireframe_testing` an explicit quality-gate target. Run
   `cargo test -p wireframe_testing --all-targets --all-features` and

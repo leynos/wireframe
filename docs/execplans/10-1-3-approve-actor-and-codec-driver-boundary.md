@@ -94,8 +94,8 @@ escalation, not a workaround.
 ## Tolerances (exception triggers)
 
 1. **Scope.** If executing the plan appears to require editing any
-   non-documentation
-   file, stop and escalate. This item is documentation-only by definition.
+   non-documentation file, stop and escalate. This item is documentation-only
+   by definition.
 2. **Decision drift.** If, while writing the accepted ADR, any of the three
    resolved decisions appears wrong against the actual code (for example, a
    second production `wrap_payload` caller is discovered, or `before_send`

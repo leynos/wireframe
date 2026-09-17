@@ -18,6 +18,8 @@
     ".terraform/**",
     ".verus/**",
     ".uv-cache/**",
-    "CRUSH.md"
+    "CRUSH.md",
+    ".vtcode/**",
+    "memories/**"
   ]
 }

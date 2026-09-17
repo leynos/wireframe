@@ -362,42 +362,42 @@ Run from the repository root (`/home/user/project`).
 1. Implement Stage A helper + unit tests.
 2. Run focused unit tests:
 
-```shell
-set -o pipefail
-cargo test --lib frame_handling 2>&1 | tee /tmp/wireframe-8-3-4-unit-a.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --lib frame_handling 2>&1 | tee /tmp/wireframe-8-3-4-unit-a.log
+   ```
 
-1. Implement Stage B inbound loop refactor.
-2. Run focused tests and lint:
+3. Implement Stage B inbound loop refactor.
+4. Run focused tests and lint:
 
-```shell
-set -o pipefail
-cargo test --lib frame_handling 2>&1 | tee /tmp/wireframe-8-3-4-unit-b.log
-make lint 2>&1 | tee /tmp/wireframe-8-3-4-lint-b.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --lib frame_handling 2>&1 | tee /tmp/wireframe-8-3-4-unit-b.log
+   make lint 2>&1 | tee /tmp/wireframe-8-3-4-lint-b.log
+   ```
 
-1. Implement Stage C BDD tests.
-2. Run targeted BDD scenarios:
+5. Implement Stage C BDD tests.
+6. Run targeted BDD scenarios:
 
-```shell
-set -o pipefail
-cargo test --test bdd --all-features memory_budget_hard_cap \
-  2>&1 | tee /tmp/wireframe-8-3-4-bdd.log
-```
+   ```shell
+   set -o pipefail
+   cargo test --test bdd --all-features memory_budget_hard_cap \
+     2>&1 | tee /tmp/wireframe-8-3-4-bdd.log
+   ```
 
-1. Implement Stage D documentation updates.
-2. Run full quality gates:
+7. Implement Stage D documentation updates.
+8. Run full quality gates:
 
-```shell
-set -o pipefail
-make fmt 2>&1 | tee /tmp/wireframe-8-3-4-fmt.log
-make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 \
-  2>&1 | tee /tmp/wireframe-8-3-4-markdownlint.log
-make check-fmt 2>&1 | tee /tmp/wireframe-8-3-4-check-fmt.log
-make lint 2>&1 | tee /tmp/wireframe-8-3-4-lint.log
-make test 2>&1 | tee /tmp/wireframe-8-3-4-test.log
-make nixie 2>&1 | tee /tmp/wireframe-8-3-4-nixie.log
-```
+   ```shell
+   set -o pipefail
+   make fmt 2>&1 | tee /tmp/wireframe-8-3-4-fmt.log
+   make markdownlint MDLINT=/root/.bun/bin/markdownlint-cli2 \
+     2>&1 | tee /tmp/wireframe-8-3-4-markdownlint.log
+   make check-fmt 2>&1 | tee /tmp/wireframe-8-3-4-check-fmt.log
+   make lint 2>&1 | tee /tmp/wireframe-8-3-4-lint.log
+   make test 2>&1 | tee /tmp/wireframe-8-3-4-test.log
+   make nixie 2>&1 | tee /tmp/wireframe-8-3-4-nixie.log
+   ```
 
 ## Validation and acceptance
 

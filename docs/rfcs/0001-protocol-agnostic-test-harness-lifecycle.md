@@ -235,17 +235,17 @@ ends its life; this is why the list above has three cases and not four.
 
 This bounded join is a deliberate departure from `WireframePair::shutdown`'s
 unbounded join, which exists so the server's result is never discarded; here a
-server that never notices the shutdown signal fails the test with a
-diagnosable timeout, reported as a distinct failure per the bullet above,
-instead of hanging the suite indefinitely.
+server that never notices the shutdown signal fails the test with a diagnosable
+timeout, reported as a distinct failure per the bullet above, instead of
+hanging the suite indefinitely.
 
 `Drop` remains a safety net, not the normal path; only an explicit
 `shutdown().await` guarantees graceful completion. Inside a Tokio runtime,
 `Drop` sends the shutdown signal and schedules bounded cleanup on a detached
 task, then returns immediately without awaiting anything. That detached task
-races the join against a short grace period and aborts the server task only
-if the period elapses first. Outside a runtime, `Drop` aborts immediately
-because there is no executor to run the scheduled cleanup.
+races the join against a short grace period and aborts the server task only if
+the period elapses first. Outside a runtime, `Drop` aborts immediately because
+there is no executor to run the scheduled cleanup.
 
 Startup follows the same failure discipline. If the server exits before
 readiness, the helper joins the task and returns the underlying join or server
@@ -316,8 +316,8 @@ observes, not just the function signature. The distinct typed variants remain
 the contract of the new helper API in section 6; callers that want to match on
 a variant should use that API directly.
 
-`WireframePair::shutdown` keeps its own unbounded join rather than delegating
-to `RunningWireframeServer::shutdown`'s bounded join: the pair's explicit
+`WireframePair::shutdown` keeps its own unbounded join rather than delegating to
+`RunningWireframeServer::shutdown`'s bounded join: the pair's explicit
 shutdown path exists so the server's result is always observed, and a bound
 would add a new timeout failure mode that existing callers' tests do not
 expect. If the compact options type from section 5.2 lands, the pair wrapper
@@ -485,8 +485,8 @@ these varying inputs and asserts the invariant survives:
   released listener across the whole trace, with the handle holding neither
   sender nor task handle afterwards;
 - a generated trace of zero or more `shutdown` calls followed by `Drop` as the
-  terminal action converges to the same terminal state, covering both
-  dropping after shutdown and dropping without shutdown;
+  terminal action converges to the same terminal state, covering both dropping
+  after shutdown and dropping without shutdown;
 - readiness followed by a generated schedule of connect-then-shutdown
   operations never orphans a task or leaks a listener; and
 - a generated pool of concurrently spawned handles binds distinct listeners and

@@ -377,8 +377,8 @@ let app = WireframeApp::new().expect("app construction failed");
 The server previously required factories to be bare `Fn() -> WireframeApp`
 closures. The requirement is now expressed through two public traits:
 
-- `AppFactory<Serializer, Ctx, E, Codec>` – the factory trait. Blanket-implemented
-  for any `Fn() -> R where R: FactoryResult`.
+- `AppFactory<Serializer, Ctx, E, Codec>` – the factory trait.
+  Blanket-implemented for any `Fn() -> R where R: FactoryResult`.
 - `FactoryResult<App>` – marks valid return types. Implemented for both
   `WireframeApp` and `Result<WireframeApp, _>`.
 

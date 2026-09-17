@@ -13,6 +13,9 @@ import yaml
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
 MAKEFILE_PATH = Path(__file__).resolve().parents[2] / "Makefile"
+MARKDOWNLINT_ACTION_RE = re.compile(
+    r"^DavidAnson/markdownlint-cli2-action@[0-9a-f]{40}$"
+)
 CODESCENE_USES_RE = re.compile(
     r"^leynos/shared-actions/\.github/actions/upload-codescene-coverage@"
     r"[0-9a-f]{40}$"
@@ -56,25 +59,41 @@ def test_spelling_tool_installations_are_pinned() -> None:
 
 
 def test_markdownlint_runner_is_pinned() -> None:
-    """The aggregate Markdown gate installs its reviewed CLI release."""
+    """The Markdown gate resolves the CLI locally and pins the CI action.
+
+    Under the estate ``markdown-formatting-baseline`` rule the Makefile probes
+    ``PATH`` for ``markdownlint-cli2`` and CI lints through the upstream
+    action, whose release carries the reviewed CLI; the pin therefore lives on
+    the action reference rather than on an ``npx`` version.
+    """
     makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
-    assert "MARKDOWNLINT_CLI2_VERSION ?= 0.22.1" in makefile, (
-        "Markdownlint CLI must remain pinned to the reviewed release"
-    )
     assert (
-        "MDLINT ?= npx --yes markdownlint-cli2@$(MARKDOWNLINT_CLI2_VERSION)"
-        in makefile
-    ), "the Markdown gate must install the pinned CLI when it runs"
+        "MDLINT ?= $(shell command -v markdownlint-cli2 2>/dev/null || "
+        "printf '%s' \"$$HOME/.bun/bin/markdownlint-cli2\")"
+    ) in makefile, (
+        "the Markdown gate must resolve markdownlint-cli2 with the estate probe"
+    )
+    lint = _find_step(_load_steps(), "Lint Markdown")
+    assert MARKDOWNLINT_ACTION_RE.match(str(lint.get("uses", ""))), (
+        "CI must lint Markdown through the pinned markdownlint-cli2 action"
+    )
+    assert lint.get("with") == {"globs": "**/*.md"}, (
+        "the Markdown lint action must cover every Markdown file"
+    )
 
 
 def test_spelling_toolchain_steps_are_consecutive() -> None:
     """Installation, spelling and Mermaid validation retain their CI order."""
     steps = _load_steps()
+    # The estate ``markdown-formatting-baseline`` rule lints through the
+    # pinned action, so spelling (once a prerequisite of ``make markdownlint``)
+    # runs as its own step immediately after it.
     step_names = (
         "Install Rust for Merman",
         "Install Merman CLI",
         "Install Nixie",
-        "Lint Markdown and enforce en-GB-oxendict spelling",
+        "Lint Markdown",
+        "Enforce en-GB-oxendict spelling",
         "Validate Mermaid diagrams",
         "Workflow contract tests",
     )
@@ -82,11 +101,9 @@ def test_spelling_toolchain_steps_are_consecutive() -> None:
     assert indices == list(range(indices[0], indices[0] + len(indices))), (
         "the spelling toolchain steps must remain consecutive and ordered"
     )
-    markdown = _find_step(steps, "Lint Markdown and enforce en-GB-oxendict spelling")
+    spelling = _find_step(steps, "Enforce en-GB-oxendict spelling")
     validation = _find_step(steps, "Validate Mermaid diagrams")
-    assert markdown.get("run") == "make markdownlint", (
-        "CI must lint Markdown and run the spelling gate"
-    )
+    assert spelling.get("run") == "make spelling", "CI must run the spelling gate"
     assert validation.get("run") == "make nixie", "CI must validate Mermaid diagrams"
 
 
@@ -119,8 +136,7 @@ def test_codescene_check_uses_the_guarded_project_contract() -> None:
     ), "the CodeScene check must skip pull requests without the secret"
     uses = check.get("uses")
     assert isinstance(uses, str) and CODESCENE_USES_RE.fullmatch(uses), (
-        "the CodeScene check must invoke upload-codescene-coverage at a full "
-        "commit SHA"
+        "the CodeScene check must invoke upload-codescene-coverage at a full commit SHA"
     )
     assert check.get("with") == {
         "format": "lcov",

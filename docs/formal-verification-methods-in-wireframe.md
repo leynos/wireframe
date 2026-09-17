@@ -844,9 +844,9 @@ The current formal-target interface is a tool-free interim boundary. The
 verification crate is exercised directly, while the Kani and Verus targets
 return the normal `FORMAL-SKIP` success until their named roadmap work
 activates them. Setting `FORMAL_STRICT=1` turns those placeholder successes
-into failures. Later activation must explicitly replace the corresponding
-stub recipes with the pinned tool routes above; it must not select tools
-implicitly from `PATH`.
+into failures. Later activation must explicitly replace the corresponding stub
+recipes with the pinned tool routes above; it must not select tools implicitly
+from `PATH`.
 
 ```make
 .PHONY: test-verification kani kani-full verus formal formal-pr \
@@ -878,9 +878,9 @@ are intentionally explicit: `formal-pr` runs `test-verification`, `kani`, and
 Two notes about the eventual activation:
 
 1. The `test-verification` command deliberately keeps the verification crate
-   explicit through `VERIFICATION_CRATE` and preserves the repository's
-   warning policy. If the wider repo later migrates to `nextest`, this target
-   should change to match.
+   explicit through `VERIFICATION_CRATE` and preserves the repository's warning
+   policy. If the wider repo later migrates to `nextest`, this target should
+   change to match.
 2. The Kani target names should stay **explicit**. Once roadmap 15.3.x
    provides the execution route, its replacement recipes should retain named
    smoke harnesses rather than use magical directory scans; that is a good
