@@ -4,15 +4,95 @@ This guide defines the architectural vocabulary used across Wireframe source,
 rustdoc, and user-facing documentation. Treat it as the naming contract for new
 APIs and refactors.
 
-## Namespace GitHub Actions runners
+## GitHub Actions runner placement
 
-Wireframe's repository-owned Linux coverage, advanced-test, maintenance, and
-delayed-comment jobs run on `namespace-profile-default`: the shared Ubuntu
-22.04 Linux/amd64 profile with 4 vCPU and 16 GB memory. Its Namespace cache
-volume is disabled for this baseline rollout. Existing workflow cache actions
-remain unchanged; they are not backed by a Namespace cache volume. CI remains
-on GitHub-hosted Linux because Whitaker's prebuilt `cargo-dylint` does not
-verify on the shared Ubuntu 22.04 profile.
+Namespace is retired. Each lane now sits where the kind of work decides,
+rather than all four repository-owned lanes sharing one profile.
+
+| Workflow | Job | Trigger | Runner | Ceiling |
+| --- | --- | --- | --- | --- |
+| `ci.yml` | `build-test` | pull request, push | `ubicloud-standard-2` | 30 min |
+| `coverage-main.yml` | `coverage-upload` | push | `ubicloud-standard-2` | 20 min |
+| `advanced-tests.yml` | `advanced` | schedule | `ubuntu-latest` | 60 min |
+| `delayed-pr-comment.yml` | `delay_and_comment` | dispatch | `ubuntu-latest` | none |
+| `get-codescene-sha.yml` | `refresh-sha` | dispatch | `ubuntu-latest` | 10 min |
+
+*Table 1: Where each repository-owned lane runs, and its ceiling.*
+
+Pull-request, push and tag lanes move to Ubicloud, because those are the ones
+a developer waits on: `build-test` waited 461 seconds for a GitHub-hosted
+runner on 2026-09-16 to do 556 seconds of work. Scheduled, delayed-comment and
+CodeScene-SHA lanes stay GitHub-hosted, where public-repository minutes are
+free and nobody is blocked by the wait.
+
+`build-test` also serves forks, which cannot obtain an Ubicloud runner, so it
+carries the fork fallback:
+
+```yaml
+runs-on: >-
+  ${{ github.event.pull_request.head.repo.fork
+  && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+```
+
+The continuation line sits at the same indent as the line above it. A
+more-indented continuation in a folded scalar keeps its line break, putting a
+newline inside the expression; GitHub evaluates the broken value and the job
+runs, so a green run is not evidence that the scalar is well formed.
+
+### Why CI can leave GitHub-hosted Linux now
+
+This guide previously recorded that CI had to stay on GitHub-hosted Linux
+"because Whitaker's prebuilt `cargo-dylint` does not verify on the shared
+Ubuntu 22.04 profile". That reason was real, and it was specific to the image
+rather than to the provider. `whitaker-installer` requires glibc 2.39;
+Namespace's shared profile is Ubuntu 22.04, which carries glibc 2.35.
+
+`ubicloud-standard-2` is Ubuntu 24.04, which carries glibc 2.39, so the
+constraint is satisfied rather than waived. repovec-appliance runs the same
+`whitaker-installer` 0.2.6 on Ubicloud, green. Should a lane ever need the
+`-ubuntu-2204` variant, the old constraint returns with it.
+
+The Whitaker installer cache key now includes `runner.environment`, because
+this lane runs on two environments and the cached artefact is a compiled
+binary. Both images are Ubuntu 24.04 today, so the key would not yet collide;
+it is keyed now because the lane gained a second environment in the change
+that could later give it a second glibc.
+
+### Ceilings, and the one lane that has none
+
+A per-minute runner bills until something stops it, so GitHub's six-hour
+default is the expensive failure mode. A ceiling close to the measured work
+is the other one, because it cancels the run at the moment an overrun becomes
+interesting and discards the log that would explain it.
+
+Two ceilings are measured: `build-test` at 556 seconds and `coverage-upload`
+at 240 seconds. Two are judgements, and the guide says so rather than
+implying otherwise. `advanced` has failed every night since at least
+2026-09-09 and its last green run was in 2025, so 60 minutes is generous
+enough not to mask the repair when it lands. `refresh-sha` has never run at
+all.
+
+`delay_and_comment` declares no ceiling, deliberately. Its entire duration is
+a `sleep` of the caller's `delay_minutes` input, so any fixed ceiling cancels
+a legitimate longer delay: it would fire exactly when the delay became
+interesting. The lane is GitHub-hosted, so the six-hour default costs nothing.
+`ci_runner_placement_test.py` asserts that absence with its reason, so it
+reads as a decision rather than as the gap the neighbouring test looks for.
+
+### The contract
+
+`tests/workflow_contracts/ci_runner_placement_test.py` replaces
+`namespace_runners_test.py`. It reads every job's `runs-on` from the parsed
+document and fails on an embedded line break; compares the fork guard and both
+arms against exact strings, so a sibling field cannot stand in for
+`head.repo.fork`; pins placement by `(workflow, job id)` coordinate and
+compares that set against the tree's jobs in both directions; pins each
+ceiling by value and requires one on every job that can select any `ubicloud-`
+label; asserts the delayed lane has none; asserts the two reusable callers
+declare no runner; and compares `.github/actionlint.yaml` against the labels in
+use in both directions. That last comparison is what retires
+`namespace-profile-default` from the registry rather than leaving it behind to
+authorize a runner family nobody uses.
 
 ## Layer model and glossary
 

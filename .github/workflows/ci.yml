@@ -8,7 +8,25 @@ on:
 
 jobs:
   build-test:
-    runs-on: ubuntu-latest
+    # The one developer-blocking lane, so the one that moves. It waited 461 s
+    # for a GitHub-hosted runner on 2026-09-16 to do 556 s of work.
+    #
+    # A pull request from a fork cannot obtain an Ubicloud runner, so the
+    # expression falls back to a GitHub-hosted one for forks only. The
+    # continuation line sits at the SAME indent as the line above it: a
+    # more-indented continuation in a folded scalar keeps its line break and
+    # puts a newline inside the expression, which GitHub evaluates anyway, so
+    # a green run would not show it.
+    #
+    # This lane was previously pinned to `ubuntu-latest` by a contract whose
+    # stated reason was Whitaker's prebuilt cargo-dylint. That constraint is
+    # about the Namespace image, not about non-GitHub-hosted runners:
+    # repovec-appliance runs the same `whitaker-installer` 0.2.6 on
+    # `ubicloud-standard-4`, and previously `ubicloud-standard-2`, green.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 30
     permissions:
       contents: read
     env:
@@ -39,7 +57,16 @@ jobs:
           path: |
             ~/.cargo/bin/whitaker-installer
             ~/.cache/cargo-binstall
-          key: whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ env.WHITAKER_INSTALLER_VERSION }}
+          # `runner.environment` joins the key because this lane now runs on
+          # two runner environments: Ubicloud normally, GitHub-hosted on a
+          # fork's pull request. The cached artefact is a compiled binary, and
+          # `whitaker-installer` requires glibc 2.39, so restoring one built
+          # against a newer image onto an older one fails at run time rather
+          # than at restore. Both images are Ubuntu 24.04 today, so the key
+          # would not collide yet; it is keyed now because the lane gained a
+          # second environment in the same change that could later gain a
+          # second glibc.
+          key: whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ env.WHITAKER_INSTALLER_VERSION }}
       - name: Install Whitaker
         run: |
           if command -v whitaker-installer >/dev/null 2>&1; then

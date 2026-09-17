@@ -5,7 +5,13 @@ on:
 
 jobs:
   refresh-sha:
-    runs-on: namespace-profile-default
+    # The CodeScene SHA fetch, which the placement rule keeps GitHub-hosted.
+    #
+    # The ceiling is a judgement: this workflow has never run, so there is
+    # nothing to measure. Ten minutes is generous for an API fetch and a file
+    # write.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       actions: write
     steps:

@@ -7,7 +7,15 @@ on:
 
 jobs:
   advanced:
-    runs-on: namespace-profile-default
+    # Scheduled, so GitHub-hosted, where public-repository minutes are free.
+    #
+    # The ceiling is a judgement, not a measurement: this lane has failed every
+    # night since at least 2026-09-09 (the Loom breakage, wireframe#683) and
+    # its last green run was 2025-10-04 at 32 s, which a Loom suite has long
+    # since outgrown. Sixty minutes is generous enough not to mask the repair
+    # when it lands, and can be re-sized from the first green run.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:

@@ -15,7 +15,12 @@ on:
 
 jobs:
   coverage-upload:
-    runs-on: namespace-profile-default
+    # A push lane, so Ubicloud rather than GitHub-hosted. It ran for 240 s on
+    # 2026-09-16. There is no fork arm: `push` carries no pull request, so the
+    # guard would be constant here and a constant guard reads as a decision
+    # nobody made.
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 20
     permissions:
       contents: read
     env:
