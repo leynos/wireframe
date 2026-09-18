@@ -167,7 +167,11 @@ The test helpers are in `src/test_helpers.rs` and
   models, recorded in `~/docs/wireframe-683-loom-diagnosis-2026-09-17.md` and
   summarized under `Surprises & discoveries`.
 - [x] (2026-09-17 12:10Z) This plan drafted.
-- [ ] D-1 ruled on by the user. Blocks milestones two to four.
+- [x] (2026-09-18) Review round: D-1 made to govern the V-4 and EP-M4
+  acceptance set, V-2 given an executable artefact (D-4), and the DLQ counter
+  mutations split so the increment is observed before the reset cancels it.
+- [ ] D-1 ruled on by the user. Blocks milestones two to four, and now also
+  blocks filling in V-4's mutation table.
 - [ ] EP-M1 reproduce and bound. Unblocked by plan approval alone.
 - [ ] EP-M2 configuration boundary; models execute.
 - [ ] EP-M3 the seam, and the guide statement.
@@ -244,7 +248,21 @@ issue #683; the second and third were not, and they change what the work is.
   would leave the tested object and the shipped object different in the place
   that matters most. Route (a) should be reconsidered only if someone wants the
   queue's ordering properties model-checked, which is a larger goal than
-  repairing this lane. Status: referred to the user. Date/Author: 2026-09-17,
+  repairing this lane.
+
+  **D-1 fixes the acceptance scope of V-4 and EP-M4, and they must not be read
+  independently of it.** Route (b) puts channel behaviour out of scope, and
+  `concurrent_queue_full_errors_are_reported` is three assertions on
+  `PushError::QueueFull`, every one of them a channel assertion. Under route
+  (b) that model cannot survive into the acceptance set: it is removed, or
+  replaced by a model whose subject is a Loom-visible primitive. Under route
+  (a) it stays, and the channel implementation joins the modelled surface.
+  Wherever a later obligation says "every model" or "every assertion", it means
+  the set route (b) leaves behind, or the set route (a) creates, and never the
+  four models as they stand today. Deciding D-1 is therefore a precondition of
+  writing V-4's mutation table, not merely of EP-M3.
+
+  Status: referred to the user. Date/Author: 2026-09-17,
   jm-complete-chutoro-whitaker-2.
 
 - **D-2**: this pull request carries the plan only, no source change.
@@ -257,6 +275,17 @@ issue #683; the second and third were not, and they change what the work is.
   the minutes are free for a public repository, so the cost ends when that
   merges. Proposing to silence or suspend the lane would trade a visible
   problem for an invisible one. Date/Author: 2026-09-17.
+
+- **D-4**: V-2 is discharged by a source-parsing contract using `syn`, not by a
+  runtime test and not by a `trybuild` compile-fail harness. Rationale: the
+  property is about `#[cfg(...)]` attributes, which the compiler consumes, so a
+  test compiled into the crate cannot see the modules the configuration
+  excluded; `trybuild` builds test files against the crate and cannot rebuild
+  the crate under `--cfg loom`, which is where the defect lives. Reading the
+  sources is the only method that observes both arms of every predicate. Cost:
+  one new direct dev-dependency, recorded against EP-M2's conformance check and
+  adding no `Cargo.lock` entry. Date/Author: 2026-09-18,
+  jm-complete-chutoro-whitaker-2, on review.
 
 ## Outcomes & retrospective
 
@@ -304,19 +333,56 @@ restore the feature-only predicate on `pool_client` and the build must fail
 again with the same error classes.
 
 **Obligation V-2: no module reachable under `cfg(loom)` depends on a
-`cfg(not(loom))` module.** Method: a parameterized contract test reading the
-predicates. Rationale: the defect class is a predicate admitting a
-configuration its dependencies exclude. A compile check catches today's
-instance; a contract catches the next one, and this repository has already had
-one. Domain: every `#[cfg(...)]`-gated module declaration in `src/lib.rs` and
-`src/test_helpers.rs`, paired with the imports of the module it names.
-Artefact: to be placed with the crate's existing test conventions, decided in
-EP-M2. Evidence: passes on the repaired tree. Non-vacuity: two mutations must
-be rejected. Remove `not(loom)` from the repaired `pool_client` predicate, and
-the contract fails. Add a new `cfg(not(loom))` module and import it from an
-ungated one, and the contract fails. A contract that passes over only correct
-files discriminates nothing, so it must also be shown to fail on a constructed
-bad case rather than only on the real one.
+`cfg(not(loom))` module.** Method: a source-level checker, not a runtime
+assertion about the crate it is linked into. Rationale: the defect class is a
+predicate admitting a configuration its dependencies exclude. A compile check
+catches today's instance; a contract catches the next one, and this repository
+has already had one.
+
+An earlier draft said "a parameterized contract test reading the predicates",
+and that artefact cannot exist. `#[cfg(...)]` is resolved by the compiler, so a
+test compiled into the crate sees only the configuration it was itself built
+under: the excluded modules are absent, their attributes are gone, and there is
+nothing left to read. A fixed parameter list is worse still, because the second
+stated mutation adds a *new* module and a fixed list cannot name it. The
+artefact must read the sources as text and decide for itself what is there.
+
+Artefact: `tests/loom_configuration_contract.rs`, an ordinary integration test
+whose subject is the repository's own source files rather than the linked
+crate. Discovery mechanism: parse `src/lib.rs` and `src/test_helpers.rs` with
+`syn` into an item tree; for every `syn::Item::Mod` found, take its `cfg`
+predicate from its attributes, resolve the module name to its file under `src/`
+(both the `name.rs` and `name/mod.rs` spellings), parse that file, and collect
+every `use` path rooted at `crate::` together with the predicate of the `use`
+item itself. Nothing is enumerated by hand at any point, so a module added
+tomorrow is in the domain the moment it is written. The check: for each import
+edge, if the importing module's predicate is satisfiable under `--cfg loom` and
+the imported module's predicate is not, the contract fails and names both.
+
+Today's instance is exactly one such edge: `test_helpers::pool_client` is gated
+`#[cfg(feature = "pool")]`, which is satisfiable under `--cfg loom`, and it
+imports `crate::client`, which is gated `#[cfg(not(loom))]`, which is not.
+
+`syn` is not currently a direct dev-dependency, though version 2.0.117 is
+already resolved in `Cargo.lock` through the proc-macro crates, so this adds a
+direct edge without adding a tree entry. EP-M2's conformance check is amended
+below to record that addition rather than to forbid it. A `trybuild`
+compile-fail harness was considered and rejected: `trybuild` builds test files
+against the crate and gives no way to rebuild the crate itself under
+`--cfg loom`, which is the configuration the defect lives in.
+
+Domain: every `#[cfg(...)]`-gated module declaration in `src/lib.rs` and
+`src/test_helpers.rs`, paired with the `crate::`-rooted imports of the module
+it names. Evidence: passes on the repaired tree, and the run reports the number
+of module declarations and import edges it examined, so a checker that silently
+found nothing is distinguishable from one that found nothing wrong.
+Non-vacuity: three mutations must be rejected. Remove `not(loom)` from the
+repaired `pool_client` predicate, and the contract fails. Add a new
+`cfg(not(loom))` module and import it from an ungated one, and the contract
+fails, which is the mutation that proves discovery is dynamic. Point the
+resolver at a fixture directory holding a constructed bad pair, and the
+contract fails there too: a contract run only over correct files discriminates
+nothing, and the real tree will be correct once EP-M2 lands.
 
 **Obligation V-3: each model is scheduled over the primitives the guide says it
 is scheduled over.** Method: a documented statement plus a review checkpoint,
@@ -335,16 +401,50 @@ control, with the review checkpoint as the compensating control.
 **Obligation V-4: every assertion in the model file can fail.** Method:
 mutation, one per assertion, each recorded. Rationale: finding three is
 precisely an assertion that cannot fail, so a count of passing models is not
-evidence. This is the obligation the whole plan exists to discharge. Domain:
-all four models, and any added in EP-M4. Artefact:
-`tests/advanced/concurrency_loom.rs` and a table in this plan. Evidence: for
-each assertion, a named mutation of the subject, and the model that must fail
-because of it. For the DLQ counter: change `fetch_add` to a no-op, and the
-counter model must fail; change the reset threshold in `log_dlq_drop`, and the
-reset model must fail. Non-vacuity: the mutations must fail for the stated
-reason and not merely fail. A mutation that makes the crate stop compiling
-proves nothing, so each mutation must leave a compiling program that behaves
-differently.
+evidence. This is the obligation the whole plan exists to discharge.
+
+Domain: **the acceptance set D-1 leaves behind**, plus any model added in
+EP-M4, and not "all four models" as a standing phrase. Under route (b)
+`concurrent_queue_full_errors_are_reported` is out of scope by construction and
+is excluded here rather than mutation-proved; under route (a) it is in scope
+and its `QueueFull` assertions are proved like any other. The table below
+cannot be filled in until D-1 is answered, and the milestone that fills it says
+so.
+
+Artefact: `tests/advanced/concurrency_loom.rs` and a table in this plan.
+Evidence: for each assertion, a named mutation of the subject, and the model
+that must fail because of it.
+
+The DLQ counter needs two mutations, not one, and the obvious pair does not
+work as an earlier draft claimed. `route_to_dlq` calls
+`dlq_drops.fetch_add(1, ...)` and passes the incremented value to
+`log_dlq_drop`, which stores `0` back into the counter once the value reaches
+`dlq_log_every_n`. Replacing `fetch_add` with a no-op makes the local `dropped`
+stay at `1` on every drop, so the threshold is never reached, the reset never
+runs, and the counter finishes at `0`, which is exactly what
+`assert_eq!(probe.dlq_drop_count(), 0, ...)` already expects. The mutation is
+invisible to the assertion it was supposed to discriminate, because the
+suppressed increment and the suppressed reset cancel. Reset and increment are
+therefore separate obligations and need separately observed evidence:
+
+- **Increment.** Assert the counter *before* the reset can fire: drive
+  `route_to_dlq` into its error branch exactly once with `dlq_log_every_n`
+  greater than one, and assert `dlq_drop_count() == 1`. Mutation: `fetch_add`
+  to a no-op. That assertion then reads `0` and the model fails.
+- **Reset.** With the increment intact, drive the counter to the threshold and
+  assert it returns to `0`. Mutation: remove the `dlq_drops.store(0, ...)` in
+  `log_dlq_drop`, or change the threshold comparison so the reset branch is not
+  taken. The counter then reads the accumulated value and the model fails.
+
+Every other assertion carried into the acceptance set gets the same treatment:
+a named mutation, the model that must fail, and the observed value that changes.
+
+Non-vacuity: the mutations must fail for the stated reason and not merely fail.
+A mutation that makes the crate stop compiling proves nothing, so each mutation
+must leave a compiling program that behaves differently. And a mutation whose
+effect is cancelled downstream before any assertion observes it proves nothing
+either, which is the trap the DLQ pair above exists to avoid; each recorded
+mutation must name the value the model reads and how that value moves.
 
 **Axioms.** That Loom 0.7.2 schedules exactly the primitives it supplies and
 the threads it spawns; that Tokio's channels and `leaky_bucket` use primitives
@@ -395,14 +495,16 @@ in place and mutation-proved; a `make` target that runs the lane's command so
 the workflow's eventual one-line change is a call rather than a script. The
 models execute, and whatever they report is recorded honestly. Requirements and
 gaps: discharges #683's stated defect. Acceptance evidence: V-1 and V-2 above.
-Conformance check: public API under `cfg(not(loom))` unchanged; no new
-dependency; the workflow file untouched, per `Constraints` and R-3. Recovery:
-the change is confined to predicates, a contract and a Makefile target;
-reverting the commit restores the previous state exactly. Remaining gaps:
-findings two and three untouched. **The lane may legitimately still be red at
-the end of this milestone**, if the models fail once they run. That is a valid
-plateau and must not be papered over. Compatibility decision: none required;
-the affected surface is test-only.
+Conformance check: public API under `cfg(not(loom))` unchanged; the workflow
+file untouched, per `Constraints` and R-3; one new direct dev-dependency,
+`syn`, for V-2's checker, which adds no entry to `Cargo.lock` because the
+proc-macro crates already resolve it, and which is dev-only so no consumer of
+the published crate sees it. Recovery: the change is confined to predicates, a
+contract and a Makefile target; reverting the commit restores the previous
+state exactly. Remaining gaps: findings two and three untouched. **The lane may
+legitimately still be red at the end of this milestone**, if the models fail
+once they run. That is a valid plateau and must not be papered over.
+Compatibility decision: none required; the affected surface is test-only.
 
 **EP-M3: the seam, and the statement.** Outcome: D-1 implemented; the
 synchronization aliases widened to cover `Arc` and `Weak` **at every site that
@@ -431,13 +533,21 @@ not reach the instrumented path. Compatibility decision: none under
 `cfg(not(loom))`.
 
 **EP-M4: models that can fail.** Outcome: the DLQ models rewritten to fill or
-close the dead-letter channel so `route_to_dlq` takes its error branch; every
-assertion in the file mutation-proved, including the three that exist today;
-the guide statement re-read against the code and updated. Requirements and
-gaps: discharges finding three. Acceptance evidence: V-4, with the mutation
-table filled in. Conformance check: tests and documentation only. Recovery:
-test-only; revert the commit. Remaining gaps: **the lane's command, which this
-plan may not edit.** If EP-M1 shows narrowing is needed, the one-line change to
+close the dead-letter channel so `route_to_dlq` takes its error branch, and
+split so the increment is observed before the reset can hide it; every
+assertion **in the acceptance set D-1 fixed** mutation-proved, with V-4's table
+filled in; the guide statement re-read against the code and updated.
+
+Under route (b) that set excludes `concurrent_queue_full_errors_are_reported`,
+whose three `QueueFull` assertions are channel assertions: the model is removed
+or replaced here, and the guide sentence added in EP-M3 says which models
+remain and what they check. Under route (a) it is retained and proved with the
+rest. The milestone cannot start before D-1 is answered, because the answer
+decides what it is proving. Requirements and gaps: discharges finding three.
+Acceptance evidence: V-4, with the mutation table filled in. Conformance check:
+tests and documentation only. Recovery: test-only; revert the commit. Remaining
+gaps: **the lane's command, which this plan may not edit.** If EP-M1 shows
+narrowing is needed, the one-line change to
 `.github/workflows/advanced-tests.yml` is a dependency of completion, not a
 hand-off: EP-M4 is not complete until that line is landed, by whoever owns the
 file. Tracking it elsewhere does not make it happen, and a plan that declares
