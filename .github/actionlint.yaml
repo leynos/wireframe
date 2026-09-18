@@ -1,3 +1,19 @@
+# Runner labels actionlint cannot know about.
+#
+# actionlint validates `runs-on` against GitHub's own label set and reports
+# anything else as an unknown runner, so every non-hosted label this
+# repository uses has to be declared here.
+#
+# `namespace-profile-default` was retired when the four Namespace lanes moved:
+# three to GitHub-hosted runners, where the placement rule keeps scheduled,
+# delayed-comment and CodeScene-SHA lanes and public-repository minutes are
+# free, and the push coverage lane to Ubicloud.
+#
+# The registry is held to the labels actually in use, in both directions, by
+# tests/workflow_contracts/ci_runner_placement_test.py: a label registered
+# here and used nowhere is as much a defect as a label used and not
+# registered, because a stale entry silently permits a runner family nobody
+# reviewed for whatever lane adopts it next.
 self-hosted-runner:
   labels:
-    - namespace-profile-default
+    - ubicloud-standard-4

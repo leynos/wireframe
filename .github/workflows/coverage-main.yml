@@ -15,7 +15,19 @@ on:
 
 jobs:
   coverage-upload:
-    runs-on: namespace-profile-default
+    # A push lane, so Ubicloud rather than GitHub-hosted. There is no fork
+    # arm: `push` carries no pull request, so the guard would be constant
+    # here and a constant guard reads as a decision nobody made.
+    #
+    # Four vCPU for the same reason `ci.yml` is: this lane runs the same
+    # `generate-coverage` over the same workspace, so it runs the same
+    # trybuild case that nextest killed at 180 s on two vCPU. Its 240 s
+    # sample was taken on Namespace's shared profile, which is four vCPU and
+    # 16 GB, so two was never the shape it had been measured on. Sizing it
+    # down would have failed on the first merge push after this merged, with
+    # nobody watching.
+    runs-on: ubicloud-standard-4
+    timeout-minutes: 20
     permissions:
       contents: read
     env:
