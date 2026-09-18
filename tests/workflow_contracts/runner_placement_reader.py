@@ -65,6 +65,17 @@ def case_id(value: object) -> str:
     A coordinate is a ``(workflow, job id)`` tuple, which pytest would
     otherwise render as an opaque index.
 
+    Parameters
+    ----------
+    value
+        One parametrized case: a ``(workflow, job id)`` coordinate, or any
+        other value pytest was given.
+
+    Returns
+    -------
+    str
+        The coordinate's parts joined by ``-``, or ``str(value)`` otherwise.
+
     Examples
     --------
     >>> case_id(("ci.yml", "build-test"))
@@ -83,6 +94,11 @@ def workflow_paths() -> list[Path]:
     Both spellings of the extension are read, because GitHub runs a workflow
     written either way.
 
+    Returns
+    -------
+    list[Path]
+        Every workflow document under ``.github/workflows``, sorted by path.
+
     Examples
     --------
     >>> names = [path.name for path in workflow_paths()]
@@ -98,6 +114,11 @@ def workflow_paths() -> list[Path]:
 
 def workflows() -> dict[str, dict[str, object]]:
     """Parse every workflow document, keyed by file name.
+
+    Returns
+    -------
+    dict[str, dict[str, object]]
+        Each workflow's parsed document, keyed by its file name.
 
     Examples
     --------
@@ -115,6 +136,11 @@ def workflows() -> dict[str, dict[str, object]]:
 def jobs() -> dict[tuple[str, str], dict[str, object]]:
     """Return every job in the repository, keyed by ``(workflow, job id)``.
 
+    Returns
+    -------
+    dict[tuple[str, str], dict[str, object]]
+        Every job definition in the repository, keyed by its coordinate.
+
     Examples
     --------
     >>> ("ci.yml", "build-test") in jobs()
@@ -130,6 +156,16 @@ def jobs() -> dict[tuple[str, str], dict[str, object]]:
 def runner_value(definition: dict[str, object]) -> object | None:
     """Return a job's parsed ``runs-on`` value, if it declares one.
 
+    Parameters
+    ----------
+    definition
+        One job's parsed definition.
+
+    Returns
+    -------
+    object | None
+        The parsed ``runs-on`` value, or ``None`` when the job declares none.
+
     Examples
     --------
     >>> runner_value({"runs-on": "ubuntu-latest"})
@@ -142,6 +178,16 @@ def runner_value(definition: dict[str, object]) -> object | None:
 
 def runner_declarations(definition: dict[str, object]) -> list[object]:
     """Return a job's ``runs-on`` declarations, which may be a list of labels.
+
+    Parameters
+    ----------
+    definition
+        One job's parsed definition.
+
+    Returns
+    -------
+    list[object]
+        Each ``runs-on`` declaration, empty when the job declares none.
 
     Examples
     --------
@@ -162,6 +208,17 @@ def declaration_labels(declaration: object) -> set[str]:
     Both arms of an expression count. A label reachable only on the fork
     branch is as much in use as one reachable on the other.
 
+    Parameters
+    ----------
+    declaration
+        One ``runs-on`` declaration: a bare label or an expression.
+
+    Returns
+    -------
+    set[str]
+        Every label the declaration can select, both arms of an expression
+        included.
+
     Examples
     --------
     >>> declaration_labels("ubuntu-latest")
@@ -178,6 +235,16 @@ def declaration_labels(declaration: object) -> set[str]:
 def job_labels(definition: dict[str, object]) -> set[str]:
     """Return every label one job can select, across all its declarations.
 
+    Parameters
+    ----------
+    definition
+        One job's parsed definition.
+
+    Returns
+    -------
+    set[str]
+        Every label the job can select, across all of its declarations.
+
     Examples
     --------
     >>> sorted(job_labels({"runs-on": ["self-hosted", "linux"]}))
@@ -193,6 +260,11 @@ def job_labels(definition: dict[str, object]) -> set[str]:
 def labels_in_use() -> set[str]:
     """Return every label any lane in the repository can select.
 
+    Returns
+    -------
+    set[str]
+        Every label selectable by any job in any workflow.
+
     Examples
     --------
     >>> "ubuntu-latest" in labels_in_use()
@@ -203,6 +275,12 @@ def labels_in_use() -> set[str]:
 
 def registered_labels() -> set[str]:
     """Return the labels ``.github/actionlint.yaml`` registers.
+
+    Returns
+    -------
+    set[str]
+        Every label registered under ``self-hosted-runner``, empty when the
+        configuration registers none.
 
     Examples
     --------
@@ -219,6 +297,16 @@ def registered_labels() -> set[str]:
 
 def job_steps(coordinate: tuple[str, str]) -> list[dict[str, object]]:
     """Return one job's steps, in order.
+
+    Parameters
+    ----------
+    coordinate
+        The job's ``(workflow, job id)`` coordinate.
+
+    Returns
+    -------
+    list[dict[str, object]]
+        The job's mapping steps, in declaration order.
 
     Examples
     --------
@@ -238,6 +326,18 @@ def step_named(coordinate: tuple[str, str], name: str) -> dict[str, object]:
     Exactly one, not the first: two steps sharing a name means the contract
     is asserting against whichever happens to come first, and which one that
     is can change without anything failing.
+
+    Parameters
+    ----------
+    coordinate
+        The job's ``(workflow, job id)`` coordinate.
+    name
+        The step's ``name``, which must be unique within the job.
+
+    Returns
+    -------
+    dict[str, object]
+        The single step carrying that name.
 
     Examples
     --------
