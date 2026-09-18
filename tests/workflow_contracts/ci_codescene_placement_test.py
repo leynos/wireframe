@@ -85,7 +85,7 @@ def _triggers(document: dict[str, object]) -> dict[str, object]:
 
     ``on`` is YAML 1.1's boolean ``True`` unless the key was quoted, so both
     spellings are read. A workflow whose triggers are a bare string or a list
-    is normalised to a mapping with empty values.
+    is normalized to a mapping with empty values.
 
     Parameters
     ----------
