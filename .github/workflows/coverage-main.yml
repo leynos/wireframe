@@ -6,8 +6,11 @@ name: Coverage (main)
 # readable by every pull-request run, so the baseline written here is the
 # one PR ratchet checks compare against.
 #
-# The pull-request `cs-coverage check` gate is wired in ci.yml
-# (CodeScene project 68308's coverage gate is enabled).
+# This is the only workflow in the repository that may touch CodeScene. It
+# is not a pull-request lane, so a CodeScene CLI or format change cannot
+# block a merge here; it can only delay a coverage upload. The changed-line
+# gate on a pull request is CodeScene's own check, driven by what this
+# workflow uploads.
 
 on:
   push:
@@ -50,5 +53,9 @@ jobs:
         uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
         with:
           format: lcov
+          # Stated rather than left to the action's default, because this
+          # being the upload and not the pull-request check is the whole
+          # point of the split.
+          mode: upload
           access-token: ${{ env.CS_ACCESS_TOKEN }}
           installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}

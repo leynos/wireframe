@@ -441,6 +441,49 @@ A further test pins the `with:` block itself: `extra-args: "--all-features"`
 `wireframe_testing` companion target until its standalone doctests compile
 again (#578); restore that assertion alongside the input when #578 closes.
 
+### Where CodeScene may appear
+
+The CodeScene command-line tool is installed from a URL at job time and is not
+pinned upstream. Its installer and its output format have both moved without
+notice, and each time they moved, every pull-request lane in this estate that
+invoked the tool went red for a reason no change in the repository could have
+caused.
+
+So the tool runs in exactly one place: `coverage-main.yml`, on push to main. A
+failure there delays a coverage report. It cannot block a merge.
+
+A pull-request lane may still generate coverage, because the ratchet is ours
+and runs offline with no network dependency. What it may not do is any of these
+three, each of which fails
+`tests/workflow_contracts/ci_codescene_placement_test.py`:
+
+| Forbidden in a pull-request lane              | Why it is read                                     |
+| --------------------------------------------- | -------------------------------------------------- |
+| a step whose `uses:` names a CodeScene action | the obvious form                                   |
+| a `run:` step invoking `cs-coverage`          | the same hazard without an action to notice        |
+| `CS_ACCESS_TOKEN` at any scope                | a lane holding the token is one line from using it |
+
+*Table 2: What the CodeScene placement contract refuses.*
+
+The third row is what makes the contract worth having. Deleting the step but
+leaving the token in the job environment looks clean in a diff and leaves the
+hazard in place, so the whole document is walked for the name rather than the
+three scopes that are meant to carry it.
+
+A fourth test guards the other direction. Without it the rule could be
+satisfied by deleting coverage reporting altogether, which is compliance by
+amputation, so the publisher is asserted to exist, to run on push, not to be
+startable by a pull request, and to state `mode: upload` rather than inherit
+it. Stating the mode means the publisher cannot quietly become the pull-request
+check gate.
+
+`pull_request_target` counts as a pull-request trigger here. It runs on a pull
+request with write permissions, which makes it more dangerous than
+`pull_request`, not less.
+
+Each of the five ways to break this was applied alone and reverted while
+writing the contract, and each failed exactly one test.
+
 ## Workflow pins and Dependabot
 
 Dependabot owns the upgrade of GitHub Actions and reusable workflows, including
