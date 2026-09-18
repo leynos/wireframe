@@ -7,6 +7,8 @@ use super::{FromMessageRequest, MessageRequest, Payload};
 /// Extractor providing peer connection metadata.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectionInfo {
+    /// Captures the transport peer once so extractors cannot observe a later
+    /// connection being accepted by the same listener.
     peer_addr: Option<SocketAddr>,
 }
 

@@ -12,10 +12,15 @@ use crate::{
 /// Snapshot of the observable state around a message-assembly assertion.
 #[derive(Clone, Copy, Debug)]
 pub struct MessageAssemblySnapshot<'a> {
+    /// Most recent assembly result, including incomplete and error states.
     last_result: Option<&'a Result<Option<AssembledMessage>, MessageAssemblyError>>,
+    /// Completed messages retained by the driving scenario.
     completed_messages: &'a [AssembledMessage],
+    /// Message keys removed by timeout eviction.
     evicted_keys: &'a [MessageKey],
+    /// Number of partial assemblies still active.
     buffered_count: usize,
+    /// Aggregate body and metadata bytes still retained.
     total_buffered_bytes: usize,
 }
 
@@ -142,6 +147,7 @@ pub fn assert_message_assembly_error(
     }
 }
 
+/// Reuse numeric snapshot assertions while naming the selected field.
 macro_rules! assert_snapshot_usize_field {
     ($snapshot:expr, $field:ident, $expected:expr) => {
         assert_usize_field($snapshot.$field, $expected, stringify!($field))
@@ -188,6 +194,7 @@ pub fn assert_message_assembly_evicted(
     }
 }
 
+/// Render an assembly result for diagnostics when an assertion fails.
 fn describe_last_result(
     last_result: Option<&Result<Option<AssembledMessage>, MessageAssemblyError>>,
 ) -> String {

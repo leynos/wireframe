@@ -24,8 +24,11 @@ use super::{FragmentIndex, MessageId};
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Encode, Decode)]
 pub struct FragmentHeader {
+    /// Logical message identity used to select the reassembly buffer.
     message_id: MessageId,
+    /// Zero-based position used to reject gaps and identify duplicates.
     fragment_index: FragmentIndex,
+    /// Marks the fragment after which the reassembly buffer may be released.
     is_last_fragment: bool,
 }
 

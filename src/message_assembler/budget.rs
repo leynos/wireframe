@@ -15,7 +15,9 @@ use super::{MessageKey, error::MessageAssemblyError};
 /// `Option<NonZeroUsize>` parameters.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct AggregateBudgets {
+    /// Maximum bytes retained across all assemblies on one connection.
     pub(super) connection: Option<NonZeroUsize>,
+    /// Maximum bytes retained for frames currently awaiting completion.
     pub(super) in_flight: Option<NonZeroUsize>,
 }
 

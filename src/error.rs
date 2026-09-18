@@ -68,6 +68,7 @@ impl<E: std::fmt::Debug> std::fmt::Display for WireframeError<E> {
     }
 }
 
+/// Return the underlying transport or codec cause, when one exists.
 fn transport_or_codec_source<E>(
     error: &WireframeError<E>,
 ) -> Option<&(dyn std::error::Error + 'static)> {
@@ -94,6 +95,7 @@ impl std::error::Error for WireframeError<NoProtocolError> {
     }
 }
 
+/// Expose a protocol error as a source without claiming setup errors have one.
 fn protocol_error_source<E>(error: &WireframeError<E>) -> Option<&(dyn std::error::Error + 'static)>
 where
     E: std::error::Error + 'static,

@@ -11,13 +11,14 @@ mod workspace_manifest_support;
 #[path = "common/repo_access.rs"]
 mod repo_access;
 
-use repo_access::repo_root;
+use repo_access::{read_repo_file, repo_root};
 use rstest::rstest;
 use serde_json::Value;
 use workspace_manifest_support::{
     WorkspaceManifestResult as TestResult,
     cargo_metadata,
     has_manifest_line,
+    has_manifest_table,
     helper_package_id,
     root_manifest,
     root_package_id,
@@ -39,24 +40,73 @@ fn contains_json_string_field(json: &str, field: &str, value: &str) -> bool {
 fn root_manifest_declares_explicit_workspace_section() -> TestResult {
     let manifest = root_manifest()?;
     assert!(
-        has_manifest_line(&manifest, "[workspace]"),
+        has_manifest_table(&manifest, "[workspace]"),
         "root Cargo.toml should declare an explicit [workspace] section"
     );
     assert!(
         has_manifest_line(
             &manifest,
+            "[workspace]",
             "members = [\".\", \"crates/wireframe-verification\", \"wireframe_testing\"]"
         ),
         "the workspace should explicitly list the root, verification, and testing crates"
     );
     assert!(
-        has_manifest_line(&manifest, "default-members = [\".\"]"),
+        has_manifest_line(&manifest, "[workspace]", "default-members = [\".\"]"),
         "15.1.2 should keep the root package as the only default workspace member"
     );
     assert!(
-        has_manifest_line(&manifest, "resolver = \"3\""),
+        has_manifest_line(&manifest, "[workspace]", "resolver = \"3\""),
         "the hybrid workspace should opt into the edition-2024 resolver"
     );
+    Ok(())
+}
+
+#[rstest]
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "assertions provide clearer diagnostics in integration tests"
+)]
+fn companion_crates_inherit_private_documentation_clippy_policy() -> TestResult {
+    let root_manifest = root_manifest()?;
+    assert!(
+        has_manifest_table(&root_manifest, "[workspace.lints.clippy]"),
+        "the workspace must define its shared Clippy policy"
+    );
+    assert!(
+        has_manifest_line(
+            &root_manifest,
+            "[workspace.lints.clippy]",
+            "missing_docs_in_private_items = \"deny\""
+        ),
+        "the shared Clippy policy must deny undocumented private implementation items"
+    );
+    assert!(
+        has_manifest_table(&root_manifest, "[lints]"),
+        "the root package must opt into workspace lint inheritance"
+    );
+    assert!(
+        has_manifest_line(&root_manifest, "[lints]", "workspace = true"),
+        "the root package must inherit the shared Clippy policy"
+    );
+
+    for (package_name, manifest_path) in [
+        ("wireframe_testing", "wireframe_testing/Cargo.toml"),
+        (
+            "wireframe-verification",
+            "crates/wireframe-verification/Cargo.toml",
+        ),
+    ] {
+        let manifest = read_repo_file(manifest_path)?;
+        assert!(
+            has_manifest_table(&manifest, "[lints]"),
+            "{package_name} must opt into workspace lint inheritance"
+        );
+        assert!(
+            has_manifest_line(&manifest, "[lints]", "workspace = true"),
+            "{package_name} must inherit the shared Clippy policy"
+        );
+    }
     Ok(())
 }
 

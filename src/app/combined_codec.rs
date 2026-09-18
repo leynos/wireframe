@@ -5,15 +5,20 @@ use tokio_util::codec::{Decoder, Encoder};
 
 use crate::codec::FrameCodec;
 
+/// Adapter combining independent decoder and encoder halves for `Framed`.
 pub(super) struct CombinedCodec<D, E> {
+    /// Decoder that consumes bytes from the transport.
     decoder: D,
+    /// Encoder that writes protocol frames to the transport.
     encoder: E,
 }
 
 impl<D, E> CombinedCodec<D, E> {
+    /// Pair codec halves without changing either half's buffering semantics.
     pub(super) fn new(decoder: D, encoder: E) -> Self { Self { decoder, encoder } }
 }
 
+/// Codec type selected from a [`FrameCodec`] implementation.
 pub(super) type ConnectionCodec<F> =
     CombinedCodec<<F as FrameCodec>::Decoder, <F as FrameCodec>::Encoder>;
 

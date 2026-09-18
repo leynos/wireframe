@@ -41,17 +41,29 @@ use tracing::Level;
 )]
 #[derive(Clone, Debug)]
 pub struct TracingConfig {
+    /// Span level for connection establishment.
     pub(crate) connect_level: Level,
+    /// Span level for one-way sends.
     pub(crate) send_level: Level,
+    /// Span level for one-way receives.
     pub(crate) receive_level: Level,
+    /// Span level for request-response calls.
     pub(crate) call_level: Level,
+    /// Span level for streaming calls.
     pub(crate) streaming_level: Level,
+    /// Span level for orderly connection close.
     pub(crate) close_level: Level,
+    /// Emit elapsed microseconds for connection establishment.
     pub(crate) connect_timing: bool,
+    /// Emit elapsed microseconds for one-way sends.
     pub(crate) send_timing: bool,
+    /// Emit elapsed microseconds for one-way receives.
     pub(crate) receive_timing: bool,
+    /// Emit elapsed microseconds for request-response calls.
     pub(crate) call_timing: bool,
+    /// Emit elapsed microseconds for streaming calls.
     pub(crate) streaming_timing: bool,
+    /// Emit elapsed microseconds for orderly connection close.
     pub(crate) close_timing: bool,
 }
 

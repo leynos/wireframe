@@ -34,9 +34,13 @@ use crate::{
     serializer::Serializer,
 };
 
+/// Supervisor has not yet observed completion or cancellation.
 const SUPERVISOR_RUNNING: u8 = 0;
+/// Shutdown future resolved and cancellation was requested intentionally.
 const SUPERVISOR_GRACEFUL: u8 = 1;
+/// Supervisor guard was dropped before normal shutdown.
 const SUPERVISOR_DROPPED: u8 = 2;
+/// All tracked workers completed without cancellation.
 const SUPERVISOR_FINISHED: u8 = 3;
 
 /// Shares one terminal cancellation reason with the supervisor's accept loops.
@@ -45,21 +49,25 @@ const SUPERVISOR_FINISHED: u8 = 3;
 /// record its own exit. It never owns a listener or task tracker.
 #[derive(Clone, Debug)]
 pub(in crate::server) struct SupervisorLifecycle {
+    /// Atomic state shared by accept loops without owning their resources.
     state: Arc<AtomicU8>,
 }
 
 impl SupervisorLifecycle {
+    /// Start lifecycle tracking in the running state.
     fn new() -> Self {
         Self {
             state: Arc::new(AtomicU8::new(SUPERVISOR_RUNNING)),
         }
     }
 
+    /// Publish intentional cancellation before notifying worker loops.
     fn record_graceful_cancellation(&self) {
         self.state.store(SUPERVISOR_GRACEFUL, Ordering::Release);
         record_supervisor_cancellation(ServerCancellationReason::Graceful);
     }
 
+    /// Publish cancellation caused by dropping the supervisor future once.
     fn record_dropped_cancellation(&self) {
         if self
             .state
@@ -75,10 +83,12 @@ impl SupervisorLifecycle {
         }
     }
 
+    /// Mark normal worker completion without incrementing cancellation metrics.
     fn record_completion_without_cancellation(&self) {
         self.state.store(SUPERVISOR_FINISHED, Ordering::Release);
     }
 
+    /// Translate the atomic terminal state into the metrics-facing reason.
     pub(in crate::server) fn cancellation_reason(&self) -> ServerCancellationReason {
         match self.state.load(Ordering::Acquire) {
             SUPERVISOR_GRACEFUL => ServerCancellationReason::Graceful,
@@ -90,6 +100,7 @@ impl SupervisorLifecycle {
     }
 }
 
+/// Emit one cancellation metric and its structured diagnostic event.
 fn record_supervisor_cancellation(reason: ServerCancellationReason) {
     inc_server_supervisor_cancellation(reason);
     tracing::info!(
@@ -104,11 +115,14 @@ fn record_supervisor_cancellation(reason: ServerCancellationReason) {
 /// The wrapped [`DropGuardRef`] preserves Tokio's borrowed cancellation guard;
 /// this wrapper records the terminal reason before that guard cancels workers.
 struct SupervisorCancellationDropGuard<'a> {
+    /// Tokio guard that cancels workers when the supervisor future is dropped.
     _guard: DropGuardRef<'a>,
+    /// Shared reason state updated before Tokio performs cancellation.
     lifecycle: SupervisorLifecycle,
 }
 
 impl<'a> SupervisorCancellationDropGuard<'a> {
+    /// Pair Tokio's cancellation guard with lifecycle accounting.
     fn new(guard: DropGuardRef<'a>, lifecycle: SupervisorLifecycle) -> Self {
         Self {
             _guard: guard,
@@ -121,6 +135,7 @@ impl Drop for SupervisorCancellationDropGuard<'_> {
     fn drop(&mut self) { self.lifecycle.record_dropped_cancellation(); }
 }
 
+/// Wait for either intentional shutdown or completion of all worker tasks.
 #[expect(
     clippy::integer_division_remainder_used,
     reason = "tokio::select! expands to modulus internally"

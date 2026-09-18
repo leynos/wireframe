@@ -217,7 +217,7 @@ async fn slow_payloads_echo_happy_path() -> io::Result<()> {
         config,
     )
     .await?;
-    let frames = decode_frames(output)?;
+    let frames = decode_frames(&output)?;
     let payloads = deserialize_echo_payloads(&frames)?;
 
     if payloads != expected_payloads {

@@ -5,7 +5,18 @@
 
 use wireframe::{app::Envelope, serializer::BincodeSerializer, server::WireframeServer};
 
+/// Concrete application type used by the example's bincode-encoded envelope
+/// route.
+///
+/// The unit state keeps the example stateless while `Envelope` preserves the
+/// framework's request/response protocol at the application boundary.
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
+
+/// Thread-safe handler shape accepted by `WireframeApp::route`.
+///
+/// The shared callback can be cloned into each server-created application,
+/// while the boxed future lets a route return asynchronous work without
+/// imposing one concrete future type on the application.
 type EchoHandler =
     Arc<dyn Fn(&Envelope) -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> + Send + Sync>;
 
@@ -14,6 +25,12 @@ use std::{error::Error, net::SocketAddr, pin::Pin, sync::Arc};
 use tokio::signal;
 use tracing::{error, info};
 
+/// Creates the asynchronous callback for the echo route.
+///
+/// The callback records receipt for observability; `WireframeApp` owns the
+/// protocol response and echoes the incoming envelope after the handler has
+/// completed. Keeping the handler side-effect-free makes the wire-level echo
+/// behaviour explicit in this minimal example.
 fn echo_handler() -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
     Box::pin(async {
         info!("echo request received");
@@ -21,8 +38,19 @@ fn echo_handler() -> Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
     })
 }
 
+/// Constructs an application and binds route `1` to the echo callback.
+///
+/// Application construction is fallible because serializer and route setup
+/// can reject an invalid configuration; callers can therefore rebuild the
+/// application without hiding that failure behind a panic.
 fn build_app(handler: EchoHandler) -> wireframe::app::Result<App> { App::new()?.route(1, handler) }
 
+/// Starts the echo server and waits for a Ctrl-C shutdown signal.
+///
+/// A factory supplies independently constructed application state to the
+/// server, while the shared handler remains thread-safe for those instances.
+/// Binding, application construction, and server execution errors propagate to
+/// the command-line boundary for reporting.
 async fn run() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt::init();
 

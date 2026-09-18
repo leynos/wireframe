@@ -62,6 +62,7 @@ where
         self.hooks.on_command_end(&mut self.ctx);
     }
 
+    /// Log a stream termination with severity matching its cancellation cause.
     pub(super) fn log_multi_packet_closure(
         &self,
         reason: MultiPacketTerminationReason,

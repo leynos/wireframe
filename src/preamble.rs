@@ -13,6 +13,7 @@ use bincode::{
 };
 use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+/// Bound preamble reads so a peer cannot grow the initial buffer indefinitely.
 const MAX_PREAMBLE_LEN: usize = 1024;
 
 /// Trait bound for types accepted as connection preambles.
@@ -23,6 +24,7 @@ const MAX_PREAMBLE_LEN: usize = 1024;
 pub trait Preamble: for<'de> BorrowDecode<'de, ()> + Send + Sync + 'static {}
 impl<T> Preamble for T where for<'de> T: BorrowDecode<'de, ()> + Send + Sync + 'static {}
 
+/// Read exactly the requested additional bytes while enforcing the preamble cap.
 async fn read_more<R>(
     reader: &mut R,
     buf: &mut Vec<u8>,

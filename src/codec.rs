@@ -109,6 +109,7 @@ pub trait FrameCodec: Send + Sync + Clone + 'static {
 /// 4-byte big-endian length prefix (`tokio_util` default).
 #[derive(Clone, Debug)]
 pub struct LengthDelimitedFrameCodec {
+    /// Maximum payload accepted before the encoder reports a framing error.
     max_frame_length: usize,
 }
 
@@ -125,6 +126,7 @@ impl LengthDelimitedFrameCodec {
     #[must_use]
     pub fn max_frame_length(&self) -> usize { self.max_frame_length }
 
+    /// Build a fresh tokio codec so encoder and decoder state remain isolated.
     fn new_inner_codec(&self) -> LengthDelimitedCodec {
         LengthDelimitedCodec::builder()
             .max_frame_length(self.max_frame_length)
@@ -146,6 +148,7 @@ pub const LENGTH_HEADER_SIZE: usize = 4;
 /// Decoder half of [`LengthDelimitedFrameCodec`].
 #[doc(hidden)]
 pub struct LengthDelimitedDecoder {
+    /// Stateful length-delimited decoder used for one stream.
     inner: LengthDelimitedCodec,
 }
 
@@ -188,13 +191,17 @@ impl Decoder for LengthDelimitedDecoder {
     }
 }
 
+/// Buffer measurements used to classify clean EOF versus truncation.
 #[derive(Clone, Copy, Debug)]
 struct EofContext {
+    /// Number of bytes still present when EOF was observed.
     bytes_received: usize,
+    /// Declared payload length when a complete prefix was available.
     expected: Option<usize>,
 }
 
 impl EofContext {
+    /// Inspect buffered bytes without consuming them before EOF classification.
     fn from_buffer(src: &BytesMut) -> Self {
         let bytes_received = src.len();
         let expected = src
@@ -241,7 +248,9 @@ fn build_eof_error(context: EofContext) -> io::Error {
 /// Encoder half of [`LengthDelimitedFrameCodec`].
 #[doc(hidden)]
 pub struct LengthDelimitedEncoder {
+    /// Stateful length-delimited encoder used for one stream.
     inner: LengthDelimitedCodec,
+    /// Local limit checked before delegating to the underlying encoder.
     max_frame_length: usize,
 }
 

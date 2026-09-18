@@ -375,5 +375,5 @@ where
         config,
     )
     .await?;
-    decode_frames_with_codec(codec, raw)
+    decode_frames_with_codec(codec, &raw)
 }

@@ -95,7 +95,9 @@ pub struct ContinuationFrameHeader {
 /// Result of parsing a frame header from payload bytes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParsedFrameHeader {
+    /// Parsed protocol variant used to route body bytes and ordering checks.
     header: FrameHeader,
+    /// Number of prefix bytes consumed while parsing the header.
     header_len: usize,
 }
 

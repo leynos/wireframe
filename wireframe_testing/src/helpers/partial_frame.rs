@@ -145,7 +145,7 @@ where
     let wire_bytes: Vec<u8> = encoded.into_iter().flatten().collect();
     let raw =
         drive_chunked_internal(handler, wire_bytes, config.chunk_size, config.capacity).await?;
-    decode_frames_with_codec(codec, raw)
+    decode_frames_with_codec(codec, &raw)
 }
 
 // ---------------------------------------------------------------------------

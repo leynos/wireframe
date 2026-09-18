@@ -15,6 +15,9 @@ use super::{
 /// RESP frame codec for use with Wireframe.
 #[derive(Clone, Debug)]
 pub struct RespFrameCodec {
+    /// Upper bound applied before a frame is admitted to the transport.
+    /// Keeping this limit in the codec makes decoder and encoder enforcement
+    /// symmetrical, so neither direction can allocate an unbounded payload.
     max_frame_length: usize,
 }
 
@@ -27,10 +30,14 @@ impl RespFrameCodec {
 /// Tokio codec adapter for RESP frames.
 #[derive(Clone, Debug)]
 pub struct RespAdapter {
+    /// Maximum encoded or decoded frame size delegated by the parent codec.
+    /// The adapter checks it before advancing the input buffer or reserving
+    /// output capacity, preserving the stream boundary on rejected frames.
     max_frame_length: usize,
 }
 
 impl RespAdapter {
+    /// Build a Tokio adapter carrying the frame-size policy for one direction.
     fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 

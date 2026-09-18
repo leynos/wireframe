@@ -269,7 +269,7 @@ fn wireframe_testing_fixture_cases_continue_to_surface_expected_errors(
     #[case] case: HelperDecodeCase,
 ) {
     let codec = LengthDelimitedFrameCodec::new(4096);
-    let error = decode_frames_with_codec(&codec, case.eof_case.wire())
+    let error = decode_frames_with_codec(&codec, &case.eof_case.wire())
         .expect_err("fixture input should fail to decode");
     let codec_error = extract_codec_error(&error);
 

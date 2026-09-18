@@ -28,12 +28,19 @@ use crate::{
 /// let _ = builder;
 /// ```
 pub struct WireframeClientBuilder<S = BincodeSerializer, P = (), C = ()> {
+    /// Serializer retained until a physical connection is created.
     pub(crate) serializer: S,
+    /// Length-prefix and frame-size limits applied to each connection.
     pub(crate) codec_config: ClientCodecConfig,
+    /// OS-level options applied before opening the TCP stream.
     pub(crate) socket_options: SocketOptions,
+    /// Optional handshake recipe, including callbacks and timeout.
     pub(crate) preamble_config: Option<PreambleConfig<P>>,
+    /// Setup and teardown callbacks that own per-connection state.
     pub(crate) lifecycle_hooks: LifecycleHooks<C>,
+    /// Hooks invoked around request dispatch on each connection.
     pub(crate) request_hooks: RequestHooks,
+    /// Span levels and timing switches copied into each connection.
     pub(crate) tracing_config: TracingConfig,
 }
 

@@ -64,12 +64,19 @@ use super::{
 /// # drop((_queues, _handle));
 /// ```
 #[derive(Debug)]
+/// Pending queue and dead-letter settings consumed by `build`.
 pub struct PushQueuesBuilder<F> {
+    /// Buffer size for urgent frames.
     high_capacity: usize,
+    /// Buffer size for best-effort frames.
     low_capacity: usize,
+    /// Optional global pushes-per-second limiter.
     rate: Option<usize>,
+    /// Optional sink receiving frames dropped under a full-queue policy.
     dlq: Option<mpsc::Sender<F>>,
+    /// Number of drops between count-based diagnostics.
     dlq_log_every_n: usize,
+    /// Minimum interval between drop diagnostics.
     dlq_log_interval: Duration,
 }
 

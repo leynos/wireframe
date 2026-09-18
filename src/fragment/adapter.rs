@@ -63,7 +63,9 @@ pub trait FragmentAdapter: Send + Sync {
 /// Default adapter backed by [`Fragmenter`] and [`Reassembler`].
 #[derive(Debug)]
 pub struct DefaultFragmentAdapter {
+    /// Outbound state that assigns message ids and emits bounded chunks.
     fragmenter: Fragmenter,
+    /// Inbound state that enforces ordering and bounds partial allocations.
     reassembler: Reassembler,
 }
 

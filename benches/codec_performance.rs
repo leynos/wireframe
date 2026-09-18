@@ -22,6 +22,12 @@ use wireframe_testing::codec_benchmarks::{
     measure_unfragmented_wrap,
 };
 
+/// Measures a fragmented payload using the benchmark suite's fixed fragment
+/// capacity.
+///
+/// Fragment setup is part of the benchmark invariant, so an invalid workload
+/// is a configuration error and stops the benchmark instead of recording a
+/// misleading timing sample.
 fn fragmented_measurement(payload_class: PayloadClass, iterations: u64) -> Measurement {
     match measure_fragmented_wrap(payload_class, iterations, FRAGMENT_PAYLOAD_CAP_BYTES) {
         Ok(measurement) => measurement,
@@ -29,6 +35,12 @@ fn fragmented_measurement(payload_class: PayloadClass, iterations: u64) -> Measu
     }
 }
 
+/// Records Criterion timings for encoding the representative codec workloads.
+///
+/// Each custom iteration reports the helper's elapsed duration while
+/// black-boxing the encoded byte count keeps the measurement observable to the
+/// compiler. Throughput is labelled with the payload size so workload samples
+/// remain comparable.
 fn benchmark_encode(c: &mut Criterion) {
     let mut group = c.benchmark_group("codec/encode");
 
@@ -49,6 +61,11 @@ fn benchmark_encode(c: &mut Criterion) {
     group.finish();
 }
 
+/// Records Criterion timings for decoding the representative codec workloads.
+///
+/// The decode path mirrors the encode measurement contract: elapsed time comes
+/// from the shared workload helper, and the decoded byte count is black-boxed
+/// to prevent optimization from removing the operation under test.
 fn benchmark_decode(c: &mut Criterion) {
     let mut group = c.benchmark_group("codec/decode");
 
@@ -69,6 +86,12 @@ fn benchmark_decode(c: &mut Criterion) {
     group.finish();
 }
 
+/// Compares wrapped payload costs with and without protocol fragmentation.
+///
+/// A validated baseline supplies the displayed ratio, then separate Criterion
+/// functions measure each wrapping path. Keeping the baseline outside the
+/// timed closures avoids folding validation and ratio calculation into the
+/// codec timings.
 fn benchmark_fragmentation_overhead(c: &mut Criterion) {
     let mut group = c.benchmark_group("codec/fragmentation_overhead");
 

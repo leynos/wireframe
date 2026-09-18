@@ -7,6 +7,7 @@ use super::{ConnectionAction, ConnectionState, properties::properties, state::Ac
 /// Small semantic model used to land the verification crate and shared harness.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PlaceholderConnectionModel {
+    /// Caps a single checker path so CI explores a representative, finite model.
     max_steps: u8,
 }
 
@@ -16,7 +17,11 @@ impl Default for PlaceholderConnectionModel {
 }
 
 impl PlaceholderConnectionModel {
-    /// Create a model with an explicit state-space depth bound.
+    /// Creates a model with an explicit state-space depth bound.
+    ///
+    /// The bound limits path exploration rather than changing which connection
+    /// transitions are legal.
+    #[must_use]
     pub fn new(max_steps: u8) -> Self { Self { max_steps } }
 
     /// Clone `state` and advance the step counter by one.
@@ -41,15 +46,15 @@ impl PlaceholderConnectionModel {
 
     /// Transition: enqueue a high-priority output request.
     fn apply_enqueue_high(state: &ConnectionState) -> Option<ConnectionState> {
-        Self::apply_if(state, !state.high_priority_queued, |next| {
-            next.high_priority_queued = true;
+        Self::apply_if(state, !state.pending_outputs.high_priority_queued, |next| {
+            next.pending_outputs.high_priority_queued = true;
         })
     }
 
     /// Transition: enqueue a low-priority output request.
     fn apply_enqueue_low(state: &ConnectionState) -> Option<ConnectionState> {
-        Self::apply_if(state, !state.low_priority_queued, |next| {
-            next.low_priority_queued = true;
+        Self::apply_if(state, !state.pending_outputs.low_priority_queued, |next| {
+            next.pending_outputs.low_priority_queued = true;
         })
     }
 
@@ -70,26 +75,26 @@ impl PlaceholderConnectionModel {
 
     /// Transition: emit the queued high-priority output.
     fn apply_emit_high(state: &ConnectionState) -> Option<ConnectionState> {
-        Self::apply_if(state, state.high_priority_queued, |next| {
-            next.high_priority_queued = false;
-            next.emitted_high_priority = true;
-            next.fairness_allows_low = true;
+        Self::apply_if(state, state.pending_outputs.high_priority_queued, |next| {
+            next.pending_outputs.high_priority_queued = false;
+            next.emissions.high_priority = true;
+            next.pending_outputs.fairness_allows_low = true;
         })
     }
 
     /// Transition: emit the queued low-priority output under the fairness policy.
     fn apply_emit_low(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(state, state.can_emit_low_priority(), |next| {
-            next.low_priority_queued = false;
-            next.emitted_low_priority = true;
-            next.fairness_allows_low = false;
+            next.pending_outputs.low_priority_queued = false;
+            next.emissions.low_priority = true;
+            next.pending_outputs.fairness_allows_low = false;
         })
     }
 
     /// Transition: emit one frame from the active output stream.
     fn apply_emit_active_frame(state: &ConnectionState) -> Option<ConnectionState> {
         Self::apply_if(state, !state.is_output_idle(), |next| {
-            next.shutdown_during_output = state.shutdown_requested;
+            next.shutdown.during_output = state.shutdown.requested;
         })
     }
 
@@ -100,7 +105,7 @@ impl PlaceholderConnectionModel {
             matches!(state.active_output, ActiveOutput::Response),
             |next| {
                 next.active_output = ActiveOutput::Idle;
-                next.response_completed = true;
+                next.completed_outputs.response = true;
             },
         )
     }
@@ -112,7 +117,7 @@ impl PlaceholderConnectionModel {
             matches!(state.active_output, ActiveOutput::MultiPacket),
             |next| {
                 next.active_output = ActiveOutput::Idle;
-                next.multi_packet_completed = true;
+                next.completed_outputs.multi_packet = true;
                 next.multi_packet_terminal_count =
                     next.multi_packet_terminal_count.saturating_add(1);
             },
@@ -121,16 +126,16 @@ impl PlaceholderConnectionModel {
 
     /// Transition: request connection shutdown.
     fn apply_shutdown(state: &ConnectionState) -> Option<ConnectionState> {
-        Self::apply_if(state, !state.shutdown_requested, |next| {
-            next.shutdown_requested = true;
-            next.shutdown_during_output = !state.is_output_idle();
+        Self::apply_if(state, !state.shutdown.requested, |next| {
+            next.shutdown.requested = true;
+            next.shutdown.during_output = !state.is_output_idle();
         })
     }
 
     /// Transition: advance the fairness timer to allow low-priority emission.
     fn apply_tick_fairness(state: &ConnectionState) -> Option<ConnectionState> {
-        Self::apply_if(state, state.low_priority_queued, |next| {
-            next.fairness_allows_low = true;
+        Self::apply_if(state, state.pending_outputs.low_priority_queued, |next| {
+            next.pending_outputs.fairness_allows_low = true;
         })
     }
 }
@@ -185,10 +190,14 @@ impl Model for PlaceholderConnectionModel {
 
 #[cfg(test)]
 mod tests {
+    //! Bounded state-space tests verify the model's transitions and their
+    //! interaction with the connection properties.
+
     use rstest::rstest;
     use stateright::Model;
 
     use super::*;
+    use crate::connection_model::state::{PendingOutputs, ShutdownState};
 
     #[rstest]
     #[case(ConnectionAction::EnqueueHigh, true, false)]
@@ -204,8 +213,8 @@ mod tests {
             .expect("enqueue transition should be enabled");
 
         assert_eq!(next.steps, 1);
-        assert_eq!(next.high_priority_queued, expected_high);
-        assert_eq!(next.low_priority_queued, expected_low);
+        assert_eq!(next.pending_outputs.high_priority_queued, expected_high);
+        assert_eq!(next.pending_outputs.low_priority_queued, expected_low);
     }
 
     #[rstest]
@@ -225,8 +234,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(ConnectionAction::EnqueueHigh, ConnectionState { high_priority_queued: true, ..Default::default() })]
-    #[case(ConnectionAction::EnqueueLow, ConnectionState { low_priority_queued: true, ..Default::default() })]
+    #[case(ConnectionAction::EnqueueHigh, ConnectionState {
+        pending_outputs: PendingOutputs { high_priority_queued: true, ..Default::default() },
+        ..Default::default()
+    })]
+    #[case(ConnectionAction::EnqueueLow, ConnectionState {
+        pending_outputs: PendingOutputs { low_priority_queued: true, ..Default::default() },
+        ..Default::default()
+    })]
     fn next_state_rejects_duplicate_enqueue(
         #[case] action: ConnectionAction,
         #[case] state: ConnectionState,
@@ -238,7 +253,10 @@ mod tests {
 
     #[rstest]
     #[case(ConnectionState { active_output: ActiveOutput::Response, ..Default::default() })]
-    #[case(ConnectionState { shutdown_requested: true, ..Default::default() })]
+    #[case(ConnectionState {
+        shutdown: ShutdownState { requested: true, ..Default::default() },
+        ..Default::default()
+    })]
     fn install_transitions_require_idle_output_and_no_shutdown(#[case] state: ConnectionState) {
         let model = PlaceholderConnectionModel::default();
 
@@ -255,9 +273,11 @@ mod tests {
     #[rstest]
     #[case(ConnectionState::default())]
     #[case(ConnectionState {
-        low_priority_queued: true,
-        high_priority_queued: true,
-        fairness_allows_low: false,
+        pending_outputs: PendingOutputs {
+            low_priority_queued: true,
+            high_priority_queued: true,
+            fairness_allows_low: false,
+        },
         ..Default::default()
     })]
     fn emit_low_priority_requires_queue_and_fairness(#[case] state: ConnectionState) {

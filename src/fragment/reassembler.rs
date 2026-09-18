@@ -21,20 +21,29 @@ use bincode::error::DecodeError;
 use super::{FragmentHeader, FragmentSeries, FragmentStatus, MessageId, ReassemblyError};
 use crate::message::Message;
 
+/// Owned state retained while a message's remaining fragments arrive.
 #[derive(Debug)]
 struct PartialMessage {
+    /// Ordering tracker for fragments already accepted into this buffer.
     series: FragmentSeries,
+    /// Concatenated payload, retained until the final fragment arrives.
     buffer: Vec<u8>,
+    /// Clock reading used to evict abandoned assemblies.
     started_at: Instant,
 }
 
+/// Borrowed inputs used when registering the first fragment of a series.
 struct FirstFragment<'a> {
+    /// Header establishing the message identity and initial ordering state.
     header: FragmentHeader,
+    /// Payload borrowed only for the duration of insertion and validation.
     payload: &'a [u8],
+    /// Timestamp that anchors timeout-based eviction for this series.
     now: Instant,
 }
 
 impl PartialMessage {
+    /// Start a partial message with its first payload and timeout timestamp.
     fn new(series: FragmentSeries, payload: &[u8], started_at: Instant) -> Self {
         Self {
             series,
@@ -43,19 +52,25 @@ impl PartialMessage {
         }
     }
 
+    /// Append an ordered fragment payload to the owned reassembly buffer.
     fn push(&mut self, payload: &[u8]) { self.buffer.extend_from_slice(payload); }
 
+    /// Return the number of payload bytes currently buffered.
     fn len(&self) -> usize { self.buffer.len() }
 
+    /// Return the timestamp at which this partial series began.
     fn started_at(&self) -> Instant { self.started_at }
 
+    /// Release the completed payload buffer to avoid a second allocation.
     fn into_buffer(self) -> Vec<u8> { self.buffer }
 }
 
 /// Container for a fully re-assembled message payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReassembledMessage {
+    /// Identity of the logical message reconstructed from the fragments.
     message_id: MessageId,
+    /// Contiguous payload bytes in protocol order.
     payload: Vec<u8>,
 }
 
@@ -95,8 +110,11 @@ impl ReassembledMessage {
 /// Stateful fragment re-assembler with timeout-based eviction.
 #[derive(Debug)]
 pub struct Reassembler {
+    /// Hard cap protecting the process from unbounded peer-controlled growth.
     max_message_size: NonZeroUsize,
+    /// Age after which an incomplete series is discarded.
     timeout: Duration,
+    /// In-flight buffers keyed by logical message identity.
     buffers: HashMap<MessageId, PartialMessage>,
 }
 
@@ -192,6 +210,7 @@ impl Reassembler {
     #[must_use]
     pub fn buffered_len(&self) -> usize { self.buffers.len() }
 
+    /// Reject a buffer size that would exceed the configured message cap.
     fn assert_within_limit(
         limit: NonZeroUsize,
         message_id: MessageId,
@@ -207,6 +226,7 @@ impl Reassembler {
         Ok(())
     }
 
+    /// Append an accepted payload and remove the entry when it completes.
     fn append_and_maybe_complete(
         limit: NonZeroUsize,
         mut occupied: OccupiedEntry<'_, MessageId, PartialMessage>,
@@ -236,6 +256,7 @@ impl Reassembler {
         }
     }
 
+    /// Validate and append a fragment for an already-started series.
     fn push_existing_fragment(
         limit: NonZeroUsize,
         mut occupied: OccupiedEntry<'_, MessageId, PartialMessage>,
@@ -263,6 +284,7 @@ impl Reassembler {
         }
     }
 
+    /// Validate and register the first fragment for a previously unseen id.
     fn push_first_fragment(
         limit: NonZeroUsize,
         vacant: std::collections::hash_map::VacantEntry<'_, MessageId, PartialMessage>,

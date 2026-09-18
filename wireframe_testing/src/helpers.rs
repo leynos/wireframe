@@ -41,8 +41,11 @@ impl<T> TestSerializer for T where
 {
 }
 
+/// Default duplex capacity that permits ordinary frame-exchange fixtures.
 pub(crate) const DEFAULT_CAPACITY: usize = 4096;
+/// Largest capacity accepted by slow-I/O fixtures before they lose their purpose.
 pub(crate) const MAX_CAPACITY: usize = wireframe::testkit::MAX_SLOW_IO_CAPACITY;
+/// Tiny duplex capacity used to exercise a server with no buffered response room.
 pub(crate) const EMPTY_SERVER_CAPACITY: usize = 64;
 /// Shared frame cap used by helpers and tests to avoid drift.
 pub const TEST_MAX_FRAME: usize = DEFAULT_CAPACITY;

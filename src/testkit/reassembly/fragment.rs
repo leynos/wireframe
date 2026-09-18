@@ -9,9 +9,13 @@ use crate::{
 /// Snapshot of the observable state around a fragment-reassembly assertion.
 #[derive(Clone, Copy, Debug)]
 pub struct FragmentReassemblySnapshot<'a> {
+    /// Most recent complete payload, if the drive produced one.
     last_reassembled: Option<&'a ReassembledMessage>,
+    /// Most recent protocol or size failure, if one occurred.
     last_error: Option<&'a ReassemblyError>,
+    /// Message ids removed by the latest timeout purge.
     evicted_ids: &'a [MessageId],
+    /// Number of incomplete message buffers still retained.
     buffered_messages: usize,
 }
 
@@ -143,6 +147,7 @@ pub fn assert_fragment_reassembly_evicted(
     }
 }
 
+/// Match the structured reassembly error against a test expectation.
 fn matches_fragment_error(
     err: &ReassemblyError,
     expected: FragmentReassemblyErrorExpectation,

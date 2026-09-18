@@ -32,11 +32,15 @@ use crate::{
 /// Outbound frame processing pipeline mirroring the connection actor's
 /// `process_frame_with_hooks_and_metrics` logic.
 ///
-/// Applies optional fragmentation and outbound metrics to each envelope.
+/// Applies optional outbound envelope fragmentation and supports inbound
+/// fragment reassembly.
 /// Produces a buffer of processed envelopes ready for serialization and
 /// transmission.
 pub(crate) struct FramePipeline {
+    /// State shared by outbound envelope fragmentation and inbound fragment
+    /// reassembly.
     fragmentation: Option<FragmentationState>,
+    /// Envelopes waiting to be serialized and written to the transport.
     out: Vec<Envelope>,
 }
 
@@ -105,6 +109,7 @@ impl FramePipeline {
     #[cfg(test)]
     pub(crate) fn has_fragmentation(&self) -> bool { self.fragmentation.is_some() }
 
+    /// Append one processed envelope and account for its outbound emission.
     fn push_frame(&mut self, envelope: Envelope) {
         self.out.push(envelope);
         crate::metrics::inc_frames(crate::metrics::Direction::Outbound);

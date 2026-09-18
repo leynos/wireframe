@@ -22,14 +22,19 @@ use super::{
 /// Partial message assembly in progress.
 #[derive(Debug)]
 struct PartialAssembly {
+    /// Ordering state that rejects gaps, duplicates, and post-completion data.
     series: MessageSeries,
+    /// Envelope routing retained until the assembled message is emitted.
     routing: EnvelopeRouting,
+    /// First-frame metadata kept separate from the body for reconstruction.
     metadata: Vec<u8>,
+    /// Ordered body bytes accumulated from first and continuation frames.
     body_buffer: Vec<u8>,
+    /// Start time used to discard incomplete peer-controlled state.
     started_at: Instant,
 }
-
 impl PartialAssembly {
+    /// Create empty assembly storage anchored at the first frame's timestamp.
     fn new(series: MessageSeries, routing: EnvelopeRouting, started_at: Instant) -> Self {
         Self {
             series,
@@ -39,17 +44,15 @@ impl PartialAssembly {
             started_at,
         }
     }
-
+    /// Append body bytes after the caller has validated size and ordering.
     fn push_body(&mut self, data: &[u8]) { self.body_buffer.extend_from_slice(data); }
-
+    /// Replace the first-frame metadata retained for the completed message.
     fn set_metadata(&mut self, data: Vec<u8>) { self.metadata = data; }
-
+    /// Return body bytes accumulated so far for per-message budget checks.
     fn accumulated_len(&self) -> usize { self.body_buffer.len() }
-
-    /// Total heap bytes held by this partial assembly (body + metadata).
+    /// Logical payload length represented by the body and metadata buffers.
     fn buffered_bytes(&self) -> usize { self.body_buffer.len().saturating_add(self.metadata.len()) }
 }
-
 /// Stateful manager for multiple concurrent message assemblies.
 ///
 /// Tracks in-flight assemblies keyed by [`MessageKey`], applying continuity
@@ -110,12 +113,15 @@ impl PartialAssembly {
 /// ```
 #[derive(Debug)]
 pub struct MessageAssemblyState {
+    /// Maximum body size permitted for one logical message.
     max_message_size: NonZeroUsize,
+    /// Age after which incomplete assemblies are removed.
     timeout: Duration,
+    /// Active assemblies keyed by protocol message key.
     assemblies: HashMap<MessageKey, PartialAssembly>,
+    /// Aggregate limits protecting connection and in-flight memory.
     budgets: AggregateBudgets,
 }
-
 impl MessageAssemblyState {
     /// Create a new assembly state manager.
     ///
@@ -127,7 +133,6 @@ impl MessageAssemblyState {
     pub fn new(max_message_size: NonZeroUsize, timeout: Duration) -> Self {
         Self::with_budgets(max_message_size, timeout, None, None)
     }
-
     /// Create a new assembly state manager with optional aggregate budgets.
     ///
     /// When `connection_budget` or `in_flight_budget` is `Some`, frames that
@@ -150,7 +155,6 @@ impl MessageAssemblyState {
             },
         }
     }
-
     /// Process a first frame, starting a new assembly.
     ///
     /// Returns `Ok(Some(msg))` if the first frame is also the last (single-
@@ -169,7 +173,6 @@ impl MessageAssemblyState {
     ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
         self.accept_first_frame_at(input, Instant::now())
     }
-
     /// Process a first frame with an explicit timestamp.
     ///
     /// See [`accept_first_frame`](Self::accept_first_frame) for details.
@@ -185,7 +188,6 @@ impl MessageAssemblyState {
         now: Instant,
     ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
         self.purge_expired_at(now);
-
         let key = input.header.message_key;
 
         // Check for duplicate first frame
@@ -239,7 +241,6 @@ impl MessageAssemblyState {
 
         Ok(None)
     }
-
     /// Process a continuation frame.
     ///
     /// Returns `Ok(Some(msg))` if the message is now complete, `Ok(None)` if
@@ -256,7 +257,6 @@ impl MessageAssemblyState {
     ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
         self.accept_continuation_frame_at(header, body, Instant::now())
     }
-
     /// Whether a continuity error is unrecoverable and requires assembly removal.
     ///
     /// Unrecoverable errors (`KeyMismatch`, `SequenceOverflow`, etc.) indicate the

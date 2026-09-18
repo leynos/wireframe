@@ -49,7 +49,7 @@ async fn send_response_encodes_and_frames() -> TestResult {
         .await
         .map_err(|e| format!("send_response failed: {e}"))?;
 
-    let frames = decode_frames(out)?;
+    let frames = decode_frames(&out)?;
     assert_eq!(frames.len(), 1, "expected a single response frame");
     let frame = frames.first().ok_or("expected frame missing")?;
     let (decoded, _) =
@@ -160,7 +160,7 @@ async fn send_response_framed_with_codec_writes_encoded_frame() {
         .read_to_end(&mut out)
         .await
         .expect("read framed bytes");
-    let decoded_frames = decode_frames(out).expect("decode response frames");
+    let decoded_frames = decode_frames(&out).expect("decode response frames");
     assert_eq!(decoded_frames.len(), 1);
     let frame = decoded_frames.first().expect("response frame missing");
     let (decoded, _) = TestResp::from_bytes(frame).expect("deserialize response");
@@ -187,7 +187,7 @@ async fn send_response_framed_sends_raw_serialized_payload() -> TestResult {
         .read_to_end(&mut out)
         .await
         .map_err(|e| format!("read framed output failed: {e}"))?;
-    let decoded_frames = decode_frames(out)?;
+    let decoded_frames = decode_frames(&out)?;
     assert_eq!(decoded_frames.len(), 1);
     let frame = decoded_frames.first().ok_or("response frame missing")?;
     assert_eq!(frame, &expected);
@@ -211,7 +211,7 @@ async fn send_response_framed_honours_buffer_capacity() -> TestResult {
         .read_to_end(&mut out)
         .await
         .map_err(|e| format!("read framed output failed: {e}"))?;
-    let decoded_frames = decode_frames_with_max(out, LARGE_FRAME)?;
+    let decoded_frames = decode_frames_with_max(&out, LARGE_FRAME)?;
     assert_eq!(decoded_frames.len(), 1);
     let frame = decoded_frames.first().ok_or("response frame missing")?;
     let (decoded, _) = Large::from_bytes(frame).map_err(|e| format!("deserialize failed: {e}"))?;
@@ -233,7 +233,7 @@ async fn send_response_honours_buffer_capacity() -> TestResult {
         .await
         .map_err(|e| format!("send_response failed: {e}"))?;
 
-    let frames = decode_frames_with_max(out, LARGE_FRAME)?;
+    let frames = decode_frames_with_max(&out, LARGE_FRAME)?;
     assert_eq!(frames.len(), 1, "expected a single response frame");
     let frame = frames.first().ok_or("response frame missing")?;
     let (decoded, _) = Large::from_bytes(frame).map_err(|e| format!("deserialize failed: {e}"))?;
@@ -259,7 +259,7 @@ async fn process_stream_honours_buffer_capacity() -> TestResult {
     let frame = encode_frame(&mut codec, bytes)?;
     let out = run_app(app, vec![frame], Some(10 * 1024 * 1024)).await?;
 
-    let frames = decode_frames_with_max(out, LARGE_FRAME)?;
+    let frames = decode_frames_with_max(&out, LARGE_FRAME)?;
     assert_eq!(frames.len(), 1, "expected a single response frame");
     let frame = frames.first().ok_or("response frame missing")?;
     let (resp_env, _) = BincodeSerializer

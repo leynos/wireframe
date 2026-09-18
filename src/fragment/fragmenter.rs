@@ -16,17 +16,26 @@ use crate::message::Message;
 /// Splits logical messages into fragment-sized frames.
 #[derive(Debug)]
 pub struct Fragmenter {
+    /// Maximum number of payload bytes carried by one transport fragment.
     max_fragment_size: NonZeroUsize,
+    /// Atomically allocated id for the next logical message.
     next_message_id: AtomicU64,
 }
 
+/// Cursor used while walking a payload into sequential fragment slices.
+///
+/// Keeping the byte offset and protocol index together prevents a fragment
+/// from being labelled with a position that does not match its payload slice.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FragmentCursor {
+    /// Byte offset at which the next fragment starts.
     offset: usize,
+    /// Protocol index assigned to the next fragment.
     index: FragmentIndex,
 }
 
 impl FragmentCursor {
+    /// Pair a payload offset with its corresponding fragment index.
     pub(crate) const fn new(offset: usize, index: FragmentIndex) -> Self { Self { offset, index } }
 }
 
@@ -118,6 +127,7 @@ impl Fragmenter {
         Ok(FragmentBatch::new(message_id, fragments))
     }
 
+    /// Build all fragments starting at the first protocol index.
     fn build_fragments(
         &self,
         message_id: MessageId,
@@ -130,6 +140,7 @@ impl Fragmenter {
         )
     }
 
+    /// Continue fragment construction from a cursor, validating each slice.
     fn build_fragments_from(
         &self,
         message_id: MessageId,
@@ -199,7 +210,9 @@ impl Fragmenter {
 /// Metadata and payload for a single outbound fragment.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FragmentFrame {
+    /// Header carrying identity, order, and completion state on the wire.
     header: FragmentHeader,
+    /// Bytes belonging to this fragment, excluding the encoded header.
     payload: Vec<u8>,
 }
 
@@ -224,11 +237,14 @@ impl FragmentFrame {
 /// Collection of fragments produced for a single logical message.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FragmentBatch {
+    /// Identifier shared by every frame in this batch.
     message_id: MessageId,
+    /// Frames in ascending fragment-index order.
     fragments: Vec<FragmentFrame>,
 }
 
 impl FragmentBatch {
+    /// Construct a non-empty batch produced for one logical message.
     fn new(message_id: MessageId, fragments: Vec<FragmentFrame>) -> Self {
         debug_assert!(!fragments.is_empty(), "fragment batches must not be empty");
         Self {
@@ -269,4 +285,5 @@ impl IntoIterator for FragmentBatch {
     fn into_iter(self) -> Self::IntoIter { self.fragments.into_iter() }
 }
 
+/// Compute the number of fixed-width chunks needed for a payload.
 fn div_ceil(numerator: usize, denominator: usize) -> usize { numerator.div_ceil(denominator) }

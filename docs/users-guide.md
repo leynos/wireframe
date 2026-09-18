@@ -306,19 +306,19 @@ let codec = HotlineFrameCodec::new(4096);
 
 // Valid frame — decodes cleanly.
 let wire = valid_hotline_wire(b"hello", 7);
-let frames = decode_frames_with_codec(&codec, wire).unwrap();
+let frames = decode_frames_with_codec(&codec, &wire).unwrap();
 
 // Oversized frame — rejected with "payload too large".
 let wire = oversized_hotline_wire(4096);
-assert!(decode_frames_with_codec(&codec, wire).is_err());
+assert!(decode_frames_with_codec(&codec, &wire).is_err());
 
 // Truncated header — rejected with "bytes remaining on stream".
 let wire = truncated_hotline_header();
-assert!(decode_frames_with_codec(&codec, wire).is_err());
+assert!(decode_frames_with_codec(&codec, &wire).is_err());
 
 // Correlated frames — all share the same transaction ID.
 let wire = correlated_hotline_wire(42, &[b"a", b"b"]);
-let frames = decode_frames_with_codec(&codec, wire).unwrap();
+let frames = decode_frames_with_codec(&codec, &wire).unwrap();
 ```
 
 Available fixture functions:

@@ -15,6 +15,8 @@ use tokio::time::sleep;
 use tracing::info;
 use wireframe::{WireframeError, response::Response};
 
+/// Ordered application messages emitted before the final stream summary.
+/// Keeping this fixture static makes the example's frame ordering reproducible.
 const TRANSCRIPT: &[&str] = &[
     "Client: HELLO",
     "Server: HELLO-ACK",
@@ -23,18 +25,25 @@ const TRANSCRIPT: &[&str] = &[
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// Distinguishes a transcript chunk from the terminal stream summary.
 enum FrameKind {
+    /// Identifies the zero-based transcript entry carried by a frame.
     Chunk(usize),
+    /// Marks the final frame after every chunk producer has completed.
     Summary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// One logical response item sent through the bounded response channel.
 struct Frame {
+    /// Identifies whether `data` is an ordered chunk or the terminal summary.
     kind: FrameKind,
+    /// Human-readable transcript content carried by this response item.
     data: String,
 }
 
 impl Frame {
+    /// Creates a chunk while preserving its position in the transcript.
     fn chunk(index: usize, data: &str) -> Self {
         Self {
             kind: FrameKind::Chunk(index),
@@ -42,6 +51,7 @@ impl Frame {
         }
     }
 
+    /// Creates the terminal item reporting how many chunks were attempted.
     fn summary(total_chunks: usize) -> Self {
         Self {
             kind: FrameKind::Summary,
@@ -59,6 +69,9 @@ impl Display for Frame {
     }
 }
 
+/// Starts concurrent chunk production and returns a bounded response stream.
+/// The summary task waits for the chunk task, preserving ordering even though
+/// both producers own senders; a dropped consumer causes each sender to stop.
 fn multi_packet_response() -> Response<Frame> {
     // Capacity two keeps memory usage tight and amplifies the back-pressure
     // effect for demonstration purposes.
@@ -92,10 +105,14 @@ fn multi_packet_response() -> Response<Frame> {
     response
 }
 
+/// Logs one response item using the example's display representation.
 fn log_frame(frame: &Frame) {
     info!("{frame}");
 }
 
+/// Consumes the response until all producers close the channel.
+/// Stream errors are propagated so the example demonstrates its normal error
+/// boundary rather than silently truncating a multipart response.
 async fn run() -> Result<(), WireframeError> {
     let _ = tracing_subscriber::fmt::try_init();
     let response = multi_packet_response();
