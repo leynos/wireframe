@@ -66,6 +66,9 @@ reference when navigating the project's design and architecture material.
   Completed execution plan for roadmap item `10.1.1` and ADR 008.
 - [Approve actor and codec-driver boundary](execplans/10-1-3-approve-actor-and-codec-driver-boundary.md)
   Completed execution plan for roadmap item `10.1.3` and ADR 010.
+- [Plan the Loom lane repair](execplans/plan-the-loom-lane-repair.md) Draft
+  execution plan for making the scheduled Loom lane compile, run its models,
+  and assert something a wrong implementation would fail.
 - [Execution plan directory](execplans/) Working plans for roadmap items,
   migrations, verification work, and documentation follow-up tasks.
 
