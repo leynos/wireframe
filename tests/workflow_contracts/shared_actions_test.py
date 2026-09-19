@@ -59,7 +59,7 @@ def _shared_action_invocations() -> list[tuple[Path, str]]:
     """Return each shared-action invocation and its containing workflow."""
     invocations = []
     try:
-        workflow_entries = WORKFLOWS_DIR.iterdir()
+        workflow_entries = tuple(WORKFLOWS_DIR.iterdir())
     except OSError as error:
         raise AssertionError(
             f"workflow directory {WORKFLOWS_DIR} entries could not be read: {error}"
@@ -103,10 +103,19 @@ def test_workflow_paths_filter_supported_suffixes_in_order(tmp_path: Path) -> No
 def test_shared_action_invocations_explain_unreadable_workflow_directory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Workflow scanning reports an unreadable workflow directory clearly."""
+    """Workflow scanning reports an unreadable workflow directory clearly.
+
+    Enumeration must happen inside the scanning function's error boundary. The
+    replacement iterator stays lazy so a scan that only stores it, deferring
+    consumption past its ``try`` block, is reported as a failure here.
+    """
 
     def unreadable_directory_entries(_: Path) -> Iterator[Path]:
-        raise OSError("access denied")
+        def entries() -> Iterator[Path]:
+            raise OSError("access denied")
+            yield  # pragma: no cover -- marks this generator as lazy
+
+        return entries()
 
     monkeypatch.setattr(Path, "iterdir", unreadable_directory_entries)
 
