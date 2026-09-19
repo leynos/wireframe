@@ -3,7 +3,10 @@
 use std::io;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt, DuplexStream, duplex};
-use wireframe::app::{Packet, WireframeApp};
+use wireframe::{
+    app::{Packet, PreparedApp, WireframeApp},
+    codec::FrameCodec,
+};
 
 use super::{DEFAULT_CAPACITY, TestSerializer};
 
@@ -13,14 +16,17 @@ use super::{DEFAULT_CAPACITY, TestSerializer};
 /// The server function receives the server half of a `tokio::io::duplex`
 /// connection. Every provided frame is written to the client side in order and
 /// the collected output is returned once the server task completes. If the
-/// server panics, the panic message is surfaced as an `io::Error` beginning
-/// with `"server task failed"`.
+/// Server I/O failures are propagated to the caller. If the server panics, the
+/// panic message is surfaced as an `io::Error` beginning with
+/// `"server task failed"`.
 ///
 /// ```rust
 /// use tokio::io::{AsyncWriteExt, DuplexStream};
 /// use wireframe_testing::helpers::drive::drive_internal;
 ///
-/// async fn echo(mut server: DuplexStream) { let _ = server.write_all(&[1, 2]).await; }
+/// async fn echo(mut server: DuplexStream) -> std::io::Result<()> {
+///     server.write_all(&[1, 2]).await
+/// }
 ///
 /// # async fn demo() -> std::io::Result<()> {
 /// let bytes = drive_internal(echo, vec![vec![0]], 64).await?;
@@ -35,17 +41,17 @@ pub(super) async fn drive_internal<F, Fut>(
 ) -> io::Result<Vec<u8>>
 where
     F: FnOnce(DuplexStream) -> Fut,
-    Fut: std::future::Future<Output = ()> + Send,
+    Fut: std::future::Future<Output = io::Result<()>> + Send,
 {
     let (mut client, server) = duplex(capacity);
 
     let server_fut = async {
         use futures::FutureExt as _;
-        let result = std::panic::AssertUnwindSafe(server_fn(server))
+        let result = std::panic::AssertUnwindSafe(async { server_fn(server).await })
             .catch_unwind()
             .await;
         match result {
-            Ok(()) => Ok(()),
+            Ok(result) => result,
             Err(panic) => {
                 let panic_msg = wireframe::panic::format_panic(&panic);
                 Err(io::Error::other(format!("server task failed: {panic_msg}")))
@@ -211,6 +217,10 @@ forward_default! {
 /// # Ok(())
 /// # }
 /// ```
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn drive_with_frames_with_capacity<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
@@ -222,9 +232,60 @@ where
     E: Packet,
 {
     drive_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         frames,
         capacity,
+    )
+    .await
+}
+
+/// Prepare `app`, drive it with multiple frames, and return the response bytes.
+///
+/// This is the migration path for tests that own a builder but need to exercise
+/// the prepared connection path.
+///
+/// # Errors
+///
+/// Returns an I/O error if preparation or duplex connection handling fails.
+pub async fn prepare_and_drive_with_frames<S, C, E, F>(
+    app: WireframeApp<S, C, E, F>,
+    frames: Vec<Vec<u8>>,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec,
+{
+    let prepared = app
+        .prepare()
+        .await
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    drive_prepared_with_frames(&prepared, frames).await
+}
+
+/// Drive one connection through an already prepared application.
+///
+/// The borrowed prepared application can be driven repeatedly, allowing tests
+/// to verify that route middleware transforms are not rebuilt per connection.
+///
+/// # Errors
+///
+/// Returns an I/O error from the duplex transport or prepared application.
+pub async fn drive_prepared_with_frames<S, C, E, F>(
+    app: &PreparedApp<S, C, E, F>,
+    frames: Vec<Vec<u8>>,
+) -> io::Result<Vec<u8>>
+where
+    S: TestSerializer,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec,
+{
+    drive_internal(
+        |server| async move { app.handle_connection_result(server).await },
+        frames,
+        DEFAULT_CAPACITY,
     )
     .await
 }
@@ -293,6 +354,10 @@ forward_default! {
 /// # Ok(())
 /// # }
 /// ```
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn drive_with_frames_with_capacity_mut<S, C, E>(
     app: &mut WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
@@ -304,7 +369,7 @@ where
     E: Packet,
 {
     drive_internal(
-        |server| async { app.handle_connection(server).await },
+        |server| async { app.handle_connection_result(server).await },
         frames,
         capacity,
     )

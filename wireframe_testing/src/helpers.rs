@@ -74,6 +74,7 @@ pub use codec_fixtures::{
     valid_hotline_wire,
 };
 pub use drive::{
+    drive_prepared_with_frames,
     drive_with_frame,
     drive_with_frame_mut,
     drive_with_frame_with_capacity,
@@ -82,6 +83,7 @@ pub use drive::{
     drive_with_frames_mut,
     drive_with_frames_with_capacity,
     drive_with_frames_with_capacity_mut,
+    prepare_and_drive_with_frames,
 };
 pub use payloads::{drive_with_bincode, drive_with_payloads, drive_with_payloads_mut};
 pub use runtime::{run_app, run_with_duplex_server};

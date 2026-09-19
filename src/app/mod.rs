@@ -23,10 +23,12 @@ mod memory_budgets;
 mod middleware_types;
 mod outbound_encoding;
 mod outbound_response;
+mod prepared_app;
 
 pub use builder::WireframeApp;
 pub use envelope::{Envelope, Packet, PacketParts};
-pub use error::{Result, SendError};
+pub use error::{PrepareError, Result, SendError};
 pub use lifecycle::{ConnectionSetup, ConnectionTeardown};
 pub use memory_budgets::{BudgetBytes, MemoryBudgets};
 pub use middleware_types::{Handler, Middleware};
+pub use prepared_app::PreparedApp;

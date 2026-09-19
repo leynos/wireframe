@@ -30,7 +30,6 @@ where
             return Err(WireframeError::DuplicateRoute(id));
         }
         self.handlers.insert(id, handler);
-        self.routes = tokio::sync::OnceCell::new();
         Ok(self)
     }
 
@@ -44,7 +43,6 @@ where
         M: Middleware<E> + 'static,
     {
         self.middleware.push(Box::new(mw));
-        self.routes = tokio::sync::OnceCell::new();
         Ok(self)
     }
 }
