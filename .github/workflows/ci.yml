@@ -119,6 +119,13 @@ jobs:
       # ratchet baseline every pull request compares against — is produced
       # by coverage-main.yml on push, so generation is kept out of
       # main-push runs to avoid doing the work twice.
+      #
+      # No CodeScene step belongs in this workflow. A pull-request lane that
+      # invokes the CodeScene CLI fails whenever the CLI's installer or its
+      # output format moves, which has stopped merges across this estate for
+      # reasons no change in the repository caused. The changed-line gate is
+      # CodeScene's own check on the pull request, driven by what
+      # coverage-main.yml uploads, and it needs nothing from here.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
         uses: leynos/shared-actions/.github/actions/generate-coverage@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
@@ -126,14 +133,3 @@ jobs:
           output-path: lcov.info
           format: lcov
           with-ratchet: 'true'
-      - name: Check coverage against CodeScene gates
-        env:
-          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-        if: env.CS_ACCESS_TOKEN != '' && github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
-        with:
-          format: lcov
-          mode: check
-          project-url: https://api.codescene.io/v2/projects/68308
-          access-token: ${{ env.CS_ACCESS_TOKEN }}
-          installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
