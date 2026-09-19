@@ -118,7 +118,7 @@ async fn drive_fragments_internal<F, H, Fut>(
 where
     F: FrameCodec,
     H: FnOnce(DuplexStream) -> Fut,
-    Fut: std::future::Future<Output = ()> + Send,
+    Fut: std::future::Future<Output = io::Result<()>> + Send,
 {
     let serialized_envelopes =
         fragment_and_encode(request.fragmenter, request.payload, request.route_id)?;
@@ -190,6 +190,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_fragments_with_capacity<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,
@@ -204,7 +205,7 @@ where
     F: FrameCodec,
 {
     let frames = drive_fragments_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         codec,
         FragmentRequest::new(fragmenter, payload).with_capacity(capacity),
     )
@@ -236,6 +237,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_fragments_mut<S, C, E, F>(
     app: &mut WireframeApp<S, C, E, F>,
     codec: &F,
@@ -249,7 +251,7 @@ where
     F: FrameCodec,
 {
     let frames = drive_fragments_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         codec,
         FragmentRequest::new(fragmenter, payload),
     )
@@ -285,6 +287,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_fragment_frames<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,
@@ -298,7 +301,7 @@ where
     F: FrameCodec,
 {
     drive_fragments_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         codec,
         FragmentRequest::new(fragmenter, payload),
     )
@@ -333,6 +336,7 @@ where
 /// # Ok(())
 /// # }
 /// ```
+#[expect(deprecated, reason = "compatibility helper drives the legacy builder API")]
 pub async fn drive_with_partial_fragments<S, C, E, F>(
     app: WireframeApp<S, C, E, F>,
     codec: &F,
@@ -350,7 +354,7 @@ where
     let encoded = encode_payloads_with_codec(codec, serialized_envelopes)?;
     let wire_bytes: Vec<u8> = encoded.into_iter().flatten().collect();
     let raw = drive_chunked_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         wire_bytes,
         chunk_size,
         DEFAULT_CAPACITY,

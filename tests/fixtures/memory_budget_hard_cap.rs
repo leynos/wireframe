@@ -129,6 +129,10 @@ impl MemoryBudgetHardCapWorld {
     }
 
     /// Start the app under test using the supplied budget and timeout config.
+    #[expect(
+        deprecated,
+        reason = "fixture covers the legacy builder connection API"
+    )]
     pub fn start_app(&mut self, config: HardCapConfig) -> TestResult {
         let Some(fragment_limit) = NonZeroUsize::new(BUFFER_CAPACITY.saturating_mul(16)) else {
             return Err("buffer-derived fragment limit should be non-zero".into());

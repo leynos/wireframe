@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use tokio::sync::{OnceCell, mpsc};
+use tokio::sync::mpsc;
 
 use crate::{
     app::{
@@ -17,7 +17,6 @@ use crate::{
     codec::{FrameCodec, LengthDelimitedFrameCodec},
     hooks::WireframeProtocol,
     message_assembler::MessageAssembler,
-    middleware::HandlerService,
     serializer::{BincodeSerializer, Serializer},
 };
 
@@ -34,8 +33,6 @@ pub struct WireframeApp<
 > {
     /// Handler factories keyed by the protocol message identifier.
     pub(in crate::app) handlers: HashMap<u32, Handler<E>>,
-    /// Lazily built middleware chains, shared after the first connection uses them.
-    pub(in crate::app) routes: OnceCell<Arc<HashMap<u32, HandlerService<E>>>>,
     /// Middleware applied in registration order around each handler.
     pub(in crate::app) middleware: Vec<Box<dyn Middleware<E>>>,
     /// Serializer retained by every connection built from this application.
@@ -76,7 +73,6 @@ where
         let codec = F::default();
         Self {
             handlers: HashMap::new(),
-            routes: OnceCell::new(),
             middleware: Vec::new(),
             serializer: S::default(),
             app_data: AppDataStore::default(),
@@ -159,7 +155,7 @@ where
 {
     /// Helper to rebuild the app when changing type parameters.
     ///
-    /// The `WireframeApp` builder carries 14 fields that must be moved together
+    /// The `WireframeApp` builder carries 13 fields that must be moved together
     /// when swapping serializer or codec types. Centralizing the reconstruction
     /// here keeps the transitions consistent and avoids repeating the same
     /// field list across each type-changing method. For smaller builders with
@@ -175,7 +171,6 @@ where
     {
         WireframeApp {
             handlers: self.handlers,
-            routes: OnceCell::new(),
             middleware: self.middleware,
             serializer: params.serializer,
             app_data: self.app_data,
@@ -205,7 +200,6 @@ where
     {
         WireframeApp {
             handlers: self.handlers,
-            routes: OnceCell::new(),
             middleware: self.middleware,
             serializer: self.serializer,
             app_data: self.app_data,

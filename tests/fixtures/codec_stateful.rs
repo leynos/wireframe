@@ -154,6 +154,10 @@ struct StatefulServer {
     handle: JoinHandle<()>,
 }
 
+#[expect(
+    deprecated,
+    reason = "fixture covers the legacy builder connection API"
+)]
 async fn serve_stateful_connections(
     listener: TcpListener,
     app: WireframeApp<BincodeSerializer, (), Envelope, SeqFrameCodec>,

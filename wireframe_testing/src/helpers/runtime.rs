@@ -29,6 +29,10 @@ use super::{EMPTY_SERVER_CAPACITY, MAX_CAPACITY, TestSerializer, drive::drive_in
 /// # Ok(())
 /// # }
 /// ```
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn run_app<S, C, E>(
     app: WireframeApp<S, C, E>,
     frames: Vec<Vec<u8>>,
@@ -54,7 +58,7 @@ where
     }
 
     drive_internal(
-        |server| async move { app.handle_connection(server).await },
+        |server| async move { app.handle_connection_result(server).await },
         frames,
         capacity,
     )
@@ -78,6 +82,10 @@ where
 /// run_with_duplex_server(app).await;
 /// # }
 /// ```
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn run_with_duplex_server<S, C, E>(app: WireframeApp<S, C, E>)
 where
     S: TestSerializer,

@@ -76,6 +76,10 @@ where
 ///
 /// Returns any I/O or codec error encountered during encoding, transport, or
 /// decoding.
+#[expect(
+    deprecated,
+    reason = "compatibility helper drives the legacy builder API"
+)]
 pub async fn drive_with_partial_frames_mut<S, C, E, F>(
     app: &mut WireframeApp<S, C, E, F>,
     codec: &F,
