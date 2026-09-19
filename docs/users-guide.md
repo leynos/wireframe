@@ -2569,7 +2569,8 @@ When the optional `metrics` feature is enabled, Wireframe updates the
 counters tagged by kind, and a counter for panicking connection tasks. All
 helpers become no-ops when the feature is disabled so instrumentation can stay
 in place.[^33] `PreparedApp::handle_connection`, the connection actor, and the
-panic wrapper call these helpers to maintain consistent telemetry.[^6][^7][^31][^20]
+panic wrapper call these helpers to maintain consistent telemetry.[^6][^7][^31]
+[^20]
 
 Prepared application lifecycle metrics are also emitted when the `metrics`
 feature is enabled:
