@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
   built. See `docs/v0-3-0-to-v0-4-0-migration-guide.md` for migration examples.
   (#642)
 
+- Added scheduler and slot poison-recovery coverage, and extracted
+  `scheduler_tests.rs` to keep `scheduler.rs` below 400 lines. (#539)
 - **Client (breaking):** Remove `SocketOptions::linger` and
   `WireframeClientBuilder::linger`. Tokio-managed client sockets must not use
   duration-based `SO_LINGER`; call `WireframeClient::close().await` for

@@ -14,6 +14,8 @@ mod policy;
 mod scheduler;
 mod slot;
 mod sync;
+#[cfg(test)]
+mod test_support;
 
 pub use client_pool::WireframeClientPool;
 pub use config::ClientPoolConfig;
