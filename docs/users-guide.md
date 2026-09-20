@@ -1512,6 +1512,14 @@ decode-error logging before the application runs. An optional
 `preamble_timeout` caps how long `read_preamble` waits; timeouts use the
 failure callback path.[^20]
 
+For an awaitable lifecycle outside the foreground task, call
+`WireframeServer::spawn().await`. It returns a cloneable `ServerShutdown`:
+`stop()` requests non-blocking, idempotent shutdown, and `drained().await`
+proves every accept loop exited and the listener was released. A clean result
+is distinct from `ServerError::AbnormalTermination`, which reports an
+unexpected supervisor exit after its cleanup has drained. Existing in-flight
+connections retain the same graceful-drain policy as `run_with_shutdown`.
+
 `spawn_connection_task` wraps each accepted stream in `read_preamble` and
 `RewindStream`, records connection panics, and logs failures without crashing
 worker tasks.[^20][^37][^38] `ServerError` surfaces bind, factory-build, and
