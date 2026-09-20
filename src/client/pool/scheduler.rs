@@ -260,7 +260,7 @@ where
         lease: PooledClientLease<S, P, C>,
         receiver: oneshot::Receiver<Result<PooledClientLease<S, P, C>, ClientError>>,
     ) -> Result<PooledClientLease<S, P, C>, ClientError> {
-        let Some(waiter) = self.take_next_waiter_or_stop() else {
+        let Some(waiter) = self.next_waiter() else {
             drop(receiver);
             return Ok(lease);
         };
