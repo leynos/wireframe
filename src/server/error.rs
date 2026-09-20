@@ -25,4 +25,11 @@ pub enum ServerError {
     /// Preparing the application during startup failed.
     #[error("application preparation error: {0}")]
     Prepare(#[source] PrepareError),
+
+    /// The server supervisor task terminated unexpectedly.
+    #[error("server supervisor terminated abnormally: {message}")]
+    AbnormalTermination {
+        /// Message captured from the supervisor task's panic payload.
+        message: String,
+    },
 }

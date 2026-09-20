@@ -36,14 +36,7 @@ where
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
-    let app = factory.build().map_err(|error| {
-        record_startup_failure(ServerStartupFailureStage::FactoryBuild, &error);
-        record_server_startup_duration(
-            ServerStartupOutcome::FactoryBuild,
-            startup_started.elapsed(),
-        );
-        ServerError::FactoryBuild(Box::new(error))
-    })?;
+    let app = build_application(factory, startup_started)?;
     let prepared = prepare_or_shutdown(app.prepare(), shutdown, startup_started).await?;
     Ok(prepared.map(|(app, shutdown)| (Arc::new(app), shutdown)))
 }
@@ -65,16 +58,83 @@ where
     )]
     let startup_result = select! {
         () = &mut shutdown => {
-            record_server_startup_duration(ServerStartupOutcome::Cancelled, startup_started.elapsed());
+            record_server_startup_duration(
+                ServerStartupOutcome::Cancelled,
+                startup_started.elapsed(),
+            );
             Ok(None)
         },
-        result = preparation => Ok(Some((result.map_err(|error| {
-            record_startup_failure(ServerStartupFailureStage::Preparation, &error);
-            record_server_startup_duration(ServerStartupOutcome::Preparation, startup_started.elapsed());
-            ServerError::Prepare(error)
-        })?, shutdown))),
+        result = preparation => Ok(Some((record_preparation_result(result, startup_started)?, shutdown))),
     };
     startup_result
+}
+
+/// Build and prepare an application before starting a controlled server.
+pub(super) async fn prepare_application<F, Ser, Ctx, E, Codec>(
+    factory: F,
+    startup_started: Instant,
+) -> Result<Arc<PreparedApp<Ser, Ctx, E, Codec>>, ServerError>
+where
+    F: AppFactory<Ser, Ctx, E, Codec>,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+    Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
+{
+    prepare_built_application(build_application(factory, startup_started)?, startup_started).await
+}
+
+/// Build an application and record a bounded failure outcome when needed.
+fn build_application<F, Ser, Ctx, E, Codec>(
+    factory: F,
+    startup_started: Instant,
+) -> Result<crate::app::WireframeApp<Ser, Ctx, E, Codec>, ServerError>
+where
+    F: AppFactory<Ser, Ctx, E, Codec>,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+    factory.build().map_err(|error| {
+        record_startup_failure(ServerStartupFailureStage::FactoryBuild, &error);
+        record_server_startup_duration(
+            ServerStartupOutcome::FactoryBuild,
+            startup_started.elapsed(),
+        );
+        ServerError::FactoryBuild(Box::new(error))
+    })
+}
+
+/// Prepare a built application and record a bounded failure outcome when needed.
+async fn prepare_built_application<Ser, Ctx, E, Codec>(
+    app: crate::app::WireframeApp<Ser, Ctx, E, Codec>,
+    startup_started: Instant,
+) -> Result<Arc<PreparedApp<Ser, Ctx, E, Codec>>, ServerError>
+where
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+    Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
+{
+    record_preparation_result(app.prepare().await, startup_started).map(Arc::new)
+}
+
+/// Record the common typed error and duration for a preparation result.
+fn record_preparation_result<T>(
+    result: Result<T, PrepareError>,
+    startup_started: Instant,
+) -> Result<T, ServerError> {
+    result.map_err(|error| {
+        record_startup_failure(ServerStartupFailureStage::Preparation, &error);
+        record_server_startup_duration(
+            ServerStartupOutcome::Preparation,
+            startup_started.elapsed(),
+        );
+        ServerError::Prepare(error)
+    })
 }
 
 /// Emit bounded observability for a startup failure without accepting traffic.
