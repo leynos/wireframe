@@ -6,7 +6,6 @@ use futures::Future;
 use tokio::select;
 use tracing::error;
 
-use super::{AppFactory, ServerError};
 use crate::{
     app::{Envelope, Packet, PreparedApp},
     codec::FrameCodec,
@@ -19,6 +18,7 @@ use crate::{
         record_server_startup_duration,
     },
     serializer::Serializer,
+    server::{AppFactory, ServerError},
 };
 
 /// Build and prepare an application unless shutdown wins the startup race.
@@ -36,7 +36,7 @@ where
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
-    let app = build_application(factory, startup_started)?;
+    let app = build_application(&factory, startup_started)?;
     let mut shutdown = Box::pin(shutdown);
     #[expect(
         clippy::integer_division_remainder_used,
@@ -62,12 +62,16 @@ where
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
-    prepare_built_application(build_application(factory, startup_started)?, startup_started).await
+    prepare_built_application(
+        build_application(&factory, startup_started)?,
+        startup_started,
+    )
+    .await
 }
 
 /// Build an application and record a bounded failure outcome when needed.
 fn build_application<F, Ser, Ctx, E, Codec>(
-    factory: F,
+    factory: &F,
     startup_started: Instant,
 ) -> Result<crate::app::WireframeApp<Ser, Ctx, E, Codec>, ServerError>
 where
@@ -100,13 +104,13 @@ where
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
     Ok(Arc::new(app.prepare().await.map_err(|error| {
-                record_startup_failure(ServerStartupFailureStage::Preparation, &error);
-                record_server_startup_duration(
-                    ServerStartupOutcome::Preparation,
-                    startup_started.elapsed(),
-                );
-                ServerError::Prepare(error)
-            })?))
+        record_startup_failure(ServerStartupFailureStage::Preparation, &error);
+        record_server_startup_duration(
+            ServerStartupOutcome::Preparation,
+            startup_started.elapsed(),
+        );
+        ServerError::Prepare(error)
+    })?))
 }
 
 /// Emit bounded observability for a startup failure without accepting traffic.
