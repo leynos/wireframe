@@ -370,3 +370,6 @@ where
 mod service;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+#[path = "scheduler_tests.rs"]
+mod poison_tests;
