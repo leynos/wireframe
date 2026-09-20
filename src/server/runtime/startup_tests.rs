@@ -2,20 +2,16 @@
 
 #[cfg(feature = "metrics")]
 use std::io;
-use std::sync::Arc;
 
 #[cfg(feature = "metrics")]
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use tokio::{
-    sync::{Barrier, Notify, oneshot},
+    sync::oneshot,
     time::{Duration, timeout},
 };
 
-use super::{WireframeServer, test_support::PreparationBarrier};
-use crate::{
-    app::{Envelope, Handler, WireframeApp},
-    server::test_util::free_listener,
-};
+use super::{WireframeServer, test_support::preparation_factory};
+use crate::{app::WireframeApp, server::test_util::free_listener};
 #[cfg(feature = "metrics")]
 use crate::{
     metrics::{SERVER_STARTUP_DURATION, SERVER_STARTUP_FAILURES},
@@ -26,21 +22,7 @@ use crate::{
 #[tokio::test]
 async fn shutdown_interrupts_blocked_preparation_before_readiness()
 -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let entered = Arc::new(Notify::new());
-    let barrier = Arc::new(Barrier::new(2));
-    let handler: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
-    let factory = {
-        let entered = Arc::clone(&entered);
-        let barrier = Arc::clone(&barrier);
-        move || -> Result<WireframeApp, crate::WireframeError> {
-            WireframeApp::new()?
-                .route(1, Arc::clone(&handler))?
-                .wrap(PreparationBarrier {
-                    entered: Arc::clone(&entered),
-                    barrier: Arc::clone(&barrier),
-                })
-        }
-    };
+    let (entered, _barrier, factory) = preparation_factory();
     let server = WireframeServer::new(factory).bind_existing_listener(free_listener()?)?;
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
