@@ -19,7 +19,10 @@ use crate::{
     server::test_util::free_listener,
 };
 #[cfg(feature = "metrics")]
-use crate::{metrics::SERVER_STARTUP_FAILURES, server::ServerError};
+use crate::{
+    metrics::{SERVER_STARTUP_DURATION, SERVER_STARTUP_FAILURES},
+    server::ServerError,
+};
 
 /// Middleware that holds application preparation until the test releases it.
 struct PreparationBarrier {
@@ -118,5 +121,13 @@ fn factory_failure_records_a_bounded_startup_metric() {
                 .labels()
                 .any(|label| label.key() == "stage" && label.value() == "factory_build")
             && matches!(value, DebugValue::Counter(count) if *count == 1)
+    }));
+    assert!(metrics.iter().any(|(key, _, _, value)| {
+        key.key().name() == SERVER_STARTUP_DURATION
+            && key
+                .key()
+                .labels()
+                .any(|label| label.key() == "outcome" && label.value() == "factory_build")
+            && matches!(value, DebugValue::Histogram(_))
     }));
 }
