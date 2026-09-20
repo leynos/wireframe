@@ -169,7 +169,6 @@ mod tests {
     //! Unit tests for slot admission permits and idle-recycle bookkeeping.
 
     use std::{
-        io,
         net::SocketAddr,
         sync::{Arc, Mutex},
         thread,
@@ -179,10 +178,9 @@ mod tests {
     use googletest::{gtest, prelude::*};
     use tokio::{runtime::Builder, time::Instant};
     use tracing::Level;
-    use tracing_subscriber::fmt::MakeWriter;
     use wireframe_testing::ObservabilityHandle;
 
-    use super::{PoolSlot, lock_or_recover};
+    use super::{super::test_support::CaptureWriter, PoolSlot, lock_or_recover};
     use crate::{
         client::{
             ClientCodecConfig,
@@ -311,29 +309,5 @@ mod tests {
                 .counter_without_labels(crate::metrics::POOL_BOOKKEEPING_POISON_RECOVERIES),
             eq(3)
         );
-    }
-
-    #[derive(Clone)]
-    struct CaptureWriter {
-        captured: Arc<Mutex<Vec<u8>>>,
-    }
-
-    impl CaptureWriter {
-        fn new(captured: Arc<Mutex<Vec<u8>>>) -> Self { Self { captured } }
-    }
-
-    impl<'a> MakeWriter<'a> for CaptureWriter {
-        type Writer = Self;
-
-        fn make_writer(&'a self) -> Self::Writer { self.clone() }
-    }
-
-    impl io::Write for CaptureWriter {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            lock_or_recover(&self.captured).extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> { Ok(()) }
     }
 }
