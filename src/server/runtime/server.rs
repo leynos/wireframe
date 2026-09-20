@@ -10,7 +10,6 @@ use log::warn;
 use tokio::{
     net::TcpListener,
     sync::{oneshot, watch},
-    task::{JoinError, JoinHandle},
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::Instrument;
@@ -25,7 +24,7 @@ use super::{
     supervisor::{
         SupervisorCancellationDropGuard,
         await_supervisor_termination,
-        record_supervisor_abnormal_termination,
+        run_with_panic_cleanup,
     },
 };
 use crate::{
@@ -34,7 +33,6 @@ use crate::{
     frame::FrameMetadata,
     message::{DecodeWith, EncodeWith},
     metrics::{ServerStartupOutcome, record_server_startup_duration},
-    panic::format_panic,
     preamble::Preamble,
     serializer::Serializer,
     server::{
@@ -44,10 +42,12 @@ use crate::{
         PreambleHandler,
         ServerError,
         ServerShutdown,
-        ServerTerminal,
         WireframeServer,
     },
 };
+
+mod observer;
+pub(super) use observer::observe_supervisor_termination;
 
 /// State retained exclusively by the supervisor task after preparation.
 struct PreparedServerRuntime<
@@ -77,6 +77,27 @@ struct PreparedServerRuntime<
     app: Arc<PreparedApp<Ser, Ctx, E, Codec>>,
 }
 
+/// State whose ownership must survive a supervisor panic long enough to drain.
+struct SupervisorRuntime {
+    /// Shared cancellation signal for accept loops and panic cleanup.
+    shutdown_token: CancellationToken,
+    /// Bounded cancellation reason shared with accept-loop observability.
+    lifecycle: SupervisorLifecycle,
+    /// Every accept and connection task that must drain before publication.
+    tracker: TaskTracker,
+}
+
+impl SupervisorRuntime {
+    /// Create one supervisor-owned cancellation and task-lifetime context.
+    fn new(shutdown_token: CancellationToken) -> Self {
+        Self {
+            shutdown_token,
+            lifecycle: SupervisorLifecycle::new(),
+            tracker: TaskTracker::new(),
+        }
+    }
+}
+
 impl<T, Ser, Ctx, E, Codec> PreparedServerRuntime<T, Ser, Ctx, E, Codec>
 where
     T: Preamble,
@@ -90,14 +111,12 @@ where
     async fn run_with_shutdown<S>(
         self,
         shutdown: S,
-        shutdown_token: CancellationToken,
-        lifecycle: SupervisorLifecycle,
+        supervisor: &SupervisorRuntime,
         startup_started: Instant,
     ) -> Result<(), ServerError>
     where
         S: Future<Output = ()>,
     {
-        let tracker = TaskTracker::new();
         let preamble = PreambleHooks {
             on_success: self.on_preamble_success,
             on_failure: self.on_preamble_failure,
@@ -108,10 +127,10 @@ where
             let listener = Arc::clone(&self.listener);
             let app = Arc::clone(&self.app);
             let preamble_hooks = preamble.clone();
-            let token = shutdown_token.clone();
-            let tracker_clone = tracker.clone();
+            let token = supervisor.shutdown_token.clone();
+            let tracker_clone = supervisor.tracker.clone();
             let span = tracing::Span::current();
-            tracker.spawn(
+            supervisor.tracker.spawn(
                 accept_loop(
                     listener,
                     AcceptLoopOptions {
@@ -120,7 +139,7 @@ where
                         shutdown: token,
                         tracker: tracker_clone,
                         backoff: self.backoff_config,
-                        lifecycle: lifecycle.clone(),
+                        lifecycle: supervisor.lifecycle.clone(),
                     },
                 )
                 .instrument(span),
@@ -135,9 +154,15 @@ where
             warn!("Failed to send readiness signal: receiver dropped");
         }
 
-        await_supervisor_termination(shutdown, &shutdown_token, &tracker, &lifecycle).await;
-        tracker.close();
-        tracker.wait().await;
+        await_supervisor_termination(
+            shutdown,
+            &supervisor.shutdown_token,
+            &supervisor.tracker,
+            &supervisor.lifecycle,
+        )
+        .await;
+        supervisor.tracker.close();
+        supervisor.tracker.wait().await;
         Ok(())
     }
 }
@@ -222,15 +247,14 @@ where
             preamble_timeout,
             app,
         };
-        let shutdown_token = CancellationToken::new();
-        let lifecycle = SupervisorLifecycle::new();
+        let supervisor = SupervisorRuntime::new(CancellationToken::new());
         // No worker exists until application preparation has succeeded.
         let _cancel_workers_on_drop = SupervisorCancellationDropGuard::new(
-            shutdown_token.drop_guard_ref(),
-            lifecycle.clone(),
+            supervisor.shutdown_token.drop_guard_ref(),
+            supervisor.lifecycle.clone(),
         );
         runtime
-            .run_with_shutdown(shutdown, shutdown_token.clone(), lifecycle, startup_started)
+            .run_with_shutdown(shutdown, &supervisor, startup_started)
             .await
     }
 
@@ -248,16 +272,18 @@ where
         let startup_started = Instant::now();
         let runtime = self.prepare_runtime(startup_started).await?;
         let shutdown_token = CancellationToken::new();
-        let lifecycle = SupervisorLifecycle::new();
         let (terminal_tx, terminal_rx) = watch::channel(None);
-        let supervisor_token = shutdown_token.clone();
-        let shutdown = supervisor_token.clone().cancelled_owned();
-        let supervisor = tokio::spawn(runtime.run_with_shutdown(
-            shutdown,
-            supervisor_token,
-            lifecycle,
-            startup_started,
-        ));
+        let supervisor_context = SupervisorRuntime::new(shutdown_token.clone());
+        let shutdown = supervisor_context.shutdown_token.clone().cancelled_owned();
+        let supervisor = tokio::spawn(async move {
+            let run = runtime.run_with_shutdown(shutdown, &supervisor_context, startup_started);
+            run_with_panic_cleanup(
+                run,
+                &supervisor_context.shutdown_token,
+                &supervisor_context.tracker,
+            )
+            .await
+        });
 
         // The observer exclusively owns the supervisor handle until it sends
         // the terminal outcome shared by all `ServerShutdown` clones.
@@ -297,32 +323,6 @@ where
             preamble_timeout,
             app,
         })
-    }
-}
-
-/// Retain the supervisor join handle and publish its one terminal outcome.
-pub(super) async fn observe_supervisor_termination(
-    supervisor: JoinHandle<Result<(), ServerError>>,
-    terminal_tx: watch::Sender<Option<ServerTerminal>>,
-) {
-    let terminal = match supervisor.await {
-        Ok(Ok(())) => ServerTerminal::Clean,
-        Ok(Err(error)) => ServerTerminal::Abnormal(error.to_string()),
-        Err(error) => ServerTerminal::Abnormal(format_join_error(error)),
-    };
-
-    if let ServerTerminal::Abnormal(message) = &terminal {
-        record_supervisor_abnormal_termination(message);
-    }
-    drop(terminal_tx.send_replace(Some(terminal)));
-}
-
-/// Preserve a panic payload when Tokio reports an abnormal task join.
-fn format_join_error(error: JoinError) -> String {
-    if error.is_panic() {
-        format_panic(&error.into_panic())
-    } else {
-        error.to_string()
     }
 }
 
