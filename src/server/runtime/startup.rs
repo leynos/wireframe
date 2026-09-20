@@ -6,7 +6,6 @@ use futures::Future;
 use tokio::select;
 use tracing::error;
 
-use super::{AppFactory, ServerError};
 use crate::{
     app::{Envelope, Packet, PrepareError, PreparedApp},
     codec::FrameCodec,
@@ -19,6 +18,7 @@ use crate::{
         record_server_startup_duration,
     },
     serializer::Serializer,
+    server::{AppFactory, ServerError},
 };
 
 /// Build and prepare an application unless shutdown wins the startup race.
@@ -36,7 +36,7 @@ where
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
-    let app = build_application(factory, startup_started)?;
+    let app = build_application(&factory, startup_started)?;
     let prepared = prepare_or_shutdown(app.prepare(), shutdown, startup_started).await?;
     Ok(prepared.map(|(app, shutdown)| (Arc::new(app), shutdown)))
 }
@@ -83,7 +83,7 @@ where
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
     prepare_built_application(
-        build_application(factory, startup_started)?,
+        build_application(&factory, startup_started)?,
         startup_started,
     )
     .await
@@ -91,7 +91,7 @@ where
 
 /// Build an application and record a bounded failure outcome when needed.
 fn build_application<F, Ser, Ctx, E, Codec>(
-    factory: F,
+    factory: &F,
     startup_started: Instant,
 ) -> Result<crate::app::WireframeApp<Ser, Ctx, E, Codec>, ServerError>
 where
