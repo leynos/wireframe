@@ -16,11 +16,14 @@ use wireframe::{
 };
 use wireframe_testing::{TestResult, decode_frames, encode_frame};
 
+/// Concrete application type shared by prepared-application integration tests.
 pub type TestApp = WireframeApp<BincodeSerializer, (), Envelope>;
 
 /// Middleware that counts one-time transforms and tags request-response data.
 pub struct TransformCountingMiddleware {
+    /// Byte appended by the middleware around each handled frame.
     pub tag: u8,
+    /// Number of one-time middleware transformations performed during preparation.
     pub transforms: Arc<AtomicUsize>,
 }
 
