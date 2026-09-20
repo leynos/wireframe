@@ -9,11 +9,10 @@ use std::{
     },
 };
 
-use async_trait::async_trait;
 use rstest::rstest;
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::{Barrier, Notify, oneshot},
+    sync::oneshot,
     task::yield_now,
     time::{Duration, Instant, advance, sleep, timeout},
 };
@@ -27,31 +26,15 @@ use super::{
     SupervisorLifecycle,
     WireframeServer,
     accept_loop,
+    test_support::preparation_factory,
 };
 use crate::{
-    app::{Envelope, Handler, WireframeApp},
-    middleware::{HandlerService, Transform},
+    app::WireframeApp,
     server::{
         ServerError,
         test_util::{bind_server, factory, free_listener},
     },
 };
-
-struct PreparationBarrier {
-    entered: Arc<Notify>,
-    barrier: Arc<Barrier>,
-}
-
-#[async_trait]
-impl Transform<HandlerService<Envelope>> for PreparationBarrier {
-    type Output = HandlerService<Envelope>;
-
-    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
-        self.entered.notify_one();
-        self.barrier.wait().await;
-        service
-    }
-}
 
 #[rstest]
 #[tokio::test]
@@ -195,21 +178,7 @@ async fn factory_failure_returns_before_readiness(
 async fn readiness_waits_for_application_preparation(
     free_listener: std::io::Result<std::net::TcpListener>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let entered = Arc::new(Notify::new());
-    let barrier = Arc::new(Barrier::new(2));
-    let handler: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
-    let factory = {
-        let entered = Arc::clone(&entered);
-        let barrier = Arc::clone(&barrier);
-        move || -> Result<WireframeApp, crate::WireframeError> {
-            WireframeApp::new()?
-                .route(1, Arc::clone(&handler))?
-                .wrap(PreparationBarrier {
-                    entered: Arc::clone(&entered),
-                    barrier: Arc::clone(&barrier),
-                })
-        }
-    };
+    let (entered, barrier, factory) = preparation_factory();
     let server = WireframeServer::new(factory).bind_existing_listener(free_listener?)?;
     let (ready_tx, mut ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();

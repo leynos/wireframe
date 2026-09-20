@@ -59,6 +59,8 @@ reference when navigating the project's design and architecture material.
 - [ADR 013: single-owner client-pool scheduler and slot graph](adr-013-client-pool-scheduler-and-slot-ownership.md)
   Proposed persistent scheduler actor and index-based slot ownership for the
   client pool.
+- [ADR 014: server shutdown ownership and terminal observation](adr-014-server-shutdown-ownership.md)
+  Proposed awaitable server shutdown and supervisor-failure observation.
 
 ## Execution plans
 

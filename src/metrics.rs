@@ -19,6 +19,10 @@ use std::time::Duration;
 
 #[cfg(feature = "metrics")]
 use metrics::{counter, gauge, histogram};
+mod server_supervisor;
+
+pub use server_supervisor::SERVER_SUPERVISOR_ABNORMAL_TERMINATIONS;
+pub(crate) use server_supervisor::inc_server_supervisor_abnormal_termination;
 
 /// Name of the gauge tracking active connections.
 pub const CONNECTIONS_ACTIVE: &str = "wireframe_connections_active";
