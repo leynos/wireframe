@@ -1,7 +1,6 @@
 //! Coverage for waiter queue bookkeeping across fairness policies.
 
 use std::{
-    io,
     sync::{Arc, Mutex},
     thread,
 };
@@ -9,10 +8,9 @@ use std::{
 use googletest::{gtest, prelude::*};
 use tokio::sync::oneshot;
 use tracing::Level;
-use tracing_subscriber::fmt::MakeWriter;
 use wireframe_testing::ObservabilityHandle;
 
-use super::*;
+use super::{super::test_support::CaptureWriter, *};
 use crate::serializer::BincodeSerializer;
 
 type TestScheduler = PoolScheduler<BincodeSerializer, (), ()>;
@@ -63,121 +61,57 @@ fn deregister_handle_purges_fifo_entries_for_that_handle() {
 }
 
 #[gtest]
-fn fifo_waiters_remain_ordered_after_scheduler_state_poison_recovery() {
-    let scheduler = Arc::new(TestScheduler::new(PoolFairnessPolicy::Fifo));
-    let first_handle = scheduler.register_handle();
-    let second_handle = scheduler.register_handle();
-    let (first_sender, mut first_receiver) = oneshot::channel();
-    let (second_sender, mut second_receiver) = oneshot::channel();
-    let (third_sender, mut third_receiver) = oneshot::channel();
+fn waiters_remain_ordered_after_scheduler_state_poison_recovery() {
+    for policy in [PoolFairnessPolicy::Fifo, PoolFairnessPolicy::RoundRobin] {
+        let scheduler = Arc::new(TestScheduler::new(policy));
+        let first_handle = scheduler.register_handle();
+        let second_handle = scheduler.register_handle();
+        let (first_sender, mut first_receiver) = oneshot::channel();
+        let (second_sender, mut second_receiver) = oneshot::channel();
+        let (third_sender, mut third_receiver) = oneshot::channel();
 
-    {
-        let mut state = lock_or_recover(&scheduler.state);
-        expect_that!(
-            state.enqueue_waiter(first_handle, first_sender, PoolFairnessPolicy::Fifo),
-            eq(true)
-        );
-        expect_that!(
-            state.enqueue_waiter(second_handle, second_sender, PoolFairnessPolicy::Fifo),
-            eq(true)
-        );
-        expect_that!(
-            state.enqueue_waiter(first_handle, third_sender, PoolFairnessPolicy::Fifo),
-            eq(true)
-        );
-        expect_that!(state.has_waiters(), eq(true));
-    }
+        {
+            let mut state = lock_or_recover(&scheduler.state);
+            expect_that!(
+                state.enqueue_waiter(first_handle, first_sender, policy),
+                eq(true)
+            );
+            expect_that!(
+                state.enqueue_waiter(second_handle, second_sender, policy),
+                eq(true)
+            );
+            expect_that!(
+                state.enqueue_waiter(first_handle, third_sender, policy),
+                eq(true)
+            );
+            expect_that!(state.has_waiters(), eq(true));
+        }
 
-    poison_scheduler_state(&scheduler);
-    let recovered_handle = recover_scheduler_state(&scheduler);
+        poison_scheduler_state(&scheduler);
+        let recovered_handle = recover_scheduler_state(&scheduler);
 
-    let mut state = scheduler
-        .state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    expect_that!(
-        state.handle_waiters.contains_key(&recovered_handle),
-        eq(true)
-    );
-    expect_that!(state.has_waiters(), eq(true));
-
-    drop_next_waiter(&mut state, PoolFairnessPolicy::Fifo, "first FIFO waiter");
-    assert_receiver_closed(&mut first_receiver);
-    drop_next_waiter(&mut state, PoolFairnessPolicy::Fifo, "second FIFO waiter");
-    assert_receiver_closed(&mut second_receiver);
-    drop_next_waiter(&mut state, PoolFairnessPolicy::Fifo, "third FIFO waiter");
-    assert_receiver_closed(&mut third_receiver);
-    expect_that!(state.has_waiters(), eq(false));
-    assert!(
-        state.take_next_waiter(PoolFairnessPolicy::Fifo).is_none(),
-        "all FIFO waiters must be served exactly once"
-    );
-}
-
-#[gtest]
-fn round_robin_waiters_keep_rotating_after_scheduler_state_poison_recovery() {
-    let scheduler = Arc::new(TestScheduler::new(PoolFairnessPolicy::RoundRobin));
-    let first_handle = scheduler.register_handle();
-    let second_handle = scheduler.register_handle();
-    let (first_sender, mut first_receiver) = oneshot::channel();
-    let (second_sender, mut second_receiver) = oneshot::channel();
-    let (third_sender, mut third_receiver) = oneshot::channel();
-
-    {
-        let mut state = lock_or_recover(&scheduler.state);
+        let mut state = scheduler
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         expect_that!(
-            state.enqueue_waiter(first_handle, first_sender, PoolFairnessPolicy::RoundRobin),
-            eq(true)
-        );
-        expect_that!(
-            state.enqueue_waiter(second_handle, second_sender, PoolFairnessPolicy::RoundRobin),
-            eq(true)
-        );
-        expect_that!(
-            state.enqueue_waiter(first_handle, third_sender, PoolFairnessPolicy::RoundRobin),
+            state.handle_waiters.contains_key(&recovered_handle),
             eq(true)
         );
         expect_that!(state.has_waiters(), eq(true));
+
+        drop_next_waiter(&mut state, policy, "first waiter");
+        assert_receiver_closed(&mut first_receiver);
+        drop_next_waiter(&mut state, policy, "second waiter");
+        assert_receiver_closed(&mut second_receiver);
+        drop_next_waiter(&mut state, policy, "third waiter");
+        assert_receiver_closed(&mut third_receiver);
+        expect_that!(state.has_waiters(), eq(false));
+        assert!(
+            state.take_next_waiter(policy).is_none(),
+            "all waiters must be served exactly once"
+        );
     }
-
-    poison_scheduler_state(&scheduler);
-    let recovered_handle = recover_scheduler_state(&scheduler);
-
-    let mut state = scheduler
-        .state
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    expect_that!(
-        state.handle_waiters.contains_key(&recovered_handle),
-        eq(true)
-    );
-    expect_that!(state.has_waiters(), eq(true));
-
-    drop_next_waiter(
-        &mut state,
-        PoolFairnessPolicy::RoundRobin,
-        "first round-robin waiter",
-    );
-    assert_receiver_closed(&mut first_receiver);
-    drop_next_waiter(
-        &mut state,
-        PoolFairnessPolicy::RoundRobin,
-        "second round-robin waiter",
-    );
-    assert_receiver_closed(&mut second_receiver);
-    drop_next_waiter(
-        &mut state,
-        PoolFairnessPolicy::RoundRobin,
-        "third round-robin waiter",
-    );
-    assert_receiver_closed(&mut third_receiver);
-    expect_that!(state.has_waiters(), eq(false));
-    assert!(
-        state
-            .take_next_waiter(PoolFairnessPolicy::RoundRobin)
-            .is_none(),
-        "all round-robin waiters must be served exactly once"
-    );
 }
 
 fn drop_next_waiter(state: &mut TestState, policy: PoolFairnessPolicy, waiter_name: &str) {
@@ -235,28 +169,4 @@ fn recover_scheduler_state(scheduler: &Arc<TestScheduler>) -> u64 {
     );
 
     recovered_handle
-}
-
-#[derive(Clone)]
-struct CaptureWriter {
-    captured: Arc<Mutex<Vec<u8>>>,
-}
-
-impl CaptureWriter {
-    fn new(captured: Arc<Mutex<Vec<u8>>>) -> Self { Self { captured } }
-}
-
-impl<'a> MakeWriter<'a> for CaptureWriter {
-    type Writer = Self;
-
-    fn make_writer(&'a self) -> Self::Writer { self.clone() }
-}
-
-impl io::Write for CaptureWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        lock_or_recover(&self.captured).extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> { Ok(()) }
 }
