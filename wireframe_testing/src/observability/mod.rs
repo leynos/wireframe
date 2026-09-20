@@ -86,13 +86,13 @@ pub(crate) type SnapshotEntry = (CompositeKey, Option<Unit>, Option<SharedString
 /// log::info!("captured");
 /// ```
 pub struct ObservabilityHandle {
-    /// Log-capture guard held for the whole metrics observation transaction.
+    /// Keeps global log capture exclusive for the test-isolation lifetime.
     pub(crate) logger: LoggerHandle,
-    /// Thread-local recorder receiving metrics emitted inside the fixture scope.
+    /// Owns the recorder required throughout the fixture's metrics lifecycle.
     recorder: DebuggingRecorder,
-    /// Draining view used to transfer the recorder's current values into assertions.
+    /// Destructively drains recorder values into each assertion snapshot.
     snapshotter: Snapshotter,
-    /// Most recent drained metric values queried by the assertion helpers.
+    /// Retains the latest drained snapshot for subsequent assertions.
     pub(crate) captured: Vec<SnapshotEntry>,
 }
 

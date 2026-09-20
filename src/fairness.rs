@@ -103,7 +103,7 @@ impl<C: Clock> FairnessTracker<C> {
         false
     }
 
-    /// End the current high-priority burst after a low-priority frame is served.
+    /// End the current high-priority burst after low-priority or multi-queue work.
     pub(crate) fn reset(&mut self) { self.clear(); }
 
     /// Clear counters and timer without changing configured fairness policy.

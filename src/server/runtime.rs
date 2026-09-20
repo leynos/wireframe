@@ -3,6 +3,8 @@
 mod accept;
 mod backoff;
 #[cfg(test)]
+mod startup_tests;
+#[cfg(test)]
 mod tests;
 
 use std::sync::{
@@ -21,15 +23,20 @@ use tokio_util::{
     sync::{CancellationToken, DropGuardRef},
     task::TaskTracker,
 };
-use tracing::Instrument;
+use tracing::{Instrument, error};
 
 use super::{AppFactory, Bound, ServerError, WireframeServer};
 use crate::{
-    app::{Envelope, Packet},
+    app::{Envelope, Packet, PreparedApp},
     codec::FrameCodec,
     frame::FrameMetadata,
     message::{DecodeWith, EncodeWith},
-    metrics::{ServerCancellationReason, inc_server_supervisor_cancellation},
+    metrics::{
+        ServerCancellationReason,
+        ServerStartupFailureStage,
+        inc_server_startup_failure,
+        inc_server_supervisor_cancellation,
+    },
     preamble::Preamble,
     serializer::Serializer,
 };
@@ -157,6 +164,42 @@ async fn await_supervisor_termination<S>(
     }
 }
 
+/// Build and prepare an application unless shutdown wins the startup race.
+async fn prepare_application_or_shutdown<F, S, Ser, Ctx, E, Codec>(
+    factory: F,
+    shutdown: S,
+) -> Result<Option<(Arc<PreparedApp<Ser, Ctx, E, Codec>>, std::pin::Pin<Box<S>>)>, ServerError>
+where
+    F: AppFactory<Ser, Ctx, E, Codec>,
+    S: Future<Output = ()> + Send,
+    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+    Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
+{
+    let app = factory.build().map_err(|error| {
+        record_startup_failure(ServerStartupFailureStage::FactoryBuild, &error);
+        ServerError::FactoryBuild(Box::new(error))
+    })?;
+    let mut shutdown = Box::pin(shutdown);
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "tokio::select! expands to modulus internally"
+    )]
+    let startup_result = select! {
+        () = &mut shutdown => Ok(None),
+        result = app.prepare() => Ok(Some((
+            Arc::new(result.map_err(|error| {
+                record_startup_failure(ServerStartupFailureStage::Preparation, &error);
+                ServerError::Prepare(error)
+            })?),
+            shutdown,
+        ))),
+    };
+    startup_result
+}
+
 impl<F, T, Ser, Ctx, E, Codec> WireframeServer<F, T, Bound, Ser, Ctx, E, Codec>
 where
     F: AppFactory<Ser, Ctx, E, Codec>,
@@ -203,9 +246,10 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an [`std::io::Error`] if the server was not bound to a listener.
-    /// Accept failures are retried with exponential back-off and do not
-    /// surface as errors.
+    /// Returns [`ServerError::FactoryBuild`] if application construction fails
+    /// or [`ServerError::Prepare`] if application preparation fails. Accept
+    /// failures are retried with exponential back-off and do not surface as
+    /// errors.
     pub async fn run(self) -> Result<(), ServerError> {
         self.run_with_shutdown(async {
             let _ = signal::ctrl_c().await;
@@ -263,9 +307,10 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an [`std::io::Error`] if the server was not bound to a listener.
-    /// Accept failures are retried with exponential back-off and do not
-    /// surface as errors.
+    /// Returns [`ServerError::FactoryBuild`] if application construction fails
+    /// or [`ServerError::Prepare`] if application preparation fails. Accept
+    /// failures are retried with exponential back-off and do not surface as
+    /// errors.
     pub async fn run_with_shutdown<S>(self, shutdown: S) -> Result<(), ServerError>
     where
         S: Future<Output = ()> + Send,
@@ -283,21 +328,23 @@ where
         } = self;
         let shutdown_token = CancellationToken::new();
         let lifecycle = SupervisorLifecycle::new();
-        // Cancel workers if this future is dropped, for example via JoinHandle::abort.
-        let _cancel_workers_on_drop = SupervisorCancellationDropGuard::new(
-            shutdown_token.drop_guard_ref(),
-            lifecycle.clone(),
-        );
         let tracker = TaskTracker::new();
         let preamble = PreambleHooks {
             on_success: on_preamble_success,
             on_failure: on_preamble_failure,
             timeout: preamble_timeout,
         };
-        let app = factory
-            .build()
-            .map_err(|error| ServerError::FactoryBuild(Box::new(error)))?;
-        let prepared_app = Arc::new(app.prepare().await.map_err(ServerError::Prepare)?);
+        let Some((prepared_app, shutdown)) =
+            prepare_application_or_shutdown(factory, shutdown).await?
+        else {
+            return Ok(());
+        };
+        // Cancel workers if this future is dropped, for example via JoinHandle::abort.
+        // No worker exists until application preparation has succeeded.
+        let _cancel_workers_on_drop = SupervisorCancellationDropGuard::new(
+            shutdown_token.drop_guard_ref(),
+            lifecycle.clone(),
+        );
 
         for _ in 0..workers {
             let listener = Arc::clone(&listener);
@@ -335,4 +382,15 @@ where
         tracker.wait().await;
         Ok(())
     }
+}
+
+/// Emit bounded observability for a startup failure without accepting traffic.
+fn record_startup_failure(error_stage: ServerStartupFailureStage, error: &dyn std::error::Error) {
+    inc_server_startup_failure(error_stage);
+    error!(
+        event = "server_startup_failure",
+        stage = error_stage.as_str(),
+        error_type = std::any::type_name_of_val(error),
+        "server start-up failed before readiness",
+    );
 }

@@ -19,8 +19,8 @@ server.run().await?;
 
 ## Binding flow
 
-The sequence below details how a server transitions from an unbound to a bound
-state when binding to an address.
+The sequence below details how a server binds to an address, prepares its
+application, and signals readiness before accepting connections.
 
 ```mermaid
 sequenceDiagram
@@ -31,6 +31,9 @@ sequenceDiagram
   participant Helper as bind_to_listener
   participant Tokio as TcpListener::from_std
   participant WSB as WireframeServer<F,T,Bound>
+  participant Factory as AppFactory
+  participant Prepared as Arc<PreparedApp>
+  participant Workers as Accept loops
   participant Ready as oneshot::Sender<()>
   participant Hooks as Preamble handlers
 
@@ -44,9 +47,19 @@ sequenceDiagram
   Helper-->>WSB: return Bound server
   WSB-->>Caller: Bound instance
 
-  note over Hooks,WSB: Preamble events trigger handlers during accept loop
-  note over Ready,Caller: Send readiness signal when bound
+  Caller->>WSB: run_with_shutdown()
+  WSB->>Factory: build() once
+  Factory-->>WSB: WireframeApp
+  WSB->>Prepared: prepare().await
+  Prepared-->>WSB: immutable prepared root
+  WSB->>Workers: spawn with shared root
+  WSB->>Ready: send readiness
+  Workers->>Hooks: process preamble events
+  note over Ready,Workers: Accept loops run only after preparation and readiness
 ```
+
+_Figure 1: Server binding, application preparation, worker startup, and
+readiness signalling._
 
 The server evaluates `WireframeServer::new`'s factory once per
 `run_with_shutdown` invocation, prepares the resulting application once, and

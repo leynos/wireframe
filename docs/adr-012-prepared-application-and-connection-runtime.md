@@ -4,6 +4,11 @@
 
 Proposed.
 
+The `PreparedApp` transition and server-startup preparation described here are
+implemented by [#641](https://github.com/leynos/wireframe/issues/641) and
+[#642](https://github.com/leynos/wireframe/issues/642). The broader ownership
+decision remains proposed while its sequenced work continues.
+
 First proposed on 2026-08-08 in issue
 [#637](https://github.com/leynos/wireframe/issues/637); imported and refined on
 2026-08-23 following design review.
@@ -14,14 +19,15 @@ First proposed on 2026-08-08 in issue
 
 ## Context and problem statement
 
-`WireframeApp` currently represents three different lifecycle phases:
+Before preparation became explicit, `WireframeApp` represented three different
+lifecycle phases:
 
 1. a mutable builder that collects routes, middleware, lifecycle callbacks,
    protocol hooks, serializer, codec configuration, message assembly, and
    application data;
 2. an immutable application template read by every connection;
-3. a value constructed afresh by `AppFactory::build` inside each connection
-   task.
+3. a value historically constructed afresh by `AppFactory::build` inside each
+   connection task.
 
 Those roles have incompatible ownership requirements.
 
@@ -31,25 +37,28 @@ tasks. The connection runtime should own stream state, lifecycle state, codec
 state, message assembly, fragmentation state, and other values that exist for
 exactly one connection.
 
-The current hybrid creates several observable problems:
+Before the implementation slices tracked by
+[#641](https://github.com/leynos/wireframe/issues/641) and
+[#642](https://github.com/leynos/wireframe/issues/642), this hybrid created
+several observable problems:
 
-- route chains are built lazily from a fresh app for each connection;
-- the route table is stored as
+- route chains were built lazily from a fresh app for each connection;
+- the route table was stored as
   `OnceCell<Arc<HashMap<u32, HandlerService<E>>>>` and cloned into connection
-  handling even though the app remains alive for the whole connection;
+  handling even though the app remained alive for the whole connection;
 - the generic server and examples used different application-sharing topologies:
-  the former runtime bootstrap shared one `Arc<WireframeApp>` across
+  the latter runtime bootstrap shared one `Arc<WireframeApp>` across
   connections and bypassed `AppFactory` entirely;
-- documentation variously describes an app per worker and an app per
+- documentation variously described an app per worker and an app per
   connection; the rustdoc for `WireframeServer` states that each worker
-  "receives its own `WireframeApp`", while the code builds one per accepted
+  "receives its own `WireframeApp`", while the code built one per accepted
   connection;
-- application-owned callbacks and protocol objects acquire nested `Arc`
+- application-owned callbacks and protocol objects acquired nested `Arc`
   layers because the shared template itself is not explicit;
-- factory failures happen after a connection has already been accepted and
-  are logged rather than reported as startup failure; `ServerError` currently
-  has only `Bind` and `Accept` variants;
-- lifecycle teardown and protocol-hook correctness must be threaded through
+- factory failures happened after a connection had already been accepted and
+  were logged rather than reported as startup failure; `ServerError` then had
+  only `Bind` and `Accept` variants;
+- lifecycle teardown and protocol-hook correctness had to be threaded through
   a type that also carries builder-only state.
 
 ## Traceability
@@ -89,9 +98,9 @@ Related issues and decisions:
 Implementation of this ADR is sequenced through:
 
 - [#641](https://github.com/leynos/wireframe/issues/641), `PreparedApp` and
-  one-time route/middleware preparation;
+  one-time route/middleware preparation (implemented);
 - [#642](https://github.com/leynos/wireframe/issues/642), preparing the
-  application before server readiness;
+  application before server readiness (implemented);
 - [#643](https://github.com/leynos/wireframe/issues/643), the
   connection-local runtime and centralized lifecycle finalization;
 - [#644](https://github.com/leynos/wireframe/issues/644), consolidated
@@ -216,6 +225,28 @@ ConnectionRuntime
 
 _Figure 1: Application lifecycle phases from builder to connection runtime._
 
+For screen readers: The following state diagram shows the server moving from
+its unbound builder state through factory evaluation and application
+preparation, then only signalling readiness after workers are installed. It
+also shows factory and preparation failures ending before readiness.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Unbound
+    Unbound --> Bound: bind()
+    Bound --> Starting: run_with_shutdown()
+    Starting --> FactoryBuildFailed: build() error
+    Starting --> PreparationFailed: prepare() error
+    Starting --> Ready: workers installed
+    Ready --> Running: readiness signalled
+    FactoryBuildFailed --> [*]
+    PreparationFailed --> [*]
+    Running --> Stopping: shutdown
+    Stopping --> [*]
+```
+
+_Figure 2: Server startup, readiness, failure, and shutdown states._
+
 The split follows one uniform template-versus-instance rule: `PreparedApp` owns
 immutable definitions, configuration, and factories; `ConnectionRuntime` owns
 the per-connection mutable instances derived from them. Where the same domain
@@ -274,7 +305,7 @@ by rebuilding the entire application.
 
 ### 2. Prepare before readiness
 
-`run_with_shutdown` will:
+`run_with_shutdown`:
 
 1. evaluate `AppFactory` once;
 2. prepare routes and middleware chains;
@@ -283,18 +314,18 @@ by rebuilding the entire application.
 5. send the readiness signal through the existing `ready_tx` oneshot
    channel.
 
-Application build or preparation errors become distinct `ServerError` variants
-— for example `ServerError::AppBuild` and `ServerError::Prepare`, with
-source-error chaining — so orchestration and rollback automation can
-distinguish preparation failure from `Bind` failure. On failure,
-`run_with_shutdown` returns the typed error and the readiness channel is
-resolved or observably closed rather than silently dropped, so a readiness
-waiter learns of the failure promptly instead of hanging.
+Application build or preparation errors are returned as the distinct
+`ServerError::FactoryBuild` and `ServerError::Prepare` variants, with
+source-error chaining, so orchestration and rollback automation can distinguish
+preparation failure from `Bind` failure. On failure, `run_with_shutdown`
+returns the typed error and the readiness channel is observably closed rather
+than silently dropped, so a readiness waiter learns of the failure promptly
+instead of hanging.
 
 Preparation runs arbitrary user middleware transforms, so it must be
-observable: wrap `prepare()` in a tracing span, log its duration, and consider
-an optional preparation timeout mapped to a `ServerError` variant so a hung
-transform fails the deploy loudly instead of stalling readiness forever.
+observable. The implementation records preparation outcomes and duration in the
+application-preparation metrics, while a failed transform prevents readiness
+from being signalled.
 
 No connection is accepted by a server whose application template failed to
 prepare. This guarantee should be structural, not merely tested: the
@@ -303,31 +334,25 @@ cannot exist before preparation has succeeded.
 
 ### 3. Treat `AppFactory` as a startup factory
 
-The existing `WireframeServer::new(factory)` surface may remain during
-migration, but the factory is evaluated once per server run rather than once
-per connection.
-
-The implementation issue must assess semver impact and choose one of:
-
-- document the new evaluation semantics as a bug/performance correction if
-  no supported contract promised per-connection invocation;
-- introduce a direct `WireframeServer::from_app(app)` or
-  `from_prepared_app` constructor and deprecate ambiguous factory semantics;
-- retain an explicitly named per-connection factory API only if a concrete
-  use case cannot be expressed through connection setup state.
+`WireframeServer::new(factory)` evaluates the factory once per server run
+rather than once per connection, prepares the resulting application before
+readiness, and shares the immutable root across all connection tasks. The
+`WireframeServer::from_app` constructor supplies an already-built application
+to the same preparation path. No separately named per-connection factory is
+needed: connection-specific state belongs in lifecycle setup state `C`.
 
 The disposition list must also cover the adjacent public surface the split
 invalidates:
 
 - `WireframeApp::handle_connection_result` and `handle_connection` are `pub`
-  and embody the builder/template/runtime hybrid being dissolved; they should
-  be deprecated on `WireframeApp` and re-homed on the `PreparedApp`/
+  and embodied the builder/template/runtime hybrid being dissolved; they are
+  deprecated on `WireframeApp` and re-homed on the `PreparedApp`/
   `ConnectionRuntime` path, with removal acceptable pre-1.0 alongside a
   migration note;
 - the `AppFactory` trait's `Clone` bound and its rustdoc contract ("build an
   application instance for a new connection") become vestigial under per-server
-  evaluation and must be revised together with the `WireframeServer` rustdoc's
-  per-worker claim.
+  evaluation. Its rustdoc now describes one server run, and the
+  `WireframeServer` rustdoc no longer makes a per-worker claim.
 
 The final public API disposition must be recorded before this ADR is accepted.
 
@@ -442,7 +467,7 @@ Consume handler and middleware registrations during preparation and remove
 per-connection route initialization
 ([#641](https://github.com/leynos/wireframe/issues/641)).
 
-### Phase 3: switch server startup
+### Phase 3: switch server startup (implemented by [#642](https://github.com/leynos/wireframe/issues/642))
 
 Evaluate and prepare the app before spawning accept loops and readiness
 notification. Thread one prepared root into connection tasks
@@ -493,7 +518,8 @@ documentation obligations, delivered under
   later connections.
 - Each abandoned-unwind path enumerated by the implementation is recorded
   with a test or an explicit accepted-gap note.
-- Preparation duration is visible in tracing output.
+- Preparation outcomes and duration are recorded in application-preparation
+  metrics.
 - Property-based or bounded-model coverage exercises the lifecycle
   invariants — preparation runs once, readiness never precedes preparation, and
   teardown fires exactly once — across generated interleavings of terminal

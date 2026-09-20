@@ -203,14 +203,15 @@ so a single prepared application can serve multiple connections without
 repeating middleware transforms. `WireframeApp` remains the registration
 builder, and its direct connection methods are compatibility APIs.
 
-Server factory evaluation and readiness semantics remain unchanged in this
-slice. The server-runtime work tracked by issue
-[#642](https://github.com/leynos/wireframe/issues/642) will prepare the factory
-result before server readiness; connection-local state and the
-`ConnectionRuntime` follow in issue
-[#643](https://github.com/leynos/wireframe/issues/643). The records remain
-proposed, and the review checklist derived from ADR 011's rules lands with
-their implementation epic.
+The server runtime now evaluates its factory once per run, prepares the
+resulting application before spawning accept loops, and signals readiness only
+after those workers have received the shared prepared root. Factory and
+preparation failures are returned as typed `ServerError` variants. The
+connection-local ownership model remains governed by
+[#643](https://github.com/leynos/wireframe/issues/643) and ADR 012. The
+`WireframeServer::from_app` constructor supplies an already-built application;
+callers still initialize tracing, create the Tokio runtime, and configure the
+server explicitly.
 
 ### Server supervisor lifecycle
 
@@ -620,11 +621,11 @@ methods that the step definitions and scenario can reuse.
 ## Example and benchmark support
 
 TCP server examples that share the standard
-`WireframeApp<BincodeSerializer, (), Envelope>` runtime shape should use
-`WireframeServer::from_app` for tracing setup, server preparation, listener
-binding, connection spawning, shutdown-aware accept loops, and current-thread
-Tokio runtime startup. Keep example-specific address
-parsing, app construction, handlers, and middleware in the example file.
+`WireframeApp<BincodeSerializer, (), Envelope>` runtime shape should initialize
+tracing and the current-thread Tokio runtime explicitly, then use
+`WireframeServer::from_app` for server preparation, listener binding,
+connection spawning, and shutdown-aware accept loops. Keep example-specific
+address parsing, app construction, handlers, and middleware in the example file.
 
 Codec benchmark helpers live in `wireframe_testing::codec_benchmarks`. Bench
 targets, direct unit tests, and BDD fixtures should import the workload matrix,

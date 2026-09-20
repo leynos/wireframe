@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
   server run, prepares the result once, and shares that immutable application
   root across connections. Move per-connection state to `on_connection_setup`,
   or use `WireframeServer::from_app(app)` when the application is already
-  built. See `docs/v0-2-0-to-v0-3-0-migration-guide.md` for migration examples.
+  built. See `docs/v0-3-0-to-v0-4-0-migration-guide.md` for migration examples.
   (#642)
 
 - **Client (breaking):** Remove `SocketOptions::linger` and

@@ -91,6 +91,11 @@ pub const SERVER_SUPERVISOR_CANCELLATIONS: &str = "wireframe_server_supervisor_c
 /// ```
 pub const SERVER_ACCEPT_LOOPS_EXITED: &str = "wireframe_server_accept_loops_exited_total";
 
+/// Name of the counter tracking server start-up failures.
+///
+/// The bounded `stage` label is either `"factory_build"` or `"preparation"`.
+pub const SERVER_STARTUP_FAILURES: &str = "wireframe_server_startup_failures_total";
+
 /// Bounded reasons for server-supervisor cancellation metrics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ServerCancellationReason {
@@ -106,6 +111,25 @@ impl ServerCancellationReason {
         match self {
             Self::Graceful => "graceful",
             Self::Dropped => "dropped",
+        }
+    }
+}
+
+/// Bounded stages at which server start-up can fail.
+#[derive(Clone, Copy)]
+pub(crate) enum ServerStartupFailureStage {
+    /// The startup factory did not produce an application.
+    FactoryBuild,
+    /// The application did not produce an immutable prepared template.
+    Preparation,
+}
+
+impl ServerStartupFailureStage {
+    /// Return the stable metric and tracing label value for this stage.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::FactoryBuild => "factory_build",
+            Self::Preparation => "preparation",
         }
     }
 }
@@ -319,3 +343,15 @@ pub(crate) fn inc_server_accept_loop_exit(reason: ServerCancellationReason) {
 /// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub(crate) fn inc_server_accept_loop_exit(_reason: ServerCancellationReason) {}
+
+/// Record a server start-up failure at a bounded stage.
+#[cfg(feature = "metrics")]
+pub(crate) fn inc_server_startup_failure(stage: ServerStartupFailureStage) {
+    counter!(SERVER_STARTUP_FAILURES, "stage" => stage.as_str()).increment(1);
+}
+
+/// Record a server start-up failure at a bounded stage.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
+#[cfg(not(feature = "metrics"))]
+pub(crate) fn inc_server_startup_failure(_stage: ServerStartupFailureStage) {}

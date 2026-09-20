@@ -183,9 +183,27 @@ for the staged rollout.
 
 ## Server factory compatibility
 
-`WireframeServer` continues to accept an `AppFactory` and retains its existing
-factory-evaluation semantics in this release. Applications that construct a
-fresh builder per connection therefore do not automatically share a prepared
-application. Preparing the application factory before server readiness, and
-moving server connection tasks onto a prepared root, are tracked separately in
-[issue #642](https://github.com/leynos/wireframe/issues/642).
+`WireframeServer::new` now evaluates its `AppFactory` once for each
+`run_with_shutdown` invocation, prepares the resulting application once before
+readiness, and shares one immutable prepared root across all workers and
+connection tasks. Move connection-specific state to lifecycle setup state `C`
+through `on_connection_setup` rather than constructing it in the application
+factory.
+
+Use `WireframeServer::from_app(app)` when the application is already built. The
+server still prepares that application when it starts, so the same readiness
+guarantee applies. The constructor only supplies the application to the server;
+it does not initialize tracing or create a Tokio runtime. Configure server
+settings through the usual builder methods.
+
+If a factory previously created a fresh builder for every connection, update
+the construction path as follows:
+
+```rust
+// One-time startup construction through the factory.
+let server = WireframeServer::new(build_startup_app).bind(addr)?;
+
+// Or construct the application before creating the server.
+let app = build_startup_app()?;
+let server = WireframeServer::from_app(app).bind(addr)?;
+```
