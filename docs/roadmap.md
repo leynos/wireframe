@@ -894,7 +894,8 @@ sequencing the remaining server and connection-runtime work separately.
   prepared connection drivers. See issue
   [#641](https://github.com/leynos/wireframe/issues/641) and
   [ADR 012](adr-012-prepared-application-and-connection-runtime.md).
-- [ ] 20.1.2. Prepare the application factory before server readiness. See
+- [x] 20.1.2. Prepare the application factory once before server readiness and
+  share the immutable prepared root with accept loops and connection tasks. See
   issue [#642](https://github.com/leynos/wireframe/issues/642).
 - [ ] 20.1.3. Extract connection-local runtime ownership and lifecycle
   finalization. See issue

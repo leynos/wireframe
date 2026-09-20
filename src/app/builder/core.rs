@@ -67,7 +67,7 @@ where
     E: Packet,
     F: FrameCodec + Default,
 {
-    /// Initializes empty routes, middleware, and application data with the
+    /// Initializes empty handlers, middleware, and application data with the
     /// default serializer and no lifecycle hooks.
     fn default() -> Self {
         let codec = F::default();
