@@ -9,7 +9,6 @@ use std::{
     },
 };
 
-use async_trait::async_trait;
 use rstest::rstest;
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -27,31 +26,15 @@ use super::{
     SupervisorLifecycle,
     WireframeServer,
     accept_loop,
+    test_support::PreparationBarrier,
 };
 use crate::{
     app::{Envelope, Handler, WireframeApp},
-    middleware::{HandlerService, Transform},
     server::{
         ServerError,
         test_util::{bind_server, factory, free_listener},
     },
 };
-
-struct PreparationBarrier {
-    entered: Arc<Notify>,
-    barrier: Arc<Barrier>,
-}
-
-#[async_trait]
-impl Transform<HandlerService<Envelope>> for PreparationBarrier {
-    type Output = HandlerService<Envelope>;
-
-    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
-        self.entered.notify_one();
-        self.barrier.wait().await;
-        service
-    }
-}
 
 #[rstest]
 #[tokio::test]

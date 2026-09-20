@@ -4,7 +4,6 @@
 use std::io;
 use std::sync::Arc;
 
-use async_trait::async_trait;
 #[cfg(feature = "metrics")]
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use tokio::{
@@ -12,10 +11,9 @@ use tokio::{
     time::{Duration, timeout},
 };
 
-use super::WireframeServer;
+use super::{WireframeServer, test_support::PreparationBarrier};
 use crate::{
     app::{Envelope, Handler, WireframeApp},
-    middleware::{HandlerService, Transform},
     server::test_util::free_listener,
 };
 #[cfg(feature = "metrics")]
@@ -23,26 +21,6 @@ use crate::{
     metrics::{SERVER_STARTUP_DURATION, SERVER_STARTUP_FAILURES},
     server::ServerError,
 };
-
-/// Middleware that holds application preparation until the test releases it.
-struct PreparationBarrier {
-    /// Announces that preparation reached the blocking transform.
-    entered: Arc<Notify>,
-    /// Coordinates preparation with the test's shutdown signal.
-    barrier: Arc<Barrier>,
-}
-
-#[async_trait]
-impl Transform<HandlerService<Envelope>> for PreparationBarrier {
-    type Output = HandlerService<Envelope>;
-
-    /// Wait until the test lets the preparation transform continue.
-    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
-        self.entered.notify_one();
-        self.barrier.wait().await;
-        service
-    }
-}
 
 /// Shutdown cancels a blocked preparation without publishing readiness.
 #[tokio::test]
