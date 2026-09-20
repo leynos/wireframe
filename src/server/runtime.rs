@@ -385,12 +385,15 @@ where
 }
 
 /// Emit bounded observability for a startup failure without accepting traffic.
-fn record_startup_failure(error_stage: ServerStartupFailureStage, error: &dyn std::error::Error) {
+fn record_startup_failure<E>(error_stage: ServerStartupFailureStage, _error: &E)
+where
+    E: std::error::Error,
+{
     inc_server_startup_failure(error_stage);
     error!(
         event = "server_startup_failure",
         stage = error_stage.as_str(),
-        error_type = std::any::type_name_of_val(error),
+        error_type = std::any::type_name::<E>(),
         "server start-up failed before readiness",
     );
 }
