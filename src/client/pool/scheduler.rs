@@ -21,7 +21,6 @@ use crate::{client::ClientError, serializer::Serializer};
 
 /// One-shot completion channel for a queued logical-session acquisition.
 type WaiterSender<S, P, C> = oneshot::Sender<Result<PooledClientLease<S, P, C>, ClientError>>;
-
 /// Policy-specific waiter queues protected by the scheduler mutex.
 struct SchedulerState<S, P, C>
 where
@@ -195,26 +194,16 @@ where
         }
 
         if let Some(lease) = inner.try_acquire_immediately() {
-            let Some(waiter) = self.take_next_waiter_or_stop() else {
-                drop(receiver);
-                return Ok(lease);
-            };
-
-            if waiter.send(Ok(lease)).is_err() {
-                drop(receiver);
-                return Err(ClientError::disconnected());
-            }
-        } else {
-            self.kick(inner);
+            return self.resolve_immediate_lease(lease, receiver).await;
         }
 
+        self.kick(inner);
         receiver.await.map_err(|_| ClientError::disconnected())?
     }
 
     /// Complete every queued waiter with a disconnected error.
     pub(crate) fn notify_shutdown(&self) {
-        let mut state = lock_or_recover(&self.state);
-        while let Some(waiter) = state.take_next_waiter(self.fairness_policy) {
+        while let Some(waiter) = self.next_waiter() {
             let _ = waiter.send(Err(ClientError::disconnected()));
         }
     }
@@ -249,9 +238,7 @@ where
     /// Dequeue a waiter, closing the worker only after queues are empty.
     fn take_next_waiter_or_stop(&self) -> Option<WaiterSender<S, P, C>> {
         loop {
-            if let Some(sender) =
-                lock_or_recover(&self.state).take_next_waiter(self.fairness_policy)
-            {
+            if let Some(sender) = self.next_waiter() {
                 return Some(sender);
             }
 
@@ -260,6 +247,30 @@ where
                 return None;
             }
         }
+    }
+
+    /// Select the next waiter through the pool's configured fairness policy.
+    fn next_waiter(&self) -> Option<WaiterSender<S, P, C>> {
+        lock_or_recover(&self.state).take_next_waiter(self.fairness_policy)
+    }
+
+    /// Hand an immediate lease to the selected waiter, or retain it for this caller.
+    async fn resolve_immediate_lease(
+        &self,
+        lease: PooledClientLease<S, P, C>,
+        receiver: oneshot::Receiver<Result<PooledClientLease<S, P, C>, ClientError>>,
+    ) -> Result<PooledClientLease<S, P, C>, ClientError> {
+        let Some(waiter) = self.take_next_waiter_or_stop() else {
+            drop(receiver);
+            return Ok(lease);
+        };
+
+        if waiter.send(Ok(lease)).is_err() {
+            drop(receiver);
+            return Err(ClientError::disconnected());
+        }
+
+        receiver.await.map_err(|_| ClientError::disconnected())?
     }
 
     /// Claim the idle-to-servicing hand-off so one worker owns the enqueue race.
@@ -325,20 +336,17 @@ mod tests {
         let fairness_policy = PoolFairnessPolicy::Fifo;
         TestScheduler::new(fairness_policy)
     }
-
     #[rstest]
     fn try_begin_servicing_has_one_owner_until_stopped(fifo_scheduler: TestScheduler) {
         assert!(fifo_scheduler.try_begin_servicing());
         assert!(!fifo_scheduler.try_begin_servicing());
     }
-
     #[rstest]
     fn stop_servicing_allows_another_owner(fifo_scheduler: TestScheduler) {
         assert!(fifo_scheduler.try_begin_servicing());
         fifo_scheduler.stop_servicing();
         assert!(fifo_scheduler.try_begin_servicing());
     }
-
     #[test]
     fn restart_if_waiters_only_begins_service_for_queued_work() {
         let scheduler = TestScheduler::new(PoolFairnessPolicy::RoundRobin);
@@ -353,14 +361,11 @@ mod tests {
 
         assert!(scheduler.restart_if_waiters());
     }
-
     #[test]
     fn round_robin_enqueue_rejects_unknown_handles() {
         let mut state = TestState::new();
         let (sender, _receiver) = oneshot::channel();
-
         let was_enqueued = state.enqueue_waiter(42, sender, PoolFairnessPolicy::RoundRobin);
-
         assert!(
             !was_enqueued,
             "unknown round-robin handles must be rejected"
@@ -372,21 +377,16 @@ mod tests {
             "rejected round-robin waiters must not remain queued"
         );
     }
-
     #[test]
     fn deregister_handle_purges_fifo_entries_for_that_handle() {
         let mut state = TestState::new();
         state.register_handle(1);
         state.register_handle(2);
-
         let (removed_sender, _removed_receiver) = oneshot::channel();
         let (kept_sender, _kept_receiver) = oneshot::channel();
-
         assert!(state.enqueue_waiter(1, removed_sender, PoolFairnessPolicy::Fifo));
         assert!(state.enqueue_waiter(2, kept_sender, PoolFairnessPolicy::Fifo));
-
         state.deregister_handle(1);
-
         let next_waiter = state.take_next_waiter(PoolFairnessPolicy::Fifo);
         assert!(
             next_waiter.is_some(),
