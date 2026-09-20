@@ -27,7 +27,7 @@ use super::{
     SupervisorLifecycle,
     WireframeServer,
     accept_loop,
-    startup_tests::PreparationBarrier,
+    test_support::PreparationBarrier,
 };
 use crate::{
     app::{Envelope, Handler, WireframeApp},

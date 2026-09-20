@@ -82,7 +82,11 @@ where
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
-    prepare_built_application(build_application(factory, startup_started)?, startup_started).await
+    prepare_built_application(
+        build_application(factory, startup_started)?,
+        startup_started,
+    )
+    .await
 }
 
 /// Build an application and record a bounded failure outcome when needed.
