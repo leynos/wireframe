@@ -168,9 +168,21 @@ where
 mod tests {
     //! Unit tests for slot admission permits and idle-recycle bookkeeping.
 
-    use std::{net::SocketAddr, sync::Arc, time::Duration};
+    use std::{
+        io,
+        net::SocketAddr,
+        sync::{Arc, Mutex},
+        thread,
+        time::Duration,
+    };
 
-    use super::PoolSlot;
+    use googletest::{gtest, prelude::*};
+    use tokio::{runtime::Builder, time::Instant};
+    use tracing::Level;
+    use tracing_subscriber::fmt::MakeWriter;
+    use wireframe_testing::ObservabilityHandle;
+
+    use super::{PoolSlot, lock_or_recover};
     use crate::{
         client::{
             ClientCodecConfig,
@@ -249,5 +261,79 @@ mod tests {
             !slot.should_recycle_idle(),
             "cleared timestamp must not trigger a recycle"
         );
+    }
+
+    #[gtest]
+    fn idle_recycle_bookkeeping_recovers_after_timestamp_poison() {
+        let runtime = Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("slot poison-recovery test runtime should build");
+        let _runtime_guard = runtime.enter();
+        let slot = test_slot(1, Duration::from_millis(1));
+        *slot.lock_last_returned_at() = Some(Instant::now() - Duration::from_mins(1));
+
+        let poisoned_slot = Arc::clone(&slot);
+        let join_result = thread::spawn(move || {
+            let _last_returned_at = poisoned_slot.lock_last_returned_at();
+            panic!("poison slot timestamp for recovery coverage");
+        })
+        .join();
+
+        expect_that!(join_result, err(anything()));
+        expect_that!(slot.last_returned_at.is_poisoned(), eq(true));
+
+        let captured_logs = Arc::new(Mutex::new(Vec::new()));
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_max_level(Level::WARN)
+            .with_writer(CaptureWriter::new(Arc::clone(&captured_logs)))
+            .finish();
+        let mut observability = ObservabilityHandle::new();
+        metrics::with_local_recorder(observability.recorder(), || {
+            tracing::subscriber::with_default(subscriber, || {
+                expect_that!(slot.should_recycle_idle(), eq(true));
+                slot.clear_last_returned_at();
+                expect_that!(slot.should_recycle_idle(), eq(false));
+            });
+        });
+        observability.snapshot();
+        let log_bytes = lock_or_recover(&captured_logs).clone();
+        let logs = String::from_utf8_lossy(&log_bytes);
+
+        expect_that!(
+            logs.as_ref(),
+            contains_substring("recovering poisoned client pool bookkeeping lock")
+        );
+        expect_that!(
+            observability
+                .counter_without_labels(crate::metrics::POOL_BOOKKEEPING_POISON_RECOVERIES),
+            eq(3)
+        );
+    }
+
+    #[derive(Clone)]
+    struct CaptureWriter {
+        captured: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl CaptureWriter {
+        fn new(captured: Arc<Mutex<Vec<u8>>>) -> Self { Self { captured } }
+    }
+
+    impl<'a> MakeWriter<'a> for CaptureWriter {
+        type Writer = Self;
+
+        fn make_writer(&'a self) -> Self::Writer { self.clone() }
+    }
+
+    impl io::Write for CaptureWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            lock_or_recover(&self.captured).extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> { Ok(()) }
     }
 }
