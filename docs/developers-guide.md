@@ -215,18 +215,32 @@ server explicitly.
 
 ### Server supervisor lifecycle
 
-`WireframeServer::run_with_shutdown` owns the server's `CancellationToken` and
-`TaskTracker` while it supervises the worker accept loops. A named
-`drop_guard_ref()` guard cancels the token when the supervisor future is
-dropped, including when its `JoinHandle` is aborted. The accept loops then stop
-accepting and release their listener references. This release is eventual
-rather than synchronous because the loops must be scheduled to observe the
-cancellation.
+`WireframeServer::run_with_shutdown` remains the foreground API. It owns the
+server's `CancellationToken` and `TaskTracker`; a named `drop_guard_ref()`
+guard cancels accept loops when that future is dropped, including after a
+`JoinHandle::abort()`. It retains the existing graceful drain for already
+accepted connection tasks.
 
-When the supplied shutdown future resolves, the existing graceful path still
-cancels the accept loops and waits for tracked work. The drop guard does not
-cancel connection tasks that were already accepted; those tasks continue under
-the existing graceful-drain semantics.
+Code that needs deterministic listener hand-off should use the awaitable
+runtime contract recorded in [ADR 014](adr-014-server-shutdown-ownership.md):
+`WireframeServer::spawn().await` prepares the application and returns a
+cloneable `ServerShutdown` control. `stop()` synchronously requests shutdown
+through a `CancellationToken`, so it is idempotent, non-blocking, and cannot
+wait behind a saturated server. `drained().await` resolves only after every
+accept loop has exited, the listener is released, and the supervisor has
+drained its tracker. Clones converge on that one terminal outcome.
+
+`spawn()` reports the typed application factory and preparation errors before
+returning a control handle. After it succeeds, `drained()` returns either clean
+completion or `ServerError::AbnormalTermination`, which contains the captured
+supervisor diagnostic. The observer retains the supervisor `JoinHandle` until
+it records this terminal outcome, so a panic cannot be silently detached.
+Abnormal termination emits the error-level
+`server_supervisor_abnormal_termination` tracing event and increments
+`wireframe_server_supervisor_abnormal_terminations_total`; the panic message is
+not a metric label.
+
+Neither `run()` nor the in-flight connection graceful-drain policy changes.
 
 The private `SupervisorLifecycle` state starts as `Running` and records one
 terminal outcome: `Graceful` when the shutdown future resolves, `Dropped` when

@@ -102,6 +102,16 @@ pub const SERVER_STARTUP_FAILURES: &str = "wireframe_server_startup_failures_tot
 /// `"preparation"`.
 pub const SERVER_STARTUP_DURATION: &str = "wireframe_server_startup_duration_seconds";
 
+/// Name of the counter tracking abnormal server-supervisor terminations.
+///
+/// ```plaintext
+/// # HELP wireframe_server_supervisor_abnormal_terminations_total Count of abnormal server-supervisor terminations.
+/// # TYPE wireframe_server_supervisor_abnormal_terminations_total counter
+/// wireframe_server_supervisor_abnormal_terminations_total 1
+/// ```
+pub const SERVER_SUPERVISOR_ABNORMAL_TERMINATIONS: &str =
+    "wireframe_server_supervisor_abnormal_terminations_total";
+
 /// Bounded reasons for server-supervisor cancellation metrics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ServerCancellationReason {
@@ -394,3 +404,15 @@ pub(crate) fn record_server_startup_duration(_outcome: ServerStartupOutcome, _el
 /// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub(crate) fn inc_server_startup_failure(_stage: ServerStartupFailureStage) {}
+
+/// Record an abnormal server-supervisor termination.
+#[cfg(feature = "metrics")]
+pub(crate) fn inc_server_supervisor_abnormal_termination() {
+    counter!(SERVER_SUPERVISOR_ABNORMAL_TERMINATIONS).increment(1);
+}
+
+/// Record an abnormal server-supervisor termination.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
+#[cfg(not(feature = "metrics"))]
+pub(crate) fn inc_server_supervisor_abnormal_termination() {}
