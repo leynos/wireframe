@@ -2,24 +2,22 @@
 
 #[cfg(feature = "metrics")]
 use std::io;
-use std::sync::Arc;
 #[cfg(feature = "metrics")]
 use std::time::Instant;
 
 #[cfg(feature = "metrics")]
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use tokio::{
-    sync::{Barrier, Notify, oneshot},
+    sync::oneshot,
     time::{Duration, timeout},
 };
 
 #[cfg(feature = "metrics")]
 use super::startup::{prepare_application_or_shutdown, prepare_or_shutdown};
-use super::{WireframeServer, test_support::PreparationBarrier};
-use crate::{
-    app::{Envelope, Handler, PrepareError, WireframeApp},
-    server::test_util::free_listener,
-};
+use super::{WireframeServer, test_support::preparation_factory};
+#[cfg(feature = "metrics")]
+use crate::app::{PrepareError, WireframeApp};
+use crate::server::test_util::free_listener;
 #[cfg(feature = "metrics")]
 use crate::{
     metrics::{SERVER_STARTUP_DURATION, SERVER_STARTUP_FAILURES},
@@ -30,21 +28,7 @@ use crate::{
 #[tokio::test]
 async fn shutdown_interrupts_blocked_preparation_before_readiness()
 -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let entered = Arc::new(Notify::new());
-    let barrier = Arc::new(Barrier::new(2));
-    let handler: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
-    let factory = {
-        let entered = Arc::clone(&entered);
-        let barrier = Arc::clone(&barrier);
-        move || -> Result<WireframeApp, crate::WireframeError> {
-            WireframeApp::new()?
-                .route(1, Arc::clone(&handler))?
-                .wrap(PreparationBarrier {
-                    entered: Arc::clone(&entered),
-                    barrier: Arc::clone(&barrier),
-                })
-        }
-    };
+    let (entered, _barrier, factory) = preparation_factory();
     let server = WireframeServer::new(factory).bind_existing_listener(free_listener()?)?;
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -134,22 +118,6 @@ fn assert_startup_duration_outcome(snapshotter: &Snapshotter, expected_outcome: 
     }));
 }
 
-#[cfg(feature = "metrics")]
-fn blocked_preparation_factory(
-    entered: Arc<Notify>,
-    barrier: Arc<Barrier>,
-) -> impl Fn() -> Result<WireframeApp, crate::WireframeError> + Clone {
-    let handler: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
-    move || {
-        WireframeApp::new()?
-            .route(1, Arc::clone(&handler))?
-            .wrap(PreparationBarrier {
-                entered: Arc::clone(&entered),
-                barrier: Arc::clone(&barrier),
-            })
-    }
-}
-
 /// Interrupted preparation records a bounded cancelled startup duration.
 #[cfg(feature = "metrics")]
 #[test]
@@ -162,9 +130,7 @@ fn cancelled_preparation_records_a_bounded_startup_metric() {
             .build()
             .expect("test runtime should build");
         runtime.block_on(async {
-            let entered = Arc::new(Notify::new());
-            let barrier = Arc::new(Barrier::new(2));
-            let factory = blocked_preparation_factory(Arc::clone(&entered), Arc::clone(&barrier));
+            let (entered, _barrier, factory) = preparation_factory();
             let (shutdown_tx, shutdown_rx) = oneshot::channel();
             tokio::spawn(async move {
                 entered.notified().await;
