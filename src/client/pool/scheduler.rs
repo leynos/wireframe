@@ -67,8 +67,7 @@ where
             .retain(|(queued_id, _)| *queued_id != handle_id);
     }
 
-    /// Enqueue a waiter, rejecting unregistered round-robin handles and discarding dropped FIFO
-    /// entries during dequeue.
+    /// Queue ownership requires registered round-robin handles; FIFO tolerates stale owners.
     fn enqueue_waiter(
         &mut self,
         handle_id: u64,
@@ -263,14 +262,14 @@ where
         }
     }
 
-    /// Transition from idle to servicing when no worker owns the queue.
+    /// Claim the idle-to-servicing hand-off so one worker owns the enqueue race.
     fn try_begin_servicing(&self) -> bool {
         self.is_servicing
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
     }
 
-    /// Transition from servicing to idle after the queue becomes empty.
+    /// Publish servicing-to-idle before rechecking waiters that raced with emptiness.
     fn stop_servicing(&self) { self.is_servicing.store(false, Ordering::Release); }
 
     /// Serially service waiters so fairness order is deterministic.
@@ -320,21 +319,20 @@ mod tests {
     type TestState = SchedulerState<BincodeSerializer, (), ()>;
     type TestScheduler = PoolScheduler<BincodeSerializer, (), ()>;
 
+    fn fifo_scheduler() -> TestScheduler { TestScheduler::new(PoolFairnessPolicy::Fifo) }
+
     #[test]
     fn try_begin_servicing_has_one_owner_until_stopped() {
-        let scheduler = TestScheduler::new(PoolFairnessPolicy::Fifo);
-
+        let scheduler = fifo_scheduler();
         assert!(scheduler.try_begin_servicing());
         assert!(!scheduler.try_begin_servicing());
     }
 
     #[test]
     fn stop_servicing_allows_another_owner() {
-        let scheduler = TestScheduler::new(PoolFairnessPolicy::Fifo);
-
+        let scheduler = fifo_scheduler();
         assert!(scheduler.try_begin_servicing());
         scheduler.stop_servicing();
-
         assert!(scheduler.try_begin_servicing());
     }
 
