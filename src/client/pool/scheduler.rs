@@ -313,27 +313,30 @@ where
 mod tests {
     //! Coverage for waiter queue bookkeeping across fairness policies.
 
+    use rstest::{fixture, rstest};
+
     use super::*;
     use crate::serializer::BincodeSerializer;
 
     type TestState = SchedulerState<BincodeSerializer, (), ()>;
     type TestScheduler = PoolScheduler<BincodeSerializer, (), ()>;
-
-    fn fifo_scheduler() -> TestScheduler { TestScheduler::new(PoolFairnessPolicy::Fifo) }
-
-    #[test]
-    fn try_begin_servicing_has_one_owner_until_stopped() {
-        let scheduler = fifo_scheduler();
-        assert!(scheduler.try_begin_servicing());
-        assert!(!scheduler.try_begin_servicing());
+    #[fixture]
+    fn fifo_scheduler() -> TestScheduler {
+        let fairness_policy = PoolFairnessPolicy::Fifo;
+        TestScheduler::new(fairness_policy)
     }
 
-    #[test]
-    fn stop_servicing_allows_another_owner() {
-        let scheduler = fifo_scheduler();
-        assert!(scheduler.try_begin_servicing());
-        scheduler.stop_servicing();
-        assert!(scheduler.try_begin_servicing());
+    #[rstest]
+    fn try_begin_servicing_has_one_owner_until_stopped(fifo_scheduler: TestScheduler) {
+        assert!(fifo_scheduler.try_begin_servicing());
+        assert!(!fifo_scheduler.try_begin_servicing());
+    }
+
+    #[rstest]
+    fn stop_servicing_allows_another_owner(fifo_scheduler: TestScheduler) {
+        assert!(fifo_scheduler.try_begin_servicing());
+        fifo_scheduler.stop_servicing();
+        assert!(fifo_scheduler.try_begin_servicing());
     }
 
     #[test]
@@ -341,7 +344,6 @@ mod tests {
         let scheduler = TestScheduler::new(PoolFairnessPolicy::RoundRobin);
         let handle_id = scheduler.register_handle();
         let (sender, _receiver) = oneshot::channel();
-
         assert!(!scheduler.restart_if_waiters());
         assert!(lock_or_recover(&scheduler.state).enqueue_waiter(
             handle_id,
