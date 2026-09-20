@@ -67,22 +67,8 @@ where
             .retain(|(queued_id, _)| *queued_id != handle_id);
     }
 
-    /// Enqueues a waiter for the given handle according to the fairness policy.
-    ///
-    /// # Policy-specific behaviour
-    ///
-    /// - [`PoolFairnessPolicy::Fifo`]: Always enqueues `(handle_id, sender)` into
-    ///   [`fifo_queue`](Self::fifo_queue). Deregistered handles are pruned lazily during dequeue in
-    ///   [`take_next_fifo_waiter`](Self::take_next_fifo_waiter).
-    /// - [`PoolFairnessPolicy::RoundRobin`]: Only enqueues if `handle_id` exists in
-    ///   [`handle_waiters`](Self::handle_waiters). If the handle is unregistered, this returns
-    ///   `false` so the caller can log and fail fast instead of dropping the waiter silently.
-    ///
-    /// # Invariant
-    ///
-    /// For round-robin policy, callers must ensure the handle is registered before
-    /// calling this method. For FIFO policy, registration status does not matter as
-    /// invalid entries are filtered during dequeue.
+    /// Enqueue a waiter, rejecting unregistered round-robin handles and discarding dropped FIFO
+    /// entries during dequeue.
     fn enqueue_waiter(
         &mut self,
         handle_id: u64,
@@ -244,11 +230,7 @@ where
 
     /// Spawn at most one worker to drain waiters as capacity appears.
     fn kick(self: &Arc<Self>, inner: Arc<ClientPoolInner<S, P, C>>) {
-        if self
-            .is_servicing
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-        {
+        if self.try_begin_servicing() {
             let scheduler = Arc::clone(self);
             tokio::spawn(async move {
                 scheduler.service_waiters(inner).await;
@@ -262,9 +244,7 @@ where
             return false;
         }
 
-        self.is_servicing
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
+        self.try_begin_servicing()
     }
 
     /// Dequeue a waiter, closing the worker only after queues are empty.
@@ -276,12 +256,22 @@ where
                 return Some(sender);
             }
 
-            self.is_servicing.store(false, Ordering::Release);
+            self.stop_servicing();
             if !self.restart_if_waiters() {
                 return None;
             }
         }
     }
+
+    /// Transition from idle to servicing when no worker owns the queue.
+    fn try_begin_servicing(&self) -> bool {
+        self.is_servicing
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    /// Transition from servicing to idle after the queue becomes empty.
+    fn stop_servicing(&self) { self.is_servicing.store(false, Ordering::Release); }
 
     /// Serially service waiters so fairness order is deterministic.
     async fn service_waiters(self: Arc<Self>, inner: Arc<ClientPoolInner<S, P, C>>) {
@@ -328,6 +318,41 @@ mod tests {
     use crate::serializer::BincodeSerializer;
 
     type TestState = SchedulerState<BincodeSerializer, (), ()>;
+    type TestScheduler = PoolScheduler<BincodeSerializer, (), ()>;
+
+    #[test]
+    fn try_begin_servicing_has_one_owner_until_stopped() {
+        let scheduler = TestScheduler::new(PoolFairnessPolicy::Fifo);
+
+        assert!(scheduler.try_begin_servicing());
+        assert!(!scheduler.try_begin_servicing());
+    }
+
+    #[test]
+    fn stop_servicing_allows_another_owner() {
+        let scheduler = TestScheduler::new(PoolFairnessPolicy::Fifo);
+
+        assert!(scheduler.try_begin_servicing());
+        scheduler.stop_servicing();
+
+        assert!(scheduler.try_begin_servicing());
+    }
+
+    #[test]
+    fn restart_if_waiters_only_begins_service_for_queued_work() {
+        let scheduler = TestScheduler::new(PoolFairnessPolicy::RoundRobin);
+        let handle_id = scheduler.register_handle();
+        let (sender, _receiver) = oneshot::channel();
+
+        assert!(!scheduler.restart_if_waiters());
+        assert!(lock_or_recover(&scheduler.state).enqueue_waiter(
+            handle_id,
+            sender,
+            PoolFairnessPolicy::RoundRobin,
+        ));
+
+        assert!(scheduler.restart_if_waiters());
+    }
 
     #[test]
     fn round_robin_enqueue_rejects_unknown_handles() {
