@@ -1558,9 +1558,9 @@ dependencies = [
 
 [[package]]
 name = "monotony"
-version = "0.1.0"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c07971c6281a9a50979e8426fa6c6c618a42b729180847cb4363a794fdc4e607"
+checksum = "239e59ecd6113a01bb9f9b2c85666af8f94d8b8e545d66d425ffc5fc75ffb874"
 
 [[package]]
 name = "mutants"
