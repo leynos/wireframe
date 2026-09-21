@@ -50,24 +50,20 @@ EXPECTED_PLACEMENT: typ.Final = {
     ("coverage-main.yml", "coverage-upload"): UBICLOUD_LABEL,
     ("advanced-tests.yml", "advanced"): GITHUB_HOSTED_LABEL,
     ("delayed-pr-comment.yml", "delay_and_comment"): GITHUB_HOSTED_LABEL,
-    ("get-codescene-sha.yml", "refresh-sha"): GITHUB_HOSTED_LABEL,
 }
 
 #: Ceilings, pinned by value rather than bounded, because a ceiling can drift
 #: to a number nobody chose while every inequality still holds.
 #:
 #: ``build-test`` at 30 and ``coverage-upload`` at 20 are measured, from 556 s
-#: and 240 s of work on four-vCPU runners. ``advanced`` at 60 and
-#: ``refresh-sha`` at 10 are judgements and are recorded as such in the
-#: developers' guide: ``advanced`` has failed every scheduled run since at
-#: least 2026-09-09 and its last green run was 2025-10-04 at 32 s, which a
-#: Loom suite has long since outgrown, and ``refresh-sha`` has never run at
-#: all.
+#: and 240 s of work on four-vCPU runners. ``advanced`` at 60 is a judgement
+#: and is recorded as such in the developers' guide: it has failed every
+#: scheduled run since at least 2026-09-09 and its last green run was
+#: 2025-10-04 at 32 s, which a Loom suite has long since outgrown.
 EXPECTED_CEILING_MINUTES: typ.Final = {
     ("ci.yml", "build-test"): 30,
     ("coverage-main.yml", "coverage-upload"): 20,
     ("advanced-tests.yml", "advanced"): 60,
-    ("get-codescene-sha.yml", "refresh-sha"): 10,
 }
 
 #: The one lane that must NOT declare a ceiling. Its whole duration is a

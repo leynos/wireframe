@@ -93,5 +93,4 @@ def test_codescene_upload_uses_wireframe_project_and_repository() -> None:
         "mode": "upload",
         "project-url": "https://api.codescene.io/v2/projects/68308",
         "access-token": "${{ env.CS_ACCESS_TOKEN }}",
-        "installer-checksum": "${{ vars.CODESCENE_CLI_SHA256 }}",
     }, "the upload must target the project used by the pull-request gate"

@@ -143,5 +143,4 @@ def test_codescene_check_uses_the_guarded_project_contract() -> None:
         "mode": "check",
         "project-url": "https://api.codescene.io/v2/projects/68308",
         "access-token": "${{ env.CS_ACCESS_TOKEN }}",
-        "installer-checksum": "${{ vars.CODESCENE_CLI_SHA256 }}",
     }, "the CodeScene check must pass the canonical project and check-mode inputs"

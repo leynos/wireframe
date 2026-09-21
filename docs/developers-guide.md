@@ -15,15 +15,14 @@ than all four repository-owned lanes sharing one profile.
 | `coverage-main.yml`      | `coverage-upload`   | push               | `ubicloud-standard-4` | 20 min  |
 | `advanced-tests.yml`     | `advanced`          | schedule           | `ubuntu-latest`       | 60 min  |
 | `delayed-pr-comment.yml` | `delay_and_comment` | dispatch           | `ubuntu-latest`       | none    |
-| `get-codescene-sha.yml`  | `refresh-sha`       | dispatch           | `ubuntu-latest`       | 10 min  |
 
 *Table 1: Where each repository-owned lane runs, and its ceiling.*
 
 Pull-request, push and tag lanes move to Ubicloud, because those are the ones a
 developer waits on: `build-test` waited 461 seconds for a GitHub-hosted runner
-on 2026-09-16 to do 556 seconds of work. Scheduled, delayed-comment and
-CodeScene-SHA lanes stay GitHub-hosted, where public-repository minutes are
-free and nobody is blocked by the wait.
+on 2026-09-16 to do 556 seconds of work. Scheduled and delayed-comment lanes
+stay GitHub-hosted, where public-repository minutes are free and nobody is
+blocked by the wait.
 
 `build-test` also serves forks, which cannot obtain an Ubicloud runner, so it
 carries the fork fallback:
@@ -90,11 +89,10 @@ the other one, because it cancels the run at the moment an overrun becomes
 interesting and discards the log that would explain it.
 
 Two ceilings are measured: `build-test` at 556 seconds and `coverage-upload` at
-240 seconds, both on four-vCPU runners. Two are judgements, and the guide says
+240 seconds, both on four-vCPU runners. One is a judgement, and the guide says
 so rather than implying otherwise. `advanced` has failed every night since at
 least 2026-09-09 and its last green run was 2025-10-04 at 32 seconds, so 60
-minutes is generous enough not to mask the repair when it lands. `refresh-sha`
-has never run at all.
+minutes is generous enough not to mask the repair when it lands.
 
 `delay_and_comment` declares no ceiling, deliberately. Its entire duration is a
 `sleep` of the caller's `delay_minutes` input, so any fixed ceiling cancels a
