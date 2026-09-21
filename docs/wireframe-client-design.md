@@ -564,12 +564,12 @@ flowchart TD
     access, or idle recycle behaviour inherited from `17.2.1`.
 
 For screen readers: the following sequence diagram shows a caller acquiring a
-pool lease. The scheduler first attempts an immediate lease. When one is
-available, it hands the lease to a queued waiter when present, otherwise it
-returns the lease to the caller. When no lease is available, the scheduler
-queues the caller, begins servicing if it obtains ownership, and a worker
-acquires a client and delivers a lease to the next waiter. The caller awaits
-its receiver in each queued path.
+pool lease. The scheduler first queues the caller under the configured fairness
+policy, then attempts an immediate lease. When one is available, it hands the
+lease to a queued waiter when present, otherwise it returns the lease to the
+caller. When no lease is available, the scheduler begins servicing if it
+obtains ownership, and a worker acquires a client and delivers a lease to the
+next waiter. The caller awaits its receiver in each queued path.
 
 ```mermaid
 sequenceDiagram
@@ -580,6 +580,7 @@ sequenceDiagram
     participant Waiter
 
     Caller->>Scheduler: acquire()
+    Scheduler->>Scheduler: enqueue waiter
     Scheduler->>Pool: try_acquire_immediately()
     alt lease available
         Pool-->>Scheduler: lease
@@ -591,7 +592,6 @@ sequenceDiagram
             Scheduler-->>Caller: Ok(lease)
         end
     else no lease available
-        Scheduler->>Scheduler: enqueue waiter
         Scheduler->>Scheduler: try_begin_servicing()
         alt worker acquired
             Scheduler->>Worker: service_waiters()
