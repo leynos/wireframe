@@ -98,8 +98,8 @@ pub const SERVER_STARTUP_FAILURES: &str = "wireframe_server_startup_failures_tot
 
 /// Name of the histogram recording server startup duration in seconds.
 ///
-/// The bounded `outcome` label is either `"success"`, `"factory_build"`, or
-/// `"preparation"`.
+/// The bounded `outcome` label is either `"success"`, `"factory_build"`,
+/// `"preparation"`, or `"cancelled"`.
 pub const SERVER_STARTUP_DURATION: &str = "wireframe_server_startup_duration_seconds";
 
 /// Bounded reasons for server-supervisor cancellation metrics.
@@ -139,6 +139,8 @@ pub(crate) enum ServerStartupOutcome {
     FactoryBuild,
     /// Application preparation failed before worker installation.
     Preparation,
+    /// Shutdown completed while application preparation was still pending.
+    Cancelled,
 }
 
 impl ServerStartupOutcome {
@@ -148,6 +150,7 @@ impl ServerStartupOutcome {
             Self::Success => "success",
             Self::FactoryBuild => "factory_build",
             Self::Preparation => "preparation",
+            Self::Cancelled => "cancelled",
         }
     }
 }

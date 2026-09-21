@@ -50,7 +50,10 @@ where
         reason = "tokio::select! expands to modulus internally"
     )]
     let startup_result = select! {
-        () = &mut shutdown => Ok(None),
+        () = &mut shutdown => {
+            record_server_startup_duration(ServerStartupOutcome::Cancelled, startup_started.elapsed());
+            Ok(None)
+        },
         result = app.prepare() => Ok(Some((Arc::new(result.map_err(|error| {
             record_startup_failure(ServerStartupFailureStage::Preparation, &error);
             record_server_startup_duration(ServerStartupOutcome::Preparation, startup_started.elapsed());

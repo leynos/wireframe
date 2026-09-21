@@ -3,16 +3,20 @@
 #[cfg(feature = "metrics")]
 use std::io;
 use std::sync::Arc;
+#[cfg(feature = "metrics")]
+use std::time::Instant;
 
 use async_trait::async_trait;
 #[cfg(feature = "metrics")]
-use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use tokio::{
     sync::{Barrier, Notify, oneshot},
     time::{Duration, timeout},
 };
 
 use super::WireframeServer;
+#[cfg(feature = "metrics")]
+use super::startup::prepare_application_or_shutdown;
 use crate::{
     app::{Envelope, Handler, WireframeApp},
     middleware::{HandlerService, Transform},
@@ -113,6 +117,12 @@ fn factory_failure_records_a_bounded_startup_metric() {
     });
 
     assert!(matches!(result, Err(ServerError::FactoryBuild(_))));
+    assert_factory_failure_startup_metrics(&snapshotter);
+}
+
+/// Assert the bounded startup metrics emitted for a factory construction failure.
+#[cfg(feature = "metrics")]
+fn assert_factory_failure_startup_metrics(snapshotter: &Snapshotter) {
     let metrics = snapshotter.snapshot().into_vec();
     assert!(metrics.iter().any(|(key, _, _, value)| {
         key.key().name() == SERVER_STARTUP_FAILURES
@@ -128,6 +138,65 @@ fn factory_failure_records_a_bounded_startup_metric() {
                 .key()
                 .labels()
                 .any(|label| label.key() == "outcome" && label.value() == "factory_build")
+            && matches!(value, DebugValue::Histogram(_))
+    }));
+}
+
+#[cfg(feature = "metrics")]
+fn blocked_preparation_factory(
+    entered: Arc<Notify>,
+    barrier: Arc<Barrier>,
+) -> impl Fn() -> Result<WireframeApp, crate::WireframeError> + Clone {
+    let handler: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
+    move || {
+        WireframeApp::new()?
+            .route(1, Arc::clone(&handler))?
+            .wrap(PreparationBarrier {
+                entered: Arc::clone(&entered),
+                barrier: Arc::clone(&barrier),
+            })
+    }
+}
+
+/// Interrupted preparation records a bounded cancelled startup duration.
+#[cfg(feature = "metrics")]
+#[test]
+fn cancelled_preparation_records_a_bounded_startup_metric() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let result = metrics::with_local_recorder(&recorder, || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        runtime.block_on(async {
+            let entered = Arc::new(Notify::new());
+            let barrier = Arc::new(Barrier::new(2));
+            let factory = blocked_preparation_factory(Arc::clone(&entered), Arc::clone(&barrier));
+            let (shutdown_tx, shutdown_rx) = oneshot::channel();
+            tokio::spawn(async move {
+                entered.notified().await;
+                let _ = shutdown_tx.send(());
+            });
+            prepare_application_or_shutdown(
+                factory,
+                async {
+                    let _ = shutdown_rx.await;
+                },
+                Instant::now(),
+            )
+            .await
+        })
+    });
+
+    assert!(matches!(result, Ok(None)));
+    let metrics = snapshotter.snapshot().into_vec();
+    assert!(metrics.iter().any(|(key, _, _, value)| {
+        key.key().name() == SERVER_STARTUP_DURATION
+            && key
+                .key()
+                .labels()
+                .any(|label| label.key() == "outcome" && label.value() == "cancelled")
             && matches!(value, DebugValue::Histogram(_))
     }));
 }
