@@ -41,9 +41,9 @@ jobs:
           repository: leynos/wireframe
           persist-credentials: false
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
+        uses: leynos/shared-actions/.github/actions/setup-rust@37a39836e897b301fdd32b4db883706c953444ef
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
+        uses: leynos/shared-actions/.github/actions/generate-coverage@37a39836e897b301fdd32b4db883706c953444ef
         with:
           output-path: lcov.info
           format: lcov
@@ -52,7 +52,7 @@ jobs:
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
         if: env.CS_ACCESS_TOKEN != ''
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@37a39836e897b301fdd32b4db883706c953444ef
         with:
           format: lcov
           mode: upload
