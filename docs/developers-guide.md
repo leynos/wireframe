@@ -485,23 +485,29 @@ caused.
 So the tool runs in exactly one place: `coverage-main.yml`, on push to main. A
 failure there delays a coverage report. It cannot block a merge.
 
-A pull-request lane may still generate coverage, because the ratchet is ours
-and runs offline with no network dependency. What it may not do is any of these
-three, each of which fails
+A pull-request lane may still generate coverage, because the ratchet is
+repository-owned and runs offline with no network dependency. What it may not
+do is any of these five, each of which fails
 `tests/workflow_contracts/ci_codescene_placement_test.py`:
 
-| Forbidden in a pull-request lane              | Why it is read                                     |
-| --------------------------------------------- | -------------------------------------------------- |
-| a step whose `uses:` names a CodeScene action | the obvious form                                   |
-| a `run:` step invoking `cs-coverage`          | the same hazard without an action to notice        |
-| `CS_ACCESS_TOKEN` at any scope                | a lane holding the token is one line from using it |
+| Forbidden in a pull-request lane                      | Why it is read                                         |
+| ----------------------------------------------------- | ------------------------------------------------------ |
+| a step or job whose `uses:` names CodeScene           | the obvious form                                       |
+| a `run:` step invoking `cs-coverage`                  | the same hazard without an action to notice            |
+| `CS_ACCESS_TOKEN` at any scope                        | a lane holding the token is one line from using it     |
+| `codescene.io` anywhere                               | `curl` needs neither the action nor the tool           |
+| `secrets: inherit` into another repository's workflow | forwards the token unnamed, to a document nobody reads |
 
 *Table 2: What the CodeScene placement contract refuses.*
 
 The third row is what makes the contract worth having. Deleting the step but
 leaving the token in the job environment looks clean in a diff and leaves the
 hazard in place, so the whole document is walked for the name rather than the
-three scopes that are meant to carry it.
+three scopes that are meant to carry it: a `run` body, an action input, an
+`env` value under any key and a named `secrets:` forwarding are all found. The
+fifth row closes the one route the walk cannot see, since `secrets: inherit`
+names nothing. Inheriting into a workflow in this repository is permitted,
+because that workflow is in the closure described below and read like any other.
 
 A fourth test guards the other direction. Without it the rule could be
 satisfied by deleting coverage reporting altogether, which is compliance by
@@ -517,13 +523,26 @@ request with write permissions, which makes it more dangerous than
 ### The pull-request lane is a closure, not a list
 
 The prohibitions apply to every workflow a pull request can reach, not only to
-those carrying a pull-request trigger. The contract follows `jobs.<id>.uses`
-for references beginning with `./`, transitively, with a visited set so two
-reusable workflows calling each other cannot hang it. References to other
-repositories are not followed: those are somebody else's documents to police.
-This repository has no local reusable workflows today, so the closure equals
-the roots; the traversal is here so that adding one does not silently take it
-out of scope.
+those carrying a pull-request trigger. A workflow declaring only
+`workflow_call` has no pull-request trigger, yet a pull-request job that calls
+it runs it on that pull request, and hands it the token with `secrets: inherit`.
+
+The contract therefore follows `jobs.<id>.uses`, transitively, with a visited
+set so two reusable workflows calling each other cannot hang it. A call is
+local when it resolves to a file directly under `.github/workflows/` once its
+prefix is stripped. That is matched by shape rather than by a list of
+spellings, and three prefixes are stripped: `./`, the documented form; `$/`;
+and this repository's own qualified name, so
+`leynos/wireframe/.github/workflows/x.yml@main` is followed like
+`./.github/workflows/x.yml`. Accepting a spelling GitHub might refuse only
+widens the set the prohibitions run over; missing one GitHub accepts hides a
+workflow from all of them.
+
+References to other repositories are not followed: their content is not in this
+tree. That is why `secrets: inherit` into one is refused outright rather than
+traced. This repository has no local reusable workflows today, so the closure
+equals the roots; the traversal is here so that adding one does not silently
+take it out of scope.
 
 ### The publisher's two silent failure modes
 
@@ -533,7 +552,16 @@ rather than searched for parts. A containment test accepts
 `(github.ref == 'refs/heads/main' || true) &&
 (env.CS_ACCESS_TOKEN != '' || true)`,
 which holds both halves and is true everywhere, so it would pass the one
-expression it exists to refuse.
+expression it exists to refuse. Appending
+`|| github.event_name == 'workflow_dispatch'` is the same defeat in another
+form: every conjunct is still present and all of them become optional. The
+equality comparison refuses both, so no conjunct-splitting rule is needed.
+
+The token is declared in the upload step's own `env` and nowhere else in
+`coverage-main.yml`: not at workflow scope, not on the job, not in another
+step. At job scope every earlier step could read it, including the tests that
+generate coverage. The step's `if:` still reads `env.CS_ACCESS_TOKEN`, because
+a step's own environment is in scope for its condition.
 
 The ref test is not redundant with the trigger. `push.branches` is `[main]` and
 there is no `workflow_dispatch`, so `github.ref` cannot currently be anything
@@ -572,8 +600,30 @@ reachable from a pull request.
 
 The repository variable itself can be deleted; nothing reads it.
 
-Each of the five ways to break this was applied alone and reverted while
-writing the contract, and each failed exactly one test.
+### How the readings are proved
+
+The reading machinery lives in
+`tests/workflow_contracts/codescene_placement_reader.py`, and every reader
+takes its documents as an argument. The repository's own workflows are all
+written the one way the first reader understood, so a reading that mishandles
+another shape passes against them either way.
+`tests/workflow_contracts/codescene_placement_reader_test.py` therefore drives
+each reading with constructed trees:
+
+- the closure reaches a `workflow_call` probe that curls CodeScene's API with
+  an inherited token, in each of the three call spellings, and stays out of a
+  reusable workflow nothing calls;
+- workflows are loaded through a strict `SafeLoader` that refuses a duplicated
+  mapping key, because PyYAML otherwise keeps the last `runs-on` or `env` and
+  says nothing;
+- `on:` is read as a scalar, a sequence or a mapping, under both the quoted
+  string key and YAML 1.1's boolean `True`, and any other shape is refused
+  rather than read as "no triggers", which would let the workflow escape every
+  clause; and
+- a `.YML` extension is read like `.yml`.
+
+Each reading was mutated alone and restored from a copy while writing the
+contract, and each mutation failed at least one test that names what it broke.
 
 ## Workflow pins and Dependabot
 
