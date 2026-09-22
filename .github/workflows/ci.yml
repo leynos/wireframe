@@ -6,6 +6,14 @@ on:
   push:
     branches: [main]
 
+# A second push to a pull request supersedes the run already in flight, which
+# otherwise charges a full set of minutes for a result nobody reads. Pushes to
+# main, dispatches and schedules share the group and are never cancelled: they
+# are the cache writers and the published record.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-test:
     # The one developer-blocking lane, so the one that moves. It waited 461 s
