@@ -170,6 +170,14 @@ The test helpers are in `src/test_helpers.rs` and
 - [x] (2026-09-18) Review round: D-1 made to govern the V-4 and EP-M4
   acceptance set, V-2 given an executable artefact (D-4), and the DLQ counter
   mutations split so the increment is observed before the reset cancels it.
+- [x] (2026-09-22) Review round: V-2's rule corrected from satisfiability to
+  implication with a stated configuration universe; route (b)'s retained
+  acceptance set named rather than left as a subtraction; two extant design
+  documents found and the earlier claim that none existed withdrawn.
+- [ ] The design conflict referred alongside D-1:
+      `multi-layered-testing-strategy.md`
+  §4.2 targets the write loop, the lane models the push queues, and both
+  documents assert queue-full coverage that finding two shows is absent.
 - [ ] D-1 ruled on by the user. Blocks milestones two to four, and now also
   blocks filling in V-4's mutation table.
 - [ ] EP-M1 reproduce and bound. Unblocked by plan approval alone.
@@ -295,10 +303,46 @@ self-contained.
 
 ## Conformance basis
 
-There is no Terms of Reference document and no technical design document for
-this lane, and no architecture decision record governs the Loom configuration.
-Saying so explicitly: this plan's upstream artefacts are the issue and the
-code, and nothing else.
+**Correction, 2026-09-22.** An earlier version of this section said there was
+no design document for this lane and that the plan's only upstream artefacts
+were the issue and the code. That was wrong, and it was wrong because the
+search was for an architecture decision record and a Terms of Reference rather
+than for the subject. Two existing documents govern what Loom is for here:
+
+- `docs/multi-layered-testing-strategy.md` §4.2, "Concurrency Fuzzing with
+  `loom`". It names the **target area** as the connection actor write loop, the
+  `select!(biased; ...)` logic, sketches a model spawning concurrent
+  high-priority and low-priority producers against a `MockConnection`, and sets
+  the measurable objective: all permutations for two to three concurrent
+  producers, with no data race and no deadlock.
+- `docs/formal-verification-methods-in-wireframe.md`, the "Keep Loom" section
+  and its opening survey. It assigns Loom "real synchronization interleavings
+  over concrete concurrent code", assigns abstract protocol-state interleavings
+  to Stateright, and describes the current models as exploring `PushQueues`
+  interleavings and checking "dead-letter queue accounting and queue-full
+  behaviour under concurrent producers".
+
+Two things follow, and neither is this plan's to decide.
+
+**The design's target is not what the lane models.** §4.2 names the write loop's
+`select!` arm ordering. The models in `tests/advanced/concurrency_loom.rs`
+model the push queues instead. The `MockConnection` its example uses does not
+exist in the tree. So the lane is not a partial implementation of that design;
+it is a different, smaller thing that grew beside it.
+
+**The design asserts coverage that finding two shows is absent.** Both
+documents state that the models check queue-full behaviour. They do not: the
+`QueueFull` assertions run through a `tokio::sync::mpsc` channel that Loom
+cannot schedule, so no interleaving Loom chooses affects them. D-1's route (b)
+therefore removes an assertion two documents claim exists, which makes route
+(b) a documentation change as well as a test change, and the guide statement in
+EP-M3 has to say which document it corrects.
+
+That conflict is referred alongside D-1 rather than resolved here. This plan
+repairs a lane that does not run; deciding whether the lane should instead be
+rebuilt against §4.2's write-loop target is a larger question with a design
+document behind it, and answering it inside a repair would be deciding it by
+implication.
 
 - Issue #683, "Fix pool-client test-helper cfg leakage blocking daily Loom
   execution", opened 2026-09-08, which records finding one. Findings two and
@@ -355,13 +399,39 @@ predicate from its attributes, resolve the module name to its file under `src/`
 (both the `name.rs` and `name/mod.rs` spellings), parse that file, and collect
 every `use` path rooted at `crate::` together with the predicate of the `use`
 item itself. Nothing is enumerated by hand at any point, so a module added
-tomorrow is in the domain the moment it is written. The check: for each import
-edge, if the importing module's predicate is satisfiable under `--cfg loom` and
-the imported module's predicate is not, the contract fails and names both.
+tomorrow is in the domain the moment it is written.
 
-Today's instance is exactly one such edge: `test_helpers::pool_client` is gated
-`#[cfg(feature = "pool")]`, which is satisfiable under `--cfg loom`, and it
-imports `crate::client`, which is gated `#[cfg(not(loom))]`, which is not.
+**The check is implication, not two separate satisfiability questions.** An
+earlier draft asked whether the importing module's predicate is satisfiable
+under `--cfg loom` and the imported module's is not. That is too weak, and the
+gap is not exotic: two predicates can each be satisfiable under `--cfg loom`
+while a configuration exists that enables the importer and not the imported.
+`#[cfg(feature = "a")]` importing `#[cfg(feature = "b")]` is the shape, with
+independent features; the rule passes and `--cfg loom --features a` does not
+compile.
+
+The rule is therefore: for every import edge, **every** configuration in the
+universe that satisfies the importing module's predicate must also satisfy the
+imported module's. The contract fails naming both predicates and a witness
+configuration that satisfies the first and not the second, because a
+counter-example a reader can pass to Cargo is worth more than a statement that
+one exists.
+
+The universe is finite and must be stated rather than assumed: the crate's
+Cargo features, taken from `Cargo.toml`'s `[features]` table, plus `loom` as a
+`--cfg` flag, plus the `target_os`/`target_family` values the lane builds for.
+Enumerating its assignments is exponential in the feature count, so the check
+evaluates the two predicates as boolean formulae over those variables and asks
+whether `importer && !imported` is satisfiable, which is the same question
+without the enumeration. `Cargo.toml` declares few enough features that a
+brute-force evaluation over the feature powerset is also acceptable; EP-M2
+picks one and records why.
+
+Today's instance is exactly one such edge, and it is an implication failure
+rather than a satisfiability one: `test_helpers::pool_client` is gated
+`#[cfg(feature = "pool")]` and imports `crate::client`, gated
+`#[cfg(not(loom))]`. The witness is `--cfg loom --features pool`, which
+satisfies the importer and not the imported.
 
 `syn` is not currently a direct dev-dependency, though version 2.0.117 is
 already resolved in `Cargo.lock` through the proc-macro crates, so this adds a
@@ -404,12 +474,41 @@ precisely an assertion that cannot fail, so a count of passing models is not
 evidence. This is the obligation the whole plan exists to discharge.
 
 Domain: **the acceptance set D-1 leaves behind**, plus any model added in
-EP-M4, and not "all four models" as a standing phrase. Under route (b)
-`concurrent_queue_full_errors_are_reported` is out of scope by construction and
-is excluded here rather than mutation-proved; under route (a) it is in scope
-and its `QueueFull` assertions are proved like any other. The table below
-cannot be filled in until D-1 is answered, and the milestone that fills it says
-so.
+EP-M4, and not "all four models" as a standing phrase. The table below cannot
+be filled in until D-1 is answered, and the milestone that fills it says so.
+
+Under route (a) every model is in scope and the `QueueFull` assertions are
+proved like any other.
+
+Under route (b) the retained set is **named here rather than left as a
+subtraction**, because "what is left after removing the channel assertions" is
+not a list anyone can check a milestone against:
+
+- `concurrent_drops_reset_dlq_counter`, retained in full. Its subject is the
+  DLQ counter and the log mutex, which are the two fields Loom actually
+  instruments.
+- DLQ counter coverage for **both** `PushPriority::High` and
+  `PushPriority::Low`. Priority decides which queue a frame is taken from and
+  the accounting must hold for either, so one priority is half a rule.
+- The zero-count assertions for an **absent** DLQ and for an **idle** one. Both
+  are DLQ accounting rather than channel behaviour: they say the counter stays
+  at zero when there is nothing to drop, which is the narrowness half of the
+  increment rule and is exactly what a broken increment would also satisfy if
+  only the positive case were asserted.
+- `concurrent_queue_full_errors_are_reported` is **excluded**, because its
+  three assertions are on `PushError::QueueFull` reaching a producer through a
+  Tokio channel that Loom does not schedule.
+
+Route (b) does **not** owe a new deterministic queue-full test.
+`tests/push.rs::try_push_respects_policy` already asserts
+`PushError::QueueFull` under the deterministic runtime, which is the right
+place for it: the property is about the policy, not about an interleaving.
+EP-M3's guide statement cites that test as the replacement coverage, so the
+guide records where the property moved rather than implying it was dropped.
+
+Every retained assertion above appears as a row in V-4's mutation table with
+its own mutation, including the two zero-count cases, which are the ones a
+table written from the positive assertions alone would omit.
 
 Artefact: `tests/advanced/concurrency_loom.rs` and a table in this plan.
 Evidence: for each assertion, a named mutation of the subject, and the model
