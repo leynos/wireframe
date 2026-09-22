@@ -98,11 +98,6 @@ COVERAGE_ACTION: typ.Final = (
     "leynos/shared-actions/.github/actions/generate-coverage"
 )
 
-#: The repository variable that fed the uploader's old ``installer-checksum``
-#: input. Nothing may read or refresh it: the uploader takes its digest from a
-#: committed manifest, and a stale variable is a value nobody maintains.
-RETIRED_VARIABLE: typ.Final = "CODESCENE_CLI_SHA256"
-
 #: The ref the publisher may upload for. Compared in full rather than by
 #: suffix: a branch named ``not-main`` ends in ``main``.
 TRUNK_REF: typ.Final = "refs/heads/main"
@@ -400,32 +395,4 @@ def test_the_pull_request_lane_still_ratchets_coverage() -> None:
         f"{generators[0].get('if')!r}; the reviewed condition is "
         f"{RATCHET_CONDITION!r}. Any other condition can disable the ratchet "
         "while leaving the step visible in the diff."
-    )
-
-
-def test_nothing_reads_or_refreshes_the_retired_variable() -> None:
-    """Scenario: the CodeScene CLI digest variable outlives its reader.
-
-    Invariant: no workflow in the repository mentions
-    ``CODESCENE_CLI_SHA256``, at any scope, in a step input or in a script.
-
-    The variable existed to feed the uploader's ``installer-checksum`` input.
-    The uploader now takes its digest from a committed manifest, so the input
-    is gone and the variable feeds nothing. A workflow that refreshes it
-    spends a runner maintaining a value nobody reads, and one that passes it
-    hands the uploader an input it refuses.
-
-    Every workflow is read, not only the pull-request closure: a refresher on
-    a schedule or a dispatch is exactly the shape this is meant to catch, and
-    neither is reachable from a pull request.
-    """
-    offenders = sorted(
-        name
-        for name, document in _documents().items()
-        if RETIRED_VARIABLE in str(document)
-    )
-    assert not offenders, (
-        f"{RETIRED_VARIABLE} is retired and feeds nothing, but "
-        f"{offenders} still mention it. The repository variable itself can "
-        "be deleted once no workflow names it."
     )
