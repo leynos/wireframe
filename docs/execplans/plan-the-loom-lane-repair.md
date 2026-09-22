@@ -106,11 +106,14 @@ The test helpers are in `src/test_helpers.rs` and
   is a fact to plan around, not a version to chase.
 - No production behaviour changes. Every edit is to configuration
   predicates, the `cfg(loom)` arms of the synchronization aliases, the
-  `Makefile`, tests, or documentation. The `Makefile` is named explicitly
-  because EP-M2 adds a target there; an earlier draft of this list omitted it
-  and so forbade the milestone it describes. If a repair appears to require
-  changing what `try_push` or `route_to_dlq` does under `cfg(not(loom))`, stop:
-  that is a behaviour change wearing a test repair's clothes.
+  `Makefile`, the `[dev-dependencies]` table of `Cargo.toml`, tests, or
+  documentation. The `Makefile` is named explicitly because EP-M2 adds a target
+  there, and `[dev-dependencies]` because EP-M2 adds `syn` there (see the
+  dependency exception under `Tolerances`); an earlier draft of this list
+  omitted both and so forbade the milestone it describes. No other part of
+  `Cargo.toml` may change. If a repair appears to require changing what
+  `try_push` or `route_to_dlq` does under `cfg(not(loom))`, stop: that is a
+  behaviour change wearing a test repair's clothes.
 
 ## Tolerances (exception triggers)
 
@@ -121,6 +124,18 @@ The test helpers are in `src/test_helpers.rs` and
 - **Dependencies**: any new external dependency, stop and escalate. This
   includes a Loom-compatible channel crate, which would be a D-1 outcome
   requiring its own approval rather than an implementation detail.
+
+  **One exception is declared here, and approving this plan approves it:**
+  `syn` as a direct `[dev-dependencies]` entry, for V-2's checker in EP-M2
+  (decision D-4). It is test-only, it is already resolved in `Cargo.lock`
+  through the proc-macro crates so it adds no tree entry, and no consumer of
+  the published crate sees it. The exception covers exactly that: `syn` at the
+  version `Cargo.lock` already resolves, with only the features the checker
+  needs, in `[dev-dependencies]`. Anything wider, such as a second crate, a new
+  `Cargo.lock` entry, or `syn` in `[dependencies]`, is outside it and triggers
+  this tolerance as usual. If the plan is approved with this exception struck,
+  V-2 has no artefact, and EP-M2 must stop and escalate rather than substitute
+  a weaker check.
 - **Iterations**: if a model still fails after 3 attempts to repair it, stop
   and escalate with the counterexample Loom printed. A Loom counterexample is
   evidence about the subject, not noise to iterate past.
@@ -143,13 +158,19 @@ The test helpers are in `src/test_helpers.rs` and
   job. It is an escalation with the counterexample attached, and a separate
   piece of work; this plan does not budget for fixing the subject.
 
-- **R-3**: The lane's command must narrow to the Loom target, but this plan
-  may not edit the workflow. Severity: low. Likelihood: high, it is certain.
-  Mitigation: milestone two lands the narrowing as a Makefile target that the
-  workflow will call, and the workflow's one-line change is handed to the owner
-  of wireframe #689 to carry, or taken in a separate one-line pull request once
-  #689 has merged. Either way the two changes never touch the file at the same
-  time.
+- **R-3**: The lane's command may need to narrow to the Loom target, and this
+  plan may not edit the workflow. Severity: low. Likelihood: **unknown until
+  EP-M1**, and conditional on it. The only failure there is evidence for is the
+  library's; the `bdd_pool` target compiles to an empty crate under
+  `--cfg loom` (see `Surprises & discoveries`), so narrowing is required only
+  if EP-M1 reproduces a *separate* target-selection failure. Mitigation: if and
+  only if EP-M1 does reproduce one, it is recorded under
+  `Surprises & discoveries` with its command and errors, EP-M2 lands the
+  narrowing as a Makefile target, and the workflow's one-line change to call it
+  is taken as a separate one-line pull request (wireframe #689, which owned the
+  file, merged on 2026-09-18). If EP-M1 reproduces no such failure, there is no
+  narrowing, no workflow change, and no completion dependency on the workflow
+  file; EP-M2 and EP-M4 below say the same.
 
 - **R-4**: Milestone three's guide statement becomes stale when milestone
   four changes what is scheduled. Severity: low. Likelihood: medium.
@@ -174,6 +195,12 @@ The test helpers are in `src/test_helpers.rs` and
   implication with a stated configuration universe; route (b)'s retained
   acceptance set named rather than left as a subtraction; two extant design
   documents found and the earlier claim that none existed withdrawn.
+- [x] (2026-09-22) Review round: the `syn` dev-dependency declared as the one
+  pre-approved exception to the dependency tolerance, and `Cargo.toml`'s
+  `[dev-dependencies]` added to the permitted edits; target narrowing made
+  conditional on EP-M1 reproducing a separate failure; V-2's predicates made
+  inherited through enclosing modules, with a nested mutation and a narrowness
+  case; V-2's configuration universe enumerated atom by atom.
 - [ ] The design conflict referred alongside D-1:
       `multi-layered-testing-strategy.md`
   §4.2 targets the write loop, the lane models the push queues, and both
@@ -393,13 +420,30 @@ artefact must read the sources as text and decide for itself what is there.
 
 Artefact: `tests/loom_configuration_contract.rs`, an ordinary integration test
 whose subject is the repository's own source files rather than the linked
-crate. Discovery mechanism: parse `src/lib.rs` and `src/test_helpers.rs` with
-`syn` into an item tree; for every `syn::Item::Mod` found, take its `cfg`
-predicate from its attributes, resolve the module name to its file under `src/`
-(both the `name.rs` and `name/mod.rs` spellings), parse that file, and collect
-every `use` path rooted at `crate::` together with the predicate of the `use`
-item itself. Nothing is enumerated by hand at any point, so a module added
-tomorrow is in the domain the moment it is written.
+crate. Discovery mechanism: parse `src/lib.rs` with `syn` into an item tree and
+walk it **recursively**. For every `syn::Item::Mod` found, inline or declared,
+take its `cfg` predicate from its attributes; for a declared module, resolve
+the name to its file relative to the parent module's directory (both the
+`name.rs` and `name/mod.rs` spellings, and a `#[path]` attribute where one is
+present), parse that file, and continue the walk inside it. Collect every `use`
+path rooted at `crate::` together with the predicate of the `use` item itself.
+Nothing is enumerated by hand at any point, so a module added tomorrow, at any
+depth, is in the domain the moment it is written.
+
+**Predicates are inherited.** A module's *effective* predicate is the
+conjunction of its own `cfg` predicate with the effective predicate of the
+module enclosing it, down from the crate root, whose effective predicate is
+`true`. An item is compiled only when every enclosing gate holds, so a local
+predicate alone is the wrong object on both sides of an edge:
+
+- **the importer** of a `use` item is the conjunction of the enclosing module's
+  effective predicate with the `use` item's own predicate. An import with no
+  local attribute inside a module gated `#[cfg(loom)]` is reachable only under
+  `cfg(loom)`, and must be judged so;
+- **the imported** side is the effective predicate of the module the path
+  resolves to, conjoined along every segment of that path, so `crate::a::b` is
+  gated by `a`'s predicate as well as `b`'s. Moving a `not(loom)` gate from a
+  module up to its parent must not make the module look ungated.
 
 **The check is implication, not two separate satisfiability questions.** An
 earlier draft asked whether the importing module's predicate is satisfiable
@@ -417,15 +461,47 @@ configuration that satisfies the first and not the second, because a
 counter-example a reader can pass to Cargo is worth more than a statement that
 one exists.
 
-The universe is finite and must be stated rather than assumed: the crate's
-Cargo features, taken from `Cargo.toml`'s `[features]` table, plus `loom` as a
-`--cfg` flag, plus the `target_os`/`target_family` values the lane builds for.
-Enumerating its assignments is exponential in the feature count, so the check
-evaluates the two predicates as boolean formulae over those variables and asks
-whether `importer && !imported` is satisfiable, which is the same question
-without the enumeration. `Cargo.toml` declares few enough features that a
-brute-force evaluation over the feature powerset is also acceptable; EP-M2
-picks one and records why.
+The universe is finite and is stated here rather than assumed, so that two
+implementations of the checker evaluate the same configurations and report the
+same witnesses.
+
+- **Target.** One target, the lane's host target and no other. The lane runs
+  `cargo test` with no `--target` on `ubuntu-latest`, which is
+  `x86_64-unknown-linux-gnu`. Every target atom is therefore a constant, not a
+  variable: `target_os = "linux"`, `target_family = "unix"`, `unix` true,
+  `windows` false, `target_arch = "x86_64"`, `target_pointer_width = "64"`,
+  `target_env = "gnu"`, `target_vendor = "unknown"`,
+  `target_endian = "little"`. If the lane ever gains a target matrix, the
+  universe gains the matrix's rows, and this list changes in the same pull
+  request.
+- **`loom`.** A free boolean, the `--cfg` flag the lane sets. It is free rather
+  than fixed to true because the edge rule is about the configurations the
+  predicates admit, and today's witness is stated in terms of it.
+- **Features.** One free boolean per key of `Cargo.toml`'s `[features]` table,
+  read from the file, never listed by hand: today `default`, `metrics`, `pool`,
+  `serializer-bincode`, `serializer-serde`, `advanced-tests`, `examples`,
+  `test-support` and `testkit`. An assignment is admitted only if it is closed
+  under the table's feature-to-feature implications (`default` enabling
+  `metrics` and `serializer-bincode`); `dep:` entries name optional
+  dependencies, not features, and add no variable. Without the closure, a
+  witness could name a configuration Cargo cannot produce.
+- **Profile atoms.** `debug_assertions` is true and `test` is a free boolean:
+  the lane builds the dev profile, and the library is compiled both with
+  `cfg(test)` for its unit tests and without it for the integration targets.
+  `doc`, `docsrs` and `miri` are false.
+- **Anything else is refused.** A `cfg` atom not in this list, such as
+  `feature = "x"` for an `x` the table does not declare, `panic = "abort"`, or a
+  `--cfg` name other than `loom`, fails the contract naming the atom and its
+  site. The universe cannot then widen silently because someone wrote a
+  predicate the checker does not understand.
+
+Enumerating the assignments is exponential in the feature count, so the check
+evaluates the two predicates as boolean formulae over the free variables above
+and asks whether `importer && !imported` is satisfiable, which is the same
+question without the enumeration. With nine features, `loom` and `test`, the
+universe has at most 2^11 assignments before the closure, so a brute-force
+evaluation over the powerset is also acceptable; EP-M2 picks one and records
+why.
 
 Today's instance is exactly one such edge, and it is an implication failure
 rather than a satisfiability one: `test_helpers::pool_client` is gated
@@ -441,18 +517,27 @@ compile-fail harness was considered and rejected: `trybuild` builds test files
 against the crate and gives no way to rebuild the crate itself under
 `--cfg loom`, which is the configuration the defect lives in.
 
-Domain: every `#[cfg(...)]`-gated module declaration in `src/lib.rs` and
-`src/test_helpers.rs`, paired with the `crate::`-rooted imports of the module
-it names. Evidence: passes on the repaired tree, and the run reports the number
-of module declarations and import edges it examined, so a checker that silently
-found nothing is distinguishable from one that found nothing wrong.
-Non-vacuity: three mutations must be rejected. Remove `not(loom)` from the
-repaired `pool_client` predicate, and the contract fails. Add a new
-`cfg(not(loom))` module and import it from an ungated one, and the contract
-fails, which is the mutation that proves discovery is dynamic. Point the
-resolver at a fixture directory holding a constructed bad pair, and the
+Domain: every module reachable from `src/lib.rs`, at any depth, with its
+effective predicate, paired with the `crate::`-rooted imports it contains.
+Evidence: passes on the repaired tree, and the run reports the number of module
+declarations and import edges it examined, so a checker that silently found
+nothing is distinguishable from one that found nothing wrong. Non-vacuity: four
+mutations must be rejected, and one narrowness case must pass. Remove
+`not(loom)` from the repaired `pool_client` predicate, and the contract fails.
+Add a new `cfg(not(loom))` module and import it from an ungated one, and the
+contract fails, which is the mutation that proves discovery is dynamic. Point
+the resolver at a fixture directory holding a constructed bad pair, and the
 contract fails there too: a contract run only over correct files discriminates
-nothing, and the real tree will be correct once EP-M2 lands.
+nothing, and the real tree will be correct once EP-M2 lands. **Nested:** in a
+fixture, gate a parent module `#[cfg(not(loom))]` and leave its child ungated,
+then import the child by its full path from an ungated module; the contract
+must fail, naming the parent's predicate as the imported side. A checker
+reading local predicates only sees an ungated child and passes, which is the
+defect inheritance exists to prevent. The narrowness case is the mirror image:
+an import with no local attribute, placed inside a module gated
+`#[cfg(not(loom))]`, of a module also gated `#[cfg(not(loom))]`, must pass,
+because the importer's inherited predicate implies the imported one. A checker
+without inheritance flags it.
 
 **Obligation V-3: each model is scheduled over the primitives the guide says it
 is scheduled over.** Method: a documented statement plus a review checkpoint,
@@ -562,11 +647,12 @@ the build failure, which is the existing behaviour and needs no new code. In
 EP-M2 the contract of V-2 is written before the predicates are repaired, and
 must fail on the current tree for the right reason.
 
-**Stage C, implementation with verification.** EP-M2 repairs the predicates and
-the target selection alongside the contract. EP-M3 widens the aliases across
-all three sites that use them and writes the guide statement together, so the
-statement is derived from the code rather than from intent. EP-M4 rewrites the
-models and proves each assertion by mutation in the same change.
+**Stage C, implementation with verification.** EP-M2 repairs the predicates
+alongside the contract, and the target selection only if EP-M1 found it broken
+(R-3). EP-M3 widens the aliases across all three sites that use them and writes
+the guide statement together, so the statement is derived from the code rather
+than from intent. EP-M4 rewrites the models and proves each assertion by
+mutation in the same change.
 
 **Stage D, refactor and wider validation.** After EP-M4, re-read the guide
 statement against the alias module, run the repository's full gates, and update
@@ -579,31 +665,39 @@ Each stage ends with its validation. Do not proceed past a failing stage.
 **EP-M1: reproduce and bound.** Outcome: the build failure reproduced locally
 on the pinned toolchain, with the command and output kept as regression
 evidence, and confirmation that the dependency graph has not introduced a
-different failure since 2026-09-08. Requirements and gaps: establishes the
-baseline for #683. Acceptance evidence: the recorded command, its eight errors,
-and their error codes matching the three scheduled runs. Conformance check: no
-source change, so no interface, dependency, trust boundary or format moves.
-Recovery: nothing to revert. Remaining gaps: everything else. Compatibility
-decision: none required. Note: this is the only milestone that does not depend
-on D-1.
+different failure since 2026-09-08. It also settles R-3: with the library
+failure repaired locally on a scratch copy, run the lane's unnarrowed command
+and record whether any test target still fails to build under `--cfg loom`.
+Requirements and gaps: establishes the baseline for #683. Acceptance evidence:
+the recorded command, its eight errors, and their error codes matching the
+three scheduled runs; and R-3's answer, either the recorded target-selection
+failure or the recorded clean build that shows there is none. Conformance
+check: no source change, so no interface, dependency, trust boundary or format
+moves. Recovery: nothing to revert. Remaining gaps: everything else.
+Compatibility decision: none required. Note: this is the only milestone that
+does not depend on D-1.
 
 **EP-M2: the configuration boundary, and models that execute.** Outcome:
 `pool_client` and its re-exports gated on the configuration they need as well
-as the feature; the Loom build selecting only the Loom target; the V-2 contract
-in place and mutation-proved; a `make` target that runs the lane's command so
-the workflow's eventual one-line change is a call rather than a script. The
-models execute, and whatever they report is recorded honestly. Requirements and
-gaps: discharges #683's stated defect. Acceptance evidence: V-1 and V-2 above.
-Conformance check: public API under `cfg(not(loom))` unchanged; the workflow
-file untouched, per `Constraints` and R-3; one new direct dev-dependency,
-`syn`, for V-2's checker, which adds no entry to `Cargo.lock` because the
-proc-macro crates already resolve it, and which is dev-only so no consumer of
-the published crate sees it. Recovery: the change is confined to predicates, a
-contract and a Makefile target; reverting the commit restores the previous
-state exactly. Remaining gaps: findings two and three untouched. **The lane may
-legitimately still be red at the end of this milestone**, if the models fail
-once they run. That is a valid plateau and must not be papered over.
-Compatibility decision: none required; the affected surface is test-only.
+as the feature; the V-2 contract in place and mutation-proved; a `make` target
+that runs the lane's command, which is V-1's artefact. **Conditional on EP-M1
+(R-3):** only if EP-M1 recorded a separate target-selection failure does the
+`make` target also narrow the build to the Loom target, so the workflow's
+one-line change becomes a call rather than a script. Without that recorded
+failure the target runs the lane's command unchanged and no workflow change is
+owed. The models execute, and whatever they report is recorded honestly.
+Requirements and gaps: discharges #683's stated defect. Acceptance evidence:
+V-1 and V-2 above. Conformance check: public API under `cfg(not(loom))`
+unchanged; the workflow file untouched, per `Constraints` and R-3; one new
+direct dev-dependency, `syn`, for V-2's checker, which adds no entry to
+`Cargo.lock` because the proc-macro crates already resolve it, and which is
+dev-only so no consumer of the published crate sees it. Recovery: the change is
+confined to predicates, a contract and a Makefile target; reverting the commit
+restores the previous state exactly. Remaining gaps: findings two and three
+untouched. **The lane may legitimately still be red at the end of this
+milestone**, if the models fail once they run. That is a valid plateau and must
+not be papered over. Compatibility decision: none required; the affected
+surface is test-only.
 
 **EP-M3: the seam, and the statement.** Outcome: D-1 implemented; the
 synchronization aliases widened to cover `Arc` and `Weak` **at every site that
@@ -645,8 +739,8 @@ rest. The milestone cannot start before D-1 is answered, because the answer
 decides what it is proving. Requirements and gaps: discharges finding three.
 Acceptance evidence: V-4, with the mutation table filled in. Conformance check:
 tests and documentation only. Recovery: test-only; revert the commit. Remaining
-gaps: **the lane's command, which this plan may not edit.** If EP-M1 shows
-narrowing is needed, the one-line change to
+gaps: **the lane's command, which this plan may not edit.** Only if EP-M1
+recorded a separate target-selection failure (R-3), the one-line change to
 `.github/workflows/advanced-tests.yml` is a dependency of completion, not a
 hand-off: EP-M4 is not complete until that line is landed, by whoever owns the
 file. Tracking it elsewhere does not make it happen, and a plan that declares
