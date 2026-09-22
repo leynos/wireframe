@@ -20,9 +20,9 @@ than all four repository-owned lanes sharing one profile.
 
 Pull-request, push and tag lanes move to Ubicloud, because those are the ones a
 developer waits on: `build-test` waited 461 seconds for a GitHub-hosted runner
-on 2026-09-16 to do 556 seconds of work. Scheduled, delayed-comment and
-CodeScene-SHA lanes stay GitHub-hosted, where public-repository minutes are
-free and nobody is blocked by the wait.
+on 2026-09-16 to do 556 seconds of work. Scheduled and delayed-comment lanes
+stay GitHub-hosted, where public-repository minutes are free and nobody is
+blocked by the wait.
 
 `build-test` also serves forks, which cannot obtain an Ubicloud runner, so it
 carries the fork fallback:
@@ -92,8 +92,7 @@ Two ceilings are measured: `build-test` at 556 seconds and `coverage-upload` at
 240 seconds, both on four-vCPU runners. Two are judgements, and the guide says
 so rather than implying otherwise. `advanced` has failed every night since at
 least 2026-09-09 and its last green run was 2025-10-04 at 32 seconds, so 60
-minutes is generous enough not to mask the repair when it lands. `refresh-sha`
-has never run at all.
+minutes is generous enough not to mask the repair when it lands.
 
 `delay_and_comment` declares no ceiling, deliberately. Its entire duration is a
 `sleep` of the caller's `delay_minutes` input, so any fixed ceiling cancels a
@@ -387,10 +386,10 @@ The upload reads `CS_ACCESS_TOKEN` from the repository secret into the job
 environment, then passes that value through the upload action's required
 `access-token` input. This workflow input is permitted because the value still
 comes from the repository secret; never hard-code the token in workflow or
-source files, and never log it. The pull-request workflow's CodeScene coverage
-check uses the same project and repository identity. It consumes the report
-published for `main` as the baseline for its changed-line gate, so the main
-workflow must publish successfully before that gate can evaluate a pull request.
+source files, and never log it. No pull-request workflow names the project or
+the token; the changed-line gate a reviewer sees on a pull request is
+CodeScene's own check against what this workflow published, so this upload must
+succeed before that gate can evaluate anything.
 
 ## Mutation testing
 
@@ -474,9 +473,13 @@ again (#578); restore that assertion alongside the input when #578 closes.
 ### Where CodeScene may appear
 
 The CodeScene command-line tool is installed from a URL at job time and is not
-pinned upstream. Its installer and its output format have both moved without
-notice, and each time they moved, every pull-request lane in this estate that
-invoked the tool went red for a reason no change in the repository could have
+pinned to a version this repository chose: the shared action selects the
+archive from a committed manifest and verifies its digest, so the artefact is
+pinned, but what that artefact talks to is not. The tool calls CodeScene's API
+and refuses to run when the answer changes shape, and that has happened twice.
+Its output format moved, and more recently thirteen projects stopped returning
+a gates configuration at all, so the changed-line gate fails with "received
+project-config isn't valid" for a reason no change in the repository could have
 caused.
 
 So the tool runs in exactly one place: `coverage-main.yml`, on push to main. A

@@ -2,10 +2,13 @@
 
 The rule this asserts is an estate rule (concordat CV-005), and the reason is
 operational rather than stylistic. The CodeScene command-line tool is
-installed from a URL at job time and is unpinned upstream: its installer and
-its output format have both moved without notice, and each time they moved,
-every pull-request lane that invoked the tool went red for a reason no change
-in the repository could have caused. On 2026-09-16 one such move reddened
+installed from a URL at job time. The archive itself is pinned, since the
+shared action picks it from a committed manifest and verifies its digest; what
+is not pinned is what that archive talks to. The tool calls CodeScene's API and
+refuses to run when the answer changes shape, which has happened twice: its
+output format moved, and more recently projects stopped returning a gates
+configuration at all. Either way a pull-request lane goes red for a reason no
+change in the repository could have caused. On 2026-09-16 one such move reddened
 every branch in several repositories at once.
 
 So a pull-request lane may generate coverage, because the ratchet is ours and
@@ -142,12 +145,19 @@ def _triggers(document: dict[str, object]) -> dict[str, object]:
     return {}
 
 
+#: Both prefixes GitHub accepts for a reusable workflow in this repository.
+#: ``$/`` is the documented and recommended form and takes no ``@ref``; ``./``
+#: is the older one. Reading only ``./`` would let a caller written the
+#: recommended way slip out of every assertion here.
+LOCAL_USES_PREFIXES: typ.Final = ("./", "$/")
+
+
 def _local_callees(document: dict[str, object]) -> set[str]:
     """Return the workflows in this repository that one workflow calls.
 
-    A ``jobs.<id>.uses`` beginning with ``./`` names a workflow in this
-    repository. Anything else is a third-party or cross-repository reference
-    and is somebody else's document to police.
+    A ``jobs.<id>.uses`` beginning with ``./`` or ``$/`` names a workflow in
+    this repository. Anything else carries ``{owner}/{repo}`` and is a
+    cross-repository reference, which is somebody else's document to police.
 
     Parameters
     ----------
@@ -162,7 +172,7 @@ def _local_callees(document: dict[str, object]) -> set[str]:
     callees: set[str] = set()
     for definition in (document.get("jobs") or {}).values():
         uses = str((definition or {}).get("uses", ""))
-        if uses.startswith("./"):
+        if uses.startswith(LOCAL_USES_PREFIXES):
             callees.add(uses.split("@")[0].rsplit("/", 1)[-1])
     return callees
 
@@ -255,8 +265,8 @@ def test_no_pull_request_lane_uses_a_codescene_action(name: str) -> None:
     """Scenario: a pull-request lane calls a CodeScene action.
 
     Invariant: no workflow a pull request can start references an action
-    whose path names CodeScene. Such a step installs an unpinned upstream
-    tool at job time, so a change nobody in this repository made can fail
+    whose path names CodeScene. Such a step runs a tool that calls a remote
+    service at job time, so a change nobody in this repository made can fail
     the lane and block the merge.
     """
     document = dict(_documents())[name]
