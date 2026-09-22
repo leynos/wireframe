@@ -15,7 +15,6 @@ than all four repository-owned lanes sharing one profile.
 | `coverage-main.yml`      | `coverage-upload`   | push               | `ubicloud-standard-4` | 20 min  |
 | `advanced-tests.yml`     | `advanced`          | schedule           | `ubuntu-latest`       | 60 min  |
 | `delayed-pr-comment.yml` | `delay_and_comment` | dispatch           | `ubuntu-latest`       | none    |
-| `get-codescene-sha.yml`  | `refresh-sha`       | dispatch           | `ubuntu-latest`       | 10 min  |
 
 *Table 1: Where each repository-owned lane runs, and its ceiling.*
 
@@ -511,6 +510,64 @@ check gate.
 `pull_request_target` counts as a pull-request trigger here. It runs on a pull
 request with write permissions, which makes it more dangerous than
 `pull_request`, not less.
+
+### The pull-request lane is a closure, not a list
+
+The prohibitions apply to every workflow a pull request can reach, not only to
+those carrying a pull-request trigger. The contract follows `jobs.<id>.uses`
+for references beginning with `./`, transitively, with a visited set so two
+reusable workflows calling each other cannot hang it. References to other
+repositories are not followed: those are somebody else's documents to police.
+This repository has no local reusable workflows today, so the closure equals
+the roots; the traversal is here so that adding one does not silently take it
+out of scope.
+
+### The publisher's two silent failure modes
+
+The upload step's condition is
+`env.CS_ACCESS_TOKEN != '' && github.ref == 'refs/heads/main'`, compared whole
+rather than searched for parts. A containment test accepts
+`(github.ref == 'refs/heads/main' || true) &&
+(env.CS_ACCESS_TOKEN != '' || true)`,
+which holds both halves and is true everywhere, so it would pass the one
+expression it exists to refuse.
+
+The ref test is not redundant with the trigger. `push.branches` is `[main]` and
+there is no `workflow_dispatch`, so `github.ref` cannot currently be anything
+else. It is what keeps the trigger honest: the moment either changes, a
+dispatch from a feature branch would publish that branch's coverage as the
+trunk's, because CodeScene accepts an upload for the analysed branch whatever
+the payload came from. Both are pinned so neither moves without the other being
+reconsidered.
+
+The publisher also declares a concurrency group keyed on the ref, with
+`cancel-in-progress: false`. Two pushes to the trunk in quick succession would
+otherwise upload at once and leave the baseline set by whichever finished last,
+which need not be the later commit. Cancelling is the opposite failure and no
+better: a cancelled run leaves the baseline describing a commit that is no
+longer the tip.
+
+### What must remain
+
+Everything above forbids something, so all of it is satisfied by a repository
+that measures no coverage at all. One test says what must stay: `ci.yml` is
+still started by `pull_request` and still runs `generate-coverage` with
+`with-ratchet`, exactly once, under exactly the reviewed condition
+`github.event_name == 'pull_request'`. The condition is pinned by value rather
+than merely permitted, because presence is not reachability: `if: false` leaves
+the step in the file, where every other check still sees it, and runs it never.
+
+### The retired CodeScene digest variable
+
+`CODESCENE_CLI_SHA256` fed the uploader's `installer-checksum` input. The
+uploader takes its digest from a committed manifest now, so the input is gone
+and the variable feeds nothing. `get-codescene-sha.yml`, which existed only to
+refresh it, is deleted, and no workflow may mention the name. That test reads
+every workflow rather than the pull-request closure, because a refresher on a
+schedule or a dispatch is exactly the shape it is meant to catch and neither is
+reachable from a pull request.
+
+The repository variable itself can be deleted; nothing reads it.
 
 Each of the five ways to break this was applied alone and reverted while
 writing the contract, and each failed exactly one test.

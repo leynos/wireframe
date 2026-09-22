@@ -16,6 +16,16 @@ on:
   push:
     branches: [main]
 
+# One publisher at a time, and never cancelled. Two pushes to main in quick
+# succession would otherwise upload concurrently and leave the ratchet
+# baseline set by whichever finished last, which need not be the later commit.
+# `cancel-in-progress` is deliberately false: a cancelled run here leaves the
+# baseline describing a commit that is no longer the tip, and nothing reports
+# that.
+concurrency:
+  group: coverage-main-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   coverage-upload:
     # A push lane, so Ubicloud rather than GitHub-hosted. There is no fork
@@ -54,7 +64,15 @@ jobs:
       - name: Upload coverage data to CodeScene
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-        if: env.CS_ACCESS_TOKEN != ''
+        # The ref test is not redundant with the trigger above, it is what
+        # keeps the trigger honest. `push.branches` is `[main]` today and
+        # there is no `workflow_dispatch`, so `github.ref` cannot be anything
+        # else; the moment either changes, a dispatch from a feature branch
+        # would publish that branch's coverage as the trunk's, because
+        # CodeScene accepts an upload for the analysed branch whatever the
+        # payload came from. Both are pinned by the contract so neither can
+        # move without the other being reconsidered.
+        if: env.CS_ACCESS_TOKEN != '' && github.ref == 'refs/heads/main'
         uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
         with:
           format: lcov
@@ -66,4 +84,3 @@ jobs:
           # is gone, so there is no second identity to stay aligned with.
           project-url: https://api.codescene.io/v2/projects/68308
           access-token: ${{ env.CS_ACCESS_TOKEN }}
-          installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}

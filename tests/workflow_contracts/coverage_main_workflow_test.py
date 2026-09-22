@@ -81,8 +81,11 @@ def test_codescene_upload_uses_wireframe_project_and_repository() -> None:
     assert upload.get("env") == {"CS_ACCESS_TOKEN": "${{ secrets.CS_ACCESS_TOKEN }}"}, (
         "the CodeScene token must remain scoped to the upload step"
     )
-    assert upload.get("if") == "env.CS_ACCESS_TOKEN != ''", (
-        "the upload must remain safe for contexts without the CodeScene secret"
+    assert upload.get("if") == (
+        "env.CS_ACCESS_TOKEN != '' && github.ref == 'refs/heads/main'"
+    ), (
+        "the upload must remain safe for contexts without the CodeScene "
+        "secret, and must refuse any ref but the trunk"
     )
     uses = upload.get("uses")
     assert isinstance(uses, str) and CODESCENE_USES_RE.fullmatch(uses), (
@@ -93,5 +96,8 @@ def test_codescene_upload_uses_wireframe_project_and_repository() -> None:
         "mode": "upload",
         "project-url": "https://api.codescene.io/v2/projects/68308",
         "access-token": "${{ env.CS_ACCESS_TOKEN }}",
-        "installer-checksum": "${{ vars.CODESCENE_CLI_SHA256 }}",
-    }, "the upload must target the project used by the pull-request gate"
+    }, (
+        "the upload must target this repository's project, and must pass no "
+        "installer-checksum: the uploader takes its digest from a committed "
+        "manifest and rejects a non-empty value for that input"
+    )

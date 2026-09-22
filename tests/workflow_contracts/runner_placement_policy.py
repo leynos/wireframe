@@ -50,7 +50,6 @@ EXPECTED_PLACEMENT: typ.Final = {
     ("coverage-main.yml", "coverage-upload"): UBICLOUD_LABEL,
     ("advanced-tests.yml", "advanced"): GITHUB_HOSTED_LABEL,
     ("delayed-pr-comment.yml", "delay_and_comment"): GITHUB_HOSTED_LABEL,
-    ("get-codescene-sha.yml", "refresh-sha"): GITHUB_HOSTED_LABEL,
 }
 
 #: Ceilings, pinned by value rather than bounded, because a ceiling can drift
@@ -67,7 +66,6 @@ EXPECTED_CEILING_MINUTES: typ.Final = {
     ("ci.yml", "build-test"): 30,
     ("coverage-main.yml", "coverage-upload"): 20,
     ("advanced-tests.yml", "advanced"): 60,
-    ("get-codescene-sha.yml", "refresh-sha"): 10,
 }
 
 #: The one lane that must NOT declare a ceiling. Its whole duration is a
