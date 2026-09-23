@@ -87,14 +87,15 @@ def test_the_publisher_still_uploads() -> None:
 
 
 def test_the_publisher_only_uploads_from_the_trunk() -> None:
-    """Scenario: the publisher is dispatched from a feature branch.
+    """Scenario: a later change widens the publisher's triggers.
 
     Invariant: the upload step's condition names the trunk ref as well as the
-    token. ``workflow_dispatch`` can be run from any branch, and CodeScene
-    accepts an upload for the analysed branch whatever the payload came from,
-    so without the ref test a dispatch from a feature branch publishes that
-    branch's coverage as the trunk's and moves the ratchet baseline with it.
-    Nothing reports that, which is why it is asserted rather than trusted.
+    token. The trigger set is pinned to ``push`` on the trunk today, so the
+    ref test is the second protection: if ``workflow_dispatch`` or another
+    branch is ever added, CodeScene would accept that branch's coverage as
+    the trunk's, whatever the payload came from, and move the ratchet
+    baseline with it. Nothing reports that, which is why it is asserted
+    rather than trusted.
     """
     condition = str(_sole_upload().get("if", ""))
     # Compared whole, not by substring or by conjunct. Both halves appear in
@@ -105,9 +106,9 @@ def test_the_publisher_only_uploads_from_the_trunk() -> None:
     assert condition == EXPECTED_UPLOAD_CONDITION, (
         f"{PUBLISHER}'s upload runs when {condition!r}; the reviewed "
         f"condition is {EXPECTED_UPLOAD_CONDITION!r}. Both halves are "
-        "load-bearing: the ref test stops a dispatch from a feature branch "
-        "publishing that branch's coverage as the trunk's, and the token "
-        "test keeps a secret-less environment from failing the lane."
+        "load-bearing: should the triggers ever widen, the ref test stops "
+        "another branch's coverage being published as the trunk's, and the "
+        "token test keeps a secret-less environment from failing the lane."
     )
 
 
@@ -118,7 +119,7 @@ def test_the_publisher_holds_the_token_on_the_upload_step_alone() -> None:
     step's own ``env`` and appears nowhere else: not at workflow scope, not on
     any job, not in any other step. A job-scoped token is readable by every
     step before the ref guard runs, including the tests that generate
-    coverage, and a dispatch can run those from any branch.
+    coverage, which is repository code the token need never meet.
     """
     document = _documents()[PUBLISHER]
     upload = _sole_upload()
@@ -167,7 +168,7 @@ def test_the_publisher_serializes_and_is_not_cancelled() -> None:
     group = str(concurrency.get("group", ""))
     assert "github.ref" in group, (
         f"{PUBLISHER}'s concurrency group is {group!r}, which does not vary "
-        "by ref, so a dispatch elsewhere would queue behind the trunk's run"
+        "by ref, so a run on another ref would queue behind the trunk's run"
     )
     assert concurrency.get("cancel-in-progress") is False, (
         f"{PUBLISHER} must not cancel a run in progress: a cancelled upload "

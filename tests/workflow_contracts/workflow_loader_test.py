@@ -42,4 +42,6 @@ def test_a_duplicate_key_is_refused(tmp_path: Path) -> None:
 def test_an_upper_case_extension_is_read(tmp_path: Path) -> None:
     """GitHub runs ``CI.YML``, so the reader must not skip it."""
     directory = _tree(tmp_path, {"CI.YML": "on: push\njobs: {}\n"})
-    assert list(read_workflows(directory)) == ["CI.YML"]
+    assert list(read_workflows(directory)) == ["CI.YML"], (
+        "a workflow with an upper-case .YML extension must be read"
+    )

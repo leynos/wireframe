@@ -59,7 +59,9 @@ def test_every_trigger_form_is_read(text: str, expected: list[str]) -> None:
     loader turns an unquoted ``on`` into ``True``; a reader proved against
     hand-built dictionaries would not show that.
     """
-    assert list(triggers(load_workflow(text))) == expected
+    assert list(triggers(load_workflow(text))) == expected, (
+        f"{text!r} should read as triggers {expected}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -119,7 +121,9 @@ def test_a_local_call_is_recognized_by_shape(
     repository by ref runs the file at that ref, not the checked-out one, so
     it is not local either; ``qualified_self_call`` identifies it instead.
     """
-    assert local_callee(uses) == expected
+    assert local_callee(uses) == expected, (
+        f"local_callee({uses!r}) should be {expected!r}"
+    )
 
 
 PROBE: typ.Final = """\
@@ -161,9 +165,40 @@ def test_the_closure_reaches_a_called_workflow(
     documents = read_workflows(
         _tree(tmp_path, {"ci.yml": caller, "probe.yml": PROBE})
     )
-    assert pull_request_closure(documents) == ["ci.yml", "probe.yml"]
-    assert mentions(documents["probe.yml"], "CS_ACCESS_TOKEN")
-    assert mentions(documents["probe.yml"], "codescene.io", ignore_case=True)
+    assert pull_request_closure(documents) == ["ci.yml", "probe.yml"], (
+        f"the closure should reach the probe through {spelling!r}"
+    )
+    assert mentions(documents["probe.yml"], "CS_ACCESS_TOKEN"), (
+        "the token sweep should see the probe's token"
+    )
+    assert mentions(
+        documents["probe.yml"], "codescene.io", ignore_case=True
+    ), "the host sweep should see the probe's mixed-case URL"
+
+
+@pytest.mark.parametrize(
+    "trigger",
+    ["pull_request", "pull_request_target", "merge_group", "workflow_run"],
+)
+def test_every_pull_request_trigger_seeds_the_closure(trigger: str) -> None:
+    """A workflow on any trigger that serves a pull request is in the lane.
+
+    ``merge_group`` runs the checks a pull request needs to leave the merge
+    queue, and ``workflow_run`` runs after a pull-request workflow with the
+    repository's secrets; either would otherwise escape every clause.
+    """
+    documents = {"w.yml": {True: trigger, "jobs": {}}}
+    assert pull_request_closure(documents) == ["w.yml"], (
+        f"a workflow triggered by {trigger} should seed the closure"
+    )
+
+
+def test_a_dispatch_does_not_seed_the_closure() -> None:
+    """A dispatch is not a pull request, so the publisher may carry one."""
+    documents = {"w.yml": {True: ["push", "workflow_dispatch"], "jobs": {}}}
+    assert pull_request_closure(documents) == [], (
+        "a push-and-dispatch workflow should stay out of the closure"
+    )
 
 
 def test_the_closure_is_narrow(tmp_path: Path) -> None:
@@ -192,7 +227,9 @@ def test_the_closure_is_narrow(tmp_path: Path) -> None:
             },
         )
     )
-    assert pull_request_closure(documents) == ["a.yml", "ci.yml"]
+    assert pull_request_closure(documents) == ["a.yml", "ci.yml"], (
+        "the closure should hold the roots and their local callees only"
+    )
 
 
 def test_only_inheritance_into_another_repository_is_flagged() -> None:
@@ -215,7 +252,13 @@ def test_only_inheritance_into_another_repository_is_flagged() -> None:
             """
         )
     )
-    assert external_secret_inheritors(document) == ["foreign", "self-by-ref"]
+    assert external_secret_inheritors(document) == [
+        "foreign",
+        "self-by-ref",
+    ], (
+        "inheriting into another repository or into this one by ref "
+        "should be flagged; inheriting locally should not"
+    )
 
 
 @pytest.mark.parametrize(
@@ -260,7 +303,9 @@ def test_a_call_to_this_repository_by_ref_is_recognized(
     narrow: a local call, another repository, a repository whose name
     merely begins the same way, and this repository's own actions.
     """
-    assert qualified_self_call(uses) is expected
+    assert qualified_self_call(uses) is expected, (
+        f"qualified_self_call({uses!r}) should be {expected}"
+    )
 
 
 def test_callers_by_ref_are_listed() -> None:
@@ -271,7 +316,9 @@ def test_callers_by_ref_are_listed() -> None:
         "  ok: {uses: ./.github/workflows/a.yml}\n"
         "  pinned: {uses: leynos/wireframe/.github/workflows/a.yml@main}\n"
     )
-    assert qualified_self_callers(document) == ["pinned"]
+    assert qualified_self_callers(document) == ["pinned"], (
+        "only the job calling this repository by ref, pinned, should be listed"
+    )
 
 
 def test_a_job_level_call_is_read_as_a_call() -> None:
@@ -283,4 +330,4 @@ def test_a_job_level_call_is_read_as_a_call() -> None:
     )
     assert [call["uses"] for call in calls(document)] == [
         "codescene/scan/.github/workflows/x.yml@v1"
-    ]
+    ], "a job-level uses: should be read as a call"

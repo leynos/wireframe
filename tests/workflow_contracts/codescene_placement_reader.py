@@ -53,10 +53,14 @@ WORKFLOW_PREFIX: typ.Final = ".github/workflows/"
 #: ref, which this checkout does not hold, so it is refused, not followed.
 LOCAL_PREFIXES: typ.Final = ("./", "$/")
 
-#: Triggers that start a workflow for a pull request. ``pull_request_target``
-#: runs with write permissions, which makes it more dangerous, not less.
+#: Triggers that start a workflow for a pull request, or on the way to one.
+#: ``pull_request_target`` runs with write permissions, which makes it more
+#: dangerous, not less; ``merge_group`` runs the checks a pull request needs
+#: to leave the merge queue, so a red one blocks the merge; ``workflow_run``
+#: runs after a pull-request workflow, with the repository's secrets.
+#: ``workflow_dispatch`` is not here: a dispatch is not a pull request.
 PULL_REQUEST_TRIGGERS: typ.Final = frozenset(
-    {"pull_request", "pull_request_target"}
+    {"pull_request", "pull_request_target", "merge_group", "workflow_run"}
 )
 
 

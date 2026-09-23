@@ -519,9 +519,13 @@ added beside `push` would make the publisher a pull-request lane, and any other
 addition or removal changes what it is for unreviewed. Stating the mode means
 the publisher cannot quietly become the pull-request check gate.
 
-`pull_request_target` counts as a pull-request trigger here. It runs on a pull
-request with write permissions, which makes it more dangerous than
-`pull_request`, not less.
+`pull_request_target`, `merge_group` and `workflow_run` count as pull-request
+triggers here. `pull_request_target` runs on a pull request with write
+permissions, which makes it more dangerous than `pull_request`, not less.
+`merge_group` runs the checks a pull request needs to leave the merge queue, so
+a red one blocks the merge. `workflow_run` runs after a pull-request workflow,
+with the repository's secrets. `workflow_dispatch` does not count: a dispatch
+is not a pull request.
 
 ### The pull-request lane is a closure, not a list
 
