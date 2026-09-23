@@ -65,10 +65,10 @@ from codescene_placement_reader import (
     external_secret_inheritors,
     mentions,
     pull_request_closure,
-    qualified_self_callers,
     steps,
     triggers,
 )
+from workflow_calls import qualified_self_callers
 from workflow_loader import repository_workflows
 
 _documents = repository_workflows
@@ -220,6 +220,12 @@ def test_the_pull_request_lane_still_ratchets_coverage() -> None:
     assert generators[0].get("with", {}).get("with-ratchet") == "true", (
         f"{RATCHET_LANE}'s coverage step must set with-ratchet, or it "
         "produces a report nothing compares against"
+    )
+    # The pull-request lane generates coverage for the ratchet only. Its
+    # report is not an artefact anything downstream reads, and publishing it
+    # would upload a pull request's coverage where main's is expected.
+    assert generators[0].get("with", {}).get("publish-artefact") == "false", (
+        f"{RATCHET_LANE}'s coverage step must set publish-artefact: 'false'"
     )
     # Presence is not reachability. `if: false` leaves the step in the file,
     # where every check above still sees it, and runs it never, so the

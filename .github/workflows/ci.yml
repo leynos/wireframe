@@ -49,11 +49,11 @@ jobs:
         with:
           fetch-depth: 0
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
+        uses: leynos/shared-actions/.github/actions/setup-rust@a5765019912a8ab6882b12db049c7cde635f3a85
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@a5765019912a8ab6882b12db049c7cde635f3a85
         with:
           version: "0.6.0"
 
@@ -128,8 +128,11 @@ jobs:
       # coverage-main.yml uploads, and it needs nothing from here.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/generate-coverage@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
+        uses: leynos/shared-actions/.github/actions/generate-coverage@a5765019912a8ab6882b12db049c7cde635f3a85
         with:
           output-path: lcov.info
           format: lcov
           with-ratchet: 'true'
+          # The ratchet reads this report; nothing else does, so it is not
+          # published as an artefact.
+          publish-artefact: 'false'

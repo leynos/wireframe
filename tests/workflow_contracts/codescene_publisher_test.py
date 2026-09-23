@@ -8,6 +8,8 @@ publish a feature branch's coverage as the trunk's.
 
 from __future__ import annotations
 
+import re
+
 from codescene_placement_policy import (
     ACCESS_TOKEN_INPUT,
     CODESCENE_ACTION_MARKER,
@@ -15,8 +17,10 @@ from codescene_placement_policy import (
     PUBLISHER,
     PUBLISHER_TRIGGERS,
     TOKEN,
-    TOKEN_BINDING,
+    TOKEN_CHECK_COMMAND,
+    TOKEN_CHECK_STEP_ID,
     TRUNK_BRANCH,
+    UPLOADER_ACTION,
 )
 from codescene_placement_reader import (
     jobs,
@@ -112,42 +116,107 @@ def test_the_publisher_only_uploads_from_the_trunk() -> None:
     )
 
 
-def test_the_publisher_holds_the_token_on_the_upload_step_alone() -> None:
-    """Scenario: the token sits in the job environment of the publisher.
+def _token_check() -> tuple[int, Document]:
+    """Return the publisher's token check step and its position."""
+    matches = [
+        (index, step)
+        for index, step in enumerate(steps(_documents()[PUBLISHER]))
+        if step.get("id") == TOKEN_CHECK_STEP_ID
+    ]
+    assert len(matches) == 1, (
+        f"{PUBLISHER} must hold exactly one step with id "
+        f"{TOKEN_CHECK_STEP_ID!r}; found {len(matches)}. Without it the "
+        "upload's guard reads a missing output and the upload skips forever."
+    )
+    return matches[0]
 
-    Invariant: in ``coverage-main.yml`` the token is declared in the upload
-    step's own ``env`` and appears nowhere else: not at workflow scope, not on
-    any job, not in any other step. A job-scoped token is readable by every
-    step before the ref guard runs, including the tests that generate
-    coverage, which is repository code the token need never meet.
+
+def test_the_token_check_reports_availability_and_nothing_else() -> None:
+    """Scenario: the check step is changed, guarded or deleted.
+
+    Invariant: a step with id ``codescene-token`` runs exactly the one
+    command that writes ``available`` from the secret's presence, with no
+    ``if:`` and no ``env``, before the upload. A condition on it, or a longer
+    command, could leave ``available`` unwritten or wrong while every other
+    assertion here still sees the step.
+    """
+    index, check = _token_check()
+    command = str(check.get("run", "")).strip()
+    assert command == TOKEN_CHECK_COMMAND, (
+        f"the token check must run exactly {TOKEN_CHECK_COMMAND!r}; it runs "
+        f"{command!r}"
+    )
+    assert "if" not in check, (
+        f"the token check must run unconditionally; it carries if: "
+        f"{check.get('if')!r}"
+    )
+    assert not check.get("env"), (
+        "the token check must bind nothing; it declares env "
+        f"{check.get('env')!r}"
+    )
+    upload_index = steps(_documents()[PUBLISHER]).index(_sole_upload())
+    assert index < upload_index, (
+        "the token check must run before the upload that reads its output"
+    )
+
+
+def test_the_publisher_passes_the_token_as_an_input_only() -> None:
+    """Scenario: the token is bound in an ``env`` on the publisher job.
+
+    Invariant: the upload passes ``access-token`` directly from the secret,
+    and ``CS_ACCESS_TOKEN`` appears in no ``env`` anywhere in the publisher:
+    not at workflow scope, not on a job, not on a step. The uploader is a
+    composite action that hands its step's ``env`` to nested artefact and
+    cache steps, and a job-scoped token is readable by the tests that
+    generate coverage. Only the check step and the upload may name it.
     """
     document = _documents()[PUBLISHER]
     upload = _sole_upload()
-    assert (upload.get("env") or {}).get(TOKEN) == TOKEN_BINDING, (
-        f"{PUBLISHER}'s upload step must bind {TOKEN} in its own env as "
-        f"{TOKEN_BINDING!r}"
-    )
     access_token = (upload.get("with") or {}).get("access-token")
     assert access_token == ACCESS_TOKEN_INPUT, (
         f"{PUBLISHER}'s upload must pass access-token: "
         f"{ACCESS_TOKEN_INPUT!r}; got {access_token!r}"
     )
-    wider = {key: value for key, value in document.items() if key != "jobs"}
+    envs = [document.get("env")] + [
+        scope.get("env")
+        for scope in [*jobs(document).values(), *steps(document)]
+    ]
+    assert not any(mentions(env, TOKEN) for env in envs if env), (
+        f"{PUBLISHER} must bind {TOKEN} in no env; pass it as the upload's "
+        "access-token input"
+    )
+    _, check = _token_check()
     holders = [
-        f"job {name}"
-        for name, job in jobs(document).items()
-        if mentions({k: v for k, v in job.items() if k != "steps"}, TOKEN)
-    ] + [
         str(step.get("name", step.get("uses", step.get("run"))))
         for step in steps(document)
-        if step is not upload and mentions(step, TOKEN)
+        if step is not upload and step is not check and mentions(step, TOKEN)
     ]
-    assert not mentions(wider, TOKEN), (
-        f"{PUBLISHER} must not declare {TOKEN} at workflow scope"
-    )
     assert not holders, (
-        f"{PUBLISHER} must hold {TOKEN} on the upload step alone; also "
-        f"found in {holders}"
+        f"only the token check and the upload may name {TOKEN}; also found "
+        f"in {holders}"
+    )
+
+
+def test_the_uploader_is_pinned_and_passes_no_retired_input() -> None:
+    """Scenario: the uploader is unpinned, or passes a retired input.
+
+    Invariant: the upload calls the uploader at a full commit SHA and passes
+    no ``installer-checksum``, which the uploader rejects when non-empty from
+    shared-actions a5765019 onwards. The specific revision is deliberately
+    not asserted, per the repository's pin policy; a branch or tag name is.
+    """
+    upload = _sole_upload()
+    action, _, ref = str(upload.get("uses", "")).partition("@")
+    assert action == UPLOADER_ACTION, (
+        f"{PUBLISHER}'s upload must call {UPLOADER_ACTION}; it calls "
+        f"{action!r}"
+    )
+    assert re.fullmatch(r"[0-9a-f]{40}", ref), (
+        f"{PUBLISHER}'s upload must pin a full commit SHA; got {ref!r}"
+    )
+    assert "installer-checksum" not in (upload.get("with") or {}), (
+        "installer-checksum is rejected when non-empty; pass nothing, the "
+        "uploader's manifest is the trust anchor"
     )
 
 
@@ -155,10 +224,11 @@ def test_the_publisher_serializes_and_is_not_cancelled() -> None:
     """Scenario: two pushes to the trunk upload at once.
 
     Invariant: the publisher declares a concurrency group keyed on the ref,
-    and does not cancel a run in progress. Concurrent uploads advance the
-    ratchet baseline from whichever finishes last, which need not be the later
-    commit; and a cancelled run leaves the baseline describing a commit that
-    is no longer the tip, with nothing to say so.
+    and does not cancel a run in progress. Without a group two uploads race
+    and the baseline is set by whichever finishes last. With one, GitHub keeps
+    a single pending run per group, so a newer push replaces an older pending
+    run and the newest baseline wins; cancelling instead would abandon a
+    running upload and its baseline write.
     """
     concurrency = _documents()[PUBLISHER].get("concurrency")
     assert isinstance(concurrency, dict), (

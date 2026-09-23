@@ -46,12 +46,20 @@ def _find_step(steps: list[dict[str, object]], name: str) -> dict[str, object]:
 
 
 def test_codescene_upload_follows_successful_coverage_generation() -> None:
-    """Upload the newly generated LCOV report before PR gates can use its baseline."""
+    """Upload the newly generated LCOV report before PR gates can use its baseline.
+
+    Only the token check sits between the two: it writes the output the
+    upload's guard reads, and runs nothing else.
+    """
     steps = _load_steps()
     generation = _find_step(steps, "Test and Measure Coverage")
+    check = _find_step(steps, "Check for the CodeScene token")
     upload = _find_step(steps, "Upload coverage data to CodeScene")
-    assert steps.index(upload) == steps.index(generation) + 1, (
-        "the CodeScene upload must immediately follow coverage generation"
+    assert steps.index(check) == steps.index(generation) + 1, (
+        "the token check must immediately follow coverage generation"
+    )
+    assert steps.index(upload) == steps.index(check) + 1, (
+        "the CodeScene upload must immediately follow the token check"
     )
     assert generation.get("with") == {
         "output-path": "lcov.info",
@@ -78,11 +86,12 @@ def test_codescene_upload_uses_wireframe_project_and_repository() -> None:
     )
 
     upload = _find_step(steps, "Upload coverage data to CodeScene")
-    assert upload.get("env") == {"CS_ACCESS_TOKEN": "${{ secrets.CS_ACCESS_TOKEN }}"}, (
-        "the CodeScene token must remain scoped to the upload step"
+    assert "env" not in upload, (
+        "the CodeScene token is passed as the upload's input, not in its env"
     )
     assert upload.get("if") == (
-        "env.CS_ACCESS_TOKEN != '' && github.ref == 'refs/heads/main'"
+        "steps.codescene-token.outputs.available == 'true' "
+        "&& github.ref == 'refs/heads/main'"
     ), (
         "the upload must remain safe for contexts without the CodeScene "
         "secret, and must refuse any ref but the trunk"
@@ -95,7 +104,7 @@ def test_codescene_upload_uses_wireframe_project_and_repository() -> None:
         "format": "lcov",
         "mode": "upload",
         "project-url": "https://api.codescene.io/v2/projects/68308",
-        "access-token": "${{ env.CS_ACCESS_TOKEN }}",
+        "access-token": "${{ secrets.CS_ACCESS_TOKEN }}",
     }, (
         "the upload must target this repository's project, and must pass no "
         "installer-checksum: the uploader takes its digest from a committed "

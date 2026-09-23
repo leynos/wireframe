@@ -48,3 +48,17 @@ def test_nothing_reads_or_refreshes_the_retired_variable() -> None:
         f"{offenders} still mention it. The repository variable itself can "
         "be deleted once no workflow names it."
     )
+
+
+def test_the_digest_refresh_workflow_is_absent() -> None:
+    """Scenario: the dispatch that refreshed the retired variable returns.
+
+    Invariant: ``get-codescene-sha.yml`` does not exist. Its only output was
+    the retired variable, so restoring it maintains a value nothing reads,
+    and the mention rule above would report it only once it names the
+    variable.
+    """
+    assert not (WORKFLOW_DIR / "get-codescene-sha.yml").exists(), (
+        "get-codescene-sha.yml refreshes a variable nothing reads; it must "
+        "not exist"
+    )

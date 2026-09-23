@@ -519,13 +519,15 @@ added beside `push` would make the publisher a pull-request lane, and any other
 addition or removal changes what it is for unreviewed. Stating the mode means
 the publisher cannot quietly become the pull-request check gate.
 
-`pull_request_target`, `merge_group` and `workflow_run` count as pull-request
+`pull_request_target`, `merge_group`, `workflow_run`, `pull_request_review`,
+`pull_request_review_comment` and `issue_comment` count as pull-request
 triggers here. `pull_request_target` runs on a pull request with write
 permissions, which makes it more dangerous than `pull_request`, not less.
 `merge_group` runs the checks a pull request needs to leave the merge queue, so
 a red one blocks the merge. `workflow_run` runs after a pull-request workflow,
-with the repository's secrets. `workflow_dispatch` does not count: a dispatch
-is not a pull request.
+with the repository's secrets. A review, a review comment or a comment on the
+pull request each start a workflow for it. `workflow_dispatch` does not count:
+a dispatch is not a pull request.
 
 ### The pull-request lane is a closure, not a list
 
@@ -542,14 +544,16 @@ spellings, with two prefixes stripped: `./`, the documented form, and `$/`.
 Accepting a spelling GitHub might refuse only widens the set the prohibitions
 run over; missing one GitHub accepts hides a workflow from all of them.
 
-A call to this repository by its qualified name and a ref, such as
-`leynos/wireframe/.github/workflows/x.yml@main`, is refused rather than
-followed. GitHub runs it at the named ref, not at the pull request's head, so
-the file the closure would read is not the file that runs, and the named
-revision could hold a CodeScene step every clause passes over. A workflow that
-needs this repository's reusable workflow calls it with `./`. For the same
-reason `secrets: inherit` into such a call counts as inheriting into a document
-the contract cannot read.
+A call to this repository's workflows at a ref, whether written with the
+qualified name (`leynos/wireframe/.github/workflows/x.yml@main`) or with a
+local prefix and a ref (`./.github/workflows/x.yml@main`,
+`$/.github/workflows/x.yml@main`), is refused rather than followed. GitHub runs
+it at the named ref, not at the pull request's head, so the file the closure
+would read is not the file that runs, and the named revision could hold a
+CodeScene step every clause passes over. A workflow that needs this
+repository's reusable workflow calls it with `./`. For the same reason
+`secrets: inherit` into such a call counts as inheriting into a document the
+contract cannot read.
 
 References to other repositories are not followed: their content is not in this
 tree. That is why `secrets: inherit` into one is refused outright rather than
@@ -560,10 +564,10 @@ take it out of scope.
 ### The publisher's two silent failure modes
 
 The upload step's condition is
-`env.CS_ACCESS_TOKEN != '' && github.ref == 'refs/heads/main'`, compared whole
-rather than searched for parts. A containment test accepts this expression,
-which holds both halves and is true everywhere, so it would pass the one
-expression it exists to refuse:
+`steps.codescene-token.outputs.available == 'true' && github.ref == 'refs/heads/main'`,
+compared whole rather than searched for parts. A containment test accepts this
+expression, which holds both halves and is true everywhere, so it would pass
+the one expression it exists to refuse:
 
 ```yaml
 if: (github.ref == 'refs/heads/main' || true) && (env.CS_ACCESS_TOKEN != '' || true)
@@ -571,16 +575,39 @@ if: (github.ref == 'refs/heads/main' || true) && (env.CS_ACCESS_TOKEN != '' || t
 
 Appending `|| github.event_name == 'workflow_dispatch'` is the same defeat in
 another form: every conjunct is still present and all of them become optional.
-The equality comparison refuses both, so no conjunct-splitting rule is needed.
+The equality comparison refuses both, and it admits no extra conjunct, so an
+`||` hidden behind one
+(`… && github.actor != 'x' || github.event_name == 'workflow_dispatch'`) fails
+it too; no separate `||` rule is needed.
 
-The token is declared in the upload step's own `env` and nowhere else in
-`coverage-main.yml`: not at workflow scope, not on the job, not in another
-step. Both of its bindings are pinned by value, the step's `env` entry reading
-the secret and the action's `access-token` reading that `env`, because a
-misspelt secret name reads as empty and the upload silently skips. At job scope
-every earlier step could read it, including the tests that generate coverage.
-The step's `if:` still reads `env.CS_ACCESS_TOKEN`, because a step's own
-environment is in scope for its condition.
+The token is bound in no `env` anywhere in `coverage-main.yml`. A step with id
+`codescene-token` runs exactly one command, with no `if:`:
+
+```sh
+echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+```
+
+The expression is evaluated to `true` or `false` before the shell runs, so the
+step writes the answer without holding the token, and the upload's condition
+reads that output. The upload passes
+`access-token: ${{ secrets.CS_ACCESS_TOKEN }}` directly: the uploader is a
+composite action that hands its step's `env` to nested artefact and cache
+steps, and a job-scoped token would be readable by the tests that generate
+coverage. A guard on `env.CS_ACCESS_TOKEN != ''`, the earlier shape, passes
+with its binding deleted, and the upload then skips forever with nothing
+failing. The contract pins the command, its lack of a condition and of an
+`env`, its position before the upload, and the input, and refuses the token in
+any `env` on the job.
+
+The uploader is pinned to a full commit SHA, at or after shared-actions
+`a5765019`: from there it selects the CodeScene CLI from a committed manifest,
+where earlier revisions install "latest", which no longer resolves. Per the pin
+policy below, the contract asserts the SHA's shape and the absence of the
+retired `installer-checksum`, not the specific revision.
+
+Dependabot's automerge merges with the workflow's `GITHUB_TOKEN`, and a push
+made that way starts no workflow, so an automerged dependency bump never runs
+the publisher: a known exception, tracked in shared-actions issue #518.
 
 The ref test is not redundant with the trigger. `push.branches` is `[main]` and
 there is no `workflow_dispatch`, so `github.ref` cannot currently be anything
@@ -591,18 +618,19 @@ the payload came from. Both are pinned so neither moves without the other being
 reconsidered.
 
 The publisher also declares a concurrency group keyed on the ref, with
-`cancel-in-progress: false`. Two pushes to the trunk in quick succession would
-otherwise upload at once and leave the baseline set by whichever finished last,
-which need not be the later commit. Cancelling is the opposite failure and no
-better: a cancelled run leaves the baseline describing a commit that is no
-longer the tip.
+`cancel-in-progress: false`. Without a group, two pushes in quick succession
+upload at once and the baseline is set by whichever finishes last. With one,
+GitHub keeps a single pending run per group, so a newer push replaces an older
+pending run and the newest baseline wins. Cancelling would instead abandon a
+running upload and its baseline write.
 
 ### What must remain
 
 Everything above forbids something, so all of it is satisfied by a repository
 that measures no coverage at all. One test says what must stay: `ci.yml` is
 still started by `pull_request` and still runs `generate-coverage` with
-`with-ratchet`, exactly once, under exactly the reviewed condition
+`with-ratchet` and `publish-artefact: 'false'` (the ratchet reads the report;
+nothing else does), exactly once, under exactly the reviewed condition
 `github.event_name == 'pull_request'`. The condition is pinned by value rather
 than merely permitted, because presence is not reachability: `if: false` leaves
 the step in the file, where every other check still sees it, and runs it never.
@@ -625,10 +653,11 @@ The reading machinery lives in
 `tests/workflow_contracts/codescene_placement_reader.py`, and every reader
 takes its documents as an argument. The reviewed values live in
 `codescene_placement_policy.py`, the publisher's clauses in
-`codescene_publisher_test.py`, and loading in `workflow_loader.py`, which the
-runner placement contract shares. The repository's own workflows are all
-written the one way the first reader understood, so a reading that mishandles
-another shape passes against them either way.
+`codescene_publisher_test.py`, the classification of `uses:` calls in
+`workflow_calls.py`, and loading in `workflow_loader.py`, which the runner
+placement contract shares. The repository's own workflows are all written the
+one way the first reader understood, so a reading that mishandles another shape
+passes against them either way.
 `tests/workflow_contracts/codescene_placement_reader_test.py` therefore drives
 each reading with constructed trees:
 
@@ -642,9 +671,9 @@ each reading with constructed trees:
   mapping key, because PyYAML otherwise keeps the last `runs-on` or `env` and
   says nothing;
 - `on:` is read as a scalar, a sequence or a mapping, under both the quoted
-  string key and YAML 1.1's boolean `True`, and any other shape is refused
-  rather than read as "no triggers", which would let the workflow escape every
-  clause; and
+  string key and YAML 1.1's boolean `True`; a workflow declaring both is
+  refused, since GitHub merges them; and any other shape is refused rather than
+  read as "no triggers", which would let the workflow escape every clause; and
 - a `.YML` extension is read like `.yml`.
 
 Each reading was mutated alone and restored from a copy while writing the
