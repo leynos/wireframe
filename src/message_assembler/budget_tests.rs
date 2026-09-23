@@ -4,10 +4,7 @@
 //! Enforcement tests (connection, in-flight, dual, isolation, headroom,
 //! single-frame bypass) are in the `enforcement` sub-module.
 
-use std::{
-    num::NonZeroUsize,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use rstest::{fixture, rstest};
 
@@ -23,9 +20,16 @@ use crate::message_assembler::{
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Non-zero shorthand.
-#[expect(clippy::unwrap_used, reason = "caller guarantees non-zero")]
-fn nz(val: usize) -> NonZeroUsize { NonZeroUsize::new(val).unwrap() }
+/// Reject a zero test budget during compilation, before fixture setup runs.
+macro_rules! nz {
+    ($value:expr) => {{
+        const NON_ZERO: ::std::num::NonZeroUsize = match ::std::num::NonZeroUsize::new($value) {
+            Some(value) => value,
+            None => panic!("test budget must be non-zero"),
+        };
+        NON_ZERO
+    }};
+}
 
 /// Build a [`FirstFrameHeader`] and [`FirstFrameInput`] in the caller's
 /// scope from a key, body slice, and finality flag.
@@ -70,29 +74,29 @@ fn submit_first_at(
 /// State with no budgets — backwards-compatibility baseline.
 #[fixture]
 fn unbounded_state() -> MessageAssemblyState {
-    MessageAssemblyState::new(nz(1024), Duration::from_secs(30))
+    MessageAssemblyState::new(nz!(1024), Duration::from_secs(30))
 }
 
 /// State with a 20-byte connection budget and 1024-byte per-message limit.
 #[fixture]
 fn connection_budgeted_state() -> MessageAssemblyState {
-    MessageAssemblyState::with_budgets(nz(1024), Duration::from_secs(30), Some(nz(20)), None)
+    MessageAssemblyState::with_budgets(nz!(1024), Duration::from_secs(30), Some(nz!(20)), None)
 }
 
 /// State with a 20-byte in-flight budget and 1024-byte per-message limit.
 #[fixture]
 fn in_flight_budgeted_state() -> MessageAssemblyState {
-    MessageAssemblyState::with_budgets(nz(1024), Duration::from_secs(30), None, Some(nz(20)))
+    MessageAssemblyState::with_budgets(nz!(1024), Duration::from_secs(30), None, Some(nz!(20)))
 }
 
 /// State with both connection (30) and in-flight (20) budgets.
 #[fixture]
 fn dual_budgeted_state() -> MessageAssemblyState {
     MessageAssemblyState::with_budgets(
-        nz(1024),
+        nz!(1024),
         Duration::from_secs(30),
-        Some(nz(30)),
-        Some(nz(20)),
+        Some(nz!(30)),
+        Some(nz!(20)),
     )
 }
 

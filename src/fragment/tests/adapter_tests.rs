@@ -37,13 +37,24 @@ impl Fragmentable for TestPacket {
 /// Result alias for fallible fragment-adapter test helpers.
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
-fn adapter_config() -> TestResult<FragmentationConfig> {
-    Ok(FragmentationConfig {
-        fragment_payload_cap: NonZeroUsize::new(4)
-            .ok_or("fragment payload cap must be non-zero")?,
-        max_message_size: NonZeroUsize::new(64).ok_or("max message size must be non-zero")?,
+/// Fixture payload cap; an accidental zero fails during compilation.
+const FRAGMENT_PAYLOAD_CAP: NonZeroUsize = match NonZeroUsize::new(4) {
+    Some(value) => value,
+    None => panic!("fragment payload cap must be non-zero"),
+};
+
+/// Fixture maximum message size; an accidental zero fails during compilation.
+const MAX_MESSAGE_SIZE: NonZeroUsize = match NonZeroUsize::new(64) {
+    Some(value) => value,
+    None => panic!("max message size must be non-zero"),
+};
+
+fn adapter_config() -> FragmentationConfig {
+    FragmentationConfig {
+        fragment_payload_cap: FRAGMENT_PAYLOAD_CAP,
+        max_message_size: MAX_MESSAGE_SIZE,
         reassembly_timeout: Duration::from_secs(30),
-    })
+    }
 }
 
 fn build_test_packet() -> TestPacket {
@@ -91,7 +102,7 @@ fn reassemble_fragment_sequence(
 
 #[test]
 fn default_fragment_adapter_fragments_and_reassembles_test_packets() {
-    let mut adapter = DefaultFragmentAdapter::new(adapter_config().expect("build adapter config"));
+    let mut adapter = DefaultFragmentAdapter::new(adapter_config());
     let packet = build_test_packet();
 
     let fragments = adapter
@@ -111,7 +122,7 @@ fn default_fragment_adapter_fragments_and_reassembles_test_packets() {
 
 #[test]
 fn default_fragment_adapter_passes_through_non_fragment_payloads() {
-    let mut adapter = DefaultFragmentAdapter::new(adapter_config().expect("build adapter config"));
+    let mut adapter = DefaultFragmentAdapter::new(adapter_config());
     let packet = TestPacket {
         id: 12,
         correlation_id: Some(9),
@@ -127,7 +138,7 @@ fn default_fragment_adapter_passes_through_non_fragment_payloads() {
 
 #[test]
 fn default_fragment_adapter_exposes_purge_api() {
-    let mut config = adapter_config().expect("build adapter config");
+    let mut config = adapter_config();
     config.reassembly_timeout = Duration::ZERO;
     let mut adapter = DefaultFragmentAdapter::new(config);
     let header = FragmentHeader::new(MessageId::new(81), FragmentIndex::zero(), false);

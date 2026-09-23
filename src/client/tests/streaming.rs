@@ -38,10 +38,18 @@ where
         .next()
         .await
         .ok_or("stream ended before yielding a data frame")??;
-    assert_eq!(frame.payload, expected_payload);
+    if frame.payload != expected_payload {
+        return Err(format!(
+            "stream payload mismatch: got {:?}, expected {:?}",
+            frame.payload, expected_payload
+        )
+        .into());
+    }
 
     let end = stream.next().await;
-    assert!(end.is_none(), "stream should terminate");
+    if end.is_some() {
+        return Err("stream should terminate after one data frame".into());
+    }
     Ok(())
 }
 
@@ -98,9 +106,8 @@ async fn response_stream_terminates_on_terminator(
         .expect("call_streaming");
 
     // First item is the data frame.
-    let first = stream.next().await;
-    assert!(first.is_some(), "should yield one data frame");
-    assert!(first.expect("some").is_ok(), "data frame should be Ok");
+    let first = stream.next().await.expect("should yield one data frame");
+    assert!(first.is_ok(), "data frame should be Ok");
 
     // Mid-stream, before the terminator is polled, the stream must report
     // that it has not terminated (guards the `is_terminated` false polarity).
