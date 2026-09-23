@@ -261,11 +261,11 @@ fn workspace_validation_targets_retain_required_cargo_scope() -> TestResult {
         "`typecheck` should retain all-target and all-feature coverage",
     )?;
     ensure(
-        lint_recipe.contains("$(CARGO) doc --workspace --no-deps"),
+        lint_recipe.contains("doc --workspace --no-deps"),
         "`lint` should retain workspace rustdoc coverage",
     )?;
     ensure(
-        lint_recipe.contains("$(CARGO) clippy $(CLIPPY_FLAGS)"),
+        lint_recipe.contains("clippy $(CLIPPY_FLAGS)"),
         "`lint` should invoke the configured Clippy policy",
     )?;
     ensure(

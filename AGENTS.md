@@ -124,33 +124,17 @@ This repository is written in Rust and uses Cargo for building and dependency
 management. Contributors should follow these best practices when working on the
 project:
 
-- Run `make check-fmt`, `make lint`, and `make test` before committing. These
-  targets wrap the following commands, so contributors understand the exact
-  behaviour and policy enforced:
-  - `make check-fmt` executes:
-
-    ```sh
-    cargo fmt --workspace -- --check
-    ```
-
-    validating formatting across the entire workspace without modifying files.
-  - `make lint` executes:
-
-    ```sh
-    cargo clippy --workspace --all-targets --all-features -- -D warnings
-    ```
-
-    linting every target with all features enabled and denying all Clippy
-    warnings.
-  - `make test` executes:
-
-    ```sh
-    cargo test --workspace
-    ```
-
-    running the full workspace test suite. Use `make fmt`
-    (`cargo fmt --workspace`) to apply formatting fixes reported by the
-    formatter check.
+- Run `make check-fmt`, `make lint`, and `make test` before committing. The
+  Makefile is the contributor entrypoint for validation. Its `build`, `test`,
+  `test-bdd`, `test-doc`, `lint` rustdoc and Clippy commands, and `typecheck`
+  targets explicitly select `tools/dev-fast/config.toml`. `dev-build` and
+  `dev-test` alias `build` and `test`. Release, coverage, verification, and
+  Whitaker commands do not select it; direct Cargo commands do not select it
+  automatically either. See [repository layout](docs/repository-layout.md) and
+  the [developer guide](docs/developers-guide.md#development-builds) for
+  backend and linker details. The test profile stays on LLVM because the pinned
+  Cranelift test run fails; see the developer guide's Cranelift section. Use
+  `make fmt` to apply formatting fixes reported by the formatter check.
 - Clippy warnings MUST be disallowed.
 - Fix any warnings emitted during tests in the code itself rather than
   silencing them.
