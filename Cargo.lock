@@ -3606,6 +3606,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "wireframe-loom"
+version = "0.1.0"
+dependencies = [
+ "loom",
+ "rstest",
+ "tokio",
+ "wireframe",
+]
+
+[[package]]
 name = "wireframe-verification"
 version = "0.1.0"
 dependencies = [

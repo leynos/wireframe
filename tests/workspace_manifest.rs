@@ -1,7 +1,7 @@
 //! Regression tests for the formal-verification workspace manifest contract.
 //!
 //! These checks verify that the repository advertises an explicit hybrid
-//! workspace, includes the internal verification and testing crates as
+//! workspace, includes the internal Loom, verification and testing crates as
 //! workspace members, and still keeps the root package as the only default
 //! member.
 
@@ -20,6 +20,7 @@ use workspace_manifest_support::{
     has_manifest_line,
     has_manifest_table,
     helper_package_id,
+    loom_package_id,
     root_manifest,
     root_package_id,
     verification_package_id,
@@ -47,9 +48,10 @@ fn root_manifest_declares_explicit_workspace_section() -> TestResult {
         has_manifest_line(
             &manifest,
             "[workspace]",
-            "members = [\".\", \"crates/wireframe-verification\", \"wireframe_testing\"]"
+            "members = [\".\", \"crates/wireframe-loom\", \"crates/wireframe-verification\", \
+             \"wireframe_testing\"]"
         ),
-        "the workspace should explicitly list the root, verification, and testing crates"
+        "the workspace should explicitly list the root, Loom, verification, and testing crates"
     );
     assert!(
         has_manifest_line(&manifest, "[workspace]", "default-members = [\".\"]"),
@@ -96,6 +98,7 @@ fn companion_crates_inherit_private_documentation_clippy_policy() -> TestResult 
             "wireframe-verification",
             "crates/wireframe-verification/Cargo.toml",
         ),
+        ("wireframe-loom", "crates/wireframe-loom/Cargo.toml"),
     ] {
         let manifest = read_repo_file(manifest_path)?;
         assert!(
@@ -121,6 +124,7 @@ fn cargo_metadata_reports_explicit_members_without_widening_default_members() ->
     let root_package_id = root_package_id()?;
     let helper_package_id = helper_package_id()?;
     let verification_package_id = verification_package_id()?;
+    let loom_package_id = loom_package_id()?;
     let manifest_path = repo_root.join("Cargo.toml");
     let manifest_path_str = manifest_path.as_str();
     let metadata = cargo_metadata()?;
@@ -153,6 +157,12 @@ fn cargo_metadata_reports_explicit_members_without_widening_default_members() ->
             .iter()
             .any(|member| member.as_str() == Some(verification_package_id.as_str())),
         "workspace_members should include the verification crate id"
+    );
+    assert!(
+        workspace_members
+            .iter()
+            .any(|member| member.as_str() == Some(loom_package_id.as_str())),
+        "workspace_members should include the wireframe-loom crate id"
     );
     assert!(
         workspace_members

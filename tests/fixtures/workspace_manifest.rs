@@ -9,6 +9,7 @@ use crate::workspace_manifest_support::{
     has_manifest_line,
     has_manifest_table,
     helper_package_id,
+    loom_package_id,
     root_manifest,
     root_package_id,
     verification_package_id,
@@ -18,6 +19,7 @@ pub type TestResult = FixtureResult<()>;
 const ROOT_PACKAGE_NAME: &str = "wireframe";
 const HELPER_PACKAGE_NAME: &str = "wireframe_testing";
 const VERIFICATION_PACKAGE_NAME: &str = "wireframe-verification";
+const LOOM_PACKAGE_NAME: &str = "wireframe-loom";
 
 /// BDD world holding the root manifest and `cargo metadata` output.
 #[derive(Debug, Default)]
@@ -27,6 +29,7 @@ pub struct WorkspaceManifestWorld {
     helper_package_id: Option<String>,
     package_id: Option<String>,
     verification_package_id: Option<String>,
+    loom_package_id: Option<String>,
 }
 
 #[rustfmt::skip]
@@ -49,6 +52,7 @@ impl WorkspaceManifestWorld {
         self.helper_package_id = Some(helper_package_id()?);
         self.package_id = Some(root_package_id()?);
         self.verification_package_id = Some(verification_package_id()?);
+        self.loom_package_id = Some(loom_package_id()?);
         Ok(())
     }
 
@@ -80,6 +84,12 @@ impl WorkspaceManifestWorld {
         self.verification_package_id
             .as_deref()
             .ok_or_else(|| "verification package id not loaded".to_owned())
+    }
+
+    fn loom_package_id(&self) -> Result<&str, String> {
+        self.loom_package_id
+            .as_deref()
+            .ok_or_else(|| "Loom package id not loaded".to_owned())
     }
 
     fn metadata_json(&self) -> FixtureResult<Value> { Ok(serde_json::from_str(self.metadata()?)?) }
@@ -132,7 +142,8 @@ impl WorkspaceManifestWorld {
             return Err("expected `[workspace]` in root Cargo.toml".into());
         }
         for expected in [
-            "members = [\".\", \"crates/wireframe-verification\", \"wireframe_testing\"]",
+            "members = [\".\", \"crates/wireframe-loom\", \"crates/wireframe-verification\", \
+             \"wireframe_testing\"]",
             "default-members = [\".\"]",
             "resolver = \"3\"",
         ] {
@@ -205,6 +216,16 @@ impl WorkspaceManifestWorld {
             self.verification_package_id()?,
             VERIFICATION_PACKAGE_NAME,
         )
+    }
+
+    /// Verify the Loom models crate is part of the workspace membership.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Loom crate is missing from
+    /// `workspace_members` or Cargo metadata.
+    pub fn verify_loom_crate_is_workspace_member(&self) -> TestResult {
+        self.verify_crate_is_workspace_member(self.loom_package_id()?, LOOM_PACKAGE_NAME)
     }
 
     /// Verify the testing helper crate is part of the workspace membership.

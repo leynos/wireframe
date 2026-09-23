@@ -46,6 +46,11 @@ pub(crate) fn verification_package_id() -> WorkspaceManifestResult<String> {
     cargo_package_id("wireframe-verification")
 }
 
+/// Resolve the package id of the Loom models crate.
+pub(crate) fn loom_package_id() -> WorkspaceManifestResult<String> {
+    cargo_package_id("wireframe-loom")
+}
+
 /// Report whether the manifest contains a declared TOML table.
 pub(crate) fn has_manifest_table(manifest: &str, expected: &str) -> bool {
     manifest.lines().any(|line| line.trim() == expected)
