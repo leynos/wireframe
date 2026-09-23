@@ -40,6 +40,29 @@ fn contains_json_string_field(json: &str, field: &str, value: &str) -> bool {
     json.contains(&format!("\"{field}\":\"{escaped}\""))
 }
 
+fn check_workspace_members(
+    members: &[Value],
+    root_package_id: &str,
+    verification_package_id: &str,
+    loom_package_id: &str,
+    helper_package_id: &str,
+) -> TestResult {
+    for (package_id, description) in [
+        (root_package_id, "the root package"),
+        (verification_package_id, "the verification crate"),
+        (loom_package_id, "the wireframe-loom crate"),
+        (helper_package_id, "the wireframe_testing crate"),
+    ] {
+        check(
+            members
+                .iter()
+                .any(|member| member.as_str() == Some(package_id)),
+            format!("workspace_members should include the id of {description}"),
+        )?;
+    }
+    Ok(())
+}
+
 #[rstest]
 fn root_manifest_declares_explicit_workspace_section() -> TestResult {
     let manifest = root_manifest()?;
@@ -146,19 +169,13 @@ fn cargo_metadata_reports_explicit_members_without_widening_default_members() ->
                 metadata_json.get("workspace_members")
             )
         })?;
-    for (package_id, description) in [
-        (&root_package_id, "the root package"),
-        (&verification_package_id, "the verification crate"),
-        (&loom_package_id, "the wireframe-loom crate"),
-        (&helper_package_id, "the wireframe_testing crate"),
-    ] {
-        check(
-            workspace_members
-                .iter()
-                .any(|member| member.as_str() == Some(package_id.as_str())),
-            format!("workspace_members should include the id of {description}"),
-        )?;
-    }
+    check_workspace_members(
+        workspace_members,
+        &root_package_id,
+        &verification_package_id,
+        &loom_package_id,
+        &helper_package_id,
+    )?;
     check(
         metadata.contains("wireframe-verification"),
         "15.1.2 should add the verification crate to cargo metadata",
