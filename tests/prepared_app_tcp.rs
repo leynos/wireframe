@@ -8,7 +8,11 @@ use std::{
     },
 };
 
+#[path = "common/fallible_assertions/check_equal.rs"]
+mod fallible_check_equal;
+
 use async_trait::async_trait;
+use fallible_check_equal::check_equal;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -84,10 +88,6 @@ fn response_payload(bytes: &[u8]) -> TestResult<Vec<u8>> {
 
 /// Prepared applications serve TCP connections without rebuilding middleware.
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "assertions make prepared TCP dispatch and transform reuse explicit"
-)]
 async fn prepared_app_serves_tcp_connection_without_retransforming() -> TestResult<()> {
     let transforms = Arc::new(AtomicUsize::new(0));
     let prepared = TestApp::new()?
@@ -98,7 +98,11 @@ async fn prepared_app_serves_tcp_connection_without_retransforming() -> TestResu
         .prepare()
         .await
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
-    assert_eq!(transforms.load(Ordering::SeqCst), 1);
+    check_equal(
+        &transforms.load(Ordering::SeqCst),
+        &1,
+        "preparation should transform the route once",
+    )?;
 
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
@@ -114,7 +118,15 @@ async fn prepared_app_serves_tcp_connection_without_retransforming() -> TestResu
     client.read_to_end(&mut response).await?;
     server.await??;
 
-    assert_eq!(response_payload(&response)?, [b'X', b'A', b'A']);
-    assert_eq!(transforms.load(Ordering::SeqCst), 1);
+    check_equal(
+        &response_payload(&response)?,
+        b"XAA",
+        "the TCP response should carry both middleware tags",
+    )?;
+    check_equal(
+        &transforms.load(Ordering::SeqCst),
+        &1,
+        "serving the TCP connection should not rebuild the route",
+    )?;
     Ok(())
 }

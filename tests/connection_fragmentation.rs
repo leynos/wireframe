@@ -39,10 +39,6 @@ fn setup_fragmented_actor() -> TestResult<(
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn connection_actor_fragments_outbound_frames() -> TestResult {
     let (mut actor, handle, cfg) = setup_fragmented_actor()?;
 
@@ -58,11 +54,13 @@ async fn connection_actor_fragments_outbound_frames() -> TestResult {
         .await
         .map_err(|err| io::Error::other(format!("actor run failed: {err:?}")))?;
 
-    assert!(
-        out.len() > 1,
-        "fragmentation should yield multiple frames, got {}",
-        out.len()
-    );
+    if out.len() <= 1 {
+        return Err(format!(
+            "fragmentation should yield multiple frames, got {}",
+            out.len()
+        )
+        .into());
+    }
 
     let mut reassembler = Reassembler::new(cfg.max_message_size, cfg.reassembly_timeout);
     let mut assembled: Option<Vec<u8>> = None;
@@ -79,15 +77,16 @@ async fn connection_actor_fragments_outbound_frames() -> TestResult {
     }
 
     let assembled = assembled.ok_or("missing reassembled payload")?;
-    assert_eq!(assembled, payload, "reassembled payload mismatch");
+    if assembled != payload {
+        return Err(format!(
+            "reassembled payload mismatch: expected {payload:?}, got {assembled:?}"
+        )
+        .into());
+    }
     Ok(())
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn connection_actor_passes_through_small_outbound_frames_unfragmented() -> TestResult {
     let (mut actor, handle, cfg) = setup_fragmented_actor()?;
 
@@ -103,7 +102,9 @@ async fn connection_actor_passes_through_small_outbound_frames_unfragmented() ->
         .await
         .map_err(|err| io::Error::other(format!("actor run failed: {err:?}")))?;
 
-    assert_eq!(out.len(), 1, "expected unfragmented single frame");
+    if out.len() != 1 {
+        return Err(format!("expected unfragmented single frame, got {}", out.len()).into());
+    }
     let only = out
         .into_iter()
         .next()
@@ -113,6 +114,11 @@ async fn connection_actor_passes_through_small_outbound_frames_unfragmented() ->
         None => {}
         Some(_) => return Err("expected unfragmented payload".into()),
     }
-    assert_eq!(payload_out, payload, "payload mutated during round trip");
+    if payload_out != payload {
+        return Err(format!(
+            "payload mutated during round trip: expected {payload:?}, got {payload_out:?}"
+        )
+        .into());
+    }
     Ok(())
 }
