@@ -125,7 +125,7 @@ pub(super) async fn spawn_dropping_server()
         };
         // Shut down the write side to trigger a deterministic transport
         // error when the client attempts to write.
-        let _ = tcp.shutdown().await;
+        drop(tcp.shutdown().await);
         notify.notify_one();
     });
 
@@ -191,9 +191,9 @@ pub(super) async fn create_send_client_with_error_hook(
     let flag = hook_invoked.clone();
     let client = WireframeClient::builder()
         .on_error(move |_err| {
-            let flag = flag.clone();
+            let callback_flag = flag.clone();
             async move {
-                flag.store(true, Ordering::SeqCst);
+                callback_flag.store(true, Ordering::SeqCst);
             }
         })
         .connect(addr)

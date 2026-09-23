@@ -120,13 +120,13 @@ where
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = TestResult> + 'a>>,
     S: Future<Output = TestResult<(SocketAddr, tokio::task::JoinHandle<std::io::Result<R>>)>>,
 {
-    let (addr, server) = server.await?;
+    let (addr, server_task) = server.await?;
 
     match drive_client(addr, configure_hooks, test_body).await {
-        Ok(()) => Ok(server.await??),
+        Ok(()) => Ok(server_task.await??),
         Err(error) => {
-            server.abort();
-            let _ = server.await;
+            server_task.abort();
+            drop(server_task.await);
             Err(error)
         }
     }

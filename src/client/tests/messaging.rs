@@ -216,9 +216,9 @@ async fn call_correlated_invokes_error_hook_on_mismatch() {
 
     let mut client = WireframeClient::builder()
         .on_error(move |_err| {
-            let count = count.clone();
+            let callback_count = count.clone();
             async move {
-                count.fetch_add(1, Ordering::SeqCst);
+                callback_count.fetch_add(1, Ordering::SeqCst);
             }
         })
         .connect(addr)
