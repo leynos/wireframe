@@ -29,3 +29,13 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 14
+
+  # Keep the pinned nightly in rust-toolchain.toml current.
+  - package-ecosystem: "rust-toolchain"
+    directory: "/"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "rust-toolchain"
+    schedule:
+      interval: "weekly"
