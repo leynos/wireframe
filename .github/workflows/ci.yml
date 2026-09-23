@@ -50,6 +50,14 @@ jobs:
           fetch-depth: 0
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@dbe2e22ceaf498d85512679ccded38be9dbe7777
+      - name: Install development backend and linker
+        # Both runner choices are Ubuntu. Confirm the manifest's Cranelift
+        # component and install the Linux linker before debug Make targets.
+        run: |
+          rustup component add rustc-codegen-cranelift-preview --toolchain nightly-2026-03-26
+          sudo apt-get update
+          sudo apt-get install -y mold
+          mold --version
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.

@@ -11,6 +11,10 @@ accepted = []
 [patterns]
 ignore = [
   # Inline code spans are masked; the shared dictionary does not mask them yet.
+  # Preserve the external Linux linker name only in its command and flag forms.
+  "-Clink-arg=-fuse-ld=mold",
+  "sudo apt-get install -y mold",
+  "mold --version",
   '`[^`\n]+`',
   # Public test-server fixture identifier. This preserves the externally
   # visible helper name without accepting a bare word.

@@ -1,0 +1,23 @@
+# Explicit Cargo configuration for routine debug builds through Make.
+# This file stays outside .cargo/ so release, coverage, verification, and
+# Whitaker keep their own backend and linker configuration. Direct Cargo
+# commands do not select this fragment automatically.
+
+[unstable]
+codegen-backend = true
+
+# Cranelift improves compilation time at the expense of runtime performance.
+[profile.dev]
+codegen-backend = "cranelift"
+
+# On nightly-2026-03-26, an intentionally panicking thread aborts under
+# Cranelift and a runnable doctest fails to link AWS-LC. Keep tests on LLVM;
+# the explicit fragment still selects the Linux linker and debug build policy.
+[profile.test]
+codegen-backend = "llvm"
+
+# `mold` is provisioned on Linux. Other platforms use their default linker.
+# Make's warning-denying recipes repeat this flag because RUSTFLAGS overrides
+# Cargo target rustflags instead of merging with them.
+[target.'cfg(target_os = "linux")']
+rustflags = ["-Clink-arg=-fuse-ld=mold"]
