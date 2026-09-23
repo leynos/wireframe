@@ -11,35 +11,19 @@ accepted = []
 [patterns]
 ignore = [
   # Inline code spans are masked; the shared dictionary does not mask them yet.
+  '`[^`\n]+`',
   # Preserve the external Linux linker name only in its command and flag forms.
   "-Clink-arg=-fuse-ld=mold",
   "sudo apt-get install -y mold",
   "mold --version",
-  '`[^`\n]+`',
-  # Public test-server fixture identifier. This preserves the externally
-  # visible helper name without accepting a bare word.
+  # Published test-server identifiers retain their public spellings.
   "\\bPoolServerBehavior\\b",
-  # Pool-test-server Rust fixtures. These exact source fragments preserve the
-  # public test helper's identifier and deliberately malformed response names.
-  "\\ \\ \\ \\ PoolServerBehavior,",
+  "\\bstart_with_behavior\\b",
+  # Fixed CI and Tokio identifiers keep their external spellings.
   "\\ \\ \\ \\ \\ \\ CARGO_TERM_COLOR:\\ always",
-  "\\ \\ \\ \\ \\ \\ \\ Self::start_with_behavior\\(PoolServerBehavior::Ech",
-  "\\ \\ \\ \\ \\ \\ \\ \\ PoolServerBehavior,",
-  "\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ behavior,",
-  "\\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ \\ behavior:\\ state\\.behavior,",
-  "\\ \\ \\ \\ \\ \\ \\ \\ behavior:\\ state\\.behavior,",
-  "\\ \\ \\ \\ \\ format!\\(\"failed\\ to\\ deserialise\\ envelope:\\ \\{error\\}\"\\),",
-  "\\ \\ \\ \\ \\#\\[error\\(\"serialisation\\ error:\\ \\{0\\}\"\\)\\]",
-  "\\ \\ \\ \\ behavior:\\ PoolServerBehavior,",
-  # Rust diagnostic fixtures use established en-GB messages that Typos must
-  # not reinterpret as prose corrections.
-  "\\ \\ return\\ Err\\(\"state\\ not\\ initialised\"\\.into\\(\\)\\);",
-  "\\ fn\\ start_with_behavior\\(behavior:\\ PoolServerBehavior\\)\\ \\->",
-  "\\ let\\ payload\\ =\\ if\\ state\\.behavior\\ ==\\ PoolServerBehavior::",
   "\\ reopened,\\ synchronize,\\ labeled,\\ ready_for_review\\]",
   "\\#\\[tokio::test\\(flavor\\ =\\ \"current_thread\",\\ sta",
   "\\#\\[tokio::test\\(flavor\\ =\\ \"current_thread\"\\)\\]",
-  "\\|\\|\\ \"fragment\\ series\\ not\\ initialised\"\\.into\\(\\)\\)",
   # Migration documentation records the immutable former public method name.
   "BackoffConfig::normalised",
   # RFC generic-bound examples use the declared `Ser` parameter only in these
@@ -48,15 +32,7 @@ ignore = [
   "Ser: Serializer",
   "DecodeWith<Ser>",
   "EncodeWith<Ser>",
-  "e\\.behavior\\ ==\\ PoolServerBehavior::MalformedFirstResponse",
-  "ior\\(behavior:\\ PoolServerBehavior\\)\\ \\->\\ std::io::Result<Sel",
-  "lTestServer::start_with_behavior\\(PoolServerBehavior::Mal",
-  "pub\\ async\\ fn\\ start_with_behavior\\(behavior:\\ PoolServerBeh",
-  "pub\\ enum\\ PoolServerBehavior\\ \\{",
   "st\\(start_paused\\ =\\ true,\\ flavor\\ =\\ \"current_thread\"\\)\\]",
-  "tes\\(\\)\\.expect\\(\"failed\\ to\\ serialise\\ message\"\\);",
-  "with_behavior\\(PoolServerBehavior::EchoPong\\)\\.await",
-  "with_behavior\\(PoolServerBehavior::MalformedFirstResponse",
 ]
 
 [files]

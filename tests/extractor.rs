@@ -34,7 +34,7 @@ struct TestMsg(u8);
 #[rstest]
 fn message_extractor_parses_and_advances(request: MessageRequest) {
     let msg = TestMsg(42);
-    let bytes = msg.to_bytes().expect("failed to serialise message");
+    let bytes = msg.to_bytes().expect("failed to serialize message");
     let mut payload = Payload::new(bytes.as_slice());
 
     let extracted = Message::<TestMsg>::from_message_request(&request, &mut payload)

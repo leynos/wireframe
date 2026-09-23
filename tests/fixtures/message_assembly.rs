@@ -158,7 +158,7 @@ impl MessageAssemblyWorld {
             return Err("no pending first frame".into());
         };
         let Some(state) = self.state.as_mut() else {
-            return Err("state not initialised".into());
+            return Err("state not initialized".into());
         };
         let Some(now) = self.current_time else {
             return Err("time not set".into());
@@ -184,7 +184,7 @@ impl MessageAssemblyWorld {
     /// Returns an error if state not initialized or time not set.
     pub fn accept_all_first_frames(&mut self) -> TestResult {
         let Some(state) = self.state.as_mut() else {
-            return Err("state not initialised".into());
+            return Err("state not initialized".into());
         };
         let Some(now) = self.current_time else {
             return Err("time not set".into());
@@ -218,7 +218,7 @@ impl MessageAssemblyWorld {
     )]
     pub fn accept_continuation(&mut self, params: ContinuationFrameParams) -> TestResult {
         let Some(state) = self.state.as_mut() else {
-            return Err("state not initialised".into());
+            return Err("state not initialized".into());
         };
         let Some(now) = self.current_time else {
             return Err("time not set".into());
@@ -257,7 +257,7 @@ impl MessageAssemblyWorld {
     /// Returns an error if state not initialized or time not set.
     pub fn purge_expired(&mut self) -> TestResult {
         let Some(state) = self.state.as_mut() else {
-            return Err("state not initialised".into());
+            return Err("state not initialized".into());
         };
         let Some(now) = self.current_time else {
             return Err("time not set".into());

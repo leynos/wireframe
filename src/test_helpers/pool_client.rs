@@ -75,7 +75,7 @@ struct PoolServerState {
     /// One-shot flag controlling malformed-response coverage.
     malformed_response_sent: Arc<AtomicBool>,
     /// Response mode selected by the test case.
-    behavior: PoolServerBehavior,
+    behaviour: PoolServerBehavior,
 }
 
 impl PoolTestServer {
@@ -93,7 +93,7 @@ impl PoolTestServer {
     /// # Errors
     ///
     /// Returns an error if the test listener cannot bind to a local port.
-    pub async fn start_with_behavior(behavior: PoolServerBehavior) -> std::io::Result<Self> {
+    pub async fn start_with_behavior(behaviour: PoolServerBehavior) -> std::io::Result<Self> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let preamble_count = Arc::new(AtomicUsize::new(0));
@@ -102,7 +102,7 @@ impl PoolTestServer {
             preamble_count: preamble_count.clone(),
             connection_count: connection_count.clone(),
             malformed_response_sent: Arc::new(AtomicBool::new(false)),
-            behavior,
+            behaviour,
         };
 
         let handle = tokio::spawn(run_pool_test_accept_loop(listener, state));
@@ -192,7 +192,7 @@ async fn run_pool_test_accept_loop(listener: TcpListener, state: PoolServerState
             preamble_count: state.preamble_count.clone(),
             connection_count: state.connection_count.clone(),
             malformed_response_sent: state.malformed_response_sent.clone(),
-            behavior: state.behavior,
+            behaviour: state.behaviour,
         };
         tokio::spawn(handle_pool_test_connection(stream, state));
     }
@@ -224,7 +224,7 @@ async fn handle_pool_test_connection(mut stream: tokio::net::TcpStream, state: P
             break;
         };
 
-        let payload = if state.behavior == PoolServerBehavior::MalformedFirstResponse
+        let payload = if state.behaviour == PoolServerBehavior::MalformedFirstResponse
             && !state.malformed_response_sent.swap(true, Ordering::SeqCst)
         {
             Vec::new()
