@@ -729,21 +729,23 @@ as a test assertion on the SHA string.
 
 The repository pins `nightly-2026-03-26` with `rustfmt`, `clippy`, and
 `rust-analyzer`. The toolchain also needs `rustc-codegen-cranelift-preview` for
-the optional development backend. Linux development builds use `mold` as the
-linker; CI provisions the component and linker before running the standard
+the optional development backend. Native Linux development builds use `mold` as
+the linker; CI provisions the component and linker before running the standard
 debug gates.
 
 The Makefile keeps the development configuration in
 `tools/dev-fast/config.toml`, outside Cargo's automatic configuration paths.
 Standard debug Make targets select it explicitly: `build`, `test`, `test-bdd`,
 `test-doc`, `lint`'s rustdoc and Clippy commands, and `typecheck`. The
-`dev-build` and `dev-test` targets alias `build` and `test`. The
-warning-denying recipes also add the `mold` linker flag to `RUSTFLAGS` on
-Linux, because Cargo does not merge `RUSTFLAGS` with target-specific rustflags.
-The fragment selects Cranelift for the development profile; Cargo test commands
-(`make test`, `make test-bdd`, and `make test-doc`) use the LLVM test profile
-described below. Installing the Cranelift component alone does not change the
-backend.
+`dev-build` target runs the configured Cargo build directly, even when a
+library artefact already exists; `dev-test` aliases `test`. On Linux, debug
+recipes using the host target add the `mold` linker flag to `RUSTFLAGS`,
+because Cargo does not merge `RUSTFLAGS` with target-specific rustflags. When
+`CARGO_BUILD_TARGET` selects an explicit target, Make omits the host linker
+flag rather than assuming that target supports it. The fragment selects
+Cranelift for the development profile; Cargo test commands (`make test`,
+`make test-bdd`, and `make test-doc`) use the LLVM test profile described
+below. Installing the Cranelift component alone does not change the backend.
 
 Release builds, coverage generation, verification commands, and Whitaker run
 without the development fragment. Direct Cargo commands also leave it

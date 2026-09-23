@@ -27,17 +27,28 @@ DEV_FAST_ARGUMENT = f"--config {CONFIG_RELATIVE_PATH.as_posix()}"
 LINKER_ARGUMENT = "-Clink-arg=-fuse-ld=mold"
 
 
-def _make_dry_run(target: str, makefile: Path = MAKEFILE_PATH) -> list[str]:
+def _make_dry_run(
+    target: str,
+    makefile: Path = MAKEFILE_PATH,
+    *,
+    force: bool = True,
+    working_directory: Path = ROOT,
+    build_target: str | None = None,
+) -> list[str]:
     """Return the evaluated recipe lines for one target without running them."""
     environment = os.environ.copy()
     # Make's debug recipes preserve this caller-provided value while adding the
     # Linux linker flag. A fixed input makes that contract observable here.
     environment["RUSTFLAGS"] = "-D warnings"
+    environment.pop("CARGO_BUILD_TARGET", None)
+    if build_target is not None:
+        environment["CARGO_BUILD_TARGET"] = build_target
+    make_args = ["make", "--dry-run"]
+    if force:
+        make_args.append("-B")
     result = subprocess.run(
         [
-            "make",
-            "--dry-run",
-            "-B",
+            *make_args,
             "-f",
             str(makefile),
             target,
@@ -45,7 +56,7 @@ def _make_dry_run(target: str, makefile: Path = MAKEFILE_PATH) -> list[str]:
             "WHITAKER=probe-whitaker",
         ],
         check=True,
-        cwd=ROOT,
+        cwd=working_directory,
         env=environment,
         capture_output=True,
         text=True,
@@ -162,6 +173,50 @@ def _step_named(steps: list[dict[str, object]], name: str) -> dict[str, object]:
 def test_debug_make_targets_select_dev_fast_for_every_cargo_line(target: str) -> None:
     """Every debug Cargo line selects the explicit fragment and injected tool."""
     _assert_debug_routing(target, _make_dry_run(target))
+
+
+def test_dev_build_rebuilds_with_a_preexisting_library(tmp_path: Path) -> None:
+    """A cached library must not skip the explicit development build."""
+    library = tmp_path / "target/debug/libwireframe.rlib"
+    library.parent.mkdir(parents=True)
+    library.write_bytes(b"preexisting")
+    assert not _cargo_lines(
+        _make_dry_run("build", force=False, working_directory=tmp_path)
+    ), "the standard build should respect an existing library"
+    lines = _make_dry_run("dev-build", force=False, working_directory=tmp_path)
+    _assert_debug_routing("dev-build", lines)
+
+
+@pytest.mark.skipif(platform.system() != "Linux", reason="Linux host linker only")
+@pytest.mark.parametrize(
+    "target",
+    (
+        "build",
+        "test",
+        "test-bdd",
+        "test-doc",
+        "lint",
+        "typecheck",
+        "dev-build",
+        "dev-test",
+    ),
+)
+def test_cross_target_does_not_inherit_host_linker(target: str) -> None:
+    """Cross-target debug recipes retain warnings without the host linker."""
+    cargo_lines = _cargo_lines(_make_dry_run(target, build_target="wasm32-wasip1"))
+    assert cargo_lines, f"{target} should produce a probe-cargo invocation"
+    _assert_dev_fast_fragment(target, cargo_lines)
+    if target in {"build", "dev-build"}:
+        assert all("RUSTFLAGS=" not in line for line in cargo_lines), (
+            f"{target} must inherit caller warning flags for cross-target builds"
+        )
+    else:
+        assert all("-D warnings" in line for line in cargo_lines), (
+            f"{target} must preserve caller warning flags for cross-target builds"
+        )
+    assert all(LINKER_ARGUMENT not in line for line in cargo_lines), (
+        f"{target} must not pass the Linux host linker to a cross target"
+    )
 
 
 @pytest.mark.parametrize(

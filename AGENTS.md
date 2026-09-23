@@ -127,12 +127,13 @@ project:
 - Run `make check-fmt`, `make lint`, and `make test` before committing. The
   Makefile is the contributor entrypoint for validation. Its `build`, `test`,
   `test-bdd`, `test-doc`, `lint` rustdoc and Clippy commands, and `typecheck`
-  targets explicitly select `tools/dev-fast/config.toml`. `dev-build` and
-  `dev-test` alias `build` and `test`. Release, coverage, verification, and
-  Whitaker commands do not select it; direct Cargo commands do not select it
-  automatically either. See [repository layout](docs/repository-layout.md) and
-  the [developer guide](docs/developers-guide.md#development-builds) for
-  backend and linker details. The test profile stays on LLVM because the pinned
+  targets explicitly select `tools/dev-fast/config.toml`. `dev-build` runs the
+  configured Cargo build directly; `dev-test` aliases `test`. Release,
+  coverage, verification, and Whitaker commands do not select it; direct Cargo
+  commands do not select it automatically either. See
+  [repository layout](docs/repository-layout.md) and the
+  [developer guide](docs/developers-guide.md#development-builds) for backend
+  and linker details. The test profile stays on LLVM because the pinned
   Cranelift test run fails; see the developer guide's Cranelift section. Use
   `make fmt` to apply formatting fixes reported by the formatter check.
 - Clippy warnings MUST be disallowed.

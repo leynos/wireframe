@@ -9,9 +9,10 @@ CARGO ?= cargo
 BUILD_JOBS ?=
 DEV_FAST_CONFIG := tools/dev-fast/config.toml
 DEV_FAST := --config $(DEV_FAST_CONFIG)
-# RUSTFLAGS takes precedence over Cargo's target rustflags. Keep the Linux
-# linker choice when these warning-denying recipes select the debug fragment.
-DEV_LINUX_LINK_ARG := $(if $(filter Linux,$(shell uname -s)),-Clink-arg=-fuse-ld=mold)
+# RUSTFLAGS takes precedence over Cargo's target rustflags. Preserve the Linux
+# linker choice only when Cargo uses the host target; explicit targets may not
+# support the host's `mold` linker.
+DEV_LINUX_LINK_ARG := $(if $(CARGO_BUILD_TARGET),,$(if $(filter Linux,$(shell uname -s)),-Clink-arg=-fuse-ld=mold))
 DEV_WARNING_FLAGS := -D warnings $(DEV_LINUX_LINK_ARG)
 DEV_BUILD_FLAGS = $(strip $(RUSTFLAGS) $(DEV_LINUX_LINK_ARG))
 DEV_BUILD_ENV = $(if $(DEV_LINUX_LINK_ARG),RUSTFLAGS="$(DEV_BUILD_FLAGS)")
@@ -48,7 +49,8 @@ FORMAL_STRICT ?=
 export FORMAL_STRICT
 
 build: target/debug/lib$(CRATE).rlib ## Build debug binary
-dev-build: build ## Build with the explicit development backend
+dev-build: ## Build with the explicit development backend
+	$(DEV_BUILD_ENV) $(CARGO) $(DEV_FAST) build $(BUILD_JOBS) --lib
 dev-test: test ## Test with the explicit development backend
 release: target/release/lib$(CRATE).rlib ## Build release binary
 
