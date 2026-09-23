@@ -10,7 +10,7 @@ from __future__ import annotations
 import typing as typ
 from pathlib import Path
 
-from codescene_placement_reader import read_workflows
+from workflow_loader import read_workflows
 
 WORKFLOW_DIR: typ.Final = (
     Path(__file__).resolve().parents[2] / ".github" / "workflows"

@@ -14,16 +14,16 @@ from pathlib import Path
 
 import pytest
 from codescene_placement_reader import (
-    DuplicateKeyError,
     calls,
     external_secret_inheritors,
-    load_workflow,
     local_callee,
     mentions,
     pull_request_closure,
-    read_workflows,
+    qualified_self_call,
+    qualified_self_callers,
     triggers,
 )
+from workflow_loader import load_workflow, read_workflows
 
 
 def _tree(tmp_path: Path, files: dict[str, str]) -> Path:
@@ -31,35 +31,6 @@ def _tree(tmp_path: Path, files: dict[str, str]) -> Path:
     for name, text in files.items():
         (tmp_path / name).write_text(textwrap.dedent(text), encoding="utf-8")
     return tmp_path
-
-
-def test_a_duplicate_key_is_refused(tmp_path: Path) -> None:
-    """A lane declaring ``runs-on`` twice is refused, not half read.
-
-    PyYAML keeps the last value, so the paid label in the discarded half
-    would read as hosted and every placement assertion would pass over it.
-    """
-    directory = _tree(
-        tmp_path,
-        {
-            "ci.yml": """\
-                on: pull_request
-                jobs:
-                  build:
-                    runs-on: ubicloud-standard-4
-                    runs-on: ubuntu-latest
-                    steps: []
-            """
-        },
-    )
-    with pytest.raises(DuplicateKeyError, match="runs-on"):
-        read_workflows(directory)
-
-
-def test_an_upper_case_extension_is_read(tmp_path: Path) -> None:
-    """GitHub runs ``CI.YML``, so the reader must not skip it."""
-    directory = _tree(tmp_path, {"CI.YML": "on: push\njobs: {}\n"})
-    assert list(read_workflows(directory)) == ["CI.YML"]
 
 
 @pytest.mark.parametrize(
@@ -121,13 +92,11 @@ def test_an_unreadable_trigger_is_refused(text: str) -> None:
         ),
         pytest.param(
             "leynos/wireframe/.github/workflows/release.yml@main",
-            "release.yml",
+            None,
             id="qualified-self",
         ),
         pytest.param(
-            "Leynos/Wireframe/.github/workflows/release.yml@v1",
-            "release.yml",
-            id="qualified-self-case",
+            "./.github/workflows/release.yml@main", None, id="local-with-ref"
         ),
         pytest.param(
             "leynos/shared-actions/.github/workflows/x.yml@v1",
@@ -144,10 +113,11 @@ def test_an_unreadable_trigger_is_refused(text: str) -> None:
 def test_a_local_call_is_recognized_by_shape(
     uses: str, expected: str | None
 ) -> None:
-    """Every spelling that resolves under this repository's workflows is local.
+    """Every spelling that runs a checked-out workflow file is local.
 
-    The last four rows are the narrowness half: another repository, an
-    action and a path GitHub would not resolve as a workflow stay out.
+    The rows returning ``None`` are the narrowness half. A call to this
+    repository by ref runs the file at that ref, not the checked-out one, so
+    it is not local either; ``qualified_self_call`` identifies it instead.
     """
     assert local_callee(uses) == expected
 
@@ -169,7 +139,6 @@ PROBE: typ.Final = """\
     [
         "./.github/workflows/probe.yml",
         "$/.github/workflows/probe.yml",
-        "leynos/wireframe/.github/workflows/probe.yml@main",
     ],
 )
 def test_the_closure_reaches_a_called_workflow(
@@ -240,10 +209,69 @@ def test_only_inheritance_into_another_repository_is_flagged() -> None:
               named:
                 uses: other/repo/.github/workflows/b.yml@v1
                 secrets: {X: y}
+              self-by-ref:
+                uses: leynos/wireframe/.github/workflows/a.yml@main
+                secrets: inherit
             """
         )
     )
-    assert external_secret_inheritors(document) == ["foreign"]
+    assert external_secret_inheritors(document) == ["foreign", "self-by-ref"]
+
+
+@pytest.mark.parametrize(
+    ("uses", "expected"),
+    [
+        pytest.param(
+            "leynos/wireframe/.github/workflows/x.yml@main",
+            True,
+            id="qualified",
+        ),
+        pytest.param(
+            "Leynos/Wireframe/.github/workflows/x.yml@v1",
+            True,
+            id="qualified-case",
+        ),
+        pytest.param("./.github/workflows/x.yml", False, id="local"),
+        pytest.param(
+            "leynos/wireframe/.github/workflows/x.yml", False, id="no-ref"
+        ),
+        pytest.param(
+            "leynos/wireframe-fork/.github/workflows/x.yml@main",
+            False,
+            id="similar-name",
+        ),
+        pytest.param(
+            "leynos/wireframe/.github/actions/setup@main",
+            False,
+            id="own-action",
+        ),
+        pytest.param(
+            "other/repo/.github/workflows/x.yml@v1", False, id="other-repo"
+        ),
+    ],
+)
+def test_a_call_to_this_repository_by_ref_is_recognized(
+    uses: str, expected: bool
+) -> None:
+    """The form the contract refuses: this repository's workflow at a ref.
+
+    GitHub runs it at the named ref, so the checked-out file the closure
+    reads is not the one that runs. The ``False`` rows keep the refusal
+    narrow: a local call, another repository, a repository whose name
+    merely begins the same way, and this repository's own actions.
+    """
+    assert qualified_self_call(uses) is expected
+
+
+def test_callers_by_ref_are_listed() -> None:
+    """``qualified_self_callers`` names the jobs the contract refuses."""
+    document = load_workflow(
+        "on: pull_request\n"
+        "jobs:\n"
+        "  ok: {uses: ./.github/workflows/a.yml}\n"
+        "  pinned: {uses: leynos/wireframe/.github/workflows/a.yml@main}\n"
+    )
+    assert qualified_self_callers(document) == ["pinned"]
 
 
 def test_a_job_level_call_is_read_as_a_call() -> None:

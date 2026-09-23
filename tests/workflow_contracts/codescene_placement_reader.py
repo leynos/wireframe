@@ -6,13 +6,9 @@ readings are proved against constructed trees in
 ``codescene_placement_reader_test``. Every reader takes its documents as an
 argument, so a fixture tree exercises exactly the code the contract runs.
 
-Four readings here refuse rather than guess, because each guess had a
+Loading is ``workflow_loader``'s, which refuses a duplicated mapping key.
+Three readings here refuse rather than guess, because each guess had a
 failure mode that no green run would show.
-
-``load_workflow`` refuses a duplicated mapping key. PyYAML keeps the last
-value and says nothing, so a lane declaring ``runs-on`` or ``env`` twice
-parses into a document that has silently discarded half of what GitHub was
-asked to run.
 
 ``triggers`` reads ``on:`` as a scalar, a sequence or a mapping, under both
 the string key and YAML 1.1's boolean ``True``, and refuses anything else. A
@@ -20,10 +16,12 @@ mapping-only reader stringifies ``on: [push, pull_request]`` into one key
 that matches no trigger, and a reader that returns nothing for an unknown
 shape lets the workflow escape every pull-request clause.
 
-``local_callee`` matches a reusable-workflow call by shape rather than by an
-enumerated prefix list: whatever resolves to a file under this repository's
-``.github/workflows/`` is local, whether it is written ``./``, ``$/`` or
-fully qualified with this repository's own ``owner/repo``.
+``local_callee`` matches a reusable-workflow call by shape: whatever
+resolves to a file directly under ``.github/workflows/`` of this checkout is
+local, written ``./``, ``$/`` or bare. A call to this repository by
+``owner/repo`` and ``@ref`` is not: GitHub runs the file at that ref, which
+may differ from the one checked out, so ``qualified_self_call`` identifies it
+for the contract to refuse.
 
 ``pull_request_closure`` follows those calls transitively, because a
 workflow declaring only ``workflow_call`` still runs on a pull request when
@@ -34,13 +32,12 @@ token.
 from __future__ import annotations
 
 import typing as typ
-from pathlib import Path
+from pathlib import PurePosixPath
 
-import yaml
+if typ.TYPE_CHECKING:
+    from collections.abc import Mapping
 
-#: Both spellings GitHub accepts for a workflow file's extension, compared
-#: lowercased so that ``CI.YML`` is not skipped in silence.
-WORKFLOW_SUFFIXES: typ.Final = frozenset({".yml", ".yaml"})
+    from workflow_loader import Document
 
 #: This repository as a fully qualified ``uses:`` value names it, lowercased.
 REPOSITORY: typ.Final = "leynos/wireframe"
@@ -48,11 +45,13 @@ REPOSITORY: typ.Final = "leynos/wireframe"
 #: Where this repository's workflows live, as a ``uses:`` value names them.
 WORKFLOW_PREFIX: typ.Final = ".github/workflows/"
 
-#: Prefixes that, once stripped, leave a path inside this repository. ``./``
-#: is the documented local form; ``$/`` is accepted for the same reason as the
-#: qualified form: over-reading a call only widens the closure the
-#: prohibitions run over, while under-reading one hides a workflow from them.
-LOCAL_PREFIXES: typ.Final = ("./", "$/", f"{REPOSITORY}/")
+#: Prefixes that, once stripped, leave a path inside this checkout. ``./``
+#: is the documented local form; ``$/`` is accepted because over-reading a
+#: call only widens the closure the prohibitions run over, while
+#: under-reading one hides a workflow from them. The qualified
+#: ``owner/repo/...@ref`` form is not here: it runs the file at the named
+#: ref, which this checkout does not hold, so it is refused, not followed.
+LOCAL_PREFIXES: typ.Final = ("./", "$/")
 
 #: Triggers that start a workflow for a pull request. ``pull_request_target``
 #: runs with write permissions, which makes it more dangerous, not less.
@@ -60,83 +59,20 @@ PULL_REQUEST_TRIGGERS: typ.Final = frozenset(
     {"pull_request", "pull_request_target"}
 )
 
-Document = dict[object, object]
-
-
-class DuplicateKeyError(yaml.constructor.ConstructorError):
-    """A mapping declared the same key twice."""
-
-
-class StrictLoader(yaml.SafeLoader):
-    """A ``SafeLoader`` that refuses duplicate mapping keys.
-
-    Examples
-    --------
-    >>> yaml.load("a: 1\\nb: 2\\n", Loader=StrictLoader)
-    {'a': 1, 'b': 2}
-    """
-
-    def construct_mapping(
-        self, node: yaml.MappingNode, deep: bool = False
-    ) -> dict[object, object]:
-        """Build a mapping, refusing a key that appears twice."""
-        seen: set[object] = set()
-        for key_node, _ in node.value:
-            key = self.construct_object(key_node, deep=deep)
-            if key in seen:
-                raise DuplicateKeyError(
-                    "while constructing a mapping",
-                    node.start_mark,
-                    f"found duplicate key {key!r}",
-                    key_node.start_mark,
-                )
-            seen.add(key)
-        return super().construct_mapping(node, deep=deep)
-
-
-def load_workflow(text: str) -> Document:
-    """Parse one workflow strictly.
-
-    Examples
-    --------
-    >>> load_workflow("on: push\\njobs: {}\\n")
-    {True: 'push', 'jobs': {}}
-
-    Raises
-    ------
-    DuplicateKeyError
-        When any mapping in the document declares a key twice.
-    """
-    document = yaml.load(text, Loader=StrictLoader)
-    return document if isinstance(document, dict) else {}
-
-
-def read_workflows(directory: Path) -> dict[str, Document]:
-    """Parse every workflow in a directory, keyed by file name.
-
-    Raises
-    ------
-    DuplicateKeyError
-        When any workflow declares a mapping key twice.
-    """
-    paths = sorted(
-        path
-        for path in directory.iterdir()
-        if path.is_file() and path.suffix.lower() in WORKFLOW_SUFFIXES
-    )
-    return {
-        path.name: load_workflow(path.read_text(encoding="utf-8"))
-        for path in paths
-    }
-
 
 def triggers(document: Document) -> dict[object, object]:
     """Return a workflow's triggers as a mapping of name to configuration.
 
-    Examples
-    --------
-    >>> triggers({True: ["push", "pull_request"]})
-    {'push': None, 'pull_request': None}
+    Parameters
+    ----------
+    document
+        One parsed workflow document.
+
+    Returns
+    -------
+    dict[object, object]
+        Trigger name to its configuration; a scalar or sequence form maps
+        each name to ``None``.
 
     Raises
     ------
@@ -144,6 +80,11 @@ def triggers(document: Document) -> dict[object, object]:
         When ``on:`` is missing or is not a scalar, sequence or mapping of
         names, since a workflow whose triggers cannot be read cannot be
         classified as outside the pull-request lane either.
+
+    Examples
+    --------
+    >>> triggers({True: ["push", "pull_request"]})
+    {'push': None, 'pull_request': None}
     """
     for key in ("on", True):
         if key not in document:
@@ -164,31 +105,95 @@ def triggers(document: Document) -> dict[object, object]:
     raise ValueError(message)
 
 
+def _workflow_file(path: str) -> str | None:
+    """Return the file name when a path names a workflow file directly."""
+    workflow_path = PurePosixPath(path)
+    if workflow_path.as_posix() != path:
+        return None
+    if workflow_path.parent != PurePosixPath(WORKFLOW_PREFIX):
+        return None
+    return workflow_path.name
+
+
 def local_callee(uses: str) -> str | None:
-    """Return the workflow in this repository a ``uses:`` value names.
+    """Return the workflow in this checkout a ``uses:`` value runs.
+
+    Parameters
+    ----------
+    uses
+        A job's or step's ``uses:`` value.
+
+    Returns
+    -------
+    str | None
+        The file name under ``.github/workflows/`` when the call runs that
+        file as checked out, or ``None`` for anything else, including this
+        repository's own workflows called by ``owner/repo`` and ``@ref``.
 
     Examples
     --------
     >>> local_callee("./.github/workflows/release.yml")
     'release.yml'
-    >>> local_callee("leynos/wireframe/.github/workflows/release.yml@main")
-    'release.yml'
-    >>> local_callee("other/repo/.github/workflows/x.yml@v1") is None
+    >>> local_callee(f"{REPOSITORY}/.github/workflows/x.yml@main") is None
+    True
+    >>> local_callee("./.github/actions/setup") is None
     True
     """
-    candidate = uses.strip().split("@", 1)[0]
+    candidate = uses.strip()
+    if "@" in candidate:
+        return None
     for prefix in LOCAL_PREFIXES:
-        if candidate.lower().startswith(prefix):
+        if candidate.startswith(prefix):
             candidate = candidate[len(prefix) :]
             break
-    if not candidate.startswith(WORKFLOW_PREFIX):
-        return None
-    name = candidate.removeprefix(WORKFLOW_PREFIX)
-    return name if name and "/" not in name else None
+    return _workflow_file(candidate)
+
+
+def qualified_self_call(uses: str) -> bool:
+    """Return whether a ``uses:`` value calls this repository at a ref.
+
+    GitHub runs such a call at the named ref, not at the pull request's
+    head, so the file in this checkout is not the file that runs and the
+    closure cannot read it. The contract refuses the form outright.
+
+    Parameters
+    ----------
+    uses
+        A job's ``uses:`` value.
+
+    Returns
+    -------
+    bool
+        True when the value is ``<this repository>/.github/workflows/<file>``
+        with an ``@ref``, compared case-insensitively on the repository.
+
+    Examples
+    --------
+    >>> qualified_self_call(f"{REPOSITORY}/.github/workflows/x.yml@main")
+    True
+    >>> qualified_self_call("./.github/workflows/x.yml")
+    False
+    """
+    candidate, _, ref = uses.strip().partition("@")
+    prefix = f"{REPOSITORY}/"
+    if not ref or not candidate.lower().startswith(prefix):
+        return False
+    return _workflow_file(candidate[len(prefix) :]) is not None
 
 
 def jobs(document: Document) -> dict[object, Document]:
-    """Return a workflow's jobs, skipping any that are not mappings."""
+    """Return a workflow's jobs, skipping any that are not mappings.
+
+    Parameters
+    ----------
+    document
+        One parsed workflow document.
+
+    Returns
+    -------
+    dict[object, Document]
+        Job id to job definition.
+    """
     raw = document.get("jobs")
     if not isinstance(raw, dict):
         return {}
@@ -196,7 +201,18 @@ def jobs(document: Document) -> dict[object, Document]:
 
 
 def steps(document: Document) -> list[Document]:
-    """Return every mapping step in every job, in document order."""
+    """Return every mapping step in every job, in document order.
+
+    Parameters
+    ----------
+    document
+        One parsed workflow document.
+
+    Returns
+    -------
+    list[Document]
+        Every step that is a mapping, across all jobs.
+    """
     return [
         step
         for job in jobs(document).values()
@@ -211,14 +227,40 @@ def calls(document: Document) -> list[Document]:
     A job calling a reusable workflow carries ``uses:`` on the job and has no
     steps, so a reader of steps alone misses the one shape that can run
     another repository's workflow.
+
+    Parameters
+    ----------
+    document
+        One parsed workflow document.
+
+    Returns
+    -------
+    list[Document]
+        The calling jobs first, then every step.
     """
     return [job for job in jobs(document).values() if "uses" in job] + steps(
         document
     )
 
 
-def pull_request_closure(documents: typ.Mapping[str, Document]) -> list[str]:
+def pull_request_closure(documents: Mapping[str, Document]) -> list[str]:
     """Return every workflow a pull request can reach, callees included.
+
+    Parameters
+    ----------
+    documents
+        Every workflow in the tree, keyed by file name.
+
+    Returns
+    -------
+    list[str]
+        File names of the pull-request roots and every workflow they call in
+        this checkout, transitively, sorted.
+
+    Raises
+    ------
+    ValueError
+        When any workflow's triggers cannot be read.
 
     Examples
     --------
@@ -257,6 +299,20 @@ def mentions(node: object, needle: str, *, ignore_case: bool = False) -> bool:
     The whole tree is walked rather than the scopes a value is meant to live
     in, because the point of every caller is that it must not appear at all.
 
+    Parameters
+    ----------
+    node
+        Any node of a parsed workflow document.
+    needle
+        The text to look for.
+    ignore_case
+        Compare case-insensitively, as for a host name.
+
+    Returns
+    -------
+    bool
+        True when the needle occurs in any key or scalar under the node.
+
     Examples
     --------
     >>> mentions({"env": {"T": "${{ secrets.CS_ACCESS_TOKEN }}"}}, "CS_")
@@ -280,12 +336,23 @@ def mentions(node: object, needle: str, *, ignore_case: bool = False) -> bool:
 
 
 def external_secret_inheritors(document: Document) -> list[str]:
-    """Return jobs that hand every secret to a workflow outside this tree.
+    """Return jobs that hand every secret to a workflow outside this checkout.
 
     ``secrets: inherit`` to a local callee is visible, because the callee is
     in the closure and read like any other workflow. The same line pointed at
-    another repository forwards the token to a document this contract cannot
-    read, without naming it anywhere a sweep for the name could find.
+    another repository, or at this one by ``@ref``, forwards the token to a
+    document this contract cannot read, without naming it anywhere a sweep
+    for the name could find.
+
+    Parameters
+    ----------
+    document
+        One parsed workflow document.
+
+    Returns
+    -------
+    list[str]
+        Ids of the jobs that inherit secrets into an unreadable workflow.
     """
     return [
         str(name)
@@ -293,4 +360,24 @@ def external_secret_inheritors(document: Document) -> list[str]:
         if job.get("secrets") == "inherit"
         and "uses" in job
         and local_callee(str(job["uses"])) is None
+    ]
+
+
+def qualified_self_callers(document: Document) -> list[str]:
+    """Return jobs that call this repository's workflows by ``@ref``.
+
+    Parameters
+    ----------
+    document
+        One parsed workflow document.
+
+    Returns
+    -------
+    list[str]
+        Ids of the jobs whose ``uses:`` is a qualified same-repository call.
+    """
+    return [
+        str(name)
+        for name, job in jobs(document).items()
+        if qualified_self_call(str(job.get("uses", "")))
     ]
