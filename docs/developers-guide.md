@@ -759,11 +759,11 @@ as a test assertion on the SHA string.
 Wireframe now uses a hybrid root manifest: the repository root `Cargo.toml`
 contains both `[package]` and `[workspace]`.
 
-The workspace explicitly lists the root package, the internal verification
-crate, and the testing helper crate, while keeping only the root package as a
-default member:
+The workspace explicitly lists the root package, the internal Loom models
+crate, the internal verification crate, and the testing helper crate, while
+keeping only the root package as a default member:
 
-- `members = [".", "crates/wireframe-verification", "wireframe_testing"]`
+- `members = [".", "crates/wireframe-loom", "crates/wireframe-verification", "wireframe_testing"]`
 - `default-members = ["."]`
 
 Plain root-level commands such as `cargo build`, `cargo check`, `cargo test`,
@@ -772,9 +772,10 @@ main `wireframe` package by default. The Makefile validation targets are the
 workspace-wide exception: they pass `--workspace` so the root, verification,
 and testing helper crates are checked together.
 
-Use `make test-verification` to run `cargo test -p wireframe-verification`.
-`make kani`, `make kani-full`, and `make verus` are tool-free placeholders
-until their named roadmap work activates them.
+Use `make test-verification` to run `cargo test -p wireframe-verification`, and
+`make test-loom` to run the Loom models (see "Loom models" below). `make kani`,
+`make kani-full`, and `make verus` are tool-free placeholders until their named
+roadmap work activates them.
 
 Use `cargo test -p wireframe_testing` when changing shared test fixtures,
 observability helpers, codec drivers, or other support APIs. Use
@@ -944,6 +945,59 @@ commands such as `cargo install`, `curl`, or `rustup toolchain install`.
 for the contributor workflow. Extend it by loading additional repository
 metadata in `load()` and adding focused verification methods that scenario
 functions and step definitions can reuse.
+
+### Loom models
+
+The Loom models live in their own package, `crates/wireframe-loom`, and run with
+`make test-loom`, which is also the scheduled **Advanced Tests** lane's only
+command:
+
+```sh
+LOOM_MAX_PREEMPTIONS=3 RUSTFLAGS="--cfg loom" cargo test -p wireframe-loom
+```
+
+The package exists so that a `--cfg loom` build compiles only what the models
+need. The root package's test build pulls in `wireframe_testing`, whose TCP
+harness cannot exist under `cfg(loom)` because `crate::client`, `server` and
+`tokio::net` are compiled out there; its self dev-dependency also enables the
+`pool` feature by unification, which is how `test_helpers::pool_client` came to
+be selected by a lane that never asked for it (issue #683). `pool_client` is
+now gated on `not(loom)` as well as the feature, and the models never meet the
+harness at all.
+
+What Loom schedules, and what it cannot, decides what the models may assert:
+
+| Field of `PushHandleInner`    | Type under `cfg(loom)`              | Scheduled by Loom |
+| ----------------------------- | ----------------------------------- | ----------------- |
+| `dlq_drops`                   | `loom::sync::atomic::AtomicUsize`   | yes               |
+| `dlq_last_log`                | `loom::sync::Mutex<Instant>`        | yes               |
+| `high_prio_tx`, `low_prio_tx` | `tokio::sync::mpsc::Sender`         | no                |
+| `dlq_tx`                      | `Option<tokio::sync::mpsc::Sender>` | no                |
+| `limiter`                     | `Option<leaky_bucket::RateLimiter>` | no                |
+| the handle's own `Arc`        | `std::sync::Arc`                    | no                |
+
+*Table 2: What the Loom models can observe on the push path.*
+
+So the models assert on the drop counter and nothing else. The channels are
+used to reach the state under test, a full queue and a full dead-letter queue,
+and never asserted on: an assertion about a Tokio channel passes or fails
+regardless of any interleaving Loom chooses. Queue-full behaviour is tested
+deterministically in `tests/push.rs`, and the write loop's
+`select!(biased; ...)` ordering, which is built entirely from Tokio primitives,
+is covered by the deterministic ordering tests and the Stateright model;
+[RFC 0002](rfcs/0002-model-checking-the-write-loop.md) proposes the rest.
+
+Every assertion in the models was shown able to fail by a mutation of
+`route_to_dlq` or `log_dlq_drop`. The one that matters most replaces the
+counter's `fetch_add` with a separate load and store; the models reject it,
+which is the evidence that Loom is exploring interleavings rather than running
+one schedule. `tests/workflow_contracts/loom_lane_test.py` holds the lane to
+`make test-loom` and the target to its command, read through `make --dry-run`.
+
+A model has no clock. Loom explores interleavings, not durations, so the models
+set the drop log's time interval to an hour, leaving the count threshold as the
+only reset under test, and the lane's step carries its own 30-minute timeout
+because a model that cannot finish hangs rather than failing.
 
 ## Test infrastructure and framework
 

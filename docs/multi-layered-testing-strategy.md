@@ -366,44 +366,62 @@ cases** without failure.
 
 ### 4.2 Concurrency Fuzzing with `loom`
 
-This test uses permutation testing to exhaustively explore all possible
-concurrent interleavings of the core write loop, ensuring it is free of data
-races and deadlocks.
+This layer uses `loom` to explore every interleaving of the synchronization
+that concurrent producers share with the connection actor's write loop, within
+a bounded number of preemptions, looking for lost updates, data races and
+deadlocks.
 
 - **Tooling:** `loom`
 
-- **Target Area:** Connection Actor Write Loop (`select!(biased; ...)` logic)
+- **Target Area:** the synchronization around the connection actor's write
+  loop that `loom` can schedule.
 
-**Test Construction:** The core `select!` loop and `PushHandle` `send()` calls
-are wrapped in a `loom::model`. Multiple `loom::thread`s concurrently push
-high-priority, low-priority, and handler-response frames. `loom` explores all
-possible execution orders.
+**What `loom` can and cannot see.** An earlier version of this section placed
+the write loop's `select!(biased; ...)` inside a `loom::model`. That model
+cannot be built. `loom` schedules only the threads it spawns and the primitives
+it supplies. The write loop is one Tokio task selecting over Tokio `mpsc`
+receivers and a `tokio_util` `CancellationToken`, and none of those are `loom`
+primitives: Tokio swaps in `loom` internally only for its own test suite, so a
+downstream `--cfg loom` build still gets its standard implementations. No
+interleaving `loom` chooses changes what the `select!` does, and an assertion
+about queue-full behaviour made through those channels passes or fails
+regardless of any schedule.
+
+What `loom` does schedule on the write loop's path is the state producers share
+through `PushHandle`: the dead-letter drop counter, an atomic, and the last-log
+mutex, both touched by every producer whose dropped frame the dead-letter queue
+cannot take. Those are the subject of the models in `crates/wireframe-loom`.
+
+**Test Construction:** Each model builds a `PushHandle` whose queue, and where
+relevant whose dead-letter queue, is full, then drops frames from two
+`loom::thread`s at once and asserts on the drop counter. The channels are used
+only to reach that state; nothing is asserted about them.
 
 ```rust
 #[test]
-fn test_write_loop_concurrency() {
+fn concurrent_drops_are_all_counted() {
     loom::model(|| {
-        let conn = loom::sync::Arc::new(MockConnection::new());
-        let c1 = conn.clone();
-        let t1 = loom::thread::spawn(move || {
-            c1.push_high_prio().unwrap();
-        });
-
-        let c2 = conn.clone();
-        let t2 = loom::thread::spawn(move || {
-            c2.push_low_prio().unwrap();
-        });
-
-        t1.join().unwrap();
-        t2.join().unwrap();
-        conn.assert_state_is_consistent();
+        let fixture = full_queue_and_dlq(PushPriority::High, 3);
+        let probe = fixture.handle.probe();
+        drop_concurrently(&fixture.handle, PushPriority::High);
+        assert_eq!(probe.dlq_drop_count(), 2);
     });
 }
-
 ```
 
-**Measurable Objective:** The test must explore **all permutations for 2-3
-concurrent producers** without finding data races or deadlocks.
+**Measurable Objective:** Every model passes under `make test-loom`, which runs
+them with `LOOM_MAX_PREEMPTIONS=3`, and each assertion is shown able to fail by
+a recorded mutation of the subject. Replacing the counter's `fetch_add` with a
+separate load and store must be rejected, which is the evidence that the models
+explore interleavings rather than one schedule.
+
+The write loop's own ordering, `shutdown > high > low > stream`, is outside
+`loom`'s reach and is covered elsewhere: by the deterministic
+`strict_priority_order` and `shutdown_signal_precedence` tests, by the
+Stateright connection model in `crates/wireframe-verification`, and by the
+interaction fuzzing below.
+[RFC 0002](rfcs/0002-model-checking-the-write-loop.md) proposes how to close
+the remaining gap.
 
 ### 4.3 Interaction Fuzzing with `proptest`
 

@@ -3,8 +3,8 @@
 ## Executive summary
 
 Wireframe already does more than basic unit testing. The main crate already
-depends on `proptest` and `loom`, and the current tree includes advanced tests
-such as `tests/advanced/concurrency_loom.rs` and
+depends on `proptest` and `loom`, and the current tree includes Loom models in
+`crates/wireframe-loom` and the Proptest suite in
 `tests/advanced/interaction_fuzz.rs`.[^1][^2][^3] That existing investment
 matters, because it changes where formal methods will pay for themselves.
 
@@ -39,8 +39,9 @@ Chutoro or mxd wholesale. Instead, use a hybrid of both:
 That split gives Wireframe a pragmatic verification stack:
 
 - **Proptest** stays in place for broad, generated behavioural coverage.
-- **Loom** stays in place for real synchronization interleavings on queue
-  internals.
+- **Loom** stays in place for real synchronization interleavings on the
+  push handle's shared dead-letter accounting, which is the part of the queue
+  internals Loom can schedule.
 - **Kani** adds exhaustive bounded checking for small protocol logic.
 - **Stateright** adds explicit state-space exploration for the connection actor.
 - **Verus** proves only the invariants that are worth proving for all
@@ -51,11 +52,12 @@ That split gives Wireframe a pragmatic verification stack:
 Today, Wireframe is a single Cargo package rather than a workspace. Its
 `Cargo.toml` includes `proptest` and `loom` in `dev-dependencies`, exposes an
 `advanced-tests` feature, and defines dedicated advanced test targets such as
-`bdd`, `bdd_pool`, and `concurrency_loom`.[^1] The top-level `Makefile`
-currently provides build, test, lint, formatting, and benchmark targets, but no
-formal-verification targets.[^15] The current continuous integration (CI)
-workflow is a single `build-test` job running formatting, linting, and coverage
-generation, again with no dedicated formal-verification jobs.[^16]
+`bdd` and `bdd_pool`; the Loom models live in their own package,
+`crates/wireframe-loom`.[^1] The top-level `Makefile` currently provides build,
+test, lint, formatting, and benchmark targets, but no formal-verification
+targets.[^15] The current continuous integration (CI) workflow is a single
+`build-test` job running formatting, linting, and coverage generation, again
+with no dedicated formal-verification jobs.[^16]
 
 That means Wireframe does **not** need a new testing culture. It already has
 one. What is missing is infrastructure for **proof-oriented** and
@@ -63,18 +65,24 @@ one. What is missing is infrastructure for **proof-oriented** and
 
 Two existing tests are especially relevant:
 
-- `tests/advanced/concurrency_loom.rs` explores `PushQueues` interleavings
-  without Tokio and checks dead-letter queue (DLQ) accounting and queue-full
-  behaviour under concurrent producers.[^2]
+- `crates/wireframe-loom/tests/push_dlq.rs` explores interleavings of the
+  dead-letter queue (DLQ) drop counter and its log mutex under concurrent
+  producers.[^2] An earlier version of these models, and of this paragraph,
+  also claimed queue-full behaviour. That claim was wrong: queue-full is
+  decided by Tokio `mpsc` channels, which Loom does not schedule, so no
+  interleaving could affect it. The assertions were removed rather than kept as
+  coverage that could not fail, and queue-full behaviour is tested
+  deterministically in `tests/push.rs`.
 - `tests/advanced/interaction_fuzz.rs` uses Proptest to generate pushes and an
   optional response stream, but the current strategy constructs actions as “all
   highs, then all lows, then maybe one stream”, so it does **not** explore
   mixed schedules, shutdown races, or response-versus-multi-packet
   interleavings.[^3]
 
-That division is exactly why Stateright belongs in Wireframe: Loom already
-covers the low-level queue machinery, but the connection actor still lacks an
-explicit model of schedule permutations.
+That division is exactly why Stateright belongs in Wireframe: Loom covers the
+small part of the queue machinery built from its primitives, and the connection
+actor, built from Tokio's, still lacks an explicit model of schedule
+permutations.
 
 ## Where formal methods should go first
 
@@ -1001,8 +1009,11 @@ Those are complementary tools.
 
 ### Keep Loom
 
-Loom is already doing the right kind of job in `concurrency_loom.rs`: exploring
-the behaviour of shared queue state under concurrent producers.[^2]
+Loom is doing the right kind of job in `crates/wireframe-loom`: exploring the
+behaviour of shared dead-letter accounting under concurrent producers.[^2] Its
+reach stops at Tokio's primitives, which is why the connection actor's ordering
+belongs to Stateright rather than to Loom;
+[RFC 0002](rfcs/0002-model-checking-the-write-loop.md) sets out what remains.
 
 The right relationship is:
 
@@ -1139,7 +1150,7 @@ organizational friction.
 
 [^1]: Wireframe [`Cargo.toml`](../Cargo.toml)
 [^2]: Wireframe
-      [`tests/advanced/concurrency_loom.rs`](../tests/advanced/concurrency_loom.rs)
+      [`crates/wireframe-loom/tests/push_dlq.rs`](../crates/wireframe-loom/tests/push_dlq.rs)
 [^3]: Wireframe
       [`tests/advanced/interaction_fuzz.rs`](../tests/advanced/interaction_fuzz.rs)
 [^4]: Wireframe [`src/connection/mod.rs`](../src/connection/mod.rs)
