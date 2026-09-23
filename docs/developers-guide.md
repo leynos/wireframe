@@ -1142,12 +1142,12 @@ ordinary bare-word exceptions.
 
 Apart from the inline-code span, which the overlay masks until the shared
 dictionary does so itself, use one exact documented pattern per exception
-rather than disabling a whole syntax class. The remaining exceptions are
-limited to the `PoolServerBehavior` test-server fixture, the former
-`BackoffConfig::normalised` public method, exact generic-bound fragments in RFC
-0001, immutable en-GB diagnostic fixtures, and Tokio test attributes. Add a new
-pattern only when a narrower correction or wording change would alter a public
-API, external-tool key, formal name, or deliberately fixed diagnostic.
+rather than disabling a whole syntax class. The remaining exceptions cover the
+published `PoolServerBehavior` and `start_with_behavior` test-server names, the
+former `BackoffConfig::normalised` public method, exact generic-bound fragments
+in RFC 0001, and fixed external tool, CI and Tokio syntax. Add a new pattern
+only when a narrower correction or wording change would alter a public API,
+external-tool key, formal name, or deliberately fixed diagnostic.
 
 Eligible tracked files must remain readable UTF-8 text so the gate cannot
 silently omit them. Continuous integration installs Nixie 1.1.0 with Python
