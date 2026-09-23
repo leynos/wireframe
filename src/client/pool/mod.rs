@@ -8,7 +8,7 @@ mod client_pool;
 mod config;
 mod handle;
 mod lease;
-mod managed;
+pub(super) mod managed;
 mod manager;
 mod policy;
 mod scheduler;

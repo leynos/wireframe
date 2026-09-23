@@ -90,7 +90,7 @@ impl ClientError {
     /// Return `true` when this error leaves the underlying connection unsafe
     /// to reuse in the pool.
     #[must_use]
-    pub fn should_recycle_connection(&self) -> bool {
+    pub const fn should_recycle_connection(&self) -> bool {
         match self {
             Self::Wireframe(_)
             | Self::PreambleWrite(_)

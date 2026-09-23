@@ -25,7 +25,7 @@ where
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn socket_options(mut self, socket_options: SocketOptions) -> Self {
+    pub const fn socket_options(mut self, socket_options: SocketOptions) -> Self {
         self.socket_options = socket_options;
         self
     }
@@ -41,7 +41,7 @@ where
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn nodelay(mut self, enabled: bool) -> Self {
+    pub const fn nodelay(mut self, enabled: bool) -> Self {
         self.socket_options = self.socket_options.nodelay(enabled);
         self
     }
@@ -59,7 +59,7 @@ where
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn keepalive(mut self, duration: Option<Duration>) -> Self {
+    pub const fn keepalive(mut self, duration: Option<Duration>) -> Self {
         self.socket_options = self.socket_options.keepalive(duration);
         self
     }
@@ -75,7 +75,7 @@ where
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn send_buffer_size(mut self, size: u32) -> Self {
+    pub const fn send_buffer_size(mut self, size: u32) -> Self {
         self.socket_options = self.socket_options.send_buffer_size(size);
         self
     }
@@ -91,7 +91,7 @@ where
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn recv_buffer_size(mut self, size: u32) -> Self {
+    pub const fn recv_buffer_size(mut self, size: u32) -> Self {
         self.socket_options = self.socket_options.recv_buffer_size(size);
         self
     }
@@ -107,7 +107,7 @@ where
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn reuseaddr(mut self, enabled: bool) -> Self {
+    pub const fn reuseaddr(mut self, enabled: bool) -> Self {
         self.socket_options = self.socket_options.reuseaddr(enabled);
         self
     }
@@ -129,7 +129,7 @@ where
         not(target_os = "cygwin"),
     ))]
     #[must_use]
-    pub fn reuseport(mut self, enabled: bool) -> Self {
+    pub const fn reuseport(mut self, enabled: bool) -> Self {
         self.socket_options = self.socket_options.reuseport(enabled);
         self
     }
