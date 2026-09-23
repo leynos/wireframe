@@ -77,7 +77,7 @@ COVERAGE_ACTION: typ.Final = (
 #: The publisher's concurrency group, compared whole. Keyed on the ref alone:
 #: a group that also varied by event would let a dispatch and a push to main
 #: run side by side and race on the ratchet baseline, where one group for the
-#: ref keeps a single pending run and lets the newest win.
+#: ref keeps a single pending run, so among triggered runs the newest wins.
 PUBLISHER_CONCURRENCY_GROUP: typ.Final = "coverage-main-${{ github.ref }}"
 
 #: The ref the publisher may upload for. Compared in full rather than by

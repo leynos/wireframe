@@ -228,7 +228,9 @@ def test_the_publisher_serializes_and_is_not_cancelled() -> None:
     and does not cancel a run in progress. Without a group two uploads race
     and the baseline is set by whichever finishes last. With one, GitHub keeps
     a single pending run per group, so a newer push replaces an older pending
-    run and the newest baseline wins; cancelling instead would abandon a
+    run and, among triggered runs, the newest baseline wins (a manual re-run of
+    an older run republishes that commit's until the next push); cancelling
+    instead would abandon a
     running upload and its baseline write.
     """
     concurrency = _documents()[PUBLISHER].get("concurrency")

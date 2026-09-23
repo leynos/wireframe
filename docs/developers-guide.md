@@ -626,8 +626,12 @@ The publisher also declares a concurrency group keyed on the ref alone,
 contract compares the group whole, so naming the event in it fails. Without a
 group, two pushes in quick succession upload at once and the baseline is set by
 whichever finishes last. With one, GitHub keeps a single pending run per group,
-so a newer push replaces an older pending run and the newest baseline wins.
-Cancelling would instead abandon a running upload and its baseline write.
+so among triggered runs (push, and dispatch where the workflow allows it) a
+newer one replaces an older pending run and the newest baseline wins. A manual
+"Re-run jobs" on an older main run is an operator action, not a trigger: it
+keeps that run's commit, so it republishes that commit's coverage and baseline
+until the next push supersedes them. Cancelling would instead abandon a running
+upload and its baseline write.
 
 ### What must remain
 
