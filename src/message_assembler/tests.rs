@@ -86,7 +86,7 @@ fn parse_frame_headers(
     #[case] payload: Vec<u8>,
     #[case] expected_header: FrameHeader,
 ) {
-    let parsed = parse_header(&payload);
+    let parsed = parse_header(&payload).expect("parse header-only payload");
     assert_eq!(parsed.header(), &expected_header, "case: {case_name}");
     assert_eq!(
         parsed.header_len(),
@@ -97,7 +97,7 @@ fn parse_frame_headers(
     let mut payload_with_body = payload.clone();
     payload_with_body.extend_from_slice(&[0xaa, 0xbb, 0xcc]);
 
-    let parsed_with_body = parse_header(&payload_with_body);
+    let parsed_with_body = parse_header(&payload_with_body).expect("parse header with body bytes");
     assert_eq!(
         parsed_with_body.header(),
         &expected_header,
@@ -182,12 +182,8 @@ fn build_continuation_header_payload(spec: ContinuationHeaderSpec) -> Vec<u8> {
     bytes.to_vec()
 }
 
-#[expect(
-    clippy::unwrap_used,
-    reason = "test helper; header parse failure is a bug"
-)]
-fn parse_header(payload: &[u8]) -> ParsedFrameHeader {
-    TestAssembler.parse_frame_header(payload).unwrap()
+fn parse_header(payload: &[u8]) -> io::Result<ParsedFrameHeader> {
+    TestAssembler.parse_frame_header(payload)
 }
 
 // =============================================================================
