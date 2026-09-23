@@ -15,6 +15,7 @@ from codescene_placement_policy import (
     CODESCENE_ACTION_MARKER,
     EXPECTED_UPLOAD_CONDITION,
     PUBLISHER,
+    PUBLISHER_CONCURRENCY_GROUP,
     PUBLISHER_TRIGGERS,
     TOKEN,
     TOKEN_CHECK_COMMAND,
@@ -236,9 +237,13 @@ def test_the_publisher_serializes_and_is_not_cancelled() -> None:
         f"race; got {concurrency!r}"
     )
     group = str(concurrency.get("group", ""))
-    assert "github.ref" in group, (
-        f"{PUBLISHER}'s concurrency group is {group!r}, which does not vary "
-        "by ref, so a run on another ref would queue behind the trunk's run"
+    # Compared whole. A group without the ref would put a branch dispatch in
+    # the trunk's queue; one that also named the event would let a dispatch
+    # and a push to main run at once and race on the baseline.
+    assert group == PUBLISHER_CONCURRENCY_GROUP, (
+        f"{PUBLISHER}'s concurrency group must be exactly "
+        f"{PUBLISHER_CONCURRENCY_GROUP!r}, keyed on the ref alone; got "
+        f"{group!r}"
     )
     assert concurrency.get("cancel-in-progress") is False, (
         f"{PUBLISHER} must not cancel a run in progress: a cancelled upload "
