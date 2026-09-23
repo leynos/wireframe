@@ -246,13 +246,20 @@ Found while implementing, on 2026-09-23:
   `cfg(loom)` through a test-support crate for a configuration it never serves;
   a package whose only dependencies are the library, Loom, rstest and Tokio's
   `sync` feature needs neither.
-- **D-6**: the `sync` alias is not widened to `loom::sync::{Arc, Weak}` here.
-  The session registry stores `Weak<PushHandleInner>` in a `DashMap`, whose
-  shard locks are not Loom primitives, so a thread Loom has preempted while
-  holding one blocks the others on a lock Loom cannot schedule. Referred to RFC
-  0002.
-- **D-7**: the models assert on the drop counter only; the Tokio channels are
-  used to reach the state under test and never asserted on.
+- **D-6**: handle and registry lifetimes are not modelled. Loom 0.7.2 has no
+  `Weak` (`loom::sync::Arc` has no `downgrade`), and the session registry is
+  built on `Weak<PushHandleInner>` from `Arc::downgrade`, inside a `DashMap`
+  whose locks are not Loom primitives. Widening the handle's `Arc` to Loom's
+  would break the registry rather than model it. Referred to RFC 0002.
+- **D-7**: the models assert on Loom primitives only: the drop counter, and
+  the active-connection gauge. The Tokio channels are used to reach the state
+  under test and never asserted on.
+- **D-8 (2026-09-23, lead review of the shape)**: the active-connection gauge
+  is modelled. Under `cfg(loom)` the gauge is a `loom::lazy_static!` atomic,
+  since Loom's atomics have no `const` constructor, and
+  `wireframe::connection::LoomConnectionGuard` exposes the actor's own guard to
+  the models, the same pattern as `PushHandle::probe`. Neither exists in an
+  ordinary build.
 
 ## Outcomes & retrospective
 
@@ -366,8 +373,9 @@ section of `docs/developers-guide.md`, naming each field of `PushHandleInner`
 and whether Loom schedules it. A review checkpoint, not a test, for the reason
 the earlier draft gave.
 
-**V-4: every model assertion can fail.** `make test-loom` passes six models
-(two parameterized over both priorities). Each mutation below is applied to
+**V-4: every model assertion can fail.** `make test-loom` passes eight models:
+six over the dead-letter accounting (two parameterized over both priorities)
+and two over the active-connection gauge. Each mutation below is applied to
 `src/push/queues/handle.rs` alone and restored from a copy:
 
 ```plaintext
@@ -378,6 +386,20 @@ L3 reset suppressed                         the_counter_resets_at_the_logging_th
 L4 every drop counted, sent or not          drops_into_a_dead_letter_queue_with_room_count_nothing, and the four above
 L5 counted without a dead-letter queue      drops_without_a_dead_letter_queue_count_nothing
 ```
+
+And four of `src/connection/counter.rs`, against
+`crates/wireframe-loom/tests/connection_gauge.rs`:
+
+```plaintext
+G1 increment as a separate load and store   concurrent_guards_return_the_gauge_to_zero, live_guards_are_all_counted
+G2 decrement as a separate load and store   concurrent_guards_return_the_gauge_to_zero
+G3 decrement suppressed                     concurrent_guards_return_the_gauge_to_zero, live_guards_are_all_counted
+G4 increment suppressed                     concurrent_guards_return_the_gauge_to_zero, live_guards_are_all_counted
+```
+
+G2 fails one model only, and correctly: `live_guards_are_all_counted` drops its
+guards on one thread, so there is no interleaving for a lost decrement to hide
+in.
 
 L1 is the evidence that the models explore interleavings: a lost update is
 visible only on a schedule where the two producers' reads and writes
@@ -404,13 +426,14 @@ as `pool`. The models moved to `crates/wireframe-loom` (D-5). `make test-loom`
 runs them, `advanced-tests.yml` runs only that target with a 30-minute step
 timeout, and V-1's contract holds both.
 
-**EP-M3: models that can fail. Done.**
-`concurrent_queue_full_errors_are_reported` is removed (D-1). The dead-letter
-models now reach `route_to_dlq`'s error branch by filling a one-frame
-dead-letter queue first, prove the increment and the reset separately for both
-priorities, and keep the two zero-count cases as the narrowness half: a drop
-the dead-letter queue accepted, and no dead-letter queue at all. V-4's table is
-filled.
+**EP-M3: models that can fail. Done.** The gauge models (D-8) were added on the
+lead's review of the shape; handle and registry lifetimes were not, for the
+reason in D-6. `concurrent_queue_full_errors_are_reported` is removed (D-1).
+The dead-letter models now reach `route_to_dlq`'s error branch by filling a
+one-frame dead-letter queue first, prove the increment and the reset separately
+for both priorities, and keep the two zero-count cases as the narrowness half:
+a drop the dead-letter queue accepted, and no dead-letter queue at all. V-4's
+table is filled.
 
 **EP-M4: the statement, the documents and the RFC. Done.** The guide section
 (V-3), the corrected documents (`Conformance basis`), and RFC 0002 for the

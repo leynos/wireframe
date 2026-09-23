@@ -390,7 +390,9 @@ regardless of any schedule.
 What `loom` does schedule on the write loop's path is the state producers share
 through `PushHandle`: the dead-letter drop counter, an atomic, and the last-log
 mutex, both touched by every producer whose dropped frame the dead-letter queue
-cannot take. Those are the subject of the models in `crates/wireframe-loom`.
+cannot take. The other is the active-connection gauge each actor's guard
+increments on start and decrements on stop. Those are the subject of the models
+in `crates/wireframe-loom`.
 
 **Test Construction:** Each model builds a `PushHandle` whose queue, and where
 relevant whose dead-letter queue, is full, then drops frames from two

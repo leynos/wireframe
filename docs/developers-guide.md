@@ -978,21 +978,35 @@ What Loom schedules, and what it cannot, decides what the models may assert:
 
 *Table 2: What the Loom models can observe on the push path.*
 
-So the models assert on the drop counter and nothing else. The channels are
-used to reach the state under test, a full queue and a full dead-letter queue,
-and never asserted on: an assertion about a Tokio channel passes or fails
-regardless of any interleaving Loom chooses. Queue-full behaviour is tested
-deterministically in `tests/push.rs`, and the write loop's
+Loom 0.7.2 has no `Weak`, and the session registry holds
+`Weak<PushHandleInner>` from `Arc::downgrade`, so the handle's `Arc` cannot be
+widened to Loom's without breaking the registry. Handle and registry lifetimes
+are left to the deterministic registry tests;
+[RFC 0002](rfcs/0002-model-checking-the-write-loop.md) lists the options.
+
+The other Loom primitive on the actor's path is the active-connection gauge.
+Under `cfg(loom)` it is a `loom::lazy_static!` atomic, because Loom's atomics
+have no `const` constructor, and `wireframe::connection::LoomConnectionGuard`
+hands the models the actor's own guard type without building an actor. Both
+exist only under `cfg(loom)`. `tests/connection_gauge.rs` checks that
+concurrent guards count every live connection and return the gauge to zero.
+
+So the push models assert on the drop counter and nothing else. The channels
+are used to reach the state under test, a full queue and a full dead-letter
+queue, and never asserted on: an assertion about a Tokio channel passes or
+fails regardless of any interleaving Loom chooses. Queue-full behaviour is
+tested deterministically in `tests/push.rs`, and the write loop's
 `select!(biased; ...)` ordering, which is built entirely from Tokio primitives,
 is covered by the deterministic ordering tests and the Stateright model;
 [RFC 0002](rfcs/0002-model-checking-the-write-loop.md) proposes the rest.
 
 Every assertion in the models was shown able to fail by a mutation of
-`route_to_dlq` or `log_dlq_drop`. The one that matters most replaces the
-counter's `fetch_add` with a separate load and store; the models reject it,
-which is the evidence that Loom is exploring interleavings rather than running
-one schedule. `tests/workflow_contracts/loom_lane_test.py` holds the lane to
-`make test-loom` and the target to its command, read through `make --dry-run`.
+`route_to_dlq`, `log_dlq_drop` or the gauge guard. The ones that matter most
+replace a `fetch_add` or `fetch_sub` with a separate load and store; the models
+reject it, which is the evidence that Loom is exploring interleavings rather
+than running one schedule. `tests/workflow_contracts/loom_lane_test.py` holds
+the lane to `make test-loom` and the target to its command, read through
+`make --dry-run`.
 
 A model has no clock. Loom explores interleavings, not durations, so the models
 set the drop log's time interval to an hour, leaving the count threshold as the

@@ -17,8 +17,9 @@
 ## Summary
 
 The scheduled **Advanced Tests** lane now runs Loom models, and they check the
-one part of the write loop's path that Loom can schedule: the dead-letter drop
-counter and log mutex that concurrent producers share through `PushHandle`. The
+parts of the write loop's surroundings that Loom can schedule: the dead-letter
+drop counter and log mutex that concurrent producers share through
+`PushHandle`, and the active-connection gauge every actor's guard moves. The
 write loop itself, a `tokio::select!(biased; ...)` over Tokio channels and a
 cancellation token, is outside Loom's reach, and so are the handle's `Arc`, its
 rate limiter and the session registry. This RFC sets out how to verify what
@@ -47,6 +48,7 @@ What checks the write loop and its producers today:
 
 | Property                                                | Checked by                                                                | Can it fail for a scheduling reason? |
 | ------------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------ |
+| Active-connection gauge under concurrent actors         | Loom models, `crates/wireframe-loom/tests/connection_gauge.rs`            | yes                                  |
 | Dead-letter drop counting and reset under concurrency   | Loom models, `crates/wireframe-loom/tests/push_dlq.rs`                    | yes                                  |
 | Queue-full errors from `try_push`                       | deterministic test, `tests/push.rs::try_push_respects_policy`             | no, and it need not                  |
 | Strict ordering `shutdown > high > low > stream`        | deterministic tests `strict_priority_order`, `shutdown_signal_precedence` | only for the one schedule they run   |
@@ -136,13 +138,13 @@ racing an active output) against the code's own ordering.
   throttle, but it is a behaviour decision, so it is recorded here rather than
   fixed or asserted: either document the approximation, or reset with a
   `fetch_sub` of the observed value, and then add the three-producer model.
-- **The handle's `Arc` is outside the model.** Widening the `sync` alias to
-  `loom::sync::{Arc, Weak}` needs `src/push/queues/mod.rs` and `src/session.rs`
-  to move with it. The session registry keeps `Weak<PushHandleInner>` in a
-  `DashMap`, whose shard locks are not Loom primitives, so a thread Loom has
-  preempted while holding one blocks the others on a lock Loom cannot schedule.
-  Model the registry's upgrade and expiry separately over a Loom-visible map,
-  or leave lifetime to the deterministic registry tests.
+- **Handle and registry lifetimes are outside Loom.** Loom 0.7.2 has no
+  `Weak`: `loom::sync::Arc` offers no `downgrade`, and the session registry
+  keeps `Weak<PushHandleInner>` from `Arc::downgrade`, in a `DashMap` whose
+  shard locks are not Loom primitives either. Widening the handle's `Arc` to
+  Loom's would therefore break the registry rather than model it. Options: a
+  Loom release with `Weak`, a Stateright model of registration, expiry and
+  upgrade, or leaving lifetime to the deterministic registry tests.
 - **The configuration boundary has no contract.** Issue #683 was a module
   admitted under `cfg(loom)` while it imported modules compiled out there. A
   source-reading contract, parsing the module tree with `syn` and checking that
@@ -154,11 +156,6 @@ racing an active output) against the code's own ordering.
   contract holds the target to `--cfg loom`, which covers today's command; a
   guard failing the run when fewer than the expected number of models executed
   would cover the rest.
-- **The active-connection gauge.** `ACTIVE_CONNECTIONS` is a static atomic
-  moved by the actor's RAII guard. A Loom model of concurrent guards would need
-  the static behind `loom::lazy_static!` under `cfg(loom)`. It is low value
-  while the gauge uses `Relaxed` and feeds only metrics, and is listed for
-  completeness.
 
 ## Alternatives considered
 
