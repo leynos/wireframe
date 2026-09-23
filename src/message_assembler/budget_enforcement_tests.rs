@@ -9,7 +9,6 @@ use super::{
     connection_budgeted_state,
     dual_budgeted_state,
     in_flight_budgeted_state,
-    nz,
     submit_first,
     submit_first_at,
     unbounded_state,
@@ -175,10 +174,10 @@ fn dual_budget_in_flight_triggers_before_connection(
 fn dual_budget_connection_triggers_when_in_flight_not_exceeded() {
     // connection=15 < in_flight=20, so connection triggers first.
     let mut state = MessageAssemblyState::with_budgets(
-        nz(1024),
+        nz!(1024),
         Duration::from_secs(30),
-        Some(nz(15)),
-        Some(nz(20)),
+        Some(nz!(15)),
+        Some(nz!(20)),
     );
     let err = submit_first(&mut state, 1, &[0u8; 16], false).expect_err("should reject");
     assert!(
@@ -240,7 +239,7 @@ fn budget_violation_does_not_affect_other_assemblies(
 #[test]
 fn headroom_reclaimed_after_purge_allows_new_assembly() {
     let mut state =
-        MessageAssemblyState::with_budgets(nz(1024), Duration::from_secs(30), Some(nz(20)), None);
+        MessageAssemblyState::with_budgets(nz!(1024), Duration::from_secs(30), Some(nz!(20)), None);
 
     let now = Instant::now();
     submit_first_at(&mut state, 1, &[0u8; 15], now).expect("first");
@@ -266,7 +265,7 @@ fn headroom_reclaimed_after_purge_allows_new_assembly() {
 #[test]
 fn headroom_reclaimed_after_completion_allows_new_frame() {
     let mut state =
-        MessageAssemblyState::with_budgets(nz(1024), Duration::from_secs(30), None, Some(nz(20)));
+        MessageAssemblyState::with_budgets(nz!(1024), Duration::from_secs(30), None, Some(nz!(20)));
 
     submit_first(&mut state, 1, &[0u8; 15], false).expect("first");
 
@@ -327,7 +326,7 @@ fn connection_budget_accepts_exact_fit(
 /// the exact-limit assembly.
 #[test]
 fn size_limit_accepts_exact_total() {
-    let mut state = MessageAssemblyState::new(nz(10), Duration::from_secs(30));
+    let mut state = MessageAssemblyState::new(nz!(10), Duration::from_secs(30));
     submit_first(&mut state, 1, &[0u8; 5], false).expect("first frame within limit");
 
     let cont = continuation_header(1, 1, 5, true);
@@ -343,7 +342,7 @@ fn size_limit_accepts_exact_total() {
 /// `total_message_size > max`, so a `>=` mutant would reject the exact case.
 #[test]
 fn declared_total_at_size_limit_is_accepted() {
-    let mut state = MessageAssemblyState::new(nz(10), Duration::from_secs(30));
+    let mut state = MessageAssemblyState::new(nz!(10), Duration::from_secs(30));
     let header = first_header_with_total(1, 0, 10);
     let input = FirstFrameInput::new(&header, EnvelopeRouting::default(), vec![], &[])
         .expect("valid first-frame input");
@@ -361,7 +360,7 @@ fn declared_total_at_size_limit_is_accepted() {
 /// key and empty the state (guards the `-> vec![]` mutant).
 #[test]
 fn wall_clock_purge_evicts_expired_assembly() {
-    let mut state = MessageAssemblyState::new(nz(1024), Duration::ZERO);
+    let mut state = MessageAssemblyState::new(nz!(1024), Duration::ZERO);
     submit_first(&mut state, 7, &[0u8; 5], false).expect("buffered first frame");
     assert_eq!(state.buffered_count(), 1);
 

@@ -50,11 +50,20 @@ async fn send_response_encodes_and_frames() -> TestResult {
         .map_err(|e| format!("send_response failed: {e}"))?;
 
     let frames = decode_frames(&out)?;
-    assert_eq!(frames.len(), 1, "expected a single response frame");
+    if frames.len() != 1 {
+        return Err(format!("expected a single response frame, got {}", frames.len()).into());
+    }
     let frame = frames.first().ok_or("expected frame missing")?;
     let (decoded, _) =
         TestResp::from_bytes(frame).map_err(|e| format!("deserialize failed: {e}"))?;
-    assert_eq!(decoded, TestResp(7), "decoded payload mismatch");
+    if decoded != TestResp(7) {
+        return Err(format!(
+            "decoded payload mismatch: expected {:?}, got {:?}",
+            TestResp(7),
+            decoded
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -188,9 +197,16 @@ async fn send_response_framed_sends_raw_serialized_payload() -> TestResult {
         .await
         .map_err(|e| format!("read framed output failed: {e}"))?;
     let decoded_frames = decode_frames(&out)?;
-    assert_eq!(decoded_frames.len(), 1);
+    if decoded_frames.len() != 1 {
+        return Err(format!("expected one response frame, got {}", decoded_frames.len()).into());
+    }
     let frame = decoded_frames.first().ok_or("response frame missing")?;
-    assert_eq!(frame, &expected);
+    if frame != &expected {
+        return Err(format!(
+            "serialized response frame mismatch: expected {expected:?}, got {frame:?}"
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -212,10 +228,19 @@ async fn send_response_framed_honours_buffer_capacity() -> TestResult {
         .await
         .map_err(|e| format!("read framed output failed: {e}"))?;
     let decoded_frames = decode_frames_with_max(&out, LARGE_FRAME)?;
-    assert_eq!(decoded_frames.len(), 1);
+    if decoded_frames.len() != 1 {
+        return Err(format!("expected one response frame, got {}", decoded_frames.len()).into());
+    }
     let frame = decoded_frames.first().ok_or("response frame missing")?;
     let (decoded, _) = Large::from_bytes(frame).map_err(|e| format!("deserialize failed: {e}"))?;
-    assert_eq!(decoded.0.len(), payload.len());
+    if decoded.0.len() != payload.len() {
+        return Err(format!(
+            "decoded payload length mismatch: expected {}, got {}",
+            payload.len(),
+            decoded.0.len()
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -234,10 +259,19 @@ async fn send_response_honours_buffer_capacity() -> TestResult {
         .map_err(|e| format!("send_response failed: {e}"))?;
 
     let frames = decode_frames_with_max(&out, LARGE_FRAME)?;
-    assert_eq!(frames.len(), 1, "expected a single response frame");
+    if frames.len() != 1 {
+        return Err(format!("expected a single response frame, got {}", frames.len()).into());
+    }
     let frame = frames.first().ok_or("response frame missing")?;
     let (decoded, _) = Large::from_bytes(frame).map_err(|e| format!("deserialize failed: {e}"))?;
-    assert_eq!(decoded.0.len(), payload.len());
+    if decoded.0.len() != payload.len() {
+        return Err(format!(
+            "decoded payload length mismatch: expected {}, got {}",
+            payload.len(),
+            decoded.0.len()
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -260,12 +294,21 @@ async fn process_stream_honours_buffer_capacity() -> TestResult {
     let out = run_app(app, vec![frame], Some(10 * 1024 * 1024)).await?;
 
     let frames = decode_frames_with_max(&out, LARGE_FRAME)?;
-    assert_eq!(frames.len(), 1, "expected a single response frame");
+    if frames.len() != 1 {
+        return Err(format!("expected a single response frame, got {}", frames.len()).into());
+    }
     let frame = frames.first().ok_or("response frame missing")?;
     let (resp_env, _) = BincodeSerializer
         .deserialize::<Envelope>(frame)
         .map_err(|e| format!("deserialize failed: {e}"))?;
     let resp_len = resp_env.into_parts().into_payload().len();
-    assert_eq!(resp_len, payload.len());
+    if resp_len != payload.len() {
+        return Err(format!(
+            "response payload length mismatch: expected {}, got {}",
+            payload.len(),
+            resp_len
+        )
+        .into());
+    }
     Ok(())
 }

@@ -2,6 +2,7 @@
 
 use std::{
     io,
+    net::SocketAddr,
     sync::{
         Arc,
         Mutex,
@@ -40,13 +41,12 @@ async fn test_run_with_immediate_shutdown(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server = bind_server(factory, free_listener?)?;
     let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
-    let result = timeout(
+    timeout(
         Duration::from_secs(1),
         server.run_with_shutdown(shutdown_future),
     )
-    .await;
-    assert!(result.is_ok());
-    assert!(result.expect("server did not finish in time").is_ok());
+    .await
+    .map_err(|_| "server did not finish in time")??;
     Ok(())
 }
 
@@ -132,13 +132,12 @@ async fn test_multiple_worker_creation(
         .bind_existing_listener(free_listener?)
         .expect("Failed to bind");
     let shutdown_future = async { tokio::time::sleep(Duration::from_millis(10)).await };
-    let result = timeout(
+    timeout(
         Duration::from_secs(1),
         server.run_with_shutdown(shutdown_future),
     )
-    .await;
-    assert!(result.is_ok());
-    assert!(result.expect("server did not finish in time").is_ok());
+    .await
+    .map_err(|_| "server did not finish in time")??;
     Ok(())
 }
 
@@ -175,7 +174,6 @@ async fn test_accept_loop_shutdown_signal(
 }
 
 /// Creates a mock listener that fails with exponential backoff tracking.
-#[expect(clippy::unwrap_used, reason = "mock setup; known-valid values")]
 fn setup_backoff_mock_listener(
     calls: &Arc<Mutex<Vec<Instant>>>,
     num_calls: usize,
@@ -187,14 +185,17 @@ fn setup_backoff_mock_listener(
         .returning(move || {
             let call_log = Arc::clone(&call_log);
             Box::pin(async move {
-                call_log.lock().unwrap().push(Instant::now());
+                call_log
+                    .lock()
+                    .map_err(|_| io::Error::other("mock call log mutex poisoned"))?
+                    .push(Instant::now());
                 Err(io::Error::other("mock error"))
             })
         })
         .times(num_calls);
     listener
         .expect_local_addr()
-        .returning(|| Ok("127.0.0.1:0".parse().unwrap()))
+        .returning(|| Ok(SocketAddr::from(([127, 0, 0, 1], 0))))
         .times(num_calls);
     listener
 }
