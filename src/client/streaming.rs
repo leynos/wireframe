@@ -7,7 +7,13 @@
 
 use std::{sync::atomic::Ordering, time::Instant};
 
-use super::{ClientError, ResponseStream, runtime::ClientStream, tracing_helpers::streaming_span};
+use super::{
+    ClientError,
+    ResponseStream,
+    runtime::ClientStream,
+    tracing_helpers::streaming_span,
+    tracing_timing::ClientOperation,
+};
 use crate::{
     app::Packet,
     message::{DecodeWith, EncodeWith},
@@ -82,7 +88,10 @@ where
             request.set_correlation_id(Some(correlation_id));
         }
 
-        let timing_start = self.tracing_config.streaming_timing.then(Instant::now);
+        let timing_start = self
+            .tracing_config
+            .timing_enabled(ClientOperation::Streaming)
+            .then(Instant::now);
 
         self.serialize_and_send(&request, timing_start, |config, frame_bytes| {
             let span = streaming_span(config, correlation_id);

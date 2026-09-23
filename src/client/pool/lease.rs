@@ -38,7 +38,7 @@ where
     C: Send + 'static,
 {
     /// Construct a lease while retaining the permit until drop.
-    pub(crate) fn new(
+    pub(crate) const fn new(
         slot: Arc<PoolSlot<S, P, C>>,
         permit: OwnedSemaphorePermit,
         release_inner: Option<Arc<ClientPoolInner<S, P, C>>>,
@@ -51,7 +51,7 @@ where
     }
 
     /// Classify transport errors that make a pooled connection unsafe to reuse.
-    fn should_recycle(err: &ClientError) -> bool { err.should_recycle_connection() }
+    const fn should_recycle(err: &ClientError) -> bool { err.should_recycle_connection() }
 
     /// Run one operation against a checked-out connection and mark bad sockets.
     async fn dispatch_on_connection<R>(
@@ -75,7 +75,7 @@ where
     /// Returns [`ClientError`] when checkout, serialization, or transport I/O
     /// fails.
     pub async fn send<M: EncodeWith<S>>(&self, message: &M) -> Result<(), ClientError> {
-        self.dispatch_on_connection(async |conn| conn.send(message).await)
+        self.dispatch_on_connection(async |conn| conn.client_mut()?.send(message).await)
             .await
     }
 
@@ -85,7 +85,7 @@ where
     ///
     /// Returns [`ClientError`] when checkout, decode, or transport I/O fails.
     pub async fn receive<M: DecodeWith<S>>(&self) -> Result<M, ClientError> {
-        self.dispatch_on_connection(async |conn| conn.receive().await)
+        self.dispatch_on_connection(async |conn| conn.client_mut()?.receive().await)
             .await
     }
 
@@ -100,7 +100,7 @@ where
         Req: EncodeWith<S>,
         Resp: DecodeWith<S>,
     {
-        self.dispatch_on_connection(async |conn| conn.call(request).await)
+        self.dispatch_on_connection(async |conn| conn.client_mut()?.call(request).await)
             .await
     }
 
@@ -114,7 +114,7 @@ where
     where
         M: Packet + EncodeWith<S>,
     {
-        self.dispatch_on_connection(async |conn| conn.send_envelope(envelope).await)
+        self.dispatch_on_connection(async |conn| conn.client_mut()?.send_envelope(envelope).await)
             .await
     }
 
@@ -127,7 +127,7 @@ where
     where
         M: Packet + DecodeWith<S>,
     {
-        self.dispatch_on_connection(async |conn| conn.receive_envelope().await)
+        self.dispatch_on_connection(async |conn| conn.client_mut()?.receive_envelope().await)
             .await
     }
 
@@ -141,7 +141,7 @@ where
     where
         M: Packet + EncodeWith<S> + DecodeWith<S>,
     {
-        self.dispatch_on_connection(async |conn| conn.call_correlated(request).await)
+        self.dispatch_on_connection(async |conn| conn.client_mut()?.call_correlated(request).await)
             .await
     }
 }

@@ -147,8 +147,8 @@ pub(crate) fn close_span(config: &TracingConfig) -> Span {
 /// `Some(instant)` when enabled. When `Some`, an event is emitted with
 /// the `elapsed_us` field at `DEBUG` level.
 pub(crate) fn emit_timing_event(start: Option<Instant>) {
-    if let Some(start) = start {
-        let elapsed_us = start.elapsed().as_micros();
+    if let Some(started_at) = start {
+        let elapsed_us = started_at.elapsed().as_micros();
         tracing::debug!(elapsed_us = elapsed_us, "operation.timing");
     }
 }

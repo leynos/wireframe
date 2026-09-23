@@ -22,7 +22,7 @@ pub(crate) struct WireframeConnectionManager<S, P, C> {
 
 impl<S, P, C> WireframeConnectionManager<S, P, C> {
     /// Capture the endpoint and recipe for one pool slot.
-    pub(crate) fn new(addr: SocketAddr, parts: ClientBuildParts<S, P, C>) -> Self {
+    pub(crate) const fn new(addr: SocketAddr, parts: ClientBuildParts<S, P, C>) -> Self {
         Self { addr, parts }
     }
 }

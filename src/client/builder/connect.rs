@@ -11,6 +11,7 @@ use crate::{
         ClientError,
         WireframeClient,
         tracing_helpers::{connect_span, emit_timing_event},
+        tracing_timing::ClientOperation,
     },
     rewind_stream::RewindStream,
     serializer::Serializer,
@@ -54,7 +55,10 @@ where
         addr: SocketAddr,
     ) -> Result<WireframeClient<S, RewindStream<tokio::net::TcpStream>, C>, ClientError> {
         let span = connect_span(&self.tracing_config, &addr.to_string());
-        let timing_start = self.tracing_config.connect_timing.then(Instant::now);
+        let timing_start = self
+            .tracing_config
+            .timing_enabled(ClientOperation::Connect)
+            .then(Instant::now);
 
         async {
             let result = self.connect_inner(addr).await;

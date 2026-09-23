@@ -72,7 +72,7 @@ impl ClientCodecConfig {
     /// assert_eq!(codec.length_format_value().endianness(), Endianness::Little);
     /// ```
     #[must_use]
-    pub fn length_format(mut self, length_format: LengthFormat) -> Self {
+    pub const fn length_format(mut self, length_format: LengthFormat) -> Self {
         self.length_format = length_format;
         self
     }

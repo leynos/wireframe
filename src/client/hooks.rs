@@ -93,25 +93,21 @@ pub type ClientErrorHandler =
 /// This struct holds the optional lifecycle callbacks configured via the
 /// builder. It is used internally to pass hook configuration from the builder
 /// to the client runtime.
-#[expect(
-    clippy::struct_field_names,
-    reason = "on_ prefix is idiomatic for callback fields"
-)]
 pub(crate) struct LifecycleHooks<C> {
     /// Callback invoked when the connection is established.
-    pub(crate) on_connect: Option<ClientConnectionSetupHandler<C>>,
+    pub(crate) connect: Option<ClientConnectionSetupHandler<C>>,
     /// Callback invoked when the connection is closed.
-    pub(crate) on_disconnect: Option<ClientConnectionTeardownHandler<C>>,
+    pub(crate) disconnect: Option<ClientConnectionTeardownHandler<C>>,
     /// Callback invoked when an error occurs.
-    pub(crate) on_error: Option<ClientErrorHandler>,
+    pub(crate) error: Option<ClientErrorHandler>,
 }
 
 impl<C> Clone for LifecycleHooks<C> {
     fn clone(&self) -> Self {
         Self {
-            on_connect: self.on_connect.clone(),
-            on_disconnect: self.on_disconnect.clone(),
-            on_error: self.on_error.clone(),
+            connect: self.connect.clone(),
+            disconnect: self.disconnect.clone(),
+            error: self.error.clone(),
         }
     }
 }
@@ -119,9 +115,9 @@ impl<C> Clone for LifecycleHooks<C> {
 impl<C> Default for LifecycleHooks<C> {
     fn default() -> Self {
         Self {
-            on_connect: None,
-            on_disconnect: None,
-            on_error: None,
+            connect: None,
+            disconnect: None,
+            error: None,
         }
     }
 }

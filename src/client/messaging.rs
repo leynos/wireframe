@@ -12,6 +12,7 @@ use super::{
     ClientError,
     runtime::ClientStream,
     tracing_helpers::{call_correlated_span, emit_timing_event, receive_span, send_envelope_span},
+    tracing_timing::ClientOperation,
 };
 use crate::{
     app::Packet,
@@ -126,7 +127,10 @@ where
             envelope.set_correlation_id(Some(correlation_id));
         }
 
-        let timing_start = self.tracing_config.send_timing.then(Instant::now);
+        let timing_start = self
+            .tracing_config
+            .timing_enabled(ClientOperation::Send)
+            .then(Instant::now);
         self.serialize_and_send(&envelope, timing_start, |config, frame_bytes| {
             send_envelope_span(config, correlation_id, frame_bytes)
         })
@@ -213,7 +217,10 @@ where
         P: Packet + EncodeWith<S> + DecodeWith<S>,
     {
         let span = call_correlated_span(&self.tracing_config);
-        let timing_start = self.tracing_config.call_timing.then(Instant::now);
+        let timing_start = self
+            .tracing_config
+            .timing_enabled(ClientOperation::Call)
+            .then(Instant::now);
 
         self.call_correlated_inner(request, &span, timing_start)
             .instrument(span.clone())
@@ -267,7 +274,10 @@ where
     /// Internal helper for receiving and deserializing a frame.
     pub(crate) async fn receive_internal<R: DecodeWith<S>>(&mut self) -> Result<R, ClientError> {
         let span = receive_span(&self.tracing_config);
-        let timing_start = self.tracing_config.receive_timing.then(Instant::now);
+        let timing_start = self
+            .tracing_config
+            .timing_enabled(ClientOperation::Receive)
+            .then(Instant::now);
 
         self.receive_frame(&span, timing_start)
             .instrument(span.clone())

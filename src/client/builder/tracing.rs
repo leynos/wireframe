@@ -28,7 +28,7 @@ where
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn tracing_config(mut self, config: TracingConfig) -> Self {
+    pub const fn tracing_config(mut self, config: TracingConfig) -> Self {
         self.tracing_config = config;
         self
     }
