@@ -39,6 +39,33 @@ fn contains_json_string_field(json: &str, field: &str, value: &str) -> bool {
     json.contains(&format!("\"{field}\":\"{escaped}\""))
 }
 
+fn check_workspace_members(
+    members: &[Value],
+    root_package_id: &str,
+    verification_package_id: &str,
+    helper_package_id: &str,
+) -> TestResult {
+    check(
+        members
+            .iter()
+            .any(|member| member.as_str() == Some(root_package_id)),
+        "workspace_members should include the root package id",
+    )?;
+    check(
+        members
+            .iter()
+            .any(|member| member.as_str() == Some(verification_package_id)),
+        "workspace_members should include the verification crate id",
+    )?;
+    check(
+        members
+            .iter()
+            .any(|member| member.as_str() == Some(helper_package_id)),
+        "workspace_members should include the wireframe_testing crate id",
+    )?;
+    Ok(())
+}
+
 #[rstest]
 fn root_manifest_declares_explicit_workspace_section() -> TestResult {
     let manifest = root_manifest()?;
@@ -142,23 +169,11 @@ fn cargo_metadata_reports_explicit_members_without_widening_default_members() ->
                 metadata_json.get("workspace_members")
             )
         })?;
-    check(
-        workspace_members
-            .iter()
-            .any(|member| member.as_str() == Some(root_package_id.as_str())),
-        "workspace_members should include the root package id",
-    )?;
-    check(
-        workspace_members
-            .iter()
-            .any(|member| member.as_str() == Some(verification_package_id.as_str())),
-        "workspace_members should include the verification crate id",
-    )?;
-    check(
-        workspace_members
-            .iter()
-            .any(|member| member.as_str() == Some(helper_package_id.as_str())),
-        "workspace_members should include the wireframe_testing crate id",
+    check_workspace_members(
+        workspace_members,
+        &root_package_id,
+        &verification_package_id,
+        &helper_package_id,
     )?;
     check(
         metadata.contains("wireframe-verification"),

@@ -21,7 +21,10 @@ mod fallible_check_eq;
 use fallible_check::check;
 use fallible_check_eq::check_eq;
 use tokio::net::TcpListener;
-use wireframe::client::WireframeClient;
+use wireframe::{
+    client::WireframeClient,
+    preamble::{read_preamble, write_preamble},
+};
 use wireframe_testing::TestResult;
 
 /// Test that setup and teardown callbacks are both invoked for a full
@@ -141,11 +144,18 @@ struct ServerAck {
     accepted: bool,
 }
 
+async fn serve_preamble_ack(listener: TcpListener) -> TestResult<()> {
+    let (mut stream, _) = listener.accept().await?;
+    let (_hello, _) = read_preamble::<_, ClientHello>(&mut stream).await?;
+    write_preamble(&mut stream, &ServerAck { accepted: true }).await?;
+    drop(stream);
+    Ok(())
+}
+
 /// Test that lifecycle hooks can be combined with preamble callbacks.
 #[tokio::test]
 async fn client_lifecycle_hooks_work_with_preamble() -> TestResult<()> {
     use futures::FutureExt;
-    use wireframe::preamble::{read_preamble, write_preamble};
 
     let setup_count = Arc::new(AtomicUsize::new(0));
     let teardown_count = Arc::new(AtomicUsize::new(0));
@@ -157,14 +167,7 @@ async fn client_lifecycle_hooks_work_with_preamble() -> TestResult<()> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
 
-    // Server reads preamble and sends ack
-    let server = tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await?;
-        let (_hello, _) = read_preamble::<_, ClientHello>(&mut stream).await?;
-        write_preamble(&mut stream, &ServerAck { accepted: true }).await?;
-        drop(stream);
-        Ok::<(), wireframe::testkit::TestError>(())
-    });
+    let server = tokio::spawn(serve_preamble_ack(listener));
 
     let client = WireframeClient::builder()
         .with_preamble(ClientHello { version: 1 })
