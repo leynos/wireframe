@@ -22,6 +22,21 @@ MARKDOWNLINT_ACTION_RE = re.compile(
 )
 
 
+def test_ci_runs_for_every_pull_request_base_and_main_pushes_only() -> None:
+    """Every stacked PR must receive the blocking lane without widening pushes."""
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    assert isinstance(workflow, dict), "the CI workflow must be a mapping"
+    triggers = workflow.get("on", workflow.get(True))
+    assert isinstance(triggers, dict), "the CI workflow must declare triggers"
+    assert "pull_request" in triggers, "CI must run on pull requests"
+    assert triggers["pull_request"] in (None, {}), (
+        "CI must not filter pull-request bases or event types"
+    )
+    assert triggers.get("push") == {"branches": ["main"]}, (
+        "CI pushes must remain limited to the main branch"
+    )
+
+
 def _load_steps() -> list[dict[str, object]]:
     """Parse and return the CI build-test steps."""
     workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))

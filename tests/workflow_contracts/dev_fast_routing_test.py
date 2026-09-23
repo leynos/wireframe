@@ -58,6 +58,36 @@ def _cargo_lines(lines: list[str]) -> list[str]:
     return [line for line in lines if "probe-cargo" in line]
 
 
+def _assert_lint_cargo_commands(cargo_lines: list[str]) -> None:
+    """Require lint to invoke rustdoc and Clippy separately."""
+    doc_lines = [line for line in cargo_lines if "doc" in line.split()]
+    clippy_lines = [line for line in cargo_lines if "clippy" in line.split()]
+    assert len(doc_lines) == 1 and len(clippy_lines) == 1, (
+        "lint must retain distinct rustdoc and Clippy Cargo invocations"
+    )
+
+
+def _assert_dev_fast_fragment(target: str, cargo_lines: list[str]) -> None:
+    """Require every Cargo line to select the development config fragment."""
+    missing_fragment = [
+        line for line in cargo_lines if DEV_FAST_ARGUMENT not in line
+    ]
+    assert not missing_fragment, (
+        f"every Cargo invocation in {target} must select {DEV_FAST_ARGUMENT}:\n"
+        + "\n".join(missing_fragment)
+    )
+
+
+def _assert_linux_linker(target: str, cargo_lines: list[str]) -> None:
+    """Require the Linux debug recipes to preserve the `mold` linker flag."""
+    if platform.system() == "Linux":
+        missing_linker = [line for line in cargo_lines if LINKER_ARGUMENT not in line]
+        assert not missing_linker, (
+            f"every Linux debug Cargo invocation in {target} must preserve the "
+            f"`mold` linker flag:\n" + "\n".join(missing_linker)
+        )
+
+
 def _assert_debug_routing(target: str, lines: list[str]) -> None:
     """Require every Cargo invocation in a debug target to select dev-fast."""
     cargo_lines = _cargo_lines(lines)
@@ -70,24 +100,9 @@ def _assert_debug_routing(target: str, lines: list[str]) -> None:
         f"{target} must honour the injected CARGO command"
     )
     if target == "lint":
-        doc_lines = [line for line in cargo_lines if "doc" in line.split()]
-        clippy_lines = [line for line in cargo_lines if "clippy" in line.split()]
-        assert len(doc_lines) == 1 and len(clippy_lines) == 1, (
-            "lint must retain distinct rustdoc and Clippy Cargo invocations"
-        )
-    missing_fragment = [
-        line for line in cargo_lines if DEV_FAST_ARGUMENT not in line
-    ]
-    assert not missing_fragment, (
-        f"every Cargo invocation in {target} must select {DEV_FAST_ARGUMENT}:\n"
-        + "\n".join(missing_fragment)
-    )
-    if platform.system() == "Linux":
-        missing_linker = [line for line in cargo_lines if LINKER_ARGUMENT not in line]
-        assert not missing_linker, (
-            f"every Linux debug Cargo invocation in {target} must preserve the "
-            f"`mold` linker flag:\n" + "\n".join(missing_linker)
-        )
+        _assert_lint_cargo_commands(cargo_lines)
+    _assert_dev_fast_fragment(target, cargo_lines)
+    _assert_linux_linker(target, cargo_lines)
 
 
 def _assert_non_debug_routing(target: str, lines: list[str]) -> None:
