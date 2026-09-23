@@ -427,8 +427,23 @@ the name to its file relative to the parent module's directory (both the
 `name.rs` and `name/mod.rs` spellings, and a `#[path]` attribute where one is
 present), parse that file, and continue the walk inside it. Collect every `use`
 path rooted at `crate::` together with the predicate of the `use` item itself.
-Nothing is enumerated by hand at any point, so a module added tomorrow, at any
-depth, is in the domain the moment it is written.
+
+**`cfg_attr` is expanded, not ignored.** `#[cfg_attr(pred, attrs...)]` generates
+`attrs` only where `pred` holds, so
+`#[cfg_attr(loom, cfg(not(loom)))] mod helper;` is removed under `loom` while
+carrying no plain `cfg` a naive reader would see. For each assignment in the
+universe below, the checker expands every `cfg_attr` on a reachable `mod` or
+`use` item recursively (a generated attribute may itself be a `cfg_attr`), then
+derives predicates and resolves `#[path]` from the attributes that result.
+Where the expansion generates a `cfg`, the item's predicate for that assignment
+is the conjunction of the generated ones; where it generates a `path`,
+resolution uses it for that assignment. If an implementation does not support
+expansion, it must instead refuse, naming the site, any reachable `mod` or
+`use` item carrying a `cfg_attr` that could generate `cfg` or `path`; it must
+never read such an item as unconditional. Today no module or `use` item in the
+crate carries `cfg_attr`, so this is a rule for the checker, not a change to
+the tree. Nothing is enumerated by hand at any point, so a module added
+tomorrow, at any depth, is in the domain the moment it is written.
 
 **Predicates are inherited.** A module's *effective* predicate is the
 conjunction of its own `cfg` predicate with the effective predicate of the
@@ -521,7 +536,7 @@ Domain: every module reachable from `src/lib.rs`, at any depth, with its
 effective predicate, paired with the `crate::`-rooted imports it contains.
 Evidence: passes on the repaired tree, and the run reports the number of module
 declarations and import edges it examined, so a checker that silently found
-nothing is distinguishable from one that found nothing wrong. Non-vacuity: four
+nothing is distinguishable from one that found nothing wrong. Non-vacuity: five
 mutations must be rejected, and one narrowness case must pass. Remove
 `not(loom)` from the repaired `pool_client` predicate, and the contract fails.
 Add a new `cfg(not(loom))` module and import it from an ungated one, and the
@@ -537,7 +552,10 @@ defect inheritance exists to prevent. The narrowness case is the mirror image:
 an import with no local attribute, placed inside a module gated
 `#[cfg(not(loom))]`, of a module also gated `#[cfg(not(loom))]`, must pass,
 because the importer's inherited predicate implies the imported one. A checker
-without inheritance flags it.
+without inheritance flags it. **`cfg_attr`:** in a fixture, gate a module
+`#[cfg_attr(loom, cfg(not(loom)))]` and import it from a module gated
+`#[cfg(loom)]`; the contract must fail. A checker that ignores `cfg_attr` reads
+the module as ungated and passes.
 
 **Obligation V-3: each model is scheduled over the primitives the guide says it
 is scheduled over.** Method: a documented statement plus a review checkpoint,
@@ -684,7 +702,7 @@ that runs the lane's command, which is V-1's artefact. **Conditional on EP-M1
 (R-3):** only if EP-M1 recorded a separate target-selection failure does the
 `make` target also narrow the build to the Loom target, so the workflow's
 one-line change becomes a call rather than a script. Without that recorded
-failure the target runs the lane's command unchanged and no workflow change is
+failure, the target runs the lane's command unchanged and no workflow change is
 owed. The models execute, and whatever they report is recorded honestly.
 Requirements and gaps: discharges #683's stated defect. Acceptance evidence:
 V-1 and V-2 above. Conformance check: public API under `cfg(not(loom))`
