@@ -11,6 +11,7 @@ import os
 import platform
 import subprocess
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -27,13 +28,20 @@ DEV_FAST_ARGUMENT = f"--config {CONFIG_RELATIVE_PATH.as_posix()}"
 LINKER_ARGUMENT = "-Clink-arg=-fuse-ld=mold"
 
 
+@dataclass(frozen=True)
+class _MakeDryRunOptions:
+    """Control Make's rebuild, working directory, and Cargo target."""
+
+    force: bool = True
+    working_directory: Path = ROOT
+    build_target: str | None = None
+
+
 def _make_dry_run(
     target: str,
     makefile: Path = MAKEFILE_PATH,
     *,
-    force: bool = True,
-    working_directory: Path = ROOT,
-    build_target: str | None = None,
+    options: _MakeDryRunOptions = _MakeDryRunOptions(),
 ) -> list[str]:
     """Return the evaluated recipe lines for one target without running them."""
     environment = os.environ.copy()
@@ -41,10 +49,10 @@ def _make_dry_run(
     # Linux linker flag. A fixed input makes that contract observable here.
     environment["RUSTFLAGS"] = "-D warnings"
     environment.pop("CARGO_BUILD_TARGET", None)
-    if build_target is not None:
-        environment["CARGO_BUILD_TARGET"] = build_target
+    if options.build_target is not None:
+        environment["CARGO_BUILD_TARGET"] = options.build_target
     make_args = ["make", "--dry-run"]
-    if force:
+    if options.force:
         make_args.append("-B")
     result = subprocess.run(
         [
@@ -56,7 +64,7 @@ def _make_dry_run(
             "WHITAKER=probe-whitaker",
         ],
         check=True,
-        cwd=working_directory,
+        cwd=options.working_directory,
         env=environment,
         capture_output=True,
         text=True,
@@ -180,10 +188,11 @@ def test_dev_build_rebuilds_with_a_preexisting_library(tmp_path: Path) -> None:
     library = tmp_path / "target/debug/libwireframe.rlib"
     library.parent.mkdir(parents=True)
     library.write_bytes(b"preexisting")
+    options = _MakeDryRunOptions(force=False, working_directory=tmp_path)
     assert not _cargo_lines(
-        _make_dry_run("build", force=False, working_directory=tmp_path)
+        _make_dry_run("build", options=options)
     ), "the standard build should respect an existing library"
-    lines = _make_dry_run("dev-build", force=False, working_directory=tmp_path)
+    lines = _make_dry_run("dev-build", options=options)
     _assert_debug_routing("dev-build", lines)
 
 
@@ -203,7 +212,8 @@ def test_dev_build_rebuilds_with_a_preexisting_library(tmp_path: Path) -> None:
 )
 def test_cross_target_does_not_inherit_host_linker(target: str) -> None:
     """Cross-target debug recipes retain warnings without the host linker."""
-    cargo_lines = _cargo_lines(_make_dry_run(target, build_target="wasm32-wasip1"))
+    options = _MakeDryRunOptions(build_target="wasm32-wasip1")
+    cargo_lines = _cargo_lines(_make_dry_run(target, options=options))
     assert cargo_lines, f"{target} should produce a probe-cargo invocation"
     _assert_dev_fast_fragment(target, cargo_lines)
     if target in {"build", "dev-build"}:
