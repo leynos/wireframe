@@ -93,10 +93,6 @@ impl FrameMetadata for CountingSerializer {
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn metadata_parser_invoked_before_deserialize() -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
     let deserialize_calls = Arc::new(AtomicUsize::new(0));
@@ -106,13 +102,20 @@ async fn metadata_parser_invoked_before_deserialize() -> TestResult<()> {
     let env = Envelope::new(1, Some(0), vec![42]);
 
     let out = drive_with_bincode(app, env).await?;
-    assert!(!out.is_empty(), "no frames emitted");
-    assert_eq!(counter.load(Ordering::Relaxed), 1, "expected 1 parse call");
-    assert_eq!(
-        deserialize_calls.load(Ordering::Relaxed),
-        1,
-        "expected 1 deserialize call with context"
-    );
+    if out.is_empty() {
+        return Err("no frames emitted".into());
+    }
+    let parse_calls = counter.load(Ordering::Relaxed);
+    if parse_calls != 1 {
+        return Err(format!("expected 1 parse call, got {parse_calls}").into());
+    }
+    let actual_deserialize_calls = deserialize_calls.load(Ordering::Relaxed);
+    if actual_deserialize_calls != 1 {
+        return Err(format!(
+            "expected 1 deserialize call with context, got {actual_deserialize_calls}"
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -136,10 +139,6 @@ impl FrameMetadata for FallbackSerializer {
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn falls_back_to_deserialize_after_parse_error() -> TestResult<()> {
     let parse_calls = Arc::new(AtomicUsize::new(0));
     let serializer = FallbackSerializer(parse_calls.clone());
@@ -148,20 +147,17 @@ async fn falls_back_to_deserialize_after_parse_error() -> TestResult<()> {
     let env = Envelope::new(1, Some(0), vec![7]);
 
     let out = drive_with_bincode(app, env).await?;
-    assert!(!out.is_empty(), "no frames emitted");
-    assert_eq!(
-        parse_calls.load(Ordering::Relaxed),
-        1,
-        "expected 1 parse call"
-    );
+    if out.is_empty() {
+        return Err("no frames emitted".into());
+    }
+    let actual_parse_calls = parse_calls.load(Ordering::Relaxed);
+    if actual_parse_calls != 1 {
+        return Err(format!("expected 1 parse call, got {actual_parse_calls}").into());
+    }
     Ok(())
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn metadata_is_forwarded_to_deserialize_context() -> TestResult<()> {
     let context_state = Arc::new(Mutex::new(None::<CapturedDeserializeContext>));
     let serializer = ContextCapturingSerializer::new(context_state.clone());
@@ -170,18 +166,38 @@ async fn metadata_is_forwarded_to_deserialize_context() -> TestResult<()> {
     let envelope = Envelope::new(1, Some(77), vec![1, 2, 3, 4]);
     let expected_parts = envelope.clone().into_parts();
     let output = drive_with_bincode(app, envelope.clone()).await?;
-    assert!(!output.is_empty(), "no frames emitted");
+    if output.is_empty() {
+        return Err("no frames emitted".into());
+    }
 
     let captured = (*context_state
         .lock()
         .map_err(|_| "mutex poisoned while locking context_state")?)
     .ok_or("expected captured deserialize context")?;
 
-    assert_eq!(captured.message_id, Some(expected_parts.id()));
-    assert_eq!(captured.correlation_id, expected_parts.correlation_id());
-    assert_eq!(
-        captured.frame_metadata_len, captured.metadata_bytes_consumed,
-        "metadata bytes consumed should match captured frame metadata slice length"
-    );
+    let expected_message_id = Some(expected_parts.id());
+    if captured.message_id != expected_message_id {
+        return Err(format!(
+            "message id mismatch: expected {expected_message_id:?}, got {:?}",
+            captured.message_id
+        )
+        .into());
+    }
+    let expected_correlation_id = expected_parts.correlation_id();
+    if captured.correlation_id != expected_correlation_id {
+        return Err(format!(
+            "correlation id mismatch: expected {expected_correlation_id:?}, got {:?}",
+            captured.correlation_id
+        )
+        .into());
+    }
+    if captured.frame_metadata_len != captured.metadata_bytes_consumed {
+        return Err(format!(
+            "metadata bytes consumed should match captured frame metadata slice length: metadata \
+             length {:?}, bytes consumed {:?}",
+            captured.frame_metadata_len, captured.metadata_bytes_consumed
+        )
+        .into());
+    }
     Ok(())
 }

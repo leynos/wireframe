@@ -67,7 +67,12 @@ async fn multi_packet_drains_all_messages(count: usize) -> TestResult {
         .into_iter()
         .map(TestMsg)
         .collect::<Vec<_>>();
-    assert_eq!(received, expected);
+    if received != expected {
+        return Err(format!(
+            "multi-packet frames mismatch: expected {expected:?}, got {received:?}"
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -103,7 +108,9 @@ async fn connection_actor_drains_multi_packet_channel(
         .await
         .map_err(|e| boxed_err("connection actor error", e))?;
 
-    assert_eq!(out, frames);
+    if out != frames {
+        return Err(format!("actor frames mismatch: expected {frames:?}, got {out:?}").into());
+    }
     Ok(())
 }
 
@@ -141,7 +148,12 @@ async fn connection_actor_interleaves_multi_packet_and_priority_frames(
         .await
         .map_err(|e| boxed_err("connection actor error", e))?;
 
-    assert_eq!(out, vec![10, 100, 11, 101, 1, 2, 3]);
+    let expected = vec![10, 100, 11, 101, 1, 2, 3];
+    if out != expected {
+        return Err(
+            format!("actor frame order mismatch: expected {expected:?}, got {out:?}").into(),
+        );
+    }
     Ok(())
 }
 
@@ -177,7 +189,9 @@ async fn shutdown_completes_multi_packet_channel(
         .map_err(|e| boxed_err("connection actor shutdown timeout", e))??;
     let out = join_result?;
 
-    assert!(out.is_empty());
+    if !out.is_empty() {
+        return Err(format!("expected no frames after shutdown, got {out:?}").into());
+    }
     drop(tx);
     Ok(())
 }
@@ -217,39 +231,34 @@ async fn shutdown_during_active_multi_packet_send(
         .await
         .map_err(|e| boxed_err("connection actor shutdown timeout", e))??;
     let out = join_result?;
-    assert!(out.is_empty() || out == vec![1, 2], "actor output: {out:?}");
+    if !out.is_empty() && out != vec![1, 2] {
+        return Err(format!(
+            "expected no frames or the two queued frames after shutdown, got {out:?}"
+        )
+        .into());
+    }
     drop(tx);
     Ok(())
 }
 
 /// Returns an empty stream for an empty vector response.
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn vec_empty_returns_empty_stream() -> TestResult {
     let resp: Response<TestMsg, ()> = Response::Vec(Vec::new());
     let received = drain_all(resp.into_stream()).await?;
-    assert!(
-        received.is_empty(),
-        "expected empty stream, got {received:?}"
-    );
+    if !received.is_empty() {
+        return Err(format!("expected empty stream, got {received:?}").into());
+    }
     Ok(())
 }
 
 /// `Response::Empty` yields no frames.
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn empty_returns_empty_stream() -> TestResult {
     let resp: Response<TestMsg, ()> = Response::Empty;
     let received = drain_all(resp.into_stream()).await?;
-    assert!(
-        received.is_empty(),
-        "expected empty stream, got {received:?}"
-    );
+    if !received.is_empty() {
+        return Err(format!("expected empty stream, got {received:?}").into());
+    }
     Ok(())
 }

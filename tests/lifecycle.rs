@@ -12,7 +12,14 @@ use std::{
     },
 };
 
+#[path = "common/fallible_assertions/check.rs"]
+mod fallible_check;
+#[path = "common/fallible_assertions/check_eq.rs"]
+mod fallible_check_eq;
+
 use bytes::BytesMut;
+use fallible_check::check;
+use fallible_check_eq::check_eq;
 use tokio_util::codec::Encoder;
 use wireframe::{
     app::{Envelope, Packet},
@@ -69,10 +76,6 @@ where
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn setup_and_teardown_callbacks_run() -> TestResult<()> {
     let setup_count = Arc::new(AtomicUsize::new(0));
     let teardown_count = Arc::new(AtomicUsize::new(0));
@@ -82,24 +85,20 @@ async fn setup_and_teardown_callbacks_run() -> TestResult<()> {
 
     run_with_duplex_server(app).await;
 
-    assert_eq!(
+    check_eq(
         setup_count.load(Ordering::SeqCst),
         1,
-        "setup callback did not run exactly once"
-    );
-    assert_eq!(
+        "setup callback did not run exactly once",
+    )?;
+    check_eq(
         teardown_count.load(Ordering::SeqCst),
         1,
-        "teardown callback did not run exactly once"
-    );
+        "teardown callback did not run exactly once",
+    )?;
 
     Ok(())
 }
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn setup_without_teardown_runs() -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
     let cb = call_counting_callback(&counter, ());
@@ -108,20 +107,16 @@ async fn setup_without_teardown_runs() -> TestResult<()> {
 
     run_with_duplex_server(app).await;
 
-    assert_eq!(
+    check_eq(
         counter.load(Ordering::SeqCst),
         1,
-        "setup callback did not run"
-    );
+        "setup callback did not run",
+    )?;
 
     Ok(())
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn teardown_without_setup_does_not_run() -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));
     let cb = call_counting_callback(&counter, ());
@@ -130,20 +125,16 @@ async fn teardown_without_setup_does_not_run() -> TestResult<()> {
 
     run_with_duplex_server(app).await;
 
-    assert_eq!(
+    check_eq(
         counter.load(Ordering::SeqCst),
         0,
-        "teardown callback should not run"
-    );
+        "teardown callback should not run",
+    )?;
 
     Ok(())
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn setup_after_teardown_clears_previous_teardown() -> TestResult<()> {
     let setup_count = Arc::new(AtomicUsize::new(0));
     let teardown_count = Arc::new(AtomicUsize::new(0));
@@ -156,25 +147,21 @@ async fn setup_after_teardown_clears_previous_teardown() -> TestResult<()> {
 
     run_with_duplex_server(app).await;
 
-    assert_eq!(
+    check_eq(
         setup_count.load(Ordering::SeqCst),
         1,
-        "setup callback did not run"
-    );
-    assert_eq!(
+        "setup callback did not run",
+    )?;
+    check_eq(
         teardown_count.load(Ordering::SeqCst),
         0,
-        "teardown callback for prior state type should be cleared"
-    );
+        "teardown callback for prior state type should be cleared",
+    )?;
 
     Ok(())
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn helpers_preserve_correlation_id_and_run_callbacks() -> TestResult<()> {
     let setup = Arc::new(AtomicUsize::new(0));
     let teardown = Arc::new(AtomicUsize::new(0));
@@ -193,25 +180,25 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() -> TestResult<()> {
     codec.encode(bytes.into(), &mut frame)?;
 
     let out = run_app(app, vec![frame.to_vec()], None).await?;
-    assert!(!out.is_empty(), "expected response frames");
+    check(!out.is_empty(), "expected response frames")?;
 
     let frames = decode_frames(&out)?;
     let [first] = frames.as_slice() else {
-        panic!("expected a single response frame");
+        return Err(format!("expected a single response frame, got {}", frames.len()).into());
     };
     let (resp, _) = BincodeSerializer.deserialize::<CommonTestEnvelope>(first)?;
-    assert_eq!(resp.correlation_id, Some(0), "correlation id not preserved");
+    check_eq(resp.correlation_id, Some(0), "correlation id not preserved")?;
 
-    assert_eq!(
+    check_eq(
         setup.load(Ordering::SeqCst),
         1,
-        "setup callback did not run exactly once"
-    );
-    assert_eq!(
+        "setup callback did not run exactly once",
+    )?;
+    check_eq(
         teardown.load(Ordering::SeqCst),
         1,
-        "teardown callback did not run exactly once"
-    );
+        "teardown callback did not run exactly once",
+    )?;
 
     Ok(())
 }

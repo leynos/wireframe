@@ -21,10 +21,6 @@ use crate::support::{
 };
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn success_callback_can_write_response() -> TestResult {
     let factory = factory();
     let (response_tx, response_rx) = oneshot::channel();
@@ -51,15 +47,13 @@ async fn success_callback_can_write_response() -> TestResult {
     })
     .await?;
     let buf = recv_within(Duration::from_secs(1), response_rx).await?;
-    assert_eq!(&buf, b"ACK");
+    if buf.as_slice() != b"ACK" {
+        return Err(format!("response mismatch: expected b\"ACK\", got {buf:?}").into());
+    }
     Ok(())
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn failure_callback_can_write_response() -> TestResult {
     let factory = factory();
     let (failure_holder, failure_rx) = channel_holder();
@@ -89,7 +83,9 @@ async fn failure_callback_can_write_response() -> TestResult {
     })
     .await?;
     let buf = recv_within(Duration::from_secs(1), response_rx).await?;
-    assert_eq!(&buf, b"ERR");
+    if buf.as_slice() != b"ERR" {
+        return Err(format!("response mismatch: expected b\"ERR\", got {buf:?}").into());
+    }
     recv_within(Duration::from_millis(200), failure_rx).await?;
     Ok(())
 }

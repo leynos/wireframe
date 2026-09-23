@@ -10,7 +10,11 @@ use std::{
     time::Duration,
 };
 
+#[path = "common/fallible_assertions/check_equal.rs"]
+mod fallible_check_equal;
+
 use async_trait::async_trait;
+use fallible_check_equal::check_equal;
 use proptest::{
     prelude::*,
     test_runner::{TestCaseError, TestCaseResult},
@@ -229,28 +233,29 @@ fn response_payload(bytes: &[u8]) -> TestResult<Vec<u8>> {
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "assertions make transform counts and middleware order failures explicit"
-)]
 async fn connection_startup_records_counts_before_and_after_preparation() -> TestResult<()> {
     let instrumentation = ConnectionStartupInstrumentation::new();
     let app_factory = counted_app_factory(instrumentation.clone());
 
-    assert_eq!(
-        instrumentation.snapshot(),
-        ConnectionStartupCounts {
+    check_equal(
+        &instrumentation.snapshot(),
+        &ConnectionStartupCounts {
             factory_calls: 0,
             transforms: 0,
-        }
-    );
+        },
+        "connection counters should start at zero",
+    )?;
 
     let legacy_counts = ConnectionStartupCounts {
         factory_calls: CONNECTIONS,
         transforms: CONNECTIONS * ROUTES * MIDDLEWARE_LAYERS,
     };
     run_legacy_server_connections(app_factory.clone(), &instrumentation, &legacy_counts).await?;
-    assert_eq!(instrumentation.snapshot(), legacy_counts);
+    check_equal(
+        &instrumentation.snapshot(),
+        &legacy_counts,
+        "legacy connections should each transform the routes",
+    )?;
 
     let prepared: TestPreparedApp = app_factory()?
         .prepare()
@@ -260,22 +265,34 @@ async fn connection_startup_records_counts_before_and_after_preparation() -> Tes
         factory_calls: CONNECTIONS + 1,
         transforms: (CONNECTIONS + 1) * ROUTES * MIDDLEWARE_LAYERS,
     };
-    assert_eq!(instrumentation.snapshot(), prepared_counts);
+    check_equal(
+        &instrumentation.snapshot(),
+        &prepared_counts,
+        "preparation should transform each route once",
+    )?;
 
     let first = drive_prepared_with_frames(&prepared, vec![build_frame(1, vec![b'X'])?]).await?;
     let second = drive_prepared_with_frames(&prepared, vec![build_frame(2, vec![b'Y'])?]).await?;
 
-    assert_eq!(instrumentation.snapshot(), prepared_counts);
-    assert_eq!(response_payload(&first)?, [b'X', b'A', b'B', b'B', b'A']);
-    assert_eq!(response_payload(&second)?, [b'Y', b'A', b'B', b'B', b'A']);
+    check_equal(
+        &instrumentation.snapshot(),
+        &prepared_counts,
+        "serving prepared frames should not add transforms",
+    )?;
+    check_equal(
+        &response_payload(&first)?,
+        b"XABBA",
+        "the first response should follow middleware order",
+    )?;
+    check_equal(
+        &response_payload(&second)?,
+        b"YABBA",
+        "the second response should follow middleware order",
+    )?;
     Ok(())
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "assertions make prepared-connection failure behaviour explicit"
-)]
 async fn prepared_app_runs_teardown_after_processing_error() -> TestResult<()> {
     let teardown_calls = Arc::new(AtomicUsize::new(0));
     let teardown_counter = Arc::clone(&teardown_calls);
@@ -291,25 +308,39 @@ async fn prepared_app_runs_teardown_after_processing_error() -> TestResult<()> {
         .await
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
 
-    let error = drive_prepared_with_frames(&prepared, vec![vec![0, 0, 0, 2, 1]])
-        .await
-        .expect_err("truncated frame should fail processing");
-    assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
-    assert_eq!(teardown_calls.load(Ordering::SeqCst), 1);
+    let error = match drive_prepared_with_frames(&prepared, vec![vec![0, 0, 0, 2, 1]]).await {
+        Err(error) => error,
+        Ok(response) => {
+            return Err(format!(
+                "truncated frame should fail processing, got response {response:?}"
+            )
+            .into());
+        }
+    };
+    check_equal(
+        &error.kind(),
+        &std::io::ErrorKind::UnexpectedEof,
+        "truncated frame should return unexpected EOF",
+    )?;
+    check_equal(
+        &teardown_calls.load(Ordering::SeqCst),
+        &1,
+        "teardown should run after the in-process processing error",
+    )?;
 
     let (mut client, server) = tokio::io::duplex(64);
     client.write_all(&[0, 0, 0, 2, 1]).await?;
     client.shutdown().await?;
     prepared.handle_connection(server).await;
-    assert_eq!(teardown_calls.load(Ordering::SeqCst), 2);
+    check_equal(
+        &teardown_calls.load(Ordering::SeqCst),
+        &2,
+        "teardown should run after the duplex processing error",
+    )?;
     Ok(())
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "assertions make concurrent prepared-service reuse explicit"
-)]
 async fn prepared_app_reuses_services_across_overlapping_connections() -> TestResult<()> {
     let transforms = Arc::new(AtomicUsize::new(0));
     let barrier = Arc::new(Barrier::new(CONNECTIONS));
@@ -329,7 +360,11 @@ async fn prepared_app_reuses_services_across_overlapping_connections() -> TestRe
         .prepare()
         .await
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
-    assert_eq!(transforms.load(Ordering::SeqCst), 1);
+    check_equal(
+        &transforms.load(Ordering::SeqCst),
+        &1,
+        "preparation should transform the shared route once",
+    )?;
 
     let first_frame = build_frame(1, vec![b'X'])?;
     let second_frame = build_frame(1, vec![b'Y'])?;
@@ -341,9 +376,21 @@ async fn prepared_app_reuses_services_across_overlapping_connections() -> TestRe
     })
     .await
     .map_err(|_| "prepared connections did not overlap")?;
-    assert_eq!(response_payload(&first?)?, [b'X', b'A', b'A']);
-    assert_eq!(response_payload(&second?)?, [b'Y', b'A', b'A']);
-    assert_eq!(transforms.load(Ordering::SeqCst), 1);
+    check_equal(
+        &response_payload(&first?)?,
+        b"XAA",
+        "the first overlapping response should carry both middleware tags",
+    )?;
+    check_equal(
+        &response_payload(&second?)?,
+        b"YAA",
+        "the second overlapping response should carry both middleware tags",
+    )?;
+    check_equal(
+        &transforms.load(Ordering::SeqCst),
+        &1,
+        "overlapping connections should not rebuild the shared route",
+    )?;
     Ok(())
 }
 
@@ -383,10 +430,6 @@ async fn exchange_one_tcp_frame(address: SocketAddr, frame: Vec<u8>) -> TestResu
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "assertions make real-socket prepared dispatch and transform reuse explicit"
-)]
 async fn prepared_app_serves_real_tcp_connection_without_retransforming() -> TestResult<()> {
     let instrumentation = ConnectionStartupInstrumentation::new();
     let prepared: TestPreparedApp = counted_app_factory(instrumentation.clone())()?
@@ -397,7 +440,11 @@ async fn prepared_app_serves_real_tcp_connection_without_retransforming() -> Tes
         factory_calls: 1,
         transforms: ROUTES * MIDDLEWARE_LAYERS,
     };
-    assert_eq!(instrumentation.snapshot(), prepared_counts);
+    check_equal(
+        &instrumentation.snapshot(),
+        &prepared_counts,
+        "preparation should transform each route once",
+    )?;
 
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
@@ -405,7 +452,11 @@ async fn prepared_app_serves_real_tcp_connection_without_retransforming() -> Tes
 
     let payload = exchange_one_tcp_frame(address, build_frame(1, vec![b'X'])?).await?;
     // The request gains tags A then B in wrap order; the response unwinds them.
-    assert_eq!(payload, [b'X', b'A', b'B', b'B', b'A']);
+    check_equal(
+        &payload,
+        b"XABBA",
+        "the real TCP response should follow middleware order",
+    )?;
 
     let joined = timeout(TCP_OPERATION_TIMEOUT, server)
         .await
@@ -413,7 +464,11 @@ async fn prepared_app_serves_real_tcp_connection_without_retransforming() -> Tes
     // Surfaces both a failed join and a failed connection-processing result.
     joined??;
     // Preparation transformed each route once; the connection added none.
-    assert_eq!(instrumentation.snapshot(), prepared_counts);
+    check_equal(
+        &instrumentation.snapshot(),
+        &prepared_counts,
+        "the real TCP connection should not add transforms",
+    )?;
     Ok(())
 }
 
