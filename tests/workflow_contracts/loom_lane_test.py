@@ -32,10 +32,6 @@ WORKFLOW_PATH: typ.Final = REPO_ROOT / ".github" / "workflows" / "advanced-tests
 LOOM_TARGET: typ.Final = "test-loom"
 LOOM_PACKAGE: typ.Final = "wireframe-loom"
 
-#: Shell operators that would hand the status to another command or chain
-#: a second one after the models.
-SHELL_OPERATORS: typ.Final = frozenset({"|", "||", "&&", ";", "&"})
-
 #: The outer bound for the step, in minutes. Loom has no clock, so a model
 #: that cannot finish hangs rather than fails; the step's timeout is what
 #: turns that into a red run.
@@ -66,6 +62,12 @@ def _steps() -> list[dict[str, object]]:
     return [step for step in steps if isinstance(step, dict)]
 
 
+def _is_assignment(token: str) -> bool:
+    """Report whether a leading shell word assigns an environment variable."""
+    name, separator, _ = token.partition("=")
+    return bool(separator) and name.isidentifier()
+
+
 def _loom_command() -> tuple[dict[str, str], list[str]]:
     """Return the environment and argument list ``make test-loom`` would run.
 
@@ -86,7 +88,7 @@ def _loom_command() -> tuple[dict[str, str], list[str]]:
     )
     tokens = _tokens(lines[0])
     environment: dict[str, str] = {}
-    while tokens and "=" in tokens[0] and not tokens[0].startswith("-"):
+    while tokens and _is_assignment(tokens[0]):
         name, _, value = tokens.pop(0).partition("=")
         environment[name] = value
     return environment, tokens
@@ -135,24 +137,18 @@ def test_the_loom_step_is_bounded() -> None:
 def test_the_target_runs_the_models_rather_than_compiling_them() -> None:
     """Scenario: the target compiles the models, or runs the wrong package.
 
-    Invariant: the target runs ``cargo test -p wireframe-loom`` with no
-    ``--no-run``, and with no shell operator after it. A compile-only lane
-    was the state this contract exists to end.
+    Invariant: the target runs exactly ``cargo test -p wireframe-loom``:
+    no ``--no-run``, no ``-- --list``, no filter and no shell operator after
+    it. A lane that compiles or lists its models without running them was the
+    state this contract exists to end.
     """
     _, argv = _loom_command()
-    assert argv[:2] == ["cargo", "test"], (
-        f"{LOOM_TARGET} must run `cargo test`; it runs {argv}"
-    )
-    assert "--no-run" not in argv, (
-        f"{LOOM_TARGET} must run the models, not only compile them: {argv}"
-    )
-    assert "-p" in argv and argv[argv.index("-p") + 1] == LOOM_PACKAGE, (
-        f"{LOOM_TARGET} must select the {LOOM_PACKAGE} package; it runs {argv}"
-    )
-    operators = sorted(SHELL_OPERATORS.intersection(argv))
-    assert not operators, (
-        f"{LOOM_TARGET} must end at the test run, so its status is the "
-        f"lane's; found {operators} in {argv}"
+    # Compared whole. `--no-run` compiles and runs nothing, `-- --list` lists
+    # and runs nothing, a trailing filter can select nothing, and a shell
+    # operator hands the status to another command. Each keeps every word a
+    # membership test would look for.
+    assert argv == ["cargo", "test", "-p", LOOM_PACKAGE], (
+        f"{LOOM_TARGET} must run exactly `cargo test -p {LOOM_PACKAGE}`; it runs {argv}"
     )
 
 

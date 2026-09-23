@@ -96,13 +96,18 @@ Split out:
 pub(crate) fn eligible_sources(
     availability: EventAvailability,
     state: &ActorState,
+    should_yield_to_low: bool,
 ) -> SourceOrder;
 ```
 
 returning the ordered list the `select!` arms are guarded by, with `biased`
-reducing to "the first ready source in this order". `next_event` keeps its
-`select!`, now guarded by the extracted result, so the shipped path is the one
-verified.
+reducing to "the first ready source in this order". The fairness decision is an
+input, not something the function consults: today `FairnessTracker` is applied
+in `after_high`'s opportunistic drain, not in `next_event`, so the caller passes
+`should_yield_to_low` from the tracker and the Kani harness ranges over both
+values. Keeping it explicit is what lets Kani and Stateright share the function
+without either modelling the tracker's clock. `next_event` keeps its `select!`,
+now guarded by the extracted result, so the shipped path is the one verified.
 
 ### 2. Verify the decision exhaustively with Kani
 

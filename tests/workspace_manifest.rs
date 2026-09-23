@@ -146,30 +146,19 @@ fn cargo_metadata_reports_explicit_members_without_widening_default_members() ->
         .get("workspace_members")
         .and_then(Value::as_array)
         .expect("cargo metadata should expose workspace_members as an array");
-    assert!(
-        workspace_members
-            .iter()
-            .any(|member| member.as_str() == Some(root_package_id.as_str())),
-        "workspace_members should include the root package id"
-    );
-    assert!(
-        workspace_members
-            .iter()
-            .any(|member| member.as_str() == Some(verification_package_id.as_str())),
-        "workspace_members should include the verification crate id"
-    );
-    assert!(
-        workspace_members
-            .iter()
-            .any(|member| member.as_str() == Some(loom_package_id.as_str())),
-        "workspace_members should include the wireframe-loom crate id"
-    );
-    assert!(
-        workspace_members
-            .iter()
-            .any(|member| member.as_str() == Some(helper_package_id.as_str())),
-        "workspace_members should include the wireframe_testing crate id"
-    );
+    for (package_id, description) in [
+        (&root_package_id, "the root package"),
+        (&verification_package_id, "the verification crate"),
+        (&loom_package_id, "the wireframe-loom crate"),
+        (&helper_package_id, "the wireframe_testing crate"),
+    ] {
+        assert!(
+            workspace_members
+                .iter()
+                .any(|member| member.as_str() == Some(package_id.as_str())),
+            "workspace_members should include the id of {description}"
+        );
+    }
     assert!(
         metadata.contains("wireframe-verification"),
         "15.1.2 should add the verification crate to cargo metadata"

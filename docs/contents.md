@@ -25,9 +25,12 @@ reference when navigating the project's design and architecture material.
 ## Requests for comments
 
 - [RFC 0001: protocol-agnostic test harness lifecycle](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md)
-- [RFC 0002: model-checking the connection actor's write loop](rfcs/0002-model-checking-the-write-loop.md)
   Proposed server lifecycle and custom-client connector layers for
   `wireframe_testing`.
+- [RFC 0002: model-checking the write loop][rfc-0002] Proposed verification of
+  the connection actor's scheduling decision, beyond what Loom can schedule.
+
+[rfc-0002]: rfcs/0002-model-checking-the-write-loop.md
 
 ## Architectural decision records
 

@@ -263,11 +263,13 @@ Found while implementing, on 2026-09-23:
 
 ## Outcomes & retrospective
 
-The lane now runs six Loom models from `make test-loom`, and each assertion is
-shown able to fail. What it verifies is small and stated: the dead-letter drop
-counter and log mutex under two concurrent producers. The write loop's own
-ordering is not Loom's to check, and the documents that said otherwise are
-corrected.
+The lane now runs six Loom test functions from `make test-loom`, eight model
+executions once the two parameterized dead-letter functions run for both
+priorities, and each assertion is shown able to fail. What they verify is small
+and stated: the dead-letter drop counter and log mutex under two concurrent
+producers (six executions), and the active-connection gauge under two
+concurrent actors (two). The write loop's own ordering is not Loom's to check,
+and the documents that said otherwise are corrected.
 
 Lesson: the question to ask first of a Loom lane is not "does it compile" but
 "which of the subject's primitives are Loom's". Here the answer was two fields,
@@ -373,8 +375,9 @@ section of `docs/developers-guide.md`, naming each field of `PushHandleInner`
 and whether Loom schedules it. A review checkpoint, not a test, for the reason
 the earlier draft gave.
 
-**V-4: every model assertion can fail.** `make test-loom` passes eight models:
-six over the dead-letter accounting (two parameterized over both priorities)
+**V-4: every model assertion can fail.** `make test-loom` passes six test
+functions and eight model executions: four functions and six executions over
+the dead-letter accounting (two functions parameterized over both priorities),
 and two over the active-connection gauge. Each mutation below is applied to
 `src/push/queues/handle.rs` alone and restored from a copy:
 

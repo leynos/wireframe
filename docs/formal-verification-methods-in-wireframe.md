@@ -49,15 +49,19 @@ That split gives Wireframe a pragmatic verification stack:
 
 ## Current state in Wireframe
 
-Today, Wireframe is a single Cargo package rather than a workspace. Its
-`Cargo.toml` includes `proptest` and `loom` in `dev-dependencies`, exposes an
-`advanced-tests` feature, and defines dedicated advanced test targets such as
-`bdd` and `bdd_pool`; the Loom models live in their own package,
-`crates/wireframe-loom`.[^1] The top-level `Makefile` currently provides build,
-test, lint, formatting, and benchmark targets, but no formal-verification
-targets.[^15] The current continuous integration (CI) workflow is a single
-`build-test` job running formatting, linting, and coverage generation, again
-with no dedicated formal-verification jobs.[^16]
+Today, Wireframe is a hybrid Cargo workspace: the root `Cargo.toml` holds the
+`wireframe` package and a `[workspace]` whose members are the root, the Loom
+models (`crates/wireframe-loom`), the Stateright verification crate
+(`crates/wireframe-verification`) and `wireframe_testing`, with the root as the
+only default member. The root package includes `proptest` in
+`dev-dependencies`, exposes an `advanced-tests` feature, and defines dedicated
+advanced test targets such as `bdd` and `bdd_pool`.[^1] The top-level
+`Makefile` provides `make test-loom` for the Loom models and
+`make test-verification` for the Stateright crate; `make kani`,
+`make kani-full` and `make verus` are placeholders until their roadmap work
+activates them.[^15] The continuous integration (CI) workflow's `build-test`
+job runs formatting, linting and coverage generation; the Loom models run in
+the scheduled **Advanced Tests** lane.[^16]
 
 That means Wireframe does **not** need a new testing culture. It already has
 one. What is missing is infrastructure for **proof-oriented** and
