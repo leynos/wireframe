@@ -17,10 +17,6 @@ use wireframe::{
 use wireframe_testing::TestResult;
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn stream_frames_carry_request_correlation_id() -> TestResult {
     let cid = 42u64;
     let stream: FrameStream<Envelope> = Box::pin(try_stream! {
@@ -39,10 +35,15 @@ async fn stream_frames_carry_request_correlation_id() -> TestResult {
         .run(&mut out)
         .await
         .map_err(|e| io::Error::other(format!("actor run failed: {e:?}")))?;
-    assert!(
-        out.iter().all(|e| e.correlation_id() == Some(cid)),
-        "frames lost correlation id"
-    );
+    if !out.iter().all(|e| e.correlation_id() == Some(cid)) {
+        return Err(format!(
+            "frames lost correlation id: expected Some({cid}), got {:?}",
+            out.iter()
+                .map(CorrelatableFrame::correlation_id)
+                .collect::<Vec<_>>()
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -105,10 +106,12 @@ async fn multi_packet_frames_apply_expected_correlation(
         .iter()
         .map(CorrelatableFrame::correlation_id)
         .collect();
-    assert_eq!(
-        correlations, expected,
-        "unexpected correlation ids: {correlations:?}, expected {expected:?}"
-    );
+    if correlations != expected {
+        return Err(format!(
+            "unexpected correlation ids: expected {expected:?}, got {correlations:?}"
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -131,10 +134,12 @@ async fn multi_packet_terminator_applies_correlation(
     let [terminator] = frames.as_slice() else {
         return Err(io::Error::other("expected exactly one terminator frame").into());
     };
-    assert_eq!(
-        terminator.correlation_id(),
-        expected,
-        "unexpected terminator correlation"
-    );
+    let actual_correlation = terminator.correlation_id();
+    if actual_correlation != expected {
+        return Err(format!(
+            "unexpected terminator correlation: expected {expected:?}, got {actual_correlation:?}"
+        )
+        .into());
+    }
     Ok(())
 }

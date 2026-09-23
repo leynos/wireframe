@@ -10,9 +10,16 @@
 
 use std::sync::{
     Arc,
-    atomic::{AtomicUsize, Ordering},
+    atomic::{AtomicU32, AtomicUsize, Ordering},
 };
 
+#[path = "common/fallible_assertions/check.rs"]
+mod fallible_check;
+#[path = "common/fallible_assertions/check_eq.rs"]
+mod fallible_check_eq;
+
+use fallible_check::check;
+use fallible_check_eq::check_eq;
 use tokio::net::TcpListener;
 use wireframe::client::WireframeClient;
 use wireframe_testing::TestResult;
@@ -20,23 +27,22 @@ use wireframe_testing::TestResult;
 /// Test that setup and teardown callbacks are both invoked for a full
 /// connection lifecycle.
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn client_setup_and_teardown_callbacks_run() -> TestResult<()> {
     let setup_count = Arc::new(AtomicUsize::new(0));
     let teardown_count = Arc::new(AtomicUsize::new(0));
+    let teardown_state = Arc::new(AtomicU32::new(0));
     let setup = setup_count.clone();
     let teardown = teardown_count.clone();
+    let observed_teardown_state = teardown_state.clone();
 
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let addr = listener.local_addr()?;
 
     // Server accepts and then closes
     let server = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.expect("accept");
+        let (stream, _) = listener.accept().await?;
         drop(stream); // Close immediately
+        Ok::<(), wireframe::testkit::TestError>(())
     });
 
     let client = WireframeClient::builder()
@@ -49,38 +55,40 @@ async fn client_setup_and_teardown_callbacks_run() -> TestResult<()> {
         })
         .on_connection_teardown(move |state: u32| {
             let teardown = teardown.clone();
+            let observed_teardown_state = observed_teardown_state.clone();
             async move {
-                assert_eq!(state, 42, "teardown should receive state from setup");
+                observed_teardown_state.store(state, Ordering::SeqCst);
                 teardown.fetch_add(1, Ordering::SeqCst);
             }
         })
         .connect(addr)
         .await?;
 
-    assert_eq!(
+    check_eq(
         setup_count.load(Ordering::SeqCst),
         1,
-        "setup callback should run exactly once"
-    );
+        "setup callback should run exactly once",
+    )?;
 
     client.close().await;
 
-    assert_eq!(
+    check_eq(
+        teardown_state.load(Ordering::SeqCst),
+        42,
+        "teardown should receive state from setup",
+    )?;
+    check_eq(
         teardown_count.load(Ordering::SeqCst),
         1,
-        "teardown callback should run exactly once"
-    );
+        "teardown callback should run exactly once",
+    )?;
 
-    server.await?;
+    server.await??;
     Ok(())
 }
 
 /// Test that the error hook is invoked when the server disconnects unexpectedly.
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn client_error_hook_invoked_on_disconnect() -> TestResult<()> {
     let error_count = Arc::new(AtomicUsize::new(0));
     let count = error_count.clone();
@@ -90,8 +98,9 @@ async fn client_error_hook_invoked_on_disconnect() -> TestResult<()> {
 
     // Server accepts and then closes immediately
     let server = tokio::spawn(async move {
-        let (stream, _) = listener.accept().await.expect("accept");
+        let (stream, _) = listener.accept().await?;
         drop(stream);
+        Ok::<(), wireframe::testkit::TestError>(())
     });
 
     let mut client = WireframeClient::builder()
@@ -104,17 +113,20 @@ async fn client_error_hook_invoked_on_disconnect() -> TestResult<()> {
         .connect(addr)
         .await?;
 
-    server.await?;
+    server.await??;
 
     // Try to receive - should fail and invoke error hook
     let result: Result<Vec<u8>, wireframe::client::ClientError> = client.receive().await;
-    assert!(result.is_err(), "receive should fail after disconnect");
+    check(
+        result.is_err(),
+        format!("receive should fail after disconnect, got {result:?}"),
+    )?;
 
-    assert_eq!(
+    check_eq(
         error_count.load(Ordering::SeqCst),
         1,
-        "error callback should be invoked on disconnect"
-    );
+        "error callback should be invoked on disconnect",
+    )?;
 
     Ok(())
 }
@@ -131,10 +143,6 @@ struct ServerAck {
 
 /// Test that lifecycle hooks can be combined with preamble callbacks.
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn client_lifecycle_hooks_work_with_preamble() -> TestResult<()> {
     use futures::FutureExt;
     use wireframe::preamble::{read_preamble, write_preamble};
@@ -151,14 +159,11 @@ async fn client_lifecycle_hooks_work_with_preamble() -> TestResult<()> {
 
     // Server reads preamble and sends ack
     let server = tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.expect("accept");
-        let (_hello, _) = read_preamble::<_, ClientHello>(&mut stream)
-            .await
-            .expect("read preamble");
-        write_preamble(&mut stream, &ServerAck { accepted: true })
-            .await
-            .expect("write ack");
+        let (mut stream, _) = listener.accept().await?;
+        let (_hello, _) = read_preamble::<_, ClientHello>(&mut stream).await?;
+        write_preamble(&mut stream, &ServerAck { accepted: true }).await?;
         drop(stream);
+        Ok::<(), wireframe::testkit::TestError>(())
     });
 
     let client = WireframeClient::builder()
@@ -170,7 +175,12 @@ async fn client_lifecycle_hooks_work_with_preamble() -> TestResult<()> {
                 let (ack, leftover) = read_preamble::<_, ServerAck>(stream).await.map_err(|e| {
                     std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
                 })?;
-                assert!(ack.accepted, "server should accept preamble");
+                if !ack.accepted {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "server should accept preamble",
+                    ));
+                }
                 Ok(leftover)
             }
             .boxed()
@@ -191,26 +201,26 @@ async fn client_lifecycle_hooks_work_with_preamble() -> TestResult<()> {
         .connect(addr)
         .await?;
 
-    server.await?;
+    server.await??;
 
-    assert_eq!(
+    check_eq(
         preamble_count.load(Ordering::SeqCst),
         1,
-        "preamble callback should run"
-    );
-    assert_eq!(
+        "preamble callback should run",
+    )?;
+    check_eq(
         setup_count.load(Ordering::SeqCst),
         1,
-        "setup callback should run"
-    );
+        "setup callback should run",
+    )?;
 
     client.close().await;
 
-    assert_eq!(
+    check_eq(
         teardown_count.load(Ordering::SeqCst),
         1,
-        "teardown callback should run"
-    );
+        "teardown callback should run",
+    )?;
 
     Ok(())
 }

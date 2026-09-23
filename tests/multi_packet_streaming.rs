@@ -108,10 +108,6 @@ impl ActorHarness {
 fn parts(frame: &Envelope) -> PacketParts { frame.clone().into_parts() }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn client_receives_multi_packet_stream_with_terminator() -> TestResult<()> {
     let mut harness = ActorHarness::new()?;
     let (tx, rx) = mpsc::channel(4);
@@ -133,29 +129,45 @@ async fn client_receives_multi_packet_stream_with_terminator() -> TestResult<()>
 
     let out = harness.run().await?;
 
-    assert_eq!(out.len(), 3, "expected two frames plus terminator");
+    if out.len() != 3 {
+        return Err(format!("expected two frames plus terminator, got {}", out.len()).into());
+    }
     let payloads: Vec<Vec<u8>> = out
         .iter()
         .map(|frame| parts(frame).into_payload())
         .collect();
-    assert_eq!(payloads.first(), Some(&vec![1]), "first payload mismatch");
-    assert_eq!(
-        payloads.get(1),
-        Some(&vec![2, 3]),
-        "second payload mismatch"
-    );
-    assert_eq!(
-        payloads.get(2),
-        Some(&Vec::<u8>::new()),
-        "terminator payload should be empty"
-    );
+    if payloads.first() != Some(&vec![1]) {
+        return Err(format!(
+            "first payload mismatch: expected {:?}, got {:?}",
+            Some(&vec![1]),
+            payloads.first()
+        )
+        .into());
+    }
+    if payloads.get(1) != Some(&vec![2, 3]) {
+        return Err(format!(
+            "second payload mismatch: expected {:?}, got {:?}",
+            Some(&vec![2, 3]),
+            payloads.get(1)
+        )
+        .into());
+    }
+    if payloads.get(2) != Some(&Vec::<u8>::new()) {
+        return Err(format!(
+            "terminator payload should be empty: got {:?}",
+            payloads.get(2)
+        )
+        .into());
+    }
 
     for frame in &out {
-        assert_eq!(
-            parts(frame).correlation_id(),
-            correlation,
-            "correlation id mismatch"
-        );
+        let actual_correlation = parts(frame).correlation_id();
+        if actual_correlation != correlation {
+            return Err(format!(
+                "correlation id mismatch: expected {correlation:?}, got {actual_correlation:?}"
+            )
+            .into());
+        }
     }
     Ok(())
 }
@@ -193,13 +205,22 @@ async fn multi_packet_logs_disconnected_when_sender_dropped(
 
     let out = harness.run().await?;
 
-    assert_eq!(out.len(), 2, "expected push frame followed by terminator");
-    let last = out.last().expect("terminator missing");
-    assert_eq!(
-        parts(last).correlation_id(),
-        correlation,
-        "terminator correlation mismatch"
-    );
+    if out.len() != 2 {
+        return Err(format!(
+            "expected push frame followed by terminator, got {} frames",
+            out.len()
+        )
+        .into());
+    }
+    let last = out.last().ok_or("terminator missing")?;
+    let terminator_correlation = parts(last).correlation_id();
+    if terminator_correlation != correlation {
+        return Err(format!(
+            "terminator correlation mismatch: expected {correlation:?}, got \
+             {terminator_correlation:?}"
+        )
+        .into());
+    }
 
     let mut saw_disconnect = false;
     while let Some(record) = logger.pop() {
@@ -208,7 +229,9 @@ async fn multi_packet_logs_disconnected_when_sender_dropped(
             break;
         }
     }
-    assert!(saw_disconnect, "missing disconnect log");
+    if !saw_disconnect {
+        return Err("missing disconnect log".into());
+    }
     Ok(())
 }
 

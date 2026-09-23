@@ -100,16 +100,6 @@ impl HarnessConfig {
         }
     }
 
-    /// Enable response tracking for the harness under construction.
-    #[expect(
-        dead_code,
-        reason = "Harness builders retain response toggles for future scenarios."
-    )]
-    fn with_response(mut self) -> Self {
-        self.has_response = true;
-        self
-    }
-
     /// Enable multi-packet support for the harness under construction.
     fn with_multi_packet(mut self) -> Self {
         self.has_multi_packet = true;

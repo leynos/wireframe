@@ -25,10 +25,6 @@ use crate::fragment_helpers::{
 };
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn expired_fragments_are_evicted() -> TestResult {
     let buffer_capacity = 512;
     let timeout_ms = 10;
@@ -54,10 +50,11 @@ async fn expired_fragments_are_evicted() -> TestResult {
     tokio::io::AsyncWriteExt::shutdown(client.get_mut()).await?;
 
     let recv_result = timeout(Duration::from_millis(200), rx.recv()).await;
-    assert!(
-        recv_result.is_err(),
-        "handler should not receive after timeout eviction"
-    );
+    if recv_result.is_ok() {
+        return Err(TestError::Assertion(format!(
+            "handler should not receive after timeout eviction, got {recv_result:?}"
+        )));
+    }
 
     drop(client);
     server.await??;

@@ -145,17 +145,15 @@ impl ClientMessagingWorld {
     /// Send multiple sequential envelopes and capture all correlation IDs.
     ///
     /// # Errors
-    /// Returns an error if the client is missing or communication fails.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "test helper with small count values"
-    )]
+    /// Returns an error if the client is missing, communication fails, or an
+    /// index does not fit the message ID.
     pub async fn send_multiple_envelopes(&mut self, count: usize) -> TestResult {
         let client = self.client.as_mut().ok_or("client not connected")?;
         self.sent_correlation_ids.clear();
 
-        for i in 0..count {
-            let envelope = Envelope::new(i as u32, None, vec![i as u8]);
+        for (i, payload_byte) in (0..count).zip((0_u8..=u8::MAX).cycle()) {
+            let message_id = u32::try_from(i)?;
+            let envelope = Envelope::new(message_id, None, vec![payload_byte]);
             let correlation_id = client.send_envelope(envelope).await?;
             self.sent_correlation_ids.push(correlation_id);
 
