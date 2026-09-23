@@ -7,11 +7,11 @@
 //! - Queue polling and lifecycle state (`state.rs`)
 #![cfg(not(loom))]
 
-#[path = "connection/logs.rs"]
+#[path = "logs.rs"]
 mod logs;
-#[path = "connection/multi_packet.rs"]
+#[path = "multi_packet.rs"]
 mod multi_packet;
-#[path = "connection/state.rs"]
+#[path = "state.rs"]
 mod state;
-#[path = "connection/support.rs"]
+#[path = "support.rs"]
 mod support;
