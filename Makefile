@@ -1,4 +1,4 @@
-.PHONY: help all clean test test-doc test-workflow-contracts doctest-benchmark
+.PHONY: help all clean test test-doc test-workflow-contracts test-loom doctest-benchmark
 .PHONY: bench-codec build release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
 .PHONY: install-kani check-kani-version install-verus run-verus test-verification kani \
@@ -35,6 +35,11 @@ PROVER_TOOLS_SOURCE ?= git+https://github.com/leynos/rust-prover-tools.git@$(PRO
 PROVER_TOOLS ?= uv tool run --python 3.14 --from "$(PROVER_TOOLS_SOURCE)" prover-tools
 VERUS_PROOF_FILE ?= verus/wireframe_proofs.rs
 VERIFICATION_CRATE ?= wireframe-verification
+# The Loom models live in their own package so a `--cfg loom` build never
+# compiles the TCP test harness. The preemption bound keeps each model's
+# exploration finite; raising it is a decision, not a tuning knob.
+LOOM_CRATE ?= wireframe-loom
+LOOM_MAX_PREEMPTIONS ?= 3
 FORMAL_STUB ?= ./scripts/formal-stub.sh
 FORMAL_STRICT ?=
 export FORMAL_STRICT
@@ -55,6 +60,9 @@ test: ## Run all tests (bdd + unit/integration)
 
 test-workflow-contracts: ## Validate workflow invocation contracts
 	$(PYTHON_NO_BYTECODE_ENV) uv run --with 'pytest>=8' --with 'pyyaml>=6' pytest tests/workflow_contracts -q
+
+test-loom: ## Run the Loom models under --cfg loom
+	LOOM_MAX_PREEMPTIONS=$(LOOM_MAX_PREEMPTIONS) RUSTFLAGS="--cfg loom" $(CARGO) test -p $(LOOM_CRATE) $(BUILD_JOBS)
 
 test-doc: ## Run doctests across all features
 	# `wireframe_testing` doctests need generic app types that standalone snippets
