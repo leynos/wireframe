@@ -333,3 +333,4 @@ fn try_opportunistic_drain_forwards_frame(harness_factory: HarnessFactory) -> Te
 }
 
 mod queue_and_shutdown;
+mod reason_logging;
