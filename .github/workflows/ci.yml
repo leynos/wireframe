@@ -1,8 +1,9 @@
 name: CI
 
 on:
+  # Stacked pull requests target their parent branch, so the blocking lane
+  # must run for every pull-request base as well as for main-bound requests.
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
