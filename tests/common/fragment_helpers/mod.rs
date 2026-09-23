@@ -4,17 +4,17 @@
 //! fragment envelope construction, framed transport, test app construction,
 //! and assertions.
 
-#[path = "fragment_helpers/app.rs"]
+#[path = "app.rs"]
 mod app;
-#[path = "fragment_helpers/assertions.rs"]
+#[path = "assertions.rs"]
 mod assertions;
-#[path = "fragment_helpers/config.rs"]
+#[path = "config.rs"]
 mod config;
-#[path = "fragment_helpers/envelopes.rs"]
+#[path = "envelopes.rs"]
 mod envelopes;
-#[path = "fragment_helpers/errors.rs"]
+#[path = "errors.rs"]
 mod errors;
-#[path = "fragment_helpers/transport.rs"]
+#[path = "transport.rs"]
 mod transport;
 
 pub use app::{make_app, make_handler, spawn_app};
