@@ -16,12 +16,14 @@ import pytest
 from codescene_placement_reader import (
     calls,
     external_secret_inheritors,
-    local_callee,
     mentions,
     pull_request_closure,
+    triggers,
+)
+from workflow_calls import (
+    local_callee,
     qualified_self_call,
     qualified_self_callers,
-    triggers,
 )
 from workflow_loader import load_workflow, read_workflows
 
@@ -72,6 +74,9 @@ def test_every_trigger_form_is_read(text: str, expected: list[str]) -> None:
             "on: [push, {pull_request: null}]\n", id="mixed-sequence"
         ),
         pytest.param("jobs: {}\n", id="missing"),
+        pytest.param(
+            "on: push\n'on': pull_request\njobs: {}\n", id="both-keys"
+        ),
     ],
 )
 def test_an_unreadable_trigger_is_refused(text: str) -> None:
@@ -178,7 +183,15 @@ def test_the_closure_reaches_a_called_workflow(
 
 @pytest.mark.parametrize(
     "trigger",
-    ["pull_request", "pull_request_target", "merge_group", "workflow_run"],
+    [
+        "pull_request",
+        "pull_request_target",
+        "merge_group",
+        "workflow_run",
+        "pull_request_review",
+        "pull_request_review_comment",
+        "issue_comment",
+    ],
 )
 def test_every_pull_request_trigger_seeds_the_closure(trigger: str) -> None:
     """A workflow on any trigger that serves a pull request is in the lane.
@@ -282,6 +295,12 @@ def test_only_inheritance_into_another_repository_is_flagged() -> None:
             "leynos/wireframe-fork/.github/workflows/x.yml@main",
             False,
             id="similar-name",
+        ),
+        pytest.param(
+            "$/.github/workflows/x.yml@main", True, id="dollar-with-ref"
+        ),
+        pytest.param(
+            "./.github/workflows/x.yml@main", True, id="dot-with-ref"
         ),
         pytest.param(
             "leynos/wireframe/.github/actions/setup@main",
