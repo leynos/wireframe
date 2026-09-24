@@ -296,6 +296,19 @@ hooks, request hooks, and tracing configuration on the same path. Pooled lease
 methods should go through `PooledClientLease::dispatch_on_connection` so
 checkout and recycle-on-error policy stay in one place.
 
+`ManagedClientConnection` owns its client in an `Option` and takes it once when
+teardown starts. Calls through `client_mut` return a disconnection error after
+that transfer. Dropping a live connection schedules `close()` on the current
+Tokio runtime; without a current runtime, it builds a current-thread runtime
+and runs `close()` synchronously so teardown hooks can complete.
+
+Client timing selection has six independent categories: connect, send, receive,
+call, streaming, and close. Each `TracingConfig::with_*_timing` setter changes
+only its category; `with_all_timing` changes all six. Keep these selectors
+independent when adding or changing client operations. Internally,
+`ClientOperation` identifies a category, and `ClientTimingFlags` stores one bit
+per operation.
+
 ## Error surface conventions
 
 Library-facing errors should stay typed and inspectable by default. Use

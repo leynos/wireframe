@@ -302,7 +302,13 @@ high-frequency data operations (send, receive, call, streaming). When no
 **Per-command timing**: When enabled via `TracingConfig::with_*_timing(true)`,
 an additional `tracing::debug!` event recording `elapsed_us` is emitted when
 the operation completes. Timing events fire on both success and error paths.
-Timing is disabled by default for all operations.
+Timing is disabled by default for all operations. The six independent timing
+categories are connect, send (`send`, `send_envelope`), receive (`receive`,
+`receive_envelope`), call (`call`, `call_correlated`), streaming
+(`call_streaming`), and close. Each per-operation setter changes only its own
+category, leaving the other five unchanged. `with_all_timing` sets all six
+categories together. Internally, `ClientOperation` identifies a category and
+`ClientTimingFlags` stores one bit per operation.
 
 **Design rationale — async-safe span instrumentation**: `Span::enter()` guards
 must not be held across `.await` points because a multi-threaded runtime may
@@ -463,6 +469,11 @@ cargo run --example client_echo_login --features examples
   - `PooledClientLease` forwards request methods (`send`, `receive`, `call`,
     `send_envelope`, `receive_envelope`, `call_correlated`) through its slot
     rather than dereferencing to a long-lived mutable `WireframeClient`.
+  - Each `ManagedClientConnection` owns its client in an `Option`. Teardown
+    takes that client exactly once, and later `client_mut` calls return a
+    disconnection error. Drop schedules `close()` on the current Tokio runtime;
+    without one, it creates a current-thread runtime and runs close
+    synchronously, allowing teardown hooks to run in either context.
 - Rationale: this keeps socket lifecycle, reconnect, and idle recycle on
   battle-tested `bb8` machinery while preserving explicit Wireframe control
   over how many operations may target one warm socket.
