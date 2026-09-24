@@ -1,6 +1,7 @@
 //! Error handling tests for the wireframe client.
 
 use std::{
+    future::Future,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -9,7 +10,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::SinkExt;
+use futures::{SinkExt, future::lazy};
 use tokio::net::TcpStream;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
@@ -26,6 +27,13 @@ use crate::{
     rewind_stream::RewindStream,
     serializer::Serializer,
 };
+
+/// Increment the error-hook count when its future is first polled.
+fn record_error_count(count: Arc<AtomicUsize>) -> impl Future<Output = ()> + Send {
+    lazy(move |_| {
+        count.fetch_add(1, Ordering::SeqCst);
+    })
+}
 
 /// Connects a client and returns both the client and server stream for custom server behaviour.
 ///
@@ -48,18 +56,9 @@ where
 }
 
 #[tokio::test]
-#[expect(
-    clippy::excessive_nesting,
-    reason = "async closures within builder patterns are inherently nested"
-)]
 async fn error_callback_invoked_on_receive_error() {
     let error_count = test_error_hook_on_disconnect(|builder, count| {
-        builder.on_error(move |_err| {
-            let count = count.clone();
-            async move {
-                count.fetch_add(1, Ordering::SeqCst);
-            }
-        })
+        builder.on_error(move |_err| record_error_count(count.clone()))
     })
     .await
     .expect("run error hook scenario");
@@ -87,21 +86,12 @@ async fn no_error_hook_does_not_panic() {
 }
 
 #[tokio::test]
-#[expect(
-    clippy::excessive_nesting,
-    reason = "async closures within builder patterns are inherently nested"
-)]
 async fn error_callback_invoked_on_deserialize_error() {
     let error_count = Arc::new(AtomicUsize::new(0));
     let count = error_count.clone();
 
     let (mut client, server_stream) = connect_with_server(|builder| {
-        builder.on_error(move |_err| {
-            let count = count.clone();
-            async move {
-                count.fetch_add(1, Ordering::SeqCst);
-            }
-        })
+        builder.on_error(move |_err| record_error_count(count.clone()))
     })
     .await
     .expect("connect client and server");
@@ -136,10 +126,6 @@ async fn error_callback_invoked_on_deserialize_error() {
 }
 
 #[tokio::test]
-#[expect(
-    clippy::excessive_nesting,
-    reason = "async closures within builder patterns are inherently nested"
-)]
 async fn error_callback_invoked_on_send_io_error() {
     #[derive(bincode::Encode, bincode::BorrowDecode)]
     struct TestMessage(Vec<u8>);
@@ -148,12 +134,7 @@ async fn error_callback_invoked_on_send_io_error() {
     let count = error_count.clone();
 
     let (mut client, server_stream) = connect_with_server(|builder| {
-        builder.on_error(move |_err| {
-            let count = count.clone();
-            async move {
-                count.fetch_add(1, Ordering::SeqCst);
-            }
-        })
+        builder.on_error(move |_err| record_error_count(count.clone()))
     })
     .await
     .expect("connect client and server");
@@ -187,10 +168,6 @@ async fn error_callback_invoked_on_send_io_error() {
 }
 
 #[tokio::test]
-#[expect(
-    clippy::excessive_nesting,
-    reason = "async closures within builder patterns are inherently nested"
-)]
 async fn error_callback_invoked_on_serialize_error() {
     #[derive(bincode::Encode, bincode::BorrowDecode)]
     struct TestMessage(u32);
@@ -199,12 +176,9 @@ async fn error_callback_invoked_on_serialize_error() {
     let count = error_count.clone();
 
     let (mut client, _server) = connect_with_server(|builder| {
-        builder.serializer(FailingSerializer).on_error(move |_err| {
-            let count = count.clone();
-            async move {
-                count.fetch_add(1, Ordering::SeqCst);
-            }
-        })
+        builder
+            .serializer(FailingSerializer)
+            .on_error(move |_err| record_error_count(count.clone()))
     })
     .await
     .expect("connect client and server");

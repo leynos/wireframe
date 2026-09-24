@@ -1,11 +1,37 @@
 //! Lifecycle hook tests for the wireframe client.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
+use std::{
+    future::Future,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
+use futures::future::lazy;
+
 use super::helpers::{counting_hook, test_error_hook_on_disconnect, test_with_client};
+
+/// Increment a lifecycle-hook count when its future is first polled.
+fn record_count(count: Arc<AtomicUsize>) -> impl Future<Output = ()> + Send {
+    lazy(move |_| {
+        count.fetch_add(1, Ordering::SeqCst);
+    })
+}
+
+/// Count setup when the callback future is first polled, then return the
+/// state that the teardown callback receives.
+async fn record_setup(count: Arc<AtomicUsize>) -> &'static str {
+    record_count(count).await;
+    "state"
+}
+
+/// Store the setup state when the teardown callback future is first polled.
+fn record_teardown_state(value: Arc<AtomicUsize>, state: usize) -> impl Future<Output = ()> + Send {
+    lazy(move |_| {
+        value.store(state, Ordering::SeqCst);
+    })
+}
 
 #[tokio::test]
 async fn setup_callback_invoked_on_connect() {
@@ -23,10 +49,6 @@ async fn setup_callback_invoked_on_connect() {
 }
 
 #[tokio::test]
-#[expect(
-    clippy::excessive_nesting,
-    reason = "async closures within builder patterns are inherently nested"
-)]
 async fn teardown_callback_receives_setup_state() {
     let teardown_value = Arc::new(AtomicUsize::new(0));
     let value = teardown_value.clone();
@@ -34,12 +56,7 @@ async fn teardown_callback_receives_setup_state() {
     let client = test_with_client(|builder| {
         builder
             .on_connection_setup(|| async { 42usize })
-            .on_connection_teardown(move |state| {
-                let value = value.clone();
-                async move {
-                    value.store(state, Ordering::SeqCst);
-                }
-            })
+            .on_connection_teardown(move |state| record_teardown_state(value.clone(), state))
     })
     .await
     .expect("connect client");
@@ -73,10 +90,6 @@ async fn teardown_without_setup_does_not_run() {
 }
 
 #[tokio::test]
-#[expect(
-    clippy::excessive_nesting,
-    reason = "async closures within builder patterns are inherently nested"
-)]
 async fn setup_and_teardown_callbacks_run() {
     let setup_count = Arc::new(AtomicUsize::new(0));
     let teardown_count = Arc::new(AtomicUsize::new(0));
@@ -85,19 +98,8 @@ async fn setup_and_teardown_callbacks_run() {
 
     let client = test_with_client(|builder| {
         builder
-            .on_connection_setup(move || {
-                let setup = setup.clone();
-                async move {
-                    setup.fetch_add(1, Ordering::SeqCst);
-                    "state"
-                }
-            })
-            .on_connection_teardown(move |_: &str| {
-                let teardown = teardown.clone();
-                async move {
-                    teardown.fetch_add(1, Ordering::SeqCst);
-                }
-            })
+            .on_connection_setup(move || record_setup(setup.clone()))
+            .on_connection_teardown(move |_: &str| record_count(teardown.clone()))
     })
     .await
     .expect("connect client");
@@ -118,21 +120,12 @@ async fn setup_and_teardown_callbacks_run() {
 }
 
 #[tokio::test]
-#[expect(
-    clippy::excessive_nesting,
-    reason = "async closures within builder patterns are inherently nested"
-)]
 async fn on_connection_setup_preserves_error_hook() {
     // Configure on_error first, then on_connection_setup.
     // The error hook should be preserved.
     let error_count = test_error_hook_on_disconnect(|builder, count| {
         builder
-            .on_error(move |_err| {
-                let count = count.clone();
-                async move {
-                    count.fetch_add(1, Ordering::SeqCst);
-                }
-            })
+            .on_error(move |_err| record_count(count.clone()))
             .on_connection_setup(|| async { 42u32 })
     })
     .await
