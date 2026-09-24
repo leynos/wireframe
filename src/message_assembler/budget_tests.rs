@@ -20,16 +20,7 @@ use crate::message_assembler::{
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Reject a zero test budget during compilation, before fixture setup runs.
-macro_rules! nz {
-    ($value:expr) => {{
-        const NON_ZERO: ::std::num::NonZeroUsize = match ::std::num::NonZeroUsize::new($value) {
-            Some(value) => value,
-            None => panic!("test budget must be non-zero"),
-        };
-        NON_ZERO
-    }};
-}
+include!("../../tests/support/non_zero.rs");
 
 /// Build a [`FirstFrameHeader`] and [`FirstFrameInput`] in the caller's
 /// scope from a key, body slice, and finality flag.
