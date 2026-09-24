@@ -18,6 +18,8 @@ fn record_count(count: Arc<AtomicUsize>) -> impl Future<Output = ()> + Send {
     })
 }
 
+/// Count setup when the callback future is first polled, then return the
+/// state that the teardown callback receives.
 async fn record_setup(count: Arc<AtomicUsize>) -> &'static str {
     record_count(count).await;
     "state"
