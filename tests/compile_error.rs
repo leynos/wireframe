@@ -1,5 +1,6 @@
 //! Compile-time trait-bound and public-default tests.
 
+/// Check public type contracts and reject a zero fixture budget at compile time.
 #[test]
 fn compile_tests() {
     let t = trybuild::TestCases::new();
