@@ -20,6 +20,9 @@ MAKEFILE_PATH = Path(__file__).resolve().parents[2] / "Makefile"
 MARKDOWNLINT_ACTION_RE = re.compile(
     r"^DavidAnson/markdownlint-cli2-action@[0-9a-f]{40}$"
 )
+INSTALL_NIXIE_ACTION_RE = re.compile(
+    r"^leynos/shared-actions/\.github/actions/install-nixie@[0-9a-f]{40}$"
+)
 
 
 def _load_steps() -> list[dict[str, object]]:
@@ -46,15 +49,41 @@ def _find_step(steps: list[dict[str, object]], name: str) -> dict[str, object]:
 
 
 def test_spelling_tool_installations_are_pinned() -> None:
-    """The spelling gate installs the reviewed Merman and Nixie releases."""
-    steps = _load_steps()
-    merman = _find_step(steps, "Install Merman CLI")
-    nixie = _find_step(steps, "Install Nixie")
-    assert merman.get("run") == (
-        'cargo +1.95.0 install merman-cli --version "=0.7.0" --locked'
-    ), "Merman CLI must remain pinned to the reviewed release"
-    assert nixie.get("run") == 'uv tool install --python 3.14 "nixie-cli==1.1.0"', (
-        "Nixie must remain pinned to the reviewed release and Python runtime"
+    """The spelling gate installs the reviewed Merman and Nixie releases.
+
+    Both arrive through the shared ``install-nixie`` action, which downloads
+    Merman's release archive and verifies it against a pinned checksum.
+    """
+    tools = _find_step(_load_steps(), "Install Nixie and Merman CLI")
+    assert INSTALL_NIXIE_ACTION_RE.match(str(tools.get("uses", ""))), (
+        "CI must install Nixie and Merman through the pinned install-nixie action"
+    )
+    assert tools.get("with") == {
+        "nixie-version": "1.1.0",
+        "merman-version": "0.7.0",
+        "python-version": "3.14",
+    }, "Nixie, Merman and Nixie's Python runtime must stay on the reviewed releases"
+
+
+def test_no_step_compiles_merman() -> None:
+    """No CI step builds Merman from source.
+
+    ``cargo install merman-cli`` compiled Merman from crates.io on every run,
+    about 2.3 minutes of a paid runner, before the prebuilt archive replaced
+    it. Any ``run`` command naming Merman is refused, whatever its flags or
+    toolchain, because the only sanctioned route is the action asserted above.
+    """
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    assert isinstance(workflow, dict), "the CI workflow must be a mapping"
+    offenders = [
+        f"{job_name}: {step.get('name', '<unnamed>')}"
+        for job_name, job in workflow.get("jobs", {}).items()
+        for step in job.get("steps", [])
+        if isinstance(step, dict) and "merman" in str(step.get("run", "")).lower()
+    ]
+    assert not offenders, (
+        f"these steps install or build Merman themselves: {offenders}; use the "
+        "install-nixie action, which installs the verified release archive"
     )
 
 
@@ -89,9 +118,7 @@ def test_spelling_toolchain_steps_are_consecutive() -> None:
     # pinned action, so spelling (once a prerequisite of ``make markdownlint``)
     # runs as its own step immediately after it.
     step_names = (
-        "Install Rust for Merman",
-        "Install Merman CLI",
-        "Install Nixie",
+        "Install Nixie and Merman CLI",
         "Lint Markdown",
         "Enforce en-GB-oxendict spelling",
         "Validate Mermaid diagrams",

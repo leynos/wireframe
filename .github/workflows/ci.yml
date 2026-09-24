@@ -91,12 +91,14 @@ jobs:
         with:
           python-version: '3.13'
           enable-cache: true
-      - name: Install Rust for Merman
-        run: rustup toolchain install 1.95.0 --profile minimal --no-self-update
-      - name: Install Merman CLI
-        run: cargo +1.95.0 install merman-cli --version "=0.7.0" --locked
-      - name: Install Nixie
-        run: uv tool install --python 3.14 "nixie-cli==1.1.0"
+      # Merman comes from its release archive, verified against a pinned
+      # checksum, rather than being compiled from crates.io on every run.
+      - name: Install Nixie and Merman CLI
+        uses: leynos/shared-actions/.github/actions/install-nixie@dbe2e22ceaf498d85512679ccded38be9dbe7777
+        with:
+          nixie-version: '1.1.0'
+          merman-version: '0.7.0'
+          python-version: '3.14'
       - name: Lint Markdown
         # The upstream action rather than an installation of our own: its
         # release carries the linter's whole dependency graph, so nothing is
