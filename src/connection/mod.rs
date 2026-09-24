@@ -26,7 +26,7 @@ pub use counter::active_connection_count;
 use event::Event;
 use log::info;
 use multi_packet::MultiPacketContext;
-use output::{ActiveOutput, EventAvailability};
+use output::{ActiveOutput, AvailableOutput, EventAvailability};
 use state::ActorState;
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -154,10 +154,7 @@ where
         let ConnectionChannels { queues, handle } = channels;
         let ctx = ConnectionContext;
         let counter = ActiveConnection::new();
-        let active_output = match response {
-            Some(stream) => ActiveOutput::Response(stream),
-            None => ActiveOutput::None,
-        };
+        let active_output = response.map_or_else(|| ActiveOutput::None, ActiveOutput::Response);
         let mut actor = Self {
             high_rx: Some(queues.high_priority_rx),
             low_rx: Some(queues.low_priority_rx),
@@ -210,10 +207,7 @@ where
         if self.active_output.is_multi_packet() {
             return Err(ConnectionStateError::MultiPacketActive);
         }
-        self.active_output = match stream {
-            Some(s) => ActiveOutput::Response(s),
-            None => ActiveOutput::None,
-        };
+        self.active_output = stream.map_or_else(|| ActiveOutput::None, ActiveOutput::Response);
         Ok(())
     }
 
@@ -262,14 +256,14 @@ where
         if self.active_output.is_response() {
             return Err(ConnectionStateError::ResponseActive);
         }
-        self.active_output = match channel {
-            Some(rx) => {
+        self.active_output = channel.map_or_else(
+            || ActiveOutput::None,
+            |rx| {
                 let mut ctx = MultiPacketContext::new();
                 ctx.install(Some(rx), correlation_id);
                 ActiveOutput::MultiPacket(ctx)
-            }
-            None => ActiveOutput::None,
-        };
+            },
+        );
         Ok(())
     }
 
@@ -318,12 +312,13 @@ where
     }
 
     /// Compute which event sources are currently available for polling.
-    fn compute_availability(&self, state: &ActorState) -> EventAvailability {
+    const fn compute_availability(&self, state: &ActorState) -> EventAvailability {
         EventAvailability {
             high: self.high_rx.is_some(),
             low: self.low_rx.is_some(),
-            multi_packet: self.active_output.is_multi_packet() && !state.is_shutting_down(),
-            response: self.active_output.is_response() && !state.is_shutting_down(),
+            output: self
+                .active_output
+                .available_output(state.is_shutting_down()),
         }
     }
 
@@ -344,6 +339,8 @@ where
     )]
     async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
         let avail = self.compute_availability(state);
+        let can_poll_multi_packet = avail.output == AvailableOutput::MultiPacket;
+        let can_poll_response = avail.output == AvailableOutput::Response;
 
         // Extract mutable references before the select! to satisfy the borrow
         // checker. Only one of these can be Some due to the ActiveOutput enum
@@ -360,8 +357,8 @@ where
             () = Self::wait_shutdown(self.shutdown.clone()), if state.is_active() => Event::Shutdown,
             res = Self::poll_queue(self.high_rx.as_mut()), if avail.high => Event::High(res),
             res = Self::poll_queue(self.low_rx.as_mut()), if avail.low => Event::Low(res),
-            res = Self::poll_queue(multi_rx), if avail.multi_packet => Event::MultiPacket(res),
-            res = Self::poll_response(response_stream), if avail.response => Event::Response(res),
+            res = Self::poll_queue(multi_rx), if can_poll_multi_packet => Event::MultiPacket(res),
+            res = Self::poll_response(response_stream), if can_poll_response => Event::Response(res),
             else => Event::Idle,
         }
     }

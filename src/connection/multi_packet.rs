@@ -82,15 +82,17 @@ impl<F> MultiPacketContext<F> {
     }
 
     /// Borrow the receiver without transferring actor ownership.
-    pub(super) fn channel_mut(&mut self) -> Option<&mut mpsc::Receiver<F>> { self.channel.as_mut() }
+    pub(super) const fn channel_mut(&mut self) -> Option<&mut mpsc::Receiver<F>> {
+        self.channel.as_mut()
+    }
 
     /// Returns `true` if correlation stamping is enabled.
-    pub(super) fn is_stamping_enabled(&self) -> bool {
+    pub(super) const fn is_stamping_enabled(&self) -> bool {
         matches!(self.stamp, MultiPacketStamp::Enabled(_))
     }
 
     /// Return the identifier to stamp on frames, if stamping is enabled.
-    pub(super) fn correlation_id(&self) -> Option<u64> {
+    pub(super) const fn correlation_id(&self) -> Option<u64> {
         match self.stamp {
             MultiPacketStamp::Enabled(value) => value,
             MultiPacketStamp::Disabled => None,

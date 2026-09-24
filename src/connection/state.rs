@@ -51,7 +51,7 @@ impl ActorState {
     }
 
     /// Mark a source as closed and update the run state if all are closed.
-    pub(super) fn mark_closed(&mut self) {
+    pub(super) const fn mark_closed(&mut self) {
         self.closed_sources += 1;
         if self.closed_sources >= self.total_sources {
             self.run_state = RunState::Finished;
@@ -59,28 +59,28 @@ impl ActorState {
     }
 
     /// Transition to `ShuttingDown` if currently active.
-    pub(super) fn start_shutdown(&mut self) {
+    pub(super) const fn start_shutdown(&mut self) {
         if matches!(self.run_state, RunState::Active) {
             self.run_state = RunState::ShuttingDown;
         }
     }
 
     /// Returns `true` while the actor is actively processing sources.
-    pub(super) fn is_active(&self) -> bool { matches!(self.run_state, RunState::Active) }
+    pub(super) const fn is_active(&self) -> bool { matches!(self.run_state, RunState::Active) }
 
     /// Returns `true` once shutdown has begun.
-    pub(super) fn is_shutting_down(&self) -> bool {
+    pub(super) const fn is_shutting_down(&self) -> bool {
         matches!(self.run_state, RunState::ShuttingDown)
     }
 
     /// Returns `true` when all sources have finished.
-    pub(super) fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
+    pub(super) const fn is_done(&self) -> bool { matches!(self.run_state, RunState::Finished) }
 
     /// Returns the number of sources that have been closed.
     #[cfg(any(test, feature = "test-support"))]
-    pub(super) fn closed_sources(&self) -> usize { self.closed_sources }
+    pub(super) const fn closed_sources(&self) -> usize { self.closed_sources }
 
     /// Returns the total number of sources being tracked.
     #[cfg(any(test, feature = "test-support"))]
-    pub(super) fn total_sources(&self) -> usize { self.total_sources }
+    pub(super) const fn total_sources(&self) -> usize { self.total_sources }
 }

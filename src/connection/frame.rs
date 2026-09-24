@@ -15,8 +15,7 @@ where
     E: std::fmt::Debug,
 {
     /// Emit a multi-packet frame with correlation stamping applied.
-    pub(super) fn emit_multi_packet_frame(&mut self, frame: F, out: &mut Vec<F>) {
-        let mut frame = frame;
+    pub(super) fn emit_multi_packet_frame(&mut self, mut frame: F, out: &mut Vec<F>) {
         self.apply_multi_packet_correlation(&mut frame);
         self.process_frame_with_hooks_and_metrics(frame, out);
     }
@@ -68,7 +67,7 @@ where
             match fragmented {
                 Ok(frames) => frames
                     .into_iter()
-                    .for_each(|frame| self.push_frame(frame, out)),
+                    .for_each(|fragment| self.push_frame(fragment, out)),
                 Err(err) => {
                     warn!(
                         "failed to fragment frame: connection_id={:?}, peer={:?}, error={err:?}",
@@ -83,8 +82,7 @@ where
     }
 
     /// Push a single frame to output after applying hooks and metrics.
-    pub(super) fn push_frame(&mut self, frame: F, out: &mut Vec<F>) {
-        let mut frame = frame;
+    pub(super) fn push_frame(&mut self, mut frame: F, out: &mut Vec<F>) {
         self.hooks.before_send(&mut frame, &mut self.ctx);
         out.push(frame);
         crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
