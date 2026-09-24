@@ -12,6 +12,7 @@ use futures::future::lazy;
 
 use super::helpers::{counting_hook, test_error_hook_on_disconnect, test_with_client};
 
+/// Increment a lifecycle-hook count when its future is first polled.
 fn record_count(count: Arc<AtomicUsize>) -> impl Future<Output = ()> + Send {
     lazy(move |_| {
         count.fetch_add(1, Ordering::SeqCst);
@@ -25,6 +26,7 @@ async fn record_setup(count: Arc<AtomicUsize>) -> &'static str {
     "state"
 }
 
+/// Store the setup state when the teardown callback future is first polled.
 fn record_teardown_state(value: Arc<AtomicUsize>, state: usize) -> impl Future<Output = ()> + Send {
     lazy(move |_| {
         value.store(state, Ordering::SeqCst);
