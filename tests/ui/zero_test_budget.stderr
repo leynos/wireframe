@@ -25,7 +25,7 @@ note: erroneous constant encountered
   = note: this note originates in the macro `nz` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 note: erroneous constant encountered
- --> tests/ui/zero_test_budget.rs:8:13
+ --> tests/ui/zero_test_budget.rs:9:13
   |
-8 |     let _ = ZERO_BUDGET;
+9 |     let _ = ZERO_BUDGET;
   |             ^^^^^^^^^^^

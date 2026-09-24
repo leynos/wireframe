@@ -28,6 +28,7 @@ use crate::{
     serializer::Serializer,
 };
 
+/// Increment the error-hook count when its future is first polled.
 fn record_error_count(count: Arc<AtomicUsize>) -> impl Future<Output = ()> + Send {
     lazy(move |_| {
         count.fetch_add(1, Ordering::SeqCst);
