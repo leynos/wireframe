@@ -10,17 +10,21 @@ The three-way split exists because the contract passed this repository's
 the boundary meaningful: what is derived from the tree, what a person decided,
 and what enforces the one against the other.
 
-Three readings here are less obvious than they look.
+Four readings here are less obvious than they look.
 
-``workflow_paths`` reads both spellings of the extension. GitHub runs a
-workflow written either way, so reading only ``*.yml`` would leave a lane in
-``*.yaml`` outside every assertion in the contract, and the gap would be
-invisible because nothing would fail.
+``workflows`` loads the tree through ``workflow_loader``, which reads both
+extension spellings and refuses a duplicated mapping key, so neither a lane
+in ``*.yaml`` nor the first of two ``runs-on`` keys escapes the contract.
 
-``declaration_labels`` counts both arms of a conditional. A label reachable
-only when a pull request comes from a fork is as much in use as one reachable
-otherwise, and a registry check that missed it would demand a registration
-for one arm and call the other stale.
+``runs_on_declarations`` reads every form GitHub accepts, a scalar, a
+sequence and a ``labels`` mapping, and refuses anything else rather than
+reading it as declaring no runner.
+
+``declaration_labels`` counts both arms of the fork fallback, the one
+expression form the tree uses, and refuses every other expression. A label
+reachable only when a pull request comes from a fork is as much in use as one
+reachable otherwise, and a registry check that missed it would demand a
+registration for one arm and call the other stale.
 
 ``runner_value`` returns the *parsed* value rather than the file's text. A
 folded scalar whose continuation is indented one level deeper keeps its line
@@ -35,14 +39,11 @@ import re
 import typing as typ
 from pathlib import Path
 
-import yaml
+from workflow_loader import load_workflow, read_workflows
 
 REPO_ROOT: typ.Final = Path(__file__).resolve().parents[2]
 WORKFLOW_DIR: typ.Final = REPO_ROOT / ".github" / "workflows"
 ACTIONLINT_CONFIG: typ.Final = REPO_ROOT / ".github" / "actionlint.yaml"
-
-#: Both spellings GitHub accepts for a workflow file's extension.
-WORKFLOW_FILE_PATTERNS: typ.Final = ("*.yml", "*.yaml")
 
 #: One expression, anchored end to end. ``[^'\n]`` in the arms and ``\S`` in
 #: the guard keep a value carrying an embedded line break from matching here
@@ -54,9 +55,9 @@ RUNNER_EXPRESSION: typ.Final = re.compile(
     r" \|\| '(?P<default_arm>[^'\n]*)' \}\}$"
 )
 
-#: Every quoted literal in an expression, used to read the labels a lane can
-#: actually select.
-EXPRESSION_LITERAL: typ.Final = re.compile(r"'([^'\n]*)'")
+
+class RunnerShapeError(ValueError):
+    """A runner declaration this contract cannot read."""
 
 
 def case_id(value: object) -> str:
@@ -88,30 +89,6 @@ def case_id(value: object) -> str:
     return str(value)
 
 
-def workflow_paths() -> list[Path]:
-    """Return every workflow document's path, in a stable order.
-
-    Both spellings of the extension are read, because GitHub runs a workflow
-    written either way.
-
-    Returns
-    -------
-    list[Path]
-        Every workflow document under ``.github/workflows``, sorted by path.
-
-    Examples
-    --------
-    >>> names = [path.name for path in workflow_paths()]
-    >>> "ci.yml" in names
-    True
-    """
-    return sorted(
-        path
-        for pattern in WORKFLOW_FILE_PATTERNS
-        for path in WORKFLOW_DIR.glob(pattern)
-    )
-
-
 def workflows() -> dict[str, dict[str, object]]:
     """Parse every workflow document, keyed by file name.
 
@@ -125,10 +102,7 @@ def workflows() -> dict[str, dict[str, object]]:
     >>> "ci.yml" in workflows()
     True
     """
-    documents = {
-        path.name: yaml.safe_load(path.read_text(encoding="utf-8"))
-        for path in workflow_paths()
-    }
+    documents = read_workflows(WORKFLOW_DIR)
     assert documents, "the repository should define at least one workflow"
     return documents
 
@@ -176,8 +150,57 @@ def runner_value(definition: dict[str, object]) -> object | None:
     return definition.get("runs-on")
 
 
-def runner_declarations(definition: dict[str, object]) -> list[object]:
-    """Return a job's ``runs-on`` declarations, which may be a list of labels.
+def runs_on_declarations(declared: object) -> list[str]:
+    """Return the label declarations one ``runs-on`` value makes.
+
+    GitHub accepts three forms: a scalar label or expression, a sequence of
+    labels a runner must all carry, and a mapping with ``group`` and
+    ``labels``. Each is read; anything else is refused rather than read as
+    declaring no runner, because a reading of "no runner" exempts the lane
+    from every placement, ceiling and registry assertion at once.
+
+    A mapping is read only when ``labels`` is its sole key, so a ``group``
+    is refused: no lane here is placed by group, and a group selects runners
+    by an organization setting this contract cannot read.
+
+    Parameters
+    ----------
+    declared
+        One job's parsed ``runs-on`` value.
+
+    Returns
+    -------
+    list[str]
+        Each label or expression the value declares.
+
+    Raises
+    ------
+    RunnerShapeError
+        When the value is none of the three forms, is empty or null, carries
+        a non-string label, or names a runner group.
+
+    Examples
+    --------
+    >>> runs_on_declarations("ubuntu-latest")
+    ['ubuntu-latest']
+    >>> runs_on_declarations(["self-hosted", "linux"])
+    ['self-hosted', 'linux']
+    >>> runs_on_declarations({"labels": "ubicloud-standard-4"})
+    ['ubicloud-standard-4']
+    """
+    match declared:
+        case str():
+            return [declared]
+        case list() if declared and all(isinstance(x, str) for x in declared):
+            return list(declared)
+        case {"labels": str() | list() as labels} if len(declared) == 1:
+            return runs_on_declarations(labels)
+    message = f"unreadable runs-on {declared!r}"
+    raise RunnerShapeError(message)
+
+
+def runner_declarations(definition: dict[str, object]) -> list[str]:
+    """Return a job's ``runs-on`` declarations, flattened across its form.
 
     Parameters
     ----------
@@ -186,27 +209,39 @@ def runner_declarations(definition: dict[str, object]) -> list[object]:
 
     Returns
     -------
-    list[object]
+    list[str]
         Each ``runs-on`` declaration, empty when the job declares none.
+
+    Raises
+    ------
+    RunnerShapeError
+        When ``runs-on`` is not a form GitHub accepts.
 
     Examples
     --------
     >>> runner_declarations({"runs-on": ["self-hosted", "linux"]})
     ['self-hosted', 'linux']
+    >>> runner_declarations({"runs-on": {"labels": ["self-hosted"]}})
+    ['self-hosted']
     >>> runner_declarations({})
     []
     """
-    value = runner_value(definition)
-    if value is None:
+    # Presence, not truthiness: an explicit null is a declaration to refuse.
+    if "runs-on" not in definition:
         return []
-    return value if isinstance(value, list) else [value]
+    return runs_on_declarations(definition["runs-on"])
 
 
 def declaration_labels(declaration: object) -> set[str]:
     """Return every label one ``runs-on`` declaration can select.
 
-    Both arms of an expression count. A label reachable only on the fork
-    branch is as much in use as one reachable on the other.
+    One expression form is modelled, the fork fallback
+    ``${{ <guard> && '<a>' || '<b>' }}``, and both of its arms count: a label
+    reachable only on the fork branch is as much in use as the other. Every
+    other expression is refused. A reader that took "some quoted literal" as
+    enough would read ``${{ matrix.os || 'ubuntu-latest' }}`` as selecting only
+    the fallback, and one that read a literal-free expression as selecting
+    nothing would exempt ``${{ matrix.os }}`` from every assertion.
 
     Parameters
     ----------
@@ -216,8 +251,13 @@ def declaration_labels(declaration: object) -> set[str]:
     Returns
     -------
     set[str]
-        Every label the declaration can select, both arms of an expression
-        included.
+        Every label the declaration can select, both arms of the fork
+        fallback included.
+
+    Raises
+    ------
+    RunnerShapeError
+        When the declaration is an expression other than the fork fallback.
 
     Examples
     --------
@@ -226,10 +266,14 @@ def declaration_labels(declaration: object) -> set[str]:
     >>> sorted(declaration_labels("${{ x && 'ubuntu-latest' || 'other' }}"))
     ['other', 'ubuntu-latest']
     """
-    text = str(declaration)
-    if "${{" in text:
-        return set(EXPRESSION_LITERAL.findall(text))
-    return {text.strip()}
+    text = str(declaration).strip()
+    if "${{" not in text:
+        return {text}
+    fallback = RUNNER_EXPRESSION.fullmatch(text)
+    if fallback:
+        return {fallback["fork_arm"], fallback["default_arm"]}
+    message = f"expression {text!r} selects labels this reader cannot see"
+    raise RunnerShapeError(message)
 
 
 def job_labels(definition: dict[str, object]) -> set[str]:
@@ -291,7 +335,7 @@ def registered_labels() -> set[str]:
         "this repository uses a runner label actionlint does not know, so "
         f"{ACTIONLINT_CONFIG.relative_to(REPO_ROOT)} must exist"
     )
-    config = yaml.safe_load(ACTIONLINT_CONFIG.read_text(encoding="utf-8")) or {}
+    config = load_workflow(ACTIONLINT_CONFIG.read_text(encoding="utf-8"))
     return set((config.get("self-hosted-runner") or {}).get("labels") or [])
 
 
