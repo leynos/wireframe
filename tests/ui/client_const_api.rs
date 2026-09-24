@@ -78,12 +78,9 @@ const fn configure_streaming(
     (configured, configured.chunk_size(), configured.timeout())
 }
 
-const fn configure_builder(
+const fn configure_builder_socket(
     builder: WireframeClientBuilder,
     socket_options: SocketOptions,
-    codec_config: ClientCodecConfig,
-    tracing_config: TracingConfig,
-    length_format: LengthFormat,
     keepalive: Duration,
 ) -> WireframeClientBuilder {
     let configured = builder
@@ -92,10 +89,7 @@ const fn configure_builder(
         .keepalive(Some(keepalive))
         .send_buffer_size(2048)
         .recv_buffer_size(4096)
-        .reuseaddr(true)
-        .codec_config(codec_config)
-        .length_format(length_format)
-        .tracing_config(tracing_config);
+        .reuseaddr(true);
 
     #[cfg(all(
         unix,
@@ -108,6 +102,18 @@ const fn configure_builder(
     configured
 }
 
+const fn configure_builder_codec_and_tracing(
+    builder: WireframeClientBuilder,
+    codec_config: ClientCodecConfig,
+    tracing_config: TracingConfig,
+    length_format: LengthFormat,
+) -> WireframeClientBuilder {
+    builder
+        .codec_config(codec_config)
+        .length_format(length_format)
+        .tracing_config(tracing_config)
+}
+
 fn main() {
     let _ = (
         STREAMING_FRAMES_SENT,
@@ -115,6 +121,7 @@ fn main() {
         configure_codec,
         configure_tracing,
         configure_streaming,
-        configure_builder,
+        configure_builder_socket,
+        configure_builder_codec_and_tracing,
     );
 }
