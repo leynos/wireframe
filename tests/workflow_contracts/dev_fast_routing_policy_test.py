@@ -31,6 +31,14 @@ def _assert_rustdoc_flags(cargo_lines: list[str], rustdoc_flags: str) -> None:
     )
 
 
+def _assert_debug_target_contract(target: str, cargo_lines: list[str]) -> None:
+    """Require shared debug-routing policy before testing linker selection."""
+    assert cargo_lines, f"{target} should produce a probe-cargo invocation"
+    _assert_dev_fast_fragment(target, cargo_lines)
+    _assert_caller_rustflags(target, cargo_lines)
+    _assert_warning_denial(target, cargo_lines)
+
+
 @pytest.mark.skipif(platform.system() != "Linux", reason="native Linux linker only")
 @pytest.mark.parametrize(
     "target",
@@ -40,10 +48,7 @@ def test_explicit_linux_target_retains_native_linker(target: str) -> None:
     """A Linux target triple keeps `mold` when selected on a Linux host."""
     options = _MakeDryRunOptions(build_target="x86_64-unknown-linux-gnu")
     cargo_lines = _cargo_lines(_make_dry_run(target, options=options))
-    assert cargo_lines, f"{target} should produce a probe-cargo invocation"
-    _assert_dev_fast_fragment(target, cargo_lines)
-    _assert_caller_rustflags(target, cargo_lines)
-    _assert_warning_denial(target, cargo_lines)
+    _assert_debug_target_contract(target, cargo_lines)
     assert all(LINKER_ARGUMENT in line for line in cargo_lines), (
         f"{target} must pass the Linux linker to an explicit Linux target"
     )
@@ -74,10 +79,7 @@ def test_cross_target_uses_effective_target_os(
         build_target=build_target, build_target_os=build_target_os
     )
     cargo_lines = _cargo_lines(_make_dry_run(target, options=options))
-    assert cargo_lines, f"{target} should produce a probe-cargo invocation"
-    _assert_dev_fast_fragment(target, cargo_lines)
-    _assert_caller_rustflags(target, cargo_lines)
-    _assert_warning_denial(target, cargo_lines)
+    _assert_debug_target_contract(target, cargo_lines)
     assert all((LINKER_ARGUMENT in line) is expects_linker for line in cargo_lines), (
         f"{target} linker route did not match {build_target!r} with "
         f"CARGO_BUILD_TARGET_OS={build_target_os!r}"
