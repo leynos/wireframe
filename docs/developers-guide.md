@@ -382,14 +382,13 @@ report and uploads that report to CodeScene. The workflow checks out
 `leynos/wireframe`, so CodeScene records the coverage under the repository
 identity `github.com/leynos/wireframe`, and targets project `68308` explicitly.
 
-The upload reads `CS_ACCESS_TOKEN` from the repository secret into the job
-environment, then passes that value through the upload action's required
-`access-token` input. This workflow input is permitted because the value still
-comes from the repository secret; never hard-code the token in workflow or
-source files, and never log it. No pull-request workflow names the project or
-the token; the changed-line gate a reviewer sees on a pull request is
-CodeScene's own check against what this workflow published, so this upload must
-succeed before that gate can evaluate anything.
+The upload passes the repository secret `CS_ACCESS_TOKEN` directly to the
+upload action's required `access-token` input, without binding it in a job
+environment variable. Never hard-code the token in workflow or source files,
+and never log it. No pull-request workflow names the project or the token; the
+changed-line gate a reviewer sees on a pull request is CodeScene's own check
+against what this workflow published, so this upload must succeed before that
+gate can evaluate anything.
 
 ## Mutation testing
 
