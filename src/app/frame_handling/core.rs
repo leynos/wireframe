@@ -22,7 +22,7 @@ pub(crate) struct DeserFailureTracker<'a> {
 
 impl<'a> DeserFailureTracker<'a> {
     /// Borrow the loop counter and configure the malformed-input threshold.
-    pub(crate) fn new(count: &'a mut u32, limit: u32) -> Self { Self { count, limit } }
+    pub(crate) const fn new(count: &'a mut u32, limit: u32) -> Self { Self { count, limit } }
 
     /// Record one malformed frame and close the connection at the threshold.
     pub(super) fn record(

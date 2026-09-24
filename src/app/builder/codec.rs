@@ -15,7 +15,7 @@ where
     F: FrameCodec,
 {
     /// Return a reference to the configured frame codec.
-    pub fn codec(&self) -> &F { &self.codec }
+    pub const fn codec(&self) -> &F { &self.codec }
 
     /// Replace the frame codec used for framing I/O.
     ///
@@ -77,8 +77,8 @@ where
     /// (or [`WireframeApp::fragmentation`]) after changing the frame budget.
     #[must_use]
     pub fn buffer_capacity(mut self, capacity: usize) -> Self {
-        let capacity = clamp_frame_length(capacity);
-        self.codec = LengthDelimitedFrameCodec::new(capacity);
+        let clamped_capacity = clamp_frame_length(capacity);
+        self.codec = LengthDelimitedFrameCodec::new(clamped_capacity);
         self.fragmentation = None;
         self
     }

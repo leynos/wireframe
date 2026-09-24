@@ -124,17 +124,17 @@ where
         };
 
         for _ in 0..self.workers {
-            let listener = Arc::clone(&self.listener);
-            let app = Arc::clone(&self.app);
+            let worker_listener = Arc::clone(&self.listener);
+            let worker_app = Arc::clone(&self.app);
             let preamble_hooks = preamble.clone();
             let token = supervisor.worker_shutdown_token.clone();
             let tracker_clone = supervisor.tracker.clone();
             let span = tracing::Span::current();
             supervisor.tracker.spawn(
                 accept_loop(
-                    listener,
+                    worker_listener,
                     AcceptLoopOptions {
-                        app,
+                        app: worker_app,
                         preamble: preamble_hooks,
                         shutdown: token,
                         tracker: tracker_clone,
@@ -211,7 +211,7 @@ where
     /// ```
     pub async fn run(self) -> Result<(), ServerError> {
         self.run_with_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
+            let _signal_result = tokio::signal::ctrl_c().await;
         })
         .await
     }
@@ -260,7 +260,7 @@ where
         S: Future<Output = ()> + Send,
     {
         let startup_started = Instant::now();
-        let WireframeServer {
+        let Self {
             factory,
             workers,
             on_preamble_success,
@@ -368,7 +368,7 @@ where
         self,
         startup_started: Instant,
     ) -> Result<PreparedServerRuntime<T, Ser, Ctx, E, Codec>, ServerError> {
-        let WireframeServer {
+        let Self {
             factory,
             workers,
             on_preamble_success,

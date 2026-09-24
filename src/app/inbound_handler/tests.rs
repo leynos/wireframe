@@ -1,6 +1,7 @@
 //! Tests for Wireframe inbound connection handling.
 
 use bytes::{Bytes, BytesMut};
+use tokio::io::AsyncWriteExt;
 use tokio_util::codec::{Decoder, Encoder};
 use wireframe_testing::logger;
 
@@ -26,8 +27,12 @@ impl Decoder for BadDecoder {
     type Item = BadFrame;
     type Error = io::Error;
 
-    fn decode(&mut self, _src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        Ok(None)
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if src.is_empty() {
+            Ok(None)
+        } else {
+            Err(io::Error::new(io::ErrorKind::InvalidData, "bad test frame"))
+        }
     }
 }
 
@@ -110,4 +115,42 @@ fn decode_envelope_tracks_failures_and_logs_correlation_id() {
         }
     }
     assert!(found, "expected correlation_id in decode failure log");
+}
+
+#[tokio::test]
+async fn unprepared_connection_preserves_stream_errors_and_diagnostics() {
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
+        .expect("build app")
+        .with_codec(BadCodec);
+    let (mut client, server) = tokio::io::duplex(64);
+    client.write_all(&[1]).await.expect("write invalid frame");
+    drop(client);
+
+    let mut log = logger();
+    log.clear();
+    let error = app
+        .handle_unprepared_connection_result(server)
+        .await
+        .expect_err("invalid frame must fail the connection");
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+
+    let mut found = false;
+    while let Some(record) = log.pop() {
+        let message = record.args();
+        let has_error_context = [
+            "connection terminated with error",
+            "correlation_id=None",
+            "bad test frame",
+        ]
+        .iter()
+        .all(|&fragment| message.contains(fragment));
+        if record.level() == log::Level::Warn && has_error_context {
+            found = true;
+            break;
+        }
+    }
+    assert!(
+        found,
+        "connection error must retain its warning and context"
+    );
 }

@@ -97,11 +97,11 @@ pub(super) fn has_hard_cap_been_breached(
     state: Option<&MessageAssemblyState>,
     budgets: Option<MemoryBudgets>,
 ) -> bool {
-    let (Some(state), Some(budgets)) = (state, budgets) else {
+    let (Some(assembly_state), Some(memory_budgets)) = (state, budgets) else {
         return false;
     };
-    let buffered_bytes = state.total_buffered_bytes();
-    let aggregate_limit = active_aggregate_limit_bytes(budgets);
+    let buffered_bytes = assembly_state.total_buffered_bytes();
+    let aggregate_limit = active_aggregate_limit_bytes(memory_budgets);
     buffered_bytes > aggregate_limit
 }
 
@@ -111,12 +111,12 @@ pub(super) fn should_pause_inbound_reads(
     state: Option<&MessageAssemblyState>,
     budgets: Option<MemoryBudgets>,
 ) -> bool {
-    let (Some(state), Some(budgets)) = (state, budgets) else {
+    let (Some(assembly_state), Some(memory_budgets)) = (state, budgets) else {
         return false;
     };
 
-    let buffered_bytes = state.total_buffered_bytes();
-    let aggregate_limit = active_aggregate_limit_bytes(budgets);
+    let buffered_bytes = assembly_state.total_buffered_bytes();
+    let aggregate_limit = active_aggregate_limit_bytes(memory_budgets);
     is_at_or_above_soft_limit(buffered_bytes, aggregate_limit)
 }
 
@@ -142,7 +142,7 @@ pub(crate) fn resolve_effective_budgets(
 }
 
 /// Compare buffered bytes against the configured soft pause threshold safely.
-fn is_at_or_above_soft_limit(buffered_bytes: usize, aggregate_limit: usize) -> bool {
+const fn is_at_or_above_soft_limit(buffered_bytes: usize, aggregate_limit: usize) -> bool {
     let lhs = (buffered_bytes as u128).saturating_mul(SOFT_LIMIT_DENOMINATOR);
     let rhs = (aggregate_limit as u128).saturating_mul(SOFT_LIMIT_NUMERATOR);
     lhs >= rhs

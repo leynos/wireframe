@@ -29,12 +29,12 @@ const DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER: usize = 64;
 
 /// Derive safe fragmentation defaults from the codec's frame budget.
 pub(super) fn default_fragmentation(frame_budget: usize) -> Option<FragmentationConfig> {
-    let frame_budget = clamp_frame_length(frame_budget);
+    let clamped_frame_budget = clamp_frame_length(frame_budget);
     let max_message =
-        NonZeroUsize::new(frame_budget.saturating_mul(DEFAULT_MESSAGE_SIZE_MULTIPLIER))
-            .or_else(|| NonZeroUsize::new(frame_budget));
+        NonZeroUsize::new(clamped_frame_budget.saturating_mul(DEFAULT_MESSAGE_SIZE_MULTIPLIER))
+            .or_else(|| NonZeroUsize::new(clamped_frame_budget));
     max_message.and_then(|limit| {
-        FragmentationConfig::for_frame_budget(frame_budget, limit, DEFAULT_FRAGMENT_TIMEOUT)
+        FragmentationConfig::for_frame_budget(clamped_frame_budget, limit, DEFAULT_FRAGMENT_TIMEOUT)
     })
 }
 
@@ -62,11 +62,11 @@ fn derive_budget(frame_budget: usize, multiplier: usize) -> BudgetBytes {
 /// that the two guards agree on the maximum logical message size.
 #[must_use]
 pub(super) fn default_memory_budgets(frame_budget: usize) -> MemoryBudgets {
-    let frame_budget = clamp_frame_length(frame_budget);
+    let clamped_frame_budget = clamp_frame_length(frame_budget);
     MemoryBudgets::new(
-        derive_budget(frame_budget, DEFAULT_MESSAGE_BUDGET_MULTIPLIER),
-        derive_budget(frame_budget, DEFAULT_CONNECTION_BUDGET_MULTIPLIER),
-        derive_budget(frame_budget, DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER),
+        derive_budget(clamped_frame_budget, DEFAULT_MESSAGE_BUDGET_MULTIPLIER),
+        derive_budget(clamped_frame_budget, DEFAULT_CONNECTION_BUDGET_MULTIPLIER),
+        derive_budget(clamped_frame_budget, DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER),
     )
 }
 

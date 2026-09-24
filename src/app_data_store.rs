@@ -238,27 +238,27 @@ mod tests {
 
         let handles: Vec<_> = vec![
             {
-                let store = Arc::clone(&store);
-                let barrier = Arc::clone(&barrier);
+                let number_store = Arc::clone(&store);
+                let number_barrier = Arc::clone(&barrier);
                 thread::spawn(move || {
-                    barrier.wait();
-                    store.insert(42u32);
+                    number_barrier.wait();
+                    number_store.insert(42u32);
                 })
             },
             {
-                let store = Arc::clone(&store);
-                let barrier = Arc::clone(&barrier);
+                let text_store = Arc::clone(&store);
+                let text_barrier = Arc::clone(&barrier);
                 thread::spawn(move || {
-                    barrier.wait();
-                    store.insert("hello".to_string());
+                    text_barrier.wait();
+                    text_store.insert("hello".to_string());
                 })
             },
             {
-                let store = Arc::clone(&store);
-                let barrier = Arc::clone(&barrier);
+                let custom_store = Arc::clone(&store);
+                let custom_barrier = Arc::clone(&barrier);
                 thread::spawn(move || {
-                    barrier.wait();
-                    store.insert(CustomState {
+                    custom_barrier.wait();
+                    custom_store.insert(CustomState {
                         label: "concurrent",
                         value: 99,
                     });
@@ -291,18 +291,15 @@ mod tests {
         let store = Arc::new(empty_store);
         let thread_count = 8;
         let barrier = Arc::new(Barrier::new(thread_count));
+        let upper = u32::try_from(thread_count).expect("thread count fits in u32");
 
-        let handles: Vec<_> = (0..thread_count)
+        let handles: Vec<_> = (0..upper)
             .map(|i| {
-                let store = Arc::clone(&store);
-                let barrier = Arc::clone(&barrier);
+                let worker_store = Arc::clone(&store);
+                let worker_barrier = Arc::clone(&barrier);
                 thread::spawn(move || {
-                    barrier.wait();
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        reason = "thread_count is well within u32 range"
-                    )]
-                    store.insert(i as u32);
+                    worker_barrier.wait();
+                    worker_store.insert(i);
                 })
             })
             .collect();
@@ -313,11 +310,6 @@ mod tests {
 
         // One of the threads' values must have "won".
         let value = store.get::<u32>().expect("u32 should be present");
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "thread_count is well within u32 range"
-        )]
-        let upper = thread_count as u32;
         assert!(*value < upper);
     }
 }
