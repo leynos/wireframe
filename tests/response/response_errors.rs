@@ -208,6 +208,7 @@ async fn send_response_returns_encode_error() {
         .await
         .expect_err("send_response should fail when encode errors");
     assert_serialize_error(&err);
+    assert_eq!(err.to_string(), "serialization error: Other(\"fail\")");
 }
 
 #[tokio::test]
