@@ -223,6 +223,30 @@ name = "concurrency_loom"
 path = "tests/advanced/concurrency_loom.rs"
 required-features = ["advanced-tests"]
 
+[[test]]
+name = "connection"
+path = "tests/connection/mod.rs"
+
+[[test]]
+name = "formal_tooling"
+path = "tests/formal_tooling/mod.rs"
+
+[[test]]
+name = "fragment_transport"
+path = "tests/fragment_transport/mod.rs"
+
+[[test]]
+name = "preamble"
+path = "tests/preamble/mod.rs"
+
+[[test]]
+name = "prepared_app"
+path = "tests/prepared_app/mod.rs"
+
+[[test]]
+name = "response"
+path = "tests/response/mod.rs"
+
 [[bench]]
 name = "codec_performance"
 harness = false

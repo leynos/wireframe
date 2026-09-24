@@ -17,7 +17,7 @@ use wireframe::{
     fragment::{FragmentationConfig, decode_fragment_payload},
 };
 
-#[path = "common/fragment_helpers.rs"]
+#[path = "common/fragment_helpers/mod.rs"]
 mod fragment_helpers;
 #[path = "common/unified_codec_transport.rs"]
 mod unified_codec_transport;
