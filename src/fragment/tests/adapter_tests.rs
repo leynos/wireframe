@@ -37,17 +37,13 @@ impl Fragmentable for TestPacket {
 /// Result alias for fallible fragment-adapter test helpers.
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+include!("../../../tests/support/non_zero.rs");
+
 /// Fixture payload cap; an accidental zero fails during compilation.
-const FRAGMENT_PAYLOAD_CAP: NonZeroUsize = match NonZeroUsize::new(4) {
-    Some(value) => value,
-    None => panic!("fragment payload cap must be non-zero"),
-};
+const FRAGMENT_PAYLOAD_CAP: NonZeroUsize = nz!(4, "fragment payload cap must be non-zero");
 
 /// Fixture maximum message size; an accidental zero fails during compilation.
-const MAX_MESSAGE_SIZE: NonZeroUsize = match NonZeroUsize::new(64) {
-    Some(value) => value,
-    None => panic!("max message size must be non-zero"),
-};
+const MAX_MESSAGE_SIZE: NonZeroUsize = nz!(64, "max message size must be non-zero");
 
 fn adapter_config() -> FragmentationConfig {
     FragmentationConfig {

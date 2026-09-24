@@ -1,0 +1,31 @@
+error[E0080]: evaluation panicked: test budget must be non-zero
+ --> tests/ui/../support/non_zero.rs
+  |
+  |             None => panic!($message),
+  |                     ^^^^^^^^^^^^^^^^ evaluation of `ZERO_BUDGET::NON_ZERO` failed here
+  |
+ ::: tests/ui/zero_test_budget.rs:5:45
+  |
+5 | const ZERO_BUDGET: std::num::NonZeroUsize = nz!(0);
+  |                                             ------ in this macro invocation
+  |
+  = note: this error originates in the macro `$crate::panic::panic_2021` which comes from the expansion of the macro `nz` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+note: erroneous constant encountered
+ --> tests/ui/../support/non_zero.rs
+  |
+  |         NON_ZERO
+  |         ^^^^^^^^
+  |
+ ::: tests/ui/zero_test_budget.rs:5:45
+  |
+5 | const ZERO_BUDGET: std::num::NonZeroUsize = nz!(0);
+  |                                             ------ in this macro invocation
+  |
+  = note: this note originates in the macro `nz` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+note: erroneous constant encountered
+ --> tests/ui/zero_test_budget.rs:8:13
+  |
+8 |     let _ = ZERO_BUDGET;
+  |             ^^^^^^^^^^^
