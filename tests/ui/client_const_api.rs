@@ -18,26 +18,30 @@ use wireframe::{
 const STREAMING_OUTCOME: SendStreamingOutcome = SendStreamingOutcome::new(3);
 const STREAMING_FRAMES_SENT: u64 = STREAMING_OUTCOME.frames_sent();
 
-const fn configure_socket_options(
-    options: SocketOptions,
-    keepalive: Duration,
-) -> SocketOptions {
-    let configured = options
-        .nodelay(true)
-        .keepalive(Some(keepalive))
-        .send_buffer_size(2048)
-        .recv_buffer_size(4096)
-        .reuseaddr(true);
+// Both public receiver types must compile the same const socket setters.
+macro_rules! configure_socket_settings {
+    ($target:expr, $keepalive:expr) => {{
+        let configured = $target
+            .nodelay(true)
+            .keepalive(Some($keepalive))
+            .send_buffer_size(2048)
+            .recv_buffer_size(4096)
+            .reuseaddr(true);
 
-    #[cfg(all(
-        unix,
-        not(target_os = "solaris"),
-        not(target_os = "illumos"),
-        not(target_os = "cygwin"),
-    ))]
-    let configured = configured.reuseport(true);
+        #[cfg(all(
+            unix,
+            not(target_os = "solaris"),
+            not(target_os = "illumos"),
+            not(target_os = "cygwin"),
+        ))]
+        let configured = configured.reuseport(true);
 
-    configured
+        configured
+    }};
+}
+
+const fn configure_socket_options(options: SocketOptions, keepalive: Duration) -> SocketOptions {
+    configure_socket_settings!(options, keepalive)
 }
 
 const fn configure_codec(
@@ -83,23 +87,7 @@ const fn configure_builder_socket(
     socket_options: SocketOptions,
     keepalive: Duration,
 ) -> WireframeClientBuilder {
-    let configured = builder
-        .socket_options(socket_options)
-        .nodelay(true)
-        .keepalive(Some(keepalive))
-        .send_buffer_size(2048)
-        .recv_buffer_size(4096)
-        .reuseaddr(true);
-
-    #[cfg(all(
-        unix,
-        not(target_os = "solaris"),
-        not(target_os = "illumos"),
-        not(target_os = "cygwin"),
-    ))]
-    let configured = configured.reuseport(true);
-
-    configured
+    configure_socket_settings!(builder.socket_options(socket_options), keepalive)
 }
 
 const fn configure_builder_codec_and_tracing(
