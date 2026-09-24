@@ -8,13 +8,39 @@ test holds every job in the tree to a form the reader models.
 
 from __future__ import annotations
 
+import typing as typ
+
 import pytest
+import runner_placement_reader
 from runner_placement_policy import UBICLOUD_LABEL_PREFIX
 from runner_placement_reader import (
     RunnerShapeError,
     case_id,
     job_labels,
     jobs,
+    registered_labels,
+)
+from workflow_loader import DuplicateKeyError
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
+
+#: A lane declaring ``runs-on`` twice. PyYAML's ``safe_load`` keeps the
+#: second value and says nothing, so only the strict loader refuses it.
+DOUBLED_RUNS_ON: typ.Final = (
+    "on: push\n"
+    "jobs:\n"
+    "  build:\n"
+    "    runs-on: ubuntu-latest\n"
+    "    runs-on: ubicloud-standard-2\n"
+    "    steps: []\n"
+)
+
+#: An actionlint registry declaring its label list twice.
+DOUBLED_REGISTRY: typ.Final = (
+    "self-hosted-runner:\n"
+    "  labels: [ubicloud-standard-2]\n"
+    "  labels: [ubicloud-standard-4]\n"
 )
 
 
@@ -104,3 +130,29 @@ def test_every_runner_declaration_is_readable(
         job_labels(jobs()[coordinate])
     except RunnerShapeError as error:
         pytest.fail(f"{coordinate[0]}:{coordinate[1]}: {error}")
+
+
+def test_the_reader_refuses_a_workflow_declaring_runs_on_twice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tree is read through the strict loader, not ``yaml.safe_load``.
+
+    ``workflow_loader_test`` proves the loader; this proves the reader uses
+    it, so reverting the reader to ``safe_load`` fails here.
+    """
+    (tmp_path / "ci.yml").write_text(DOUBLED_RUNS_ON, encoding="utf-8")
+    monkeypatch.setattr(runner_placement_reader, "WORKFLOW_DIR", tmp_path)
+    with pytest.raises(DuplicateKeyError):
+        jobs()
+
+
+def test_the_reader_refuses_a_registry_declaring_labels_twice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The actionlint registry is read through the strict loader too."""
+    registry = tmp_path / "actionlint.yaml"
+    registry.write_text(DOUBLED_REGISTRY, encoding="utf-8")
+    monkeypatch.setattr(runner_placement_reader, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(runner_placement_reader, "ACTIONLINT_CONFIG", registry)
+    with pytest.raises(DuplicateKeyError):
+        registered_labels()

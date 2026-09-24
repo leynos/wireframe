@@ -192,7 +192,9 @@ constructed jobs, and holds every job in the tree to a readable form, naming
 the coordinate when one is not. The reader loads the tree and
 `.github/actionlint.yaml` through `workflow_loader.py`, which refuses a
 duplicated mapping key, so a lane cannot declare `runs-on` twice and have the
-first value discarded unseen.
+first value discarded unseen. Two reader-level tests point the reader at a
+temporary tree and registry, each declaring a key twice, and require the
+refusal, so a reader reverted to `yaml.safe_load` fails them.
 
 ## Layer model and glossary
 
