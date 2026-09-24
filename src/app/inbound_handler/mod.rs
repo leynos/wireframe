@@ -78,7 +78,7 @@ where
         memory_budgets,
         read_timeout_ms,
     } = context;
-    let state = if let Some(setup) = on_connect {
+    let connection_state = if let Some(setup) = on_connect {
         Some(setup().await)
     } else {
         None
@@ -98,7 +98,7 @@ where
     )
     .await;
 
-    if let (Some(teardown), Some(state)) = (on_disconnect, state) {
+    if let (Some(teardown), Some(state)) = (on_disconnect, connection_state) {
         teardown(state).await;
     }
 
@@ -143,13 +143,15 @@ where
     F: FrameCodec,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    /// Handle a connection through a compatibility route preparation path.
+    /// Drive one connection through rebuilt routes for compatibility callers.
+    ///
+    /// Call `app.handle_unprepared_connection_result(stream).await` when a
+    /// per-connection factory still supplies a fresh application builder.
     ///
     /// # Errors
     ///
     /// Returns an [`io::Error`] if stream processing or handler execution fails.
-    #[deprecated(note = "prepare the app once, then call PreparedApp::handle_connection_result")]
-    pub async fn handle_connection_result<W>(&self, stream: W) -> io::Result<()>
+    pub(crate) async fn handle_unprepared_connection_result<W>(&self, stream: W) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
@@ -171,17 +173,26 @@ where
         .await
     }
 
+    /// Handle a connection through a compatibility route preparation path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`io::Error`] if stream processing or handler execution fails.
+    #[deprecated(note = "prepare the app once, then call PreparedApp::handle_connection_result")]
+    pub async fn handle_connection_result<W>(&self, stream: W) -> io::Result<()>
+    where
+        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    {
+        self.handle_unprepared_connection_result(stream).await
+    }
+
     /// Handle a connection through the compatibility preparation path.
     #[deprecated(note = "prepare the app once, then call PreparedApp::handle_connection")]
     pub async fn handle_connection<W>(&self, stream: W)
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
-        #[expect(
-            deprecated,
-            reason = "compatibility wrapper delegates to its fallible counterpart"
-        )]
-        if let Err(error) = self.handle_connection_result(stream).await {
+        if let Err(error) = self.handle_unprepared_connection_result(stream).await {
             warn!(
                 "connection handling completed with error: correlation_id={:?}, error={error:?}",
                 None::<u64>

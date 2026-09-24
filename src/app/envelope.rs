@@ -158,7 +158,7 @@ pub struct Envelope {
 impl Envelope {
     /// Create a new [`Envelope`] with the provided identifiers and payload.
     #[must_use]
-    pub fn new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) -> Self {
+    pub const fn new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) -> Self {
         Self {
             id,
             correlation_id,
@@ -200,7 +200,7 @@ impl CorrelatableFrame for Envelope {
 impl PacketParts {
     /// Construct a new set of packet parts.
     #[must_use]
-    pub fn new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) -> Self {
+    pub const fn new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) -> Self {
         Self {
             id,
             correlation_id,
@@ -290,7 +290,7 @@ impl PacketParts {
 
     /// Resolve inherited correlation metadata and flag conflicting identifiers.
     #[inline]
-    fn select_correlation(current: Option<u64>, source: Option<u64>) -> (Option<u64>, bool) {
+    const fn select_correlation(current: Option<u64>, source: Option<u64>) -> (Option<u64>, bool) {
         match (current, source) {
             (None, cid) => (cid, false),
             (Some(cid), Some(src)) if cid != src => (Some(src), true),
@@ -300,7 +300,7 @@ impl PacketParts {
 }
 
 impl From<Envelope> for PacketParts {
-    fn from(e: Envelope) -> Self { PacketParts::new(e.id, e.correlation_id, e.payload) }
+    fn from(e: Envelope) -> Self { Self::new(e.id, e.correlation_id, e.payload) }
 }
 
 impl From<PacketParts> for Envelope {
@@ -308,7 +308,7 @@ impl From<PacketParts> for Envelope {
         let id = p.id();
         let correlation_id = p.correlation_id();
         let payload = p.into_payload();
-        Envelope::new(id, correlation_id, payload)
+        Self::new(id, correlation_id, payload)
     }
 }
 

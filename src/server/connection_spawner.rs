@@ -85,8 +85,8 @@ async fn process_stream<F, T, Ser, Ctx, E, Codec>(
         };
 
     run_preamble_success(on_success.as_ref(), &preamble, &mut stream, peer_addr).await;
-    let stream = RewindStream::new(leftover, stream);
-    handle_app_connection(&factory, stream).await;
+    let rewind_stream = RewindStream::new(leftover, stream);
+    handle_app_connection(&factory, rewind_stream).await;
 }
 
 /// Build an application and run it on the already-handshaken stream.
@@ -100,14 +100,8 @@ where
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
     match factory.build() {
-        Ok(app) =>
-        {
-            #[expect(
-                deprecated,
-                reason = "the server retains per-connection factory evaluation until the runtime \
-                          slice"
-            )]
-            if let Err(e) = app.handle_connection_result(stream).await {
+        Ok(app) => {
+            if let Err(e) = app.handle_unprepared_connection_result(stream).await {
                 warn!("connection task error: {e:?}");
             }
         }
@@ -130,13 +124,13 @@ async fn read_preamble_with_timeout<T: Preamble>(
     stream: &mut TcpStream,
     preamble_timeout: Option<Duration>,
 ) -> Result<(T, Vec<u8>), bincode::error::DecodeError> {
-    match preamble_timeout {
-        Some(limit) => match timeout(limit, read_preamble::<_, T>(stream)).await {
-            Ok(result) => result,
-            Err(_) => Err(timeout_error()),
-        },
-        None => read_preamble::<_, T>(stream).await,
-    }
+    let Some(limit) = preamble_timeout else {
+        return read_preamble::<_, T>(stream).await;
+    };
+
+    timeout(limit, read_preamble::<_, T>(stream))
+        .await
+        .map_err(|_| timeout_error())?
 }
 
 /// Invoke the success callback while the stream remains exclusively borrowed.
@@ -146,8 +140,8 @@ async fn run_preamble_success<T: Preamble>(
     stream: &mut TcpStream,
     peer_addr: Option<SocketAddr>,
 ) {
-    if let Some(handler) = handler
-        && let Err(e) = handler(preamble, stream).await
+    if let Some(preamble_handler) = handler
+        && let Err(e) = preamble_handler(preamble, stream).await
     {
         error!("preamble handler error: error={e}, error_debug={e:?}, peer_addr={peer_addr:?}");
     }
@@ -160,8 +154,8 @@ async fn run_preamble_failure(
     stream: &mut TcpStream,
     peer_addr: Option<SocketAddr>,
 ) {
-    if let Some(handler) = handler {
-        if let Err(e) = handler(&err, stream).await {
+    if let Some(failure_handler) = handler {
+        if let Err(e) = failure_handler(&err, stream).await {
             error!(
                 "preamble failure handler error: error={e}, error_debug={e:?}, \
                  peer_addr={peer_addr:?}"
@@ -215,17 +209,17 @@ mod tests {
         let addr = listener.local_addr().expect("listener.local_addr");
 
         let handle = tokio::spawn({
-            let tracker = tracker.clone();
+            let task_tracker = tracker.clone();
             async move {
                 let (stream, _) = listener.accept().await.expect("accept");
                 spawn_connection_task(
                     stream,
                     app_factory,
                     PreambleHooks::<()>::default(),
-                    &tracker,
+                    &task_tracker,
                 );
-                tracker.close();
-                tracker.wait().await;
+                task_tracker.close();
+                task_tracker.wait().await;
             }
         });
 
@@ -270,17 +264,17 @@ mod tests {
         let addr = listener.local_addr().expect("listener.local_addr");
 
         let handle = tokio::spawn({
-            let tracker = tracker.clone();
+            let task_tracker = tracker.clone();
             async move {
                 let (stream, _) = listener.accept().await.expect("accept");
                 spawn_connection_task(
                     stream,
                     app_factory,
                     PreambleHooks::<()>::default(),
-                    &tracker,
+                    &task_tracker,
                 );
-                tracker.close();
-                tracker.wait().await;
+                task_tracker.close();
+                task_tracker.wait().await;
             }
         });
 
@@ -331,7 +325,7 @@ mod tests {
         let handle = tokio::spawn(async move {
             server
                 .run_with_shutdown(async {
-                    let _ = rx.await;
+                    let _shutdown_signal_result = rx.await;
                 })
                 .await
                 .expect("server run failed");
@@ -349,7 +343,7 @@ mod tests {
         TcpStream::connect(addr)
             .await
             .expect("second connection should succeed after panic");
-        let _ = tx.send(());
+        let _shutdown_notification_result = tx.send(());
         handle.await.expect("server join error");
         tokio::task::yield_now().await;
 

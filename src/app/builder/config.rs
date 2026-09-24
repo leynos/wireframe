@@ -33,7 +33,7 @@ where
     ///
     /// Provide `None` to disable fragmentation entirely.
     #[must_use]
-    pub fn fragmentation(mut self, config: Option<FragmentationConfig>) -> Self {
+    pub const fn fragmentation(mut self, config: Option<FragmentationConfig>) -> Self {
         self.fragmentation = config;
         self
     }
@@ -45,7 +45,7 @@ where
     /// hand-off state. Wireframe uses them for per-frame rejection,
     /// soft-pressure read pacing, and hard-cap connection aborts.
     #[must_use]
-    pub fn memory_budgets(mut self, budgets: MemoryBudgets) -> Self {
+    pub const fn memory_budgets(mut self, budgets: MemoryBudgets) -> Self {
         self.memory_budgets = Some(budgets);
         self
     }
@@ -78,7 +78,7 @@ where
     /// ```
     #[must_use]
     pub fn with_push_dlq(self, dlq: mpsc::Sender<Vec<u8>>) -> Self {
-        WireframeApp {
+        Self {
             push_dlq: Some(dlq),
             ..self
         }
