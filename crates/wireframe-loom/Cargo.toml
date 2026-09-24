@@ -16,7 +16,11 @@ workspace = true
 [dev-dependencies]
 rstest = "0.27.0"
 tokio = { version = "1.47.1", default-features = false, features = ["sync"] }
-wireframe = { path = "../.." }
+# `pool` and `test-support` are enabled so that a Loom build compiles
+# `test_helpers` with the pool feature on, the configuration issue #683
+# broke: `pool_client` is gated on `not(loom)` as well as `pool`, and
+# removing that half fails this package's build under `--cfg loom`.
+wireframe = { path = "../..", features = ["pool", "test-support"] }
 
 [target.'cfg(loom)'.dev-dependencies]
 loom = "0.7.2"

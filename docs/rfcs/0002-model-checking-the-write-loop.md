@@ -155,7 +155,9 @@ racing an active output) against the code's own ordering.
   source-reading contract, parsing the module tree with `syn` and checking that
   every import edge's effective predicate implies its target's, was specified
   in the execution plan's V-2 and is deferred to this RFC to keep the Loom
-  change achievable. It would add `syn` as a direct dev-dependency.
+  change achievable. It would add `syn` as a direct dev-dependency. In the
+  meantime the Loom build compiles the library with `pool` and `test-support`
+  on, which catches the #683 regression itself but no other import edge.
 - **The lane has no executed-count guard.** A model file compiled without
   `--cfg loom` is empty, and `cargo test` passes with zero tests. The workflow
   contract holds the target to `--cfg loom`, which covers today's command; a

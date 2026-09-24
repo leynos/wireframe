@@ -143,6 +143,8 @@ The test helpers are in `src/test_helpers.rs` and
 - [x] (2026-09-23) EP-M4: documents corrected, guide statement, RFC 0002.
 - [x] (2026-09-24) Review: V-1b added, so the lane cannot pass with no model
   to run.
+- [x] (2026-09-24) Review: V-1c added, so the Loom build compiles the pool
+  configuration #683 broke; D-4's claim corrected.
 - [ ] The first scheduled run of the lane on `main`, recorded here once it has
   run.
 
@@ -240,7 +242,9 @@ Found while implementing, on 2026-09-23:
 - **D-4 (superseded)**: V-2's `syn`-based source contract is deferred to RFC
   0002. It is achievable, but it is a checker of its own, and the ruling asked
   for one change of achievable checks. The configuration repair is covered by
-  V-1 in the meantime.
+  V-1c in the meantime. This entry first said V-1; review on 2026-09-24 showed
+  that was false, because the models package enabled no library features and so
+  never compiled `test_helpers` under Loom.
 - **D-5**: the models live in their own package, `crates/wireframe-loom`.
   Rationale: the root package's test build compiles `wireframe_testing`, whose
   TCP harness cannot exist under `cfg(loom)`, and its self dev-dependency turns
@@ -385,6 +389,23 @@ N4 autotests = false in the package manifest     test_the_manifest_discovers_eve
 N5 sweep finds no model files                    test_the_package_holds_model_files
 N6-N11 each rule disabled in turn                its synthetic rejection case
 ```
+
+**V-1c: the Loom build compiles the configuration #683 broke.** Artefact:
+`crates/wireframe-loom/Cargo.toml` depends on the library with `pool` and
+`test-support`, so `make test-loom` builds `test_helpers` under `--cfg loom`
+with the pool feature on. Evidence, each from `make test-loom`:
+
+```plaintext
+baseline, features on                      builds; 8 model executions pass
+not(loom) dropped from both gates          fails: 5 errors, E0432/E0433 on crate::client and tokio::net
+same mutant, features removed              builds; 8 pass (the gap review found)
+```
+
+Enabling `test-support` under Loom also surfaced two accessors on `ActorState`,
+`closed_sources` and `total_sources`, gated wider than
+`connection::test_support`, their only caller, which Loom compiles out. They
+now carry that module's gate, and the warning count is back to the four
+recorded under EP-M4.
 
 **V-2 (deferred to RFC 0002)**: the configuration-boundary contract.
 

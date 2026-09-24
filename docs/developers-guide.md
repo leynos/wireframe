@@ -963,7 +963,10 @@ harness cannot exist under `cfg(loom)` because `crate::client`, `server` and
 `pool` feature by unification, which is how `test_helpers::pool_client` came to
 be selected by a lane that never asked for it (issue #683). `pool_client` is
 now gated on `not(loom)` as well as the feature, and the models never meet the
-harness at all.
+harness at all. The package depends on the library with `pool` and
+`test-support` enabled, so `make test-loom` compiles `test_helpers` in the
+configuration #683 broke: dropping `not(loom)` from either `pool_client` gate
+fails the Loom build with the five errors the issue reported.
 
 What Loom schedules, and what it cannot, decides what the models may assert:
 
