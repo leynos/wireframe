@@ -162,7 +162,7 @@ async fn handle_acquire_dropped_waiter_does_not_leak_capacity(
     tokio::time::sleep(Duration::from_millis(25)).await;
 
     waiter1_task.abort();
-    let _ = waiter1_task.await;
+    drop(waiter1_task.await);
 
     drop(held_lease);
 

@@ -222,9 +222,9 @@ where
     let count = counter.clone();
 
     let increment = move |value: T| {
-        let count = count.clone();
+        let callback_count = count.clone();
         Box::pin(async move {
-            count.fetch_add(1, Ordering::SeqCst);
+            callback_count.fetch_add(1, Ordering::SeqCst);
             value
         }) as Pin<Box<dyn Future<Output = T> + Send>>
     };
