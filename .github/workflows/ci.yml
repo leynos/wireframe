@@ -6,6 +6,16 @@ on:
   push:
     branches: [main]
 
+# A second push to a pull request supersedes the run already in flight, which
+# otherwise charges a full set of minutes for a result nobody reads. Only a
+# pull request shares a group: every other event falls back to its own run id,
+# so a push to main is neither cancelled nor replaced while it waits. A ref
+# fallback would let a third push to main replace a pending second run, and
+# those runs write the warm cache.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-test:
     # The one developer-blocking lane, so the one that moves. It waited 461 s
