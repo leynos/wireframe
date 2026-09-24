@@ -63,8 +63,9 @@ pub(crate) fn new_message_assembly_state(
         cfg.reassembly_timeout
     });
 
-    match memory_budgets {
-        Some(budgets) => {
+    memory_budgets.map_or_else(
+        || MessageAssemblyState::new(frag_max, timeout),
+        |budgets| {
             let per_message = budgets.bytes_per_message().get();
             let max_message_size = frag_max.min(per_message);
             MessageAssemblyState::with_budgets(
@@ -73,9 +74,8 @@ pub(crate) fn new_message_assembly_state(
                 Some(budgets.bytes_per_connection().get()),
                 Some(budgets.bytes_in_flight().get()),
             )
-        }
-        None => MessageAssemblyState::new(frag_max, timeout),
-    }
+        },
+    )
 }
 
 /// Purge stale in-flight assemblies.
@@ -101,10 +101,10 @@ pub(crate) fn assemble_if_needed(
     max_deser_failures: u32,
 ) -> io::Result<Option<Envelope>> {
     let AssemblyRuntime {
-        assembler,
+        assembler: maybe_assembler,
         state: assembly,
     } = runtime;
-    let Some(assembler) = assembler else {
+    let Some(assembler) = maybe_assembler else {
         return Ok(Some(env));
     };
     let Some(state) = assembly.as_mut() else {

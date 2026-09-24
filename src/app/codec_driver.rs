@@ -101,13 +101,13 @@ impl FramePipeline {
     ///
     /// Used by the inbound reassembly path which needs direct access to
     /// [`FragmentationState::reassemble`].
-    pub(crate) fn fragmentation_mut(&mut self) -> Option<&mut FragmentationState> {
+    pub(crate) const fn fragmentation_mut(&mut self) -> Option<&mut FragmentationState> {
         self.fragmentation.as_mut()
     }
 
     /// Returns `true` when fragmentation is enabled.
     #[cfg(test)]
-    pub(crate) fn has_fragmentation(&self) -> bool { self.fragmentation.is_some() }
+    pub(crate) const fn has_fragmentation(&self) -> bool { self.fragmentation.is_some() }
 
     /// Append one processed envelope and account for its outbound emission.
     fn push_frame(&mut self, envelope: Envelope) {

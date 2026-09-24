@@ -123,7 +123,7 @@ struct SupervisorCancellationDropGuard<'a> {
 
 impl<'a> SupervisorCancellationDropGuard<'a> {
     /// Pair Tokio's cancellation guard with lifecycle accounting.
-    fn new(guard: DropGuardRef<'a>, lifecycle: SupervisorLifecycle) -> Self {
+    const fn new(guard: DropGuardRef<'a>, lifecycle: SupervisorLifecycle) -> Self {
         Self {
             _guard: guard,
             lifecycle,
@@ -208,7 +208,7 @@ where
     /// surface as errors.
     pub async fn run(self) -> Result<(), ServerError> {
         self.run_with_shutdown(async {
-            let _ = signal::ctrl_c().await;
+            let _signal_result = signal::ctrl_c().await;
         })
         .await
     }
@@ -270,7 +270,7 @@ where
     where
         S: Future<Output = ()> + Send,
     {
-        let WireframeServer {
+        let Self {
             factory,
             workers,
             on_preamble_success,
@@ -296,16 +296,16 @@ where
         };
 
         for _ in 0..workers {
-            let listener = Arc::clone(&listener);
-            let factory = factory.clone();
+            let worker_listener = Arc::clone(&listener);
+            let worker_factory = factory.clone();
             let preamble_hooks = preamble.clone();
             let token = shutdown_token.clone();
             let t = tracker.clone();
             let span = tracing::Span::current();
             tracker.spawn(
                 accept_loop(
-                    listener,
-                    factory,
+                    worker_listener,
+                    worker_factory,
                     AcceptLoopOptions {
                         preamble: preamble_hooks,
                         shutdown: token,

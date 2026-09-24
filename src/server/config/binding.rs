@@ -16,41 +16,13 @@ use crate::{
     server::{AppFactory, Bound, ServerError},
 };
 
-/// Trait alias for wireframe factory functions.
-trait WireframeFactory<Ser, Ctx, E, Codec>: AppFactory<Ser, Ctx, E, Codec>
-where
-    Ser: Serializer + Send + Sync,
-    Ctx: Send + 'static,
-    E: Packet,
-    Codec: FrameCodec,
-{
-}
-impl<F, Ser, Ctx, E, Codec> WireframeFactory<Ser, Ctx, E, Codec> for F
-where
-    F: AppFactory<Ser, Ctx, E, Codec>,
-    Ser: Serializer + Send + Sync,
-    Ctx: Send + 'static,
-    E: Packet,
-    Codec: FrameCodec,
-{
-}
-
-/// Helper trait alias for wireframe preambles
-trait WireframePreamble: Preamble {}
-impl<T> WireframePreamble for T where T: Preamble {}
-
 /// Bound typestate alias returned after a listener is configured.
 type BoundServer<F, T, Ser, Ctx, E, Codec> = WireframeServer<F, T, Bound, Ser, Ctx, E, Codec>;
 
-/// Blanket impl uses private trait aliases; suppress visibility lint
-#[expect(
-    private_bounds,
-    reason = "helper trait aliases are module-private by design"
-)]
 impl<F, T, S, Ser, Ctx, E, Codec> WireframeServer<F, T, S, Ser, Ctx, E, Codec>
 where
-    F: WireframeFactory<Ser, Ctx, E, Codec>,
-    T: WireframePreamble,
+    F: AppFactory<Ser, Ctx, E, Codec>,
+    T: Preamble,
     S: ServerState,
     Ser: Serializer + Send + Sync,
     Ctx: Send + 'static,
@@ -62,7 +34,7 @@ where
         self,
         std_listener: StdTcpListener,
     ) -> Result<BoundServer<F, T, Ser, Ctx, E, Codec>, ServerError> {
-        let WireframeServer {
+        let Self {
             factory,
             workers,
             on_preamble_success,
@@ -97,15 +69,10 @@ where
     }
 }
 
-/// Blanket impl uses private trait aliases; suppress visibility lint
-#[expect(
-    private_bounds,
-    reason = "helper trait aliases are module-private by design"
-)]
 impl<F, T, Ser, Ctx, E, Codec> WireframeServer<F, T, Unbound, Ser, Ctx, E, Codec>
 where
-    F: WireframeFactory<Ser, Ctx, E, Codec>,
-    T: WireframePreamble,
+    F: AppFactory<Ser, Ctx, E, Codec>,
+    T: Preamble,
     Ser: Serializer + Send + Sync,
     Ctx: Send + 'static,
     E: Packet,
@@ -179,15 +146,10 @@ where
     }
 }
 
-/// Blanket impl uses private trait aliases; suppress visibility lint
-#[expect(
-    private_bounds,
-    reason = "helper trait aliases are module-private by design"
-)]
 impl<F, T, Ser, Ctx, E, Codec> WireframeServer<F, T, Bound, Ser, Ctx, E, Codec>
 where
-    F: WireframeFactory<Ser, Ctx, E, Codec>,
-    T: WireframePreamble,
+    F: AppFactory<Ser, Ctx, E, Codec>,
+    T: Preamble,
     Ser: Serializer + Send + Sync,
     Ctx: Send + 'static,
     E: Packet,

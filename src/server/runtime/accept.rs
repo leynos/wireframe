@@ -43,11 +43,9 @@ pub(in crate::server) trait AcceptListener: Send + Sync {
 
 #[async_trait]
 impl AcceptListener for TcpListener {
-    async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> {
-        TcpListener::accept(self).await
-    }
+    async fn accept(&self) -> io::Result<(TcpStream, SocketAddr)> { Self::accept(self).await }
 
-    fn local_addr(&self) -> io::Result<SocketAddr> { TcpListener::local_addr(self) }
+    fn local_addr(&self) -> io::Result<SocketAddr> { Self::local_addr(self) }
 }
 
 #[derive(Debug)]
@@ -183,10 +181,10 @@ pub(in crate::server) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
         preamble,
         shutdown,
         tracker,
-        backoff,
+        backoff: backoff_config,
         lifecycle,
     } = options;
-    let backoff = normalized_backoff(backoff);
+    let backoff = normalized_backoff(backoff_config);
     let mut delay = backoff.initial_delay;
     let handles = AcceptHandles {
         preamble: &preamble,
@@ -201,17 +199,17 @@ pub(in crate::server) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
 }
 
 /// Normalize retry delays and assert the backoff safety invariants.
-fn normalized_backoff(backoff: BackoffConfig) -> BackoffConfig {
-    let backoff = backoff.normalized();
+fn normalized_backoff(config: BackoffConfig) -> BackoffConfig {
+    let normalized = config.normalized();
     debug_assert!(
-        backoff.initial_delay <= backoff.max_delay,
+        normalized.initial_delay <= normalized.max_delay,
         "BackoffConfig invariant violated: initial_delay > max_delay"
     );
     debug_assert!(
-        backoff.initial_delay >= Duration::from_millis(1),
+        normalized.initial_delay >= Duration::from_millis(1),
         "BackoffConfig invariant violated: initial_delay < 1ms"
     );
-    backoff
+    normalized
 }
 
 /// Record cancellation only when the worker actually exited because of it.

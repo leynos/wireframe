@@ -152,10 +152,10 @@ where
     } = context;
     // Each connection needs isolated framing state: cloning resets the
     // counters `SeqFrameCodec` and `TaggedFrameCodec::wrap_payload` consume.
-    let codec = codec.clone();
-    let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
+    let connection_codec = codec.clone();
+    let combined = CombinedCodec::new(connection_codec.decoder(), connection_codec.encoder());
     let mut framed = Framed::new(stream, combined);
-    let requested_frame_length = codec.max_frame_length();
+    let requested_frame_length = connection_codec.max_frame_length();
     let max_frame_length = clamp_frame_length(requested_frame_length);
     if requested_frame_length > MAX_FRAME_LENGTH {
         warn!(
@@ -196,7 +196,7 @@ where
                         deser_failures: &mut deser_failures,
                         routes,
                         serializer,
-                        codec: &codec,
+                        codec: &connection_codec,
                         message_assembler,
                         message_assembly: &mut message_assembly,
                         pipeline: &mut pipeline,
@@ -303,7 +303,7 @@ where
     else {
         return Ok(None);
     };
-    let Some(envelope) = frame_handling::reassemble_if_needed(
+    let Some(reassembled_envelope) = frame_handling::reassemble_if_needed(
         pipeline,
         deser_failures,
         envelope,
@@ -312,10 +312,10 @@ where
     else {
         return Ok(None);
     };
-    let Some(envelope) = frame_handling::assemble_if_needed(
+    let Some(assembled_envelope) = frame_handling::assemble_if_needed(
         frame_handling::AssemblyRuntime::new(message_assembler, message_assembly),
         deser_failures,
-        envelope,
+        reassembled_envelope,
         MAX_DESER_FAILURES,
     )?
     else {
@@ -325,5 +325,5 @@ where
     // Reset only after the entire pipeline succeeds, so assembly failures
     // accumulate towards the close threshold.
     *deser_failures = 0;
-    Ok(Some(envelope))
+    Ok(Some(assembled_envelope))
 }
