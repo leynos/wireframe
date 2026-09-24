@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import platform
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,27 @@ from dev_fast_routing_test import (
     _cargo_lines,
     _make_dry_run,
 )
+
+DEV_WARNING_FLAGS = "DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_LINUX_LINK_ARG))"
+
+
+@dataclass(frozen=True)
+class _MakefileMutation:
+    """Describe one isolated Makefile replacement used by a contract test."""
+
+    target: str
+    original: str
+    replacement: str
+    options: _MakeDryRunOptions = _MakeDryRunOptions()
+
+
+@dataclass(frozen=True)
+class _RoutingFlagMutation:
+    """Pair one routing-flag mutation with the contract it must violate."""
+
+    replacement: str
+    assertion: Callable[[str, list[str]], None]
+    expected_message: str
 
 
 def _assert_rustdoc_flags(cargo_lines: list[str], rustdoc_flags: str) -> None:
@@ -37,6 +60,22 @@ def _assert_debug_target_contract(target: str, cargo_lines: list[str]) -> None:
     _assert_dev_fast_fragment(target, cargo_lines)
     _assert_caller_rustflags(target, cargo_lines)
     _assert_warning_denial(target, cargo_lines)
+
+
+def _mutated_cargo_lines(
+    tmp_path: Path,
+    mutation: _MakefileMutation,
+) -> list[str]:
+    """Return Cargo lines after one private Makefile mutation."""
+    source = MAKEFILE_PATH.read_text(encoding="utf-8")
+    assert source.count(mutation.original) == 1, "the Makefile mutation must be unambiguous"
+    mutated_makefile = tmp_path / "Makefile"
+    mutated_makefile.write_text(
+        source.replace(mutation.original, mutation.replacement, 1), encoding="utf-8"
+    )
+    return _cargo_lines(
+        _make_dry_run(mutation.target, mutated_makefile, options=mutation.options)
+    )
 
 
 @pytest.mark.skipif(platform.system() != "Linux", reason="native Linux linker only")
@@ -94,40 +133,50 @@ def test_lint_preserves_configured_rustdoc_flags() -> None:
     )
 
 
-def test_debug_contract_detects_removed_caller_rustflags(tmp_path: Path) -> None:
-    """A private mutation proves caller Rust flags remain binding."""
-    source = MAKEFILE_PATH.read_text(encoding="utf-8")
-    original = "DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_LINUX_LINK_ARG))"
-    mutated = "DEV_WARNING_FLAGS = $(strip -D warnings $(DEV_LINUX_LINK_ARG))"
-    assert source.count(original) == 1, "the Makefile mutation must be unambiguous"
-    mutated_makefile = tmp_path / "Makefile"
-    mutated_makefile.write_text(source.replace(original, mutated), encoding="utf-8")
-    cargo_lines = _cargo_lines(_make_dry_run("test", mutated_makefile))
-    with pytest.raises(AssertionError, match="must preserve"):
-        _assert_caller_rustflags("test", cargo_lines)
-
-
-def test_debug_contract_detects_removed_warning_denial(tmp_path: Path) -> None:
-    """A private mutation proves warning denial remains binding."""
-    source = MAKEFILE_PATH.read_text(encoding="utf-8")
-    original = "DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_LINUX_LINK_ARG))"
-    mutated = "DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) $(DEV_LINUX_LINK_ARG))"
-    assert source.count(original) == 1, "the Makefile mutation must be unambiguous"
-    mutated_makefile = tmp_path / "Makefile"
-    mutated_makefile.write_text(source.replace(original, mutated), encoding="utf-8")
-    cargo_lines = _cargo_lines(_make_dry_run("test", mutated_makefile))
-    with pytest.raises(AssertionError, match="must retain"):
-        _assert_warning_denial("test", cargo_lines)
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        pytest.param(
+            _RoutingFlagMutation(
+                replacement="DEV_WARNING_FLAGS = $(strip -D warnings $(DEV_LINUX_LINK_ARG))",
+                assertion=_assert_caller_rustflags,
+                expected_message="must preserve",
+            ),
+            id="caller-rustflags",
+        ),
+        pytest.param(
+            _RoutingFlagMutation(
+                replacement="DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) $(DEV_LINUX_LINK_ARG))",
+                assertion=_assert_warning_denial,
+                expected_message="must retain",
+            ),
+            id="warning-denial",
+        ),
+    ),
+)
+def test_debug_contract_detects_removed_routing_flags(
+    tmp_path: Path, mutation: _RoutingFlagMutation
+) -> None:
+    """Each private mutation must violate its named debug-routing contract."""
+    cargo_lines = _mutated_cargo_lines(
+        tmp_path,
+        _MakefileMutation(
+            target="test", original=DEV_WARNING_FLAGS, replacement=mutation.replacement
+        ),
+    )
+    with pytest.raises(AssertionError, match=mutation.expected_message):
+        mutation.assertion("test", cargo_lines)
 
 
 def test_lint_contract_detects_removed_rustdoc_flags(tmp_path: Path) -> None:
     """A private mutation proves lint's rustdoc flags remain binding."""
-    source = MAKEFILE_PATH.read_text(encoding="utf-8")
     original = 'RUSTDOCFLAGS="$(RUSTDOC_FLAGS)"'
-    assert source.count(original) == 1, "the rustdoc mutation must be unambiguous"
-    mutated_makefile = tmp_path / "Makefile"
-    mutated_makefile.write_text(source.replace(original, "", 1), encoding="utf-8")
     options = _MakeDryRunOptions(rustdoc_flags=RUSTDOC_CONTRACT_FLAGS)
-    cargo_lines = _cargo_lines(_make_dry_run("lint", mutated_makefile, options=options))
+    cargo_lines = _mutated_cargo_lines(
+        tmp_path,
+        _MakefileMutation(
+            target="lint", original=original, replacement="", options=options
+        ),
+    )
     with pytest.raises(AssertionError, match="RUSTDOC_FLAGS"):
         _assert_rustdoc_flags(cargo_lines, RUSTDOC_CONTRACT_FLAGS)
