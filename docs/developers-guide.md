@@ -1100,4 +1100,9 @@ API, external-tool key, formal name, or deliberately fixed diagnostic.
 Eligible tracked files must remain readable UTF-8 text so the gate cannot
 silently omit them. Continuous integration installs Nixie 1.1.0 with Python
 3.14 and Merman CLI 0.7.0 before validating the repository's Mermaid diagrams
-with `make nixie`.
+with `make nixie`. Both come through the shared `install-nixie` action, which
+downloads Merman's release archive and verifies it against a pinned checksum.
+Merman was compiled from crates.io on every run until September 2026, about 2.3
+minutes of a paid runner; `tests/workflow_contracts/ci_workflow_test.py` now
+refuses any `run` step in `ci.yml` that names Merman, so the build cannot
+return under another spelling.
