@@ -81,7 +81,7 @@ mod tests {
     }
 
     fn timing_update_strategy() -> impl Strategy<Value = TimingUpdate> {
-        let operation = prop_oneof![
+        let operation_strategy = prop_oneof![
             Just(ClientOperation::Connect),
             Just(ClientOperation::Send),
             Just(ClientOperation::Receive),
@@ -91,7 +91,7 @@ mod tests {
         ];
 
         prop_oneof![
-            (operation, any::<bool>())
+            (operation_strategy, any::<bool>())
                 .prop_map(|(operation, enabled)| TimingUpdate::Set(operation, enabled)),
             any::<bool>().prop_map(TimingUpdate::SetAll),
         ]

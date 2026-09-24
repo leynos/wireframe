@@ -16,8 +16,8 @@ use crate::{
 
 /// Complete a test wait only after the close future has returned.
 #[cfg(test)]
-fn signal_close_completion(sender: Option<oneshot::Sender<()>>) {
-    if let Some(sender) = sender {
+fn signal_close_completion(completion_sender: Option<oneshot::Sender<()>>) {
+    if let Some(sender) = completion_sender {
         sender.send(()).unwrap_or_default();
     }
 }
