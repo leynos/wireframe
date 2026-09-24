@@ -21,7 +21,7 @@ use wireframe_testing::{decode_frames, drive_with_bincode, logger};
 #[tokio::test]
 async fn drives_app() -> std::io::Result<()> {
     let _log_guard = logger();
-    let app = WireframeApp::new().expect("failed to initialise app");
+    let app = WireframeApp::new().expect("failed to initialize app");
 
     let raw = drive_with_bincode(app, 42u8).await?;
     let frames = decode_frames(&raw)?;

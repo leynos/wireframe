@@ -184,13 +184,13 @@ impl FragmentWorld {
     fn series(&self) -> TestResult<&FragmentSeries> {
         self.series
             .as_ref()
-            .ok_or_else(|| "fragment series not initialised".into())
+            .ok_or_else(|| "fragment series not initialized".into())
     }
 
     fn series_mut(&mut self) -> TestResult<&mut FragmentSeries> {
         self.series
             .as_mut()
-            .ok_or_else(|| "fragment series not initialised".into())
+            .ok_or_else(|| "fragment series not initialized".into())
     }
 
     /// Assert that the latest fragment failed due to an index mismatch.
