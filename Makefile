@@ -9,13 +9,17 @@ CARGO ?= cargo
 BUILD_JOBS ?=
 DEV_FAST_CONFIG := tools/dev-fast/config.toml
 DEV_FAST := --config $(DEV_FAST_CONFIG)
-# RUSTFLAGS takes precedence over Cargo's target rustflags. Preserve the Linux
-# linker choice only when Cargo uses the host target; explicit targets may not
-# support the host's `mold` linker.
-DEV_LINUX_LINK_ARG := $(if $(CARGO_BUILD_TARGET),,$(if $(filter Linux,$(shell uname -s)),-Clink-arg=-fuse-ld=mold))
-DEV_WARNING_FLAGS := -D warnings $(DEV_LINUX_LINK_ARG)
+# RUSTFLAGS takes precedence over Cargo's target rustflags. `mold` is a native
+# Linux linker, so select it only when both the host and effective Cargo target
+# are Linux. Standard Rust target triples encode Linux as `-unknown-linux-`;
+# callers using a custom or non-standard target can set
+# CARGO_BUILD_TARGET_OS=Linux explicitly.
+CARGO_BUILD_TARGET_OS ?=
+DEV_EFFECTIVE_TARGET_OS = $(if $(CARGO_BUILD_TARGET),$(or $(CARGO_BUILD_TARGET_OS),$(if $(findstring -unknown-linux-,$(CARGO_BUILD_TARGET)),Linux)),$(shell uname -s))
+DEV_LINUX_LINK_ARG := $(if $(filter Linux,$(shell uname -s)),$(if $(filter Linux,$(DEV_EFFECTIVE_TARGET_OS)),-Clink-arg=-fuse-ld=mold))
+DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_LINUX_LINK_ARG))
 DEV_BUILD_FLAGS = $(strip $(RUSTFLAGS) $(DEV_LINUX_LINK_ARG))
-DEV_BUILD_ENV = $(if $(DEV_LINUX_LINK_ARG),RUSTFLAGS="$(DEV_BUILD_FLAGS)")
+DEV_BUILD_ENV = RUSTFLAGS="$(DEV_BUILD_FLAGS)"
 CLIPPY_FLAGS ?= --workspace --all-targets --all-features -- -D warnings
 RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
 MDLINT ?= $(shell command -v markdownlint-cli2 2>/dev/null || printf '%s' "$$HOME/.bun/bin/markdownlint-cli2")

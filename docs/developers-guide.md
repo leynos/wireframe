@@ -738,14 +738,17 @@ The Makefile keeps the development configuration in
 Standard debug Make targets select it explicitly: `build`, `test`, `test-bdd`,
 `test-doc`, `lint`'s rustdoc and Clippy commands, and `typecheck`. The
 `dev-build` target runs the configured Cargo build directly, even when a
-library artefact already exists; `dev-test` aliases `test`. On Linux, debug
-recipes using the host target add the `mold` linker flag to `RUSTFLAGS`,
-because Cargo does not merge `RUSTFLAGS` with target-specific rustflags. When
-`CARGO_BUILD_TARGET` selects an explicit target, Make omits the host linker
-flag rather than assuming that target supports it. The fragment selects
-Cranelift for the development profile; Cargo test commands (`make test`,
-`make test-bdd`, and `make test-doc`) use the LLVM test profile described
-below. Installing the Cranelift component alone does not change the backend.
+library artefact already exists; `dev-test` aliases `test`. On a Linux host,
+debug recipes targeting Linux add the `mold` linker flag to `RUSTFLAGS`,
+because Cargo does not merge `RUSTFLAGS` with target-specific rustflags. Make
+recognizes standard Rust Linux target triples by `-unknown-linux-`, so an
+explicit native Linux target retains `mold` while non-Linux targets, including
+Android, do not. For a custom JSON or non-standard Linux target, set
+`CARGO_BUILD_TARGET_OS=Linux`. Non-Linux hosts do not select `mold`, including
+when cross-compiling to Linux. The fragment selects Cranelift for the
+development profile; Cargo test commands (`make test`, `make test-bdd`, and
+`make test-doc`) use the LLVM test profile described below. Installing the
+Cranelift component alone does not change the backend.
 
 Release builds, coverage generation, verification commands, and Whitaker run
 without the development fragment. Direct Cargo commands also leave it

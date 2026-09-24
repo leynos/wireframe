@@ -26,6 +26,11 @@ TOOLCHAIN_PATH = ROOT / "rust-toolchain.toml"
 CI_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 DEV_FAST_ARGUMENT = f"--config {CONFIG_RELATIVE_PATH.as_posix()}"
 LINKER_ARGUMENT = "-Clink-arg=-fuse-ld=mold"
+CALLER_RUSTFLAGS = "-Cdebuginfo=1"
+RUSTDOC_CONTRACT_FLAGS = "--cfg docsrs -D warnings -D rustdoc-contract"
+WARNING_DENYING_TARGETS = frozenset(
+    {"test", "test-bdd", "test-doc", "lint", "typecheck", "dev-test"}
+)
 
 
 @dataclass(frozen=True)
@@ -35,6 +40,8 @@ class _MakeDryRunOptions:
     force: bool = True
     working_directory: Path = ROOT
     build_target: str | None = None
+    build_target_os: str | None = None
+    rustdoc_flags: str | None = None
 
 
 def _make_dry_run(
@@ -47,10 +54,16 @@ def _make_dry_run(
     environment = os.environ.copy()
     # Make's debug recipes preserve this caller-provided value while adding the
     # Linux linker flag. A fixed input makes that contract observable here.
-    environment["RUSTFLAGS"] = "-D warnings"
+    environment["RUSTFLAGS"] = CALLER_RUSTFLAGS
     environment.pop("CARGO_BUILD_TARGET", None)
+    environment.pop("CARGO_BUILD_TARGET_OS", None)
+    environment.pop("RUSTDOC_FLAGS", None)
     if options.build_target is not None:
         environment["CARGO_BUILD_TARGET"] = options.build_target
+    if options.build_target_os is not None:
+        environment["CARGO_BUILD_TARGET_OS"] = options.build_target_os
+    if options.rustdoc_flags is not None:
+        environment["RUSTDOC_FLAGS"] = options.rustdoc_flags
     make_args = ["make", "--dry-run"]
     if options.force:
         make_args.append("-B")
@@ -84,6 +97,25 @@ def _assert_lint_cargo_commands(cargo_lines: list[str]) -> None:
     assert len(doc_lines) == 1 and len(clippy_lines) == 1, (
         "lint must retain distinct rustdoc and Clippy Cargo invocations"
     )
+
+
+def _assert_caller_rustflags(target: str, cargo_lines: list[str]) -> None:
+    """Require debug Cargo recipes to preserve the caller's Rust flags."""
+    missing_flags = [line for line in cargo_lines if CALLER_RUSTFLAGS not in line]
+    assert not missing_flags, (
+        f"every debug Cargo invocation in {target} must preserve "
+        f"{CALLER_RUSTFLAGS!r}:\n" + "\n".join(missing_flags)
+    )
+
+
+def _assert_warning_denial(target: str, cargo_lines: list[str]) -> None:
+    """Require warning-denying recipes to retain the compiler warning policy."""
+    if target in WARNING_DENYING_TARGETS:
+        missing_denial = [line for line in cargo_lines if "-D warnings" not in line]
+        assert not missing_denial, (
+            f"every warning-denying Cargo invocation in {target} must retain "
+            f"'-D warnings':\n" + "\n".join(missing_denial)
+        )
 
 
 def _assert_dev_fast_fragment(target: str, cargo_lines: list[str]) -> None:
@@ -120,6 +152,8 @@ def _assert_debug_routing(target: str, lines: list[str]) -> None:
     )
     if target == "lint":
         _assert_lint_cargo_commands(cargo_lines)
+    _assert_caller_rustflags(target, cargo_lines)
+    _assert_warning_denial(target, cargo_lines)
     _assert_dev_fast_fragment(target, cargo_lines)
     _assert_linux_linker(target, cargo_lines)
 
@@ -194,39 +228,6 @@ def test_dev_build_rebuilds_with_a_preexisting_library(tmp_path: Path) -> None:
     ), "the standard build should respect an existing library"
     lines = _make_dry_run("dev-build", options=options)
     _assert_debug_routing("dev-build", lines)
-
-
-@pytest.mark.skipif(platform.system() != "Linux", reason="Linux host linker only")
-@pytest.mark.parametrize(
-    "target",
-    (
-        "build",
-        "test",
-        "test-bdd",
-        "test-doc",
-        "lint",
-        "typecheck",
-        "dev-build",
-        "dev-test",
-    ),
-)
-def test_cross_target_does_not_inherit_host_linker(target: str) -> None:
-    """Cross-target debug recipes retain warnings without the host linker."""
-    options = _MakeDryRunOptions(build_target="wasm32-wasip1")
-    cargo_lines = _cargo_lines(_make_dry_run(target, options=options))
-    assert cargo_lines, f"{target} should produce a probe-cargo invocation"
-    _assert_dev_fast_fragment(target, cargo_lines)
-    if target in {"build", "dev-build"}:
-        assert all("RUSTFLAGS=" not in line for line in cargo_lines), (
-            f"{target} must inherit caller warning flags for cross-target builds"
-        )
-    else:
-        assert all("-D warnings" in line for line in cargo_lines), (
-            f"{target} must preserve caller warning flags for cross-target builds"
-        )
-    assert all(LINKER_ARGUMENT not in line for line in cargo_lines), (
-        f"{target} must not pass the Linux host linker to a cross target"
-    )
 
 
 @pytest.mark.parametrize(
