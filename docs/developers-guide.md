@@ -15,15 +15,14 @@ than all four repository-owned lanes sharing one profile.
 | `coverage-main.yml`      | `coverage-upload`   | push               | `ubicloud-standard-4` | 20 min  |
 | `advanced-tests.yml`     | `advanced`          | schedule           | `ubuntu-latest`       | 60 min  |
 | `delayed-pr-comment.yml` | `delay_and_comment` | dispatch           | `ubuntu-latest`       | none    |
-| `get-codescene-sha.yml`  | `refresh-sha`       | dispatch           | `ubuntu-latest`       | 10 min  |
 
 *Table 1: Where each repository-owned lane runs, and its ceiling.*
 
 Pull-request, push and tag lanes move to Ubicloud, because those are the ones a
 developer waits on: `build-test` waited 461 seconds for a GitHub-hosted runner
-on 2026-09-16 to do 556 seconds of work. Scheduled, delayed-comment and
-CodeScene-SHA lanes stay GitHub-hosted, where public-repository minutes are
-free and nobody is blocked by the wait.
+on 2026-09-16 to do 556 seconds of work. Scheduled and delayed-comment lanes
+stay GitHub-hosted, where public-repository minutes are free and nobody is
+blocked by the wait.
 
 `build-test` also serves forks, which cannot obtain an Ubicloud runner, so it
 carries the fork fallback:
@@ -93,8 +92,7 @@ Two ceilings are measured: `build-test` at 556 seconds and `coverage-upload` at
 240 seconds, both on four-vCPU runners. Two are judgements, and the guide says
 so rather than implying otherwise. `advanced` has failed every night since at
 least 2026-09-09 and its last green run was 2025-10-04 at 32 seconds, so 60
-minutes is generous enough not to mask the repair when it lands. `refresh-sha`
-has never run at all.
+minutes is generous enough not to mask the repair when it lands.
 
 `delay_and_comment` declares no ceiling, deliberately. Its entire duration is a
 `sleep` of the caller's `delay_minutes` input, so any fixed ceiling cancels a
@@ -384,14 +382,13 @@ report and uploads that report to CodeScene. The workflow checks out
 `leynos/wireframe`, so CodeScene records the coverage under the repository
 identity `github.com/leynos/wireframe`, and targets project `68308` explicitly.
 
-The upload reads `CS_ACCESS_TOKEN` from the repository secret into the job
-environment, then passes that value through the upload action's required
-`access-token` input. This workflow input is permitted because the value still
-comes from the repository secret; never hard-code the token in workflow or
-source files, and never log it. The pull-request workflow's CodeScene coverage
-check uses the same project and repository identity. It consumes the report
-published for `main` as the baseline for its changed-line gate, so the main
-workflow must publish successfully before that gate can evaluate a pull request.
+The upload passes the repository secret `CS_ACCESS_TOKEN` directly to the
+upload action's required `access-token` input, without binding it in a job
+environment variable. Never hard-code the token in workflow or source files,
+and never log it. No pull-request workflow names the project or the token; the
+changed-line gate a reviewer sees on a pull request is CodeScene's own check
+against what this workflow published, so this upload must succeed before that
+gate can evaluate anything.
 
 ## Mutation testing
 
@@ -471,6 +468,224 @@ A further test pins the `with:` block itself: `extra-args: "--all-features"`
 `extra-crate-dirs` is *absent*, guarding the temporary removal of the
 `wireframe_testing` companion target until its standalone doctests compile
 again (#578); restore that assertion alongside the input when #578 closes.
+
+### Where CodeScene may appear
+
+The CodeScene command-line tool is installed from a URL at job time and is not
+pinned to a version this repository chose: the shared action selects the
+archive from a committed manifest and verifies its digest, so the artefact is
+pinned, but what that artefact talks to is not. The tool calls CodeScene's API
+and refuses to run when the answer changes shape, and that has happened twice.
+Its output format moved, and more recently thirteen projects stopped returning
+a gates configuration at all, so the changed-line gate fails with "received
+project-config isn't valid" for a reason no change in the repository could have
+caused.
+
+So the tool runs in exactly one place: `coverage-main.yml`, on push to main. A
+failure there delays a coverage report. It cannot block a merge.
+
+A pull-request lane may still generate coverage, because the ratchet is
+repository-owned and runs offline with no network dependency. What it may not
+do is any of these six, each of which fails
+`tests/workflow_contracts/ci_codescene_placement_test.py`:
+
+| Forbidden in a pull-request lane                      | Why it is read                                         |
+| ----------------------------------------------------- | ------------------------------------------------------ |
+| a step or job whose `uses:` names CodeScene           | the obvious form                                       |
+| a `run:` step invoking `cs-coverage`                  | the same hazard without an action to notice            |
+| `CS_ACCESS_TOKEN` at any scope                        | a lane holding the token is one line from using it     |
+| `codescene.io` anywhere                               | `curl` needs neither the action nor the tool           |
+| `secrets: inherit` into another repository's workflow | forwards the token unnamed, to a document nobody reads |
+| a call to this repository's workflow by `@ref`        | runs a revision the contract has not read              |
+
+*Table 2: What the CodeScene placement contract refuses.*
+
+The third row is what makes the contract worth having. Deleting the step but
+leaving the token in the job environment looks clean in a diff and leaves the
+hazard in place, so the whole document is walked for the name rather than the
+three scopes that are meant to carry it: a `run` body, an action input, an
+`env` value under any key and a named `secrets:` forwarding are all found. The
+fifth row closes the one route the walk cannot see, since `secrets: inherit`
+names nothing. Inheriting into a workflow in this repository is permitted,
+because that workflow is in the closure described below and read like any other.
+
+A further test guards the other direction. Without it the rule could be
+satisfied by deleting coverage reporting altogether, which is compliance by
+amputation, so the publisher is asserted to exist, to have exactly its reviewed
+triggers, not to be startable by a pull request, and to state `mode: upload`
+rather than inherit it. The trigger set is compared whole: a `pull_request`
+added beside `push` would make the publisher a pull-request lane, and any other
+addition or removal changes what it is for unreviewed. Stating the mode means
+the publisher cannot quietly become the pull-request check gate.
+
+`pull_request_target`, `merge_group`, `workflow_run`, `pull_request_review`,
+`pull_request_review_comment` and `issue_comment` count as pull-request
+triggers here. `pull_request_target` runs on a pull request with write
+permissions, which makes it more dangerous than `pull_request`, not less.
+`merge_group` runs the checks a pull request needs to leave the merge queue, so
+a red one blocks the merge. `workflow_run` runs after a pull-request workflow,
+with the repository's secrets. A review, a review comment or a comment on the
+pull request each start a workflow for it. `workflow_dispatch` does not count:
+a dispatch is not a pull request.
+
+### The pull-request lane is a closure, not a list
+
+The prohibitions apply to every workflow a pull request can reach, not only to
+those carrying a pull-request trigger. A workflow declaring only
+`workflow_call` has no pull-request trigger, yet a pull-request job that calls
+it runs it on that pull request, and hands it the token with `secrets: inherit`.
+
+The contract therefore follows `jobs.<id>.uses`, transitively, with a visited
+set so two reusable workflows calling each other cannot hang it. A call is
+local when it resolves to a file directly under `.github/workflows/` once its
+prefix is stripped. That is matched by shape rather than by a list of
+spellings, with two prefixes stripped: `./`, the documented form, and `$/`.
+Accepting a spelling GitHub might refuse only widens the set the prohibitions
+run over; missing one GitHub accepts hides a workflow from all of them.
+
+A call to this repository's workflows at a ref, whether written with the
+qualified name (`leynos/wireframe/.github/workflows/x.yml@main`) or with a
+local prefix and a ref (`./.github/workflows/x.yml@main`,
+`$/.github/workflows/x.yml@main`), is refused rather than followed. GitHub runs
+it at the named ref, not at the pull request's head, so the file the closure
+would read is not the file that runs, and the named revision could hold a
+CodeScene step every clause passes over. A workflow that needs this
+repository's reusable workflow calls it with `./`. For the same reason
+`secrets: inherit` into such a call counts as inheriting into a document the
+contract cannot read.
+
+References to other repositories are not followed: their content is not in this
+tree. That is why `secrets: inherit` into one is refused outright rather than
+traced. This repository has no local reusable workflows today, so the closure
+equals the roots; the traversal is here so that adding one does not silently
+take it out of scope.
+
+### The publisher's two silent failure modes
+
+The upload step's condition is
+`steps.codescene-token.outputs.available == 'true' && github.ref == 'refs/heads/main'`,
+compared whole rather than searched for parts. A containment test accepts this
+expression, which holds both halves and is true everywhere, so it would pass
+the one expression it exists to refuse:
+
+```yaml
+if: (github.ref == 'refs/heads/main' || true) && (env.CS_ACCESS_TOKEN != '' || true)
+```
+
+Appending `|| github.event_name == 'workflow_dispatch'` is the same defeat in
+another form: every conjunct is still present and all of them become optional.
+The equality comparison refuses both, and it admits no extra conjunct, so an
+`||` hidden behind one
+(`… && github.actor != 'x' || github.event_name == 'workflow_dispatch'`) fails
+it too; no separate `||` rule is needed.
+
+The token is bound in no `env` anywhere in `coverage-main.yml`. A step with id
+`codescene-token` runs exactly one command, with no `if:`:
+
+```sh
+echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
+```
+
+The expression is evaluated to `true` or `false` before the shell runs, so the
+step writes the answer without holding the token, and the upload's condition
+reads that output. The upload passes
+`access-token: ${{ secrets.CS_ACCESS_TOKEN }}` directly: the uploader is a
+composite action that hands its step's `env` to nested artefact and cache
+steps, and a job-scoped token would be readable by the tests that generate
+coverage. A guard on `env.CS_ACCESS_TOKEN != ''`, the earlier shape, passes
+with its binding deleted, and the upload then skips forever with nothing
+failing. The contract pins the command, its lack of a condition and of an
+`env`, its position before the upload, and the input, and refuses the token in
+any `env` on the job.
+
+The uploader is pinned to a full commit SHA, at or after shared-actions
+`a5765019`: from there it selects the CodeScene CLI from a committed manifest,
+where earlier revisions install "latest", which no longer resolves. Per the pin
+policy below, the contract asserts the SHA's shape and the absence of the
+retired `installer-checksum`, not the specific revision.
+
+Dependabot's automerge merges with the workflow's `GITHUB_TOKEN`, and a push
+made that way starts no workflow, so an automerged dependency bump never runs
+the publisher: a known exception, tracked in shared-actions issue #518. If the
+publisher ever gains a `workflow_dispatch`, a dispatch that replaces a pending
+push run in the concurrency group uploads the dispatched commit's coverage,
+which leaves the baseline one commit behind the trunk until the next push; the
+same issue tracks it.
+
+The ref test is not redundant with the trigger. `push.branches` is `[main]` and
+there is no `workflow_dispatch`, so `github.ref` cannot currently be anything
+else. It is what keeps the trigger honest: the moment either changes, a
+dispatch from a feature branch would publish that branch's coverage as the
+trunk's, because CodeScene accepts an upload for the analysed branch whatever
+the payload came from. Both are pinned so neither moves without the other being
+reconsidered.
+
+The publisher also declares a concurrency group keyed on the ref alone,
+`coverage-main-${{ github.ref }}`, with `cancel-in-progress: false`; the
+contract compares the group whole, so naming the event in it fails. Without a
+group, two pushes in quick succession upload at once and the baseline is set by
+whichever finishes last. With one, GitHub keeps a single pending run per group,
+so among triggered runs (push, and dispatch where the workflow allows it) a
+newer one replaces an older pending run and the newest baseline wins. A manual
+"Re-run jobs" on an older main run is an operator action, not a trigger: it
+keeps that run's commit, so it republishes that commit's coverage and baseline
+until the next push supersedes them. Cancelling would instead abandon a running
+upload and its baseline write.
+
+### What must remain
+
+Everything above forbids something, so all of it is satisfied by a repository
+that measures no coverage at all. One test says what must stay: `ci.yml` is
+still started by `pull_request` and still runs `generate-coverage` with
+`with-ratchet` and `publish-artefact: 'false'` (the ratchet reads the report;
+nothing else does), exactly once, under exactly the reviewed condition
+`github.event_name == 'pull_request'`. The condition is pinned by value rather
+than merely permitted, because presence is not reachability: `if: false` leaves
+the step in the file, where every other check still sees it, and runs it never.
+
+### The retired CodeScene digest variable
+
+`CODESCENE_CLI_SHA256` fed the uploader's `installer-checksum` input. The
+uploader takes its digest from a committed manifest now, so the input is gone
+and the variable feeds nothing. `get-codescene-sha.yml`, which existed only to
+refresh it, is deleted, and no workflow may mention the name. That test reads
+every workflow rather than the pull-request closure, because a refresher on a
+schedule or a dispatch is exactly the shape it is meant to catch and neither is
+reachable from a pull request.
+
+The repository variable itself can be deleted; nothing reads it.
+
+### How the readings are proved
+
+The reading machinery lives in
+`tests/workflow_contracts/codescene_placement_reader.py`, and every reader
+takes its documents as an argument. The reviewed values live in
+`codescene_placement_policy.py`, the publisher's clauses in
+`codescene_publisher_test.py`, the classification of `uses:` calls in
+`workflow_calls.py`, and loading in `workflow_loader.py`, which the runner
+placement contract shares. The repository's own workflows are all written the
+one way the first reader understood, so a reading that mishandles another shape
+passes against them either way.
+`tests/workflow_contracts/codescene_placement_reader_test.py` therefore drives
+each reading with constructed trees:
+
+- the closure reaches a `workflow_call` probe that curls CodeScene's API with
+  an inherited token, in both local call spellings, and stays out of a reusable
+  workflow nothing calls;
+- a call to this repository by `@ref` is recognized, and kept narrow: a local
+  call, another repository, a repository whose name merely begins the same way
+  and this repository's own actions are not;
+- workflows are loaded through a strict `SafeLoader` that refuses a duplicated
+  mapping key, because PyYAML otherwise keeps the last `runs-on` or `env` and
+  says nothing;
+- `on:` is read as a scalar, a sequence or a mapping, under both the quoted
+  string key and YAML 1.1's boolean `True`; a workflow declaring both is
+  refused, since GitHub merges them; and any other shape is refused rather than
+  read as "no triggers", which would let the workflow escape every clause; and
+- a `.YML` extension is read like `.yml`.
+
+Each reading was mutated alone and restored from a copy while writing the
+contract, and each mutation failed at least one test that names what it broke.
 
 ## Workflow pins and Dependabot
 

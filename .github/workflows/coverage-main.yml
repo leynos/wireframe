@@ -6,12 +6,25 @@ name: Coverage (main)
 # readable by every pull-request run, so the baseline written here is the
 # one PR ratchet checks compare against.
 #
-# The pull-request `cs-coverage check` gate is wired in ci.yml
-# (CodeScene project 68308's coverage gate is enabled).
+# This is the only workflow in the repository that may touch CodeScene. It
+# is not a pull-request lane, so a CodeScene CLI or format change cannot
+# block a merge here; it can only delay a coverage upload. The changed-line
+# gate on a pull request is CodeScene's own check, driven by what this
+# workflow uploads.
 
 on:
   push:
     branches: [main]
+
+# One publisher at a time, and never cancelled. Two pushes to main in quick
+# succession would otherwise upload concurrently and leave the ratchet
+# baseline set by whichever finished last, which need not be the later commit.
+# `cancel-in-progress` is deliberately false: a cancelled run here leaves the
+# baseline describing a commit that is no longer the tip, and nothing reports
+# that.
+concurrency:
+  group: coverage-main-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   coverage-upload:
@@ -41,22 +54,42 @@ jobs:
           repository: leynos/wireframe
           persist-credentials: false
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
+        uses: leynos/shared-actions/.github/actions/setup-rust@dbe2e22ceaf498d85512679ccded38be9dbe7777
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
+        uses: leynos/shared-actions/.github/actions/generate-coverage@dbe2e22ceaf498d85512679ccded38be9dbe7777
         with:
           output-path: lcov.info
           format: lcov
           with-ratchet: 'true'
+      # Reports whether the token is configured without binding it anywhere:
+      # the expression is evaluated before the shell runs, so this step
+      # writes `available=true` or `available=false` and the token is in no
+      # `env`. The uploader is a composite action that hands its step's `env`
+      # to nested steps, so the token goes to it as an input instead.
+      - name: Check for the CodeScene token
+        id: codescene-token
+        run: echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
       - name: Upload coverage data to CodeScene
-        env:
-          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-        if: env.CS_ACCESS_TOKEN != ''
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
+        # The ref test is not redundant with the trigger above, it is what
+        # keeps the trigger honest. `push.branches` is `[main]` today and
+        # there is no `workflow_dispatch`, so `github.ref` cannot be anything
+        # else; the moment either changes, a dispatch from a feature branch
+        # would publish that branch's coverage as the trunk's, because
+        # CodeScene accepts an upload for the analysed branch whatever the
+        # payload came from. Both are pinned by the contract so neither can
+        # move without the other being reconsidered.
+        if: steps.codescene-token.outputs.available == 'true' && github.ref == 'refs/heads/main'
+        # a5765019 is the floor: from it the uploader selects the CodeScene
+        # CLI from a committed manifest. Earlier revisions install "latest",
+        # which no longer resolves.
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@dbe2e22ceaf498d85512679ccded38be9dbe7777
         with:
           format: lcov
+          # Stated rather than left to the action's default, because this
+          # being the upload and not the pull-request check is the whole
+          # point of the split.
           mode: upload
-          # Keep this project identity aligned with ci.yml's PR gate.
+          # This is now the only place the project is named: ci.yml's gate
+          # is gone, so there is no second identity to stay aligned with.
           project-url: https://api.codescene.io/v2/projects/68308
-          access-token: ${{ env.CS_ACCESS_TOKEN }}
-          installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
+          access-token: ${{ secrets.CS_ACCESS_TOKEN }}

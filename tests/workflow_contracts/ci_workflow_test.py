@@ -1,5 +1,9 @@
 """Protect pull-request coverage enforcement in CI.
 
+Coverage generation, the spelling toolchain and the Markdown linter's pin are
+asserted here. Where CodeScene may and may not appear is a separate question
+with a separate reason, and lives in ``ci_codescene_placement_test``.
+
 Run these workflow contract tests with ``make test-workflow-contracts``.
 """
 
@@ -15,10 +19,6 @@ WORKFLOW_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / 
 MAKEFILE_PATH = Path(__file__).resolve().parents[2] / "Makefile"
 MARKDOWNLINT_ACTION_RE = re.compile(
     r"^DavidAnson/markdownlint-cli2-action@[0-9a-f]{40}$"
-)
-CODESCENE_USES_RE = re.compile(
-    r"^leynos/shared-actions/\.github/actions/upload-codescene-coverage@"
-    r"[0-9a-f]{40}$"
 )
 
 
@@ -107,14 +107,23 @@ def test_spelling_toolchain_steps_are_consecutive() -> None:
     assert validation.get("run") == "make nixie", "CI must validate Mermaid diagrams"
 
 
-def test_codescene_check_immediately_follows_coverage_generation() -> None:
-    """The changed-line gate consumes the LCOV report produced just before it."""
-    steps = _load_steps()
-    generation = _find_step(steps, "Test and Measure Coverage")
-    check = _find_step(steps, "Check coverage against CodeScene gates")
-    assert steps.index(check) == steps.index(generation) + 1, (
-        "the CodeScene check must immediately follow coverage generation"
-    )
+def test_coverage_generation_stays_pull_request_only_and_ratcheted() -> None:
+    """The ratchet gate runs on pull requests and compares against a baseline.
+
+    This is what is left of the two CodeScene assertions that stood here. The
+    generation half is still ours and still enforced: it runs only on pull
+    requests, because main-branch coverage is produced by
+    ``coverage-main.yml``, and it carries ``with-ratchet`` so the lane
+    actually compares against the stored baseline rather than merely
+    producing a report.
+
+    The CodeScene half moved and inverted. It used to require a
+    ``cs-coverage check`` step immediately after this one; under CV-005 that
+    step must not exist in a pull-request lane at all, and
+    ``ci_codescene_placement_test`` asserts its absence along with the
+    absence of the token and of any direct CLI invocation.
+    """
+    generation = _find_step(_load_steps(), "Test and Measure Coverage")
     assert generation.get("if") == "github.event_name == 'pull_request'", (
         "coverage generation must remain pull-request-only"
     )
@@ -122,26 +131,5 @@ def test_codescene_check_immediately_follows_coverage_generation() -> None:
         "output-path": "lcov.info",
         "format": "lcov",
         "with-ratchet": "true",
+        "publish-artefact": "false",
     }, "coverage generation must produce the ratcheted LCOV report"
-
-
-def test_codescene_check_uses_the_guarded_project_contract() -> None:
-    """The CodeScene check is fork-safe and targets Wireframe's project."""
-    check = _find_step(_load_steps(), "Check coverage against CodeScene gates")
-    assert check.get("env") == {"CS_ACCESS_TOKEN": "${{ secrets.CS_ACCESS_TOKEN }}"}, (
-        "the CodeScene token must remain scoped to the check step"
-    )
-    assert check.get("if") == (
-        "env.CS_ACCESS_TOKEN != '' && github.event_name == 'pull_request'"
-    ), "the CodeScene check must skip pull requests without the secret"
-    uses = check.get("uses")
-    assert isinstance(uses, str) and CODESCENE_USES_RE.fullmatch(uses), (
-        "the CodeScene check must invoke upload-codescene-coverage at a full commit SHA"
-    )
-    assert check.get("with") == {
-        "format": "lcov",
-        "mode": "check",
-        "project-url": "https://api.codescene.io/v2/projects/68308",
-        "access-token": "${{ env.CS_ACCESS_TOKEN }}",
-        "installer-checksum": "${{ vars.CODESCENE_CLI_SHA256 }}",
-    }, "the CodeScene check must pass the canonical project and check-mode inputs"
