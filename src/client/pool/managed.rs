@@ -4,6 +4,8 @@
 //! `bb8` and guarantees connection teardown hooks still run when the pooled
 //! connection is dropped or reaped.
 
+#[cfg(test)]
+use tokio::sync::oneshot;
 use tokio::{net::TcpStream, runtime::Handle};
 
 use crate::{
@@ -11,6 +13,14 @@ use crate::{
     rewind_stream::RewindStream,
     serializer::Serializer,
 };
+
+/// Complete a test wait only after the close future has returned.
+#[cfg(test)]
+fn signal_close_completion(sender: Option<oneshot::Sender<()>>) {
+    if let Some(sender) = sender {
+        sender.send(()).unwrap_or_default();
+    }
+}
 
 /// One physical client connection managed by `bb8`.
 pub(crate) struct ManagedClientConnection<S, C>
@@ -22,6 +32,9 @@ where
     client: Option<WireframeClient<S, RewindStream<TcpStream>, C>>,
     /// Set after protocol or I/O failure to force pool replacement.
     is_broken: bool,
+    /// Signals tests only after the detached close future completes.
+    #[cfg(test)]
+    close_completion: Option<oneshot::Sender<()>>,
 }
 
 impl<S, C> ManagedClientConnection<S, C>
@@ -34,7 +47,15 @@ where
         Self {
             client: Some(client),
             is_broken: false,
+            #[cfg(test)]
+            close_completion: None,
         }
+    }
+
+    /// Install a test-only signal for completion of the detached close task.
+    #[cfg(test)]
+    pub(crate) fn notify_after_close(&mut self, sender: oneshot::Sender<()>) {
+        self.close_completion = Some(sender);
     }
 
     /// Mark the resource so `bb8` discards it instead of reusing it.
@@ -66,8 +87,12 @@ where
         };
 
         if let Ok(handle) = Handle::try_current() {
+            #[cfg(test)]
+            let close_completion = self.close_completion.take();
             handle.spawn(async move {
                 client.close().await;
+                #[cfg(test)]
+                signal_close_completion(close_completion);
             });
             return;
         }
@@ -77,6 +102,8 @@ where
             .build()
         {
             runtime.block_on(client.close());
+            #[cfg(test)]
+            signal_close_completion(self.close_completion.take());
         }
     }
 }
