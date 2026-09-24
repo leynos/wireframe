@@ -104,7 +104,7 @@ impl ActorHarness {
 
     /// Snapshot the internal actor state.
     #[must_use]
-    pub fn snapshot(&self) -> ActorStateSnapshot {
+    pub const fn snapshot(&self) -> ActorStateSnapshot {
         ActorStateSnapshot {
             is_active: self.state.is_active(),
             is_shutting_down: self.state.is_shutting_down(),
@@ -133,11 +133,11 @@ impl ActorHarness {
 
     /// Returns `true` when the low-priority queue is still available.
     #[must_use]
-    pub fn has_low_queue(&self) -> bool { self.actor.low_rx.is_some() }
+    pub const fn has_low_queue(&self) -> bool { self.actor.low_rx.is_some() }
 
     /// Returns `true` when the multi-packet queue is still available.
     #[must_use]
-    pub fn has_multi_queue(&self) -> bool { self.actor.active_output.is_multi_packet() }
+    pub const fn has_multi_queue(&self) -> bool { self.actor.active_output.is_multi_packet() }
 
     /// Process a multi-packet poll result.
     pub fn process_multi_packet(&mut self, res: Option<u8>) {
@@ -180,7 +180,7 @@ impl ActorHarness {
     }
 
     /// Access the underlying actor mutably.
-    pub fn actor_mut(&mut self) -> &mut ConnectionActor<u8> { &mut self.actor }
+    pub const fn actor_mut(&mut self) -> &mut ConnectionActor<u8> { &mut self.actor }
 }
 
 /// Snapshot of the actor lifecycle flags and counters.
@@ -214,14 +214,14 @@ impl ActorStateHarness {
     }
 
     /// Mark a source as closed.
-    pub fn mark_closed(&mut self) { self.state.mark_closed(); }
+    pub const fn mark_closed(&mut self) { self.state.mark_closed(); }
 
     /// Begin shutdown, transitioning an active state to shutting-down.
-    pub fn start_shutdown(&mut self) { self.state.start_shutdown(); }
+    pub const fn start_shutdown(&mut self) { self.state.start_shutdown(); }
 
     /// Observe the current state snapshot.
     #[must_use]
-    pub fn snapshot(&self) -> ActorStateSnapshot {
+    pub const fn snapshot(&self) -> ActorStateSnapshot {
         ActorStateSnapshot {
             is_active: self.state.is_active(),
             is_shutting_down: self.state.is_shutting_down(),
@@ -264,15 +264,15 @@ mod tests {
         #[case] expected: bool,
         harness: TestResult<ActorHarness>,
     ) -> TestResult<()> {
-        let mut harness = harness?;
+        let mut actor_harness = harness?;
         if install {
             let (_tx, rx) = mpsc::channel(1);
-            harness.set_multi_queue(Some(rx))?;
+            actor_harness.set_multi_queue(Some(rx))?;
         }
         if clear {
-            harness.set_multi_queue(None)?;
+            actor_harness.set_multi_queue(None)?;
         }
-        if harness.has_multi_queue() != expected {
+        if actor_harness.has_multi_queue() != expected {
             return Err("multi-packet queue state mismatch".into());
         }
         Ok(())
