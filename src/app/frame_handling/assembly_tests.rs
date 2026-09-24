@@ -26,7 +26,7 @@ fn message_assembler() -> Arc<dyn crate::message_assembler::MessageAssembler> {
 #[fixture]
 fn message_assembly_state() -> Result<MessageAssemblyState, &'static str> {
     let size = NonZeroUsize::new(1024).ok_or("failed to create NonZeroUsize")?;
-    Ok(MessageAssemblyState::new(size, Duration::from_millis(5)))
+    Ok(MessageAssemblyState::new(size, Duration::from_mins(1)))
 }
 
 fn inbound_envelope(id: u32, payload: Vec<u8>) -> Envelope { Envelope::new(id, Some(7), payload) }
@@ -315,9 +315,9 @@ fn inbound_assembly_timeout_purges_partial_state(
         .is_none()
     );
 
-    // Advance a synthetic clock well past the 5ms assembly timeout so the
+    // Advance a synthetic clock past the 60-second assembly timeout so the
     // purge is deterministic and independent of real wall-clock scheduling.
-    let well_past_timeout = Instant::now() + Duration::from_secs(1);
+    let well_past_timeout = Instant::now() + Duration::from_secs(61);
     some(
         message_assembly_state.as_mut(),
         "assembly state should exist",
