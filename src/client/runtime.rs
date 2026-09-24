@@ -17,6 +17,7 @@ use super::{
     hooks::{ClientConnectionTeardownHandler, ClientErrorHandler, RequestHooks},
     tracing_config::TracingConfig,
     tracing_helpers::{call_span, close_span, emit_timing_event, send_span},
+    tracing_timing::ClientOperation,
 };
 use crate::{
     message::{DecodeWith, EncodeWith},
@@ -152,7 +153,10 @@ where
     /// # }
     /// ```
     pub async fn send<M: EncodeWith<S>>(&mut self, message: &M) -> Result<(), ClientError> {
-        let timing_start = self.tracing_config.send_timing.then(Instant::now);
+        let timing_start = self
+            .tracing_config
+            .timing_enabled(ClientOperation::Send)
+            .then(Instant::now);
         self.serialize_and_send(message, timing_start, send_span)
             .await
     }
@@ -234,7 +238,10 @@ where
         request: &Req,
     ) -> Result<Resp, ClientError> {
         let span = call_span(&self.tracing_config);
-        let timing_start = self.tracing_config.call_timing.then(Instant::now);
+        let timing_start = self
+            .tracing_config
+            .timing_enabled(ClientOperation::Call)
+            .then(Instant::now);
 
         async {
             if let Err(err) = self.send(request).await {
@@ -365,12 +372,15 @@ where
     /// ```
     pub async fn close(mut self) {
         let span = close_span(&self.tracing_config);
-        let timing_start = self.tracing_config.close_timing.then(Instant::now);
+        let timing_start = self
+            .tracing_config
+            .timing_enabled(ClientOperation::Close)
+            .then(Instant::now);
 
         async {
             // Flush pending frames and send EOF before teardown.
             // Ignore errors since we're closing anyway.
-            let _ = self.framed.close().await;
+            drop(self.framed.close().await);
 
             if let (Some(state), Some(handler)) =
                 (self.connection_state.take(), &self.on_disconnect)

@@ -11,8 +11,10 @@ use std::{
 use rstest::{fixture, rstest};
 use tokio::time::{advance, timeout};
 
+use super::helpers::test_with_client;
 use crate::{
-    client::{ClientError, ClientPoolConfig},
+    client::{ClientError, ClientPoolConfig, pool::managed::ManagedClientConnection},
+    serializer::BincodeSerializer,
     test_helpers::{
         Ping,
         Pong,
@@ -24,6 +26,72 @@ use crate::{
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+type ManagedFixture = (
+    ManagedClientConnection<BincodeSerializer, ()>,
+    Arc<AtomicUsize>,
+);
+
+/// Keep teardown failures attributed to the test that dropped the connection.
+#[track_caller]
+fn assert_teardown_once(teardown_count: &AtomicUsize) {
+    assert_eq!(
+        teardown_count.load(Ordering::SeqCst),
+        1,
+        "pooled connection teardown callback must run exactly once"
+    );
+}
+
+/// Build a real connected resource so its teardown path exercises socket close
+/// and the callback together.
+#[fixture]
+async fn managed_connection_with_teardown() -> super::helpers::TestResult<ManagedFixture> {
+    let teardown_count = Arc::new(AtomicUsize::new(0));
+    let teardown_callback_count = Arc::clone(&teardown_count);
+    let client = test_with_client(|builder| {
+        builder
+            .on_connection_setup(|| async {})
+            .on_connection_teardown(move |()| {
+                let callback_count = Arc::clone(&teardown_callback_count);
+                async move {
+                    callback_count.fetch_add(1, Ordering::SeqCst);
+                }
+            })
+    })
+    .await?;
+    Ok((ManagedClientConnection::new(client), teardown_count))
+}
+
+#[rstest]
+#[tokio::test]
+async fn managed_connection_drop_runs_teardown_on_active_runtime(
+    #[future] managed_connection_with_teardown: super::helpers::TestResult<ManagedFixture>,
+) -> TestResult {
+    let (mut managed, teardown_count) = managed_connection_with_teardown.await?;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    managed.notify_after_close(sender);
+
+    drop(managed);
+    timeout(Duration::from_secs(1), receiver).await??;
+    assert_teardown_once(&teardown_count);
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn managed_connection_drop_runs_teardown_without_runtime(
+    #[future] managed_connection_with_teardown: super::helpers::TestResult<ManagedFixture>,
+) -> TestResult {
+    let (mut managed, teardown_count) = managed_connection_with_teardown.await?;
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    managed.notify_after_close(sender);
+
+    std::thread::spawn(move || drop(managed))
+        .join()
+        .map_err(|_| std::io::Error::other("pooled connection drop thread panicked"))?;
+    receiver.await?;
+    assert_teardown_once(&teardown_count);
+    Ok(())
+}
 
 #[rustfmt::skip]
 #[fixture]

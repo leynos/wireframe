@@ -98,7 +98,7 @@ where
             .read_buffer_mut()
             .reserve(initial_read_buffer_capacity);
 
-        let connection_state = if let Some(ref setup) = self.lifecycle_hooks.on_connect {
+        let connection_state = if let Some(ref setup) = self.lifecycle_hooks.connect {
             Some(setup().await)
         } else {
             None
@@ -109,8 +109,8 @@ where
             serializer: self.serializer,
             codec_config,
             connection_state,
-            on_disconnect: self.lifecycle_hooks.on_disconnect,
-            on_error: self.lifecycle_hooks.on_error,
+            on_disconnect: self.lifecycle_hooks.disconnect,
+            on_error: self.lifecycle_hooks.error,
             request_hooks: self.request_hooks,
             tracing_config: self.tracing_config,
             correlation_counter: AtomicU64::new(1),

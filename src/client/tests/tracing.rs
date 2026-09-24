@@ -117,7 +117,7 @@ async fn receive_emits_span_with_result() {
     test_span_emission!(
         TracingConfig::default().with_receive_timing(true),
         "client.receive",
-        &["result=\"ok\""],
+        &["result=\"ok\"", "elapsed_us"],
         |mut client, _addr| async move {
             let envelope = Envelope::new(1, None, vec![1, 2, 3]);
             client.send(&envelope).await.expect("send");
@@ -187,7 +187,7 @@ async fn close_emits_span() {
     .await
     .expect("run echo client");
 
-    logs_assert(span_assertion("client.close", &[]));
+    logs_assert(span_assertion("client.close", &["elapsed_us"]));
 }
 
 #[rstest]

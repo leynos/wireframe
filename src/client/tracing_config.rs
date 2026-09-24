@@ -5,6 +5,8 @@
 
 use tracing::Level;
 
+use super::tracing_timing::{ClientOperation, ClientTimingFlags};
+
 /// Controls tracing span levels and per-command timing for client operations.
 ///
 /// By default, lifecycle operations (`connect`, `close`) emit spans at
@@ -35,10 +37,6 @@ use tracing::Level;
 ///     .with_all_timing(true);
 /// let _ = verbose;
 /// ```
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "six independent on/off timing flags — one per operation category"
-)]
 #[derive(Clone, Debug)]
 pub struct TracingConfig {
     /// Span level for connection establishment.
@@ -53,18 +51,8 @@ pub struct TracingConfig {
     pub(crate) streaming_level: Level,
     /// Span level for orderly connection close.
     pub(crate) close_level: Level,
-    /// Emit elapsed microseconds for connection establishment.
-    pub(crate) connect_timing: bool,
-    /// Emit elapsed microseconds for one-way sends.
-    pub(crate) send_timing: bool,
-    /// Emit elapsed microseconds for one-way receives.
-    pub(crate) receive_timing: bool,
-    /// Emit elapsed microseconds for request-response calls.
-    pub(crate) call_timing: bool,
-    /// Emit elapsed microseconds for streaming calls.
-    pub(crate) streaming_timing: bool,
-    /// Emit elapsed microseconds for orderly connection close.
-    pub(crate) close_timing: bool,
+    /// Per-operation elapsed-time selection.
+    timing: ClientTimingFlags,
 }
 
 impl Default for TracingConfig {
@@ -76,12 +64,7 @@ impl Default for TracingConfig {
             call_level: Level::DEBUG,
             streaming_level: Level::DEBUG,
             close_level: Level::INFO,
-            connect_timing: false,
-            send_timing: false,
-            receive_timing: false,
-            call_timing: false,
-            streaming_timing: false,
-            close_timing: false,
+            timing: ClientTimingFlags::default(),
         }
     }
 }
@@ -99,7 +82,7 @@ impl TracingConfig {
     /// let _ = config;
     /// ```
     #[must_use]
-    pub fn with_connect_level(mut self, level: Level) -> Self {
+    pub const fn with_connect_level(mut self, level: Level) -> Self {
         self.connect_level = level;
         self
     }
@@ -118,28 +101,28 @@ impl TracingConfig {
     /// let _ = config;
     /// ```
     #[must_use]
-    pub fn with_connect_timing(mut self, enabled: bool) -> Self {
-        self.connect_timing = enabled;
+    pub const fn with_connect_timing(mut self, enabled: bool) -> Self {
+        self.timing = self.timing.with_enabled(ClientOperation::Connect, enabled);
         self
     }
 
     /// Set the tracing level for `send` and `send_envelope` operations.
     #[must_use]
-    pub fn with_send_level(mut self, level: Level) -> Self {
+    pub const fn with_send_level(mut self, level: Level) -> Self {
         self.send_level = level;
         self
     }
 
     /// Enable or disable per-command timing for `send` and `send_envelope`.
     #[must_use]
-    pub fn with_send_timing(mut self, enabled: bool) -> Self {
-        self.send_timing = enabled;
+    pub const fn with_send_timing(mut self, enabled: bool) -> Self {
+        self.timing = self.timing.with_enabled(ClientOperation::Send, enabled);
         self
     }
 
     /// Set the tracing level for `receive` and `receive_envelope` operations.
     #[must_use]
-    pub fn with_receive_level(mut self, level: Level) -> Self {
+    pub const fn with_receive_level(mut self, level: Level) -> Self {
         self.receive_level = level;
         self
     }
@@ -147,50 +130,52 @@ impl TracingConfig {
     /// Enable or disable per-command timing for `receive` and
     /// `receive_envelope`.
     #[must_use]
-    pub fn with_receive_timing(mut self, enabled: bool) -> Self {
-        self.receive_timing = enabled;
+    pub const fn with_receive_timing(mut self, enabled: bool) -> Self {
+        self.timing = self.timing.with_enabled(ClientOperation::Receive, enabled);
         self
     }
 
     /// Set the tracing level for `call` and `call_correlated` operations.
     #[must_use]
-    pub fn with_call_level(mut self, level: Level) -> Self {
+    pub const fn with_call_level(mut self, level: Level) -> Self {
         self.call_level = level;
         self
     }
 
     /// Enable or disable per-command timing for `call` and `call_correlated`.
     #[must_use]
-    pub fn with_call_timing(mut self, enabled: bool) -> Self {
-        self.call_timing = enabled;
+    pub const fn with_call_timing(mut self, enabled: bool) -> Self {
+        self.timing = self.timing.with_enabled(ClientOperation::Call, enabled);
         self
     }
 
     /// Set the tracing level for `call_streaming` operations.
     #[must_use]
-    pub fn with_streaming_level(mut self, level: Level) -> Self {
+    pub const fn with_streaming_level(mut self, level: Level) -> Self {
         self.streaming_level = level;
         self
     }
 
     /// Enable or disable per-command timing for `call_streaming`.
     #[must_use]
-    pub fn with_streaming_timing(mut self, enabled: bool) -> Self {
-        self.streaming_timing = enabled;
+    pub const fn with_streaming_timing(mut self, enabled: bool) -> Self {
+        self.timing = self
+            .timing
+            .with_enabled(ClientOperation::Streaming, enabled);
         self
     }
 
     /// Set the tracing level for the `close` operation.
     #[must_use]
-    pub fn with_close_level(mut self, level: Level) -> Self {
+    pub const fn with_close_level(mut self, level: Level) -> Self {
         self.close_level = level;
         self
     }
 
     /// Enable or disable per-command timing for the `close` operation.
     #[must_use]
-    pub fn with_close_timing(mut self, enabled: bool) -> Self {
-        self.close_timing = enabled;
+    pub const fn with_close_timing(mut self, enabled: bool) -> Self {
+        self.timing = self.timing.with_enabled(ClientOperation::Close, enabled);
         self
     }
 
@@ -206,7 +191,7 @@ impl TracingConfig {
     /// let _ = config;
     /// ```
     #[must_use]
-    pub fn with_all_levels(mut self, level: Level) -> Self {
+    pub const fn with_all_levels(mut self, level: Level) -> Self {
         self.connect_level = level;
         self.send_level = level;
         self.receive_level = level;
@@ -227,14 +212,15 @@ impl TracingConfig {
     /// let _ = config;
     /// ```
     #[must_use]
-    pub fn with_all_timing(mut self, enabled: bool) -> Self {
-        self.connect_timing = enabled;
-        self.send_timing = enabled;
-        self.receive_timing = enabled;
-        self.call_timing = enabled;
-        self.streaming_timing = enabled;
-        self.close_timing = enabled;
+    pub const fn with_all_timing(mut self, enabled: bool) -> Self {
+        self.timing = ClientTimingFlags::all(enabled);
         self
+    }
+
+    /// Report whether one client operation emits an elapsed-time event.
+    #[must_use]
+    pub(crate) const fn timing_enabled(&self, operation: ClientOperation) -> bool {
+        self.timing.is_enabled(operation)
     }
 }
 
@@ -247,7 +233,7 @@ mod tests {
     use rstest::rstest;
     use tracing::Level;
 
-    use super::TracingConfig;
+    use super::{ClientOperation, TracingConfig};
 
     /// Assert all level fields match the expected pattern.
     ///
@@ -267,16 +253,20 @@ mod tests {
     /// Assert all timing flags match the expected pattern.
     ///
     /// Order: connect, send, receive, call, streaming, close.
-    fn assert_timing_flags(
-        cfg: &TracingConfig,
-        [connect, send, receive, call, streaming, close]: [bool; 6],
-    ) {
-        assert_eq!(cfg.connect_timing, connect, "connect_timing");
-        assert_eq!(cfg.send_timing, send, "send_timing");
-        assert_eq!(cfg.receive_timing, receive, "receive_timing");
-        assert_eq!(cfg.call_timing, call, "call_timing");
-        assert_eq!(cfg.streaming_timing, streaming, "streaming_timing");
-        assert_eq!(cfg.close_timing, close, "close_timing");
+    #[track_caller]
+    fn assert_timing_flags(cfg: &TracingConfig, expected: [bool; 6]) {
+        let actual = [
+            cfg.timing_enabled(ClientOperation::Connect),
+            cfg.timing_enabled(ClientOperation::Send),
+            cfg.timing_enabled(ClientOperation::Receive),
+            cfg.timing_enabled(ClientOperation::Call),
+            cfg.timing_enabled(ClientOperation::Streaming),
+            cfg.timing_enabled(ClientOperation::Close),
+        ];
+        assert_eq!(
+            actual, expected,
+            "timing flags are ordered connect, send, receive, call, streaming, close"
+        );
     }
 
     #[test]
@@ -319,6 +309,14 @@ mod tests {
             .with_all_timing(true)
             .with_all_timing(false);
         assert_timing_flags(&cfg, [false; 6]);
+    }
+
+    #[test]
+    fn disabling_one_timing_flag_preserves_other_enabled_operations() {
+        let cfg = TracingConfig::default()
+            .with_all_timing(true)
+            .with_send_timing(false);
+        assert_timing_flags(&cfg, [true, false, true, true, true, true]);
     }
 
     #[rstest]

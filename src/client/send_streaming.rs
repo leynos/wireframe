@@ -63,7 +63,7 @@ impl SendStreamingConfig {
     /// let config = SendStreamingConfig::default().with_chunk_size(8192);
     /// ```
     #[must_use]
-    pub fn with_chunk_size(mut self, size: usize) -> Self {
+    pub const fn with_chunk_size(mut self, size: usize) -> Self {
         self.chunk_size = Some(size);
         self
     }
@@ -84,7 +84,7 @@ impl SendStreamingConfig {
     /// let config = SendStreamingConfig::default().with_timeout(Duration::from_secs(10));
     /// ```
     #[must_use]
-    pub fn with_timeout(mut self, duration: Duration) -> Self {
+    pub const fn with_timeout(mut self, duration: Duration) -> Self {
         self.timeout = Some(duration);
         self
     }
@@ -211,7 +211,7 @@ where
                 Err(_elapsed) => {
                     // Shut down the write side so buffered codec state cannot
                     // leak into subsequent operations on this connection.
-                    let _ = self.framed.get_mut().shutdown().await;
+                    drop(self.framed.get_mut().shutdown().await);
                     let err = ClientError::from(io::Error::new(
                         io::ErrorKind::TimedOut,
                         "streaming send timed out",
@@ -311,10 +311,9 @@ fn effective_chunk_size(
 
     let available = max_frame_length - header_len;
 
-    let size = match config.chunk_size {
-        Some(requested) => requested.min(available),
-        None => available,
-    };
+    let size = config
+        .chunk_size
+        .map_or(available, |requested| requested.min(available));
 
     if size == 0 {
         return Err(ClientError::from(io::Error::new(

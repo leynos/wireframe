@@ -76,7 +76,7 @@ impl SocketOptions {
     /// assert_eq!(options, expected);
     /// ```
     #[must_use]
-    pub fn nodelay(mut self, enabled: bool) -> Self {
+    pub const fn nodelay(mut self, enabled: bool) -> Self {
         self.nodelay = Some(enabled);
         self
     }
@@ -95,11 +95,12 @@ impl SocketOptions {
     /// assert_eq!(options, expected);
     /// ```
     #[must_use]
-    pub fn keepalive(mut self, duration: Option<Duration>) -> Self {
-        self.keepalive = Some(match duration {
-            Some(value) => KeepAliveSetting::Duration(value),
-            None => KeepAliveSetting::Disabled,
-        });
+    pub const fn keepalive(mut self, duration: Option<Duration>) -> Self {
+        let Some(value) = duration else {
+            self.keepalive = Some(KeepAliveSetting::Disabled);
+            return self;
+        };
+        self.keepalive = Some(KeepAliveSetting::Duration(value));
         self
     }
 
@@ -115,7 +116,7 @@ impl SocketOptions {
     /// assert_eq!(options, expected);
     /// ```
     #[must_use]
-    pub fn send_buffer_size(mut self, size: u32) -> Self {
+    pub const fn send_buffer_size(mut self, size: u32) -> Self {
         self.send_buffer_size = Some(size);
         self
     }
@@ -132,7 +133,7 @@ impl SocketOptions {
     /// assert_eq!(options, expected);
     /// ```
     #[must_use]
-    pub fn recv_buffer_size(mut self, size: u32) -> Self {
+    pub const fn recv_buffer_size(mut self, size: u32) -> Self {
         self.recv_buffer_size = Some(size);
         self
     }
@@ -149,7 +150,7 @@ impl SocketOptions {
     /// assert_eq!(options, expected);
     /// ```
     #[must_use]
-    pub fn reuseaddr(mut self, enabled: bool) -> Self {
+    pub const fn reuseaddr(mut self, enabled: bool) -> Self {
         self.reuseaddr = Some(enabled);
         self
     }
@@ -172,7 +173,7 @@ impl SocketOptions {
         not(target_os = "cygwin"),
     ))]
     #[must_use]
-    pub fn reuseport(mut self, enabled: bool) -> Self {
+    pub const fn reuseport(mut self, enabled: bool) -> Self {
         self.reuseport = Some(enabled);
         self
     }
