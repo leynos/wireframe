@@ -130,6 +130,35 @@ because one iterates the ceiling table and the other reads only `ubicloud-`
 lanes, and a second expression-checked coordinate would have no runner
 assertion at all.
 
+### Superseded pull-request runs are cancelled
+
+A second push to a pull request makes the run already in flight answer a
+question about a commit nobody will merge, and on a per-minute runner it bills
+until it finishes. `ci.yml` therefore declares, at workflow level:
+
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+```
+
+Only a pull request shares a group, with its own later pushes. Every other
+event falls back to its run id, so a push to `main` is neither cancelled nor
+replaced while it waits. The fallback is not `github.ref`: in a group shared by
+every push to `main`, a third push replaces a pending second run, and those
+runs write the warm cache. The cancellation is conditioned on the event rather
+than set to `true`, so it cannot reach a run that has no successor.
+
+`tests/workflow_contracts/pr_concurrency_test.py` holds every workflow that a
+`pull_request` starts to both values exactly, with whitespace collapsed. It
+reads workflows through `workflow_loader` and triggers through
+`codescene_placement_reader.triggers`, so a duplicated key or an unreadable
+`on:` is refused rather than dropped from the sweep. `pull_request_target` is
+out of scope: the workflows on it push commits and merge, and cancelling one
+mid-write saves nothing. The synthetic cases refuse a ref fallback, a group
+keyed on the run id alone or ahead of the number, a group shared by every pull
+request, and a literal or quoted `true`.
+
 ## Layer model and glossary
 
 | Layer                 | Canonical term | Primary types                                    | Description                                                                                                                |

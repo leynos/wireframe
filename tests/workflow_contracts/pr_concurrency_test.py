@@ -9,8 +9,10 @@ The sweep below reads the repository's own workflows. The cases after
 it drive the readers directly with synthetic documents, because a rule
 parametrized over files that already conform passes whether or not it
 discriminates: the synthetic cases are what prove it rejects a missing
-line, a literal ``true`` that would cancel a push to main, and a group
-keyed on the run identifier that serializes nothing.
+line, a literal ``true`` that would cancel a push to main, a group
+keyed on the run identifier alone that serializes nothing, and a group
+falling back to the ref, where a third push to main replaces a pending
+second run that was meant to complete.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -20,7 +22,7 @@ import typing as typ
 import pytest
 from pr_concurrency_support import (
     CANCEL_IN_PROGRESS,
-    WorkflowShapeError,
+    GROUP,
     concurrency_violations,
     is_pull_request_startable,
     pull_request_workflows,
@@ -29,7 +31,7 @@ from pr_concurrency_support import (
 PULL_REQUEST_WORKFLOWS: typ.Final = pull_request_workflows()
 
 
-def _document(**concurrency: object) -> dict[str, object]:
+def _document(**concurrency: object) -> dict[object, object]:
     """Build a minimal pull-request workflow with the given concurrency.
 
     Parameters
@@ -39,13 +41,12 @@ def _document(**concurrency: object) -> dict[str, object]:
 
     Returns
     -------
-    dict[str, object]
+    dict[object, object]
         A parsed-shaped workflow document.
     """
     return {"on": {"pull_request": None}, "concurrency": dict(concurrency)}
 
 
-GROUP: typ.Final = "${{ github.workflow }}-${{ github.event.pull_request.number }}"
 CONFORMING: typ.Final = _document(
     group=GROUP, **{"cancel-in-progress": CANCEL_IN_PROGRESS}
 )
@@ -108,11 +109,41 @@ def test_the_conforming_shape_is_accepted() -> None:
         ),
         pytest.param(
             _document(
-                group="ci-${{ github.run_id }}",
+                group="${{ github.workflow }}-${{ github.run_id }}",
                 **{"cancel-in-progress": CANCEL_IN_PROGRESS},
             ),
-            "github.run_id",
-            id="run-id-group",
+            "concurrency group",
+            id="run-id-alone",
+        ),
+        pytest.param(
+            _document(
+                group=(
+                    "${{ github.workflow }}-"
+                    "${{ github.run_id || github.event.pull_request.number }}"
+                ),
+                **{"cancel-in-progress": CANCEL_IN_PROGRESS},
+            ),
+            "concurrency group",
+            id="run-id-ahead-of-the-number",
+        ),
+        pytest.param(
+            _document(
+                group=(
+                    "${{ github.workflow }}-"
+                    "${{ github.event.pull_request.number || github.ref }}"
+                ),
+                **{"cancel-in-progress": CANCEL_IN_PROGRESS},
+            ),
+            "concurrency group",
+            id="ref-fallback",
+        ),
+        pytest.param(
+            _document(
+                group="${{ github.workflow }}",
+                **{"cancel-in-progress": CANCEL_IN_PROGRESS},
+            ),
+            "concurrency group",
+            id="shared-by-every-pull-request",
         ),
         pytest.param(
             _document(**{"cancel-in-progress": CANCEL_IN_PROGRESS}),
@@ -122,14 +153,16 @@ def test_the_conforming_shape_is_accepted() -> None:
     ],
 )
 def test_a_non_conforming_document_is_rejected(
-    document: dict[str, object], fragment: str
+    document: dict[object, object], fragment: str
 ) -> None:
     """Each way of defeating the rule is reported, and named.
 
     ``cancel-in-progress: true`` is the case worth stating: it reads as
     an improvement and would cancel a push to main or a scheduled run
     that shares the group. A contract that accepted a truthy value
-    would wave it through.
+    would wave it through. The group is compared whole, so the ref
+    fallback, which reads as harmless, is refused as firmly as a group
+    no two runs can share.
     """
     violations = concurrency_violations(document)
     assert any(fragment in violation for violation in violations), violations
@@ -145,7 +178,7 @@ def test_a_non_conforming_document_is_rejected(
     ],
 )
 def test_the_trigger_reader_covers_every_accepted_shape(
-    document: dict[str, object],
+    document: dict[object, object],
 ) -> None:
     """An unquoted ``on:`` parses as the boolean True and still reads.
 
@@ -170,7 +203,7 @@ def test_the_trigger_reader_covers_every_accepted_shape(
     ],
 )
 def test_a_workflow_no_pull_request_starts_is_out_of_scope(
-    document: dict[str, object],
+    document: dict[object, object],
 ) -> None:
     """Only ``pull_request`` is in scope, and the reader says so.
 
@@ -185,13 +218,25 @@ def test_a_workflow_no_pull_request_starts_is_out_of_scope(
     )
 
 
-def test_a_workflow_with_no_triggers_is_a_shape_fault() -> None:
-    """No ``on:`` key is malformed, not "startable by nothing"."""
-    with pytest.raises(WorkflowShapeError):
-        is_pull_request_startable({"jobs": {}})
+@pytest.mark.parametrize(
+    "document",
+    [
+        pytest.param({"jobs": {}}, id="no-triggers"),
+        pytest.param({"on": 42}, id="unreadable-value"),
+        pytest.param(
+            {"on": "push", True: "pull_request"}, id="both-spellings-of-the-key"
+        ),
+    ],
+)
+def test_an_unclassifiable_workflow_is_refused(
+    document: dict[object, object],
+) -> None:
+    """A workflow whose triggers cannot be read is refused, not skipped.
 
-
-def test_an_unreadable_trigger_value_is_a_shape_fault() -> None:
-    """A trigger key of an unexpected type names the workflow, not Python."""
-    with pytest.raises(WorkflowShapeError):
-        is_pull_request_startable({"on": 42})
+    Reading it as "startable by nothing" would drop it from the sweep, so
+    the one workflow the rule could not read is the one it never checks.
+    GitHub merges the two spellings of ``on:``, so a reader choosing one
+    would be blind to the other's triggers.
+    """
+    with pytest.raises(ValueError, match="on:"):
+        is_pull_request_startable(document)
