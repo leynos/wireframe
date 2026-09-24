@@ -141,6 +141,8 @@ The test helpers are in `src/test_helpers.rs` and
 - [x] (2026-09-23) EP-M3: models rewritten onto Loom-visible state and
   mutation-proved.
 - [x] (2026-09-23) EP-M4: documents corrected, guide statement, RFC 0002.
+- [x] (2026-09-24) Review: V-1b added, so the lane cannot pass with no model
+  to run.
 - [ ] The first scheduled run of the lane on `main`, recorded here once it has
   run.
 
@@ -366,6 +368,22 @@ M5 status chained away, no space         test_the_target_runs_the_models_rather_
 M6 preemption bound zeroed               test_the_target_bounds_loom_exploration
 M7 preemption bound dropped              test_the_target_bounds_loom_exploration
 N1 bound spelled through a variable      <none: equivalent, passes>
+```
+
+**V-1b: the package has models to run.** Artefact:
+`tests/workflow_contracts/loom_models_test.py`, added in answer to review on
+2026-09-24: `cargo test` passes when it runs zero tests, so V-1 alone would
+stay green with every model compiled out by its own gate. The rules are pure
+functions of a file's text, driven by synthetic cases as well as the sweep.
+Evidence: fourteen tests pass. Non-vacuity: eleven mutations, each killed:
+
+```plaintext
+N1 push_dlq.rs gate renamed to loom_models       sweep case push_dlq.rs
+N2 gauge test marked #[ignore]                   sweep case connection_gauge.rs
+N3 gauge test compiled out by cfg(not(loom))     sweep case connection_gauge.rs
+N4 autotests = false in the package manifest     test_the_manifest_discovers_every_model_file
+N5 sweep finds no model files                    test_the_package_holds_model_files
+N6-N11 each rule disabled in turn                its synthetic rejection case
 ```
 
 **V-2 (deferred to RFC 0002)**: the configuration-boundary contract.

@@ -1006,7 +1006,12 @@ replace a `fetch_add` or `fetch_sub` with a separate load and store; the models
 reject it, which is the evidence that Loom is exploring interleavings rather
 than running one schedule. `tests/workflow_contracts/loom_lane_test.py` holds
 the lane to `make test-loom` and the target to its command, read through
-`make --dry-run`.
+`make --dry-run`. That command passes when it runs zero tests, so
+`tests/workflow_contracts/loom_models_test.py` holds the package to having
+models to run: every file in `crates/wireframe-loom/tests/` carries
+`#![cfg(loom)]` as its only `cfg` attribute, declares a test, calls
+`loom::model` and ignores nothing, and the manifest leaves Cargo's test
+discovery alone.
 
 A model has no clock. Loom explores interleavings, not durations, so the models
 set the drop log's time interval to an hour, leaving the count threshold as the
