@@ -159,6 +159,41 @@ mid-write saves nothing. The synthetic cases refuse a ref fallback, a group
 keyed on the run id alone or ahead of the number, a group shared by every pull
 request, and a literal or quoted `true`.
 
+### Every form of `runs-on`, or a refusal
+
+GitHub accepts `runs-on` in three forms: a scalar label or expression, a
+sequence of labels a runner must all carry, and a mapping with `group` and
+`labels`. Every lane here is a scalar today, so a reader that mishandled the
+other two would pass against this tree whatever it did. The failure it would
+hide is expensive: a mapping read as one stringified label begins with `{`,
+which no Ubicloud prefix matches, so a paid lane would escape the ceiling walk.
+
+`runner_placement_reader.py` therefore models all three, and refuses anything
+else rather than reading it as "declares no runner", because that reading
+exempts a lane from every placement, ceiling and registry assertion at once:
+
+- a mapping is read only when `labels` is its sole key, so a `group` is
+  refused. No lane here is placed by runner group, and a group selects runners
+  by an organization setting the contract cannot read; admitting one is a
+  reviewed decision with its own assertion;
+- an empty sequence, a non-string label, or any other type is refused;
+- an expression is read only in the one form the tree uses, the fork fallback
+  `${{ <guard> && '<a>' || '<b>' }}`, which selects both arms. A reader that
+  took any quoted literal as enough would read
+  `${{ matrix.os || 'ubuntu-latest' }}` as selecting only the fallback, and one
+  that read a literal-free expression as selecting nothing would exempt
+  `${{ matrix.os }}`. `${{ inputs.runner }}` is refused too, since no workflow
+  here takes its runner from a caller;
+- an explicit null `runs-on:` is a declaration to refuse, not the absence of
+  one.
+
+`runner_placement_reader_test.py` drives each form and each refusal with
+constructed jobs, and holds every job in the tree to a readable form, naming
+the coordinate when one is not. The reader loads the tree and
+`.github/actionlint.yaml` through `workflow_loader.py`, which refuses a
+duplicated mapping key, so a lane cannot declare `runs-on` twice and have the
+first value discarded unseen.
+
 ## Layer model and glossary
 
 | Layer                 | Canonical term | Primary types                                    | Description                                                                                                                |
