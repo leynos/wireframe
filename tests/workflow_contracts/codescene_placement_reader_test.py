@@ -16,6 +16,7 @@ import pytest
 from codescene_placement_reader import (
     calls,
     external_secret_inheritors,
+    local_callees,
     mentions,
     pull_request_closure,
     triggers,
@@ -128,6 +129,22 @@ def test_a_local_call_is_recognized_by_shape(
     """
     assert local_callee(uses) == expected, (
         f"local_callee({uses!r}) should be {expected!r}"
+    )
+
+
+def test_direct_local_callees_exclude_unreadable_calls() -> None:
+    """Only same-checkout workflows can enter the pull-request closure."""
+    document = load_workflow(
+        "on: pull_request\n"
+        "jobs:\n"
+        "  dot: {uses: ./.github/workflows/a.yml}\n"
+        "  dollar: {uses: $/.github/workflows/b.yml}\n"
+        "  action: {uses: actions/checkout@v5}\n"
+        "  foreign: {uses: other/repo/.github/workflows/c.yml@main}\n"
+        "  ref: {uses: ./.github/workflows/d.yml@main}\n"
+    )
+    assert local_callees(document) == ["a.yml", "b.yml"], (
+        "only direct calls to workflows in this checkout should be returned"
     )
 
 

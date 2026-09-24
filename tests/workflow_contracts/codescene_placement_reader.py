@@ -170,6 +170,27 @@ def calls(document: Document) -> list[Document]:
     )
 
 
+def local_callees(document: Document) -> list[str]:
+    """Return the same-checkout workflows called directly by a document.
+
+    Parameters
+    ----------
+    document
+        One parsed workflow document.
+
+    Returns
+    -------
+    list[str]
+        File names of locally called workflows, in job order. Calls that name
+        an action, another repository or a ref are excluded.
+    """
+    return [
+        callee
+        for job in jobs(document).values()
+        if (callee := local_callee(str(job.get("uses", ""))))
+    ]
+
+
 def pull_request_closure(documents: Mapping[str, Document]) -> list[str]:
     """Return every workflow a pull request can reach, callees included.
 
@@ -212,11 +233,7 @@ def pull_request_closure(documents: Mapping[str, Document]) -> list[str]:
         if name in reached or name not in documents:
             continue
         reached.add(name)
-        pending.extend(
-            callee
-            for job in jobs(documents[name]).values()
-            if (callee := local_callee(str(job.get("uses", ""))))
-        )
+        pending.extend(local_callees(documents[name]))
     return sorted(reached)
 
 
