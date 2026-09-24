@@ -725,6 +725,55 @@ If a workflow's behaviour genuinely depends on a feature only present from a
 particular commit onwards, express that as a comment or a changelog note, not
 as a test assertion on the SHA string.
 
+## Development builds
+
+The repository pins `nightly-2026-03-26` with `rustfmt`, `clippy`, and
+`rust-analyzer`. The toolchain also needs `rustc-codegen-cranelift-preview` for
+the optional development backend. Native Linux development builds use `mold` as
+the linker; CI provisions the component and linker before running the standard
+debug gates.
+
+The Makefile keeps the development configuration in
+`tools/dev-fast/config.toml`, outside Cargo's automatic configuration paths.
+Standard debug Make targets select it explicitly: `build`, `test`, `test-bdd`,
+`test-doc`, `lint`'s rustdoc and Clippy commands, and `typecheck`. The
+`dev-build` target runs the configured Cargo build directly, even when a
+library artefact already exists; `dev-test` aliases `test`. On a Linux host,
+debug recipes targeting Linux add the `mold` linker flag to `RUSTFLAGS`,
+because Cargo does not merge `RUSTFLAGS` with target-specific rustflags. Make
+recognizes standard Rust Linux target triples by `-unknown-linux-`, so an
+explicit native Linux target retains `mold` while non-Linux targets, including
+Android, do not. For a custom JSON or non-standard Linux target, set
+`CARGO_BUILD_TARGET_OS=Linux`. Non-Linux hosts do not select `mold`, including
+when cross-compiling to Linux. The fragment selects Cranelift for the
+development profile; Cargo test commands (`make test`, `make test-bdd`, and
+`make test-doc`) use the LLVM test profile described below. Installing the
+Cranelift component alone does not change the backend.
+
+Release builds, coverage generation, verification commands, and Whitaker run
+without the development fragment. Direct Cargo commands also leave it
+unselected unless the caller passes `--config tools/dev-fast/config.toml`. This
+keeps ordinary Cargo use on the repository's configured default backend while
+making the faster backend an explicit choice for routine debug work.
+
+## Cranelift
+
+The Make test targets still select the development fragment, but the test
+profile overrides Cranelift with LLVM on the pinned `nightly-2026-03-26`
+toolchain. This exception follows reproduced test failures: with Cranelift,
+`make test` aborted in
+`client::pool::sync::tests::lock_or_recover_reads_poisoned_mutex` with
+`SIGABRT` and `fatal runtime error: failed to initiate panic, error 5`. The
+test passed with the LLVM test-profile override. Under Cranelift, a metrics
+doctest in `make test-doc` failed to link because AWS-LC symbols were
+undefined; all doctests passed with the LLVM override.
+
+The explicit fragment remains selected by the Make test targets, but their
+tests are not Cranelift-accelerated. Development builds, lint, and typecheck
+continue to use Cranelift. This is a pinned-toolchain exception to the Netsuke
+source fragment; reproduce both failures and reassess the override when the
+toolchain pin changes.
+
 ## Cargo workspace semantics
 
 Wireframe now uses a hybrid root manifest: the repository root `Cargo.toml`
@@ -756,17 +805,18 @@ library.
 
 The standard Makefile gates cover all supported workspace members and targets:
 
-- `make test` runs:
+- `make test` selects `tools/dev-fast/config.toml` and runs:
 
   ```text
-  RUSTFLAGS="-D warnings" cargo test --workspace --all-targets --all-features
+  RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace \
+    --all-targets --all-features $(BUILD_JOBS)
   ```
 
-- `make test-doc` runs:
+- `make test-doc` selects `tools/dev-fast/config.toml` and runs:
 
   ```text
-  RUSTFLAGS="-D warnings" cargo test --workspace --exclude wireframe_testing \
-    --doc --all-features
+  RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace \
+    --exclude wireframe_testing --doc --all-features $(BUILD_JOBS)
   ```
 
   The testing helper's standalone doctests require generic application types
@@ -775,18 +825,20 @@ The standard Makefile gates cover all supported workspace members and targets:
 
   [issue-578]: https://github.com/leynos/wireframe/issues/578
 
-- `make typecheck` runs:
+- `make typecheck` selects `tools/dev-fast/config.toml` and runs:
 
   ```text
-  RUSTFLAGS="-D warnings" cargo check --workspace --all-targets --all-features
+  RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) check --workspace \
+    --all-targets --all-features $(BUILD_JOBS)
   ```
 
 - `make lint` runs these workspace-wide checks:
 
   ```text
-  RUSTDOCFLAGS="--cfg docsrs -D warnings" cargo doc --workspace --no-deps
-  cargo clippy --workspace --all-targets --all-features -- -D warnings
-  whitaker --all -- --all-targets --all-features
+  RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" \
+    $(CARGO) $(DEV_FAST) doc --workspace --no-deps
+  RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) clippy $(CLIPPY_FLAGS)
+  RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
   ```
 
 The shared `[workspace.lints.clippy]`, `[workspace.lints.rust]`, and

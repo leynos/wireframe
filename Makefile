@@ -1,5 +1,5 @@
 .PHONY: help all clean test test-doc test-workflow-contracts doctest-benchmark
-.PHONY: bench-codec build release lint fmt check-fmt markdownlint nixie typecheck
+.PHONY: bench-codec build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
 .PHONY: install-kani check-kani-version install-verus run-verus test-verification kani \
 	kani-full verus formal-pr formal-nightly formal
@@ -7,6 +7,19 @@
 CRATE ?= wireframe
 CARGO ?= cargo
 BUILD_JOBS ?=
+DEV_FAST_CONFIG := tools/dev-fast/config.toml
+DEV_FAST := --config $(DEV_FAST_CONFIG)
+# RUSTFLAGS takes precedence over Cargo's target rustflags. `mold` is a native
+# Linux linker, so select it only when both the host and effective Cargo target
+# are Linux. Standard Rust target triples encode Linux as `-unknown-linux-`;
+# callers using a custom or non-standard target can set
+# CARGO_BUILD_TARGET_OS=Linux explicitly.
+CARGO_BUILD_TARGET_OS ?=
+DEV_EFFECTIVE_TARGET_OS = $(if $(CARGO_BUILD_TARGET),$(or $(CARGO_BUILD_TARGET_OS),$(if $(findstring -unknown-linux-,$(CARGO_BUILD_TARGET)),Linux)),$(shell uname -s))
+DEV_LINUX_LINK_ARG := $(if $(filter Linux,$(shell uname -s)),$(if $(filter Linux,$(DEV_EFFECTIVE_TARGET_OS)),-Clink-arg=-fuse-ld=mold))
+DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_LINUX_LINK_ARG))
+DEV_BUILD_FLAGS = $(strip $(RUSTFLAGS) $(DEV_LINUX_LINK_ARG))
+DEV_BUILD_ENV = RUSTFLAGS="$(DEV_BUILD_FLAGS)"
 CLIPPY_FLAGS ?= --workspace --all-targets --all-features -- -D warnings
 RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
 MDLINT ?= $(shell command -v markdownlint-cli2 2>/dev/null || printf '%s' "$$HOME/.bun/bin/markdownlint-cli2")
@@ -40,6 +53,9 @@ FORMAL_STRICT ?=
 export FORMAL_STRICT
 
 build: target/debug/lib$(CRATE).rlib ## Build debug binary
+dev-build: ## Build with the explicit development backend
+	$(DEV_BUILD_ENV) $(CARGO) $(DEV_FAST) build $(BUILD_JOBS) --lib
+dev-test: test ## Test with the explicit development backend
 release: target/release/lib$(CRATE).rlib ## Build release binary
 
 all: release ## Default target builds release binary
@@ -48,10 +64,10 @@ clean: ## Remove build artefacts
 	$(CARGO) clean
 
 test-bdd: ## Run rstest-bdd tests only
-	RUSTFLAGS="-D warnings" $(CARGO) test --test bdd --all-features $(BUILD_JOBS)
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --test bdd --all-features $(BUILD_JOBS)
 
 test: ## Run all tests (bdd + unit/integration)
-	RUSTFLAGS="-D warnings" $(CARGO) test --workspace --all-targets --all-features $(BUILD_JOBS)
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace --all-targets --all-features $(BUILD_JOBS)
 
 test-workflow-contracts: ## Validate workflow invocation contracts
 	$(PYTHON_NO_BYTECODE_ENV) uv run --with 'pytest>=8' --with 'pyyaml>=6' pytest tests/workflow_contracts -q
@@ -59,7 +75,7 @@ test-workflow-contracts: ## Validate workflow invocation contracts
 test-doc: ## Run doctests across all features
 	# `wireframe_testing` doctests need generic app types that standalone snippets
 	# cannot infer; issue #578 tracks their repair.
-	RUSTFLAGS="-D warnings" $(CARGO) test --workspace --exclude wireframe_testing --doc --all-features $(BUILD_JOBS)
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace --exclude wireframe_testing --doc --all-features $(BUILD_JOBS)
 
 doctest-benchmark: ## Check runnable/no_run doctest ratios
 	./scripts/doctest-benchmark.sh
@@ -68,11 +84,11 @@ bench-codec: ## Run codec performance benchmarks
 	RUSTFLAGS="-D warnings" $(CARGO) bench --bench codec_performance --bench codec_performance_alloc --features test-support $(BUILD_JOBS)
 
 typecheck: ## Run a workspace typecheck
-	RUSTFLAGS="-D warnings" $(CARGO) check --workspace --all-targets --all-features $(BUILD_JOBS)
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) check --workspace --all-targets --all-features $(BUILD_JOBS)
 
 # will match target/debug/libmy_library.rlib and target/release/libmy_library.rlib
 target/%/lib$(CRATE).rlib: ## Build library in debug or release
-	$(CARGO) build $(BUILD_JOBS)                            \
+	$(if $(findstring release,$(@)),,$(DEV_BUILD_ENV)) $(CARGO) $(if $(findstring release,$(@)),,$(DEV_FAST)) build $(BUILD_JOBS) \
 	  $(if $(findstring release,$(@)),--release)            \
 	  --lib
 	@# copy the .rlib into your own target tree
@@ -81,8 +97,8 @@ target/%/lib$(CRATE).rlib: ## Build library in debug or release
 	  $@
 
 lint: ## Run Clippy with warnings denied
-	RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) doc --workspace --no-deps
-	$(CARGO) clippy $(CLIPPY_FLAGS)
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) $(DEV_FAST) doc --workspace --no-deps
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) clippy $(CLIPPY_FLAGS)
 	RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
 
 fmt: ## Format Rust and Markdown sources

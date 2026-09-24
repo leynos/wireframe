@@ -110,6 +110,8 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
 
 ## Reference guides
 
+- [Repository layout](repository-layout.md) Map of the repository's main
+  source, tooling, and documentation areas.
 - [Developers' guide](developers-guide.md) Canonical architectural vocabulary
   and naming invariants.
 - [Frame = `Vec<u8>` inventory](frame-vec-u8-inventory.md) Inventory of frame-
