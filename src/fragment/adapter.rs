@@ -103,17 +103,21 @@ impl DefaultFragmentAdapter {
         let payload = parts.into_payload();
 
         if let Some((header, fragment_payload)) = decode_fragment_payload(&payload)? {
-            match self.reassembler.push(header, fragment_payload)? {
-                Some(message) => {
-                    let rebuilt = FragmentParts::new(id, correlation_id, message.into_payload());
-                    Ok(Some(E::from_fragment_parts(rebuilt)))
-                }
-                None => Ok(None),
-            }
-        } else {
-            let passthrough = FragmentParts::new(id, correlation_id, payload);
-            Ok(Some(E::from_fragment_parts(passthrough)))
+            return self
+                .reassembler
+                .push(header, fragment_payload)?
+                .map_or_else(
+                    || Ok(None),
+                    |message| {
+                        let rebuilt =
+                            FragmentParts::new(id, correlation_id, message.into_payload());
+                        Ok(Some(E::from_fragment_parts(rebuilt)))
+                    },
+                );
         }
+
+        let passthrough = FragmentParts::new(id, correlation_id, payload);
+        Ok(Some(E::from_fragment_parts(passthrough)))
     }
 
     /// Purge stale reassembly entries and return evicted identifiers.
@@ -122,15 +126,15 @@ impl DefaultFragmentAdapter {
 
 impl FragmentAdapter for DefaultFragmentAdapter {
     fn fragment<E: Fragmentable>(&self, packet: E) -> Result<Vec<E>, FragmentationError> {
-        DefaultFragmentAdapter::fragment(self, packet)
+        Self::fragment(self, packet)
     }
 
     fn reassemble<E: Fragmentable>(
         &mut self,
         packet: E,
     ) -> Result<Option<E>, FragmentAdapterError> {
-        DefaultFragmentAdapter::reassemble(self, packet)
+        Self::reassemble(self, packet)
     }
 
-    fn purge_expired(&mut self) -> Vec<MessageId> { DefaultFragmentAdapter::purge_expired(self) }
+    fn purge_expired(&mut self) -> Vec<MessageId> { Self::purge_expired(self) }
 }

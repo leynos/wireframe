@@ -32,32 +32,49 @@ pub(super) struct MultiPacketCloseResult {
     pub(super) correlation_id: Option<u64>,
 }
 
-/// Availability flags for event sources polled by the connection actor.
-#[expect(
-    clippy::struct_excessive_bools,
-    reason = "Availability flags are a natural fit for booleans; no state machine needed"
-)]
+/// Eligible active output source for the next poll.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum AvailableOutput {
+    /// No active output may be polled.
+    None,
+    /// The multi-packet channel may be polled.
+    MultiPacket,
+    /// The response stream may be polled.
+    Response,
+}
+
+/// Availability of event sources polled by the connection actor.
 #[derive(Clone, Copy)]
 pub(super) struct EventAvailability {
     /// Whether an urgent queue can currently be polled.
     pub(super) high: bool,
     /// Whether a best-effort queue can currently be polled.
     pub(super) low: bool,
-    /// Whether the active multi-packet source can be polled.
-    pub(super) multi_packet: bool,
-    /// Whether the active streaming response can be polled.
-    pub(super) response: bool,
+    /// Which mutually exclusive output source may be polled.
+    pub(super) output: AvailableOutput,
 }
 
 impl<F, E> ActiveOutput<F, E> {
+    /// Identify the output source eligible for polling before shutdown.
+    pub(super) const fn available_output(&self, is_shutting_down: bool) -> AvailableOutput {
+        if is_shutting_down {
+            return AvailableOutput::None;
+        }
+        match self {
+            Self::None => AvailableOutput::None,
+            Self::Response(_) => AvailableOutput::Response,
+            Self::MultiPacket(_) => AvailableOutput::MultiPacket,
+        }
+    }
+
     /// Returns `true` if a streaming response is active.
-    pub(super) fn is_response(&self) -> bool { matches!(self, Self::Response(_)) }
+    pub(super) const fn is_response(&self) -> bool { matches!(self, Self::Response(_)) }
 
     /// Returns `true` if a multi-packet channel is active.
-    pub(super) fn is_multi_packet(&self) -> bool { matches!(self, Self::MultiPacket(_)) }
+    pub(super) const fn is_multi_packet(&self) -> bool { matches!(self, Self::MultiPacket(_)) }
 
     /// Returns a mutable reference to the multi-packet context if active.
-    pub(super) fn multi_packet_mut(&mut self) -> Option<&mut MultiPacketContext<F>> {
+    pub(super) const fn multi_packet_mut(&mut self) -> Option<&mut MultiPacketContext<F>> {
         match self {
             Self::MultiPacket(ctx) => Some(ctx),
             _ => Option::None,
@@ -79,12 +96,10 @@ impl<F, E> ActiveOutput<F, E> {
         match std::mem::replace(self, Self::None) {
             Self::MultiPacket(mut ctx) => {
                 let correlation_id = ctx.correlation_id();
-                let source_closed = if let Some(rx) = ctx.channel_mut() {
+                let source_closed = ctx.channel_mut().is_some_and(|rx| {
                     rx.close();
                     true
-                } else {
-                    false
-                };
+                });
                 ShutdownResult {
                     correlation_id,
                     source_closed,

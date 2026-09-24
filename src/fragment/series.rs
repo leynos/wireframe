@@ -39,6 +39,42 @@ impl FragmentSeries {
     #[must_use]
     pub const fn is_complete(&self) -> bool { self.complete }
 
+    /// Start a new series with a validated first fragment.
+    pub(super) fn start_with_first(
+        fragment: FragmentHeader,
+    ) -> Result<(Self, bool), FragmentError> {
+        let mut series = Self::new(fragment.message_id());
+        if fragment.fragment_index() != FragmentIndex::zero() {
+            return Err(FragmentError::IndexMismatch {
+                expected: FragmentIndex::zero(),
+                found: fragment.fragment_index(),
+            });
+        }
+        let is_complete = series.advance_accepted(fragment)?;
+        Ok((series, is_complete))
+    }
+
+    /// Advance a fragment whose identity and index have already been checked.
+    fn advance_accepted(&mut self, fragment: FragmentHeader) -> Result<bool, FragmentError> {
+        let next_index = fragment.fragment_index().checked_increment();
+        if fragment.is_last_fragment() {
+            self.complete = true;
+            if let Some(incremented) = next_index {
+                self.next_index = incremented;
+            }
+            return Ok(true);
+        }
+
+        let Some(incremented) = next_index else {
+            return Err(FragmentError::IndexOverflow {
+                last: fragment.fragment_index(),
+            });
+        };
+
+        self.next_index = incremented;
+        Ok(false)
+    }
+
     /// Accept a fragment and update the expected index.
     ///
     /// # Examples
@@ -93,28 +129,18 @@ impl FragmentSeries {
             });
         }
 
-        let next_index = fragment.fragment_index().checked_increment();
-        if fragment.is_last_fragment() {
-            self.complete = true;
-            if let Some(incremented) = next_index {
-                self.next_index = incremented;
-            }
-            return Ok(FragmentStatus::Complete);
-        }
-
-        let Some(incremented) = next_index else {
-            return Err(FragmentError::IndexOverflow {
-                last: fragment.fragment_index(),
-            });
-        };
-
-        self.next_index = incremented;
-        Ok(FragmentStatus::Incomplete)
+        Ok(if self.advance_accepted(fragment)? {
+            FragmentStatus::Complete
+        } else {
+            FragmentStatus::Incomplete
+        })
     }
 }
 
 impl FragmentSeries {
     /// Testing helper that forces the next expected fragment index.
     #[doc(hidden)]
-    pub fn force_next_index_for_tests(&mut self, next: FragmentIndex) { self.next_index = next; }
+    pub const fn force_next_index_for_tests(&mut self, next: FragmentIndex) {
+        self.next_index = next;
+    }
 }

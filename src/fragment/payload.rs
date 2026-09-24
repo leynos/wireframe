@@ -39,10 +39,10 @@ pub fn fragment_overhead() -> NonZeroUsize {
     };
     // Magic + length prefix (u16 big-endian) + encoded header.
     let overhead = FRAGMENT_MAGIC.len() + std::mem::size_of::<u16>() + header_bytes.len();
-    match NonZeroUsize::new(overhead) {
-        Some(non_zero) => non_zero,
-        None => panic!("fragment overhead must be non-zero (computed {overhead})"),
-    }
+    let Some(non_zero) = NonZeroUsize::new(overhead) else {
+        panic!("fragment overhead must be non-zero (computed {overhead})");
+    };
+    non_zero
 }
 
 /// Encode a fragment for transport by prefixing marker and header bytes.
@@ -92,10 +92,7 @@ pub fn decode_fragment_payload(
         return Ok(None);
     }
 
-    let Some(prefix) = payload.get(..FRAGMENT_MAGIC.len()) else {
-        return Ok(None);
-    };
-    if prefix != FRAGMENT_MAGIC {
+    if payload.get(..FRAGMENT_MAGIC.len()) != Some(FRAGMENT_MAGIC) {
         return Ok(None);
     }
 
@@ -124,9 +121,9 @@ pub fn decode_fragment_payload(
     let (header, consumed) =
         borrow_decode_from_slice::<FragmentHeader, _>(header_bytes, config::standard())?;
     if consumed != header_len {
-        return Err(DecodeError::OtherString(
-            "fragment header length mismatch".to_string(),
-        ));
+        return Err(DecodeError::OtherString(String::from(
+            "fragment header length mismatch",
+        )));
     }
 
     let remainder = payload.get(header_end..).unwrap_or_default();
@@ -181,17 +178,15 @@ mod tests {
         assert!(encoded.len() < u16::MAX as usize, "header must fit in u16");
     }
 
-    /// Helper to test fragment decode errors with custom manipulation and assertions.
-    #[expect(
-        clippy::unwrap_used,
-        reason = "encode_to_vec is infallible for valid headers"
-    )]
-    fn assert_fragment_decode_error<F, E>(header: FragmentHeader, manipulate: F, assert_error: E)
+    /// Build a manipulated fragment and return its decode error, if any.
+    fn decode_manipulated_fragment<F>(
+        header: FragmentHeader,
+        manipulate: F,
+    ) -> Result<Option<DecodeError>, EncodeError>
     where
         F: FnOnce(Vec<u8>) -> (u16, Vec<u8>), // (advertised_len, header_bytes)
-        E: FnOnce(DecodeError),
     {
-        let encoded = encode_to_vec(header, config::standard()).unwrap();
+        let encoded = encode_to_vec(header, config::standard())?;
         let (advertised_len, header_bytes) = manipulate(encoded);
 
         let mut payload = Vec::new();
@@ -201,27 +196,25 @@ mod tests {
         payload.extend_from_slice(&advertised_len_bytes);
         payload.extend_from_slice(&header_bytes);
 
-        let err = decode_fragment_payload(&payload).expect_err("expected decode failure");
-        assert_error(err);
+        Ok(decode_fragment_payload(&payload).err())
     }
 
     #[test]
     fn decode_fragment_payload_rejects_truncated_header() {
         let header = FragmentHeader::new(MessageId::new(2), FragmentIndex::new(1), false);
-        assert_fragment_decode_error(
-            header,
-            |encoded| {
-                // Advertise a longer header than provided to force `UnexpectedEnd`.
-                let advertised_len: u16 = (encoded.len() + 4)
-                    .try_into()
-                    .expect("encoded header length must stay within u16");
-                (advertised_len, encoded)
-            },
-            |err| match err {
-                DecodeError::UnexpectedEnd { .. } => {}
-                other => panic!("expected UnexpectedEnd, got {other:?}"),
-            },
-        );
+        let error = decode_manipulated_fragment(header, |encoded| {
+            // Advertise a longer header than provided to force `UnexpectedEnd`.
+            let advertised_len: u16 = (encoded.len() + 4)
+                .try_into()
+                .expect("encoded header length must stay within u16");
+            (advertised_len, encoded)
+        })
+        .expect("valid fragment header should encode")
+        .expect("truncated fragment should fail to decode");
+        match error {
+            DecodeError::UnexpectedEnd { .. } => {}
+            other => panic!("expected UnexpectedEnd, got {other:?}"),
+        }
     }
 
     #[test]
@@ -243,23 +236,22 @@ mod tests {
     #[test]
     fn decode_fragment_payload_rejects_length_mismatch() {
         let header = FragmentHeader::new(MessageId::new(3), FragmentIndex::new(5), true);
-        assert_fragment_decode_error(
-            header,
-            |mut encoded| {
-                // Pad so the advertised length exceeds consumed.
-                encoded.extend_from_slice(&[0_u8, 1]);
-                let advertised_len: u16 = encoded
-                    .len()
-                    .try_into()
-                    .expect("padded header length must fit in u16");
-                (advertised_len, encoded)
-            },
-            |err| match err {
-                DecodeError::OtherString(msg) => {
-                    assert_eq!(msg, "fragment header length mismatch");
-                }
-                other => panic!("expected length mismatch error, got {other:?}"),
-            },
-        );
+        let error = decode_manipulated_fragment(header, |mut encoded| {
+            // Pad so the advertised length exceeds consumed.
+            encoded.extend_from_slice(&[0_u8, 1]);
+            let advertised_len: u16 = encoded
+                .len()
+                .try_into()
+                .expect("padded header length must fit in u16");
+            (advertised_len, encoded)
+        })
+        .expect("valid fragment header should encode")
+        .expect("mismatched fragment header length should fail to decode");
+        match error {
+            DecodeError::OtherString(msg) => {
+                assert_eq!(msg, "fragment header length mismatch");
+            }
+            other => panic!("expected length mismatch error, got {other:?}"),
+        }
     }
 }
