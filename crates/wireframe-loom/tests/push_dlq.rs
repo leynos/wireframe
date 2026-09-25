@@ -75,8 +75,14 @@ fn full_queue_and_dlq(priority: PushPriority, log_every_n: usize) -> Fixture {
 
 /// Drop one frame from each of two Loom threads and wait for both.
 fn drop_concurrently(handle: &PushHandle<u8>, priority: PushPriority) {
-    let producers: Vec<_> = [1_u8, 2]
-        .into_iter()
+    drop_from_each(handle, priority, &[1, 2]);
+}
+
+/// Drop one frame from each of `frames.len()` Loom threads and wait for all.
+fn drop_from_each(handle: &PushHandle<u8>, priority: PushPriority, frames: &[u8]) {
+    let producers: Vec<_> = frames
+        .iter()
+        .copied()
         .map(|frame| {
             let producer = handle.clone();
             thread::spawn(move || {
@@ -124,6 +130,30 @@ fn the_counter_resets_at_the_logging_threshold(#[case] priority: PushPriority) {
             probe.dlq_drop_count(),
             0,
             "reaching the logging threshold must reset the counter"
+        );
+    });
+}
+
+#[rstest]
+#[case::high(PushPriority::High)]
+#[case::low(PushPriority::Low)]
+fn every_drop_is_reported_or_still_counted(#[case] priority: PushPriority) {
+    // Three producers, threshold two: at least one producer reaches the
+    // threshold and reports, while the others may increment around its
+    // reset. Every failed dead-letter send must end up either in a report
+    // or still in the counter, never in both and never in neither, so the
+    // two together equal the three drops on every interleaving. A reset that
+    // reports one value and clears another loses or double-counts drops.
+    model(move || {
+        let fixture = full_queue_and_dlq(priority, 2);
+        let probe = fixture.handle.probe();
+        drop_from_each(&fixture.handle, priority, &[1, 2, 3]);
+        let reported = probe.dlq_reported_count();
+        let remaining = probe.dlq_drop_count();
+        assert_eq!(
+            reported + remaining,
+            3,
+            "reported ({reported}) plus remaining ({remaining}) must equal the three drops"
         );
     });
 }

@@ -2104,8 +2104,13 @@ rates to the supported range.[^24] `PushHandle` exposes async
 `push_high_priority` and `push_low_priority` helpers that honour the rate
 limiter before awaiting channel capacity, while `try_push` implements
 policy-controlled drops with optional warnings and dead-letter forwarding.[^26]
-Cloneable handles downgrade to `Weak` references for registration in a session
-registry.[^25]
+When the dead-letter queue is itself full or closed, the throttled
+`DLQ dropped frames` warning reports, as `dropped`, exactly the number of drops
+since the previous report; concurrent producers never make it count a drop
+twice or lose one, and a producer that finds nothing left to report emits no
+`dropped=0` line. `dlq_log_every_n` and `dlq_log_interval` set how often it
+fires. Cloneable handles downgrade to `Weak` references for registration in a
+session registry.[^25]
 
 `PushQueues::recv` prefers high-priority frames but eventually drains the
 low-priority queue; `close` lets tests release resources when no actor is

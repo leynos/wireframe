@@ -485,14 +485,18 @@ back-pressure behaviour of their pushed messages.
 Reasoning about concurrent producers requires a loom-specific probe in
 `PushHandle`. When tests compile with `--cfg loom`, the probe exposes the
 dead-letter queue drop counter. The `crates/wireframe-loom` models drive
-`PushHandle::try_push` from two `loom::thread`s against a full queue to assert
-that every failed dead-letter send is counted, that the count resets at the
-logging threshold, for both priorities, and that nothing is counted when the
-DLQ accepts the frame or is absent. Queue-full errors are not asserted there:
-they come from Tokio channels, which `loom` does not schedule, and are tested
-deterministically instead. This arrangement keeps the production API unchanged
-whilst enabling exhaustive interleaving checks during the advanced test
-workflow.
+`PushHandle::try_push` from concurrent `loom::thread`s against a full queue to
+assert that every failed dead-letter send is counted, that the count resets at
+the logging threshold, for both priorities, and that nothing is counted when
+the DLQ accepts the frame or is absent. The throttled drop diagnostic takes the
+count with `swap(0)` and reports exactly what it took, so with three producers
+and a threshold of two the drops reported plus those still counted equal the
+drops made on every interleaving; the probe's `dlq_reported_count`, a running
+total kept only under `cfg(loom)`, lets a model check that. Queue-full errors
+are not asserted there: they come from Tokio channels, which `loom` does not
+schedule, and are tested deterministically instead. This arrangement keeps the
+production API unchanged whilst enabling exhaustive interleaving checks during
+the advanced test workflow.
 
 ```rust
 #[cfg(loom)]

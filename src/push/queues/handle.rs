@@ -55,6 +55,10 @@ pub(crate) struct PushHandleInner<F> {
     pub(crate) dlq_drops: AtomicUsize,
     /// Timestamp used for interval-based drop logging.
     pub(crate) dlq_last_log: Mutex<Instant>,
+    /// Running total of the drops the diagnostic has reported, kept only so
+    /// Loom models can check that reported plus remaining equals produced.
+    #[cfg(loom)]
+    pub(crate) dlq_reported: AtomicUsize,
     /// Count interval used for drop diagnostics.
     pub(crate) dlq_log_every_n: usize,
     /// Time interval used for drop diagnostics.
@@ -77,6 +81,10 @@ impl<F> PushHandleProbe<F> {
     /// Return the number of frames dropped into the DLQ since the last log flush.
     #[must_use]
     pub fn dlq_drop_count(&self) -> usize { self.inner.dlq_drops.load(Ordering::SeqCst) }
+
+    /// Return the total number of drops the throttled diagnostic has reported.
+    #[must_use]
+    pub fn dlq_reported_count(&self) -> usize { self.inner.dlq_reported.load(Ordering::SeqCst) }
 }
 
 impl<F: FrameLike> PushHandle<F> {
@@ -247,14 +255,26 @@ impl<F: FrameLike> PushHandle<F> {
         let should_log = (log_every_n != 0 && dropped.is_multiple_of(log_every_n))
             || last_log.elapsed() > log_interval;
 
-        if should_log {
-            warn!(
-                "DLQ dropped frames (full or closed): frame={frame:?}, dropped={dropped}, \
-                 log_every_n={log_every_n}, log_interval={log_interval:?}"
-            );
-            *last_log = Instant::now();
-            self.0.dlq_drops.store(0, Ordering::Relaxed);
+        if !should_log {
+            return;
         }
+        // Take the count and report exactly what was taken. Reporting
+        // `dropped` and then storing zero lost every increment another
+        // producer made in between and reported drops a concurrent reset had
+        // already cleared, so the log over-reported under contention.
+        let reported = self.0.dlq_drops.swap(0, Ordering::Relaxed);
+        *last_log = Instant::now();
+        // A logger that loses the race to another producer's swap has
+        // nothing left to report.
+        if reported == 0 {
+            return;
+        }
+        warn!(
+            "DLQ dropped frames (full or closed): frame={frame:?}, dropped={reported}, \
+             log_every_n={log_every_n}, log_interval={log_interval:?}"
+        );
+        #[cfg(loom)]
+        self.0.dlq_reported.fetch_add(reported, Ordering::Relaxed);
     }
 
     /// Attempt to push a frame with the given priority and policy.
