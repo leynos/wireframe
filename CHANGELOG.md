@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Added scheduler and slot poison-recovery coverage, and extracted
+  `scheduler_tests.rs` to keep `scheduler.rs` below 400 lines. (#539)
 - **Client (breaking):** Remove `SocketOptions::linger` and
   `WireframeClientBuilder::linger`. Tokio-managed client sockets must not use
   duration-based `SO_LINGER`; call `WireframeClient::close().await` for
