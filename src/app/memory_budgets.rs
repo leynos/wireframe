@@ -66,9 +66,9 @@ impl From<BudgetBytes> for usize {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MemoryBudgets {
-    /// Maximum bytes retained while constructing one logical message.
+    /// Caps one assembling message to prevent unbounded per-message growth.
     message_budget: BudgetBytes,
-    /// Maximum bytes retained by all assemblies on one connection.
+    /// Caps concurrent assemblies to prevent unbounded connection-wide growth.
     connection_window: BudgetBytes,
     /// Maximum bytes retained across concurrent in-flight assemblies.
     assembly_bytes: BudgetBytes,

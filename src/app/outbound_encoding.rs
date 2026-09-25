@@ -16,7 +16,7 @@ use crate::{codec::FrameCodec, message::EncodeWith, serializer::Serializer};
 /// A serialized message wrapped into a transport codec frame.
 #[derive(Debug)]
 pub(crate) struct EncodedFrame<T> {
-    /// Codec-owned frame ready for asynchronous transport output.
+    /// Codec-owned frame preserving the codec's frame representation boundary.
     pub(crate) frame: T,
 }
 

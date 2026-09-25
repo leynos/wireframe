@@ -2,6 +2,9 @@
 
 mod accept;
 mod backoff;
+mod startup;
+#[cfg(test)]
+mod startup_tests;
 #[cfg(test)]
 mod tests;
 
@@ -16,6 +19,7 @@ pub(super) use accept::{AcceptLoopOptions, PreambleHooks, accept_loop};
 pub use backoff::BackoffConfig;
 use futures::Future;
 use log::warn;
+use startup::prepare_application_or_shutdown;
 use tokio::{select, signal};
 use tokio_util::{
     sync::{CancellationToken, DropGuardRef},
@@ -29,7 +33,12 @@ use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
     message::{DecodeWith, EncodeWith},
-    metrics::{ServerCancellationReason, inc_server_supervisor_cancellation},
+    metrics::{
+        ServerCancellationReason,
+        ServerStartupOutcome,
+        inc_server_supervisor_cancellation,
+        record_server_startup_duration,
+    },
     preamble::Preamble,
     serializer::Serializer,
 };
@@ -203,9 +212,10 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an [`std::io::Error`] if the server was not bound to a listener.
-    /// Accept failures are retried with exponential back-off and do not
-    /// surface as errors.
+    /// Returns [`ServerError::FactoryBuild`] if application construction fails
+    /// or [`ServerError::Prepare`] if application preparation fails. Accept
+    /// failures are retried with exponential back-off and do not surface as
+    /// errors.
     pub async fn run(self) -> Result<(), ServerError> {
         self.run_with_shutdown(async {
             let _ = signal::ctrl_c().await;
@@ -263,13 +273,15 @@ where
     ///
     /// # Errors
     ///
-    /// Returns an [`std::io::Error`] if the server was not bound to a listener.
-    /// Accept failures are retried with exponential back-off and do not
-    /// surface as errors.
+    /// Returns [`ServerError::FactoryBuild`] if application construction fails
+    /// or [`ServerError::Prepare`] if application preparation fails. Accept
+    /// failures are retried with exponential back-off and do not surface as
+    /// errors.
     pub async fn run_with_shutdown<S>(self, shutdown: S) -> Result<(), ServerError>
     where
         S: Future<Output = ()> + Send,
     {
+        let startup_started = std::time::Instant::now();
         let WireframeServer {
             factory,
             workers,
@@ -283,21 +295,27 @@ where
         } = self;
         let shutdown_token = CancellationToken::new();
         let lifecycle = SupervisorLifecycle::new();
-        // Cancel workers if this future is dropped, for example via JoinHandle::abort.
-        let _cancel_workers_on_drop = SupervisorCancellationDropGuard::new(
-            shutdown_token.drop_guard_ref(),
-            lifecycle.clone(),
-        );
         let tracker = TaskTracker::new();
         let preamble = PreambleHooks {
             on_success: on_preamble_success,
             on_failure: on_preamble_failure,
             timeout: preamble_timeout,
         };
+        let Some((prepared_app, shutdown)) =
+            prepare_application_or_shutdown(factory, shutdown, startup_started).await?
+        else {
+            return Ok(());
+        };
+        // Cancel workers if this future is dropped, for example via JoinHandle::abort.
+        // No worker exists until application preparation has succeeded.
+        let _cancel_workers_on_drop = SupervisorCancellationDropGuard::new(
+            shutdown_token.drop_guard_ref(),
+            lifecycle.clone(),
+        );
 
         for _ in 0..workers {
             let listener = Arc::clone(&listener);
-            let factory = factory.clone();
+            let app = Arc::clone(&prepared_app);
             let preamble_hooks = preamble.clone();
             let token = shutdown_token.clone();
             let t = tracker.clone();
@@ -305,8 +323,8 @@ where
             tracker.spawn(
                 accept_loop(
                     listener,
-                    factory,
                     AcceptLoopOptions {
+                        app,
                         preamble: preamble_hooks,
                         shutdown: token,
                         tracker: t,
@@ -317,6 +335,8 @@ where
                 .instrument(span),
             );
         }
+
+        record_server_startup_duration(ServerStartupOutcome::Success, startup_started.elapsed());
 
         // Signal readiness after all workers have been spawned.
         if let Some(tx) = ready_tx

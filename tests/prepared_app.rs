@@ -1,7 +1,8 @@
 //! Integration coverage for one-time application preparation.
 
+mod common;
+
 use std::{
-    convert::Infallible,
     net::SocketAddr,
     sync::{
         Arc,
@@ -10,40 +11,37 @@ use std::{
     time::Duration,
 };
 
-use async_trait::async_trait;
-use proptest::{
-    prelude::*,
-    test_runner::{TestCaseError, TestCaseResult},
+use common::prepared_app::{
+    TestApp,
+    TransformCountingMiddleware,
+    build_frame,
+    handler,
+    response_payload,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    runtime::Builder,
     sync::{Barrier, oneshot},
     time::{sleep, timeout},
 };
 use wireframe::{
-    app::{Envelope, Handler, PreparedApp, WireframeApp},
-    middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
-    serializer::{BincodeSerializer, Serializer},
+    app::{Envelope, Handler, PreparedApp},
+    serializer::BincodeSerializer,
     server::WireframeServer,
 };
 use wireframe_testing::{
     TestResult,
-    decode_frames,
     drive_prepared_with_frames,
-    encode_frame,
     unused_listener,
     wait_for_listener_release,
     wait_for_server_readiness,
 };
 
-type TestApp = WireframeApp<BincodeSerializer, (), Envelope>;
-type TestPreparedApp = PreparedApp<BincodeSerializer, (), Envelope>;
-
 const ROUTES: usize = 2;
 const MIDDLEWARE_LAYERS: usize = 2;
 const CONNECTIONS: usize = 2;
+
+type TestPreparedApp = PreparedApp<BincodeSerializer, (), Envelope>;
 
 /// Counter snapshots for the application connection-startup baseline.
 #[derive(Clone)]
@@ -75,53 +73,6 @@ struct ConnectionStartupCounts {
     factory_calls: usize,
     transforms: usize,
 }
-
-struct TransformCountingMiddleware {
-    tag: u8,
-    transforms: Arc<AtomicUsize>,
-}
-
-struct TagService<S> {
-    inner: S,
-    tag: u8,
-}
-
-#[async_trait]
-impl<S> Service for TagService<S>
-where
-    S: Service<Error = Infallible> + Send + Sync + 'static,
-{
-    type Error = Infallible;
-
-    /// Adds this service's tag around the delegated request and response.
-    async fn call(&self, mut request: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
-        request.frame_mut().push(self.tag);
-        let mut response = self.inner.call(request).await?;
-        response.frame_mut().push(self.tag);
-        Ok(response)
-    }
-}
-
-#[async_trait]
-impl Transform<HandlerService<Envelope>> for TransformCountingMiddleware {
-    type Output = HandlerService<Envelope>;
-
-    /// Counts this transformation and wraps the route service with its tag.
-    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
-        self.transforms.fetch_add(1, Ordering::SeqCst);
-        let id = service.id();
-        HandlerService::from_service(
-            id,
-            TagService {
-                inner: service,
-                tag: self.tag,
-            },
-        )
-    }
-}
-
-/// Builds a handler that accepts an envelope without changing it.
-fn handler() -> Handler<Envelope> { Arc::new(|_envelope: &Envelope| Box::pin(async {})) }
 
 /// Creates the test factory used to compare legacy and prepared startup work.
 fn counted_app_factory(
@@ -163,8 +114,8 @@ async fn wait_for_counts(
     Ok(())
 }
 
-/// Runs legacy server connections and waits for their startup instrumentation.
-async fn run_legacy_server_connections(
+/// Runs server connections and waits for their startup instrumentation.
+async fn run_server_connections(
     app_factory: impl Fn() -> TestResult<TestApp> + Clone + Send + Sync + 'static,
     instrumentation: &ConnectionStartupInstrumentation,
     expected: &ConnectionStartupCounts,
@@ -208,26 +159,6 @@ async fn run_legacy_server_connections(
     listener_result
 }
 
-/// Encodes an envelope into a frame for an in-process connection.
-fn build_frame(id: u32, payload: Vec<u8>) -> TestResult<Vec<u8>> {
-    let serializer = BincodeSerializer;
-    let envelope = Envelope::new(id, Some(7), payload);
-    let payload = serializer.serialize(&envelope)?;
-    let mut codec = TestApp::default().length_codec();
-    Ok(encode_frame(&mut codec, payload)?)
-}
-
-/// Decodes one response frame and returns its envelope payload.
-fn response_payload(bytes: &[u8]) -> TestResult<Vec<u8>> {
-    let frames = decode_frames(bytes)?;
-    let [frame] = frames.as_slice() else {
-        return Err("expected one response frame".into());
-    };
-    let serializer = BincodeSerializer;
-    let (response, _) = serializer.deserialize::<Envelope>(frame)?;
-    Ok(wireframe::app::Packet::into_parts(response).into_payload())
-}
-
 #[tokio::test]
 #[expect(
     clippy::panic_in_result_fn,
@@ -245,20 +176,20 @@ async fn connection_startup_records_counts_before_and_after_preparation() -> Tes
         }
     );
 
-    let legacy_counts = ConnectionStartupCounts {
-        factory_calls: CONNECTIONS,
-        transforms: CONNECTIONS * ROUTES * MIDDLEWARE_LAYERS,
+    let server_counts = ConnectionStartupCounts {
+        factory_calls: 1,
+        transforms: ROUTES * MIDDLEWARE_LAYERS,
     };
-    run_legacy_server_connections(app_factory.clone(), &instrumentation, &legacy_counts).await?;
-    assert_eq!(instrumentation.snapshot(), legacy_counts);
+    run_server_connections(app_factory.clone(), &instrumentation, &server_counts).await?;
+    assert_eq!(instrumentation.snapshot(), server_counts);
 
     let prepared: TestPreparedApp = app_factory()?
         .prepare()
         .await
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
     let prepared_counts = ConnectionStartupCounts {
-        factory_calls: CONNECTIONS + 1,
-        transforms: (CONNECTIONS + 1) * ROUTES * MIDDLEWARE_LAYERS,
+        factory_calls: 2,
+        transforms: 2 * ROUTES * MIDDLEWARE_LAYERS,
     };
     assert_eq!(instrumentation.snapshot(), prepared_counts);
 
@@ -415,106 +346,4 @@ async fn prepared_app_serves_real_tcp_connection_without_retransforming() -> Tes
     // Preparation transformed each route once; the connection added none.
     assert_eq!(instrumentation.snapshot(), prepared_counts);
     Ok(())
-}
-
-// Generate bounded prepared-application cases and preserve one-time transforms.
-proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 32,
-        .. ProptestConfig::default()
-    })]
-
-    #[test]
-    fn prepared_app_transforms_once_and_reuses_services(
-        route_count in 1usize..=4,
-        middleware_layers in 0usize..=4,
-        connection_count in 1usize..=4,
-    ) {
-        run_prepared_app_property_case(route_count, middleware_layers, connection_count)?;
-    }
-}
-
-/// Exercise a generated preparation case on a deterministic Tokio runtime.
-fn run_prepared_app_property_case(
-    route_count: usize,
-    middleware_layers: usize,
-    connection_count: usize,
-) -> TestCaseResult {
-    let runtime = Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| TestCaseError::fail(error.to_string()))?;
-    runtime
-        .block_on(exercise_prepared_app_property_case(
-            route_count,
-            middleware_layers,
-            connection_count,
-        ))
-        .map_err(|error| TestCaseError::fail(error.to_string()))
-}
-
-/// Prepare a bounded generated application and verify every requested dispatch.
-async fn exercise_prepared_app_property_case(
-    route_count: usize,
-    middleware_layers: usize,
-    connection_count: usize,
-) -> TestResult<()> {
-    let transforms = Arc::new(AtomicUsize::new(0));
-    let tags = middleware_tags(middleware_layers)?;
-    let mut app = TestApp::new()?;
-    for route_id in 1..=route_count {
-        app = app.route(u32::try_from(route_id)?, handler())?;
-    }
-    for tag in &tags {
-        app = app.wrap(TransformCountingMiddleware {
-            tag: *tag,
-            transforms: Arc::clone(&transforms),
-        })?;
-    }
-
-    let prepared = app
-        .prepare()
-        .await
-        .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
-    let expected_transforms = route_count * middleware_layers;
-    if transforms.load(Ordering::SeqCst) != expected_transforms {
-        return Err(format!(
-            "preparation transformed {} route services, expected {expected_transforms}",
-            transforms.load(Ordering::SeqCst)
-        )
-        .into());
-    }
-
-    for route_id in (1..=route_count)
-        .cycle()
-        .take(route_count + connection_count)
-    {
-        let route_id = u32::try_from(route_id)?;
-        let payload = vec![u8::try_from(route_id)?];
-        let response =
-            drive_prepared_with_frames(&prepared, vec![build_frame(route_id, payload)?]).await?;
-        let mut expected = vec![u8::try_from(route_id)?];
-        expected.extend(tags.iter().copied());
-        expected.extend(tags.iter().rev().copied());
-        if response_payload(&response)? != expected {
-            return Err(
-                format!("route {route_id} did not preserve generated middleware order").into(),
-            );
-        }
-    }
-    if transforms.load(Ordering::SeqCst) != expected_transforms {
-        return Err(format!(
-            "prepared connections rebuilt middleware: observed {}, expected {expected_transforms}",
-            transforms.load(Ordering::SeqCst)
-        )
-        .into());
-    }
-    Ok(())
-}
-
-/// Build distinct middleware tags for a bounded generated layer count.
-fn middleware_tags(layer_count: usize) -> TestResult<Vec<u8>> {
-    (0..layer_count)
-        .map(|layer| Ok(b'A' + u8::try_from(layer)?))
-        .collect()
 }

@@ -1,6 +1,6 @@
 //! Connection task spawning for [`WireframeServer`].
 
-use std::{io, net::SocketAddr, time::Duration};
+use std::{io, net::SocketAddr, sync::Arc, time::Duration};
 
 use futures::FutureExt;
 use log::{error, warn};
@@ -8,24 +8,23 @@ use tokio::{net::TcpStream, time::timeout};
 use tokio_util::task::TaskTracker;
 
 use crate::{
-    app::{Envelope, Packet},
+    app::{Envelope, Packet, PreparedApp},
     codec::FrameCodec,
     frame::FrameMetadata,
     message::{DecodeWith, EncodeWith},
     preamble::{Preamble, read_preamble},
     rewind_stream::RewindStream,
     serializer::Serializer,
-    server::{AppFactory, PreambleFailure, PreambleHandler, runtime::PreambleHooks},
+    server::{PreambleFailure, PreambleHandler, runtime::PreambleHooks},
 };
 
 /// Spawn a task to process a single TCP connection, logging and discarding any panics.
-pub(super) fn spawn_connection_task<F, T, Ser, Ctx, E, Codec>(
+pub(super) fn spawn_connection_task<T, Ser, Ctx, E, Codec>(
     stream: TcpStream,
-    factory: F,
+    app: Arc<PreparedApp<Ser, Ctx, E, Codec>>,
     hooks: PreambleHooks<T>,
     tracker: &TaskTracker,
 ) where
-    F: AppFactory<Ser, Ctx, E, Codec>,
     T: Preamble,
     Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     Ctx: Send + 'static,
@@ -41,7 +40,7 @@ pub(super) fn spawn_connection_task<F, T, Ser, Ctx, E, Codec>(
         }
     };
     tracker.spawn(async move {
-        let fut = std::panic::AssertUnwindSafe(process_stream(stream, peer_addr, factory, hooks))
+        let fut = std::panic::AssertUnwindSafe(process_stream(stream, peer_addr, app, hooks))
             .catch_unwind();
 
         if let Err(panic) = fut.await {
@@ -55,13 +54,12 @@ pub(super) fn spawn_connection_task<F, T, Ser, Ctx, E, Codec>(
 }
 
 /// Complete the preamble handshake before handing bytes to the application.
-async fn process_stream<F, T, Ser, Ctx, E, Codec>(
+async fn process_stream<T, Ser, Ctx, E, Codec>(
     mut stream: TcpStream,
     peer_addr: Option<SocketAddr>,
-    factory: F,
+    app: Arc<PreparedApp<Ser, Ctx, E, Codec>>,
     hooks: PreambleHooks<T>,
 ) where
-    F: AppFactory<Ser, Ctx, E, Codec>,
     T: Preamble,
     Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     Ctx: Send + 'static,
@@ -86,34 +84,22 @@ async fn process_stream<F, T, Ser, Ctx, E, Codec>(
 
     run_preamble_success(on_success.as_ref(), &preamble, &mut stream, peer_addr).await;
     let stream = RewindStream::new(leftover, stream);
-    handle_app_connection(&factory, stream).await;
+    handle_app_connection(&app, stream).await;
 }
 
-/// Build an application and run it on the already-handshaken stream.
-async fn handle_app_connection<F, Ser, Ctx, E, Codec>(factory: &F, stream: RewindStream<TcpStream>)
-where
-    F: AppFactory<Ser, Ctx, E, Codec>,
+/// Run the shared prepared application on the already-handshaken stream.
+async fn handle_app_connection<Ser, Ctx, E, Codec>(
+    app: &PreparedApp<Ser, Ctx, E, Codec>,
+    stream: RewindStream<TcpStream>,
+) where
     Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     Ctx: Send + 'static,
     E: Packet + 'static,
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
-    match factory.build() {
-        Ok(app) =>
-        {
-            #[expect(
-                deprecated,
-                reason = "the server retains per-connection factory evaluation until the runtime \
-                          slice"
-            )]
-            if let Err(e) = app.handle_connection_result(stream).await {
-                warn!("connection task error: {e:?}");
-            }
-        }
-        Err(err) => {
-            warn!("connection task error: failed to build app: {err}");
-        }
+    if let Err(error) = app.handle_connection_result(stream).await {
+        warn!("connection task error: {error:?}");
     }
 }
 
@@ -203,11 +189,14 @@ mod tests {
     async fn spawn_connection_task_logs_panic(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
-        let app_factory = move || {
+        let app = Arc::new(
             factory()
                 .on_connection_setup(|| async { panic!("boom") })
                 .expect("failed to install panic setup callback")
-        };
+                .prepare()
+                .await
+                .expect("prepare app"),
+        );
         let tracker = TaskTracker::new();
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -216,14 +205,10 @@ mod tests {
 
         let handle = tokio::spawn({
             let tracker = tracker.clone();
+            let app = Arc::clone(&app);
             async move {
                 let (stream, _) = listener.accept().await.expect("accept");
-                spawn_connection_task(
-                    stream,
-                    app_factory,
-                    PreambleHooks::<()>::default(),
-                    &tracker,
-                );
+                spawn_connection_task(stream, app, PreambleHooks::<()>::default(), &tracker);
                 tracker.close();
                 tracker.wait().await;
             }
@@ -258,11 +243,14 @@ mod tests {
     async fn spawn_connection_task_logs_non_string_panic(
         factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
     ) {
-        let app_factory = move || {
+        let app = Arc::new(
             factory()
                 .on_connection_setup(|| async { std::panic::panic_any(5_u32) })
                 .expect("install panic setup callback")
-        };
+                .prepare()
+                .await
+                .expect("prepare app"),
+        );
         let tracker = TaskTracker::new();
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -271,14 +259,10 @@ mod tests {
 
         let handle = tokio::spawn({
             let tracker = tracker.clone();
+            let app = Arc::clone(&app);
             async move {
                 let (stream, _) = listener.accept().await.expect("accept");
-                spawn_connection_task(
-                    stream,
-                    app_factory,
-                    PreambleHooks::<()>::default(),
-                    &tracker,
-                );
+                spawn_connection_task(stream, app, PreambleHooks::<()>::default(), &tracker);
                 tracker.close();
                 tracker.wait().await;
             }

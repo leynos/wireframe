@@ -4,13 +4,13 @@ use std::time::Duration;
 
 use super::policy::PoolFairnessPolicy;
 
-/// Default number of physical connection slots available for on-demand use.
+/// Bounds default connection fan-out for small deployments.
 const DEFAULT_POOL_SIZE: usize = 4;
-/// Default serial admission per physical socket.
+/// Preserves serial request admission per socket by default.
 const DEFAULT_MAX_IN_FLIGHT_PER_SOCKET: usize = 1;
-/// Default idle lifetime before a socket is recycled.
+/// Recycles dormant sockets before they retain stale resources indefinitely.
 const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
-/// Duration form of [`DEFAULT_IDLE_TIMEOUT_SECS`].
+/// Reuses the idle timeout as a duration without repeated conversion.
 const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(DEFAULT_IDLE_TIMEOUT_SECS);
 
 /// Configuration for a pooled wireframe client.
@@ -34,13 +34,13 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(DEFAULT_IDLE_TIMEOUT_
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClientPoolConfig {
-    /// Number of physical connection slots available for on-demand creation.
+    /// Bounds the pool's physical connection resource usage.
     pool_size: usize,
-    /// Maximum concurrent leases admitted by each socket.
+    /// Bounds multiplexed load admitted to each socket.
     max_in_flight_per_socket: usize,
-    /// Idle duration after which a returned socket is refreshed.
+    /// Limits how long returned sockets remain reusable.
     idle_timeout: Duration,
-    /// Queue policy applied to blocked logical-session handles.
+    /// Keeps blocked handle admission explicitly fair and predictable.
     fairness_policy: PoolFairnessPolicy,
 }
 
