@@ -9,11 +9,14 @@ CARGO ?= cargo
 BUILD_JOBS ?=
 DEV_FAST_CONFIG := tools/dev-fast/config.toml
 DEV_FAST := --config $(DEV_FAST_CONFIG)
-# RUSTFLAGS takes precedence over Cargo's target rustflags. `mold` is a native
-# Linux linker, so select it only when both the host and effective Cargo target
-# are Linux. Standard Rust target triples encode Linux as `-unknown-linux-`;
-# callers using a custom or non-standard target can set
-# CARGO_BUILD_TARGET_OS=Linux explicitly.
+# `mold` is a native Linux linker, so select it only when both the host and
+# effective Cargo target are Linux. Make carries the flag in RUSTFLAGS rather
+# than leaving it to the dev-fast fragment because Cargo compares a
+# `[target.<cfg>]` table against the compilation target, not the host; only
+# Make can tell whether the machine doing the build actually has `mold`.
+# Standard Rust target triples encode Linux as `-unknown-linux-`; callers using
+# a custom or non-standard target can set CARGO_BUILD_TARGET_OS=Linux
+# explicitly.
 CARGO_BUILD_TARGET_OS ?=
 DEV_EFFECTIVE_TARGET_OS = $(if $(CARGO_BUILD_TARGET),$(or $(CARGO_BUILD_TARGET_OS),$(if $(findstring -unknown-linux-,$(CARGO_BUILD_TARGET)),Linux)),$(shell uname -s))
 DEV_LINUX_LINK_ARG := $(if $(filter Linux,$(shell uname -s)),$(if $(filter Linux,$(DEV_EFFECTIVE_TARGET_OS)),-Clink-arg=-fuse-ld=mold))

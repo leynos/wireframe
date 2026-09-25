@@ -280,12 +280,6 @@ def test_dev_fast_fragment_exists_outside_cargo_auto_discovery() -> None:
     ) == "llvm", (
         "test binaries stay on LLVM to protect against the pinned-nightly regression"
     )
-    linux_target = configuration.get("target", {}).get(
-        "cfg(target_os = \"linux\")", {}
-    )
-    assert LINKER_ARGUMENT in linux_target.get("rustflags", []), (
-        "the Linux dev-fast fragment must retain the `mold` linker setting"
-    )
 
 
 def test_pinned_toolchain_declares_cranelift_component() -> None:

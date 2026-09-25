@@ -12,12 +12,14 @@ codegen-backend = "cranelift"
 
 # On nightly-2026-03-26, an intentionally panicking thread aborts under
 # Cranelift and a runnable doctest fails to link AWS-LC. Keep tests on LLVM;
-# the explicit fragment still selects the Linux linker and debug build policy.
+# the explicit fragment still selects the debug build policy.
 [profile.test]
 codegen-backend = "llvm"
 
-# `mold` is provisioned on Linux. Other platforms use their default linker.
-# Make's warning-denying recipes repeat this flag because RUSTFLAGS overrides
-# Cargo target rustflags instead of merging with them.
-[target.'cfg(target_os = "linux")']
-rustflags = ["-Clink-arg=-fuse-ld=mold"]
+# No `[target.<...>]` table appears here on purpose. Cargo compares a
+# target-specific `cfg` against the compilation target rather than the host, so
+# a linker setting here could not tell whether `mold` exists on the machine
+# doing the build: a non-Linux host cross-compiling to Linux would be forced
+# onto it. Make owns that decision, because only Make can test the host; see
+# `DEV_LINUX_LINK_ARG`. Keeping the fragment host-independent also means a
+# direct `--config tools/dev-fast/config.toml` invocation is safe everywhere.
