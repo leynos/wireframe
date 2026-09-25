@@ -40,6 +40,10 @@ jobs:
     # down would have failed on the first merge push after this merged, with
     # nobody watching.
     runs-on: ubicloud-standard-4
+    # The CodeScene token lives in this environment, whose deployment policy
+    # admits `main` alone; the codescene environment contract holds it to
+    # this job.
+    environment: codescene
     timeout-minutes: 20
     permissions:
       contents: read
