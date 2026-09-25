@@ -738,17 +738,25 @@ The Makefile keeps the development configuration in
 Standard debug Make targets select it explicitly: `build`, `test`, `test-bdd`,
 `test-doc`, `lint`'s rustdoc and Clippy commands, and `typecheck`. The
 `dev-build` target runs the configured Cargo build directly, even when a
-library artefact already exists; `dev-test` aliases `test`. On a Linux host,
-debug recipes targeting Linux add the `mold` linker flag to `RUSTFLAGS`,
-because Cargo does not merge `RUSTFLAGS` with target-specific rustflags. Make
-recognizes standard Rust Linux target triples by `-unknown-linux-`, so an
-explicit native Linux target retains `mold` while non-Linux targets, including
-Android, do not. For a custom JSON or non-standard Linux target, set
-`CARGO_BUILD_TARGET_OS=Linux`. Non-Linux hosts do not select `mold`, including
-when cross-compiling to Linux. The fragment selects Cranelift for the
-development profile; Cargo test commands (`make test`, `make test-bdd`, and
-`make test-doc`) use the LLVM test profile described below. Installing the
-Cranelift component alone does not change the backend.
+library artefact already exists; `dev-test` aliases `test`.
+
+The fragment configures the backend only. It deliberately declares no
+`[target.<...>]` table, so a direct `--config tools/dev-fast/config.toml`
+invocation behaves the same on every machine. `mold` selection cannot live in
+the fragment: Cargo compares a target-specific `cfg` against the *compilation
+target*, not the host, so a Linux `cfg` would also select `mold` for a
+non-Linux host cross-compiling to Linux. Only Make can test the host, so Make
+carries the linker flag in `RUSTFLAGS`. Make adds it when the host is Linux
+*and* the effective Cargo target is Linux, and recognizes standard Linux target
+triples by `-unknown-linux-`. An explicit native Linux target therefore retains
+`mold`, while non-Linux targets, including Android, do not. For a custom JSON
+or non-standard Linux target, set `CARGO_BUILD_TARGET_OS=Linux`. Non-Linux
+hosts never select `mold`, including when cross-compiling to Linux.
+
+The fragment selects Cranelift for the development profile; Cargo test commands
+(`make test`, `make test-bdd`, and `make test-doc`) use the LLVM test profile
+described below. Installing the Cranelift component alone does not change the
+backend.
 
 Release builds, coverage generation, verification commands, and Whitaker run
 without the development fragment. Direct Cargo commands also leave it

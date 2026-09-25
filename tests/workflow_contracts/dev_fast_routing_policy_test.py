@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import platform
-from collections.abc import Callable
+import tomllib
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from dev_fast_routing_test import (
+    CONFIG_PATH,
     LINKER_ARGUMENT,
     MAKEFILE_PATH,
     RUSTDOC_CONTRACT_FLAGS,
@@ -180,3 +183,51 @@ def test_lint_contract_detects_removed_rustdoc_flags(tmp_path: Path) -> None:
     )
     with pytest.raises(AssertionError, match="RUSTDOC_FLAGS"):
         _assert_rustdoc_flags(cargo_lines, RUSTDOC_CONTRACT_FLAGS)
+
+
+def _assert_host_independent_fragment(configuration: Mapping[str, Any], text: str) -> None:
+    """Require the fragment to leave linker selection to the host-aware Makefile.
+
+    Cargo compares a `[target.<cfg>]` table against the compilation target
+    rather than the host, so a `mold` setting in the fragment would also apply
+    to a non-Linux host cross-compiling to Linux. Only Make can test the host.
+    """
+    target_tables = configuration.get("target", {})
+    assert not target_tables, (
+        "the dev-fast fragment must stay host-independent so a direct --config "
+        f"invocation is safe; found target tables {sorted(target_tables)!r}"
+    )
+    assert LINKER_ARGUMENT not in text, (
+        f"the dev-fast fragment must not embed {LINKER_ARGUMENT!r}; Make selects "
+        "the linker once it has established that the host is Linux"
+    )
+
+
+def _load_fragment() -> tuple[dict[str, Any], str]:
+    """Return the parsed development fragment and its raw text."""
+    text = CONFIG_PATH.read_text(encoding="utf-8")
+    return tomllib.loads(text), text
+
+
+def test_dev_fast_fragment_leaves_linker_selection_to_make() -> None:
+    """A directly consumed fragment must not force a host-specific linker."""
+    _assert_host_independent_fragment(*_load_fragment())
+
+
+def test_host_independence_contract_detects_a_linker_default(tmp_path: Path) -> None:
+    """A private mutation proves the host-independence contract is binding.
+
+    Cargo would accept this fragment, so only the contract stops the setting
+    from returning.
+    """
+    configuration, text = _load_fragment()
+    restored = text + (
+        "\n[target.x86_64-unknown-linux-gnu]\n"
+        f'rustflags = ["{LINKER_ARGUMENT}"]\n'
+    )
+    reread_configuration = tomllib.loads(restored)
+    assert reread_configuration["target"], "the mutation must add a target table"
+    with pytest.raises(AssertionError, match="host-independent"):
+        _assert_host_independent_fragment(reread_configuration, restored)
+    with pytest.raises(AssertionError, match="must not embed"):
+        _assert_host_independent_fragment(configuration, restored)

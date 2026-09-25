@@ -130,7 +130,9 @@ project:
   targets explicitly select `tools/dev-fast/config.toml`. `dev-build` runs the
   configured Cargo build directly; `dev-test` aliases `test`. Release,
   coverage, verification, and Whitaker commands do not select it; direct Cargo
-  commands do not select it automatically either. See
+  commands do not select it automatically either. The fragment configures the
+  backend only, so it is safe to pass directly on any host; Make owns `mold`
+  selection because only Make can test whether the host is Linux. See
   [repository layout](docs/repository-layout.md) and the
   [developer guide](docs/developers-guide.md#development-builds) for backend
   and linker details. The test profile stays on LLVM because the pinned
