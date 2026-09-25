@@ -160,3 +160,33 @@ def test_coverage_generation_stays_pull_request_only_and_ratcheted() -> None:
         "with-ratchet": "true",
         "publish-artefact": "false",
     }, "coverage generation must produce the ratcheted LCOV report"
+
+
+def _checkout_steps(steps: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Return the steps that run ``actions/checkout``."""
+    return [
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/checkout@")
+    ]
+
+
+def test_build_test_checks_out_at_the_default_depth() -> None:
+    """Scenario: a full-history fetch returns to the pull-request lane.
+
+    Invariant: ``build-test`` checks out exactly once, and that checkout sets
+    no ``fetch-depth``, so it fetches the action's default single commit. The
+    full fetch served the CodeScene changed-line gate, which left this lane;
+    nothing here reads history now, and every pull-request run would pay for
+    it. A step that comes to need history changes this test with its reason.
+    """
+    checkouts = _checkout_steps(_load_steps())
+    assert len(checkouts) == 1, (
+        f"build-test should check out exactly once; found {len(checkouts)}"
+    )
+    options = checkouts[0].get("with") or {}
+    assert isinstance(options, dict), "the checkout's with: must be a mapping"
+    assert "fetch-depth" not in options, (
+        "build-test must check out at the default depth; it sets fetch-depth "
+        f"{options.get('fetch-depth')!r}, and nothing in the lane reads history"
+    )

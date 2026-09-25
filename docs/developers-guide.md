@@ -159,6 +159,21 @@ mid-write saves nothing. The synthetic cases refuse a ref fallback, a group
 keyed on the run id alone or ahead of the number, a group shared by every pull
 request, and a literal or quoted `true`.
 
+### The build-test checkout is shallow
+
+`build-test` checks out at the checkout action's default depth, one commit. It
+fetched full history only for the CodeScene changed-line gate, which diffed a
+pull request against its merge base and left this lane with the main-only
+publisher. Nothing still in the lane reads history: the pinned shared actions
+make no git calls on the checkout, `mdtablefix --git` reads the index, and the
+coverage ratchet compares against a cached baseline. `mutation-testing.yml`
+keeps its own full-history checkout, because it computes changed files.
+
+`test_build_test_checks_out_at_the_default_depth` in
+`tests/workflow_contracts/ci_workflow_test.py` holds `build-test` to exactly
+one checkout with no `fetch-depth`. A step that comes to need history changes
+that test and this section together.
+
 ### Every form of `runs-on`, or a refusal
 
 GitHub accepts `runs-on` in three forms: a scalar label or expression, a
