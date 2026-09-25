@@ -176,6 +176,8 @@ impl<F: FrameLike> PushQueues<F> {
             dlq_tx: dlq,
             dlq_drops: AtomicUsize::new(0),
             dlq_last_log: Mutex::new(Instant::now()),
+            #[cfg(loom)]
+            dlq_reported: AtomicUsize::new(0),
             dlq_log_every_n,
             dlq_log_interval,
         };

@@ -133,16 +133,16 @@ racing an active output) against the code's own ordering.
 
 ### 4. Smaller follow-ups found by the Loom work
 
-- **The drop counter's reset is not exact under three producers.** A
-  scratch model with three concurrent drops and a threshold of two failed: Loom
-  reported a final count of 3 where a lossless reset would leave 1. The traced
-  interleaving was increments to 1, 2 and 3, then the reset from the producer
-  that reached 2; its `store(0)` follows an increment it never saw. Whatever
-  the exact value, the counter is a diagnostic approximation rather than a
-  count of drops since the last log. That is probably acceptable for a log
-  throttle, but it is a behaviour decision, so it is recorded here rather than
-  fixed or asserted: either document the approximation, or reset with a
-  `fetch_sub` of the observed value, and then add the three-producer model.
+- **The drop counter's reset was not exact under three producers. Fixed.**
+  A scratch model with three concurrent drops and a threshold of two failed:
+  the producer that reached 2 reported 2 and then stored zero, while increments
+  it never saw left the counter at 3, so the log over-reported. The user ruled
+  to fix it with an atomic swap-and-report: the reporter takes the count with
+  `swap(0)` and reports exactly what it took, with no separate load and store.
+  `every_drop_is_reported_or_still_counted` in
+  `crates/wireframe-loom/tests/push_dlq.rs` asserts that reported plus
+  remaining equals the three drops on every interleaving. It failed on the old
+  code (reported 2 plus remaining 3) and passes with the swap.
 - **Handle and registry lifetimes are outside Loom.** Loom 0.7.2 has no
   `Weak`: `loom::sync::Arc` offers no `downgrade`, and the session registry
   keeps `Weak<PushHandleInner>` from `Arc::downgrade`, in a `DashMap` whose
