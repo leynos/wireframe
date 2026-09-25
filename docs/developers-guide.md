@@ -1026,6 +1026,7 @@ What Loom schedules, and what it cannot, decides what the models may assert:
 | ----------------------------- | ----------------------------------- | ----------------- |
 | `dlq_drops`                   | `loom::sync::atomic::AtomicUsize`   | yes               |
 | `dlq_last_log`                | `loom::sync::Mutex<Instant>`        | yes               |
+| `dlq_reported` (Loom only)    | `loom::sync::atomic::AtomicUsize`   | yes               |
 | `high_prio_tx`, `low_prio_tx` | `tokio::sync::mpsc::Sender`         | no                |
 | `dlq_tx`                      | `Option<tokio::sync::mpsc::Sender>` | no                |
 | `limiter`                     | `Option<leaky_bucket::RateLimiter>` | no                |
@@ -1056,11 +1057,12 @@ a threshold of two, reported plus remaining equals three on every interleaving.
 Only a Loom build keeps the running total of reported drops that the model
 reads, through `PushHandleProbe::dlq_reported_count`.
 
-So the push models assert on the drop counter and nothing else. The channels
-are used to reach the state under test, a full queue and a full dead-letter
-queue, and never asserted on: an assertion about a Tokio channel passes or
-fails regardless of any interleaving Loom chooses. Queue-full behaviour is
-tested deterministically in `tests/push.rs`, and the write loop's
+So the push models assert on the drop counter and, in the three-producer model,
+on the running total of reported drops, and nothing else. The channels are used
+to reach the state under test, a full queue and a full dead-letter queue, and
+never asserted on: an assertion about a Tokio channel passes or fails
+regardless of any interleaving Loom chooses. Queue-full behaviour is tested
+deterministically in `tests/push.rs`, and the write loop's
 `select!(biased; ...)` ordering, which is built entirely from Tokio primitives,
 is covered by the deterministic ordering tests and the Stateright model;
 [RFC 0002](rfcs/0002-model-checking-the-write-loop.md) proposes the rest.

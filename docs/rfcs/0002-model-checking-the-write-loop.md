@@ -178,13 +178,12 @@ racing an active output) against the code's own ordering.
 
 ## Open questions
 
-- Is an approximate drop counter acceptable for the diagnostic it feeds?
 - Should `eligible_sources` live in `src/connection/` or in a
   `connection::schedule` module shared with the verification crate?
 
 ## Recommendation
 
 Adopt §1 to §3 as the write loop's verification path, in that order, since each
-depends on the one before. Take the counter decision in §4 first, because it
-decides whether a Loom model can assert an exact count. Take the other
+depends on the one before. The counter decision in §4 is taken: the reset
+reports exactly what it takes, and a Loom model asserts it. Take the other
 follow-ups when their subjects next change.
