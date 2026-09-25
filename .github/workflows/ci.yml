@@ -53,11 +53,7 @@ jobs:
       BUILD_PROFILE: debug
       WHITAKER_INSTALLER_VERSION: '0.2.6'
     steps:
-      # Full history is required for the CodeScene `cs-coverage check` gate,
-      # which diffs a pull request against its merge base.
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@dbe2e22ceaf498d85512679ccded38be9dbe7777
       - name: Install mdtablefix
