@@ -157,7 +157,7 @@ production environments.
 - [x] 5.5.1. Implement fuzz testing for the protocol parser
   (`tests/advanced/interaction_fuzz.rs`).
 - [x] 5.5.2. Use `loom` for concurrency testing of shared state
-  (`tests/advanced/concurrency_loom.rs`).
+  (`crates/wireframe-loom`).
 
 ## 6. Multi-packet streaming responses (priority focus)
 

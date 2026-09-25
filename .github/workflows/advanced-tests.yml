@@ -27,5 +27,12 @@ jobs:
           components: rustfmt, clippy
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
-      - name: Run advanced tests
-        run: RUSTFLAGS="--cfg loom" cargo test --features advanced-tests
+      # Loom only. The models run, rather than compile, and they run from
+      # their own package: the root package's test build pulls in the TCP
+      # test harness, which cannot exist under `cfg(loom)`. The other
+      # `advanced-tests` targets run in `ci.yml`'s `make test`, which enables
+      # every feature. `tests/workflow_contracts/loom_lane_test.py` holds the
+      # step to `make test-loom` and the target to its command.
+      - name: Run Loom models
+        timeout-minutes: 30
+        run: make test-loom

@@ -22,6 +22,8 @@ use std::{net::SocketAddr, sync::Arc};
 
 pub use channels::ConnectionChannels;
 use counter::ActiveConnection;
+#[cfg(loom)]
+pub use counter::LoomConnectionGuard;
 pub use counter::active_connection_count;
 use event::Event;
 use log::info;

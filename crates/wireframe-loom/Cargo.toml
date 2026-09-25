@@ -1,0 +1,26 @@
+[package]
+name = "wireframe-loom"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Loom models of the synchronization Wireframe's connection actor shares with its producers."
+
+[lints]
+workspace = true
+
+# The models live in their own package so that a `--cfg loom` build compiles
+# only what they need. The root package's dev-dependencies include
+# `wireframe_testing`, whose TCP harness cannot exist under `cfg(loom)`, and
+# its self dev-dependency enables the `pool` feature by unification; neither
+# reaches this package.
+[dev-dependencies]
+rstest = "0.27.0"
+tokio = { version = "1.47.1", default-features = false, features = ["sync"] }
+# `pool` and `test-support` are enabled so that a Loom build compiles
+# `test_helpers` with the pool feature on, the configuration issue #683
+# broke: `pool_client` is gated on `not(loom)` as well as `pool`, and
+# removing that half fails this package's build under `--cfg loom`.
+wireframe = { path = "../..", features = ["pool", "test-support"] }
+
+[target.'cfg(loom)'.dev-dependencies]
+loom = "0.7.2"

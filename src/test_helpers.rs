@@ -16,11 +16,15 @@ use crate::message_assembler::{
 };
 
 pub mod frame_codec;
-#[cfg(feature = "pool")]
+// `pool_client` drives a real TCP client, and both `crate::client` and
+// `tokio::net` are compiled out under `cfg(loom)`. The feature alone is not
+// enough: the crate's self dev-dependency enables `pool` in every test build
+// through feature unification, so the Loom lane selects it without asking.
+#[cfg(all(feature = "pool", not(loom)))]
 pub mod pool_client;
 
 pub use frame_codec::{TestAdapter, TestCodec, TestFrame};
-#[cfg(feature = "pool")]
+#[cfg(all(feature = "pool", not(loom)))]
 pub use pool_client::{
     ClientHello,
     Ping,

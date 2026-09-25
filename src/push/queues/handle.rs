@@ -68,6 +68,7 @@ pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
 /// Instrumentation helper exposing internal counters when running under loom.
 #[cfg(loom)]
 pub struct PushHandleProbe<F> {
+    /// The handle's shared state, read without taking part in any push.
     inner: Arc<PushHandleInner<F>>,
 }
 
