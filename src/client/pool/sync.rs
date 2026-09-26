@@ -42,17 +42,15 @@ mod tests {
     //! Tests for pool lock poison recovery.
 
     use std::{
-        io,
         sync::{Arc, Mutex},
         thread,
     };
 
     use googletest::{gtest, prelude::*};
     use tracing::Level;
-    use tracing_subscriber::fmt::MakeWriter;
     use wireframe_testing::ObservabilityHandle;
 
-    use super::lock_or_recover;
+    use super::{super::test_support::CaptureWriter, lock_or_recover};
 
     #[gtest]
     fn lock_or_recover_reads_unpoisoned_mutex() {
@@ -65,9 +63,9 @@ mod tests {
 
     #[gtest]
     fn lock_or_recover_reads_poisoned_mutex() {
-        // This covers the local recovery primitive. Issue #539 tracks the
-        // broader scheduler/slot integration case where a later pool operation
-        // must prove bookkeeping consistency is re-established after poison.
+        // This covers the local recovery primitive. Issue #539 adds broader
+        // scheduler and slot integration coverage in `scheduler_tests.rs` and
+        // `slot.rs`, proving later pool operations re-establish consistency.
         let mutex = Arc::new(Mutex::new(42));
         let poisoned_mutex = Arc::clone(&mutex);
         let join_result = thread::spawn(move || {
@@ -107,29 +105,5 @@ mod tests {
                 .counter_without_labels(crate::metrics::POOL_BOOKKEEPING_POISON_RECOVERIES),
             eq(1)
         );
-    }
-
-    #[derive(Clone)]
-    struct CaptureWriter {
-        captured: Arc<Mutex<Vec<u8>>>,
-    }
-
-    impl CaptureWriter {
-        fn new(captured: Arc<Mutex<Vec<u8>>>) -> Self { Self { captured } }
-    }
-
-    impl<'a> MakeWriter<'a> for CaptureWriter {
-        type Writer = Self;
-
-        fn make_writer(&'a self) -> Self::Writer { self.clone() }
-    }
-
-    impl io::Write for CaptureWriter {
-        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-            lock_or_recover(&self.captured).extend_from_slice(buf);
-            Ok(buf.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> { Ok(()) }
     }
 }
