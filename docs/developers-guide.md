@@ -1281,6 +1281,51 @@ client that finishes its work and drops its connection produces exactly one of
 those kinds. Every other I/O error is returned from the task instead, so it
 surfaces when the caller joins the handle.
 
+### Fallible assertions in integration tests
+
+Integration tests whose bodies return `Result` cannot use `assert_eq!` and
+friends without tripping `clippy::panic_in_result_fn`, which flags a panic
+inside a function that promises to report failure by returning `Err`. The
+`tests/common/fallible_assertions/` modules provide three small replacement
+checks. Each returns `Result<(), String>`: `Ok(())` when the check holds, and
+`Err` carrying the predicate-specific message when it does not. A test
+propagates a failure with `?` rather than panicking, so the diagnostic reaches
+the harness as an ordinary test failure.
+
+The three checks divide by what they compare:
+
+- `check` (in `check.rs`) takes a boolean predicate and the message to report
+  when it is false. Use it for conditions that are not plain equality, such as
+  a collection containing an expected element or a value lying in a range.
+- `check_eq` (in `check_eq.rs`) compares two `Copy` values and reports
+  `"{message}: expected {expected:?}, got {actual:?}"`. Use it for small scalar
+  values, such as a connection count or an expected byte.
+- `check_equal` (in `check_equal.rs`) compares two borrowed, possibly unsized
+  values (`A: PartialEq<E> + ?Sized`, `E: ?Sized`) and reports the same
+  expected/actual shape. Use it for string slices, structs compared by
+  reference, and other non-`Copy` values.
+
+Each helper lives in its own module because each integration-test crate pulls
+in only the checks it uses, with an explicit path attribute:
+
+```rust
+#[path = "common/fallible_assertions/check_equal.rs"]
+mod fallible_check_equal;
+
+use fallible_check_equal::check_equal;
+```
+
+The helpers are declared `pub(super)`, which resolves to crate visibility
+because the test file is the crate root. That is why the `#[path]` attribute
+must appear in the test file itself rather than inside a submodule: a
+declaration inside a submodule would be visible only to that module, not to the
+sibling test modules that need it.
+
+These helpers exist only for integration tests. Production code and
+non-`Result` unit tests continue to use the standard assertion macros, whose
+panic-on-failure behaviour is exactly right when the test has no result channel
+to report through.
+
 ### `LoggerHandle::Default` and `ObservabilityHandle::Default`
 
 Both `LoggerHandle` (in `wireframe_testing::logging`) and `ObservabilityHandle`
