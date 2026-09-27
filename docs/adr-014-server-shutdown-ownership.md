@@ -150,8 +150,11 @@ The observer retains the supervisor `JoinHandle`. A join panic or unexpected
 supervisor failure publishes `ServerError::AbnormalTermination` with the
 captured diagnostic message, emits the error-level
 `server_supervisor_abnormal_termination` event, and increments
-`wireframe_server_supervisor_abnormal_terminations_total`. The panic message is
-not a metric label, so the metric remains low-cardinality.
+`wireframe_server_supervisor_abnormal_terminations_total`. A cancelled join
+also publishes `AbnormalTermination`, but uses the separate
+`server_supervisor_cancelled` event and does not increment the abnormal
+termination counter. The panic message is not a metric label, so the metric
+remains low-cardinality.
 
 Application factory and preparation failures remain the typed startup errors
 introduced by #642. They occur before `spawn()` returns a control handle and

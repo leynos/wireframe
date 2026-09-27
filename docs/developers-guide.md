@@ -318,7 +318,9 @@ records this terminal outcome, so a panic cannot be silently detached. Abnormal
 termination emits the error-level `server_supervisor_abnormal_termination`
 tracing event and increments
 `wireframe_server_supervisor_abnormal_terminations_total`; the panic message is
-not a metric label.
+not a metric label. A cancelled supervisor is reported as `AbnormalTermination`
+with a separate `server_supervisor_cancelled` event, but does not increment the
+abnormal-termination counter.
 
 Neither `run()` nor the in-flight connection graceful-drain policy changes.
 
