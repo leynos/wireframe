@@ -7,13 +7,15 @@ use tokio_util::sync::CancellationToken;
 
 use super::ServerError;
 
-/// Terminal state reported after the server supervisor has finished draining.
+/// Terminal state published after the server supervisor exits.
 #[derive(Clone, Debug)]
 pub(in crate::server) enum ServerTerminal {
     /// The supervisor closed and drained all tracked tasks.
     Clean,
     /// The supervisor task returned unexpectedly or panicked.
     Abnormal(String),
+    /// Tokio cancelled the supervisor task before it completed.
+    Cancelled,
 }
 
 /// Request shutdown and await terminal server lifecycle state.
@@ -64,7 +66,7 @@ impl ServerShutdown {
     /// # Errors
     ///
     /// Returns [`ServerError::AbnormalTermination`] when the supervisor task
-    /// ends unexpectedly or its observer ends without a terminal outcome.
+    /// fails, is cancelled, or its observer ends without a terminal outcome.
     pub async fn drained(&self) -> Result<(), ServerError> {
         let mut terminal = self.inner.terminal.clone();
 
@@ -88,5 +90,8 @@ fn terminal_result(terminal: ServerTerminal) -> Result<(), ServerError> {
     match terminal {
         ServerTerminal::Clean => Ok(()),
         ServerTerminal::Abnormal(message) => Err(ServerError::AbnormalTermination { message }),
+        ServerTerminal::Cancelled => Err(ServerError::AbnormalTermination {
+            message: "server supervisor task was cancelled before a clean shutdown".to_owned(),
+        }),
     }
 }

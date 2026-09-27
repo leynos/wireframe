@@ -29,7 +29,7 @@ pub enum ServerError {
     /// The server supervisor task terminated unexpectedly.
     #[error("server supervisor terminated abnormally: {message}")]
     AbnormalTermination {
-        /// Message captured from the supervisor task's panic payload.
+        /// Diagnostic captured from the supervisor failure or cancellation.
         message: String,
     },
 }
