@@ -131,6 +131,56 @@ ServerShutdown clones ── stop() ──> CancellationToken
 
 _Figure 1: Server shutdown ownership and terminal observation._
 
+For screen readers: the sequence shows the caller spawning the server,
+requesting shutdown through `ServerShutdown`, and awaiting the observer's
+terminal outcome after the supervisor closes and drains the tracker.
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Server as WireframeServer
+    participant Control as ServerShutdown
+    participant Supervisor
+    participant Tracker as TaskTracker
+    participant Observer
+
+    Caller->>Server: spawn()
+    Server->>Server: prepare_application()
+    Server->>Supervisor: tokio::spawn()
+    Server->>Observer: observe_supervisor_termination()
+    Server-->>Caller: ServerShutdown
+    Caller->>Control: stop()
+    Control->>Supervisor: CancellationToken::cancel()
+    Supervisor->>Tracker: close()
+    Supervisor->>Tracker: wait()
+    Tracker-->>Supervisor: tracked work drained
+    Supervisor-->>Observer: JoinHandle completion
+    Observer->>Control: publish terminal outcome
+    Caller->>Control: drained()
+    Control-->>Caller: Ok(())
+```
+
+_Figure 2: Server spawn, shutdown request, tracker drain, and terminal
+acknowledgement._
+
+For screen readers: the state diagram shows the server moving from running to
+draining after a stop request or supervisor completion, then reaching either a
+clean terminal state after tracker drain or an abnormal terminal state after an
+unexpected supervisor exit.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Running
+    Running --> Draining: stop()
+    Running --> Draining: supervisor completion
+    Draining --> Clean: tracker drained
+    Draining --> AbnormalTermination: supervisor panic or unexpected exit
+    Clean --> [*]
+    AbnormalTermination --> [*]
+```
+
+_Figure 3: Server lifecycle from running through clean or abnormal termination._
+
 ### 2. Non-blocking cancellation and drain acknowledgement
 
 `stop()` calls `CancellationToken::cancel()`. It is synchronous, idempotent,

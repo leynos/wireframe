@@ -154,6 +154,7 @@ where
             warn!("Failed to send readiness signal: receiver dropped");
         }
 
+        supervisor.tracker.close();
         await_supervisor_termination(
             shutdown,
             &supervisor.worker_shutdown_token,
@@ -161,7 +162,6 @@ where
             &supervisor.lifecycle,
         )
         .await;
-        supervisor.tracker.close();
         supervisor.tracker.wait().await;
         Ok(())
     }
@@ -263,6 +263,25 @@ where
     /// Startup failures are reported before a control handle exists. Once this
     /// method succeeds, [`ServerShutdown::drained`] reports either a clean
     /// drain or an abnormal supervisor termination.
+    ///
+    /// # Examples
+    ///
+    /// Bind to an ephemeral loopback port, start the server, and wait for a
+    /// clean shutdown:
+    ///
+    /// ```
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+    ///         .bind("127.0.0.1:0".parse()?)?;
+    ///     let shutdown = server.spawn().await?;
+    ///     shutdown.stop();
+    ///     shutdown.drained().await?;
+    ///     Ok(())
+    /// }
+    /// ```
     ///
     /// # Errors
     ///

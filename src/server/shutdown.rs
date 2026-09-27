@@ -60,6 +60,25 @@ impl ServerShutdown {
     ///
     /// This method is non-blocking and idempotent. Existing connection tasks
     /// continue to drain according to the server's normal graceful policy.
+    ///
+    /// # Examples
+    ///
+    /// `stop` requests a clean drain; `drained` waits until that outcome is
+    /// published:
+    ///
+    /// ```
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+    ///         .bind("127.0.0.1:0".parse()?)?;
+    ///     let shutdown = server.spawn().await?;
+    ///     shutdown.stop();
+    ///     shutdown.drained().await?;
+    ///     Ok(())
+    /// }
+    /// ```
     pub fn stop(&self) { self.inner.stop_requested.cancel(); }
 
     /// Wait for the server supervisor's terminal outcome.
@@ -68,6 +87,25 @@ impl ServerShutdown {
     /// listener is released, and the supervisor has drained its task tracker.
     /// An abnormal termination is returned with its captured diagnostic, but
     /// does not by itself prove that the drain completed.
+    ///
+    /// # Examples
+    ///
+    /// After requesting shutdown, awaiting this method returns `Ok(())` once
+    /// the clean drain has completed:
+    ///
+    /// ```
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+    ///         .bind("127.0.0.1:0".parse()?)?;
+    ///     let shutdown = server.spawn().await?;
+    ///     shutdown.stop();
+    ///     shutdown.drained().await?;
+    ///     Ok(())
+    /// }
+    /// ```
     ///
     /// # Errors
     ///
