@@ -79,8 +79,8 @@ struct PreparedServerRuntime<
 
 /// State whose ownership must survive a supervisor panic long enough to drain.
 struct SupervisorRuntime {
-    /// Shared cancellation signal for accept loops and panic cleanup.
-    shutdown_token: CancellationToken,
+    /// Cancellation signal owned by the supervisor for workers and panic cleanup.
+    worker_shutdown_token: CancellationToken,
     /// Bounded cancellation reason shared with accept-loop observability.
     lifecycle: SupervisorLifecycle,
     /// Every accept and connection task that must drain before publication.
@@ -89,9 +89,9 @@ struct SupervisorRuntime {
 
 impl SupervisorRuntime {
     /// Create one supervisor-owned cancellation and task-lifetime context.
-    fn new(shutdown_token: CancellationToken) -> Self {
+    fn new(worker_shutdown_token: CancellationToken) -> Self {
         Self {
-            shutdown_token,
+            worker_shutdown_token,
             lifecycle: SupervisorLifecycle::new(),
             tracker: TaskTracker::new(),
         }
@@ -127,7 +127,7 @@ where
             let listener = Arc::clone(&self.listener);
             let app = Arc::clone(&self.app);
             let preamble_hooks = preamble.clone();
-            let token = supervisor.shutdown_token.clone();
+            let token = supervisor.worker_shutdown_token.clone();
             let tracker_clone = supervisor.tracker.clone();
             let span = tracing::Span::current();
             supervisor.tracker.spawn(
@@ -156,7 +156,7 @@ where
 
         await_supervisor_termination(
             shutdown,
-            &supervisor.shutdown_token,
+            &supervisor.worker_shutdown_token,
             &supervisor.tracker,
             &supervisor.lifecycle,
         )
@@ -250,7 +250,7 @@ where
         let supervisor = SupervisorRuntime::new(CancellationToken::new());
         // No worker exists until application preparation has succeeded.
         let _cancel_workers_on_drop = SupervisorCancellationDropGuard::new(
-            supervisor.shutdown_token.drop_guard_ref(),
+            supervisor.worker_shutdown_token.drop_guard_ref(),
             supervisor.lifecycle.clone(),
         );
         runtime
@@ -271,15 +271,16 @@ where
     pub async fn spawn(self) -> Result<ServerShutdown, ServerError> {
         let startup_started = Instant::now();
         let runtime = self.prepare_runtime(startup_started).await?;
-        let shutdown_token = CancellationToken::new();
+        let stop_token = CancellationToken::new();
+        let worker_shutdown_token = CancellationToken::new();
         let (terminal_tx, terminal_rx) = watch::channel(None);
-        let supervisor_context = SupervisorRuntime::new(shutdown_token.clone());
-        let shutdown = supervisor_context.shutdown_token.clone().cancelled_owned();
+        let supervisor_context = SupervisorRuntime::new(worker_shutdown_token);
+        let shutdown = stop_token.clone().cancelled_owned();
         let supervisor = tokio::spawn(async move {
             let run = runtime.run_with_shutdown(shutdown, &supervisor_context, startup_started);
             run_with_panic_cleanup(
                 run,
-                &supervisor_context.shutdown_token,
+                &supervisor_context.worker_shutdown_token,
                 &supervisor_context.tracker,
             )
             .await
@@ -292,7 +293,7 @@ where
             terminal_tx,
         )));
 
-        Ok(ServerShutdown::new(shutdown_token, terminal_rx))
+        Ok(ServerShutdown::new(stop_token, terminal_rx))
     }
 
     /// Build and prepare the shared application before starting any worker.

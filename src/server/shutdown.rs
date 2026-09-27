@@ -28,8 +28,8 @@ pub struct ServerShutdown {
 
 /// State shared by cloneable shutdown controls.
 struct ServerShutdownInner {
-    /// Level-triggered request observed by every accept loop.
-    cancellation: CancellationToken,
+    /// Level-triggered request observed by the supervisor before it cancels workers.
+    stop_requested: CancellationToken,
     /// Terminal descriptor published by the join-handle observer.
     terminal: watch::Receiver<Option<ServerTerminal>>,
 }
@@ -37,12 +37,12 @@ struct ServerShutdownInner {
 impl ServerShutdown {
     /// Assemble a handle from the supervisor's control and observation state.
     pub(in crate::server) fn new(
-        cancellation: CancellationToken,
+        stop_requested: CancellationToken,
         terminal: watch::Receiver<Option<ServerTerminal>>,
     ) -> Self {
         Self {
             inner: Arc::new(ServerShutdownInner {
-                cancellation,
+                stop_requested,
                 terminal,
             }),
         }
@@ -52,7 +52,7 @@ impl ServerShutdown {
     ///
     /// This method is non-blocking and idempotent. Existing connection tasks
     /// continue to drain according to the server's normal graceful policy.
-    pub fn stop(&self) { self.inner.cancellation.cancel(); }
+    pub fn stop(&self) { self.inner.stop_requested.cancel(); }
 
     /// Wait until the listener is released and every accept loop has exited.
     ///
