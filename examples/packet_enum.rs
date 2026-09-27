@@ -6,18 +6,15 @@
 use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
+use tokio::signal;
 use tracing::{info, warn};
 use wireframe::{
     app::Envelope,
     message::Message,
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::BincodeSerializer,
+    server::WireframeServer,
 };
-
-#[path = "support/runtime_bootstrap.rs"]
-mod runtime_bootstrap;
-#[path = "support/server_loop.rs"]
-mod server_loop;
 
 /// Application type used by this example's middleware and route wiring.
 type App = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
@@ -120,15 +117,25 @@ fn parse_server_addr() -> std::io::Result<SocketAddr> {
 
 /// Initialize tracing, bind the listener, and serve until shutdown is signalled.
 async fn run() -> std::io::Result<()> {
-    runtime_bootstrap::init_tracing();
-    let app = runtime_bootstrap::build_runtime_app(build_app).await?;
-    let listener = runtime_bootstrap::bind_listener(parse_server_addr()?).await?;
-    runtime_bootstrap::serve_until_shutdown(
-        listener,
-        app,
-        "packet_enum server received shutdown signal",
-    )
-    .await
+    let _ = tracing_subscriber::fmt::try_init();
+    let app = build_app().map_err(|error| std::io::Error::other(error.to_string()))?;
+    let server = WireframeServer::from_app(app)
+        .bind(parse_server_addr()?)
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    server
+        .run_with_shutdown(async {
+            match signal::ctrl_c().await {
+                Ok(()) => info!("packet_enum server received shutdown signal"),
+                Err(error) => warn!("failed waiting for shutdown signal: {error}"),
+            }
+        })
+        .await
+        .map_err(|error| std::io::Error::other(error.to_string()))
 }
 
-fn main() -> std::io::Result<()> { runtime_bootstrap::run_current_thread(run()) }
+fn main() -> std::io::Result<()> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}

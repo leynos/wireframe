@@ -13,19 +13,14 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use super::{SupervisorLifecycle, backoff::BackoffConfig};
 use crate::{
-    app::{Envelope, Packet},
-    codec::FrameCodec,
+    app::{Envelope, Packet, PreparedApp},
+    codec::{FrameCodec, LengthDelimitedFrameCodec},
     frame::FrameMetadata,
     message::{DecodeWith, EncodeWith},
     metrics::inc_server_accept_loop_exit,
     preamble::Preamble,
-    serializer::Serializer,
-    server::{
-        AppFactory,
-        PreambleFailure,
-        PreambleHandler,
-        connection_spawner::spawn_connection_task,
-    },
+    serializer::{BincodeSerializer, Serializer},
+    server::{PreambleFailure, PreambleHandler, connection_spawner::spawn_connection_task},
 };
 
 /// Abstraction for sources of incoming connections consumed by the accept loop.
@@ -50,9 +45,21 @@ impl AcceptListener for TcpListener {
     fn local_addr(&self) -> io::Result<SocketAddr> { TcpListener::local_addr(self) }
 }
 
-#[derive(Debug)]
 /// Inputs shared by one accept-loop worker.
-pub(in crate::server) struct AcceptLoopOptions<T> {
+pub(in crate::server) struct AcceptLoopOptions<
+    T,
+    Ser = BincodeSerializer,
+    Ctx = (),
+    E = Envelope,
+    Codec = LengthDelimitedFrameCodec,
+> where
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+    /// Prepared root shared by each connection accepted by this worker.
+    pub app: Arc<PreparedApp<Ser, Ctx, E, Codec>>,
     /// Preamble callbacks and timeout applied to each accepted stream.
     pub preamble: PreambleHooks<T>,
     /// Shared cancellation signal for every worker loop.
@@ -66,7 +73,15 @@ pub(in crate::server) struct AcceptLoopOptions<T> {
 }
 
 /// Borrowed worker inputs used for one `select!` iteration.
-struct AcceptHandles<'a, T> {
+struct AcceptHandles<'a, T, Ser, Ctx, E, Codec>
+where
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+    /// Immutable application root cloned into every connection task.
+    app: &'a Arc<PreparedApp<Ser, Ctx, E, Codec>>,
     /// Borrowed handshake callbacks; ownership remains with the accept loop.
     preamble: &'a PreambleHooks<T>,
     /// Borrowed cancellation token observed by `select!`.
@@ -116,8 +131,8 @@ impl<T> fmt::Debug for PreambleHooks<T> {
 
 /// Accepts incoming connections and spawns handler tasks.
 ///
-/// The loop accepts connections from `listener`, creates a new
-/// [`WireframeApp`] via `factory` for each one, and spawns a task to handle
+/// The loop accepts connections from `listener`, clones the shared prepared
+/// application root for each one, and spawns a task to handle
 /// the connection. Failures to accept a connection trigger an exponential
 /// back-off governed by `backoff_config`. The loop terminates when `shutdown`
 /// is cancelled, and all spawned tasks are tracked by `tracker` for graceful
@@ -126,7 +141,7 @@ impl<T> fmt::Debug for PreambleHooks<T> {
 /// # Parameters
 ///
 /// - `listener`: Source of incoming TCP connections.
-/// - `factory`: [`AppFactory`] that creates a fresh [`WireframeApp`] for each connection.
+/// - `app`: Immutable [`PreparedApp`] shared by every connection.
 /// - `preamble`: Preamble handlers and timeout configuration.
 /// - `shutdown`: Signal used to stop the accept loop.
 /// - `tracker`: Task tracker used for graceful shutdown.
@@ -134,7 +149,6 @@ impl<T> fmt::Debug for PreambleHooks<T> {
 ///
 /// # Type Parameters
 ///
-/// - `F`: [`AppFactory`] implementation that creates [`WireframeApp`] instances.
 /// - `T`: Preamble type for connection handshaking.
 /// - `L`: Listener type implementing [`AcceptListener`].
 ///
@@ -152,10 +166,11 @@ impl<T> fmt::Debug for PreambleHooks<T> {
 /// async fn run<L: AcceptListener + Send + Sync + 'static>(listener: Arc<L>) {
 ///     let tracker = TaskTracker::new();
 ///     let token = CancellationToken::new();
+///     let app = Arc::new(WireframeApp::default().prepare().await?);
 ///     accept_loop(
 ///         listener,
-///         || WireframeApp::default(),
 ///         AcceptLoopOptions::<()> {
+///             app,
 ///             preamble: PreambleHooks::default(),
 ///             shutdown: token,
 ///             tracker,
@@ -165,12 +180,10 @@ impl<T> fmt::Debug for PreambleHooks<T> {
 ///     .await;
 /// }
 /// ```
-pub(in crate::server) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
+pub(in crate::server) async fn accept_loop<T, L, Ser, Ctx, E, Codec>(
     listener: Arc<L>,
-    factory: F,
-    options: AcceptLoopOptions<T>,
+    options: AcceptLoopOptions<T, Ser, Ctx, E, Codec>,
 ) where
-    F: AppFactory<Ser, Ctx, E, Codec>,
     T: Preamble,
     L: AcceptListener + Send + Sync + 'static,
     Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
@@ -180,6 +193,7 @@ pub(in crate::server) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
     let AcceptLoopOptions {
+        app,
         preamble,
         shutdown,
         tracker,
@@ -189,12 +203,13 @@ pub(in crate::server) async fn accept_loop<F, T, L, Ser, Ctx, E, Codec>(
     let backoff = normalized_backoff(backoff);
     let mut delay = backoff.initial_delay;
     let handles = AcceptHandles {
+        app: &app,
         preamble: &preamble,
         shutdown: &shutdown,
         tracker: &tracker,
         backoff: &backoff,
     };
-    while let Some(next_delay) = accept_iteration(&listener, &factory, &handles, delay).await {
+    while let Some(next_delay) = accept_iteration(&listener, &handles, delay).await {
         delay = next_delay;
     }
     record_accept_loop_exit(&shutdown, &lifecycle);
@@ -232,14 +247,12 @@ fn record_accept_loop_exit(shutdown: &CancellationToken, lifecycle: &SupervisorL
     clippy::integer_division_remainder_used,
     reason = "tokio::select! expands to modulus internally"
 )]
-async fn accept_iteration<F, T, L, Ser, Ctx, E, Codec>(
+async fn accept_iteration<T, L, Ser, Ctx, E, Codec>(
     listener: &Arc<L>,
-    factory: &F,
-    handles: &AcceptHandles<'_, T>,
+    handles: &AcceptHandles<'_, T, Ser, Ctx, E, Codec>,
     delay: Duration,
 ) -> Option<Duration>
 where
-    F: AppFactory<Ser, Ctx, E, Codec>,
     T: Preamble,
     L: AcceptListener + Send + Sync + 'static,
     Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
@@ -256,7 +269,7 @@ where
             Ok((stream, _)) => {
                 spawn_connection_task(
                     stream,
-                    factory.clone(),
+                    Arc::clone(handles.app),
                     handles.preamble.clone(),
                     handles.tracker,
                 );

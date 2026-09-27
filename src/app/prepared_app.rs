@@ -51,11 +51,11 @@ pub struct PreparedApp<
     pub(in crate::app) serializer: S,
     /// Codec template used to configure each connection's framed transport.
     pub(in crate::app) codec: F,
-    // Retain this template-owned state until the connection-local runtime in
-    // https://github.com/leynos/wireframe/issues/643 consumes it.
+    // FIXME: Issue #643 keeps this template-owned state until the
+    // connection-local runtime consumes it: https://github.com/leynos/wireframe/issues/643.
     #[expect(
         dead_code,
-        reason = "tracked by issue #643: ConnectionRuntime will consume application data"
+        reason = "FIXME: #643 tracks ConnectionRuntime consuming application data"
     )]
     /// Type-erased application state retained for the connection-runtime slice.
     pub(in crate::app) app_data: AppDataStore,
@@ -68,11 +68,11 @@ pub struct PreparedApp<
         Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional assembler for protocol messages spread across several frames.
     pub(in crate::app) message_assembler: Option<Arc<dyn MessageAssembler>>,
-    // Retain this template-owned configuration until the connection-local
-    // runtime in https://github.com/leynos/wireframe/issues/643 consumes it.
+    // FIXME: Issue #643 keeps this template-owned configuration until the
+    // connection-local runtime consumes it: https://github.com/leynos/wireframe/issues/643.
     #[expect(
         dead_code,
-        reason = "tracked by issue #643: ConnectionRuntime will consume the push DLQ"
+        reason = "FIXME: #643 tracks ConnectionRuntime consuming the push DLQ"
     )]
     /// Optional dead-letter sink for pushes that cannot be delivered.
     pub(in crate::app) push_dlq: Option<mpsc::Sender<Vec<u8>>>,

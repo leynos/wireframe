@@ -109,7 +109,7 @@ impl FramePipeline {
     #[cfg(test)]
     pub(crate) fn has_fragmentation(&self) -> bool { self.fragmentation.is_some() }
 
-    /// Append one processed envelope and account for its outbound emission.
+    /// Queue one processed envelope and account for outbound processing.
     fn push_frame(&mut self, envelope: Envelope) {
         self.out.push(envelope);
         crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
