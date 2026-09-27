@@ -40,6 +40,20 @@ fn contains_json_string_field(json: &str, field: &str, value: &str) -> bool {
     json.contains(&format!("\"{field}\":\"{escaped}\""))
 }
 
+/// Extract a field that `cargo metadata` should expose as a JSON array.
+fn metadata_array<'a>(metadata_json: &'a Value, field: &str) -> Result<&'a [Value], String> {
+    metadata_json
+        .get(field)
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .ok_or_else(|| {
+            format!(
+                "cargo metadata should expose {field} as an array, got {:?}",
+                metadata_json.get(field)
+            )
+        })
+}
+
 fn check_workspace_members(members: &[Value], expected: &[(&str, &str)]) -> TestResult {
     for (package_id, description) in expected {
         check(
@@ -149,15 +163,7 @@ fn cargo_metadata_reports_explicit_members_without_widening_default_members() ->
         metadata.contains(&root_package_id),
         "workspace metadata should include the root package",
     )?;
-    let workspace_members = metadata_json
-        .get("workspace_members")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            format!(
-                "cargo metadata should expose workspace_members as an array, got {:?}",
-                metadata_json.get("workspace_members")
-            )
-        })?;
+    let workspace_members = metadata_array(&metadata_json, "workspace_members")?;
     check_workspace_members(
         workspace_members,
         &[
@@ -175,15 +181,7 @@ fn cargo_metadata_reports_explicit_members_without_widening_default_members() ->
         metadata.contains("wireframe_testing"),
         "workspace metadata should include the test helper crate",
     )?;
-    let workspace_default_members = metadata_json
-        .get("workspace_default_members")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            format!(
-                "cargo metadata should expose workspace_default_members as an array, got {:?}",
-                metadata_json.get("workspace_default_members")
-            )
-        })?;
+    let workspace_default_members = metadata_array(&metadata_json, "workspace_default_members")?;
     check_equal(
         &workspace_default_members.len(),
         &1_usize,
