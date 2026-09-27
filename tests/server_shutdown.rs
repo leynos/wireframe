@@ -10,7 +10,14 @@ use tokio::{
     time::{Duration, Instant, timeout},
 };
 use wireframe::{preamble::write_preamble, server::WireframeServer};
-use wireframe_testing::{TestApp, TestResult, factory, unused_listener, wait_for_server_readiness};
+use wireframe_testing::{
+    TestApp,
+    TestResult,
+    factory,
+    unused_listener,
+    wait_for_listener_release,
+    wait_for_server_readiness,
+};
 
 #[tokio::test]
 async fn stop_then_drained_releases_listener_without_polling() -> TestResult {
@@ -25,6 +32,22 @@ async fn stop_then_drained_releases_listener_without_polling() -> TestResult {
     wait_for_server_readiness(ready_rx).await?;
     shutdown.stop();
     shutdown.drained().await?;
+    assert_connection_refused(addr).await
+}
+
+#[tokio::test]
+async fn dropping_final_shutdown_handle_requests_shutdown() -> TestResult {
+    let listener = unused_listener()?;
+    let server = WireframeServer::new(factory())
+        .workers(1)
+        .bind_existing_listener(listener)?;
+    let addr = server.local_addr().ok_or("server local address missing")?;
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let shutdown = server.ready_signal(ready_tx).spawn().await?;
+
+    wait_for_server_readiness(ready_rx).await?;
+    drop(shutdown);
+    wait_for_listener_release(addr).await?;
     assert_connection_refused(addr).await
 }
 
