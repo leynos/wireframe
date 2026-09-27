@@ -8,7 +8,7 @@ use tracing::error;
 
 use super::{AppFactory, ServerError};
 use crate::{
-    app::{Envelope, Packet, PreparedApp},
+    app::{Envelope, Packet, PrepareError, PreparedApp},
     codec::FrameCodec,
     frame::FrameMetadata,
     message::{DecodeWith, EncodeWith},
@@ -44,6 +44,20 @@ where
         );
         ServerError::FactoryBuild(Box::new(error))
     })?;
+    let prepared = prepare_or_shutdown(app.prepare(), shutdown, startup_started).await?;
+    Ok(prepared.map(|(app, shutdown)| (Arc::new(app), shutdown)))
+}
+
+/// Await preparation unless shutdown completes first, recording its outcome.
+pub(super) async fn prepare_or_shutdown<T, P, S>(
+    preparation: P,
+    shutdown: S,
+    startup_started: Instant,
+) -> Result<Option<(T, std::pin::Pin<Box<S>>)>, ServerError>
+where
+    P: Future<Output = Result<T, PrepareError>>,
+    S: Future<Output = ()> + Send,
+{
     let mut shutdown = Box::pin(shutdown);
     #[expect(
         clippy::integer_division_remainder_used,
@@ -54,11 +68,11 @@ where
             record_server_startup_duration(ServerStartupOutcome::Cancelled, startup_started.elapsed());
             Ok(None)
         },
-        result = app.prepare() => Ok(Some((Arc::new(result.map_err(|error| {
+        result = preparation => Ok(Some((result.map_err(|error| {
             record_startup_failure(ServerStartupFailureStage::Preparation, &error);
             record_server_startup_duration(ServerStartupOutcome::Preparation, startup_started.elapsed());
             ServerError::Prepare(error)
-        })?), shutdown))),
+        })?, shutdown))),
     };
     startup_result
 }

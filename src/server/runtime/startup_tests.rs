@@ -16,9 +16,9 @@ use tokio::{
 
 use super::WireframeServer;
 #[cfg(feature = "metrics")]
-use super::startup::prepare_application_or_shutdown;
+use super::startup::{prepare_application_or_shutdown, prepare_or_shutdown};
 use crate::{
-    app::{Envelope, Handler, WireframeApp},
+    app::{Envelope, Handler, PrepareError, WireframeApp},
     middleware::{HandlerService, Transform},
     server::test_util::free_listener,
 };
@@ -29,11 +29,11 @@ use crate::{
 };
 
 /// Middleware that holds application preparation until the test releases it.
-struct PreparationBarrier {
+pub(super) struct PreparationBarrier {
     /// Announces that preparation reached the blocking transform.
-    entered: Arc<Notify>,
+    pub(super) entered: Arc<Notify>,
     /// Coordinates preparation with the test's shutdown signal.
-    barrier: Arc<Barrier>,
+    pub(super) barrier: Arc<Barrier>,
 }
 
 #[async_trait]
@@ -143,6 +143,20 @@ fn assert_factory_failure_startup_metrics(snapshotter: &Snapshotter) {
 }
 
 #[cfg(feature = "metrics")]
+fn assert_startup_duration_outcome(snapshotter: &Snapshotter, expected_outcome: &str) {
+    let metrics = snapshotter.snapshot().into_vec();
+    assert!(metrics.iter().any(|(key, _, _, value)| {
+        key.key().name() == SERVER_STARTUP_DURATION
+            && key.key().labels().count() == 1
+            && key
+                .key()
+                .labels()
+                .any(|label| label.key() == "outcome" && label.value() == expected_outcome)
+            && matches!(value, DebugValue::Histogram(_))
+    }));
+}
+
+#[cfg(feature = "metrics")]
 fn blocked_preparation_factory(
     entered: Arc<Notify>,
     barrier: Arc<Barrier>,
@@ -190,13 +204,74 @@ fn cancelled_preparation_records_a_bounded_startup_metric() {
     });
 
     assert!(matches!(result, Ok(None)));
-    let metrics = snapshotter.snapshot().into_vec();
-    assert!(metrics.iter().any(|(key, _, _, value)| {
-        key.key().name() == SERVER_STARTUP_DURATION
-            && key
-                .key()
-                .labels()
-                .any(|label| label.key() == "outcome" && label.value() == "cancelled")
-            && matches!(value, DebugValue::Histogram(_))
-    }));
+    assert_startup_duration_outcome(&snapshotter, "cancelled");
 }
+
+/// Preparation failures record their bounded startup-duration outcome.
+#[cfg(feature = "metrics")]
+#[test]
+fn preparation_failure_records_a_bounded_startup_metric() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let result = metrics::with_local_recorder(&recorder, || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        runtime.block_on(prepare_or_shutdown(
+            async {
+                Err::<(), _>(PrepareError::MiddlewareTransform {
+                    source: Box::new(io::Error::other("preparation failed")),
+                })
+            },
+            std::future::pending(),
+            Instant::now(),
+        ))
+    });
+
+    assert!(matches!(result, Err(ServerError::Prepare(_))));
+    assert_startup_duration_outcome(&snapshotter, "preparation");
+}
+
+/// Successful startup records its bounded duration after workers are installed.
+#[cfg(feature = "metrics")]
+#[test]
+fn successful_startup_records_a_bounded_startup_metric() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let result = metrics::with_local_recorder(&recorder, || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime should build");
+        runtime.block_on(start_default_server_and_stop_when_ready())
+    });
+
+    assert!(result.is_ok(), "server startup failed: {result:?}");
+    assert_startup_duration_outcome(&snapshotter, "success");
+}
+
+#[cfg(feature = "metrics")]
+async fn start_default_server_and_stop_when_ready()
+-> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+        .bind_existing_listener(free_listener()?)?;
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let server_task = tokio::spawn(async move {
+        server
+            .ready_signal(ready_tx)
+            .run_with_shutdown(wait_for_shutdown_signal(shutdown_rx))
+            .await
+    });
+
+    ready_rx.await?;
+    shutdown_tx
+        .send(())
+        .map_err(|()| io::Error::other("server stopped before shutdown was signalled"))?;
+    server_task.await??;
+    Ok(())
+}
+
+#[cfg(feature = "metrics")]
+async fn wait_for_shutdown_signal(shutdown_rx: oneshot::Receiver<()>) { let _ = shutdown_rx.await; }

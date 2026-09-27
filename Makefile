@@ -1,4 +1,4 @@
-.PHONY: help all clean test test-doc test-workflow-contracts test-loom doctest-benchmark
+.PHONY: help all clean test test-doc test-ui bless-ui test-workflow-contracts test-loom doctest-benchmark
 .PHONY: bench-codec build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
 .PHONY: install-kani check-kani-version install-verus run-verus test-verification kani \
@@ -87,6 +87,13 @@ test-doc: ## Run doctests across all features
 	# `wireframe_testing` doctests need generic app types that standalone snippets
 	# cannot infer; issue #578 tracks their repair.
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace --exclude wireframe_testing --doc --all-features $(BUILD_JOBS)
+
+test-ui: ## Run trybuild compile-time API tests
+	$(CARGO) test --test compile_error
+
+# Developer-only: review every changed snapshot; this target must not run in CI.
+bless-ui: ## Refresh trybuild snapshots for deliberate fixture changes
+	TRYBUILD=overwrite $(CARGO) test --test compile_error
 
 doctest-benchmark: ## Check runnable/no_run doctest ratios
 	./scripts/doctest-benchmark.sh
