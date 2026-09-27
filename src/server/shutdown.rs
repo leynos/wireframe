@@ -54,11 +54,12 @@ impl ServerShutdown {
     /// continue to drain according to the server's normal graceful policy.
     pub fn stop(&self) { self.inner.stop_requested.cancel(); }
 
-    /// Wait until the listener is released and every accept loop has exited.
+    /// Wait for the server supervisor's terminal outcome.
     ///
-    /// A successful result means the supervisor closed and drained its task
-    /// tracker. An abnormal supervisor termination is returned distinctly from
-    /// a planned stop, with its captured diagnostic message.
+    /// A successful result guarantees that every accept loop has exited, the
+    /// listener is released, and the supervisor has drained its task tracker.
+    /// An abnormal termination is returned with its captured diagnostic, but
+    /// does not by itself prove that the drain completed.
     ///
     /// # Errors
     ///
