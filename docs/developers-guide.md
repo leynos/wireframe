@@ -1198,7 +1198,12 @@ Use these tests for public trait bounds, default generic parameters, and other
 contracts that must fail or succeed at type-check time rather than runtime.
 Place new snippets in `tests/ui/`, register them in `tests/compile_error.rs`,
 and commit the generated `.stderr` file for compile-fail cases after verifying
-that the diagnostics describe the intended contract.
+that the diagnostics describe the intended contract. These files are exact
+`rustc` diagnostic snapshots: generate and refresh them with the repository's
+pinned `rust-toolchain.toml`. Normal validation is
+`cargo test --test compile_error`; a deliberate developer-only refresh uses
+`TRYBUILD=overwrite cargo test --test compile_error`. Review refreshed fixtures
+as maintenance changes, and never run the overwrite command in CI.
 
 ### Feature files and step definitions
 
