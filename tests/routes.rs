@@ -32,10 +32,6 @@ type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), CommonTestEnv
 struct Echo(u8);
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
     let called = Arc::new(AtomicUsize::new(0));
     let called_clone = called.clone();
@@ -63,22 +59,25 @@ async fn handler_receives_message_and_echoes_response() -> TestResult<()> {
         return Err("expected a single response frame".into());
     };
     let (resp_env, _) = BincodeSerializer.deserialize::<CommonTestEnvelope>(first)?;
-    assert_eq!(resp_env.correlation_id, Some(99), "correlation id mismatch");
+    if resp_env.correlation_id != Some(99) {
+        return Err(format!(
+            "correlation id mismatch: expected Some(99), got {:?}",
+            resp_env.correlation_id
+        )
+        .into());
+    }
     let (echo, _) = Echo::from_bytes(&resp_env.payload)?;
-    assert_eq!(echo, Echo(42), "echo payload mismatch");
-    assert_eq!(
-        called.load(Ordering::SeqCst),
-        1,
-        "route not invoked exactly once"
-    );
+    if echo != Echo(42) {
+        return Err(format!("echo payload mismatch: expected Echo(42), got {echo:?}").into());
+    }
+    let call_count = called.load(Ordering::SeqCst);
+    if call_count != 1 {
+        return Err(format!("route not invoked exactly once: got {call_count} calls").into());
+    }
     Ok(())
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn handler_echoes_with_none_correlation_id() -> TestResult<()> {
     let app = TestApp::new()?.route(
         1,
@@ -99,20 +98,21 @@ async fn handler_echoes_with_none_correlation_id() -> TestResult<()> {
     };
     let (resp_env, _) = BincodeSerializer.deserialize::<CommonTestEnvelope>(first)?;
 
-    assert!(
-        resp_env.correlation_id.is_none(),
-        "unexpected correlation id"
-    );
+    if resp_env.correlation_id.is_some() {
+        return Err(format!(
+            "unexpected correlation id: got {:?}",
+            resp_env.correlation_id
+        )
+        .into());
+    }
     let (echo, _) = Echo::from_bytes(&resp_env.payload)?;
-    assert_eq!(echo, Echo(7), "echo payload mismatch");
+    if echo != Echo(7) {
+        return Err(format!("echo payload mismatch: expected Echo(7), got {echo:?}").into());
+    }
     Ok(())
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
     let app = TestApp::new()?.route(
         1,
@@ -144,18 +144,28 @@ async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
     let (echo1, _) = Echo::from_bytes(&env1.payload)?;
     let (env2, _) = BincodeSerializer.deserialize::<CommonTestEnvelope>(second)?;
     let (echo2, _) = Echo::from_bytes(&env2.payload)?;
-    assert_eq!(
-        env1.correlation_id,
-        Some(1),
-        "first correlation id mismatch"
-    );
-    assert_eq!(
-        env2.correlation_id,
-        Some(2),
-        "second correlation id mismatch"
-    );
-    assert_eq!(echo1, Echo(1), "first echo payload mismatch");
-    assert_eq!(echo2, Echo(2), "second echo payload mismatch");
+    if env1.correlation_id != Some(1) {
+        return Err(format!(
+            "first correlation id mismatch: expected Some(1), got {:?}",
+            env1.correlation_id
+        )
+        .into());
+    }
+    if env2.correlation_id != Some(2) {
+        return Err(format!(
+            "second correlation id mismatch: expected Some(2), got {:?}",
+            env2.correlation_id
+        )
+        .into());
+    }
+    if echo1 != Echo(1) {
+        return Err(format!("first echo payload mismatch: expected Echo(1), got {echo1:?}").into());
+    }
+    if echo2 != Echo(2) {
+        return Err(
+            format!("second echo payload mismatch: expected Echo(2), got {echo2:?}").into(),
+        );
+    }
     Ok(())
 }
 
@@ -189,7 +199,13 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) -> Tes
     };
     let (resp, _) = BincodeSerializer.deserialize::<CommonTestEnvelope>(first)?;
 
-    assert_eq!(resp.correlation_id, cid, "correlation id mismatch");
+    if resp.correlation_id != cid {
+        return Err(format!(
+            "correlation id mismatch: expected {cid:?}, got {:?}",
+            resp.correlation_id
+        )
+        .into());
+    }
     Ok(())
 }
 

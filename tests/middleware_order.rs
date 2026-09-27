@@ -3,7 +3,11 @@
 //! Verifies tags are applied in reverse to request and response bodies.
 #![cfg(not(loom))]
 
+#[path = "common/fallible_assertions/check_equal.rs"]
+mod fallible_check_equal;
+
 use async_trait::async_trait;
+use fallible_check_equal::check_equal;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, duplex};
 use wireframe::{
     app::{Envelope, Handler},
@@ -53,21 +57,13 @@ impl Transform<HandlerService<Envelope>> for TagMiddleware {
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 #[expect(deprecated, reason = "test covers the legacy builder connection API")]
 async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     let handler: Handler<Envelope> = std::sync::Arc::new(|_env: &Envelope| Box::pin(async {}));
-    let app = TestApp::new()
-        .expect("failed to create app")
-        .route(1, handler)
-        .expect("route registration failed")
-        .wrap(TagMiddleware(b'A'))
-        .expect("wrap failed")
-        .wrap(TagMiddleware(b'B'))
-        .expect("wrap failed");
+    let app = TestApp::new()?
+        .route(1, handler)?
+        .wrap(TagMiddleware(b'A'))?
+        .wrap(TagMiddleware(b'B'))?;
 
     let (mut client, server) = duplex(256);
 
@@ -93,11 +89,7 @@ async fn middleware_applied_in_reverse_order() -> TestResult<()> {
     let parts = wireframe::app::Packet::into_parts(resp);
     let correlation_id = parts.correlation_id();
     let payload = parts.into_payload();
-    assert_eq!(
-        payload,
-        [b'X', b'A', b'B', b'B', b'A'],
-        "unexpected payload"
-    );
-    assert_eq!(correlation_id, Some(7), "unexpected correlation id");
+    check_equal(&payload, b"XABBA", "unexpected payload")?;
+    check_equal(&correlation_id, &Some(7), "unexpected correlation id")?;
     Ok(())
 }

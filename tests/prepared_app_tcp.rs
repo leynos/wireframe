@@ -7,6 +7,9 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+#[path = "common/fallible_assertions/check_equal.rs"]
+mod fallible_check_equal;
+
 use common::prepared_app::{
     TestApp,
     TransformCountingMiddleware,
@@ -14,6 +17,7 @@ use common::prepared_app::{
     handler,
     response_payload,
 };
+use fallible_check_equal::check_equal;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -28,10 +32,6 @@ use wireframe_testing::{
 
 /// Prepared applications serve TCP connections without rebuilding middleware.
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "assertions make prepared TCP dispatch and transform reuse explicit"
-)]
 async fn prepared_app_serves_tcp_connection_without_retransforming() -> TestResult<()> {
     let transforms = Arc::new(AtomicUsize::new(0));
     let prepared = TestApp::new()?
@@ -43,7 +43,11 @@ async fn prepared_app_serves_tcp_connection_without_retransforming() -> TestResu
         .prepare()
         .await
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
-    assert_eq!(transforms.load(Ordering::SeqCst), 1);
+    check_equal(
+        &transforms.load(Ordering::SeqCst),
+        &1,
+        "preparation should transform the route once",
+    )?;
 
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
@@ -59,8 +63,16 @@ async fn prepared_app_serves_tcp_connection_without_retransforming() -> TestResu
     client.read_to_end(&mut response).await?;
     server.await??;
 
-    assert_eq!(response_payload(&response)?, [b'X', b'A', b'A']);
-    assert_eq!(transforms.load(Ordering::SeqCst), 1);
+    check_equal(
+        &response_payload(&response)?,
+        b"XAA",
+        "the TCP response should carry both middleware tags",
+    )?;
+    check_equal(
+        &transforms.load(Ordering::SeqCst),
+        &1,
+        "serving the TCP connection should not rebuild the route",
+    )?;
     Ok(())
 }
 
@@ -76,10 +88,6 @@ async fn exchange_frame(address: std::net::SocketAddr, frame: Vec<u8>) -> TestRe
 
 /// `from_app` prepares its supplied application once and shares it over TCP.
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "assertions make public server preparation and route reuse explicit"
-)]
 async fn from_app_serves_concurrent_tcp_connections_from_one_prepared_root() -> TestResult<()> {
     let transforms = Arc::new(AtomicUsize::new(0));
     let app = TestApp::new()?
@@ -111,9 +119,21 @@ async fn from_app_serves_concurrent_tcp_connections_from_one_prepared_root() -> 
         exchange_frame(address, frame.clone()),
         exchange_frame(address, frame)
     );
-    assert_eq!(first?, [b'X', b'A', b'A']);
-    assert_eq!(second?, [b'X', b'A', b'A']);
-    assert_eq!(transforms.load(Ordering::SeqCst), 1);
+    check_equal(
+        &first?,
+        b"XAA",
+        "the first concurrent connection should follow middleware order",
+    )?;
+    check_equal(
+        &second?,
+        b"XAA",
+        "the second concurrent connection should follow middleware order",
+    )?;
+    check_equal(
+        &transforms.load(Ordering::SeqCst),
+        &1,
+        "from_app should prepare the application once for both workers",
+    )?;
 
     shutdown_tx
         .send(())

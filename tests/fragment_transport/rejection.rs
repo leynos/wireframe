@@ -99,10 +99,6 @@ fn mutate_out_of_order(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>
 }
 
 /// Mutate fragments by truncating the header of the first fragment.
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envelope>> {
     let parts = fragments
         .first()
@@ -112,10 +108,11 @@ fn mutate_malformed_header(mut fragments: Vec<Envelope>) -> TestResult<Vec<Envel
         ))?
         .into_parts();
     let mut payload = parts.clone().into_payload();
-    assert!(
-        payload.starts_with(FRAGMENT_MAGIC),
-        "expected fragment to start with marker"
-    );
+    if !payload.starts_with(FRAGMENT_MAGIC) {
+        return Err(TestError::Assertion(
+            "expected fragment to start with marker".into(),
+        ));
+    }
     let truncate_len = FRAGMENT_MAGIC.len() + 2;
     if payload.len() > truncate_len {
         payload.truncate(truncate_len);

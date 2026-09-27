@@ -43,6 +43,20 @@ fn is_connection_closed(read_res: std::io::Result<usize>) -> TestResult<bool> {
     }
 }
 
+fn ensure_timed_out_decode_error(err: &DecodeError) -> io::Result<()> {
+    if matches!(
+        err,
+        DecodeError::Io { inner, .. }
+            if inner.kind() == io::ErrorKind::TimedOut
+    ) {
+        Ok(())
+    } else {
+        Err(io::Error::other(format!(
+            "expected timed out error, got {err:?}"
+        )))
+    }
+}
+
 fn timeout_success_handler(
     holder: Holder,
 ) -> impl for<'a> Fn(&'a HotlinePreamble, &'a mut TcpStream) -> BoxFuture<'a, io::Result<()>>
@@ -57,17 +71,19 @@ fn timeout_success_handler(
             stream.write_all(b"OK").await?;
             stream.flush().await?;
             // keep connection open by not shutting down here
-            assert_eq!(clone.magic, HotlinePreamble::MAGIC);
+            if clone.magic != HotlinePreamble::MAGIC {
+                return Err(io::Error::other(format!(
+                    "preamble magic mismatch: expected {:?}, got {:?}",
+                    HotlinePreamble::MAGIC,
+                    clone.magic
+                )));
+            }
             Ok::<(), io::Error>(())
         })
     }
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn preamble_timeout_invokes_failure_handler_and_closes_connection() -> TestResult {
     let factory = factory();
     let (failure_holder, failure_rx) = channel_holder();
@@ -78,14 +94,7 @@ async fn preamble_timeout_invokes_failure_handler_and_closes_connection() -> Tes
         .on_preamble_decode_failure(move |err, stream| {
             let failure_holder = failure_holder.clone();
             Box::pin(async move {
-                assert!(
-                    matches!(
-                        err,
-                        DecodeError::Io { inner, .. }
-                            if inner.kind() == io::ErrorKind::TimedOut
-                    ),
-                    "expected timed out error, got {err:?}"
-                );
+                ensure_timed_out_decode_error(err)?;
                 stream.write_all(b"ERR").await?;
                 stream.flush().await?;
                 stream.shutdown().await?;
@@ -111,16 +120,16 @@ async fn preamble_timeout_invokes_failure_handler_and_closes_connection() -> Tes
     })
     .await?;
     let (buf, closed) = recv_within(Duration::from_secs(1), result_rx).await?;
-    assert_eq!(&buf, b"ERR");
-    assert!(closed, "expected connection to close");
+    if buf.as_slice() != b"ERR" {
+        return Err(format!("response mismatch: expected b\"ERR\", got {buf:?}").into());
+    }
+    if !closed {
+        return Err("expected connection to close".into());
+    }
     Ok(())
 }
 
 #[tokio::test]
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "asserts provide clearer diagnostics in tests"
-)]
 async fn preamble_timeout_allows_timely_preamble() -> TestResult {
     let factory = factory();
     let (success_holder, success_rx) = channel_holder();
@@ -153,10 +162,11 @@ async fn preamble_timeout_allows_timely_preamble() -> TestResult {
     })
     .await?;
     let (buf, failure_fired) = recv_within(Duration::from_secs(1), result_rx).await?;
-    assert_eq!(&buf, b"OK");
-    assert!(
-        !failure_fired,
-        "failure handler should not fire for timely preamble"
-    );
+    if buf.as_slice() != b"OK" {
+        return Err(format!("response mismatch: expected b\"OK\", got {buf:?}").into());
+    }
+    if failure_fired {
+        return Err("failure handler should not fire for timely preamble".into());
+    }
     Ok(())
 }
