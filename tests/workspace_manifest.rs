@@ -40,23 +40,12 @@ fn contains_json_string_field(json: &str, field: &str, value: &str) -> bool {
     json.contains(&format!("\"{field}\":\"{escaped}\""))
 }
 
-fn check_workspace_members(
-    members: &[Value],
-    root_package_id: &str,
-    verification_package_id: &str,
-    loom_package_id: &str,
-    helper_package_id: &str,
-) -> TestResult {
-    for (package_id, description) in [
-        (root_package_id, "the root package"),
-        (verification_package_id, "the verification crate"),
-        (loom_package_id, "the wireframe-loom crate"),
-        (helper_package_id, "the wireframe_testing crate"),
-    ] {
+fn check_workspace_members(members: &[Value], expected: &[(&str, &str)]) -> TestResult {
+    for (package_id, description) in expected {
         check(
             members
                 .iter()
-                .any(|member| member.as_str() == Some(package_id)),
+                .any(|member| member.as_str() == Some(*package_id)),
             format!("workspace_members should include the id of {description}"),
         )?;
     }
@@ -171,10 +160,12 @@ fn cargo_metadata_reports_explicit_members_without_widening_default_members() ->
         })?;
     check_workspace_members(
         workspace_members,
-        &root_package_id,
-        &verification_package_id,
-        &loom_package_id,
-        &helper_package_id,
+        &[
+            (&root_package_id, "the root package"),
+            (&verification_package_id, "the verification crate"),
+            (&loom_package_id, "the wireframe-loom crate"),
+            (&helper_package_id, "the wireframe_testing crate"),
+        ],
     )?;
     check(
         metadata.contains("wireframe-verification"),
