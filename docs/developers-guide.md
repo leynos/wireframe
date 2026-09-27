@@ -1162,6 +1162,22 @@ describes one or more scenarios using the standard Given/When/Then syntax.
 Scenario functions are annotated with `#[scenario(path = "…", name = "…")]` and
 receive fixture parameters by name.
 
+### Non-zero test values
+
+[`tests/support/non_zero.rs`](../tests/support/non_zero.rs) defines the shared
+`nz!` macro for test fixtures that require a `NonZeroUsize`. Use `nz!(value)`
+for the default diagnostic or `nz!(value, "message")` to identify the fixture.
+The macro constructs the value in a constant expression, so a zero argument is
+rejected at compile time.
+
+The message-assembler budget tests in
+[`src/message_assembler/budget_tests.rs`](../src/message_assembler/budget_tests.rs)
+and the fragment adapter tests in
+[`src/fragment/tests/adapter_tests.rs`](../src/fragment/tests/adapter_tests.rs)
+include this shared helper. Keep zero-value compile-fail coverage in
+`tests/ui/`: the UI source includes the helper, and its case is registered in
+`tests/compile_error.rs` with the expected `.stderr` diagnostic committed.
+
 ### trybuild compile-time tests
 
 Compile-time API contracts live in

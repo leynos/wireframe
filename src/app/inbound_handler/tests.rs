@@ -82,8 +82,11 @@ fn decode_envelope_tracks_failures_and_logs_correlation_id() {
             &frame,
             &mut failure_tracker,
         );
-        assert!(result.is_ok(), "expected recoverable decode failure");
-        assert!(result.expect("decode result").is_none());
+        let decoded = result.expect("expected recoverable decode failure");
+        assert!(
+            decoded.is_none(),
+            "recoverable decode should not yield a message"
+        );
     }
 
     let mut failure_tracker =
