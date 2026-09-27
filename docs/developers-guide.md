@@ -305,17 +305,18 @@ runtime contract recorded in [ADR 014](adr-014-server-shutdown-ownership.md):
 `WireframeServer::spawn().await` prepares the application and returns a
 cloneable `ServerShutdown` control. `stop()` synchronously requests shutdown
 through a `CancellationToken`, so it is idempotent, non-blocking, and cannot
-wait behind a saturated server. `drained().await` resolves only after every
-accept loop has exited, the listener is released, and the supervisor has
+wait behind a saturated server. `drained().await` returns `Ok(())` only after
+every accept loop has exited, the listener is released, and the supervisor has
 drained its tracker. Clones converge on that one terminal outcome.
 
 `spawn()` reports the typed application factory and preparation errors before
 returning a control handle. After it succeeds, `drained()` returns either clean
 completion or `ServerError::AbnormalTermination`, which contains the captured
-supervisor diagnostic. The observer retains the supervisor `JoinHandle` until
-it records this terminal outcome, so a panic cannot be silently detached.
-Abnormal termination emits the error-level
-`server_supervisor_abnormal_termination` tracing event and increments
+supervisor diagnostic. An abnormal result does not by itself prove that the
+drain completed. The observer retains the supervisor `JoinHandle` until it
+records this terminal outcome, so a panic cannot be silently detached. Abnormal
+termination emits the error-level `server_supervisor_abnormal_termination`
+tracing event and increments
 `wireframe_server_supervisor_abnormal_terminations_total`; the panic message is
 not a metric label.
 
