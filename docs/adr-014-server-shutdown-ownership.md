@@ -137,7 +137,10 @@ _Figure 1: Server shutdown ownership and terminal observation._
 and cannot wait behind a saturated component. The supervisor reacts by stopping
 accept loops, then closes its `TaskTracker` and awaits it. Connection tasks are
 still tracked without receiving the cancellation token, so their existing
-graceful-drain semantics do not change.
+graceful-drain semantics do not change. A `DropGuard` in the shared inner state
+also requests cancellation when the final `ServerShutdown` clone is dropped.
+Callers that need to observe the terminal outcome retain a clone and await
+`drained()` before dropping it.
 
 `drained()` waits for the terminal descriptor. A clean descriptor is published
 only after the supervisor has returned from its tracker drain; therefore a

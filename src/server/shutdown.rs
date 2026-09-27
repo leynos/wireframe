@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use tokio::sync::watch;
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, DropGuard};
 
 use super::ServerError;
 
@@ -22,6 +22,8 @@ pub(in crate::server) enum ServerTerminal {
 ///
 /// Cloning this handle creates another control endpoint, not another server
 /// owner. Every clone observes the same single terminal outcome.
+/// Dropping the final clone requests shutdown; keep a clone alive while
+/// awaiting [`Self::drained`] when the terminal outcome matters.
 #[derive(Clone)]
 pub struct ServerShutdown {
     /// Shared control and terminal observation state.
@@ -32,6 +34,8 @@ pub struct ServerShutdown {
 struct ServerShutdownInner {
     /// Level-triggered request observed by the supervisor before it cancels workers.
     stop_requested: CancellationToken,
+    /// Cancels the supervisor when the final shared control is dropped.
+    _stop_guard: DropGuard,
     /// Terminal descriptor published by the join-handle observer.
     terminal: watch::Receiver<Option<ServerTerminal>>,
 }
@@ -42,9 +46,11 @@ impl ServerShutdown {
         stop_requested: CancellationToken,
         terminal: watch::Receiver<Option<ServerTerminal>>,
     ) -> Self {
+        let stop_guard = stop_requested.clone().drop_guard();
         Self {
             inner: Arc::new(ServerShutdownInner {
                 stop_requested,
+                _stop_guard: stop_guard,
                 terminal,
             }),
         }

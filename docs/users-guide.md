@@ -1519,6 +1519,8 @@ For an awaitable lifecycle outside the foreground task, call
 released. `ServerError::AbnormalTermination` reports an unexpected supervisor
 exit; it does not by itself prove that the drain completed. Existing in-flight
 connections retain the same graceful-drain policy as `run_with_shutdown`.
+Dropping the final `ServerShutdown` clone also requests shutdown; retain a
+clone and await `drained()` when the terminal outcome matters.
 
 `spawn_connection_task` wraps each accepted stream in `read_preamble` and
 `RewindStream`, records connection panics, and logs failures without crashing

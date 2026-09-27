@@ -307,7 +307,9 @@ cloneable `ServerShutdown` control. `stop()` synchronously requests shutdown
 through a `CancellationToken`, so it is idempotent, non-blocking, and cannot
 wait behind a saturated server. `drained().await` returns `Ok(())` only after
 every accept loop has exited, the listener is released, and the supervisor has
-drained its tracker. Clones converge on that one terminal outcome.
+drained its tracker. Clones converge on that one terminal outcome. Dropping the
+final `ServerShutdown` clone also requests shutdown; keep a clone alive and
+await `drained()` when the terminal outcome matters.
 
 `spawn()` reports the typed application factory and preparation errors before
 returning a control handle. After it succeeds, `drained()` returns either clean
