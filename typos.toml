@@ -74,6 +74,7 @@ extend-ignore-re = [
     "`color`",
     "currentColor",
     "e\\.behavior\\ ==\\ PoolServerBehavior::MalformedFirstResponse",
+    "install-mold",
     "ior\\(behavior:\\ PoolServerBehavior\\)\\ \\->\\ std::io::Result<Sel",
     "lTestServer::start_with_behavior\\(PoolServerBehavior::Mal",
     "mold --version",

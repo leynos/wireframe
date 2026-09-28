@@ -36,10 +36,15 @@ ROOT = Path(__file__).resolve().parents[2]
 THREADS_FLAG = "-Zthreads=8"
 LINKER_FLAG = "-Clink-arg=-fuse-ld=mold"
 LINUX_TABLES = {"x86_64-unknown-linux-gnu", 'cfg(target_os = "linux")'}
+#: Whether the pinned toolchain is a nightly. `-Zthreads` is a nightly flag, so
+#: on a stable pin the standard is `mold` alone and the frontend flag must
+#: appear nowhere.
+NIGHTLY = True
 RUSTFLAGS_RE = re.compile(r'RUSTFLAGS="([^"]*)"')
-#: A caller's own flags, to prove a recipe keeps the standard when it inherits
-#: an exported ``RUSTFLAGS``.
-INHERITED = "-D warnings"
+#: A caller's own flags, distinct from anything a recipe adds, to prove a
+#: recipe composes an exported ``RUSTFLAGS`` with the standard flags rather than
+#: replacing either.
+INHERITED = "--cfg inherited_from_caller"
 #: Words that mark a command whose RUSTFLAGS the contract reads.
 #: Whitaker is left out: it runs on its own pinned toolchain without the
 #: development flags, which `dev_fast_routing_test.py` holds.
@@ -101,9 +106,13 @@ def _make_rustflags(
     """Return, per cargo or whitaker command ``make -n TARGET`` would run on
     the named host, the ``RUSTFLAGS`` it assigns, or ``None`` when it assigns
     none."""
+    env = {key: val for key, val in os.environ.items() if key != "RUSTFLAGS"}
+    if inherited is not None:
+        env["RUSTFLAGS"] = inherited
     result = subprocess.run(
         ["make", "-n", "-B", f"BUILD_HOST_OS={host}", target],
         cwd=ROOT,
+        env=env,
         capture_output=True,
         text=True,
         check=True,
@@ -127,6 +136,14 @@ def _make_rustflags(
     return assigned
 
 
+def _contains(flags: list[str], wanted: list[str]) -> bool:
+    """Return whether ``wanted`` appears in ``flags`` as a contiguous run."""
+    return any(
+        flags[start : start + len(wanted)] == wanted
+        for start in range(len(flags) - len(wanted) + 1)
+    )
+
+
 def _development_problems(
     host: str, *, expects_linker: bool, inherited: str | None = None
 ) -> list[str]:
@@ -138,18 +155,27 @@ def _development_problems(
         for flags in _make_rustflags(target, host, inherited):
             if flags is None:
                 continue
-            if THREADS_FLAG not in flags:
+            if (THREADS_FLAG in flags) != NIGHTLY:
                 problems.append(
-                    f"`make {target}` on {host} drops {THREADS_FLAG}: {flags}"
+                    f"`make {target}` on {host} gets {THREADS_FLAG} wrong: {flags}"
                 )
             if (LINKER_FLAG in flags) != expects_linker:
                 problems.append(f"`make {target}` on {host} gets `mold` wrong: {flags}")
+            if inherited is not None and not _contains(flags, shlex.split(inherited)):
+                problems.append(f"`make {target}` drops the caller's RUSTFLAGS: {flags}")
     return problems
 
 
 def test_every_rustflags_source_carries_the_parallel_frontend() -> None:
-    """Cargo applies one source, so each must name the flag itself."""
+    """Cargo applies one source, so each must name the flag itself.
+
+    On a stable pin the flag would stop every build, so it must be absent.
+    """
     sources = _sources()
+    if not NIGHTLY:
+        carrying = [key for key, flags in sources.items() if THREADS_FLAG in flags]
+        assert carrying == [], f"{THREADS_FLAG} on a stable pin in {carrying}"
+        return
     assert "build" in sources, "no [build] rustflags for non-Linux hosts"
     missing = [key for key, flags in sources.items() if THREADS_FLAG not in flags]
     assert missing == [], f"{THREADS_FLAG} missing from {missing}"
@@ -188,7 +214,12 @@ def test_development_targets_restate_both_flags_on_linux() -> None:
 
 
 def test_development_targets_keep_the_standard_under_inherited_rustflags() -> None:
-    """A caller's exported RUSTFLAGS must not strip the standard flags."""
+    """A caller's exported RUSTFLAGS is composed with the standard flags.
+
+    setup-rust exports ``RUSTFLAGS`` in CI, so a recipe that assigned instead
+    of composing would drop the caller's flags, and one that inherited without
+    restating would drop the standard ones.
+    """
     problems = _development_problems("Linux", expects_linker=True, inherited=INHERITED)
     assert problems == [], problems
 
@@ -214,24 +245,43 @@ def test_coverage_and_release_take_neither_flag(target: str) -> None:
         assert LINKER_FLAG not in flags, f"`make {target}` takes {LINKER_FLAG}"
 
 
+def _linux_jobs() -> list[tuple[str, dict]]:
+    """Return every CI job not placed on Windows or macOS, named by file."""
+    jobs = []
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
+        workflow = yaml.safe_load(path.read_text("utf-8")) or {}
+        jobs.extend(
+            (f"{path.name}:{name}", job)
+            for name, job in (workflow.get("jobs") or {}).items()
+            if not re.search(r"windows|macos", str(job.get("runs-on", "")), re.I)
+        )
+    return jobs
+
+
+def _installs_the_linker(step: dict) -> bool:
+    """Report whether a step installs `mold`, by apt or through setup-rust."""
+    run = str(step.get("run", ""))
+    inputs = step.get("with") or {}
+    return bool(re.search(r"apt(-get)?\s+install[^\n]*\bmold\b", run)) or (
+        "setup-rust" in str(step.get("uses", ""))
+        and str(inputs.get("install-mold", "")).lower() == "true"
+    )
+
+
+def _runs_a_gate_target_first(job: dict) -> bool:
+    """Report whether a job runs a gate target before any step installs `mold`."""
+    for step in job.get("steps") or []:
+        if _installs_the_linker(step):
+            return False
+        if GATE_TARGETS & set(MAKE_TARGET_RE.findall(str(step.get("run", "")))):
+            return True
+    return False
+
+
 def _jobs_missing_the_linker() -> list[str]:
     """Return the Linux CI jobs that run a gate target without installing
     `mold` first."""
-    missing = []
-    for path in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
-        workflow = yaml.safe_load(path.read_text("utf-8")) or {}
-        for name, job in (workflow.get("jobs") or {}).items():
-            if re.search(r"windows|macos", str(job.get("runs-on", "")), re.I):
-                continue
-            installed = False
-            for step in job.get("steps") or []:
-                run = str(step.get("run", ""))
-                if re.search(r"apt(-get)?\s+install[^\n]*\bmold\b", run):
-                    installed = True
-                if not installed and GATE_TARGETS & set(MAKE_TARGET_RE.findall(run)):
-                    missing.append(f"{path.name}:{name}")
-                    break
-    return missing
+    return [name for name, job in _linux_jobs() if _runs_a_gate_target_first(job)]
 
 
 def test_ci_installs_the_linker_before_gate_targets() -> None:
