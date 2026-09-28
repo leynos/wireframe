@@ -24,7 +24,7 @@ from dev_fast_routing_test import (
     _make_dry_run,
 )
 
-DEV_WARNING_FLAGS = "DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_LINUX_LINK_ARG))"
+DEV_WARNING_FLAGS = "DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_STANDARD_FLAGS))"
 
 
 @dataclass(frozen=True)
@@ -141,7 +141,7 @@ def test_lint_preserves_configured_rustdoc_flags() -> None:
     (
         pytest.param(
             _RoutingFlagMutation(
-                replacement="DEV_WARNING_FLAGS = $(strip -D warnings $(DEV_LINUX_LINK_ARG))",
+                replacement="DEV_WARNING_FLAGS = $(strip -D warnings $(DEV_STANDARD_FLAGS))",
                 assertion=_assert_caller_rustflags,
                 expected_message="must preserve",
             ),
@@ -149,7 +149,7 @@ def test_lint_preserves_configured_rustdoc_flags() -> None:
         ),
         pytest.param(
             _RoutingFlagMutation(
-                replacement="DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) $(DEV_LINUX_LINK_ARG))",
+                replacement="DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) $(DEV_STANDARD_FLAGS))",
                 assertion=_assert_warning_denial,
                 expected_message="must retain",
             ),

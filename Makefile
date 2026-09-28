@@ -18,10 +18,21 @@ DEV_FAST := --config $(DEV_FAST_CONFIG)
 # a custom or non-standard target can set CARGO_BUILD_TARGET_OS=Linux
 # explicitly.
 CARGO_BUILD_TARGET_OS ?=
-DEV_EFFECTIVE_TARGET_OS = $(if $(CARGO_BUILD_TARGET),$(or $(CARGO_BUILD_TARGET_OS),$(if $(findstring -unknown-linux-,$(CARGO_BUILD_TARGET)),Linux)),$(shell uname -s))
-DEV_LINUX_LINK_ARG := $(if $(filter Linux,$(shell uname -s)),$(if $(filter Linux,$(DEV_EFFECTIVE_TARGET_OS)),-Clink-arg=-fuse-ld=mold))
-DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_LINUX_LINK_ARG))
-DEV_BUILD_FLAGS = $(strip $(RUSTFLAGS) $(DEV_LINUX_LINK_ARG))
+# The machine doing the build; overridable so a contract can read the recipes a
+# non-Linux host would run.
+BUILD_HOST_OS ?= $(shell uname -s)
+DEV_EFFECTIVE_TARGET_OS = $(if $(CARGO_BUILD_TARGET),$(or $(CARGO_BUILD_TARGET_OS),$(if $(findstring -unknown-linux-,$(CARGO_BUILD_TARGET)),Linux)),$(BUILD_HOST_OS))
+DEV_LINUX_LINK_ARG := $(if $(filter Linux,$(BUILD_HOST_OS)),$(if $(filter Linux,$(DEV_EFFECTIVE_TARGET_OS)),-Clink-arg=-fuse-ld=mold))
+# The build standard's parallel frontend. `.cargo/config.toml` carries it and
+# `mold` in its `rustflags` sources, but an assigned `RUSTFLAGS` replaces those
+# sources, so every development recipe below restates both.
+DEV_THREADS_FLAG ?= -Zthreads=8
+DEV_STANDARD_FLAGS = $(DEV_THREADS_FLAG) $(DEV_LINUX_LINK_ARG)
+DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_STANDARD_FLAGS))
+DEV_BUILD_FLAGS = $(strip $(RUSTFLAGS) $(DEV_STANDARD_FLAGS))
+# Release builds take neither flag: assigning `RUSTFLAGS`, even to an empty
+# inherited value, displaces every `rustflags` source in the configuration.
+RELEASE_BUILD_ENV = RUSTFLAGS="$${RUSTFLAGS-}"
 DEV_BUILD_ENV = RUSTFLAGS="$(DEV_BUILD_FLAGS)"
 CLIPPY_FLAGS ?= --workspace --all-targets --all-features -- -D warnings
 RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
@@ -116,7 +127,7 @@ typecheck: ## Run a workspace typecheck
 
 # will match target/debug/libmy_library.rlib and target/release/libmy_library.rlib
 target/%/lib$(CRATE).rlib: ## Build library in debug or release
-	$(if $(findstring release,$(@)),,$(DEV_BUILD_ENV)) $(CARGO) $(if $(findstring release,$(@)),,$(DEV_FAST)) build $(BUILD_JOBS) \
+	$(if $(findstring release,$(@)),$(RELEASE_BUILD_ENV),$(DEV_BUILD_ENV)) $(CARGO) $(if $(findstring release,$(@)),,$(DEV_FAST)) build $(BUILD_JOBS) \
 	  $(if $(findstring release,$(@)),--release)            \
 	  --lib
 	@# copy the .rlib into your own target tree

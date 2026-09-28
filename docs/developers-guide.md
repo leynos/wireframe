@@ -814,18 +814,28 @@ Standard debug Make targets select it explicitly: `build`, `test`, `test-bdd`,
 `dev-build` target runs the configured Cargo build directly, even when a
 library artefact already exists; `dev-test` aliases `test`.
 
-The fragment configures the backend only. It deliberately declares no
-`[target.<...>]` table, so a direct `--config tools/dev-fast/config.toml`
-invocation behaves the same on every machine. `mold` selection cannot live in
-the fragment: Cargo compares a target-specific `cfg` against the *compilation
-target*, not the host, so a Linux `cfg` would also select `mold` for a
-non-Linux host cross-compiling to Linux. Only Make can test the host, so Make
-carries the linker flag in `RUSTFLAGS`. Make adds it when the host is Linux
-*and* the effective Cargo target is Linux, and recognizes standard Linux target
-triples by `-unknown-linux-`. An explicit native Linux target therefore retains
-`mold`, while non-Linux targets, including Android, do not. For a custom JSON
-or non-standard Linux target, set `CARGO_BUILD_TARGET_OS=Linux`. Non-Linux
-hosts never select `mold`, including when cross-compiling to Linux.
+The repository follows the estate's Rust build standard. `.cargo/config.toml`,
+which Cargo auto-discovers, enables the parallel `rustc` frontend with
+`-Zthreads=8` in both of its `rustflags` sources, and its
+`cfg(target_os = "linux")` source also links with `mold`. Cargo applies one
+`rustflags` source rather than merging them, and an assigned `RUSTFLAGS`
+replaces them all, so the Makefile restates both flags as `DEV_STANDARD_FLAGS`
+in the development targets that assign `RUSTFLAGS`. Cargo matches the Linux
+table against the *compilation target*, so a non-Linux host cross-compiling to
+Linux must assign `RUSTFLAGS` itself. The Makefile keeps its host-aware
+`DEV_LINUX_LINK_ARG` for that reason: it adds `mold` when the host (the
+overridable `BUILD_HOST_OS`) is Linux *and* the effective Cargo target is
+Linux, and recognizes standard Linux target triples by `-unknown-linux-`. For a
+custom JSON or non-standard Linux target, set `CARGO_BUILD_TARGET_OS=Linux`.
+Release builds assign an empty inherited `RUSTFLAGS` and so take neither flag.
+The Loom, verification and Whitaker commands keep their own `RUSTFLAGS`, as
+`dev_fast_routing_test.py` and `loom_lane_test.py` require.
+`tests/workflow_contracts/build_standard_test.py` holds the configuration and
+the development and release recipes to the standard.
+
+The fragment configures the backend only and declares no `[target.<...>]`
+table, so a direct `--config tools/dev-fast/config.toml` invocation behaves the
+same on every machine.
 
 The fragment selects Cranelift for the development profile; Cargo test commands
 (`make test`, `make test-bdd`, and `make test-doc`) use the LLVM test profile
@@ -855,6 +865,23 @@ tests are not Cranelift-accelerated. Development builds, lint, and typecheck
 continue to use Cranelift. This is a pinned-toolchain exception to the Netsuke
 source fragment; reproduce both failures and reassess the override when the
 toolchain pin changes.
+
+Re-measured on 2026-09-28 on the pinned `nightly-2026-03-26`, with Cranelift
+for both the development and test profiles, as part of adopting the build
+standard. The exception stands. Three test binaries fail:
+
+- `wireframe` library tests abort with `SIGABRT` and
+  `failed to initiate panic, error 5` at
+  `client::tests::lifecycle::on_connection_setup_preserves_error_hook`, which
+  stops the rest of that binary;
+- `wireframe_testing` library tests abort the same way at
+  `helpers::tests::helper_tests::drive_internal_converts_synchronous_server_panics_to_io_errors`;
+- `tests/slow_io_backpressure.rs` fails
+  `panic_in_server_is_mapped_to_io_error_other`, a handler panic that is not
+  caught.
+
+The `src/metrics.rs` doctest still fails to link, with undefined AWS-LC
+symbols. Re-measure on the next toolchain pin.
 
 ## Cargo workspace semantics
 
