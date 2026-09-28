@@ -83,10 +83,16 @@ def _make_rustflags(target: str, host: str = "Linux") -> list[list[str] | None]:
         if any(word in line for word in COMMAND_WORDS)
     ]
     assert commands, f"`make -n {target}` runs no cargo command"
-    return [
-        _normalized(shlex.split(match.group(1))) if match else None
-        for match in (RUSTFLAGS_RE.search(line) for line in commands)
-    ]
+    assigned: list[list[str] | None] = []
+    for line in commands:
+        match = RUSTFLAGS_RE.search(line)
+        # Any other spelling still replaces the configuration's sources, so a
+        # form this reader cannot parse fails rather than passing.
+        assert match or "RUSTFLAGS=" not in line, (
+            f"unreadable RUSTFLAGS assignment in {line!r}"
+        )
+        assigned.append(_normalized(shlex.split(match.group(1))) if match else None)
+    return assigned
 
 
 def _development_problems(host: str, *, expects_linker: bool) -> list[str]:
