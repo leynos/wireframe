@@ -152,12 +152,12 @@ than set to `true`, so it cannot reach a run that has no successor.
 `tests/workflow_contracts/pr_concurrency_test.py` holds every workflow that a
 `pull_request` starts to both values exactly, with whitespace collapsed. It
 reads workflows through `workflow_loader` and triggers through
-`codescene_placement_reader.triggers`, so a duplicated key or an unreadable
-`on:` is refused rather than dropped from the sweep. `pull_request_target` is
-out of scope: the workflows on it push commits and merge, and cancelling one
-mid-write saves nothing. The synthetic cases refuse a ref fallback, a group
-keyed on the run id alone or ahead of the number, a group shared by every pull
-request, and a literal or quoted `true`.
+`workflow_reading.triggers`, so a duplicated key or an unreadable `on:` is
+refused rather than dropped from the sweep. `pull_request_target` is out of
+scope: the workflows on it push commits and merge, and cancelling one mid-write
+saves nothing. The synthetic cases refuse a ref fallback, a group keyed on the
+run id alone or ahead of the number, a group shared by every pull request, and
+a literal or quoted `true`.
 
 ### The build-test checkout is shallow
 
@@ -568,8 +568,8 @@ failure there delays a coverage report. It cannot block a merge.
 
 A pull-request lane may still generate coverage, because the ratchet is
 repository-owned and runs offline with no network dependency. What it may not
-do is any of these six, each of which fails
-`tests/workflow_contracts/ci_codescene_placement_test.py`:
+do is any of these six, each of which fails the shared CV-005 contract library,
+run by `make test-workflow-contracts`:
 
 | Forbidden in a pull-request lane                      | Why it is read                                         |
 | ----------------------------------------------------- | ------------------------------------------------------ |
@@ -739,35 +739,27 @@ The repository variable itself can be deleted; nothing reads it.
 
 ### How the readings are proved
 
-The reading machinery lives in
-`tests/workflow_contracts/codescene_placement_reader.py`, and every reader
-takes its documents as an argument. The reviewed values live in
-`codescene_placement_policy.py`, the publisher's clauses in
-`codescene_publisher_test.py`, the classification of `uses:` calls in
-`workflow_calls.py`, and loading in `workflow_loader.py`, which the runner
-placement contract shares. The repository's own workflows are all written the
-one way the first reader understood, so a reading that mishandles another shape
-passes against them either way.
-`tests/workflow_contracts/codescene_placement_reader_test.py` therefore drives
-each reading with constructed trees:
+`make test-workflow-contracts` runs `cv005-contracts check`, the shared
+contract library in `leynos/shared-actions` (`packages/cv005-contracts`), from
+a full commit named by `CV005_CONTRACTS_REF` in the Makefile, and then the
+pytest contracts in `tests/workflow_contracts/`. A fix to the CodeScene rules
+is therefore a pin bump. The target needs `uv`, which fetches the Python 3.13
+the library runs under. The repository's only parameter is `repository` in
+`.github/cv005.toml`. The library's own suite proves each rule refuses the
+shape it exists to refuse, so this repository keeps no copy of the closure over
+local calls, the secret and host readers, the call-by-`@ref` classifier or the
+publisher's clauses.
 
-- the closure reaches a `workflow_call` probe that curls CodeScene's API with
-  an inherited token, in both local call spellings, and stays out of a reusable
-  workflow nothing calls;
-- a call to this repository by `@ref` is recognized, and kept narrow: a local
-  call, another repository, a repository whose name merely begins the same way
-  and this repository's own actions are not;
-- workflows are loaded through a strict `SafeLoader` that refuses a duplicated
-  mapping key, because PyYAML otherwise keeps the last `runs-on` or `env` and
-  says nothing;
-- `on:` is read as a scalar, a sequence or a mapping, under both the quoted
-  string key and YAML 1.1's boolean `True`; a workflow declaring both is
-  refused, since GitHub merges them; and any other shape is refused rather than
-  read as "no triggers", which would let the workflow escape every clause; and
-- a `.YML` extension is read like `.yml`.
-
-Each reading was mutated alone and restored from a copy while writing the
-contract, and each mutation failed at least one test that names what it broke.
+What stays here is the reading the runner-placement and concurrency contracts
+share: `workflow_loader.py` loads every workflow through a strict `SafeLoader`
+that refuses a duplicated mapping key, because PyYAML otherwise keeps the last
+`runs-on` or `env` and says nothing, and reads a `.YML` extension like `.yml`;
+and `workflow_reading.py` reads `on:` as a scalar, a sequence or a mapping,
+under both the quoted string key and YAML 1.1's boolean `True`, refuses a
+workflow declaring both since GitHub merges them, and refuses any other shape
+rather than reading it as "no triggers", which would let the workflow escape
+every clause. `workflow_reading_test.py` drives that reading with the shapes
+the repository's own workflows do not use.
 
 ## Workflow pins and Dependabot
 
