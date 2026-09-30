@@ -1,1 +1,6 @@
 repository = "leynos/wireframe"
+
+[selection]
+output-path = "lcov.info"
+format = "lcov"
+with-ratchet = "true"
