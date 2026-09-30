@@ -6,7 +6,7 @@ concurrency group and asks for it, so the fact is a property of every
 workflow a pull request can start, not of any one job.
 
 Loading is ``workflow_loader``'s, which refuses a duplicated mapping key,
-and trigger reading is ``codescene_placement_reader.triggers``, which reads
+and trigger reading is ``workflow_reading.triggers``, which reads
 every shape GitHub accepts under both spellings of ``on:``. Neither is
 repeated here.
 
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import typing as typ
 
-from codescene_placement_reader import triggers
+from workflow_reading import triggers
 from workflow_loader import repository_workflows
 
 if typ.TYPE_CHECKING:

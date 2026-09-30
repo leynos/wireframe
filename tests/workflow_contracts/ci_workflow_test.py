@@ -2,7 +2,8 @@
 
 Coverage generation, the spelling toolchain and the Markdown linter's pin are
 asserted here. Where CodeScene may and may not appear is a separate question
-with a separate reason, and lives in ``ci_codescene_placement_test``.
+with a separate reason, and is held by the shared CV-005 contract library
+(``make test-workflow-contracts``).
 
 Run these workflow contract tests with ``make test-workflow-contracts``.
 """
@@ -162,7 +163,7 @@ def test_coverage_generation_stays_pull_request_only_and_ratcheted() -> None:
     The CodeScene half moved and inverted. It used to require a
     ``cs-coverage check`` step immediately after this one; under CV-005 that
     step must not exist in a pull-request lane at all, and
-    ``ci_codescene_placement_test`` asserts its absence along with the
+    the shared CV-005 contract library asserts its absence along with the
     absence of the token and of any direct CLI invocation.
     """
     generation = _find_step(_load_steps(), "Test and Measure Coverage")
