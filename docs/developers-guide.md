@@ -827,11 +827,11 @@ Linux must assign `RUSTFLAGS` itself. The Makefile keeps its host-aware
 overridable `BUILD_HOST_OS`) is Linux *and* the effective Cargo target is
 Linux, and recognizes standard Linux target triples by `-unknown-linux-`. For a
 custom JSON or non-standard Linux target, set `CARGO_BUILD_TARGET_OS=Linux`.
-Release builds assign an empty inherited `RUSTFLAGS` and so take neither flag.
-The Loom, verification and Whitaker commands keep their own `RUSTFLAGS`, as
-`dev_fast_routing_test.py` and `loom_lane_test.py` require.
-`tests/workflow_contracts/build_standard_test.py` holds the configuration and
-the development and release recipes to the standard.
+Release builds assign the inherited `RUSTFLAGS`, which is empty when the caller
+exports none, and so take neither flag. The Loom, verification and Whitaker
+commands keep their own `RUSTFLAGS`, as `dev_fast_routing_test.py` and
+`loom_lane_test.py` require. `tests/workflow_contracts/build_standard_test.py`
+holds the configuration and the development and release recipes to the standard.
 
 The fragment configures the backend only and declares no `[target.<...>]`
 table, so a direct `--config tools/dev-fast/config.toml` invocation behaves the

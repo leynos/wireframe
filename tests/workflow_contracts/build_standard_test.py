@@ -82,7 +82,11 @@ def _sources() -> dict[str, list[str]]:
     sources = {"build": config.get("build", {}).get("rustflags")}
     for key, table in config.get("target", {}).items():
         sources[key] = table.get("rustflags")
-    return {key: _normalized(flags) for key, flags in sources.items() if flags}
+    # A declared empty list is still a source Cargo would select, so only an
+    # absent key is dropped.
+    return {
+        key: _normalized(flags) for key, flags in sources.items() if flags is not None
+    }
 
 
 def _expanded(value: str, inherited: str | None) -> list[str]:
@@ -101,7 +105,10 @@ def _expanded(value: str, inherited: str | None) -> list[str]:
 
 
 def _make_rustflags(
-    target: str, host: str = "Linux", inherited: str | None = None
+    target: str,
+    host: str = "Linux",
+    inherited: str | None = None,
+    overrides: tuple[str, ...] = (),
 ) -> list[list[str] | None]:
     """Return, per cargo or whitaker command ``make -n TARGET`` would run on
     the named host, the ``RUSTFLAGS`` it assigns, or ``None`` when it assigns
@@ -110,7 +117,7 @@ def _make_rustflags(
     if inherited is not None:
         env["RUSTFLAGS"] = inherited
     result = subprocess.run(
-        ["make", "-n", "-B", f"BUILD_HOST_OS={host}", target],
+        ["make", "-n", "-B", f"BUILD_HOST_OS={host}", *overrides, target],
         cwd=ROOT,
         env=env,
         capture_output=True,
@@ -121,7 +128,9 @@ def _make_rustflags(
     commands = [
         line
         for line in result.stdout.replace("\\\n", " ").splitlines()
+        # An `echo` of a tool's path names it without running it.
         if any(word in line for word in COMMAND_WORDS)
+        and line.split(maxsplit=1)[:1] not in (["echo"], ["printf"])
     ]
     assert commands, f"`make -n {target}` runs no cargo command"
     assigned: list[list[str] | None] = []
@@ -144,25 +153,61 @@ def _contains(flags: list[str], wanted: list[str]) -> bool:
     )
 
 
+def _flag_problems(
+    target: str,
+    host: str,
+    flags: list[str],
+    *,
+    expects_linker: bool,
+    inherited: str | None,
+) -> list[str]:
+    """Check one assigned ``RUSTFLAGS`` value against the standard on a host."""
+    problems = []
+    if (THREADS_FLAG in flags) != NIGHTLY:
+        problems.append(f"`make {target}` on {host} gets {THREADS_FLAG} wrong: {flags}")
+    if (LINKER_FLAG in flags) != expects_linker:
+        problems.append(f"`make {target}` on {host} gets `mold` wrong: {flags}")
+    if inherited is not None and not _contains(flags, shlex.split(inherited)):
+        problems.append(f"`make {target}` drops the caller's RUSTFLAGS: {flags}")
+    return problems
+
+
+def _unassigned_problems(target: str, inherited: str | None) -> list[str]:
+    """Report a command with no assignment that would take only the caller's flags.
+
+    Without an assignment the command takes the configuration's flags, unless
+    the caller exports RUSTFLAGS, which displaces them; setup-rust does exactly
+    that in CI.
+    """
+    if inherited is None:
+        return []
+    return [f"`make {target}` runs a command that takes only the caller's RUSTFLAGS"]
+
+
 def _development_problems(
-    host: str, *, expects_linker: bool, inherited: str | None = None
+    host: str,
+    *,
+    expects_linker: bool,
+    inherited: str | None = None,
+    overrides: tuple[str, ...] = (),
 ) -> list[str]:
     """Check every development target on one host: an assigned ``RUSTFLAGS``,
     empty or not, carries the frontend flag, and carries `mold` exactly when on
     Linux."""
     problems = []
     for target in DEVELOPMENT_TARGETS:
-        for flags in _make_rustflags(target, host, inherited):
-            if flags is None:
-                continue
-            if (THREADS_FLAG in flags) != NIGHTLY:
-                problems.append(
-                    f"`make {target}` on {host} gets {THREADS_FLAG} wrong: {flags}"
+        for flags in _make_rustflags(target, host, inherited, overrides):
+            problems += (
+                _unassigned_problems(target, inherited)
+                if flags is None
+                else _flag_problems(
+                    target,
+                    host,
+                    flags,
+                    expects_linker=expects_linker,
+                    inherited=inherited,
                 )
-            if (LINKER_FLAG in flags) != expects_linker:
-                problems.append(f"`make {target}` on {host} gets `mold` wrong: {flags}")
-            if inherited is not None and not _contains(flags, shlex.split(inherited)):
-                problems.append(f"`make {target}` drops the caller's RUSTFLAGS: {flags}")
+            )
     return problems
 
 
@@ -230,6 +275,25 @@ def test_development_targets_keep_the_frontend_but_not_the_linker_elsewhere() ->
     assert problems == [], problems
 
 
+def test_development_targets_leave_the_linker_off_a_non_linux_target() -> None:
+    """Cargo matches ``[target.*]`` sources against the compilation target.
+
+    A Linux host building for another platform through ``CARGO_BUILD_TARGET``
+    must not be handed `mold`, while a Linux target keeps it.
+    """
+    problems = _development_problems(
+        "Linux",
+        expects_linker=False,
+        overrides=("CARGO_BUILD_TARGET=aarch64-apple-darwin",),
+    )
+    problems += _development_problems(
+        "Linux",
+        expects_linker=True,
+        overrides=("CARGO_BUILD_TARGET=aarch64-unknown-linux-gnu",),
+    )
+    assert problems == [], problems
+
+
 @pytest.mark.parametrize("target", HELD_OUT_TARGETS)
 def test_coverage_and_release_take_neither_flag(target: str) -> None:
     """Coverage measures and release ships, so both stay on default flags.
@@ -258,23 +322,46 @@ def _linux_jobs() -> list[tuple[str, dict]]:
     return jobs
 
 
-def _installs_the_linker(step: dict) -> bool:
-    """Report whether a step installs `mold`, by apt or through setup-rust."""
+def _first_positions(step: dict) -> tuple[int | None, int | None]:
+    """Return where a step first installs `mold` and first runs a gate target.
+
+    Positions are offsets into the step's ``run`` text; a setup-rust step that
+    installs `mold` through its input counts as installing at offset 0.
+    """
     run = str(step.get("run", ""))
     inputs = step.get("with") or {}
-    return bool(re.search(r"apt(-get)?\s+install[^\n]*\bmold\b", run)) or (
-        "setup-rust" in str(step.get("uses", ""))
-        and str(inputs.get("install-mold", "")).lower() == "true"
-    )
+    installs = [
+        match.start()
+        for match in re.finditer(r"apt(-get)?\s+install[^\n]*\bmold\b", run)
+    ]
+    if "setup-rust" in str(step.get("uses", "")) and (
+        str(inputs.get("install-mold", "")).lower() == "true"
+    ):
+        installs.append(0)
+    gates = [
+        match.start()
+        for match in MAKE_TARGET_RE.finditer(run)
+        if match.group(1) in GATE_TARGETS
+    ]
+    return min(installs, default=None), min(gates, default=None)
+
+
+def _gate_precedes_install(install_at: int | None, gate_at: int | None) -> bool:
+    """Report whether a step's first gate target comes before its `mold` install."""
+    if gate_at is None:
+        return False
+    return install_at is None or gate_at < install_at
 
 
 def _runs_a_gate_target_first(job: dict) -> bool:
-    """Report whether a job runs a gate target before any step installs `mold`."""
+    """Report whether a job runs a gate target before any step installs `mold`,
+    comparing positions within a step that does both."""
     for step in job.get("steps") or []:
-        if _installs_the_linker(step):
-            return False
-        if GATE_TARGETS & set(MAKE_TARGET_RE.findall(str(step.get("run", "")))):
+        install_at, gate_at = _first_positions(step)
+        if _gate_precedes_install(install_at, gate_at):
             return True
+        if install_at is not None:
+            return False
     return False
 
 
