@@ -154,21 +154,19 @@ def _contains(flags: list[str], wanted: list[str]) -> bool:
 
 
 def _flag_problems(
-    target: str,
-    host: str,
-    flags: list[str],
-    *,
-    expects_linker: bool,
-    inherited: str | None,
+    where: str, flags: list[str], *, expects_linker: bool, inherited: str | None
 ) -> list[str]:
-    """Check one assigned ``RUSTFLAGS`` value against the standard on a host."""
+    """Check one assigned ``RUSTFLAGS`` value against the standard.
+
+    ``where`` names the command and host, so a finding says which recipe broke.
+    """
     problems = []
     if (THREADS_FLAG in flags) != NIGHTLY:
-        problems.append(f"`make {target}` on {host} gets {THREADS_FLAG} wrong: {flags}")
+        problems.append(f"{where} gets {THREADS_FLAG} wrong: {flags}")
     if (LINKER_FLAG in flags) != expects_linker:
-        problems.append(f"`make {target}` on {host} gets `mold` wrong: {flags}")
+        problems.append(f"{where} gets `mold` wrong: {flags}")
     if inherited is not None and not _contains(flags, shlex.split(inherited)):
-        problems.append(f"`make {target}` drops the caller's RUSTFLAGS: {flags}")
+        problems.append(f"{where} drops the caller's RUSTFLAGS: {flags}")
     return problems
 
 
@@ -201,8 +199,7 @@ def _development_problems(
                 _unassigned_problems(target, inherited)
                 if flags is None
                 else _flag_problems(
-                    target,
-                    host,
+                    f"`make {target}` on {host}",
                     flags,
                     expects_linker=expects_linker,
                     inherited=inherited,
@@ -290,6 +287,10 @@ def test_development_targets_leave_the_linker_off_a_non_linux_target() -> None:
         "Linux",
         expects_linker=True,
         overrides=("CARGO_BUILD_TARGET=aarch64-unknown-linux-gnu",),
+    )
+    # Cargo resolves `host-tuple` to the host's own triple.
+    problems += _development_problems(
+        "Linux", expects_linker=True, overrides=("CARGO_BUILD_TARGET=host-tuple",)
     )
     assert problems == [], problems
 
