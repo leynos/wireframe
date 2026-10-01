@@ -30,6 +30,8 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -395,3 +397,47 @@ def test_ci_installs_the_linker_before_gate_targets() -> None:
     """The gate targets restate `mold`, so a Linux job must install it first."""
     missing = _jobs_missing_the_linker()
     assert missing == [], f"jobs run a gate target before installing `mold`: {missing}"
+
+
+#: Compilation targets the routing property draws from: none set, the host's own
+#: triple, Linux and non-Linux triples. Each is paired with whether `mold`
+#: applies on a Linux host.
+TARGET_CASES = [
+    (None, True),
+    ("host-tuple", True),
+    ("x86_64-unknown-linux-gnu", True),
+    ("aarch64-unknown-linux-musl", True),
+    ("aarch64-apple-darwin", False),
+    ("x86_64-pc-windows-msvc", False),
+    ("wasm32-unknown-unknown", False),
+]
+
+
+@settings(
+    max_examples=25,
+    deadline=None,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+@given(
+    host=st.sampled_from(["Linux", "Darwin"]),
+    case=st.sampled_from(TARGET_CASES),
+    inherited=st.sampled_from([None, "", "-D warnings", INHERITED]),
+)
+def test_routing_holds_for_every_host_target_and_inherited_value(
+    host: str, case: tuple[str | None, bool], inherited: str | None
+) -> None:
+    """The flags follow the host, the target and the caller's ``RUSTFLAGS``.
+
+    `mold` appears exactly when a Linux host builds for a Linux target, the
+    frontend flag always appears, and whatever the caller exported is kept. The
+    fixed examples above pin single points; this draws the combinations.
+    """
+    target, linux_target = case
+    overrides = (f"CARGO_BUILD_TARGET={target}",) if target else ()
+    problems = _development_problems(
+        host,
+        expects_linker=host == "Linux" and linux_target,
+        inherited=inherited,
+        overrides=overrides,
+    )
+    assert problems == [], problems

@@ -100,7 +100,7 @@ test: ## Run all tests (bdd + unit/integration)
 
 test-workflow-contracts: ## Validate workflow invocation contracts
 	$(CV005_CONTRACTS) check --repository .
-	$(PYTHON_NO_BYTECODE_ENV) uv run --with 'pytest>=8' --with 'pyyaml>=6' pytest tests/workflow_contracts -q
+	$(PYTHON_NO_BYTECODE_ENV) uv run --with 'pytest>=8' --with 'pyyaml>=6' --with 'hypothesis>=6' pytest tests/workflow_contracts -q
 
 test-loom: ## Run the Loom models under --cfg loom
 	LOOM_MAX_PREEMPTIONS=$(LOOM_MAX_PREEMPTIONS) RUSTFLAGS="--cfg loom" $(CARGO) test -p $(LOOM_CRATE) $(BUILD_JOBS)
