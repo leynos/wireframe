@@ -51,11 +51,14 @@ constraint is satisfied rather than waived. repovec-appliance runs the same
 `whitaker-installer` 0.2.6 on Ubicloud, green, and so does this lane. Should a
 lane ever need the `-ubuntu-2204` variant, the old constraint returns with it.
 
-The Whitaker installer cache key now includes `runner.environment`, because
-this lane runs on two environments and the cached artefact is a compiled
-binary. Both images are Ubuntu 24.04 today, so the key would not yet collide;
-it is keyed now because the lane gained a second environment in the change that
-could later give it a second glibc.
+Whitaker is installed through the shared `install-whitaker` action, which owns
+its installer cache. The action keys that cache by operating system,
+architecture, installer version, `dylint.toml` and Cargo home, not by
+`runner.environment`. The repository's own cache step and the contract that
+pinned its key are retired with it: both runner environments are Ubuntu 24.04
+today, so they share a glibc and no restore can run on an older one. Should the
+two environments ever diverge, key the action's cache provider instead of
+restoring a compiled installer by hand.
 
 ### Why four vCPU and not two
 
