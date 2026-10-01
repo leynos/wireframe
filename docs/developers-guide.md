@@ -48,8 +48,9 @@ Namespace's shared profile is Ubuntu 22.04, which carries glibc 2.35.
 
 `ubicloud-standard-4` is Ubuntu 24.04, which carries glibc 2.39, so the
 constraint is satisfied rather than waived. repovec-appliance runs the same
-`whitaker-installer` 0.2.6 on Ubicloud, green, and so does this lane. Should a
-lane ever need the `-ubuntu-2204` variant, the old constraint returns with it.
+`whitaker-installer` on Ubicloud, green, and so does this lane, which now takes
+the 0.2.9 release the shared action pins. Should a lane ever need the
+`-ubuntu-2204` variant, the old constraint returns with it.
 
 Whitaker is installed through the shared `install-whitaker` action, which owns
 its installer cache. The action keys that cache by operating system,

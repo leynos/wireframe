@@ -21,6 +21,9 @@ MAKEFILE_PATH = Path(__file__).resolve().parents[2] / "Makefile"
 MARKDOWNLINT_ACTION_RE = re.compile(
     r"^DavidAnson/markdownlint-cli2-action@[0-9a-f]{40}$"
 )
+INSTALL_WHITAKER_ACTION_RE = re.compile(
+    r"^leynos/shared-actions/\.github/actions/install-whitaker@[0-9a-f]{40}$"
+)
 INSTALL_NIXIE_ACTION_RE = re.compile(
     r"^leynos/shared-actions/\.github/actions/install-nixie@[0-9a-f]{40}$"
 )
@@ -206,3 +209,26 @@ def test_build_test_checks_out_at_the_default_depth() -> None:
         "build-test must check out at the default depth; it sets fetch-depth "
         f"{options.get('fetch-depth')!r}, and nothing in the lane reads history"
     )
+
+
+def test_whitaker_is_installed_only_through_the_pinned_shared_action() -> None:
+    """Exactly one step installs Whitaker, through the action at a full SHA.
+
+    Invariant: the shared action owns the install (digest-verified release,
+    no source fallback), so the step carries a `uses` pinned to a 40-hex commit
+    and no script of its own. The count is asserted first, because a contract
+    over no steps is satisfied by deleting the install.
+    """
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    steps = [
+        step
+        for job in cast("dict[str, dict[str, object]]", workflow["jobs"]).values()
+        for step in cast("list[dict[str, object]]", job.get("steps", []))
+        if step.get("name") == "Install Whitaker"
+    ]
+    assert len(steps) == 1, f"expected one 'Install Whitaker' step, found {len(steps)}"
+    (step,) = steps
+    assert INSTALL_WHITAKER_ACTION_RE.fullmatch(str(step.get("uses", ""))), (
+        "'Install Whitaker' must use the shared action at a full commit SHA"
+    )
+    assert "run" not in step, "'Install Whitaker' must not carry a script of its own"
