@@ -52,7 +52,16 @@ COMMAND_WORDS = ("cargo",)
 #: Makefile targets that build for development. A command in one either
 #: assigns RUSTFLAGS with the standard flags or assigns none and so takes the
 #: configuration's.
-DEVELOPMENT_TARGETS = ["test", "typecheck", "lint", "build"]
+DEVELOPMENT_TARGETS = [
+    "test",
+    "typecheck",
+    "lint",
+    "build",
+    "dev-build",
+    "dev-test",
+    "test-bdd",
+    "test-doc",
+]
 #: Development targets that must assign RUSTFLAGS in at least one command, so
 #: the restatement checks cannot pass by finding nothing to check.
 ASSIGNING_TARGETS = ["test", "typecheck", "lint", "build"]
@@ -61,7 +70,17 @@ ASSIGNING_TARGETS = ["test", "typecheck", "lint", "build"]
 #: coverage action under the job's own `RUSTFLAGS`.
 HELD_OUT_TARGETS = ["release"]
 #: Make targets whose CI invocation builds Rust, so the job needs `mold`.
-GATE_TARGETS = {"test", "lint", "typecheck", "build", "all"}
+GATE_TARGETS = {
+    "test",
+    "lint",
+    "typecheck",
+    "build",
+    "all",
+    "dev-build",
+    "dev-test",
+    "test-bdd",
+    "test-doc",
+}
 MAKE_TARGET_RE = re.compile(r"\bmake\s+(?:-\S+\s+)*([\w-]+)")
 
 

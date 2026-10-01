@@ -828,7 +828,7 @@ overridable `BUILD_HOST_OS`) is Linux *and* the effective Cargo target is
 Linux, and recognizes standard Linux target triples by `-unknown-linux-`. For a
 custom JSON or non-standard Linux target, set `CARGO_BUILD_TARGET_OS=Linux`.
 Release builds assign the inherited `RUSTFLAGS`, which is empty when the caller
-exports none, and so take neither flag. The Loom, verification and Whitaker
+exports none, and so take neither flag. The Loom, verification, and Whitaker
 commands keep their own `RUSTFLAGS`, as `dev_fast_routing_test.py` and
 `loom_lane_test.py` require. `tests/workflow_contracts/build_standard_test.py`
 holds the configuration and the development and release recipes to the standard.
@@ -863,8 +863,9 @@ undefined; all doctests passed with the LLVM override.
 The explicit fragment remains selected by the Make test targets, but their
 tests are not Cranelift-accelerated. Development builds, lint, and typecheck
 continue to use Cranelift. This is a pinned-toolchain exception to the Netsuke
-source fragment; reproduce both failures and reassess the override when the
-toolchain pin changes.
+source fragment; reproduce the recorded failures and reassess the override when
+the toolchain pin changes. The failures above are the first measurement; the
+re-measurement below supersedes their details.
 
 Re-measured on 2026-09-28 on the pinned `nightly-2026-03-26`, with Cranelift
 for both the development and test profiles, as part of adopting the build
