@@ -78,7 +78,7 @@ Primary code surfaces:
 - `src/server/runtime.rs`;
 - `src/server/runtime/accept.rs`;
 - `src/server/connection_spawner.rs`;
-- `examples/ping_pong.rs` and `examples/packet_enum.rs`.
+- `examples/echo.rs`, `examples/ping_pong.rs`, and `examples/packet_enum.rs`.
 
 Related issues and decisions:
 
