@@ -316,19 +316,32 @@ def test_development_targets_leave_the_linker_off_a_non_linux_target() -> None:
     assert problems == [], problems
 
 
+@pytest.mark.parametrize("inherited", [None, INHERITED])
 @pytest.mark.parametrize("target", HELD_OUT_TARGETS)
-def test_coverage_and_release_take_neither_flag(target: str) -> None:
+def test_coverage_and_release_take_neither_flag(
+    target: str, inherited: str | None
+) -> None:
     """Coverage measures and release ships, so both stay on default flags.
 
     Every command must assign RUSTFLAGS, since only an assignment displaces
-    the configuration's sources.
+    the configuration's sources. Assigned the caller's value, it keeps what the
+    caller exported and adds neither standard flag; assigned nothing, it is
+    empty.
     """
-    for flags in _make_rustflags(target):
+    for flags in _make_rustflags(target, inherited=inherited):
         assert flags is not None, (
             f"`make {target}` runs a command that takes the configuration's flags"
         )
         assert THREADS_FLAG not in flags, f"`make {target}` takes {THREADS_FLAG}"
         assert LINKER_FLAG not in flags, f"`make {target}` takes {LINKER_FLAG}"
+        if inherited is not None:
+            assert _contains(flags, shlex.split(inherited)), (
+                f"`make {target}` drops the caller's RUSTFLAGS: {flags}"
+            )
+        else:
+            assert flags == [], (
+                f"`make {target}` assigns flags nobody asked for: {flags}"
+            )
 
 
 def _linux_jobs() -> list[tuple[str, dict]]:
