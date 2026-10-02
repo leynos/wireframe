@@ -86,7 +86,7 @@ jobs:
         # a5765019 is the floor: from it the uploader selects the CodeScene
         # CLI from a committed manifest. Earlier revisions install "latest",
         # which no longer resolves.
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@2a910bfcfd1ea4216419f9290331785f05b33320
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@ff1dd759dfffc0db3459e30e833f52437ee62b57
         with:
           format: lcov
           # Stated rather than left to the action's default, because this
