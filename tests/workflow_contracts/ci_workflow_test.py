@@ -211,24 +211,71 @@ def test_build_test_checks_out_at_the_default_depth() -> None:
     )
 
 
-def test_whitaker_is_installed_only_through_the_pinned_shared_action() -> None:
-    """Exactly one step installs Whitaker, through the action at a full SHA.
+WORKFLOWS_DIRECTORY = WORKFLOW_PATH.parent
+WHITAKER_ROUTE_RE = re.compile(
+    r"whitaker-installer|(cargo\s+(\+\S+\s+)?(install|binstall))[^\n]*(cargo-dylint|dylint-link)",
+)
 
-    Invariant: the shared action owns the install (digest-verified release,
-    no source fallback), so the step carries a `uses` pinned to a 40-hex commit
-    and no script of its own. The count is asserted first, because a contract
-    over no steps is satisfied by deleting the install.
+
+def _workflow_steps() -> list[tuple[str, str, dict[str, object]]]:
+    """Return (workflow file, job, step) for every step in every workflow."""
+    found: list[tuple[str, str, dict[str, object]]] = []
+    for path in sorted(WORKFLOWS_DIRECTORY.glob("*.y*ml")):
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        jobs = cast("dict[str, dict[str, object]]", document.get("jobs") or {})
+        for job_name, job in jobs.items():
+            for step in cast("list[dict[str, object]]", job.get("steps") or []):
+                found.append((path.name, job_name, step))
+    return found
+
+
+def test_whitaker_is_installed_only_through_the_pinned_shared_action() -> None:
+    """Exactly one step installs Whitaker, and nothing else can.
+
+    Invariant, over every job and step of every workflow: one invocation of the
+    shared `install-whitaker` action, pinned to a full commit SHA, carrying no
+    script; no other `run` script installs or invokes the Whitaker tools; no
+    repository-owned Whitaker cache step survives; and no
+    `WHITAKER_INSTALLER_VERSION` variable is defined, because the action owns
+    the installer version. Which shared-actions revision is acceptable is
+    concordat's QG-002 rule, not this repository's; the shared-action contract
+    keeps every reference on one commit. The count is asserted first, because a
+    contract over no steps is satisfied by deleting the install.
     """
-    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
-    steps = [
-        step
-        for job in cast("dict[str, dict[str, object]]", workflow["jobs"]).values()
-        for step in cast("list[dict[str, object]]", job.get("steps", []))
-        if step.get("name") == "Install Whitaker"
+    steps = _workflow_steps()
+    installs = [
+        (file, job, step)
+        for file, job, step in steps
+        if str(step.get("uses", "")).startswith(
+            "leynos/shared-actions/.github/actions/install-whitaker@"
+        )
     ]
-    assert len(steps) == 1, f"expected one 'Install Whitaker' step, found {len(steps)}"
-    (step,) = steps
-    assert INSTALL_WHITAKER_ACTION_RE.fullmatch(str(step.get("uses", ""))), (
-        "'Install Whitaker' must use the shared action at a full commit SHA"
+    assert len(installs) == 1, f"expected one install-whitaker use, found {len(installs)}"
+    (_file, _job, install) = installs[0]
+    assert INSTALL_WHITAKER_ACTION_RE.fullmatch(str(install["uses"])), (
+        "install-whitaker must be pinned to a full commit SHA"
     )
-    assert "run" not in step, "'Install Whitaker' must not carry a script of its own"
+    assert "run" not in install, "the install-whitaker step must carry no script"
+
+    routes = [
+        f"{file}:{job}: {step.get('name')}"
+        for file, job, step in steps
+        if WHITAKER_ROUTE_RE.search(str(step.get("run", "")))
+    ]
+    assert not routes, f"a script installs or runs Whitaker by hand: {routes}"
+
+    caches = [
+        f"{file}:{job}: {step.get('name')}"
+        for file, job, step in steps
+        if str(step.get("uses", "")).startswith("actions/cache")
+        and "whitaker" in str(step.get("with", {})).lower()
+    ]
+    assert not caches, f"a repository-owned Whitaker cache step remains: {caches}"
+
+    text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in WORKFLOWS_DIRECTORY.glob("*.y*ml")
+    )
+    assert "WHITAKER_INSTALLER_VERSION" not in text, (
+        "the installer version belongs to the shared action, not a variable here"
+    )
