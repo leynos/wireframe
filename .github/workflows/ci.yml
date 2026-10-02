@@ -109,7 +109,7 @@ jobs:
       # Merman comes from its release archive, verified against a pinned
       # checksum, rather than being compiled from crates.io on every run.
       - name: Install Nixie and Merman CLI
-        uses: leynos/shared-actions/.github/actions/install-nixie@2a910bfcfd1ea4216419f9290331785f05b33320
+        uses: leynos/shared-actions/.github/actions/install-nixie@ff1dd759dfffc0db3459e30e833f52437ee62b57
         with:
           nixie-version: '1.1.0'
           merman-version: '0.7.0'
