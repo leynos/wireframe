@@ -1,6 +1,6 @@
 # Explicit Cargo configuration for routine debug builds through Make.
 # This file stays outside .cargo/ so release, coverage, verification, and
-# Whitaker keep their own backend and linker configuration. Direct Cargo
+# Whitaker keep their own codegen backend. Direct Cargo
 # commands do not select this fragment automatically.
 
 [unstable]
@@ -16,10 +16,8 @@ codegen-backend = "cranelift"
 [profile.test]
 codegen-backend = "llvm"
 
-# No `[target.<...>]` table appears here on purpose. Cargo compares a
-# target-specific `cfg` against the compilation target rather than the host, so
-# a linker setting here could not tell whether `mold` exists on the machine
-# doing the build: a non-Linux host cross-compiling to Linux would be forced
-# onto it. Make owns that decision, because only Make can test the host; see
-# `DEV_LINUX_LINK_ARG`. Keeping the fragment host-independent also means a
-# direct `--config tools/dev-fast/config.toml` invocation is safe everywhere.
+# No `[target.<...>]` table appears here. The build standard's parallel
+# frontend and `mold` linker live in `.cargo/config.toml`, which Cargo reads for
+# every build, and the Makefile restates them where it assigns `RUSTFLAGS`.
+# This fragment carries only the development backend, which stays opt-in
+# because Cranelift is a recorded exception on the pinned toolchain.
