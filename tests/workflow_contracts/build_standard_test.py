@@ -26,13 +26,12 @@ import os
 import re
 import shlex
 import subprocess
-import tomllib
 from pathlib import Path
 
 import pytest
+import tomllib
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 THREADS_FLAG = "-Zthreads=8"
@@ -71,19 +70,6 @@ ASSIGNING_TARGETS = ["test", "typecheck", "lint", "build"]
 #: Coverage has no Makefile target here; CI runs it through the shared
 #: coverage action under the job's own `RUSTFLAGS`.
 HELD_OUT_TARGETS = ["release"]
-#: Make targets whose CI invocation builds Rust, so the job needs `mold`.
-GATE_TARGETS = {
-    "test",
-    "lint",
-    "typecheck",
-    "build",
-    "all",
-    "dev-build",
-    "dev-test",
-    "test-bdd",
-    "test-doc",
-}
-MAKE_TARGET_RE = re.compile(r"\bmake\s+(?:-\S+\s+)*([\w-]+)")
 
 
 def _normalized(flags: list[str]) -> list[str]:
@@ -342,74 +328,6 @@ def test_coverage_and_release_take_neither_flag(
             assert flags == [], (
                 f"`make {target}` assigns flags nobody asked for: {flags}"
             )
-
-
-def _linux_jobs() -> list[tuple[str, dict]]:
-    """Return every CI job not placed on Windows or macOS, named by file."""
-    jobs = []
-    for path in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
-        workflow = yaml.safe_load(path.read_text("utf-8")) or {}
-        jobs.extend(
-            (f"{path.name}:{name}", job)
-            for name, job in (workflow.get("jobs") or {}).items()
-            if not re.search(r"windows|macos", str(job.get("runs-on", "")), re.I)
-        )
-    return jobs
-
-
-def _first_positions(step: dict) -> tuple[int | None, int | None]:
-    """Return where a step first installs `mold` and first runs a gate target.
-
-    Positions are offsets into the step's ``run`` text; a setup-rust step that
-    installs `mold` through its input counts as installing at offset 0.
-    """
-    run = str(step.get("run", ""))
-    inputs = step.get("with") or {}
-    installs = [
-        match.start()
-        for match in re.finditer(r"apt(-get)?\s+install[^\n]*\bmold\b", run)
-    ]
-    if "setup-rust" in str(step.get("uses", "")) and (
-        str(inputs.get("install-mold", "")).lower() == "true"
-    ):
-        installs.append(0)
-    gates = [
-        match.start()
-        for match in MAKE_TARGET_RE.finditer(run)
-        if match.group(1) in GATE_TARGETS
-    ]
-    return min(installs, default=None), min(gates, default=None)
-
-
-def _gate_precedes_install(install_at: int | None, gate_at: int | None) -> bool:
-    """Report whether a step's first gate target comes before its `mold` install."""
-    if gate_at is None:
-        return False
-    return install_at is None or gate_at < install_at
-
-
-def _runs_a_gate_target_first(job: dict) -> bool:
-    """Report whether a job runs a gate target before any step installs `mold`,
-    comparing positions within a step that does both."""
-    for step in job.get("steps") or []:
-        install_at, gate_at = _first_positions(step)
-        if _gate_precedes_install(install_at, gate_at):
-            return True
-        if install_at is not None:
-            return False
-    return False
-
-
-def _jobs_missing_the_linker() -> list[str]:
-    """Return the Linux CI jobs that run a gate target without installing
-    `mold` first."""
-    return [name for name, job in _linux_jobs() if _runs_a_gate_target_first(job)]
-
-
-def test_ci_installs_the_linker_before_gate_targets() -> None:
-    """The gate targets restate `mold`, so a Linux job must install it first."""
-    missing = _jobs_missing_the_linker()
-    assert missing == [], f"jobs run a gate target before installing `mold`: {missing}"
 
 
 #: Compilation targets the routing property draws from: none set, the host's own

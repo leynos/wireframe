@@ -831,7 +831,8 @@ Release builds assign the inherited `RUSTFLAGS`, which is empty when the caller
 exports none, and so take neither flag. The Loom, verification, and Whitaker
 commands keep their own `RUSTFLAGS`, as `dev_fast_routing_test.py` and
 `loom_lane_test.py` require. `tests/workflow_contracts/build_standard_test.py`
-holds the configuration and the development and release recipes to the standard.
+holds the configuration and the development and release recipes to the
+standard, and `build_standard_ci_test.py` holds the CI install order.
 
 The fragment configures the backend only and declares no `[target.<...>]`
 table, so a direct `--config tools/dev-fast/config.toml` invocation behaves the
