@@ -52,11 +52,10 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       BUILD_PROFILE: debug
-      WHITAKER_INSTALLER_VERSION: '0.2.6'
     steps:
       - uses: actions/checkout@v7
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@2a910bfcfd1ea4216419f9290331785f05b33320
+        uses: leynos/shared-actions/.github/actions/setup-rust@6cec89bac47a21cf756d68d638a9a510998e57f8
       - name: Install development backend and linker
         # Both runner choices are Ubuntu. Confirm the manifest's Cranelift
         # component and install the Linux linker before debug Make targets.
@@ -68,37 +67,15 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@2a910bfcfd1ea4216419f9290331785f05b33320
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@6cec89bac47a21cf756d68d638a9a510998e57f8
         with:
           version: "0.6.0"
 
       - name: Format
         run: make check-fmt
 
-      - name: Cache Whitaker installer
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
-        with:
-          path: |
-            ~/.cargo/bin/whitaker-installer
-            ~/.cache/cargo-binstall
-          # `runner.environment` joins the key because this lane now runs on
-          # two runner environments: Ubicloud normally, GitHub-hosted on a
-          # fork's pull request. The cached artefact is a compiled binary, and
-          # `whitaker-installer` requires glibc 2.39, so restoring one built
-          # against a newer image onto an older one fails at run time rather
-          # than at restore. Both images are Ubuntu 24.04 today, so the key
-          # would not collide yet; it is keyed now because the lane gained a
-          # second environment in the same change that could later gain a
-          # second glibc.
-          key: whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ env.WHITAKER_INSTALLER_VERSION }}
       - name: Install Whitaker
-        run: |
-          if command -v whitaker-installer >/dev/null 2>&1; then
-            echo "whitaker-installer already present; skipping cargo binstall"
-          else
-            cargo binstall --no-confirm whitaker-installer@${{ env.WHITAKER_INSTALLER_VERSION }}
-          fi
-          whitaker-installer
+        uses: leynos/shared-actions/.github/actions/install-whitaker@6cec89bac47a21cf756d68d638a9a510998e57f8
       - name: Lint
         run: make lint
       - name: Setup uv
@@ -109,7 +86,7 @@ jobs:
       # Merman comes from its release archive, verified against a pinned
       # checksum, rather than being compiled from crates.io on every run.
       - name: Install Nixie and Merman CLI
-        uses: leynos/shared-actions/.github/actions/install-nixie@2a910bfcfd1ea4216419f9290331785f05b33320
+        uses: leynos/shared-actions/.github/actions/install-nixie@6cec89bac47a21cf756d68d638a9a510998e57f8
         with:
           nixie-version: '1.1.0'
           merman-version: '0.7.0'
@@ -145,7 +122,7 @@ jobs:
       # coverage-main.yml uploads, and it needs nothing from here.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/generate-coverage@2a910bfcfd1ea4216419f9290331785f05b33320
+        uses: leynos/shared-actions/.github/actions/generate-coverage@6cec89bac47a21cf756d68d638a9a510998e57f8
         with:
           output-path: lcov.info
           format: lcov
