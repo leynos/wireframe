@@ -1,7 +1,11 @@
 """Protect pull-request coverage enforcement in CI.
 
 Coverage generation, the spelling toolchain and the Markdown linter's pin are
-asserted here. Where CodeScene may and may not appear is a separate question
+asserted here, and so is the workflow-wide Whitaker provisioning contract: the
+repository installs Whitaker through exactly one pinned shared action, and no
+workflow script, cache step or version variable provisions it another way. That
+check reads every job and step of every workflow file, so a route added under a
+new step name or in a new workflow still fails it. Where CodeScene may and may not appear is a separate question
 with a separate reason, and is held by the shared CV-005 contract library
 (``make test-workflow-contracts``).
 
@@ -213,7 +217,10 @@ def test_build_test_checks_out_at_the_default_depth() -> None:
 
 WORKFLOWS_DIRECTORY = WORKFLOW_PATH.parent
 WHITAKER_ROUTE_RE = re.compile(
-    r"whitaker-installer|(cargo\s+(\+\S+\s+)?(install|binstall))[^\n]*(cargo-dylint|dylint-link)",
+    r"whitaker-installer"
+    r"|cargo\s+(\+\S+\s+)?(install|binstall)[^\n]*(cargo-dylint|dylint-link)"
+    r"|cargo\s+(\+\S+\s+)?dylint\b"
+    r"|(?<![\w-])(cargo-dylint|dylint-link)\b",
 )
 
 
@@ -221,7 +228,8 @@ def _workflow_steps() -> list[tuple[str, str, dict[str, object]]]:
     """Return (workflow file, job, step) for every step in every workflow."""
     found: list[tuple[str, str, dict[str, object]]] = []
     for path in sorted(WORKFLOWS_DIRECTORY.glob("*.y*ml")):
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        # An empty workflow file parses to None; treat it as having no jobs.
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         jobs = cast("dict[str, dict[str, object]]", document.get("jobs") or {})
         for job_name, job in jobs.items():
             for step in cast("list[dict[str, object]]", job.get("steps") or []):
