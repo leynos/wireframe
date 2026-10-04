@@ -16,13 +16,14 @@ DEV_FAST := --config $(DEV_FAST_CONFIG)
 # Make can tell whether the machine doing the build actually has `mold`.
 # `host-tuple` names the host's own triple, so it takes the host's OS. Standard
 # Rust target triples encode Linux as `-unknown-linux-`; callers using
-# a custom or non-standard target can set CARGO_BUILD_TARGET_OS=Linux
-# explicitly.
+# a custom or non-standard target, or a `build.target` set in Cargo's own
+# configuration (which Make cannot read), can name the target's OS with
+# CARGO_BUILD_TARGET_OS, which wins whether or not CARGO_BUILD_TARGET is set.
 CARGO_BUILD_TARGET_OS ?=
 # The machine doing the build; overridable so a contract can read the recipes a
 # non-Linux host would run.
 BUILD_HOST_OS ?= $(shell uname -s)
-DEV_EFFECTIVE_TARGET_OS = $(if $(filter-out host-tuple,$(CARGO_BUILD_TARGET)),$(or $(CARGO_BUILD_TARGET_OS),$(if $(findstring -unknown-linux-,$(CARGO_BUILD_TARGET)),Linux)),$(BUILD_HOST_OS))
+DEV_EFFECTIVE_TARGET_OS = $(or $(CARGO_BUILD_TARGET_OS),$(if $(filter-out host-tuple,$(CARGO_BUILD_TARGET)),$(if $(findstring -unknown-linux-,$(CARGO_BUILD_TARGET)),Linux),$(BUILD_HOST_OS)))
 DEV_LINUX_LINK_ARG := $(if $(filter Linux,$(BUILD_HOST_OS)),$(if $(filter Linux,$(DEV_EFFECTIVE_TARGET_OS)),-Clink-arg=-fuse-ld=mold))
 # The build standard's parallel frontend. `.cargo/config.toml` carries it and
 # `mold` in its `rustflags` sources, but an assigned `RUSTFLAGS` replaces those

@@ -104,6 +104,9 @@ def test_explicit_linux_target_retains_native_linker(target: str) -> None:
         pytest.param("x86_64-linux-android", None, False, id="android"),
         pytest.param("targets/custom-linux-target.json", None, False, id="custom"),
         pytest.param("targets/custom-linux-target.json", "Linux", True, id="custom-linux"),
+        pytest.param(None, "Darwin", False, id="configured-target-darwin"),
+        pytest.param(None, "Linux", True, id="configured-target-linux"),
+        pytest.param(None, None, True, id="host-target"),
     ),
 )
 @pytest.mark.parametrize(
@@ -112,7 +115,7 @@ def test_explicit_linux_target_retains_native_linker(target: str) -> None:
 )
 def test_cross_target_uses_effective_target_os(
     target: str,
-    build_target: str,
+    build_target: str | None,
     build_target_os: str | None,
     expects_linker: bool,
 ) -> None:
