@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from typing import TypedDict
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,7 +29,37 @@ GATE_TARGETS = {
     "test-bdd",
     "test-doc",
 }
-MAKE_TARGET_RE = re.compile(r"\bmake\s+(?:-\S+\s+)*([\w-]+)")
+#: The word after each `make`. This contract judges the invocations this
+#: repository's workflows use, which are `make <target>`; any other form (an
+#: option, or a `NAME=value` assignment before the target) is an error, since it
+#: would hide the target from a pattern that guessed at it.
+MAKE_WORD_RE = re.compile(r"\bmake\b[ \t]*([^\s;&|]*)")
+TARGET_RE = re.compile(r"[\w-]+")
+
+
+class UnrecognizedMakeError(ValueError):
+    """A `make` invocation in a workflow step that this contract cannot read."""
+
+
+def _make_targets(run: str) -> list[tuple[int, str]]:
+    """Return each `make <target>` in a step's ``run`` text, with its offset.
+
+    Raises:
+        UnrecognizedMakeError: for `make` followed by an option, a variable
+            assignment, or nothing, rather than guessing at the target.
+    """
+    targets = []
+    for match in MAKE_WORD_RE.finditer(run):
+        word = match.group(1)
+        if not word or word.startswith("-") or "=" in word:
+            raise UnrecognizedMakeError(
+                f"unrecognized `make` invocation at offset {match.start()}: "
+                f"{match.group(0)!r}; only `make <target>` is recognized"
+            )
+        target = TARGET_RE.match(word)
+        if target:
+            targets.append((match.start(), target.group(0)))
+    return targets
 
 
 #: The fields of a workflow step this contract reads. Functional syntax,
@@ -77,11 +108,7 @@ def _first_positions(step: WorkflowStep) -> tuple[int | None, int | None]:
         str(inputs.get("install-mold", "")).lower() == "true"
     ):
         installs.append(0)
-    gates = [
-        match.start()
-        for match in MAKE_TARGET_RE.finditer(run)
-        if match.group(1) in GATE_TARGETS
-    ]
+    gates = [at for at, target in _make_targets(run) if target in GATE_TARGETS]
     return min(installs, default=None), min(gates, default=None)
 
 
@@ -114,3 +141,51 @@ def test_ci_installs_the_linker_before_gate_targets() -> None:
     """The gate targets restate `mold`, so a Linux job must install it first."""
     missing = _jobs_missing_the_linker()
     assert missing == [], f"jobs run a gate target before installing `mold`: {missing}"
+
+
+def _step_running(run: str) -> WorkflowStep:
+    """Return a step that runs ``run``, for the reader's own tests."""
+    return {"name": "step", "run": run}
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        "make BUILD_JOBS=-j4 test",
+        "make -j 4 test",
+        "make -C subdir test",
+        "make --jobs=4 lint",
+        "make",
+    ],
+)
+def test_an_unrecognized_make_invocation_is_an_error(run: str) -> None:
+    """A form other than `make <target>` fails with a named error instead of
+    being read as another target and letting a gate escape the ordering check."""
+    with pytest.raises(UnrecognizedMakeError, match="only `make <target>`"):
+        _first_positions(_step_running(run))
+
+
+@pytest.mark.parametrize(
+    ("run", "gate_first"),
+    [
+        ("make test", True),
+        ("make lint && make test", True),
+        ("sudo apt-get install -y mold && make test", False),
+        ("make check-fmt", False),
+        ("make markdownlint, then make nixie", False),
+    ],
+)
+def test_the_recognized_make_form_orders_gates_against_the_install(
+    run: str, gate_first: bool
+) -> None:
+    """`make <target>` is read as before, so a gate before the install is caught
+    and a non-gate target, or a gate after the install, is not."""
+    install_at, gate_at = _first_positions(_step_running(run))
+    assert _gate_precedes_install(install_at, gate_at) is gate_first
+
+
+def test_the_repository_workflows_use_only_the_recognized_make_form() -> None:
+    """Every workflow step's `make` invocation reads without error."""
+    for _name, job in _linux_jobs():
+        for step in job.get("steps") or []:
+            _make_targets(str(step.get("run", "")))
