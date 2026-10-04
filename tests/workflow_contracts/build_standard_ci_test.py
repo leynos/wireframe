@@ -35,6 +35,8 @@ GATE_TARGETS = {
 #: would hide the target from a pattern that guessed at it.
 MAKE_WORD_RE = re.compile(r"\bmake\b[ \t]*([^\s;&|]*)")
 TARGET_RE = re.compile(r"[\w-]+")
+#: A word that is not a target: nothing at all, an option, or a `NAME=value`.
+NOT_A_TARGET_RE = re.compile(r"^$|^-|=")
 
 
 class UnrecognizedMakeError(ValueError):
@@ -51,7 +53,7 @@ def _make_targets(run: str) -> list[tuple[int, str]]:
     targets = []
     for match in MAKE_WORD_RE.finditer(run):
         word = match.group(1)
-        if not word or word.startswith("-") or "=" in word:
+        if NOT_A_TARGET_RE.search(word):
             raise UnrecognizedMakeError(
                 f"unrecognized `make` invocation at offset {match.start()}: "
                 f"{match.group(0)!r}; only `make <target>` is recognized"
