@@ -24,7 +24,7 @@ from dev_fast_routing_test import (
     _make_dry_run,
 )
 
-DEV_WARNING_FLAGS = "DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_LINUX_LINK_ARG))"
+DEV_WARNING_FLAGS = "DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_STANDARD_FLAGS))"
 
 
 @dataclass(frozen=True)
@@ -104,6 +104,9 @@ def test_explicit_linux_target_retains_native_linker(target: str) -> None:
         pytest.param("x86_64-linux-android", None, False, id="android"),
         pytest.param("targets/custom-linux-target.json", None, False, id="custom"),
         pytest.param("targets/custom-linux-target.json", "Linux", True, id="custom-linux"),
+        pytest.param(None, "Darwin", False, id="configured-target-darwin"),
+        pytest.param(None, "Linux", True, id="configured-target-linux"),
+        pytest.param(None, None, True, id="host-target"),
     ),
 )
 @pytest.mark.parametrize(
@@ -112,7 +115,7 @@ def test_explicit_linux_target_retains_native_linker(target: str) -> None:
 )
 def test_cross_target_uses_effective_target_os(
     target: str,
-    build_target: str,
+    build_target: str | None,
     build_target_os: str | None,
     expects_linker: bool,
 ) -> None:
@@ -141,7 +144,7 @@ def test_lint_preserves_configured_rustdoc_flags() -> None:
     (
         pytest.param(
             _RoutingFlagMutation(
-                replacement="DEV_WARNING_FLAGS = $(strip -D warnings $(DEV_LINUX_LINK_ARG))",
+                replacement="DEV_WARNING_FLAGS = $(strip -D warnings $(DEV_STANDARD_FLAGS))",
                 assertion=_assert_caller_rustflags,
                 expected_message="must preserve",
             ),
@@ -149,7 +152,7 @@ def test_lint_preserves_configured_rustdoc_flags() -> None:
         ),
         pytest.param(
             _RoutingFlagMutation(
-                replacement="DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) $(DEV_LINUX_LINK_ARG))",
+                replacement="DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) $(DEV_STANDARD_FLAGS))",
                 assertion=_assert_warning_denial,
                 expected_message="must retain",
             ),

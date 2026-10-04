@@ -15,6 +15,8 @@ ignore = [
   "-Clink-arg=-fuse-ld=mold",
   "sudo apt-get install -y mold",
   "mold --version",
+  # setup-rust's input that installs the linker.
+  "install-mold",
   '`[^`\n]+`',
   # Public test-server fixture identifier. This preserves the externally
   # visible helper name without accepting a bare word.

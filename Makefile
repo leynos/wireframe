@@ -14,14 +14,27 @@ DEV_FAST := --config $(DEV_FAST_CONFIG)
 # than leaving it to the dev-fast fragment because Cargo compares a
 # `[target.<cfg>]` table against the compilation target, not the host; only
 # Make can tell whether the machine doing the build actually has `mold`.
-# Standard Rust target triples encode Linux as `-unknown-linux-`; callers using
-# a custom or non-standard target can set CARGO_BUILD_TARGET_OS=Linux
-# explicitly.
+# `host-tuple` names the host's own triple, so it takes the host's OS. Standard
+# Rust target triples encode Linux as `-unknown-linux-`; callers using
+# a custom or non-standard target, or a `build.target` set in Cargo's own
+# configuration (which Make cannot read), can name the target's OS with
+# CARGO_BUILD_TARGET_OS, which wins whether or not CARGO_BUILD_TARGET is set.
 CARGO_BUILD_TARGET_OS ?=
-DEV_EFFECTIVE_TARGET_OS = $(if $(CARGO_BUILD_TARGET),$(or $(CARGO_BUILD_TARGET_OS),$(if $(findstring -unknown-linux-,$(CARGO_BUILD_TARGET)),Linux)),$(shell uname -s))
-DEV_LINUX_LINK_ARG := $(if $(filter Linux,$(shell uname -s)),$(if $(filter Linux,$(DEV_EFFECTIVE_TARGET_OS)),-Clink-arg=-fuse-ld=mold))
-DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_LINUX_LINK_ARG))
-DEV_BUILD_FLAGS = $(strip $(RUSTFLAGS) $(DEV_LINUX_LINK_ARG))
+# The machine doing the build; overridable so a contract can read the recipes a
+# non-Linux host would run.
+BUILD_HOST_OS ?= $(shell uname -s)
+DEV_EFFECTIVE_TARGET_OS = $(or $(CARGO_BUILD_TARGET_OS),$(if $(filter-out host-tuple,$(CARGO_BUILD_TARGET)),$(if $(findstring -unknown-linux-,$(CARGO_BUILD_TARGET)),Linux),$(BUILD_HOST_OS)))
+DEV_LINUX_LINK_ARG := $(if $(filter Linux,$(BUILD_HOST_OS)),$(if $(filter Linux,$(DEV_EFFECTIVE_TARGET_OS)),-Clink-arg=-fuse-ld=mold))
+# The build standard's parallel frontend. `.cargo/config.toml` carries it and
+# `mold` in its `rustflags` sources, but an assigned `RUSTFLAGS` replaces those
+# sources, so every development recipe below restates both.
+DEV_THREADS_FLAG ?= -Zthreads=8
+DEV_STANDARD_FLAGS = $(DEV_THREADS_FLAG) $(DEV_LINUX_LINK_ARG)
+DEV_WARNING_FLAGS = $(strip $(RUSTFLAGS) -D warnings $(DEV_STANDARD_FLAGS))
+DEV_BUILD_FLAGS = $(strip $(RUSTFLAGS) $(DEV_STANDARD_FLAGS))
+# Release builds take neither flag: assigning `RUSTFLAGS`, even to an empty
+# inherited value, displaces every `rustflags` source in the configuration.
+RELEASE_BUILD_ENV = RUSTFLAGS="$${RUSTFLAGS-}"
 DEV_BUILD_ENV = RUSTFLAGS="$(DEV_BUILD_FLAGS)"
 CLIPPY_FLAGS ?= --workspace --all-targets --all-features -- -D warnings
 RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
@@ -88,7 +101,7 @@ test: ## Run all tests (bdd + unit/integration)
 
 test-workflow-contracts: ## Validate workflow invocation contracts
 	$(CV005_CONTRACTS) check --repository .
-	$(PYTHON_NO_BYTECODE_ENV) uv run --with 'pytest>=8' --with 'pyyaml>=6' pytest tests/workflow_contracts -q
+	$(PYTHON_NO_BYTECODE_ENV) uv run --with 'pytest>=8' --with 'pyyaml>=6' --with 'hypothesis>=6' pytest tests/workflow_contracts -q
 
 test-loom: ## Run the Loom models under --cfg loom
 	LOOM_MAX_PREEMPTIONS=$(LOOM_MAX_PREEMPTIONS) RUSTFLAGS="--cfg loom" $(CARGO) test -p $(LOOM_CRATE) $(BUILD_JOBS)
@@ -116,7 +129,7 @@ typecheck: ## Run a workspace typecheck
 
 # will match target/debug/libmy_library.rlib and target/release/libmy_library.rlib
 target/%/lib$(CRATE).rlib: ## Build library in debug or release
-	$(if $(findstring release,$(@)),,$(DEV_BUILD_ENV)) $(CARGO) $(if $(findstring release,$(@)),,$(DEV_FAST)) build $(BUILD_JOBS) \
+	$(if $(findstring release,$(@)),$(RELEASE_BUILD_ENV),$(DEV_BUILD_ENV)) $(CARGO) $(if $(findstring release,$(@)),,$(DEV_FAST)) build $(BUILD_JOBS) \
 	  $(if $(findstring release,$(@)),--release)            \
 	  --lib
 	@# copy the .rlib into your own target tree

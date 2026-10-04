@@ -1,0 +1,28 @@
+# Repository-wide Cargo defaults for the development build standard.
+#
+# The parallel `rustc` frontend is the default for every build, and the `mold`
+# linker is the default when building for Linux. Cargo auto-discovers this
+# file, so a bare `cargo build` gets both. `make release` and the coverage
+# action assign `RUSTFLAGS`, which displaces every `rustflags` source below, so
+# neither takes them. A bare `cargo build --release` assigns nothing: it still
+# reads this file and takes both, because Cargo does not select `rustflags` by
+# profile, unless the caller overrides them.
+#
+# Cranelift is not configured here: it is a recorded exception on the pinned
+# toolchain (see "Cranelift" in docs/developers-guide.md), so the development
+# backend stays in the explicit `tools/dev-fast/config.toml` fragment.
+#
+# Cargo selects a single `rustflags` source rather than merging them: a
+# matching `[target.*]` table replaces `[build] rustflags` outright. Every flag
+# is therefore repeated in each source, and the Makefile restates them where it
+# assigns `RUSTFLAGS` for its development targets.
+
+[build]
+rustflags = ["-Zthreads=8"]
+
+# `mold` ships for Linux only, so the linker flag is gated behind a target `cfg`.
+# Cargo matches this against the compilation target, not the host: a
+# non-Linux host cross-compiling to Linux must assign `RUSTFLAGS` itself, as
+# the Makefile does through `DEV_LINUX_LINK_ARG`.
+[target.'cfg(target_os = "linux")']
+rustflags = ["-Zthreads=8", "-Clink-arg=-fuse-ld=mold"]
