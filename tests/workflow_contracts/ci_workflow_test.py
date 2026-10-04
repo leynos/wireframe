@@ -237,6 +237,26 @@ def _workflow_steps() -> list[tuple[str, str, dict[str, object]]]:
     return found
 
 
+def _assert_installed_before_lint(install: dict[str, object]) -> None:
+    """Require the install in `ci.yml`'s `build-test` job, before `make lint`.
+
+    `make lint` runs `whitaker`, so provisioning it in another job, or after
+    the `Lint` step, leaves the lint command running without its tool while a
+    count-only check still passes.
+    """
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    steps = cast("list[dict[str, object]]", workflow["jobs"]["build-test"]["steps"])
+    install_index = next((i for i, step in enumerate(steps) if step is install or step == install), None)
+    lint_index = next(
+        (i for i, step in enumerate(steps) if step.get("run") == "make lint"), None
+    )
+    assert install_index is not None, "install-whitaker must be a build-test step"
+    assert lint_index is not None, "build-test must run `make lint`"
+    assert install_index < lint_index, (
+        "install-whitaker must run before the Lint step that invokes whitaker"
+    )
+
+
 def test_whitaker_is_installed_only_through_the_pinned_shared_action() -> None:
     """Exactly one step installs Whitaker, and nothing else can.
 
@@ -264,6 +284,7 @@ def test_whitaker_is_installed_only_through_the_pinned_shared_action() -> None:
         "install-whitaker must be pinned to a full commit SHA"
     )
     assert "run" not in install, "the install-whitaker step must carry no script"
+    _assert_installed_before_lint(install)
 
     routes = [
         f"{file}:{job}: {step.get('name')}"
