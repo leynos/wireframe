@@ -191,3 +191,66 @@ def test_the_repository_workflows_use_only_the_recognized_make_form() -> None:
     for _name, job in _linux_jobs():
         for step in job.get("steps") or []:
             _make_targets(str(step.get("run", "")))
+
+
+def _uv_cache_problem(step: WorkflowStep) -> str | None:
+    """Return why a `setup-uv` step's cache setting is not a stated policy.
+
+    The action's default turns caching on and warns when its dependency globs
+    match nothing, so a step must either disable the cache or name the files it
+    keys on. Anything else, including an absent or non-boolean setting, fails.
+    """
+    inputs = step.get("with") or {}
+    enabled = inputs.get("enable-cache")
+    if enabled is False:
+        return None
+    if enabled is True and inputs.get("cache-dependency-glob"):
+        return None
+    return (
+        f"setup-uv step {step.get('name', '?')!r} must set `enable-cache: false`, "
+        "or `enable-cache: true` with a `cache-dependency-glob`; "
+        f"found enable-cache={enabled!r}"
+    )
+
+
+def _uv_steps() -> list[WorkflowStep]:
+    """Return every `setup-uv` step of every workflow in the repository."""
+    steps = []
+    for path in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
+        workflow = yaml.safe_load(path.read_text("utf-8")) or {}
+        for job in (workflow.get("jobs") or {}).values():
+            steps.extend(
+                step
+                for step in job.get("steps") or []
+                if str(step.get("uses", "")).startswith("astral-sh/setup-uv@")
+            )
+    return steps
+
+
+def test_every_setup_uv_step_states_its_cache_policy() -> None:
+    """No workflow leaves `setup-uv` on its default cache, which warns when the
+    dependency globs match nothing."""
+    steps = _uv_steps()
+    assert steps, "no setup-uv step found to hold to the policy"
+    problems = [problem for step in steps if (problem := _uv_cache_problem(step))]
+    assert problems == [], problems
+
+
+@pytest.mark.parametrize(
+    ("inputs", "accepted"),
+    [
+        ({"enable-cache": False}, True),
+        ({"enable-cache": True, "cache-dependency-glob": "uv.lock"}, True),
+        ({"enable-cache": True}, False),
+        ({"enable-cache": "auto"}, False),
+        ({"enable-cache": "false"}, False),
+        ({}, False),
+        ({"python-version": "3.13"}, False),
+    ],
+)
+def test_the_uv_cache_policy_accepts_only_stated_forms(
+    inputs: dict[str, object], accepted: bool
+) -> None:
+    """Disabled, or enabled with a dependency glob; every other form fails."""
+    step: WorkflowStep = {"name": "uv", "uses": "astral-sh/setup-uv@x", "with": inputs}
+    assert (_uv_cache_problem(step) is None) is accepted
