@@ -1,7 +1,11 @@
 """Protect pull-request coverage enforcement in CI.
 
 Coverage generation, the spelling toolchain and the Markdown linter's pin are
-asserted here. Where CodeScene may and may not appear is a separate question
+asserted here, and so is the workflow-wide Whitaker provisioning contract: the
+repository installs Whitaker through exactly one pinned shared action, and no
+workflow script, cache step or version variable provisions it another way. That
+check reads every job and step of every workflow file, so a route added under a
+new step name or in a new workflow still fails it. Where CodeScene may and may not appear is a separate question
 with a separate reason, and is held by the shared CV-005 contract library
 (``make test-workflow-contracts``).
 
@@ -20,6 +24,9 @@ WORKFLOW_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / 
 MAKEFILE_PATH = Path(__file__).resolve().parents[2] / "Makefile"
 MARKDOWNLINT_ACTION_RE = re.compile(
     r"^DavidAnson/markdownlint-cli2-action@[0-9a-f]{40}$"
+)
+INSTALL_WHITAKER_ACTION_RE = re.compile(
+    r"^leynos/shared-actions/\.github/actions/install-whitaker@[0-9a-f]{40}$"
 )
 INSTALL_NIXIE_ACTION_RE = re.compile(
     r"^leynos/shared-actions/\.github/actions/install-nixie@[0-9a-f]{40}$"
@@ -205,4 +212,99 @@ def test_build_test_checks_out_at_the_default_depth() -> None:
     assert "fetch-depth" not in options, (
         "build-test must check out at the default depth; it sets fetch-depth "
         f"{options.get('fetch-depth')!r}, and nothing in the lane reads history"
+    )
+
+
+WORKFLOWS_DIRECTORY = WORKFLOW_PATH.parent
+WHITAKER_ROUTE_RE = re.compile(
+    r"whitaker-installer"
+    r"|cargo\s+(\+\S+\s+)?(install|binstall)[^\n]*(cargo-dylint|dylint-link)"
+    r"|cargo\s+(\+\S+\s+)?dylint\b"
+    r"|(?<![\w-])(cargo-dylint|dylint-link)\b",
+)
+
+
+def _workflow_steps() -> list[tuple[str, str, dict[str, object]]]:
+    """Return (workflow file, job, step) for every step in every workflow."""
+    found: list[tuple[str, str, dict[str, object]]] = []
+    for path in sorted(WORKFLOWS_DIRECTORY.glob("*.y*ml")):
+        # An empty workflow file parses to None; treat it as having no jobs.
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        jobs = cast("dict[str, dict[str, object]]", document.get("jobs") or {})
+        for job_name, job in jobs.items():
+            for step in cast("list[dict[str, object]]", job.get("steps") or []):
+                found.append((path.name, job_name, step))
+    return found
+
+
+def _assert_installed_before_lint(install: dict[str, object]) -> None:
+    """Require the install in `ci.yml`'s `build-test` job, before `make lint`.
+
+    `make lint` runs `whitaker`, so provisioning it in another job, or after
+    the `Lint` step, leaves the lint command running without its tool while a
+    count-only check still passes.
+    """
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    steps = cast("list[dict[str, object]]", workflow["jobs"]["build-test"]["steps"])
+    install_index = next((i for i, step in enumerate(steps) if step is install or step == install), None)
+    lint_index = next(
+        (i for i, step in enumerate(steps) if step.get("run") == "make lint"), None
+    )
+    assert install_index is not None, "install-whitaker must be a build-test step"
+    assert lint_index is not None, "build-test must run `make lint`"
+    assert install_index < lint_index, (
+        "install-whitaker must run before the Lint step that invokes whitaker"
+    )
+
+
+def test_whitaker_is_installed_only_through_the_pinned_shared_action() -> None:
+    """Exactly one step installs Whitaker, and nothing else can.
+
+    Invariant, over every job and step of every workflow: one invocation of the
+    shared `install-whitaker` action, pinned to a full commit SHA, carrying no
+    script; no other `run` script installs or invokes the Whitaker tools; no
+    repository-owned Whitaker cache step survives; and no
+    `WHITAKER_INSTALLER_VERSION` variable is defined, because the action owns
+    the installer version. Which shared-actions revision is acceptable is
+    concordat's QG-002 rule, not this repository's; the shared-action contract
+    keeps every reference on one commit. The count is asserted first, because a
+    contract over no steps is satisfied by deleting the install.
+    """
+    steps = _workflow_steps()
+    installs = [
+        (file, job, step)
+        for file, job, step in steps
+        if str(step.get("uses", "")).startswith(
+            "leynos/shared-actions/.github/actions/install-whitaker@"
+        )
+    ]
+    assert len(installs) == 1, f"expected one install-whitaker use, found {len(installs)}"
+    (_file, _job, install) = installs[0]
+    assert INSTALL_WHITAKER_ACTION_RE.fullmatch(str(install["uses"])), (
+        "install-whitaker must be pinned to a full commit SHA"
+    )
+    assert "run" not in install, "the install-whitaker step must carry no script"
+    _assert_installed_before_lint(install)
+
+    routes = [
+        f"{file}:{job}: {step.get('name')}"
+        for file, job, step in steps
+        if WHITAKER_ROUTE_RE.search(str(step.get("run", "")))
+    ]
+    assert not routes, f"a script installs or runs Whitaker by hand: {routes}"
+
+    caches = [
+        f"{file}:{job}: {step.get('name')}"
+        for file, job, step in steps
+        if str(step.get("uses", "")).startswith("actions/cache")
+        and "whitaker" in str(step.get("with", {})).lower()
+    ]
+    assert not caches, f"a repository-owned Whitaker cache step remains: {caches}"
+
+    text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in WORKFLOWS_DIRECTORY.glob("*.y*ml")
+    )
+    assert "WHITAKER_INSTALLER_VERSION" not in text, (
+        "the installer version belongs to the shared action, not a variable here"
     )
