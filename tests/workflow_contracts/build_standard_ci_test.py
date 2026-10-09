@@ -2,7 +2,12 @@
 
 The Makefile restates the build standard's `mold` flag for its gate targets,
 so every Linux job must install `mold` before the first gate target runs.
-The Makefile and configuration clauses live in ``build_standard_test.py``.
+Coverage builds Rust through the ``generate-coverage`` action, not a gate
+target, and its nested cargo runs (the trybuild cases) link with `mold` through
+``.cargo/config.toml``, so every Linux job that runs ``generate-coverage`` must
+also install `mold` first, either through ``setup-rust``'s ``install-mold``
+input or an ``apt`` install. The Makefile and configuration clauses live in
+``build_standard_test.py``.
 
 Run via ``make test-workflow-contracts``.
 """
