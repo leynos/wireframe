@@ -4,6 +4,9 @@ updates:
   # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
     groups:
+      shared-actions:
+        patterns:
+          - 'leynos/shared-actions*'
       github-actions:
         patterns:
           - '*'
@@ -30,6 +33,11 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    # bincode 3.0.0 is a `compile_error!` stub, so a bump to it cannot build.
+    # Drop this when a usable bincode 3 release exists.
+    ignore:
+      - dependency-name: "bincode"
+        versions: [">= 3"]
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
