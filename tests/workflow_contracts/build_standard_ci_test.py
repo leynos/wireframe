@@ -217,7 +217,7 @@ def test_the_main_coverage_lane_is_held_to_the_linker_contract() -> None:
             False,
         ),
     ],
-    ids=["bare", "setup-rust-without-mold", "input", "apt"],
+    ids=["bare", "setup-rust-no-linker", "input", "apt"],
 )
 def test_the_coverage_ordering_check_reads_each_way_to_install_the_linker(
     steps: list[WorkflowStep], unsafe: bool

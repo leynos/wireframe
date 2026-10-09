@@ -842,7 +842,12 @@ The Loom, verification, and Whitaker commands keep their own `RUSTFLAGS`, as
 `dev_fast_routing_test.py` and `loom_lane_test.py` require.
 `tests/workflow_contracts/build_standard_test.py` holds the configuration and
 the development and release recipes to the standard, and
-`build_standard_ci_test.py` holds the CI install order.
+`build_standard_ci_test.py` holds the CI install order. The coverage lane
+(`coverage-main.yml:coverage-upload`) installs `mold` through `setup-rust`'s
+`install-mold` input before `generate-coverage`, because the trybuild cases
+compile scratch crates under `target/` that link with `mold` through the Cargo
+configuration. The same file requires every Linux job that runs
+`generate-coverage` to install `mold` first, by that input or by `apt`.
 
 The fragment configures the backend only and declares no `[target.<...>]`
 table, so a direct `--config tools/dev-fast/config.toml` invocation behaves the
