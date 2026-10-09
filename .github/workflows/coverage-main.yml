@@ -57,8 +57,14 @@ jobs:
         with:
           repository: leynos/wireframe
           persist-credentials: false
+      # `.cargo/config.toml` selects `mold` for every Linux build, including
+      # the scratch crates the trybuild case compiles under `target/`, so the
+      # runner needs the linker before coverage runs. The input installs it
+      # and sets no flag; the Cargo configuration does that.
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@6cec89bac47a21cf756d68d638a9a510998e57f8
+        with:
+          install-mold: 'true'
       - name: Test and Measure Coverage
         uses: leynos/shared-actions/.github/actions/generate-coverage@6cec89bac47a21cf756d68d638a9a510998e57f8
         with:
