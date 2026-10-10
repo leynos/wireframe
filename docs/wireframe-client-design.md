@@ -563,6 +563,48 @@ flowchart TD
   - the scheduler never bypasses `max_in_flight_per_socket`, serialized socket
     access, or idle recycle behaviour inherited from `17.2.1`.
 
+For screen readers: the following sequence diagram shows a caller acquiring a
+pool lease. The scheduler first queues the caller under the configured fairness
+policy, then attempts an immediate lease. When one is available, it hands the
+lease to a queued waiter when present, otherwise it returns the lease to the
+caller. When no lease is available, the scheduler begins servicing if it
+obtains ownership, and a worker acquires a client and delivers a lease to the
+next waiter. The caller awaits its receiver in each queued path.
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Scheduler
+    participant Pool
+    participant Worker
+    participant Waiter
+
+    Caller->>Scheduler: acquire()
+    Scheduler->>Scheduler: enqueue waiter
+    Scheduler->>Pool: try_acquire_immediately()
+    alt lease available
+        Pool-->>Scheduler: lease
+        Scheduler->>Scheduler: next_waiter()
+        alt queued waiter exists
+            Scheduler->>Waiter: send(Ok(lease))
+            Scheduler-->>Caller: receiver.await
+        else no queued waiter
+            Scheduler-->>Caller: Ok(lease)
+        end
+    else no lease available
+        Scheduler->>Scheduler: try_begin_servicing()
+        alt worker acquired
+            Scheduler->>Worker: service_waiters()
+            Worker->>Scheduler: next_waiter()
+            Worker->>Pool: acquire client
+            Worker->>Waiter: send lease
+        end
+        Scheduler-->>Caller: receiver.await
+    end
+```
+
+_Figure 1: Client-pool waiter acquisition and servicing transitions._
+
 ## Decision record for 17.4.2
 
 - Decision: document only the currently reachable troubleshooting surface for
