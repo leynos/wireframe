@@ -899,6 +899,34 @@ Thresholds that trigger escalation when breached.
   target's refinement (the servicing guard is no longer cleared on that path).
   Date/Author: 2026-10-12, implementer.
 
+- Decision: accept the replayed series with the spawn counter landing in
+  commit 1 rather than commit 5, and record the reading. Rationale:
+  `git diff TARGET..NEW_HEAD -- src/client/pool/scheduler.rs` is exactly one
+  added line, which is this branch's whole net change to that file, and
+  `git log -S record_scheduler_task_spawn` places it in `0a5df3e` ("Add
+  observability scaffolding") after the replay. Before the rebase the same line
+  appeared in commit 5, because commit 1's version of `kick` was written
+  against the pre-#535 layout. Either placement is consistent with commit 1's
+  stated purpose, that commit being where the scaffold for the counter is
+  introduced; moving it earlier is strictly the better grouping, and it is what
+  `git rebase` produced from the resolved hunks without being directed to. No
+  commit becomes empty and no commit is dropped by the change. Date/Author:
+  2026-10-12, implementer.
+
+- Decision: resolve the other three `!` range-diff entries as target-driven
+  renames and context drift, not content loss, and accept them without further
+  change. Rationale: each was inspected individually rather than accepted
+  because `range-diff` reported it. Commit 1's differences are main's #710
+  (`src/test_helpers.rs` → `src/test_helpers/mod.rs`, `tests/prepared_app.rs` →
+  `tests/prepared_app/mod.rs`) plus the `kick` context above, and the additions
+  themselves are identical on both sides. Commit 5's differences are the
+  removal of the spurious-disconnect patch this branch reverts one commit
+  later, so the two sides start from different `scheduler.rs` texts and cannot
+  replay identically. Commit 9's difference is one block of surrounding prose
+  that #710 rewrote; this branch's added paragraph is unchanged in both. The
+  remaining twelve commits replayed identically. Date/Author: 2026-10-12,
+  implementer.
+
 ## Context and orientation
 
 The repository is `leynos/wireframe`, a Rust 2024 library for building custom
