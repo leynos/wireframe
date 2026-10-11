@@ -675,13 +675,16 @@ fn labels_are_identifier_safe(#[case] label: String) {
 // ---------------------------------------------------------------------------
 // V-O6 — the allocation harness can detect a change in allocation count.
 //
-// The counter assertions for this obligation deliberately live inside
-// `wireframe_testing`'s own unit tests rather than here. `CountingAllocator` is
-// a `#[global_allocator]`, and this file is a `tests/` target of the root crate,
+// The counter assertions for this obligation live in `verify_allocation_harness`
+// in `benches/runtime_ownership_baselines_alloc.rs`, not here and not in
+// `wireframe_testing`'s unit tests. `CountingAllocator` is a
+// `#[global_allocator]`, and this file is a `tests/` target of the root crate,
 // which links the system allocator: a probe here reported zero for a closure
 // that allocated a 1024-byte buffer, proving the gate cannot open in this
 // binary. Installing an allocator per test target is not possible, so the
-// controls run where the allocator is installed. The nested-`Arc` sensitivity
-// experiment is recorded in `docs/runtime-ownership-baselines.md` for the same
-// reason.
+// controls run where the allocator is installed. `wireframe_testing`'s own unit
+// tests can only check that the counting window opens and closes, since the gate
+// is observable without the allocator; the counts themselves are asserted in the
+// bench binary. The nested-`Arc` sensitivity experiment is recorded in
+// `docs/runtime-ownership-baselines.md` for the same reason.
 // ---------------------------------------------------------------------------

@@ -245,11 +245,15 @@ async fn acquisition_phase_does_not_leak_pool_construction_tasks(#[case] pool_si
     .await
     .expect("uncontended measurement failed");
 
-    // The pool is closed before the measurement returns, so the settled
-    // delta cannot still show the eagerly-built connections. `<= 0` is
-    // affordable here because `#[tokio::test]` defaults to a current-thread
-    // runtime, where this gauge is deterministic; the same assertion made on
-    // a multi-thread runtime would be reading the whole runtime's scheduler.
+    // The two readings bracket the acquisition, not the construction: the
+    // `before` sample is taken once the pool is already built, so the eagerly
+    // connected tasks sit on both sides of the subtraction and cancel. Pool
+    // closure is not what makes this delta clean — it happens after the `after`
+    // sample — and it could not be moved inside the bracket without measuring
+    // teardown. `<= 0` is affordable here because `#[tokio::test]` defaults to a
+    // current-thread runtime, where this gauge is deterministic; the same
+    // assertion made on a multi-thread runtime would be reading the whole
+    // runtime's scheduler.
     assert!(
         measurement.alive_task_delta() <= 0,
         "a closed pool must not leave construction tasks behind: delta {} on a {pool_size}-slot \
