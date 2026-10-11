@@ -631,6 +631,37 @@ Thresholds that trigger escalation when breached.
   ever fixed", which is **false** — the assertion tolerates zero failures as
   well as many — and was corrected in the same edit.
 
+- Discovery (2026-10-12): the rebase target's #535 ("Simplify client-pool
+  waiter state transitions") **changed the code path the contended-acquisition
+  defect was measured against**. Its commit message states the rework
+  deliberately avoids stopping a worker from the immediate-lease resolver
+  "because it may still be waiting for capacity on behalf of an earlier queued
+  request". Before #535 that path called `take_next_waiter_or_stop`, which
+  clears the `is_servicing` guard when the queue looks empty; after it, the
+  path calls `next_waiter`, which never clears it. So the flag/worker mismatch
+  the branch identified as the stall mechanism no longer exists in that form.
+
+  What this does and does not invalidate.
+  `git merge-base --is-ancestor 1689563 <pre-rebase base>` shows #535 landed
+  **after** this branch was cut, so every recorded number was taken against the
+  pre-#535 path. The distinction that matters is between the *readings* and the
+  *defect narrative*: the baseline table's timings and allocation counts remain
+  true statements about the environment and code state they name, and the
+  branch records that state. The "known defects" narrative is a claim about
+  live behaviour, and a claim about live behaviour cannot be left standing when
+  the code under it changed. #535 also does not obviously close the
+  spurious-`disconnected` window: both the old and new forms reach
+  `send().is_err() → Err(disconnected)`, so that mode is plausibly untouched.
+  The two modes therefore have to be re-tested separately rather than assumed
+  to share a fate.
+
+  Action: a bounded experiment re-measures the stall on the rebased tree,
+  distinguishing stalls from spurious `disconnected` errors. The recorded
+  defect material is reconciled to whatever it finds — including the
+  possibility that the stall no longer reproduces, in which case the narrative
+  is updated to say so rather than deleted, since a defect that stopped
+  reproducing is exactly the kind of evidence a later reader needs.
+
 ## Decision log
 
 - Decision: resolve the CodeRabbit review's three findings by **correcting the
