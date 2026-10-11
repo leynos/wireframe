@@ -598,7 +598,7 @@ sequenceDiagram
         alt worker acquired
             Scheduler->>Worker: service_waiters()
             Worker->>Scheduler: next_waiter()
-            Worker->>Pool: acquire client
+            Worker->>Pool: acquire slot permit
             Worker->>Waiter: send lease
         end
         Scheduler-->>Caller: receiver.await
