@@ -132,7 +132,19 @@ Thresholds that trigger escalation when breached.
   module at 403 lines against a 400-line limit. `make check-fmt` and
   `make lint` are both green, including the `whitaker --all` step that never
   ran on the first attempt.
-- [ ] Milestone EP-M2: four benchmark support modules in `wireframe_testing`.
+- [x] (2026-10-11 16:50Z) Milestone EP-M2: four benchmark support modules in
+  `wireframe_testing` (`connection_actor_benchmark_support`,
+  `push_benchmark_support`, `connection_startup_benchmark_support`,
+  `client_pool_benchmark_support`) behind the new `runtime-benchmarks` feature,
+  each exposing a workload type and a single fallible `measure_*` entry point.
+  28 crate unit tests pass under `RUSTFLAGS="-D warnings"`, and
+  `cargo check -p wireframe_testing` still passes with default features. A
+  failing push test exposed that `try_push` reports `Ok(())` for a frame a drop
+  policy dead-letters, so `PushMeasurement` reports `accepted`, `drained`, and
+  `dead_lettered` separately; three further doctest defects in the new modules
+  (a mis-aliased constant, a wrong policy assertion, and an unwinnable
+  allocator assertion) were found and fixed by running the crate's doctests
+  directly.
 - [ ] Milestone EP-M3: the two bench binaries, the Makefile target, the rstest
   assertion suite, and the baseline document.
 - [ ] Capture the baseline run and fill in the baseline table.
@@ -217,8 +229,8 @@ Thresholds that trigger escalation when breached.
 
 - Observation: whitaker's `module_max_lines` lint enforces the 400-line module
   limit from `AGENTS.md` as a *hard error* under `-D warnings`, counting the
-  whole file. Evidence: the second lint run failed with `error: Module
-  scheduler spans 403 lines, exceeding the allowed 400` at
+  whole file. Evidence: the second lint run failed with
+  `error: Module scheduler spans 403 lines, exceeding the allowed 400` at
   `src/client/pool/mod.rs:14`; the addition that pushed it over was a 28-line
   static plus accessor. Impact: the spawn counter moved into its own
   `src/client/pool/scheduler_spawns.rs`, mirroring the existing
@@ -227,11 +239,50 @@ Thresholds that trigger escalation when breached.
 
 - Observation: `make lint` runs three steps (rustdoc, clippy, whitaker) and
   whitaker shells out to a *different* pinned toolchain with a dylint driver.
-  Evidence: the successful run shows `Checking with toolchain
-  nightly-2026-05-28` followed by its own `cargo check` after clippy finished.
-  Impact: whitaker needs a generous timeout and its own compiler cache; a lint
-  run that appears to stall after clippy completes is whitaker compiling, not
-  a deadlock.
+  Evidence: the successful run shows
+  `Checking with toolchain nightly-2026-05-28` followed by its own
+  `cargo check` after clippy finished. Impact: whitaker needs a generous
+  timeout and its own compiler cache; a lint run that appears to stall after
+  clippy completes is whitaker compiling, not a deadlock.
+
+- Observation: `PushHandle::try_push` returns `Ok(())` when a drop policy
+  routes the frame to the dead-letter queue, so "the send reported success" and
+  "the frame was queued" are **not** the same event. Evidence:
+  `src/push/queues/handle.rs:332-343` matches `TrySendError::Full` and, for
+  `DropIfFull` and `WarnAndDropIfFull`, calls `self.route_to_dlq(f)` and then
+  returns `Ok(())`; only `ReturnErrorIfFull` returns
+  `Err(PushError::QueueFull)`. Found by a failing test that asserted
+  `delivered + dead_lettered == sends`; it reported `16` for 8 sends because
+  each dropped frame incremented both counters. Impact: the measurement reports
+  `accepted`, `drained`, and `dead_lettered` as three separate figures. An
+  implication for the planned ADR work is that a producer cannot distinguish
+  "queued" from "dropped" using the return value alone, which is worth weighing
+  if #637/#638 change the policy surface.
+
+- Observation: `ConnectionActor` retains **no** producer handle, so draining a
+  preloaded queue to completion is enough to terminate the actor without any
+  cancellation. Evidence: `src/connection/mod.rs` — the struct has no `handle`
+  field; `with_hooks` passes it by value into
+  `hooks.on_connection_setup(handle, &mut ctx)`. `ActorState::new` combines a
+  `closed_sources: 1` start (the shutdown token) with `total_sources: 3` when
+  there is no response and no multi-packet source, so high + low closing
+  reaches the terminal count. Impact: the actor scope drops the producer handle
+  to close the queues and needs no producer-side keepalive, which keeps the
+  measured region to frame processing alone.
+
+- Observation: `PushError` is `#[non_exhaustive]`, so every `match` on it in a
+  downstream crate needs a catch-all arm even though only two variants exist
+  today. Evidence: two `E0004 non-exhaustive patterns` errors while writing
+  `push_benchmark_support.rs`. Impact: the catch-all arms are written to report
+  an unexpected variant as a diagnostic rather than silently folding it into an
+  existing bucket, so a future third variant surfaces as a failure instead of
+  quietly changing a baseline.
+
+- Observation: `Ord::max` is not callable in a `const fn` on this toolchain
+  (`E0658:`Ord` is not stable as a `const trait``), matching the earlier
+  `usize::max` finding. Evidence: `E0658` raised on
+  `client_pool_benchmark_support.rs:121`. Impact: const helper functions use
+  explicit `if x < y { y } else { x }` comparisons instead.
 
 ## Decision log
 
@@ -312,6 +363,31 @@ Thresholds that trigger escalation when breached.
   there would change the type the benchmark measures. Extending the shared
   fixture with generic parameters purely for that one consumer is compatibility
   machinery this plan forbids. Date/Author: 2026-10-11, implementer.
+
+- Decision: observe dead-letter drops from a **receiver on the DLQ channel**
+  rather than from the handle's `dlq_drops` counter, deviating from the
+  originally planned V-O4 evidence. Rationale: `PushHandle::dlq_drops` is
+  `pub(crate)` (exposed only under `cfg(loom)`) and increments only when the
+  DLQ itself is full or closed, so it is both unreachable from
+  `wireframe_testing` and not equal to the overflow count — routing a frame
+  *into* the DLQ is a success, not a drop. The issue's method section asks for
+  "black-box behavioural counters over source-code grep assertions", and a
+  receiver observation is exactly that. The affected trace is
+  `TOR -> V-O4 -> tests/runtime_ownership_benchmark_helpers.rs`; V-O4's
+  statement and deviation note were updated together with this entry. No
+  upstream ADR depends on the counter's visibility, so no ADR change is
+  required. Date/Author: 2026-10-11, implementer.
+
+- Decision: report `accepted`, `drained`, and `dead_lettered` as three separate
+  counters in `PushMeasurement` rather than a single "delivered" figure.
+  Rationale: a drop policy returns `Ok(())` for a frame it routed to the DLQ
+  (`src/push/queues/handle.rs:332-343`), so one counter conflating "the API
+  reported success" with "the frame was queued" would be wrong in exactly the
+  overflow case the issue asks to measure. Three counters make each regime's
+  signature legible: uncontended `accepted == drained == sends`,
+  `ReturnErrorIfFull` `accepted == 0` with `reported_queue_full`, and the drop
+  policies `accepted == dead_lettered == sends`. Date/Author: 2026-10-11,
+  implementer.
 
 ## Context and orientation
 
@@ -541,7 +617,7 @@ are distinguishable.**
 - Statement: uncontended high- and low-priority sends deliver every frame; the
   overflow send returns `PushError::QueueFull` under `ReturnErrorIfFull`,
   returns `Ok(())` under `DropIfFull` and `WarnAndDropIfFull`, and in the two
-  drop policies the handle's dead-letter drop count equals the overflow count.
+  drop policies every rejected frame is observed on the dead-letter queue.
 - Method: parameterized `rstest` over the policy set and queue capacities
   {1, 4, 64}.
 - Rationale: finite partition of policies and capacities with exact expected
@@ -554,6 +630,11 @@ are distinguishable.**
 - Non-vacuity: `ReturnErrorIfFull` is the negative control for the drop
   policies — a mutant that always drops would fail it, and a mutant that always
   errors would fail the drop cases.
+- Deviation: the DLQ observation is taken from a receiver on the dead-letter
+  channel, not from the handle's `dlq_drops` counter. The counter is
+  `pub(crate)` and increments only when the DLQ is itself full or closed, so it
+  is neither reachable from the benchmark crate nor equal to the overflow
+  count. See the matching `Decision log` entry.
 
 **V-O5 — pool task count is stable for uncontended acquisition and grows for
 contended acquisition.**
