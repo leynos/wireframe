@@ -16,10 +16,10 @@ use std::{
 use tokio::sync::Barrier;
 
 use super::acquire_round;
-use crate::runtime_ownership_benchmarks::client_pool_benchmark_support::workload::PoolWorkload;
-
-/// Acquire/release rounds performed by each contender.
-const CONTENDED_ROUNDS: usize = 8;
+use crate::runtime_ownership_benchmarks::client_pool_benchmark_support::workload::{
+    CONTENDED_ROUNDS_PER_CONTENDER,
+    PoolWorkload,
+};
 
 /// Upper bound on a single contended burst.
 ///
@@ -86,7 +86,7 @@ async fn contended_round(workload: PoolWorkload, pool: &Pool) -> Result<u64, Str
         let failures = Arc::clone(&failures);
         tasks.push(tokio::spawn(async move {
             barrier.wait().await;
-            match acquire_round(&mut handle, CONTENDED_ROUNDS).await {
+            match acquire_round(&mut handle, CONTENDED_ROUNDS_PER_CONTENDER).await {
                 Ok(count) => {
                     granted.fetch_add(
                         usize::try_from(count).unwrap_or(usize::MAX),

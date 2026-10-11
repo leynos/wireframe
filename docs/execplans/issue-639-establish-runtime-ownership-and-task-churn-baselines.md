@@ -194,7 +194,12 @@ Thresholds that trigger escalation when breached.
   (`push/measurement/{uncontended,overflow}.rs`,
   `client_pool/measurement/{phase,contended}.rs`). No `#[allow]` was used; all
   21 files are now under 200 lines.
-- [ ] Run every commit gate, then CodeRabbit review; clear all concerns.
+- [x] (2026-10-11 23:57Z) Ran `coderabbit review --agent` (exit 0, 44 files, no
+  rate limit) and resolved all three findings in one commit. Two were
+  lint-invisible documentation contradictions; one was a real flake risk in
+  tests that `.expect` on a single contended burst. See the Decision log for
+  each resolution and the evidence behind it.
+- [ ] Run every commit gate, then a final CodeRabbit review; clear all concerns.
 - [ ] Push over SSH and open a draft pull request.
 
 ## Surprises & discoveries
@@ -568,7 +573,60 @@ Thresholds that trigger escalation when breached.
   about benchmark harnesses. AGENTS.md already establishes the base-PR pattern
   for unrelated gate changes.
 
+- Observation: **the contended pool label advertised a parameter the run never
+  read.** `PoolWorkload::acquisitions` is consulted only by the uncontended
+  branch of `pool_once`; a contended burst is driven by a private
+  `CONTENDED_ROUNDS` constant inside `measurement/contended.rs`. The label
+  nevertheless rendered `acquisitions_256` for a contended workload, so the
+  benchmark identifier claimed a 256-acquisition burst while the run was
+  actually 16 contenders × 8 rounds. The field was silently ignored, and
+  nothing — not a lint, not a test — could notice, because the label is only
+  ever compared against itself. Found by CodeRabbit review, not by the gates.
+
+- Observation: the 400-round known-defect test could not flake, contrary to the
+  review's framing, but it *could* hang for an unbounded time. The test
+  contains no `.expect` on a burst: it pushes each failure into a vector and
+  asserts `failures.len() < ROUNDS`, so a spurious `disconnected` is recorded
+  rather than propagated. Measured at 1.75 s for both fairness policies. The
+  review placed it with the two genuinely flaky cases on the grounds that "each
+  stall can add 30 seconds, across 800 rounds" — the loop had no wall-clock
+  bound, so a pathological run really could hold the gate. Impact: bounded with
+  a `TIME_BUDGET` and a `MIN_ATTEMPTS` floor rather than by reducing `ROUNDS`,
+  since 400 rounds is deliberately matched to the documented one-in-400 rate
+  and lowering it would weaken the evidence the test exists to record. The
+  test's own doc comment also claimed "it will start failing if the defect is
+  ever fixed", which is **false** — the assertion tolerates zero failures as
+  well as many — and was corrected in the same edit.
+
 ## Decision log
+
+- Decision: resolve the CodeRabbit review's three findings by **correcting the
+  labels and the assertions, not the recorded numbers**. Rationale: two
+  findings were documentation contradictions invisible to every lint — a public
+  rustdoc promising a zero the module doc below it explicitly falsified, and a
+  baseline table crediting the two fairness policies with splitting a 256-grant
+  burst when each policy independently grants `contenders × rounds`. The third,
+  the flake risk in tests that `.expect` a single contended burst, is real: the
+  acquire path fails spuriously at roughly one burst in 913 at 16 contenders. A
+  bounded retry (`CONTENDED_BURST_ATTEMPTS = 8`) was added to both such tests,
+  in the crate's own suite and in the integration suite; eight attempts put a
+  false failure below one in 10^27 while still reporting a pool that fails
+  every attempt. The contended label now names the parameter that actually
+  drives the burst — `rounds_{CONTENDED_ROUNDS_PER_CONTENDER}` — and
+  `CONTENDED_ROUNDS_PER_CONTENDER` was promoted from a private constant in the
+  measurement module to public workload data, because a recorded parameter
+  belongs in the label. The recorded counters in
+  `docs/runtime-ownership-baselines.md` stand unchanged: only the identifier
+  changed, and the subsequently re-run benchmark confirmed `granted=128` (16 ×
+  8) under the new label, exactly as the corrected prose now states.
+  Alternatives rejected: (a) making the contended path *consume*
+  `acquisitions` — that redesigns a workload the baseline table is already
+  recorded against, which is scope creep on a baselines-only issue, and
+  `contenders × rounds` is the shape the issue actually asks for; (b) leaving
+  the label alone and correcting only the prose — leaves the identifier
+  actively misleading to anyone reading a Criterion report; (c) reducing
+  `ROUNDS` in the known-defect test — weakens evidence deliberately matched to
+  the documented failure rate. Date/Author: 2026-10-11, implementer.
 
 - Decision: **do not fix** the pool acquire-path defects found while measuring,
   and report contended acquisition as a bounded `tracing` observation instead

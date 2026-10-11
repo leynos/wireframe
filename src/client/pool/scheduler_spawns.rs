@@ -42,9 +42,13 @@ pub(super) fn record_scheduler_task_spawn() {
 
 /// Return the number of pool scheduler worker tasks spawned in this process.
 ///
-/// Useful for asserting that uncontended acquire/drop cycles do not create
-/// additional scheduler tasks, and for confirming that a contended scenario
-/// genuinely exercised the slow path.
+/// Useful for bounding the spawns an uncontended acquire/drop burst causes —
+/// at least one, at most one per idle-to-busy transition — and for confirming
+/// that a contended scenario genuinely exercised the slow path.
+///
+/// It is deliberately *not* a guarantee that an uncontended burst spawns
+/// nothing: see [`POOL_SCHEDULER_TASK_SPAWNS`] for why every release reaches
+/// [`PoolScheduler::kick`](super::scheduler::PoolScheduler::kick).
 ///
 /// # Examples
 ///

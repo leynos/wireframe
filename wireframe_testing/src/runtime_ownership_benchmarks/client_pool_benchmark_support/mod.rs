@@ -91,6 +91,7 @@ mod tests;
 pub use measurement::{CONTENDED_BURST_TIMEOUT, measure_pool_acquisition};
 pub use workload::{
     AcquisitionMode,
+    CONTENDED_ROUNDS_PER_CONTENDER,
     DEFAULT_ACQUISITIONS,
     DEFAULT_CONTENDERS,
     POOL_SIZES,
