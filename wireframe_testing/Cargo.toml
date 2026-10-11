@@ -10,6 +10,13 @@ keywords = ["async", "networking", "binary-protocol", "protocol", "tokio"]
 categories = ["network-programming", "asynchronous"]
 documentation = "https://docs.rs/wireframe_testing"
 
+[features]
+# Measurement helpers for the runtime-ownership hot paths need Wireframe's
+# test-support fixtures (connection startup) and client pool. They stay behind a
+# feature so a plain `cargo check -p wireframe_testing` still works against the
+# crate's default feature set.
+runtime-benchmarks = ["wireframe/test-support", "wireframe/pool"]
+
 [lints]
 workspace = true
 

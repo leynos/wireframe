@@ -138,14 +138,23 @@ pub fn is_allocation_counting_enabled() -> bool {
 /// # Examples
 ///
 /// ```rust
-/// use wireframe_testing::benchmark_alloc_support::count_allocations;
+/// use wireframe_testing::benchmark_alloc_support::{
+///     count_allocations,
+///     is_allocation_counting_enabled,
+/// };
 ///
 /// let count = count_allocations(|| {
 ///     let buffer: Vec<u8> = vec![0; 1024];
 ///     std::hint::black_box(buffer.len());
 ///     Ok(())
 /// })?;
-/// assert!(count > 0, "allocating a buffer must be observed");
+/// std::hint::black_box(count);
+///
+/// // The counter is only driven by `CountingAllocator`, which a process must
+/// // install as its `#[global_allocator]`; a benchmark binary that does so
+/// // observes a non-zero count here. What holds either way is that the window
+/// // closed, so counting cannot leak into the rest of the process.
+/// assert!(!is_allocation_counting_enabled(), "the window must close");
 /// # Ok::<(), String>(())
 /// ```
 pub fn count_allocations<F>(operation: F) -> Result<usize, String>
