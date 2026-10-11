@@ -210,7 +210,7 @@ of this same binary; do not read them as a per-operation cost.
 | `uncontended_pool_4_acquisitions_256_contenders_1`                               | 4          | 2284        |
 
 The startup pair is the sharpest allocation contrast in the table, and it
-parallelises the timing contrast: 160 allocations for the shared prepared root
+parallelizes the timing contrast: 160 allocations for the shared prepared root
 against 408 for the per-connection path over the same four connections. The
 difference of 248 is not exactly `3 × (one preparation)` because preparation is
 only part of what a per-connection start allocates; the connection and its
@@ -417,6 +417,34 @@ task gauge *before* pool construction made
 cases, with deltas of 2, 5, and 17 for 1-, 4-, and 16-slot pools — scaling with
 pool size, which is the intended failure reason. The bracket is load-bearing,
 not cosmetic.
+
+### Live-task gauge
+
+`RuntimeMetrics::num_alive_tasks` counts every task on the runtime, not just
+this workload's. Two consequences follow, and both were established by
+measurement rather than assumed.
+
+The gauge is **only meaningful on a current-thread runtime** when the pool is
+running alongside other work. Sampling an idle→busy acquisition burst on a
+multi-thread runtime produced deltas from −12 to +10, with a long tail above +2
+in roughly a third of runs, at every pool size — on a workload whose own task
+churn is a fixed small constant. Those readings move with the runtime's
+scheduler, not with the pool, so they cannot discharge an assertion about pool
+ownership. On a current-thread runtime the same workload is deterministic: 180
+samples across pool sizes 1, 4, and 16 recorded only −1 and 0, with no outlier.
+
+Settlement therefore has to be established, not assumed. A worker woken by the
+final release observes an empty queue and exits on its first poll, so a gauge
+read taken immediately afterwards can still count a task that is already on its
+way out. Waiting for the gauge to hold steady across several consecutive polls
+— rather than merely to stop falling once — is what turns the reading into a
+settled state. A single flat pair of reads is not evidence of quiescence: an
+exiting worker that has not yet been scheduled produces exactly that.
+
+The asserted bound is consequently a non-scaling ceiling, not a tight fit to
+the observed range. It exists to catch a delta that grows with `pool_size` —
+the failure the mutation above demonstrates — and the property under test is
+"does not scale with the pool", not "happens to settle at or below zero".
 
 ## Regression policy
 

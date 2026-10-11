@@ -183,8 +183,8 @@ Thresholds that trigger escalation when breached.
   `docs/developers-guide.md`.
 - [x] (2026-10-11 20:35Z) Captured the baseline: `make bench-runtime-ownership`
   completed cleanly on the named machine, 24 timing labels, 8 allocation
-  labels, 2 arc-sensitivity labels, and 2 contended observations, with no
-  panic and no error. Filled the four baseline tables in
+  labels, 2 arc-sensitivity labels, and 2 contended observations, with no panic
+  and no error. Filled the four baseline tables in
   `docs/runtime-ownership-baselines.md` from that run.
 - [ ] Run every commit gate, then CodeRabbit review; clear all concerns.
 - [ ] Push over SSH and open a draft pull request.

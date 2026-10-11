@@ -1,6 +1,6 @@
 //! Unit tests for the runtime-ownership benchmark workload and measurement helpers.
 //!
-//! Each test discharges one obligation from the ExecPlan's verification plan for
+//! Each test discharges one obligation from the `ExecPlan`'s verification plan for
 //! issue #639: V-O1 through V-O5 here, with V-O6's allocation controls living in
 //! `benches/runtime_ownership_baselines_alloc.rs` because they need a
 //! `#[global_allocator]` that a `tests/` target cannot install. Those
@@ -45,15 +45,57 @@ const ITERATIONS: u64 = 1;
 
 /// Run a future to completion on a fresh multi-thread runtime.
 ///
-/// Multi-thread rather than current-thread throughout: the contended pool cases
-/// park callers on a barrier and need real parallelism to exhaust the pool, and
-/// using one runtime flavour everywhere keeps a passing uncontended case from
-/// depending on which flavour happened to be chosen.
-fn block_on<F: std::future::Future>(future: F) -> F::Output {
+/// Multi-thread for the workload assertions because the contended pool cases
+/// park callers on a barrier and need real parallelism to exhaust the pool. The
+/// one case that reads the live-task gauge instead uses
+/// [`block_on_current_thread`], for the reason documented there.
+///
+/// Returns `Result` rather than panicking on a runtime-construction failure:
+/// this helper lives outside any `#[test]`, so the workspace's test-only
+/// `expect_used` allowance does not cover it. The error type is the workloads'
+/// own `String` so the result flattens into the one `Result` each caller
+/// already matches on, which keeps the failure surfaced without adding a panic
+/// path to the helper.
+fn block_on<F, T>(future: F) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, String>>,
+{
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .expect("failed to build the test runtime")
+        .map_err(|error| format!("failed to build the test runtime: {error}"))?
+        .block_on(future)
+}
+
+/// Run a future to completion on a fresh current-thread runtime.
+///
+/// Only the live-task-gauge assertion uses this, and the choice is forced by
+/// measurement rather than taste. `RuntimeMetrics::num_alive_tasks` counts
+/// *every* task on the runtime, including ones this workload never created, so
+/// on a multi-thread runtime it is a whole-runtime gauge, not a gauge on the
+/// pool. Sampling it there produced deltas from −12 to +10 with a long tail
+/// above +2 in roughly a third of runs, at every pool size, on a workload whose
+/// own task churn is a fixed small constant.
+///
+/// On a current-thread runtime the same workload is deterministic: 180 samples
+/// across pool sizes 1, 4, and 16 recorded only −1 and 0, with no outlier. That
+/// is the regime in which the reading answers the question the assertion asks,
+/// so the assertion is made here and the multi-thread flavour is left to the
+/// cases that need its parallelism.
+///
+/// Uncontended acquisition does not need parallelism to be exercised: it is a
+/// straight-line acquire/release loop. Only the contended cases park on a
+/// barrier, and they assert counts rather than the gauge.
+///
+/// Error handling matches [`block_on`].
+fn block_on_current_thread<F, T>(future: F) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, String>>,
+{
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| format!("failed to build the test runtime: {error}"))?
         .block_on(future)
 }
 
@@ -345,7 +387,10 @@ fn overflow_drop_routes_every_rejected_frame_to_the_dead_letter_queue(
 #[case::large(16)]
 fn uncontended_acquisition_does_not_spawn_pool_scheduler_tasks(#[case] pool_size: usize) {
     let acquisitions = 16;
-    let measurement = block_on(measure_pool_acquisition(
+    // Current-thread runtime *only* for this case: it is the one case that reads
+    // the live-task gauge, and that gauge is only meaningful when the runtime is
+    // not also running unrelated work. See `block_on_current_thread`.
+    let measurement = block_on_current_thread(measure_pool_acquisition(
         PoolWorkload {
             pool_size,
             mode: AcquisitionMode::Uncontended,
@@ -375,18 +420,24 @@ fn uncontended_acquisition_does_not_spawn_pool_scheduler_tasks(#[case] pool_size
         transitions
     );
     // The bracket excludes pool construction, so the settled delta must be a
-    // small constant rather than scaling with the pool size. Measured settled
-    // deltas are 1, 3, and 2 for pools of 1, 4, and 16 slots; construction, by
-    // contrast, contributed 2, 5, and 17 in the mutation experiment.
+    // small constant rather than scaling with the pool size. Measured over 180
+    // current-thread runs at pool sizes 1, 4, and 16, the delta was only ever
+    // −1 or 0 — a *negative* delta, because a burst can leave a pre-existing
+    // worker idle-exiting. Construction, by contrast, contributes exactly
+    // `pool_size` in the mutation experiment.
     //
-    // A small non-zero figure is expected here because this test drives a
-    // multi-thread runtime whose teardown is asynchronous. The in-module case
-    // `acquisition_phase_does_not_leak_pool_construction_tasks` asserts the
-    // tighter settled bound under a current-thread runtime, and that case is the
-    // one verified by the mutation transcript recorded in
-    // `docs/runtime-ownership-baselines.md`.
+    // The bound is a non-scaling ceiling rather than a tight fit to those two
+    // observed values: pinning it to `<= 0` would encode a scheduling accident,
+    // and the property under test is "does not grow with the pool", not "happens
+    // to settle at or below zero". At pool size 16 the ceiling is seven times
+    // below the construction cost the bracket exists to exclude.
+    //
+    // This is the same property the in-module
+    // `acquisition_phase_does_not_leak_pool_construction_tasks` asserts, from
+    // outside the support crate; that case is the one verified by the mutation
+    // transcript recorded in `docs/runtime-ownership-baselines.md`.
     assert!(
-        measurement.alive_task_delta() <= 4,
+        measurement.alive_task_delta() <= 2,
         "a closed {pool_size}-slot pool must settle to a small constant task delta, not one that \
          scales with the pool: saw {}",
         measurement.alive_task_delta()

@@ -121,6 +121,19 @@ const ARC_PROBE_ITEMS: usize = 256;
 /// set.
 type AllocationScope<'a> = (String, Box<dyn Fn() -> Result<(), String> + 'a>);
 
+/// A named allocation probe: a label, and the function that allocates.
+///
+/// Named rather than inlined in [`arc_probes`]'s return type because the bare
+/// pair of a `&'static str` and a function pointer exceeds the workspace's
+/// type-complexity limit, and because the alias documents what the two halves
+/// mean together.
+///
+/// The probe is infallible. Returning `Result` here would be dead machinery —
+/// neither probe has a failure mode — and infallibility is what lets the two
+/// probe functions stay plain loops instead of error-returning shapes they do
+/// not need.
+type ArcProbe = (&'static str, fn(usize));
+
 /// Unwrap a benchmark helper's result, terminating with a diagnostic on error.
 ///
 /// A failed workload cannot produce a meaningful sample, so stopping the
@@ -139,6 +152,19 @@ where
     F: FnOnce() -> Result<(), String>,
 {
     expect_bench(count_allocations(operation), context)
+}
+
+/// Adapt an infallible probe to the fallible shape the counting window expects.
+///
+/// The nested-`Arc` probes have no failure mode, so they stay plain closures and
+/// this supplies the `Result` the window expects. The alternative — making every
+/// probe return `Ok(())` on a path that can never be `Err` — would be dead
+/// machinery the compiler rightly flags.
+fn infallible(probe: impl Fn()) -> impl Fn() -> Result<(), String> {
+    move || {
+        probe();
+        Ok(())
+    }
 }
 
 /// Run a workload for `iterations` and report how long that took.
@@ -176,6 +202,81 @@ fn contended_pool_workload() -> PoolWorkload {
     }
 }
 
+/// Drive a measurement future to completion, discarding its counters.
+///
+/// The counters are already carried in the benchmark label, so dropping them
+/// here loses nothing: a scope closure's only job is to perform the work the
+/// counting window observes. Adapting every scope through one helper is what
+/// keeps [`allocation_scopes`] short enough to read and keeps the six scopes
+/// visibly identical in shape.
+fn run_measurement<T, E: std::fmt::Display>(
+    runtime: &Runtime,
+    measurement: impl std::future::Future<Output = Result<T, E>>,
+) -> Result<(), String> {
+    runtime
+        .block_on(measurement)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
+/// The workload parameters this binary records allocations for, by scope.
+///
+/// Split from [`allocation_scopes`] because the six literal constructions alone
+/// push that function past the workspace's line limit. Keeping the parameters in
+/// one block also makes them easy to compare at a glance, which is their point:
+/// each differs from the timing binary's defaults deliberately, to keep the
+/// allocation windows short enough to compare as small integers.
+struct AllocationWorkloads {
+    /// Actor drain, with cancellation disabled so the window covers the loop.
+    actor: ActorWorkload,
+    /// Awaited send into a draining queue.
+    push_uncontended: PushWorkload,
+    /// Non-blocking send against a deliberately small, full queue.
+    push_overflow: PushWorkload,
+    /// The shared prepared root, which prepares once for all connections.
+    startup_prepared: StartupWorkload,
+    /// The per-connection factory path, which prepares once per connection.
+    startup_per_connection: StartupWorkload,
+    /// Uncontended acquire/release, the only pool mode safe to time.
+    pool: PoolWorkload,
+}
+
+impl AllocationWorkloads {
+    /// Build the six scopes at their allocation-window parameters.
+    fn new() -> Self {
+        Self {
+            actor: ActorWorkload {
+                frames: ACTOR_FRAMES,
+                queue_capacity: ACTOR_QUEUE_CAPACITY,
+                cancellation: CancellationMode::Disabled,
+            },
+            push_uncontended: PushWorkload {
+                scenario: PushScenario::UncontendedHigh,
+                queue_capacity: PUSH_QUEUE_CAPACITY,
+                sends: PUSH_SENDS,
+            },
+            push_overflow: PushWorkload {
+                scenario: PushScenario::OverflowDrop,
+                queue_capacity: PUSH_OVERFLOW_CAPACITY,
+                sends: PUSH_SENDS,
+            },
+            startup_prepared: StartupWorkload {
+                path: StartupPath::PreparedRoot,
+                ..StartupWorkload::default()
+            },
+            startup_per_connection: StartupWorkload {
+                path: StartupPath::PerConnectionFactory,
+                ..StartupWorkload::default()
+            },
+            pool: PoolWorkload {
+                pool_size: 4,
+                mode: AcquisitionMode::Uncontended,
+                ..PoolWorkload::default()
+            },
+        }
+    }
+}
+
 /// Build the runtime-ownership workloads this binary records allocations for.
 ///
 /// One list feeds both the allocation and timing groups, so adding a scope can
@@ -183,91 +284,92 @@ fn contended_pool_workload() -> PoolWorkload {
 /// because it cannot be timed at all; see [`contended_pool_workload`] and
 /// [`observe_contended_pool_allocations`].
 fn allocation_scopes(runtime: &Runtime) -> Vec<AllocationScope<'_>> {
-    let actor = ActorWorkload {
-        frames: ACTOR_FRAMES,
-        queue_capacity: ACTOR_QUEUE_CAPACITY,
-        cancellation: CancellationMode::Disabled,
-    };
-    let push_uncontended = PushWorkload {
-        scenario: PushScenario::UncontendedHigh,
-        queue_capacity: PUSH_QUEUE_CAPACITY,
-        sends: PUSH_SENDS,
-    };
-    let push_overflow = PushWorkload {
-        scenario: PushScenario::OverflowDrop,
-        queue_capacity: PUSH_OVERFLOW_CAPACITY,
-        sends: PUSH_SENDS,
-    };
-    let startup_prepared = StartupWorkload {
-        path: StartupPath::PreparedRoot,
-        ..StartupWorkload::default()
-    };
-    let startup_per_connection = StartupWorkload {
-        path: StartupPath::PerConnectionFactory,
-        ..StartupWorkload::default()
-    };
-    let pool_uncontended = PoolWorkload {
-        pool_size: 4,
-        mode: AcquisitionMode::Uncontended,
-        ..PoolWorkload::default()
-    };
+    let workloads = AllocationWorkloads::new();
+    let iterations = ALLOCATION_ITERATIONS;
 
     vec![
         (
-            actor.label(),
+            workloads.actor.label(),
             Box::new(move || {
-                runtime
-                    .block_on(measure_actor_drain(actor, ALLOCATION_ITERATIONS))
-                    .map(|_| ())
+                run_measurement(runtime, measure_actor_drain(workloads.actor, iterations))
             }),
         ),
         (
-            push_uncontended.label(),
+            workloads.push_uncontended.label(),
             Box::new(move || {
-                runtime
-                    .block_on(measure_push(push_uncontended, ALLOCATION_ITERATIONS))
-                    .map(|_| ())
+                run_measurement(
+                    runtime,
+                    measure_push(workloads.push_uncontended, iterations),
+                )
             }),
         ),
         (
-            push_overflow.label(),
+            workloads.push_overflow.label(),
             Box::new(move || {
-                runtime
-                    .block_on(measure_push(push_overflow, ALLOCATION_ITERATIONS))
-                    .map(|_| ())
+                run_measurement(runtime, measure_push(workloads.push_overflow, iterations))
             }),
         ),
         (
-            startup_prepared.label(),
+            workloads.startup_prepared.label(),
             Box::new(move || {
-                runtime
-                    .block_on(measure_startup(startup_prepared, ALLOCATION_ITERATIONS))
-                    .map(|_| ())
+                run_measurement(
+                    runtime,
+                    measure_startup(workloads.startup_prepared, iterations),
+                )
             }),
         ),
         (
-            startup_per_connection.label(),
+            workloads.startup_per_connection.label(),
             Box::new(move || {
-                runtime
-                    .block_on(measure_startup(
-                        startup_per_connection,
-                        ALLOCATION_ITERATIONS,
-                    ))
-                    .map(|_| ())
+                run_measurement(
+                    runtime,
+                    measure_startup(workloads.startup_per_connection, iterations),
+                )
             }),
         ),
         (
-            pool_uncontended.label(),
+            workloads.pool.label(),
             Box::new(move || {
-                runtime
-                    .block_on(measure_pool_acquisition(
-                        pool_uncontended,
-                        ALLOCATION_ITERATIONS,
-                    ))
-                    .map(|_| ())
+                run_measurement(
+                    runtime,
+                    measure_pool_acquisition(workloads.pool, iterations),
+                )
             }),
         ),
     ]
+}
+
+/// Emit a successful contended allocation count as an event.
+///
+/// Kept as its own function because a `tracing` macro expands to an
+/// `enabled`/not-enabled conditional, and two of them inside one `match` push
+/// the caller past the workspace's cognitive-complexity limit.
+fn report_contended_success(label: &str, allocations: usize) {
+    tracing::info!(
+        workload = %label,
+        iterations = ALLOCATION_ITERATIONS,
+        allocations,
+        "contended pool allocation observation"
+    );
+}
+
+/// Emit a failed contended allocation count as a warning.
+fn report_contended_failure(label: &str, error: &str) {
+    tracing::warn!(
+        workload = %label,
+        iterations = ALLOCATION_ITERATIONS,
+        %error,
+        "contended pool allocations could not be counted; known acquire-path defect, see \
+         docs/runtime-ownership-baselines.md"
+    );
+}
+
+/// Emit one contended allocation count, or the reason it could not be taken.
+fn report_contended_allocations(label: &str, outcome: Result<usize, String>) {
+    match outcome {
+        Ok(allocations) => report_contended_success(label, allocations),
+        Err(error) => report_contended_failure(label, &error),
+    }
 }
 
 /// Record the contended pool allocation count as a bounded observation.
@@ -282,26 +384,13 @@ fn observe_contended_pool_allocations(runtime: &Runtime) {
     let workload = contended_pool_workload();
     let label = workload.label();
     let outcome = count_allocations(|| {
-        runtime
-            .block_on(measure_pool_acquisition(workload, ALLOCATION_ITERATIONS))
-            .map(|_| ())
+        run_measurement(
+            runtime,
+            measure_pool_acquisition(workload, ALLOCATION_ITERATIONS),
+        )
     });
 
-    match outcome {
-        Ok(allocations) => tracing::info!(
-            workload = %label,
-            iterations = ALLOCATION_ITERATIONS,
-            allocations,
-            "contended pool allocation observation"
-        ),
-        Err(error) => tracing::warn!(
-            workload = %label,
-            iterations = ALLOCATION_ITERATIONS,
-            %error,
-            "contended pool allocations could not be counted; known acquire-path defect, see \
-             docs/runtime-ownership-baselines.md"
-        ),
-    }
+    report_contended_allocations(&label, outcome);
 }
 
 /// Install a subscriber for the allocation binary's own events only.
@@ -329,23 +418,21 @@ fn init_observation_subscriber() {
 /// cloned — so the expected delta against [`probe_fresh_allocation`] is
 /// `items - 1`, not `items`. The assertion in [`verify_allocation_harness`]
 /// states that arithmetic explicitly.
-fn probe_shared_clone(items: usize) -> Result<(), String> {
+fn probe_shared_clone(items: usize) {
     let shared = Arc::new(black_box(0u8));
     for _ in 0..items {
         black_box(Arc::clone(&shared));
     }
-    Ok(())
 }
 
 /// Allocate one fresh `Arc` per item.
 ///
 /// Each construction heap-allocates its control block, so this is the shape
 /// whose removal an allocation counter must be able to see.
-fn probe_fresh_allocation(items: usize) -> Result<(), String> {
+fn probe_fresh_allocation(items: usize) {
     for _ in 0..items {
         black_box(Arc::new(black_box(0u8)));
     }
-    Ok(())
 }
 
 /// Prove the allocation harness resolves what the runtime-ownership baselines
@@ -379,10 +466,14 @@ fn verify_allocation_harness() {
          never opens and every baseline below would be a silent zero"
     );
 
-    let shared = count_window("shared-clone probe", || probe_shared_clone(ARC_PROBE_ITEMS));
-    let fresh = count_window("fresh-allocation probe", || {
-        probe_fresh_allocation(ARC_PROBE_ITEMS)
-    });
+    let shared = count_window(
+        "shared-clone probe",
+        infallible(|| probe_shared_clone(ARC_PROBE_ITEMS)),
+    );
+    let fresh = count_window(
+        "fresh-allocation probe",
+        infallible(|| probe_fresh_allocation(ARC_PROBE_ITEMS)),
+    );
     // The shared probe allocates once for its single `Arc::new`, and every clone
     // after that is a bare atomic increment, so the per-item difference is
     // `ARC_PROBE_ITEMS - 1` at minimum. Demanding the full item count would fail
@@ -397,7 +488,7 @@ fn verify_allocation_harness() {
 }
 
 /// The two nested-`Arc` probe shapes, paired with their labels.
-fn arc_probes() -> Vec<(&'static str, fn(usize) -> Result<(), String>)> {
+fn arc_probes() -> Vec<ArcProbe> {
     vec![
         ("shared_clone", probe_shared_clone),
         ("fresh_per_item", probe_fresh_allocation),
@@ -415,7 +506,7 @@ fn benchmark_allocations(criterion: &mut Criterion, runtime: &Runtime) {
         .measurement_time(MEASUREMENT_TIME);
 
     for (label, operation) in allocation_scopes(runtime) {
-        let allocations = count_window(&label, || operation());
+        let allocations = count_window(&label, &operation);
         let labelled = format!("{label}_allocs_{allocations}");
 
         group.bench_function(BenchmarkId::from_parameter(labelled), |bencher| {
@@ -442,13 +533,14 @@ fn benchmark_arc_sensitivity(criterion: &mut Criterion) {
         .measurement_time(MEASUREMENT_TIME);
 
     for (mode, probe) in arc_probes() {
-        let allocations = count_window(mode, || probe(ARC_PROBE_ITEMS));
+        let operation = infallible(move || probe(ARC_PROBE_ITEMS));
+        let allocations = count_window(mode, &operation);
         let labelled = format!("arc_{mode}_items_{ARC_PROBE_ITEMS}_allocs_{allocations}");
 
         group.bench_function(BenchmarkId::from_parameter(labelled), |bencher| {
             bencher.iter_custom(|iterations| {
                 black_box(allocations);
-                time_iterations(&|| probe(ARC_PROBE_ITEMS), iterations)
+                time_iterations(&operation, iterations)
             });
         });
     }

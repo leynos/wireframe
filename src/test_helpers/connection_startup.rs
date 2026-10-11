@@ -19,7 +19,10 @@
 //!     counted_app_factory,
 //! };
 //!
-//! # async fn example() -> wireframe::Result<()> {
+//! // `Box<dyn Error>` rather than `wireframe::Result`: the factory fails with
+//! // `WireframeError` and `prepare` fails with `PrepareError`, and this is the
+//! // one result type both convert into.
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let instrumentation = ConnectionStartupInstrumentation::new();
 //! let plan = StartupFixturePlan::default();
 //! let factory = counted_app_factory(instrumentation.clone(), plan);
