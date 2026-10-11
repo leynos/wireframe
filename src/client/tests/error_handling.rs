@@ -1,7 +1,6 @@
 //! Error handling tests for the wireframe client.
 
 use std::{
-    future::Future,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -10,13 +9,14 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::{SinkExt, future::lazy};
+use futures::SinkExt;
 use tokio::net::TcpStream;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use super::helpers::{
     FailingSerializer,
     TestResult,
+    record_count,
     spawn_listener,
     test_error_hook_on_disconnect,
     test_with_client,
@@ -27,13 +27,6 @@ use crate::{
     rewind_stream::RewindStream,
     serializer::Serializer,
 };
-
-/// Increment the error-hook count when its future is first polled.
-fn record_error_count(count: Arc<AtomicUsize>) -> impl Future<Output = ()> + Send {
-    lazy(move |_| {
-        count.fetch_add(1, Ordering::SeqCst);
-    })
-}
 
 /// Connects a client and returns both the client and server stream for custom server behaviour.
 ///
@@ -58,7 +51,7 @@ where
 #[tokio::test]
 async fn error_callback_invoked_on_receive_error() {
     let error_count = test_error_hook_on_disconnect(|builder, count| {
-        builder.on_error(move |_err| record_error_count(count.clone()))
+        builder.on_error(move |_err| record_count(count.clone()))
     })
     .await
     .expect("run error hook scenario");
@@ -90,11 +83,10 @@ async fn error_callback_invoked_on_deserialize_error() {
     let error_count = Arc::new(AtomicUsize::new(0));
     let count = error_count.clone();
 
-    let (mut client, server_stream) = connect_with_server(|builder| {
-        builder.on_error(move |_err| record_error_count(count.clone()))
-    })
-    .await
-    .expect("connect client and server");
+    let (mut client, server_stream) =
+        connect_with_server(|builder| builder.on_error(move |_err| record_count(count.clone())))
+            .await
+            .expect("connect client and server");
 
     // Send invalid bincode data via the server stream
     let mut framed = Framed::new(server_stream, LengthDelimitedCodec::new());
@@ -133,11 +125,10 @@ async fn error_callback_invoked_on_send_io_error() {
     let error_count = Arc::new(AtomicUsize::new(0));
     let count = error_count.clone();
 
-    let (mut client, server_stream) = connect_with_server(|builder| {
-        builder.on_error(move |_err| record_error_count(count.clone()))
-    })
-    .await
-    .expect("connect client and server");
+    let (mut client, server_stream) =
+        connect_with_server(|builder| builder.on_error(move |_err| record_count(count.clone())))
+            .await
+            .expect("connect client and server");
 
     // Drop the server side to cause a broken pipe on send
     drop(server_stream);
@@ -178,7 +169,7 @@ async fn error_callback_invoked_on_serialize_error() {
     let (mut client, _server) = connect_with_server(|builder| {
         builder
             .serializer(FailingSerializer)
-            .on_error(move |_err| record_error_count(count.clone()))
+            .on_error(move |_err| record_count(count.clone()))
     })
     .await
     .expect("connect client and server");

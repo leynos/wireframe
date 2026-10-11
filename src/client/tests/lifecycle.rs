@@ -10,14 +10,12 @@ use std::{
 
 use futures::future::lazy;
 
-use super::helpers::{counting_hook, test_error_hook_on_disconnect, test_with_client};
-
-/// Increment a lifecycle-hook count when its future is first polled.
-fn record_count(count: Arc<AtomicUsize>) -> impl Future<Output = ()> + Send {
-    lazy(move |_| {
-        count.fetch_add(1, Ordering::SeqCst);
-    })
-}
+use super::helpers::{
+    counting_hook,
+    record_count,
+    test_error_hook_on_disconnect,
+    test_with_client,
+};
 
 /// Count setup when the callback future is first polled, then return the
 /// state that the teardown callback receives.
