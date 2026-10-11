@@ -61,34 +61,47 @@ async fn managed_connection_with_teardown() -> super::helpers::TestResult<Manage
     Ok((ManagedClientConnection::new(client), teardown_count))
 }
 
-#[rstest]
-#[tokio::test]
-async fn managed_connection_drop_runs_teardown_on_active_runtime(
-    #[future] managed_connection_with_teardown: super::helpers::TestResult<ManagedFixture>,
-) -> TestResult {
-    let (mut managed, teardown_count) = managed_connection_with_teardown.await?;
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    managed.notify_after_close(sender);
-
-    drop(managed);
-    timeout(Duration::from_secs(1), receiver).await??;
-    assert_teardown_once(&teardown_count);
-    Ok(())
+/// Where the pooled connection is dropped, relative to the test's runtime.
+#[derive(Debug, Clone, Copy)]
+enum DropSite {
+    /// Drop inline, while the test's Tokio runtime is still driving.
+    ActiveRuntime,
+    /// Drop on a spawned thread, which owns no Tokio runtime.
+    DetachedThread,
 }
 
+impl DropSite {
+    /// Drop `managed` here, surfacing a panic from the spawned thread.
+    fn drop_managed(self, managed: ManagedClientConnection<BincodeSerializer, ()>) -> TestResult {
+        match self {
+            Self::ActiveRuntime => {
+                drop(managed);
+                Ok(())
+            }
+            Self::DetachedThread => std::thread::spawn(move || drop(managed)).join().map_err(
+                |_| -> Box<dyn std::error::Error + Send + Sync> {
+                    std::io::Error::other("pooled connection drop thread panicked").into()
+                },
+            ),
+        }
+    }
+}
+
+/// Teardown runs exactly once whether or not a runtime is driving the drop.
 #[rstest]
+#[case::active_runtime(DropSite::ActiveRuntime)]
+#[case::detached_thread(DropSite::DetachedThread)]
 #[tokio::test]
-async fn managed_connection_drop_runs_teardown_without_runtime(
+async fn managed_connection_drop_runs_teardown_once(
+    #[case] drop_site: DropSite,
     #[future] managed_connection_with_teardown: super::helpers::TestResult<ManagedFixture>,
 ) -> TestResult {
     let (mut managed, teardown_count) = managed_connection_with_teardown.await?;
     let (sender, receiver) = tokio::sync::oneshot::channel();
     managed.notify_after_close(sender);
 
-    std::thread::spawn(move || drop(managed))
-        .join()
-        .map_err(|_| std::io::Error::other("pooled connection drop thread panicked"))?;
-    receiver.await?;
+    drop_site.drop_managed(managed)?;
+    timeout(Duration::from_secs(1), receiver).await??;
     assert_teardown_once(&teardown_count);
     Ok(())
 }
