@@ -230,7 +230,8 @@ pub struct PushMeasurement {
     pub drained: usize,
     /// Frames the dead-letter queue received.
     pub dead_lettered: usize,
-    /// Whether any send reported [`PushError::QueueFull`].
+    /// Whether any send reported
+    /// [`PushError::QueueFull`](wireframe::push::PushError::QueueFull).
     pub reported_queue_full: bool,
     /// Wall-clock time across every iteration.
     pub elapsed: Duration,

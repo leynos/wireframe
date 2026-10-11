@@ -7,7 +7,8 @@
 //! benchmark binary, so the same scenario keeps working after the refactor and
 //! can be pointed at an old and a new implementation unchanged.
 //!
-//! Frames are [`Envelope`] values rather than the crate's test-only `u8` frame.
+//! Frames are [`Envelope`](wireframe::app::Envelope) values rather than the
+//! crate's test-only `u8` frame.
 //! `Envelope` implements [`Packet`](wireframe::app::Packet) without any feature
 //! gate, so this helper works from a plain `wireframe` dependency and exercises
 //! the same frame type production connections carry.
@@ -39,7 +40,7 @@
 //!
 //! # Layout
 //!
-//! [`workload`] holds the scenario as data and [`measurement`] drives it, for
+//! `workload` holds the scenario as data and `measurement` drives it, for
 //! the same reason as the other scopes: the workload definition is the contract
 //! a before/after comparison rests on, so it must not move when the ownership
 //! topology does.
