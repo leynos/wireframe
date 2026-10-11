@@ -1,5 +1,7 @@
 //! Join-handle observation for the running server supervisor.
 
+use std::sync::Arc;
+
 use tokio::{
     sync::watch,
     task::{JoinError, JoinHandle},
@@ -30,9 +32,15 @@ fn classify_supervisor_result(
 ) -> ServerTerminal {
     match result {
         Ok(Ok(())) => ServerTerminal::Clean,
-        Ok(Err(error)) => ServerTerminal::Abnormal(error.to_string()),
+        Ok(Err(error)) => ServerTerminal::Abnormal {
+            message: error.to_string(),
+            source: Some(Arc::new(error)),
+        },
         Err(error) => match classify_join_error(error) {
-            SupervisorJoinOutcome::Panicked(message) => ServerTerminal::Abnormal(message),
+            SupervisorJoinOutcome::Panicked(message) => ServerTerminal::Abnormal {
+                message,
+                source: None,
+            },
             SupervisorJoinOutcome::Cancelled => ServerTerminal::Cancelled,
         },
     }
@@ -44,7 +52,7 @@ fn classify_supervisor_result(
 /// cancelled task emits its separate event without incrementing that counter.
 fn record_terminal_observability(terminal: &ServerTerminal) {
     match terminal {
-        ServerTerminal::Abnormal(message) => record_supervisor_abnormal_termination(message),
+        ServerTerminal::Abnormal { message, .. } => record_supervisor_abnormal_termination(message),
         ServerTerminal::Cancelled => tracing::error!(
             event = "server_supervisor_cancelled",
             "server supervisor task was cancelled before a clean shutdown"

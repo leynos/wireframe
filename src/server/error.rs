@@ -1,6 +1,6 @@
 //! Errors raised by [`super::WireframeServer`] operations.
 
-use std::{error::Error, io};
+use std::{error::Error, io, sync::Arc};
 
 use thiserror::Error;
 
@@ -31,5 +31,8 @@ pub enum ServerError {
     AbnormalTermination {
         /// Diagnostic captured from the supervisor failure or cancellation.
         message: String,
+        /// Original supervisor error, when termination returned an error.
+        #[source]
+        source: Option<Arc<ServerError>>,
     },
 }
