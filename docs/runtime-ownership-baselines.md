@@ -310,12 +310,20 @@ the contended scope through Criterion like any other, and panicked at
 `benches/runtime_ownership_baselines_alloc.rs` with
 `1 of 16 contenders failed; first: transport error: connection closed by peer` —
 the defect reached from unmodified benchmark code driving unmodified library
-code, with no probe scaffolding in between. Criterion's timing pass runs
-several orders of magnitude more iterations than an allocation window, so it
-hits the interleaving nearly every run. The scope was moved out of the timed
-group and reported once as an observation instead; the count itself was never
-in doubt, because it comes from a single counted window that completed before
-the failure.
+code, with no probe scaffolding in between. That message names *this* defect
+and not the stall, and the mapping is worth stating because the two are easy to
+conflate. The `disconnected` constructor builds an `io::Error` with the text
+`connection closed by peer` (`src/client/error.rs`), and the
+`WireframeError::Io` arm renders it as `transport error: {error}`
+(`src/error.rs`), so a spurious disconnect is what
+`transport error: connection closed by peer` denotes. Criterion reports the
+contender count separately, as `N of 16 contenders failed`, which is distinct
+from the stall signature below — a stall produces no contender error at all,
+only a burst that never completes. Criterion's timing pass runs several orders
+of magnitude more iterations than an allocation window, so it hits the
+interleaving nearly every run. The scope was moved out of the timed group and
+reported once as an observation instead; the count itself was never in doubt,
+because it comes from a single counted window that completed before the failure.
 
 ### Sustained contention stalls the acquire path
 
