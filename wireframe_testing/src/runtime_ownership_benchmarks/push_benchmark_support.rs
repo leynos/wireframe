@@ -256,14 +256,15 @@ pub struct PushMeasurement {
     pub elapsed: Duration,
 }
 
+/// Queues, producer handle, and dead-letter receiver for one measurement.
+type PushFixture = (PushQueues<u8>, PushHandle<u8>, mpsc::Receiver<u8>);
+
 /// Build queues sized for `workload` with rate limiting disabled and a DLQ.
 ///
 /// Returns the queues, the producer handle, and the dead-letter receiver. The
 /// DLQ is always attached so that a drop policy's routing is observable rather
 /// than silently discarded.
-fn build_queues(
-    workload: PushWorkload,
-) -> Result<(PushQueues<u8>, PushHandle<u8>, mpsc::Receiver<u8>), String> {
+fn build_queues(workload: PushWorkload) -> Result<PushFixture, String> {
     let (dlq_tx, dlq_rx) = mpsc::channel(workload.sends.max(1));
     let (queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(workload.queue_capacity)
@@ -289,7 +290,11 @@ struct SendOutcome {
 }
 
 /// Frame value for one send, kept distinguishable for debug builds.
-fn frame(index: usize) -> u8 { u8::try_from(index % 251).unwrap_or(FALLBACK_FRAME) }
+///
+/// A mask rather than `%`: `clippy::integer-division-remainder-used` is denied
+/// workspace-wide, and the only property the frames need is that consecutive
+/// sends differ, which a power-of-two wrap gives without a division.
+fn frame(index: usize) -> u8 { u8::try_from(index & 0xff).unwrap_or(FALLBACK_FRAME) }
 
 /// Run the uncontended scenario against a draining consumer.
 async fn send_uncontended(workload: PushWorkload) -> Result<SendOutcome, String> {
@@ -355,10 +360,11 @@ async fn fill_to_capacity(
             Err(PushError::Closed) => {
                 return Err("queue closed while filling to capacity".to_string());
             }
-            // `PushError` is non-exhaustive, so the remaining variant is named
-            // explicitly: a full queue is the expected stop, and anything else
-            // is still a stop because the queue is no longer accepting.
-            Err(PushError::QueueFull) | Err(_) => break,
+            // `QueueFull` is the expected stop; `PushError` is non-exhaustive,
+            // so any future variant also stops here rather than being mistaken
+            // for a successful fill. Stopping is safe because the caller checks
+            // that the queue reached capacity.
+            Err(_) => break,
         }
     }
     Ok(filled)

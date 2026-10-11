@@ -275,8 +275,13 @@ async fn preload(
 }
 
 /// Build one distinguishable frame.
+///
+/// The route cycles over eight values via a mask rather than `%`, because
+/// `clippy::integer-division-remainder-used` is denied workspace-wide. The
+/// route id is not asserted anywhere; it exists so that frames are not
+/// byte-identical to one another.
 fn frame(id: usize) -> Envelope {
-    let route = u32::try_from(id % 8).unwrap_or(u32::MAX);
+    let route = u32::try_from(id & 0x7).unwrap_or(u32::MAX);
     Envelope::new(route, None, vec![PAYLOAD_BYTE; PAYLOAD_LEN])
 }
 
