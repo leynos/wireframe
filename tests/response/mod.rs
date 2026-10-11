@@ -26,7 +26,7 @@ use wireframe_testing::{
     run_app,
 };
 
-#[path = "response/response_errors.rs"]
+#[path = "response_errors.rs"]
 mod response_errors;
 
 // Larger cap used for oversized frame tests.

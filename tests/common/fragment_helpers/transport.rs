@@ -28,6 +28,63 @@ pub async fn send_envelopes(
     Ok(())
 }
 
+/// A reassembled response payload plus the number of frames that carried it.
+///
+/// The frame count is kept separately so a test can distinguish a genuinely
+/// unfragmented response from a fragmented one, which
+/// [`read_reassembled_response`] alone cannot show.
+pub struct FramedResponse {
+    /// Reassembled response payload.
+    pub payload: Vec<u8>,
+    /// Number of transport frames observed for this response.
+    pub frame_count: usize,
+}
+
+/// Read a response, preserving the frame boundaries that carried it.
+///
+/// Returns once the payload reassembles, together with the number of frames
+/// consumed. A single frame means the response was not fragmented.
+///
+/// # Errors
+///
+/// Returns an error if reading, decoding the envelope, or reassembly fails,
+/// or if the stream ends before reassembly completes.
+pub async fn read_framed_response(
+    client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
+    cfg: &FragmentationConfig,
+) -> TestResult<FramedResponse> {
+    let serializer = BincodeSerializer;
+    let mut reassembler = Reassembler::new(cfg.max_message_size, cfg.reassembly_timeout);
+    let mut frame_count = 0usize;
+
+    while let Some(frame) = client.next().await {
+        let bytes = frame?;
+        frame_count += 1;
+        let (env, _) = serializer.deserialize::<Envelope>(&bytes)?;
+        let payload = env.into_parts().into_payload();
+        match decode_fragment_payload(&payload)? {
+            Some((header, fragment)) => {
+                if let Some(message) = reassembler.push(header, fragment)? {
+                    return Ok(FramedResponse {
+                        payload: message.into_payload(),
+                        frame_count,
+                    });
+                }
+            }
+            None => {
+                return Ok(FramedResponse {
+                    payload,
+                    frame_count,
+                });
+            }
+        }
+    }
+
+    Err(TestError::Setup(
+        "response stream ended before reassembly completed",
+    ))
+}
+
 /// Read and reassemble a fragmented response from a client connection.
 ///
 /// # Errors
@@ -38,29 +95,10 @@ pub async fn read_reassembled_response(
     client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
     cfg: &FragmentationConfig,
 ) -> TestResult<Vec<u8>> {
-    let serializer = BincodeSerializer;
-    let mut reassembler = Reassembler::new(cfg.max_message_size, cfg.reassembly_timeout);
-
-    while let Some(frame) = client.next().await {
-        let bytes = frame?;
-        let (env, _) = serializer.deserialize::<Envelope>(&bytes)?;
-        let payload = env.into_parts().into_payload();
-        match decode_fragment_payload(&payload)? {
-            Some((header, fragment)) => {
-                if let Some(message) = reassembler.push(header, fragment)? {
-                    return Ok(message.into_payload());
-                }
-            }
-            None => return Ok(payload),
-        }
-    }
-
-    Err(TestError::Setup(
-        "response stream ended before reassembly completed",
-    ))
+    Ok(read_framed_response(client, cfg).await?.payload)
 }
 
-/// Read and return the response payload with a 1-second timeout.
+/// Read the response with a 1-second timeout, preserving frame boundaries.
 ///
 /// # Errors
 ///
@@ -68,10 +106,10 @@ pub async fn read_reassembled_response(
 pub async fn read_response_payload(
     client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
     config: &FragmentationConfig,
-) -> TestResult<Vec<u8>> {
+) -> TestResult<FramedResponse> {
     let response = timeout(
         TokioDuration::from_secs(1),
-        read_reassembled_response(client, config),
+        read_framed_response(client, config),
     )
     .await??;
     Ok(response)

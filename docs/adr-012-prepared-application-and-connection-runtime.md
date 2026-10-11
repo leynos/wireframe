@@ -73,9 +73,9 @@ Primary code surfaces:
 - `src/app/builder/routing.rs`;
 - `src/app/builder/lifecycle.rs`;
 - `src/app/builder/protocol.rs`;
-- `src/app/inbound_handler.rs`;
+- `src/app/inbound_handler/mod.rs`;
 - `src/server/mod.rs`;
-- `src/server/runtime.rs`;
+- `src/server/runtime/mod.rs`;
 - `src/server/runtime/accept.rs`;
 - `src/server/connection_spawner.rs`;
 - `examples/ping_pong.rs` and `examples/packet_enum.rs`.

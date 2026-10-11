@@ -118,11 +118,11 @@ PR #283 moved more of the codec path toward `Bytes`.[^issue-286]
 The middleware layer currently sits entirely inside an owned-`Vec<u8>` segment
 of the request/response pipeline:
 
-1. `src/app/inbound_handler.rs` builds or reuses the middleware chain through
-   `WireframeApp::build_chains()`, wrapping each route handler inside
+1. `src/app/inbound_handler/mod.rs` builds or reuses the middleware chain
+   through `WireframeApp::build_chains()`, wrapping each route handler inside
    `HandlerService<E>`.
-2. `src/app/frame_handling/decode.rs` and `src/app/inbound_handler.rs` decode
-   an inbound codec frame into an `Envelope`.
+2. `src/app/frame_handling/decode.rs` and `src/app/inbound_handler/mod.rs`
+   decode an inbound codec frame into an `Envelope`.
 3. `src/app/frame_handling/response.rs` crosses the middleware boundary by
    calling `ServiceRequest::new(env.payload, env.correlation_id)`.
 4. `src/middleware.rs` exposes that payload to middleware as
@@ -152,8 +152,9 @@ The practical consequence is that middleware currently forms a hard
 - `src/app/frame_handling/response.rs` is the request/response bridge into and
   out of middleware. Any type change has to preserve correlation handling and
   packet reconstruction here.
-- `src/app/inbound_handler.rs` owns middleware-chain construction and therefore
-  any staging or compatibility story for mixed old/new middleware types.
+- `src/app/inbound_handler/mod.rs` owns middleware-chain construction and
+  therefore any staging or compatibility story for mixed old/new middleware
+  types.
 - `tests/middleware.rs` and `tests/middleware_order.rs` demonstrate the current
   mutation semantics directly through `push`, `clear`, and `extend_from_slice`
   on `frame_mut()`.
@@ -257,7 +258,7 @@ themselves `Frame = Vec<u8>` bindings:
   `F: FrameLike + CorrelatableFrame + Packet` for the `ConnectionActor`.
 - `src/app/builder/protocol.rs` stores protocols as
   `WireframeProtocol<Frame = F::Frame, ProtocolError = ()>`.
-- `src/codec.rs` defines the default `LengthDelimitedFrameCodec` with
+- `src/codec/mod.rs` defines the default `LengthDelimitedFrameCodec` with
   `Bytes` frames, not `Vec<u8>`.
 
 Taken together, these show that the main frame-level tension is between generic
@@ -405,7 +406,7 @@ ADRs:
     [comment](https://github.com/leynos/wireframe/pull/283#issuecomment-3167997856).
 [^codec]: See
           [Pluggable protocol codecs](execplans/pluggable-protocol-codecs.md)
-    and `src/codec.rs`.
+    and `src/codec/mod.rs`.
 [^hooks]: See `src/hooks.rs` and the hook overview in
     [users-guide.md](users-guide.md).
 [^unified-path]: See

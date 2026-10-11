@@ -263,7 +263,7 @@ Testkit/public API touch points:
 
 - [`wireframe_testing/src/lib.rs`](../../wireframe_testing/src/lib.rs) is the
   public re-export surface.
-- [`wireframe_testing/src/helpers.rs`](../../wireframe_testing/src/helpers.rs)
+- [`wireframe_testing/src/helpers/mod.rs`](../../wireframe_testing/src/helpers/mod.rs)
   currently re-exports the in-memory driver helpers added in `8.5.1` and
   `8.5.2`.
 - [`docs/wireframe-testing-crate.md`](../wireframe-testing-crate.md) is the

@@ -17,7 +17,7 @@ use wireframe::{
     fragment::{FragmentationConfig, decode_fragment_payload},
 };
 
-#[path = "common/fragment_helpers.rs"]
+#[path = "common/fragment_helpers/mod.rs"]
 mod fragment_helpers;
 #[path = "common/unified_codec_transport.rs"]
 mod unified_codec_transport;
@@ -75,7 +75,9 @@ fn keep_fragment_helper_facade_reexports_linked() {
     let _ = fragment_helpers::assert_handler_observed;
     let _ = fragment_helpers::fragmentation_config_with_timeout;
     let _ = fragment_helpers::fragment_envelope;
+    let _ = fragment_helpers::read_framed_response;
     let _ = fragment_helpers::read_reassembled_response;
+    let _ = core::mem::size_of::<fragment_helpers::FramedResponse>();
     let _ = fragment_helpers::TestError::Assertion(String::new());
 }
 
@@ -158,8 +160,13 @@ async fn fragmented_response_passes_through_pipeline(
     // Read fragmented response and reassemble
     let response = read_response_payload(&mut client, &config).await?;
     assert_eq!(
-        response, payload,
+        response.payload, payload,
         "reassembled response should match original payload"
+    );
+    assert!(
+        response.frame_count > 1,
+        "a payload past the fragment cap must cross several frames, saw {}",
+        response.frame_count
     );
 
     server.await??;

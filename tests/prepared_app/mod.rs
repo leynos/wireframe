@@ -3,9 +3,10 @@
 //! Real-socket scenarios live in `prepared_app/tcp.rs`; the scenarios here
 //! cover startup instrumentation, teardown, and shared-route reuse.
 
+#[path = "../common/mod.rs"]
 mod common;
 
-#[path = "prepared_app/tcp.rs"]
+#[path = "tcp.rs"]
 mod tcp;
 
 use std::{
@@ -16,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-#[path = "common/fallible_assertions/check_equal.rs"]
+#[path = "../common/fallible_assertions/check_equal.rs"]
 mod fallible_check_equal;
 
 use common::prepared_app::{

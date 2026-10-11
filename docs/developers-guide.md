@@ -392,9 +392,9 @@ the rustdoc for `wireframe::NoProtocolError` for the public API contract.
 
 ## Message sequence validation architecture
 
-Message continuation ordering lives in `src/message_assembler/series.rs`. The
-public-facing control point is `validate_and_advance_sequence()`, which keeps
-the series state machine readable by delegating to two private helpers:
+Message continuation ordering lives in `src/message_assembler/series/mod.rs`.
+The public-facing control point is `validate_and_advance_sequence()`, which
+keeps the series state machine readable by delegating to two private helpers:
 
 - `start_sequence_tracking()` handles the first numbered continuation after an
   untracked start. It switches the series into tracked mode and then delegates
@@ -1033,13 +1033,14 @@ evaluations and four middleware transforms for the former path, versus one of
 each for the prepared root. The counters are collected for each Criterion
 sample so the counts remain visible alongside the timing results.
 
-Fragment transport integration tests import `tests/common/fragment_helpers.rs`
-as a facade. Keep the public re-export surface stable there, and place helper
-implementation details in responsibility-focused modules under
-`tests/common/fragment_helpers/`: app construction and spawning, assertions,
-fragmentation configuration, envelope building, error types, and framed
-transport. New fragment helpers should be added to the smallest matching module
-and re-exported only when more than one test binary needs the helper.
+Fragment transport integration tests import
+`tests/common/fragment_helpers/mod.rs` as a facade. Keep the public re-export
+surface stable there, and place helper implementation details in
+responsibility-focused modules under `tests/common/fragment_helpers/`: app
+construction and spawning, assertions, fragmentation configuration, envelope
+building, error types, and framed transport. New fragment helpers should be
+added to the smallest matching module and re-exported only when more than one
+test binary needs the helper.
 
 ## Formal verification tooling
 
@@ -1192,6 +1193,16 @@ because a model that cannot finish hangs rather than failing.
 
 ## Test infrastructure and framework
 
+### Integration-test target layout
+
+Integration-test roots may be relocated from `tests/<name>.rs` to
+`tests/<name>/mod.rs` so that supporting modules sit beside the root. Cargo
+auto-discovers `tests/*.rs` and `tests/<name>/main.rs`, but not
+`tests/<name>/mod.rs`, so a relocated root must be declared as an explicit
+`[[test]]` target in `Cargo.toml` whose `path` names that `mod.rs`. Without the
+declaration the root is not built, so its tests stop running with no compile
+error to flag the loss.
+
 ### rstest and rstest-bdd
 
 The test suite uses [`rstest`](https://crates.io/crates/rstest) for
@@ -1295,7 +1306,7 @@ propagates both the `JoinError` and the inner error with `handle.await??`.
 interrupted before calling `finish_server`, so a server-side failure is never
 silently discarded on the happy path. See `ClientLifecycleWorld::finish_server`
 in `tests/fixtures/client_lifecycle.rs` and the precedent in
-`tests/fixtures/client_preamble.rs`.
+`tests/fixtures/client_preamble/mod.rs`.
 
 **The server-task cleanup contract**, as implemented by
 `run_hook_test_with_server` in `src/client/tests/request_hooks_support.rs`: on

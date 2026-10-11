@@ -1188,7 +1188,7 @@ organizational friction.
 [^22]: Wireframe
        [`src/message_assembler/header.rs`](../src/message_assembler/header.rs)
 [^23]: Wireframe
-       [`src/message_assembler/series.rs`](../src/message_assembler/series.rs)
+       [`src/message_assembler/series/mod.rs`](../src/message_assembler/series/mod.rs)
 [^24]: Wireframe
        [`src/message_assembler/state.rs`](../src/message_assembler/state.rs)
 [^25]: Wireframe [`src/fairness.rs`](../src/fairness.rs)
