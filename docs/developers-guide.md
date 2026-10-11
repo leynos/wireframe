@@ -908,13 +908,36 @@ targets, direct unit tests, and BDD fixtures should import the workload matrix,
 measurement helpers, fragmentation helpers, and allocation-label helpers from
 that module instead of coupling to files under `tests/common` with `#[path]`.
 
-Fragment transport integration tests import `tests/common/fragment_helpers.rs`
-as a facade. Keep the public re-export surface stable there, and place helper
-implementation details in responsibility-focused modules under
-`tests/common/fragment_helpers/`: app construction and spawning, assertions,
-fragmentation configuration, envelope building, error types, and framed
-transport. New fragment helpers should be added to the smallest matching module
-and re-exported only when more than one test binary needs the helper.
+Run `connection_startup` on demand with
+`cargo bench --bench connection_startup`. It compares the former per-connection
+factory and preparation work with the shared prepared-root path across four
+connections. Its benchmark labels record the expected counts: four factory
+evaluations and four middleware transforms for the former path, versus one of
+each for the prepared root. The counters are collected for each Criterion
+sample so the counts remain visible alongside the timing results.
+
+Runtime-ownership benchmark helpers live in
+`wireframe_testing::runtime_ownership_benchmarks`, behind the
+`runtime-benchmarks` feature. Four modules cover the connection actor, the push
+handle, connection startup, and client pool acquisition; each exposes a
+workload type and a single fallible `measure_*` entry point, so a benchmark
+binary, a test, or a one-off experiment drives the same scenario. Run them with
+`make bench-runtime-ownership`, which drives
+`benches/runtime_ownership_baselines.rs` for timings and
+`benches/runtime_ownership_baselines_alloc.rs` for allocation counts. Contended
+pool acquisition is reported as a bounded `tracing` observation rather than
+timed, because sustained contention intermittently stalls the acquire path; the
+recorded numbers, the environment they were taken in, and the regression policy
+are in [runtime-ownership baselines](runtime-ownership-baselines.md).
+
+Fragment transport integration tests import
+`tests/common/fragment_helpers/mod.rs` as a facade. Keep the public re-export
+surface stable there, and place helper implementation details in
+responsibility-focused modules under `tests/common/fragment_helpers/`: app
+construction and spawning, assertions, fragmentation configuration, envelope
+building, error types, and framed transport. New fragment helpers should be
+added to the smallest matching module and re-exported only when more than one
+test binary needs the helper.
 
 ## Formal verification tooling
 
