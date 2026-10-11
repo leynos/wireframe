@@ -17,6 +17,15 @@ pub const DEFAULT_ACQUISITIONS: usize = 256;
 /// Contenders used by the benchmark's default contended workload.
 pub const DEFAULT_CONTENDERS: usize = 16;
 
+/// Acquire/release rounds each contender performs in a contended burst.
+///
+/// This is the parameter that sets a contended burst's length, because a burst
+/// grants `contenders × this` leases. It lives beside the workload data rather
+/// than inside the measurement code because it is a recorded parameter: it
+/// belongs in the benchmark label, so a burst whose length changed cannot be
+/// compared against an older baseline unnoticed.
+pub const CONTENDED_ROUNDS_PER_CONTENDER: usize = 8;
+
 /// Which acquisition regime a workload exercises.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AcquisitionMode {
@@ -115,6 +124,11 @@ pub struct PoolWorkload {
     /// Acquisition regime to exercise.
     pub mode: AcquisitionMode,
     /// Acquire/release cycles in the uncontended regime.
+    ///
+    /// Read only when [`AcquisitionMode::is_contended`] is false. A contended
+    /// burst is driven by [`CONTENDED_ROUNDS_PER_CONTENDER`] instead, so this
+    /// field is ignored in that mode and is deliberately absent from the
+    /// contended label rather than reported as though it had been honoured.
     pub acquisitions: usize,
     /// Contending callers in the contended regimes.
     pub contenders: usize,
@@ -139,26 +153,46 @@ impl PoolWorkload {
     /// ```
     /// use wireframe_testing::runtime_ownership_benchmarks::{AcquisitionMode, PoolWorkload};
     ///
-    /// let workload = PoolWorkload {
+    /// let uncontended = PoolWorkload {
     ///     pool_size: 4,
     ///     mode: AcquisitionMode::Uncontended,
     ///     acquisitions: 256,
     ///     contenders: 16,
     /// };
     /// assert_eq!(
-    ///     workload.label(),
+    ///     uncontended.label(),
     ///     "uncontended_pool_4_acquisitions_256_contenders_1"
     /// );
+    ///
+    /// let contended = PoolWorkload {
+    ///     mode: AcquisitionMode::ContendedFifo,
+    ///     ..uncontended
+    /// };
+    /// assert_eq!(
+    ///     contended.label(),
+    ///     "contended_fifo_pool_4_contenders_16_rounds_8"
+    /// );
     /// ```
+    ///
+    /// The two regimes name different parameters, because they are driven by
+    /// different ones. An uncontended workload is one caller looping
+    /// [`PoolWorkload::acquisitions`] times, so that count is what the label
+    /// states. A contended workload is every contender running
+    /// [`CONTENDED_ROUNDS_PER_CONTENDER`] rounds, and the burst grants
+    /// `contenders × rounds` leases, so labelling it `acquisitions_256` would
+    /// advertise a parameter the contended path never reads.
     #[must_use]
     pub fn label(self) -> String {
-        format!(
-            "{}_pool_{}_acquisitions_{}_contenders_{}",
-            self.mode.label(),
-            self.pool_size,
-            self.acquisitions,
-            self.mode.contenders(self.contenders)
-        )
+        let mode = self.mode.label();
+        let pool_size = self.pool_size;
+        let contenders = self.mode.contenders(self.contenders);
+        if self.mode.is_contended() {
+            let rounds = CONTENDED_ROUNDS_PER_CONTENDER;
+            format!("{mode}_pool_{pool_size}_contenders_{contenders}_rounds_{rounds}")
+        } else {
+            let acquisitions = self.acquisitions;
+            format!("{mode}_pool_{pool_size}_acquisitions_{acquisitions}_contenders_{contenders}")
+        }
     }
 
     /// Reject workloads whose regime cannot produce the documented outcome.

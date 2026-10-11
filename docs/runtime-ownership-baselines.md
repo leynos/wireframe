@@ -225,18 +225,31 @@ stable.
 ### Contended acquisition counters
 
 Reported as `tracing` events after `Criterion::final_summary`, not as timings.
-`granted` is the last iteration's completed acquisitions (128 of 256, because
-the burst splits across the two fairness policies); `alive_task_delta` is
-measured across the acquisition phase only, with pool construction and close
-held outside the bracket. `Elapsed` is the wall time of that last burst and is
-a single observation, not a sample — the interval Criterion would report is
-unavailable for a scenario that can fail rather than merely vary, so this
-column is not comparable with the tables above at the same confidence.
+A contended burst is driven by rounds per contender, not by an acquisition
+target: each of the 16 contenders runs 8 acquire/release rounds
+(`CONTENDED_ROUNDS_PER_CONTENDER`), so a fully successful burst grants 128
+leases. The recorded 128 is therefore the *whole* burst — every contender
+completed every round — and not a partial or truncated one. The two fairness
+policies run as separate workloads over the same shape, so neither burst is a
+fraction of a larger run. `alive_task_delta` is measured across the acquisition
+phase only, with pool construction and close held outside the bracket.
+`Elapsed` is the wall time of that last burst and is a single observation, not
+a sample — the interval Criterion would report is unavailable for a scenario
+that can fail rather than merely vary, so this column is not comparable with
+the tables above at the same confidence.
 
-| Workload                                                      | Granted | Scheduler spawns | Alive-task delta | Elapsed    |
-| ------------------------------------------------------------- | ------- | ---------------- | ---------------- | ---------- |
-| `contended_fifo_pool_4_acquisitions_256_contenders_16`        | 128     | 16               | 0                | 183.953 µs |
-| `contended_round_robin_pool_4_acquisitions_256_contenders_16` | 128     | 16               | 0                | 118.552 µs |
+| Workload                                              | Granted | Scheduler spawns | Alive-task delta | Elapsed    |
+| ----------------------------------------------------- | ------- | ---------------- | ---------------- | ---------- |
+| `contended_fifo_pool_4_contenders_16_rounds_8`        | 128     | 16               | 0                | 183.953 µs |
+| `contended_round_robin_pool_4_contenders_16_rounds_8` | 128     | 16               | 0                | 118.552 µs |
+
+The labels were corrected after the captures above: the contended workload used
+to render `acquisitions_256` even though the contended path never reads that
+field, so the label advertised a parameter the run did not honour. Only the
+label changed — the exercised burst is identical, which is why the recorded
+counters still stand. An older capture under
+`contended_fifo_pool_4_acquisitions_256_contenders_16` is the same workload as
+`contended_fifo_pool_4_contenders_16_rounds_8`.
 
 The spawn counts are the task-churn evidence the issue asks for at this scope,
 and they are what makes the uncontended bound meaningful: the counter
@@ -255,7 +268,7 @@ half can rot silently.
 
 The contended observation also carries an allocation count, taken once from a
 counted window after Criterion finishes: 2176 allocations over four iterations
-of `contended_fifo_pool_4_acquisitions_256_contenders_16`. Read it against the
+of `contended_fifo_pool_4_contenders_16_rounds_8`. Read it against the
 uncontended figure of 2284 for the same shape — the two are within the
 run-to-run spread noted above, so contention did not measurably change the
 allocation count at this scope even though it changed the spawn count
