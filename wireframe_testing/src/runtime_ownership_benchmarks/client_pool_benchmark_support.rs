@@ -328,6 +328,58 @@ fn alive_tasks() -> usize {
         .num_alive_tasks()
 }
 
+/// Yield until the live task gauge holds steady, or the attempt budget runs out.
+///
+/// A single `yield_now` is not enough to let a just-woken worker exit on its
+/// first poll. Under a busy runtime the worker may not reach the head of its
+/// queue by the time the gauge is read, so the count is taken while the task is
+/// still alive and the settled delta comes out inflated. That made the caller's
+/// bound load-sensitive: the same code passed in isolation and failed under the
+/// full suite's concurrency.
+///
+/// Requiring the reading to hold steady across [`STABLE_POLLS`] consecutive
+/// polls, rather than merely stopping its fall, is what makes it a settled state
+/// rather than a race. A single flat pair of reads is not evidence of
+/// quiescence: an exiting worker waiting to be polled produces exactly that.
+async fn settled_alive_tasks() -> Result<usize, String> {
+    /// Consecutive unchanged polls required before a reading counts as settled.
+    ///
+    /// More than one because a single flat pair can be a worker that is queued
+    /// to exit but has not been polled yet. Small, because each poll is a full
+    /// yield and the pool is idle here; the cost is a few scheduler quanta.
+    const STABLE_POLLS: usize = 4;
+
+    /// Total yields spent waiting for the gauge to settle.
+    ///
+    /// Generous relative to the handful of workers a burst can leave exiting,
+    /// because a yield under load can cost a full scheduler quantum. Exhausting
+    /// it is reported, not tolerated: a gauge that has not settled is exactly
+    /// the condition that made this bound flaky.
+    const SETTLE_ATTEMPTS: usize = 256;
+
+    let mut previous = alive_tasks();
+    let mut current = previous;
+    let mut stable = 0;
+    for _ in 0..SETTLE_ATTEMPTS {
+        tokio::task::yield_now().await;
+        current = alive_tasks();
+        if current == previous {
+            stable += 1;
+        } else {
+            stable = 0;
+        }
+        previous = current;
+        if stable >= STABLE_POLLS {
+            return Ok(current);
+        }
+    }
+
+    Err(format!(
+        "live task gauge did not hold steady for {STABLE_POLLS} polls within {SETTLE_ATTEMPTS} \
+         yields; it last read {current}, so the settled delta cannot be reported"
+    ))
+}
+
 /// Build the pool configuration for a workload.
 fn pool_config(workload: PoolWorkload) -> wireframe::client::ClientPoolConfig {
     let config = wireframe::client::ClientPoolConfig::default().pool_size(workload.pool_size);
@@ -396,11 +448,10 @@ async fn pool_once(workload: PoolWorkload) -> Result<PhaseObservation, String> {
     };
 
     // A worker spawned by the final release observes an empty queue and exits
-    // on its first poll. Yielding here lets that happen before the gauge is
-    // read, so `alive_after` reflects settled state rather than a task that is
-    // already on its way out.
-    tokio::task::yield_now().await;
-    let alive_after = alive_tasks();
+    // on its first poll. Wait for that to happen before reading the gauge, so
+    // `alive_after` reflects settled state rather than a task already on its
+    // way out. See `settled_alive_tasks` for why one yield is not enough.
+    let alive_after = settled_alive_tasks().await?;
     let spawns = pool_scheduler_task_spawns().saturating_sub(spawns_before);
 
     pool.close().await;
@@ -755,7 +806,10 @@ mod tests {
         .expect("uncontended measurement failed");
 
         // The pool is closed before the measurement returns, so the settled
-        // delta cannot still show the eagerly-built connections.
+        // delta cannot still show the eagerly-built connections. `<= 0` is
+        // affordable here because `#[tokio::test]` defaults to a current-thread
+        // runtime, where this gauge is deterministic; the same assertion made on
+        // a multi-thread runtime would be reading the whole runtime's scheduler.
         assert!(
             measurement.alive_task_delta() <= 0,
             "a closed pool must not leave construction tasks behind: delta {} on a \

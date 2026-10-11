@@ -56,6 +56,7 @@ use wireframe_testing::runtime_ownership_benchmarks::{
     DEFAULT_PUSH_QUEUE_CAPACITY,
     DEFAULT_SENDS,
     POOL_SIZES,
+    PoolMeasurement,
     PoolWorkload,
     PushScenario,
     PushWorkload,
@@ -174,6 +175,31 @@ fn push_workloads() -> Vec<PushWorkload> {
     workloads
 }
 
+/// The connection-startup workloads the startup group times.
+///
+/// Both preparation paths are crossed with every route and connection count, in
+/// the order the recorded baseline table lists them. The path is the outer loop
+/// so the two paths' rows stay grouped in the Criterion report rather than
+/// interleaved, which is what makes the per-connection-versus-prepared contrast
+/// readable at a glance.
+fn startup_workloads() -> Vec<StartupWorkload> {
+    [StartupPath::PerConnectionFactory, StartupPath::PreparedRoot]
+        .into_iter()
+        .flat_map(|path| {
+            STARTUP_ROUTE_COUNTS.into_iter().flat_map(move |routes| {
+                STARTUP_CONNECTION_COUNTS
+                    .into_iter()
+                    .map(move |connections| StartupWorkload {
+                        path,
+                        routes,
+                        middleware_layers: DEFAULT_MIDDLEWARE_LAYERS,
+                        connections,
+                    })
+            })
+        })
+        .collect()
+}
+
 /// The uncontended pool workloads the acquisition group times.
 ///
 /// Only uncontended acquisition is timed. Contended acquisition is excluded
@@ -213,13 +239,64 @@ fn contended_pool_workloads() -> Vec<PoolWorkload> {
     .collect()
 }
 
+/// Run one actor-drain workload for `iterations` and return its elapsed time.
+///
+/// The emitted-frame count is black-boxed so the compiler cannot prove the drain
+/// unnecessary and elide the work being timed.
+fn time_actor_drain(runtime: &Runtime, workload: ActorWorkload, iterations: u64) -> Duration {
+    let measurement = expect_bench(
+        runtime.block_on(measure_actor_drain(workload, iterations)),
+        "actor drain benchmark failed",
+    );
+    black_box(measurement.frames_emitted);
+    measurement.elapsed
+}
+
+/// Run one push workload for `iterations` and return its elapsed time.
+fn time_push(runtime: &Runtime, workload: PushWorkload, iterations: u64) -> Duration {
+    let measurement = expect_bench(
+        runtime.block_on(measure_push(workload, iterations)),
+        "push send benchmark failed",
+    );
+    // Both counts are black-boxed so the compiler cannot prove the sends
+    // unnecessary and elide the work being timed.
+    black_box(measurement.accepted);
+    black_box(measurement.dead_lettered);
+    measurement.elapsed
+}
+
+/// Run one connection-startup workload for `iterations` and return its elapsed
+/// time.
+fn time_startup(runtime: &Runtime, workload: StartupWorkload, iterations: u64) -> Duration {
+    let measurement = expect_bench(
+        runtime.block_on(measure_startup(workload, iterations)),
+        "connection startup benchmark failed",
+    );
+    black_box(measurement.factory_calls);
+    black_box(measurement.transforms);
+    measurement.elapsed
+}
+
+/// Run one pool-acquisition workload for `iterations` and return its elapsed
+/// time.
+fn time_pool_acquisition(runtime: &Runtime, workload: PoolWorkload, iterations: u64) -> Duration {
+    let measurement = expect_bench(
+        runtime.block_on(measure_pool_acquisition(workload, iterations)),
+        "pool acquisition benchmark failed",
+    );
+    // The scheduler spawn count is the task-churn evidence the issue asks for;
+    // black-boxing it keeps the counter read observable.
+    black_box(measurement.scheduler_spawns);
+    black_box(measurement.alive_task_delta());
+    measurement.elapsed
+}
+
 /// Record Criterion timings for the connection actor's drain loop.
 ///
 /// Throughput counts preloaded frames, which is the work each iteration is
 /// asked to perform; the cancel-before-run regime therefore reports a rate for
 /// frames it declined to move, and its label carries the regime so the two are
-/// never confused. The frame count emitted is black-boxed so the compiler
-/// cannot elide the drain.
+/// never confused.
 fn benchmark_actor_drain(criterion: &mut Criterion, runtime: &Runtime) {
     let mut group = criterion.benchmark_group("actor/drain");
     group
@@ -235,14 +312,7 @@ fn benchmark_actor_drain(criterion: &mut Criterion, runtime: &Runtime) {
             };
             group.throughput(Throughput::Elements(elements(frames)));
             group.bench_function(BenchmarkId::from_parameter(workload.label()), |bencher| {
-                bencher.iter_custom(|iterations| {
-                    let measurement = expect_bench(
-                        runtime.block_on(measure_actor_drain(workload, iterations)),
-                        "actor drain benchmark failed",
-                    );
-                    black_box(measurement.frames_emitted);
-                    measurement.elapsed
-                });
+                bencher.iter_custom(|iterations| time_actor_drain(runtime, workload, iterations));
             });
         }
     }
@@ -260,17 +330,7 @@ fn benchmark_push(criterion: &mut Criterion, runtime: &Runtime) {
     for workload in push_workloads() {
         group.throughput(Throughput::Elements(elements(workload.sends)));
         group.bench_function(BenchmarkId::from_parameter(workload.label()), |bencher| {
-            bencher.iter_custom(|iterations| {
-                let measurement = expect_bench(
-                    runtime.block_on(measure_push(workload, iterations)),
-                    "push send benchmark failed",
-                );
-                // Both counts are black-boxed so the compiler cannot prove the
-                // sends unnecessary and elide the work being timed.
-                black_box(measurement.accepted);
-                black_box(measurement.dead_lettered);
-                measurement.elapsed
-            });
+            bencher.iter_custom(|iterations| time_push(runtime, workload, iterations));
         });
     }
 
@@ -282,35 +342,21 @@ fn benchmark_push(criterion: &mut Criterion, runtime: &Runtime) {
 /// The recorded factory and middleware counts already appear in each workload's
 /// label, so a timing that improves while the label still claims per-connection
 /// preparation is visibly inconsistent rather than a quiet false win.
+///
+/// The route and connection grids are zipped into one workload list rather than
+/// nested as two more loops, which keeps the registration closure shallow enough
+/// for the workspace's nesting limit.
 fn benchmark_connection_startup(criterion: &mut Criterion, runtime: &Runtime) {
     let mut group = criterion.benchmark_group("startup/connection");
     group
         .sample_size(SAMPLE_SIZE)
         .measurement_time(MEASUREMENT_TIME);
 
-    for path in [StartupPath::PerConnectionFactory, StartupPath::PreparedRoot] {
-        for routes in STARTUP_ROUTE_COUNTS {
-            for connections in STARTUP_CONNECTION_COUNTS {
-                let workload = StartupWorkload {
-                    path,
-                    routes,
-                    middleware_layers: DEFAULT_MIDDLEWARE_LAYERS,
-                    connections,
-                };
-                group.throughput(Throughput::Elements(elements(connections)));
-                group.bench_function(BenchmarkId::from_parameter(workload.label()), |bencher| {
-                    bencher.iter_custom(|iterations| {
-                        let measurement = expect_bench(
-                            runtime.block_on(measure_startup(workload, iterations)),
-                            "connection startup benchmark failed",
-                        );
-                        black_box(measurement.factory_calls);
-                        black_box(measurement.transforms);
-                        measurement.elapsed
-                    });
-                });
-            }
-        }
+    for workload in startup_workloads() {
+        group.throughput(Throughput::Elements(elements(workload.connections)));
+        group.bench_function(BenchmarkId::from_parameter(workload.label()), |bencher| {
+            bencher.iter_custom(|iterations| time_startup(runtime, workload, iterations));
+        });
     }
 
     group.finish();
@@ -330,21 +376,47 @@ fn benchmark_pool_acquisition(criterion: &mut Criterion, runtime: &Runtime) {
 
     for workload in uncontended_pool_workloads() {
         group.bench_function(BenchmarkId::from_parameter(workload.label()), |bencher| {
-            bencher.iter_custom(|iterations| {
-                let measurement = expect_bench(
-                    runtime.block_on(measure_pool_acquisition(workload, iterations)),
-                    "pool acquisition benchmark failed",
-                );
-                // The scheduler spawn count is the task-churn evidence the issue
-                // asks for; black-boxing it keeps the counter read observable.
-                black_box(measurement.scheduler_spawns);
-                black_box(measurement.alive_task_delta());
-                measurement.elapsed
-            });
+            bencher.iter_custom(|iterations| time_pool_acquisition(runtime, workload, iterations));
         });
     }
 
     group.finish();
+}
+
+/// Emit one completed contended burst's counters as an event.
+///
+/// Kept as its own function because a `tracing` macro expands to an
+/// `enabled`/not-enabled conditional, and two of them inside one `match` push
+/// the caller past the workspace's cognitive-complexity limit.
+fn report_contended_success(label: &str, measurement: &PoolMeasurement) {
+    tracing::info!(
+        workload = %label,
+        burst_timeout = ?CONTENDED_BURST_TIMEOUT,
+        granted = measurement.acquisitions,
+        scheduler_spawns = measurement.scheduler_spawns,
+        alive_task_delta = measurement.alive_task_delta(),
+        elapsed = ?measurement.elapsed,
+        "contended pool acquisition observation"
+    );
+}
+
+/// Emit the reason a contended burst did not complete as a warning.
+fn report_contended_failure(label: &str, error: &str) {
+    tracing::warn!(
+        workload = %label,
+        burst_timeout = ?CONTENDED_BURST_TIMEOUT,
+        %error,
+        "contended pool acquisition did not complete; known acquire-path defect, see \
+         docs/runtime-ownership-baselines.md"
+    );
+}
+
+/// Emit the outcome of one contended burst as a structured event.
+fn report_contended_outcome(label: &str, outcome: Result<PoolMeasurement, String>) {
+    match outcome {
+        Ok(measurement) => report_contended_success(label, &measurement),
+        Err(error) => report_contended_failure(label, &error),
+    }
 }
 
 /// Report contended acquisition counters as a bounded, untimed observation.
@@ -362,24 +434,8 @@ fn benchmark_pool_acquisition(criterion: &mut Criterion, runtime: &Runtime) {
 fn observe_contended_acquisition(runtime: &Runtime) {
     for workload in contended_pool_workloads() {
         let label = workload.label();
-        match runtime.block_on(measure_pool_acquisition(workload, 1)) {
-            Ok(measurement) => tracing::info!(
-                workload = %label,
-                burst_timeout = ?CONTENDED_BURST_TIMEOUT,
-                granted = measurement.acquisitions,
-                scheduler_spawns = measurement.scheduler_spawns,
-                alive_task_delta = measurement.alive_task_delta(),
-                elapsed = ?measurement.elapsed,
-                "contended pool acquisition observation"
-            ),
-            Err(error) => tracing::warn!(
-                workload = %label,
-                burst_timeout = ?CONTENDED_BURST_TIMEOUT,
-                %error,
-                "contended pool acquisition did not complete; known acquire-path defect, see \
-                 docs/runtime-ownership-baselines.md"
-            ),
-        }
+        let outcome = runtime.block_on(measure_pool_acquisition(workload, 1));
+        report_contended_outcome(&label, outcome);
     }
 }
 
