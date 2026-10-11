@@ -208,7 +208,11 @@ through `on_connection_setup`, not in a rebuilt application graph.
 Serialization helpers `send_response` and `send_response_framed` (or
 `send_response_framed_with_codec` for custom codecs) return typed `SendError`
 variants when encoding or I/O fails, and the connection closes after ten
-consecutive deserialization errors.[^6][^7]
+consecutive deserialization errors.[^6][^7] Each `SendError` variant's
+`Display` output starts with a fixed prefix: `serialization error:` for
+`Serialize`, `I/O error:` for `Io`, and `codec error:` for `Codec`. Those
+prefixes are stable and form the public diagnostic contract that callers may
+match on; the source error text after them is not part of that contract.
 
 ### Custom frame codecs
 
