@@ -4,9 +4,14 @@
 use std::{io, net::SocketAddr, sync::Arc};
 
 use futures::future::join_all;
+use proptest::{
+    prelude::*,
+    test_runner::{TestCaseError, TestCaseResult},
+};
 use rstest::{fixture, rstest};
 use tokio::{
     net::TcpStream,
+    runtime::Builder,
     sync::{Notify, oneshot},
     time::{Duration, Instant, timeout},
 };
@@ -121,9 +126,140 @@ async fn stop_is_non_blocking_while_connections_keep_the_server_busy(
     Ok(())
 }
 
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 12,
+        ..ProptestConfig::default()
+    })]
+
+    /// Generated clone, stop, observer, and drop sequences converge on one clean drain.
+    #[test]
+    fn generated_server_shutdown_operations_converge(
+        requested_workers in prop_oneof![Just(0usize), Just(1), 2usize..=4],
+        extra_operations in prop::collection::vec(shutdown_operation_strategy(), 0..=8),
+    ) {
+        run_generated_shutdown_case(requested_workers, extra_operations)?;
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ShutdownOperation {
+    Clone(usize),
+    Stop(usize),
+    ObserveDrain(usize),
+    DropClone(usize),
+}
+
+fn shutdown_operation_strategy() -> impl Strategy<Value = ShutdownOperation> {
+    prop_oneof![
+        (0usize..=9).prop_map(ShutdownOperation::Clone),
+        (0usize..=9).prop_map(ShutdownOperation::Stop),
+        (0usize..=9).prop_map(ShutdownOperation::ObserveDrain),
+        (0usize..=9).prop_map(ShutdownOperation::DropClone),
+    ]
+}
+
+fn run_generated_shutdown_case(
+    requested_workers: usize,
+    extra_operations: Vec<ShutdownOperation>,
+) -> TestCaseResult {
+    let runtime = Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| TestCaseError::fail(error.to_string()))?;
+    runtime.block_on(exercise_generated_shutdown_case(
+        requested_workers,
+        extra_operations,
+    ))
+}
+
+async fn exercise_generated_shutdown_case(
+    requested_workers: usize,
+    extra_operations: Vec<ShutdownOperation>,
+) -> TestCaseResult {
+    let (addr, root) = spawn_ready_server_for_workers(requested_workers)
+        .await
+        .map_err(|error| TestCaseError::fail(format!("server setup failed: {error}")))?;
+    let mut clones = Vec::new();
+    let mut observers = Vec::new();
+    let mut operations = Vec::with_capacity(extra_operations.len() + 5);
+    operations.push(ShutdownOperation::Clone(0));
+    operations.extend(extra_operations);
+    operations.extend([
+        ShutdownOperation::ObserveDrain(0),
+        ShutdownOperation::Clone(0),
+        ShutdownOperation::DropClone(0),
+        ShutdownOperation::Stop(0),
+    ]);
+
+    for operation in operations {
+        match operation {
+            ShutdownOperation::Clone(source) => {
+                clones.push(select_shutdown_handle(&root, &clones, source).clone());
+            }
+            ShutdownOperation::Stop(target) => {
+                select_shutdown_handle(&root, &clones, target).stop();
+            }
+            ShutdownOperation::ObserveDrain(target) => {
+                let shutdown = select_shutdown_handle(&root, &clones, target).clone();
+                observers.push(tokio::spawn(async move { shutdown.drained().await }));
+                tokio::task::yield_now().await;
+            }
+            ShutdownOperation::DropClone(target) => {
+                if target < clones.len() {
+                    drop(clones.remove(target));
+                }
+            }
+        }
+    }
+
+    // Keep the root alive through every generated operation and make the
+    // terminal request independent of which operations the generator chose.
+    root.stop();
+    drop(clones);
+
+    timeout(Duration::from_secs(1), async {
+        for (index, result) in join_all(observers).await.into_iter().enumerate() {
+            let outcome = result.map_err(|error| {
+                TestCaseError::fail(format!("drain observer {index} task failed: {error}"))
+            })?;
+            prop_assert!(
+                outcome.is_ok(),
+                "drain observer {index} returned an abnormal outcome: {outcome:?}"
+            );
+        }
+        wait_for_listener_release(addr)
+            .await
+            .map_err(|error| TestCaseError::fail(format!("listener was not released: {error}")))?;
+        Ok(())
+    })
+    .await
+    .map_err(|_| TestCaseError::fail("server shutdown did not complete within one second"))??;
+
+    Ok(())
+}
+
+fn select_shutdown_handle<'a>(
+    root: &'a ServerShutdown,
+    clones: &'a [ServerShutdown],
+    selector: usize,
+) -> &'a ServerShutdown {
+    if selector == 0 {
+        root
+    } else {
+        clones.get(selector - 1).unwrap_or(root)
+    }
+}
+
 #[fixture]
 async fn spawn_ready_server(
     #[default(1)] workers: usize,
+) -> TestResult<(SocketAddr, ServerShutdown)> {
+    spawn_ready_server_for_workers(workers).await
+}
+
+async fn spawn_ready_server_for_workers(
+    workers: usize,
 ) -> TestResult<(SocketAddr, ServerShutdown)> {
     let listener = unused_listener()?;
     let server = WireframeServer::new(factory())

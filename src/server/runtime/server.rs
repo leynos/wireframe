@@ -200,6 +200,15 @@ where
     ///
     /// Returns typed application factory or preparation errors before the
     /// server begins accepting connections.
+    ///
+    /// Attempting to run an unbound server fails to compile:
+    ///
+    /// ```compile_fail
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// fn main() {
+    ///     let _ = WireframeServer::new(|| WireframeApp::default()).run();
+    /// }
+    /// ```
     pub async fn run(self) -> Result<(), ServerError> {
         self.run_with_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;
@@ -211,6 +220,36 @@ where
     ///
     /// Dropping this future still cancels the accept loops. Existing
     /// connection tasks retain their established graceful-drain behaviour.
+    ///
+    /// # Examples
+    ///
+    /// Bind an ephemeral listener; a oneshot signal shuts it down after drain:
+    ///
+    /// ```
+    /// use tokio::sync::oneshot;
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let server =
+    ///         WireframeServer::new(|| WireframeApp::default()).bind("127.0.0.1:0".parse()?)?;
+    ///     let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    ///     let task = tokio::spawn(server.run_with_shutdown(async {
+    ///         let _ = shutdown_rx.await;
+    ///     }));
+    ///     let _ = shutdown_tx.send(());
+    ///     task.await??;
+    ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// Attempting to run an unbound server fails to compile:
+    ///
+    /// ```compile_fail
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// fn main() {
+    ///     let _ = WireframeServer::new(|| WireframeApp::default()).run_with_shutdown(async {});
+    /// }
+    /// ```
     ///
     /// # Errors
     ///
@@ -280,6 +319,15 @@ where
     ///     shutdown.stop();
     ///     shutdown.drained().await?;
     ///     Ok(())
+    /// }
+    /// ```
+    ///
+    /// An unbound server cannot be spawned:
+    ///
+    /// ```compile_fail
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    /// fn main() {
+    ///     let _ = WireframeServer::new(|| WireframeApp::default()).spawn();
     /// }
     /// ```
     ///
