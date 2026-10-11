@@ -40,6 +40,30 @@
 //! task gauge across construction would report `pool_size` as acquisition
 //! churn. See `pool_once`.
 //!
+//! # Known defect: sustained contention stalls the acquire path
+//!
+//! Contended acquisition is **not** reliable enough to time with Criterion.
+//! Sustained contention intermittently leaves every contender stalled with
+//! waiters still queued: no worker is servicing the queue, so no burst
+//! completes. Both fairness policies stall, on a pool rebuilt per iteration and
+//! on one long-lived pool, and with fresh and with reused handles, so the
+//! trigger is contention itself. The observed first-stall burst numbers on the
+//! named baseline machine are recorded in [`CONTENDED_BURST_TIMEOUT`].
+//!
+//! Contention also surfaces spurious `disconnected` errors: a contended round
+//! can report `connection closed by peer` while the pool is still serving
+//! traffic, reproducible on a long-lived pool at burst 913 of 20,000. Both
+//! symptoms belong to the same acquire path and are pre-existing — they are
+//! reproduced without any change to `scheduler.rs`, and a candidate fix that
+//! suppressed the error was rejected because it converted a fast failure into
+//! an intermittent hang, which is strictly worse.
+//!
+//! The defect is therefore *recorded*, not fixed, which is the correct scope
+//! for issue #639: it establishes baselines before Epic #635 changes ownership
+//! topology, and the pool acquire path is ADR 013 / issue #647's subject.
+//! `CONTENDED_BURST_TIMEOUT` turns a stall into a reported error so a benchmark
+//! or `cargo test --all-targets` run cannot block forever.
+//!
 //! # Transport
 //!
 //! Pool construction connects eagerly through `bb8`, and the crate exposes no
@@ -77,6 +101,25 @@ pub const DEFAULT_CONTENDERS: usize = 16;
 
 /// Acquire/release rounds performed by each contender.
 const CONTENDED_ROUNDS: usize = 8;
+
+/// Upper bound on a single contended burst.
+///
+/// This is a *safety net*, not a performance threshold, and it exists because
+/// measurement found a pre-existing deadlock rather than a slow path. Sustained
+/// contention can leave every tokio worker parked with waiters still queued, so
+/// a burst never completes and the call site hangs forever. Observed on the
+/// named baseline machine at burst 272, 808, 814, 2361, 2739, 4233, 4797,
+/// 10727, and 18069 across both fairness policies, with and without the
+/// per-iteration pool rebuild, and with fresh and reused handles — so the
+/// trigger is contention itself, not the harness shape.
+///
+/// A timeout turns that hang into a reported error. Without it, a benchmark run
+/// and `cargo test --all-targets` (which executes `harness = false` benches in
+/// Criterion's test mode) could block indefinitely. The defect is recorded in
+/// `docs/runtime-ownership-baselines.md` and belongs to ADR 013 / issue #647;
+/// it is deliberately not fixed here, because issue #639 records baselines
+/// rather than changing ownership topology.
+pub const CONTENDED_BURST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Which acquisition regime a workload exercises.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -344,7 +387,7 @@ async fn pool_once(workload: PoolWorkload) -> Result<PhaseObservation, String> {
     let alive_before = alive_tasks();
 
     let granted = if workload.mode.is_contended() {
-        contended_round(workload, &pool).await?
+        contended_round_bounded(workload, &pool).await?
     } else {
         let mut handle = pool.handle();
         acquire_round(&mut handle, workload.acquisitions)
@@ -368,6 +411,29 @@ async fn pool_once(workload: PoolWorkload) -> Result<PhaseObservation, String> {
         alive_before,
         alive_after,
     })
+}
+
+/// Run one contended burst, converting a stall into an error.
+///
+/// The timeout exists to bound a *hang*, not to measure speed: see
+/// [`CONTENDED_BURST_TIMEOUT`]. Without it a deadlocked burst never returns and
+/// the caller blocks forever.
+async fn contended_round_bounded(
+    workload: PoolWorkload,
+    pool: &wireframe::client::WireframeClientPool<
+        wireframe::serializer::BincodeSerializer,
+        wireframe::test_helpers::pool_client::ClientHello,
+        (),
+    >,
+) -> Result<u64, String> {
+    match tokio::time::timeout(CONTENDED_BURST_TIMEOUT, contended_round(workload, pool)).await {
+        Ok(result) => result,
+        Err(_) => Err(format!(
+            "contended burst did not complete within {CONTENDED_BURST_TIMEOUT:?}: every contender \
+             is stalled with waiters still queued (known pool acquire-path deadlock; see \
+             docs/runtime-ownership-baselines.md and issue #647)"
+        )),
+    }
 }
 
 /// Race every contender for pool capacity behind a shared start barrier.
