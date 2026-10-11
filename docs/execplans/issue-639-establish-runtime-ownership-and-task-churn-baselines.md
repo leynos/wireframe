@@ -202,8 +202,15 @@ Thresholds that trigger escalation when breached.
   lint-invisible documentation contradictions; one was a real flake risk in
   tests that `.expect` on a single contended burst. See the Decision log for
   each resolution and the evidence behind it.
-- [ ] Run every commit gate, then a final CodeRabbit review; clear all concerns.
-- [ ] Push over SSH and open a draft pull request.
+- [x] (2026-10-12) Ran the full commit gates, then a second
+  `coderabbit review --agent` pass. All five findings from that pass are
+  resolved; all five gates are green on the resulting commit. Two
+  lint-invisible doc contradictions, one stale ExecPlan entry, one wrong
+  attribution of the `alive_after` sample, and one real defect: the pool was
+  not closed when an acquisition failed, so a timed-out burst's detached
+  contenders outlived the iteration.
+- [x] (2026-10-12) Pushed over SSH and opened draft PR #756,
+  <https://github.com/leynos/wireframe/pull/756>.
 
 ## Surprises & discoveries
 
