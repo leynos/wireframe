@@ -423,14 +423,15 @@ fn uncontended_acquisition_does_not_spawn_pool_scheduler_tasks(#[case] pool_size
     // small constant rather than scaling with the pool size. Measured over 180
     // current-thread runs at pool sizes 1, 4, and 16, the delta was only ever
     // −1 or 0 — a *negative* delta, because a burst can leave a pre-existing
-    // worker idle-exiting. Construction, by contrast, contributes exactly
-    // `pool_size` in the mutation experiment.
+    // worker idle-exiting. Construction, by contrast, contributed 2, 5, and 17
+    // when the bracket was moved to include it, scaling with `pool_size`.
     //
     // The bound is a non-scaling ceiling rather than a tight fit to those two
     // observed values: pinning it to `<= 0` would encode a scheduling accident,
     // and the property under test is "does not grow with the pool", not "happens
-    // to settle at or below zero". At pool size 16 the ceiling is seven times
-    // below the construction cost the bracket exists to exclude.
+    // to settle at or below zero". A ceiling of 2 would still fail on all three
+    // mutated cases above, so it discriminates the failure the bracket exists to
+    // catch while leaving headroom for a scheduler that has not quiesced yet.
     //
     // This is the same property the in-module
     // `acquisition_phase_does_not_leak_pool_construction_tasks` asserts, from

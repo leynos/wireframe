@@ -186,6 +186,14 @@ Thresholds that trigger escalation when breached.
   labels, 2 arc-sensitivity labels, and 2 contended observations, with no panic
   and no error. Filled the four baseline tables in
   `docs/runtime-ownership-baselines.md` from that run.
+- [x] (2026-10-11 23:20Z) Cleared the whitaker `module_max_lines` gate: the
+  four new support modules exceeded the 400-line limit (822, 605, 463, 418).
+  Split each into `mod.rs` + a data module (`workload.rs`/`scenario.rs`) + a
+  `measurement` module + `tests.rs`, with the two genuinely distinct control
+  flows given their own submodules
+  (`push/measurement/{uncontended,overflow}.rs`,
+  `client_pool/measurement/{phase,contended}.rs`). No `#[allow]` was used; all
+  21 files are now under 200 lines.
 - [ ] Run every commit gate, then CodeRabbit review; clear all concerns.
 - [ ] Push over SSH and open a draft pull request.
 
@@ -498,6 +506,35 @@ Thresholds that trigger escalation when breached.
   after `Criterion::final_summary`, mirroring what the timing binary already
   does. This is a *stronger* confirmation than the earlier probe, because it is
   an unmodified benchmark binary driving unmodified library code.
+
+- Observation: **whitaker's `module_max_lines` limit applies to the new
+  benchmark-support modules, and it counts the whole file, not the `mod`
+  body.** All four modules written for this issue exceeded the 400-line cap
+  (822, 605, 463, 418), and because `make lint` runs rustdoc then clippy then
+  whitaker, the finding was invisible until both earlier steps were green.
+  Evidence: the gate log reported four
+  `error: Module <name> spans <N> lines, exceeding the allowed 400` diagnostics
+  pointing at
+  `wireframe_testing/src/runtime_ownership_benchmarks/mod.rs:44-47`, the
+  `pub mod` declarations rather than the offending files. The reported line
+  numbers were deterministic across two independent runs. Impact: the four
+  modules were split into `mod.rs` + a data module + a `measurement` module +
+  `tests.rs` (with the genuinely distinct control flows given their own
+  submodules) rather than silenced with `#[allow(module_max_lines)]`, which
+  `AGENTS.md` reserves as a last resort. All 21 files now sit under 240 lines,
+  and the nested splits put each regime's rationale next to that regime instead
+  of in one shared header. **Do not size a new module against the 400-line
+  limit; size it against a split you would defend anyway.**
+
+- Observation: the `mod.rs` files of the split modules tripped
+  `unused_imports` for names used *only* in Rustdoc intra-doc links, e.g.
+  `PushError` referenced as ``[`PushError::QueueFull`]`` in a doc table but
+  never in code. Evidence: `warning: unused import: PushError` at
+  `push_benchmark_support/scenario.rs:10` after the split. Impact: such links
+  carry the full path
+  (`[`PushError::QueueFull`](wireframe::push::PushError::QueueFull)`) so the
+  import is not needed for the link to resolve. This is a split-specific
+  hazard: the same code in one file had the import genuinely used elsewhere.
 
 ## Decision log
 
