@@ -34,8 +34,8 @@
 //!
 //! # Layout
 //!
-//! [`workload`] holds the scenario as data: the parameters a baseline must
-//! state, and the exact counts each topology must produce. [`measurement`]
+//! `workload` holds the scenario as data: the parameters a baseline must
+//! state, and the exact counts each topology must produce. `measurement`
 //! drives that scenario. Keeping the two apart is what lets the baseline
 //! outlive a change of ownership topology — the workload definition is the
 //! contract a comparison rests on, and it does not move when the implementation

@@ -38,7 +38,7 @@
 //! Pool construction is excluded from both counters. `bb8` connects eagerly, so
 //! building a pool of size N leaves N connection tasks alive; measuring the
 //! task gauge across construction would report `pool_size` as acquisition
-//! churn. See [`phase::pool_once`](measurement::phase::pool_once).
+//! churn. See `pool_once` in the `measurement::phase` submodule.
 //!
 //! # Known defect: sustained contention stalls the acquire path
 //!
@@ -75,10 +75,10 @@
 //!
 //! # Layout
 //!
-//! [`workload`] holds the scenarios as data; [`measurement`] drives them. That
+//! `workload` holds the scenarios as data; `measurement` drives them. That
 //! module splits again, because the two regimes are separate control flows: the
-//! bracketed acquisition phase in [`phase`](measurement::phase), and the racing
-//! burst in [`contended`](measurement::contended).
+//! bracketed acquisition phase in `measurement::phase`, and the racing burst in
+//! `measurement::contended`.
 //!
 //! [`pool_scheduler_task_spawns`]: wireframe::client::pool_scheduler_task_spawns
 
