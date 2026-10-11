@@ -662,6 +662,37 @@ Thresholds that trigger escalation when breached.
   is updated to say so rather than deleted, since a defect that stopped
   reproducing is exactly the kind of evidence a later reader needs.
 
+- Discovery (2026-10-12): the H1 experiment **did not falsify** the prediction
+  that the rebase target's #535 removed the acquire-path stall, and confirmed
+  that the spurious `disconnected` survives it. At the recorded 8-contender
+  shape (pool size 4, 16 acquisitions, 8 rounds per contender), 24,000 rounds
+  per fairness policy completed with **zero stalls and zero unclassified
+  errors**; the recorded rate of roughly one failing round in 400 predicted
+  about 60 stalls per policy, and none occurred. The spurious `disconnected`
+  reproduced throughout: 327 of 24,000 FIFO rounds (about 1 in 73) and 38 of
+  24,000 round-robin rounds (about 1 in 632).
+
+  The FIFO figure is materially above the 1-in-400 previously recorded for the
+  same shape. Two readings are consistent with the data and the experiment
+  cannot separate them: the disconnect rate genuinely moved, or the difference
+  is machine and load profile. It is recorded as an open question rather than
+  asserted as a shift.
+
+  Mechanism, verified structurally rather than inferred from the commit message:
+  `stop_servicing` — the only writer that clears `is_servicing` to false — now
+  has exactly one caller, `take_next_waiter_or_stop`
+  (`src/client/pool/scheduler.rs:246`). The immediate-lease arm reaches
+  `next_waiter` (line 264), which only pops a queued request and never clears
+  the flag, so the flag/worker mismatch the branch identified can no longer
+  arise on that path.
+
+  Scope of the falsification, stated so the claim is not overstated: this is a
+  one-sided test. Zero stalls in 48,000 rounds is consistent with the defect
+  being gone **and** with it merely being rarer than the sample can resolve. It
+  does not prove absence. The experiment also covered the 8-contender shape
+  only; the recorded stalls spanned 8 and 16 contenders, so the 16-contender
+  shape was re-tested separately before the documentation claim was narrowed.
+
 ## Decision log
 
 - Decision: resolve the CodeRabbit review's three findings by **correcting the
