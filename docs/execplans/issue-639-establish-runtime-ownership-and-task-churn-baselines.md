@@ -536,6 +536,38 @@ Thresholds that trigger escalation when breached.
   import is not needed for the link to resolve. This is a split-specific
   hazard: the same code in one file had the import genuinely used elsewhere.
 
+- Observation: **`make lint` cannot see broken intra-doc links inside
+  feature-gated modules, because its rustdoc step does not enable the
+  features.** The `lint` target runs `cargo doc --workspace --no-deps`, while
+  the `clippy` step beside it runs `--all-features`. The benchmark-support
+  modules are `#[cfg]`-gated behind `runtime-benchmarks`, so rustdoc never
+  compiled them and never checked their links. Evidence: `make lint` exited 0
+  with zero errors at commit `311192c`, while
+  `RUSTDOCFLAGS="--cfg docsrs -D warnings" cargo doc -p wireframe_testing
+  --features runtime-benchmarks --no-deps`
+  on the *same* tree reported **sixteen** errors — private-intra-doc-link
+  violations for public docs pointing at the newly-private
+  `workload`/`measurement`/`scenario`/`phase`/ `contended` submodules, and
+  broken-intra-doc-links for `PushError`, `PushPolicy`, and `Envelope`, which
+  the split had moved out of the file's scope. Impact: the split merged a
+  defect the gate is structurally unable to detect, and the first commit's
+  message described the repair as complete when only one of the three affected
+  files had been touched. Fixed in `9985ed1`; the same command now reports zero
+  errors, in both the feature-enabled and the default regime. **Any future work
+  in this module must check links in the feature-enabled regime**, because the
+  standard gate will not.
+
+- Observation: that rustdoc/clippy asymmetry is repo-wide, not specific to
+  this branch, and it is closable in one word.
+  `RUSTDOCFLAGS="--cfg docsrs -D warnings" cargo doc --workspace --no-deps
+  --all-features`
+  exits 0 on this tree, so adding `--all-features` to that command would have
+  caught all sixteen errors. Impact: recommended as a follow-up in its own base
+  pull request rather than folded in here, because it changes a shared gate
+  that every branch and agent runs, and because issue #639's diff should stay
+  about benchmark harnesses. AGENTS.md already establishes the base-PR pattern
+  for unrelated gate changes.
+
 ## Decision log
 
 - Decision: **do not fix** the pool acquire-path defects found while measuring,
