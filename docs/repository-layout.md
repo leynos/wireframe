@@ -6,7 +6,11 @@ and shared test support. Its main areas are:
 - `src/` contains the published `wireframe` library.
 - `crates/wireframe-verification/` contains verification support.
 - `wireframe_testing/` contains shared test fixtures and helpers.
-- `tests/` contains integration and behaviour-driven tests.
+- `tests/` contains integration and behaviour-driven tests. An
+  integration-test root laid out as `tests/<name>/mod.rs` needs an explicit
+  `[[test]]` entry in `Cargo.toml`, because Cargo auto-discovers `tests/*.rs`
+  and `tests/<name>/main.rs` but not `tests/<name>/mod.rs`. Without the entry
+  the root is silently not built or run.
 - `tools/dev-fast/config.toml` is the explicitly selected development Cargo
   configuration. The
   [development builds](developers-guide.md#development-builds) section

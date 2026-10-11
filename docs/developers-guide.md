@@ -1193,6 +1193,16 @@ because a model that cannot finish hangs rather than failing.
 
 ## Test infrastructure and framework
 
+### Integration-test target layout
+
+Integration-test roots may be relocated from `tests/<name>.rs` to
+`tests/<name>/mod.rs` so that supporting modules sit beside the root. Cargo
+auto-discovers `tests/*.rs` and `tests/<name>/main.rs`, but not
+`tests/<name>/mod.rs`, so a relocated root must be declared as an explicit
+`[[test]]` target in `Cargo.toml` whose `path` names that `mod.rs`. Without the
+declaration the root is not built, so its tests stop running with no compile
+error to flag the loss.
+
 ### rstest and rstest-bdd
 
 The test suite uses [`rstest`](https://crates.io/crates/rstest) for
