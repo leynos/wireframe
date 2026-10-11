@@ -357,9 +357,11 @@ mod connection_spawner;
 pub mod error;
 pub use error::ServerError;
 mod runtime;
-
+mod shutdown;
 /// Re-exported configuration types for server backoff behaviour.
 pub use runtime::BackoffConfig;
+pub use shutdown::ServerShutdown;
+pub(in crate::server) use shutdown::ServerTerminal;
 
 #[cfg(test)]
 pub(crate) mod test_util;

@@ -4,7 +4,7 @@
 //! installed while accept loops observe cancellation and emit their exits.
 #![cfg(not(loom))]
 
-use std::future;
+use std::future::{self, Future};
 
 use metrics::with_local_recorder;
 use tokio::{
@@ -50,35 +50,29 @@ macro_rules! assert_trace_event {
 #[traced_test]
 #[test]
 fn graceful_shutdown_emits_lifecycle_metrics_and_trace() -> TestResult {
-    let mut observability = ObservabilityHandle::new();
     let span = tracing::Span::current();
-    run_with_local_metrics(&observability, graceful_shutdown().instrument(span))?;
-    observability.snapshot();
+    let observability = capture_lifecycle_metrics(graceful_shutdown().instrument(span))?;
 
-    observability
-        .assert_counter(SERVER_SUPERVISOR_CANCELLATIONS, [("reason", "graceful")], 1)
-        .map_err(|error| format!("graceful supervisor cancellation metric missing: {error}"))?;
-    observability
-        .assert_counter(
-            SERVER_ACCEPT_LOOPS_EXITED,
-            [("reason", "graceful")],
-            WORKERS as u64,
-        )
-        .map_err(|error| format!("graceful accept-loop exit metrics missing: {error}"))?;
+    assert_lifecycle_metrics(&observability, "graceful")?;
     assert_trace_event!("server_supervisor_cancellation", "graceful");
     assert_trace_event!("server_accept_loop_exited", "graceful");
     Ok(())
 }
 
+#[test]
+fn spawned_server_stop_emits_graceful_lifecycle_metrics() -> TestResult {
+    let observability = capture_lifecycle_metrics(stop_spawned_server())?;
+
+    assert_lifecycle_metrics(&observability, "graceful")
+}
+
 #[traced_test]
 #[test]
 fn dropped_supervisor_emits_lifecycle_metrics_and_trace() -> TestResult {
-    let mut observability = ObservabilityHandle::new();
     let span = tracing::Span::current();
-    run_with_local_metrics(&observability, drop_supervisor().instrument(span))?;
-    observability.snapshot();
+    let observability = capture_lifecycle_metrics(drop_supervisor().instrument(span))?;
 
-    assert_dropped_metrics(&observability)?;
+    assert_lifecycle_metrics(&observability, "dropped")?;
     assert_trace_event!("server_supervisor_cancellation", "dropped");
     assert_trace_event!("server_accept_loop_exited", "dropped");
     Ok(())
@@ -86,11 +80,19 @@ fn dropped_supervisor_emits_lifecycle_metrics_and_trace() -> TestResult {
 
 #[test]
 fn aborted_supervisor_emits_dropped_lifecycle_metrics() -> TestResult {
-    let mut observability = ObservabilityHandle::new();
-    run_with_local_metrics(&observability, abort_supervisor())?;
-    observability.snapshot();
+    let observability = capture_lifecycle_metrics(abort_supervisor())?;
 
-    assert_dropped_metrics(&observability)
+    assert_lifecycle_metrics(&observability, "dropped")
+}
+
+fn capture_lifecycle_metrics<F>(future: F) -> TestResult<ObservabilityHandle>
+where
+    F: Future<Output = TestResult>,
+{
+    let mut observability = ObservabilityHandle::new();
+    run_with_local_metrics(&observability, future)?;
+    observability.snapshot();
+    Ok(observability)
 }
 
 fn run_with_local_metrics<F>(observability: &ObservabilityHandle, future: F) -> TestResult
@@ -101,17 +103,17 @@ where
     with_local_recorder(observability.recorder(), || runtime.block_on(future))
 }
 
-fn assert_dropped_metrics(observability: &ObservabilityHandle) -> TestResult {
+fn assert_lifecycle_metrics(observability: &ObservabilityHandle, reason: &str) -> TestResult {
     observability
-        .assert_counter(SERVER_SUPERVISOR_CANCELLATIONS, [("reason", "dropped")], 1)
-        .map_err(|error| format!("dropped supervisor cancellation metric missing: {error}"))?;
+        .assert_counter(SERVER_SUPERVISOR_CANCELLATIONS, [("reason", reason)], 1)
+        .map_err(|error| format!("{reason} supervisor cancellation metric missing: {error}"))?;
     observability
         .assert_counter(
             SERVER_ACCEPT_LOOPS_EXITED,
-            [("reason", "dropped")],
+            [("reason", reason)],
             WORKERS as u64,
         )
-        .map_err(|error| format!("dropped accept-loop exit metrics missing: {error}"))?;
+        .map_err(|error| format!("{reason} accept-loop exit metrics missing: {error}"))?;
     Ok(())
 }
 
@@ -146,6 +148,25 @@ async fn graceful_shutdown() -> TestResult {
         .await
         .map_err(|_| "graceful server did not complete in time")??;
     server_result?;
+    wait_for_listener_release(addr).await
+}
+
+async fn stop_spawned_server() -> TestResult {
+    let listener = unused_listener()?;
+    let server = WireframeServer::new(factory())
+        .workers(WORKERS)
+        .bind_existing_listener(listener)?;
+    let addr = server
+        .local_addr()
+        .ok_or_else(|| "local address missing".to_string())?;
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let shutdown = server.ready_signal(ready_tx).spawn().await?;
+
+    wait_for_server_readiness(ready_rx).await?;
+    shutdown.stop();
+    timeout(Duration::from_secs(1), shutdown.drained())
+        .await
+        .map_err(|_| "spawned server did not drain")??;
     wait_for_listener_release(addr).await
 }
 
