@@ -192,8 +192,11 @@ Thresholds that trigger escalation when breached.
   `measurement` module + `tests.rs`, with the two genuinely distinct control
   flows given their own submodules
   (`push/measurement/{uncontended,overflow}.rs`,
-  `client_pool/measurement/{phase,contended}.rs`). No `#[allow]` was used; all
-  21 files are now under 200 lines.
+  `client_pool/measurement/{phase,contended}.rs`). No `#[allow]` was used, and
+  every one of the 21 files came in comfortably under the 400-line limit. Two
+  of them later grew past 200 as the CodeRabbit fixes added tests and
+  documentation; the limit that gates the build is 400, so that is the number
+  to check against, not the headroom this milestone happened to leave.
 - [x] (2026-10-11 23:57Z) Ran `coderabbit review --agent` (exit 0, 44 files, no
   rate limit) and resolved all three findings in one commit. Two were
   lint-invisible documentation contradictions; one was a real flake risk in
@@ -791,6 +794,17 @@ Thresholds that trigger escalation when breached.
   question, not a compliance one: if a later change extends the lint's scope to
   test-support crates, these files will need splitting and this entry is the
   starting point. Date/Author: 2026-10-11, implementer.
+
+  **SUPERSEDED — this decision was reversed during the same session; see the
+  observation below.** Whitaker's `module_max_lines` limit *does* apply to
+  `wireframe_testing`; the "exited 0 with no diagnostic" evidence above was a
+  misreading, taken while the earlier rustdoc/clippy steps were still failing
+  and the whitaker step had never run to completion. Once those steps were
+  green, the gate reported four modules over the cap (822, 605, 463, 418) and
+  all four were split into `mod.rs` + data + measurement + tests submodules.
+  The surviving lesson is not the decision but the surprise recorded below: a
+  gate that aborts early produces no evidence about the step after it.
+  Date/Author: 2026-10-12, implementer.
 
 ## Context and orientation
 

@@ -109,7 +109,7 @@ interval beside it so the run-to-run spread is visible.
 ### Timings
 
 Actor drain. `capacity_512` is the per-queue capacity, so a workload of
-`frames` preloads half that count per lane and both queues stay under
+`frames` preloads half that count per lane and neither queue reaches
 back-pressure. The three cancellation regimes are different control flows, not
 three timings of one scenario, so their columns are not comparable with each
 other.
