@@ -212,6 +212,29 @@ Thresholds that trigger escalation when breached.
 - [x] (2026-10-12) Pushed over SSH and opened draft PR #756,
   <https://github.com/leynos/wireframe/pull/756>.
 
+- [x] (2026-10-12) Rebased onto `origin/main` (`ef858aa0`) with the `rebase`
+  skill. Seventeen commits replayed across three conflicted steps
+  (`src/client/pool/scheduler.rs` twice, `docs/developers-guide.md` once);
+  every step was resolved by reading both sides rather than by branch label. The
+  `scheduler.rs` pair was an add-then-revert within this branch: `3d0ef3e`
+  added a spurious-disconnect fix and `e379b90` reverted it, so the series nets
+  to a single added line (the spawn counter). Taking the pre-rebase side would
+  have resurrected a change this branch deliberately backs out, so both steps
+  resolved to the target's structure, keeping the one-line counter. See the
+  Decision log for the resolution rationale and the evidence behind it.
+- [x] (2026-10-12) `make lint` failed after the rebase on whitaker's
+  `module_max_lines`: `src/client/pool/scheduler.rs` spanned 401 lines against
+  the 400-line cap. This was rebase-exposed, not a merge mistake — the target
+  had grown the file to exactly 400 in #535 and this branch's one-line counter
+  took it over. Fixed by extracting the in-module `tests` block to a sibling
+  `src/client/pool/scheduler_tests.rs` following the `#[path = "..."]` pattern
+  the target introduced in #710; `scheduler.rs` is now 326 lines and the five
+  tests still report under their original module path. Committed as `7457a29`.
+- [x] (2026-10-12) All directed gates green on `7457a29`: `make lint`
+  (whitaker ran to completion, no diagnostics), `make check-fmt`, `make test`
+  (83 targets `ok`). `make typecheck` was green on the pre-extraction commit
+  and is re-run at the final head.
+
 ## Surprises & discoveries
 
 - Observation: `wireframe_testing` *can* name `wireframe::test_helpers` only
@@ -811,6 +834,38 @@ Thresholds that trigger escalation when breached.
   all four were split into `mod.rs` + data + measurement + tests submodules.
   The surviving lesson is not the decision but the surprise recorded below: a
   gate that aborts early produces no evidence about the step after it.
+  Date/Author: 2026-10-12, implementer.
+
+- Decision: resolve the post-rebase `module_max_lines` failure by extracting
+  `src/client/pool/scheduler.rs`'s in-module tests to a sibling
+  `scheduler_tests.rs`, rather than by trimming the module or suppressing the
+  lint. Rationale: the target introduced this exact pattern in #710 — sibling
+  `*_tests.rs` files holding the test module body, declared
+  `#[cfg(test)] #[path = "…"] mod tests;` and colocated with the module under
+  test. It keeps the tests beside the code they cover while counting against a
+  separate file's line budget, so it satisfies the cap without moving test
+  coverage away from its subject. Trimming was not available: the module's own
+  prose was already at the target's limit before this branch's one-line change,
+  so any cut would have removed pre-existing content the target owns.
+  Suppression was not considered further, since the workspace disallows `allow`
+  attributes without a reason and this needed none. The five affected tests
+  still report under `client::pool::scheduler::tests::*`, so the pattern
+  preserves the module path as well as the coverage. Date/Author: 2026-10-12,
+  implementer.
+
+- Decision: keep this branch's `scheduler.rs` change at one line and take the
+  target's `resolve_immediate_lease` structure in both conflicted steps.
+  Rationale: this branch's series contains an add-then-revert pair of the same
+  behaviour. `git diff OLD_BASE OLD_HEAD -- src/client/pool/scheduler.rs` shows
+  the net effect is one added line, so replaying the intermediate commit's body
+  would reintroduce a spurious-disconnect fix the branch explicitly backs out —
+  a change that would then need re-reverting, and which the target had already
+  replaced with an equivalent-and-improved structure. The target's #535 commit
+  message states the improvement directly: it "avoids stopping a worker from
+  the immediate-lease resolver, because it may still be waiting for capacity on
+  behalf of an earlier queued request". Taking the target's version therefore
+  preserves this branch's intent (no spurious-disconnect fix) and adopts the
+  target's refinement (the servicing guard is no longer cleared on that path).
   Date/Author: 2026-10-12, implementer.
 
 ## Context and orientation
