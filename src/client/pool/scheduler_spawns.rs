@@ -3,9 +3,10 @@
 //! [`PoolScheduler::kick`](super::scheduler::PoolScheduler::kick) spawns a
 //! worker task only when it wins a compare-exchange from idle to servicing, so
 //! the number of spawns is a process-wide measure of how often the scheduler
-//! slow path was entered. Exposing the count lets benchmarks prove that
-//! uncontended acquire/drop cycles create no extra tasks, and that a contended
-//! scenario genuinely exercised the path.
+//! slow path was entered. Exposing the count lets benchmarks bracket the spawns
+//! an uncontended acquire/drop burst can cause, and prove that a contended
+//! scenario genuinely exercised the path. It does not let them assert that an
+//! uncontended run spawns nothing; see [`POOL_SCHEDULER_TASK_SPAWNS`].
 //!
 //! The counter lives in its own module rather than in `scheduler.rs`, matching
 //! the existing `connection::counter` arrangement, so the scheduler module
@@ -18,8 +19,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 ///
 /// This is the observable half of the "one scheduler task at a time"
 /// invariant: `kick` wins its compare-exchange at most once per idle-to-busy
-/// transition, so a run that acquires and releases without exhausting capacity
-/// leaves this counter unchanged.
+/// transition, so concurrent releases can never spawn more than one worker for
+/// the same transition.
+///
+/// The counter is a *bound*, not a zero, for an uncontended run.
+/// `PooledClientLease::drop` notifies the scheduler unconditionally, so a
+/// release reaches `kick` even when nobody is waiting and the pool never
+/// exhausts. A burst of `n` acquire/release cycles therefore spawns between 1
+/// and `2n` workers — never 0, and never more than the transition count. Assert
+/// against that bracket rather than asserting the count does not move; only a
+/// contended scenario proves the slow path is reachable at all.
 ///
 /// A plain counter rather than a `metrics` gauge because benchmark binaries
 /// install no recorder, which would make a `metrics` counter unobservable

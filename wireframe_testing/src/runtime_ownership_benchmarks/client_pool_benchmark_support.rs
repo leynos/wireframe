@@ -31,23 +31,22 @@
 //! not a control for the counter itself. The evidence that the counter can move
 //! is the *contended* case, which forces repeated entry to the slow path; the
 //! uncontended case bounds how far the fast path is allowed to drift. Both
-//! report
-//! [`pool_scheduler_task_spawns`](wireframe::client::pool_scheduler_task_spawns)
-//! and the live task counts.
+//! report [`pool_scheduler_task_spawns`] and the live task counts.
 //!
 //! # What is bracketed
 //!
 //! Pool construction is excluded from both counters. `bb8` connects eagerly, so
 //! building a pool of size N leaves N connection tasks alive; measuring the
 //! task gauge across construction would report `pool_size` as acquisition
-//! churn. See [`pool_once`].
+//! churn. See `pool_once`.
 //!
 //! # Transport
 //!
 //! Pool construction connects eagerly through `bb8`, and the crate exposes no
 //! in-memory pool constructor, so this scenario needs a live peer. It uses the
-//! loopback [`PoolTestServer`], which is the issue's documented transport-I/O
-//! exception. The peer only answers the connection preamble; no frames are
+//! loopback `PoolTestServer` (`src/test_helpers/pool_client.rs`), which is the
+//! issue's documented transport-I/O exception. The peer only answers the
+//! connection preamble; no frames are
 //! exchanged during a measurement, so the timed work is acquisition and release
 //! rather than request round-trips.
 

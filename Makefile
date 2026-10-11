@@ -1,5 +1,5 @@
 .PHONY: help all clean test test-doc test-workflow-contracts doctest-benchmark
-.PHONY: bench-codec build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
+.PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
 .PHONY: install-kani check-kani-version install-verus run-verus test-verification kani \
 	kani-full verus formal-pr formal-nightly formal
@@ -78,6 +78,11 @@ doctest-benchmark: ## Check runnable/no_run doctest ratios
 
 bench-codec: ## Run codec performance benchmarks
 	RUSTFLAGS="-D warnings" $(CARGO) bench --bench codec_performance --bench codec_performance_alloc --features test-support $(BUILD_JOBS)
+
+bench-runtime-ownership: ## Run runtime-ownership baseline benchmarks
+	RUSTFLAGS="-D warnings" $(CARGO) bench --bench runtime_ownership_baselines --bench runtime_ownership_baselines_alloc --features test-support,pool $(BUILD_JOBS)
+
+bench: bench-codec bench-runtime-ownership ## Run all benchmark suites
 
 typecheck: ## Run a workspace typecheck
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) check --workspace --all-targets --all-features $(BUILD_JOBS)
