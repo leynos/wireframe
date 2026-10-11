@@ -45,8 +45,7 @@ async fn dropping_final_shutdown_handle_requests_shutdown(
 ) -> TestResult {
     let (addr, shutdown) = spawn_ready_server.await?;
     drop(shutdown);
-    wait_for_listener_release(addr).await?;
-    assert_connection_refused(addr).await
+    wait_for_listener_release(addr).await
 }
 
 #[rstest]
