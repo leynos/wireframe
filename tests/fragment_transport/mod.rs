@@ -115,7 +115,18 @@ async fn run_round_trip_test(
 async fn fragmented_request_and_response_round_trip() -> TestResult {
     let buffer_capacity = 512;
     let payload = vec![b'Z'; 1_200];
-    run_round_trip_test(buffer_capacity, payload, true).await?;
+
+    // `read_framed_response` accepts an unfragmented response, so without this
+    // assertion a regression that stopped fragmenting the response would still
+    // satisfy the reassembly and payload checks inside `run_round_trip_test`.
+    let response = run_round_trip_test(buffer_capacity, payload, true).await?;
+    if response.frame_count <= 1 {
+        return Err(TestError::Assertion(format!(
+            "a large response must cross multiple frames, saw {}",
+            response.frame_count
+        )));
+    }
+
     Ok(())
 }
 
