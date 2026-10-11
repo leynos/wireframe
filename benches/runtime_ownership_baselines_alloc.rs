@@ -34,6 +34,17 @@
 //! fails loudly unless the difference is at least one allocation per item, which
 //! can only hold if the counter actually resolves the per-item allocation. The
 //! recorded counts are transcribed into `docs/runtime-ownership-baselines.md`.
+//!
+//! # Contended pool acquisition
+//!
+//! Contended pool acquisition is counted once, after `Criterion::final_summary`,
+//! and reported as a `tracing` event rather than timed. Sustained contention
+//! intermittently fails or stalls the pool acquire path — a pre-existing defect
+//! recorded in `docs/runtime-ownership-baselines.md` and belonging to ADR 013 /
+//! issue #647. Criterion's timing pass runs far more iterations than an
+//! allocation window, so it reaches that interleaving almost every run; that is
+//! how this binary failed on its first execution. The count itself is unaffected
+//! because it comes from a single counted window.
 
 use std::{
     hint::black_box,
@@ -145,10 +156,32 @@ where
     started.elapsed()
 }
 
+/// Contended pool workload, recorded as an observation rather than a timing.
+///
+/// Contenders must outnumber slots for the pool to be exhausted, and the
+/// default `contenders` of 16 clears the default pool size of 4 comfortably.
+///
+/// This workload is deliberately absent from [`allocation_scopes`]: sustained
+/// contention intermittently stalls the pool acquire path or fails it with a
+/// spurious `disconnected`, and Criterion's timing pass runs far more
+/// iterations than the four in an allocation window, so it reaches that
+/// interleaving almost every run. Measuring it here once, under a counted
+/// window, records the number the issue asks for without handing the scenario
+/// to a pass that cannot survive it. See `docs/runtime-ownership-baselines.md`.
+fn contended_pool_workload() -> PoolWorkload {
+    PoolWorkload {
+        pool_size: 4,
+        mode: AcquisitionMode::ContendedFifo,
+        ..PoolWorkload::default()
+    }
+}
+
 /// Build the runtime-ownership workloads this binary records allocations for.
 ///
 /// One list feeds both the allocation and timing groups, so adding a scope can
-/// not silently skip the timing side.
+/// not silently skip the timing side. The contended pool scope is excluded
+/// because it cannot be timed at all; see [`contended_pool_workload`] and
+/// [`observe_contended_pool_allocations`].
 fn allocation_scopes(runtime: &Runtime) -> Vec<AllocationScope<'_>> {
     let actor = ActorWorkload {
         frames: ACTOR_FRAMES,
@@ -176,11 +209,6 @@ fn allocation_scopes(runtime: &Runtime) -> Vec<AllocationScope<'_>> {
     let pool_uncontended = PoolWorkload {
         pool_size: 4,
         mode: AcquisitionMode::Uncontended,
-        ..PoolWorkload::default()
-    };
-    let pool_contended = PoolWorkload {
-        pool_size: 4,
-        mode: AcquisitionMode::ContendedFifo,
         ..PoolWorkload::default()
     };
 
@@ -239,18 +267,58 @@ fn allocation_scopes(runtime: &Runtime) -> Vec<AllocationScope<'_>> {
                     .map(|_| ())
             }),
         ),
-        (
-            pool_contended.label(),
-            Box::new(move || {
-                runtime
-                    .block_on(measure_pool_acquisition(
-                        pool_contended,
-                        ALLOCATION_ITERATIONS,
-                    ))
-                    .map(|_| ())
-            }),
-        ),
     ]
+}
+
+/// Record the contended pool allocation count as a bounded observation.
+///
+/// Run once after Criterion has finished, so a failure is reported rather than
+/// aborting the benchmark run. The count still comes from a counted window, so
+/// it is the same measurement the timing group would have taken; only the
+/// repetition and the timing are dropped, because repetition is what the
+/// acquire-path defect makes unreliable. See
+/// `docs/runtime-ownership-baselines.md`.
+fn observe_contended_pool_allocations(runtime: &Runtime) {
+    let workload = contended_pool_workload();
+    let label = workload.label();
+    let outcome = count_allocations(|| {
+        runtime
+            .block_on(measure_pool_acquisition(workload, ALLOCATION_ITERATIONS))
+            .map(|_| ())
+    });
+
+    match outcome {
+        Ok(allocations) => tracing::info!(
+            workload = %label,
+            iterations = ALLOCATION_ITERATIONS,
+            allocations,
+            "contended pool allocation observation"
+        ),
+        Err(error) => tracing::warn!(
+            workload = %label,
+            iterations = ALLOCATION_ITERATIONS,
+            %error,
+            "contended pool allocations could not be counted; known acquire-path defect, see \
+             docs/runtime-ownership-baselines.md"
+        ),
+    }
+}
+
+/// Install a subscriber for the allocation binary's own events only.
+///
+/// The contended observation reports a count as a structured event, and an
+/// event with no subscriber is silently discarded. The filter is set to this
+/// binary's own target rather than left at a global level, so the connection
+/// startup workloads' per-connection INFO spans do not bury it. Criterion owns
+/// the timing output; `tracing` carries only the count.
+fn init_observation_subscriber() {
+    use tracing_subscriber::filter::LevelFilter;
+
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .with_max_level(LevelFilter::INFO)
+        .with_env_filter(tracing_subscriber::EnvFilter::new(env!("CARGO_CRATE_NAME")))
+        .init();
 }
 
 /// Clone one shared `Arc` per item, against one freshly allocated shared value.
@@ -390,6 +458,8 @@ fn benchmark_arc_sensitivity(criterion: &mut Criterion) {
 
 /// Entrypoint for the runtime-ownership allocation baselines.
 fn main() {
+    init_observation_subscriber();
+
     // The harness check must precede the runtime and Criterion: both can start
     // threads whose allocations would otherwise land inside a measurement window.
     verify_allocation_harness();
@@ -401,4 +471,6 @@ fn main() {
     benchmark_arc_sensitivity(&mut criterion);
 
     criterion.final_summary();
+
+    observe_contended_pool_allocations(&runtime);
 }
