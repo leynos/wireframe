@@ -18,6 +18,7 @@
 //! # }
 //! ```
 
+pub mod benchmark_alloc_support;
 pub mod client_pair;
 pub mod codec_benchmarks;
 pub mod echo_server;

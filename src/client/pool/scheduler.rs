@@ -298,6 +298,7 @@ where
     /// Spawn at most one worker to drain waiters as capacity appears.
     fn kick(self: &Arc<Self>, inner: Arc<ClientPoolInner<S, P, C>>) {
         if self.try_begin_servicing() {
+            super::scheduler_spawns::record_scheduler_task_spawn();
             let scheduler = Arc::clone(self);
             tokio::spawn(async move {
                 scheduler.service_waiters(inner).await;
