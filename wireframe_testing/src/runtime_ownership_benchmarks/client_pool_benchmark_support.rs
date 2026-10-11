@@ -238,7 +238,10 @@ impl PoolMeasurement {
     /// ```
     #[must_use]
     pub const fn alive_task_delta(self) -> isize {
-        self.alive_tasks_after as isize - self.alive_tasks_before as isize
+        // `cast_signed` rather than `as isize`: a task count is a small
+        // non-negative number, and a wrapping cast would be a silent error
+        // rather than a surfaced one if that ever stopped being true.
+        self.alive_tasks_after.cast_signed() - self.alive_tasks_before.cast_signed()
     }
 }
 

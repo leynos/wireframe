@@ -109,6 +109,21 @@ Thresholds that trigger escalation when breached.
   `wireframe-loom` does not depend on `wireframe_testing`. Verify with
   `make test-loom`.
 
+- Risk: a bench binary under `benches/` is auto-discovered by Cargo, so a
+  half-written file breaks `--all-targets` builds for every lane at once.
+  Severity: low. Likelihood: medium. Mitigation: land the two bench binaries
+  only when both compile under `RUSTFLAGS="-D warnings" cargo check --benches`,
+  and keep bench edits out of the tree while a commit gate is mid-run.
+
+- Risk: the harnesses could quietly stop comparing like with like if a future
+  refactor changes a workload's parameters, making an old baseline number look
+  applicable when it is not. Severity: medium. Likelihood: medium. Mitigation:
+  every `label()` embeds all recorded parameters — frame and send counts, queue
+  capacities, pool sizes, route and layer counts, contender counts, and the
+  startup path's exact factory and transform counts — so a Criterion result
+  whose label no longer matches the baseline table is visibly uncomparable
+  rather than silently substituted.
+
 ## Progress
 
 - [x] (2026-10-11 12:39Z) Reconnaissance of all four scopes, the existing
@@ -142,7 +157,7 @@ Thresholds that trigger escalation when breached.
   failing push test exposed that `try_push` reports `Ok(())` for a frame a drop
   policy dead-letters, so `PushMeasurement` reports `accepted`, `drained`, and
   `dead_lettered` separately; three further doctest defects in the new modules
-  (a mis-aliased constant, a wrong policy assertion, and an unwinnable
+  (an incorrectly aliased constant, a wrong policy assertion, and an unwinnable
   allocator assertion) were found and fixed by running the crate's doctests
   directly.
 - [ ] Milestone EP-M3: the two bench binaries, the Makefile target, the rstest
@@ -283,6 +298,38 @@ Thresholds that trigger escalation when breached.
   `usize::max` finding. Evidence: `E0658` raised on
   `client_pool_benchmark_support.rs:121`. Impact: const helper functions use
   explicit `if x < y { y } else { x }` comparisons instead.
+
+- Observation: `clippy::integer-division-remainder-used` is denied
+  workspace-wide, so `%` cannot be used for cycling a counter even where the
+  divisor is a small literal. Evidence: the gate run reported it at
+  `connection_actor_benchmark_support.rs:279` and
+  `push_benchmark_support.rs:292`. Impact: frame and route indices cycle with a
+  power-of-two mask (`index & 0xFF`, `id & 0x7`), which preserves the only
+  property the frames need — that consecutive values differ — without a
+  division. The `% 251` form was not reworkable as a mask without changing the
+  distribution, and no test asserts the distribution, so the mask is a strict
+  simplification rather than a behaviour change.
+
+- Observation: clippy's `-D warnings` config surface for this crate also
+  includes `cast_possible_wrap`, `type_complexity`, and `unnested_or_patterns`.
+  Evidence: the same gate run reported `as isize` at
+  `client_pool_benchmark_support.rs:241`, the three-tuple return of
+  `build_queues`, and `Err(A) | Err(_)` at `push_benchmark_support.rs:361`.
+  Impact: the task delta uses `cast_signed()`, the queue fixture has a
+  `PushFixture` type alias, and the fill loop matches `Err(_)` once. The
+  original `Err(PushError::QueueFull) | Err(_)` was provably the whole `Err`
+  arm, so the catch-all is the honest form rather than a weakening.
+
+- Observation: a scrutineer gate report characterised this worktree as being
+  edited by a second live Claude session, citing that a specific PID had the
+  worktree as its working directory. That PID is this session's own harness
+  process — the reporting agent's shell was its direct child. Evidence:
+  `ps -o pid,ppid -p $$` from this session shows `PPID` equal to that PID. The
+  "mid-gate edit" it saw was this session's own `Risks` addition. Impact: no
+  concurrency hazard exists and no competing writer is present; a future gate
+  report must not be read as evidence of a rival session on that basis alone.
+  The underlying caution still holds for this plan: do not edit tracked files
+  while a gate is mid-run.
 
 ## Decision log
 
@@ -1073,7 +1120,7 @@ and non-zero cases are the diagnostic.
 ## Artefacts and notes
 
 The three probe transcripts that decided the design are reproduced in
-`Concrete steps` and summarised in `Surprises & discoveries`. The baseline
+`Concrete steps` and summarized in `Surprises & discoveries`. The baseline
 numbers, the environment description, and the V-O6 mutation transcript are
 recorded in `docs/runtime-ownership-baselines.md` once EP-M3 completes.
 
