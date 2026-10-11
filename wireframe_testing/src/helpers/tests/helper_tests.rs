@@ -81,7 +81,7 @@ async fn drive_with_payloads_wraps_frames() -> io::Result<()> {
     let (decoded, _) = serializer.deserialize::<Envelope>(first).map_err(|error| {
         io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("failed to deserialise envelope: {error}"),
+            format!("failed to deserialize envelope: {error}"),
         )
     })?;
     if decoded.payload_bytes() != payload.as_slice() {
