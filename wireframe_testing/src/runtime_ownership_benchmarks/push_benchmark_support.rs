@@ -211,15 +211,19 @@ impl PushWorkload {
     /// };
     /// assert_eq!(
     ///     workload.label(),
-    ///     "uncontended_high_high_capacity_64_sends_1024"
+    ///     "uncontended_high_capacity_64_sends_1024"
     /// );
     /// ```
+    ///
+    /// The lane is deliberately absent: every scenario name already states
+    /// whether it targets the high- or low-priority queue, so appending it
+    /// would spell `high` twice in the overflow cases, which all send high.
+    /// [`PushScenario::priority`] still drives the send itself.
     #[must_use]
     pub fn label(self) -> String {
         format!(
-            "{}_{}_capacity_{}_sends_{}",
+            "{}_capacity_{}_sends_{}",
             self.scenario.label(),
-            self.scenario.priority(),
             self.queue_capacity,
             self.sends
         )
