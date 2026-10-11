@@ -475,9 +475,7 @@ fn pool_sizes_cover_the_issue_requirement() {
 #[rstest]
 #[case::fifo(AcquisitionMode::ContendedFifo)]
 #[case::round_robin(AcquisitionMode::ContendedRoundRobin)]
-fn contended_acquisition_may_report_a_known_spurious_disconnect(
-    #[case] mode: AcquisitionMode,
-) {
+fn contended_acquisition_may_report_a_known_spurious_disconnect(#[case] mode: AcquisitionMode) {
     const ROUNDS: usize = 400;
     let mut failures = Vec::new();
     for round in 0..ROUNDS {
@@ -499,8 +497,8 @@ fn contended_acquisition_may_report_a_known_spurious_disconnect(
     // more serious way than the known interleaving defect.
     assert!(
         failures.len() < ROUNDS,
-        "contended acquisition failed in every one of {ROUNDS} rounds, which is a broader \
-         failure than the known spurious-disconnect interleaving"
+        "contended acquisition failed in every one of {ROUNDS} rounds, which is a broader failure \
+         than the known spurious-disconnect interleaving"
     );
 }
 

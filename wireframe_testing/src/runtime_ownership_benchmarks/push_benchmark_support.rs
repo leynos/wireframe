@@ -209,10 +209,7 @@ impl PushWorkload {
     ///     queue_capacity: 64,
     ///     sends: 1024,
     /// };
-    /// assert_eq!(
-    ///     workload.label(),
-    ///     "uncontended_high_capacity_64_sends_1024"
-    /// );
+    /// assert_eq!(workload.label(), "uncontended_high_capacity_64_sends_1024");
     /// ```
     ///
     /// The lane is deliberately absent: every scenario name already states
