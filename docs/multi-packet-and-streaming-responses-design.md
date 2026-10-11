@@ -515,15 +515,15 @@ staying true to the architecture already in production use.
   mirrors the message attribution strategy outlined in the capability roadmap.
 - **Correlation provenance today.** The current implementation expects
   correlation to live inside the serialized `Envelope` payload. See the decode
-  path in `src/app/inbound_handler.rs` and the payload-carried correlation
+  path in `src/app/inbound_handler/mod.rs` and the payload-carried correlation
   fields in `src/app/envelope.rs`.
 - **Header correlation (if that is not the intent).** The boundary for
   injecting header correlation is the frame-to-`Envelope` step in
-  `WireframeApp::decode_envelope` (`src/app/inbound_handler.rs`). That is where
-  the decoded frame and the deserialized `Envelope` are both available, so the
-  runtime can merge header correlation into `Envelope::correlation_id` (for
-  example, “if payload correlation is `None`, inherit from the header; if both
-  exist and differ, log and pick a precedence rule”). On the outbound path,
+  `WireframeApp::decode_envelope` (`src/app/inbound_handler/mod.rs`). That is
+  where the decoded frame and the deserialized `Envelope` are both available,
+  so the runtime can merge header correlation into `Envelope::correlation_id`
+  (for example, “if payload correlation is `None`, inherit from the header; if
+  both exist and differ, log and pick a precedence rule”). On the outbound path,
   `FrameCodec::wrap_payload` receives the codec instance and raw `Bytes`, but
   it still cannot see correlation unless it is embedded in the payload.
   Supporting header correlation therefore requires a codec API that can wrap

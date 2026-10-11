@@ -85,7 +85,7 @@ and especially the following runtime surfaces:
 - `src/push/queues/handle.rs`;
 - `src/middleware.rs`;
 - `src/hooks.rs`;
-- `src/server/runtime.rs` and `src/server/connection_spawner.rs`;
+- `src/server/runtime/mod.rs` and `src/server/connection_spawner.rs`;
 - `src/client/pool/*`.
 
 It complements rather than supersedes:
@@ -237,7 +237,7 @@ Examples governed by this rule include:
 
 `WireframeServer::run_with_shutdown` is a supervisor for independently
 scheduled accept-loop tasks. It owns their `CancellationToken` and
-`TaskTracker`, and `src/server/runtime.rs` holds a named `drop_guard_ref()`
+`TaskTracker`, and `src/server/runtime/mod.rs` holds a named `drop_guard_ref()`
 borrow in the supervisor frame. If the supervisor future is dropped, including
 through `JoinHandle::abort()`, the guard cancels the accept loops so they
 eventually release their listener references. The guarantee is eventual: the

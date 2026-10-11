@@ -137,9 +137,9 @@ sequenceDiagram
 
 #### Implementation decisions (2026-02-12)
 
-- The inbound integration seam for this ADR is `src/app/inbound_handler.rs` and
-  `src/app/frame_handling/`, not `src/connection/`, because inbound decode and
-  dispatch already occur in the app-layer connection loop.
+- The inbound integration seam for this ADR is `src/app/inbound_handler/mod.rs`
+  and `src/app/frame_handling/`, not `src/connection/`, because inbound decode
+  and dispatch already occur in the app-layer connection loop.
 - Message-assembly parsing, length, and continuity violations are treated as
   inbound deserialization failures and therefore use the same threshold-based
   invalid-data policy as other malformed inbound input.
@@ -319,8 +319,8 @@ Precedence is:
 #### Implementation decisions (2026-02-23)
 
 - Roadmap item `8.3.3` now implements soft-limit back-pressure in the inbound
-  read loop (`src/app/inbound_handler.rs`) by pausing briefly before polling
-  the next frame when buffered assembly bytes are under pressure.
+  read loop (`src/app/inbound_handler/mod.rs`) by pausing briefly before
+  polling the next frame when buffered assembly bytes are under pressure.
 - Soft pressure is computed from assembly-state buffered bytes versus the
   smaller aggregate cap (`min(bytes_per_connection, bytes_in_flight)`), with a
   threshold of 80% to engage pacing before hard-cap rejection.
@@ -342,7 +342,7 @@ Precedence is:
   `evaluate_memory_pressure()` function in
   `src/app/frame_handling/backpressure.rs`, returning a `MemoryPressureAction`
   enum (`Continue`, `Pause`, or `Abort`). This keeps the inbound loop
-  (`src/app/inbound_handler.rs`) within the 400-line file limit.
+  (`src/app/inbound_handler/mod.rs`) within the 400-line file limit.
 - The hard cap uses `>` (strictly exceeds) for the comparison, matching the
   `check_aggregate_budgets` convention in `budget.rs`. The limit value itself
   is permitted.

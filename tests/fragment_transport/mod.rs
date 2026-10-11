@@ -6,13 +6,15 @@
 //! - Eviction tests (`fragment_transport/eviction.rs`)
 #![cfg(not(loom))]
 
-use std::time::Duration;
+use std::{io, time::Duration};
 
 use futures::{SinkExt, StreamExt};
+use rstest::{fixture, rstest};
 use tokio::{io::AsyncWriteExt, sync::mpsc, time::timeout};
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, Packet, WireframeApp},
-    fragment::{Fragmenter, decode_fragment_payload},
+    fragment::{FragmentationConfig, Fragmenter, decode_fragment_payload},
     serializer::{BincodeSerializer, Serializer},
 };
 
@@ -24,6 +26,7 @@ mod fragment_helpers;
 
 use crate::fragment_helpers::{
     CORRELATION,
+    FramedResponse,
     ROUTE_ID,
     TestError,
     TestResult,
@@ -33,22 +36,57 @@ use crate::fragment_helpers::{
     fragmentation_config,
     make_app,
     make_handler,
+    read_framed_response,
     read_reassembled_response,
     read_response_payload,
     send_envelopes,
     spawn_app,
 };
 
+/// Buffer capacity shared by the tests that drive [`Fragmenter`] directly.
+const BUFFER_CAPACITY: usize = 512;
+
+/// Scaffold for tests that build their own fragment stream.
+///
+/// Grouping these five values keeps the fallible setup in one place; a test
+/// that needs different fragmentation settings should build its own app
+/// instead of widening this fixture.
+struct FragmentHarness {
+    /// Fragmentation settings matching [`BUFFER_CAPACITY`].
+    config: FragmentationConfig,
+    /// Client end of the duplex connection.
+    client: Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
+    /// Server task driving the application.
+    server: tokio::task::JoinHandle<io::Result<()>>,
+    /// Payloads observed by the handler.
+    rx: mpsc::UnboundedReceiver<Vec<u8>>,
+}
+
+/// Build a fragmentation-enabled harness at [`BUFFER_CAPACITY`].
+#[fixture]
+fn fragment_harness() -> TestResult<FragmentHarness> {
+    let config = fragmentation_config(BUFFER_CAPACITY)?;
+    let (tx, rx) = mpsc::unbounded_channel();
+    let app = make_app(BUFFER_CAPACITY, config, &tx)?;
+    let (client, server) = spawn_app(app);
+    Ok(FragmentHarness {
+        config,
+        client,
+        server,
+        rx,
+    })
+}
+
 /// Common helper for round-trip fragmentation tests.
-/// Returns the response payload for additional test-specific assertions.
+/// Returns the framed response for additional test-specific assertions.
 async fn run_round_trip_test(
     buffer_capacity: usize,
     payload: Vec<u8>,
     should_fragment: bool,
-) -> TestResult<Vec<u8>> {
+) -> TestResult<FramedResponse> {
     let config = fragmentation_config(buffer_capacity)?;
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let app = make_app(buffer_capacity, config, &tx)?;
+    let app = make_app(buffer_capacity, config.clone(), &tx)?;
     let (mut client, server) = spawn_app(app);
 
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
@@ -61,9 +99,10 @@ async fn run_round_trip_test(
     assert_handler_observed(&mut rx, &payload).await?;
     client.get_mut().shutdown().await?;
     let response = read_response_payload(&mut client, &config).await?;
-    if response != payload {
+    if response.payload != payload {
         return Err(TestError::Assertion(format!(
-            "response payload mismatch: expected {payload:?}, got {response:?}"
+            "response payload mismatch: expected {payload:?}, got {:?}",
+            response.payload
         )));
     }
 
@@ -89,10 +128,16 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
     let payload = vec![b's'; payload_len];
 
     let response = run_round_trip_test(buffer_capacity, payload, false).await?;
-    if decode_fragment_payload(&response)?.is_some() {
+    if decode_fragment_payload(&response.payload)?.is_some() {
         return Err(TestError::Assertion(
             "small payload should pass through unfragmented".to_string(),
         ));
+    }
+    if response.frame_count != 1 {
+        return Err(TestError::Assertion(format!(
+            "a payload within the fragment cap should cross exactly one frame, saw {}",
+            response.frame_count
+        )));
     }
 
     Ok(())
@@ -113,10 +158,14 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
 
     let (mut client, server) = spawn_app(app);
 
-    let half_capacity = capacity
-        .checked_div(2)
-        .ok_or(TestError::Setup("capacity must be at least two"))?;
-    let payload = vec![b'X'; half_capacity];
+    // One byte past the cap proves the threshold is inert while fragmentation
+    // is disabled, rather than merely confirming a half-sized payload passes.
+    let payload_len = config
+        .fragment_payload_cap
+        .get()
+        .checked_add(1)
+        .ok_or(TestError::Setup("fragment payload cap overflow"))?;
+    let payload = vec![b'X'; payload_len];
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&request)?;
@@ -134,13 +183,19 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     client.get_mut().shutdown().await?;
     let response = timeout(
         Duration::from_secs(1),
-        read_reassembled_response(&mut client, &config),
+        read_framed_response(&mut client, &config),
     )
     .await??;
-    if decode_fragment_payload(&response)?.is_some() {
+    if decode_fragment_payload(&response.payload)?.is_some() {
         return Err(TestError::Assertion(
             "expected no fragmentation when fragmentation is disabled".to_string(),
         ));
+    }
+    if response.frame_count != 1 {
+        return Err(TestError::Assertion(format!(
+            "a payload past the cap must still cross one frame when fragmentation is off, saw {}",
+            response.frame_count
+        )));
     }
 
     server.await??;
@@ -183,13 +238,17 @@ async fn fragmentation_is_opt_in_by_default() -> TestResult {
     Ok(())
 }
 
+#[rstest]
 #[tokio::test]
-async fn duplicate_fragment_is_suppressed_and_reassembles() -> TestResult {
-    let buffer_capacity = 512;
-    let config = fragmentation_config(buffer_capacity)?;
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let app = make_app(buffer_capacity, config, &tx)?;
-    let (mut client, server) = spawn_app(app);
+async fn duplicate_fragment_is_suppressed_and_reassembles(
+    fragment_harness: TestResult<FragmentHarness>,
+) -> TestResult {
+    let FragmentHarness {
+        config,
+        mut client,
+        server,
+        mut rx,
+    } = fragment_harness?;
     let fragmenter = Fragmenter::new(config.fragment_payload_cap);
 
     let payload = vec![b'D'; 800];
@@ -223,13 +282,17 @@ async fn duplicate_fragment_is_suppressed_and_reassembles() -> TestResult {
     Ok(())
 }
 
+#[rstest]
 #[tokio::test]
-async fn interleaved_fragment_streams_reassemble_independently() -> TestResult {
-    let buffer_capacity = 512;
-    let config = fragmentation_config(buffer_capacity)?;
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let app = make_app(buffer_capacity, config, &tx)?;
-    let (mut client, server) = spawn_app(app);
+async fn interleaved_fragment_streams_reassemble_independently(
+    fragment_harness: TestResult<FragmentHarness>,
+) -> TestResult {
+    let FragmentHarness {
+        config,
+        mut client,
+        server,
+        mut rx,
+    } = fragment_harness?;
     let fragmenter = Fragmenter::new(config.fragment_payload_cap);
 
     let payload_a = vec![b'A'; 800];

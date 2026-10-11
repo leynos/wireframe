@@ -13,7 +13,7 @@ length-delimited implementation.
 
 Wireframe currently hardcodes `tokio_util::codec::LengthDelimitedCodec` with a
 4-byte big-endian length prefix in the connection pipeline (notably in
-`src/app/inbound_handler.rs` and `src/app/frame_handling.rs`). This makes
+`src/app/inbound_handler/mod.rs` and `src/app/frame_handling/`). This makes
 framing inflexible and prevents protocols with alternative framing rules (such
 as Hotline, MySQL, and Redis Serialization Protocol (RESP)) from reusing
 Wireframe's routing, middleware, and serialization infrastructure.
@@ -156,7 +156,7 @@ pub trait FrameCodec: Send + Sync + Clone + 'static {
 
 ### Phase 1: Trait definition (non-breaking)
 
-- Create `src/codec.rs` with the `FrameCodec` trait and
+- Create `src/codec/mod.rs` with the `FrameCodec` trait and
   `LengthDelimitedFrameCodec` default.
 - Add unit tests covering the default codec behaviour.
 
@@ -301,7 +301,7 @@ let extracted = MyCodec::frame_payload_bytes(&frame);
 assert_eq!(frame.payload.as_ptr(), extracted.as_ptr());
 ```
 
-See `src/codec/tests.rs` for zero-copy regression tests covering
+See `src/codec/tests/mod.rs` for zero-copy regression tests covering
 `LengthDelimitedFrameCodec`, `HotlineFrameCodec`, and `MysqlFrameCodec`.
 
 ### Property-based codec round-trip hardening (resolved 2026-02-19)

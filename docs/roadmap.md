@@ -396,7 +396,8 @@ integration boundaries.
   [outbound messaging design](asynchronous-outbound-messaging-design.md)).
   - [x] Route app-level request and response handling through the
     `FramePipeline` so fragmentation and metrics apply consistently.
-  - [x] Remove duplicate codec construction in `src/app/inbound_handler.rs`; the
+  - [x] Remove duplicate codec construction in
+        `src/app/inbound_handler/mod.rs`; the
     `FramePipeline` owns outbound fragmentation.
   - [x] Add integration tests covering the unified pipeline (round-trip,
     fragmentation, sequential requests, disabled fragmentation).

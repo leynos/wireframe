@@ -22,7 +22,13 @@ pub use assertions::assert_handler_observed;
 pub use config::{fragmentation_config, fragmentation_config_with_timeout};
 pub use envelopes::{build_envelopes, fragment_envelope};
 pub use errors::{TestError, TestResult};
-pub use transport::{read_reassembled_response, read_response_payload, send_envelopes};
+pub use transport::{
+    FramedResponse,
+    read_framed_response,
+    read_reassembled_response,
+    read_response_payload,
+    send_envelopes,
+};
 
 /// Default route ID used in fragmentation tests.
 pub const ROUTE_ID: u32 = 42;
