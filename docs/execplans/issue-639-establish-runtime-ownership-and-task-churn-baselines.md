@@ -320,7 +320,7 @@ Thresholds that trigger escalation when breached.
   original `Err(PushError::QueueFull) | Err(_)` was provably the whole `Err`
   arm, so the catch-all is the honest form rather than a weakening.
 
-- Observation: a scrutineer gate report characterised this worktree as being
+- Observation: a scrutineer gate report characterized this worktree as being
   edited by a second live Claude session, citing that a specific PID had the
   worktree as its working directory. That PID is this session's own harness
   process — the reporting agent's shell was its direct child. Evidence:
@@ -330,6 +330,73 @@ Thresholds that trigger escalation when breached.
   report must not be read as evidence of a rival session on that basis alone.
   The underlying caution still holds for this plan: do not edit tracked files
   while a gate is mid-run.
+
+- Observation: **an uncontended acquire/drop cycle *does* reach
+  `PoolScheduler::kick` and *does* spawn a scheduler task**, contradicting the
+  claim previously written into the module documentation of
+  `client_pool_benchmark_support.rs` ("the scheduler is never asked to spawn a
+  worker, so the live task count must not move") and the planned V-O1/V-O5
+  assertion that an uncontended burst reports a spawn delta of exactly 0.
+  Evidence, all three read-only: (a) `scheduler.rs:203` — `acquire_for_handle`
+  enqueues *its own* waiter before probing for a free slot, so on the fast path
+  `take_next_waiter_or_stop` at line 213 finds that very waiter and returns
+  `Some`, and the `is_servicing` flag is never touched; (b) `lease.rs:157` —
+  `PooledClientLease::drop` unconditionally calls `notify_capacity_available`,
+  which at `scheduler.rs:242` calls `kick`; (c) `client_pool.rs:177-185` —
+  `try_acquire_immediately`, the fast path itself, passes
+  `Some(Arc::clone(self))` as `release_inner`, so the lease *is* armed to
+  notify on drop even when no queueing occurred. Since `is_servicing` is
+  `false` at that moment (nothing set it on the fast path), `kick`'s
+  `compare_exchange(false, true, ...)` at line 249 **succeeds**, records a
+  spawn, and spawns a worker that immediately finds no waiters and exits.
+  Impact: the observable contract is not "uncontended acquisition spawns
+  nothing" but "at least one spawn per burst, at most one spawn per
+  idle-to-busy transition". The baseline must therefore assert a *bounded*
+  uncontended delta together with stability of the live task count, and the
+  per-release task churn this reveals is itself the finding issue #639 exists
+  to record — it is exactly the kind of hidden ownership cost Epic #635 seeks
+  to remove. `scheduler_spawns == 0` was never a true property and is not
+  reinstated by rewriting the test.
+
+- Observation: **the live-task gauge was measuring pool construction, not
+  acquisition.** A temporary probe that bracketed the whole measurement reported
+  `alive_task_delta` exactly equal to the pool size at every setting (1, 4,
+  and 16), which is the signature of `bb8`'s eager connections rather than any
+  acquisition churn. Evidence: probe transcript printing
+  `pool_size=1 alive_delta=1`, `pool_size=4 alive_delta=4`,
+  `pool_size=16 alive_delta=16` for acquisition counts of 1, 4, 16, and 256. A
+  second probe that built the pool *outside* the sampled region showed the
+  connection tasks still settling (`alive_before` 4/9/33 vs `alive_after`
+  3/8/32). Impact: `pool_once` now constructs and closes the pool outside the
+  bracket and samples the gauge only around the acquisition phase, with a
+  `tokio::task::yield_now()` so a just-spawned worker is not counted mid-exit.
+
+- Observation: the V-O6 mutation experiment doubles as a non-vacuity proof for
+  the construction bracket, and it was run for real rather than described.
+  Moving the gauge sample to *before* `build_preamble_pool` made
+  `acquisition_phase_does_not_leak_pool_construction_tasks` fail on all three
+  cases with deltas of 2, 5, and 17 for 1-, 4-, and 16-slot pools — scaling
+  with pool size, which is the intended failure reason. Evidence: transcript
+  recorded in `docs/runtime-ownership-baselines.md`; the file was restored from
+  a backup and the three cases pass again. Impact: the bracket is load-bearing
+  rather than cosmetic, and the assertion that depends on it is not vacuous.
+
+- Observation: uncontended acquisition spawns 1 worker for bursts of 1 and 16
+  acquisitions, rising to 2 at 256, identically across pool sizes 1, 4, and 16.
+  Evidence: probe transcript `spawns=1` for acquisitions 1 and 16, and
+  `spawns=2` for 256, at every pool size. Impact: the documented bound ("at
+  least one, at most one per idle-to-busy transition") is what the tests
+  assert; the exact figure is recorded as a baseline rather than pinned, since
+  it depends on how often the worker drains the queue before the next release
+  re-enters the slow path.
+
+- Observation: a `git`-free line-ending artefact — the corrected support module
+  briefly contained a stray blank line before the closing brace of `mod tests`,
+  which defeated an `Edit` whose `old_string` assumed the canonical layout.
+  Evidence: `cat -A` on the tail showed an empty line between the final `}` and
+  the module's closing brace. Impact: match on trailing context and re-read the
+  tail when an `Edit` on a block boundary unexpectedly fails; `make fmt` would
+  have silently normalized it either way.
 
 ## Decision log
 
@@ -435,6 +502,49 @@ Thresholds that trigger escalation when breached.
   `ReturnErrorIfFull` `accepted == 0` with `reported_queue_full`, and the drop
   policies `accepted == dead_lettered == sends`. Date/Author: 2026-10-11,
   implementer.
+
+- Decision: bracket **only the acquisition phase** in `pool_once`, building and
+  closing the pool outside the sampled region, rather than measuring the whole
+  build-acquire-close cycle. Rationale: `bb8` connects eagerly, so the
+  construction phase alone moves the live-task gauge by roughly the pool size
+  (measured 2, 5, and 17 for 1-, 4-, and 16-slot pools). Including it would
+  have reported construction cost under an "acquisition" label — precisely the
+  attribution error issue #639 exists to prevent. The cost is that
+  pool-construction churn is no longer captured by this scope; that is
+  acceptable because scope 3 covers connection startup separately and would
+  otherwise double-count it. The affected trace is
+  `TOR -> V-O5 -> PoolWorkload`; V-O5's statement and non-vacuity note were
+  updated together with this entry. Date/Author: 2026-10-11, implementer.
+
+- Decision: withdraw the V-O1/V-O5 assertion that uncontended acquisition
+  produces a scheduler-spawn delta of exactly `0`, replacing it with a bounded
+  delta plus a contended witness. Rationale: direct measurement falsified the
+  zero claim (deltas of 1, 1, and 2 for 1-, 16-, and 256-acquisition bursts).
+  Rewriting the *test* to pass while leaving the surrounding prose claiming
+  "the scheduler is never asked to spawn a worker" would have been a silent
+  factual error in a document whose entire purpose is to be trusted as a
+  baseline; the module documentation, the obligation, and this log were
+  therefore corrected together. No upstream ADR depends on the fast path
+  avoiding `kick`, so no ADR change is required — though the per-release
+  notification is a candidate finding for #637/#638. Date/Author: 2026-10-11,
+  implementer.
+
+- Decision: leave the benchmark-support modules above the 400-line
+  `AGENTS.md` guidance rather than splitting them, after establishing that
+  whitaker's `module_max_lines` lint does not apply to `wireframe_testing`.
+  Rationale: `push_benchmark_support.rs` (604 lines),
+  `client_pool_benchmark_support.rs` (492 at HEAD, 703 after the bracket
+  correction), and `connection_actor_benchmark_support.rs` (463) all exceeded
+  400 at HEAD and `whitaker --all -- --all-targets --all-features` still exited
+  0 with no `module_max_lines` diagnostic; the 403-line failure recorded
+  earlier was in the root crate's `src/client/pool/scheduler.rs`. Splitting
+  these files purely to satisfy a rule that is not enforced here would scatter
+  the workload definition, the measurement, and the tests that assert its
+  contract across module boundaries, which is the opposite of the colocation
+  `AGENTS.md` asks for. The rationale is recorded because it is a *consistency*
+  question, not a compliance one: if a later change extends the lint's scope to
+  test-support crates, these files will need splitting and this entry is the
+  starting point. Date/Author: 2026-10-11, implementer.
 
 ## Context and orientation
 
@@ -601,18 +711,25 @@ Non-trivial axioms relied upon, and why they are treated as axioms:
 - Domain: uncontended single-caller acquire/drop; a contended scenario that
   exhausts the pool and forces the slow path.
 - Artefact: `tests/runtime_ownership_benchmark_helpers.rs`.
-- Evidence: `make test` passes; the contended case asserts
-  `after > before`; the uncontended case asserts the delta is at most 1 per
-  acquisition burst and, specifically, that a burst that always takes
-  `try_acquire_immediately` produces a delta of 0.
+- Evidence: `make test` passes; the contended case asserts `after > before`;
+  the uncontended case asserts `after >= before` and that the delta is bounded
+  by the number of acquire/release transitions.
 - Discharge condition: both assertions pass, and the counter is not
   permanently zero.
-- Non-vacuity: the contended case is the witness that the counter can move; the
-  uncontended case is the control that it does not move spuriously. Asserting
-  only "delta ≤ 1" without the contended witness would be vacuous.
-- This can fail if wrong: a mutant that increments unconditionally would break
-  the uncontended assertion; a mutant that never increments would break the
-  contended one.
+- Non-vacuity: the contended case is the witness that the counter moves under
+  load; the uncontended case bounds the fast path. Asserting only a bound
+  without the contended witness would be vacuous.
+- This can fail if wrong: a mutant that never increments would break both
+  cases; a mutant that spawns an unbounded number of workers per release would
+  break the bound.
+- **Correction (measured).** The originally planned assertion — that an
+  uncontended burst produces a delta of exactly `0` because it always takes
+  `try_acquire_immediately` — is **false** and has been withdrawn. Every lease
+  release reaches `PoolScheduler::kick`, because `PooledClientLease::drop`
+  notifies unconditionally and even the fast path arms the lease with a release
+  handle. Measured deltas are 1 for 1- and 16-acquisition bursts and 2 for 256,
+  at every pool size. See the matching `Surprises & discoveries` entry. The
+  obligation now records the true contract: a **bound**, not a zero.
 
 **V-O2 — factory and middleware counts are exact, not inferred.**
 
@@ -686,21 +803,34 @@ are distinguishable.**
 **V-O5 — pool task count is stable for uncontended acquisition and grows for
 contended acquisition.**
 
-- Statement: after pool construction, repeated uncontended acquire/drop cycles
-  do not increase the live task count; a contended scenario that forces the
-  scheduler slow path does observe at least one additional scheduler spawn.
-- Method: `rstest` over pool sizes {1, 4, 16} asserting (a) the spawn counter
-  delta is 0 and the live-task delta is 0 for the uncontended burst, and (b)
-  the spawn counter strictly increases for the contended burst.
-- Rationale: the stability claim is only meaningful alongside a demonstration
-  that the instrumentation can see movement at all; (b) supplies that
-  demonstration, so (a) cannot pass vacuously.
+- Statement: after pool construction, the acquisition phase releases no
+  construction tasks and its scheduler-spawn delta is bounded by the number of
+  acquire/release transitions; a contended scenario that forces the scheduler
+  slow path does observe at least one additional scheduler spawn.
+- Method: `rstest` over pool sizes {1, 4, 16} asserting (a) the acquisition
+  phase's live-task delta is `<= 0` once the pool is closed and its spawn delta
+  is `>= 1` and `<= 2 x acquisitions`, and (b) the spawn counter is `>= 1` for
+  the contended burst.
+- Rationale: the bounded-delta claim is only meaningful alongside a
+  demonstration that the instrumentation can see movement at all; (b) supplies
+  that demonstration, so (a) cannot pass vacuously.
 - Domain: pool sizes 1, 4, and 16 under both fairness policies.
-- Artefact: `tests/runtime_ownership_benchmark_helpers.rs`.
-- Evidence: `make test` passes.
+- Artefact: `tests/runtime_ownership_benchmark_helpers.rs`; the corrected
+  in-module cases live beside the measurement in
+  `client_pool_benchmark_support.rs`.
+- Evidence: `make test` passes; the mutation transcript in
+  `docs/runtime-ownership-baselines.md` shows the construction bracket is
+  load-bearing.
 - Discharge condition: (a) and (b) both hold.
-- Non-vacuity: as above; (b) is the witness. If (b) could not be made to pass,
-  that is a verification failure to escalate, not a licence to weaken (a).
+- Non-vacuity: as above; (b) is the witness. The bracket in (a) was verified by
+  mutation: sampling the task gauge before pool construction fails all three
+  cases with deltas of 2, 5, and 17. If (b) could not be made to pass, that is
+  a verification failure to escalate, not a licence to weaken (a).
+- **Correction (measured).** The originally planned "live-task delta is 0 for
+  the uncontended burst" was measuring the wrong phase: `bb8` connects eagerly,
+  so a size-N pool leaves N connection tasks alive during construction. The
+  bracket now excludes construction. See the matching `Surprises & discoveries`
+  entry.
 
 **V-O6 — the allocation harness can detect a change in allocation count.**
 
