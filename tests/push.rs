@@ -269,9 +269,10 @@ async fn unlimited_queues_do_not_block() -> TestResult<()> {
     time::pause();
     let (mut queues, handle) = support::builder::<u8>().unlimited().build()?;
     push_expect!(handle.push_high_priority(1u8))?;
-    let _ = time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8))
+    time::timeout(Duration::from_millis(10), handle.push_low_priority(2u8))
         .await
-        .map_err(|error| format!("pushes should not block when unlimited: {error}"))?;
+        .map_err(|error| format!("pushes should not block when unlimited: {error}"))?
+        .map_err(|error| format!("push should not error when unlimited: {error}"))?;
 
     let (_, a) = recv_expect!(queues.recv())?;
     let (_, b) = recv_expect!(queues.recv())?;
