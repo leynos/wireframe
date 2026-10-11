@@ -563,13 +563,15 @@ flowchart TD
   - the scheduler never bypasses `max_in_flight_per_socket`, serialized socket
     access, or idle recycle behaviour inherited from `17.2.1`.
 
-For screen readers: the following sequence diagram shows a caller acquiring a
-pool lease. The scheduler first queues the caller under the configured fairness
-policy, then attempts an immediate lease. When one is available, it hands the
-lease to a queued waiter when present, otherwise it returns the lease to the
-caller. When no lease is available, the scheduler begins servicing if it
-obtains ownership, and a worker acquires a client and delivers a lease to the
-next waiter. The caller awaits its receiver in each queued path.
+For screen readers: this sequence diagram follows a caller acquiring a pool
+lease. The scheduler queues the caller under the configured fairness policy,
+then tries to acquire a lease immediately. If a lease is available, the
+scheduler hands it to the next queued waiter or returns it to the caller. If no
+lease is available, the scheduler claims servicing ownership and spawns a
+worker only if it succeeds. The worker serves waiters in policy order. When the
+queue is empty, it stops servicing and rechecks for arrivals that raced with
+the stop, restarting if needed. Shutdown drains queued waiters with
+disconnected errors. A caller waiting for a queued lease awaits its receiver.
 
 ```mermaid
 sequenceDiagram
