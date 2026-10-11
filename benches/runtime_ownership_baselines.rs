@@ -7,7 +7,15 @@
 //! | `actor/drain` | connection actor event processing | `measure_actor_drain` |
 //! | `push/send` | push handle send path | `measure_push` |
 //! | `startup/connection` | application connection startup | `measure_startup` |
-//! | `pool/acquisition` | client pool acquisition | `measure_pool_acquisition` |
+//! | `pool/acquisition` | uncontended client pool acquisition | `measure_pool_acquisition` |
+//!
+//! Contended pool acquisition is deliberately absent from that table. It is
+//! reported after `Criterion::final_summary` as bounded `tracing` events rather
+//! than timed, because sustained contention intermittently stalls the pool
+//! acquire path: Criterion would block during warm-up sampling a scenario that
+//! never returns, taking the whole run with it. The counters are still recorded
+//! — they are what the issue asks for at this scope — but they are recorded as
+//! observations, not as timings. See `docs/runtime-ownership-baselines.md`.
 //!
 //! The workloads and the measurement logic live in
 //! [`wireframe_testing::runtime_ownership_benchmarks`]; this binary only
@@ -42,6 +50,7 @@ use tokio::runtime::Runtime;
 use wireframe_testing::runtime_ownership_benchmarks::{
     AcquisitionMode,
     ActorWorkload,
+    CONTENDED_BURST_TIMEOUT,
     CancellationMode,
     DEFAULT_MIDDLEWARE_LAYERS,
     DEFAULT_PUSH_QUEUE_CAPACITY,
@@ -165,35 +174,43 @@ fn push_workloads() -> Vec<PushWorkload> {
     workloads
 }
 
-/// The pool workloads the acquisition group measures.
+/// The uncontended pool workloads the acquisition group times.
 ///
-/// Uncontended acquisition runs the issue's three pool sizes. Contended
-/// acquisition runs both fairness policies over one pool size: the issue asks
-/// for the policies to be compared, not for every policy to be repeated at
-/// every size, and each contended iteration opens a real loopback connection.
-fn pool_workloads() -> Vec<PoolWorkload> {
-    let mut workloads = POOL_SIZES
+/// Only uncontended acquisition is timed. Contended acquisition is excluded
+/// because it is not reliable enough to sample: sustained contention
+/// intermittently stalls the acquire path outright, so a Criterion run would
+/// block during warm-up rather than record a number. That defect is pre-existing
+/// and belongs to ADR 013 / issue #647; [`observe_contended_acquisition`]
+/// records its counters under a timeout instead of timing it. See
+/// `docs/runtime-ownership-baselines.md`.
+fn uncontended_pool_workloads() -> Vec<PoolWorkload> {
+    POOL_SIZES
         .into_iter()
         .map(|pool_size| PoolWorkload {
             pool_size,
             mode: AcquisitionMode::Uncontended,
             ..PoolWorkload::default()
         })
-        .collect::<Vec<_>>();
+        .collect()
+}
 
-    for mode in [
+/// The contended pool workloads reported as bounded observations, not timings.
+///
+/// Both fairness policies run over one pool size: the issue asks for the
+/// policies to be compared, not for every policy to be repeated at every size.
+fn contended_pool_workloads() -> Vec<PoolWorkload> {
+    [
         AcquisitionMode::ContendedFifo,
         AcquisitionMode::ContendedRoundRobin,
-    ] {
-        workloads.push(PoolWorkload {
-            pool_size: CONTENDED_POOL_SIZE,
-            mode,
-            contenders: CONTENDED_POOL_CONTENDERS,
-            ..PoolWorkload::default()
-        });
-    }
-
-    workloads
+    ]
+    .into_iter()
+    .map(|mode| PoolWorkload {
+        pool_size: CONTENDED_POOL_SIZE,
+        mode,
+        contenders: CONTENDED_POOL_CONTENDERS,
+        ..PoolWorkload::default()
+    })
+    .collect()
 }
 
 /// Record Criterion timings for the connection actor's drain loop.
@@ -299,20 +316,19 @@ fn benchmark_connection_startup(criterion: &mut Criterion, runtime: &Runtime) {
     group.finish();
 }
 
-/// Record Criterion timings for client pool acquisition.
+/// Record Criterion timings for uncontended client pool acquisition.
 ///
 /// Criterion always reports time per iteration, and that is the quantity this
-/// group compares: an uncontended iteration is one acquisition burst while a
-/// contended iteration is one race across many callers, so the two have no
-/// common element count to divide by. Throughput is therefore left unset rather
-/// than declared over an inconsistent unit.
+/// group compares: an iteration is one acquire/release burst, so the element
+/// count varies only with the workload's `acquisitions` parameter. Throughput is
+/// left unset rather than declared over a unit that changes between scenarios.
 fn benchmark_pool_acquisition(criterion: &mut Criterion, runtime: &Runtime) {
     let mut group = criterion.benchmark_group("pool/acquisition");
     group
         .sample_size(SAMPLE_SIZE)
         .measurement_time(MEASUREMENT_TIME);
 
-    for workload in pool_workloads() {
+    for workload in uncontended_pool_workloads() {
         group.bench_function(BenchmarkId::from_parameter(workload.label()), |bencher| {
             bencher.iter_custom(|iterations| {
                 let measurement = expect_bench(
@@ -331,8 +347,65 @@ fn benchmark_pool_acquisition(criterion: &mut Criterion, runtime: &Runtime) {
     group.finish();
 }
 
+/// Report contended acquisition counters as a bounded, untimed observation.
+///
+/// This deliberately does not register a Criterion group. Sustained contention
+/// intermittently stalls the pool acquire path, and Criterion would block during
+/// warm-up sampling a scenario that never returns — taking the whole benchmark
+/// run with it. The measurement helper converts that stall into an error after
+/// [`CONTENDED_BURST_TIMEOUT`], so the observation always terminates.
+///
+/// The counters are the evidence the issue asks for at this scope: whether a
+/// contended burst genuinely enters the scheduler's slow path, and what task
+/// churn it costs. Because the scenario can fail rather than merely vary, a
+/// failure is reported as such instead of being papered over with a timing.
+fn observe_contended_acquisition(runtime: &Runtime) {
+    for workload in contended_pool_workloads() {
+        let label = workload.label();
+        match runtime.block_on(measure_pool_acquisition(workload, 1)) {
+            Ok(measurement) => tracing::info!(
+                workload = %label,
+                burst_timeout = ?CONTENDED_BURST_TIMEOUT,
+                granted = measurement.acquisitions,
+                scheduler_spawns = measurement.scheduler_spawns,
+                alive_task_delta = measurement.alive_task_delta(),
+                elapsed = ?measurement.elapsed,
+                "contended pool acquisition observation"
+            ),
+            Err(error) => tracing::warn!(
+                workload = %label,
+                burst_timeout = ?CONTENDED_BURST_TIMEOUT,
+                %error,
+                "contended pool acquisition did not complete; known acquire-path defect, see \
+                 docs/runtime-ownership-baselines.md"
+            ),
+        }
+    }
+}
+
+/// Install a subscriber for the benchmark's own events only.
+///
+/// The contended-acquisition observation reports counters as structured events,
+/// and an event with no subscriber is silently discarded. The filter is set to
+/// this binary's own target rather than left at a global level: the benchmark
+/// drives connection startup, which logs an INFO span per prepared connection,
+/// and at 256 connections per iteration that noise buries the counters the
+/// observation exists to report. Criterion owns the timing output; `tracing`
+/// carries only the counters, which are not timings and must not be read as
+/// such.
+fn init_observation_subscriber() {
+    use tracing_subscriber::filter::LevelFilter;
+
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .with_max_level(LevelFilter::INFO)
+        .with_env_filter(tracing_subscriber::EnvFilter::new(env!("CARGO_CRATE_NAME")))
+        .init();
+}
+
 /// Entrypoint for the runtime-ownership baseline benchmarks.
 fn main() {
+    init_observation_subscriber();
     let runtime = expect_bench(Runtime::new(), "benchmark runtime failed");
     let mut criterion = Criterion::default().configure_from_args();
 
@@ -342,4 +415,6 @@ fn main() {
     benchmark_pool_acquisition(&mut criterion, &runtime);
 
     criterion.final_summary();
+
+    observe_contended_acquisition(&runtime);
 }

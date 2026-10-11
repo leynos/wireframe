@@ -160,8 +160,21 @@ Thresholds that trigger escalation when breached.
   (an incorrectly aliased constant, a wrong policy assertion, and an unwinnable
   allocator assertion) were found and fixed by running the crate's doctests
   directly.
-- [ ] Milestone EP-M3: the two bench binaries, the Makefile target, the rstest
-  assertion suite, and the baseline document.
+- [x] (2026-10-11 19:30Z) Milestone EP-M3: `benches/runtime_ownership_baselines.rs`
+  and `benches/runtime_ownership_baselines_alloc.rs` (`harness = false`,
+  `required-features = ["test-support", "pool"]`), the
+  `bench-runtime-ownership` Makefile target, and the rstest assertion suite in
+  `tests/runtime_ownership_benchmark_helpers.rs` (34 tests).
+- [x] (2026-10-11 20:10Z) Investigated the contended-pool stall: implemented a
+  candidate repair, measured it, rejected it, and reverted it (see Surprises).
+  Reworked the contended scope into a bounded `tracing` observation under
+  `CONTENDED_BURST_TIMEOUT`, and converted the pool assertion into a documented
+  known-defect tolerance rather than a claim of correctness.
+- [ ] Write `docs/runtime-ownership-baselines.md`: scope table, environment,
+  reproduction command, baseline table, the V-O6 sensitivity transcript, the
+  pre-existing-defect notes, and the regression policy.
+- [ ] Cross-reference the new document from `docs/contents.md` and
+  `docs/developers-guide.md`.
 - [ ] Capture the baseline run and fill in the baseline table.
 - [ ] Run every commit gate, then CodeRabbit review; clear all concerns.
 - [ ] Push over SSH and open a draft pull request.
@@ -398,7 +411,85 @@ Thresholds that trigger escalation when breached.
   tail when an `Edit` on a block boundary unexpectedly fails; `make fmt` would
   have silently normalized it either way.
 
+- Observation: **the contended pool scope exposed a pre-existing library
+  defect**, not a harness artefact. A contended round intermittently fails with
+  `1 of 16 contenders failed; … connection closed by peer`. Instrumenting every
+  `ClientError::disconnected()` origin in the pool showed the sole live site is
+  `scheduler.rs`'s `waiter.send(Ok(lease)).is_err()` arm — the branch taken when
+  the selected queue head has already dropped its `oneshot::Receiver`. Two
+  distinct windows reach it: a contender that observes the last busy slot and
+  returns (dropping its receiver) while a worker concurrently services that same
+  waiter; and `close()` racing in-flight acquires, where `notify_shutdown`
+  drains the queue and abandons receivers. Evidence: 400 rounds at (contenders,
+  rounds, pool_size) = (8, 8, 4) failed once, at round 162; a long-lived pool
+  (no rebuild) reproduced it at burst 913 of 20,000 at 16 contenders. Only one
+  line of `src/client/pool/scheduler.rs` differs from `origin/main` on this
+  branch, and it is the counter increment, so the defect pre-exists this work.
+
+- Observation: **a candidate repair was implemented, measured, and rejected.**
+  Keeping the discarded lease instead of reporting `disconnected` removes the
+  error, but it converts the failure into an intermittent **deadlock**, which is
+  strictly worse: a caller that would have received a fast error instead stalls
+  forever. The rejection was driven by measurement, not by inspection. Under the
+  repair, `make bench-runtime-ownership` hung during Criterion warm-up on
+  `pool/acquisition/contended_fifo_pool_4_acquisitions_256_contenders_16`; gdb
+  showed the main thread parked in `Criterion::iter_custom` →
+  `Runtime::block_on` → `measure_pool_acquisition` on a `parking_lot::Condvar`,
+  with every tokio worker parked and CPU time frozen across 36 s. The change was
+  reverted. Impact: the defect is **recorded, not fixed** — the correct scope for
+  #639, which establishes baselines *before* Epic #635 changes ownership
+  topology. The pool acquire path is ADR 013's subject, and both the spurious
+  error and the stall belong to #647.
+
+- Observation: **the stall is inherent to sustained contention**, so it cannot be
+  engineered away in the harness. With the repair reverted — i.e. against
+  unmodified library code — the same stall still reproduces. It was observed at
+  first-stall burst 272, 386, 808, 814, 2361, 2739, 4233, 4797, 7784, 10727, and
+  18069, across: both fairness policies; a pool rebuilt per iteration and one
+  long-lived pool; fresh and reused `PoolHandle`s; and contender counts of 8 and
+  16 with 1, 2, and 8 rounds each. The stall is therefore not caused by the
+  per-iteration rebuild, nor by the fixture's task leak, nor by any edit on this
+  branch. A control separates the two effects: the same 4-tasks-per-iteration
+  leak ran **20,000 uncontended iterations with zero stalls**, so the leak does
+  not cause it either. Impact: contended acquisition cannot be Criterion-timed at
+  all, because Criterion would block during warm-up. The harness reports it as a
+  bounded observation under `CONTENDED_BURST_TIMEOUT` instead, which turns a
+  stall into a reported error. Note the earlier "the fix causes the hang"
+  reading was confounded by the discarded experiment design; the reverted-code
+  probe at round 386 is what settled it.
+
+- Observation: **pool build and close leak roughly one task per slot per
+  iteration**, also pre-existing. With `acquisitions: 0` — no lease is ever
+  taken and no `kick` runs — a repeated `build_preamble_pool` / `close()` cycle
+  grew the live-task gauge by exactly 4 per iteration for a 4-slot pool, and by
+  10, 20, 40, and 80 over ten iterations for pool sizes 1, 2, 4, and 8. A
+  `PoolTestServer` start/drop cycle alone leaked nothing, and a scoped runtime
+  per iteration showed a settled delta of 0–2 that did not accumulate. Evidence:
+  the two probe transcripts above; `git status` confirmed no library edit was
+  left in place. Impact: this is why the pool assertions bound the settled delta
+  and hold construction outside the bracket. The bracket is what makes the
+  acquisition-phase figure meaningful; it does not make the leak go away, and
+  the leak is recorded here rather than silently absorbed.
+
 ## Decision log
+
+- Decision: **do not fix** the pool acquire-path defects found while measuring,
+  and report contended acquisition as a bounded `tracing` observation instead of
+  a Criterion timing group. Rationale: #639's stated purpose is to establish
+  baselines *before* Epic #635 changes ownership topology, and its Dependencies
+  section says it "should precede the larger implementation work under #637 and
+  #638"; the pool acquire path is ADR 013's subject, arriving with #647. A
+  candidate one-line repair was implemented and measured, and it converted an
+  intermittent fast error into an intermittent hang, so shipping it would have
+  replaced one defect with a worse one. Criterion cannot be used for the
+  contended case because a stall occurs during warm-up, before any sample is
+  recorded, which would abort the whole benchmark run; a timeout-guarded
+  observation keeps the counters the issue asks for while guaranteeing
+  termination. Alternatives rejected: (a) shipping the repair — strictly worse
+  behaviour, demonstrated by measurement; (b) omitting contended acquisition —
+  would drop a scope the issue names explicitly; (c) timing it with a shortened
+  Criterion budget — a stall is not a slow sample, so no budget makes it safe.
+  Date/Author: 2026-10-11, implementer.
 
 - Decision: place the client-pool benchmark support in
   `wireframe_testing/src/runtime_ownership_benchmarks/` behind a new optional
@@ -845,9 +936,16 @@ contended acquisition.**
   the mutation experiment is the direct evidence for acceptance criterion 5.
 - Domain: a no-op closure; a `Vec<u8>` of 1024 bytes; the actor drain workload
   before and after adding one `Arc::clone` per frame.
-- Artefact: `tests/runtime_ownership_benchmark_helpers.rs` for the first two;
-  the mutation transcript is recorded in `docs/runtime-ownership-baselines.md`
-  (or in this plan's `Artefacts` section if it is a one-off).
+- Artefact: `verify_allocation_harness` in
+  `benches/runtime_ownership_baselines_alloc.rs` for the first two, since they
+  need a `#[global_allocator]`; the mutation transcript is recorded in
+  `docs/runtime-ownership-baselines.md`.
+- **Correction (measured).** This obligation originally placed the zero and
+  positive controls in `tests/runtime_ownership_benchmark_helpers.rs`. That
+  cannot work: a `tests/` target links the system allocator, so a probe there
+  reported `0` for a closure that allocated a 1024-byte buffer. The controls
+  live in the allocation bench binary, which does install the allocator and
+  runs them before any measurement.
 - Evidence: `make test` passes; the mutation run shows a strictly larger count.
 - Discharge condition: zero case returns exactly 0, non-zero case returns a
   positive count, and the mutation transcript shows a strictly larger number.

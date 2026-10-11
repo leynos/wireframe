@@ -48,6 +48,7 @@ pub mod push_benchmark_support;
 
 pub use client_pool_benchmark_support::{
     AcquisitionMode,
+    CONTENDED_BURST_TIMEOUT,
     DEFAULT_ACQUISITIONS,
     DEFAULT_CONTENDERS,
     POOL_SIZES,
