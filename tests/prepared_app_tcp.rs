@@ -1,70 +1,26 @@
 //! End-to-end TCP coverage for immutable prepared applications.
 
-use std::{
-    convert::Infallible,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 #[path = "common/fallible_assertions/check_equal.rs"]
 mod fallible_check_equal;
 
-use async_trait::async_trait;
 use fallible_check_equal::check_equal;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
 use wireframe::{
-    app::{Envelope, Handler, WireframeApp},
-    middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
+    app::{Envelope, WireframeApp},
     serializer::{BincodeSerializer, Serializer},
+    test_helpers::connection_startup::{TransformCountingMiddleware, noop_handler},
 };
 use wireframe_testing::{TestResult, decode_frames, encode_frame};
 
 type TestApp = WireframeApp<BincodeSerializer, (), Envelope>;
-
-/// Middleware that exposes transform and request-response execution counts.
-struct TransformCountingMiddleware {
-    transforms: Arc<AtomicUsize>,
-}
-
-/// Service that tags requests and responses around its delegate.
-struct TagService<S> {
-    inner: S,
-}
-
-#[async_trait]
-impl<S> Service for TagService<S>
-where
-    S: Service<Error = Infallible> + Send + Sync + 'static,
-{
-    type Error = Infallible;
-
-    /// Tag both sides of the delegated request-response exchange.
-    async fn call(&self, mut request: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
-        request.frame_mut().push(b'A');
-        let mut response = self.inner.call(request).await?;
-        response.frame_mut().push(b'A');
-        Ok(response)
-    }
-}
-
-#[async_trait]
-impl Transform<HandlerService<Envelope>> for TransformCountingMiddleware {
-    type Output = HandlerService<Envelope>;
-
-    /// Count transformation and wrap the route service once.
-    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
-        self.transforms.fetch_add(1, Ordering::SeqCst);
-        HandlerService::from_service(service.id(), TagService { inner: service })
-    }
-}
-
-/// Build a handler that accepts an envelope without changing it.
-fn handler() -> Handler<Envelope> { Arc::new(|_envelope| Box::pin(async {})) }
 
 /// Encode an envelope into the default transport frame.
 fn build_frame(payload: Vec<u8>) -> TestResult<Vec<u8>> {
@@ -91,10 +47,11 @@ fn response_payload(bytes: &[u8]) -> TestResult<Vec<u8>> {
 async fn prepared_app_serves_tcp_connection_without_retransforming() -> TestResult<()> {
     let transforms = Arc::new(AtomicUsize::new(0));
     let prepared = TestApp::new()?
-        .route(1, handler())?
-        .wrap(TransformCountingMiddleware {
-            transforms: Arc::clone(&transforms),
-        })?
+        .route(1, noop_handler())?
+        .wrap(TransformCountingMiddleware::new(
+            b'A',
+            Arc::clone(&transforms),
+        ))?
         .prepare()
         .await
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;

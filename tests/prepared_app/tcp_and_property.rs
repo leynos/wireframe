@@ -40,13 +40,13 @@ async fn exchange_one_tcp_frame(address: SocketAddr, frame: Vec<u8>) -> TestResu
 #[tokio::test]
 async fn prepared_app_serves_real_tcp_connection_without_retransforming() -> TestResult<()> {
     let instrumentation = ConnectionStartupInstrumentation::new();
-    let prepared: TestPreparedApp = counted_app_factory(instrumentation.clone())()?
+    let prepared: TestPreparedApp = counted_app_factory(instrumentation.clone(), PLAN)()?
         .prepare()
         .await
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
     let prepared_counts = ConnectionStartupCounts {
         factory_calls: 1,
-        transforms: ROUTES * MIDDLEWARE_LAYERS,
+        transforms: PLAN.route_transforms(),
     };
     check_equal(
         &instrumentation.snapshot(),
@@ -126,13 +126,13 @@ async fn exercise_prepared_app_property_case(
     let tags = middleware_tags(middleware_layers)?;
     let mut app = TestApp::new()?;
     for route_id in 1..=route_count {
-        app = app.route(u32::try_from(route_id)?, handler())?;
+        app = app.route(u32::try_from(route_id)?, noop_handler())?;
     }
     for tag in &tags {
-        app = app.wrap(TransformCountingMiddleware {
-            tag: *tag,
-            transforms: Arc::clone(&transforms),
-        })?;
+        app = app.wrap(TransformCountingMiddleware::new(
+            *tag,
+            Arc::clone(&transforms),
+        ))?;
     }
 
     let prepared = app

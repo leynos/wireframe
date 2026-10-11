@@ -50,6 +50,7 @@ pub use pool::{
     PoolHandle,
     PooledClientLease,
     WireframeClientPool,
+    pool_scheduler_task_spawns,
 };
 pub use response_stream::ResponseStream;
 pub use runtime::WireframeClient;

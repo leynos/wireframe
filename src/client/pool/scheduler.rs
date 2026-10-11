@@ -249,6 +249,7 @@ where
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
         {
+            super::scheduler_spawns::record_scheduler_task_spawn();
             let scheduler = Arc::clone(self);
             tokio::spawn(async move {
                 scheduler.service_waiters(inner).await;

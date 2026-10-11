@@ -15,10 +15,23 @@ use crate::message_assembler::{
     ParsedFrameHeader,
 };
 
+pub mod connection_startup;
+
 pub mod frame_codec;
+
 #[cfg(feature = "pool")]
 pub mod pool_client;
 
+pub use connection_startup::{
+    ConnectionStartupCounts,
+    ConnectionStartupInstrumentation,
+    StartupFixturePlan,
+    StartupTestApp,
+    TransformCountingMiddleware,
+    build_counted_app,
+    counted_app_factory,
+    noop_handler,
+};
 pub use frame_codec::{TestAdapter, TestCodec, TestFrame};
 #[cfg(feature = "pool")]
 pub use pool_client::{

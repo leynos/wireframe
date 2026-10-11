@@ -12,6 +12,7 @@ pub(super) mod managed;
 mod manager;
 mod policy;
 mod scheduler;
+mod scheduler_spawns;
 mod slot;
 mod sync;
 
@@ -20,3 +21,4 @@ pub use config::ClientPoolConfig;
 pub use handle::PoolHandle;
 pub use lease::PooledClientLease;
 pub use policy::PoolFairnessPolicy;
+pub use scheduler_spawns::pool_scheduler_task_spawns;

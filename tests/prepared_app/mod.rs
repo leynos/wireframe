@@ -1,7 +1,6 @@
 //! Integration coverage for one-time application preparation.
 
 use std::{
-    convert::Infallible,
     net::SocketAddr,
     sync::{
         Arc,
@@ -13,7 +12,6 @@ use std::{
 #[path = "../common/fallible_assertions/check_equal.rs"]
 mod fallible_check_equal;
 
-use async_trait::async_trait;
 use fallible_check_equal::check_equal;
 use proptest::{
     prelude::*,
@@ -28,9 +26,16 @@ use tokio::{
 };
 use wireframe::{
     app::{Envelope, Handler, PreparedApp, WireframeApp},
-    middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     serializer::{BincodeSerializer, Serializer},
     server::WireframeServer,
+    test_helpers::connection_startup::{
+        ConnectionStartupCounts,
+        ConnectionStartupInstrumentation,
+        StartupFixturePlan,
+        TransformCountingMiddleware,
+        counted_app_factory,
+        noop_handler,
+    },
 };
 use wireframe_testing::{
     TestResult,
@@ -45,107 +50,9 @@ use wireframe_testing::{
 type TestApp = WireframeApp<BincodeSerializer, (), Envelope>;
 type TestPreparedApp = PreparedApp<BincodeSerializer, (), Envelope>;
 
-const ROUTES: usize = 2;
-const MIDDLEWARE_LAYERS: usize = 2;
+/// Two routes and two middleware layers: the historical fixture shape.
+const PLAN: StartupFixturePlan = StartupFixturePlan::new(2, 2);
 const CONNECTIONS: usize = 2;
-
-/// Counter snapshots for the application connection-startup baseline.
-#[derive(Clone)]
-struct ConnectionStartupInstrumentation {
-    factory_calls: Arc<AtomicUsize>,
-    transforms: Arc<AtomicUsize>,
-}
-
-impl ConnectionStartupInstrumentation {
-    /// Creates counters for factory invocations and middleware transforms.
-    fn new() -> Self {
-        Self {
-            factory_calls: Arc::new(AtomicUsize::new(0)),
-            transforms: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-
-    /// Returns the current connection-startup counter values.
-    fn snapshot(&self) -> ConnectionStartupCounts {
-        ConnectionStartupCounts {
-            factory_calls: self.factory_calls.load(Ordering::SeqCst),
-            transforms: self.transforms.load(Ordering::SeqCst),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct ConnectionStartupCounts {
-    factory_calls: usize,
-    transforms: usize,
-}
-
-struct TransformCountingMiddleware {
-    tag: u8,
-    transforms: Arc<AtomicUsize>,
-}
-
-struct TagService<S> {
-    inner: S,
-    tag: u8,
-}
-
-#[async_trait]
-impl<S> Service for TagService<S>
-where
-    S: Service<Error = Infallible> + Send + Sync + 'static,
-{
-    type Error = Infallible;
-
-    /// Adds this service's tag around the delegated request and response.
-    async fn call(&self, mut request: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
-        request.frame_mut().push(self.tag);
-        let mut response = self.inner.call(request).await?;
-        response.frame_mut().push(self.tag);
-        Ok(response)
-    }
-}
-
-#[async_trait]
-impl Transform<HandlerService<Envelope>> for TransformCountingMiddleware {
-    type Output = HandlerService<Envelope>;
-
-    /// Counts this transformation and wraps the route service with its tag.
-    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
-        self.transforms.fetch_add(1, Ordering::SeqCst);
-        let id = service.id();
-        HandlerService::from_service(
-            id,
-            TagService {
-                inner: service,
-                tag: self.tag,
-            },
-        )
-    }
-}
-
-/// Builds a handler that accepts an envelope without changing it.
-fn handler() -> Handler<Envelope> { Arc::new(|_envelope: &Envelope| Box::pin(async {})) }
-
-/// Creates the test factory used to compare legacy and prepared startup work.
-fn counted_app_factory(
-    instrumentation: ConnectionStartupInstrumentation,
-) -> impl Fn() -> TestResult<TestApp> + Clone + Send + Sync + 'static {
-    move || {
-        instrumentation.factory_calls.fetch_add(1, Ordering::SeqCst);
-        Ok(TestApp::new()?
-            .route(1, handler())?
-            .route(2, handler())?
-            .wrap(TransformCountingMiddleware {
-                tag: b'A',
-                transforms: Arc::clone(&instrumentation.transforms),
-            })?
-            .wrap(TransformCountingMiddleware {
-                tag: b'B',
-                transforms: Arc::clone(&instrumentation.transforms),
-            })?)
-    }
-}
 
 /// Waits until connection-startup counters reach the expected values.
 async fn wait_for_counts(
@@ -235,7 +142,7 @@ fn response_payload(bytes: &[u8]) -> TestResult<Vec<u8>> {
 #[tokio::test]
 async fn connection_startup_records_counts_before_and_after_preparation() -> TestResult<()> {
     let instrumentation = ConnectionStartupInstrumentation::new();
-    let app_factory = counted_app_factory(instrumentation.clone());
+    let app_factory = counted_app_factory(instrumentation.clone(), PLAN);
 
     check_equal(
         &instrumentation.snapshot(),
@@ -248,7 +155,7 @@ async fn connection_startup_records_counts_before_and_after_preparation() -> Tes
 
     let legacy_counts = ConnectionStartupCounts {
         factory_calls: CONNECTIONS,
-        transforms: CONNECTIONS * ROUTES * MIDDLEWARE_LAYERS,
+        transforms: CONNECTIONS * PLAN.route_transforms(),
     };
     run_legacy_server_connections(app_factory.clone(), &instrumentation, &legacy_counts).await?;
     check_equal(
@@ -263,7 +170,7 @@ async fn connection_startup_records_counts_before_and_after_preparation() -> Tes
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
     let prepared_counts = ConnectionStartupCounts {
         factory_calls: CONNECTIONS + 1,
-        transforms: (CONNECTIONS + 1) * ROUTES * MIDDLEWARE_LAYERS,
+        transforms: (CONNECTIONS + 1) * PLAN.route_transforms(),
     };
     check_equal(
         &instrumentation.snapshot(),
@@ -353,10 +260,10 @@ async fn prepared_app_reuses_services_across_overlapping_connections() -> TestRe
     });
     let prepared = TestApp::new()?
         .route(1, handler)?
-        .wrap(TransformCountingMiddleware {
-            tag: b'A',
-            transforms: Arc::clone(&transforms),
-        })?
+        .wrap(TransformCountingMiddleware::new(
+            b'A',
+            Arc::clone(&transforms),
+        ))?
         .prepare()
         .await
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
