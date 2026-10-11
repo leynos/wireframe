@@ -38,7 +38,7 @@ This ADR governs the server-runtime half of Epic
 
 Primary code surfaces:
 
-- `src/server/runtime.rs` and `src/server/runtime/server.rs`;
+- `src/server/runtime/mod.rs` and `src/server/runtime/server.rs`;
 - `src/server/runtime/supervisor.rs`;
 - `src/server/shutdown.rs`;
 - `src/server/error.rs`;
