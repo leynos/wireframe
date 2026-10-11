@@ -86,7 +86,7 @@ async fn run_round_trip_test(
 ) -> TestResult<FramedResponse> {
     let config = fragmentation_config(buffer_capacity)?;
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let app = make_app(buffer_capacity, config.clone(), &tx)?;
+    let app = make_app(buffer_capacity, config, &tx)?;
     let (mut client, server) = spawn_app(app);
 
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());

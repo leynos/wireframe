@@ -2,12 +2,70 @@
 
 use super::*;
 
+/// A `make` target named by the formal-verification contract.
+///
+/// The case tables below name targets and the text their recipes owe. Holding
+/// those in domain types keeps a string from meaning "target" in one case and
+/// "expected recipe text" in the next.
+#[derive(Debug, Clone, Copy)]
+struct MakeTarget {
+    /// Target name exactly as the Makefile declares it.
+    name: &'static str,
+}
+
+impl MakeTarget {
+    /// Name the target under test.
+    const fn new(name: &'static str) -> Self { Self { name } }
+}
+
+impl AsRef<str> for MakeTarget {
+    fn as_ref(&self) -> &str { self.name }
+}
+
+impl core::fmt::Display for MakeTarget {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str(self.name)
+    }
+}
+
+/// Text a Make recipe is contractually expected to contain.
+#[derive(Debug, Clone, Copy)]
+struct RecipeText {
+    /// Fragment the recipe must contain.
+    text: &'static str,
+}
+
+impl RecipeText {
+    /// Record the expected recipe fragment.
+    const fn new(text: &'static str) -> Self { Self { text } }
+}
+
+impl AsRef<str> for RecipeText {
+    fn as_ref(&self) -> &str { self.text }
+}
+
+/// Roadmap note quoted when a formal stub target declines to run.
+#[derive(Debug, Clone, Copy)]
+struct RoadmapNote {
+    /// Roadmap reference reported by the stub.
+    note: &'static str,
+}
+
+impl RoadmapNote {
+    /// Record the roadmap note.
+    const fn new(note: &'static str) -> Self { Self { note } }
+}
+
+impl AsRef<str> for RoadmapNote {
+    fn as_ref(&self) -> &str { self.note }
+}
+
 #[rstest]
-#[case::install_kani("install-kani")]
-#[case::check_kani_version("check-kani-version")]
-#[case::install_verus("install-verus")]
-#[case::run_verus("run-verus")]
-fn makefile_targets_do_not_embed_bespoke_installer_logic(#[case] target: &str) -> TestResult {
+#[case::install_kani(MakeTarget::new("install-kani"))]
+#[case::check_kani_version(MakeTarget::new("check-kani-version"))]
+#[case::install_verus(MakeTarget::new("install-verus"))]
+#[case::run_verus(MakeTarget::new("run-verus"))]
+fn makefile_targets_do_not_embed_bespoke_installer_logic(#[case] target: MakeTarget) -> TestResult {
     let makefile_str = makefile()?;
     let makefile = MakefileContent(&makefile_str);
     let recipe = makefile
@@ -32,13 +90,13 @@ fn makefile_targets_do_not_embed_bespoke_installer_logic(#[case] target: &str) -
 }
 
 #[rstest]
-#[case::test_verification("test-verification")]
-#[case::kani("kani")]
-#[case::kani_full("kani-full")]
-#[case::verus("verus")]
-#[case::formal_pr("formal-pr")]
-#[case::formal_nightly("formal-nightly")]
-fn formal_execution_targets_are_declared(#[case] target: &str) -> TestResult {
+#[case::test_verification(MakeTarget::new("test-verification"))]
+#[case::kani(MakeTarget::new("kani"))]
+#[case::kani_full(MakeTarget::new("kani-full"))]
+#[case::verus(MakeTarget::new("verus"))]
+#[case::formal_pr(MakeTarget::new("formal-pr"))]
+#[case::formal_nightly(MakeTarget::new("formal-nightly"))]
+fn formal_execution_targets_are_declared(#[case] target: MakeTarget) -> TestResult {
     let makefile_str = makefile()?;
     let makefile = MakefileContent(&makefile_str);
 
@@ -53,19 +111,26 @@ fn formal_execution_targets_are_declared(#[case] target: &str) -> TestResult {
 }
 
 #[rstest]
-#[case::test_verification("test-verification", "test -p $(VERIFICATION_CRATE)")]
-#[case::kani("kani", "$(FORMAL_STUB) kani")]
-#[case::kani_full("kani-full", "$(FORMAL_STUB) kani-full")]
-#[case::verus("verus", "$(FORMAL_STUB) verus")]
+#[case::test_verification(
+    MakeTarget::new("test-verification"),
+    RecipeText::new("test -p $(VERIFICATION_CRATE)")
+)]
+#[case::kani(MakeTarget::new("kani"), RecipeText::new("$(FORMAL_STUB) kani"))]
+#[case::kani_full(
+    MakeTarget::new("kani-full"),
+    RecipeText::new("$(FORMAL_STUB) kani-full")
+)]
+#[case::verus(MakeTarget::new("verus"), RecipeText::new("$(FORMAL_STUB) verus"))]
 fn direct_recipe_targets_have_expected_content(
-    #[case] target: &str,
-    #[case] expected_content: &str,
+    #[case] target: MakeTarget,
+    #[case] expected_content: RecipeText,
 ) -> TestResult {
     let makefile_str = makefile()?;
     let makefile = MakefileContent(&makefile_str);
     let recipe = makefile
         .target_recipe(target)
         .ok_or_else(|| format!("expected `{target}` target in Makefile"))?;
+    let expected_content = expected_content.as_ref();
 
     ensure(
         recipe.contains(expected_content),
@@ -105,14 +170,21 @@ fn test_verification_executes_the_configured_cargo_command() -> TestResult {
 }
 
 #[rstest]
-#[case::formal_pr("formal-pr", &["test-verification", "kani", "verus"])]
+#[case::formal_pr(
+    MakeTarget::new("formal-pr"),
+    &[MakeTarget::new("test-verification"), MakeTarget::new("kani"), MakeTarget::new("verus")]
+)]
 #[case::formal_nightly(
-    "formal-nightly",
-    &["test-verification", "kani-full", "verus"]
+    MakeTarget::new("formal-nightly"),
+    &[
+        MakeTarget::new("test-verification"),
+        MakeTarget::new("kani-full"),
+        MakeTarget::new("verus")
+    ]
 )]
 fn aggregate_targets_declare_expected_prerequisites(
-    #[case] target: &str,
-    #[case] expected_prerequisites: &[&str],
+    #[case] target: MakeTarget,
+    #[case] expected_prerequisites: &[MakeTarget],
 ) -> TestResult {
     let makefile_str = makefile()?;
     let makefile = MakefileContent(&makefile_str);
@@ -121,7 +193,7 @@ fn aggregate_targets_declare_expected_prerequisites(
         .ok_or_else(|| format!("expected `{target}` target in Makefile"))?;
     let expected_prerequisites = expected_prerequisites
         .iter()
-        .map(|prerequisite| (*prerequisite).to_owned())
+        .map(|prerequisite| prerequisite.as_ref().to_owned())
         .collect::<Vec<_>>();
 
     ensure(
@@ -131,14 +203,24 @@ fn aggregate_targets_declare_expected_prerequisites(
 }
 
 #[rstest]
-#[case::kani("kani", "roadmap 15.3.1 adds src/frame Kani smoke harnesses")]
-#[case::kani_full("kani-full", "roadmap 15.3.x adds the full Kani harness set")]
-#[case::verus("verus", "roadmap 15.5.2 adds verus/wireframe_proofs.rs")]
+#[case::kani(
+    MakeTarget::new("kani"),
+    RoadmapNote::new("roadmap 15.3.1 adds src/frame Kani smoke harnesses")
+)]
+#[case::kani_full(
+    MakeTarget::new("kani-full"),
+    RoadmapNote::new("roadmap 15.3.x adds the full Kani harness set")
+)]
+#[case::verus(
+    MakeTarget::new("verus"),
+    RoadmapNote::new("roadmap 15.5.2 adds verus/wireframe_proofs.rs")
+)]
 fn stub_targets_skip_and_exit_zero(
-    #[case] target: &str,
-    #[case] roadmap_message: &str,
+    #[case] target: MakeTarget,
+    #[case] roadmap_message: RoadmapNote,
 ) -> TestResult {
     let (status, _stdout, stderr) = run_make(target, false)?;
+    let roadmap_message = roadmap_message.as_ref();
 
     ensure(
         status.success(),
@@ -151,15 +233,27 @@ fn stub_targets_skip_and_exit_zero(
 }
 
 #[rstest]
-#[case::kani("kani", "roadmap 15.3.1 adds src/frame Kani smoke harnesses")]
-#[case::kani_full("kani-full", "roadmap 15.3.x adds the full Kani harness set")]
-#[case::verus("verus", "roadmap 15.5.2 adds verus/wireframe_proofs.rs")]
+#[case::kani(
+    MakeTarget::new("kani"),
+    RoadmapNote::new("roadmap 15.3.1 adds src/frame Kani smoke harnesses")
+)]
+#[case::kani_full(
+    MakeTarget::new("kani-full"),
+    RoadmapNote::new("roadmap 15.3.x adds the full Kani harness set")
+)]
+#[case::verus(
+    MakeTarget::new("verus"),
+    RoadmapNote::new("roadmap 15.5.2 adds verus/wireframe_proofs.rs")
+)]
 fn stub_targets_fail_under_formal_strict(
-    #[case] target: &str,
-    #[case] roadmap_message: &str,
+    #[case] target: MakeTarget,
+    #[case] roadmap_message: RoadmapNote,
 ) -> TestResult {
     let (status, _stdout, stderr) = run_make(target, true)?;
-    let expected_skip = format!("FORMAL-SKIP: {target} not yet implemented — {roadmap_message}");
+    let expected_skip = format!(
+        "FORMAL-SKIP: {target} not yet implemented — {}",
+        roadmap_message.as_ref()
+    );
 
     ensure(
         !status.success(),
@@ -173,14 +267,18 @@ fn stub_targets_fail_under_formal_strict(
 }
 
 #[rstest]
-#[case::test_verification("test-verification", "wireframe-verification")]
-#[case::formal_pr("formal-pr", "formal-stub.sh")]
-#[case::formal_nightly("formal-nightly", "formal-stub.sh")]
+#[case::test_verification(
+    MakeTarget::new("test-verification"),
+    RecipeText::new("wireframe-verification")
+)]
+#[case::formal_pr(MakeTarget::new("formal-pr"), RecipeText::new("formal-stub.sh"))]
+#[case::formal_nightly(MakeTarget::new("formal-nightly"), RecipeText::new("formal-stub.sh"))]
 fn aggregate_targets_dry_run_zero(
-    #[case] target: &str,
-    #[case] expected_content: &str,
+    #[case] target: MakeTarget,
+    #[case] expected_content: RecipeText,
 ) -> TestResult {
     let output = run_make_dry_run(target)?;
+    let expected_content = expected_content.as_ref();
 
     ensure(
         output.contains(expected_content),
@@ -193,11 +291,11 @@ fn formal_alias_delegates_to_formal_pr() -> TestResult {
     let makefile_str = makefile()?;
     let makefile = MakefileContent(&makefile_str);
     let prerequisites = makefile
-        .target_prerequisites("formal")
+        .target_prerequisites(MakeTarget::new("formal"))
         .ok_or_else(|| "expected `formal` target in Makefile".to_owned())?;
 
     ensure(
-        makefile.has_phony_target("formal"),
+        makefile.has_phony_target(MakeTarget::new("formal")),
         "`formal` should be declared as a phony Make target",
     )?;
     ensure(
