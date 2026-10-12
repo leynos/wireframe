@@ -235,6 +235,33 @@ Thresholds that trigger escalation when breached.
   (83 targets `ok`). `make typecheck` was green on the pre-extraction commit
   and is re-run at the final head.
 
+- [x] (2026-10-12) Re-tested the recorded acquire-path defects against the
+  post-#535 tree at both recorded contender counts and reconciled every
+  recorded site, then committed the reconciliation as `6e90263` after the gates
+  were re-run on a content-stable tree. The stall did not reproduce in 80,000
+  rounds; the spurious `disconnected` did. Six sites were corrected: the
+  baselines document (new "What re-testing found" section), the benchmark
+  support module doc, `CONTENDED_BURST_TIMEOUT`'s doc comment and its error
+  string, the two helper/test doc comments, and the developers' guide.
+
+- [x] (2026-10-12) Published the rebased series. Force-pushed with lease bound
+  to the recorded remote head `46d6409c`; the remote, the local head and the
+  refreshed tracking ref all resolve to `6e90263`. Draft PR #756 (base `main`,
+  23 commits) reports `MERGEABLE` with head `6e90263`, and CI re-triggered on
+  the new head. The three recovery refs
+  (`refs/recovery/issue639-{OLD_BASE,OLD_HEAD,TARGET}-20261012-011850`) are
+  retained.
+
+- [x] (2026-10-12) Closed a gate-coverage gap the documentation edits opened.
+  The first `make check-fmt` and the rustdoc step of `make lint` both ran
+  before the final Markdown rewrites and the `mod.rs` doc edit landed, and a
+  broken intra-doc link is a rustdoc-only failure mode, so the earlier green
+  did not cover the committed content. Re-ran `make check-fmt` and `make lint`
+  on the frozen commit with the tree hash verified identical before and after;
+  both green, all three `make lint` steps ran. `make test` (1306 passed),
+  `make typecheck`, `make markdownlint` and `make nixie` were verified on a
+  snapshot byte-identical to the committed tree.
+
 ## Surprises & discoveries
 
 - Observation: `wireframe_testing` *can* name `wireframe::test_helpers` only
