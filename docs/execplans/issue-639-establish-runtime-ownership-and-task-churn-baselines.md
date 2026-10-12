@@ -245,12 +245,21 @@ Thresholds that trigger escalation when breached.
   string, the two helper/test doc comments, and the developers' guide.
 
 - [x] (2026-10-12) Published the rebased series. Force-pushed with lease bound
-  to the recorded remote head `46d6409c`; the remote, the local head and the
-  refreshed tracking ref all resolve to `6e90263`. Draft PR #756 (base `main`,
-  23 commits) reports `MERGEABLE` with head `6e90263`, and CI re-triggered on
+  to the recorded remote head `46d6409c`, then pushed the two subsequent
+  reconciliation and close-out commits. The remote, the local head and the
+  refreshed tracking ref all resolve to `30394d8`. Draft PR #756 (base `main`,
+  24 commits) reports `MERGEABLE` with head `30394d8`, and CI re-triggered on
   the new head. The three recovery refs
   (`refs/recovery/issue639-{OLD_BASE,OLD_HEAD,TARGET}-20261012-011850`) are
   retained.
+
+- [x] (2026-10-12) Re-ran the range-diff audit at the final head and accounted
+  for the whole series: 16 pre-rebase commits → 24 at `30394d8`. Twelve replay
+  identically and four differ, each inspected individually (commit 1's counter
+  landing one function earlier under the resolved hunks; commits 5 and 6 being
+  the spurious-disconnect patch this branch reverts a commit later; commit 9
+  being #710-rewritten surrounding prose). The eight additions are this
+  branch's own post-rebase records. No merges in either series.
 
 - [x] (2026-10-12) Closed a gate-coverage gap the documentation edits opened.
   The first `make check-fmt` and the rustdoc step of `make lint` both ran
