@@ -105,9 +105,11 @@ where
 /// Attempts allowed before a contended burst is reported as a failure.
 ///
 /// The contended acquire path intermittently fails a burst with a spurious
-/// `disconnected` (roughly one burst in 913 at 16 contenders on the named
-/// baseline machine) or stalls until
-/// [`CONTENDED_BURST_TIMEOUT`] converts the stall into an error. Both are
+/// `disconnected`; on the named baseline machine the post-#535 rate reaches
+/// roughly one burst in 73 at 8 contenders on the FIFO policy. A burst could
+/// also stall until [`CONTENDED_BURST_TIMEOUT`] converts the stall into an
+/// error, though the stall has not reproduced since the pre-#535 scheduler and
+/// is retained here only so a recurrence is retried rather than fatal. Both are
 /// pre-existing defects recorded against issue #647. The case below asserts
 /// what a contended burst *can* produce, so it retries a bounded number of
 /// times instead of failing the suite on an interleaving unrelated to the
@@ -560,9 +562,11 @@ fn pool_sizes_cover_the_issue_requirement() {
 /// The condition is reproduced here on a *long-lived* pool (no rebuild, no task
 /// leak), which is what proves it is an acquire-path defect rather than an
 /// artefact of the benchmark's per-iteration pool construction. Measurement on
-/// the named baseline machine: the first failure lands at burst 913 of 20,000
-/// at 16 contenders, and at roughly 1 round in 400 for the lighter
-/// 8-contender workload below.
+/// the named baseline machine, before #535: the first failure lands at burst
+/// 913 of 20,000 at 16 contenders, and at roughly 1 round in 400 for the
+/// lighter 8-contender workload below. Re-tested after #535, the same workload
+/// fails at roughly 1 round in 73 on the FIFO policy and 1 in 632 on
+/// round-robin.
 ///
 /// This is deliberately an *allowed failure* rather than an assertion of
 /// correctness, and it is deliberately **not** a pin on the defect: the

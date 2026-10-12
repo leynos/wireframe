@@ -958,6 +958,56 @@ Thresholds that trigger escalation when breached.
   remaining twelve commits replayed identically. Date/Author: 2026-10-12,
   implementer.
 
+- Decision: reconcile the recorded defect material by **annotating the stall as
+  no longer reproducible while leaving the spurious `disconnected` recorded as
+  live**, rather than deleting the stall observation or rewriting the section
+  as though the defect had been fixed. Rationale: the H1 and H2 experiments
+  found zero stalls in 80,000 rounds at both recorded contender counts, so the
+  original narrative ("sustained contention stalls the acquire path") cannot
+  stand as a statement about the current tree. But a zero-count is one-sided —
+  0 in 16,000 bounds the per-round rate only at roughly 1 in 5,300 — so "fixed"
+  would overclaim just as badly in the other direction. The observation is kept
+  because it is the evidence that motivated #535's rework and it remains the
+  only measurement of the defect's original frequency; the new "What re-testing
+  found" section carries the figures, the one-sided caveat, and the structural
+  mechanism. The stall's historical bursts stay verbatim in
+  `CONTENDED_BURST_TIMEOUT`'s doc comment, marked as pre-#535, because that
+  constant still bounds a hang. Date/Author: 2026-10-12, implementer.
+
+- Decision: keep `CONTENDED_BURST_TIMEOUT` and the contended-scope retries even
+  though the defect they were written for stopped reproducing. Rationale: the
+  spurious `disconnected` still fails bursts on the current tree, so the
+  contended scope still cannot be timed with Criterion and still needs the
+  observation-not-timing treatment; and the timeout is what converts a *hang*
+  into a bounded error. Removing a bound because its original cause stopped
+  reproducing would trade a bounded failure for an unbounded one on a path that
+  still fails. The comment on the constant says so explicitly, so a later
+  reader does not delete it as dead defensive code. Date/Author: 2026-10-12,
+  implementer.
+
+- Decision: record the post-#535 disconnect rates as observations and **not** as
+  a revised rate, and leave the FIFO figure flagged as unexplained. Rationale:
+  the 8-contender FIFO rate measured at roughly 1 in 73, materially above the
+  1-in-400 recorded before #535, while the 16-contender figures sit near the
+  originally recorded 1-in-913. A genuine rate shift and a machine/load
+  difference both fit the data — the experiments ran on a loaded machine, which
+  is the right regime for a contention defect but not a controlled-quiet
+  measurement — and nothing available separates them. Recording a number as a
+  rate implies a stability the evidence does not show, so the figures are given
+  with their round counts and flagged as open. Date/Author: 2026-10-12,
+  implementer.
+
+- Decision: correct three places where the reconciliation had claimed that issue
+  #647 "remains open on the strength of" the disconnect defect. Rationale: #647
+  is titled "Replace spawn-on-demand pool servicing with a persistent scheduler
+  actor" and its body is a rework proposal that does not cite these defects as
+  its motivation, so asserting a causal link between defect and tracker state
+  was an overclaim introduced by this reconciliation itself. The corrected text
+  states what is verifiable — both defects live on the path #647 proposes to
+  rework, and neither is its stated motivation — without asserting why the
+  issue is open. Verified against the live issue body rather than inferred from
+  its title. Date/Author: 2026-10-12, implementer.
+
 ## Context and orientation
 
 The repository is `leynos/wireframe`, a Rust 2024 library for building custom

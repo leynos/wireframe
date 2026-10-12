@@ -40,29 +40,40 @@
 //! task gauge across construction would report `pool_size` as acquisition
 //! churn. See `pool_once` in the `measurement::phase` submodule.
 //!
-//! # Known defect: sustained contention stalls the acquire path
+//! # Known defects on the acquire path
 //!
-//! Contended acquisition is **not** reliable enough to time with Criterion.
-//! Sustained contention intermittently leaves every contender stalled with
-//! waiters still queued: no worker is servicing the queue, so no burst
-//! completes. Both fairness policies stall, on a pool rebuilt per iteration and
-//! on one long-lived pool, and with fresh and with reused handles, so the
-//! trigger is contention itself. The observed first-stall burst numbers on the
-//! named baseline machine are recorded in [`CONTENDED_BURST_TIMEOUT`].
+//! Contended acquisition is **not** reliable enough to time with Criterion,
+//! for two separate reasons that were originally observed together.
 //!
-//! Contention also surfaces spurious `disconnected` errors: a contended round
-//! can report `connection closed by peer` while the pool is still serving
-//! traffic, reproducible on a long-lived pool at burst 913 of 20,000. Both
-//! symptoms belong to the same acquire path and are pre-existing — they are
-//! reproduced without any change to `scheduler.rs`, and a candidate fix that
-//! suppressed the error was rejected because it converted a fast failure into
-//! an intermittent hang, which is strictly worse.
+//! The first is a spurious `disconnected` error, which is **still live**: a
+//! contended round can report `connection closed by peer` while the pool is
+//! still serving traffic, reproducible on a long-lived pool. Measured on the
+//! named baseline machine, it reaches roughly 1 round in 73 at 8 contenders on
+//! the FIFO policy.
 //!
-//! The defect is therefore *recorded*, not fixed, which is the correct scope
+//! The second is a stall — every contender parked with waiters still queued, so
+//! no burst completes. This was observed against the pre-#535 scheduler and
+//! **no longer reproduces**: two re-tests on the post-#535 tree found zero
+//! stalls across 80,000 rounds at both recorded contender counts. The result is
+//! one-sided, so read it as "no longer reproducible" rather than "fixed".
+//! [`CONTENDED_BURST_TIMEOUT`] still bounds a stall, because a bounded failure
+//! is worth more than an unbounded one and the disconnect defect still fails
+//! bursts.
+//!
+//! Both are pre-existing: they reproduce without any change to `scheduler.rs`,
+//! and a candidate fix that suppressed the error was rejected because it
+//! converted a fast failure into an intermittent hang, which is strictly worse.
+//! That rejection was measured against the pre-#535 scheduler, so it is not a
+//! verdict on a repair built on the current state machine.
+//!
+//! The defects are therefore *recorded*, not fixed, which is the correct scope
 //! for issue #639: it establishes baselines before Epic #635 changes ownership
-//! topology, and the pool acquire path is ADR 013 / issue #647's subject.
-//! [`CONTENDED_BURST_TIMEOUT`] turns a stall into a reported error so a
-//! benchmark or `cargo test --all-targets` run cannot block forever.
+//! topology, and the pool acquire path is ADR 013 / issue #647's subject. That
+//! issue is a proposal to rework the path, not a defect tracker; the live
+//! disconnect defect belongs to the same path.
+//!
+//! The figures and the experiments behind them are in
+//! `docs/runtime-ownership-baselines.md`.
 //!
 //! # Transport
 //!

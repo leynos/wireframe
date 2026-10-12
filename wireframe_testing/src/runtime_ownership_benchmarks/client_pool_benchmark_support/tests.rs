@@ -5,14 +5,14 @@ use super::{AcquisitionMode, PoolMeasurement, PoolWorkload, measure_pool_acquisi
 /// Attempts allowed before a contended burst is reported as a failure.
 ///
 /// The contended acquire path intermittently fails a burst with a spurious
-/// `disconnected`, measured at roughly one burst in 913 at 16 contenders on the
-/// named baseline machine. The cases below assert what a contended burst *can*
-/// produce, so they retry a bounded number of times rather than failing the
-/// suite on an interleaving that predates this work and is recorded by issue
-/// #639 against issue #647. Eight attempts makes a false failure vanishingly
-/// unlikely without hiding a burst that never succeeds: a pool that failed
-/// every attempt is a different and much more serious defect, and is reported
-/// as such.
+/// `disconnected`. On the named baseline machine the post-#535 rate reaches
+/// roughly one burst in 73 at 8 contenders on the FIFO policy. The cases below
+/// assert what a contended burst *can* produce, so they retry a bounded number
+/// of times rather than failing the suite on an interleaving that predates this
+/// work and is recorded by issue #639 against issue #647. Eight attempts makes
+/// a false failure vanishingly unlikely without hiding a burst that never
+/// succeeds: a pool that failed every attempt is a different and much more
+/// serious defect, and is reported as such.
 const CONTENDED_BURST_ATTEMPTS: usize = 8;
 
 /// Run one contended burst, retrying the acquire path's known spurious failures.

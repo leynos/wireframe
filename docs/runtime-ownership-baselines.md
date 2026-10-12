@@ -277,9 +277,16 @@ sixteenfold.
 ## Known defects in contended pool acquisition
 
 Capturing the pool baseline surfaced two pre-existing defects in the acquire
-path. Neither was introduced by this work, neither is fixed by it, and both are
+path. Neither was introduced by this work, and neither is fixed by it. Both are
 recorded here because they are exactly the kind of hidden ownership cost Epic
 [#635](https://github.com/leynos/wireframe/issues/635) exists to uncover.
+
+One of the two, the stall, **stopped reproducing** after this branch was cut,
+when `main` landed #535 ("Simplify client-pool waiter state transitions"). The
+sections below record the original observation and then state what re-testing
+found on the post-#535 tree, because a claim about live behaviour cannot be
+left standing once the code beneath it changes — and because a defect that
+stopped reproducing is itself evidence a later reader needs.
 
 ### Spurious `disconnected` errors
 
@@ -297,13 +304,14 @@ Two distinct windows reach it:
 2. `close()` races in-flight acquires, so `notify_shutdown` drains the queue
    and abandons receivers.
 
-Measured on the named machine: the first failure lands at burst 913 of 20,000
-at 16 contenders, and at roughly 1 round in 400 for the lighter 8-contender
-workload used by the regression tolerance in
-`tests/runtime_ownership_benchmark_helpers.rs`. Reproducing it on a
-*long-lived* pool, with no per-iteration rebuild and no task leak, is what
-proves it is an acquire-path defect rather than an artefact of how the
-benchmark constructs its pool.
+Measured on the named machine, before #535: the first failure lands at burst
+913 of 20,000 at 16 contenders, and at roughly 1 round in 400 for the lighter
+8-contender workload used by the regression tolerance in
+`tests/runtime_ownership_benchmark_helpers.rs`. The post-#535 figures are in
+[What re-testing found](#what-re-testing-found); they are higher for the FIFO
+policy than the rate above. Reproducing it on a *long-lived* pool, with no
+per-iteration rebuild and no task leak, is what proves it is an acquire-path
+defect rather than an artefact of how the benchmark constructs its pool.
 
 It is also what aborted the allocation binary's first capture. That binary ran
 the contended scope through Criterion like any other, and panicked at
@@ -334,6 +342,12 @@ Tokio workers parked in `parking_lot::Condvar::wait` or `mio::Poll::poll`, with
 CPU time frozen at `79s 8cs` across three samples 36 seconds apart — a true
 deadlock, not slowness.
 
+**This defect no longer reproduces on the current tree.** It was observed
+against the pre-#535 scheduler, and re-testing on the post-#535 tree found zero
+stalls across 80,000 rounds. See
+[What re-testing found](#what-re-testing-found) for the figures and for why the
+observation above is kept rather than deleted.
+
 The stall is a property of the contention, not of the harness. First-stall
 burst numbers observed on the named machine were 272, 386, 808, 814, 2361,
 2739, 4233, 4797, 7784, 10727, and 18069 — across both fairness policies, a
@@ -347,14 +361,78 @@ closing a pool leaks roughly one live task per slot per iteration —
 4-tasks-per-iteration leak ran **20,000 uncontended iterations with zero
 stalls**.
 
+### What re-testing found
+
+Both defects above were observed before this branch was cut. `main` then landed
+issue [#535](https://github.com/leynos/wireframe/issues/535) ("Simplify
+client-pool waiter state transitions"), which reworked the waiter state
+transitions on exactly this path, so the observations were re-tested against
+the post-#535 tree rather than left to stand unverified.
+
+The stall did not reproduce. Two experiments drove `measure_pool_acquisition`
+at the recorded shape (pool size 4, 16 acquisitions, 8 rounds per contender)
+and classified every `Err` by its distinguishing text — the timeout message for
+a stall, `connection closed by peer` for a spurious disconnect, anything else
+as unclassified.
+
+| Contenders | Rounds per policy | Stalls | FIFO disconnects | Round-robin disconnects |
+| ---------- | ----------------- | ------ | ---------------- | ----------------------- |
+| 8          | 24,000            | 0      | 327 (≈1 in 73)   | 38 (≈1 in 632)          |
+| 16         | 16,000            | 0      | 144 (≈1 in 111)  | 11 (≈1 in 1,455)        |
+
+Zero unclassified failures were observed in any run, so every error matched one
+of the two known signatures.
+
+The spurious `disconnected` therefore remains live, and it remains the dominant
+observable failure at this scope. Its recorded rates have moved, and the
+direction differs by policy: the FIFO rate is clearly above the 1-in-400
+recorded for 8 contenders, while 16 contenders is in the region of the
+originally recorded 1-in-913. Whether that is a genuine shift or machine and
+load profile is not settled by these experiments, which ran on a loaded machine
+— the correct regime for a contention defect, but not a controlled-quiet
+measurement. The figures are recorded as observations, not as a revised rate.
+
+**Read the stall result as "no longer reproducible", not as "fixed".** A
+zero-count is a one-sided observation: 0 stalls in 16,000 rounds bounds the
+per-round stall probability only at roughly 1 in 5,300 per policy, so it is
+consistent both with the defect being gone and with it merely being rarer than
+the sample can resolve. It does not prove absence at any contender count or
+harness shape not exercised here.
+
+The mechanism the rework removed is verifiable in the source, and it is worth
+stating because it is what makes the result explicable rather than merely
+observed. `stop_servicing` — the only writer that clears `is_servicing` to
+false — has exactly one caller, `take_next_waiter_or_stop`
+(`src/client/pool/scheduler.rs`). The immediate-lease arm instead resolves
+through `next_waiter`, which selects a queued request and never clears the
+flag, so a servicing worker can no longer be orphaned by a concurrent resolver.
+The pre-#535 code cleared the guard on that path, leaving waiters queued with
+no worker to serve them.
+
+The disconnect path, by contrast, is unchanged: both the old and the new forms
+still map a failed send to `disconnected`, which is why re-testing found it
+alive while the stall was gone. That asymmetry is the reason the two defects
+are recorded separately rather than as one.
+
+The stall observation above is kept rather than deleted for two reasons. It is
+the evidence that motivated the rework, and the recorded first-stall bursts
+remain the only measurement of the defect's original frequency. A reader
+comparing a future scheduler against this baseline needs both the historical
+rate and the knowledge that the current tree no longer reaches it.
+
 ### Consequences for the harness
 
-Criterion cannot time contended acquisition. A stall occurs during warm-up,
+Criterion cannot time contended acquisition. A failure occurs during warm-up,
 before any sample is recorded, which would abort the whole run. The benchmark
 therefore reports the contended counters as `tracing` events after
-`Criterion::final_summary`, guarded by `CONTENDED_BURST_TIMEOUT` (30 seconds),
-so that a stall surfaces as a reported error instead of a process that never
-returns.
+`Criterion::final_summary`, guarded by `CONTENDED_BURST_TIMEOUT` (30 seconds).
+
+The timeout was introduced for the stall, and the stall's re-test result does
+not retire it. The spurious `disconnected` still fails bursts on the current
+tree, and the guard is what keeps any future recurrence of a hang bounded: a
+stalled burst surfaces as a reported error instead of a process that never
+returns. Removing it because the one defect it was written for stopped
+reproducing would trade a bounded failure for an unbounded one.
 
 The counters are the evidence the issue asks for at this scope — whether a
 contended burst genuinely enters the scheduler's slow path, and what task churn
@@ -372,11 +450,20 @@ main thread parked in `Criterion::iter_custom` → `Runtime::block_on` →
 probe against the reverted code is what settled it, because the unmodified
 library stalls too.
 
+That rejection was measured against the pre-#535 scheduler, and #535 went on to
+change the same path. The reversal is not therefore a closed question: a repair
+built on the current state machine would be measured under different conditions
+than the one that was rejected. What the rework does establish is narrower than
+a repair — it removes the orphaned-worker mechanism, which is why the stall
+stopped reproducing. Fixing the disconnect itself still belongs to #647.
+
 The acquire path is the subject of
 [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) and issue
 [#647](https://github.com/leynos/wireframe/issues/647). Fixing it is out of
 scope for #639, whose purpose is to record baselines before the ownership
-topology changes.
+topology changes. The spurious `disconnected` defect re-tested above is still
+live, and it has no separate tracker: it belongs to the same path that #647
+proposes to rework, so a reader looking for its disposition should start there.
 
 ## Instrumentation sensitivity
 
@@ -496,7 +583,13 @@ thresholds, and they belong in the suite.
 
 - Epic [#635](https://github.com/leynos/wireframe/issues/635)
 - [#639](https://github.com/leynos/wireframe/issues/639)
-- [#647](https://github.com/leynos/wireframe/issues/647)
+- [#647](https://github.com/leynos/wireframe/issues/647) — the open proposal
+  to replace spawn-on-demand pool servicing with a persistent scheduler actor.
+  Both defects recorded here live on the path it proposes to rework; neither is
+  its stated motivation.
+- [#535](https://github.com/leynos/wireframe/issues/535) — the waiter
+  state-transition rework whose arrival prompted the re-test in
+  [What re-testing found](#what-re-testing-found).
 - [ADR 011: runtime ownership and task-lifetime boundaries](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)
 - [ADR 012: prepared application and connection runtime](adr-012-prepared-application-and-connection-runtime.md)
 - [ADR 013: client pool scheduler and slot ownership](adr-013-client-pool-scheduler-and-slot-ownership.md)

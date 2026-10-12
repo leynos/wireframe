@@ -926,9 +926,10 @@ binary, a test, or a one-off experiment drives the same scenario. Run them with
 `benches/runtime_ownership_baselines.rs` for timings and
 `benches/runtime_ownership_baselines_alloc.rs` for allocation counts. Contended
 pool acquisition is reported as a bounded `tracing` observation rather than
-timed, because sustained contention intermittently stalls the acquire path; the
-recorded numbers, the environment they were taken in, and the regression policy
-are in [runtime-ownership baselines](runtime-ownership-baselines.md).
+timed, because the acquire path can fail a burst rather than merely vary — and
+did once hang outright, before `main` reworked the waiter state transitions;
+the recorded numbers, the environment they were taken in, and the regression
+policy are in [runtime-ownership baselines](runtime-ownership-baselines.md).
 
 Fragment transport integration tests import
 `tests/common/fragment_helpers/mod.rs` as a facade. Keep the public re-export
