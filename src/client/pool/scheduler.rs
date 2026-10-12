@@ -223,6 +223,10 @@ where
             self.kick(inner);
         }
 
+        // No slot had a free permit, so this acquisition genuinely has to wait
+        // for capacity. Recorded before parking: the wait exists from here on,
+        // whether or not a worker has been spawned to service it yet.
+        inner.churn.record_capacity_wait();
         receiver.await.map_err(|_| ClientError::disconnected())?
     }
 
@@ -249,7 +253,7 @@ where
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
         {
-            super::scheduler_spawns::record_scheduler_task_spawn();
+            inner.churn.record_scheduler_spawn();
             let scheduler = Arc::clone(self);
             tokio::spawn(async move {
                 scheduler.service_waiters(inner).await;

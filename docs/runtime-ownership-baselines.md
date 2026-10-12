@@ -65,9 +65,13 @@ that as the single `rustflags` source and drops both `-Zthreads=8` and
 `-Clink-arg=-fuse-ld=mold` from `.cargo/config.toml`; a run of this target is
 therefore not linked with `mold`, unlike the development targets.
 
-Contended pool acquisition cannot be timed at all — see
-[Known defects](#known-defects-in-contended-pool-acquisition) — so it is
-reported as a bounded observation rather than in the table below.
+Contended pool acquisition cannot be timed by Criterion — see
+[Known defects](#known-defects-in-contended-pool-acquisition) — because a
+failure during warm-up would abort the whole run. It is instead sampled by the
+harness itself, which records each burst separately and keeps failures out of
+the samples rather than letting one end the run. The result is a latency
+distribution reported after `Criterion::final_summary`, beside the counters,
+rather than a row in the timed tables.
 
 ## Reproducing
 
@@ -101,10 +105,59 @@ contended burst carries a timeout.
 
 ## Baseline
 
-Recorded on the named machine on 2026-10-11, one run, at the sample budget the
-binaries pin (20 samples for timings, 10 for allocations). Criterion reports an
-interval, not a point; the figure quoted is the middle estimate, with the
-interval beside it so the run-to-run spread is visible.
+Every figure below is a single run on the named machine at the sample budget
+the binaries pin (20 samples for timings, 10 for allocations). Criterion
+reports an interval, not a point; the figure quoted is the middle estimate,
+with the interval beside it so the run-to-run spread is visible.
+
+A baseline without its revision is not reproducible, so each capture is named
+with the commit that produced it. Two captures are recorded here, and a table
+belongs to whichever one its section names.
+
+### Captures
+
+| Capture   | Revision                                                | Date       | Covers                          |
+| --------- | ------------------------------------------------------- | ---------- | ------------------------------- |
+| Original  | `d28b54e`                                               | 2026-10-11 | Every table except those noted  |
+| Corrected | PR [#756](https://github.com/leynos/wireframe/pull/756) | 2026-10-12 | Push, startup, allocation, pool |
+
+The original capture is the first published set, taken before the review of
+[#756](https://github.com/leynos/wireframe/pull/756). The corrected capture
+answered four defects that review found in the measurement boundaries, so the
+two are not interchangeable: several scenarios measure a changed workload, and
+the pool allocation window measures a different region. Where a figure changed
+for a reason other than run-to-run noise this is stated with the table, and the
+original is kept beside it so a reader can see what moved and why.
+
+The corrected capture is named by its pull request rather than a commit hash
+because it is the change *in* that pull request; the hash does not exist until
+it merges. The original capture's hash does exist and is given directly.
+
+The corrections were:
+
+1. **Pool construction moved outside the acquisition timing and allocation
+   windows.** It was inside both. `bb8` connects eagerly, so the counted region
+   included one loopback connection per slot — a term that grows with
+   `pool_size` and had been recorded as acquire-path cost.
+2. **The scheduler spawn counter became per-pool.** It was a process-global
+   `static`, so a delta taken while any other pool was running included that
+   pool's churn. It is now [`PoolTaskChurn`](../../src/client/pool/churn.rs),
+   read through `WireframeClientPool::task_churn_observer`, and a delta means
+   what it says.
+3. **Contention is now proven rather than inferred.** A start barrier does not
+   guarantee overlapping lease ownership; a task can finish several
+   immediately-ready acquisitions before another runs. The contended regimes
+   now hold leases and assert an observed capacity wait before releasing
+   capacity.
+4. **Awaited back-pressure became its own scenario.** The uncontended send
+   path awaits capacity when the queue fills, and `reported_queue_full` does
+   not observe that wait — it is always false there. `backpressure_high`
+   exercises the awaited path deliberately; the uncontended scenarios assert
+   they never parked.
+
+None of the corrections changes the implementation being measured. They change
+what the windows contain and what the counters mean, which is why the corrected
+capture supersedes the original for those scopes rather than merely updating it.
 
 ### Timings
 
@@ -113,6 +166,22 @@ Actor drain. `capacity_512` is the per-queue capacity, so a workload of
 back-pressure. The three cancellation regimes are different control flows, not
 three timings of one scenario, so their columns are not comparable with each
 other.
+
+Corrected capture (PR [#756](https://github.com/leynos/wireframe/pull/756)):
+
+| Workload                                       | Lower     | Estimate  | Upper     |
+| ---------------------------------------------- | --------- | --------- | --------- |
+| `frames_256_capacity_512_cancel_disabled`      | 81.790 µs | 82.901 µs | 84.125 µs |
+| `frames_512_capacity_512_cancel_disabled`      | 172.54 µs | 178.67 µs | 183.65 µs |
+| `frames_1024_capacity_512_cancel_disabled`     | 339.09 µs | 353.44 µs | 369.83 µs |
+| `frames_256_capacity_512_cancel_before_run`    | 34.668 µs | 35.064 µs | 35.378 µs |
+| `frames_512_capacity_512_cancel_before_run`    | 69.102 µs | 69.813 µs | 70.568 µs |
+| `frames_1024_capacity_512_cancel_before_run`   | 136.88 µs | 138.37 µs | 139.84 µs |
+| `frames_256_capacity_512_cancel_during_drain`  | 67.794 µs | 68.436 µs | 68.917 µs |
+| `frames_512_capacity_512_cancel_during_drain`  | 133.21 µs | 136.07 µs | 139.31 µs |
+| `frames_1024_capacity_512_cancel_during_drain` | 266.40 µs | 293.32 µs | 321.88 µs |
+
+Original capture (`d28b54e`), same workloads and same benchmark code:
 
 | Workload                                       | Lower     | Estimate  | Upper     |
 | ---------------------------------------------- | --------- | --------- | --------- |
@@ -132,10 +201,43 @@ per frame moved. `cancel_during_drain` sits between the other two: it drains
 the same frames as `cancel_disabled` but observes shutdown once, inside the
 output hook.
 
-Push send. The two uncontended rows measure an awaited send into a draining
-queue; the three overflow rows measure a non-blocking send against a full
-queue, one per `PushPolicy` branch. Rate limiting is disabled throughout, so
-the cost is queue ownership rather than leaky-bucket bookkeeping.
+**This table fell by 1.35–2.10× between captures without its benchmark code
+changing at all**, which is the clearest evidence here that the two captures
+are not a controlled comparison. `measure_actor_drain` and `drain_once` are
+byte-identical before and after, so the fall cannot be read off the benchmark.
+Part of it does have a code-level cause: `preload` pushes every frame through
+the awaited path, and at `d28b54e` that path ran `tx.clone().send(frame).await`
+on every send, whereas it now probes with `tx.try_reserve()` first and clones
+only when the queue is full. `cancel_before_run` — pure preload, with no drain
+to dilute it — moved the most uniformly (2.02–2.10×). Both regimes that pay a
+drain moved less than that, `cancel_disabled` reaching the smallest ratio of
+all at 1.35× and `cancel_during_drain` staying in the narrowest band
+(1.53–1.62×), which is the pattern that change would produce. That attribution
+is consistent with the figures, not established by them: the machine was
+carrying a load average of 10–15 on 24 threads from other work during the
+corrected run, and the [startup](#timings) rows moved by a comparable factor
+with no code change on their path at all. Treat the corrected column as this
+baseline's figures and the original as historical, and do not read the ratio
+between them as a speed-up this work delivered.
+
+Push send. The uncontended rows measure an awaited send into a draining queue;
+the overflow rows measure a non-blocking send against a full queue, one per
+`PushPolicy` branch. Rate limiting is disabled throughout, so the cost is queue
+ownership rather than leaky-bucket bookkeeping.
+
+Corrected capture (PR [#756](https://github.com/leynos/wireframe/pull/756)):
+
+| Workload                                      | Lower     | Estimate  | Upper     |
+| --------------------------------------------- | --------- | --------- | --------- |
+| `uncontended_high_capacity_64_sends_64`       | 16.414 µs | 17.089 µs | 17.823 µs |
+| `backpressure_high_capacity_8_sends_64`       | 43.430 µs | 45.494 µs | 47.741 µs |
+| `drained_high_capacity_64_sends_1024`         | 172.31 µs | 184.75 µs | 196.43 µs |
+| `drained_low_capacity_64_sends_1024`          | 193.87 µs | 215.84 µs | 234.48 µs |
+| `overflow_return_error_capacity_8_sends_256`  | 2.4162 µs | 2.6053 µs | 2.8774 µs |
+| `overflow_drop_capacity_8_sends_256`          | 13.067 µs | 13.158 µs | 13.252 µs |
+| `overflow_warn_and_drop_capacity_8_sends_256` | 19.773 µs | 20.234 µs | 20.733 µs |
+
+Original capture (`d28b54e`), for the scenarios whose workload changed:
 
 | Workload                                      | Lower     | Estimate  | Upper     |
 | --------------------------------------------- | --------- | --------- | --------- |
@@ -145,17 +247,74 @@ the cost is queue ownership rather than leaky-bucket bookkeeping.
 | `overflow_drop_capacity_8_sends_256`          | 16.699 µs | 17.284 µs | 17.740 µs |
 | `overflow_warn_and_drop_capacity_8_sends_256` | 29.669 µs | 30.474 µs | 31.676 µs |
 
-The two uncontended rows are statistically indistinguishable at this sample
-budget, which is the expected result: the actor polls the high-priority queue
-first, but the queues are drained as fast as they fill, so neither lane parks.
+**The send-count change is the reason the row names differ, and the reason
+those two captures are not comparable.** The original uncontended rows sent
+1024 frames; the corrected ones send 64, so the ~30× fall from 521.96 µs to
+17.089 µs is the workload change and nothing else. 64 and 1024 are not
+interchangeable samples of one quantity — they are different
+`PUSH_CONTROL_SENDS` and `PUSH_DRAINED_SENDS` — so the two rows must not be
+diffed.
+
+The uncontended rows are now separated from the drained ones deliberately.
+`uncontended_*` sends 64 frames into a queue of capacity 64, and the scenario
+asserts that it *never* had to await capacity. `drained_*` sends 1024 frames,
+which does drive the queue to full and does exercise the awaited path — that is
+what a draining consumer makes possible, and it is why the two are no longer
+folded together. What the uncontended rows measure is therefore the awaiter's
+fast path, and the assertion is what makes that a claim rather than an
+assumption: `push_with_priority` awaits capacity when the queue fills, so a
+scenario that only *intends* never to park had no way to show it. The count the
+API returns cannot show it either, because `reported_queue_full` is `false` on
+the awaited path whether or not it parked.
+
+`backpressure_high` is the deliberate contrast: same capacity 8 as the overflow
+rows, but an awaited send rather than a non-blocking one, so the producer parks
+while a consumer drains. At 45.494 µs against the uncontended 17.089 µs for the
+same 64 sends, it is roughly 2.7× the cost — that gap *is* the back-pressure,
+and it is now recorded rather than inferred from a scenario that never entered
+it.
+
 The overflow rows differ by policy as their implementations do —
 `ReturnErrorIfFull` unwinds immediately, `DropIfFull` routes to the dead-letter
-queue, and `WarnAndDropIfFull` additionally logs.
+queue, and `WarnAndDropIfFull` additionally logs. All three also fell
+(1.31–1.71×) between the two captures, and unlike the uncontended pair their
+scenario did not change: capacity 8, 256 sends, and the same drain of the DLQ
+receiver after each iteration, which was already present at `d28b54e`. The
+`DropIfFull` and `WarnAndDropIfFull` arms were rewritten in this branch — the
+dead-letter accounting moved into its own module — but the rewrite is
+behaviour-preserving and its cost is on the *drop* path only, a branch
+`ReturnErrorIfFull` never enters, so it cannot explain all three rows moving
+together. They are the control that shows the whole capture shifted: these rows
+are dominated by a non-blocking `try_send` whose code path and workload are
+both effectively fixed, and they moved by a factor comparable to the actor and
+startup scopes, which are byte-identical. The fall is therefore recorded as
+machine state, not as an improvement attributable to the harness, and anyone
+comparing against these rows should prefer the corrected capture.
 
 Connection startup. `factory_N_transforms_M` in each label is the count the
 workload is expected to produce, so a timing that improves while the label
 still claims per-connection preparation is visibly inconsistent rather than a
 quiet false win. Transport is an in-memory duplex pair, not a socket.
+
+Corrected capture (PR [#756](https://github.com/leynos/wireframe/pull/756)),
+extended to 16 connections:
+
+| Workload                                                                           | Lower     | Estimate  | Upper     |
+| ---------------------------------------------------------------------------------- | --------- | --------- | --------- |
+| `per_connection_factory_routes_1_layers_2_connections_1_factory_1_transforms_2`    | 2.9082 µs | 2.9501 µs | 3.0150 µs |
+| `per_connection_factory_routes_1_layers_2_connections_4_factory_4_transforms_8`    | 11.844 µs | 12.311 µs | 12.769 µs |
+| `per_connection_factory_routes_1_layers_2_connections_16_factory_16_transforms_32` | 45.139 µs | 45.618 µs | 46.295 µs |
+| `per_connection_factory_routes_2_layers_2_connections_1_factory_1_transforms_4`    | 3.3141 µs | 3.3927 µs | 3.4578 µs |
+| `per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16`   | 12.368 µs | 12.645 µs | 12.888 µs |
+| `per_connection_factory_routes_2_layers_2_connections_16_factory_16_transforms_64` | 49.694 µs | 51.003 µs | 52.703 µs |
+| `prepared_root_routes_1_layers_2_connections_1_factory_1_transforms_2`             | 2.9858 µs | 3.1333 µs | 3.3845 µs |
+| `prepared_root_routes_1_layers_2_connections_4_factory_1_transforms_2`             | 5.4332 µs | 5.5683 µs | 5.7301 µs |
+| `prepared_root_routes_1_layers_2_connections_16_factory_1_transforms_2`            | 16.597 µs | 17.246 µs | 18.155 µs |
+| `prepared_root_routes_2_layers_2_connections_1_factory_1_transforms_4`             | 3.5082 µs | 3.5997 µs | 3.6834 µs |
+| `prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`             | 5.9337 µs | 6.0488 µs | 6.1781 µs |
+| `prepared_root_routes_2_layers_2_connections_16_factory_1_transforms_4`            | 15.656 µs | 15.937 µs | 16.226 µs |
+
+Original capture (`d28b54e`), 1 and 4 connections only:
 
 | Workload                                                                         | Lower     | Estimate  | Upper     |
 | -------------------------------------------------------------------------------- | --------- | --------- | --------- |
@@ -169,17 +328,66 @@ quiet false win. Transport is an in-memory duplex pair, not a socket.
 | `prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`           | 9.0655 µs | 10.578 µs | 11.899 µs |
 
 The contrast is clearest where the work differs most. At four connections and
-two routes, the per-connection path spends 21.881 µs against the prepared
-root's 10.578 µs, and does four factory evaluations and sixteen middleware
-transformations rather than one and four. At a single connection the two paths
-cost about the same, which is the point: preparation is a fixed cost the
-prepared root pays once and amortizes, so the paths only diverge as connections
-multiply. The growth from one to four connections is roughly linear in the
-per-connection path (4.4880 → 16.265 µs) and sub-linear in the prepared root
-(5.1409 → 8.2822 µs) for the same reason.
+two routes in the corrected capture, the per-connection path spends 12.645 µs
+against the prepared root's 6.0488 µs, and does four factory evaluations and
+sixteen middleware transformations rather than one and four. At a single
+connection the two paths cost about the same, which is the point: preparation
+is a fixed cost the prepared root pays once and amortizes, so the paths only
+diverge as connections multiply.
+
+The 16-connection rows are why the axis was extended. At 16 connections and two
+routes the per-connection path costs 51.003 µs against the prepared root's
+15.937 µs — a ratio of 3.2×, against 2.1× at four connections and 0.94× at one.
+The gap widens monotonically across the three sizes, which is the property a
+single pair of sizes could not show: an earlier concern was that 4 connections
+is too small to be representative of an application, and at 4 the two paths are
+still within a factor of two, so the amortization argument rested on a
+difference that a reader could reasonably call marginal. It is not marginal at
+16.
+
+The per-connection path is close to linear in connections: 2.9501 → 12.311 →
+45.618 µs across 1, 4, and 16, which is 4.2× and then 3.7× for a 4× and 4×
+step. The prepared root is sub-linear even at the extended size (3.1333 →
+5.5683 → 17.246 µs, or 1.78× and 3.10× for the same steps) because only the
+connection-and-transport part of its cost scales; preparation is paid once.
+Note the sub-linearity is weaker going from 4 to 16 than from 1 to 4, which
+fits the same explanation: at larger connection counts the per-connection part
+dominates the fixed preparation term.
+
+**Every startup row is below its counterpart in the original capture, by
+1.32–1.75×, and none of the code on this path changed.** `measure_startup` is
+byte-identical, and so are `src/app`, `src/connection`, and `src/hooks` — the
+whole library path a connection start runs through — both across
+`d28b54e..HEAD` and in this branch's working tree. The startup scope never
+touches the push handle or the client pool, so neither `try_reserve` nor the
+pool bracket can reach it. The shift is therefore machine state, and it
+corroborates the same caution recorded for the actor table: the corrected
+capture's absolute figures are this baseline, but the *ratio* between the two
+captures is not a measurement of anything this work changed. The within-capture
+relationships — the per-connection-to-prepared ratio, and its growth with
+connection count — are what the table is for, and those hold in either column.
+
+The route axis is deliberately left at 1 and 2. Routes multiply the middleware
+count a prepared root is built with, so they change *what* is prepared rather
+than *how many times*, and the timing contrast the section exists to show is
+driven by the connection count. Extending the route axis would multiply the
+table without adding a regime that tests the amortization claim. Should a later
+change make per-route preparation the question, the workload struct already
+carries the parameter and the axis can be widened in the same way this one was.
 
 Pool acquisition, uncontended. One iteration is one acquire/release burst of
 256 acquisitions from a single contender, so the numbers are per burst.
+
+Corrected capture (PR [#756](https://github.com/leynos/wireframe/pull/756)),
+construction outside the clock:
+
+| Workload                                            | Lower     | Estimate  | Upper     |
+| --------------------------------------------------- | --------- | --------- | --------- |
+| `uncontended_pool_1_acquisitions_256_contenders_1`  | 114.72 µs | 116.65 µs | 118.57 µs |
+| `uncontended_pool_4_acquisitions_256_contenders_1`  | 120.45 µs | 123.88 µs | 126.81 µs |
+| `uncontended_pool_16_acquisitions_256_contenders_1` | 170.24 µs | 185.31 µs | 197.45 µs |
+
+Original capture (`d28b54e`), construction inside the clock:
 
 | Workload                                            | Lower     | Estimate  | Upper     |
 | --------------------------------------------------- | --------- | --------- | --------- |
@@ -189,9 +397,35 @@ Pool acquisition, uncontended. One iteration is one acquire/release burst of
 
 Cost rises with pool size rather than falling, which is worth recording: a
 larger pool buys concurrency, not cheaper single-threaded acquisition. The
-16-slot pool is 2.15× the 1-slot pool at the same acquisition count. `bb8`
-connects eagerly, so a size-N pool also leaves N connection tasks alive from
-construction.
+corrected 16-slot pool is 1.59× the 1-slot pool at the same acquisition count,
+against 2.15× before. `bb8` connects eagerly, so a size-N pool also leaves N
+connection tasks alive from construction.
+
+**This is the one table where the correction has a mechanism that the figures
+themselves support.** At `d28b54e` the timed region was a loop whose every
+iteration called `pool_once`, which built a pool, ran one acquire/release
+burst, and closed the pool — all inside the clock
+(`wireframe_testing/.../client_pool_benchmark_support.rs`, lines 554–564). Each
+timed iteration therefore paid for `pool_size` eager loopback connections.
+`PoolHarness` now builds and warms the pool once, outside the clock, so an
+iteration times the acquire/release burst alone. The three workload labels are
+unchanged, so the two tables differ only in what the clock enclosed.
+
+The removed term scales with pool size, and it is visible in the deltas: 154.17
+− 116.65 = 37.52 µs at 1 slot, 191.06 − 123.88 = 67.18 µs at 4, and 331.58 −
+185.31 = 146.27 µs at 16. A per-connection construction cost would produce
+exactly that progression, which is what makes construction the explanation
+rather than merely a candidate.
+
+The confound recorded for the actor and startup tables applies here too — the
+load average during this run was 10–15 on 24 threads — so the *individual*
+figures are not a clean measure of the construction term alone; the
+37.52/67.18/146.27 progression is the part that carries the argument, and it
+survives the confound because it is a within-capture relationship between three
+rows measured minutes apart under the same load. What the bracket's *existence*
+rests on is not this table at all: it is the zero-iteration equality asserted by
+`verify_pool_bracket_excludes_construction`, which is deterministic and does
+not depend on a cross-capture comparison.
 
 ### Allocations
 
@@ -200,14 +434,35 @@ four iterations. They include the async runtime's own allocations, task setup,
 and closure captures — not only the code under test. Compare counts across runs
 of this same binary; do not read them as a per-operation cost.
 
+Each row's label embeds its own count, so a reader can see the figure the run
+produced without cross-referencing. The label below is the *histogram*; the
+`Allocations` column repeats it for the table.
+
 | Scope                                                                            | Iterations | Allocations |
 | -------------------------------------------------------------------------------- | ---------- | ----------- |
-| `frames_256_capacity_128_cancel_disabled`                                        | 4          | 2134        |
-| `uncontended_high_capacity_64_sends_256`                                         | 4          | 40          |
+| `frames_256_capacity_128_cancel_disabled`                                        | 4          | 2133        |
+| `drained_high_capacity_64_sends_256`                                             | 4          | 44          |
 | `overflow_drop_capacity_8_sends_256`                                             | 4          | 56          |
 | `prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`           | 4          | 160         |
 | `per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16` | 4          | 408         |
-| `uncontended_pool_4_acquisitions_256_contenders_1`                               | 4          | 2284        |
+| `uncontended_pool_4_acquisitions_256_contenders_1`                               | 4          | 2052        |
+
+The startup and actor rows are unchanged from `d28b54e` apart from one
+allocation on the actor scope and four on the push scope, which is run-to-run
+jitter at this scale rather than a change. The push row was renamed:
+`uncontended_high_...` named a scenario that no longer measures what the
+allocation scope needs, because the uncontended scenario now asserts it never
+parked. The scope measures the pushed *workload*, and
+`drained_high_capacity_64_sends_256` is the scenario that actually sends 256
+frames through a queue, so the label follows the scenario. The count is
+recorded under both names for continuity: 42 in one earlier capture, 40 in the
+previous one, 44 here.
+
+Note that the allocation counts are *not* subject to the load confound the
+timing tables carry. Two runs under different load can report the same count
+exactly, because the counter is an integer and the workloads are deterministic;
+the 2133/160/408 rows reproduce across captures, and the pool row's movement
+has its own explanation below.
 
 The startup pair is the sharpest allocation contrast in the table, and it
 parallelizes the timing contrast: 160 allocations for the shared prepared root
@@ -216,11 +471,32 @@ difference of 248 is not exactly `3 × (one preparation)` because preparation is
 only part of what a per-connection start allocates; the connection and its
 transport buffer are allocated either way.
 
-The pool figure varies between runs — 2284 and 2496 were observed across two
-captures of the same binary — which is expected for a scope that spawns tasks
-and opens connections. A change smaller than that spread is not evidence of
-anything at this scope; prefer the scheduler spawn count below, which was
-stable.
+The pool figure is the one this capture changed, and it is the reason the row
+exists in a section about review corrections. **The measurement boundary moved,
+not the pool.** The original 2284 was counted with the pool's construction and
+teardown inside the window; the corrected 2052 counts the acquire path alone,
+with construction built and closed around the counted call. The two numbers are
+not a before-and-after of one quantity and must not be diffed.
+
+What the corrected boundary buys is not a smaller number, it is a number that
+*means* something: previously the count mixed a `pool_size`-scaling term into a
+figure attributed to acquisition, so a future pool-size comparison would have
+been reading connection setup.
+
+The magnitude of this row should not be leaned on either way. The construction
+term is on the order of 50 allocations for a 4-slot pool, and the row's own
+run-to-run spread is several times that: under the corrected boundary the same
+binary has read 2052, 2381, 2580, and 2738 across four captures, a spread of
+~33%. The move from 2580 to 2052 sits well inside that, so it is jitter, not
+evidence that excluding construction reduced the count. That the term is
+invisible here is a fact about this pool's size, not a fact about the
+correction being cosmetic — which is exactly why the bracket needed its own
+deterministic check rather than a figure comparison. Prefer the scheduler spawn
+count below, which was stable.
+
+The boundary is now asserted rather than trusted, by a check that runs before
+any measurement; see [Allocation bracket](#allocation-bracket) for how it
+separates the two terms and why it does so at zero iterations.
 
 ### Contended acquisition counters
 
@@ -228,32 +504,123 @@ Reported as `tracing` events after `Criterion::final_summary`, not as timings.
 A contended burst is driven by rounds per contender, not by an acquisition
 target: each of the 16 contenders runs 8 acquire/release rounds
 (`CONTENDED_ROUNDS_PER_CONTENDER`), so a fully successful burst grants 128
-leases. The recorded 128 is therefore the *whole* burst — every contender
-completed every round — and not a partial or truncated one. The two fairness
-policies run as separate workloads over the same shape, so neither burst is a
-fraction of a larger run. `alive_task_delta` is measured across the acquisition
-phase only, with pool construction and close held outside the bracket.
-`Elapsed` is the wall time of that last burst and is a single observation, not
-a sample — the interval Criterion would report is unavailable for a scenario
-that can fail rather than merely vary, so this column is not comparable with
-the tables above at the same confidence.
+leases. `alive_task_delta` is measured across the acquisition phase only, with
+pool construction and close held outside the bracket.
+
+**Contention is now proven, not inferred from task creation.** The regime holds
+leases long enough to force competing acquisitions to wait, then asserts an
+observed capacity wait *before* releasing capacity. This matters because a
+start barrier alone does not guarantee overlapping ownership: a task can
+complete several immediately-ready acquisitions before another task is
+scheduled, in which case a burst that looks contended is in practice a sequence
+of uncontended ones. The barrier makes the contenders start together; the
+capacity-wait assertion is what makes them *compete*. Scheduler spawn counts
+remain task-churn evidence and are still reported — they are no longer asked to
+double as proof that contention occurred.
+
+The previous `Elapsed` column was a single wall-clock observation of one burst.
+A single value is not a distribution, so the corrected capture samples the
+burst 20 times (`CONTENDED_LATENCY_SAMPLES`, matching the timing groups'
+budget) and reports order statistics. Attempts, successes, and failures are
+reported separately, and **a failed attempt is never retried into a timing
+sample** — the failure count is one of the things this reports, and a retry
+would replace it with a freshly timed success. Failed attempts contribute zero
+samples and the retained failure messages are printed beside the table.
+
+Corrected capture (PR [#756](https://github.com/leynos/wireframe/pull/756)):
+
+| Workload                                              | Attempts | Successes | Failures | Min        | Median     | p90        | Max         | Mean       |
+| ----------------------------------------------------- | -------- | --------- | -------- | ---------- | ---------- | ---------- | ----------- | ---------- |
+| `contended_fifo_pool_4_contenders_16_rounds_8`        | 20       | 20        | 0        | 146.954 µs | 247.636 µs | 467.762 µs | 2.546235 ms | 389.304 µs |
+| `contended_round_robin_pool_4_contenders_16_rounds_8` | 20       | 20        | 0        | 143.064 µs | 311.048 µs | 515.133 µs | 1.009155 ms | 347.647 µs |
+
+Both policies recorded **zero failures** in this run, where the same tables
+carried 1 and 0 in the previous one. The spurious-`disconnected` defect
+recorded below is still live — the re-test figures in
+[What re-testing found](#what-re-testing-found) put it at roughly 1 in 110
+bursts for FIFO at 16 contenders — so a 20-attempt sample expects about 0.2
+failures and observing none is unremarkable. The failure count is reported per
+run precisely so that a reader can see when it moves, and a comparison across
+runs at this sample size should treat the count as the noisy quantity it is.
+
+The spread is wide in both directions and much wider than the previous
+capture's, which is why order statistics are quoted rather than a mean and
+standard deviation. FIFO runs from 146.954 µs to 2.546235 ms, a factor of 17;
+round-robin from 143.064 µs to 1.009155 ms, a factor of 7. The minima of the
+two policies agree closely (146.954 and 143.064 µs), which suggests both are
+measuring the same uncontended-burst floor, and they diverge only in their
+tails. In FIFO the mean sits *above* the median (389.304 µs against 247.636
+µs), which is the usual right-skewed timing shape and the reverse of what the
+previous capture showed; round-robin's mean is also above its median (347.647
+against 311.048 µs), though by less.
+
+The tails are the finding. FIFO's max is 2.5 ms, roughly five times its p90 and
+ten times its median, and round-robin's is 1.0 ms, roughly twice its p90. A
+single max at five times the p90 and ten times the median is the shape a
+straggler produces rather than a distribution's ordinary tail, and it is the
+same path the stall defect below lives on. It is recorded as an observation,
+not as a rate: twenty samples cannot distinguish one slow burst in twenty from
+a heavier tail that this run happened to sample once, and the machine was under
+a load average of 10–15 for this run. The 30-second burst timeout bounds the
+failure mode; nothing here bounds the tail, and a reader comparing a future run
+should look at the max before the median.
+
+The two policies are not clearly separated at this sample size. Round-robin has
+the higher median (311.048 µs against 247.636 µs) and the higher p90 (515.133
+µs against 467.762 µs) but the *lower* max (1.009155 ms against 2.546235 ms)
+and the lower mean. Twenty samples cannot resolve whether the policies differ
+in their tails or whether this is sampling variation, and it is recorded as
+unresolved rather than as a fairness result. A comparison that matters should
+be taken with more attempts.
+
+The previous capture's rows are kept here because the comparison above refers
+to them, and because they show what a quieter run of the same workload looked
+like:
+
+| Workload                                              | Attempts | Successes | Failures | Min        | Median     | p90        | Max        | Mean       |
+| ----------------------------------------------------- | -------- | --------- | -------- | ---------- | ---------- | ---------- | ---------- | ---------- |
+| `contended_fifo_pool_4_contenders_16_rounds_8`        | 20       | 19        | 1        | 137.123 µs | 233.814 µs | 325.405 µs | 347.916 µs | 226.795 µs |
+| `contended_round_robin_pool_4_contenders_16_rounds_8` | 20       | 20        | 0        | 164.643 µs | 197.093 µs | 352.745 µs | 371.216 µs | 249.589 µs |
+
+The FIFO failure there was the live spurious-`disconnected` defect recorded
+below, reported rather than hidden:
+`1 of 16 contenders failed; first: transport error: connection closed by peer`.
+The successes column was 19 rather than 20 because of it, and no sample was
+taken from the failed burst.
+
+The `Granted` and `Alive-task delta` columns are absent because the corrected
+burst proves contention differently and no longer reports them per burst: the
+held-permit phase asserts that the exhaustion granted at least one contended
+lease (a burst that held every permit and granted none is an error, not a
+zero), and the churn counters fold across the whole sampling run rather than
+per burst. A writer comparing the two tables should read the corrected one as
+"the contention is asserted inside the burst" and the original as "the leased
+total was reported alongside it".
+
+Original capture (`d28b54e`), one observation per burst:
 
 | Workload                                              | Granted | Scheduler spawns | Alive-task delta | Elapsed    |
 | ----------------------------------------------------- | ------- | ---------------- | ---------------- | ---------- |
 | `contended_fifo_pool_4_contenders_16_rounds_8`        | 128     | 16               | 0                | 183.953 µs |
 | `contended_round_robin_pool_4_contenders_16_rounds_8` | 128     | 16               | 0                | 118.552 µs |
 
-The labels were corrected after the captures above: the contended workload used
-to render `acquisitions_256` even though the contended path never reads that
-field, so the label advertised a parameter the run did not honour. Only the
-label changed — the exercised burst is identical, which is why the recorded
-counters still stand. An older capture under
+The original `Elapsed` figures sit inside the corrected distributions — 183.953
+µs is between the corrected median and p90 — so the single observation was not
+misleading here, only uninformative about spread.
+
+The labels were corrected before the original capture above: the contended
+workload used to render `acquisitions_256` even though the contended path never
+reads that field, so the label advertised a parameter the run did not honour.
+Only the label changed — the exercised burst is identical, which is why the
+recorded counters still stand. An older capture under
 `contended_fifo_pool_4_acquisitions_256_contenders_16` is the same workload as
 `contended_fifo_pool_4_contenders_16_rounds_8`.
 
 The spawn counts are the task-churn evidence the issue asks for at this scope,
 and they are what makes the uncontended bound meaningful: the counter
-demonstrably moves under demand.
+demonstrably moves under demand. They are no longer reported as a per-burst
+column, because the counter is now per-pool and folded across a run; the
+*uncontended* bounds below are where they do their work.
 
 The same counter under *no* contention isolates what the acquire path costs
 when it is not fighting itself. An uncontended burst records 1 spawn for a
@@ -267,12 +634,15 @@ transitions, and the suite asserts both the lower and upper bound so neither
 half can rot silently.
 
 The contended observation also carries an allocation count, taken once from a
-counted window after Criterion finishes: 2176 allocations over four iterations
-of `contended_fifo_pool_4_contenders_16_rounds_8`. Read it against the
-uncontended figure of 2284 for the same shape — the two are within the
+counted window after Criterion finishes: 3003 allocations over four iterations
+of `contended_fifo_pool_4_contenders_16_rounds_8` in the corrected capture
+(2176 in the original, 3097 in an earlier corrected run). Read it against the
+uncontended figure of 2052 for the same shape — the two are within the
 run-to-run spread noted above, so contention did not measurably change the
-allocation count at this scope even though it changed the spawn count
-sixteenfold.
+allocation count at this scope even though it changed the spawn count by two
+orders of magnitude. Both figures move between captures by more than the
+correction accounts for, which is the same caution the allocation table states:
+at this scope, prefer the spawn count.
 
 ## Known defects in contended pool acquisition
 
@@ -499,15 +869,15 @@ Recorded, over 256 items:
 
 | Probe                                     | Allocations | Lower     | Estimate  | Upper     |
 | ----------------------------------------- | ----------- | --------- | --------- | --------- |
-| `arc_shared_clone_items_256_allocs_1`     | 1           | 2.3559 µs | 2.3892 µs | 2.4167 µs |
-| `arc_fresh_per_item_items_256_allocs_256` | 256         | 3.6216 µs | 3.7454 µs | 3.9512 µs |
+| `arc_shared_clone_items_256_allocs_1`     | 1           | 2.3031 µs | 2.3177 µs | 2.3330 µs |
+| `arc_fresh_per_item_items_256_allocs_256` | 256         | 3.4404 µs | 3.4553 µs | 3.4893 µs |
 
 The delta is exactly 255, which is `ARC_PROBE_ITEMS - 1`. The counter therefore
 resolves a per-item `Arc` allocation and sees nothing in a clone, which is the
 resolution the criterion requires: a refactor that removes a *clone* from a
 shared `Arc` will not move these numbers, and one that removes a per-item
 construction will move them by at least the item count. The two timings differ
-by only ~57 %, so a reader who ignored the counts could mistake these shapes
+by only ~49 %, so a reader who ignored the counts could mistake these shapes
 for equivalent — the label pair is what makes the distinction legible in the
 Criterion report.
 
@@ -526,7 +896,46 @@ cases, with deltas of 2, 5, and 17 for 1-, 4-, and 16-slot pools — scaling wit
 pool size, which is the intended failure reason. The bracket is load-bearing,
 not cosmetic.
 
-### Live-task gauge
+### Allocation bracket
+
+The pool allocation window has its own bracket, and it needed its own check
+because its failure mode is silent: a count inflated by construction looks
+exactly like a correct one. `verify_pool_bracket_excludes_construction` runs in
+`benches/runtime_ownership_baselines_alloc.rs` before any measurement.
+
+The check compares the bracketed and unbracketed windows at **zero
+iterations**. That choice is the whole design. At a normal iteration count the
+acquisition phase allocates on the order of 2 000 times while construction
+allocates roughly 50, so an effect of a couple of percent sits against a
+run-to-run spread several times larger. A probe of five readings each, taken
+against the four-slot pool while this check was being designed, separated the
+two terms as `build_only=[53, 50, 50, 50, 50]` against
+`measure_only=[2372, 2303, 2231, 2052, 2052]`: the construction term is visible
+in isolation, but a full-window comparison of `whole` against `bracketed`
+produced overlapping minima (`[2102, 2334, 2563, 2582]` against
+`[2276, 2208, 2462, 2612]`), so no threshold on that difference would be
+stable. Erasing the measured phase removes the term rather than trying to see
+past it: at zero iterations the bracketed window must read exactly **0**, and
+the unbracketed one must read more than 0. The first is a clean equality with
+no noise, and the second is the non-vacuity control that stops a counter wired
+to nothing from satisfying it.
+
+The check therefore asserts the *difference* and not its magnitude. It requires
+the unbracketed reading to be positive, but does not pin the number: the
+magnitude varies with the runtime's own allocation behaviour — the probe above
+produced 53 once and 50 four times — so pinning it would make the check brittle
+without making it stronger. What it establishes is the direction: construction
+falls inside one window and outside the other. A third assertion requires the
+bracketed window to be non-zero at a normal iteration count, so a window that
+wrapped nothing at all cannot pass by being trivially clean.
+
+The construction term is on the order of 50 allocations for a 4-slot pool,
+which is why the correction did not move the published figure. Removing a
+couple of percent from a quantity whose own run-to-run spread is ~33% is not
+visible: under the corrected boundary the row has read 2052, 2381, 2580, and
+2738 across four captures of the same binary, in no monotone order. What the
+correction bought is a number that means what its label says, not a smaller
+one, and a reader should not expect the two to differ.
 
 `RuntimeMetrics::num_alive_tasks` counts every task on the runtime, not just
 this workload's. Two consequences follow, and both were established by

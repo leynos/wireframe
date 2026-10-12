@@ -5,22 +5,25 @@
 //! make the measured cost almost entirely limiter bookkeeping and sleeping
 //! rather than anything about queue ownership.
 //!
-//! The two regimes live in [`uncontended`] and [`overflow`] because they are
-//! genuinely different control flows — one awaits capacity, the other never
-//! does — and a shared body would blur which branch a regression sits in.
+//! Three regimes live in their own modules — [`awaited`] for the two that await
+//! capacity and [`overflow`] for the non-blocking one — because they are
+//! genuinely different control flows and a shared body would blur which branch
+//! a regression sits in. The two awaited regimes share a body precisely because
+//! they are the *same* call path; what separates them is whether a consumer is
+//! draining, and each asserts the wait counters that prove which one it ran.
 
+mod awaited;
 mod overflow;
-mod uncontended;
 
 use std::{
     hint::black_box,
     time::{Duration, Instant},
 };
 
+use awaited::{send_backpressure, send_drained};
 use overflow::send_overflow;
 use tokio::sync::mpsc;
-use uncontended::send_uncontended;
-use wireframe::push::{PushHandle, PushQueues};
+use wireframe::push::{PushHandle, PushQueues, PushWaitCounters};
 
 use super::scenario::{PushMeasurement, PushWorkload};
 
@@ -47,6 +50,8 @@ pub(super) struct SendOutcome {
     pub(super) dead_lettered: usize,
     /// Whether any send reported a full queue.
     pub(super) reported_queue_full: bool,
+    /// What the awaited sends had to wait for, or zero for the non-blocking ones.
+    pub(super) waited: PushWaitCounters,
 }
 
 /// Build queues sized for `workload` with rate limiting disabled and a DLQ.
@@ -118,6 +123,8 @@ pub async fn measure_push(
             drained: 0,
             dead_lettered: 0,
             reported_queue_full: false,
+            awaited_capacity_waits: 0,
+            capacity_probes: 0,
             elapsed: Duration::ZERO,
         });
     }
@@ -125,11 +132,7 @@ pub async fn measure_push(
     let started = Instant::now();
     let mut outcome = SendOutcome::default();
     for _ in 0..iterations {
-        outcome = if workload.scenario.is_overflow() {
-            send_overflow(workload).await?
-        } else {
-            send_uncontended(workload).await?
-        };
+        outcome = run_once(workload).await?;
     }
     let elapsed = started.elapsed();
 
@@ -143,6 +146,33 @@ pub async fn measure_push(
         drained: black_box(outcome.drained),
         dead_lettered: black_box(outcome.dead_lettered),
         reported_queue_full: outcome.reported_queue_full,
+        // Reported for the last iteration only, matching the send counts above.
+        // Every iteration runs the same workload, and each awaited scenario
+        // fails the measurement outright if its counters do not show the regime
+        // it claims, so a later iteration cannot hide a wait the last one missed.
+        awaited_capacity_waits: outcome.waited.awaited_capacity_waits,
+        capacity_probes: outcome.waited.capacity_probes,
         elapsed,
     })
+}
+
+/// Run one iteration of whichever regime the workload names.
+///
+/// The scenario enum, not a separate flag, is what selects the branch: a
+/// caller cannot ask for the awaited path and get the non-blocking one, which
+/// is the mistake that would make a baseline table silently wrong.
+async fn run_once(workload: PushWorkload) -> Result<SendOutcome, String> {
+    if workload.scenario.is_overflow() {
+        send_overflow(workload).await
+    } else if workload.scenario.is_backpressure() {
+        send_backpressure(workload).await
+    } else {
+        // Both remaining discriminated cases drain the queue and differ only in
+        // whether a park is possible, which `validate` has already tied to the
+        // queue's capacity. The `must_not_wait` flag is what enforces the
+        // no-park claim for the uncontended control; the drained scenarios get
+        // the count reported instead, so one entry point with one flag keeps the
+        // two from drifting.
+        send_drained(workload, workload.scenario.is_uncontended()).await
+    }
 }

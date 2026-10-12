@@ -13,9 +13,13 @@
 //! reported after `Criterion::final_summary` as bounded `tracing` events rather
 //! than timed, because sustained contention intermittently stalls the pool
 //! acquire path: Criterion would block during warm-up sampling a scenario that
-//! never returns, taking the whole run with it. The counters are still recorded
-//! — they are what the issue asks for at this scope — but they are recorded as
-//! observations, not as timings. See `docs/runtime-ownership-baselines.md`.
+//! never returns, taking the whole run with it. It is sampled repeatedly rather
+//! than once — a single elapsed value for a scenario that also fails is
+//! ambiguous — and the run is reported as a latency distribution beside the
+//! pool's churn counters, with failed bursts counted rather than retried into
+//! the samples. Those counters are what the issue asks for at this scope, and
+//! they are recorded as observations, not as timings. See
+//! `docs/runtime-ownership-baselines.md`.
 //!
 //! The workloads and the measurement logic live in
 //! [`wireframe_testing::runtime_ownership_benchmarks`]; this binary only
@@ -51,18 +55,19 @@ use wireframe_testing::runtime_ownership_benchmarks::{
     AcquisitionMode,
     ActorWorkload,
     CONTENDED_BURST_TIMEOUT,
+    CONTENDED_LATENCY_SAMPLES,
     CancellationMode,
+    ContendedLatency,
     DEFAULT_MIDDLEWARE_LAYERS,
     DEFAULT_PUSH_QUEUE_CAPACITY,
-    DEFAULT_SENDS,
     POOL_SIZES,
-    PoolMeasurement,
     PoolWorkload,
     PushScenario,
     PushWorkload,
     StartupPath,
     StartupWorkload,
     measure_actor_drain,
+    measure_contended_latency,
     measure_pool_acquisition,
     measure_push,
     measure_startup,
@@ -106,10 +111,25 @@ const PUSH_OVERFLOW_CAPACITY: usize = 8;
 const PUSH_OVERFLOW_SENDS: usize = 256;
 
 /// Route counts exercised by the connection startup group.
+///
+/// The application shape is held small on purpose: the axis this scope has to
+/// resolve is how the two preparation paths differ as connections multiply, and
+/// a route count large enough to dominate the figure would obscure that.
+/// [`STARTUP_CONNECTION_COUNTS`] carries the comparison.
 const STARTUP_ROUTE_COUNTS: [usize; 2] = [1, 2];
 
 /// Connection counts exercised by the connection startup group.
-const STARTUP_CONNECTION_COUNTS: [usize; 2] = [1, 4];
+///
+/// Crossed with [`STARTUP_ROUTE_COUNTS`], so the group covers 1, 4, and 16
+/// connections. The largest case exists because the two paths only diverge with
+/// connection count: the prepared root pays preparation once and amortizes it,
+/// so a one- and a four-connection run show a difference but not its shape. Sixteen
+/// is the same ceiling the actor and pool scopes use, which keeps the four
+/// scopes' "large" cases at one scale rather than four unrelated ones. It is not
+/// a claim about a particular deployment; it is the point on this axis where the
+/// per-connection path's linear growth is unambiguous against the prepared
+/// root's sub-linear growth.
+const STARTUP_CONNECTION_COUNTS: [usize; 3] = [1, 4, 16];
 
 /// Pool size used for the contended acquisition workloads.
 ///
@@ -141,22 +161,62 @@ fn expect_bench<T, E: std::fmt::Display>(result: Result<T, E>, context: &str) ->
     }
 }
 
+/// Send count for the push no-back-pressure control.
+///
+/// Must not exceed the queue capacity, because that is what makes the control
+/// a control: a producer sending no more frames than the queue holds cannot
+/// park whatever the consumer is doing. See [`PUSH_QUEUE_CAPACITY`].
+const PUSH_CONTROL_SENDS: usize = 64;
+
+/// Send count for the push throughput workloads.
+///
+/// Deliberately larger than the queue capacity, so the producer can outrun a
+/// consumer. Whether it does is the observation, reported through
+/// [`PushMeasurement::awaited_capacity_waits`] rather than asserted.
+const PUSH_DRAINED_SENDS: usize = 1024;
+
+/// Queue capacity for the push backpressure workload.
+///
+/// Small, and much smaller than [`PUSH_DRAINED_SENDS`], because the scenario
+/// has no consumer: the queue must fill within the run for the producer to park
+/// at all. A capacity that could hold the whole run would measure the
+/// empty-queue path under a backpressure label.
+const PUSH_BACKPRESSURE_CAPACITY: usize = 8;
+
 /// The push workloads the send group measures.
 ///
-/// The two uncontended scenarios carry the throughput case and so get the full
-/// send count. The three overflow scenarios share a small queue and a shorter
-/// run because each exercises one non-blocking branch behind a policy check.
+/// The awaited scenarios carry the throughput case and so get the full send
+/// count. The three overflow scenarios share a small queue and a shorter run
+/// because each exercises one non-blocking branch behind a policy check.
 fn push_workloads() -> Vec<PushWorkload> {
     let mut workloads = vec![
+        // The no-back-pressure control: the queue holds the whole run, so a
+        // zero wait count is a property of the workload rather than luck.
         PushWorkload {
             scenario: PushScenario::UncontendedHigh,
+            queue_capacity: PUSH_CONTROL_SENDS,
+            sends: PUSH_CONTROL_SENDS,
+        },
+        // The backpressure case: nothing drains the queue, so the producer must
+        // park against a full one. Kept separate from the drained scenarios
+        // because a draining consumer does not guarantee the producer never
+        // waits, and `reported_queue_full` does not observe awaited waits at all.
+        PushWorkload {
+            scenario: PushScenario::BackpressureHigh,
+            queue_capacity: PUSH_BACKPRESSURE_CAPACITY,
+            sends: PUSH_CONTROL_SENDS,
+        },
+        // The throughput case: the queue cannot hold the run, so the producer
+        // may park and the reported wait count says whether it did.
+        PushWorkload {
+            scenario: PushScenario::DrainedHigh,
             queue_capacity: DEFAULT_PUSH_QUEUE_CAPACITY,
-            sends: DEFAULT_SENDS,
+            sends: PUSH_DRAINED_SENDS,
         },
         PushWorkload {
-            scenario: PushScenario::UncontendedLow,
+            scenario: PushScenario::DrainedLow,
             queue_capacity: DEFAULT_PUSH_QUEUE_CAPACITY,
-            sends: DEFAULT_SENDS,
+            sends: PUSH_DRAINED_SENDS,
         },
     ];
 
@@ -262,6 +322,10 @@ fn time_push(runtime: &Runtime, workload: PushWorkload, iterations: u64) -> Dura
     // unnecessary and elide the work being timed.
     black_box(measurement.accepted);
     black_box(measurement.dead_lettered);
+    // Reported through the throughput event below rather than discarded: for the
+    // awaited scenarios this is what says whether the run measured the queue
+    // send path or the back-pressure path, and the two are not comparable.
+    black_box(measurement.awaited_capacity_waits);
     measurement.elapsed
 }
 
@@ -285,8 +349,12 @@ fn time_pool_acquisition(runtime: &Runtime, workload: PoolWorkload, iterations: 
         "pool acquisition benchmark failed",
     );
     // The scheduler spawn count is the task-churn evidence the issue asks for;
-    // black-boxing it keeps the counter read observable.
+    // black-boxing it keeps the counter read observable. Capacity waits are
+    // read alongside it, but they are a different kind of claim: spawns witness
+    // the scheduler being entered, waits witness a caller actually having to
+    // park for capacity.
     black_box(measurement.scheduler_spawns);
+    black_box(measurement.capacity_waits);
     black_box(measurement.alive_task_delta());
     measurement.elapsed
 }
@@ -383,21 +451,41 @@ fn benchmark_pool_acquisition(criterion: &mut Criterion, runtime: &Runtime) {
     group.finish();
 }
 
-/// Emit one completed contended burst's counters as an event.
+/// Emit a completed contended sampling run's distribution and counters.
+///
+/// A single elapsed value was the previous shape of this event, and it was
+/// ambiguous: the contended acquire path fails intermittently, so one figure
+/// could be the duration of a burst that produced leases or a number for a run
+/// that produced none. The distribution separates the two, and the failure
+/// count says how much of the run the percentiles do not describe.
+///
+/// The churn counters are reported per run rather than per sample: they are the
+/// pool's cumulative counters read across the sampling window, so a
+/// per-burst figure would imply a precision the counters do not have.
 ///
 /// Kept as its own function because a `tracing` macro expands to an
 /// `enabled`/not-enabled conditional, and two of them inside one `match` push
 /// the caller past the workspace's cognitive-complexity limit.
-fn report_contended_success(label: &str, measurement: &PoolMeasurement) {
+fn report_contended_success(label: &str, latency: &ContendedLatency) {
+    let churn = latency.churn();
     tracing::info!(
         workload = %label,
         burst_timeout = ?CONTENDED_BURST_TIMEOUT,
-        granted = measurement.acquisitions,
-        scheduler_spawns = measurement.scheduler_spawns,
-        alive_task_delta = measurement.alive_task_delta(),
-        elapsed = ?measurement.elapsed,
-        "contended pool acquisition observation"
+        attempts = latency.successes() + latency.failure_count(),
+        successes = latency.successes(),
+        failures = latency.failure_count(),
+        scheduler_spawns = churn.scheduler_spawns,
+        capacity_waits = churn.capacity_waits,
+        min = ?latency.min(),
+        median = ?latency.median(),
+        p90 = ?latency.p90(),
+        max = ?latency.max(),
+        mean = ?latency.mean(),
+        "contended pool acquisition distribution"
     );
+    for failure in latency.failures() {
+        report_contended_failure(label, failure);
+    }
 }
 
 /// Emit the reason a contended burst did not complete as a warning.
@@ -406,35 +494,40 @@ fn report_contended_failure(label: &str, error: &str) {
         workload = %label,
         burst_timeout = ?CONTENDED_BURST_TIMEOUT,
         %error,
-        "contended pool acquisition did not complete; known acquire-path defect, see \
+        "contended pool acquisition burst did not complete; known acquire-path defect, see \
          docs/runtime-ownership-baselines.md"
     );
 }
 
-/// Emit the outcome of one contended burst as a structured event.
-fn report_contended_outcome(label: &str, outcome: Result<PoolMeasurement, String>) {
+/// Emit the outcome of one contended sampling run as a structured event.
+fn report_contended_outcome(label: &str, outcome: Result<ContendedLatency, String>) {
     match outcome {
-        Ok(measurement) => report_contended_success(label, &measurement),
+        Ok(latency) => report_contended_success(label, &latency),
         Err(error) => report_contended_failure(label, &error),
     }
 }
 
-/// Report contended acquisition counters as a bounded, untimed observation.
+/// Sample contended acquisition as a bounded, untimed observation.
 ///
 /// This deliberately does not register a Criterion group. Sustained contention
 /// intermittently stalls the pool acquire path, and Criterion would block during
 /// warm-up sampling a scenario that never returns — taking the whole benchmark
-/// run with it. The measurement helper converts that stall into an error after
-/// [`CONTENDED_BURST_TIMEOUT`], so the observation always terminates.
+/// run with it. The measurement helper converts that stall into a recorded
+/// failure after [`CONTENDED_BURST_TIMEOUT`], so the observation always
+/// terminates and the failures are reported beside the samples rather than in
+/// place of them.
 ///
-/// The counters are the evidence the issue asks for at this scope: whether a
-/// contended burst genuinely enters the scheduler's slow path, and what task
-/// churn it costs. Because the scenario can fail rather than merely vary, a
-/// failure is reported as such instead of being papered over with a timing.
+/// The churn counters are the issue's task-churn evidence at this scope:
+/// whether contended bursts genuinely enter the scheduler's slow path, and what
+/// task churn they cost. They are reported per run, beside the distribution
+/// rather than as a substitute for it.
 fn observe_contended_acquisition(runtime: &Runtime) {
     for workload in contended_pool_workloads() {
         let label = workload.label();
-        let outcome = runtime.block_on(measure_pool_acquisition(workload, 1));
+        let outcome = runtime.block_on(measure_contended_latency(
+            workload,
+            CONTENDED_LATENCY_SAMPLES,
+        ));
         report_contended_outcome(&label, outcome);
     }
 }

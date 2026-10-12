@@ -60,13 +60,13 @@ use wireframe_testing::{
         AcquisitionMode,
         ActorWorkload,
         CancellationMode,
+        PoolHarness,
         PoolWorkload,
         PushScenario,
         PushWorkload,
         StartupPath,
         StartupWorkload,
         measure_actor_drain,
-        measure_pool_acquisition,
         measure_push,
         measure_startup,
     },
@@ -105,7 +105,11 @@ const ACTOR_QUEUE_CAPACITY: usize = 128;
 /// Sends per iteration in the push allocation workloads.
 const PUSH_SENDS: usize = 256;
 
-/// Queue capacity for the uncontended push allocation workload.
+/// Queue capacity for the drained push allocation workload.
+///
+/// Deliberately under [`PUSH_SENDS`], so the producer can outrun its consumer.
+/// Whether it did is reported through the wait counters rather than asserted;
+/// the window is about allocation, which a park only adds to.
 const PUSH_QUEUE_CAPACITY: usize = 64;
 
 /// Queue capacity for the overflow push allocation workload.
@@ -114,12 +118,57 @@ const PUSH_OVERFLOW_CAPACITY: usize = 8;
 /// Items per probe in the nested-`Arc` sensitivity experiment.
 const ARC_PROBE_ITEMS: usize = 256;
 
-/// A labelled workload plus the closure that runs one iteration of it.
+/// A labelled workload, the closure that counts it, and the closure that replays
+/// it.
 ///
-/// The closure is boxed so scopes with different captured workloads share one
-/// list type, which keeps the allocation and timing groups iterating the same
-/// set.
-type AllocationScope<'a> = (String, Box<dyn Fn() -> Result<(), String> + 'a>);
+/// Counting and replaying are separate closures rather than one, because most
+/// scopes count by wrapping their workload in a counting window while the pool
+/// scope must count something narrower than it replays — see
+/// [`count_pool_acquisition_window`]. Splitting them is what lets a scope whose
+/// bracket is not "wrap the whole workload" still take part in the same list.
+///
+/// Both closures are boxed so scopes with different captured workloads share one
+/// list type, which keeps the allocation and timing groups iterating one set.
+struct AllocationScope<'a> {
+    /// Label carried into the benchmark id, naming the workload's parameters.
+    label: String,
+    /// Take this scope's allocation count, in a fresh counting window.
+    ///
+    /// Called once per scope, before the timing passes. It is a closure rather
+    /// than a plain number so each scope owns its bracketing, and it returns a
+    /// `Result` so a scope that cannot be counted stops the run rather than
+    /// recording a fabricated zero.
+    count: Box<dyn Fn() -> Result<usize, String> + 'a>,
+    /// Replay the same workload without counting, for the timing passes.
+    replay: Box<dyn Fn() -> Result<(), String> + 'a>,
+}
+
+impl<'a> AllocationScope<'a> {
+    /// A scope counted by wrapping its whole workload in a counting window.
+    ///
+    /// The common case: the workload has no region whose cost needs excluding, so
+    /// counting it and replaying it are the same call. One operation is shared by
+    /// both closures rather than written twice, so the count and the timing
+    /// cannot drift apart onto different workloads — the failure that writing
+    /// the call out twice invites.
+    fn windowed(label: String, operation: impl Fn() -> Result<(), String> + 'a) -> Self {
+        // An `Arc` rather than a clone bound: the closure's captures are not
+        // necessarily `Clone`, and sharing one instance is what guarantees both
+        // closures run the same workload.
+        let shared = Arc::new(operation);
+        let counted = Arc::clone(&shared);
+        Self {
+            label,
+            count: Box::new(move || count_allocations(|| (counted)())),
+            replay: Box::new(move || (shared)()),
+        }
+    }
+
+    /// Box this scope's replay closure for the timing pass.
+    fn into_replay(self) -> (String, Box<dyn Fn() -> Result<(), String> + 'a>) {
+        (self.label, self.replay)
+    }
+}
 
 /// A named allocation probe: a label, and the function that allocates.
 ///
@@ -229,8 +278,8 @@ fn run_measurement<T, E: std::fmt::Display>(
 struct AllocationWorkloads {
     /// Actor drain, with cancellation disabled so the window covers the loop.
     actor: ActorWorkload,
-    /// Awaited send into a draining queue.
-    push_uncontended: PushWorkload,
+    /// Awaited send into a draining queue that may not keep up.
+    push_drained: PushWorkload,
     /// Non-blocking send against a deliberately small, full queue.
     push_overflow: PushWorkload,
     /// The shared prepared root, which prepares once for all connections.
@@ -250,8 +299,11 @@ impl AllocationWorkloads {
                 queue_capacity: ACTOR_QUEUE_CAPACITY,
                 cancellation: CancellationMode::Disabled,
             },
-            push_uncontended: PushWorkload {
-                scenario: PushScenario::UncontendedHigh,
+            push_drained: PushWorkload {
+                // Drained, not uncontended: at this send count the queue cannot
+                // hold the run, so the previous `UncontendedHigh` label claimed a
+                // no-back-pressure property the workload could not support.
+                scenario: PushScenario::DrainedHigh,
                 queue_capacity: PUSH_QUEUE_CAPACITY,
                 sends: PUSH_SENDS,
             },
@@ -288,55 +340,87 @@ fn allocation_scopes(runtime: &Runtime) -> Vec<AllocationScope<'_>> {
     let iterations = ALLOCATION_ITERATIONS;
 
     vec![
-        (
-            workloads.actor.label(),
-            Box::new(move || {
-                run_measurement(runtime, measure_actor_drain(workloads.actor, iterations))
+        AllocationScope::windowed(workloads.actor.label(), move || {
+            run_measurement(runtime, measure_actor_drain(workloads.actor, iterations))
+        }),
+        AllocationScope::windowed(workloads.push_drained.label(), move || {
+            run_measurement(runtime, measure_push(workloads.push_drained, iterations))
+        }),
+        AllocationScope::windowed(workloads.push_overflow.label(), move || {
+            run_measurement(runtime, measure_push(workloads.push_overflow, iterations))
+        }),
+        AllocationScope::windowed(workloads.startup_prepared.label(), move || {
+            run_measurement(
+                runtime,
+                measure_startup(workloads.startup_prepared, iterations),
+            )
+        }),
+        AllocationScope::windowed(workloads.startup_per_connection.label(), move || {
+            run_measurement(
+                runtime,
+                measure_startup(workloads.startup_per_connection, iterations),
+            )
+        }),
+        AllocationScope {
+            label: workloads.pool.label(),
+            count: Box::new(move || {
+                count_pool_acquisition_window(runtime, workloads.pool, iterations)
             }),
-        ),
-        (
-            workloads.push_uncontended.label(),
-            Box::new(move || {
-                run_measurement(
-                    runtime,
-                    measure_push(workloads.push_uncontended, iterations),
-                )
-            }),
-        ),
-        (
-            workloads.push_overflow.label(),
-            Box::new(move || {
-                run_measurement(runtime, measure_push(workloads.push_overflow, iterations))
-            }),
-        ),
-        (
-            workloads.startup_prepared.label(),
-            Box::new(move || {
-                run_measurement(
-                    runtime,
-                    measure_startup(workloads.startup_prepared, iterations),
-                )
-            }),
-        ),
-        (
-            workloads.startup_per_connection.label(),
-            Box::new(move || {
-                run_measurement(
-                    runtime,
-                    measure_startup(workloads.startup_per_connection, iterations),
-                )
-            }),
-        ),
-        (
-            workloads.pool.label(),
-            Box::new(move || {
-                run_measurement(
-                    runtime,
-                    measure_pool_acquisition(workloads.pool, iterations),
-                )
-            }),
-        ),
+            replay: Box::new(move || run_pool_acquisition(runtime, workloads.pool, iterations)),
+        },
     ]
+}
+
+/// Run the pool scope the way the timing pass should replay it.
+///
+/// One call builds a pool, measures `iterations` acquire/release rounds against
+/// it, and closes it — the same workload the count beside it describes, so the
+/// timing and the count are of one thing.
+///
+/// # Errors
+///
+/// Returns a description of the construction, warm-up, or acquisition failure.
+fn run_pool_acquisition(
+    runtime: &Runtime,
+    workload: PoolWorkload,
+    iterations: u64,
+) -> Result<(), String> {
+    let harness = runtime.block_on(PoolHarness::build(workload))?;
+    let measured = runtime.block_on(harness.measure(iterations));
+    runtime.block_on(harness.close());
+    measured.map(|_| ())
+}
+
+/// Count the allocations of one pool scope, with construction outside the window.
+///
+/// [`run_pool_acquisition`] builds its pool inside the call, so counting a
+/// closure that runs it directly charges the window for pool construction. `bb8`
+/// connects eagerly, so that is one allocation-bearing loopback connection per
+/// slot — a count that scales with `pool_size` and swamps the acquire path the
+/// window exists to observe. Building and closing the harness *around* the
+/// counted call is what separates them, and the ordering is why this helper
+/// exists rather than a comment on the call site.
+///
+/// Construction cost is not discarded, only excluded: `PoolMeasurement` carries
+/// it on its `construction` field, so a caller that wants the figure can read
+/// it. The timing binary does not currently print it, since its `elapsed`
+/// deliberately excludes construction and it reads only the counters beside it.
+///
+/// # Errors
+///
+/// Returns a description of a construction, warm-up, or acquisition failure, or
+/// of a harness that could not be built.
+fn count_pool_acquisition_window(
+    runtime: &Runtime,
+    workload: PoolWorkload,
+    iterations: u64,
+) -> Result<usize, String> {
+    // Outside the window: construction and warm-up.
+    let harness = runtime.block_on(PoolHarness::build(workload))?;
+    let counted = count_allocations(|| runtime.block_on(harness.measure(iterations)).map(|_| ()));
+    // Outside the window: teardown.
+    runtime.block_on(harness.close());
+    counted
 }
 
 /// Emit a successful contended allocation count as an event.
@@ -375,20 +459,14 @@ fn report_contended_allocations(label: &str, outcome: Result<usize, String>) {
 /// Record the contended pool allocation count as a bounded observation.
 ///
 /// Run once after Criterion has finished, so a failure is reported rather than
-/// aborting the benchmark run. The count still comes from a counted window, so
-/// it is the same measurement the timing group would have taken; only the
-/// repetition and the timing are dropped, because repetition is what the
-/// acquire-path defect makes unreliable. See
-/// `docs/runtime-ownership-baselines.md`.
+/// aborting the benchmark run. The count comes from the same bracketed window the
+/// uncontended pool scope uses, so the two are comparable; only the repetition
+/// and the timing are dropped, because repetition is what the acquire-path defect
+/// makes unreliable. See `docs/runtime-ownership-baselines.md`.
 fn observe_contended_pool_allocations(runtime: &Runtime) {
     let workload = contended_pool_workload();
     let label = workload.label();
-    let outcome = count_allocations(|| {
-        run_measurement(
-            runtime,
-            measure_pool_acquisition(workload, ALLOCATION_ITERATIONS),
-        )
-    });
+    let outcome = count_pool_acquisition_window(runtime, workload, ALLOCATION_ITERATIONS);
 
     report_contended_allocations(&label, outcome);
 }
@@ -495,6 +573,93 @@ fn arc_probes() -> Vec<ArcProbe> {
     ]
 }
 
+/// Prove the pool scope's bracket really excludes pool construction.
+///
+/// The pool scope is the one place the count is *not* a plain wrap of its
+/// workload: [`count_pool_acquisition_window`] builds the pool around the counted
+/// region rather than inside it. That is a claim in a doc comment, and the
+/// doc comment is the only thing asserting it — the count itself is a bare
+/// integer that looks the same whether the bracket is right or wrong. This check
+/// makes the claim falsifiable by measuring both sides.
+///
+/// The two are compared at `iterations = 0`, which is what makes the comparison
+/// decisive rather than statistical. At zero iterations the measured phase
+/// contributes nothing and construction is the only thing left that allocates,
+/// so the bracketed window must read exactly zero. Comparing full runs instead —
+/// some 2 300 allocations of which construction is 50 — puts a 2% effect against
+/// run-to-run noise of several hundred, and measurement showed the two
+/// distributions overlapping almost completely. Erasing the measured phase
+/// removes the noise rather than trying to see past it.
+///
+/// Both numbers come from the same counting machinery and the same workload;
+/// only the bracketing differs. A third reading at the normal iteration count
+/// closes the other half of the claim: the equality above is satisfied both by
+/// a correct bracket and by one that wraps nothing, and only the third reading
+/// can tell those apart.
+fn verify_pool_bracket_excludes_construction(runtime: &Runtime) {
+    let workload = AllocationWorkloads::new().pool;
+
+    let (empty_bracketed, empty_whole) = expect_bench(
+        pool_bracket_readings(runtime, workload, 0),
+        "zero-iteration pool allocation window failed",
+    );
+
+    // Without this the equality below is vacuous: a counter that observed
+    // nothing would read zero on both sides and the bracket would look perfect.
+    // Construction is real and countable, so the unbracketed window must see it.
+    assert!(
+        empty_whole > 0,
+        "a zero-iteration pool acquisition must still count the pool's construction in the \
+         unbracketed window, but it counted {empty_whole} allocations for a {}-slot pool. The \
+         allocation counter is not observing this workload, so the bracket equality below proves \
+         nothing",
+        workload.pool_size
+    );
+    assert_eq!(
+        empty_bracketed, 0,
+        "pool construction belongs outside the bracketed allocation window, but a zero-iteration \
+         window counted {empty_bracketed} of the {empty_whole} allocations that construction \
+         costs a {}-slot pool. Construction has been pulled back inside the window, so every \
+         published pool allocation figure reports connection setup as acquire-path cost",
+        workload.pool_size
+    );
+
+    // The other half of the claim: the window must contain the acquire path, not
+    // merely exclude construction. A bracket that wrapped nothing at all would
+    // satisfy the equality above just as well.
+    let (measured_bracketed, _) = expect_bench(
+        pool_bracket_readings(runtime, workload, ALLOCATION_ITERATIONS),
+        "measured pool allocation window failed",
+    );
+    assert!(
+        measured_bracketed > 0,
+        "the bracketed window must count the acquire path's allocations, but \
+         {ALLOCATION_ITERATIONS} iterations of a {}-slot pool counted {measured_bracketed}. The \
+         window no longer wraps the measured phase",
+        workload.pool_size
+    );
+}
+
+/// Take one reading from each window over the same workload.
+///
+/// Returns `(bracketed, whole)`: the acquisition workload counted with the
+/// pool's construction outside the window, and with it inside. Keeping both
+/// readings in one place is what lets a caller compare them without the two
+/// windows silently drifting onto different workloads.
+///
+/// # Errors
+///
+/// Returns the first window's failure description.
+fn pool_bracket_readings(
+    runtime: &Runtime,
+    workload: PoolWorkload,
+    iterations: u64,
+) -> Result<(usize, usize), String> {
+    let bracketed = count_pool_acquisition_window(runtime, workload, iterations)?;
+    let whole = count_allocations(|| run_pool_acquisition(runtime, workload, iterations))?;
+    Ok((bracketed, whole))
+}
+
 /// Record allocation baselines for the actor, push, startup, and pool scopes.
 ///
 /// Each count is taken in its own window and written into the benchmark label,
@@ -505,14 +670,16 @@ fn benchmark_allocations(criterion: &mut Criterion, runtime: &Runtime) {
         .sample_size(SAMPLE_SIZE)
         .measurement_time(MEASUREMENT_TIME);
 
-    for (label, operation) in allocation_scopes(runtime) {
-        let allocations = count_window(&label, &operation);
+    for scope in allocation_scopes(runtime) {
+        let label = scope.label.clone();
+        let allocations = expect_bench((scope.count)(), &format!("{label} allocation window"));
         let labelled = format!("{label}_allocs_{allocations}");
+        let (_, replay) = scope.into_replay();
 
         group.bench_function(BenchmarkId::from_parameter(labelled), |bencher| {
             bencher.iter_custom(|iterations| {
                 black_box(allocations);
-                time_iterations(&operation, iterations)
+                time_iterations(&replay, iterations)
             });
         });
     }
@@ -557,6 +724,11 @@ fn main() {
     verify_allocation_harness();
 
     let runtime = expect_bench(Runtime::new(), "allocation benchmark runtime failed");
+    // Needs the runtime to build a real pool, so it follows construction rather
+    // than preceding it like `verify_allocation_harness`. Both run before
+    // Criterion, whose own threads would otherwise allocate inside a window.
+    verify_pool_bracket_excludes_construction(&runtime);
+
     let mut criterion = Criterion::default().configure_from_args();
 
     benchmark_allocations(&mut criterion, &runtime);

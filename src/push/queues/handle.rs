@@ -1,47 +1,31 @@
 //! Cloneable handle used by producers to push frames to a connection.
 
-#[cfg(loom)]
-mod sync {
-    //! Synchronization aliases for loom-enabled model checking.
-
-    pub use std::sync::{Arc, Weak};
-
-    pub use loom::sync::{
-        Mutex,
-        atomic::{AtomicUsize, Ordering},
-    };
-}
-
-#[cfg(not(loom))]
-mod sync {
-    //! Synchronization aliases for the standard runtime build.
-
-    pub use std::sync::{
-        Arc,
-        Mutex,
-        Weak,
-        atomic::{AtomicUsize, Ordering},
-    };
-}
-
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use leaky_bucket::RateLimiter;
 use log::{debug, warn};
 use tokio::{sync::mpsc, time::sleep};
 
-use self::sync::{Arc, AtomicUsize, Mutex, Ordering, Weak};
-use super::{FrameLike, PushError, PushPolicy, PushPriority};
+use super::{
+    FrameLike,
+    PushError,
+    PushPolicy,
+    PushPriority,
+    dlq::DeadLetterState,
+    sync::{Arc, Weak},
+    waits::{PushWaitCounters, PushWaitCounts},
+};
 
 /// Shared state for [`PushHandle`].
 ///
 /// Holds the high- and low-priority channels alongside an optional rate
-/// limiter and dead-letter queue sender used when pushes are discarded.
+/// limiter and the dead-letter accounting used when pushes are discarded.
 ///
 /// - `high_prio_tx` – channel for frames that must be sent before any low-priority traffic.
 /// - `low_prio_tx` – channel for best-effort frames.
 /// - `limiter` – optional rate-limiter enforcing global push throughput.
-/// - `dlq_tx` – optional dead-letter queue for discarded frames.
+/// - `dead_letter` – drop destination and diagnostics for discarded frames.
+/// - `waits` – what this handle's awaited pushes had to wait for.
 pub(crate) struct PushHandleInner<F> {
     /// Sender for urgent frames, preserving priority at the actor boundary.
     pub(crate) high_prio_tx: mpsc::Sender<F>,
@@ -49,16 +33,10 @@ pub(crate) struct PushHandleInner<F> {
     pub(crate) low_prio_tx: mpsc::Sender<F>,
     /// Shared limiter that bounds aggregate producer throughput.
     pub(crate) limiter: Option<RateLimiter>,
-    /// Optional sink for frames discarded by non-blocking push policies.
-    pub(crate) dlq_tx: Option<mpsc::Sender<F>>,
-    /// Number of drops since the last diagnostic reset.
-    pub(crate) dlq_drops: AtomicUsize,
-    /// Timestamp used for interval-based drop logging.
-    pub(crate) dlq_last_log: Mutex<Instant>,
-    /// Count interval used for drop diagnostics.
-    pub(crate) dlq_log_every_n: usize,
-    /// Time interval used for drop diagnostics.
-    pub(crate) dlq_log_interval: Duration,
+    /// Where discarded frames go, and how their loss is counted and logged.
+    pub(crate) dead_letter: DeadLetterState<F>,
+    /// What this handle's awaited pushes had to wait for, across both lanes.
+    pub(crate) waits: PushWaitCounts,
 }
 
 /// Cloneable handle used by producers to push frames to a connection.
@@ -68,6 +46,7 @@ pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
 /// Instrumentation helper exposing internal counters when running under loom.
 #[cfg(loom)]
 pub struct PushHandleProbe<F> {
+    /// The handle's shared state, read without taking part in any push.
     inner: Arc<PushHandleInner<F>>,
 }
 
@@ -75,7 +54,11 @@ pub struct PushHandleProbe<F> {
 impl<F> PushHandleProbe<F> {
     /// Return the number of frames dropped into the DLQ since the last log flush.
     #[must_use]
-    pub fn dlq_drop_count(&self) -> usize { self.inner.dlq_drops.load(Ordering::SeqCst) }
+    pub fn dlq_drop_count(&self) -> usize { self.inner.dead_letter.pending_count() }
+
+    /// Return the total number of drops the throttled diagnostic has reported.
+    #[must_use]
+    pub fn dlq_reported_count(&self) -> usize { self.inner.dead_letter.reported_count() }
 }
 
 impl<F: FrameLike> PushHandle<F> {
@@ -123,10 +106,27 @@ impl<F: FrameLike> PushHandle<F> {
 
         // Then send the frame, awaiting capacity if the queue is currently
         // full. If the receiver has been dropped, surface `Closed`.
-        tx.clone()
-            .send(frame)
-            .await
-            .map_err(|_| PushError::Closed)?;
+        //
+        // The non-blocking probe below is what makes "did this push wait?"
+        // observable. It reserves a slot if one is free, so the common case
+        // still completes without parking, and a refusal is itself the
+        // evidence: `try_reserve` fails exactly when the awaiting `send` would
+        // have had to wait for a consumer. Probing on every send costs one
+        // atomic acquisition, which is noise beside the channel operations it
+        // guards, and it keeps the counter meaningful for any caller rather
+        // than only for instrumentation that opted in.
+        self.0.waits.record_capacity_probe();
+        match tx.try_reserve() {
+            Ok(permit) => permit.send(frame),
+            Err(mpsc::error::TrySendError::Full(())) => {
+                self.0.waits.record_capacity_wait();
+                tx.clone()
+                    .send(frame)
+                    .await
+                    .map_err(|_| PushError::Closed)?;
+            }
+            Err(mpsc::error::TrySendError::Closed(())) => return Err(PushError::Closed),
+        }
         debug!("frame pushed: priority={priority:?}");
         Ok(())
     }
@@ -196,26 +196,44 @@ impl<F: FrameLike> PushHandle<F> {
         self.push_with_priority(frame, PushPriority::Low).await
     }
 
-    /// Send a frame to the configured dead letter queue if available.
-    fn route_to_dlq(&self, frame: F)
-    where
-        F: std::fmt::Debug,
-    {
-        if let Some(dlq) = &self.0.dlq_tx
-            && let Err(mpsc::error::TrySendError::Full(f) | mpsc::error::TrySendError::Closed(f)) =
-                dlq.try_send(frame)
-        {
-            let dropped = self.0.dlq_drops.fetch_add(1, Ordering::Relaxed) + 1;
-            let mut last = match self.0.dlq_last_log.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    warn!("DLQ last-log mutex poisoned; continuing with stale state");
-                    poisoned.into_inner()
-                }
-            };
-            self.log_dlq_drop(&f, dropped, &mut last);
-        }
-    }
+    /// Counters describing what this handle's awaited pushes have waited for.
+    ///
+    /// Every clone of a handle shares one set of counters, so a snapshot taken
+    /// here includes pushes made through any clone. The counters only ever
+    /// increase; subtract an earlier snapshot with
+    /// [`PushWaitCounters::since`] to bracket a region of interest.
+    ///
+    /// This is the observable that distinguishes an awaited push that waited
+    /// for capacity from one that did not, which the non-blocking
+    /// `QueueFull` report cannot: that report is produced only by
+    /// [`PushHandle::try_push`], and an awaited push against a full queue
+    /// returns nothing at all. See [`PushWaitCounters`] for the distinction in
+    /// full.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use tokio::runtime::Runtime;
+    /// use wireframe::push::PushQueues;
+    ///
+    /// let rt = Runtime::new().expect("failed to build runtime");
+    /// rt.block_on(async {
+    ///     let (mut queues, handle) = PushQueues::<u8>::builder()
+    ///         .high_capacity(1)
+    ///         .low_capacity(1)
+    ///         .unlimited()
+    ///         .build()
+    ///         .expect("failed to build PushQueues");
+    ///     let before = handle.wait_counters();
+    ///     handle.push_high_priority(7u8).await.expect("push failed");
+    ///     let waited = handle.wait_counters().since(before);
+    ///     assert_eq!(waited.awaited_capacity_waits, 0);
+    ///     assert_eq!(waited.capacity_probes, 1);
+    ///     let _ = queues.recv().await;
+    /// });
+    /// ```
+    #[must_use]
+    pub fn wait_counters(&self) -> PushWaitCounters { self.0.waits.snapshot() }
 
     /// Interval between attempts to acquire a rate-limit permit.
     ///
@@ -233,26 +251,6 @@ impl<F: FrameLike> PushHandle<F> {
             // sleep yields to the scheduler and advances virtual time in
             // tests (tokio::time::pause/advance).
             sleep(Self::PERMIT_POLL_INTERVAL).await;
-        }
-    }
-
-    /// Emit a throttled diagnostic and reset the drop counter when due.
-    fn log_dlq_drop(&self, frame: &F, dropped: usize, last_log: &mut Instant)
-    where
-        F: std::fmt::Debug,
-    {
-        let log_every_n = self.0.dlq_log_every_n;
-        let log_interval = self.0.dlq_log_interval;
-        let should_log = (log_every_n != 0 && dropped.is_multiple_of(log_every_n))
-            || last_log.elapsed() > log_interval;
-
-        if should_log {
-            warn!(
-                "DLQ dropped frames (full or closed): frame={frame:?}, dropped={dropped}, \
-                 log_every_n={log_every_n}, log_interval={log_interval:?}"
-            );
-            *last_log = Instant::now();
-            self.0.dlq_drops.store(0, Ordering::Relaxed);
         }
     }
 
@@ -314,10 +312,10 @@ impl<F: FrameLike> PushHandle<F> {
                     if matches!(policy, PushPolicy::WarnAndDropIfFull) {
                         warn!(
                             "push queue full: priority={priority:?}, policy={policy:?}, dlq={dlq}",
-                            dlq = self.0.dlq_tx.is_some()
+                            dlq = self.0.dead_letter.has_queue()
                         );
                     }
-                    self.route_to_dlq(f);
+                    self.0.dead_letter.route_or_count(f);
                     Ok(())
                 }
             },

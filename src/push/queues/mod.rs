@@ -6,29 +6,27 @@
 //! level. An optional rate limiter caps throughput at [`MAX_PUSH_RATE`] pushes
 //! per second.
 
-#[cfg(not(loom))]
-use std::sync::{Mutex, atomic::AtomicUsize};
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
 use leaky_bucket::RateLimiter;
-#[cfg(loom)]
-use loom::sync::Mutex;
-#[cfg(loom)]
-use loom::sync::atomic::AtomicUsize;
 use static_assertions::const_assert;
 use tokio::sync::mpsc;
 
 mod builder;
+mod dlq;
 mod errors;
 mod handle;
+mod sync;
+mod waits;
 
 pub use builder::PushQueuesBuilder;
+use dlq::DeadLetterState;
 pub use errors::{PushConfigError, PushError};
 pub use handle::PushHandle;
 pub(crate) use handle::PushHandleInner;
+use sync::Arc;
+pub use waits::PushWaitCounters;
+pub(crate) use waits::PushWaitCounts;
 
 /// Messages can be sent through a [`PushHandle`].
 ///
@@ -173,11 +171,8 @@ impl<F: FrameLike> PushQueues<F> {
             high_prio_tx: high_tx,
             low_prio_tx: low_tx,
             limiter,
-            dlq_tx: dlq,
-            dlq_drops: AtomicUsize::new(0),
-            dlq_last_log: Mutex::new(Instant::now()),
-            dlq_log_every_n,
-            dlq_log_interval,
+            dead_letter: DeadLetterState::new(dlq, dlq_log_every_n, dlq_log_interval),
+            waits: PushWaitCounts::default(),
         };
         Ok((
             Self {

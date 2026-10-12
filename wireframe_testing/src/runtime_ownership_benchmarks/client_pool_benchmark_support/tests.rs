@@ -1,6 +1,14 @@
 //! Unit coverage for pool workload labels, rejection rules, and the counters.
 
-use super::{AcquisitionMode, PoolMeasurement, PoolWorkload, measure_pool_acquisition};
+use std::time::Duration;
+
+use super::{
+    AcquisitionMode,
+    PoolMeasurement,
+    PoolWorkload,
+    measure_contended_latency,
+    measure_pool_acquisition,
+};
 
 /// Attempts allowed before a contended burst is reported as a failure.
 ///
@@ -119,6 +127,8 @@ async fn zero_iterations_measures_nothing() {
 
     assert_eq!(measurement.acquisitions, 0);
     assert_eq!(measurement.scheduler_spawns, 0);
+    assert_eq!(measurement.capacity_waits, 0);
+    assert_eq!(measurement.construction, Duration::ZERO);
     assert_eq!(measurement.alive_task_delta(), 0);
 }
 
@@ -160,6 +170,46 @@ async fn uncontended_acquisition_spawns_at_least_one_scheduler_task(
         "a release always notifies the scheduler, so a {acquisitions}-acquisition burst on a \
          {pool_size}-slot pool must spawn at least one worker"
     );
+    assert!(
+        !measurement.contended(),
+        "one caller looping {acquisitions} times over a {pool_size}-slot pool never exhausts it, \
+         so it must record no capacity waits; {} recorded",
+        measurement.capacity_waits
+    );
+}
+
+/// The waiting counter is discriminating in the other direction too.
+///
+/// Asserting only that a contended burst records waits would not show the
+/// counter means anything — a counter that always increments would pass. The
+/// uncontended cases above establish the zero, and this establishes the
+/// non-zero, so together they pin the counter to the event it claims to count.
+#[rstest::rstest]
+#[case(1, 4)]
+#[case(4, 16)]
+#[case(16, 64)]
+#[tokio::test]
+async fn uncontended_acquisition_records_no_capacity_waits(
+    #[case] pool_size: usize,
+    #[case] acquisitions: usize,
+) {
+    let measurement = measure_pool_acquisition(
+        PoolWorkload {
+            pool_size,
+            mode: AcquisitionMode::Uncontended,
+            acquisitions,
+            contenders: 1,
+        },
+        1,
+    )
+    .await
+    .expect("uncontended measurement failed");
+
+    assert_eq!(
+        measurement.capacity_waits, 0,
+        "a single caller that releases before re-acquiring must never park on a {pool_size}-slot \
+         pool"
+    );
 }
 
 /// The spawn count is bounded by the number of acquire/release transitions.
@@ -197,28 +247,129 @@ async fn uncontended_spawns_are_bounded_by_transitions(
     );
 }
 
-/// A contended burst drives the slow path at least as hard as uncontended.
+/// A contended burst must be *observed* to contend, not assumed to.
+///
+/// The burst empties the pool and holds it empty while every contender asks for
+/// capacity, so each contender must park: a contended workload with `c`
+/// contenders records at least `c` waits before any capacity is returned. That
+/// is a floor, not an equality — the contended rounds that follow routinely push
+/// it higher — but it is enough to falsify a burst that never actually
+/// contended, which is what a start barrier alone fails to rule out.
+///
+/// The spawn count is kept beside it as task-churn evidence. It is not evidence
+/// of contention: every release notifies the scheduler whether or not anyone is
+/// waiting.
 #[rstest::rstest]
 #[case(AcquisitionMode::ContendedFifo)]
 #[case(AcquisitionMode::ContendedRoundRobin)]
 #[tokio::test]
-async fn contended_acquisition_spawns_scheduler_tasks(#[case] mode: AcquisitionMode) {
+async fn contended_acquisition_observes_capacity_waits(#[case] mode: AcquisitionMode) {
+    const CONTENDERS: usize = 16;
     let measurement = contended_burst_with_retry(PoolWorkload {
         pool_size: 4,
         mode,
         acquisitions: 8,
-        contenders: 16,
+        contenders: CONTENDERS,
     })
     .await
     .expect("contended measurement failed in every retry attempt");
 
     assert!(
+        measurement.capacity_waits >= u64::try_from(CONTENDERS).unwrap_or(u64::MAX),
+        "a burst that empties a 4-slot pool and holds it empty must park every one of \
+         {CONTENDERS} contenders, but {} waits were recorded",
+        measurement.capacity_waits
+    );
+    assert!(
+        measurement.contended(),
+        "the measurement must classify itself as contended"
+    );
+    assert!(
         measurement.scheduler_spawns >= 1,
-        "exhausting a pool must enter the scheduler slow path at least once"
+        "handing capacity to a parked waiter must enter the scheduler slow path at least once"
     );
     assert!(
         measurement.acquisitions >= 1,
         "contended contenders must still be granted leases"
+    );
+}
+
+/// Every attempted burst lands in exactly one of the two buckets.
+///
+/// This is what makes the distribution readable: the sample count and the
+/// failure count must sum to the number of attempts, so a reader can tell how
+/// much of the run the statistics describe and how much they do not. The
+/// property holds whether a burst succeeds or fails, so unlike the assertions
+/// above it needs no retry — retrying here would be trying to steer an
+/// observation the assertion does not depend on.
+///
+/// The sampling loop is deliberately not validated by asserting a sample count
+/// of its own: on the recorded defect rate a run of this size usually succeeds
+/// every burst, and an assertion that only holds on the usual path would be a
+/// flake rather than a check.
+#[tokio::test]
+async fn sampled_bursts_account_for_every_attempt() {
+    const SAMPLES: usize = 3;
+    const CONTENDERS: usize = 16;
+    let latency = measure_contended_latency(
+        PoolWorkload {
+            pool_size: 4,
+            mode: AcquisitionMode::ContendedFifo,
+            acquisitions: 8,
+            contenders: CONTENDERS,
+        },
+        SAMPLES,
+    )
+    .await
+    .expect("contended sampling failed");
+
+    assert_eq!(
+        latency.successes() + latency.failure_count(),
+        SAMPLES,
+        "every attempted burst must be recorded as a sample or as a failure; the retained \
+         messages ({:?}) name the failures that were counted",
+        latency.failures()
+    );
+}
+
+/// The reported churn is the sampled run's, not the pool's lifetime total.
+///
+/// Every burst empties the pool and holds it empty while `contenders` callers
+/// ask for capacity, so each one forces at least that many waits. Summing over
+/// the run gives a floor that no per-burst reading can satisfy by itself, which
+/// is what distinguishes a delta over the sampling window from a cumulative
+/// counter that happens to be non-zero.
+///
+/// Scheduler spawns are reported beside it as task churn. They are deliberately
+/// *not* asserted to a floor: `kick` spawns on every release whether or not
+/// anyone is waiting, so a spawn count cannot witness contention. The waits can,
+/// and they are what the floor uses.
+#[tokio::test]
+async fn sampled_bursts_report_this_runs_churn() {
+    const SAMPLES: usize = 3;
+    const CONTENDERS: usize = 16;
+    let latency = measure_contended_latency(
+        PoolWorkload {
+            pool_size: 4,
+            mode: AcquisitionMode::ContendedFifo,
+            acquisitions: 8,
+            contenders: CONTENDERS,
+        },
+        SAMPLES,
+    )
+    .await
+    .expect("contended sampling failed");
+
+    let floor = u64::try_from(SAMPLES.saturating_mul(CONTENDERS)).unwrap_or(u64::MAX);
+    assert!(
+        latency.churn().capacity_waits >= floor,
+        "each of {SAMPLES} bursts parks {CONTENDERS} contenders, so the run must report at least \
+         {floor} waits; {} were reported",
+        latency.churn().capacity_waits
+    );
+    assert!(
+        latency.churn().scheduler_spawns >= 1,
+        "serving parked waiters must enter the scheduler's slow path at least once"
     );
 }
 
