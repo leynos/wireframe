@@ -63,7 +63,19 @@ fn block_on<F, T>(future: F) -> Result<T, String>
 where
     F: std::future::Future<Output = Result<T, String>>,
 {
-    tokio::runtime::Builder::new_multi_thread()
+    run_on(tokio::runtime::Builder::new_multi_thread(), future)
+}
+
+/// Build `builder`, enable all drivers, and run `future` on it.
+///
+/// Both `block_on` flavours differ only in which runtime they construct, so the
+/// build-and-drive tail lives here once: a runtime that failed to build must
+/// surface as the same `String` whichever flavour asked for it.
+fn run_on<F, T>(mut builder: tokio::runtime::Builder, future: F) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, String>>,
+{
+    builder
         .enable_all()
         .build()
         .map_err(|error| format!("failed to build the test runtime: {error}"))?
@@ -95,11 +107,7 @@ fn block_on_current_thread<F, T>(future: F) -> Result<T, String>
 where
     F: std::future::Future<Output = Result<T, String>>,
 {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| format!("failed to build the test runtime: {error}"))?
-        .block_on(future)
+    run_on(tokio::runtime::Builder::new_current_thread(), future)
 }
 
 /// Attempts allowed before a contended burst is reported as a failure.

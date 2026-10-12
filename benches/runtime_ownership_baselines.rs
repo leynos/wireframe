@@ -49,7 +49,7 @@
 
 use std::{hint::black_box, time::Duration};
 
-use criterion::{BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, measurement::WallTime};
 use tokio::runtime::Runtime;
 use wireframe_testing::runtime_ownership_benchmarks::{
     AcquisitionMode,
@@ -359,6 +359,23 @@ fn time_pool_acquisition(runtime: &Runtime, workload: PoolWorkload, iterations: 
     measurement.elapsed
 }
 
+/// Open a Criterion group with this baseline's pinned sample budget.
+///
+/// Every group pins the same budget, so the four groups' figures rest on
+/// comparable evidence and a single place decides what that budget is. Extracted
+/// rather than repeated because four copies of the same two settings are four
+/// places for the budget to drift apart silently.
+fn baseline_group<'a>(
+    criterion: &'a mut Criterion,
+    name: &str,
+) -> criterion::BenchmarkGroup<'a, WallTime> {
+    let mut group = criterion.benchmark_group(name);
+    group
+        .sample_size(SAMPLE_SIZE)
+        .measurement_time(MEASUREMENT_TIME);
+    group
+}
+
 /// Record Criterion timings for the connection actor's drain loop.
 ///
 /// Throughput counts preloaded frames, which is the work each iteration is
@@ -366,10 +383,7 @@ fn time_pool_acquisition(runtime: &Runtime, workload: PoolWorkload, iterations: 
 /// frames it declined to move, and its label carries the regime so the two are
 /// never confused.
 fn benchmark_actor_drain(criterion: &mut Criterion, runtime: &Runtime) {
-    let mut group = criterion.benchmark_group("actor/drain");
-    group
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(MEASUREMENT_TIME);
+    let mut group = baseline_group(criterion, "actor/drain");
 
     for cancellation in ACTOR_CANCELLATIONS {
         for frames in ACTOR_FRAME_COUNTS {
@@ -390,10 +404,7 @@ fn benchmark_actor_drain(criterion: &mut Criterion, runtime: &Runtime) {
 
 /// Record Criterion timings for the push handle's send path.
 fn benchmark_push(criterion: &mut Criterion, runtime: &Runtime) {
-    let mut group = criterion.benchmark_group("push/send");
-    group
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(MEASUREMENT_TIME);
+    let mut group = baseline_group(criterion, "push/send");
 
     for workload in push_workloads() {
         group.throughput(Throughput::Elements(elements(workload.sends)));
@@ -415,10 +426,7 @@ fn benchmark_push(criterion: &mut Criterion, runtime: &Runtime) {
 /// nested as two more loops, which keeps the registration closure shallow enough
 /// for the workspace's nesting limit.
 fn benchmark_connection_startup(criterion: &mut Criterion, runtime: &Runtime) {
-    let mut group = criterion.benchmark_group("startup/connection");
-    group
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(MEASUREMENT_TIME);
+    let mut group = baseline_group(criterion, "startup/connection");
 
     for workload in startup_workloads() {
         group.throughput(Throughput::Elements(elements(workload.connections)));
@@ -437,10 +445,7 @@ fn benchmark_connection_startup(criterion: &mut Criterion, runtime: &Runtime) {
 /// count varies only with the workload's `acquisitions` parameter. Throughput is
 /// left unset rather than declared over a unit that changes between scenarios.
 fn benchmark_pool_acquisition(criterion: &mut Criterion, runtime: &Runtime) {
-    let mut group = criterion.benchmark_group("pool/acquisition");
-    group
-        .sample_size(SAMPLE_SIZE)
-        .measurement_time(MEASUREMENT_TIME);
+    let mut group = baseline_group(criterion, "pool/acquisition");
 
     for workload in uncontended_pool_workloads() {
         group.bench_function(BenchmarkId::from_parameter(workload.label()), |bencher| {
