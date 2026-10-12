@@ -958,6 +958,22 @@ Thresholds that trigger escalation when breached.
   only; the recorded stalls spanned 8 and 16 contenders, so the 16-contender
   shape was re-tested separately before the documentation claim was narrowed.
 
+- Discovery: the local `cs` CLI can reproduce CodeScene's delta analysis before
+  a push, so its advisory findings can be fixed and re-scored locally instead
+  of waiting on a PR round-trip. Evidence: `cs check <file>` reported the same
+  three `Code Duplication` sites at the same lines as the bot's inline comment
+  and the same 9.38 score, and `cs delta origin/main` reported the same "New
+  issue" text as the PR check. Impact: the bench module was taken from 9.38 to
+  10.00 in one iteration rather than three pushes. One caveat learned the same
+  way: `cs delta <ref>` compares against the ref as it is *now*, so on a branch
+  whose base has advanced it re-reports changes the branch never made.
+  `cs delta origin/main` named `src/client/tracing_config.rs` as a new
+  duplication, but that file is not in the pull request (56 files, checked
+  through the API), is byte-identical from the merge base to `HEAD`, and was
+  last touched by an unrelated 2025 commit; `origin/main` had simply moved two
+  commits ahead. The finding is a stale-base artefact and is correctly ignored,
+  per the same rule that governs the restacked-ancestor attributions above.
+
 ## Decision log
 
 - Decision: resolve the CodeRabbit review's three findings by **correcting the
@@ -1515,6 +1531,38 @@ Thresholds that trigger escalation when breached.
   tolerance above is meant to bound. It is recorded instead as a base-branch
   defect, and `make test-doc` is not referenced by any CI workflow, so it does
   not gate `main` either.
+
+- Decision (the four Criterion groups are registered from one path, not four
+  similar functions): `benches/runtime_ownership_baselines.rs` now declares
+  each group as a `BenchScope<W>` value — name, workloads, throughput selector,
+  and measurement helper — and `main` registers all four through a single
+  `run_scope`. Rationale: CodeScene's advisory `Code Duplication` gate flagged
+  the module at 9.38, and `cs check` reproduced it at exactly three functions
+  (`benchmark_push`, `benchmark_connection_startup`,
+  `benchmark_pool_acquisition`) with "similar structure". The finding is real
+  rather than a false positive: every other bench file in the repository scores
+  10.00, including `benches/codec_performance.rs`, whose `benchmark_encode` and
+  `benchmark_decode` use the same registration idiom but number only two, below
+  the three-function threshold. The gate is advisory — the only required check
+  in the `main-required-checks` ruleset is `build-test` — but ten of the ten
+  most recently merged pull requests pass it, so it is a de-facto convention.
+  Alternatives rejected: (a) extracting only the shared four-token syntax tail
+  — it is the Criterion API's own punctuation, not duplicated logic, and it
+  left the score unchanged; (b) a first attempt that introduced a
+  `register_workloads` helper taking five parameters and a six-argument
+  signature — `cs check` scored that version *worse* (9.09, with a new "Excess
+  Number of Function Arguments" finding), so it was reverted rather than kept
+  as churn; (c) a single `BenchScope` type reached through a `BenchLabel` trait
+  that the workload types implement by forwarding to their existing inherent
+  `label` — chosen, because it removes the four near-identical functions
+  instead of reshaping them and scores 10.00. The refactor is
+  behaviour-preserving: group names (`actor/drain`, `push/send`,
+  `startup/connection`, `pool/acquisition`), registration order, workload
+  iteration order (the actor scope still nests `ACTOR_CANCELLATIONS` outside
+  `ACTOR_FRAME_COUNTS`), throughput selectors, and measurement helpers are all
+  unchanged, so the recorded baseline's benchmark ids still key the same
+  scenarios. The three `time_*` helpers and the contended observation path are
+  untouched.
 
 ## Context and orientation
 
