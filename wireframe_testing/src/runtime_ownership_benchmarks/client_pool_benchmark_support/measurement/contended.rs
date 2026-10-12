@@ -32,11 +32,18 @@ use crate::runtime_ownership_benchmarks::client_pool_benchmark_support::workload
 /// per-iteration pool rebuild, and with fresh and reused handles — so the
 /// trigger is contention itself, not the harness shape.
 ///
-/// A timeout turns that hang into a reported error. Without it, a benchmark run
+/// **That deadlock no longer reproduces.** Those bursts were recorded against
+/// the pre-#535 scheduler, and re-testing on the post-#535 tree found zero
+/// stalls across 80,000 rounds at both recorded contender counts. The bound is
+/// deliberately kept anyway: the one-sided result says "no longer
+/// reproducible", not "fixed", and the spurious `disconnected` error on the
+/// same path still fails bursts, so a bound on a hang remains worth its cost.
+///
+/// A timeout turns a hang into a reported error. Without it, a benchmark run
 /// and `cargo test --all-targets` (which executes `harness = false` benches in
-/// Criterion's test mode) could block indefinitely. The defect is recorded in
-/// `docs/runtime-ownership-baselines.md` and belongs to ADR 013 / issue #647;
-/// it is deliberately not fixed here, because issue #639 records baselines
+/// Criterion's test mode) could block indefinitely. The defects are recorded in
+/// `docs/runtime-ownership-baselines.md` and belong to ADR 013 / issue #647;
+/// they are deliberately not fixed here, because issue #639 records baselines
 /// rather than changing ownership topology.
 pub const CONTENDED_BURST_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -60,8 +67,9 @@ pub(super) async fn contended_round_bounded(
         Ok(result) => result,
         Err(_) => Err(format!(
             "contended burst did not complete within {CONTENDED_BURST_TIMEOUT:?}: every contender \
-             is stalled with waiters still queued (known pool acquire-path deadlock; see \
-             docs/runtime-ownership-baselines.md and issue #647)"
+             is stalled with waiters still queued (pool acquire-path hang, last observed before \
+             #535 and not reproduced since; see docs/runtime-ownership-baselines.md and issue \
+             #647)"
         )),
     }
 }
