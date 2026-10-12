@@ -227,7 +227,7 @@ pub(super) async fn spawn_mismatch_server(
         let Ok(encoded) = serialize_envelope(&bad_frame) else {
             return;
         };
-        let _ = transport.send(encoded).await;
+        drop(transport.send(encoded).await);
     });
 
     Ok(TestServer { addr, handle })
@@ -253,7 +253,7 @@ pub(super) async fn spawn_malformed_server()
 
         // Send truncated/invalid bytes that cannot be decoded.
         let invalid_bytes = Bytes::from_static(b"\xff\xff\xff");
-        let _ = transport.send(invalid_bytes).await;
+        drop(transport.send(invalid_bytes).await);
     });
 
     Ok(TestServer { addr, handle })

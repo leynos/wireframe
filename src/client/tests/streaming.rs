@@ -325,13 +325,13 @@ async fn call_streaming_auto_generates_correlation_id()
                 let Ok(encoded) = BincodeSerializer.serialize(&data) else {
                     return;
                 };
-                let _ = transport.send(Bytes::from(encoded)).await;
+                drop(transport.send(Bytes::from(encoded)).await);
 
                 let term = TestStreamEnvelope::terminator(CorrelationId::new(cid));
                 let Ok(encoded) = BincodeSerializer.serialize(&term) else {
                     return;
                 };
-                let _ = transport.send(Bytes::from(encoded)).await;
+                drop(transport.send(Bytes::from(encoded)).await);
             }
         }),
     );
