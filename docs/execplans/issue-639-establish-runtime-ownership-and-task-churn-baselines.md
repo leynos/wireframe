@@ -1515,11 +1515,19 @@ Thresholds that trigger escalation when breached.
   PR would cost a review round while leaving the branch red. The scope entry
   above is unchanged in character by this: the remediation touches
   `distribution/` (renaming the module this branch added), the Markdown this
-  branch rewrote, one test module this branch added, and two manifests. Current
-  figures for the breach: 57 paths in the union of committed, working-tree, and
-  untracked changes against `origin/main`, and roughly 9,050 net lines against
-  the 2,500 ceiling. The tolerance was already breached and recorded; the
-  remediation widens it without introducing a new class of change.
+  branch rewrote, one test module this branch added, and two manifests. Figures
+  for the breach, restated from the merge base at the published head: 56 paths
+  and 11,247 net lines (11,610 added, 363 deleted) against a merge base of
+  `ef858aa`, measured with
+  `git diff --numstat "$(git merge-base origin/main HEAD)" HEAD`. Against the
+  2,500-line ceiling that is 4.5×, so the restatement does not change the
+  verdict. An earlier entry recorded roughly 9,050 net lines and 57 paths; the
+  discrepancy is counting method rather than growth. That entry counted a union
+  of committed, working-tree, and untracked paths, which double-counts a path
+  present in more than one of those sets and is not reproducible once the tree
+  is clean. The merge-base numstat above is the canonical figure and supersedes
+  it. The tolerance was already breached and recorded; the remediation widens
+  it without introducing a new class of change.
 
 - Decision (`make test-doc` is left red, deliberately): the `run_with_shutdown`
   doctest failure at `src/server/runtime/server.rs:228` is not repaired here.
@@ -2394,3 +2402,83 @@ Libraries used: Criterion 0.8.2 (already a dev-dependency), Tokio 1.53.1 with
 feature list), `tokio-util` for `CancellationToken` (already present), and the
 in-repo `wireframe` and `wireframe_testing` crates. No new external crate is
 introduced.
+
+## Outcomes & retrospective
+
+Issue [#639](https://github.com/leynos/wireframe/issues/639) is delivered by
+this branch as measurement infrastructure, not as an ownership change. The
+branch records reproducible baselines for the four hot paths Epic
+[#635](https://github.com/leynos/wireframe/issues/635) intends to restructure,
+so the refactors in [#637](https://github.com/leynos/wireframe/issues/637) and
+[#638](https://github.com/leynos/wireframe/issues/638) can be judged against
+evidence. What a reader can do that they could not before: run
+`make bench-runtime-ownership` and get the tables in
+`docs/runtime-ownership-baselines.md` reproduced within the recorded noise
+envelope, then point the same scenario at a modified implementation and compare
+like with like.
+
+The seven acceptance criteria and their outcome at the published head:
+
+1. **A harness exists for all four scopes.** Met. Four support modules under
+   `wireframe_testing/src/runtime_ownership_benchmarks/`, each exposing one
+   fallible `measure_*` entry point, with scenarios held as data so the same
+   workload can drive an old and a new implementation.
+2. **A baseline is recorded for the current implementation.** Met after
+   correction. The review found the first capture predated the scheduler rework
+   adopted during the rebase; the corrected capture supersedes it for push,
+   startup, allocation, and pool, and the original is preserved under its own
+   revision `d28b54e` with the reason each figure moved.
+3. **Factory and middleware counts are asserted, not inferred.** Met.
+   `StartupMeasurement::factory_invocations` and
+   `middleware_transformations` are exact counts asserted in tests.
+4. **Scheduler task creation is observable.** Met. The counter is per-pool
+   `PoolTaskChurn` read through `task_churn_observer`, so a delta taken while
+   another pool runs no longer contaminates it. The review's defect 2.
+5. **Allocation sensitivity to `Arc` removal is demonstrated.** Met as a
+   sensitivity control: the nested-`Arc` probe counts one shared allocation
+   against 256 fresh allocations, a delta of 255.
+6. **Old and new scenarios are reusable.** Met. Workloads are structs and
+   enums carrying their own parameters, so a scenario is re-pointed by
+   parameter, not rewritten.
+7. **No brittle timing gates.** Met. No absolute duration is asserted anywhere;
+   regression decisions use ratios or reviewed evidence.
+
+The four defects the review named: defect 1 (pool built and warmed inside the
+timing and allocation windows) is fixed by moving construction outside both;
+defect 2 (process-global spawn counter) by the per-pool `PoolTaskChurn`; defect
+3 (contention asserted rather than proven) by holding leases until an observed
+capacity wait; defect 4 (awaited back-pressure not isolated) by adding
+`backpressure_high` and asserting the uncontended scenarios never parked.
+
+The three completeness gaps: contended latency is now a sampled distribution
+of 20 attempts with failures retained and reported separately rather than
+retried into timing samples; the current baseline is refreshed and names its
+source revision while the historical one is preserved; and the startup route
+axis is justified in place — deliberately held at 1 and 2 because routes change
+*what* is prepared rather than *how many times*, so widening it would multiply
+the table without testing the amortization claim, with the connection axis
+extended to 16 to make that claim non-marginal.
+
+Lessons worth carrying forward. First, a counter's *scope* is part of its
+meaning: a process-global `static` silently makes every concurrent reader's
+delta wrong, and the fix is to make the counter an object owned by the thing it
+counts. Second, a start barrier is not evidence of contention; a task can
+finish several immediately-ready acquisitions before its rival is scheduled, so
+overlap must be *observed* — in this case by a capacity wait — before a
+contended measurement means anything. Third, a measurement window's boundary is
+a correctness property, not a detail: `bb8` connects eagerly, so a window that
+included construction was charging one loopback connection per slot to the
+acquire path and made acquisition appear to scale with pool size. Fourth, an
+assumption written as prose can be wrong and stay wrong; "uncontended spawns
+nothing" was falsified by direct measurement on the first run, and the corrected
+contract — a burst of `n` cycles spawns between 1 and `2n` workers — is now
+pinned by tests rather than a comment.
+
+Two residual items are recorded rather than repaired, both deliberately:
+`make test-doc` fails at `src/server/runtime/server.rs:228` for an E0283 that
+is inherited from the merge base and outside this change surface; and two
+pre-existing pool acquire-path defects (a spurious `disconnected`, and a
+sustained-contention stall) are documented and bounded by a 30-second timeout
+under issue [#647](https://github.com/leynos/wireframe/issues/647), because
+patching them would be an ownership-topology change, which is this issue's
+stated non-goal.
