@@ -438,6 +438,22 @@ Thresholds that trigger escalation when breached.
 
 ## Surprises & discoveries
 
+- Observation: **this repository's spelling gate mandates `-ize`, not `-ise`,
+  and a gate run only vouches for the tree it ran against.** CI's `build-test`
+  failed on `normalised` at this document, line 434, with
+  `error: 'normalised' should be 'normalized'`. That is the reverse of the
+  usual en-GB-oxendict convention, which prefers `-ise`; the generated
+  `typos.toml` carries roughly 1,491 `-ise` → `-ize` mappings, so the gate —
+  not the convention's name — is the authority. The local `make spelling` run
+  that preceded the failure was green because it ran at `a6d0647` and the
+  offending line was added in the following commit `41c69ad`, and was not
+  re-gated. A second lesson came from trying to verify the fix: seeding
+  `normalised` into an **untracked** probe file left `make spelling` green,
+  because the gate only reads tracked files, so an untracked file cannot serve
+  as a negative control. Seeding the same word into a tracked file produced
+  exit 2 and the exact CI diagnostic, which is the evidence that the corrected
+  tree is actually clean rather than merely unexamined.
+
 - Observation: **an across-capture timing comparison on this machine is
   confounded, and the recapture proved it rather than assuming it.** Two scopes
   whose measurement code is byte-identical between the two captures — the actor
