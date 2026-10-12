@@ -2429,8 +2429,8 @@ The seven acceptance criteria and their outcome at the published head:
    startup, allocation, and pool, and the original is preserved under its own
    revision `d28b54e` with the reason each figure moved.
 3. **Factory and middleware counts are asserted, not inferred.** Met.
-   `StartupMeasurement::factory_invocations` and
-   `middleware_transformations` are exact counts asserted in tests.
+   `StartupMeasurement::factory_invocations` and `middleware_transformations`
+   are exact counts asserted in tests.
 4. **Scheduler task creation is observable.** Met. The counter is per-pool
    `PoolTaskChurn` read through `task_churn_observer`, so a delta taken while
    another pool runs no longer contaminates it. The review's defect 2.
@@ -2450,14 +2450,14 @@ defect 2 (process-global spawn counter) by the per-pool `PoolTaskChurn`; defect
 capacity wait; defect 4 (awaited back-pressure not isolated) by adding
 `backpressure_high` and asserting the uncontended scenarios never parked.
 
-The three completeness gaps: contended latency is now a sampled distribution
-of 20 attempts with failures retained and reported separately rather than
-retried into timing samples; the current baseline is refreshed and names its
-source revision while the historical one is preserved; and the startup route
-axis is justified in place — deliberately held at 1 and 2 because routes change
-*what* is prepared rather than *how many times*, so widening it would multiply
-the table without testing the amortization claim, with the connection axis
-extended to 16 to make that claim non-marginal.
+The three completeness gaps: contended latency is now a sampled distribution of
+20 attempts with failures retained and reported separately rather than retried
+into timing samples; the current baseline is refreshed and names its source
+revision while the historical one is preserved; and the startup route axis is
+justified in place — deliberately held at 1 and 2 because routes change *what*
+is prepared rather than *how many times*, so widening it would multiply the
+table without testing the amortization claim, with the connection axis extended
+to 16 to make that claim non-marginal.
 
 Lessons worth carrying forward. First, a counter's *scope* is part of its
 meaning: a process-global `static` silently makes every concurrent reader's
@@ -2470,9 +2470,9 @@ a correctness property, not a detail: `bb8` connects eagerly, so a window that
 included construction was charging one loopback connection per slot to the
 acquire path and made acquisition appear to scale with pool size. Fourth, an
 assumption written as prose can be wrong and stay wrong; "uncontended spawns
-nothing" was falsified by direct measurement on the first run, and the corrected
-contract — a burst of `n` cycles spawns between 1 and `2n` workers — is now
-pinned by tests rather than a comment.
+nothing" was falsified by direct measurement on the first run, and the
+corrected contract — a burst of `n` cycles spawns between 1 and `2n` workers —
+is now pinned by tests rather than a comment.
 
 Two residual items are recorded rather than repaired, both deliberately:
 `make test-doc` fails at `src/server/runtime/server.rs:228` for an E0283 that
