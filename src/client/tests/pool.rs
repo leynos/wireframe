@@ -31,6 +31,10 @@ type ManagedFixture = (
     Arc<AtomicUsize>,
 );
 
+/// Upper bound on legitimate pooled teardown, so a stuck drop fails loudly
+/// rather than hanging the suite.
+const GRACE: Duration = Duration::from_secs(1);
+
 /// Keep teardown failures attributed to the test that dropped the connection.
 #[track_caller]
 fn assert_teardown_once(teardown_count: &AtomicUsize) {
@@ -70,24 +74,82 @@ enum DropSite {
     DetachedThread,
 }
 
+/// How to wait for a drop that has been performed.
+enum DropCompletion {
+    /// The drop ran inline on the test thread, so it has already finished.
+    Inline,
+    /// The drop runs on a detached thread that signals when it completes.
+    ///
+    /// Joining that thread blocks the caller, and `#[tokio::test]` drives a
+    /// single-threaded runtime, so joining inline would starve the executor and
+    /// stop any later `timeout` from arming. The worker signals through a
+    /// channel instead, letting the caller bound the wait, and is joined only
+    /// once it has finished.
+    Detached {
+        worker: std::thread::JoinHandle<()>,
+        finished: tokio::sync::oneshot::Receiver<()>,
+    },
+}
+
+impl DropCompletion {
+    /// Wait for the drop to finish, failing rather than hanging past `grace`.
+    ///
+    /// Waiting on the channel first is what makes a stuck teardown observable:
+    /// the caller fails on the elapsed timeout instead of blocking forever in a
+    /// join. The worker is joined afterwards, once it has already finished, so
+    /// that a panic inside it is still reported against this test.
+    async fn wait(self, grace: Duration) -> TestResult {
+        let Self::Detached { worker, finished } = self else {
+            return Ok(());
+        };
+        if timeout(grace, finished).await.is_err() {
+            return Err(std::io::Error::other(
+                "pooled connection drop did not finish within the grace period",
+            )
+            .into());
+        }
+        join_worker(worker)
+    }
+}
+
+/// Join a worker that has already finished, surfacing a panic from that thread.
+fn join_worker(worker: std::thread::JoinHandle<()>) -> TestResult {
+    worker
+        .join()
+        .map_err(|_| -> Box<dyn std::error::Error + Send + Sync> {
+            std::io::Error::other("pooled connection drop thread panicked").into()
+        })
+}
+
 impl DropSite {
-    /// Drop `managed` here, surfacing a panic from the spawned thread.
-    fn drop_managed(self, managed: ManagedClientConnection<BincodeSerializer, ()>) -> TestResult {
+    /// Drop `managed` here, returning how to wait for that drop to finish.
+    fn drop_managed(
+        self,
+        managed: ManagedClientConnection<BincodeSerializer, ()>,
+    ) -> DropCompletion {
         match self {
             Self::ActiveRuntime => {
                 drop(managed);
-                Ok(())
+                DropCompletion::Inline
             }
-            Self::DetachedThread => std::thread::spawn(move || drop(managed)).join().map_err(
-                |_| -> Box<dyn std::error::Error + Send + Sync> {
-                    std::io::Error::other("pooled connection drop thread panicked").into()
-                },
-            ),
+            Self::DetachedThread => {
+                let (sender, finished) = tokio::sync::oneshot::channel();
+                let worker = std::thread::spawn(move || {
+                    drop(managed);
+                    // A failed send means the caller stopped waiting, which is
+                    // not a worker failure.
+                    let _ = sender.send(());
+                });
+                DropCompletion::Detached { worker, finished }
+            }
         }
     }
 }
 
 /// Teardown runs exactly once whether or not a runtime is driving the drop.
+///
+/// Both the drop and the teardown signal are awaited under [`GRACE`], so a
+/// teardown that never completes fails this test instead of hanging it.
 #[rstest]
 #[case::active_runtime(DropSite::ActiveRuntime)]
 #[case::detached_thread(DropSite::DetachedThread)]
@@ -100,8 +162,8 @@ async fn managed_connection_drop_runs_teardown_once(
     let (sender, receiver) = tokio::sync::oneshot::channel();
     managed.notify_after_close(sender);
 
-    drop_site.drop_managed(managed)?;
-    timeout(Duration::from_secs(1), receiver).await??;
+    drop_site.drop_managed(managed).wait(GRACE).await?;
+    timeout(GRACE, receiver).await??;
     assert_teardown_once(&teardown_count);
     Ok(())
 }
