@@ -431,7 +431,7 @@ Thresholds that trigger escalation when breached.
   untracked paths. `make check-fmt` then failed on the new prose (+13 −13):
   `mdtablefix` is the wrap authority, and a hand-wrap that keeps every line
   inside 80 columns still fails when its chosen breaks differ. Reflowed with
-  `make fmt`, verified byte-identical once newlines are normalised, and
+  `make fmt`, verified byte-identical once newlines are normalized, and
   `make check-fmt` is green at 121 files unchanged. Both marks are docs-only;
   no code gate was invalidated, because every path changed since the code-gated
   head `cc5ea92` is a `.md`.
