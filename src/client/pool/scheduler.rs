@@ -275,6 +275,10 @@ where
             return self.resolve_immediate_lease(lease, receiver).await;
         }
 
+        // No slot had a free permit, so this acquisition genuinely has to wait
+        // for capacity. Recorded before parking: the wait exists from here on,
+        // whether or not a worker has been spawned to service it yet.
+        inner.churn.record_capacity_wait();
         self.kick(inner);
         receiver.await.map_err(|_| ClientError::disconnected())?
     }
@@ -298,7 +302,7 @@ where
     /// Spawn at most one worker to drain waiters as capacity appears.
     fn kick(self: &Arc<Self>, inner: Arc<ClientPoolInner<S, P, C>>) {
         if self.try_begin_servicing() {
-            super::scheduler_spawns::record_scheduler_task_spawn();
+            inner.churn.record_scheduler_spawn();
             let scheduler = Arc::clone(self);
             tokio::spawn(async move {
                 scheduler.service_waiters(inner).await;

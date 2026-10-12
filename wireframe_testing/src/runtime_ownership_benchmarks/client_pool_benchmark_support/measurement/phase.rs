@@ -1,98 +1,155 @@
-//! One bracketed acquisition phase: build, acquire, settle, close.
+//! One acquisition phase against an already-built, already-warm pool.
 //!
-//! The bracket is the point of this module. Pool construction and teardown
-//! happen *outside* the measured region, and that placement was forced by
+//! The pool's lifetime is the point of this module. Construction happens
+//! *before* this module is entered and teardown *after* it returns, so neither
+//! is inside any window the caller measures. That placement was forced by
 //! measurement rather than chosen for tidiness.
+//!
+//! An earlier revision built and closed a pool per iteration, inside the timed
+//! region. That measured pool construction — a `bb8` pool that connects eagerly
+//! through a real loopback socket — as though it were acquisition cost, and the
+//! resulting figure was dominated by `pool_size` TCP handshakes rather than by
+//! the acquire/release path under study. The counters were bracketed correctly
+//! even then; only the timer was wrong, which is exactly the kind of error a
+//! baseline must not carry forward.
 
-use wireframe::client::pool_scheduler_task_spawns;
+use std::{hint::black_box, time::Duration};
 
-use super::{acquire_round, contended::contended_round_bounded, pool_config, settled_alive_tasks};
-use crate::runtime_ownership_benchmarks::client_pool_benchmark_support::workload::PoolWorkload;
+use wireframe::client::{PoolHandle, PoolTaskChurn, PoolTaskChurnObserver, WireframeClientPool};
 
-/// Grant count and task-churn counters for one acquisition phase.
+use super::{acquire_round, contended::contended_round_bounded, settled_alive_tasks};
+use crate::runtime_ownership_benchmarks::client_pool_benchmark_support::workload::{
+    PoolMeasurement,
+    PoolWorkload,
+};
+
+/// The pooled client type every workload here drives.
+pub(super) type TestPool = WireframeClientPool<
+    wireframe::serializer::BincodeSerializer,
+    wireframe::test_helpers::pool_client::ClientHello,
+    (),
+>;
+
+/// The handle type a caller acquires leases from.
+pub(super) type TestHandle = PoolHandle<
+    wireframe::serializer::BincodeSerializer,
+    wireframe::test_helpers::pool_client::ClientHello,
+    (),
+>;
+
+/// Everything one acquisition phase observed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(super) struct PhaseObservation {
+pub(super) struct PhaseOutcome {
     /// Leases granted during the phase.
     pub(super) granted: u64,
-    /// Scheduler worker tasks spawned during the phase.
-    pub(super) spawns: u64,
+    /// Scheduler and capacity-wait churn the phase accumulated.
+    pub(super) churn: PoolTaskChurn,
     /// Live tasks immediately before the phase.
     pub(super) alive_before: usize,
-    /// Live tasks immediately after the phase.
+    /// Live tasks once the phase has settled.
     pub(super) alive_after: usize,
 }
 
-/// Read the settled gauges and package them for a completed acquisition.
-///
-/// A worker spawned by the final release observes an empty queue and exits on
-/// its first poll. Wait for that to happen before reading the gauge, so
-/// `alive_after` reflects settled state rather than a task already on its way
-/// out. See [`settled_alive_tasks`] for why one yield is not enough.
-///
-/// This runs only once the acquisition itself has succeeded. After a stall the
-/// gauge is not expected to hold steady, and [`settled_alive_tasks`] would fail
-/// for a reason that only restates the stall; the caller discards the reading
-/// with the error instead.
-async fn settled_observation(
-    granted: u64,
-    spawns_before: u64,
-    alive_before: usize,
-) -> Result<PhaseObservation, String> {
-    let alive_after = settled_alive_tasks().await?;
-    let spawns = pool_scheduler_task_spawns().saturating_sub(spawns_before);
+impl PhaseOutcome {
+    /// Fold this phase into a running total, keeping the bracketed task gauge.
+    ///
+    /// Iterations share one pool, so a caller measuring several of them wants
+    /// the churn summed — it all happened to the same pool — while the task
+    /// gauge is a level rather than a count and is only meaningful for the
+    /// phases actually bracketed. This phase's `alive_after` replaces the
+    /// running one; the running `alive_before` is kept, so the pair spans every
+    /// phase the caller ran.
+    pub(super) const fn accumulate(self, running: Self) -> Self {
+        Self {
+            granted: self.granted,
+            churn: running.churn.saturating_add(self.churn),
+            alive_before: running.alive_before,
+            alive_after: self.alive_after,
+        }
+    }
 
-    Ok(PhaseObservation {
+    /// Seed an accumulator before the first phase, carrying prior churn.
+    ///
+    /// The churn argument is the work already done to this pool — construction
+    /// and warm-up — which belongs in the totals because it happened to the same
+    /// pool, even though it is deliberately outside every timed window.
+    pub(super) const fn seed(granted: u64, churn: PoolTaskChurn, alive_before: usize) -> Self {
+        Self {
+            granted,
+            churn,
+            alive_before,
+            alive_after: alive_before,
+        }
+    }
+}
+
+/// Run one acquisition phase against a pool that is already built and warm.
+///
+/// The pool is borrowed rather than created, so nothing in this function pays
+/// for construction. An uncontended phase loops the caller's handle; a
+/// contended phase runs the bounded racing burst. Both finish by waiting for
+/// the live-task gauge to settle, because a worker spawned by the final release
+/// observes an empty queue and exits on its first poll — reading the gauge
+/// before that happens would report a task already on its way out.
+///
+/// # Errors
+///
+/// Returns a description of the acquisition failure, or of a gauge that would
+/// not settle. A contended burst that stalls is reported by
+/// [`contended_round_bounded`] after
+/// [`CONTENDED_BURST_TIMEOUT`](super::CONTENDED_BURST_TIMEOUT) rather than
+/// hanging.
+pub(super) async fn acquisition_phase(
+    workload: PoolWorkload,
+    pool: &TestPool,
+    observer: &PoolTaskChurnObserver,
+) -> Result<PhaseOutcome, String> {
+    let churn_before = observer.snapshot();
+    let alive_before = super::alive_tasks();
+
+    let granted = if workload.mode.is_contended() {
+        contended_round_bounded(workload, pool, observer).await?
+    } else {
+        let mut handle = pool.handle();
+        acquire_round(&mut handle, workload.acquisitions)
+            .await
+            .map_err(|err| format!("uncontended acquire failed: {err}"))?
+    };
+
+    // Read the gauge only after the acquisition has succeeded. After a stall it
+    // is not expected to hold steady, and the settle wait would fail for a
+    // reason that only restates the stall. The churn snapshot is taken after the
+    // same wait, so any worker the settle saw exit has already been counted.
+    let alive_after = settled_alive_tasks().await?;
+
+    Ok(PhaseOutcome {
         granted,
-        spawns,
+        churn: observer.snapshot().since(churn_before),
         alive_before,
         alive_after,
     })
 }
 
-/// Run one iteration, bracketing only the acquisition phase.
+/// Package the accumulated phases into the measurement a caller receives.
 ///
-/// Pool construction and teardown happen *outside* the bracketed region. That
-/// placement is deliberate and was forced by measurement: `build_preamble_pool`
-/// connects eagerly, so at pool sizes 1, 4, and 16 the construction phase alone
-/// leaves exactly that many extra tasks alive. Sampling the task gauge across
-/// construction would therefore report `pool_size` as though it were
-/// acquisition churn, which is the opposite of what this scope measures.
-///
-/// The pool is closed on the error path too, and the acquisition error is
-/// carried past the close rather than returned through it. A contended burst
-/// that times out has already been detached: the timeout drops `contended_round`
-/// and with it that function's `JoinHandle`s, which detaches the contender tasks
-/// instead of aborting them. Those tasks hold `PoolHandle` clones, so dropping
-/// the pool would leave its inner alive and nothing would ever shut it down —
-/// the stalled contenders would keep racing against the next iteration's budget
-/// and against the retries in the callers. Shutting down here wakes the queued
-/// waiters with `disconnected` and ends them. It cannot block: `shutdown` is
-/// synchronous, and the detached handles keep the inner alive, so the drop that
-/// follows it is an `Arc` decrement rather than a teardown.
-pub(super) async fn pool_once(workload: PoolWorkload) -> Result<PhaseObservation, String> {
-    let (_server, pool, _preamble) =
-        wireframe::test_helpers::pool_client::build_preamble_pool(pool_config(workload))
-            .await
-            .map_err(|err| format!("failed to build pooled client: {err}"))?;
-
-    let spawns_before = pool_scheduler_task_spawns();
-    let alive_before = super::alive_tasks();
-
-    let acquisition = if workload.mode.is_contended() {
-        contended_round_bounded(workload, &pool).await
-    } else {
-        let mut handle = pool.handle();
-        acquire_round(&mut handle, workload.acquisitions)
-            .await
-            .map_err(|err| format!("uncontended acquire failed: {err}"))
-    };
-
-    let observed = match acquisition {
-        Ok(granted) => settled_observation(granted, spawns_before, alive_before).await,
-        Err(error) => Err(error),
-    };
-
-    pool.close().await;
-
-    observed
+/// The two durations stay separate because they answer different questions.
+/// `elapsed` is the cost of the acquire/release rounds, which is what this scope
+/// measures; `construction` is what it cost to get the pool into a state where
+/// those rounds could run. Folding the second into the first would put
+/// `pool_size` eager loopback handshakes back inside the figure the scope exists
+/// to report.
+pub(super) fn finish(
+    outcome: PhaseOutcome,
+    elapsed: Duration,
+    construction: Duration,
+) -> PoolMeasurement {
+    PoolMeasurement {
+        acquisitions: black_box(outcome.granted),
+        elapsed,
+        construction,
+        scheduler_spawns: outcome.churn.scheduler_spawns,
+        capacity_waits: outcome.churn.capacity_waits,
+        alive_tasks_before: outcome.alive_before,
+        alive_tasks_after: outcome.alive_after,
+    }
 }

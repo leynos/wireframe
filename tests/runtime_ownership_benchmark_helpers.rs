@@ -316,11 +316,13 @@ fn default_actor_workload_fits_its_queues() {
 #[rstest]
 #[case::high(PushScenario::UncontendedHigh)]
 #[case::low(PushScenario::UncontendedLow)]
-fn uncontended_sends_are_all_accepted_and_drained(#[case] scenario: PushScenario) {
+fn uncontended_sends_are_all_accepted_and_drained_without_waiting(#[case] scenario: PushScenario) {
     let sends = 32;
     let measurement = block_on(measure_push(
         PushWorkload {
             scenario,
+            // Wider than the send count, which is what makes the no-wait claim a
+            // property of the workload rather than of the scheduler's timing.
             queue_capacity: 64,
             sends,
         },
@@ -344,6 +346,74 @@ fn uncontended_sends_are_all_accepted_and_drained(#[case] scenario: PushScenario
         !measurement.reported_queue_full,
         "an awaited send parks rather than reporting a full queue"
     );
+    // The observable that makes "no back-pressure" a measurement rather than an
+    // assumption: `reported_queue_full` is `false` for every awaited scenario,
+    // so only the wait counters can tell the two regimes apart.
+    assert_eq!(
+        measurement.awaited_capacity_waits, 0,
+        "a queue holding the whole run must not make any send park"
+    );
+    assert_eq!(
+        measurement.capacity_probes, sends as u64,
+        "every send must have reached the channel, or the zero above means nothing"
+    );
+}
+
+/// The awaited path parked, which is what the back-pressure scenario exists for.
+#[test]
+fn backpressure_sends_park_for_capacity_and_are_eventually_drained() {
+    let sends = 8;
+    let measurement = block_on(measure_push(
+        PushWorkload {
+            scenario: PushScenario::BackpressureHigh,
+            // Narrower than the send count, so the producer must park once the
+            // queue fills. `validate` rejects the reverse.
+            queue_capacity: 4,
+            sends,
+        },
+        ITERATIONS,
+    ))
+    .expect("back-pressure push measurement failed");
+
+    assert!(
+        measurement.awaited_capacity_waits > 0,
+        "nothing drains until a producer parks, so a wait must be observed"
+    );
+    assert_eq!(
+        measurement.drained, sends,
+        "the parked sends must complete once the drain starts"
+    );
+    assert!(
+        !measurement.reported_queue_full,
+        "the awaited path waits rather than reporting a full queue; that gap is why the wait \
+         counters exist"
+    );
+}
+
+/// The mirror case: a queue holding the whole run never pressures the producer.
+///
+/// Without this, the wait counter would never be shown to be discriminating —
+/// a back-pressure test alone could be satisfied by a counter that is simply
+/// always non-zero. The workload is a drained one at a capacity that fits it,
+/// so the zero below is a property of the workload rather than of the
+/// scheduler's timing.
+#[test]
+fn an_oversized_queue_leaves_the_awaited_path_unparked() {
+    let measurement = block_on(measure_push(
+        PushWorkload {
+            scenario: PushScenario::DrainedHigh,
+            queue_capacity: 64,
+            sends: 8,
+        },
+        ITERATIONS,
+    ))
+    .expect("a workload the queue can absorb must still measure");
+
+    assert_eq!(
+        measurement.awaited_capacity_waits, 0,
+        "a queue that holds every frame cannot make a producer wait"
+    );
+    assert_eq!(measurement.capacity_probes, 8);
 }
 
 #[rstest]
@@ -508,13 +578,31 @@ fn contended_acquisition_does_spawn_pool_scheduler_tasks(#[case] mode: Acquisiti
     })
     .expect("contended pool measurement failed in every retry attempt");
 
-    // This is the witness that makes the uncontended bound meaningful: the
-    // counter demonstrably moves under demand, so its behaviour above is a
-    // measured property rather than a counter wired to nothing.
+    // The witness that makes the uncontended bounds meaningful. Two claims are
+    // needed, and neither implies the other.
+    //
+    // Capacity waits prove the burst actually contended: the pool was emptied
+    // and held empty while every contender asked for capacity, so each contender
+    // had to park. This is the property a start barrier alone cannot establish,
+    // because a task that wins a permit can complete several immediately-ready
+    // acquisitions before another is polled.
+    assert!(
+        measurement.capacity_waits >= u64::try_from(contenders).unwrap_or(u64::MAX),
+        "a burst that empties a {pool_size}-slot pool and holds it empty must park every one of \
+         {contenders} contenders: {} waits recorded",
+        measurement.capacity_waits
+    );
+    assert!(
+        measurement.contended(),
+        "the contended measurement must classify itself as contended"
+    );
+    // Spawns are the task-churn evidence, kept beside the contention witness
+    // rather than standing in for it: every release notifies the scheduler
+    // whether or not anyone is waiting, so a moving spawn count says the
+    // scheduler was entered, not that a caller had to wait.
     assert!(
         measurement.scheduler_spawns > 0,
-        "exhausting a {pool_size}-slot pool with {contenders} contenders must enter the scheduler \
-         slow path at least once"
+        "handing capacity back to parked waiters must enter the scheduler slow path at least once"
     );
 }
 

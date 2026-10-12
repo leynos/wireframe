@@ -1,24 +1,54 @@
-//! Driving one pool workload and reporting its counters.
+//! Driving one pool workload and reporting its counts and durations.
 //!
-//! The two regimes are separate modules — [`phase`] owns the bracketed
-//! acquisition phase, [`contended`] the racing burst — because they are
-//! genuinely different control flows and a shared body would blur which one a
-//! regression sits in. This module holds what both need: the task gauge, the
-//! settle wait, and the acquire/release primitive.
+//! The two regimes are separate modules — [`phase`] owns the acquisition phase,
+//! [`contended`] the racing burst — because they are genuinely different control
+//! flows and a shared body would blur which one a regression sits in. This
+//! module owns the bracket around them: it builds and warms the pool, hands the
+//! pool to a phase, and reports the acquisition time separately from the
+//! construction time.
+//!
+//! # The bracket
+//!
+//! Construction and teardown are outside the timed and counted windows; the
+//! acquire/release rounds are inside them. That boundary is the whole point of
+//! this module. Building the pool per iteration put `pool_size` eager loopback
+//! connections inside the timed region, so the reported duration was dominated
+//! by TCP handshakes rather than by the acquire path the baseline is about, and
+//! the allocation window counted connection setup alongside the acquire path.
+//!
+//! [`PoolHarness`] is what makes the boundary hold: it builds and warms a pool
+//! and is *passed* to the measuring code, so nothing inside a window can
+//! construct anything. Construction cost is still reported, as its own figure on
+//! [`PoolMeasurement::construction`], because it is a real cost of the scope —
+//! it just is not the cost this scope exists to measure.
+//!
+//! # Warm-up
+//!
+//! The first acquisition after construction is not reported: it pays for lazy
+//! slot checkout and for the scheduler's first idle-to-busy transition, costs
+//! later iterations do not repeat. Warming the pool before the timed region
+//! keeps iteration one comparable with iteration ten.
 
 mod contended;
+mod distribution;
+mod harness;
 mod phase;
 
-use std::{
-    hint::black_box,
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
 pub use contended::CONTENDED_BURST_TIMEOUT;
-use phase::PhaseObservation;
+pub use distribution::{CONTENDED_LATENCY_SAMPLES, ContendedLatency, measure_contended_latency};
+pub use harness::PoolHarness;
 use wireframe::client::ClientError;
 
 use super::workload::{PoolMeasurement, PoolWorkload};
+
+/// Acquisitions used to warm a freshly built pool before it is measured.
+///
+/// One is enough to force the work that only happens once: the first slot
+/// checkout, and the first idle-to-busy transition of the scheduler. A second
+/// would add its own churn to no purpose.
+pub(super) const WARMUP_ACQUISITIONS: usize = 1;
 
 /// Live task count for the current runtime.
 ///
@@ -113,14 +143,20 @@ pub(super) async fn acquire_round(
     Ok(granted)
 }
 
-/// Attempt `iterations` pool workloads, reporting the last iteration's counts.
+/// Time `iterations` acquisition phases against one warm pool.
+///
+/// A thin wrapper over [`PoolHarness`] for callers that want nothing more than
+/// a finished measurement. Any caller that also counts allocations should take
+/// the harness directly and hold it across its own window, so construction sits
+/// outside it.
 ///
 /// # Errors
 ///
-/// Returns a description of the invalid workload, pool-construction failure, or
-/// acquisition failure. A contended workload whose contender count does not
-/// exceed its pool size is rejected, because it could not enter the scheduler's
-/// slow path and would report an uncontended finding under a contended label.
+/// Returns a description of the invalid workload, pool-construction failure,
+/// warm-up failure, or acquisition failure. A contended workload whose
+/// contender count does not exceed its pool size is rejected, because it could
+/// not enter the scheduler's slow path and would report an uncontended finding
+/// under a contended label.
 ///
 /// # Examples
 ///
@@ -152,31 +188,26 @@ pub async fn measure_pool_acquisition(
 ) -> Result<PoolMeasurement, String> {
     workload.validate()?;
     if iterations == 0 {
+        // No pool is built at all, so there is no construction cost to report
+        // and no churn to attribute. Answering before the harness exists also
+        // keeps the zero case free of a live peer.
         return Ok(PoolMeasurement {
             acquisitions: 0,
             elapsed: Duration::ZERO,
+            construction: Duration::ZERO,
             scheduler_spawns: 0,
+            capacity_waits: 0,
             alive_tasks_before: alive_tasks(),
             alive_tasks_after: alive_tasks(),
         });
     }
 
-    let started = Instant::now();
-    let mut last = PhaseObservation::default();
-    for _ in 0..iterations {
-        last = phase::pool_once(workload).await?;
-    }
-    let elapsed = started.elapsed();
+    let harness = PoolHarness::build(workload).await?;
+    let measured = harness.measure(iterations).await;
 
-    // The counters are per-iteration totals because each iteration builds and
-    // closes its own pool; summing them would count construction churn that the
-    // bracket deliberately excludes. The last iteration's figures are the ones
-    // the benchmark label and the assertions quote.
-    Ok(PoolMeasurement {
-        acquisitions: black_box(last.granted),
-        elapsed,
-        scheduler_spawns: last.spawns,
-        alive_tasks_before: last.alive_before,
-        alive_tasks_after: last.alive_after,
-    })
+    // Close before deciding what to report, so an unsuccessful run still tears
+    // its pool down. The measurement is already complete, so closing first
+    // cannot affect it.
+    harness.close().await;
+    measured
 }

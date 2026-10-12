@@ -49,12 +49,16 @@ pub mod push_benchmark_support;
 pub use client_pool_benchmark_support::{
     AcquisitionMode,
     CONTENDED_BURST_TIMEOUT,
+    CONTENDED_LATENCY_SAMPLES,
     CONTENDED_ROUNDS_PER_CONTENDER,
+    ContendedLatency,
     DEFAULT_ACQUISITIONS,
     DEFAULT_CONTENDERS,
     POOL_SIZES,
+    PoolHarness,
     PoolMeasurement,
     PoolWorkload,
+    measure_contended_latency,
     measure_pool_acquisition,
 };
 pub use connection_actor_benchmark_support::{

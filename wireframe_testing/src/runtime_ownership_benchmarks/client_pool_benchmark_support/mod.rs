@@ -28,17 +28,35 @@
 //! # What the counters are compared against
 //!
 //! Because a non-zero delta is expected on both paths, the uncontended case is
-//! not a control for the counter itself. The evidence that the counter can move
-//! is the *contended* case, which forces repeated entry to the slow path; the
-//! uncontended case bounds how far the fast path is allowed to drift. Both
-//! report [`pool_scheduler_task_spawns`] and the live task counts.
+//! not a control for the spawn counter itself. The evidence that the counter can
+//! move is the *contended* case, which forces repeated entry to the slow path;
+//! the uncontended case bounds how far the fast path is allowed to drift.
+//!
+//! The second counter, [`PoolMeasurement::capacity_waits`], *is* discriminating
+//! in both directions, and the two regimes assert opposite things about it. An
+//! uncontended workload must report zero, because its single caller never
+//! exhausts the pool; a contended one must report at least its contender count,
+//! because the burst empties the pool and holds it empty while every contender
+//! asks for capacity. Contender counts and start barriers only make waiting
+//! *possible* — a task that wins a permit can finish several immediately-ready
+//! acquisitions before another is polled — so the contended assertion counts the
+//! waiting rather than inferring it from the shape of the burst.
+//!
+//! Both counters come from the pool under measurement rather than from the
+//! process: `WireframeClientPool::task_churn_observer` hands back a read-only
+//! handle onto that one pool's counters, so a delta cannot absorb churn from a
+//! pool another test is driving concurrently. An earlier revision kept them in a
+//! `static`, which made every delta process-wide and uninterpretable under a
+//! parallel test binary.
 //!
 //! # What is bracketed
 //!
-//! Pool construction is excluded from both counters. `bb8` connects eagerly, so
-//! building a pool of size N leaves N connection tasks alive; measuring the
-//! task gauge across construction would report `pool_size` as acquisition
-//! churn. See `pool_once` in the `measurement::phase` submodule.
+//! Pool construction and warm-up are excluded from the timing, the counters, and
+//! the live-task bracket. `bb8` connects eagerly, so building a pool of size N
+//! leaves N connection tasks alive; measuring the task gauge across construction
+//! would report `pool_size` as acquisition churn. The pool is built and warmed
+//! once per call in `measurement`, and construction cost is reported separately
+//! on [`PoolMeasurement::construction`] rather than discarded.
 //!
 //! # Known defects on the acquire path
 //!
@@ -90,8 +108,6 @@
 //! module splits again, because the two regimes are separate control flows: the
 //! bracketed acquisition phase in `measurement::phase`, and the racing burst in
 //! `measurement::contended`.
-//!
-//! [`pool_scheduler_task_spawns`]: wireframe::client::pool_scheduler_task_spawns
 
 mod measurement;
 mod workload;
@@ -99,7 +115,14 @@ mod workload;
 #[cfg(test)]
 mod tests;
 
-pub use measurement::{CONTENDED_BURST_TIMEOUT, measure_pool_acquisition};
+pub use measurement::{
+    CONTENDED_BURST_TIMEOUT,
+    CONTENDED_LATENCY_SAMPLES,
+    ContendedLatency,
+    PoolHarness,
+    measure_contended_latency,
+    measure_pool_acquisition,
+};
 pub use workload::{
     AcquisitionMode,
     CONTENDED_ROUNDS_PER_CONTENDER,

@@ -218,21 +218,42 @@ impl PoolWorkload {
 pub struct PoolMeasurement {
     /// Acquisitions completed (granted leases) in the final iteration.
     pub acquisitions: u64,
-    /// Wall-clock time across every iteration.
-    pub elapsed: Duration,
-    /// Scheduler worker tasks spawned, relative to before the measurement.
-    pub scheduler_spawns: u64,
-    /// Pool-construction tasks live before the acquisition phase began.
+    /// Wall-clock time across every acquisition phase.
     ///
-    /// Sampled *after* the pool is built, so the eager bb8 connection tasks are
-    /// already running and are excluded from the delta below.
+    /// Excludes pool construction and warm-up. Those are real costs of the
+    /// scope but not of the acquire/release path this field exists to report;
+    /// they appear in [`PoolMeasurement::construction`] instead.
+    pub elapsed: Duration,
+    /// Wall-clock time spent building and warming the measured pool.
+    ///
+    /// Reported rather than folded into [`PoolMeasurement::elapsed`] because
+    /// construction is dominated by `pool_size` eager loopback connections. A
+    /// single figure covering both would be mostly a measure of how many sockets
+    /// the pool holds, which is a property of the configuration rather than of
+    /// the acquisition path.
+    pub construction: Duration,
+    /// Scheduler worker tasks spawned by the measured pool.
+    ///
+    /// Scoped to the pool under measurement, not to the process, so a
+    /// concurrent unrelated pool cannot contribute to this number.
+    pub scheduler_spawns: u64,
+    /// Acquisitions that had to wait for capacity on the measured pool.
+    ///
+    /// The direct evidence that the pool was genuinely exhausted. A contended
+    /// scenario asserts this is non-zero, because contenders outnumbering slots
+    /// only makes exhaustion possible — this counts it happening.
+    pub capacity_waits: u64,
+    /// Live tasks immediately before the first acquisition phase.
+    ///
+    /// Sampled after the pool is built and warmed, so eager bb8 connection tasks
+    /// are already running and are excluded from the delta below.
     pub alive_tasks_before: usize,
-    /// Live runtime tasks observed after the acquisition phase.
+    /// Live runtime tasks observed after the final acquisition phase settled.
     pub alive_tasks_after: usize,
 }
 
 impl PoolMeasurement {
-    /// Change in live task count across the measurement.
+    /// Change in live task count across the acquisition phases.
     ///
     /// # Examples
     ///
@@ -244,7 +265,9 @@ impl PoolMeasurement {
     /// let measurement = PoolMeasurement {
     ///     acquisitions: 0,
     ///     elapsed: Duration::ZERO,
+    ///     construction: Duration::ZERO,
     ///     scheduler_spawns: 0,
+    ///     capacity_waits: 0,
     ///     alive_tasks_before: 2,
     ///     alive_tasks_after: 2,
     /// };
@@ -257,4 +280,27 @@ impl PoolMeasurement {
         // rather than a surfaced one if that ever stopped being true.
         self.alive_tasks_after.cast_signed() - self.alive_tasks_before.cast_signed()
     }
+
+    /// Whether the measured pool was observed to run out of capacity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use wireframe_testing::runtime_ownership_benchmarks::PoolMeasurement;
+    ///
+    /// let uncontended = PoolMeasurement {
+    ///     acquisitions: 16,
+    ///     elapsed: Duration::ZERO,
+    ///     construction: Duration::ZERO,
+    ///     scheduler_spawns: 1,
+    ///     capacity_waits: 0,
+    ///     alive_tasks_before: 2,
+    ///     alive_tasks_after: 2,
+    /// };
+    /// assert!(!uncontended.contended());
+    /// ```
+    #[must_use]
+    pub const fn contended(self) -> bool { self.capacity_waits > 0 }
 }

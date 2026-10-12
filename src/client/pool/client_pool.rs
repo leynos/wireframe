@@ -16,6 +16,7 @@ use tokio::sync::Notify;
 
 use super::{
     ClientPoolConfig,
+    churn::{PoolTaskChurnCounts, PoolTaskChurnObserver},
     handle::PoolHandle,
     lease::PooledClientLease,
     manager::WireframeConnectionManager,
@@ -49,6 +50,12 @@ where
     pub(crate) next_slot: AtomicUsize,
     /// Fairness coordinator for handles waiting on slot capacity.
     pub(crate) scheduler: Arc<PoolScheduler<S, P, C>>,
+    /// Task-churn counters scoped to this pool rather than the process.
+    ///
+    /// Per-pool so a delta read across one workload cannot absorb churn from a
+    /// pool another test is driving concurrently. See
+    /// [`PoolTaskChurnObserver`].
+    pub(crate) churn: Arc<PoolTaskChurnCounts>,
     /// Release flag observed by blocked acquisitions and close.
     shutdown: AtomicBool,
     /// Notification used to cancel scheduler waits during shutdown.
@@ -103,10 +110,48 @@ where
                 slots: Arc::from(slots),
                 next_slot: AtomicUsize::new(0),
                 scheduler: Arc::new(PoolScheduler::new(fairness_policy, max_waiters)),
+                churn: Arc::new(PoolTaskChurnCounts::default()),
                 shutdown: AtomicBool::new(false),
                 shutdown_notify: Notify::new(),
             }),
         })
+    }
+
+    /// Take a read-only handle onto this pool's task-churn counters.
+    ///
+    /// The counters are scoped to this pool, so a delta between two snapshots
+    /// can only be attributed to work done on this pool. They are not shared
+    /// process-wide: a benchmark that reads a delta while an unrelated test
+    /// drives a different pool sees only its own pool's activity.
+    ///
+    /// Taking an observer is passive — it performs no acquire and spawns no
+    /// task — so a bracket built from snapshots cannot perturb what it
+    /// measures.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::net::SocketAddr;
+    /// use wireframe::client::{ClientPoolConfig, WireframeClient};
+    ///
+    /// # async fn demo(addr: SocketAddr) -> Result<(), wireframe::client::ClientError> {
+    /// let pool = WireframeClient::builder()
+    ///     .connect_pool(addr, ClientPoolConfig::default())
+    ///     .await?;
+    /// let observer = pool.task_churn_observer();
+    /// let before = observer.snapshot();
+    ///
+    /// let lease = pool.acquire().await?;
+    /// drop(lease);
+    ///
+    /// let churn = observer.snapshot().since(before);
+    /// assert!(churn.scheduler_spawns >= 1);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn task_churn_observer(&self) -> PoolTaskChurnObserver {
+        PoolTaskChurnObserver::new(Arc::clone(&self.inner.churn))
     }
 
     /// Create a stable logical-session handle governed by the pool scheduler.
