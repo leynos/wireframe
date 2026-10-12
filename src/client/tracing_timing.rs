@@ -37,6 +37,18 @@ pub(crate) struct ClientTimingFlags(u8);
 
 impl ClientTimingFlags {
     /// Set one operation without changing the other five.
+    ///
+    /// # Examples
+    ///
+    /// ```plaintext
+    /// let timing = ClientTimingFlags::default()
+    ///     .with_enabled(ClientOperation::Connect, true)
+    ///     .with_enabled(ClientOperation::Close, true);
+    ///
+    /// assert!(timing.is_enabled(ClientOperation::Connect));
+    /// assert!(timing.is_enabled(ClientOperation::Close));
+    /// assert!(!timing.is_enabled(ClientOperation::Call));
+    /// ```
     pub(crate) const fn with_enabled(mut self, operation: ClientOperation, enabled: bool) -> Self {
         let mask = operation.mask();
         if enabled {
@@ -48,9 +60,29 @@ impl ClientTimingFlags {
     }
 
     /// Set every operation to the same timing policy.
+    ///
+    /// # Examples
+    ///
+    /// ```plaintext
+    /// let silent = ClientTimingFlags::all(false);
+    /// assert!(!silent.is_enabled(ClientOperation::Connect));
+    ///
+    /// let verbose = ClientTimingFlags::all(true);
+    /// assert!(verbose.is_enabled(ClientOperation::Connect));
+    /// assert!(verbose.is_enabled(ClientOperation::Close));
+    /// ```
     pub(crate) const fn all(enabled: bool) -> Self { Self(if enabled { 0b11_1111 } else { 0 }) }
 
     /// Report whether timing is enabled for one operation.
+    ///
+    /// # Examples
+    ///
+    /// ```plaintext
+    /// let timing = ClientTimingFlags::default().with_enabled(ClientOperation::Send, true);
+    ///
+    /// assert!(timing.is_enabled(ClientOperation::Send));
+    /// assert!(!timing.is_enabled(ClientOperation::Receive));
+    /// ```
     pub(crate) const fn is_enabled(self, operation: ClientOperation) -> bool {
         self.0 & operation.mask() != 0
     }
