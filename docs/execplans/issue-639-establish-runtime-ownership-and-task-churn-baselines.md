@@ -418,6 +418,24 @@ Thresholds that trigger escalation when breached.
   `markdownlint`, `nixie`, `spelling`. Only `test-doc` remains red, for the
   pre-existing reason above.
 
+- [x] (2026-10-12) Added the `Outcomes & retrospective` section, which the plan
+  preamble had declared mandatory but the document did not contain. It records
+  the seven acceptance criteria and their outcome, the four measurement defects
+  and three completeness gaps with how each was answered, the lessons worth
+  carrying into the [#637](https://github.com/leynos/wireframe/issues/637) and
+  [#638](https://github.com/leynos/wireframe/issues/638) work, and the two
+  residual items left unrepaired on purpose. Corrected the recorded
+  scope-breach figure at the same time: the canonical merge-base numstat gives
+  56 paths and 11,247 net lines, where an earlier entry had recorded 57 paths
+  and roughly 9,050 because it counted a union of committed, working-tree, and
+  untracked paths. `make check-fmt` then failed on the new prose (+13 −13):
+  `mdtablefix` is the wrap authority, and a hand-wrap that keeps every line
+  inside 80 columns still fails when its chosen breaks differ. Reflowed with
+  `make fmt`, verified byte-identical once newlines are normalised, and
+  `make check-fmt` is green at 121 files unchanged. Both marks are docs-only;
+  no code gate was invalidated, because every path changed since the code-gated
+  head `cc5ea92` is a `.md`.
+
 ## Surprises & discoveries
 
 - Observation: **an across-capture timing comparison on this machine is
