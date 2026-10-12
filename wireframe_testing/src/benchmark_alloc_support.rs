@@ -185,10 +185,20 @@ mod tests {
     //! `benches/runtime_ownership_baselines_alloc.rs` runs a zero-window and a
     //! positive-window self-check before measuring, so a gate that never opens is
     //! a loud failure rather than a silent baseline of zeros.
+    //!
+    //! Both tests are `serial`: the flag they assert on is process-global, so
+    //! running them concurrently lets one test's open window be read by the
+    //! other's closing assertion. That race made
+    //! [`counting_window_closes_after_success`](counting_window_closes_after_success)
+    //! fail roughly one run in five even in isolation, which is a flake in the
+    //! test rather than a defect in the window.
+
+    use serial_test::serial;
 
     use super::{count_allocations, is_allocation_counting_enabled};
 
     #[test]
+    #[serial]
     fn counting_window_closes_after_success() {
         let _count = count_allocations(|| Ok(())).expect("no-op measurement must succeed");
         assert!(
@@ -198,6 +208,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn counting_window_closes_after_failure() {
         let error = count_allocations(|| Err("deliberate failure".to_string()))
             .expect_err("a failing operation must surface its error");
