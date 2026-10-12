@@ -1,4 +1,10 @@
 //! Compact timing switches for the six client operation categories.
+//!
+//! [`ClientOperation`] names one of six timed categories: `connect`, `send`,
+//! `receive`, `call`, `streaming`, and `close`. [`ClientTimingFlags`] stores
+//! the six selections as independent bits in one copyable `u8` instead of six
+//! parallel booleans, and [`TracingConfig`](super::TracingConfig) drives them
+//! through its per-operation setters and reads them back via `timing_enabled`.
 
 /// Client operation whose elapsed time can be recorded.
 #[derive(Clone, Copy, Debug)]
