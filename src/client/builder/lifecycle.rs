@@ -47,15 +47,15 @@ where
         Fut: Future<Output = C2> + Send + 'static,
         C2: Send + 'static,
     {
-        // Preserve on_error since it is not parameterized by C.
-        // on_disconnect must be cleared because its signature depends on C.
-        let on_error = self.lifecycle_hooks.on_error;
+        // Preserve the error hook since it is not parameterized by C.
+        // The disconnect hook must be cleared because its signature depends on C.
+        let error = self.lifecycle_hooks.error;
         builder_field_update!(
             self,
             lifecycle_hooks = LifecycleHooks {
-                on_connect: Some(Arc::new(move || Box::pin(f()))),
-                on_disconnect: None,
-                on_error,
+                connect: Some(Arc::new(move || Box::pin(f()))),
+                disconnect: None,
+                error,
             }
         )
     }
@@ -95,7 +95,7 @@ where
         F: Fn(C) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        self.lifecycle_hooks.on_disconnect = Some(Arc::new(move |c| Box::pin(f(c))));
+        self.lifecycle_hooks.disconnect = Some(Arc::new(move |c| Box::pin(f(c))));
         self
     }
 
@@ -124,7 +124,7 @@ where
         F: for<'a> Fn(&'a ClientError) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        self.lifecycle_hooks.on_error = Some(Arc::new(move |e| Box::pin(f(e))));
+        self.lifecycle_hooks.error = Some(Arc::new(move |e| Box::pin(f(e))));
         self
     }
 }

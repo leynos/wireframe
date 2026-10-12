@@ -51,7 +51,10 @@ async fn call_streaming_emits_span_with_correlation_id() {
 
     // With streaming timing enabled, the elapsed_us event fires within
     // the client.call_streaming span, making the span name visible.
-    logs_assert(span_assertion("client.call_streaming", &["correlation_id"]));
+    logs_assert(span_assertion(
+        "client.call_streaming",
+        &["correlation_id", "elapsed_us"],
+    ));
 }
 
 #[rstest]

@@ -86,7 +86,7 @@ impl ClientPoolConfig {
 
     /// Set how blocked `PoolHandle`s are ordered when capacity returns.
     #[must_use]
-    pub fn fairness_policy(mut self, fairness_policy: PoolFairnessPolicy) -> Self {
+    pub const fn fairness_policy(mut self, fairness_policy: PoolFairnessPolicy) -> Self {
         self.fairness_policy = fairness_policy;
         self
     }

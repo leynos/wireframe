@@ -54,7 +54,7 @@ where
     }
 
     /// Set the timeout for the preamble exchange.
-    pub(crate) fn set_timeout(&mut self, timeout: Duration) { self.timeout = Some(timeout); }
+    pub(crate) const fn set_timeout(&mut self, timeout: Duration) { self.timeout = Some(timeout); }
 
     /// Set the success handler.
     pub(crate) fn set_success_handler<H>(&mut self, handler: H)

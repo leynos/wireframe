@@ -102,15 +102,15 @@ where
 
     /// Returns the correlation identifier that frames are validated against.
     #[must_use]
-    pub fn correlation_id(&self) -> u64 { self.correlation_id }
+    pub const fn correlation_id(&self) -> u64 { self.correlation_id }
 
     /// Returns `true` if the stream has received the end-of-stream terminator.
     #[must_use]
-    pub fn is_terminated(&self) -> bool { self.terminated }
+    pub const fn is_terminated(&self) -> bool { self.terminated }
 
     /// Returns the number of data frames received so far.
     #[must_use]
-    pub fn frame_count(&self) -> usize { self.frame_count }
+    pub const fn frame_count(&self) -> usize { self.frame_count }
 
     /// Increment the frame counter and emit a per-frame tracing event for
     /// successfully decoded data frames.

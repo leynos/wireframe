@@ -1637,6 +1637,67 @@ cargo run --example echo --features examples
 cargo run --example client_echo_login --features examples
 ```
 
+### Compile-time client configuration
+
+Most client configuration methods are `const fn`, so configuration can be
+assembled inside a `const fn` and therefore evaluated by the compiler rather
+than at runtime. Types with a const constructor go further:
+`SendStreamingOutcome::new` is `const`, so an outcome value can initialize a
+`const` item directly, and its `frames_sent` getter can be read the same way.
+
+The const surface covers the builder setters `codec_config`, `socket_options`,
+`length_format`, and `tracing_config`; the builder socket shorthands `nodelay`,
+`keepalive`, `send_buffer_size`, `recv_buffer_size`, `reuseaddr`, and
+`reuseport`; `ClientCodecConfig` members such as `length_format`,
+`max_frame_length_value`, and `length_format_value`; the `TracingConfig`
+per-operation level and timing setters plus `with_all_levels` and
+`with_all_timing`; `SendStreamingConfig::with_chunk_size` and `with_timeout`;
+`ClientPoolConfig::fairness_policy`; the read-only getters
+`ClientError::should_recycle_connection`, `ResponseStream::correlation_id`,
+`is_terminated`, and `frame_count`; and
+`SendStreamingOutcome::{new, frames_sent}`. `ClientPoolConfig` requires the
+`pool` feature, which is not enabled by default. Each setter takes `self` by
+value and returns `Self`, so a configuration chain works unchanged in a
+constant context. Setters that clamp their input, such as
+`ClientCodecConfig::max_frame_length`, `ClientPoolConfig::pool_size`, and
+`ClientPoolConfig::idle_timeout`, remain ordinary functions, as does every
+`Default::default` implementation. `reuseport` additionally exists only on Unix
+outside Solaris, illumos, and Cygwin, so guard any call to it with the matching
+`#[cfg(...)]`.
+
+```rust
+use std::time::Duration;
+
+use wireframe::client::{SocketOptions, TracingConfig, WireframeClientBuilder};
+
+const fn configure(
+    builder: WireframeClientBuilder,
+    socket_options: SocketOptions,
+    tracing: TracingConfig,
+) -> WireframeClientBuilder {
+    builder
+        .socket_options(socket_options)
+        .tracing_config(tracing)
+        .nodelay(true)
+        .keepalive(Some(Duration::from_secs(30)))
+        .reuseaddr(true)
+}
+
+let builder = configure(
+    WireframeClientBuilder::new(),
+    SocketOptions::default(),
+    TracingConfig::default().with_connect_timing(true),
+);
+let _ = builder;
+```
+
+Opening a connection is not part of this surface: `connect` and `connect_pool`
+are `async` methods that perform I/O, so only the builder and its configuration
+values are usable in constant contexts, and the chain must be consumed by a
+normal `await`ed `connect`. The public contract is enforced by the trybuild
+fixture in `tests/ui/client_const_api.rs`, which compiles the same calls inside
+`const fn` bodies; run `cargo test --test compile_error` to check it.
+
 ### Client pools
 
 Use `connect_pool` when one warm socket is too little, but opening a new TCP

@@ -30,6 +30,7 @@ mod streaming;
 mod streaming_helpers;
 mod tracing_config;
 mod tracing_helpers;
+mod tracing_timing;
 
 pub use builder::WireframeClientBuilder;
 pub use codec_config::ClientCodecConfig;

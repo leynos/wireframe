@@ -19,7 +19,7 @@ where
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn codec_config(mut self, codec_config: ClientCodecConfig) -> Self {
+    pub const fn codec_config(mut self, codec_config: ClientCodecConfig) -> Self {
         self.codec_config = codec_config;
         self
     }
@@ -51,7 +51,7 @@ where
     /// let _ = builder;
     /// ```
     #[must_use]
-    pub fn length_format(mut self, length_format: LengthFormat) -> Self {
+    pub const fn length_format(mut self, length_format: LengthFormat) -> Self {
         self.codec_config = self.codec_config.length_format(length_format);
         self
     }

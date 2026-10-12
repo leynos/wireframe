@@ -11,7 +11,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::{SinkExt, StreamExt};
+use futures::{SinkExt, StreamExt, future::lazy};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe_testing::{ServerMode, process_frame};
@@ -208,6 +208,17 @@ where
     // Server stream is dropped here, simulating a disconnected server.
     let _server = accept.await??;
     Ok(client)
+}
+
+/// Increment a hook counter when the returned future is first polled.
+///
+/// Deferring the increment to the first poll keeps lifecycle and error-hook
+/// tests honest: a hook that is merely constructed, but never driven, leaves
+/// the counter at zero.
+pub(super) fn record_count(count: Arc<AtomicUsize>) -> impl Future<Output = ()> + Send {
+    lazy(move |_| {
+        count.fetch_add(1, Ordering::SeqCst);
+    })
 }
 
 /// Creates a counter and an incrementing hook for use in lifecycle tests.

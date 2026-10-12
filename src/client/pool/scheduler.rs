@@ -79,12 +79,12 @@ where
                 true
             }
             PoolFairnessPolicy::RoundRobin => {
-                if let Some(queue) = self.handle_waiters.get_mut(&handle_id) {
-                    queue.push_back(sender);
-                    true
-                } else {
-                    false
-                }
+                self.handle_waiters
+                    .get_mut(&handle_id)
+                    .is_some_and(|queue| {
+                        queue.push_back(sender);
+                        true
+                    })
             }
         }
     }
@@ -204,7 +204,7 @@ where
     /// Complete every queued waiter with a disconnected error.
     pub(crate) fn notify_shutdown(&self) {
         while let Some(waiter) = self.next_waiter() {
-            let _ = waiter.send(Err(ClientError::disconnected()));
+            drop(waiter.send(Err(ClientError::disconnected())));
         }
     }
 
@@ -307,7 +307,7 @@ where
                 })
             }
             () = inner.shutdown_notified() => {
-                let _ = sender.send(Err(ClientError::disconnected()));
+                drop(sender.send(Err(ClientError::disconnected())));
                 return;
             }
         };
