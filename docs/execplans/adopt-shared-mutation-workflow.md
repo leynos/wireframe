@@ -139,10 +139,10 @@ as survivors because their feature-gated tests now run.
   concurrency group now keys on `github.ref`. Date/Author: 2026-07-05, planning
   agent.
 - Decision: set `extra-args: "--all-features"` on the caller.
-  Rationale: matches `make test` (the CI baseline) and resolves issue
-  #571's false-survivor class — the serde-bridge round-trip tests are
-  gated on the non-default `serializer-serde` feature and were compiled out of
-  mutation baselines. Date/Author: 2026-07-05, planning agent.
+  Rationale: matches `make test` (the CI baseline) and resolves issue #571's
+  false-survivor class — the serde-bridge round-trip tests are gated on the
+  non-default `serializer-serde` feature and were compiled out of mutation
+  baselines. Date/Author: 2026-07-05, planning agent.
 - Decision: set `exclude-globs` to `src/codec/examples.rs`,
   `src/test_helpers.rs`, `src/connection/test_support.rs`. Rationale: issue
   #571's second class — illustrative codecs and test-support scaffolding whose
