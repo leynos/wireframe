@@ -5,6 +5,15 @@ client connects. The server decodes the preamble with
 [`read_preamble`](../src/preamble.rs) and can invoke user-supplied callbacks on
 success or failure. The helper uses `bincode` to decode any type implementing
 `bincode::BorrowDecode` and reads exactly the number of bytes required.
+Decoding is bounded by `MAX_PREAMBLE_LEN` (1 KiB), including bincode's
+accounted allocation for declared container lengths. The existing read-growth
+guard enforces the same ceiling. Any bytes read beyond the decoded value are
+returned as leftovers for normal frame processing.
+
+The limit protects owned containers such as `Vec<u8>` and follows bincode's
+resource accounting. Protocols must validate any additional resource bounds for
+their chosen preamble type; see the
+[allocation-limit caveat](users-guide.md#packets-payloads-and-serialization).
 
 The flow is summarized below:
 

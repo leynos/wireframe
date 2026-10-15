@@ -1,12 +1,89 @@
 //! Tests for Wireframe inbound connection handling.
 
 use bytes::{Bytes, BytesMut};
+use rstest::rstest;
 use tokio::io::AsyncWriteExt;
 use tokio_util::codec::{Decoder, Encoder};
 use wireframe_testing::logger;
 
 use super::*;
 use crate::{app::frame_handling, serializer::BincodeSerializer};
+
+/// The three ways metadata parsing can lead to a fully decoded envelope.
+#[derive(Clone, Copy, Debug)]
+enum MetadataMode {
+    Complete,
+    Prefix,
+    Fallback,
+}
+
+/// Exercise each metadata branch without changing the wire encoding.
+struct FrameDecodeSerializer(MetadataMode);
+
+impl crate::serializer::MessageCompatibilitySerializer for FrameDecodeSerializer {}
+
+impl Serializer for FrameDecodeSerializer {
+    fn serialize<M>(&self, value: &M) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
+    where
+        M: EncodeWith<Self>,
+    {
+        value.encode_with(self)
+    }
+
+    fn deserialize<M>(
+        &self,
+        bytes: &[u8],
+    ) -> Result<(M, usize), Box<dyn std::error::Error + Send + Sync>>
+    where
+        M: DecodeWith<Self>,
+    {
+        M::decode_with(self, bytes, &crate::message::DeserializeContext::empty())
+    }
+
+    fn should_deserialize_after_parse(&self) -> bool { matches!(self.0, MetadataMode::Prefix) }
+}
+
+impl FrameMetadata for FrameDecodeSerializer {
+    type Frame = Envelope;
+    type Error = bincode::error::DecodeError;
+
+    fn parse(&self, bytes: &[u8]) -> Result<(Envelope, usize), Self::Error> {
+        match self.0 {
+            MetadataMode::Complete => BincodeSerializer.parse(bytes),
+            MetadataMode::Prefix => BincodeSerializer
+                .parse(bytes)
+                .map(|(envelope, _)| (envelope, 1)),
+            MetadataMode::Fallback => {
+                Err(bincode::error::DecodeError::Other("metadata unavailable"))
+            }
+        }
+    }
+}
+
+#[rstest]
+#[case::complete_frame(0)]
+#[case::trailing_bytes(2)]
+fn single_envelope_frames_require_full_consumption(
+    #[values(MetadataMode::Complete, MetadataMode::Prefix, MetadataMode::Fallback)]
+    mode: MetadataMode,
+    #[case] trailing: usize,
+) {
+    use crate::message::Message;
+
+    let envelope = Envelope::new(1, None, vec![42]);
+    let mut bytes = envelope.to_bytes().expect("encode envelope");
+    bytes.extend(std::iter::repeat_n(0, trailing));
+    let result = core::parse_envelope(&FrameDecodeSerializer(mode), &bytes);
+    if trailing == 0 {
+        let (decoded, consumed) =
+            result.expect("complete envelope must decode through every branch");
+        assert_eq!(decoded.payload_bytes(), &[42]);
+        assert_eq!(consumed, bytes.len());
+    } else {
+        let error = result.expect_err("trailing bytes must fail through every branch");
+        assert!(error.to_string().contains("trailing bytes after envelope"));
+    }
+}
 
 #[derive(Clone, Debug)]
 struct BadFrame {

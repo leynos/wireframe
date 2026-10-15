@@ -19,12 +19,72 @@ use wireframe_testing::{ObservabilityHandle, decode_frames_with_codec};
 #[path = "common/codec_error_regression_support.rs"]
 mod codec_error_regression_support;
 
+#[path = "common/inbound_decode_regressions.rs"]
+mod inbound_decode_regressions;
+
 use codec_error_regression_support::{
     StrictRecoveryHook,
+    bounded_envelope_decode_error,
     classify_eof,
     encoded_default_frame,
+    oversized_envelope_bytes,
     truncated_payload_wire,
 };
+
+#[rstest]
+#[case::above_frame_ceiling(wireframe::codec::MAX_FRAME_LENGTH as u64 + 1)]
+#[case::maximum_native_length(usize::MAX as u64)]
+fn envelope_container_lengths_exceeding_budget_are_rejected(
+    #[case] declared_length: u64,
+) -> wireframe_testing::TestResult {
+    let bytes = oversized_envelope_bytes(declared_length)?;
+    if bytes.len() >= 16 {
+        return Err("regression input must remain a tiny prefix".into());
+    }
+    let error = bounded_envelope_decode_error(&bytes)?;
+    match error {
+        bincode::error::DecodeError::LimitExceeded => Ok(()),
+        other => Err(format!("expected LimitExceeded, got {other:?}").into()),
+    }
+}
+
+#[rstest]
+#[case::metadata(false)]
+#[case::reassembled(true)]
+fn inherited_message_decoders_reject_oversized_containers(
+    #[case] reassembled: bool,
+) -> wireframe_testing::TestResult {
+    use wireframe::{
+        app::Envelope,
+        fragment::{MessageId, ReassembledMessage},
+        frame::FrameMetadata,
+        serializer::BincodeSerializer,
+    };
+
+    let bytes = oversized_envelope_bytes(u64::try_from(wireframe::codec::MAX_FRAME_LENGTH)? + 1)?;
+    let result = if reassembled {
+        ReassembledMessage::new(MessageId::new(1), bytes).decode::<Envelope>()
+    } else {
+        BincodeSerializer
+            .parse(&bytes)
+            .map(|(envelope, _)| envelope)
+    };
+    match result {
+        Err(bincode::error::DecodeError::LimitExceeded) => Ok(()),
+        other => Err(format!("expected shared decode LimitExceeded, got {other:?}").into()),
+    }
+}
+
+proptest::proptest! {
+    #[test]
+    fn declared_lengths_above_frame_ceiling_never_reach_container_allocation(
+        declared in (wireframe::codec::MAX_FRAME_LENGTH as u64 + 1)..=(2 * wireframe::codec::MAX_FRAME_LENGTH as u64),
+    ) {
+        let bytes = oversized_envelope_bytes(declared).expect("encode length prefix");
+        let error = bounded_envelope_decode_error(&bytes).expect("decode must fail");
+        proptest::prop_assert!(matches!(error, bincode::error::DecodeError::LimitExceeded));
+    }
+}
 
 fn record_codec_error(obs: &mut ObservabilityHandle, error: &CodecError, policy: RecoveryPolicy) {
     metrics::with_local_recorder(obs.recorder(), || {
