@@ -12,6 +12,11 @@ Feature: Client pool
     When client pool acquires more leases than one socket allows
     Then client pool blocks the extra acquire until capacity returns
 
+  Scenario: Client pool rejects acquires above the waiter limit
+    Given client pool waiter admission is bounded
+    When client pool holds every permit and exceeds its waiter limit
+    Then client pool blocks an allowed waiter and rejects the excess acquire
+
   Scenario: Client pool recycles idle sockets
     Given client pool idle recycling is configured
     When client pool idles past the recycle timeout

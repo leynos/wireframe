@@ -11,17 +11,24 @@ use std::{
 use rstest::fixture;
 use tokio::time::timeout;
 use wireframe::{
-    client::ClientPoolConfig,
+    client::{ClientError, ClientPoolConfig},
     test_helpers::{Ping, Pong, PoolTestServer, TestClientPool, build_pooled_client},
 };
 pub use wireframe_testing::TestResult;
 
-pub struct ClientPoolWorld {
-    pool: Option<TestClientPool>,
-    server: Option<PoolTestServer>,
-    preamble_callback_count: Arc<AtomicUsize>,
+#[derive(Default)]
+struct InFlightLimitOutcome {
     blocked_third_acquire: bool,
     recovered_after_release: bool,
+}
+
+pub struct ClientPoolWorld {
+    pool: Option<Arc<TestClientPool>>,
+    server: Option<PoolTestServer>,
+    preamble_callback_count: Arc<AtomicUsize>,
+    in_flight_limit: InFlightLimitOutcome,
+    blocked_waiter_within_limit: bool,
+    rejected_waiter_above_limit: bool,
     reconnected_after_idle: bool,
 }
 
@@ -31,8 +38,9 @@ impl Default for ClientPoolWorld {
             pool: None,
             server: None,
             preamble_callback_count: Arc::new(AtomicUsize::new(0)),
-            blocked_third_acquire: false,
-            recovered_after_release: false,
+            in_flight_limit: InFlightLimitOutcome::default(),
+            blocked_waiter_within_limit: false,
+            rejected_waiter_above_limit: false,
             reconnected_after_idle: false,
         }
     }
@@ -53,7 +61,7 @@ impl ClientPoolWorld {
     async fn connect_pool(&mut self, config: ClientPoolConfig) -> TestResult {
         let addr = self.server.as_ref().ok_or("server missing")?.addr;
         let pool = build_pooled_client(addr, config, self.preamble_callback_count.clone()).await?;
-        self.pool = Some(pool);
+        self.pool = Some(Arc::new(pool));
         Ok(())
     }
 
@@ -91,16 +99,40 @@ impl ClientPoolWorld {
 
         let first = pool.acquire().await?;
         let second = pool.acquire().await?;
-        self.blocked_third_acquire = timeout(Duration::from_millis(25), pool.acquire())
-            .await
-            .is_err();
+        self.in_flight_limit.blocked_third_acquire =
+            timeout(Duration::from_millis(25), pool.acquire())
+                .await
+                .is_err();
 
         drop(first);
-        self.recovered_after_release = matches!(
+        self.in_flight_limit.recovered_after_release = matches!(
             timeout(Duration::from_millis(100), pool.acquire()).await,
             Ok(Ok(_))
         );
         drop(second);
+        Ok(())
+    }
+
+    pub async fn run_waiter_admission_scenario(&mut self) -> TestResult {
+        self.start_server().await?;
+        self.connect_pool(ClientPoolConfig::default().pool_size(1).max_waiters(1))
+            .await?;
+        let pool = Arc::clone(self.pool.as_ref().ok_or("pool missing")?);
+        let held_lease = pool.acquire().await?;
+        let waiter_pool = Arc::clone(&pool);
+        let mut waiter = tokio::spawn(async move { waiter_pool.acquire().await });
+
+        self.blocked_waiter_within_limit = timeout(Duration::from_millis(25), &mut waiter)
+            .await
+            .is_err();
+        self.rejected_waiter_above_limit = matches!(
+            timeout(Duration::from_millis(100), pool.acquire()).await,
+            Ok(Err(ClientError::PoolSaturated { limit: 1 }))
+        );
+
+        drop(held_lease);
+        let waiter_lease = waiter.await??;
+        drop(waiter_lease);
         Ok(())
     }
 
@@ -142,9 +174,13 @@ impl ClientPoolWorld {
             })
     }
 
-    pub fn blocked_third_acquire(&self) -> bool { self.blocked_third_acquire }
+    pub fn blocked_third_acquire(&self) -> bool { self.in_flight_limit.blocked_third_acquire }
 
-    pub fn recovered_after_release(&self) -> bool { self.recovered_after_release }
+    pub fn recovered_after_release(&self) -> bool { self.in_flight_limit.recovered_after_release }
+
+    pub fn bounded_waiter_admission_preserved(&self) -> bool {
+        self.blocked_waiter_within_limit && self.rejected_waiter_above_limit
+    }
 
     pub fn reconnected_after_idle(&self) -> bool {
         self.reconnected_after_idle

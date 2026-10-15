@@ -1564,6 +1564,7 @@ as `TCP_NODELAY` or buffer size adjustments.
 | Pool connect         | `connect_pool(addr, ClientPoolConfig)`       | Disabled                                                | Warm socket reuse or bounded socket fan-out is required.            |
 | Pool size            | `ClientPoolConfig::pool_size(n)`             | `4`                                                     | More than one warm physical socket should be maintained.            |
 | Per-socket admission | `max_in_flight_per_socket(n)`                | `1`                                                     | More than one caller may queue work against the same warm socket.   |
+| Waiter limit         | `ClientPoolConfig::max_waiters(n)`           | `64`                                                    | Bound acquisitions waiting for a pooled lease.                      |
 | Idle recycle         | `idle_timeout(Duration)`                     | `600s`                                                  | Idle sockets should be replaced before they become stale.           |
 
 ```rust
@@ -1750,6 +1751,12 @@ reference to a long-lived `WireframeClient`. That keeps actual socket I/O
 serialized per physical connection while still allowing multiple callers to be
 admitted against the same warm slot. Treat `max_in_flight_per_socket` as an
 admission budget, not as a guarantee of parallel writes on one TCP stream.
+
+`max_waiters` bounds pending acquisitions separately from active socket
+permits. It defaults to `64`; `max_waiters(0)` is clamped to `1`. Once the
+waiter limit is full, a further `acquire()` returns
+`ClientError::PoolSaturated { limit }` immediately. Cancelled acquisitions do
+not consume queued capacity, and a saturation error does not recycle a socket.
 
 Create a `PoolHandle` when one logical session needs repeated pooled access and
 that session should participate in the configured fairness policy over time:

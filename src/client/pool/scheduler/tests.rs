@@ -90,6 +90,28 @@ fn enqueue_rejects_waiters_above_the_configured_limit(#[case] policy: PoolFairne
 #[rstest]
 #[case(PoolFairnessPolicy::Fifo)]
 #[case(PoolFairnessPolicy::RoundRobin)]
+fn waiter_count_includes_a_request_being_serviced(#[case] policy: PoolFairnessPolicy) {
+    let mut state = TestState::new();
+    state.register_handle(1);
+    let (sender, _receiver) = oneshot::channel();
+    assert_eq!(
+        state.enqueue_waiter(1, sender, admission(policy, 1)),
+        WaiterEnqueueResult::Enqueued
+    );
+
+    let servicing_waiter = state
+        .take_next_waiter(policy)
+        .expect("enqueued waiter should be selected");
+    assert_eq!(state.waiter_count(), 1);
+
+    state.finish_servicing_waiter();
+    assert_eq!(state.waiter_count(), 0);
+    drop(servicing_waiter);
+}
+
+#[rstest]
+#[case(PoolFairnessPolicy::Fifo)]
+#[case(PoolFairnessPolicy::RoundRobin)]
 fn enqueue_prunes_cancelled_waiters_before_counting(#[case] policy: PoolFairnessPolicy) {
     let mut state = TestState::new();
     state.register_handle(1);

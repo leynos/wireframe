@@ -14,6 +14,11 @@ fn given_client_pool_in_flight_limit(client_pool_world: &mut ClientPoolWorld) {
     let _ = client_pool_world;
 }
 
+#[given("client pool waiter admission is bounded")]
+fn given_client_pool_waiter_admission_is_bounded(client_pool_world: &mut ClientPoolWorld) {
+    let _ = client_pool_world;
+}
+
 #[given("client pool idle recycling is configured")]
 fn given_client_pool_idle_recycle(client_pool_world: &mut ClientPoolWorld) {
     let _ = client_pool_world;
@@ -31,6 +36,14 @@ fn when_client_pool_exhausts_in_flight_budget(
 ) -> TestResult {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(client_pool_world.run_in_flight_limit_scenario())
+}
+
+#[when("client pool holds every permit and exceeds its waiter limit")]
+fn when_client_pool_exceeds_waiter_limit(client_pool_world: &mut ClientPoolWorld) -> TestResult {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(client_pool_world.run_waiter_admission_scenario())
 }
 
 #[when("client pool idles past the recycle timeout")]
@@ -60,6 +73,15 @@ fn then_client_pool_blocks_extra_acquire(client_pool_world: &mut ClientPoolWorld
         Ok(())
     } else {
         Err("expected third acquire to block and later recover".into())
+    }
+}
+
+#[then("client pool blocks an allowed waiter and rejects the excess acquire")]
+fn then_client_pool_rejects_excess_waiter(client_pool_world: &mut ClientPoolWorld) -> TestResult {
+    if client_pool_world.bounded_waiter_admission_preserved() {
+        Ok(())
+    } else {
+        Err("expected an in-limit waiter to block and excess admission to fail fast".into())
     }
 }
 

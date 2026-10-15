@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import TypedDict
 
 import pytest
-import yaml
+from workflow_loader import repository_workflows
 
 ROOT = Path(__file__).resolve().parents[2]
 #: Make targets whose CI invocation builds Rust, so the job needs `mold`.
@@ -87,10 +87,9 @@ WorkflowStep = TypedDict(
 def _linux_jobs() -> list[tuple[str, dict]]:
     """Return every CI job not placed on Windows or macOS, named by file."""
     jobs = []
-    for path in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
-        workflow = yaml.safe_load(path.read_text("utf-8")) or {}
+    for workflow_name, workflow in repository_workflows().items():
         jobs.extend(
-            (f"{path.name}:{name}", job)
+            (f"{workflow_name}:{name}", job)
             for name, job in (workflow.get("jobs") or {}).items()
             if not re.search(
                 r"windows|macos", str(job.get("runs-on", "")), re.IGNORECASE
@@ -302,8 +301,7 @@ def _uv_cache_problem(step: WorkflowStep) -> str | None:
 def _uv_steps() -> list[WorkflowStep]:
     """Return every `setup-uv` step of every workflow in the repository."""
     steps = []
-    for path in sorted((ROOT / ".github" / "workflows").glob("*.y*ml")):
-        workflow = yaml.safe_load(path.read_text("utf-8")) or {}
+    for workflow in repository_workflows().values():
         for job in (workflow.get("jobs") or {}).values():
             steps.extend(
                 step

@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 from typing import cast
 
-import yaml
+from workflow_loader import load_workflow, repository_workflows
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
 MAKEFILE_PATH = Path(__file__).resolve().parents[2] / "Makefile"
@@ -35,7 +35,7 @@ INSTALL_NIXIE_ACTION_RE = re.compile(
 
 def test_ci_runs_for_every_pull_request_base_and_main_pushes_only() -> None:
     """Every stacked PR must receive the blocking lane without widening pushes."""
-    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    workflow = load_workflow(WORKFLOW_PATH.read_text(encoding="utf-8"))
     assert isinstance(workflow, dict), "the CI workflow must be a mapping"
     triggers = workflow.get("on", workflow.get(True))
     assert isinstance(triggers, dict), "the CI workflow must declare triggers"
@@ -50,7 +50,7 @@ def test_ci_runs_for_every_pull_request_base_and_main_pushes_only() -> None:
 
 def _load_steps() -> list[dict[str, object]]:
     """Parse and return the CI build-test steps."""
-    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    workflow = load_workflow(WORKFLOW_PATH.read_text(encoding="utf-8"))
     assert isinstance(workflow, dict), "the CI workflow must be a mapping"
     jobs = workflow.get("jobs")
     assert isinstance(jobs, dict), "the CI workflow must declare jobs"
@@ -96,7 +96,7 @@ def test_no_step_compiles_merman() -> None:
     it. Any ``run`` command naming Merman is refused, whatever its flags or
     toolchain, because the only sanctioned route is the action asserted above.
     """
-    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    workflow = load_workflow(WORKFLOW_PATH.read_text(encoding="utf-8"))
     assert isinstance(workflow, dict), "the CI workflow must be a mapping"
     offenders = [
         f"{job_name}: {step.get('name', '<unnamed>')}"
@@ -227,13 +227,11 @@ WHITAKER_ROUTE_RE = re.compile(
 def _workflow_steps() -> list[tuple[str, str, dict[str, object]]]:
     """Return (workflow file, job, step) for every step in every workflow."""
     found: list[tuple[str, str, dict[str, object]]] = []
-    for path in sorted(WORKFLOWS_DIRECTORY.glob("*.y*ml")):
-        # An empty workflow file parses to None; treat it as having no jobs.
-        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    for workflow_name, document in repository_workflows().items():
         jobs = cast("dict[str, dict[str, object]]", document.get("jobs") or {})
         for job_name, job in jobs.items():
             for step in cast("list[dict[str, object]]", job.get("steps") or []):
-                found.append((path.name, job_name, step))
+                found.append((workflow_name, job_name, step))
     return found
 
 
@@ -244,7 +242,7 @@ def _assert_installed_before_lint(install: dict[str, object]) -> None:
     the `Lint` step, leaves the lint command running without its tool while a
     count-only check still passes.
     """
-    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    workflow = load_workflow(WORKFLOW_PATH.read_text(encoding="utf-8"))
     steps = cast("list[dict[str, object]]", workflow["jobs"]["build-test"]["steps"])
     install_index = next((i for i, step in enumerate(steps) if step is install or step == install), None)
     lint_index = next(
