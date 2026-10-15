@@ -220,13 +220,14 @@ where
                 return Err(ClientError::disconnected());
             }
         } else {
+            // No slot had a free permit, so this acquisition genuinely has
+            // to wait for capacity. Recorded before parking: the wait exists
+            // from here on, whether or not a worker has been spawned to
+            // service it yet.
+            inner.churn.record_capacity_wait();
             self.kick(inner);
         }
 
-        // No slot had a free permit, so this acquisition genuinely has to wait
-        // for capacity. Recorded before parking: the wait exists from here on,
-        // whether or not a worker has been spawned to service it yet.
-        inner.churn.record_capacity_wait();
         receiver.await.map_err(|_| ClientError::disconnected())?
     }
 
