@@ -6,6 +6,8 @@ use super::policy::PoolFairnessPolicy;
 
 /// Bounds default connection fan-out for small deployments.
 const DEFAULT_POOL_SIZE: usize = 4;
+/// Bounds blocked acquisitions without requiring an explicit deployment limit.
+const DEFAULT_MAX_WAITERS: usize = 64;
 /// Preserves serial request admission per socket by default.
 const DEFAULT_MAX_IN_FLIGHT_PER_SOCKET: usize = 1;
 /// Recycles dormant sockets before they retain stale resources indefinitely.
@@ -24,18 +26,28 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(DEFAULT_IDLE_TIMEOUT_
 ///
 /// let config = ClientPoolConfig::default()
 ///     .pool_size(2)
+///     .max_waiters(8)
 ///     .max_in_flight_per_socket(3)
 ///     .idle_timeout(Duration::from_secs(30))
 ///     .fairness_policy(PoolFairnessPolicy::Fifo);
 /// assert_eq!(config.pool_size_value(), 2);
+/// assert_eq!(config.max_waiters_value(), 8);
 /// assert_eq!(config.max_in_flight_per_socket_value(), 3);
 /// assert_eq!(config.idle_timeout_value(), Duration::from_secs(30));
 /// assert_eq!(config.fairness_policy_value(), PoolFairnessPolicy::Fifo);
+/// assert_eq!(
+///     ClientPoolConfig::default()
+///         .max_waiters(0)
+///         .max_waiters_value(),
+///     1
+/// );
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClientPoolConfig {
     /// Bounds the pool's physical connection resource usage.
     pool_size: usize,
+    /// Bounds the number of blocked acquisitions admitted by the scheduler.
+    max_waiters: usize,
     /// Bounds multiplexed load admitted to each socket.
     max_in_flight_per_socket: usize,
     /// Limits how long returned sockets remain reusable.
@@ -48,6 +60,7 @@ impl Default for ClientPoolConfig {
     fn default() -> Self {
         Self {
             pool_size: DEFAULT_POOL_SIZE,
+            max_waiters: DEFAULT_MAX_WAITERS,
             max_in_flight_per_socket: DEFAULT_MAX_IN_FLIGHT_PER_SOCKET,
             idle_timeout: DEFAULT_IDLE_TIMEOUT,
             fairness_policy: PoolFairnessPolicy::RoundRobin,
@@ -63,6 +76,15 @@ impl ClientPoolConfig {
     #[must_use]
     pub fn pool_size(mut self, size: usize) -> Self {
         self.pool_size = size.max(1);
+        self
+    }
+
+    /// Set the maximum number of acquisitions that may wait for a lease.
+    ///
+    /// Values below `1` are clamped to `1`.
+    #[must_use]
+    pub fn max_waiters(mut self, limit: usize) -> Self {
+        self.max_waiters = limit.max(1);
         self
     }
 
@@ -94,6 +116,10 @@ impl ClientPoolConfig {
     /// Return the configured number of physical sockets.
     #[must_use]
     pub const fn pool_size_value(&self) -> usize { self.pool_size }
+
+    /// Return the configured number of queued acquisitions allowed.
+    #[must_use]
+    pub const fn max_waiters_value(&self) -> usize { self.max_waiters }
 
     /// Return the configured per-socket admission limit.
     #[must_use]

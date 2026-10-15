@@ -24,6 +24,7 @@ pub type ClientWireframeError = WireframeError<ClientProtocolError>;
 
 /// Errors emitted by [`crate::client::WireframeClient`].
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ClientError {
     /// Request/response transport or protocol failure.
     #[error(transparent)]
@@ -69,6 +70,12 @@ pub enum ClientError {
         /// The correlation ID received in the response frame.
         received: Option<u64>,
     },
+    /// The pool already has the configured number of queued acquisitions.
+    #[error("client pool waiter limit exceeded ({limit})")]
+    PoolSaturated {
+        /// Maximum number of acquisitions admitted to the waiter queues.
+        limit: usize,
+    },
 }
 
 impl ClientError {
@@ -87,6 +94,10 @@ impl ClientError {
         ))
     }
 
+    /// Build the typed error returned when the pool has no waiter capacity.
+    #[cfg(feature = "pool")]
+    pub(crate) const fn pool_saturated(limit: usize) -> Self { Self::PoolSaturated { limit } }
+
     /// Return `true` when this error leaves the underlying connection unsafe
     /// to reuse in the pool.
     #[must_use]
@@ -98,7 +109,7 @@ impl ClientError {
             | Self::PreambleTimeout
             | Self::CorrelationMismatch { .. }
             | Self::StreamCorrelationMismatch { .. } => true,
-            Self::Serialize(_) | Self::PreambleEncode(_) => false,
+            Self::Serialize(_) | Self::PreambleEncode(_) | Self::PoolSaturated { .. } => false,
         }
     }
 }
@@ -169,6 +180,16 @@ mod tests {
     fn should_recycle_connection_returns_false_for_serialize_failures() {
         let error = ClientError::Serialize(Box::new(io::Error::other("serialize failure")));
 
+        assert!(!error.should_recycle_connection());
+    }
+
+    #[rstest]
+    #[case(1)]
+    #[case(16)]
+    fn pool_saturation_does_not_recycle_a_connection(#[case] limit: usize) {
+        let error = ClientError::PoolSaturated { limit };
+
+        assert!(matches!(error, ClientError::PoolSaturated { limit: actual } if actual == limit));
         assert!(!error.should_recycle_connection());
     }
 }
