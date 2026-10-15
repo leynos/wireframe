@@ -1819,6 +1819,13 @@ Preamble callbacks and setup hooks run per physical socket creation. Warm reuse
 keeps the existing preamble state; idle recycle closes the old socket and
 creates a fresh one, which reruns preamble and setup.
 
+Cancellation before a pooled operation completes discards the socket before it
+returns to the pool. The next operation through a `PooledClientLease` or
+`PoolHandle` reconnects with a fresh socket, avoiding a late response left by
+the cancelled request. This also applies when the receive half of split-phase
+`send()` and `receive()` work is dropped in flight. Completed operations
+continue to use the configured recyclable-error policy.
+
 ### Client preamble exchange
 
 The client builder supports an optional preamble exchange before framing

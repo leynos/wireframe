@@ -181,6 +181,7 @@ impl ClientPoolWorld {
         Ok(())
     }
 
+    /// Exercise cancellation while a pooled call waits for its first response.
     pub async fn run_cancelled_call_scenario(&mut self) -> TestResult {
         self.server =
             Some(PoolTestServer::start_with_behavior(PoolServerBehavior::LateFirstResponse).await?);
@@ -242,6 +243,7 @@ impl ClientPoolWorld {
             })
     }
 
+    /// Check that cancellation caused a fresh socket and preamble on reuse.
     pub fn reconnected_after_cancelled_call(&self) -> bool {
         self.preamble_callback_count.load(Ordering::SeqCst) == 2
             && self.server.as_ref().is_some_and(|server| {

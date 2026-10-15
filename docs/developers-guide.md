@@ -440,6 +440,13 @@ recycling a socket. Background waiter servicing lives in
 the full contract. Acquire deadlines and waiter/rejection telemetry remain
 deferred under [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md).
 
+Each `SlotConnection` checkout starts armed. `dispatch_on_connection` disarms
+the guard only after the operation future returns; dropping an armed guard
+marks the socket broken, records an `operation_incomplete` discard, and clears
+the healthy-return timestamp. This covers cancellation and unwinding while an
+operation is in flight. Completed operations retain the existing
+`ClientError::should_recycle_connection` policy.
+
 `ManagedClientConnection` owns its client in an `Option` and takes it once when
 teardown starts. Calls through `client_mut` return a disconnection error after
 that transfer. Dropping a live connection schedules `close()` on the current

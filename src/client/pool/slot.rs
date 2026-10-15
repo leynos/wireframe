@@ -169,6 +169,12 @@ where
     fn drop(&mut self) {
         if self.armed {
             self.connection.mark_broken();
+            crate::metrics::inc_pool_incomplete_operation_discard();
+            tracing::debug!(
+                action = "discard_connection",
+                reason = "operation_incomplete",
+                "discarding pooled client connection after an incomplete operation"
+            );
         }
 
         let mut last_returned_at = lock_or_recover(self.last_returned_at);
