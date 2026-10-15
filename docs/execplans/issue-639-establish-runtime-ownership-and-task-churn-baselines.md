@@ -557,6 +557,79 @@ Thresholds that trigger escalation when breached.
   and no merge-driver artefacts anywhere in the tree, `git diff --check` is
   clean, `cargo fmt --all -- --check` passes, and the worktree is clean.
 
+- [x] (2026-10-15) Repaired the second compile failure, at `39221cf`:
+  `error[E0271]` on `tests/prepared_app/mod.rs`, where the target's
+  `run_legacy_server_connections` bound its factory parameter to
+  `TestResult<TestApp>` while the only caller passed the shared
+  `counted_app_factory`, which returns `wireframe::Result<StartupTestApp>`.
+  Both are aliases for the same `Result`, but the closure type parameter is
+  inferred from the bound, so the two spellings are not interchangeable and the
+  `prepared_app` target could not compile. Restated the bound as
+  `impl Fn() -> wireframe::Result<TestApp>`, which is the pre-rebase spelling,
+  and kept the target's helper name. Verified with
+  `cargo check -p wireframe --test prepared_app --all-features` under
+  `RUSTFLAGS="-D warnings"`: exit 0, zero errors, zero warnings.
+
+  This was a latent defect in commit `5f31996`, not a rebase artefact. That
+  commit deleted the target's local `counted_app_factory` in favour of the
+  imported shared one but left the parameter bound pointing at `TestResult`.
+  Nothing exposed it until the target's `3d9d792 Normalize Rust module layout`
+  reintroduced the helper under a new name and reimported the factory. The
+  probe that separated the two hypotheses was ancestry: `3d9d792` is an
+  ancestor of the target but of neither `OLD_HEAD` nor `origin/main`, and
+  `git log 69d8fdc..HEAD -- tests/prepared_app/mod.rs` showed only my own
+  commit touching the file, so the bound could not have arrived after it.
+
+- [x] (2026-10-15) Audited every file changed on both sides of the merge for
+  further instances of that hybrid class: mismatched result-type boundaries,
+  duplicated blocks, dropped helpers, stale path references. The overlap is ten
+  files, and each resolves to a deliberate union:
+
+  - `tests/prepared_app/mod.rs` — the target's layout plus this branch's
+    extraction of the shared factory. Both sides' three test functions
+    survive; only the local helpers the extraction replaced are gone.
+  - `tests/prepared_app_tcp.rs` — the target split this file into a module
+    directory and this branch rewrote the same file to use the shared
+    middleware. The union is the target's `tcp_and_property.rs` (with this
+    branch's `PLAN`-based factory and `TransformCountingMiddleware::new`)
+    plus the target's slimmed `prepared_app_tcp.rs`, also carrying this
+    branch's middleware. The target had deliberately dropped
+    `from_app_serves_concurrent_tcp_connections_from_one_prepared_root`, and
+    its replacement in `tcp_and_property.rs` covers the same concurrency
+    ground, so nothing is lost.
+  - `src/client/pool/scheduler.rs` — the target's layout with this branch's
+    two churn counters, plus the target's `#[path]` test split.
+  - `src/test_helpers/mod.rs`, `src/client/mod.rs`, `src/client/pool/mod.rs`,
+    `Makefile`, `Cargo.toml`, `docs/contents.md` — clean unions; no duplicated
+    `pub use` block and no duplicated Make target.
+  - `docs/developers-guide.md` — this branch's runtime-ownership paragraph,
+    with the target's `fragment_helpers/mod.rs` path correction preserved.
+
+- [x] (2026-10-15) Confirmed the `#722` dead-letter fix survived the merge
+  intact, which was the one resolution worth double-checking, because this
+  branch moved that logic out of `handle.rs` into a new `dlq.rs` while the
+  parent branch was landing the fix in `handle.rs`. The surviving
+  `src/push/queues/dlq.rs` carries the fix's semantics — `swap(0)` to take the
+  count, an early return when the swap finds nothing, and the `#[cfg(loom)]`
+  reported counter — and no stale `dlq_drops.store(0, ...)` remains anywhere.
+  SHA ancestry cannot answer this question after a rebase, because replaying
+  commits mints new SHAs; the check has to be made on content.
+
+- [x] (2026-10-15) Two stale path references remain in child-owned files, and
+  both are attributable to the base lag rather than to this branch. The
+  developers' guide cites `cargo bench --bench connection_startup`, and
+  `benches/runtime_ownership_baselines.rs` cites the same file as the precedent
+  for its `iter_custom` arrangement; `src/push/queues/dlq.rs` cites
+  `crates/wireframe-loom/tests/push_dlq.rs`. Both paths exist on `origin/main`
+  and at `OLD_BASE` and are absent only because the target predates their
+  landing commits (main's `#678` and the Loom harness). Neither is this
+  branch's text: the developers' guide paragraph is byte-identical to
+  `origin/main`'s, and the `dlq.rs` module comment is this branch's prose
+  describing a main-owned model. Both are plain code spans rather than
+  intra-doc links, so neither can fail `cargo doc`. Left as they are: they
+  become correct again as soon as the stack rebases onto main, and editing
+  main-owned prose here would only create a conflict to resolve later.
+
 ## Surprises & discoveries
 
 - Observation: **this repository's spelling gate mandates `-ize`, not `-ise`,
