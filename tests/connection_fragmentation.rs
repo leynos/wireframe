@@ -87,6 +87,42 @@ async fn connection_actor_fragments_outbound_frames() -> TestResult {
 }
 
 #[tokio::test]
+async fn connection_actor_advances_fragment_ids_across_frames() -> TestResult {
+    let (mut actor, handle, cfg) = setup_fragmented_actor()?;
+
+    let payload = vec![3_u8; cfg.fragment_payload_cap.get().saturating_add(16)];
+    for correlation_id in [Some(9), Some(10)] {
+        handle
+            .push_low_priority(Envelope::new(ROUTE_ID, correlation_id, payload.clone()))
+            .await?;
+    }
+    drop(handle);
+
+    let mut out = Vec::new();
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|err| io::Error::other(format!("actor run failed: {err:?}")))?;
+
+    let mut message_ids = Vec::new();
+    for env in out {
+        let payload = env.into_parts().into_payload();
+        let Some((header, _)) = decode_fragment_payload(&payload)? else {
+            return Err("expected every outbound frame to be fragmented".into());
+        };
+        let message_id = header.message_id().get();
+        if message_ids.last() != Some(&message_id) {
+            message_ids.push(message_id);
+        }
+    }
+
+    if message_ids != [0, 1] {
+        return Err(format!("expected sequential fragment IDs [0, 1], got {message_ids:?}").into());
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn connection_actor_passes_through_small_outbound_frames_unfragmented() -> TestResult {
     let (mut actor, handle, cfg) = setup_fragmented_actor()?;
 
