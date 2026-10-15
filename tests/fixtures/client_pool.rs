@@ -204,6 +204,7 @@ impl ClientPoolWorld {
             return Err("expected the pooled call task to be cancelled".into());
         }
 
+        server.release_delayed_first_response();
         timeout(
             CANCELLATION_GRACE,
             server.wait_for_delayed_first_response_attempt(),

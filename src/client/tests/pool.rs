@@ -338,6 +338,7 @@ async fn cancelling_in_flight_call_reconnects_before_reuse(
         .expect_err("cancelled pooled call should stop its task");
     assert!(join_error.is_cancelled());
 
+    server.release_delayed_first_response();
     timeout(GRACE, server.wait_for_delayed_first_response_attempt()).await?;
     let lease = timeout(GRACE, pool.acquire()).await??;
     let response: Pong = lease.call(&Ping(2)).await?;
