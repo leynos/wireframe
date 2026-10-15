@@ -172,6 +172,7 @@ where
             crate::metrics::inc_pool_incomplete_operation_discard();
             tracing::debug!(
                 action = "discard_connection",
+                pool_operation = "client_operation",
                 reason = "operation_incomplete",
                 "discarding pooled client connection after an incomplete operation"
             );
