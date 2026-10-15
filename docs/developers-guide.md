@@ -296,6 +296,21 @@ connection-local ownership model remains governed by
 callers still initialize tracing, create the Tokio runtime, and configure the
 server explicitly.
 
+`WireframeApp::handle_connection_result` remains a deprecated public
+compatibility entrypoint. It delegates to the private
+`handle_unprepared_connection_result` path, which rebuilds route chains for
+callers that still own an unprepared builder. Server connection tasks use
+`PreparedApp::handle_connection_result` instead, preserving the once-per-run
+preparation boundary.
+
+Server binding uses the public `AppFactory` and `Preamble` traits directly in
+its generic bounds. `AppFactory` requires a factory that is `Send`, `Sync`,
+`Clone`, and `'static`, with a `Send + Sync` serializer, `Send + 'static`
+connection state, a `Packet`, and a `FrameCodec`. `Preamble` requires borrowed
+bincode decoding for every lifetime plus `Send`, `Sync`, and `'static`. These
+public traits carry the actual contracts; local private aliases would add no
+constraint and would obscure those bounds.
+
 ### Server supervisor lifecycle
 
 `WireframeServer::run_with_shutdown` remains the foreground API. It owns the
