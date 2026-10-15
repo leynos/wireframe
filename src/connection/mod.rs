@@ -18,7 +18,7 @@ mod response;
 mod shutdown;
 mod state;
 
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
 pub use channels::ConnectionChannels;
 use counter::ActiveConnection;
@@ -101,7 +101,7 @@ pub struct ConnectionActor<F, E = NoProtocolError> {
     /// Scheduler state preventing high-priority traffic from starving low traffic.
     fairness: FairnessTracker,
     /// Optional fragmenter applied immediately before outbound emission.
-    fragmenter: Option<Arc<Fragmenter>>,
+    fragmenter: Option<Fragmenter>,
     /// Identifier used to correlate actor diagnostics with connection setup.
     connection_id: Option<ConnectionId>,
     /// Peer address retained for diagnostics when the socket exposes it.
@@ -193,7 +193,7 @@ where
     where
         F: Packet,
     {
-        self.fragmenter = Some(Arc::new(Fragmenter::new(config.fragment_payload_cap)));
+        self.fragmenter = Some(Fragmenter::new(config.fragment_payload_cap));
     }
 
     /// Set or replace the current streaming response.
