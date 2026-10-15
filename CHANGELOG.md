@@ -24,6 +24,10 @@ All notable changes to this project will be documented in this file.
   instead.
 - Breaking: Marked `ServerError` as `#[non_exhaustive]`. Downstream consumers
   must add a wildcard arm when matching it.
+- **Breaking:** Mark `ClientError` as `#[non_exhaustive]` and add the typed
+  `PoolSaturated` error for rejected pool acquisitions; downstream exhaustive
+  matches need a wildcard arm.
+  ([#550](https://github.com/leynos/wireframe/issues/550))
 - Breaking: Renamed `BackoffConfig::normalised` to `BackoffConfig::normalized`
   to align the public API spelling with American English.
 - Breaking: Renamed the cargo feature flag `test-helpers` to

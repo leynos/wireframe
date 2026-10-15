@@ -97,13 +97,21 @@ where
             return;
         }
 
-        if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+        match tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
         {
-            runtime.block_on(client.close());
-            #[cfg(test)]
-            signal_close_completion(self.close_completion.take());
+            Ok(runtime) => {
+                runtime.block_on(client.close());
+                #[cfg(test)]
+                signal_close_completion(self.close_completion.take());
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "failed to create runtime for pooled client teardown"
+                );
+            }
         }
     }
 }

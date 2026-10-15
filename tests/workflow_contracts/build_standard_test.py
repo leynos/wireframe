@@ -32,6 +32,7 @@ import pytest
 import tomllib
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
+from toolchain_pin import pinned_channel
 
 ROOT = Path(__file__).resolve().parents[2]
 THREADS_FLAG = "-Zthreads=8"
@@ -40,7 +41,7 @@ LINUX_TABLES = {"x86_64-unknown-linux-gnu", 'cfg(target_os = "linux")'}
 #: Whether the pinned toolchain is a nightly. `-Zthreads` is a nightly flag, so
 #: on a stable pin the standard is `mold` alone and the frontend flag must
 #: appear nowhere.
-NIGHTLY = True
+NIGHTLY = pinned_channel().startswith("nightly")
 RUSTFLAGS_RE = re.compile(r'RUSTFLAGS="([^"]*)"')
 #: A caller's own flags, distinct from anything a recipe adds, to prove a
 #: recipe composes an exported ``RUSTFLAGS`` with the standard flags rather than
