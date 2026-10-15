@@ -120,10 +120,7 @@ impl<F: FrameLike> PushHandle<F> {
             Ok(permit) => permit.send(frame),
             Err(mpsc::error::TrySendError::Full(())) => {
                 self.0.waits.record_capacity_wait();
-                tx.clone()
-                    .send(frame)
-                    .await
-                    .map_err(|_| PushError::Closed)?;
+                tx.send(frame).await.map_err(|_| PushError::Closed)?;
             }
             Err(mpsc::error::TrySendError::Closed(())) => return Err(PushError::Closed),
         }
