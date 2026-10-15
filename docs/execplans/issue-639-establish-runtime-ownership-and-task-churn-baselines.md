@@ -672,6 +672,17 @@ Thresholds that trigger escalation when breached.
   `the managed sccache server is unreachable; compiling without the cache`
   notices, which are not failures.
 
+- [x] (2026-10-15) Ran `make lint` against the final HEAD: **exit 0** in 41m49s
+  (`/tmp/lint-issue-639-establish-runtime-ownership-and-task-churn-baselines.out`,
+  header `head=1bacdd589023d265b4a81c7233ac12a4ce4af855`). All three stages
+  completed clean and none emitted a single warning despite `-D warnings`:
+  `cargo doc --workspace --no-deps` (9m03s), then
+  `cargo clippy --workspace --all-targets --all-features -- -D warnings`
+  (13m06s), then `whitaker --all -- --all-targets --all-features` (17m32s). The
+  only output was `build-limits` queue notices and the sccache-unreachable
+  line; an explicit scan for `^(error|warning)(\[|:)` over the whole log
+  returns nothing.
+
 - [x] (2026-10-15) Ran `mbake validate Makefile` — required on its own because
   this branch edits the Makefile: `Makefile: Valid syntax`, exit 0
   (`/tmp/mbake-issue-639-establish-runtime-ownership-and-task-churn-baselines.out`).
@@ -2689,6 +2700,29 @@ Quality criteria:
 
 Quality method: run the gate list through `scrutineer`; then run
 `make bench-runtime-ownership` once on this machine and transcribe the numbers.
+
+### Terminal gate result for the rebased candidate
+
+| Gate             | Result | Evidence                                                          |
+| ---------------- | ------ | ----------------------------------------------------------------- |
+| `make test`      | PASS   | 83 binaries, 1313 passed, 0 failed, exit 0, at `701f343`          |
+| `make typecheck` | PASS   | exit 0 in 1m06s, 0 errors, at `dab896b`                           |
+| `make lint`      | PASS   | exit 0 in 41m49s, 0 warnings under `-D warnings`, at `1bacdd5`    |
+| `mbake validate` | PASS   | `Makefile: Valid syntax`, exit 0, at `1bacdd5`                    |
+| `make check-fmt` | DRIFT  | red on one inherited file; see the tool-drift entry in `Progress` |
+| `make spelling`  | PASS   | exit 0                                                            |
+
+`make test`, `typecheck` and `lint` did not all run at one revision: `test` ran
+at `701f343` and the other two at `dab896b`, with `lint` at the final
+`1bacdd5`. That is sound because `git diff --name-only 701f343 HEAD` returns
+**zero non-`.md` paths** — every commit after `701f343` touches this document
+alone. The code is identical across all of them, so the runs validate the same
+artifact; recording which revision each gate saw is what makes that checkable
+rather than asserted.
+
+`check-fmt` is the sole red gate, and it is red on a file this branch does not
+touch, under a tool version CI does not pin. It is recorded as drift with the
+CI-log and file-count evidence above, not waived.
 
 ## Idempotence and recovery
 
