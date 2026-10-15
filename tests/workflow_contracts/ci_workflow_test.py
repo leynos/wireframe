@@ -230,8 +230,8 @@ def _workflow_steps() -> list[tuple[str, str, dict[str, object]]]:
     for workflow_name, document in repository_workflows().items():
         jobs = cast("dict[str, dict[str, object]]", document.get("jobs") or {})
         for job_name, job in jobs.items():
-            for step in cast("list[dict[str, object]]", job.get("steps") or []):
-                found.append((workflow_name, job_name, step))
+            steps = cast("list[dict[str, object]]", job.get("steps") or [])
+            found.extend((workflow_name, job_name, step) for step in steps)
     return found
 
 

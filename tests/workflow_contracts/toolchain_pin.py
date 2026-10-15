@@ -21,8 +21,8 @@ def pinned_channel() -> str:
     """Return the pinned Rust toolchain channel from the manifest."""
     toolchain = pinned_toolchain().get("toolchain")
     if not isinstance(toolchain, dict):
-        raise AssertionError("rust-toolchain.toml must define a [toolchain] table")
+        raise TypeError("expected [toolchain] mapping")
     channel = toolchain.get("channel")
     if not isinstance(channel, str):
-        raise AssertionError("rust-toolchain.toml must define toolchain.channel")
+        raise TypeError("expected string toolchain.channel")
     return channel
