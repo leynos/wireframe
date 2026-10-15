@@ -96,8 +96,7 @@ pub trait FactoryResult<App> {
     fn into_result(self) -> Result<App, Self::Error>;
 }
 
-impl<Ser, Ctx, E, Codec> FactoryResult<WireframeApp<Ser, Ctx, E, Codec>>
-    for WireframeApp<Ser, Ctx, E, Codec>
+impl<Ser, Ctx, E, Codec> FactoryResult<Self> for WireframeApp<Ser, Ctx, E, Codec>
 where
     Ser: Serializer + Send + Sync,
     Ctx: Send + 'static,
@@ -106,7 +105,7 @@ where
 {
     type Error = std::convert::Infallible;
 
-    fn into_result(self) -> Result<WireframeApp<Ser, Ctx, E, Codec>, Self::Error> { Ok(self) }
+    fn into_result(self) -> Result<Self, Self::Error> { Ok(self) }
 }
 
 impl<Ser, Ctx, E, Codec, Err> FactoryResult<WireframeApp<Ser, Ctx, E, Codec>>
@@ -349,14 +348,17 @@ mod sealed {
 }
 
 impl ServerState for Unbound {}
+
 impl ServerState for Bound {}
 
 mod config;
 pub use config::{binding, preamble};
 mod connection_spawner;
+
 pub mod error;
 pub use error::ServerError;
 mod runtime;
+
 mod shutdown;
 /// Re-exported configuration types for server backoff behaviour.
 pub use runtime::BackoffConfig;

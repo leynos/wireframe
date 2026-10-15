@@ -114,7 +114,7 @@ pub(super) struct SupervisorCancellationDropGuard<'a> {
 
 impl<'a> SupervisorCancellationDropGuard<'a> {
     /// Pair Tokio's cancellation guard with lifecycle accounting.
-    pub(super) fn new(guard: DropGuardRef<'a>, lifecycle: SupervisorLifecycle) -> Self {
+    pub(super) const fn new(guard: DropGuardRef<'a>, lifecycle: SupervisorLifecycle) -> Self {
         Self {
             _guard: guard,
             lifecycle,

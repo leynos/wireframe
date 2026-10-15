@@ -153,6 +153,11 @@ buffering caps for inbound assembly paths. Custom protocols implement
 settings, so call `enable_fragmentation()` (or `fragmentation(Some(cfg))`)
 again when transport fragmentation is required.
 
+`WireframeApp::codec`, `fragmentation`, and `memory_budgets` can be called from
+`const fn` code. `Envelope::new` and `PacketParts::new` are also const
+constructors, which lets downstream libraries compose these values in their own
+compile-time helpers.
+
 `WireframeError` defaults to `WireframeError<NoProtocolError>`. The marker
 means an API does not carry protocol-defined error payloads, while still
 allowing the default `wireframe::Result<T>` to implement `std::error::Error`

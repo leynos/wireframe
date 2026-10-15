@@ -33,7 +33,7 @@ where
     where
         P: WireframeProtocol<Frame = F::Frame, ProtocolError = ()> + 'static,
     {
-        WireframeApp {
+        Self {
             protocol: Some(Arc::new(protocol)),
             ..self
         }
@@ -73,7 +73,7 @@ where
     /// ```
     #[must_use]
     pub fn with_message_assembler(self, assembler: impl MessageAssembler + 'static) -> Self {
-        WireframeApp {
+        Self {
             message_assembler: Some(Arc::new(assembler)),
             ..self
         }
