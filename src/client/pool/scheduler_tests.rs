@@ -77,41 +77,63 @@ fn waiters_remain_ordered_after_scheduler_state_poison_recovery() {
                 eq(true)
             );
             expect_that!(
-                state.enqueue_waiter(second_handle, second_sender, policy),
+                state.enqueue_waiter(first_handle, second_sender, policy),
                 eq(true)
             );
-            expect_that!(
-                state.enqueue_waiter(first_handle, third_sender, policy),
-                eq(true)
-            );
+            expect_that!(waiter_count(&state), eq(2));
             expect_that!(state.has_waiters(), eq(true));
         }
 
-        poison_scheduler_state(&scheduler);
+        poison_scheduler_state_during_enqueue(&scheduler, second_handle, third_sender, policy);
         let recovered_handle = recover_scheduler_state(&scheduler);
 
-        let mut state = scheduler
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = lock_or_recover(&scheduler.state);
         expect_that!(
             state.handle_waiters.contains_key(&recovered_handle),
             eq(true)
         );
+        expect_that!(waiter_count(&state), eq(3));
         expect_that!(state.has_waiters(), eq(true));
 
-        drop_next_waiter(&mut state, policy, "first waiter");
-        assert_receiver_closed(&mut first_receiver);
-        drop_next_waiter(&mut state, policy, "second waiter");
-        assert_receiver_closed(&mut second_receiver);
-        drop_next_waiter(&mut state, policy, "third waiter");
-        assert_receiver_closed(&mut third_receiver);
+        match policy {
+            PoolFairnessPolicy::Fifo => {
+                assert_next_waiter_served(&mut state, policy, &mut first_receiver, 2);
+                assert_next_waiter_served(&mut state, policy, &mut second_receiver, 1);
+                assert_next_waiter_served(&mut state, policy, &mut third_receiver, 0);
+            }
+            PoolFairnessPolicy::RoundRobin => {
+                assert_next_waiter_served(&mut state, policy, &mut first_receiver, 2);
+                assert_next_waiter_served(&mut state, policy, &mut third_receiver, 1);
+                assert_next_waiter_served(&mut state, policy, &mut second_receiver, 0);
+            }
+        }
         expect_that!(state.has_waiters(), eq(false));
         assert!(
             state.take_next_waiter(policy).is_none(),
             "all waiters must be served exactly once"
         );
     }
+}
+
+fn waiter_count(state: &TestState) -> usize {
+    state.fifo_queue.len()
+        + state
+            .handle_waiters
+            .values()
+            .map(std::collections::VecDeque::len)
+            .sum::<usize>()
+}
+
+fn assert_next_waiter_served<T>(
+    state: &mut TestState,
+    policy: PoolFairnessPolicy,
+    receiver: &mut oneshot::Receiver<T>,
+    remaining_waiters: usize,
+) {
+    drop_next_waiter(state, policy, "expected waiter");
+    assert_receiver_closed(receiver);
+    expect_that!(waiter_count(state), eq(remaining_waiters));
+    expect_that!(state.has_waiters(), eq(remaining_waiters > 0));
 }
 
 fn drop_next_waiter(state: &mut TestState, policy: PoolFairnessPolicy, waiter_name: &str) {
@@ -131,11 +153,17 @@ fn assert_receiver_closed<T>(receiver: &mut oneshot::Receiver<T>) {
     );
 }
 
-fn poison_scheduler_state(scheduler: &Arc<TestScheduler>) {
+fn poison_scheduler_state_during_enqueue(
+    scheduler: &Arc<TestScheduler>,
+    handle_id: u64,
+    sender: WaiterSender<BincodeSerializer, (), ()>,
+    policy: PoolFairnessPolicy,
+) {
     let poisoned_scheduler = Arc::clone(scheduler);
     let join_result = thread::spawn(move || {
-        let _state = lock_or_recover(&poisoned_scheduler.state);
-        panic!("poison scheduler state for recovery coverage");
+        let mut state = lock_or_recover(&poisoned_scheduler.state);
+        assert!(state.enqueue_waiter(handle_id, sender, policy));
+        panic!("panic after waiter enqueue while holding scheduler state");
     })
     .join();
 

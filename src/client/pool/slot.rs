@@ -269,12 +269,13 @@ mod tests {
             .expect("slot poison-recovery test runtime should build");
         let _runtime_guard = runtime.enter();
         let slot = test_slot(1, Duration::from_millis(1));
-        *slot.lock_last_returned_at() = Some(Instant::now() - Duration::from_mins(1));
+        let stale_timestamp = Instant::now() - Duration::from_mins(1);
 
         let poisoned_slot = Arc::clone(&slot);
         let join_result = thread::spawn(move || {
-            let _last_returned_at = poisoned_slot.lock_last_returned_at();
-            panic!("poison slot timestamp for recovery coverage");
+            let mut last_returned_at = poisoned_slot.lock_last_returned_at();
+            *last_returned_at = Some(stale_timestamp);
+            panic!("panic after slot timestamp update while holding the lock");
         })
         .join();
 
