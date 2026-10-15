@@ -19,7 +19,8 @@ pub mod connection_startup;
 
 pub mod frame_codec;
 
-#[cfg(feature = "pool")]
+// Client networking is excluded from Loom builds, so its fixtures are too.
+#[cfg(all(feature = "pool", not(loom)))]
 pub mod pool_client;
 
 pub use connection_startup::{
@@ -33,7 +34,7 @@ pub use connection_startup::{
     noop_handler,
 };
 pub use frame_codec::{TestAdapter, TestCodec, TestFrame};
-#[cfg(feature = "pool")]
+#[cfg(all(feature = "pool", not(loom)))]
 pub use pool_client::{
     ClientHello,
     Ping,

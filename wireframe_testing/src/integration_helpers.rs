@@ -5,9 +5,10 @@
 //! correlation support, a default app factory, and a helper to bind to an
 //! unused local port without relying on file-level lint suppressions.
 
+#[cfg(not(loom))]
+use std::{io::ErrorKind, net::SocketAddr};
 use std::{
-    io::ErrorKind,
-    net::{SocketAddr, TcpListener as StdTcpListener},
+    net::TcpListener as StdTcpListener,
     pin::Pin,
     sync::{
         Arc,
@@ -16,10 +17,11 @@ use std::{
 };
 
 use rstest::fixture;
+#[cfg(not(loom))]
+use tokio::{net::TcpStream, time::sleep};
 use tokio::{
-    net::TcpStream,
     sync::oneshot,
-    time::{Duration, sleep, timeout},
+    time::{Duration, timeout},
 };
 pub use wireframe::testkit::{TestError, TestResult};
 use wireframe::{
@@ -73,6 +75,7 @@ pub fn unused_listener() -> TestResult<StdTcpListener> { Ok(StdTcpListener::bind
 /// Ok(())
 /// # }
 /// ```
+#[cfg(not(loom))]
 pub async fn wait_for_listener_release(addr: SocketAddr) -> TestResult {
     let release_result: TestResult = timeout(Duration::from_secs(1), async {
         loop {
