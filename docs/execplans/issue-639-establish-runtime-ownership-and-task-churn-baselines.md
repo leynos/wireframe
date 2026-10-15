@@ -436,6 +436,127 @@ Thresholds that trigger escalation when breached.
   no code gate was invalidated, because every path changed since the code-gated
   head `cc5ea92` is a `.md`.
 
+- [x] (2026-10-15) Restacked the branch onto
+      `origin/harden-lint-connection-fragment`
+  (`69d8fdc`) at the user's request, so PR #756 can be retargeted off `main`
+  and onto the connection-fragment layer.
+
+  Boundary evidence, since a restack must prove ownership rather than guess it:
+  `OLD_BASE` `ef858aa` (the last inherited commit — a `main` snapshot),
+  `OLD_HEAD` `84bfbf3` (the remote tip before the rewrite), `TARGET` `69d8fdc`.
+  The owned series is `ef858aa..84bfbf3`: 35 commits, 0 merges, 0 empty. That
+  range came from the recorded boundary receipt, not from the topology
+  merge-base, which is the fan-out `292c7d9` and would have swept in other
+  branches' work.
+
+  The target is a stale `main` fan-out point: it carries only 2 of the 32
+  `main` commits in `292c7d9..ef858aa`. So several `main` fixes the series had
+  been building on are absent at the target — `#535` (`1689563`), `#722`
+  (`44aed17`), `#678`, `#754`, `#709`, `#710`, `#708`, `#732`, `#749`. That
+  absence, not any semantic disagreement, is what drove every conflict below.
+
+  `git range-diff ef858aa..84bfbf3 69d8fdc..HEAD` reports 29 unchanged, 6
+  altered, 0 missing, 0 new. Each of the six:
+
+  1. `0a5df3e` → `5f31996` (EP-M1 scaffolding): trailer stripped; module
+     visibility and `#[cfg]` gating adopt the target's form; the fixture moves
+     to the target's `tests/common/prepared_app.rs` path.
+  2. `91cb7ef` → `d7894b6` (Makefile): trailer stripped; `.PHONY` resolved as
+     the union of the target's list and this series' two new bench targets.
+  3. `d28b54e` → `673b09b` (developers' guide): this series supersedes the
+     target's stale `tests/common/fragment_helpers.rs` wording — the correct
+     path is `.../fragment_helpers/mod.rs` — and adds the runtime-ownership
+     paragraph.
+  4. `7457a29` → `9949e1b` (`scheduler_tests`): three `#535`-dependent tests
+     were dropped. `try_begin_servicing_has_one_owner_until_stopped`,
+     `stop_servicing_allows_another_owner`, and
+     `restart_if_waiters_only_begins_service_for_queued_work`, plus their
+     `fifo_scheduler` fixture, exercise `try_begin_servicing` /
+     `stop_servicing`, which do not exist at the target. Their absence is a
+     consequence of the stale target, not a deliberate scope cut, and the two
+     target-supported tests in that module are kept.
+  5. `b57f9a2` → `b0fb1d7` (`scheduler.rs` only).
+  6. `716db83` → `eacb442` (`Cargo.lock` hunk dropped, per the instruction to
+     take the main-line lock and rebuild after the merge).
+
+  Two conflict resolutions are worth recording because the obvious answer was
+  the wrong one:
+
+  - `src/push/queues/handle.rs`: took this series' side, **not** the target's.
+    The target is a pre-`#722` snapshot whose handle still does
+    `self.0.dlq_drops.store(0, Ordering::Relaxed);`, i.e. it *reverts* the
+    concurrency fix `#722` landed. This series had already moved the DLQ into
+    `src/push/queues/dlq.rs`, where it does
+    `let reported = self.drops.swap(0, Ordering::Relaxed);` and keeps the
+    reported count. Confirmed `#722`/`44aed17` is an ancestor of `main`
+    (`ef858aa`) and **not** of the target, so taking the target's side would
+    have silently un-landed a shipped fix.
+  - `src/client/mod.rs`: rebuilt with plain `git merge-file -p --diff3` rather
+    than the ambient merge driver (see the surprise below). The union is the
+    target's export list plus this series' `PoolTaskChurn` /
+    `PoolTaskChurnObserver` additions and `mod tracing_timing;`.
+
+  Lockfile: took the target's `Cargo.lock` verbatim per instruction, then
+  rebuilt with `cargo metadata`. The regenerated lock differs from the target's
+  by exactly one line — `"serial_test",` added to the `wireframe_testing`
+  stanza — and the `thiserror` `2.0.20` pin is preserved.
+
+- [x] (2026-10-15) Post-restack validation, and one real defect the merge
+  introduced into the candidate.
+
+  `make test` failed to compile at `ced4139`:
+
+  ```text
+  error[E0382]: borrow of moved value: `inner`
+     --> src/client/pool/scheduler.rs:229:9
+      |
+  223 |             self.kick(inner);
+      |                       ----- value moved here
+  229 |         inner.churn.record_capacity_wait();
+      |         ^^^^^ value borrowed here after move
+  ```
+
+  Root cause: this series' `record_capacity_wait()` call was written against a
+  flat acquire path, where it sat *before* the `kick`. The target restructured
+  that path so the move happens inside `} else { self.kick(inner); }`, and the
+  merge carried the call to a position *after* the move. Fixed in `d79246d` by
+  moving the call (with its comment) into the `else` branch, immediately before
+  `self.kick(inner)`. That is also the semantically correct home: the counter
+  is documented as "waiters that had to park because no slot had a free
+  permit", so it must not be recorded when `try_acquire_immediately` already
+  returned a lease and the caller's own oneshot carries it.
+
+- [x] (2026-10-15) `make check-fmt`'s `mdtablefix` half is red on this host,
+  and it is tool-version drift, not a defect in this branch or in the target.
+
+  The flagged path is `docs/execplans/adopt-shared-mutation-workflow.md` (+4
+  −4), which this branch does not touch (`git log ef858aa..HEAD -- <path>` is
+  empty). The evidence chain:
+
+  - The file's blob is `abd0447` at both the target `69d8fdc` and the parent
+    branch `486b3e4`, and `9107413` on `origin/main`.
+  - CI for exactly `69d8fdc` (run `35963755221`, 2026-09-24) **passed**, and
+    its Format step logged `116 files left unchanged` under
+    `mdtablefix 0.6.0`.
+  - This host runs `mdtablefix 0.6.1`, which reports the same blob as `+4 -4`.
+  - The difference isolates to the `--wrap` rule: `--renumber`, `--breaks`,
+    `--ellipsis`, and `--fences` each report `left unchanged` on that blob.
+  - `origin/main` already has those same four lines re-wrapped (`b479338`),
+    and `mdtablefix(target blob)` is byte-identical to `origin/main`'s blob.
+
+  So the identical bytes are green under the CI pin and red under the newer
+  local binary. Recorded as inconclusive-on-this-host: the `cargo fmt` half of
+  `check-fmt` is authoritative and passes, and the flagged file is deliberately
+  **not** reformatted here, because this branch does not own it and a
+  0.6.1-only rewrite would publish an unrelated change. All four Markdown files
+  this branch does own pass the stricter local rule set, and therefore pass the
+  CI-pinned one.
+
+- [x] (2026-10-15) Integrity audit of the restacked candidate: 37 commits and
+  0 merges in `69d8fdc..HEAD`, the target is an ancestor, no conflict markers
+  and no merge-driver artefacts anywhere in the tree, `git diff --check` is
+  clean, `cargo fmt --all -- --check` passes, and the worktree is clean.
+
 ## Surprises & discoveries
 
 - Observation: **this repository's spelling gate mandates `-ize`, not `-ise`,
@@ -1007,6 +1128,34 @@ Thresholds that trigger escalation when breached.
   last touched by an unrelated 2025 commit; `origin/main` had simply moved two
   commits ahead. The finding is a stale-base artefact and is correctly ignored,
   per the same rule that governs the restacked-ancestor attributions above.
+
+- Discovery: the ambient `weave` merge driver corrupts files **while exiting
+  cleanly**, so a clean exit status and an empty `git ls-files -u` are not
+  evidence that an auto-merge is correct. The user-wide enrolment is
+  `merge.weave.driver = WEAVE_EVENT=1 /home/leynos/.cargo/bin/weave-driver %O %A
+  %B %L %P`.
+  Four distinct corruption modes were observed during this restack:
+
+  - A synthetic conflict side left in the file:
+    `// refused_by: merge_ladder_exhausted · collision:
+    \`pool_scheduler_task_spawns,\``.
+  - An entire `pub use` export block duplicated in `src/client/mod.rs`, with
+    two Rustdoc lines deleted and a `// weave: run 'weave explain <path>' ...`
+    marker appended.
+  - Blank lines injected between consecutive `mod` declarations in
+    `src/push/queues/mod.rs` — and only in the **index** copy; the worktree
+    copy was correct, so `git show :0:<path>` had to be diffed against the
+    worktree to see it.
+
+  Because the driver rewrites text *and* comments, a markers-only scan for
+  `<<<<<<<` passes while the file is wrong. Impact: every auto-merged file in
+  this restack was diffed against its source commit before staging, and the
+  whole tree was scanned for `refused_by`, `merge_ladder_exhausted`, and
+  `weave:` in addition to conflict markers. Where the driver had corrupted a
+  conflicted path, the union was rebuilt with plain `git merge-file -p --diff3`
+  from the three stages (`git show :1:/:2:/:3:<path>`) instead, which produced
+  the correct result. A recovery ref and a binary patch were taken before any
+  rewrite, so the pre-restack state remains recoverable.
 
 ## Decision log
 
@@ -1605,6 +1754,39 @@ Thresholds that trigger escalation when breached.
   unchanged, so the recorded baseline's benchmark ids still key the same
   scenarios. The three `time_*` helpers and the contended observation path are
   untouched.
+
+- **Decision: for each conflict, adopt the target's *structural* layout and
+  port this series' *semantic* intent onto it, deciding each case by tracing
+  provenance rather than by branch label.** The target is not "newer" in any
+  general sense — it is a stale `main` fan-out point — so "take theirs" and
+  "take ours" are both wrong as blanket rules. Concretely: the `Makefile`
+  `.PHONY` line is a union, because both sides added distinct targets;
+  `developers-guide.md` takes this series' wording, because the target's
+  phrasing names a path that no longer exists
+  (`tests/common/fragment_helpers.rs` rather than
+  `.../fragment_helpers/mod.rs`); `scheduler.rs` takes the target's branchier
+  acquire path with this series' counter ported into it; and `handle.rs` takes
+  this series' side outright, because the target's copy predates `#722` and
+  would revert a landed concurrency fix. Rationale: a restack's job is to
+  preserve the child's purpose while inheriting the parent's improvements, and
+  only provenance can tell which side is which. Consequence for review: each of
+  the six altered commits was inspected individually against `range-diff`, and
+  the three tests that could not be carried (`#535`-dependent) are recorded as
+  omitted with their reason rather than silently dropped.
+
+- **Decision: treat `make check-fmt`'s `mdtablefix` step as
+  inconclusive-on-this-host and do not reformat the flagged file.** Evidence:
+  the blob CI validated green under the pinned `mdtablefix 0.6.0` is red under
+  this host's `0.6.1`, the difference isolates to the `--wrap` rule, and the
+  file is outside this branch's change surface. Options considered: (a) run
+  `make fmt` and commit the rewrite — rejected, because it would publish a
+  change unrelated to the restack and would touch a file this branch does not
+  own; (b) install `mdtablefix 0.6.0` locally to reproduce CI exactly —
+  rejected as scope creep for this task, and it would still not make the
+  flagged file this branch's responsibility; (c) record it with evidence and
+  rely on the `cargo fmt` half plus the CI pin. Chose (c). Trade-off: a local
+  `make check-fmt` stays red until the local binary is pinned, so the recorded
+  gate result must be read with that caveat rather than treated as green.
 
 ## Context and orientation
 
