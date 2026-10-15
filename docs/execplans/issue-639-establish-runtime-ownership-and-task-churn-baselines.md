@@ -649,6 +649,53 @@ Thresholds that trigger escalation when breached.
   recorded on the parking path. Moving the call into the `else` branch
   satisfies both; leaving it where the merge put it satisfies only the second.
 
+- [x] (2026-10-15) Ran `make test` against the rebased candidate: **exit 0**,
+  83 test binaries, 1313 passed, 0 failed, 0 ignored, no non-zero failure count
+  anywhere in the log
+  (`/tmp/test-issue-639-establish-runtime-ownership-and-task-churn-baselines-3.out`,
+  header `head=701f34367b7b2df4c5060d89c4d2e8ab80200b9f`). The delta between
+  that gated revision and the final `f23e254` is this document alone, and no
+  compiled target depends on it, so the run validates the shipped code.
+
+  The two compile repairs both took: the log contains no `E0271` and no `E0382`
+  anywhere, and all three `prepared_app` binaries ran —
+  `tests/prepared_app/mod.rs` (5 passed), `tests/prepared_app_tcp.rs` (1
+  passed) and `tests/prepared_app_observability.rs` (1 passed). The
+  `runtime_ownership_benchmark_helpers` suite this branch owns ran green at
+  `36 passed; 0 failed`.
+
+- [x] (2026-10-15) Classified the `make check-fmt` failure as **tool drift with
+  evidence**, and deliberately did not reformat the flagged file.
+
+  `make check-fmt` reports
+  `docs/execplans/adopt-shared-mutation-workflow.md +4 -4`. That file is not
+  this branch's:
+  `git log ef858aa0ec019358495612b1bb429b932ae12392..HEAD -- <path>` is empty,
+  and its blob is inherited unchanged from the target. The local toolchain is
+  `mdtablefix 0.6.1`, while CI installs 0.6.0
+  (`.github/workflows/ci.yml:62-65`, via the pinned `install-mdtablefix`
+  action).
+
+  Running each copy through local 0.6.1 isolates the difference to the tool and
+  not to the content. The target's copy is rejected (`rc=1`, `+4 -4`); the copy
+  on `origin/main` — the same file re-wrapped by
+  `b479338 Provision Whitaker through install-whitaker (#732)`, a commit the
+  target predates — is accepted (`rc=0`, `1 file left unchanged`). Main has
+  already solved this exact formatting disagreement.
+
+  CI confirms the pinned tool accepts what we ship: run `35963755221` on
+  `69d8fdc` — the same commit whose tree carries this identical blob
+  `abd044795361050ca76ba6de3e8ec2c5ed16e3f2` — concluded `success`. The file is
+  green under the pinned 0.6.0 in CI and red only under the unpinned local
+  0.6.1.
+
+  Reformatting it here would be wrong twice over: it would edit a file this
+  branch never touched, and it would adopt the *newer* tool's wrapping in a
+  tree that still carries the *older* tool's content for a file the stack will
+  re-inherit from main anyway. It becomes correct for free when the stack
+  rebases onto main, exactly like the two dangling path references recorded
+  above.
+
 ## Surprises & discoveries
 
 - Observation: **this repository's spelling gate mandates `-ize`, not `-ise`,
