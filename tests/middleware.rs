@@ -3,9 +3,22 @@
 //! Confirm that a custom middleware can modify requests and responses.
 #![cfg(not(loom))]
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use rstest::rstest;
-use wireframe::middleware::{Next, Service, ServiceRequest, ServiceResponse, Transform};
+use wireframe::{
+    app::Envelope,
+    middleware::{
+        HandlerService,
+        Next,
+        Service,
+        ServiceRequest,
+        ServiceResponse,
+        Transform,
+        from_fn,
+    },
+};
 
 struct EchoService;
 
@@ -63,6 +76,42 @@ async fn middleware_modifies_request_and_response_preserves_cid(correlation_id: 
 
     assert_eq!(response.frame(), &[1, 2, 3, b'!', b'?']);
     assert_eq!(response.correlation_id(), correlation_id);
+}
+
+#[tokio::test]
+async fn from_fn_clones_captured_state_across_routes() {
+    let marker = Arc::new([b'!', b'?']);
+    let middleware = from_fn(
+        move |mut request: ServiceRequest, _next: Next<'_, HandlerService<Envelope>>| {
+            let [request_marker, response_marker] = marker.as_ref();
+            request.frame_mut().push(*request_marker);
+            let correlation_id = request.correlation_id();
+            let mut frame = request.into_inner();
+            frame.push(*response_marker);
+            std::future::ready(Ok(ServiceResponse::new(frame, correlation_id)))
+        },
+    );
+
+    let first_route = middleware
+        .transform(HandlerService::from_service(1, EchoService))
+        .await;
+    let second_route = middleware
+        .transform(HandlerService::from_service(2, EchoService))
+        .await;
+
+    let first_response = first_route
+        .call(ServiceRequest::new(vec![b'X'], Some(7)))
+        .await
+        .expect("first route middleware call should succeed");
+    let second_response = second_route
+        .call(ServiceRequest::new(vec![b'Y'], Some(8)))
+        .await
+        .expect("second route middleware call should succeed");
+
+    assert_eq!(first_response.frame(), b"X!?");
+    assert_eq!(first_response.correlation_id(), Some(7));
+    assert_eq!(second_response.frame(), b"Y!?");
+    assert_eq!(second_response.correlation_id(), Some(8));
 }
 
 #[test]
