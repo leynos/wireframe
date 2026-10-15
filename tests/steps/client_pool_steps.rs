@@ -24,6 +24,11 @@ fn given_client_pool_idle_recycle(client_pool_world: &mut ClientPoolWorld) {
     let _ = client_pool_world;
 }
 
+#[given("client pool cancellation safety is configured")]
+fn given_client_pool_cancellation_safety(client_pool_world: &mut ClientPoolWorld) {
+    let _ = client_pool_world;
+}
+
 #[when("client pool warm reuse runs against one socket")]
 fn when_client_pool_warm_reuse_runs(client_pool_world: &mut ClientPoolWorld) -> TestResult {
     let rt = tokio::runtime::Runtime::new()?;
@@ -54,6 +59,12 @@ fn when_client_pool_idles_past_timeout(client_pool_world: &mut ClientPoolWorld) 
         .enable_all()
         .build()?;
     rt.block_on(client_pool_world.run_idle_recycle_scenario())
+}
+
+#[when("client pool cancels a delayed in-flight call")]
+fn when_client_pool_cancels_in_flight_call(client_pool_world: &mut ClientPoolWorld) -> TestResult {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client_pool_world.run_cancelled_call_scenario())
 }
 
 #[then("client pool warm reuse preserves one preamble handshake")]
@@ -91,5 +102,16 @@ fn then_client_pool_reconnects_after_idle(client_pool_world: &mut ClientPoolWorl
         Ok(())
     } else {
         Err("expected idle recycle to reconnect and replay preamble".into())
+    }
+}
+
+#[then("client pool reconnects after cancellation and releases capacity")]
+fn then_client_pool_reconnects_after_cancellation(
+    client_pool_world: &mut ClientPoolWorld,
+) -> TestResult {
+    if client_pool_world.reconnected_after_cancelled_call() {
+        Ok(())
+    } else {
+        Err("expected cancellation to release capacity and reconnect".into())
     }
 }

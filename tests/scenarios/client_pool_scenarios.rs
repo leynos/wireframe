@@ -35,3 +35,11 @@ fn client_pool_rejects_excess_waiters(client_pool_world: ClientPoolWorld) {
 fn client_pool_recycles_idle_sockets(client_pool_world: ClientPoolWorld) {
     let _ = client_pool_world;
 }
+
+#[scenario(
+    path = "tests/features/client_pool.feature",
+    name = "Client pool reconnects after a cancelled call"
+)]
+fn client_pool_reconnects_after_cancelled_call(client_pool_world: ClientPoolWorld) {
+    let _ = client_pool_world;
+}

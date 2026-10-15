@@ -60,6 +60,7 @@ where
     ) -> Result<R, ClientError> {
         let mut connection = self.slot.checkout().await?;
         let result = operation(&mut connection).await;
+        connection.disarm();
         if let Err(err) = &result
             && Self::should_recycle(err)
         {

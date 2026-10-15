@@ -81,6 +81,7 @@ where
 
         Ok(SlotConnection {
             connection,
+            armed: true,
             last_returned_at: &self.last_returned_at,
         })
     }
@@ -123,8 +124,20 @@ where
 {
     /// Checked-out resource whose drop records healthy or broken return state.
     connection: PooledConnection<'a, WireframeConnectionManager<S, P, C>>,
+    /// Invalidates the resource unless an operation completed while checked out.
+    armed: bool,
     /// Slot timestamp updated when the checkout is returned.
     last_returned_at: &'a Mutex<Option<Instant>>,
+}
+
+impl<S, P, C> SlotConnection<'_, S, P, C>
+where
+    S: Serializer + Clone + Send + Sync + 'static,
+    P: bincode::Encode + Clone + Send + Sync + 'static,
+    C: Send + 'static,
+{
+    /// Preserve the connection after an operation completes.
+    pub(crate) fn disarm(&mut self) { self.armed = false; }
 }
 
 impl<S, P, C> Deref for SlotConnection<'_, S, P, C>
@@ -154,6 +167,10 @@ where
     C: Send + 'static,
 {
     fn drop(&mut self) {
+        if self.armed {
+            self.connection.mark_broken();
+        }
+
         let mut last_returned_at = lock_or_recover(self.last_returned_at);
 
         if self.connection.is_broken() {

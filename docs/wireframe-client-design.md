@@ -483,6 +483,12 @@ cargo run --example client_echo_login --features examples
   - warm reuse keeps the negotiated socket and does not replay preamble;
   - if a slot is idle past its configured timeout, the next checkout lazily
     recycles the socket and reruns the preamble.
+- Cancellation safety:
+  - each checked-out connection remains guarded until its operation completes;
+    dropping an in-flight operation marks the socket broken before it can
+    return to the pool;
+  - completed operations disarm that guard, then the existing recyclable-error
+    policy decides whether a failed socket must be discarded.
 - Admission semantics:
   - `max_in_flight_per_socket` is an admission budget, not a promise of
     parallel writes on one transport;
