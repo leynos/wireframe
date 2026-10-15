@@ -4,7 +4,7 @@
 //! the underlying [`Service`]. Implement [`Transform`] to wrap services or use
 //! [`from_fn`] to create middleware from an async function.
 
-use std::{convert::Infallible, sync::Arc};
+use std::convert::Infallible;
 
 use async_trait::async_trait;
 
@@ -239,14 +239,14 @@ pub fn from_fn<F>(f: F) -> FromFn<F> { FromFn::new(f) }
 
 /// Service wrapper that applies a middleware function to requests.
 ///
-/// Created by [`FromFn::transform`], this type owns the wrapped service and an
-/// `Arc` to the middleware function. The function is invoked on each request
-/// with a [`ServiceRequest`] and [`Next`] continuation.
+/// Created by [`FromFn::transform`], this type owns the wrapped service and the
+/// middleware function value. The function is invoked on each request with a
+/// [`ServiceRequest`] and [`Next`] continuation.
 pub struct FnService<S, F> {
     /// Wrapped service invoked by the continuation.
     service: S,
-    /// Shared callback so cloned middleware services preserve behaviour.
-    f: Arc<F>,
+    /// Callback invoked for each request.
+    f: F,
 }
 
 #[async_trait]
@@ -260,7 +260,7 @@ where
 
     async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
         let next = Next::new(&self.service);
-        (self.f.as_ref())(req, next).await
+        (self.f)(req, next).await
     }
 }
 
@@ -276,7 +276,7 @@ where
     async fn transform(&self, service: S) -> Self::Output {
         FnService {
             service,
-            f: Arc::new(self.f.clone()),
+            f: self.f.clone(),
         }
     }
 }

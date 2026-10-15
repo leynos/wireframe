@@ -62,7 +62,7 @@ where
     where
         F: Packet,
     {
-        if let Some(fragmenter) = self.fragmenter.as_deref() {
+        if let Some(fragmenter) = self.fragmenter.as_ref() {
             let fragmented = fragment_packet(fragmenter, frame);
             match fragmented {
                 Ok(frames) => frames

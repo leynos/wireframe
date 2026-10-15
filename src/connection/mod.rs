@@ -18,7 +18,7 @@ mod response;
 mod shutdown;
 mod state;
 
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
 pub use channels::ConnectionChannels;
 use counter::ActiveConnection;
@@ -99,7 +99,7 @@ pub struct ConnectionActor<F, E = NoProtocolError> {
     /// Scheduler state preventing high-priority traffic from starving low traffic.
     fairness: FairnessTracker,
     /// Optional fragmenter applied immediately before outbound emission.
-    fragmenter: Option<Arc<Fragmenter>>,
+    fragmenter: Option<Fragmenter>,
     /// Identifier used to correlate actor diagnostics with connection setup.
     connection_id: Option<ConnectionId>,
     /// Peer address retained for diagnostics when the socket exposes it.
@@ -191,7 +191,7 @@ where
     where
         F: Packet,
     {
-        self.fragmenter = Some(Arc::new(Fragmenter::new(config.fragment_payload_cap)));
+        self.fragmenter = Some(Fragmenter::new(config.fragment_payload_cap));
     }
 
     /// Set or replace the current streaming response.
@@ -350,13 +350,16 @@ where
             ActiveOutput::Response(stream) => (None, Some(stream)),
             ActiveOutput::None => (None, None),
         };
+        let shutdown = &self.shutdown;
+        let high_rx = self.high_rx.as_mut();
+        let low_rx = self.low_rx.as_mut();
 
         tokio::select! {
             biased;
 
-            () = Self::wait_shutdown(self.shutdown.clone()), if state.is_active() => Event::Shutdown,
-            res = Self::poll_queue(self.high_rx.as_mut()), if avail.high => Event::High(res),
-            res = Self::poll_queue(self.low_rx.as_mut()), if avail.low => Event::Low(res),
+            () = Self::wait_shutdown(shutdown), if state.is_active() => Event::Shutdown,
+            res = Self::poll_queue(high_rx), if avail.high => Event::High(res),
+            res = Self::poll_queue(low_rx), if avail.low => Event::Low(res),
             res = Self::poll_queue(multi_rx), if can_poll_multi_packet => Event::MultiPacket(res),
             res = Self::poll_response(response_stream), if can_poll_response => Event::Response(res),
             else => Event::Idle,
