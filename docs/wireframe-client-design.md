@@ -631,6 +631,39 @@ sequenceDiagram
 
 _Figure 1: Client-pool waiter acquisition and servicing transitions._
 
+For screen readers: this sequence diagram shows a caller requesting a pooled
+lease. The scheduler first prunes cancelled waiters and counts those still
+admitted. If the waiter limit has been reached, it returns
+`PoolSaturated { limit }` to the pool, which returns the error to the caller.
+Otherwise, the scheduler admits the waiter, the service worker acquires a slot
+permit, and the caller receives a pooled lease.
+
+```mermaid
+sequenceDiagram
+    actor Caller
+    participant Pool as WireframeClientPool
+    participant Scheduler as PoolScheduler
+    participant Worker as ServiceWorker
+    participant Slot as SlotPermits
+
+    Caller->>Pool: acquire()
+    Pool->>Scheduler: enqueue_waiter()
+    Scheduler->>Scheduler: prune_cancelled_waiters()
+    Scheduler->>Scheduler: waiter_count()
+    alt waiter limit reached
+        Scheduler-->>Pool: PoolSaturated { limit }
+        Pool-->>Caller: PoolSaturated { limit }
+    else waiter admitted
+        Scheduler-->>Pool: Enqueued
+        Scheduler->>Worker: service_waiters()
+        Worker->>Slot: acquire_slot_permit()
+        Slot-->>Worker: lease permit
+        Worker-->>Caller: pooled lease
+    end
+```
+
+_Figure 2: Bounded waiter admission and saturation rejection._
+
 ## Decision record for 17.4.2
 
 - Decision: document only the currently reachable troubleshooting surface for
