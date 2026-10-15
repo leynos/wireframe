@@ -235,16 +235,16 @@ def _workflow_steps() -> list[tuple[str, str, dict[str, object]]]:
     return found
 
 
-def _assert_installed_before_lint(install: dict[str, object]) -> None:
-    """Require the install in `ci.yml`'s `build-test` job, before `make lint`.
+def _assert_installed_before_lint(
+    steps: list[dict[str, object]], install: dict[str, object]
+) -> None:
+    """Require the selected install step before `make lint` in its job.
 
     `make lint` runs `whitaker`, so provisioning it in another job, or after
     the `Lint` step, leaves the lint command running without its tool while a
     count-only check still passes.
     """
-    workflow = load_workflow(WORKFLOW_PATH.read_text(encoding="utf-8"))
-    steps = cast("list[dict[str, object]]", workflow["jobs"]["build-test"]["steps"])
-    install_index = next((i for i, step in enumerate(steps) if step is install or step == install), None)
+    install_index = next((i for i, step in enumerate(steps) if step is install), None)
     lint_index = next(
         (i for i, step in enumerate(steps) if step.get("run") == "make lint"), None
     )
@@ -277,12 +277,21 @@ def test_whitaker_is_installed_only_through_the_pinned_shared_action() -> None:
         )
     ]
     assert len(installs) == 1, f"expected one install-whitaker use, found {len(installs)}"
-    (_file, _job, install) = installs[0]
+    (workflow_name, job_name, install) = installs[0]
+    assert (workflow_name, job_name) == ("ci.yml", "build-test"), (
+        "install-whitaker must run in ci.yml:build-test, "
+        f"found {workflow_name}:{job_name}"
+    )
     assert INSTALL_WHITAKER_ACTION_RE.fullmatch(str(install["uses"])), (
         "install-whitaker must be pinned to a full commit SHA"
     )
     assert "run" not in install, "the install-whitaker step must carry no script"
-    _assert_installed_before_lint(install)
+    build_test_steps = [
+        step
+        for file_name, workflow_job, step in steps
+        if file_name == workflow_name and workflow_job == job_name
+    ]
+    _assert_installed_before_lint(build_test_steps, install)
 
     routes = [
         f"{file}:{job}: {step.get('name')}"

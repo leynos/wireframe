@@ -82,31 +82,40 @@ async fn from_app_serves_concurrent_tcp_connections_from_one_prepared_root() -> 
             .await
     });
 
-    wait_for_server_readiness(ready_rx).await?;
-    let frame = build_frame(1, vec![b'X'])?;
-    let (first, second) = tokio::join!(
-        exchange_frame(address, frame.clone()),
-        exchange_frame(address, frame)
-    );
-    check_equal(
-        &first?,
-        b"XAA",
-        "the first concurrent connection should follow middleware order",
-    )?;
-    check_equal(
-        &second?,
-        b"XAA",
-        "the second concurrent connection should follow middleware order",
-    )?;
-    check_equal(
-        &transforms.load(Ordering::SeqCst),
-        &1,
-        "from_app should prepare the application once for both workers",
-    )?;
+    let connection_result: TestResult<()> = async {
+        wait_for_server_readiness(ready_rx).await?;
+        let frame = build_frame(1, vec![b'X'])?;
+        let (first, second) = tokio::join!(
+            exchange_frame(address, frame.clone()),
+            exchange_frame(address, frame)
+        );
+        check_equal(
+            &first?,
+            b"XAA",
+            "the first concurrent connection should follow middleware order",
+        )?;
+        check_equal(
+            &second?,
+            b"XAA",
+            "the second concurrent connection should follow middleware order",
+        )?;
+        check_equal(
+            &transforms.load(Ordering::SeqCst),
+            &1,
+            "from_app should prepare the application once for both workers",
+        )?;
+        Ok(())
+    }
+    .await;
 
-    shutdown_tx
+    let shutdown_result = shutdown_tx
         .send(())
-        .map_err(|()| "server shutdown receiver was dropped")?;
-    server_task.await??;
-    wait_for_listener_release(address).await
+        .map_err(|()| "server shutdown receiver was dropped");
+    let server_result = server_task.await;
+    let listener_result = wait_for_listener_release(address).await;
+
+    connection_result?;
+    shutdown_result?;
+    server_result??;
+    listener_result
 }

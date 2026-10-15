@@ -131,8 +131,13 @@ impl ClientPoolWorld {
         );
 
         drop(held_lease);
-        let waiter_lease = waiter.await??;
-        drop(waiter_lease);
+        match waiter.await? {
+            Ok(waiter_lease) => drop(waiter_lease),
+            Err(ClientError::PoolSaturated { .. }) => {
+                self.blocked_waiter_within_limit = false;
+            }
+            Err(error) => return Err(error.into()),
+        }
         Ok(())
     }
 
