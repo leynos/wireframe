@@ -3626,6 +3626,7 @@ dependencies = [
  "metrics",
  "metrics-util",
  "rstest",
+ "serial_test",
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",
