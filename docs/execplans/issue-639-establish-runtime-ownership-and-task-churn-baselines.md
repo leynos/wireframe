@@ -664,6 +664,18 @@ Thresholds that trigger escalation when breached.
   `runtime_ownership_benchmark_helpers` suite this branch owns ran green at
   `36 passed; 0 failed`.
 
+- [x] (2026-10-15) Ran `make typecheck` against the final HEAD: **exit 0**, 0
+  errors, in 1m 06s
+  (`/tmp/typecheck-issue-639-establish-runtime-ownership-and-task-churn-baselines-2.out`,
+  header `head=dab896b904a9d243fb28f085ed16e22171f3877e`). Its only diagnostic
+  output was the expected
+  `the managed sccache server is unreachable; compiling without the cache`
+  notices, which are not failures.
+
+- [x] (2026-10-15) Ran `mbake validate Makefile` — required on its own because
+  this branch edits the Makefile: `Makefile: Valid syntax`, exit 0
+  (`/tmp/mbake-issue-639-establish-runtime-ownership-and-task-churn-baselines.out`).
+
 - [x] (2026-10-15) Classified the `make check-fmt` failure as **tool drift with
   evidence**, and deliberately did not reformat the flagged file.
 
@@ -683,11 +695,38 @@ Thresholds that trigger escalation when breached.
   target predates — is accepted (`rc=0`, `1 file left unchanged`). Main has
   already solved this exact formatting disagreement.
 
-  CI confirms the pinned tool accepts what we ship: run `35963755221` on
+  CI confirms the pinned tool accepts what we ship, and this is worth quoting
+  directly rather than inferring from the run's conclusion. Run `35963755221` on
   `69d8fdc` — the same commit whose tree carries this identical blob
-  `abd044795361050ca76ba6de3e8ec2c5ed16e3f2` — concluded `success`. The file is
-  green under the pinned 0.6.0 in CI and red only under the unpinned local
-  0.6.1.
+  `abd044795361050ca76ba6de3e8ec2c5ed16e3f2` — has a single `build-test` job (id
+  `107517698288`) whose log shows the pin taking effect and the gate passing:
+
+  ```plaintext
+    MDTABLEFIX_VERSION: 0.6.0
+  ##[notice]result=installed version=0.6.0
+  ##[group]Run make check-fmt
+  mdtablefix --check --git --include-untracked --wrap --renumber --breaks --ellipsis --fences
+  116 files left unchanged.
+  ```
+
+  The file counts reconcile exactly, which is what makes this a tool difference
+  rather than a content one. The target tree holds 117 tracked Markdown files;
+  CI's pinned 0.6.0 accepted 116 of them and — crucially — flagged nothing, the
+  117th being a file outside mdtablefix's scan set. Locally, 0.6.1 accepts the
+  same 115 files that 0.6.0 accepts *among those it also sees*, plus the 2
+  Markdown files this branch adds, and rejects only the one file main already
+  re-wrapped:
+
+  ```plaintext
+  CI (0.6.0):      116 unchanged + 0 flagged
+  local (0.6.1):   117 unchanged + 1 flagged  = 118
+  118 - 116 = 2 = the 2 Markdown files this branch adds
+  ```
+
+  So the two tools disagree on exactly one input — the stale copy of a file
+  neither this branch nor CI's tree changed — and agree on everything else. The
+  file is green under the pinned 0.6.0 in CI and red only under the unpinned
+  local 0.6.1.
 
   Reformatting it here would be wrong twice over: it would edit a file this
   branch never touched, and it would adopt the *newer* tool's wrapping in a
