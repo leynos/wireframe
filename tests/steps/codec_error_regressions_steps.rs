@@ -5,6 +5,27 @@ use rstest_bdd_macros::{given, then, when};
 
 use crate::fixtures::codec_error_regressions::{CodecErrorRegressionsWorld, TestResult};
 
+#[given("an envelope prefix declaring a vector larger than the frame ceiling")]
+fn given_oversized_envelope_prefix(
+    codec_error_regressions_world: &mut CodecErrorRegressionsWorld,
+) -> TestResult {
+    codec_error_regressions_world.prepare_oversized_envelope()
+}
+
+#[when("the default envelope decoder reads the prefix")]
+fn when_oversized_envelope_decoded(
+    codec_error_regressions_world: &mut CodecErrorRegressionsWorld,
+) -> TestResult {
+    codec_error_regressions_world.decode_oversized_envelope()
+}
+
+#[then("decoding fails with a bincode allocation limit error")]
+fn then_envelope_allocation_is_bounded(
+    codec_error_regressions_world: &CodecErrorRegressionsWorld,
+) -> TestResult {
+    codec_error_regressions_world.assert_envelope_limit_exceeded()
+}
+
 #[given("a codec error regression world")]
 fn given_codec_error_regression_world(
     codec_error_regressions_world: &mut CodecErrorRegressionsWorld,
