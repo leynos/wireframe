@@ -14,7 +14,7 @@ where
 {
     /// Await cancellation on the provided shutdown token.
     #[inline]
-    pub(super) async fn wait_shutdown(token: CancellationToken) { token.cancelled_owned().await; }
+    pub(super) async fn wait_shutdown(token: &CancellationToken) { token.cancelled().await; }
 
     /// Receive the next frame from a push queue.
     #[inline]
