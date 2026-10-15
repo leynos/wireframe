@@ -76,7 +76,7 @@ async fn wait_for_counts(
 
 /// Runs legacy server connections and waits for their startup instrumentation.
 async fn run_legacy_server_connections(
-    app_factory: impl Fn() -> TestResult<TestApp> + Clone + Send + Sync + 'static,
+    app_factory: impl Fn() -> wireframe::Result<TestApp> + Clone + Send + Sync + 'static,
     instrumentation: &ConnectionStartupInstrumentation,
     expected: &ConnectionStartupCounts,
 ) -> TestResult<()> {
