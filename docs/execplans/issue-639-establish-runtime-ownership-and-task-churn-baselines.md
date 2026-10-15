@@ -630,6 +630,25 @@ Thresholds that trigger escalation when breached.
   become correct again as soon as the stack rebases onto main, and editing
   main-owned prose here would only create a conflict to resolve later.
 
+- [x] (2026-10-15) Verified the churn-counter repair against the tests that
+  pin its semantics, from both sides, in
+  `cargo test -p wireframe_testing --lib --all-features
+  runtime_ownership_benchmarks::client_pool_benchmark_support::tests`:
+  `23 passed; 0 failed; 40 filtered out`, exit 0
+  (`/tmp/churn-guard-issue-639-...out`).
+
+  The two assertions bracket the fix, which is why they are worth running
+  together rather than trusting the full suite's aggregate. In the uncontended
+  direction, `uncontended_acquisition_records_no_capacity_waits` holds
+  `capacity_waits == 0` across three pool-size and acquisition grids: a single
+  caller that releases before re-acquiring must never park, so this fails if
+  the counter is recorded on the fast path. In the contended direction,
+  `contended_acquisition_observes_capacity_waits` requires
+  `capacity_waits >= contenders`: a burst that empties the pool and holds it
+  empty must park every contender, so this fails if the counter is *not*
+  recorded on the parking path. Moving the call into the `else` branch
+  satisfies both; leaving it where the merge put it satisfies only the second.
+
 ## Surprises & discoveries
 
 - Observation: **this repository's spelling gate mandates `-ize`, not `-ise`,
