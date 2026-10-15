@@ -305,6 +305,7 @@ mod tests {
             logs.as_ref(),
             contains_substring("recovering poisoned client pool bookkeeping lock")
         );
+        // Poison remains set, so both recycle checks and the clear record recovery.
         expect_that!(
             observability
                 .counter_without_labels(crate::metrics::POOL_BOOKKEEPING_POISON_RECOVERIES),
