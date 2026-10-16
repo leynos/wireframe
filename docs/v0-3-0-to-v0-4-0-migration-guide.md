@@ -5,6 +5,28 @@ drive accepted streams directly. It explains how to move route and middleware
 setup out of connection handling while retaining the existing server factory
 workflow.
 
+## Client error matching
+
+`ClientError` is now marked `#[non_exhaustive]`, and pooled acquisitions can
+return `ClientError::PoolSaturated { limit }` when the configured waiter bound
+is full. Add a wildcard arm to exhaustive matches and handle saturation at the
+caller boundary. For example:
+
+```rust
+use wireframe::client::ClientError;
+
+fn saturation_limit(error: ClientError) -> Option<usize> {
+    match error {
+        ClientError::PoolSaturated { limit } => Some(limit),
+        _ => None,
+    }
+}
+```
+
+The pool rejects the acquisition before assigning a socket, so this error does
+not indicate a broken connection. Applications can report temporary
+unavailability or retry after capacity returns.
+
 ## Prepared application transition
 
 `WireframeApp` remains the mutable builder. Register routes, middleware,

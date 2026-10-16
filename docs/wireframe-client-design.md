@@ -574,6 +574,19 @@ flowchart TD
   - the scheduler never bypasses `max_in_flight_per_socket`, serialized socket
     access, or idle recycle behaviour inherited from `17.2.1`.
 
+### Bounded waiter admission
+
+`ClientPoolConfig::max_waiters` bounds pending acquisitions independently of
+the socket and per-socket in-flight limits. It defaults to `64`; values below
+one are clamped to `1`. Before admission, the scheduler removes requests whose
+oneshot receivers were cancelled and counts both policy queues and the waiter
+currently being serviced while it waits for a slot permit.
+
+Once the limit is full, `WireframeClientPool::acquire` and
+`PoolHandle::acquire` return `ClientError::PoolSaturated { limit }`
+immediately. This rejection involves no socket and does not mark a connection
+for recycle. An acquire deadline remains future scheduler-actor work.
+
 For screen readers: this sequence diagram follows a caller acquiring a pool
 lease. The scheduler queues the caller under the configured fairness policy,
 then tries to acquire a lease immediately. If a lease is available, the
@@ -617,6 +630,39 @@ sequenceDiagram
 ```
 
 _Figure 1: Client-pool waiter acquisition and servicing transitions._
+
+For screen readers: this sequence diagram shows a caller requesting a pooled
+lease. The scheduler first prunes cancelled waiters and counts those still
+admitted. If the waiter limit has been reached, it returns
+`PoolSaturated { limit }` to the pool, which returns the error to the caller.
+Otherwise, the scheduler admits the waiter, the service worker acquires a slot
+permit, and the caller receives a pooled lease.
+
+```mermaid
+sequenceDiagram
+    actor Caller
+    participant Pool as WireframeClientPool
+    participant Scheduler as PoolScheduler
+    participant Worker as ServiceWorker
+    participant Slot as SlotPermits
+
+    Caller->>Pool: acquire()
+    Pool->>Scheduler: enqueue_waiter()
+    Scheduler->>Scheduler: prune_cancelled_waiters()
+    Scheduler->>Scheduler: waiter_count()
+    alt waiter limit reached
+        Scheduler-->>Pool: PoolSaturated { limit }
+        Pool-->>Caller: PoolSaturated { limit }
+    else waiter admitted
+        Scheduler-->>Pool: Enqueued
+        Scheduler->>Worker: service_waiters()
+        Worker->>Slot: acquire_slot_permit()
+        Slot-->>Worker: lease permit
+        Worker-->>Caller: pooled lease
+    end
+```
+
+_Figure 2: Bounded waiter admission and saturation rejection._
 
 ## Decision record for 17.4.2
 

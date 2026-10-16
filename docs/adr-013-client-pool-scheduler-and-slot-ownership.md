@@ -356,23 +356,19 @@ Do not clone every slot merely to default trait-object futures to `'static`.
 
 ### 7. Integrate bounded waiter admission
 
-The actor is the sole admission point for
-[#550](https://github.com/leynos/wireframe/issues/550). It will enforce
-configured waiter capacity and/or acquisition deadlines and return a typed
-error when admission fails.
+The `max_waiters` portion of
+[#550](https://github.com/leynos/wireframe/issues/550) is implemented in the
+current scheduler. `ClientPoolConfig::max_waiters` defaults to `64` and clamps
+values below one to `1`. Admission prunes cancelled receivers and counts both
+policy queues and the request currently held by the servicing worker while it
+waits for a slot permit. A full limit returns the typed
+`ClientError::PoolSaturated { limit }` error; it does not recycle a socket.
+`ClientError` is now `#[non_exhaustive]`.
 
-Admission counts must include queued requests whose oneshot receivers have not
-yet been observed as cancelled. Cancelled receivers are pruned on every grant
-attempt and at admission-check time, so abandoned requests do not consume
-capacity indefinitely. Waiter deadlines are mandatory, not optional: a
-saturated pool must reject or time out waiters rather than queue them
-unboundedly.
-
-Admission rejection and timeout use dedicated typed errors — for example
-`ClientError::PoolSaturated { limit }` and `ClientError::AcquireTimeout` —
-neither of which reports `should_recycle_connection() == true`, since no socket
-was involved. `ClientError` gains `#[non_exhaustive]` before these variants
-land, which is cheap at 0.3.0 and painful later.
+The acquire deadline remains scheduler-actor work. The actor must enforce a
+configured deadline and return a typed `ClientError::AcquireTimeout` when one
+expires. Until then, bounded waiter admission prevents unbounded queue growth
+without promising a maximum wait duration.
 
 ### 8. Preserve cancellation safety of physical sockets
 

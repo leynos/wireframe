@@ -81,6 +81,7 @@ where
         parts: ClientBuildParts<S, P, C>,
     ) -> Result<Self, ClientError> {
         let fairness_policy = pool_config.fairness_policy_value();
+        let max_waiters = pool_config.max_waiters_value();
         let mut slots = Vec::with_capacity(pool_config.pool_size_value());
         for _ in 0..pool_config.pool_size_value() {
             let manager = WireframeConnectionManager::new(addr, parts.clone());
@@ -101,7 +102,7 @@ where
             inner: Arc::new(ClientPoolInner {
                 slots: Arc::from(slots),
                 next_slot: AtomicUsize::new(0),
-                scheduler: Arc::new(PoolScheduler::new(fairness_policy)),
+                scheduler: Arc::new(PoolScheduler::new(fairness_policy, max_waiters)),
                 shutdown: AtomicBool::new(false),
                 shutdown_notify: Notify::new(),
             }),
