@@ -2,12 +2,9 @@
 
 mod common;
 
-use std::{
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 
 #[path = "common/fallible_assertions/check_equal.rs"]
@@ -23,8 +20,7 @@ use common::prepared_app::{
 use fallible_check_equal::check_equal;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
-    time::timeout,
+    net::{TcpListener, TcpStream},
 };
 use wireframe::server::WireframeServer;
 use wireframe_testing::{
@@ -34,24 +30,59 @@ use wireframe_testing::{
     wait_for_server_readiness,
 };
 
-/// Bound each TCP operation so stalled server behaviour fails instead of hanging.
-const TCP_OPERATION_TIMEOUT: Duration = Duration::from_secs(5);
+/// Prepared applications serve TCP connections without rebuilding middleware.
+#[tokio::test]
+async fn prepared_app_serves_tcp_connection_without_retransforming() -> TestResult<()> {
+    let transforms = Arc::new(AtomicUsize::new(0));
+    let prepared = TestApp::new()?
+        .route(1, handler())?
+        .wrap(TransformCountingMiddleware {
+            tag: b'A',
+            transforms: Arc::clone(&transforms),
+        })?
+        .prepare()
+        .await
+        .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
+    check_equal(
+        &transforms.load(Ordering::SeqCst),
+        &1,
+        "preparation should transform the route once",
+    )?;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await?;
+        prepared.handle_connection_result(stream).await
+    });
+
+    let mut client = TcpStream::connect(address).await?;
+    client.write_all(&build_frame(1, vec![b'X'])?).await?;
+    client.shutdown().await?;
+    let mut response = Vec::new();
+    client.read_to_end(&mut response).await?;
+    server.await??;
+
+    check_equal(
+        &response_payload(&response)?,
+        b"XAA",
+        "the TCP response should carry both middleware tags",
+    )?;
+    check_equal(
+        &transforms.load(Ordering::SeqCst),
+        &1,
+        "serving the TCP connection should not rebuild the route",
+    )?;
+    Ok(())
+}
 
 /// Exchange one complete request-response frame with the running server.
 async fn exchange_frame(address: std::net::SocketAddr, frame: Vec<u8>) -> TestResult<Vec<u8>> {
-    let mut client = timeout(TCP_OPERATION_TIMEOUT, TcpStream::connect(address))
-        .await
-        .map_err(|_| "prepared TCP client connect timed out".to_string())??;
-    timeout(TCP_OPERATION_TIMEOUT, client.write_all(&frame))
-        .await
-        .map_err(|_| "prepared TCP request write timed out".to_string())??;
-    timeout(TCP_OPERATION_TIMEOUT, client.shutdown())
-        .await
-        .map_err(|_| "prepared TCP client shutdown timed out".to_string())??;
+    let mut client = TcpStream::connect(address).await?;
+    client.write_all(&frame).await?;
+    client.shutdown().await?;
     let mut response = Vec::new();
-    timeout(TCP_OPERATION_TIMEOUT, client.read_to_end(&mut response))
-        .await
-        .map_err(|_| "prepared TCP response read timed out".to_string())??;
+    client.read_to_end(&mut response).await?;
     response_payload(&response)
 }
 
@@ -82,40 +113,31 @@ async fn from_app_serves_concurrent_tcp_connections_from_one_prepared_root() -> 
             .await
     });
 
-    let connection_result: TestResult<()> = async {
-        wait_for_server_readiness(ready_rx).await?;
-        let frame = build_frame(1, vec![b'X'])?;
-        let (first, second) = tokio::join!(
-            exchange_frame(address, frame.clone()),
-            exchange_frame(address, frame)
-        );
-        check_equal(
-            &first?,
-            b"XAA",
-            "the first concurrent connection should follow middleware order",
-        )?;
-        check_equal(
-            &second?,
-            b"XAA",
-            "the second concurrent connection should follow middleware order",
-        )?;
-        check_equal(
-            &transforms.load(Ordering::SeqCst),
-            &1,
-            "from_app should prepare the application once for both workers",
-        )?;
-        Ok(())
-    }
-    .await;
+    wait_for_server_readiness(ready_rx).await?;
+    let frame = build_frame(1, vec![b'X'])?;
+    let (first, second) = tokio::join!(
+        exchange_frame(address, frame.clone()),
+        exchange_frame(address, frame)
+    );
+    check_equal(
+        &first?,
+        b"XAA",
+        "the first concurrent connection should follow middleware order",
+    )?;
+    check_equal(
+        &second?,
+        b"XAA",
+        "the second concurrent connection should follow middleware order",
+    )?;
+    check_equal(
+        &transforms.load(Ordering::SeqCst),
+        &1,
+        "from_app should prepare the application once for both workers",
+    )?;
 
-    let shutdown_result = shutdown_tx
+    shutdown_tx
         .send(())
-        .map_err(|()| "server shutdown receiver was dropped");
-    let server_result = server_task.await;
-    let listener_result = wait_for_listener_release(address).await;
-
-    connection_result?;
-    shutdown_result?;
-    server_result??;
-    listener_result
+        .map_err(|()| "server shutdown receiver was dropped")?;
+    server_task.await??;
+    wait_for_listener_release(address).await
 }

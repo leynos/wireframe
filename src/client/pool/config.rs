@@ -35,6 +35,7 @@ const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(DEFAULT_IDLE_TIMEOUT_
 /// assert_eq!(config.max_in_flight_per_socket_value(), 3);
 /// assert_eq!(config.idle_timeout_value(), Duration::from_secs(30));
 /// assert_eq!(config.fairness_policy_value(), PoolFairnessPolicy::Fifo);
+/// assert_eq!(ClientPoolConfig::default().max_waiters_value(), 64);
 /// assert_eq!(
 ///     ClientPoolConfig::default()
 ///         .max_waiters(0)

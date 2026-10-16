@@ -13,4 +13,6 @@ fn compile_tests() {
     t.compile_fail("tests/ui/wireframe_result_default_rejects_unit_protocol.rs");
     t.compile_fail("tests/ui/prepared_app_rejects_route.rs");
     t.compile_fail("tests/ui/zero_test_budget.rs");
+    t.pass("tests/ui/client_error_wildcard_match.rs");
+    t.compile_fail("tests/ui/client_error_exhaustive_match.rs");
 }

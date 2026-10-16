@@ -4,7 +4,6 @@ The repository is a Rust workspace with a root library, a verification crate,
 and shared test support. Its main areas are:
 
 - `src/` contains the published `wireframe` library.
-- `crates/wireframe-loom/` contains Loom concurrency models.
 - `crates/wireframe-verification/` contains verification support.
 - `wireframe_testing/` contains shared test fixtures and helpers.
 - `tests/` contains integration and behaviour-driven tests. An

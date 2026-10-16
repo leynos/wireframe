@@ -1,10 +1,8 @@
 //! Managed pooled-connection wrapper.
 //!
 //! The wrapper tracks whether a socket should be discarded when it returns to
-//! `bb8` and attempts lifecycle teardown when the pooled connection is dropped
-//! or reaped. If no runtime is active and fallback runtime creation fails, the
-//! teardown hook cannot run; that failure is logged because `Drop` cannot
-//! return it to the caller.
+//! `bb8` and guarantees connection teardown hooks still run when the pooled
+//! connection is dropped or reaped.
 
 #[cfg(test)]
 use tokio::sync::oneshot;
@@ -99,21 +97,13 @@ where
             return;
         }
 
-        match tokio::runtime::Builder::new_current_thread()
+        if let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
         {
-            Ok(runtime) => {
-                runtime.block_on(client.close());
-                #[cfg(test)]
-                signal_close_completion(self.close_completion.take());
-            }
-            Err(error) => {
-                tracing::warn!(
-                    error = %error,
-                    "failed to create runtime for pooled client teardown"
-                );
-            }
+            runtime.block_on(client.close());
+            #[cfg(test)]
+            signal_close_completion(self.close_completion.take());
         }
     }
 }

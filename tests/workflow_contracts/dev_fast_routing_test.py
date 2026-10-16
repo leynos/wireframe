@@ -17,12 +17,12 @@ from typing import cast
 
 import pytest
 import yaml
-from toolchain_pin import pinned_channel, pinned_toolchain
 
 ROOT = Path(__file__).resolve().parents[2]
 MAKEFILE_PATH = ROOT / "Makefile"
 CONFIG_RELATIVE_PATH = Path("tools/dev-fast/config.toml")
 CONFIG_PATH = ROOT / CONFIG_RELATIVE_PATH
+TOOLCHAIN_PATH = ROOT / "rust-toolchain.toml"
 CI_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 DEV_FAST_ARGUMENT = f"--config {CONFIG_RELATIVE_PATH.as_posix()}"
 LINKER_ARGUMENT = "-Clink-arg=-fuse-ld=mold"
@@ -284,7 +284,7 @@ def test_dev_fast_fragment_exists_outside_cargo_auto_discovery() -> None:
 
 def test_pinned_toolchain_declares_cranelift_component() -> None:
     """The repository toolchain provisions the component selected by dev-fast."""
-    toolchain = pinned_toolchain()
+    toolchain = tomllib.loads(TOOLCHAIN_PATH.read_text(encoding="utf-8"))
     components = toolchain.get("toolchain", {}).get("components", [])
     assert "rustc-codegen-cranelift-preview" in components, (
         "rust-toolchain.toml must install the Cranelift backend component"
@@ -305,7 +305,7 @@ def test_ci_provisions_backend_and_linker_before_lint() -> None:
     assert isinstance(commands, str), "backend and linker provisioning needs run commands"
     required_commands = (
         "rustup component add rustc-codegen-cranelift-preview "
-        f"--toolchain {pinned_channel()}",
+        "--toolchain nightly-2026-03-26",
         "sudo apt-get update",
         "sudo apt-get install -y mold",
         "mold --version",
