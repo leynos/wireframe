@@ -45,6 +45,14 @@ fn assert_teardown_once(teardown_count: &AtomicUsize) {
     );
 }
 
+/// Assert that a one-slot pool replaced its first socket before reuse.
+#[track_caller]
+fn assert_pool_reconnected(server: &PoolTestServer, preamble_callback_count: &AtomicUsize) {
+    assert_eq!(preamble_callback_count.load(Ordering::SeqCst), 2);
+    assert_eq!(server.preamble_count(), 2);
+    assert_eq!(server.connection_count(), 2);
+}
+
 /// Build a real connected resource so its teardown path exercises socket close
 /// and the callback together.
 #[fixture]
@@ -307,9 +315,7 @@ async fn protocol_error_marks_connection_broken_and_reconnects(
     let reply: Pong = lease.call(&Ping(2)).await?;
     assert_eq!(reply, Pong(2));
 
-    assert_eq!(preamble_callback_count.load(Ordering::SeqCst), 2);
-    assert_eq!(server.preamble_count(), 2);
-    assert_eq!(server.connection_count(), 2);
+    assert_pool_reconnected(&server, &preamble_callback_count);
 
     Ok(())
 }
@@ -344,9 +350,7 @@ async fn cancelling_in_flight_call_reconnects_before_reuse(
     let response: Pong = lease.call(&Ping(2)).await?;
     assert_eq!(response, Pong(2));
 
-    assert_eq!(preamble_callback_count.load(Ordering::SeqCst), 2);
-    assert_eq!(server.preamble_count(), 2);
-    assert_eq!(server.connection_count(), 2);
+    assert_pool_reconnected(&server, &preamble_callback_count);
 
     Ok(())
 }
@@ -385,9 +389,7 @@ async fn dropping_lease_with_unread_split_phase_response_reconnects(
     let lease = timeout(GRACE, pool.acquire()).await??;
     let response: Pong = lease.call(&Ping(4)).await?;
     assert_eq!(response, Pong(4));
-    assert_eq!(preamble_callback_count.load(Ordering::SeqCst), 2);
-    assert_eq!(server.preamble_count(), 2);
-    assert_eq!(server.connection_count(), 2);
+    assert_pool_reconnected(&server, &preamble_callback_count);
 
     Ok(())
 }

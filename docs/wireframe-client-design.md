@@ -491,12 +491,24 @@ cargo run --example client_echo_login --features examples
     policy decides whether a failed socket must be discarded;
   - a lease tracks successful split-phase sends until matching receives
     complete, and marks the slot for discard if the lease is dropped with a
-    response still pending.
+    response still pending;
+  - while that response is pending, the lease holds the slot's protocol permit
+    so another lease cannot check out the same socket; dropping the lease marks
+    the socket for discard before releasing the permit.
+  - a whole-request call on that lease while a response is pending returns a
+    disconnection error and schedules the socket for discard on the next
+    checkout.
 - Admission semantics:
   - `max_in_flight_per_socket` is an admission budget, not a promise of
     parallel writes on one transport;
   - leases may coexist up to that budget, but actual socket I/O remains
     serialized by the slot's single checked-out client connection.
+  - `max_waiters` separately bounds acquisitions queued in policy queues or
+    held by the servicing worker; saturation is rejected before socket access;
+  - once a lease owns a split-phase response, its protocol permit reserves the
+    socket until receive completes or dropping the lease schedules a discard.
+    This response-ownership rule composes with waiter admission and does not
+    change its count.
 - For screen readers: the following flowchart shows how
   `WireframeClientPool::acquire()` selects a slot, enforces the per-socket
   admission limit, decides between warm reuse and idle recycle, reruns the

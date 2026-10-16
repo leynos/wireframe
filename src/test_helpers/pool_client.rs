@@ -301,16 +301,10 @@ async fn handle_pool_test_connection(mut stream: tokio::net::TcpStream, state: P
 
         let is_first_special_response =
             !state.special_response_handled.swap(true, Ordering::SeqCst);
-        let payload = if state.behaviour == PoolServerBehavior::MalformedFirstResponse
-            && is_first_special_response
-        {
-            Vec::new()
-        } else {
-            let encoded = bincode::encode_to_vec(Pong(ping.0), bincode::config::standard());
-            let Ok(payload) = encoded else {
-                break;
-            };
-            payload
+        let Some(payload) =
+            pool_test_response_payload(&ping, state.behaviour, is_first_special_response)
+        else {
+            break;
         };
 
         let is_late_first_response =
@@ -318,6 +312,19 @@ async fn handle_pool_test_connection(mut stream: tokio::net::TcpStream, state: P
         if !send_pool_test_response(&mut framed, payload, is_late_first_response, &state).await {
             break;
         }
+    }
+}
+
+/// Encode a normal reply or the selected malformed first response.
+fn pool_test_response_payload(
+    ping: &Ping,
+    behaviour: PoolServerBehavior,
+    is_first_special_response: bool,
+) -> Option<Vec<u8>> {
+    if behaviour == PoolServerBehavior::MalformedFirstResponse && is_first_special_response {
+        Some(Vec::new())
+    } else {
+        bincode::encode_to_vec(Pong(ping.0), bincode::config::standard()).ok()
     }
 }
 

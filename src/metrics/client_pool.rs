@@ -67,6 +67,7 @@ mod tests {
     //! Tests for bounded client-pool metric labels.
 
     use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+    use rstest::rstest;
 
     use super::{
         POOL_CONNECTION_DISCARDS,
@@ -74,36 +75,26 @@ mod tests {
         inc_pool_pending_response_discard,
     };
 
-    #[test]
-    fn incomplete_operation_discard_uses_a_bounded_reason() {
+    #[rstest]
+    #[case::incomplete_operation(
+        "operation_incomplete",
+        inc_pool_incomplete_operation_discard as fn(),
+        "incomplete-operation discard metric was not recorded"
+    )]
+    #[case::pending_response(
+        "response_pending",
+        inc_pool_pending_response_discard as fn(),
+        "pending-response discard metric was not recorded"
+    )]
+    fn discard_metric_uses_a_bounded_reason(
+        #[case] reason: &str,
+        #[case] increment: fn(),
+        #[case] message: &str,
+    ) {
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
 
-        ::metrics::with_local_recorder(&recorder, inc_pool_incomplete_operation_discard);
-
-        let found = snapshotter
-            .snapshot()
-            .into_vec()
-            .iter()
-            .any(|(key, _, _, value)| {
-                key.key().name() == POOL_CONNECTION_DISCARDS
-                    && key.key().labels().any(|label| {
-                        label.key() == "reason" && label.value() == "operation_incomplete"
-                    })
-                    && matches!(value, DebugValue::Counter(count) if *count == 1)
-            });
-        assert!(
-            found,
-            "incomplete-operation discard metric was not recorded"
-        );
-    }
-
-    #[test]
-    fn pending_response_discard_uses_a_bounded_reason() {
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
-
-        ::metrics::with_local_recorder(&recorder, inc_pool_pending_response_discard);
+        ::metrics::with_local_recorder(&recorder, increment);
 
         let found = snapshotter
             .snapshot()
@@ -114,9 +105,9 @@ mod tests {
                     && key
                         .key()
                         .labels()
-                        .any(|label| label.key() == "reason" && label.value() == "response_pending")
+                        .any(|label| label.key() == "reason" && label.value() == reason)
                     && matches!(value, DebugValue::Counter(count) if *count == 1)
             });
-        assert!(found, "pending-response discard metric was not recorded");
+        assert!(found, "{message}");
     }
 }

@@ -31,6 +31,8 @@ where
     pub(crate) pool: Pool<WireframeConnectionManager<S, P, C>>,
     /// Admission semaphore limiting concurrent logical operations.
     permits: Arc<Semaphore>,
+    /// Serializes protocol operations and reserves the socket for pending replies.
+    protocol_gate: Arc<Semaphore>,
     /// Idle age at which the physical resource must be replaced.
     idle_timeout: Duration,
     /// Last healthy return time used for idle recycling.
@@ -54,6 +56,7 @@ where
         Self {
             pool,
             permits: Arc::new(Semaphore::new(max_in_flight_per_socket)),
+            protocol_gate: Arc::new(Semaphore::new(1)),
             idle_timeout,
             last_returned_at: Mutex::new(None),
             discard_on_next_checkout: AtomicBool::new(false),
@@ -70,6 +73,17 @@ where
         self: &Arc<Self>,
     ) -> Result<OwnedSemaphorePermit, ClientError> {
         self.permits
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| ClientError::disconnected())
+    }
+
+    /// Serialize a protocol operation with any unresolved split-phase exchange.
+    pub(crate) async fn acquire_protocol_permit(
+        &self,
+    ) -> Result<OwnedSemaphorePermit, ClientError> {
+        self.protocol_gate
             .clone()
             .acquire_owned()
             .await

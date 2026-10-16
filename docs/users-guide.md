@@ -1815,6 +1815,16 @@ Continue using `PooledClientLease` for explicit split-phase work such as
 session to one socket and does not demultiplex arbitrary responses across
 shared handles.
 
+After a split-phase send succeeds, the slot stays reserved for that lease until
+`receive()` consumes the response. Other leases wait instead of reading from
+the same stream. Dropping the lease discards the socket before releasing that
+reservation.
+
+Do not call `call()` or `call_correlated()` on that same lease while a
+split-phase response is pending. The operation returns a disconnection error
+and schedules the socket for discard; the lease's next operation reconnects
+before using it.
+
 Preamble callbacks and setup hooks run per physical socket creation. Warm reuse
 keeps the existing preamble state; idle recycle closes the old socket and
 creates a fresh one, which reruns preamble and setup.
