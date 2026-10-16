@@ -444,8 +444,11 @@ Each `SlotConnection` checkout starts armed. `dispatch_on_connection` disarms
 the guard only after the operation future returns; dropping an armed guard
 marks the socket broken, records an `operation_incomplete` discard, and clears
 the healthy-return timestamp. This covers cancellation and unwinding while an
-operation is in flight. Completed operations retain the existing
-`ClientError::should_recycle_connection` policy.
+operation is in flight. A lease also counts successful split-phase sends and
+receives. Dropping it with an unread response marks its slot for discard on the
+next checkout, records a `response_pending` discard, and prevents a late reply
+from reaching a later lease. Completed whole-request operations retain the
+existing `ClientError::should_recycle_connection` policy.
 
 `ManagedClientConnection` owns its client in an `Option` and takes it once when
 teardown starts. Calls through `client_mut` return a disconnection error after

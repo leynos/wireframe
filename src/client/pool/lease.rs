@@ -4,7 +4,10 @@
 //! operation checks out the underlying warm socket from that slot, executes
 //! the requested client method, then returns the socket to `bb8`.
 
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use tokio::sync::OwnedSemaphorePermit;
 
@@ -15,6 +18,17 @@ use crate::{
     message::{DecodeWith, EncodeWith},
     serializer::Serializer,
 };
+
+/// How a completed lease operation changes its split-phase response state.
+#[derive(Clone, Copy)]
+enum PendingResponseChange {
+    /// A split-phase send may leave one response on the socket.
+    Add,
+    /// A split-phase receive consumed one response.
+    Remove,
+    /// A whole request-response operation manages its own response.
+    None,
+}
 
 /// One acquired pooled-client lease.
 pub struct PooledClientLease<S, P, C>
@@ -29,6 +43,8 @@ where
     _permit: OwnedSemaphorePermit,
     /// Scheduler state to notify when this lease releases capacity.
     release_inner: Option<Arc<ClientPoolInner<S, P, C>>>,
+    /// Number of split-phase responses this lease has not consumed yet.
+    pending_responses: AtomicUsize,
 }
 
 impl<S, P, C> PooledClientLease<S, P, C>
@@ -47,6 +63,7 @@ where
             slot,
             _permit: permit,
             release_inner,
+            pending_responses: AtomicUsize::new(0),
         }
     }
 
@@ -56,38 +73,69 @@ where
     /// Run one operation against a checked-out connection and mark bad sockets.
     async fn dispatch_on_connection<R>(
         &self,
+        pending_response_change: PendingResponseChange,
         operation: impl AsyncFnOnce(&mut ManagedClientConnection<S, C>) -> Result<R, ClientError>,
     ) -> Result<R, ClientError> {
-        let mut connection = self.slot.checkout().await?;
+        let mut connection = self.slot.checkout(&self.pending_responses).await?;
         let result = operation(&mut connection).await;
         connection.disarm();
         if let Err(err) = &result
             && Self::should_recycle(err)
         {
             connection.mark_broken();
+            self.pending_responses.store(0, Ordering::Release);
+        } else if result.is_ok() {
+            self.record_pending_response_change(pending_response_change);
         }
         result
     }
 
+    /// Record whether a split-phase exchange still has an unread response.
+    fn record_pending_response_change(&self, change: PendingResponseChange) {
+        match change {
+            PendingResponseChange::Add => {
+                self.pending_responses.fetch_add(1, Ordering::AcqRel);
+            }
+            PendingResponseChange::Remove => {
+                let _ = self.pending_responses.fetch_update(
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                    |pending| Some(pending.saturating_sub(1)),
+                );
+            }
+            PendingResponseChange::None => {}
+        }
+    }
+
     /// Send one message over the leased socket.
+    ///
+    /// A successful split-phase send leaves one response pending until a
+    /// receive consumes it. Dropping the lease first discards its socket.
     ///
     /// # Errors
     ///
     /// Returns [`ClientError`] when checkout, serialization, or transport I/O
     /// fails.
     pub async fn send<M: EncodeWith<S>>(&self, message: &M) -> Result<(), ClientError> {
-        self.dispatch_on_connection(async |conn| conn.client_mut()?.send(message).await)
-            .await
+        self.dispatch_on_connection(PendingResponseChange::Add, async |conn| {
+            conn.client_mut()?.send(message).await
+        })
+        .await
     }
 
     /// Receive one message from the leased socket.
+    ///
+    /// A successful receive consumes one response left pending by a split-phase
+    /// send on this lease.
     ///
     /// # Errors
     ///
     /// Returns [`ClientError`] when checkout, decode, or transport I/O fails.
     pub async fn receive<M: DecodeWith<S>>(&self) -> Result<M, ClientError> {
-        self.dispatch_on_connection(async |conn| conn.client_mut()?.receive().await)
-            .await
+        self.dispatch_on_connection(PendingResponseChange::Remove, async |conn| {
+            conn.client_mut()?.receive().await
+        })
+        .await
     }
 
     /// Send one request and await one response over the leased socket.
@@ -101,11 +149,16 @@ where
         Req: EncodeWith<S>,
         Resp: DecodeWith<S>,
     {
-        self.dispatch_on_connection(async |conn| conn.client_mut()?.call(request).await)
-            .await
+        self.dispatch_on_connection(PendingResponseChange::None, async |conn| {
+            conn.client_mut()?.call(request).await
+        })
+        .await
     }
 
     /// Send one envelope and return the correlation ID used.
+    ///
+    /// A successful split-phase send leaves one response pending until a
+    /// receive consumes it. Dropping the lease first discards its socket.
     ///
     /// # Errors
     ///
@@ -115,11 +168,16 @@ where
     where
         M: Packet + EncodeWith<S>,
     {
-        self.dispatch_on_connection(async |conn| conn.client_mut()?.send_envelope(envelope).await)
-            .await
+        self.dispatch_on_connection(PendingResponseChange::Add, async |conn| {
+            conn.client_mut()?.send_envelope(envelope).await
+        })
+        .await
     }
 
     /// Receive one envelope from the leased socket.
+    ///
+    /// A successful receive consumes one response left pending by a split-phase
+    /// send on this lease.
     ///
     /// # Errors
     ///
@@ -128,8 +186,10 @@ where
     where
         M: Packet + DecodeWith<S>,
     {
-        self.dispatch_on_connection(async |conn| conn.client_mut()?.receive_envelope().await)
-            .await
+        self.dispatch_on_connection(PendingResponseChange::Remove, async |conn| {
+            conn.client_mut()?.receive_envelope().await
+        })
+        .await
     }
 
     /// Send one envelope and await its correlated response.
@@ -142,8 +202,10 @@ where
     where
         M: Packet + EncodeWith<S> + DecodeWith<S>,
     {
-        self.dispatch_on_connection(async |conn| conn.client_mut()?.call_correlated(request).await)
-            .await
+        self.dispatch_on_connection(PendingResponseChange::None, async |conn| {
+            conn.client_mut()?.call_correlated(request).await
+        })
+        .await
     }
 }
 
@@ -154,6 +216,17 @@ where
     C: Send + 'static,
 {
     fn drop(&mut self) {
+        if self.pending_responses.load(Ordering::Acquire) > 0 {
+            self.slot.discard_next_checkout();
+            crate::metrics::inc_pool_pending_response_discard();
+            tracing::debug!(
+                action = "discard_connection",
+                pool_operation = "split_phase_exchange",
+                reason = "response_pending",
+                "discarding pooled client connection after lease release with an unread response"
+            );
+        }
+
         if let Some(inner) = &self.release_inner {
             inner.scheduler.notify_capacity_available(Arc::clone(inner));
         }

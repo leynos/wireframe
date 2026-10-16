@@ -20,9 +20,20 @@ use std::time::Duration;
 #[cfg(feature = "metrics")]
 use metrics::{counter, gauge, histogram};
 
+mod client_pool;
 mod server_startup;
 mod server_supervisor;
 
+pub use client_pool::{
+    POOL_BOOKKEEPING_POISON_RECOVERIES,
+    POOL_CONNECTION_DISCARDS,
+    inc_pool_bookkeeping_poison_recoveries,
+};
+#[cfg(feature = "pool")]
+pub(crate) use client_pool::{
+    inc_pool_incomplete_operation_discard,
+    inc_pool_pending_response_discard,
+};
 pub use server_startup::{SERVER_STARTUP_DURATION, SERVER_STARTUP_FAILURES};
 pub(crate) use server_startup::{
     ServerStartupFailureStage,
@@ -47,28 +58,6 @@ pub const ERRORS_TOTAL: &str = "wireframe_errors_total";
 /// wireframe_connection_panics_total 1
 /// ```
 pub const CONNECTION_PANICS: &str = "wireframe_connection_panics_total";
-/// Name of the counter tracking recovered client pool bookkeeping lock poison.
-///
-/// ```plaintext
-/// # HELP wireframe_pool_bookkeeping_poison_recoveries_total Count of recovered client pool bookkeeping locks.
-/// # TYPE wireframe_pool_bookkeeping_poison_recoveries_total counter
-/// wireframe_pool_bookkeeping_poison_recoveries_total 1
-/// ```
-pub const POOL_BOOKKEEPING_POISON_RECOVERIES: &str =
-    "wireframe_pool_bookkeeping_poison_recoveries_total";
-
-/// Name of the counter tracking pooled sockets discarded after incomplete operations.
-///
-/// The bounded `reason` label is `"operation_incomplete"`; it includes
-/// cancellation and unwinding before a pooled operation returns.
-///
-/// ```plaintext
-/// # HELP wireframe_pool_connection_discards_total Count of pooled sockets discarded by reason.
-/// # TYPE wireframe_pool_connection_discards_total counter
-/// wireframe_pool_connection_discards_total{reason="operation_incomplete"} 1
-/// ```
-pub const POOL_CONNECTION_DISCARDS: &str = "wireframe_pool_connection_discards_total";
-
 /// Name of the counter tracking codec errors by type and recovery policy.
 ///
 /// ```plaintext
@@ -251,30 +240,6 @@ pub fn inc_connection_panics() { counter!(CONNECTION_PANICS).increment(1); }
 #[cfg(not(feature = "metrics"))]
 pub fn inc_connection_panics() {}
 
-/// Record a recovered client pool bookkeeping lock poison event.
-#[cfg(feature = "metrics")]
-pub fn inc_pool_bookkeeping_poison_recoveries() {
-    counter!(POOL_BOOKKEEPING_POISON_RECOVERIES).increment(1);
-}
-
-/// Record a recovered client pool bookkeeping lock poison event.
-///
-/// This function is a no-op when the `metrics` feature is disabled.
-#[cfg(not(feature = "metrics"))]
-pub fn inc_pool_bookkeeping_poison_recoveries() {}
-
-/// Record a pooled socket discarded before its operation completed.
-#[cfg(all(feature = "metrics", feature = "pool"))]
-pub(crate) fn inc_pool_incomplete_operation_discard() {
-    counter!(POOL_CONNECTION_DISCARDS, "reason" => "operation_incomplete").increment(1);
-}
-
-/// Record a pooled socket discarded before its operation completed.
-///
-/// This function is a no-op when the `metrics` feature is disabled.
-#[cfg(all(not(feature = "metrics"), feature = "pool"))]
-pub(crate) fn inc_pool_incomplete_operation_discard() {}
-
 /// Record a codec error with its type and recovery policy.
 ///
 /// # Arguments
@@ -356,36 +321,3 @@ pub(crate) fn inc_server_accept_loop_exit(reason: ServerCancellationReason) {
 /// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub(crate) fn inc_server_accept_loop_exit(_reason: ServerCancellationReason) {}
-
-#[cfg(all(test, feature = "metrics", feature = "pool"))]
-mod tests {
-    //! Tests for bounded client-pool metric labels.
-
-    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-
-    use super::{POOL_CONNECTION_DISCARDS, inc_pool_incomplete_operation_discard};
-
-    #[test]
-    fn incomplete_operation_discard_uses_a_bounded_reason() {
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
-
-        ::metrics::with_local_recorder(&recorder, inc_pool_incomplete_operation_discard);
-
-        let found = snapshotter
-            .snapshot()
-            .into_vec()
-            .iter()
-            .any(|(key, _, _, value)| {
-                key.key().name() == POOL_CONNECTION_DISCARDS
-                    && key.key().labels().any(|label| {
-                        label.key() == "reason" && label.value() == "operation_incomplete"
-                    })
-                    && matches!(value, DebugValue::Counter(count) if *count == 1)
-            });
-        assert!(
-            found,
-            "incomplete-operation discard metric was not recorded"
-        );
-    }
-}

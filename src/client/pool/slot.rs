@@ -2,7 +2,12 @@
 
 use std::{
     ops::{Deref, DerefMut},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{
+        Arc,
+        Mutex,
+        MutexGuard,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -30,6 +35,8 @@ where
     idle_timeout: Duration,
     /// Last healthy return time used for idle recycling.
     last_returned_at: Mutex<Option<Instant>>,
+    /// Discard the warm socket when a split-phase lease left a response unread.
+    discard_on_next_checkout: AtomicBool,
 }
 
 impl<S, P, C> PoolSlot<S, P, C>
@@ -49,6 +56,7 @@ where
             permits: Arc::new(Semaphore::new(max_in_flight_per_socket)),
             idle_timeout,
             last_returned_at: Mutex::new(None),
+            discard_on_next_checkout: AtomicBool::new(false),
         }
     }
 
@@ -69,8 +77,18 @@ where
     }
 
     /// Check out a healthy connection, refreshing an idle one before use.
-    pub(crate) async fn checkout(&self) -> Result<SlotConnection<'_, S, P, C>, ClientError> {
+    pub(crate) async fn checkout<'a>(
+        &'a self,
+        pending_responses: &'a AtomicUsize,
+    ) -> Result<SlotConnection<'a, S, P, C>, ClientError> {
         let mut connection = self.get_connection().await?;
+
+        if self.discard_on_next_checkout.swap(false, Ordering::AcqRel) {
+            connection.mark_broken();
+            drop(connection);
+            self.clear_last_returned_at();
+            connection = self.get_connection().await?;
+        }
 
         if self.should_recycle_idle() {
             connection.mark_broken();
@@ -83,7 +101,13 @@ where
             connection,
             armed: true,
             last_returned_at: &self.last_returned_at,
+            pending_responses,
         })
+    }
+
+    /// Discard the warm socket before another lease can use it.
+    pub(crate) fn discard_next_checkout(&self) {
+        self.discard_on_next_checkout.store(true, Ordering::Release);
     }
 
     /// Obtain the bb8 resource and translate checkout failures to client errors.
@@ -128,6 +152,8 @@ where
     armed: bool,
     /// Slot timestamp updated when the checkout is returned.
     last_returned_at: &'a Mutex<Option<Instant>>,
+    /// Lease exchange state cleared when cancellation invalidates the socket.
+    pending_responses: &'a AtomicUsize,
 }
 
 impl<S, P, C> SlotConnection<'_, S, P, C>
@@ -169,6 +195,7 @@ where
     fn drop(&mut self) {
         if self.armed {
             self.connection.mark_broken();
+            self.pending_responses.store(0, Ordering::Release);
             crate::metrics::inc_pool_incomplete_operation_discard();
             tracing::debug!(
                 action = "discard_connection",

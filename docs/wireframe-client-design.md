@@ -488,7 +488,10 @@ cargo run --example client_echo_login --features examples
     dropping an in-flight operation marks the socket broken before it can
     return to the pool;
   - completed operations disarm that guard, then the existing recyclable-error
-    policy decides whether a failed socket must be discarded.
+    policy decides whether a failed socket must be discarded;
+  - a lease tracks successful split-phase sends until matching receives
+    complete, and marks the slot for discard if the lease is dropped with a
+    response still pending.
 - Admission semantics:
   - `max_in_flight_per_socket` is an admission budget, not a promise of
     parallel writes on one transport;

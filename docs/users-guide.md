@@ -1823,7 +1823,9 @@ Cancellation before a pooled operation completes discards the socket before it
 returns to the pool. The next operation through a `PooledClientLease` or
 `PoolHandle` reconnects with a fresh socket, avoiding a late response left by
 the cancelled request. This also applies when the receive half of split-phase
-`send()` and `receive()` work is dropped in flight. Completed operations
+`send()` and `receive()` work is dropped in flight. If a lease is dropped after
+a successful split-phase send but before its response is received, the pool
+discards that socket before another lease can use it. Completed operations
 continue to use the configured recyclable-error policy.
 
 ### Client preamble exchange

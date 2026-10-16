@@ -350,3 +350,44 @@ async fn cancelling_in_flight_call_reconnects_before_reuse(
 
     Ok(())
 }
+
+#[rstest]
+#[tokio::test]
+async fn dropping_lease_with_unread_split_phase_response_reconnects(
+    client_pool_config: ClientPoolConfig,
+) -> TestResult {
+    let server = PoolTestServer::start_with_behavior(PoolServerBehavior::LateFirstResponse).await?;
+    let preamble_callback_count = Arc::new(AtomicUsize::new(0));
+    let pool = build_pooled_client(
+        server.addr,
+        client_pool_config.pool_size(1).max_in_flight_per_socket(1),
+        preamble_callback_count.clone(),
+    )
+    .await?;
+
+    let lease = pool.acquire().await?;
+    lease.send(&Ping(1)).await?;
+    timeout(GRACE, server.wait_for_delayed_first_response()).await?;
+    drop(lease);
+
+    server.release_delayed_first_response();
+    timeout(GRACE, server.wait_for_delayed_first_response_attempt()).await?;
+
+    let lease = timeout(GRACE, pool.acquire()).await??;
+    let response: Pong = lease.call(&Ping(2)).await?;
+    assert_eq!(response, Pong(2));
+
+    lease.send(&Ping(3)).await?;
+    let split_phase_response: Pong = lease.receive().await?;
+    assert_eq!(split_phase_response, Pong(3));
+    drop(lease);
+
+    let lease = timeout(GRACE, pool.acquire()).await??;
+    let response: Pong = lease.call(&Ping(4)).await?;
+    assert_eq!(response, Pong(4));
+    assert_eq!(preamble_callback_count.load(Ordering::SeqCst), 2);
+    assert_eq!(server.preamble_count(), 2);
+    assert_eq!(server.connection_count(), 2);
+
+    Ok(())
+}
