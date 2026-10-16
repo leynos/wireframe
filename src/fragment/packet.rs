@@ -24,7 +24,7 @@ pub struct FragmentParts {
 impl FragmentParts {
     /// Construct a new set of fragment parts.
     #[must_use]
-    pub fn new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) -> Self {
+    pub const fn new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) -> Self {
         Self {
             id,
             correlation_id,
@@ -99,8 +99,8 @@ pub fn fragment_packet<E: Fragmentable>(
 
     let mut frames = Vec::with_capacity(batch.len());
     for fragment in batch {
-        let (header, payload) = fragment.into_parts();
-        let encoded = encode_fragment_payload(header, &payload)?;
+        let (header, fragment_payload) = fragment.into_parts();
+        let encoded = encode_fragment_payload(header, &fragment_payload)?;
         frames.push(E::from_fragment_parts(FragmentParts::new(
             id,
             correlation,

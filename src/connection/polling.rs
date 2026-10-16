@@ -21,24 +21,18 @@ where
     pub(super) async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
 
     /// Poll `f` if `opt` is `Some`, returning `None` otherwise.
-    #[expect(
-        clippy::manual_async_fn,
-        reason = "Generic lifetime requires explicit async move"
-    )]
-    pub(super) fn poll_optional<'a, T, Fut, R>(
+    pub(super) async fn poll_optional<'a, T, Fut, R>(
         opt: Option<&'a mut T>,
         f: impl FnOnce(&'a mut T) -> Fut + Send + 'a,
-    ) -> impl Future<Output = Option<R>> + Send + 'a
+    ) -> Option<R>
     where
         T: Send + 'a,
         Fut: Future<Output = Option<R>> + Send + 'a,
     {
-        async move {
-            if let Some(value) = opt {
-                f(value).await
-            } else {
-                None
-            }
+        if let Some(value) = opt {
+            f(value).await
+        } else {
+            None
         }
     }
 

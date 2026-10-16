@@ -219,15 +219,15 @@ pub struct FragmentFrame {
 impl FragmentFrame {
     /// Construct a new fragment frame.
     #[must_use]
-    pub fn new(header: FragmentHeader, payload: Vec<u8>) -> Self { Self { header, payload } }
+    pub const fn new(header: FragmentHeader, payload: Vec<u8>) -> Self { Self { header, payload } }
 
     /// Return the fragment header.
     #[must_use]
-    pub fn header(&self) -> &FragmentHeader { &self.header }
+    pub const fn header(&self) -> &FragmentHeader { &self.header }
 
     /// Return the fragment payload bytes.
     #[must_use]
-    pub fn payload(&self) -> &[u8] { self.payload.as_slice() }
+    pub const fn payload(&self) -> &[u8] { self.payload.as_slice() }
 
     /// Consume the frame, returning its components.
     #[must_use]
@@ -259,19 +259,22 @@ impl FragmentBatch {
 
     /// Return the fragments as a slice.
     #[must_use]
-    pub fn fragments(&self) -> &[FragmentFrame] { self.fragments.as_slice() }
+    pub const fn fragments(&self) -> &[FragmentFrame] { self.fragments.as_slice() }
 
     /// Number of fragments in the batch.
-    #[expect(
-        clippy::len_without_is_empty,
-        reason = "batches are guaranteed non-empty"
-    )]
     #[must_use]
-    pub fn len(&self) -> usize { self.fragments.len() }
+    pub const fn len(&self) -> usize { self.fragments.len() }
+
+    /// Return whether the batch contains no fragments.
+    ///
+    /// Batches produced by [`Fragmenter`] are non-empty, but this accessor
+    /// reports the stored collection's actual state alongside [`Self::len`].
+    #[must_use]
+    pub const fn is_empty(&self) -> bool { self.fragments.is_empty() }
 
     /// Whether the logical message required more than one fragment.
     #[must_use]
-    pub fn is_fragmented(&self) -> bool { self.len() > 1 }
+    pub const fn is_fragmented(&self) -> bool { self.len() > 1 }
 
     /// Consume the batch, returning all fragments.
     #[must_use]
@@ -286,4 +289,32 @@ impl IntoIterator for FragmentBatch {
 }
 
 /// Compute the number of fixed-width chunks needed for a payload.
-fn div_ceil(numerator: usize, denominator: usize) -> usize { numerator.div_ceil(denominator) }
+const fn div_ceil(numerator: usize, denominator: usize) -> usize { numerator.div_ceil(denominator) }
+
+#[cfg(test)]
+mod tests {
+    //! White-box checks for fragment-batch collection state.
+
+    use super::{FragmentBatch, FragmentFrame};
+    use crate::fragment::{FragmentHeader, FragmentIndex, MessageId};
+
+    #[test]
+    fn is_empty_reports_the_stored_fragment_collection() {
+        // Fragmenter guarantees non-empty batches; this white-box value checks
+        // what the accessor reports for an empty stored collection.
+        let empty = FragmentBatch {
+            message_id: MessageId::new(1),
+            fragments: Vec::new(),
+        };
+        let non_empty = FragmentBatch {
+            message_id: MessageId::new(2),
+            fragments: vec![FragmentFrame::new(
+                FragmentHeader::new(MessageId::new(2), FragmentIndex::zero(), true),
+                Vec::new(),
+            )],
+        };
+
+        assert!(empty.is_empty());
+        assert!(!non_empty.is_empty());
+    }
+}

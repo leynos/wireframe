@@ -107,6 +107,29 @@ fn reassembler_returns_single_fragment_immediately() {
 }
 
 #[rstest]
+#[case(false)]
+#[case(true)]
+fn reassembler_rejects_nonzero_first_index(#[case] is_last: bool) {
+    let mut reassembler = Reassembler::new(
+        NonZeroUsize::new(16).expect("non-zero"),
+        Duration::from_secs(5),
+    );
+    let header = FragmentHeader::new(MessageId::new(22), FragmentIndex::new(1), is_last);
+
+    let error = reassembler
+        .push(header, [1_u8])
+        .expect_err("a new series must begin at fragment index zero");
+    assert_eq!(
+        error,
+        ReassemblyError::Fragment(FragmentError::IndexMismatch {
+            expected: FragmentIndex::zero(),
+            found: FragmentIndex::new(1),
+        }),
+    );
+    assert_eq!(reassembler.buffered_len(), 0);
+}
+
+#[rstest]
 fn reassembler_accumulates_ordered_fragments(
     #[with(2, &[5_u8, 6, 7])]
     #[from(reassembler_with_first_fragment)]

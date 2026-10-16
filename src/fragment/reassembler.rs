@@ -56,10 +56,10 @@ impl PartialMessage {
     fn push(&mut self, payload: &[u8]) { self.buffer.extend_from_slice(payload); }
 
     /// Return the number of payload bytes currently buffered.
-    fn len(&self) -> usize { self.buffer.len() }
+    const fn len(&self) -> usize { self.buffer.len() }
 
     /// Return the timestamp at which this partial series began.
-    fn started_at(&self) -> Instant { self.started_at }
+    const fn started_at(&self) -> Instant { self.started_at }
 
     /// Release the completed payload buffer to avoid a second allocation.
     fn into_buffer(self) -> Vec<u8> { self.buffer }
@@ -77,7 +77,7 @@ pub struct ReassembledMessage {
 impl ReassembledMessage {
     /// Construct a new [`ReassembledMessage`].
     #[must_use]
-    pub fn new(message_id: MessageId, payload: Vec<u8>) -> Self {
+    pub const fn new(message_id: MessageId, payload: Vec<u8>) -> Self {
         Self {
             message_id,
             payload,
@@ -90,7 +90,7 @@ impl ReassembledMessage {
 
     /// Borrow the re-assembled payload.
     #[must_use]
-    pub fn payload(&self) -> &[u8] { self.payload.as_slice() }
+    pub const fn payload(&self) -> &[u8] { self.payload.as_slice() }
 
     /// Consume the message, returning the owned payload bytes.
     #[must_use]
@@ -164,18 +164,18 @@ impl Reassembler {
     ) -> Result<Option<ReassembledMessage>, ReassemblyError> {
         self.purge_expired_at(now);
 
-        let payload = payload.as_ref();
+        let payload_bytes = payload.as_ref();
 
         match self.buffers.entry(header.message_id()) {
             Entry::Occupied(occupied) => {
-                Self::push_existing_fragment(self.max_message_size, occupied, header, payload)
+                Self::push_existing_fragment(self.max_message_size, occupied, header, payload_bytes)
             }
             Entry::Vacant(vacant) => Self::push_first_fragment(
                 self.max_message_size,
                 vacant,
                 &FirstFragment {
                     header,
-                    payload,
+                    payload: payload_bytes,
                     now,
                 },
             ),
@@ -211,7 +211,7 @@ impl Reassembler {
     pub fn buffered_len(&self) -> usize { self.buffers.len() }
 
     /// Reject a buffer size that would exceed the configured message cap.
-    fn assert_within_limit(
+    const fn assert_within_limit(
         limit: NonZeroUsize,
         message_id: MessageId,
         attempted: usize,
@@ -291,31 +291,17 @@ impl Reassembler {
         fragment: &FirstFragment<'_>,
     ) -> Result<Option<ReassembledMessage>, ReassemblyError> {
         let message_id = fragment.header.message_id();
-        let mut series = FragmentSeries::new(message_id);
-        let status = series
-            .accept(fragment.header)
-            .map_err(ReassemblyError::from)?;
+        let (series, is_complete) = FragmentSeries::start_with_first(fragment.header)?;
         Self::assert_within_limit(limit, message_id, fragment.payload.len())?;
 
-        match status {
-            FragmentStatus::Incomplete => {
-                vacant.insert(PartialMessage::new(series, fragment.payload, fragment.now));
-                Ok(None)
-            }
-            #[expect(
-                clippy::unreachable,
-                reason = "The first accepted fragment for a new series cannot be duplicate"
-            )]
-            FragmentStatus::Duplicate => {
-                unreachable!(
-                    "newly created FragmentSeries starts at index 0; a first fragment cannot be \
-                     duplicate"
-                );
-            }
-            FragmentStatus::Complete => Ok(Some(ReassembledMessage::new(
+        if is_complete {
+            Ok(Some(ReassembledMessage::new(
                 message_id,
                 fragment.payload.to_vec(),
-            ))),
+            )))
+        } else {
+            vacant.insert(PartialMessage::new(series, fragment.payload, fragment.now));
+            Ok(None)
         }
     }
 }
