@@ -133,6 +133,34 @@ where
         }
     }
 
+    /// Release the retained gate when checkout cannot discard an unread response.
+    fn release_pending_response_permit_after_checkout_error(
+        pending_response_permit: &mut Option<OwnedSemaphorePermit>,
+        had_pending_response: bool,
+    ) {
+        if had_pending_response {
+            drop(pending_response_permit.take());
+        }
+    }
+
+    /// Retain the gate while a response is pending, otherwise release it.
+    fn finish_protocol_permit(
+        pending_response_permit: &mut Option<OwnedSemaphorePermit>,
+        newly_acquired_permit: &mut Option<OwnedSemaphorePermit>,
+        keep_protocol_permit: bool,
+    ) {
+        match (keep_protocol_permit, newly_acquired_permit.take()) {
+            (true, Some(protocol_permit)) => {
+                *pending_response_permit = Some(protocol_permit);
+            }
+            (true, None) => {}
+            (false, newly_acquired_permit) => {
+                drop(newly_acquired_permit);
+                drop(pending_response_permit.take());
+            }
+        }
+    }
+
     /// Update pending-response state and decide whether the gate must stay held.
     fn finish_operation<R>(
         &self,
@@ -168,9 +196,10 @@ where
         let mut connection = match self.checkout_connection().await {
             Ok(connection) => connection,
             Err(error) => {
-                if had_pending_response {
-                    drop(pending_response_permit.take());
-                }
+                Self::release_pending_response_permit_after_checkout_error(
+                    &mut pending_response_permit,
+                    had_pending_response,
+                );
                 return Err(error);
             }
         };
@@ -179,15 +208,11 @@ where
         let keep_protocol_permit =
             self.finish_operation(&mut connection, &result, pending_response_change);
         drop(connection);
-
-        if keep_protocol_permit {
-            if let Some(protocol_permit) = newly_acquired_permit.take() {
-                *pending_response_permit = Some(protocol_permit);
-            }
-        } else {
-            drop(newly_acquired_permit.take());
-            drop(pending_response_permit.take());
-        }
+        Self::finish_protocol_permit(
+            &mut pending_response_permit,
+            &mut newly_acquired_permit,
+            keep_protocol_permit,
+        );
         result
     }
 
