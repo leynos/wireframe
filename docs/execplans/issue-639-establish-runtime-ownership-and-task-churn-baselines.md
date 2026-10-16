@@ -580,6 +580,15 @@ Thresholds that trigger escalation when breached.
   `git log 69d8fdc..HEAD -- tests/prepared_app/mod.rs` showed only my own
   commit touching the file, so the bound could not have arrived after it.
 
+  **Superseded 2026-10-16.** The ancestry probe above was the right probe on a
+  wrong premise: `3d9d792` is an ancestor of the `harden-lint` target, which is
+  no longer this branch's base, and it is absent from `origin/main`. Against
+  `main` the helper is `run_server_connections`, its bound and its only
+  caller's factory both return `TestResult<TestApp>`, and the `E0271` never
+  arises — so this was an artefact of the previous target's module layout, not
+  a defect latent in `5f31996`. The `39221cf` commit that repaired it drops as
+  empty in the rebase onto `origin/main`; see `Progress`.
+
 - [x] (2026-10-15) Audited every file changed on both sides of the merge for
   further instances of that hybrid class: mismatched result-type boundaries,
   duplicated blocks, dropped helpers, stale path references. The overlap is ten
@@ -597,6 +606,13 @@ Thresholds that trigger escalation when breached.
     `from_app_serves_concurrent_tcp_connections_from_one_prepared_root`, and
     its replacement in `tcp_and_property.rs` covers the same concurrency
     ground, so nothing is lost.
+
+    **Superseded 2026-10-16.** This bullet's last sentence describes the
+    `harden-lint` target and not the branch's current base. The test is present
+    at `origin/main` in `tests/prepared_app_tcp.rs` line 91 and is preserved by
+    the rebase onto it; see the correction in `Progress`. The union described
+    here no longer applies either, because `origin/main` does not carry the
+    layout this bullet was resolving against.
   - `src/client/pool/scheduler.rs` — the target's layout with this branch's
     two churn counters, plus the target's `#[path]` test split.
   - `src/test_helpers/mod.rs`, `src/client/mod.rs`, `src/client/pool/mod.rs`,
@@ -746,6 +762,80 @@ Thresholds that trigger escalation when breached.
   rebases onto main, exactly like the two dangling path references recorded
   above.
 
+- [x] (2026-10-16) Rebased the branch onto `origin/main` (`3c50de2a`) at the
+  user's request, which supersedes the `harden-lint-connection-fragment`
+  restack above: that target was retargeted away from, not stacked on. Boundary
+  evidence: `OLD_BASE` `69d8fdc7` (the previous target, and now the last
+  inherited commit), `OLD_HEAD` `661fce8a` (the remote tip before this rewrite),
+  `TARGET` `3c50de2a`. The owned series is `69d8fdc7..661fce8a`: 44 commits, 0
+  merges.
+
+  The rebase resolved eight conflicts and dropped three commits, leaving 41.
+  Every conflict was a case of the *same problem solved twice*, because main
+  gained the fixes this branch had been building against only at the previous,
+  stale target. Main's solution was equal or better in each case, and this
+  branch's own purpose survives intact:
+
+  1. `d7894b6` Makefile — a single `.PHONY` line, resolved as the union of
+     main's `test-ui bless-ui test-loom` and this branch's
+     `bench-runtime-ownership bench`. Verified with `mbake validate Makefile`.
+  2. `673b09b` `docs/developers-guide.md` — main had rewritten the
+     `fragment_helpers` paragraph and inserted a `connection_startup` paragraph,
+     displacing the base's copy below the conflict markers. Dropped the stale
+     copy, kept this branch's runtime-ownership paragraph, left main's rewrite
+     intact.
+  3. `9949e1b` `src/client/pool/scheduler.rs` — **dropped as empty.** Main
+     independently performed the same test extraction into
+     `src/client/pool/scheduler/tests.rs`, with a strict superset of this
+     branch's coverage and the correct new API. This branch's staged
+     `scheduler_tests.rs` called `enqueue_waiter(handle, sender, policy) -> bool`
+     against a resolved signature of
+     `enqueue_waiter(handle, sender, WaiterAdmission) -> WaiterEnqueueResult`: it
+     could not have compiled. Main's file was taken and this branch's deleted.
+  4. `b0fb1d7` four files — main's `try_begin_servicing()`, `max_waiters`
+     argument, and swap-based dead-letter fix, unioned with this branch's churn
+     counters. The resolution introduced an `error[E0382]` (borrow of moved
+     value `inner`) by recording the capacity wait after `self.kick(inner)` had
+     consumed it; caught by `cargo check -p wireframe --all-features --lib` and
+     fixed by recording first, which is also the semantic point of the next
+     conflict. The dead-letter fix is preserved verbatim inside this branch's new
+     `src/push/queues/dlq.rs`, so the `#722` survival check recorded above still
+     holds against the new base.
+  5. `ced41393` `Cargo.lock` — main's lockfile taken whole, then this branch's
+     one edge restored. A wholesale take is what the user's lockfile rule
+     prescribes, but on its own it would have been wrong here: main's lockfile
+     diverges from the base on many lines (`thiserror` 2.0.21, `target-tuple`
+     1.0.2, a `wireframe-loom` stanza), so `git` reported one conflict hunk
+     while the file this commit exists to produce differs from main's by exactly
+     one line — `"serial_test"` in the `wireframe_testing` stanza. Taking main's
+     side alone would have shipped a lockfile that cannot satisfy
+     `--locked` against a manifest that declares the dependency. The resolution
+     is main's file plus that edge, verified as a one-line diff.
+  6. `d79246d` `src/client/pool/scheduler.rs` — **dropped as empty.** The commit
+     only relocated `record_capacity_wait()` into the parking path's `else`
+     branch and before `kick`; the accepted replay from resolution four already
+     records it before `kick`, and main's `resolve_immediate_lease` early-return
+     means the counter is only reached on the parking path. Same semantics, and
+     the head of the file was verified byte-identical to the expected side.
+  7. `39221cf` `tests/prepared_app/mod.rs` — **dropped as empty.** Its purpose
+     was to repair an `E0271` from `5f31996`, whose test-rewiring this replay
+     dropped in favour of main's layout. On main the helper is
+     `run_server_connections` with a `TestResult<TestApp>` bound, and its only
+     caller passes `counted_app_factory`, which returns the same type, so the
+     mismatch does not arise.
+
+  Two claims carried in the `harden-lint` restack record above were falsified
+  by this replay and are corrected here rather than left standing. The claim
+  that the previous target had "deliberately dropped"
+  `from_app_serves_concurrent_tcp_connections_from_one_prepared_root` is false:
+  the test is absent at `OLD_BASE` but **present at `TARGET`** in
+  `tests/prepared_app_tcp.rs` line 91, and this replay preserves it. The
+  companion claim that the `39221cf` bound mismatch was "a latent defect in
+  `5f31996`, not a rebase artefact" is also superseded: it was an artefact of
+  the *previous* target's module layout, which the `E0271` message named
+  directly, and it does not exist at all against main. Both entries describe a
+  target this branch no longer sits on.
+
 ## Surprises & discoveries
 
 - Observation: **this repository's spelling gate mandates `-ize`, not `-ise`,
@@ -763,6 +853,33 @@ Thresholds that trigger escalation when breached.
   as a negative control. Seeding the same word into a tracked file produced
   exit 2 and the exact CI diagnostic, which is the evidence that the corrected
   tree is actually clean rather than merely unexamined.
+
+- Observation: **a restack's recorded resolutions are evidence about its
+  target, and a restack onto a different target invalidates them.** Replaying
+  onto `origin/main` falsified two claims the `harden-lint` restack had
+  recorded as findings. It had concluded that the target "deliberately dropped"
+  `from_app_serves_concurrent_tcp_connections_from_one_prepared_root` and that
+  a competing helper in `tcp_and_property.rs` covered the same ground; in fact
+  the test is absent only at `OLD_BASE` and is present at `origin/main` in
+  `tests/prepared_app_tcp.rs` line 91, where this replay keeps it. It had also
+  classified the `39221cf` bound mismatch as "a latent defect in `5f31996`, not
+  a rebase artefact"; against `main` the mismatch does not exist, so it was an
+  artefact of the previous target's module layout after all. Both claims were
+  reached by sound reasoning over the evidence then available — the error is
+  not in the reasoning but in carrying a target-bound conclusion forward to a
+  new target. The check that catches it is cheap and should precede every
+  restack: grep the disputed symbol in the *new* target by name, rather than in
+  the base.
+
+- Observation: **a lockfile conflict can be narrower than the lockfile diff.**
+  `git` reported a single conflict hunk in `Cargo.lock`, but the file this
+  commit exists to produce differed from main's along several lines, and the
+  one line it was responsible for sat outside the hunk. Taking the prescribed
+  side wholesale would therefore have applied the user's rule correctly and
+  still produced a lockfile that cannot satisfy `--locked`. The rule to keep is
+  "take main's version, then rebuild" — the rebuild is what restores the
+  branch's own edge, and it is not optional. The diagnostic is to diff the two
+  candidate lockfiles in full rather than trusting the reported hunk.
 
 - Observation: **an across-capture timing comparison on this machine is
   confounded, and the recapture proved it rather than assuming it.** Two scopes
@@ -1347,6 +1464,41 @@ Thresholds that trigger escalation when breached.
   rewrite, so the pre-restack state remains recoverable.
 
 ## Decision log
+
+- Decision: in the rebase onto `origin/main`, **drop three commits as empty
+  rather than force their content back in**, and take main's side wherever the
+  two sides had solved the same problem. Rationale: the branch and main
+  independently fixed the same defects, because the branch had been building
+  against a stale target that predated main's fixes. `9949e1b`'s staged test
+  file could not compile against main's `enqueue_waiter` signature and main's
+  replacement covers strictly more; `d79246d`'s reordering is already the
+  accepted replay's behaviour, with main's early return making the counter
+  reach only the parking path; and `39221cf`'s `E0271` repair is unnecessary
+  because main's factory and helper agree on the result type. Reinstating any
+  of the three would have reintroduced a superseded fix beside main's live one.
+  Alternatives rejected: (a) preserving the commits by replaying their diffs on
+  top of main's files — that would have left two implementations of each fix,
+  which is exactly the "keep both sides" reading the change requests warn
+  against; (b) taking `--ours` wholesale on conflicted files to preserve the
+  branch's version — rejected because in a rebase `--ours` is *main*, and the
+  branch's version is the one the conflict analysis had to earn its place
+  against.
+
+- Decision: for the `Cargo.lock` conflict, take main's lockfile whole **and then
+  restore this branch's one dependency edge**, rather than either side alone.
+  Rationale: the user's rule for packaging lockfiles is "take main's version,
+  then rebuild the lock file following merge", and the rebuild is load-bearing
+  here rather than ceremonial. Main's lockfile diverges from the base on
+  several lines, but the commit resolves to exactly one line of its own —
+  `"serial_test"` in the `wireframe_testing` stanza — and that line falls
+  outside the single conflict hunk `git` reported. A wholesale take would
+  therefore satisfy the letter of the rule and ship a lockfile that cannot
+  satisfy `--locked` against a manifest declaring the dependency. Alternatives
+  rejected: (a) taking this branch's side, which would have reverted main's
+  `thiserror` 2.0.21, `target-tuple` 1.0.2, and `wireframe-loom` stanza
+  updates; (b) running a full `cargo update`, which would rebuild the whole
+  graph rather than reconcile one edge. Verified as a one-line diff against
+  main's lockfile, and the file parses under `tomllib`.
 
 - Decision: resolve the CodeRabbit review's three findings by **correcting the
   labels and the assertions, not the recorded numbers**. Rationale: two
@@ -2904,9 +3056,44 @@ is now pinned by tests rather than a comment.
 
 Two residual items are recorded rather than repaired, both deliberately:
 `make test-doc` fails at `src/server/runtime/server.rs:228` for an E0283 that
-is inherited from the merge base and outside this change surface; and two
+is inherited from the base and outside this change surface; and two
 pre-existing pool acquire-path defects (a spurious `disconnected`, and a
 sustained-contention stall) are documented and bounded by a 30-second timeout
 under issue [#647](https://github.com/leynos/wireframe/issues/647), because
 patching them would be an ownership-topology change, which is this issue's
-stated non-goal.
+stated non-goal. `src/server/runtime/server.rs` is byte-identical between the
+current target and this branch's head, so the first of those is inherited in
+the strictest sense available: the file is untouched by the series.
+
+The branch was then rebased onto `origin/main` (`3c50de2a`) at the user's
+request, which *supersedes* rather than extends the connection-fragment
+restack: that target was retargeted away from, not stacked under. The replayed
+series is `69d8fdc7..661fce8a` — 44 commits, 0 merges — and the rebase resolved
+eight conflicts and dropped three commits as empty, leaving 41.
+
+What the replay cost, stated plainly: every conflict was the *same problem
+solved twice*, because the target this branch had been built against was a
+stale fan-out of `main`, so `main` had meanwhile adopted the fixes the branch
+was written against. In each case `main`'s solution was equal or better, and
+the branch's own purpose — the churn counters, the wait counters, the
+dead-letter extraction, the benchmark harness — survives on top of it. Nothing
+the branch owns was lost in the exchange: relative to the new target, zero
+files are deleted, all fifteen modified files are branch-owned, every in-file
+deletion is accounted for by a rename, an extraction, or a constructor call
+replaced by `DeadLetterState::new`, and no `src/` module exceeds the 400-line
+limit.
+
+Three lessons belong here rather than in `Surprises`. First, a restack's
+recorded resolutions are evidence *about its target*: the connection-fragment
+layer's eight resolutions had to be re-derived against `main`, not replayed,
+precisely because they had already absorbed that layer's state. Second, a
+lockfile conflict can be much narrower than the lockfile diff — `git` reported
+one hunk in `Cargo.lock`, yet the file this branch exists to produce differs
+from `main`'s by exactly one line, `"serial_test"` in the `wireframe_testing`
+stanza, which fell *outside* that hunk. Taking `main`'s side wholesale would
+have satisfied the letter of the lockfile rule and shipped a lockfile that
+cannot satisfy `--locked`. Third, "already applied in a different shape" is a
+real outcome, not a sign of a bad merge: two of the three dropped commits were
+dropping rather than merging because the target had reached the same reachable
+set by a simpler route, and the honest move is to prove that equivalence and
+say so rather than manufacture a diff to keep a commit alive.
