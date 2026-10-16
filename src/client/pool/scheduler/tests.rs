@@ -104,6 +104,7 @@ fn enqueue_rejects_waiters_above_the_configured_limit(#[case] policy: PoolFairne
     assert_eq!(state.waiter_count(), 2);
 }
 
+/// Keeps a waiter in the admission count while the worker waits for a slot.
 #[rstest]
 #[case(PoolFairnessPolicy::Fifo)]
 #[case(PoolFairnessPolicy::RoundRobin)]
@@ -126,6 +127,7 @@ fn waiter_count_includes_a_request_being_serviced(#[case] policy: PoolFairnessPo
     drop(servicing_waiter);
 }
 
+/// Frees admission capacity when a caller cancels before its waiter is served.
 #[rstest]
 #[case(PoolFairnessPolicy::Fifo)]
 #[case(PoolFairnessPolicy::RoundRobin)]
@@ -286,7 +288,8 @@ proptest! {
                         state
                             .fifo_queue
                             .iter()
-                            .all(|(queued_id, _)| *queued_id != handle_id)
+                            .all(|(queued_id, _)| *queued_id != handle_id),
+                        "unregistered handles must not retain FIFO waiters"
                     );
                 }
             }
