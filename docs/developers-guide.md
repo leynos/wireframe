@@ -416,6 +416,15 @@ hooks, request hooks, and tracing configuration on the same path. Pooled lease
 methods should go through `PooledClientLease::dispatch_on_connection` so
 checkout and recycle-on-error policy stay in one place.
 
+Pool admission uses `ClientPoolConfig::max_waiters` to bound queued and
+currently serviced acquisitions. It prunes cancelled requests before counting
+them and rejects excess requests with `ClientError::PoolSaturated` without
+recycling a socket. Background waiter servicing lives in
+`client::pool::scheduler::service`; see the
+[client-pool design](wireframe-client-design.md#bounded-waiter-admission) for
+the full contract. Acquire deadlines and waiter/rejection telemetry remain
+deferred under [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md).
+
 `ManagedClientConnection` owns its client in an `Option` and takes it once when
 teardown starts. Calls through `client_mut` return a disconnection error after
 that transfer. Dropping a live connection schedules `close()` on the current
