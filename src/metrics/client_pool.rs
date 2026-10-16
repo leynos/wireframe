@@ -16,8 +16,8 @@ pub const POOL_BOOKKEEPING_POISON_RECOVERIES: &str =
 /// Name of the counter tracking pooled sockets discarded after incomplete operations.
 ///
 /// Bounded `reason` labels are `"operation_incomplete"` for cancellation or
-/// unwinding during an operation, and `"response_pending"` when a lease drops
-/// before consuming a split-phase response.
+/// unwinding during an operation, and `"response_pending"` when a split-phase
+/// exchange leaves a response unread and its socket is scheduled for discard.
 ///
 /// ```plaintext
 /// # HELP wireframe_pool_connection_discards_total Count of pooled sockets discarded by reason.

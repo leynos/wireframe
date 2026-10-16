@@ -496,8 +496,8 @@ cargo run --example client_echo_login --features examples
     so another lease cannot check out the same socket; dropping the lease marks
     the socket for discard before releasing the permit.
   - a whole-request call on that lease while a response is pending returns a
-    disconnection error and schedules the socket for discard on the next
-    checkout.
+    disconnection error, schedules the socket for discard on the next checkout,
+    and records the `response_pending` discard reason.
 - Admission semantics:
   - `max_in_flight_per_socket` is an admission budget, not a promise of
     parallel writes on one transport;

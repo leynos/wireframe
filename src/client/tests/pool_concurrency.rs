@@ -33,7 +33,7 @@ async fn pending_response_blocks_another_lease_from_using_the_socket() -> TestRe
 
     let first_lease = pool.acquire().await?;
     first_lease.send(&Ping(1)).await?;
-    server.wait_for_delayed_first_response().await;
+    timeout(GRACE, server.wait_for_delayed_first_response()).await?;
 
     let second_lease = pool.acquire().await?;
     let (second_call_started, second_call_started_rx) = tokio::sync::oneshot::channel();
@@ -44,7 +44,7 @@ async fn pending_response_blocks_another_lease_from_using_the_socket() -> TestRe
     second_call_started_rx.await?;
 
     server.release_delayed_first_response();
-    server.wait_for_delayed_first_response_attempt().await;
+    timeout(GRACE, server.wait_for_delayed_first_response_attempt()).await?;
     assert!(
         timeout(Duration::from_millis(50), &mut second_call)
             .await

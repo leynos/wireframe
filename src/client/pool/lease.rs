@@ -9,7 +9,10 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use tokio::sync::{Mutex, OwnedSemaphorePermit};
+use tokio::{
+    net::TcpStream,
+    sync::{Mutex, OwnedSemaphorePermit},
+};
 
 use super::{
     client_pool::ClientPoolInner,
@@ -18,8 +21,9 @@ use super::{
 };
 use crate::{
     app::Packet,
-    client::ClientError,
+    client::{ClientError, WireframeClient},
     message::{DecodeWith, EncodeWith},
+    rewind_stream::RewindStream,
     serializer::Serializer,
 };
 
@@ -77,6 +81,19 @@ where
     /// Classify transport errors that make a pooled connection unsafe to reuse.
     const fn should_recycle(err: &ClientError) -> bool { err.should_recycle_connection() }
 
+    /// Record and schedule a discard for a socket with an unread response.
+    fn discard_connection_with_pending_response(&self) {
+        self.slot.discard_next_checkout();
+        self.pending_responses.store(0, Ordering::Release);
+        crate::metrics::inc_pool_pending_response_discard();
+        tracing::debug!(
+            action = "discard_connection",
+            pool_operation = "split_phase_exchange",
+            reason = "response_pending",
+            "discarding pooled client connection with an unread response"
+        );
+    }
+
     /// Reserve the gate while keeping an existing hold on the lease through checkout.
     async fn acquire_protocol_permit(
         &self,
@@ -86,15 +103,13 @@ where
         if self.pending_responses.load(Ordering::Acquire) > 0
             && matches!(change, PendingResponseChange::None)
         {
-            self.slot.discard_next_checkout();
-            self.pending_responses.store(0, Ordering::Release);
+            self.discard_connection_with_pending_response();
             drop(retained_permit.take());
             return Err(ClientError::disconnected());
         }
 
         if self.pending_responses.load(Ordering::Acquire) > 0 && retained_permit.is_none() {
-            self.slot.discard_next_checkout();
-            self.pending_responses.store(0, Ordering::Release);
+            self.discard_connection_with_pending_response();
             return Err(ClientError::disconnected());
         }
 
@@ -111,8 +126,7 @@ where
             Ok(connection) => Ok(connection),
             Err(error) => {
                 if self.pending_responses.load(Ordering::Acquire) > 0 {
-                    self.slot.discard_next_checkout();
-                    self.pending_responses.store(0, Ordering::Release);
+                    self.discard_connection_with_pending_response();
                 }
                 Err(error)
             }
@@ -150,19 +164,15 @@ where
         let mut newly_acquired_permit = self
             .acquire_protocol_permit(pending_response_change, &mut pending_response_permit)
             .await?;
+        let had_pending_response = self.pending_responses.load(Ordering::Acquire) > 0;
         let mut connection = match self.checkout_connection().await {
             Ok(connection) => connection,
             Err(error) => {
-                drop(pending_response_permit.take());
+                if had_pending_response {
+                    drop(pending_response_permit.take());
+                }
                 return Err(error);
             }
-        };
-        let protocol_permit = match newly_acquired_permit.take() {
-            Some(permit) => permit,
-            None => match pending_response_permit.take() {
-                Some(permit) => permit,
-                None => return Err(ClientError::disconnected()),
-            },
         };
         let result = operation(&mut connection).await;
         connection.disarm();
@@ -171,11 +181,28 @@ where
         drop(connection);
 
         if keep_protocol_permit {
-            *pending_response_permit = Some(protocol_permit);
+            if let Some(protocol_permit) = newly_acquired_permit.take() {
+                *pending_response_permit = Some(protocol_permit);
+            }
         } else {
-            drop(protocol_permit);
+            drop(newly_acquired_permit.take());
+            drop(pending_response_permit.take());
         }
         result
+    }
+
+    /// Run an operation on the live client behind the pooled-connection guard.
+    async fn dispatch_on_client<R>(
+        &self,
+        pending_response_change: PendingResponseChange,
+        operation: impl AsyncFnOnce(
+            &mut WireframeClient<S, RewindStream<TcpStream>, C>,
+        ) -> Result<R, ClientError>,
+    ) -> Result<R, ClientError> {
+        self.dispatch_on_connection(pending_response_change, async |connection| {
+            operation(connection.client_mut()?).await
+        })
+        .await
     }
 
     /// Record whether a split-phase exchange still has an unread response.
@@ -237,8 +264,8 @@ where
         Req: EncodeWith<S>,
         Resp: DecodeWith<S>,
     {
-        self.dispatch_on_connection(PendingResponseChange::None, async |conn| {
-            conn.client_mut()?.call(request).await
+        self.dispatch_on_client(PendingResponseChange::None, async |client| {
+            client.call(request).await
         })
         .await
     }
@@ -274,8 +301,8 @@ where
     where
         M: Packet + DecodeWith<S>,
     {
-        self.dispatch_on_connection(PendingResponseChange::Remove, async |conn| {
-            conn.client_mut()?.receive_envelope().await
+        self.dispatch_on_client(PendingResponseChange::Remove, async |client| {
+            client.receive_envelope().await
         })
         .await
     }
@@ -286,12 +313,14 @@ where
     ///
     /// Returns [`ClientError`] when checkout, serialization, decode,
     /// correlation validation, or transport I/O fails.
+    // @codescene(disable:"Code Duplication") The shared dispatcher preserves
+    // distinct correlated-call semantics (2026-10-16).
     pub async fn call_correlated<M>(&self, request: M) -> Result<M, ClientError>
     where
         M: Packet + EncodeWith<S> + DecodeWith<S>,
     {
-        self.dispatch_on_connection(PendingResponseChange::None, async |conn| {
-            conn.client_mut()?.call_correlated(request).await
+        self.dispatch_on_client(PendingResponseChange::None, async |client| {
+            client.call_correlated(request).await
         })
         .await
     }
@@ -309,14 +338,7 @@ where
 {
     fn drop(&mut self) {
         if self.pending_responses.load(Ordering::Acquire) > 0 {
-            self.slot.discard_next_checkout();
-            crate::metrics::inc_pool_pending_response_discard();
-            tracing::debug!(
-                action = "discard_connection",
-                pool_operation = "split_phase_exchange",
-                reason = "response_pending",
-                "discarding pooled client connection after lease release with an unread response"
-            );
+            self.discard_connection_with_pending_response();
         }
 
         if let Some(inner) = &self.release_inner {

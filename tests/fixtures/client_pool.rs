@@ -31,6 +31,13 @@ struct InFlightLimitOutcome {
     recovered_after_release: bool,
 }
 
+#[derive(Default, PartialEq, Eq)]
+enum CancelledCallCapacity {
+    #[default]
+    NotChecked,
+    Released,
+}
+
 pub struct ClientPoolWorld {
     pool: Option<Arc<TestClientPool>>,
     server: Option<PoolTestServer>,
@@ -39,6 +46,7 @@ pub struct ClientPoolWorld {
     blocked_waiter_within_limit: bool,
     rejected_waiter_above_limit: bool,
     reconnected_after_idle: bool,
+    cancelled_call_capacity: CancelledCallCapacity,
 }
 
 impl Default for ClientPoolWorld {
@@ -51,6 +59,7 @@ impl Default for ClientPoolWorld {
             blocked_waiter_within_limit: false,
             rejected_waiter_above_limit: false,
             reconnected_after_idle: false,
+            cancelled_call_capacity: CancelledCallCapacity::default(),
         }
     }
 }
@@ -212,6 +221,7 @@ impl ClientPoolWorld {
         )
         .await?;
         let lease = timeout(CANCELLATION_GRACE, pool.acquire()).await??;
+        self.cancelled_call_capacity = CancelledCallCapacity::Released;
         let response: Pong = lease.call(&Ping(2)).await?;
         if response != Pong(2) {
             return Err(format!("unexpected response after cancellation: {response:?}").into());
@@ -245,7 +255,8 @@ impl ClientPoolWorld {
 
     /// Check that cancellation caused a fresh socket and preamble on reuse.
     pub fn reconnected_after_cancelled_call(&self) -> bool {
-        self.preamble_callback_count.load(Ordering::SeqCst) == 2
+        self.cancelled_call_capacity == CancelledCallCapacity::Released
+            && self.preamble_callback_count.load(Ordering::SeqCst) == 2
             && self.server.as_ref().is_some_and(|server| {
                 server.preamble_count() == 2 && server.connection_count() == 2
             })
