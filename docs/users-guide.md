@@ -879,6 +879,15 @@ layer evolves. The helper is fallible—`FragmentationError` surfaces encoding
 failures or index overflows—so production code should bubble the error up or
 log it rather than unwrapping.
 
+`FragmentBatch::is_empty()` is available alongside `len()` for collection-style
+checks. `Fragmenter` always returns a non-empty batch: an empty input has one
+final fragment with an empty payload. Fragment metadata constructors and
+accessors are `const`, and const function bodies can call the accessors on
+`FragmentFrame`, `FragmentParts`, and `ReassembledMessage`. Those types own
+`Vec<u8>` values, so their accessors cannot generally be evaluated from const
+items. `FragmentBatch` is also produced at runtime, though its accessors are
+const-callable from functions that receive a batch reference.
+
 ```no_run
 use std::num::NonZeroUsize;
 use wireframe::fragment::Fragmenter;

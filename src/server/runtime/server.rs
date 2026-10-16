@@ -230,8 +230,8 @@ where
     /// use wireframe::{app::WireframeApp, server::WireframeServer};
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    ///     let server =
-    ///         WireframeServer::new(|| WireframeApp::default()).bind("127.0.0.1:0".parse()?)?;
+    ///     let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+    ///         .bind("127.0.0.1:0".parse()?)?;
     ///     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     ///     let task = tokio::spawn(server.run_with_shutdown(async {
     ///         let _ = shutdown_rx.await;

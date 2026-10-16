@@ -290,3 +290,31 @@ impl IntoIterator for FragmentBatch {
 
 /// Compute the number of fixed-width chunks needed for a payload.
 const fn div_ceil(numerator: usize, denominator: usize) -> usize { numerator.div_ceil(denominator) }
+
+#[cfg(test)]
+mod tests {
+    //! White-box checks for fragment-batch collection state.
+
+    use super::{FragmentBatch, FragmentFrame};
+    use crate::fragment::{FragmentHeader, FragmentIndex, MessageId};
+
+    #[test]
+    fn is_empty_reports_the_stored_fragment_collection() {
+        // Fragmenter guarantees non-empty batches; this white-box value checks
+        // what the accessor reports for an empty stored collection.
+        let empty = FragmentBatch {
+            message_id: MessageId::new(1),
+            fragments: Vec::new(),
+        };
+        let non_empty = FragmentBatch {
+            message_id: MessageId::new(2),
+            fragments: vec![FragmentFrame::new(
+                FragmentHeader::new(MessageId::new(2), FragmentIndex::zero(), true),
+                Vec::new(),
+            )],
+        };
+
+        assert!(empty.is_empty());
+        assert!(!non_empty.is_empty());
+    }
+}

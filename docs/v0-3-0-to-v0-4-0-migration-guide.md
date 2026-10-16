@@ -181,6 +181,22 @@ edit-on-demand design, and the
 [zero-copy migration roadmap](zero-copy-frame-and-payload-migration-roadmap.md)
 for the staged rollout.
 
+## Inspect fragment metadata in const code
+
+Fragment metadata constructors and read-only accessors are now `const`, so
+const function bodies can call them. This does not make every result usable as
+an evaluated const value: `FragmentFrame`, `FragmentParts`, and
+`ReassembledMessage` own `Vec<u8>` values, and const items that call their
+accessors fail with E0493. `FragmentBatch` is also produced by `Fragmenter` at
+runtime, but its `fragments()`, `len()`, `is_empty()`, and `is_fragmented()`
+accessors are const-callable from helper functions that receive a batch
+reference.
+
+An empty payload is represented by one final fragment with empty bytes, so its
+batch is not empty. Use `is_empty()` to inspect a batch's stored frame
+collection, and inspect the frame payload when the input payload's length is
+what matters.
+
 ## Server factory compatibility
 
 `WireframeServer::new` now evaluates its `AppFactory` once for each

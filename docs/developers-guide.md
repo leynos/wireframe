@@ -262,6 +262,21 @@ packet-oriented and run before serialization. The known gap is narrower:
 `before_send` does not yet fire for app-router responses routed through
 `FramePipeline`; roadmap item `11.2.1` owns that closure.
 
+The connection actor stores its outbound producer as one `ActiveOutput` value,
+so a response stream and a multi-packet channel cannot both be active. Its
+`AvailableOutput` value selects the matching `select!` branch, and becomes
+`None` once shutdown starts. High- and low-priority push queues remain separate
+event sources. This prevents response or multi-packet polling after shutdown
+starts; see the
+[streaming response design](multi-packet-and-streaming-responses-design.md).
+
+Inbound reassembly starts every new message ID through the same first-fragment
+validation path. `FragmentSeries::start_with_first` requires index zero and
+advances the accepted header before classifying it as complete or incomplete,
+so a terminal first fragment follows the same index rule as a partial one. The
+[fragment design](generic-message-fragmentation-and-re-assembly-design.md)
+describes the surrounding reassembly boundary.
+
 ## Runtime ownership model
 
 Three proposed decision records govern runtime ownership and task-lifetime

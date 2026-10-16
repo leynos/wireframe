@@ -70,6 +70,7 @@ fn fragmenter_handles_empty_payload() {
     let batch = fragmenter.fragment_bytes([]).expect("fragment empty");
 
     assert_eq!(batch.len(), 1);
+    assert!(!batch.is_empty());
     assert!(!batch.is_fragmented());
     let fragment = batch
         .fragments()
