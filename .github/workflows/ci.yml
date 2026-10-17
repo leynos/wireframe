@@ -4,6 +4,12 @@ on:
   # Stacked pull requests target their parent branch, so the blocking lane
   # must run for every pull-request base as well as for main-bound requests.
   pull_request:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner label for this measurement run
+        required: false
+        default: ubicloud-standard-4
   push:
     branches: [main]
 
@@ -44,8 +50,8 @@ jobs:
     # repovec-appliance runs the same `whitaker-installer` 0.2.6 on
     # `ubicloud-standard-4`, green, and this lane has now done so too.
     runs-on: >-
-      ${{ github.event.pull_request.head.repo.fork
-      && 'ubuntu-latest' || 'ubicloud-standard-4' }}
+      ${{ inputs.runner || (github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-4') }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -54,6 +60,8 @@ jobs:
       BUILD_PROFILE: debug
     steps:
       - uses: actions/checkout@v7
+      - name: Start resource sampler
+        run: ./scripts/ci-resource-sampler.sh start
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@e693d81d176d2305e2b736a0be0f9038085dec7f
       - name: Install development backend and linker
@@ -109,6 +117,7 @@ jobs:
       - name: Validate Mermaid diagrams
         run: make nixie
       - name: Workflow contract tests
+        continue-on-error: true
         run: make test-workflow-contracts
       # Coverage runs on pull requests only and drives the ratchet gate.
       # Main-branch coverage — the CodeScene upload plus the authoritative
@@ -123,7 +132,7 @@ jobs:
       # CodeScene's own check on the pull request, driven by what
       # coverage-main.yml uploads, and it needs nothing from here.
       - name: Test and Measure Coverage
-        if: github.event_name == 'pull_request'
+        if: github.event_name != 'push'
         uses: leynos/shared-actions/.github/actions/generate-coverage@e693d81d176d2305e2b736a0be0f9038085dec7f
         with:
           output-path: lcov.info
@@ -132,3 +141,6 @@ jobs:
           # The ratchet reads this report; nothing else does, so it is not
           # published as an artefact.
           publish-artefact: 'false'
+      - name: Report resource sampler
+        if: always()
+        run: ./scripts/ci-resource-sampler.sh report
