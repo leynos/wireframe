@@ -32,13 +32,13 @@ jobs:
     # arm: `push` carries no pull request, so the guard would be constant
     # here and a constant guard reads as a decision nobody made.
     #
-    # Four vCPU for the same reason `ci.yml` is: this lane runs the same
-    # `generate-coverage` over the same workspace, so it runs the same
-    # trybuild case that nextest killed at 180 s on two vCPU. Its 240 s
+    # Four vCPU, and not measured at two: this lane runs the same
+    # `generate-coverage` over the same workspace as `ci.yml`, whose
+    # `build-test` now runs on two vCPU after a warm run passed the trybuild
+    # case that nextest had killed at 180 s there. This lane's own 240 s
     # sample was taken on Namespace's shared profile, which is four vCPU and
-    # 16 GB, so two was never the shape it had been measured on. Sizing it
-    # down would have failed on the first merge push after this merged, with
-    # nobody watching.
+    # 16 GB, and it has not been sampled on two. It runs on merge pushes
+    # with nobody watching, so moving it needs its own measurement.
     runs-on: ubicloud-standard-4
     # The CodeScene token lives in this environment, whose deployment policy
     # admits `main` alone; the codescene environment contract holds it to

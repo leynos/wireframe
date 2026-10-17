@@ -19,17 +19,20 @@ import typing as typ
 
 UBICLOUD_LABEL_PREFIX: typ.Final = "ubicloud-"
 
-#: The reviewed Ubicloud shape. Four vCPU rather than two, and that is a
-#: measurement rather than a preference for the larger machine.
-#: ``tests/compile_error.rs`` is a trybuild case that spawns its own cargo
-#: build of the whole dependency tree while the other 987 tests compete for
-#: the same cores. On four vCPU it takes 64.5 s of the suite's 65.4 s; on
-#: ``ubicloud-standard-2`` it was still running when nextest killed it at its
-#: default 180 s, and the coverage step failed at exit 100 with 987 of 988
-#: passed. Both lanes that run the suite carry this shape, so one constant
-#: serves both; placement is still pinned per coordinate below, so they can
-#: diverge later without this constant becoming a lie.
+#: The Ubicloud shape of ``coverage-upload``. Four vCPU, because that lane has
+#: only been sampled on four: its 240 s of work was measured on Namespace's
+#: four-vCPU profile, and on two vCPU the trybuild case
+#: ``tests/compile_error.rs`` was once killed by nextest at its default 180 s
+#: while the other 987 tests competed for the cores.
 UBICLOUD_LABEL: typ.Final = "ubicloud-standard-4"
+
+#: The shape of ``build-test``'s non-fork arm. Two vCPU, measured on
+#: 2026-10-17 with a warm cache: 8m50s at 1.28 busy cores on four vCPU
+#: against 12m30s at 0.88 busy cores on two, with the trybuild case passing.
+#: A larger shape pays for itself only if the lane keeps more than half of
+#: it busy, and this lane does not. Kept apart from ``UBICLOUD_LABEL`` so the
+#: two lanes can differ without either constant becoming a lie.
+CI_UBICLOUD_LABEL: typ.Final = "ubicloud-standard-2"
 GITHUB_HOSTED_LABEL: typ.Final = "ubuntu-latest"
 
 #: The one guard the fork fallback may key on. Compared by equality, because a
@@ -56,7 +59,8 @@ EXPECTED_PLACEMENT: typ.Final = {
 #: to a number nobody chose while every inequality still holds.
 #:
 #: ``build-test`` at 30 and ``coverage-upload`` at 20 are measured, from 556 s
-#: and 240 s of work on four-vCPU runners. ``advanced`` at 60 and
+#: of work on four-vCPU runners (750 s on two vCPU, still inside 30 minutes)
+#: and 240 s on four-vCPU runners. ``advanced`` at 60 and
 #: ``refresh-sha`` at 10 are judgements and are recorded as such in the
 #: developers' guide: ``advanced`` has failed every scheduled run since at
 #: least 2026-09-09 and its last green run was 2025-10-04 at 32 s, which a

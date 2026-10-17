@@ -11,7 +11,7 @@ than all four repository-owned lanes sharing one profile.
 
 | Workflow                 | Job                 | Trigger            | Runner                | Ceiling |
 | ------------------------ | ------------------- | ------------------ | --------------------- | ------- |
-| `ci.yml`                 | `build-test`        | pull request, push | `ubicloud-standard-4` | 30 min  |
+| `ci.yml`                 | `build-test`        | pull request, push | `ubicloud-standard-2` | 30 min  |
 | `coverage-main.yml`      | `coverage-upload`   | push               | `ubicloud-standard-4` | 20 min  |
 | `advanced-tests.yml`     | `advanced`          | schedule           | `ubuntu-latest`       | 60 min  |
 | `delayed-pr-comment.yml` | `delay_and_comment` | dispatch           | `ubuntu-latest`       | none    |
@@ -30,7 +30,7 @@ carries the fork fallback:
 ```yaml
 runs-on: >-
   ${{ github.event.pull_request.head.repo.fork
-  && 'ubuntu-latest' || 'ubicloud-standard-4' }}
+  && 'ubuntu-latest' || 'ubicloud-standard-2' }}
 ```
 
 The continuation line sits at the same indent as the line above it. A
@@ -61,29 +61,44 @@ today, so they share a glibc and no restore can run on an older one. Should the
 two environments ever diverge, key the action's cache provider instead of
 restoring a compiled installer by hand.
 
-### Why four vCPU and not two
+### Why `build-test` has two vCPU and `coverage-upload` four
 
-Both Ubicloud lanes are `ubicloud-standard-4`. That is a measurement, not a
-preference for the larger shape.
+Ubicloud bills a flat rate per vCPU, so a larger shape pays for itself only if
+the lane keeps more than half of it busy. `build-test` does not. It was sampled
+every 10 seconds on 2026-10-17 with a warm compiler cache (99.45% of sccache
+requests hit):
 
-`tests/compile_error.rs` is a trybuild case: it spawns its own cargo build of
-the whole dependency tree, and it does so while the other 987 tests in the
-suite are running beside it. On a four-vCPU runner it takes 64.5 seconds of the
-suite's 65.4. On `ubicloud-standard-2` it was still running when nextest killed
-it at 180.0 seconds, which is that tool's default 60-second slow-timeout times
-three, and the coverage step failed at exit 100 with 987 of 988 tests passed.
+| Shape                 | Wall time | Busy cores (avg / p95 / max) | Peak memory | Minimum free disk |
+| --------------------- | --------- | ---------------------------- | ----------- | ----------------- |
+| `ubicloud-standard-4` | 8m50s     | 1.28 / 2.29 / 2.81 of 4      | 1,857 MiB   | 78,392 MiB        |
+| `ubicloud-standard-2` | 12m30s    | 0.88 / 1.75 / 2.00 of 2      | 1,784 MiB   | 3,998 MiB         |
 
-Halving the cores does not halve that test. Its siblings are competing for the
-same two, so the test that most wants a whole machine is the one that gets
-least of one. Both lanes carry the shape because both run the same
-`generate-coverage` over the same workspace; `coverage-upload`'s 240-second
-sample was taken on Namespace's shared profile, which is four vCPU, so two was
-never a size it had been measured at.
+*Table 2: The `build-test` placement trial, runs
+[39037188781](https://github.com/leynos/wireframe/actions/runs/39037188781) and
+[39038420830](https://github.com/leynos/wireframe/actions/runs/39038420830).*
 
-The alternative would have been to give that one test a longer deadline. This
-repository has no nextest configuration at all, so that means new machinery
-introduced to make a smaller runner tolerable, which is the wrong direction:
-the cost is what should move, not the victim's deadline.
+Two vCPU cost about 29% less per run for 3m40s more wall time, and memory is
+far inside the 7.9 GiB that shape has.
+
+The reason this guide used to give for four vCPU was `tests/compile_error.rs`,
+a trybuild case that spawns its own cargo build of the whole dependency tree
+while the other 987 tests run beside it. It took 64.5 seconds of the suite's
+65.4 on four vCPU, and on two it was once killed by nextest at 180.0 seconds
+(the default 60-second slow-timeout times three), failing the coverage step at
+exit 100 with 987 of 988 tests passed. On the warm run above it passed on two
+vCPU. A cold cache may still bring the kill back, because the case's siblings
+compete for two cores rather than four; the first failure of that kind is the
+signal to revisit. Giving that one test a longer deadline is the alternative,
+but this repository has no nextest configuration, so that would be new
+machinery to make a smaller runner tolerable.
+
+Free disk is the margin to watch: 3,998 MiB at its lowest on two vCPU.
+
+`coverage-upload` stays on `ubicloud-standard-4`. It runs the same
+`generate-coverage` over the same workspace, but its 240-second sample was
+taken on Namespace's four-vCPU profile and it has not been sampled on two. It
+runs on merge pushes with nobody watching, so moving it needs its own
+measurement.
 
 ### Ceilings, and the one lane that has none
 
@@ -92,11 +107,12 @@ default is the expensive failure mode. A ceiling close to the measured work is
 the other one, because it cancels the run at the moment an overrun becomes
 interesting and discards the log that would explain it.
 
-Two ceilings are measured: `build-test` at 556 seconds and `coverage-upload` at
-240 seconds, both on four-vCPU runners. Two are judgements, and the guide says
-so rather than implying otherwise. `advanced` has failed every night since at
-least 2026-09-09 and its last green run was 2025-10-04 at 32 seconds, so 60
-minutes is generous enough not to mask the repair when it lands.
+Two ceilings are measured: `build-test` at 556 seconds on four vCPU (750
+seconds on two, still well inside 30 minutes) and `coverage-upload` at 240
+seconds on four vCPU. Two are judgements, and the guide says so rather than
+implying otherwise. `advanced` has failed every night since at least 2026-09-09
+and its last green run was 2025-10-04 at 32 seconds, so 60 minutes is generous
+enough not to mask the repair when it lands.
 
 `delay_and_comment` declares no ceiling, deliberately. Its entire duration is a
 `sleep` of the caller's `delay_minutes` input, so any fixed ceiling cancels a
