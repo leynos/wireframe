@@ -31,7 +31,7 @@ First, the folded scalar. Written as
 
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-          && 'ubuntu-latest' || 'ubicloud-standard-4' }}
+          && 'ubuntu-latest' || 'ubicloud-standard-2' }}
 
 the more-indented continuation keeps its line break, so the parsed value
 carries a newline in the middle of the expression. GitHub evaluates it
@@ -94,6 +94,20 @@ Mutation proof; each applied alone and reverted:
   ``test_the_delayed_comment_lane_declares_no_ceiling``, which is the point:
   the absence there is a decision, not an oversight.
 
+Placement of ``build-test`` on ``ubicloud-standard-2`` (2026-10-17) was
+proved by three further mutations, each applied alone and reverted:
+
+- returning the fork-fallback default arm to ``ubicloud-standard-4`` fails
+  ``test_the_runner_expression_is_exactly_the_reviewed_one`` and, because
+  nothing else then uses ``ubicloud-standard-2``,
+  ``test_the_actionlint_registry_matches_the_labels_in_use``;
+- removing ``ubicloud-standard-2`` from ``.github/actionlint.yaml`` fails
+  ``test_the_actionlint_registry_matches_the_labels_in_use`` alone;
+- moving ``coverage-upload`` to ``ubicloud-standard-2`` fails
+  ``test_the_job_carries_its_reviewed_label`` for that coordinate, so the
+  lane that has not been sampled on two vCPU cannot follow ``build-test``
+  unnoticed.
+
 A ninth is not a mutation but a real event, recorded because it is better
 evidence than a contrived one. Moving both Ubicloud lanes from
 ``ubicloud-standard-2`` to ``ubicloud-standard-4`` after the smaller shape
@@ -114,6 +128,7 @@ from __future__ import annotations
 
 import pytest
 from runner_placement_policy import (
+    CI_UBICLOUD_LABEL,
     CEILING_FREE_JOB,
     DELEGATED_JOBS,
     EXPECTED_CEILING_MINUTES,
@@ -264,9 +279,9 @@ def test_the_runner_expression_is_exactly_the_reviewed_one() -> None:
         f"forks are sent to {match['fork_arm']!r}; a fork cannot obtain an "
         f"Ubicloud runner, so the fork arm must be {GITHUB_HOSTED_LABEL!r}"
     )
-    assert match["default_arm"] == UBICLOUD_LABEL, (
+    assert match["default_arm"] == CI_UBICLOUD_LABEL, (
         f"non-fork events run on {match['default_arm']!r}, not the reviewed "
-        f"{UBICLOUD_LABEL!r}"
+        f"{CI_UBICLOUD_LABEL!r}"
     )
 
 

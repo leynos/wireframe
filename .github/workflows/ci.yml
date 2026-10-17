@@ -22,14 +22,26 @@ jobs:
     # The one developer-blocking lane, so the one that moves. It waited 461 s
     # for a GitHub-hosted runner on 2026-09-16 to do 556 s of work.
     #
-    # Four vCPU, not two, and that is a measurement rather than a preference.
-    # `tests/compile_error.rs` is a trybuild case that spawns its own cargo
-    # build of the whole dependency tree while the other 987 tests run beside
-    # it. On four vCPU it takes 64.5 s of the suite's 65.4 s; on
-    # `ubicloud-standard-2` it was still running when nextest killed it at
-    # 180.0 s, which is its default 60 s slow-timeout times three. Halving the
-    # cores does not halve that test, because its siblings are competing for
-    # the same two.
+    # Two vCPU, and that is a measurement rather than a preference. Ubicloud
+    # bills a flat rate per vCPU, so four vCPU pay for themselves only if the
+    # lane keeps more than about two of them busy. It does not: sampled every
+    # 10 s on 2026-10-17, a warm run (99.45% sccache hits) on four vCPU took
+    # 8m50s at 1.28 busy cores on average (p95 2.29, peak memory 1.9 GiB;
+    # https://github.com/leynos/wireframe/actions/runs/39037188781), and the
+    # same commit on `ubicloud-standard-2` was green in 12m30s at 0.88 busy
+    # cores (p95 1.75, peak memory 1.8 GiB of 7.9;
+    # https://github.com/leynos/wireframe/actions/runs/39038420830). That is
+    # about 29% less per run for 3m40s more wall time.
+    #
+    # The earlier reason for four vCPU no longer holds on a warm cache:
+    # `tests/compile_error.rs`, the trybuild case that spawns its own cargo
+    # build while the other 987 tests run, was killed by nextest at its 180 s
+    # default on two vCPU, but it passed on the run above. Its siblings
+    # compete for two cores rather than four, so a cold cache may still bring
+    # the kill back; the first failure of that kind is the signal to revisit.
+    #
+    # Disk is the margin to watch: the minimum free space on two vCPU was
+    # 3,998 MiB, against 78,392 MiB on four.
     #
     # A pull request from a fork cannot obtain an Ubicloud runner, so the
     # expression falls back to a GitHub-hosted one for forks only. The
@@ -45,7 +57,7 @@ jobs:
     # `ubicloud-standard-4`, green, and this lane has now done so too.
     runs-on: >-
       ${{ github.event.pull_request.head.repo.fork
-      && 'ubuntu-latest' || 'ubicloud-standard-4' }}
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 30
     permissions:
       contents: read
