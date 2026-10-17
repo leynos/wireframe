@@ -10,6 +10,13 @@ keywords = ["async", "networking", "binary-protocol", "protocol", "tokio"]
 categories = ["network-programming", "asynchronous"]
 documentation = "https://docs.rs/wireframe_testing"
 
+[features]
+# Measurement helpers for the runtime-ownership hot paths need Wireframe's
+# test-support fixtures (connection startup) and client pool. They stay behind a
+# feature so a plain `cargo check -p wireframe_testing` still works against the
+# crate's default feature set.
+runtime-benchmarks = ["wireframe/test-support", "wireframe/pool"]
+
 [lints]
 workspace = true
 
@@ -26,3 +33,8 @@ metrics = "0.24.3"
 metrics-util = "0.20"
 futures = "0.3"
 tokio-util = { version = "0.7", features = ["codec"] }
+
+[dev-dependencies]
+# Serializes the tests that assert on process-global state. `serial_test` is
+# already the repository's convention for this; see `tests/push_policies.rs`.
+serial_test = "4.0.1"

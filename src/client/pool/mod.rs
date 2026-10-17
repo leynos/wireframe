@@ -4,6 +4,7 @@
 //! admission permits across those slots so multiple callers can target the
 //! same warm socket while transport access remains serialized per socket.
 
+mod churn;
 mod client_pool;
 mod config;
 mod handle;
@@ -15,6 +16,7 @@ mod scheduler;
 mod slot;
 mod sync;
 
+pub use churn::{PoolTaskChurn, PoolTaskChurnObserver};
 pub use client_pool::WireframeClientPool;
 pub use config::ClientPoolConfig;
 pub use handle::PoolHandle;

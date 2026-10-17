@@ -62,7 +62,7 @@ rstest = "0.27.0"
 rstest-bdd = "0.5.0"
 rstest-bdd-macros = { version = "0.5.0", features = ["strict-compile-time-validation"] }
 wireframe = { path = ".", features = ["test-support", "pool", "testkit"] }
-wireframe_testing = { path = "./wireframe_testing" }
+wireframe_testing = { path = "./wireframe_testing", features = ["runtime-benchmarks"] }
 logtest = "2.0.0"
 # No-op decorator attributes recognised by cargo-mutants; used only under
 # cfg(test) to annotate equivalent mutants, so no production dependency.
@@ -252,3 +252,13 @@ harness = false
 [[bench]]
 name = "codec_performance_alloc"
 harness = false
+
+[[bench]]
+name = "runtime_ownership_baselines"
+harness = false
+required-features = ["test-support", "pool"]
+
+[[bench]]
+name = "runtime_ownership_baselines_alloc"
+harness = false
+required-features = ["test-support", "pool"]

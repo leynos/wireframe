@@ -29,4 +29,5 @@ pub use self::queues::{
     PushPriority,
     PushQueues,
     PushQueuesBuilder,
+    PushWaitCounters,
 };

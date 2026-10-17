@@ -133,5 +133,7 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
   type-transitioning builders and reconstruction patterns.
 - [Documentation style guide](documentation-style-guide.md) Conventions for
   writing project documentation.
+- [Runtime-ownership baselines](runtime-ownership-baselines.md) Recorded
+  baselines for the four hot paths Epic #635 proposes to re-topologize.
 - [Server configuration](server/configuration.md) Tuning accept loop backoff
   behaviour and builder options.

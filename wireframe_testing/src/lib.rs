@@ -18,6 +18,7 @@
 //! # }
 //! ```
 
+pub mod benchmark_alloc_support;
 pub mod client_pair;
 pub mod codec_benchmarks;
 pub mod echo_server;
@@ -28,6 +29,8 @@ pub mod macros;
 pub mod multi_packet;
 pub mod observability;
 pub mod reassembly;
+#[cfg(feature = "runtime-benchmarks")]
+pub mod runtime_ownership_benchmarks;
 
 pub use client_pair::{WireframePair, spawn_wireframe_pair, spawn_wireframe_pair_default};
 pub use echo_server::{ServerMode, process_frame};
