@@ -144,7 +144,7 @@ stop_sampler() {
   rm -f "${PID_FILE}"
 }
 
-# Summarise the per-interval lines: time-weighted average (sum of busy over sum
+# Summarize the per-interval lines: time-weighted average (sum of busy over sum
 # of total), p95 and maximum of the per-interval busy cores, the fraction of
 # intervals above 90% busy, and steal as a share of all jiffies.
 cpu_summary() {
