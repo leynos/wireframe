@@ -2,7 +2,12 @@
 
 use std::{
     ops::{Deref, DerefMut},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{
+        Arc,
+        Mutex,
+        MutexGuard,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -26,10 +31,14 @@ where
     pub(crate) pool: Pool<WireframeConnectionManager<S, P, C>>,
     /// Admission semaphore limiting concurrent logical operations.
     permits: Arc<Semaphore>,
+    /// Serializes protocol operations and reserves the socket for pending replies.
+    protocol_gate: Arc<Semaphore>,
     /// Idle age at which the physical resource must be replaced.
     idle_timeout: Duration,
     /// Last healthy return time used for idle recycling.
     last_returned_at: Mutex<Option<Instant>>,
+    /// Discard the warm socket when a split-phase lease left a response unread.
+    discard_on_next_checkout: AtomicBool,
 }
 
 impl<S, P, C> PoolSlot<S, P, C>
@@ -47,8 +56,10 @@ where
         Self {
             pool,
             permits: Arc::new(Semaphore::new(max_in_flight_per_socket)),
+            protocol_gate: Arc::new(Semaphore::new(1)),
             idle_timeout,
             last_returned_at: Mutex::new(None),
+            discard_on_next_checkout: AtomicBool::new(false),
         }
     }
 
@@ -68,9 +79,30 @@ where
             .map_err(|_| ClientError::disconnected())
     }
 
+    /// Serialize a protocol operation with any unresolved split-phase exchange.
+    pub(crate) async fn acquire_protocol_permit(
+        &self,
+    ) -> Result<OwnedSemaphorePermit, ClientError> {
+        self.protocol_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| ClientError::disconnected())
+    }
+
     /// Check out a healthy connection, refreshing an idle one before use.
-    pub(crate) async fn checkout(&self) -> Result<SlotConnection<'_, S, P, C>, ClientError> {
+    pub(crate) async fn checkout<'a>(
+        &'a self,
+        pending_responses: &'a AtomicUsize,
+    ) -> Result<SlotConnection<'a, S, P, C>, ClientError> {
         let mut connection = self.get_connection().await?;
+
+        if self.discard_on_next_checkout.swap(false, Ordering::AcqRel) {
+            connection.mark_broken();
+            drop(connection);
+            self.clear_last_returned_at();
+            connection = self.get_connection().await?;
+        }
 
         if self.should_recycle_idle() {
             connection.mark_broken();
@@ -81,8 +113,15 @@ where
 
         Ok(SlotConnection {
             connection,
+            armed: true,
             last_returned_at: &self.last_returned_at,
+            pending_responses,
         })
+    }
+
+    /// Discard the warm socket before another lease can use it.
+    pub(crate) fn discard_next_checkout(&self) {
+        self.discard_on_next_checkout.store(true, Ordering::Release);
     }
 
     /// Obtain the bb8 resource and translate checkout failures to client errors.
@@ -123,8 +162,22 @@ where
 {
     /// Checked-out resource whose drop records healthy or broken return state.
     connection: PooledConnection<'a, WireframeConnectionManager<S, P, C>>,
+    /// Invalidates the resource unless an operation completed while checked out.
+    armed: bool,
     /// Slot timestamp updated when the checkout is returned.
     last_returned_at: &'a Mutex<Option<Instant>>,
+    /// Lease exchange state cleared when cancellation invalidates the socket.
+    pending_responses: &'a AtomicUsize,
+}
+
+impl<S, P, C> SlotConnection<'_, S, P, C>
+where
+    S: Serializer + Clone + Send + Sync + 'static,
+    P: bincode::Encode + Clone + Send + Sync + 'static,
+    C: Send + 'static,
+{
+    /// Preserve the connection after an operation completes.
+    pub(crate) fn disarm(&mut self) { self.armed = false; }
 }
 
 impl<S, P, C> Deref for SlotConnection<'_, S, P, C>
@@ -154,6 +207,18 @@ where
     C: Send + 'static,
 {
     fn drop(&mut self) {
+        if self.armed {
+            self.connection.mark_broken();
+            self.pending_responses.store(0, Ordering::Release);
+            crate::metrics::inc_pool_incomplete_operation_discard();
+            tracing::debug!(
+                action = "discard_connection",
+                pool_operation = "client_operation",
+                reason = "operation_incomplete",
+                "discarding pooled client connection after an incomplete operation"
+            );
+        }
+
         let mut last_returned_at = lock_or_recover(self.last_returned_at);
 
         if self.connection.is_broken() {

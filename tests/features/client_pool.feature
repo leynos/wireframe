@@ -1,6 +1,6 @@
 Feature: Client pool
   The wireframe client pool reuses warm sockets, enforces admission limits,
-  and recycles idle sockets.
+  recycles idle sockets, and discards sockets after cancelled operations.
 
   Scenario: Client pool warm reuse preserves preamble state
     Given client pool warm reuse is configured
@@ -21,3 +21,8 @@ Feature: Client pool
     Given client pool idle recycling is configured
     When client pool idles past the recycle timeout
     Then client pool reconnects and replays the preamble
+
+  Scenario: Client pool reconnects after a cancelled call
+    Given client pool cancellation safety is configured
+    When client pool cancels a delayed in-flight call
+    Then client pool reconnects after cancellation and releases capacity

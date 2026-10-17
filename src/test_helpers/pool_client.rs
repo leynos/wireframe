@@ -9,7 +9,11 @@ use std::{
 };
 
 use futures::{FutureExt, SinkExt, StreamExt};
-use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
+use tokio::{
+    net::TcpListener,
+    sync::{Mutex, Notify},
+    task::JoinHandle,
+};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use crate::{
@@ -51,6 +55,8 @@ pub enum PoolServerBehavior {
     EchoPong,
     /// Send one malformed response payload, then resume normal replies.
     MalformedFirstResponse,
+    /// Hold the first response until released, then resume normal replies.
+    LateFirstResponse,
 }
 
 /// Shared pooled test server used by unit and behavioural tests.
@@ -62,6 +68,12 @@ pub struct PoolTestServer {
     preamble_count: Arc<AtomicUsize>,
     /// Count of physical TCP connections accepted by the fixture.
     connection_count: Arc<AtomicUsize>,
+    /// Signals that the delayed first response is being held back.
+    delayed_first_response_started: Arc<Notify>,
+    /// Releases the delayed first response after the caller cancels its request.
+    delayed_first_response_release: Arc<Notify>,
+    /// Signals that the delayed first response write was attempted.
+    delayed_first_response_attempted: Arc<Notify>,
     /// Background accept loop; aborting it makes dropping the fixture bounded.
     handle: JoinHandle<()>,
 }
@@ -72,8 +84,14 @@ struct PoolServerState {
     preamble_count: Arc<AtomicUsize>,
     /// Shared accepted-connection counter.
     connection_count: Arc<AtomicUsize>,
-    /// One-shot flag controlling malformed-response coverage.
-    malformed_response_sent: Arc<AtomicBool>,
+    /// One-shot flag controlling special first-response coverage.
+    special_response_handled: Arc<AtomicBool>,
+    /// Signals that the delayed first response is being held back.
+    delayed_first_response_started: Arc<Notify>,
+    /// Releases the delayed first response after the caller cancels its request.
+    delayed_first_response_release: Arc<Notify>,
+    /// Signals that the delayed first response write was attempted.
+    delayed_first_response_attempted: Arc<Notify>,
     /// Response mode selected by the test case.
     behaviour: PoolServerBehavior,
 }
@@ -98,10 +116,16 @@ impl PoolTestServer {
         let addr = listener.local_addr()?;
         let preamble_count = Arc::new(AtomicUsize::new(0));
         let connection_count = Arc::new(AtomicUsize::new(0));
+        let delayed_first_response_started = Arc::new(Notify::new());
+        let delayed_first_response_release = Arc::new(Notify::new());
+        let delayed_first_response_attempted = Arc::new(Notify::new());
         let state = PoolServerState {
             preamble_count: preamble_count.clone(),
             connection_count: connection_count.clone(),
-            malformed_response_sent: Arc::new(AtomicBool::new(false)),
+            special_response_handled: Arc::new(AtomicBool::new(false)),
+            delayed_first_response_started: delayed_first_response_started.clone(),
+            delayed_first_response_release: delayed_first_response_release.clone(),
+            delayed_first_response_attempted: delayed_first_response_attempted.clone(),
             behaviour,
         };
 
@@ -111,6 +135,9 @@ impl PoolTestServer {
             addr,
             preamble_count,
             connection_count,
+            delayed_first_response_started,
+            delayed_first_response_release,
+            delayed_first_response_attempted,
             handle,
         })
     }
@@ -122,10 +149,55 @@ impl PoolTestServer {
     /// Return the number of physical connections accepted by the server.
     #[must_use]
     pub fn connection_count(&self) -> usize { self.connection_count.load(Ordering::SeqCst) }
+
+    /// Wait until the fixture has received the request with a delayed response.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # async fn example(server: &wireframe::test_helpers::PoolTestServer) {
+    /// server.wait_for_delayed_first_response().await;
+    /// # }
+    /// ```
+    pub async fn wait_for_delayed_first_response(&self) {
+        self.delayed_first_response_started.notified().await;
+    }
+
+    /// Release the first response held by [`PoolServerBehavior::LateFirstResponse`].
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # async fn example(server: &wireframe::test_helpers::PoolTestServer) {
+    /// server.wait_for_delayed_first_response().await;
+    /// server.release_delayed_first_response();
+    /// server.wait_for_delayed_first_response_attempt().await;
+    /// # }
+    /// ```
+    pub fn release_delayed_first_response(&self) {
+        self.delayed_first_response_release.notify_one();
+    }
+
+    /// Wait until the fixture has attempted to write its delayed first response.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # async fn example(server: &wireframe::test_helpers::PoolTestServer) {
+    /// server.wait_for_delayed_first_response_attempt().await;
+    /// # }
+    /// ```
+    pub async fn wait_for_delayed_first_response_attempt(&self) {
+        self.delayed_first_response_attempted.notified().await;
+    }
 }
 
 impl Drop for PoolTestServer {
-    fn drop(&mut self) { self.handle.abort(); }
+    fn drop(&mut self) {
+        // Unblock a detached connection task if a test exits before releasing its response.
+        self.delayed_first_response_release.notify_one();
+        self.handle.abort();
+    }
 }
 
 /// Build a pooled client configured for the shared test protocol.
@@ -191,7 +263,10 @@ async fn run_pool_test_accept_loop(listener: TcpListener, state: PoolServerState
         let state = PoolServerState {
             preamble_count: state.preamble_count.clone(),
             connection_count: state.connection_count.clone(),
-            malformed_response_sent: state.malformed_response_sent.clone(),
+            special_response_handled: state.special_response_handled.clone(),
+            delayed_first_response_started: state.delayed_first_response_started.clone(),
+            delayed_first_response_release: state.delayed_first_response_release.clone(),
+            delayed_first_response_attempted: state.delayed_first_response_attempted.clone(),
             behaviour: state.behaviour,
         };
         tokio::spawn(handle_pool_test_connection(stream, state));
@@ -224,22 +299,71 @@ async fn handle_pool_test_connection(mut stream: tokio::net::TcpStream, state: P
             break;
         };
 
-        let payload = if state.behaviour == PoolServerBehavior::MalformedFirstResponse
-            && !state.malformed_response_sent.swap(true, Ordering::SeqCst)
-        {
-            Vec::new()
-        } else {
-            let encoded = bincode::encode_to_vec(Pong(ping.0), bincode::config::standard());
-            let Ok(payload) = encoded else {
-                break;
-            };
-            payload
+        let is_first_special_response =
+            !state.special_response_handled.swap(true, Ordering::SeqCst);
+        let Some(payload) =
+            pool_test_response_payload(&ping, state.behaviour, is_first_special_response)
+        else {
+            break;
         };
 
-        if framed.send(payload.into()).await.is_err() {
+        let is_late_first_response =
+            state.behaviour == PoolServerBehavior::LateFirstResponse && is_first_special_response;
+        if !send_pool_test_response(&mut framed, payload, is_late_first_response, &state).await {
             break;
         }
     }
+}
+
+/// Encode a normal reply or the selected malformed first response.
+fn pool_test_response_payload(
+    ping: &Ping,
+    behaviour: PoolServerBehavior,
+    is_first_special_response: bool,
+) -> Option<Vec<u8>> {
+    if behaviour == PoolServerBehavior::MalformedFirstResponse && is_first_special_response {
+        Some(Vec::new())
+    } else {
+        bincode::encode_to_vec(Pong(ping.0), bincode::config::standard()).ok()
+    }
+}
+
+/// Send one response and signal both ends of the optional delay.
+///
+/// The fixture uses these signals so cancellation tests can wait for the
+/// request to arrive and for its delayed response write to be attempted.
+///
+/// # Examples
+///
+/// ```no_run
+/// # async fn example() {
+/// use wireframe::test_helpers::{PoolServerBehavior, PoolTestServer};
+/// let Ok(server) =
+///     PoolTestServer::start_with_behavior(PoolServerBehavior::LateFirstResponse).await
+/// else {
+///     return;
+/// };
+/// server.wait_for_delayed_first_response().await;
+/// server.release_delayed_first_response();
+/// server.wait_for_delayed_first_response_attempt().await;
+/// # }
+/// ```
+async fn send_pool_test_response(
+    framed: &mut Framed<tokio::net::TcpStream, LengthDelimitedCodec>,
+    payload: Vec<u8>,
+    is_late_first_response: bool,
+    state: &PoolServerState,
+) -> bool {
+    if is_late_first_response {
+        state.delayed_first_response_started.notify_one();
+        state.delayed_first_response_release.notified().await;
+    }
+
+    let send_result = framed.send(payload.into()).await;
+    if is_late_first_response {
+        state.delayed_first_response_attempted.notify_one();
+    }
+    send_result.is_ok()
 }
 
 /// Decode the fixture's handshake response and return any buffered bytes.

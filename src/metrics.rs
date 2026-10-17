@@ -20,9 +20,20 @@ use std::time::Duration;
 #[cfg(feature = "metrics")]
 use metrics::{counter, gauge, histogram};
 
+mod client_pool;
 mod server_startup;
 mod server_supervisor;
 
+pub use client_pool::{
+    POOL_BOOKKEEPING_POISON_RECOVERIES,
+    POOL_CONNECTION_DISCARDS,
+    inc_pool_bookkeeping_poison_recoveries,
+};
+#[cfg(feature = "pool")]
+pub(crate) use client_pool::{
+    inc_pool_incomplete_operation_discard,
+    inc_pool_pending_response_discard,
+};
 pub use server_startup::{SERVER_STARTUP_DURATION, SERVER_STARTUP_FAILURES};
 pub(crate) use server_startup::{
     ServerStartupFailureStage,
@@ -47,16 +58,6 @@ pub const ERRORS_TOTAL: &str = "wireframe_errors_total";
 /// wireframe_connection_panics_total 1
 /// ```
 pub const CONNECTION_PANICS: &str = "wireframe_connection_panics_total";
-/// Name of the counter tracking recovered client pool bookkeeping lock poison.
-///
-/// ```plaintext
-/// # HELP wireframe_pool_bookkeeping_poison_recoveries_total Count of recovered client pool bookkeeping locks.
-/// # TYPE wireframe_pool_bookkeeping_poison_recoveries_total counter
-/// wireframe_pool_bookkeeping_poison_recoveries_total 1
-/// ```
-pub const POOL_BOOKKEEPING_POISON_RECOVERIES: &str =
-    "wireframe_pool_bookkeeping_poison_recoveries_total";
-
 /// Name of the counter tracking codec errors by type and recovery policy.
 ///
 /// ```plaintext
@@ -238,18 +239,6 @@ pub fn inc_connection_panics() { counter!(CONNECTION_PANICS).increment(1); }
 /// This function is a no-op when the `metrics` feature is disabled.
 #[cfg(not(feature = "metrics"))]
 pub fn inc_connection_panics() {}
-
-/// Record a recovered client pool bookkeeping lock poison event.
-#[cfg(feature = "metrics")]
-pub fn inc_pool_bookkeeping_poison_recoveries() {
-    counter!(POOL_BOOKKEEPING_POISON_RECOVERIES).increment(1);
-}
-
-/// Record a recovered client pool bookkeeping lock poison event.
-///
-/// This function is a no-op when the `metrics` feature is disabled.
-#[cfg(not(feature = "metrics"))]
-pub fn inc_pool_bookkeeping_poison_recoveries() {}
 
 /// Record a codec error with its type and recovery policy.
 ///
