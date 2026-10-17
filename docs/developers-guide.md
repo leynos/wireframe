@@ -429,6 +429,18 @@ assembly, and the successful deserialization-counter reset. Individual failure
 policy remains in `DeserFailureTracker`, so logging, metrics, and threshold
 decisions do not drift across inbound call sites.
 
+Peer-controlled message decoding uses the shared internal
+`message::bounded_bincode_config`, which applies `MAX_FRAME_LENGTH` to
+`Message::from_bytes`, `Envelope` metadata parsing,
+`ReassembledMessage::decode`, and the `BincodeSerializer` Serde bridge.
+`read_preamble` uses its own big-endian, fixed-integer configuration with
+`MAX_PREAMBLE_LEN`. The final `parse_envelope` decode checks the consumed
+length, while metadata-prefix parsing and lower-level APIs that return
+leftovers keep their existing semantics. These limits bound bincode-accounted
+decode work, not actual allocation for every container; see the
+[serialization section](users-guide.md#packets-payloads-and-serialization) for
+the 16 MiB reassembly ceiling and the limits of bincode's resource accounting.
+
 Builder methods that change `WireframeApp` type parameters should route through
 the shared rebuild helpers in `app::builder::core`. Serializer and codec
 transitions use `rebuild_with_params`; connection-state transitions use

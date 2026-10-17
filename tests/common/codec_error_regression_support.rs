@@ -3,6 +3,7 @@
 use bytes::BytesMut;
 use tokio_util::codec::Decoder;
 use wireframe::{
+    app::Envelope,
     byte_order::write_network_u32,
     codec::{
         CodecError,
@@ -14,8 +15,30 @@ use wireframe::{
         RecoveryPolicy,
         RecoveryPolicyHook,
     },
+    message::Message,
 };
 use wireframe_testing::{TestResult, encode_frame, new_test_codec};
+
+/// Encode only an envelope's headers and declared vector length, without a body.
+pub(crate) fn oversized_envelope_bytes(declared_length: u64) -> TestResult<Vec<u8>> {
+    // A sequence length has the same standard encoding as a u64. Encoding the
+    // prefix alone avoids allocating the container represented by that length.
+    bincode::encode_to_vec(
+        (1_u32, None::<u64>, declared_length),
+        bincode::config::standard(),
+    )
+    .map_err(Into::into)
+}
+
+/// Decode through the production message boundary and return its typed error.
+pub(crate) fn bounded_envelope_decode_error(
+    bytes: &[u8],
+) -> TestResult<bincode::error::DecodeError> {
+    match Envelope::from_bytes(bytes) {
+        Err(error) => Ok(error),
+        Ok(_) => Err("expected the incomplete envelope to fail decoding".into()),
+    }
+}
 
 pub(crate) struct StrictRecoveryHook;
 

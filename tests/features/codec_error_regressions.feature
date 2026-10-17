@@ -3,6 +3,12 @@ Feature: Codec error regressions through wireframe_testing
   error taxonomy, recovery policies, and observability labels introduced by
   roadmap item 9.1.2.
 
+  Scenario: Oversized vector length is rejected before allocation
+    Given a codec error regression world
+    And an envelope prefix declaring a vector larger than the frame ceiling
+    When the default envelope decoder reads the prefix
+    Then decoding fails with a bincode allocation limit error
+
   Scenario: Oversized payload is classified as framing drop and counted
     Given a codec error regression world
     When an oversized framing error is recorded with its default policy
