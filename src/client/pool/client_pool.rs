@@ -59,6 +59,15 @@ where
         let (slot_index, permit) = core.try_acquire_permit()?;
         PooledClientLease::new(Arc::clone(core), slot_index, permit, Some(Arc::clone(self)))
     }
+
+    /// Close the scheduler side of the pool and drain queued acquisitions.
+    ///
+    /// Shutdown is split across the two roots that own the relevant state:
+    /// `PoolCore` publishes the shutdown flag and wakes permit waits, while
+    /// the scheduler must resolve the requests it has already queued. Draining
+    /// them here means a `PoolHandle` that outlives [`WireframeClientPool`]
+    /// cannot be left blocked on a pool that is going away.
+    pub(crate) fn shutdown(&self) { self.scheduler.notify_shutdown(); }
 }
 
 /// Pool of configured slots that create physical wireframe connections on
@@ -189,13 +198,36 @@ where
         handle.acquire().await
     }
 
-    /// Close the pool and reject new acquisitions.
+    /// Close the pool and drop all warm sockets.
     ///
-    /// Existing leases and handles retain the pool core and its slot pools
-    /// until they are dropped.
+    /// An outstanding handle that keeps the shared pool state alive still
+    /// observes the shutdown: any later acquisition fails with a disconnected
+    /// error instead of taking capacity that is mid-teardown.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::net::SocketAddr;
+    /// use wireframe::client::{ClientPoolConfig, WireframeClient};
+    ///
+    /// # async fn demo(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+    /// let pool = WireframeClient::builder()
+    ///     .connect_pool(addr, ClientPoolConfig::default())
+    ///     .await?;
+    /// let mut handle = pool.handle();
+    /// pool.close().await;
+    ///
+    /// let error = match handle.acquire().await {
+    ///     Ok(_lease) => panic!("closed pool must refuse"),
+    ///     Err(error) => error,
+    /// };
+    /// assert!(error.should_recycle_connection());
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn close(self) {
         self.core.shutdown();
-        self.control.scheduler.notify_shutdown();
+        self.control.shutdown();
         tokio::task::yield_now().await;
         drop(self);
     }

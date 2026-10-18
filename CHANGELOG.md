@@ -13,6 +13,11 @@ All notable changes to this project will be documented in this file.
 
 - Added scheduler and slot poison-recovery coverage, and extracted
   `scheduler_tests.rs` to keep `scheduler.rs` below 400 lines. (#539)
+- Added client-pool lifecycle and slot-rotation coverage that kills the
+  surviving shutdown and rotation mutants: a closed pool refuses later handle
+  acquisitions, round-robin acquisition dispatches work on every configured
+  slot, and waiters queued at shutdown are drained rather than left blocked.
+  (#593)
 - **Client (breaking):** Remove `SocketOptions::linger` and
   `WireframeClientBuilder::linger`. Tokio-managed client sockets must not use
   duration-based `SO_LINGER`; call `WireframeClient::close().await` for

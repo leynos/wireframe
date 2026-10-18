@@ -10,6 +10,8 @@ mod pool;
 mod pool_concurrency;
 #[cfg(feature = "pool")]
 mod pool_handle;
+#[cfg(feature = "pool")]
+mod pool_lifecycle;
 mod request_hooks;
 mod request_hooks_support;
 mod send_streaming;

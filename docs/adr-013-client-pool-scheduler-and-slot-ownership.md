@@ -49,10 +49,12 @@ That graph created several costs and reasoning hazards:
 - fairness state, restart logic, waiter cancellation, shutdown, and capacity
   notification are divided between a mutex, atomics, callers, and transient
   tasks;
-- the distributed model made race recovery difficult enough that mutation
-  survivors covering shutdown and slot rotation are accepted as untested
-  interleavings ([#593](https://github.com/leynos/wireframe/issues/593)), and
-  scheduler bookkeeping relies on `std::sync::Mutex` poison recovery
+- the distributed model made race recovery difficult enough that the
+  `has_waiters` mutation survivor is accepted as an untested interleaving
+  ([#593](https://github.com/leynos/wireframe/issues/593)); shutdown refusal,
+  slot rotation, and draining queued waiters are now covered by
+  `src/client/tests/pool_lifecycle.rs`, and scheduler bookkeeping relies on
+  `std::sync::Mutex` poison recovery
   ([#539](https://github.com/leynos/wireframe/issues/539));
 - [#550](https://github.com/leynos/wireframe/issues/550) requires bounded
   waiter admission, which adds another invariant to distributed scheduler state.
@@ -499,9 +501,10 @@ The implementation must maintain:
 ### Phase 1: characterize behaviour
 
 Land the pool baseline/verification issue
-([#639](https://github.com/leynos/wireframe/issues/639)) and existing
-[#593](https://github.com/leynos/wireframe/issues/593) tests before changing
-the scheduler topology.
+([#639](https://github.com/leynos/wireframe/issues/639)) and the
+[#593](https://github.com/leynos/wireframe/issues/593) lifecycle and rotation
+tests (`src/client/tests/pool_lifecycle.rs`) before changing the scheduler
+topology.
 
 ### Phase 2: introduce pool core and index-based leases
 
