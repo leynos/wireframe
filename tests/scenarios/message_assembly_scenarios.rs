@@ -70,6 +70,46 @@ fn message_assembly_too_large(message_assembly_world: MessageAssemblyWorld) {
 
 #[scenario(
     path = "tests/features/message_assembly.feature",
+    name = "Under-declared single-frame total is rejected"
+)]
+fn message_assembly_under_declared_single_frame(message_assembly_world: MessageAssemblyWorld) {
+    drop(message_assembly_world);
+}
+
+#[scenario(
+    path = "tests/features/message_assembly.feature",
+    name = "Over-declared single-frame total is rejected"
+)]
+fn message_assembly_over_declared_single_frame(message_assembly_world: MessageAssemblyWorld) {
+    drop(message_assembly_world);
+}
+
+#[scenario(
+    path = "tests/features/message_assembly.feature",
+    name = "Continuation exceeding the declared total is rejected"
+)]
+fn message_assembly_continuation_over_declared(message_assembly_world: MessageAssemblyWorld) {
+    drop(message_assembly_world);
+}
+
+#[scenario(
+    path = "tests/features/message_assembly.feature",
+    name = "Final frame short of the declared total is rejected"
+)]
+fn message_assembly_final_frame_short(message_assembly_world: MessageAssemblyWorld) {
+    drop(message_assembly_world);
+}
+
+#[scenario(
+    path = "tests/features/message_assembly.feature",
+    name = "Exactly declared multi-frame message completes"
+)]
+fn message_assembly_exact_declaration(message_assembly_world: MessageAssemblyWorld) {
+    drop(message_assembly_world);
+}
+
+#[scenario(
+    path = "tests/features/message_assembly.feature",
     name = "Expired assemblies are purged"
 )]
 fn message_assembly_expired(message_assembly_world: MessageAssemblyWorld) {

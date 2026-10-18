@@ -13,6 +13,8 @@ pub struct FirstFrameParams {
     pub body: Vec<u8>,
     /// Whether this is the final frame.
     pub is_last: bool,
+    /// Total body length declared for the logical message, if any.
+    pub total_body_len: Option<usize>,
 }
 
 impl FirstFrameParams {
@@ -24,6 +26,7 @@ impl FirstFrameParams {
             metadata: vec![],
             body,
             is_last: false,
+            total_body_len: None,
         }
     }
 
@@ -31,6 +34,13 @@ impl FirstFrameParams {
     #[must_use]
     pub fn with_metadata(mut self, metadata: Vec<u8>) -> Self {
         self.metadata = metadata;
+        self
+    }
+
+    /// Declare the total body length of the logical message.
+    #[must_use]
+    pub fn with_total(mut self, total_body_len: usize) -> Self {
+        self.total_body_len = Some(total_body_len);
         self
     }
 

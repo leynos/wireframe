@@ -140,7 +140,7 @@ impl MessageAssemblyWorld {
                 message_key: params.key,
                 metadata_len: params.metadata.len(),
                 body_len: params.body.len(),
-                total_body_len: None,
+                total_body_len: params.total_body_len,
                 is_last: params.is_last,
             },
             metadata: params.metadata,
