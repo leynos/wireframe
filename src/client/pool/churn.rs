@@ -51,14 +51,20 @@ pub struct PoolTaskChurn {
     /// idle-to-busy transition, so concurrent releases can never spawn more
     /// than one worker for the same transition.
     ///
-    /// The count is a *bound*, not a zero, for an uncontended run.
+    /// The count is a *bound*, not a floor, for an uncontended run.
     /// [`PooledClientLease::drop`](super::lease::PooledClientLease) notifies the
     /// scheduler unconditionally, so a release reaches `kick` even when nobody
     /// is waiting and the pool never exhausts. A burst of `n` acquire/release
-    /// cycles therefore spawns between 1 and `2n` workers — never 0, and never
-    /// more than the transition count. Assert against that bracket rather than
-    /// asserting the count does not move; only a contended scenario proves the
-    /// slow path is reachable at all.
+    /// cycles therefore spawns between 0 and `2n` workers: at most one per
+    /// transition, and possibly none at all, because a worker the burst itself
+    /// woke still holds servicing while the remaining releases arrive — every
+    /// one of those loses the compare-exchange. Assert against that bracket
+    /// rather than asserting the count does not move; only a contended scenario
+    /// proves the slow path is reachable at all.
+    ///
+    /// A lower bound of one is sound only when the scheduler is known to be idle
+    /// as the burst begins. Do not assume it: a preceding phase can leave a
+    /// worker running.
     pub scheduler_spawns: u64,
     /// Acquisitions that could not take a lease immediately and had to await
     /// capacity.
@@ -202,7 +208,9 @@ impl PoolTaskChurnCounts {
 /// let before = observer.snapshot();
 /// // ... exercise pooled handles ...
 /// let churn = observer.snapshot().since(before);
-/// assert!(churn.scheduler_spawns >= 1);
+/// // A bound, not a floor: a worker left servicing by an earlier phase can make
+/// // every release in this window lose the idle-to-busy compare-exchange.
+/// assert!(churn.scheduler_spawns <= 2 * 4);
 /// # Ok(())
 /// # }
 /// ```

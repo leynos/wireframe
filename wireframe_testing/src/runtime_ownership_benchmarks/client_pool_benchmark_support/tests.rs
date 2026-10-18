@@ -132,12 +132,20 @@ async fn zero_iterations_measures_nothing() {
     assert_eq!(measurement.alive_task_delta(), 0);
 }
 
-/// Every lease release reaches `kick`, so a burst always spawns something.
+/// Every lease release reaches `kick` on an idle scheduler, so a burst spawns.
 ///
 /// This is the measurement that falsified the "uncontended spawns nothing"
 /// assumption. It is recorded as a test rather than a comment so the corrected
 /// contract is pinned: if a later refactor removes the per-release notify, this
 /// fails and the baseline table must be revisited.
+///
+/// The lower bound is only sound because the measurement builds and warms its
+/// own pool and closes it, so `kick` sees an idle scheduler at the burst's
+/// start. `kick` spawns on a compare-exchange, not on a count, so a worker left
+/// servicing by an earlier phase would make every release here lose the
+/// exchange and the count legitimately zero. That is why this test asserts the
+/// bound on a fresh pool rather than on a reused one, and why the shared
+/// helper's doc states the precondition.
 #[rstest::rstest]
 #[case(1, 1)]
 #[case(1, 16)]
@@ -360,11 +368,21 @@ async fn sampled_bursts_report_this_runs_churn() {
     .await
     .expect("contended sampling failed");
 
-    let floor = u64::try_from(SAMPLES.saturating_mul(CONTENDERS)).unwrap_or(u64::MAX);
+    // Only successful bursts are floored. A failed burst is still counted in
+    // `churn` — the scheduler work it cost is real — but it can fail before all
+    // its contenders reach the forced-wait stage, so it cannot be assumed to
+    // contribute `CONTENDERS` waits.
+    let successes = latency.successes();
+    assert!(
+        successes > 0,
+        "the floor below rests on successful bursts, and this run produced none of {SAMPLES}: a \
+         burst that never succeeded parks no contenders at all, so the assertion would be vacuous"
+    );
+    let floor = u64::try_from(successes.saturating_mul(CONTENDERS)).unwrap_or(u64::MAX);
     assert!(
         latency.churn().capacity_waits >= floor,
-        "each of {SAMPLES} bursts parks {CONTENDERS} contenders, so the run must report at least \
-         {floor} waits; {} were reported",
+        "each of {successes} successful bursts parks {CONTENDERS} contenders, so the run must \
+         report at least {floor} waits; {} were reported",
         latency.churn().capacity_waits
     );
     assert!(

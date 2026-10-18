@@ -56,8 +56,6 @@ pub struct PoolHarness {
     pool: phase::TestPool,
     /// Read-only view of the pool's task-churn counters.
     observer: PoolTaskChurnObserver,
-    /// Churn the warm-up produced, which the totals carry.
-    warmup_churn: PoolTaskChurn,
     /// How long construction took, reported rather than measured against.
     construction: Duration,
     /// The workload this pool was configured for.
@@ -89,7 +87,6 @@ impl PoolHarness {
         let construction = started.elapsed();
 
         let observer = pool.task_churn_observer();
-        let before_warmup = observer.snapshot();
         let mut warmup_handle = pool.handle();
         acquire_round(&mut warmup_handle, WARMUP_ACQUISITIONS)
             .await
@@ -98,14 +95,19 @@ impl PoolHarness {
         // so its exit is not charged to the first measured iteration. The gauge
         // is sampled after that settle, which is what makes the seed's opening
         // reading comparable with the first phase's closing one.
+        //
+        // The settle is the only thing the warm-up contributes to the
+        // measurement. Its churn is deliberately *not* folded into the totals:
+        // it happened before every counted window opened, so including it would
+        // put out-of-window work into a figure that claims to be the measured
+        // phases' delta — and a measured burst that never entered the scheduler
+        // could then still report a spawn, borrowed from the warm-up.
         settled_alive_tasks().await?;
-        let warmup_churn = observer.snapshot().since(before_warmup);
 
         Ok(Self {
             _server: server,
             pool,
             observer,
-            warmup_churn,
             construction,
             workload,
         })
@@ -123,7 +125,9 @@ impl PoolHarness {
     /// the caller can still close it.
     pub async fn measure(&self, iterations: u64) -> Result<PoolMeasurement, String> {
         let started = Instant::now();
-        let mut totals = PhaseOutcome::seed(0, self.warmup_churn, alive_tasks());
+        // Zero churn: the totals are the measured phases' delta, and the
+        // warm-up is outside every counted window. See `build`.
+        let mut totals = PhaseOutcome::seed(0, PoolTaskChurn::default(), alive_tasks());
         let mut outcome = Ok(());
         for _ in 0..iterations {
             match phase::acquisition_phase(self.workload, &self.pool, &self.observer).await {

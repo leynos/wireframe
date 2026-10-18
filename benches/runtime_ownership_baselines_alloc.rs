@@ -6,9 +6,11 @@
 //! tax every timing sample in the sibling binary. Both binaries drive the same
 //! workload helpers in [`wireframe_testing::runtime_ownership_benchmarks`].
 //!
-//! Each baseline is embedded in its benchmark label as `..._allocs_<n>`, so a
-//! Criterion report carries the count next to the timing and no separate log
-//! needs to be kept.
+//! Each baseline's count is published as a `tracing` event beside a stable
+//! benchmark ID. The count is deliberately not part of the ID: Criterion keys
+//! its saved results, `--baseline` comparisons and change reports on the ID, and
+//! a count that moves by tens between runs would make every run a new benchmark
+//! with nothing to compare against.
 //!
 //! # What the number means
 //!
@@ -108,8 +110,8 @@ const PUSH_SENDS: usize = 256;
 /// Queue capacity for the drained push allocation workload.
 ///
 /// Deliberately under [`PUSH_SENDS`], so the producer can outrun its consumer.
-/// Whether it did is reported through the wait counters rather than asserted;
-/// the window is about allocation, which a park only adds to.
+/// Whether it did is neither asserted nor reported here: this binary records
+/// allocation counts only, and the wait counters appear in the timing binary.
 const PUSH_QUEUE_CAPACITY: usize = 64;
 
 /// Queue capacity for the overflow push allocation workload.
@@ -140,7 +142,12 @@ struct AllocationScope<'a> {
     /// recording a fabricated zero.
     count: Box<dyn Fn() -> Result<usize, String> + 'a>,
     /// Replay the same workload without counting, for the timing passes.
-    replay: Box<dyn Fn() -> Result<(), String> + 'a>,
+    ///
+    /// Returns the duration the scope itself wants timed, not the caller's wall
+    /// clock around the closure. The pool scope needs that difference: its
+    /// replay builds and closes a pool either side of the acquisition rounds,
+    /// and only the rounds belong in the figure the label describes.
+    replay: Box<dyn Fn() -> Result<Duration, String> + 'a>,
 }
 
 impl<'a> AllocationScope<'a> {
@@ -160,12 +167,18 @@ impl<'a> AllocationScope<'a> {
         Self {
             label,
             count: Box::new(move || count_allocations(|| (counted)())),
-            replay: Box::new(move || (shared)()),
+            // The whole call is the scope here, so timing around it is the same
+            // figure the pool scope computes from the inside.
+            replay: Box::new(move || {
+                let started = Instant::now();
+                (shared)()?;
+                Ok(started.elapsed())
+            }),
         }
     }
 
     /// Box this scope's replay closure for the timing pass.
-    fn into_replay(self) -> (String, Box<dyn Fn() -> Result<(), String> + 'a>) {
+    fn into_replay(self) -> (String, Box<dyn Fn() -> Result<Duration, String> + 'a>) {
         (self.label, self.replay)
     }
 }
@@ -216,19 +229,40 @@ fn infallible(probe: impl Fn()) -> impl Fn() -> Result<(), String> {
     }
 }
 
-/// Run a workload for `iterations` and report how long that took.
+/// Adapt an infallible probe to the timing pass's duration-returning shape.
+///
+/// The probe itself has no failure mode, so the `Result` here only carries the
+/// clock reading. Timing starts after any closure setup and stops before the
+/// value is returned, which is what [`time_iterations`] sums.
+fn timed_infallible(probe: impl Fn()) -> impl Fn() -> Result<Duration, String> {
+    move || {
+        let started = Instant::now();
+        probe();
+        Ok(started.elapsed())
+    }
+}
+
+/// Run a workload for `iterations` and sum the durations it reports.
 ///
 /// Used only to give each recorded allocation count a duration beside it in the
 /// Criterion report; the count itself came from its own window beforehand.
+///
+/// The durations are summed rather than a single clock taken around the loop,
+/// because a scope may not want its whole replay timed. The pool scope reports
+/// only its acquisition rounds, with the pool built and closed outside them; a
+/// caller-side clock would silently put the `pool_size` eager connection setups
+/// back into the figure the scope exists to report. Summing delegates the
+/// boundary to the scope that knows it.
 fn time_iterations<F>(operation: &F, iterations: u64) -> Duration
 where
-    F: Fn() -> Result<(), String>,
+    F: Fn() -> Result<Duration, String>,
 {
-    let started = Instant::now();
+    let mut total = Duration::ZERO;
     for _ in 0..iterations {
-        expect_bench(operation(), "allocation timing pass failed");
+        let elapsed = expect_bench(operation(), "allocation timing pass failed");
+        total = total.saturating_add(elapsed);
     }
-    started.elapsed()
+    total
 }
 
 /// Contended pool workload, recorded as an observation rather than a timing.
@@ -253,11 +287,11 @@ fn contended_pool_workload() -> PoolWorkload {
 
 /// Drive a measurement future to completion, discarding its counters.
 ///
-/// The counters are already carried in the benchmark label, so dropping them
-/// here loses nothing: a scope closure's only job is to perform the work the
-/// counting window observes. Adapting every scope through one helper is what
-/// keeps [`allocation_scopes`] short enough to read and keeps the six scopes
-/// visibly identical in shape.
+/// This binary records only the allocation delta of the counting window, so the
+/// measurement's own counters are dropped: a scope closure's only job is to
+/// perform the work the counting window observes. Adapting every scope through
+/// one helper is what keeps [`allocation_scopes`] short enough to read and keeps
+/// the six scopes visibly identical in shape.
 fn run_measurement<T, E: std::fmt::Display>(
     runtime: &Runtime,
     measurement: impl std::future::Future<Output = Result<T, E>>,
@@ -377,6 +411,12 @@ fn allocation_scopes(runtime: &Runtime) -> Vec<AllocationScope<'_>> {
 /// it, and closes it — the same workload the count beside it describes, so the
 /// timing and the count are of one thing.
 ///
+/// The returned duration covers the acquisition rounds alone. Construction and
+/// closure happen outside the clock, matching the count, which brackets the same
+/// rounds. `bb8` connects eagerly, so timing the whole call would report
+/// `pool_size` loopback connection setups as acquisition cost — the very figure
+/// [`count_pool_acquisition_window`] was written to exclude from the count.
+///
 /// # Errors
 ///
 /// Returns a description of the construction, warm-up, or acquisition failure.
@@ -384,11 +424,13 @@ fn run_pool_acquisition(
     runtime: &Runtime,
     workload: PoolWorkload,
     iterations: u64,
-) -> Result<(), String> {
+) -> Result<Duration, String> {
     let harness = runtime.block_on(PoolHarness::build(workload))?;
+    let started = Instant::now();
     let measured = runtime.block_on(harness.measure(iterations));
+    let elapsed = started.elapsed();
     runtime.block_on(harness.close());
-    measured.map(|_| ())
+    measured.map(|_| elapsed)
 }
 
 /// Count the allocations of one pool scope, with construction outside the window.
@@ -599,10 +641,27 @@ fn arc_probes() -> Vec<ArcProbe> {
 fn verify_pool_bracket_excludes_construction(runtime: &Runtime) {
     let workload = AllocationWorkloads::new().pool;
 
+    // The equality below is only meaningful if nothing else can allocate while
+    // the window is open: `count_allocations` is process-global, so a task on
+    // another runtime thread would land inside it and read as pool
+    // construction. A current-thread runtime closes that hole rather than
+    // narrowing it: `block_on` polls only the future it is given, and
+    // `measure(0)` completes without an await point, so none of the harness's
+    // spawned tasks is polled — let alone any thread the multi-thread runtime
+    // would have parked work on. `settled_alive_tasks` is not doing this work;
+    // it bounds a gauge, and a gauge that says nothing is running cannot stop a
+    // separately parked task from allocating.
+    let guard_runtime = expect_bench(
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build(),
+        "zero-iteration guard runtime failed",
+    );
     let (empty_bracketed, empty_whole) = expect_bench(
-        pool_bracket_readings(runtime, workload, 0),
+        pool_bracket_readings(&guard_runtime, workload, 0),
         "zero-iteration pool allocation window failed",
     );
+    drop(guard_runtime);
 
     // Without this the equality below is vacuous: a counter that observed
     // nothing would read zero on both sides and the bracket would look perfect.
@@ -656,14 +715,18 @@ fn pool_bracket_readings(
     iterations: u64,
 ) -> Result<(usize, usize), String> {
     let bracketed = count_pool_acquisition_window(runtime, workload, iterations)?;
-    let whole = count_allocations(|| run_pool_acquisition(runtime, workload, iterations))?;
+    // The whole-window reading is about the count, not the clock: this call
+    // exists to be the unbracketed comparison, so its duration is discarded
+    // rather than reported.
+    let whole =
+        count_allocations(|| run_pool_acquisition(runtime, workload, iterations).map(|_| ()))?;
     Ok((bracketed, whole))
 }
 
 /// Record allocation baselines for the actor, push, startup, and pool scopes.
 ///
-/// Each count is taken in its own window and written into the benchmark label,
-/// so a Criterion report carries the baseline beside the timing.
+/// Each count is taken in its own window, emitted as an event alongside the
+/// timing, and registered under a label whose identity does not depend on it.
 fn benchmark_allocations(criterion: &mut Criterion, runtime: &Runtime) {
     let mut group = criterion.benchmark_group("runtime_ownership/allocations");
     group
@@ -673,10 +736,10 @@ fn benchmark_allocations(criterion: &mut Criterion, runtime: &Runtime) {
     for scope in allocation_scopes(runtime) {
         let label = scope.label.clone();
         let allocations = expect_bench((scope.count)(), &format!("{label} allocation window"));
-        let labelled = format!("{label}_allocs_{allocations}");
+        report_allocation_baseline(&label, allocations);
         let (_, replay) = scope.into_replay();
 
-        group.bench_function(BenchmarkId::from_parameter(labelled), |bencher| {
+        group.bench_function(BenchmarkId::from_parameter(&label), |bencher| {
             bencher.iter_custom(|iterations| {
                 black_box(allocations);
                 time_iterations(&replay, iterations)
@@ -685,6 +748,28 @@ fn benchmark_allocations(criterion: &mut Criterion, runtime: &Runtime) {
     }
 
     group.finish();
+}
+
+/// Emit one scope's allocation count as a structured event.
+///
+/// The count belongs beside the benchmark, not inside its ID. Criterion keys
+/// saved results, `--baseline` comparisons and change reports on the ID, and
+/// these counts move by tens between runs, so an ID carrying one would make
+/// every run a *new* benchmark: never a change against the last, and a fresh
+/// directory under `target/criterion` each time. A stable label keeps the
+/// comparison, and this event publishes the count that the comparison cannot
+/// carry.
+///
+/// Kept as its own function because a `tracing` macro expands to an
+/// `enabled`/not-enabled conditional, and the two registration sites each push
+/// their loop past the workspace's cognitive-complexity limit with one inline.
+fn report_allocation_baseline(label: &str, allocations: usize) {
+    tracing::info!(
+        workload = %label,
+        iterations = ALLOCATION_ITERATIONS,
+        allocations,
+        "allocation baseline"
+    );
 }
 
 /// Record the nested-`Arc` sensitivity pair as labelled counts.
@@ -702,12 +787,17 @@ fn benchmark_arc_sensitivity(criterion: &mut Criterion) {
     for (mode, probe) in arc_probes() {
         let operation = infallible(move || probe(ARC_PROBE_ITEMS));
         let allocations = count_window(mode, &operation);
-        let labelled = format!("arc_{mode}_items_{ARC_PROBE_ITEMS}_allocs_{allocations}");
+        // The timing pass needs a closure that reports its own duration, so the
+        // shared operation's infallible body is wrapped in a timed adapter rather
+        // than closing the clock around `time_iterations`'s whole loop.
+        let replay = timed_infallible(move || probe(ARC_PROBE_ITEMS));
+        let labelled = format!("arc_{mode}_items_{ARC_PROBE_ITEMS}");
+        report_allocation_baseline(&labelled, allocations);
 
         group.bench_function(BenchmarkId::from_parameter(labelled), |bencher| {
             bencher.iter_custom(|iterations| {
                 black_box(allocations);
-                time_iterations(&operation, iterations)
+                time_iterations(&replay, iterations)
             });
         });
     }

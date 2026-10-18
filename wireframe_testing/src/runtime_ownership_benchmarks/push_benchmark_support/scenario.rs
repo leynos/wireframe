@@ -360,7 +360,8 @@ pub struct PushMeasurement {
     pub sends: u64,
     /// Sends the push API reported as accepted.
     pub accepted: usize,
-    /// Frames a consumer received; non-zero only for the uncontended scenarios.
+    /// Frames a consumer received; zero only for the overflow scenarios, whose
+    /// queues are deliberately never drained.
     pub drained: usize,
     /// Frames the dead-letter queue received.
     pub dead_lettered: usize,
@@ -378,6 +379,10 @@ pub struct PushMeasurement {
     /// no error behind. An uncontended scenario must report zero here, and a
     /// back-pressure scenario must report non-zero, which is what makes the two
     /// regimes evidence rather than assertion.
+    ///
+    /// The count is of sends whose first poll returned `Pending`, not of sends
+    /// that merely found the queue full: a caller that releases capacity before
+    /// the send is polled has not waited, and this does not claim it did.
     pub awaited_capacity_waits: u64,
     /// Awaited sends that reached the channel and probed it for capacity.
     ///

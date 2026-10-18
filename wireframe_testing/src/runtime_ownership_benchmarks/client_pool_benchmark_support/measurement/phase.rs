@@ -68,11 +68,15 @@ impl PhaseOutcome {
         }
     }
 
-    /// Seed an accumulator before the first phase, carrying prior churn.
+    /// Seed an accumulator before the first phase.
     ///
-    /// The churn argument is the work already done to this pool — construction
-    /// and warm-up — which belongs in the totals because it happened to the same
-    /// pool, even though it is deliberately outside every timed window.
+    /// The churn argument is normally [`PoolTaskChurn::default`], because the
+    /// totals a caller receives are the delta of the phases that were actually
+    /// bracketed. Construction and warm-up happen before that bracket opens, so
+    /// folding their churn in would report out-of-window work as measured cost —
+    /// and would let a measured burst that never entered the scheduler still
+    /// report a spawn. A caller that deliberately carries prior churn can still
+    /// pass it, but it must then say so in what it reports.
     pub(super) const fn seed(granted: u64, churn: PoolTaskChurn, alive_before: usize) -> Self {
         Self {
             granted,

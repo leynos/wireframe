@@ -318,15 +318,40 @@ fn time_push(runtime: &Runtime, workload: PushWorkload, iterations: u64) -> Dura
         runtime.block_on(measure_push(workload, iterations)),
         "push send benchmark failed",
     );
-    // Both counts are black-boxed so the compiler cannot prove the sends
-    // unnecessary and elide the work being timed.
+    // The counts are black-boxed so the compiler cannot prove the sends
+    // unnecessary and elide the work being timed. They are not reported from
+    // here: Criterion calls this on every iteration, so an event emitted in this
+    // function would repeat the counters rather than publish them.
     black_box(measurement.accepted);
     black_box(measurement.dead_lettered);
-    // Reported through the throughput event below rather than discarded: for the
-    // awaited scenarios this is what says whether the run measured the queue
-    // send path or the back-pressure path, and the two are not comparable.
     black_box(measurement.awaited_capacity_waits);
     measurement.elapsed
+}
+
+/// Emit each push workload's awaited-wait counters as an observation.
+///
+/// A timing alone cannot say which path a drained scenario took: a fast run may
+/// have found the queue's fast path or its back-pressure path, and the two are
+/// not comparable. The wait counters say which one it was, and they are not
+/// timings, so `tracing` carries them rather than the Criterion report.
+///
+/// Taken from a one-iteration measurement, once per workload, rather than from
+/// [`time_push`]: that runs on every Criterion iteration, and an event there
+/// would bury the counters it exists to publish. The workloads are the ones
+/// [`push_scope`] times, so the observation describes the same run.
+fn observe_push_waits(runtime: &Runtime) {
+    for workload in push_workloads() {
+        let measurement = expect_bench(
+            runtime.block_on(measure_push(workload, 1)),
+            "push wait observation failed",
+        );
+        tracing::info!(
+            workload = %workload.label(),
+            awaited_capacity_waits = measurement.awaited_capacity_waits,
+            capacity_probes = measurement.capacity_probes,
+            "push awaited-wait observation"
+        );
+    }
 }
 
 /// Run one connection-startup workload for `iterations` and return its elapsed
@@ -635,5 +660,6 @@ fn main() {
 
     criterion.final_summary();
 
+    observe_push_waits(&runtime);
     observe_contended_acquisition(&runtime);
 }

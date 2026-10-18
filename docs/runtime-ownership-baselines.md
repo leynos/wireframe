@@ -141,9 +141,9 @@ The corrections were:
    `pool_size` and had been recorded as acquire-path cost.
 2. **The scheduler spawn counter became per-pool.** It was a process-global
    `static`, so a delta taken while any other pool was running included that
-   pool's churn. It is now [`PoolTaskChurn`](../../src/client/pool/churn.rs),
-   read through `WireframeClientPool::task_churn_observer`, and a delta means
-   what it says.
+   pool's churn. It is now [`PoolTaskChurn`](../src/client/pool/churn.rs), read
+   through `WireframeClientPool::task_churn_observer`, and a delta means what
+   it says.
 3. **Contention is now proven rather than inferred.** A start barrier does not
    guarantee overlapping lease ownership; a task can finish several
    immediately-ready acquisitions before another runs. The contended regimes
@@ -434,9 +434,12 @@ four iterations. They include the async runtime's own allocations, task setup,
 and closure captures — not only the code under test. Compare counts across runs
 of this same binary; do not read them as a per-operation cost.
 
-Each row's label embeds its own count, so a reader can see the figure the run
-produced without cross-referencing. The label below is the *histogram*; the
-`Allocations` column repeats it for the table.
+The benchmark ID is the workload's label alone, with no count appended:
+Criterion keys its saved results, `--baseline` comparisons, and change reports
+on that ID, and an allocation count is not stable enough to be an ID — the
+figures below move by tens between runs. Each run therefore reports its counts
+as structured `tracing` events, one per scope, beside the label they belong to.
+The `Allocations` column repeats those counts for the table.
 
 | Scope                                                                            | Iterations | Allocations |
 | -------------------------------------------------------------------------------- | ---------- | ----------- |
@@ -639,8 +642,8 @@ of `contended_fifo_pool_4_contenders_16_rounds_8` in the corrected capture
 (2176 in the original, 3097 in an earlier corrected run). Read it against the
 uncontended figure of 2052 for the same shape — the two are within the
 run-to-run spread noted above, so contention did not measurably change the
-allocation count at this scope even though it changed the spawn count by two
-orders of magnitude. Both figures move between captures by more than the
+allocation count at this scope even though it raised the spawn count roughly
+eightfold to sixteenfold. Both figures move between captures by more than the
 correction accounts for, which is the same caution the allocation table states:
 at this scope, prefer the spawn count.
 
@@ -865,12 +868,14 @@ contrast is visible in the report, and the assertion demands a delta of
 single `Arc::new`, and demanding the full item count would fail a correct
 counter for an off-by-one reason.
 
-Recorded, over 256 items:
+Recorded, over 256 items. The benchmark IDs are `arc_shared_clone_items_256` and
+`arc_fresh_per_item_items_256`; each probe's count is emitted as a `tracing`
+event beside its ID, for the same reason the scope counts are.
 
-| Probe                                     | Allocations | Lower     | Estimate  | Upper     |
-| ----------------------------------------- | ----------- | --------- | --------- | --------- |
-| `arc_shared_clone_items_256_allocs_1`     | 1           | 2.3031 µs | 2.3177 µs | 2.3330 µs |
-| `arc_fresh_per_item_items_256_allocs_256` | 256         | 3.4404 µs | 3.4553 µs | 3.4893 µs |
+| Probe                          | Allocations | Lower     | Estimate  | Upper     |
+| ------------------------------ | ----------- | --------- | --------- | --------- |
+| `arc_shared_clone_items_256`   | 1           | 2.3031 µs | 2.3177 µs | 2.3330 µs |
+| `arc_fresh_per_item_items_256` | 256         | 3.4404 µs | 3.4553 µs | 3.4893 µs |
 
 The delta is exactly 255, which is `ARC_PROBE_ITEMS - 1`. The counter therefore
 resolves a per-item `Arc` allocation and sees nothing in a clone, which is the
@@ -878,8 +883,8 @@ resolution the criterion requires: a refactor that removes a *clone* from a
 shared `Arc` will not move these numbers, and one that removes a per-item
 construction will move them by at least the item count. The two timings differ
 by only ~49 %, so a reader who ignored the counts could mistake these shapes
-for equivalent — the label pair is what makes the distinction legible in the
-Criterion report.
+for equivalent — the count reported beside each ID is what makes the
+distinction legible in a benchmark run.
 
 ### Construction bracket
 

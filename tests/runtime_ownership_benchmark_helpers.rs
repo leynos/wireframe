@@ -501,13 +501,21 @@ fn overflow_drop_routes_every_rejected_frame_to_the_dead_letter_queue(
 // `PoolScheduler::kick`. Measurement confirmed spawn deltas of 1 for 16-acquisition
 // bursts at pool sizes 1, 4, and 16. See the ExecPlan's `Surprises & discoveries`
 // entry for the full trace.
+//
+// The lower bound of one is an *observation* on an otherwise idle runtime, not
+// an invariant of `kick`: a worker left servicing by an earlier phase can make
+// every release lose the idle-to-busy compare-exchange, and the burst then
+// spawns nothing. This test builds and warms its own pool immediately before
+// measuring, so the scheduler is idle when the burst starts and the assertion is
+// sound here; a caller reusing a pool that another phase may have just left busy
+// must assert only the upper bound.
 // ---------------------------------------------------------------------------
 
 #[rstest]
 #[case::single(1)]
 #[case::small(4)]
 #[case::large(16)]
-fn uncontended_acquisition_does_not_spawn_pool_scheduler_tasks(#[case] pool_size: usize) {
+fn uncontended_acquisition_spawns_a_bounded_number_of_scheduler_tasks(#[case] pool_size: usize) {
     let acquisitions = 16;
     // Current-thread runtime *only* for this case: it is the one case that reads
     // the live-task gauge, and that gauge is only meaningful when the runtime is

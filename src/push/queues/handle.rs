@@ -1,6 +1,10 @@
 //! Cloneable handle used by producers to push frames to a connection.
 
-use std::time::Duration;
+use std::{
+    future::{Future, poll_fn},
+    task::Poll,
+    time::Duration,
+};
 
 use leaky_bucket::RateLimiter;
 use log::{debug, warn};
@@ -109,21 +113,25 @@ impl<F: FrameLike> PushHandle<F> {
         //
         // The non-blocking probe below is what makes "did this push wait?"
         // observable. It reserves a slot if one is free, so the common case
-        // still completes without parking, and a refusal is itself the
-        // evidence: `try_reserve` fails exactly when the awaiting `send` would
-        // have had to wait for a consumer. Probing on every send costs one
+        // still completes without parking. Probing on every send costs one
         // atomic acquisition, which is noise beside the channel operations it
         // guards, and it keeps the counter meaningful for any caller rather
         // than only for instrumentation that opted in.
+        //
+        // A refusal is *not* by itself a wait. It says one poll of `send`
+        // would park, but nothing has polled yet, and a caller that frees a
+        // slot in between gets a send that never suspends. Counting the
+        // refusal would make the counter report a suspension that did not
+        // happen — which is exactly what a back-pressure observer watching
+        // this counter would then mistake for proof the producer had parked.
+        // So the wait is recorded on the poll that actually returns `Pending`,
+        // once per send, and only then. `await_send_capacity` is what watches
+        // for that poll.
         self.0.waits.record_capacity_probe();
         match tx.try_reserve() {
             Ok(permit) => permit.send(frame),
             Err(mpsc::error::TrySendError::Full(())) => {
-                self.0.waits.record_capacity_wait();
-                tx.clone()
-                    .send(frame)
-                    .await
-                    .map_err(|_| PushError::Closed)?;
+                self.await_send_capacity(tx.clone(), frame).await?;
             }
             Err(mpsc::error::TrySendError::Closed(())) => return Err(PushError::Closed),
         }
@@ -240,6 +248,55 @@ impl<F: FrameLike> PushHandle<F> {
     /// Kept short so tests that use `tokio::time::pause/advance` progress
     /// quickly while remaining negligible relative to the 1s refill window.
     const PERMIT_POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+    /// Send through a channel that was full, counting the wait only if it parks.
+    ///
+    /// The caller has already reserved and found the channel full, so this is
+    /// the cold path. It polls the send future itself rather than awaiting it
+    /// directly because only the poll result distinguishes the two outcomes a
+    /// caller cares about: a slot freed before this future was first polled
+    /// yields `Ready` and no wait, while a `Pending` is an actual suspension.
+    /// The counter is incremented on the first `Pending` and then left alone:
+    /// repetition would count one send once per wake-up.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PushError::Closed`] if the receiver was dropped before the
+    /// frame could be sent.
+    async fn await_send_capacity(
+        &self,
+        sender: mpsc::Sender<F>,
+        frame: F,
+    ) -> Result<(), PushError> {
+        // `Sender::send` borrows its receiver, so the sender must be a named
+        // binding: pinning `tx.clone().send(frame)` would hold a borrow of a
+        // temporary that ends with the statement (E0716) before the future is
+        // ever polled.
+        let mut send = std::pin::pin!(sender.send(frame));
+        let mut is_wait_recorded = false;
+        poll_fn(|cx| {
+            let polled = send.as_mut().poll(cx);
+            Self::record_first_pending(&polled, &mut is_wait_recorded, &self.0.waits);
+            polled
+        })
+        .await
+        .map_err(|_| PushError::Closed)
+    }
+
+    /// Count one capacity wait the first time a send poll reports `Pending`.
+    ///
+    /// Split out of the `poll_fn` closure so the closure stays a poll and a
+    /// call, keeping it under the repository's nesting ceiling.
+    fn record_first_pending(
+        polled: &Poll<Result<(), mpsc::error::SendError<F>>>,
+        is_wait_recorded: &mut bool,
+        waits: &PushWaitCounts,
+    ) {
+        if polled.is_pending() && !*is_wait_recorded {
+            *is_wait_recorded = true;
+            waits.record_capacity_wait();
+        }
+    }
 
     /// Poll permits without registering a parked waiter that could starve pushes.
     async fn wait_for_permit(&self, limiter: &RateLimiter) {

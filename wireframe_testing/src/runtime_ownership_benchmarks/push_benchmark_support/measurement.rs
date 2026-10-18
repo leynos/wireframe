@@ -54,6 +54,44 @@ pub(super) struct SendOutcome {
     pub(super) waited: PushWaitCounters,
 }
 
+impl SendOutcome {
+    /// Fold this iteration's outcome into a running total.
+    ///
+    /// Every counter is summed, because the measurement reports one run of
+    /// `iterations` rounds and [`PushMeasurement::sends`] is the run's total.
+    /// Keeping the counters per-iteration while `sends` scaled with the
+    /// iteration count made the two describe different runs — `sends = 32`
+    /// beside `accepted = 16` for two 16-send rounds — and silently broke the
+    /// scenario table's relationships, which compare them directly.
+    ///
+    /// `reported_queue_full` is the exception: it is a flag about the run, so it
+    /// is true if any round set it. Summing a boolean would be meaningless, and
+    /// taking only the last round's value would drop a report from an earlier
+    /// one.
+    ///
+    /// Saturating rather than wrapping, in keeping with the counters' own
+    /// saturating arithmetic: a run long enough to overflow is a misconfigured
+    /// workload, and a wrapped total would look deceptively small.
+    pub(super) fn accumulate(self, running: Self) -> Self {
+        Self {
+            accepted: running.accepted.saturating_add(self.accepted),
+            drained: running.drained.saturating_add(self.drained),
+            dead_lettered: running.dead_lettered.saturating_add(self.dead_lettered),
+            reported_queue_full: running.reported_queue_full || self.reported_queue_full,
+            waited: PushWaitCounters {
+                awaited_capacity_waits: running
+                    .waited
+                    .awaited_capacity_waits
+                    .saturating_add(self.waited.awaited_capacity_waits),
+                capacity_probes: running
+                    .waited
+                    .capacity_probes
+                    .saturating_add(self.waited.capacity_probes),
+            },
+        }
+    }
+}
+
 /// Build queues sized for `workload` with rate limiting disabled and a DLQ.
 ///
 /// Returns the queues, the producer handle, and the dead-letter receiver. The
@@ -78,7 +116,7 @@ pub(super) fn build_queues(workload: PushWorkload) -> Result<PushFixture, String
 /// sends differ, which a power-of-two wrap gives without a division.
 pub(super) fn frame(index: usize) -> u8 { u8::try_from(index & 0xff).unwrap_or(FALLBACK_FRAME) }
 
-/// Attempt `iterations` of one push workload, reporting the last iteration.
+/// Attempt `iterations` of one push workload, reporting the run's totals.
 ///
 /// # Errors
 ///
@@ -132,7 +170,7 @@ pub async fn measure_push(
     let started = Instant::now();
     let mut outcome = SendOutcome::default();
     for _ in 0..iterations {
-        outcome = run_once(workload).await?;
+        outcome = outcome.accumulate(run_once(workload).await?);
     }
     let elapsed = started.elapsed();
 
@@ -146,10 +184,10 @@ pub async fn measure_push(
         drained: black_box(outcome.drained),
         dead_lettered: black_box(outcome.dead_lettered),
         reported_queue_full: outcome.reported_queue_full,
-        // Reported for the last iteration only, matching the send counts above.
-        // Every iteration runs the same workload, and each awaited scenario
-        // fails the measurement outright if its counters do not show the regime
-        // it claims, so a later iteration cannot hide a wait the last one missed.
+        // Summed over every round, like the counts above, so the whole
+        // measurement describes one run. Each awaited scenario still fails the
+        // measurement outright if its own round did not show the regime it
+        // claims, so accumulation cannot hide a missing wait.
         awaited_capacity_waits: outcome.waited.awaited_capacity_waits,
         capacity_probes: outcome.waited.capacity_probes,
         elapsed,
