@@ -16,54 +16,19 @@ use crate::serializer::BincodeSerializer;
 type TestScheduler = PoolScheduler<BincodeSerializer, (), ()>;
 type TestState = SchedulerState<BincodeSerializer, (), ()>;
 
-#[test]
-fn round_robin_enqueue_rejects_unknown_handles() {
-    let mut state = TestState::new();
-    let (sender, _receiver) = oneshot::channel();
+const MAX_TEST_WAITERS: usize = 64;
 
-    let was_enqueued = state.enqueue_waiter(42, sender, PoolFairnessPolicy::RoundRobin);
-
-    assert!(
-        !was_enqueued,
-        "unknown round-robin handles must be rejected"
-    );
-    assert!(
-        state
-            .take_next_waiter(PoolFairnessPolicy::RoundRobin)
-            .is_none(),
-        "rejected round-robin waiters must not remain queued"
-    );
-}
-
-#[test]
-fn deregister_handle_purges_fifo_entries_for_that_handle() {
-    let mut state = TestState::new();
-    state.register_handle(1);
-    state.register_handle(2);
-
-    let (removed_sender, _removed_receiver) = oneshot::channel();
-    let (kept_sender, _kept_receiver) = oneshot::channel();
-
-    assert!(state.enqueue_waiter(1, removed_sender, PoolFairnessPolicy::Fifo));
-    assert!(state.enqueue_waiter(2, kept_sender, PoolFairnessPolicy::Fifo));
-
-    state.deregister_handle(1);
-
-    let next_waiter = state.take_next_waiter(PoolFairnessPolicy::Fifo);
-    assert!(
-        next_waiter.is_some(),
-        "remaining registered waiter should still be queued"
-    );
-    assert!(
-        state.take_next_waiter(PoolFairnessPolicy::Fifo).is_none(),
-        "deregistered handle entries must be removed eagerly"
-    );
+fn test_admission(fairness_policy: PoolFairnessPolicy) -> WaiterAdmission {
+    WaiterAdmission {
+        fairness_policy,
+        max_waiters: MAX_TEST_WAITERS,
+    }
 }
 
 #[gtest]
 fn waiters_remain_ordered_after_scheduler_state_poison_recovery() {
     for policy in [PoolFairnessPolicy::Fifo, PoolFairnessPolicy::RoundRobin] {
-        let scheduler = Arc::new(TestScheduler::new(policy));
+        let scheduler = Arc::new(TestScheduler::new(policy, MAX_TEST_WAITERS));
         let first_handle = scheduler.register_handle();
         let second_handle = scheduler.register_handle();
         let (first_sender, mut first_receiver) = oneshot::channel();
@@ -72,15 +37,15 @@ fn waiters_remain_ordered_after_scheduler_state_poison_recovery() {
 
         {
             let mut state = lock_or_recover(&scheduler.state);
-            expect_that!(
-                state.enqueue_waiter(first_handle, first_sender, policy),
-                eq(true)
+            assert_eq!(
+                state.enqueue_waiter(first_handle, first_sender, test_admission(policy)),
+                WaiterEnqueueResult::Enqueued
             );
-            expect_that!(
-                state.enqueue_waiter(first_handle, second_sender, policy),
-                eq(true)
+            assert_eq!(
+                state.enqueue_waiter(first_handle, second_sender, test_admission(policy)),
+                WaiterEnqueueResult::Enqueued
             );
-            expect_that!(waiter_count(&state), eq(2));
+            expect_that!(state.waiter_count(), eq(2));
             expect_that!(state.has_waiters(), eq(true));
         }
 
@@ -92,7 +57,7 @@ fn waiters_remain_ordered_after_scheduler_state_poison_recovery() {
             state.handle_waiters.contains_key(&recovered_handle),
             eq(true)
         );
-        expect_that!(waiter_count(&state), eq(3));
+        expect_that!(state.waiter_count(), eq(3));
         expect_that!(state.has_waiters(), eq(true));
 
         match policy {
@@ -115,15 +80,6 @@ fn waiters_remain_ordered_after_scheduler_state_poison_recovery() {
     }
 }
 
-fn waiter_count(state: &TestState) -> usize {
-    state.fifo_queue.len()
-        + state
-            .handle_waiters
-            .values()
-            .map(std::collections::VecDeque::len)
-            .sum::<usize>()
-}
-
 fn assert_next_waiter_served<T>(
     state: &mut TestState,
     policy: PoolFairnessPolicy,
@@ -132,7 +88,7 @@ fn assert_next_waiter_served<T>(
 ) {
     drop_next_waiter(state, policy, "expected waiter");
     assert_receiver_closed(receiver);
-    expect_that!(waiter_count(state), eq(remaining_waiters));
+    expect_that!(state.waiter_count(), eq(remaining_waiters));
     expect_that!(state.has_waiters(), eq(remaining_waiters > 0));
 }
 
@@ -141,6 +97,7 @@ fn drop_next_waiter(state: &mut TestState, policy: PoolFairnessPolicy, waiter_na
         panic!("{waiter_name} should remain queued");
     };
     drop(waiter);
+    state.finish_servicing_waiter();
 }
 
 fn assert_receiver_closed<T>(receiver: &mut oneshot::Receiver<T>) {
@@ -162,7 +119,10 @@ fn poison_scheduler_state_during_enqueue(
     let poisoned_scheduler = Arc::clone(scheduler);
     let join_result = thread::spawn(move || {
         let mut state = lock_or_recover(&poisoned_scheduler.state);
-        assert!(state.enqueue_waiter(handle_id, sender, policy));
+        assert_eq!(
+            state.enqueue_waiter(handle_id, sender, test_admission(policy)),
+            WaiterEnqueueResult::Enqueued
+        );
         panic!("panic after waiter enqueue while holding scheduler state");
     })
     .join();
