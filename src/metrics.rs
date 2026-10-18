@@ -31,6 +31,7 @@ pub(crate) use decode_rejections::{
     inc_decode_rejection,
 };
 pub use server_startup::{SERVER_STARTUP_DURATION, SERVER_STARTUP_FAILURES};
+#[cfg(not(loom))]
 pub(crate) use server_startup::{
     ServerStartupFailureStage,
     ServerStartupOutcome,
@@ -38,6 +39,7 @@ pub(crate) use server_startup::{
     record_server_startup_duration,
 };
 pub use server_supervisor::SERVER_SUPERVISOR_ABNORMAL_TERMINATIONS;
+#[cfg(not(loom))]
 pub(crate) use server_supervisor::inc_server_supervisor_abnormal_termination;
 
 /// Name of the gauge tracking active connections.
@@ -112,6 +114,7 @@ pub const SERVER_SUPERVISOR_CANCELLATIONS: &str = "wireframe_server_supervisor_c
 pub const SERVER_ACCEPT_LOOPS_EXITED: &str = "wireframe_server_accept_loops_exited_total";
 
 /// Bounded reasons for server-supervisor cancellation metrics.
+#[cfg(not(loom))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ServerCancellationReason {
     /// Cancellation followed completion of the graceful-shutdown future.
@@ -120,6 +123,7 @@ pub(crate) enum ServerCancellationReason {
     Dropped,
 }
 
+#[cfg(not(loom))]
 impl ServerCancellationReason {
     /// Return the stable metric and tracing label value for this reason.
     pub(crate) const fn as_str(self) -> &'static str {
@@ -317,7 +321,7 @@ pub(crate) fn inc_prepared_connection_uses() { counter!(PREPARED_CONNECTION_USES
 pub(crate) fn inc_prepared_connection_uses() {}
 
 /// Record a server-supervisor cancellation request with a bounded reason.
-#[cfg(feature = "metrics")]
+#[cfg(all(feature = "metrics", not(loom)))]
 pub(crate) fn inc_server_supervisor_cancellation(reason: ServerCancellationReason) {
     counter!(SERVER_SUPERVISOR_CANCELLATIONS, "reason" => reason.as_str()).increment(1);
 }
@@ -325,11 +329,11 @@ pub(crate) fn inc_server_supervisor_cancellation(reason: ServerCancellationReaso
 /// Record a server-supervisor cancellation request with a bounded reason.
 ///
 /// This function is a no-op when the `metrics` feature is disabled.
-#[cfg(not(feature = "metrics"))]
+#[cfg(all(not(feature = "metrics"), not(loom)))]
 pub(crate) fn inc_server_supervisor_cancellation(_reason: ServerCancellationReason) {}
 
 /// Record an accept loop that exited after supervisor cancellation.
-#[cfg(feature = "metrics")]
+#[cfg(all(feature = "metrics", not(loom)))]
 pub(crate) fn inc_server_accept_loop_exit(reason: ServerCancellationReason) {
     counter!(SERVER_ACCEPT_LOOPS_EXITED, "reason" => reason.as_str()).increment(1);
 }
@@ -337,5 +341,5 @@ pub(crate) fn inc_server_accept_loop_exit(reason: ServerCancellationReason) {
 /// Record an accept loop that exited after supervisor cancellation.
 ///
 /// This function is a no-op when the `metrics` feature is disabled.
-#[cfg(not(feature = "metrics"))]
+#[cfg(all(not(feature = "metrics"), not(loom)))]
 pub(crate) fn inc_server_accept_loop_exit(_reason: ServerCancellationReason) {}
