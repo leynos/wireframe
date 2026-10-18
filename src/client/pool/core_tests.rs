@@ -62,3 +62,15 @@ async fn lease_construction_rejects_an_out_of_range_slot_index() {
         "a lease must not be constructed with an invalid slot index"
     );
 }
+
+#[tokio::test]
+async fn shutdown_before_notification_first_poll_is_not_lost() {
+    let core = TestCore::new(vec![test_pool_slot(1, Duration::from_secs(30))].into_boxed_slice());
+    let notification = core.shutdown_notified();
+
+    core.shutdown();
+
+    tokio::time::timeout(Duration::from_secs(1), notification)
+        .await
+        .expect("shutdown wait should observe shutdown before its first poll");
+}

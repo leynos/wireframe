@@ -68,7 +68,13 @@ where
     pub(crate) fn is_shutdown(&self) -> bool { self.shutdown.load(Ordering::Acquire) }
 
     /// Wait until pool shutdown wakes a cancellation-sensitive operation.
-    pub(crate) async fn shutdown_notified(&self) { self.shutdown_notify.notified().await; }
+    pub(crate) async fn shutdown_notified(&self) {
+        let notified = self.shutdown_notify.notified();
+        if self.is_shutdown() {
+            return;
+        }
+        notified.await;
+    }
 
     /// Publish shutdown and wake scheduler-managed permit waits.
     pub(crate) fn shutdown(&self) {
