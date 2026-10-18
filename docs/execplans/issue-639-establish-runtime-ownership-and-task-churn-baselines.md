@@ -926,7 +926,7 @@ Thresholds that trigger escalation when breached.
   and a new `[[test]]` entry for the helpers crate.
 
   The split was checked mechanically rather than by eye: 112 of 112 single-line
-  string literals, 136 of 136 whitespace-normalised literals, 39 `assert!`, 36
+  string literals, 136 of 136 whitespace-normalized literals, 39 `assert!`, 36
   `assert_eq!`, 12 `#[test]`, and 27 `#[case::` invocations survived with zero
   drift, and both Criterion group names, their sample size of 10, and their
   5-second measurement time are unchanged. The allocation binary was then run
