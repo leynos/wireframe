@@ -7,7 +7,7 @@
 
 use std::{num::NonZeroUsize, time::Duration};
 
-use rstest::fixture;
+use rstest::{fixture, rstest};
 
 use crate::message_assembler::{
     AssembledMessage,
@@ -76,47 +76,45 @@ fn accept_continuation(
 // Single-frame declarations
 // =============================================================================
 
-#[test]
-fn single_frame_under_declared_total_is_rejected() {
-    let mut subject = subject();
-    // Declares 3 bytes but carries 5: the declaration can never be satisfied.
-    let header = first_with_total(1, 5, 3, true);
+/// Every way a first frame can contradict its own declaration.
+///
+/// The three cases differ only in the declaration, the final-frame flag, and
+/// the error the contradiction produces, so they share one body and one set of
+/// post-conditions: rejection with the expected error and no buffered state.
+#[rstest]
+#[case::under_declared_final(3, true, MessageAssemblyError::DeclaredTotalTooSmall {
+    key: MessageKey(1),
+    declared: 3,
+    body_len: 5,
+})]
+#[case::over_declared_final(10, true, MessageAssemblyError::DeclaredTotalMismatch {
+    key: MessageKey(1),
+    declared: 10,
+    actual: 5,
+})]
+#[case::under_declared_non_final(4, false, MessageAssemblyError::DeclaredTotalTooSmall {
+    key: MessageKey(1),
+    declared: 4,
+    body_len: 5,
+})]
+fn first_frame_contradicting_declaration_is_rejected(
+    #[from(subject)] mut subject: MessageAssemblyState,
+    #[case] total: usize,
+    #[case] is_last: bool,
+    #[case] expected: MessageAssemblyError,
+) {
+    let header = first_with_total(1, 5, total, is_last);
 
-    let err = accept_first(&mut subject, &header, b"hello").expect_err("under-declared total");
+    let err = accept_first(&mut subject, &header, b"hello").expect_err("declaration rejected");
 
-    assert_eq!(
-        err,
-        MessageAssemblyError::DeclaredTotalTooSmall {
-            key: MessageKey(1),
-            declared: 3,
-            body_len: 5,
-        }
-    );
+    assert_eq!(err, expected);
     assert_eq!(subject.buffered_count(), 0);
 }
 
-#[test]
-fn single_frame_over_declared_total_is_rejected() {
-    let mut subject = subject();
-    // Declares 10 bytes but is the final frame with only 5.
-    let header = first_with_total(1, 5, 10, true);
-
-    let err = accept_first(&mut subject, &header, b"hello").expect_err("over-declared total");
-
-    assert_eq!(
-        err,
-        MessageAssemblyError::DeclaredTotalMismatch {
-            key: MessageKey(1),
-            declared: 10,
-            actual: 5,
-        }
-    );
-    assert_eq!(subject.buffered_count(), 0);
-}
-
-#[test]
-fn single_frame_exact_declaration_is_dispatched() {
-    let mut subject = subject();
+#[rstest]
+fn single_frame_exact_declaration_is_dispatched(
+    #[from(subject)] mut subject: MessageAssemblyState,
+) {
     let header = first_with_total(1, 5, 5, true);
 
     let msg = accept_first(&mut subject, &header, b"hello")
@@ -131,28 +129,10 @@ fn single_frame_exact_declaration_is_dispatched() {
 // Multi-frame declarations
 // =============================================================================
 
-#[test]
-fn first_frame_under_declared_multi_frame_total_is_rejected() {
-    let mut subject = subject();
-    // Even a non-final first frame may not carry more than its own total.
-    let header = first_with_total(1, 5, 4, false);
-
-    let err = accept_first(&mut subject, &header, b"hello").expect_err("under-declared total");
-
-    assert_eq!(
-        err,
-        MessageAssemblyError::DeclaredTotalTooSmall {
-            key: MessageKey(1),
-            declared: 4,
-            body_len: 5,
-        }
-    );
-    assert_eq!(subject.buffered_count(), 0);
-}
-
-#[test]
-fn continuation_exceeding_declared_total_is_rejected() {
-    let mut subject = subject();
+#[rstest]
+fn continuation_exceeding_declared_total_is_rejected(
+    #[from(subject)] mut subject: MessageAssemblyState,
+) {
     let header = first_with_total(1, 5, 8, false);
     accept_first(&mut subject, &header, b"hello").expect("first frame accepted");
     assert_eq!(subject.buffered_count(), 1);
@@ -181,9 +161,10 @@ fn continuation_exceeding_declared_total_is_rejected() {
     );
 }
 
-#[test]
-fn final_frame_short_of_declared_total_is_rejected() {
-    let mut subject = subject();
+#[rstest]
+fn final_frame_short_of_declared_total_is_rejected(
+    #[from(subject)] mut subject: MessageAssemblyState,
+) {
     let header = first_with_total(1, 5, 10, false);
     accept_first(&mut subject, &header, b"hello").expect("first frame accepted");
 
@@ -214,9 +195,8 @@ fn final_frame_short_of_declared_total_is_rejected() {
     );
 }
 
-#[test]
-fn multi_frame_exact_declaration_is_dispatched() {
-    let mut subject = subject();
+#[rstest]
+fn multi_frame_exact_declaration_is_dispatched(#[from(subject)] mut subject: MessageAssemblyState) {
     let header = first_with_total(1, 5, 10, false);
     accept_first(&mut subject, &header, b"hello").expect("first frame accepted");
 
@@ -236,9 +216,10 @@ fn multi_frame_exact_declaration_is_dispatched() {
     assert_eq!(subject.buffered_count(), 0);
 }
 
-#[test]
-fn non_final_frame_may_exactly_reach_the_declaration() {
-    let mut subject = subject();
+#[rstest]
+fn non_final_frame_may_exactly_reach_the_declaration(
+    #[from(subject)] mut subject: MessageAssemblyState,
+) {
     let header = first_with_total(1, 5, 10, false);
     accept_first(&mut subject, &header, b"hello").expect("first frame accepted");
 
@@ -283,9 +264,8 @@ fn non_final_frame_may_exactly_reach_the_declaration() {
 // Protocols without a declaration
 // =============================================================================
 
-#[test]
-fn undeclared_total_is_unaffected() {
-    let mut subject = subject();
+#[rstest]
+fn undeclared_total_is_unaffected(#[from(subject)] mut subject: MessageAssemblyState) {
     let header = first_header(1, 5, false);
     accept_first(&mut subject, &header, b"hello").expect("first frame accepted");
 
@@ -304,9 +284,10 @@ fn undeclared_total_is_unaffected() {
     assert_eq!(msg.body(), b"helloworlds");
 }
 
-#[test]
-fn declared_total_equal_to_first_frame_body_leaves_no_room() {
-    let mut subject = subject();
+#[rstest]
+fn declared_total_equal_to_first_frame_body_leaves_no_room(
+    #[from(subject)] mut subject: MessageAssemblyState,
+) {
     // The boundary case: declared == body_len with more frames expected.
     let header = first_with_total(1, 5, 5, false);
     accept_first(&mut subject, &header, b"hello").expect("boundary declaration accepted");
