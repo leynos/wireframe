@@ -13,9 +13,10 @@ use std::time::Instant;
 use super::{
     ContinuationFrameHeader,
     MessageKey,
+    budget::{ContinuationLimits, check_aggregate_budgets, check_size_limit},
     error::{MessageAssemblyError, MessageSeriesError, MessageSeriesStatus},
     series::MessageSeries,
-    types::{AssembledMessage, EnvelopeRouting},
+    types::{AssembledMessage, EnvelopeRouting, FirstFrameInput},
     validation,
 };
 
@@ -36,18 +37,16 @@ pub(super) struct PartialAssembly {
 
 impl PartialAssembly {
     /// Start a new assembly from an admitted first frame.
-    pub(super) fn new(
-        series: MessageSeries,
-        routing: EnvelopeRouting,
-        metadata: Vec<u8>,
-        body: &[u8],
-        started_at: Instant,
-    ) -> Self {
+    ///
+    /// The input's header has already been validated against its payloads and
+    /// its declared total, so this only stores the components.
+    pub(super) fn from_first_frame(input: FirstFrameInput<'_>, started_at: Instant) -> Self {
+        let series = MessageSeries::from_first_frame(input.header);
         Self {
             series,
-            routing,
-            metadata,
-            body_buffer: body.to_vec(),
+            routing: input.routing,
+            metadata: input.metadata,
+            body_buffer: input.body.to_vec(),
             started_at,
         }
     }
@@ -64,6 +63,35 @@ impl PartialAssembly {
         header: &ContinuationFrameHeader,
     ) -> Result<MessageSeriesStatus, MessageSeriesError> {
         self.series.accept_continuation(header)
+    }
+
+    /// Apply size, budget, and declared-total admission checks to a
+    /// continuation body before it is buffered.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MessageAssemblyError::MessageTooLarge`] or an aggregate
+    /// budget error when the frame cannot be retained, and
+    /// [`MessageAssemblyError::DeclaredTotalExceeded`] when it would push the
+    /// accumulated body past the declared total. The caller frees the
+    /// assembly on any error.
+    pub(super) fn admit_continuation(
+        &self,
+        body_len: usize,
+        buffered_total: usize,
+        limits: ContinuationLimits,
+    ) -> Result<(), MessageAssemblyError> {
+        let key = self.series.message_key();
+        let accumulated = self.body_len();
+        check_size_limit(limits.max_message_size, key, accumulated, body_len)?;
+        check_aggregate_budgets(key, buffered_total, body_len, &limits.budgets)?;
+
+        // Enforce the declared total before buffering so an oversized
+        // continuation cannot be retained even briefly.
+        if let Some(declared) = self.declared_total() {
+            validation::validate_continuation(key, declared, accumulated, body_len)?;
+        }
+        Ok(())
     }
 
     /// Append an admitted continuation body.
