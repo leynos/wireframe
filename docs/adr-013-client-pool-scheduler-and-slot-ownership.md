@@ -55,7 +55,13 @@ That graph created several costs and reasoning hazards:
   slot rotation, and draining queued waiters are now covered by
   `src/client/tests/pool_lifecycle.rs`, and scheduler bookkeeping relies on
   `std::sync::Mutex` poison recovery
-  ([#539](https://github.com/leynos/wireframe/issues/539));
+  ([#539](https://github.com/leynos/wireframe/issues/539)). Those lifecycle
+  tests synchronize on the per-pool `PoolTaskChurnObserver` from
+  [#639](https://github.com/leynos/wireframe/issues/639) rather than a
+  test-only scheduler seam: its `capacity_waits` counter proves an acquisition
+  passed the initial shutdown check and genuinely parked, which is the property
+  the drain test depends on. Observing it is passive, so the assertion cannot
+  perturb the pool it measures;
 - [#550](https://github.com/leynos/wireframe/issues/550) requires bounded
   waiter admission, which adds another invariant to distributed scheduler state.
 

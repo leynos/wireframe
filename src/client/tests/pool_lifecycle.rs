@@ -15,7 +15,7 @@ use tokio::time::timeout;
 
 use crate::{
     WireframeError,
-    client::{ClientError, ClientPoolConfig},
+    client::{ClientError, ClientPoolConfig, PoolTaskChurnObserver},
     test_helpers::{Ping, Pong, PoolTestServer, TestClientPool, build_pooled_client},
 };
 
@@ -85,26 +85,28 @@ async fn wait_for_serviced_connections(server: &PoolTestServer, expected: usize)
     server.serviced_connection_count()
 }
 
-/// Wait until the scheduler reports one servicing and one queued waiter.
+/// Wait until the pool reports `expected` acquisitions parked on capacity.
 ///
-/// Polling observable scheduler state is what makes the shutdown test
-/// meaningful: closing the pool before both acquisitions are enqueued would
-/// let them fail at the initial shutdown check, and the test would pass even
-/// with `notify_shutdown()` removed. Returns the observed counts on timeout so
-/// the caller can assert on them.
-async fn wait_for_waiter_counts(pool: &TestClientPool) -> (usize, usize) {
+/// Polling this counter is what makes the shutdown test meaningful: closing
+/// the pool before both acquisitions reached the wait path would let them fail
+/// at the initial shutdown check, and the test would pass even with
+/// `notify_shutdown()` removed. The counter is recorded only after that check
+/// and only when no slot had a free permit, so a reading of two proves both
+/// spawned acquisitions genuinely parked. Returns the observed delta on
+/// timeout so the caller can assert on it.
+async fn wait_for_capacity_waits(observer: &PoolTaskChurnObserver, expected: u64) -> u64 {
     let wait = async {
         loop {
-            let counts = pool.waiter_counts();
-            if counts == (1, 1) {
-                return counts;
+            let waits = observer.snapshot().capacity_waits;
+            if waits >= expected {
+                return waits;
             }
             tokio::task::yield_now().await;
         }
     };
     match timeout(PROMPT, wait).await {
-        Ok(counts) => counts,
-        Err(_) => pool.waiter_counts(),
+        Ok(waits) => waits,
+        Err(_) => observer.snapshot().capacity_waits,
     }
 }
 
@@ -176,7 +178,7 @@ async fn slot_rotation_serves_each_pool_connection(
 ///
 /// The first waiter is claimed by the background service task and parks on
 /// slot capacity; the second stays in the scheduler queue. The test waits for
-/// those exact scheduler counts before closing, so both acquisitions are
+/// both acquisitions to record a capacity wait before closing, so both are
 /// genuinely past the initial shutdown check. Only `notify_shutdown()` drains
 /// the queued waiter, so removing it leaves the second acquire blocked until
 /// the timeout fails this test.
@@ -193,19 +195,20 @@ async fn shutdown_drains_a_queued_waiter(client_pool_config: ClientPoolConfig) -
 
     // Hold the only permit so both acquisitions below have to queue.
     let held_lease = pool.acquire().await?;
+    let churn = pool.task_churn_observer();
     let mut claimed_handle = pool.handle();
     let mut queued_handle = pool.handle();
 
     let claimed = tokio::spawn(async move { claimed_handle.acquire().await.map(|_lease| ()) });
     let queued = tokio::spawn(async move { queued_handle.acquire().await.map(|_lease| ()) });
 
-    // Do not close until the scheduler itself shows one claimed waiter parked
-    // on capacity and one still queued; otherwise both could fail at the
-    // initial shutdown check and this test would not exercise the drain path.
+    // Do not close until both acquisitions have recorded a capacity wait;
+    // otherwise either could fail at the initial shutdown check and this test
+    // would not exercise the drain path.
     assert_eq!(
-        wait_for_waiter_counts(&pool).await,
-        (1, 1),
-        "one waiter must be servicing and one queued before shutdown"
+        wait_for_capacity_waits(&churn, 2).await,
+        2,
+        "both acquisitions must be parked on capacity before shutdown"
     );
 
     pool.close().await;

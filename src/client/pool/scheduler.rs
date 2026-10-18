@@ -239,20 +239,6 @@ where
         lock_or_recover(&self.state).deregister_handle(handle_id);
     }
 
-    /// Snapshot the `(servicing, queued)` waiter counts.
-    ///
-    /// Lifecycle tests poll this state so they can prove both waiters reached
-    /// the scheduler before shutdown runs, rather than relying on elapsed
-    /// time. `servicing` counts waiters already claimed by the service task
-    /// and parked on slot capacity; `queued` counts waiters still awaiting
-    /// admission.
-    #[cfg(test)]
-    pub(crate) fn waiter_counts(&self) -> (usize, usize) {
-        let state = lock_or_recover(&self.state);
-        let servicing = state.servicing_waiters;
-        (servicing, state.waiter_count() - servicing)
-    }
-
     /// Queue an acquisition, taking an immediate lease when capacity permits.
     pub(crate) async fn acquire_for_handle(
         self: &Arc<Self>,

@@ -17,7 +17,9 @@ All notable changes to this project will be documented in this file.
   surviving shutdown and rotation mutants: a closed pool refuses later handle
   acquisitions, round-robin acquisition dispatches work on every configured
   slot, and waiters queued at shutdown are drained rather than left blocked.
-  (#593)
+  The drain test synchronizes on the per-pool `PoolTaskChurnObserver`
+  `capacity_waits` counter, so it waits for acquisitions to park rather than
+  for elapsed time. (#593)
 - **Client (breaking):** Remove `SocketOptions::linger` and
   `WireframeClientBuilder::linger`. Tokio-managed client sockets must not use
   duration-based `SO_LINGER`; call `WireframeClient::close().await` for
