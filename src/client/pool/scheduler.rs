@@ -367,6 +367,9 @@ where
     fn stop_servicing(&self) { self.is_servicing.store(false, Ordering::Release); }
 }
 
+#[cfg(test)]
+#[path = "scheduler_tests.rs"]
+mod poison_tests;
 mod service;
 #[cfg(test)]
 mod tests;
