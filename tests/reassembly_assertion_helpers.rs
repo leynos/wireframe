@@ -135,6 +135,36 @@ fn message_assertion_helpers_accept_completed_bodies() {
         key: MessageKey(8),
     }
 )]
+#[case(
+    MessageAssemblyError::DeclaredTotalTooSmall {
+        key: MessageKey(13),
+        declared: 2,
+        body_len: 6,
+    },
+    MessageAssemblyErrorExpectation::DeclaredTotalTooSmall {
+        key: MessageKey(13),
+    }
+)]
+#[case(
+    MessageAssemblyError::DeclaredTotalExceeded {
+        key: MessageKey(14),
+        declared: 10,
+        attempted: 12,
+    },
+    MessageAssemblyErrorExpectation::DeclaredTotalExceeded {
+        key: MessageKey(14),
+    }
+)]
+#[case(
+    MessageAssemblyError::DeclaredTotalMismatch {
+        key: MessageKey(15),
+        declared: 10,
+        actual: 8,
+    },
+    MessageAssemblyErrorExpectation::DeclaredTotalMismatch {
+        key: MessageKey(15),
+    }
+)]
 fn message_assertion_helpers_match_errors(
     #[case] error: MessageAssemblyError,
     #[case] expected: MessageAssemblyErrorExpectation,
