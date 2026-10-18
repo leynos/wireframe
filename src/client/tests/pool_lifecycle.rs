@@ -28,12 +28,6 @@ type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 /// instead of hanging the suite.
 const PROMPT: Duration = Duration::from_secs(1);
 
-/// Give a spawned acquisition time to reach the scheduler.
-///
-/// The acquires under test park or enqueue on their first poll, so letting
-/// other tasks run is enough; nothing here depends on real elapsed time.
-const SETTLE: Duration = Duration::from_millis(25);
-
 #[rustfmt::skip]
 #[fixture]
 fn client_pool_config() -> ClientPoolConfig {
@@ -78,18 +72,40 @@ async fn run_ping_round_trip(pool: &TestClientPool, ping: u8) -> Result<(), Clie
 /// Wait for the fixture to observe `expected` serviced connections.
 ///
 /// The fixture increments its counter after writing a reply, so the client can
-/// observe that reply marginally first. The bound turns a missing increment
-/// into an assertion failure rather than a hang.
+/// observe that reply marginally first. A timeout is reported through the
+/// returned count, which the caller asserts on, so a missing increment fails
+/// the assertion instead of hanging the suite.
 async fn wait_for_serviced_connections(server: &PoolTestServer, expected: usize) -> usize {
     let wait = async {
         while server.serviced_connection_count() < expected {
             tokio::task::yield_now().await;
         }
     };
-    if timeout(PROMPT, wait).await.is_err() {
-        return server.serviced_connection_count();
-    }
+    let _ = timeout(PROMPT, wait).await;
     server.serviced_connection_count()
+}
+
+/// Wait until the scheduler reports one servicing and one queued waiter.
+///
+/// Polling observable scheduler state is what makes the shutdown test
+/// meaningful: closing the pool before both acquisitions are enqueued would
+/// let them fail at the initial shutdown check, and the test would pass even
+/// with `notify_shutdown()` removed. Returns the observed counts on timeout so
+/// the caller can assert on them.
+async fn wait_for_waiter_counts(pool: &TestClientPool) -> (usize, usize) {
+    let wait = async {
+        loop {
+            let counts = pool.waiter_counts();
+            if counts == (1, 1) {
+                return counts;
+            }
+            tokio::task::yield_now().await;
+        }
+    };
+    match timeout(PROMPT, wait).await {
+        Ok(counts) => counts,
+        Err(_) => pool.waiter_counts(),
+    }
 }
 
 /// Kills the `is_shutdown` mutant: a closed pool must refuse acquisitions even
@@ -159,9 +175,11 @@ async fn slot_rotation_serves_each_pool_connection(
 /// closes must be resolved, not left blocked forever.
 ///
 /// The first waiter is claimed by the background service task and parks on
-/// slot capacity; the second stays in the scheduler queue. Only
-/// `notify_shutdown()` drains that queued waiter, so removing it leaves the
-/// second acquire blocked until the timeout fails this test.
+/// slot capacity; the second stays in the scheduler queue. The test waits for
+/// those exact scheduler counts before closing, so both acquisitions are
+/// genuinely past the initial shutdown check. Only `notify_shutdown()` drains
+/// the queued waiter, so removing it leaves the second acquire blocked until
+/// the timeout fails this test.
 #[rstest]
 #[tokio::test(flavor = "current_thread")]
 async fn shutdown_drains_a_queued_waiter(client_pool_config: ClientPoolConfig) -> TestResult {
@@ -179,10 +197,16 @@ async fn shutdown_drains_a_queued_waiter(client_pool_config: ClientPoolConfig) -
     let mut queued_handle = pool.handle();
 
     let claimed = tokio::spawn(async move { claimed_handle.acquire().await.map(|_lease| ()) });
-    tokio::time::sleep(SETTLE).await;
-
     let queued = tokio::spawn(async move { queued_handle.acquire().await.map(|_lease| ()) });
-    tokio::time::sleep(SETTLE).await;
+
+    // Do not close until the scheduler itself shows one claimed waiter parked
+    // on capacity and one still queued; otherwise both could fail at the
+    // initial shutdown check and this test would not exercise the drain path.
+    assert_eq!(
+        wait_for_waiter_counts(&pool).await,
+        (1, 1),
+        "one waiter must be servicing and one queued before shutdown"
+    );
 
     pool.close().await;
 

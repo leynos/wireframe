@@ -160,6 +160,14 @@ where
         PoolTaskChurnObserver::new(Arc::clone(&self.control.churn))
     }
 
+    /// Snapshot the scheduler's `(servicing, queued)` waiter counts.
+    ///
+    /// Test-only seam: lifecycle tests await observable scheduler state before
+    /// triggering shutdown, instead of sleeping and hoping both acquisitions
+    /// have reached the scheduler.
+    #[cfg(test)]
+    pub(crate) fn waiter_counts(&self) -> (usize, usize) { self.inner.scheduler.waiter_counts() }
+
     /// Create a stable logical-session handle governed by the pool scheduler.
     ///
     /// Prefer a `PoolHandle` when one logical session repeatedly acquires
