@@ -17,6 +17,8 @@ mod polling;
 mod response;
 mod shutdown;
 mod state;
+#[cfg(test)]
+mod tests;
 
 use std::net::SocketAddr;
 

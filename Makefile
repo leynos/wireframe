@@ -105,6 +105,7 @@ test-workflow-contracts: ## Validate workflow invocation contracts
 
 test-loom: ## Run the Loom models under --cfg loom
 	LOOM_MAX_PREEMPTIONS=$(LOOM_MAX_PREEMPTIONS) RUSTFLAGS="--cfg loom" $(CARGO) test -p $(LOOM_CRATE) $(BUILD_JOBS)
+	RUSTFLAGS="--cfg loom" $(CARGO) check -p wireframe_testing --lib --features runtime-benchmarks $(BUILD_JOBS)
 
 test-doc: ## Run doctests across all features
 	# `wireframe_testing` doctests need generic app types that standalone snippets
