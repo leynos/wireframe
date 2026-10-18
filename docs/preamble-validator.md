@@ -15,25 +15,28 @@ resource accounting. Protocols must validate any additional resource bounds for
 their chosen preamble type; see the
 [allocation-limit caveat](users-guide.md#packets-payloads-and-serialization).
 
-For screen readers: Preamble bytes are read incrementally and decoded with the
-preamble size limit. Oversized container lengths fail; successful decoding
-returns any bytes left after the preamble value.
+For screen readers: The peer sends bytes to the server, which reads and decodes
+the preamble with its size limit. Oversized container lengths return a decode
+error to the server; successful decoding returns the value and leftover bytes
+to the server.
 
 ```mermaid
 sequenceDiagram
     participant Peer
+    participant Server
     participant Preamble
     participant Bincode
 
-    Peer->>Preamble: provide preamble bytes
+    Peer->>Server: provide preamble bytes
+    Server->>Preamble: read_preamble(reader)
     Preamble->>Preamble: read_more(reader, buffer, 1)
     Preamble->>Bincode: borrow_decode_from_slice(buffer, bounded config)
     alt declared container exceeds MAX_PREAMBLE_LEN
         Bincode-->>Preamble: DecodeError::LimitExceeded
-        Preamble-->>Peer: decoding error
+        Preamble-->>Server: decoding error
     else value decodes successfully
         Bincode-->>Preamble: value and consumed length
-        Preamble-->>Peer: decoded value and leftover bytes
+        Preamble-->>Server: decoded value and leftover bytes
     end
 ```
 

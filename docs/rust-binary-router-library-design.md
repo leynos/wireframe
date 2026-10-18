@@ -481,9 +481,11 @@ sequenceDiagram
     end
 ```
 
-For screen readers: An incoming frame passes through metadata parsing and
-bounded bincode decoding. Oversized container lengths cause a decode error, and
-any decoded value that leaves trailing payload bytes is rejected.
+For screen readers: This flow shows a metadata-aware serializer that uses
+`Message::from_bytes` and needs a full decode after metadata parsing or
+fallback after a parse failure. Bincode caps accounted container allocation at
+`MAX_FRAME_LENGTH`; `parse_envelope` rejects trailing frame bytes.
+Metadata-only routing is outside this flow.
 
 ```mermaid
 sequenceDiagram
