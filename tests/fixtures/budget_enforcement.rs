@@ -262,6 +262,9 @@ impl BudgetEnforcementWorld {
             MessageAssemblyError::InFlightBudgetExceeded { .. } => "InFlightBudgetExceeded",
             MessageAssemblyError::MessageTooLarge { .. } => "MessageTooLarge",
             MessageAssemblyError::DuplicateFirstFrame { .. } => "DuplicateFirstFrame",
+            MessageAssemblyError::DeclaredTotalTooSmall { .. } => "DeclaredTotalTooSmall",
+            MessageAssemblyError::DeclaredTotalExceeded { .. } => "DeclaredTotalExceeded",
+            MessageAssemblyError::DeclaredTotalMismatch { .. } => "DeclaredTotalMismatch",
             MessageAssemblyError::Series(_) => "Series",
         };
         if actual != expected {
