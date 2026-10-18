@@ -13,10 +13,9 @@ use std::{
 use super::{
     ContinuationFrameHeader,
     MessageKey,
-    budget::{AggregateBudgets, check_aggregate_budgets, check_size_limit},
+    budget::{AggregateBudgets, ContinuationLimits, check_aggregate_budgets},
     error::{MessageAssemblyError, MessageSeriesError, MessageSeriesStatus},
     partial::PartialAssembly,
-    series::MessageSeries,
     types::{AssembledMessage, FirstFrameInput},
     validation,
 };
@@ -183,8 +182,6 @@ impl MessageAssemblyState {
             });
         }
 
-        let series = MessageSeries::from_first_frame(input.header);
-
         // If this is a single-frame message, return immediately
         if input.header.is_last {
             return Ok(Some(AssembledMessage::new(
@@ -210,7 +207,7 @@ impl MessageAssemblyState {
 
         // Start new assembly, preserving envelope routing metadata from the
         // first frame so the completed message is dispatched correctly.
-        let partial = PartialAssembly::new(series, input.routing, input.metadata, input.body, now);
+        let partial = PartialAssembly::from_first_frame(input, now);
         self.assemblies.insert(key, partial);
 
         Ok(None)
@@ -280,9 +277,11 @@ impl MessageAssemblyState {
 
         // Snapshot budget state before the mutable entry borrow.  The O(n)
         // scan is gated on is_enabled() so it's skipped when budgets are absent.
-        let max_message_size = self.max_message_size;
-        let budgets = self.budgets;
-        let buffered_total = if budgets.is_enabled() {
+        let limits = ContinuationLimits {
+            max_message_size: self.max_message_size,
+            budgets: self.budgets,
+        };
+        let buffered_total = if limits.budgets.is_enabled() {
             self.total_buffered_bytes()
         } else {
             0
@@ -306,14 +305,7 @@ impl MessageAssemblyState {
         };
 
         let partial = entry.get_mut();
-        if let Err(e) = Self::admit_continuation(
-            key,
-            partial,
-            body.len(),
-            buffered_total,
-            max_message_size,
-            &budgets,
-        ) {
+        if let Err(e) = partial.admit_continuation(body.len(), buffered_total, limits) {
             entry.remove();
             return Err(e);
         }
@@ -323,31 +315,6 @@ impl MessageAssemblyState {
             return Ok(None);
         };
         entry.remove().into_message()
-    }
-
-    /// Apply size, budget, and declared-total admission checks to a
-    /// continuation body before it is buffered.
-    ///
-    /// Any rejection frees the assembly, so the caller removes the entry on
-    /// error.
-    fn admit_continuation(
-        key: MessageKey,
-        partial: &PartialAssembly,
-        body_len: usize,
-        buffered_total: usize,
-        max_message_size: NonZeroUsize,
-        budgets: &AggregateBudgets,
-    ) -> Result<(), MessageAssemblyError> {
-        let accumulated = partial.body_len();
-        check_size_limit(max_message_size, key, accumulated, body_len)?;
-        check_aggregate_budgets(key, buffered_total, body_len, budgets)?;
-
-        // Enforce the declared total before buffering so an oversized
-        // continuation cannot be retained even briefly.
-        if let Some(declared) = partial.declared_total() {
-            validation::validate_continuation(key, declared, accumulated, body_len)?;
-        }
-        Ok(())
     }
 
     /// Remove any partial assemblies that exceeded the configured timeout.

@@ -32,6 +32,19 @@ impl AggregateBudgets {
     }
 }
 
+/// Every limit that governs whether a continuation body may be buffered.
+///
+/// Bundled so admission receives one value rather than a growing list of
+/// parameters, and so a caller cannot pair the per-message cap with the wrong
+/// aggregate budgets.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ContinuationLimits {
+    /// Per-message body cap.
+    pub(super) max_message_size: NonZeroUsize,
+    /// Aggregate budgets across in-flight assemblies.
+    pub(super) budgets: AggregateBudgets,
+}
+
 /// Check whether accepting `additional_bytes` for `key` would exceed
 /// the connection budget or in-flight budget.
 ///
