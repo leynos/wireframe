@@ -2,10 +2,10 @@
 
 The lane failed to compile for months while its name said it model-checked
 the push queue, and a lane that only compiles its models reads the same from
-the outside as one that runs them. These tests hold the two halves of the
-lane to what they must do: the workflow step calls ``make test-loom``, and
-that target runs the Loom package's tests under ``--cfg loom`` with a bounded
-preemption count.
+the outside as one that runs them. These tests hold the lane to what it must
+do: the workflow step calls ``make test-loom``, which runs the Loom package's
+tests under ``--cfg loom`` with a bounded preemption count and compiles the
+test-support crate under that configuration.
 
 The target is read through ``make --dry-run`` and tokenized, not searched as
 text, so what is asserted is the command Make would run: the program, its
@@ -68,12 +68,13 @@ def _is_assignment(token: str) -> bool:
     return bool(separator) and name.isidentifier()
 
 
-def _loom_command() -> tuple[dict[str, str], list[str]]:
-    """Return the environment and argument list ``make test-loom`` would run.
+def _loom_commands() -> list[tuple[dict[str, str], list[str]]]:
+    """Return both environment and argument lists ``make test-loom`` runs.
 
     The recipe is read through ``make --dry-run``, so a variable, a line
     continuation or an included file resolves exactly as it would when the
-    lane runs.
+    lane runs. The first command executes the models; the second compiles
+    ``wireframe_testing`` under the same Loom configuration.
     """
     printed = subprocess.run(
         ["make", "--no-print-directory", "--dry-run", LOOM_TARGET],
@@ -83,15 +84,24 @@ def _loom_command() -> tuple[dict[str, str], list[str]]:
         check=True,
     ).stdout
     lines = [line for line in printed.splitlines() if line.strip()]
-    assert len(lines) == 1, (
-        f"{LOOM_TARGET} should run exactly one command; it prints {lines}"
+    assert len(lines) == 2, (
+        f"{LOOM_TARGET} should run the model and test-support commands; it prints {lines}"
     )
-    tokens = _tokens(lines[0])
-    environment: dict[str, str] = {}
-    while tokens and _is_assignment(tokens[0]):
-        name, _, value = tokens.pop(0).partition("=")
-        environment[name] = value
-    return environment, tokens
+
+    commands: list[tuple[dict[str, str], list[str]]] = []
+    for line in lines:
+        tokens = _tokens(line)
+        environment: dict[str, str] = {}
+        while tokens and _is_assignment(tokens[0]):
+            name, _, value = tokens.pop(0).partition("=")
+            environment[name] = value
+        commands.append((environment, tokens))
+    return commands
+
+
+def _loom_command() -> tuple[dict[str, str], list[str]]:
+    """Return the model command and its environment."""
+    return _loom_commands()[0]
 
 
 def test_the_lane_calls_the_loom_target() -> None:
@@ -180,3 +190,25 @@ def test_the_target_bounds_loom_exploration() -> None:
         f"{LOOM_TARGET} must set LOOM_MAX_PREEMPTIONS to a positive integer; "
         f"got {bound!r}"
     )
+
+
+def test_the_target_compiles_test_support_under_loom() -> None:
+    """Scenario: test-support loses its Loom configuration check.
+
+    Invariant: the second command compiles the helper crate with its
+    runtime-benchmark feature under ``--cfg loom``.
+    """
+    environment, argv = _loom_commands()[1]
+    assert shlex.split(environment.get("RUSTFLAGS", "")) == ["--cfg", "loom"], (
+        f"the test-support check must set RUSTFLAGS to --cfg loom; got "
+        f"{environment.get('RUSTFLAGS')!r}"
+    )
+    assert argv == [
+        "cargo",
+        "check",
+        "-p",
+        "wireframe_testing",
+        "--lib",
+        "--features",
+        "runtime-benchmarks",
+    ], f"the second {LOOM_TARGET} command must compile wireframe_testing; it runs {argv}"
