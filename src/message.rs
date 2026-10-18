@@ -122,7 +122,14 @@ pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     where
         Self: Sized,
     {
-        borrow_decode_from_slice(bytes, bounded_bincode_config())
+        let result = borrow_decode_from_slice(bytes, bounded_bincode_config());
+        if matches!(&result, Err(DecodeError::LimitExceeded)) {
+            crate::metrics::inc_decode_rejection(
+                crate::metrics::DecodeRejectionPath::Message,
+                crate::metrics::DecodeRejectionReason::LimitExceeded,
+            );
+        }
+        result
     }
 }
 

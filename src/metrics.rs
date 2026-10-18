@@ -20,9 +20,16 @@ use std::time::Duration;
 #[cfg(feature = "metrics")]
 use metrics::{counter, gauge, histogram};
 
+mod decode_rejections;
 mod server_startup;
 mod server_supervisor;
 
+pub use decode_rejections::DECODE_REJECTIONS;
+pub(crate) use decode_rejections::{
+    DecodeRejectionPath,
+    DecodeRejectionReason,
+    inc_decode_rejection,
+};
 pub use server_startup::{SERVER_STARTUP_DURATION, SERVER_STARTUP_FAILURES};
 pub(crate) use server_startup::{
     ServerStartupFailureStage,

@@ -128,6 +128,10 @@ where
         Err(_) => serializer.deserialize::<Envelope>(payload),
     }?;
     if consumed != payload.len() {
+        crate::metrics::inc_decode_rejection(
+            crate::metrics::DecodeRejectionPath::Envelope,
+            crate::metrics::DecodeRejectionReason::TrailingBytes,
+        );
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "trailing bytes after envelope: frame must contain exactly one value",

@@ -142,6 +142,12 @@ metrics, suitable for export to systems like Prometheus or OpenTelemetry.
 | wireframe_request_latency_seconds | Histogram | A distribution of handler processing times, from frame receipt to response completion.                 |
 | wireframe_reassembly_errors_total | Counter   | The number of times message reassembly failed due to timeouts, oversized messages, or sequence errors. |
 
+The optional `metrics` feature also records bounded decode rejections in
+`wireframe_decode_rejections_total`. Its `path` label is one of `message`,
+`serde`, `preamble`, or `envelope`; its `reason` label is one of
+`limit_exceeded`, `trailing_bytes`, or `decode_error`. These fixed values make
+rejection rates observable without creating metric series from peer input.
+
 **Measurable Objective:** A `wireframe` application, when configured with a
 suitable `tracing-subscriber`, must emit all the metrics listed above, allowing
 for the construction of a comprehensive operational health dashboard.
