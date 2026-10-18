@@ -131,19 +131,15 @@ This is the best candidate for the **strongest** verification investment.
 `expected_total`, and `MessageAssemblyState` uses the declared total for the
 initial size-limit check.[^22][^23][^24]
 
-However, on completion, the current `accept_continuation_frame_at` path removes
-the partial assembly and returns the assembled message without an explicit
-final equality check between the accumulated body length and
-`expected_total`.[^24]
+The completion path now enforces an explicit final equality check between the
+accumulated body length and `expected_total`, and the first-frame and
+continuation paths reject declarations that cannot be honoured.[^24] The
+contract is recorded as authoritative in
+[ADR 015](adr-015-declared-total-body-length-contract.md), following Position A
+below.
 
-That is either:
-
-- a deliberate design choice, in which case the name `total_body_len`
-  overstates the guarantee, or
-- a missing invariant, in which case it deserves both runtime enforcement and
-  verification.
-
-This is where Verus becomes plausible, but only **after** a contract decision.
+This is where Verus becomes plausible, now that the contract decision is
+settled.
 
 ### Fourth priority: `src/connection/*`
 
@@ -200,18 +196,20 @@ verify, and closer to what the implementation already does.
 
 ### 2. Is `total_body_len` authoritative or advisory?
 
-The current name strongly implies authority, but the completion path does not
-enforce it.[^22][^24]
+**Resolved:** authoritative, recorded in
+[ADR 015](adr-015-declared-total-body-length-contract.md). Completion fails if
+the actual body length differs, and the first-frame and continuation paths
+reject declarations that cannot be honoured.[^22][^24]
 
-Choose one of these positions:
+The alternatives were:
 
 - **Position A:** It is authoritative. Completion must fail if the actual body
   length differs.
 - **Position B:** It is advisory. Rename it accordingly and document that
   mismatch is tolerated.
 
-**Position A** is the stronger choice unless an existing protocol reason
-requires treating it as a hint.
+**Position A** was chosen because no existing protocol requires treating the
+declaration as a hint.
 
 ### 3. What fairness guarantee does `ConnectionActor` actually make?
 

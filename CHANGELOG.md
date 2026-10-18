@@ -11,6 +11,17 @@ All notable changes to this project will be documented in this file.
   built. See `docs/v0-3-0-to-v0-4-0-migration-guide.md` for migration examples.
   (#642)
 
+- Breaking: `MessageAssemblyState` now enforces
+  `FirstFrameHeader::total_body_len` as an authoritative declaration. A first
+  frame whose body exceeds its declared total is rejected with
+  `DeclaredTotalTooSmall`; a continuation that would overshoot the declaration
+  is rejected with `DeclaredTotalExceeded`; and a completed body whose length
+  differs from the declaration is rejected with `DeclaredTotalMismatch`.
+  Protocol implementations must supply exact totals or leave `total_body_len` as
+  `None`. Downstream exhaustive matches on `MessageAssemblyError` need arms
+  for the three new variants. See
+  [ADR 015](docs/adr-015-declared-total-body-length-contract.md).
+  ([#544](https://github.com/leynos/wireframe/issues/544))
 - Added scheduler and slot poison-recovery coverage, and extracted
   `scheduler_tests.rs` to keep `scheduler.rs` below 400 lines. (#539)
 - **Client (breaking):** Remove `SocketOptions::linger` and

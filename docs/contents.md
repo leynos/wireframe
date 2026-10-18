@@ -65,6 +65,8 @@ reference when navigating the project's design and architecture material.
   client pool.
 - [ADR 014: server shutdown ownership and terminal observation](adr-014-server-shutdown-ownership.md)
   Proposed awaitable server shutdown and supervisor-failure observation.
+- [ADR 015: declared total body length is authoritative](adr-015-declared-total-body-length-contract.md)
+  Accepted contract for enforcing `total_body_len` during message assembly.
 
 ## Execution plans
 

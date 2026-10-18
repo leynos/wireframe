@@ -633,13 +633,15 @@ cited section names the specific question it answers.
   15.1.1. See §"What widths does Wireframe actually support for length
   prefixes?". Success criteria: an ADR records the decision, constructors
   enforce the chosen set, and existing tests cover rejected widths.
-- [ ] 15.2.2. Treat `total_body_len` as either authoritative or advisory and
+- [x] 15.2.2. Treat `total_body_len` as either authoritative or advisory and
   enforce or rename it consistently across the message assembly path; record
   the decision in an ADR and add tests for both conforming and violating
   inputs. Requires 15.1.1. See §"Is `total_body_len` authoritative or
   advisory?". Success criteria: an ADR records the decision, runtime code
   enforces the chosen semantics, and tests verify both conforming and violating
-  inputs.
+  inputs. See [ADR 015](adr-015-declared-total-body-length-contract.md); issue
+  [#544](https://github.com/leynos/wireframe/issues/544) added conformance and
+  violation coverage.
 - [ ] 15.2.3. Publish named fairness and priority guarantees for
   `ConnectionActor` and encode them as model properties for Stateright checks.
   Requires 15.1.1. See §"What fairness guarantee does `ConnectionActor`
@@ -695,13 +697,14 @@ cited section names the specific question it answers.
 
 ### 15.5. Verus proofs for message assembly
 
-- [ ] 15.5.1. Enforce the chosen `total_body_len` contract in runtime code
+- [x] 15.5.1. Enforce the chosen `total_body_len` contract in runtime code
   before relying on proofs. See
   [formal verification guide §"Is `total_body_len` authoritative or advisory?"](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory)
   and
   [§"What Verus should prove in Wireframe"](formal-verification-methods-in-wireframe.md#what-verus-should-prove-in-wireframe).
   Requires 15.2.2. Success criteria: runtime assertions or checks enforce the
-  contract, and existing tests confirm the enforcement.
+  contract, and existing tests confirm the enforcement. See
+  [ADR 015](adr-015-declared-total-body-length-contract.md).
 - [ ] 15.5.2. Add proof-only modules under `verus/` for declared-total and
   buffered-byte accounting invariants. See
   [formal verification guide §Proof style recommendation](formal-verification-methods-in-wireframe.md#proof-style-recommendation)
