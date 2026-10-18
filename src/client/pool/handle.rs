@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use super::{client_pool::ClientPoolInner, lease::PooledClientLease};
+use super::{client_pool::PoolSchedulerControl, core::PoolCore, lease::PooledClientLease};
 use crate::{
     client::ClientError,
     message::{DecodeWith, EncodeWith},
@@ -38,8 +38,10 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    /// Shared pool state whose scheduler tracks this logical session.
-    inner: Arc<ClientPoolInner<S, P, C>>,
+    /// Shared physical slot storage retained by acquired leases.
+    core: Arc<PoolCore<S, P, C>>,
+    /// Fairness scheduler, kept separate from physical slot ownership.
+    control: Arc<PoolSchedulerControl<S, P, C>>,
     /// Scheduler identity removed when this handle is dropped.
     handle_id: u64,
 }
@@ -50,9 +52,17 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    /// Bind a scheduler-assigned identity to the shared pool state.
-    pub(crate) const fn new(inner: Arc<ClientPoolInner<S, P, C>>, handle_id: u64) -> Self {
-        Self { inner, handle_id }
+    /// Bind a scheduler-assigned identity to the independent pool roots.
+    pub(crate) const fn new(
+        core: Arc<PoolCore<S, P, C>>,
+        control: Arc<PoolSchedulerControl<S, P, C>>,
+        handle_id: u64,
+    ) -> Self {
+        Self {
+            core,
+            control,
+            handle_id,
+        }
     }
 
     /// Acquire one pooled-client lease under the configured fairness policy.
@@ -78,9 +88,13 @@ where
     ///
     /// Returns [`ClientError`] if permit acquisition or pooled checkout fails.
     pub async fn acquire(&mut self) -> Result<PooledClientLease<S, P, C>, ClientError> {
-        self.inner
+        self.control
             .scheduler
-            .acquire_for_handle(Arc::clone(&self.inner), self.handle_id)
+            .acquire_for_handle(
+                Arc::clone(&self.core),
+                Arc::clone(&self.control),
+                self.handle_id,
+            )
             .await
     }
 
@@ -128,5 +142,5 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    fn drop(&mut self) { self.inner.scheduler.deregister_handle(self.handle_id); }
+    fn drop(&mut self) { self.control.scheduler.deregister_handle(self.handle_id); }
 }

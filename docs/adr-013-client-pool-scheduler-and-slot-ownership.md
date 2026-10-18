@@ -508,6 +508,15 @@ the scheduler topology.
 Remove the nested slot Arc layer while retaining current scheduler behaviour
 ([#645](https://github.com/leynos/wireframe/issues/645)).
 
+This intermediate step names the separation `PoolCore` and
+`PoolSchedulerControl`. The core owns the fixed slots by value and pool-wide
+shutdown state. The control retains the existing scheduler and churn counters,
+but owns no slots. The public pool and logical handles hold both roots; a lease
+holds one core root, its selected slot index, its permit, and a separate
+optional control handle for release notification. This leaves the
+spawn-on-demand scheduler and permit-race structure in place so their later
+changes can be reviewed independently.
+
 ### Phase 3: add actor command protocol
 
 Move waiter queues, fairness, admission, and shutdown state into the long-lived

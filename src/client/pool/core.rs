@@ -1,0 +1,148 @@
+//! Fixed physical slot storage and pool-wide lifecycle state.
+
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+};
+
+use futures::future::select_all;
+use tokio::sync::{Notify, OwnedSemaphorePermit};
+
+use super::slot::PoolSlot;
+use crate::{client::ClientError, serializer::Serializer};
+
+/// Result of selecting a slot while retaining its independent admission token.
+pub(crate) type SlotPermit = (usize, OwnedSemaphorePermit);
+
+/// Owned future used by the existing permit race.
+type SlotPermitFuture = Pin<Box<dyn Future<Output = Result<SlotPermit, ClientError>> + Send>>;
+
+/// One shared root for the pool's fixed physical slots and shutdown state.
+pub(crate) struct PoolCore<S, P, C>
+where
+    S: Serializer + Clone + Send + Sync + 'static,
+    P: bincode::Encode + Clone + Send + Sync + 'static,
+    C: Send + 'static,
+{
+    /// Physical slots remain at stable addresses for the core's lifetime.
+    slots: Box<[PoolSlot<S, P, C>]>,
+    /// Cursor used to rotate the first slot attempted by each acquisition.
+    next_slot: AtomicUsize,
+    /// Release flag observed by blocked acquisitions and close.
+    shutdown: AtomicBool,
+    /// Notification used to cancel scheduler waits during shutdown.
+    shutdown_notify: Notify,
+    /// Test-only witness that fixed slot storage is released with the core.
+    #[cfg(test)]
+    pub(super) drop_probe: Option<super::test_support::DropProbe>,
+}
+
+impl<S, P, C> PoolCore<S, P, C>
+where
+    S: Serializer + Clone + Send + Sync + 'static,
+    P: bincode::Encode + Clone + Send + Sync + 'static,
+    C: Send + 'static,
+{
+    /// Build a core around a fixed, non-growing slot allocation.
+    pub(crate) fn new(slots: Box<[PoolSlot<S, P, C>]>) -> Self {
+        Self {
+            slots,
+            next_slot: AtomicUsize::new(0),
+            shutdown: AtomicBool::new(false),
+            shutdown_notify: Notify::new(),
+            #[cfg(test)]
+            drop_probe: None,
+        }
+    }
+
+    /// Resolve an internal slot index without trusting the caller's value.
+    pub(crate) fn slot(&self, slot_index: usize) -> Option<&PoolSlot<S, P, C>> {
+        self.slots.get(slot_index)
+    }
+
+    /// Read the release-acquire shutdown flag used by all waiters.
+    pub(crate) fn is_shutdown(&self) -> bool { self.shutdown.load(Ordering::Acquire) }
+
+    /// Wait until pool shutdown wakes a cancellation-sensitive operation.
+    pub(crate) async fn shutdown_notified(&self) { self.shutdown_notify.notified().await; }
+
+    /// Publish shutdown and wake scheduler-managed permit waits.
+    pub(crate) fn shutdown(&self) {
+        self.shutdown.store(true, Ordering::Release);
+        self.shutdown_notify.notify_waiters();
+    }
+
+    /// Select the first available slot in rotation order without slot Arcs.
+    pub(crate) fn try_acquire_permit(&self) -> Option<SlotPermit> {
+        if self.is_shutdown() {
+            return None;
+        }
+
+        let selected = self.ordered_slot_indices().find_map(|slot_index| {
+            self.slot(slot_index)?
+                .try_acquire_permit()
+                .map(|permit| (slot_index, permit))
+        });
+
+        if self.is_shutdown() {
+            drop(selected);
+            None
+        } else {
+            selected
+        }
+    }
+
+    /// Race slot permits and return the first available capacity or error.
+    pub(crate) async fn acquire_slot_permit(self: &Arc<Self>) -> Result<SlotPermit, ClientError> {
+        if self.is_shutdown() || self.slots.is_empty() {
+            return Err(ClientError::disconnected());
+        }
+
+        let waiters = self
+            .ordered_slot_indices()
+            .map(|slot_index| {
+                // Keep the existing owned-future race in this slice. The
+                // futures retain the core root instead of individual slots;
+                // the scoped-race follow-up can remove these per-slot clones.
+                let core = Arc::clone(self);
+                Box::pin(async move {
+                    let slot = core
+                        .slot(slot_index)
+                        .ok_or_else(ClientError::disconnected)?;
+                    let permit = slot.acquire_permit().await?;
+                    Ok((slot_index, permit))
+                }) as SlotPermitFuture
+            })
+            .collect::<Vec<SlotPermitFuture>>();
+        let (result, ..) = select_all(waiters).await;
+        let (slot_index, permit) = result?;
+        if self.is_shutdown() {
+            drop(permit);
+            Err(ClientError::disconnected())
+        } else {
+            Ok((slot_index, permit))
+        }
+    }
+
+    /// Rotate slot indices without allocating or cloning slot owners.
+    fn ordered_slot_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        let len = self.slots.len();
+        let start = if len == 0 {
+            0
+        } else {
+            self.next_slot
+                .fetch_add(1, Ordering::Relaxed)
+                .wrapping_rem(len)
+        };
+
+        (0..len).map(move |offset| start.wrapping_add(offset).wrapping_rem(len.max(1)))
+    }
+}
+
+#[cfg(test)]
+#[path = "core_tests.rs"]
+mod tests;

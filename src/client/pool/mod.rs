@@ -7,6 +7,7 @@
 mod churn;
 mod client_pool;
 mod config;
+mod core;
 mod handle;
 mod lease;
 pub(super) mod managed;

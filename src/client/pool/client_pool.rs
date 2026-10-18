@@ -1,22 +1,14 @@
 //! Outer pooled-client type and slot-selection logic.
 
-use std::{
-    net::SocketAddr,
-    pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-    },
-};
+use std::{net::SocketAddr, sync::Arc};
 
 use bb8::Pool;
 use bincode::Encode;
-use futures::{Future, future::select_all};
-use tokio::sync::Notify;
 
 use super::{
     ClientPoolConfig,
     churn::{PoolTaskChurnCounts, PoolTaskChurnObserver},
+    core::PoolCore,
     handle::PoolHandle,
     lease::PooledClientLease,
     manager::WireframeConnectionManager,
@@ -28,26 +20,13 @@ use crate::{
     serializer::Serializer,
 };
 
-/// Slot and admission token returned by successful permit acquisition; the
-/// later `PoolSlot::checkout` step in `PooledClientLease::dispatch_on_connection`
-/// obtains a physical connection for the lease.
-type AcquirePermit<S, P, C> = (Arc<PoolSlot<S, P, C>>, tokio::sync::OwnedSemaphorePermit);
-
-/// Erased future used to race all slots for the first available permit.
-type AcquirePermitFuture<S, P, C> =
-    Pin<Box<dyn Future<Output = Result<AcquirePermit<S, P, C>, ClientError>> + Send>>;
-
-/// Shared state coordinating slots, fairness, and cancellation for a pool.
-pub(crate) struct ClientPoolInner<S, P = (), C = ()>
+/// Cloneable scheduler state kept separate from physical slot ownership.
+pub(crate) struct PoolSchedulerControl<S, P = (), C = ()>
 where
     S: Serializer + Clone + Send + Sync + 'static,
     P: Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    /// Physical slots participating in round-robin selection.
-    pub(crate) slots: Arc<[Arc<PoolSlot<S, P, C>>]>,
-    /// Cursor used to rotate the first slot attempted by each acquisition.
-    pub(crate) next_slot: AtomicUsize,
     /// Fairness coordinator for handles waiting on slot capacity.
     pub(crate) scheduler: Arc<PoolScheduler<S, P, C>>,
     /// Task-churn counters scoped to this pool rather than the process.
@@ -56,10 +35,30 @@ where
     /// pool another test is driving concurrently. See
     /// [`PoolTaskChurnObserver`].
     pub(crate) churn: Arc<PoolTaskChurnCounts>,
-    /// Release flag observed by blocked acquisitions and close.
-    shutdown: AtomicBool,
-    /// Notification used to cancel scheduler waits during shutdown.
-    shutdown_notify: Notify,
+}
+
+impl<S, P, C> PoolSchedulerControl<S, P, C>
+where
+    S: Serializer + Clone + Send + Sync + 'static,
+    P: Encode + Clone + Send + Sync + 'static,
+    C: Send + 'static,
+{
+    /// Create scheduler bookkeeping independently from physical slot storage.
+    pub(crate) fn new(fairness_policy: super::PoolFairnessPolicy, max_waiters: usize) -> Self {
+        Self {
+            scheduler: Arc::new(PoolScheduler::new(fairness_policy, max_waiters)),
+            churn: Arc::new(PoolTaskChurnCounts::default()),
+        }
+    }
+
+    /// Make an immediate lease while the core retains its selected slot.
+    pub(crate) fn try_acquire_immediately(
+        self: &Arc<Self>,
+        core: &Arc<PoolCore<S, P, C>>,
+    ) -> Option<PooledClientLease<S, P, C>> {
+        let (slot_index, permit) = core.try_acquire_permit()?;
+        PooledClientLease::new(Arc::clone(core), slot_index, permit, Some(Arc::clone(self)))
+    }
 }
 
 /// Pool of configured slots that create physical wireframe connections on
@@ -70,8 +69,10 @@ where
     P: Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    /// Reference-counted state shared by pool handles and leases.
-    inner: Arc<ClientPoolInner<S, P, C>>,
+    /// Shared fixed physical slots retained by every live lease.
+    core: Arc<PoolCore<S, P, C>>,
+    /// Fairness and release-notification state, without slot ownership.
+    control: Arc<PoolSchedulerControl<S, P, C>>,
 }
 
 impl<S, P, C> WireframeClientPool<S, P, C>
@@ -98,22 +99,16 @@ where
                 .reaper_rate(pool_config.idle_timeout_value())
                 .build(manager)
                 .await?;
-            slots.push(Arc::new(PoolSlot::new(
+            slots.push(PoolSlot::new(
                 bb8_pool,
                 pool_config.max_in_flight_per_socket_value(),
                 pool_config.idle_timeout_value(),
-            )));
+            ));
         }
 
         Ok(Self {
-            inner: Arc::new(ClientPoolInner {
-                slots: Arc::from(slots),
-                next_slot: AtomicUsize::new(0),
-                scheduler: Arc::new(PoolScheduler::new(fairness_policy, max_waiters)),
-                churn: Arc::new(PoolTaskChurnCounts::default()),
-                shutdown: AtomicBool::new(false),
-                shutdown_notify: Notify::new(),
-            }),
+            core: Arc::new(PoolCore::new(slots.into_boxed_slice())),
+            control: Arc::new(PoolSchedulerControl::new(fairness_policy, max_waiters)),
         })
     }
 
@@ -153,7 +148,7 @@ where
     /// ```
     #[must_use]
     pub fn task_churn_observer(&self) -> PoolTaskChurnObserver {
-        PoolTaskChurnObserver::new(Arc::clone(&self.inner.churn))
+        PoolTaskChurnObserver::new(Arc::clone(&self.control.churn))
     }
 
     /// Create a stable logical-session handle governed by the pool scheduler.
@@ -180,8 +175,8 @@ where
     /// ```
     #[must_use]
     pub fn handle(&self) -> PoolHandle<S, P, C> {
-        let handle_id = self.inner.scheduler.register_handle();
-        PoolHandle::new(Arc::clone(&self.inner), handle_id)
+        let handle_id = self.control.scheduler.register_handle();
+        PoolHandle::new(Arc::clone(&self.core), Arc::clone(&self.control), handle_id)
     }
 
     /// Acquire one pooled-client lease.
@@ -196,66 +191,13 @@ where
 
     /// Close the pool and drop all warm sockets.
     pub async fn close(self) {
-        self.inner.shutdown();
+        self.core.shutdown();
+        self.control.scheduler.notify_shutdown();
         tokio::task::yield_now().await;
         drop(self);
     }
 }
 
-impl<S, P, C> ClientPoolInner<S, P, C>
-where
-    S: Serializer + Clone + Send + Sync + 'static,
-    P: Encode + Clone + Send + Sync + 'static,
-    C: Send + 'static,
-{
-    /// Read the release-acquire shutdown flag used by all waiters.
-    pub(crate) fn is_shutdown(&self) -> bool { self.shutdown.load(Ordering::Acquire) }
-
-    /// Wait until pool shutdown wakes a cancellation-sensitive operation.
-    pub(crate) async fn shutdown_notified(&self) { self.shutdown_notify.notified().await; }
-
-    /// Publish shutdown and wake both direct and scheduler-managed waiters.
-    pub(crate) fn shutdown(&self) {
-        self.shutdown.store(true, Ordering::Release);
-        self.shutdown_notify.notify_waiters();
-        self.scheduler.notify_shutdown();
-    }
-
-    /// Attempt a non-blocking lease while preserving slot rotation fairness.
-    pub(crate) fn try_acquire_immediately(self: &Arc<Self>) -> Option<PooledClientLease<S, P, C>> {
-        if self.is_shutdown() {
-            return None;
-        }
-        self.ordered_slots().into_iter().find_map(|slot| {
-            slot.try_acquire_permit()
-                .map(|permit| PooledClientLease::new(slot, permit, Some(Arc::clone(self))))
-        })
-    }
-
-    /// Race slot permits and return the first available capacity or error.
-    pub(crate) async fn acquire_slot_permit(&self) -> Result<AcquirePermit<S, P, C>, ClientError> {
-        let waiters = self
-            .ordered_slots()
-            .into_iter()
-            .map(|slot| {
-                Box::pin(async move {
-                    let permit = slot.acquire_permit().await?;
-                    Ok::<_, ClientError>((slot, permit))
-                }) as AcquirePermitFuture<S, P, C>
-            })
-            .collect::<Vec<_>>();
-        let (result, ..) = select_all(waiters).await;
-        result
-    }
-
-    /// Rotate slots from an atomic cursor to avoid favouring one socket.
-    fn ordered_slots(&self) -> Vec<Arc<PoolSlot<S, P, C>>> {
-        let mut ordered = self.slots.iter().cloned().collect::<Vec<_>>();
-        let len = ordered.len();
-        if len > 0 {
-            let start = self.next_slot.fetch_add(1, Ordering::Relaxed);
-            ordered.rotate_left(start.wrapping_rem(len));
-        }
-        ordered
-    }
-}
+#[cfg(test)]
+#[path = "client_pool_tests.rs"]
+mod tests;
