@@ -33,10 +33,11 @@ The bundled bincode decoders now cap accounted decode work for peer-provided
 container lengths. `Message::from_bytes`, the Bincode serializer, reassembled
 messages, and the optional Serde bridge use the fixed `MAX_FRAME_LENGTH` budget
 of 16 MiB. Preamble decoding uses the separate `MAX_PREAMBLE_LEN` budget of 1
-KiB. A declared container above its applicable budget fails with
-`DecodeError::LimitExceeded` before its body is read or allocated. These
-accounting limits do not replace validation for type-specific resource needs or
-custom decoders.
+KiB. Native bincode decoding rejects a declared container above its applicable
+budget before reading or allocating its body. The Serde bridge accounts bytes
+as elements are read and rejects decoding once those reads exceed the budget.
+These accounting limits do not replace validation for type-specific resource
+needs or custom decoders.
 
 The lower-level prefix contracts remain available: `Message::from_bytes`
 returns the number of bytes consumed, and `read_preamble` returns bytes read

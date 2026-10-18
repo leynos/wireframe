@@ -30,6 +30,7 @@ pub(crate) enum DecodeRejectionPath {
 
 impl DecodeRejectionPath {
     /// Return the stable metric label for this decode path.
+    #[cfg(feature = "metrics")]
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Message => "message",
@@ -84,7 +85,11 @@ pub(crate) fn inc_decode_rejection(_path: DecodeRejectionPath, _reason: DecodeRe
 mod tests {
     //! Tests for bounded decode-rejection metric labels.
 
-    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+    use metrics::{SharedString, Unit};
+    use metrics_util::{
+        CompositeKey,
+        debugging::{DebugValue, DebuggingRecorder},
+    };
 
     use super::{
         DECODE_REJECTIONS,
@@ -93,11 +98,37 @@ mod tests {
         inc_decode_rejection,
     };
 
+    type MetricSample = (CompositeKey, Option<Unit>, Option<SharedString>, DebugValue);
+
+    fn has_label(key: &CompositeKey, expected_key: &str, expected_value: &str) -> bool {
+        key.key()
+            .labels()
+            .any(|label| label.key() == expected_key && label.value() == expected_value)
+    }
+
+    fn sample_matches_rejection(
+        sample: &MetricSample,
+        path: DecodeRejectionPath,
+        reason: DecodeRejectionReason,
+    ) -> bool {
+        let (key, _, _, value) = sample;
+        if key.key().name() != DECODE_REJECTIONS || key.key().labels().count() != 2 {
+            return false;
+        }
+        if !has_label(key, "path", path.as_str()) {
+            return false;
+        }
+        if !has_label(key, "reason", reason.as_str()) {
+            return false;
+        }
+        matches!(value, DebugValue::Counter(count) if *count == 1)
+    }
+
     #[test]
     fn decode_rejections_use_fixed_path_and_reason_labels() {
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
-        let mut samples = vec![
+        let samples = [
             (
                 DecodeRejectionPath::Message,
                 DecodeRejectionReason::LimitExceeded,
@@ -112,10 +143,13 @@ mod tests {
             ),
         ];
         #[cfg(feature = "serializer-serde")]
-        samples.push((
-            DecodeRejectionPath::Serde,
-            DecodeRejectionReason::LimitExceeded,
-        ));
+        let samples = samples
+            .into_iter()
+            .chain([(
+                DecodeRejectionPath::Serde,
+                DecodeRejectionReason::LimitExceeded,
+            )])
+            .collect::<Vec<_>>();
 
         ::metrics::with_local_recorder(&recorder, || {
             for &(path, reason) in &samples {
@@ -126,19 +160,11 @@ mod tests {
         let metric_samples = snapshotter.snapshot().into_vec();
         assert_eq!(metric_samples.len(), samples.len());
         for &(path, reason) in &samples {
-            assert!(metric_samples.iter().any(|(key, _, _, value)| {
-                key.key().name() == DECODE_REJECTIONS
-                    && key.key().labels().count() == 2
-                    && key
-                        .key()
-                        .labels()
-                        .any(|label| label.key() == "path" && label.value() == path.as_str())
-                    && key
-                        .key()
-                        .labels()
-                        .any(|label| label.key() == "reason" && label.value() == reason.as_str())
-                    && matches!(value, DebugValue::Counter(count) if *count == 1)
-            }));
+            assert!(
+                metric_samples
+                    .iter()
+                    .any(|sample| sample_matches_rejection(sample, path, reason))
+            );
         }
     }
 }

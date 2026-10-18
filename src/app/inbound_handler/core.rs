@@ -102,6 +102,15 @@ fn purge_expired(
     frame_handling::purge_expired_assemblies(message_assembly);
 }
 
+/// Detect a bincode budget failure so fallback decoding does not repeat the work.
+fn is_bincode_limit_exceeded(error: &(dyn std::error::Error + 'static)) -> bool {
+    error
+        .downcast_ref::<bincode::error::DecodeError>()
+        .is_some_and(|decode_error| {
+            matches!(decode_error, bincode::error::DecodeError::LimitExceeded)
+        })
+}
+
 /// Decode exactly one envelope, using metadata to select full deserialization.
 pub(super) fn parse_envelope<S>(
     serializer: &S,
@@ -124,6 +133,9 @@ where
             } else {
                 Ok((parsed_envelope, metadata_bytes_consumed))
             }
+        }
+        Err(error) if is_bincode_limit_exceeded(&error) => {
+            Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
         }
         Err(_) => serializer.deserialize::<Envelope>(payload),
     }?;

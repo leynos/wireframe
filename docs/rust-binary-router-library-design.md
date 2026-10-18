@@ -484,8 +484,9 @@ sequenceDiagram
 For screen readers: This flow shows a metadata-aware serializer that uses
 `Message::from_bytes` and needs a full decode after metadata parsing or
 fallback after a parse failure. Bincode caps accounted container allocation at
-`MAX_FRAME_LENGTH`; `parse_envelope` rejects trailing frame bytes.
-Metadata-only routing is outside this flow.
+`MAX_FRAME_LENGTH`. The serializer returns the envelope and consumed length to
+the inbound handler, which rejects trailing frame bytes. Metadata-only routing
+is outside this flow.
 
 ```mermaid
 sequenceDiagram
@@ -507,10 +508,12 @@ sequenceDiagram
         Serializer-->>InboundHandler: decoding error
     else decoded value consumes all payload
         Bincode-->>Serializer: value and consumed length
-        Serializer-->>InboundHandler: envelope
+        Serializer-->>InboundHandler: envelope and consumed length
+        InboundHandler->>InboundHandler: accept envelope
     else trailing bytes remain
         Bincode-->>Serializer: value and consumed length
-        Serializer-->>InboundHandler: InvalidData
+        Serializer-->>InboundHandler: envelope and consumed length
+        InboundHandler->>InboundHandler: reject trailing bytes (InvalidData)
     end
 ```
 

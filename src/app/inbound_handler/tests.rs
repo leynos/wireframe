@@ -1,6 +1,13 @@
 //! Tests for Wireframe inbound connection handling.
 
 use bytes::{Bytes, BytesMut};
+#[cfg(feature = "metrics")]
+use metrics::{SharedString, Unit};
+#[cfg(feature = "metrics")]
+use metrics_util::{
+    CompositeKey,
+    debugging::{DebugValue, DebuggingRecorder},
+};
 use rstest::rstest;
 use tokio::io::AsyncWriteExt;
 use tokio_util::codec::{Decoder, Encoder};
@@ -83,6 +90,58 @@ fn single_envelope_frames_require_full_consumption(
         let error = result.expect_err("trailing bytes must fail through every branch");
         assert!(error.to_string().contains("trailing bytes after envelope"));
     }
+}
+
+#[cfg(feature = "metrics")]
+type DecodeRejectionSample = (CompositeKey, Option<Unit>, Option<SharedString>, DebugValue);
+
+#[cfg(feature = "metrics")]
+fn has_metric_label(key: &CompositeKey, expected_key: &str, expected_value: &str) -> bool {
+    key.key()
+        .labels()
+        .any(|label| label.key() == expected_key && label.value() == expected_value)
+}
+
+#[cfg(feature = "metrics")]
+fn is_message_limit_rejection(sample: &DecodeRejectionSample) -> bool {
+    let (key, ..) = sample;
+    key.key().name() == crate::metrics::DECODE_REJECTIONS
+        && key.key().labels().count() == 2
+        && has_metric_label(key, "path", "message")
+        && has_metric_label(key, "reason", "limit_exceeded")
+}
+
+#[cfg(feature = "metrics")]
+#[test]
+fn oversized_bincode_envelope_counts_one_message_limit_rejection() {
+    let declared_length =
+        u64::try_from(crate::codec::MAX_FRAME_LENGTH).expect("frame ceiling fits u64") + 1;
+    let bytes = bincode::encode_to_vec(
+        (1_u32, None::<u64>, declared_length),
+        bincode::config::standard(),
+    )
+    .expect("encode oversized envelope length prefix");
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+
+    let error = metrics::with_local_recorder(&recorder, || {
+        core::parse_envelope(&BincodeSerializer, &bytes)
+    })
+    .expect_err("oversized envelope must fail");
+    assert!(matches!(
+        error.downcast_ref::<bincode::error::DecodeError>(),
+        Some(bincode::error::DecodeError::LimitExceeded)
+    ));
+
+    let metric_samples = snapshotter.snapshot().into_vec();
+    let sample = metric_samples
+        .iter()
+        .find(|sample| is_message_limit_rejection(sample))
+        .expect("message limit rejection must be recorded");
+    assert!(matches!(
+        &sample.3,
+        DebugValue::Counter(count) if *count == 1
+    ));
 }
 
 #[derive(Clone, Debug)]

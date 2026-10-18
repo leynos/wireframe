@@ -15,10 +15,10 @@ resource accounting. Protocols must validate any additional resource bounds for
 their chosen preamble type; see the
 [allocation-limit caveat](users-guide.md#packets-payloads-and-serialization).
 
-For screen readers: The peer sends bytes to the server, which reads and decodes
-the preamble with its size limit. Oversized container lengths return a decode
-error to the server; successful decoding returns the value and leftover bytes
-to the server.
+For screen readers: The peer provides preamble bytes to the server, which calls
+the preamble reader. The reader reads one byte at a time and decodes with the
+`MAX_PREAMBLE_LEN` limit, then returns either a decode error or the decoded
+value and leftover bytes to the server.
 
 ```mermaid
 sequenceDiagram
