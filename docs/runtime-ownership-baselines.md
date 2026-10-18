@@ -680,15 +680,15 @@ Two distinct windows reach it:
 Measured on the named machine, before #535: the first failure lands at burst
 913 of 20,000 at 16 contenders, and at roughly 1 round in 400 for the lighter
 8-contender workload used by the regression tolerance in
-`tests/runtime_ownership_benchmark_helpers.rs`. The post-#535 figures are in
-[What re-testing found](#what-re-testing-found); they are higher for the FIFO
-policy than the rate above. Reproducing it on a *long-lived* pool, with no
+`tests/runtime_ownership_benchmark_helpers/pool.rs`. The post-#535 figures are
+in [What re-testing found](#what-re-testing-found); they are higher for the
+FIFO policy than the rate above. Reproducing it on a *long-lived* pool, with no
 per-iteration rebuild and no task leak, is what proves it is an acquire-path
 defect rather than an artefact of how the benchmark constructs its pool.
 
 It is also what aborted the allocation binary's first capture. That binary ran
 the contended scope through Criterion like any other, and panicked at
-`benches/runtime_ownership_baselines_alloc.rs` with
+`benches/runtime_ownership_baselines_alloc/main.rs` with
 `1 of 16 contenders failed; first: transport error: connection closed by peer` —
 the defect reached from unmodified benchmark code driving unmodified library
 code, with no probe scaffolding in between. That message names *this* defect
@@ -845,8 +845,8 @@ establish that these can.
 
 ### Allocation harness
 
-`benches/runtime_ownership_baselines_alloc.rs` runs three checks before any
-measurement, because the counter is process-global and a background thread
+`benches/runtime_ownership_baselines_alloc/probes.rs` runs three checks before
+any measurement, because the counter is process-global and a background thread
 allocating during a window would make the zero case untrustworthy:
 
 1. an allocation-free closure reports exactly zero, catching a gate stuck open;
@@ -905,8 +905,12 @@ not cosmetic.
 
 The pool allocation window has its own bracket, and it needed its own check
 because its failure mode is silent: a count inflated by construction looks
-exactly like a correct one. `verify_pool_bracket_excludes_construction` runs in
-`benches/runtime_ownership_baselines_alloc.rs` before any measurement.
+exactly like a correct one. The bracket checks live in
+`benches/runtime_ownership_baselines_alloc/pool_bracket.rs` and run before any
+measurement. They were split into two halves when the zero-iteration guard was
+found to be running after the benchmark runtime had started: the zero-iteration
+half now builds and drops its own current-thread runtime, and takes its reading
+before `Runtime::new()` exists.
 
 The check compares the bracketed and unbracketed windows at **zero
 iterations**. That choice is the whole design. At a normal iteration count the
@@ -988,7 +992,7 @@ Regression handling is by ratio and review:
   mismatch is visible rather than silent.
 
 The one place a count *is* asserted is
-`tests/runtime_ownership_benchmark_helpers.rs`, where the factory and
+`tests/runtime_ownership_benchmark_helpers/startup.rs`, where the factory and
 middleware counts are exact equalities over a finite parameter grid. Those are
 correctness properties of the prepared-application path, not performance
 thresholds, and they belong in the suite.

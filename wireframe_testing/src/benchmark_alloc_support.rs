@@ -182,7 +182,7 @@ mod tests {
     //! only what is observable without the allocator: that the gate opens for the
     //! operation and closes again on both the success and error paths. The
     //! counting itself is checked where the allocator is actually installed —
-    //! `benches/runtime_ownership_baselines_alloc.rs` runs a zero-window and a
+    //! `benches/runtime_ownership_baselines_alloc/probes.rs` runs a zero-window and a
     //! positive-window self-check before measuring, so a gate that never opens is
     //! a loud failure rather than a silent baseline of zeros.
     //!

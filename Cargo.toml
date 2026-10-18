@@ -241,6 +241,11 @@ path = "tests/prepared_app/mod.rs"
 name = "response"
 path = "tests/response/mod.rs"
 
+[[test]]
+name = "runtime_ownership_benchmark_helpers"
+path = "tests/runtime_ownership_benchmark_helpers/mod.rs"
+required-features = ["test-support", "pool"]
+
 [[bench]]
 name = "codec_performance"
 harness = false
@@ -255,10 +260,12 @@ harness = false
 
 [[bench]]
 name = "runtime_ownership_baselines"
+path = "benches/runtime_ownership_baselines/main.rs"
 harness = false
 required-features = ["test-support", "pool"]
 
 [[bench]]
 name = "runtime_ownership_baselines_alloc"
+path = "benches/runtime_ownership_baselines_alloc/main.rs"
 harness = false
 required-features = ["test-support", "pool"]

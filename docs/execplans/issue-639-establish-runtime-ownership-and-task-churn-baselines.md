@@ -900,6 +900,53 @@ Thresholds that trigger escalation when breached.
   0 failures), `markdownlint` (121 files, 0 issues, `make spelling` reported
   `current: typos.toml`), and `nixie`. Logs are `/tmp/gate-*-issue-639.out`.
 
+- [x] (2026-10-18) Addressed the seven open review findings on PR #756, all of
+  which cite the workspace's 400-line module limit:
+  - `benches/runtime_ownership_baselines.rs` (a 552-line root) is now a thin
+    `main.rs` plus `scenarios`, `driver`, and `observe`.
+  - `benches/runtime_ownership_baselines_alloc.rs` (839 lines) is now a thin
+    `main.rs` plus `scopes`, `pool_bracket`, `probes`, and `reporting`.
+  - `tests/runtime_ownership_benchmark_helpers.rs` (798 lines) is now a
+    `mod.rs` root plus `harness`, `startup`, `actor`, `push`, and `pool`.
+  - `wireframe_testing/…/client_pool_benchmark_support/tests.rs` is now a
+    `tests/mod.rs` root plus `labels`, `uncontended`, `contended`, and
+    `sampling`.
+
+  The zero-iteration bracket finding was a correctness bug rather than a style
+  one: the guard ran after `Runtime::new()` had started worker threads, so a
+  worker could allocate inside a window that reads as pool construction. It is
+  now split into two halves — one that builds and drops its own current-thread
+  runtime before any other runtime exists and asserts the bracketed count is
+  zero while the unbracketed count is positive, and one that asserts the
+  measured phase is non-zero through the benchmark runtime.
+
+  Criterion group names, benchmark IDs, the `#[global_allocator]`, the
+  `#![cfg(not(loom))]`, and every assertion message were preserved verbatim.
+  `Cargo.toml` gained explicit `path` entries for the two `[[bench]]` targets
+  and a new `[[test]]` entry for the helpers crate.
+
+  The split was checked mechanically rather than by eye: 112 of 112 single-line
+  string literals, 136 of 136 whitespace-normalised literals, 39 `assert!`, 36
+  `assert_eq!`, 12 `#[test]`, and 27 `#[case::` invocations survived with zero
+  drift, and both Criterion group names, their sample size of 10, and their
+  5-second measurement time are unchanged. The allocation binary was then run
+  end to end (exit 0) and its three self-checks passed, reporting 1 allocation
+  for the shared-clone probe against 256 for the fresh-per-item probe — the
+  sensitivity margin the harness exists to prove.
+
+- [x] (2026-10-18) Ran the six commit gates again on the split tree:
+  `check-fmt`, `typecheck` (296 s), `test` (1014 s, 83 suites, 0 failures),
+  `markdownlint` (121 files, 0 issues), and `nixie` all passed first time.
+  `lint` failed once on `clippy::doc_markdown`, which wanted backticks round
+  the bare proper noun `ExecPlan` in the new
+  `tests/runtime_ownership_benchmark_helpers/pool.rs` module doc; after that
+  one-line fix `make lint` passed (rustdoc, Clippy, and `whitaker --all`). The
+  hosted sccache server was unavailable throughout, which the host rules define
+  as degraded caching rather than a failure. Logs are
+  `/tmp/{check-fmt,typecheck,test,markdownlint,nixie}-scrutineer-issue-639.out`
+  and
+  `/tmp/lint-rerun-issue-639-issue-639-establish-runtime-ownership-and-task-churn-baselines.out`.
+
 ## Surprises & discoveries
 
 - Observation: **a `make lint` failure caused by admission infrastructure says
@@ -1570,6 +1617,24 @@ Thresholds that trigger escalation when breached.
   branch's version — rejected because in a rebase `--ours` is *main*, and the
   branch's version is the one the conflict analysis had to earn its place
   against.
+
+- Decision: **split the four over-limit files rather than seek an exemption**,
+  after checking what the policy actually permits. Rationale: the earlier
+  position in this plan was that a benchmark root legitimately exceeds 400
+  lines because its `#[global_allocator]` must sit at the crate root and its
+  workloads are one coherent unit. That position does not survive measurement:
+  `origin/main` at `ea50524b` has **zero** of its 568 `.rs` files over 400
+  lines, and whitaker's `module_max_lines` enforces the same limit, so the rule
+  is real practice rather than an aspiration. Each split keeps the root as the
+  allocator and entrypoint and moves cohesive groups to sibling modules;
+  Criterion IDs, group names, and the allocator are unchanged, so the measured
+  baselines remain comparable with the ones already recorded. Alternatives
+  rejected: (a) an exemption in `whitaker.toml` — it would have to name a
+  benchmark root as special, which is the "gradual dilution" the policy exists
+  to prevent; (b) `#[path]`-inclusive submodules under a `mod.rs` — the
+  workspace already uses plain sibling modules for these binaries and the
+  explicit `path` entries in `Cargo.toml` are the established pattern for a
+  `main.rs` root.
 
 - Decision: for the `Cargo.lock` conflict, take main's lockfile whole **and then
   restore this branch's one dependency edge**, rather than either side alone.
@@ -2824,6 +2889,15 @@ Validation for Stage B: `make typecheck`, `make lint`, `make test` pass;
     "Reference guides" pointing at the new document.
 8. `docs/developers-guide.md` gains a paragraph in "Example and benchmark
     support" naming the new modules and the Makefile target.
+
+Note on paths: the three single files above
+(`benches/runtime_ownership_baselines.rs`,
+`benches/runtime_ownership_baselines_alloc.rs`, and
+`tests/runtime_ownership_benchmark_helpers.rs`) were each split into a
+`main.rs`/`mod.rs` root plus sibling modules when review raised the
+400-line-module limit. `Cargo.toml` names each root explicitly with a `path`
+key. See `Progress` for the module list and `Decision log` for why the limit
+was met by splitting rather than by exemption.
 
 Validation for Stage C: full gate run, then the baseline capture.
 

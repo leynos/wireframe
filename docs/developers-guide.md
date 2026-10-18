@@ -1111,14 +1111,17 @@ handle, connection startup, and client pool acquisition; each exposes a
 workload type and a single fallible `measure_*` entry point, so a benchmark
 binary, a test, or a one-off experiment drives the same scenario. Run them with
 `make bench-runtime-ownership`, which drives
-`benches/runtime_ownership_baselines.rs` for timings and
-`benches/runtime_ownership_baselines_alloc.rs` for allocation counts. Contended
-pool acquisition cannot be timed by Criterion, because the acquire path can
-fail a burst rather than merely vary — and did once hang outright, before
-`main` reworked the waiter state transitions. The harness therefore samples the
-burst itself and reports a latency distribution with the failures counted
-beside it, rather than letting one failure abort the run; the recorded numbers,
-the environment they were taken in, and the regression policy are in
+`benches/runtime_ownership_baselines/main.rs` for timings and
+`benches/runtime_ownership_baselines_alloc/main.rs` for allocation counts. Both
+roots are thin: each declares its modules and an entrypoint, and the work lives
+in adjacent sibling modules grouped by concern (`scenarios`/`driver`/`observe`
+and `scopes`/`pool_bracket`/`probes`/`reporting` respectively). Contended pool
+acquisition cannot be timed by Criterion, because the acquire path can fail a
+burst rather than merely vary — and did once hang outright, before `main`
+reworked the waiter state transitions. The harness therefore samples the burst
+itself and reports a latency distribution with the failures counted beside it,
+rather than letting one failure abort the run; the recorded numbers, the
+environment they were taken in, and the regression policy are in
 [runtime-ownership baselines](runtime-ownership-baselines.md).
 
 Fragment transport integration tests import
