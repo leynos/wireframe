@@ -18,8 +18,10 @@ mod codec_error_regression_support;
 
 use codec_error_regression_support::{
     StrictRecoveryHook,
+    bounded_envelope_decode_error,
     classify_eof,
     encoded_default_frame,
+    oversized_envelope_bytes,
     truncated_payload_wire,
 };
 
@@ -34,6 +36,8 @@ pub(crate) struct CodecErrorRegressionsWorld {
     obs: Option<ObservabilityHandle>,
     last_eof: Option<EofError>,
     partial_eofs: Vec<EofError>,
+    envelope_prefix: Option<Vec<u8>>,
+    envelope_error: Option<bincode::error::DecodeError>,
 }
 
 impl std::fmt::Debug for CodecErrorRegressionsWorld {
@@ -42,6 +46,8 @@ impl std::fmt::Debug for CodecErrorRegressionsWorld {
             .field("obs", &self.obs.as_ref().map(|_| ".."))
             .field("last_eof", &self.last_eof)
             .field("partial_eofs", &self.partial_eofs)
+            .field("envelope_prefix", &self.envelope_prefix)
+            .field("envelope_error", &self.envelope_error)
             .finish()
     }
 }
@@ -59,6 +65,30 @@ impl CodecErrorRegressionsWorld {
         self.obs = Some(obs);
         self.last_eof = None;
         self.partial_eofs.clear();
+        self.envelope_prefix = None;
+        self.envelope_error = None;
+    }
+
+    pub(crate) fn prepare_oversized_envelope(&mut self) -> TestResult {
+        let declared_length = u64::try_from(wireframe::codec::MAX_FRAME_LENGTH)? + 1;
+        self.envelope_prefix = Some(oversized_envelope_bytes(declared_length)?);
+        Ok(())
+    }
+
+    pub(crate) fn decode_oversized_envelope(&mut self) -> TestResult {
+        let bytes = self
+            .envelope_prefix
+            .as_deref()
+            .ok_or("missing envelope prefix")?;
+        self.envelope_error = Some(bounded_envelope_decode_error(bytes)?);
+        Ok(())
+    }
+
+    pub(crate) fn assert_envelope_limit_exceeded(&self) -> TestResult {
+        match self.envelope_error {
+            Some(bincode::error::DecodeError::LimitExceeded) => Ok(()),
+            ref other => Err(format!("expected LimitExceeded, got {other:?}").into()),
+        }
     }
 
     pub(crate) fn record_default_oversized_error(&mut self) -> TestResult {

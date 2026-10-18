@@ -13,8 +13,14 @@ use bincode::{
 };
 use tokio::io::{self, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+#[cfg(test)]
+mod tests;
+
 /// Bound preamble reads so a peer cannot grow the initial buffer indefinitely.
 const MAX_PREAMBLE_LEN: usize = 1024;
+
+/// Stable error text shared by the preamble read guard and rejection metrics.
+pub(crate) const PREAMBLE_TOO_LONG_ERROR: &str = "preamble too long";
 
 /// Trait bound for types accepted as connection preambles.
 ///
@@ -35,7 +41,7 @@ where
 {
     let start = buf.len();
     if start + additional > MAX_PREAMBLE_LEN {
-        return Err(DecodeError::Other("preamble too long"));
+        return Err(DecodeError::Other(PREAMBLE_TOO_LONG_ERROR));
     }
     buf.resize(start + additional, 0);
     let mut read = 0;
@@ -75,6 +81,11 @@ where
 /// byte stream, reading more bytes as needed until decoding succeeds or
 /// an error occurs. Any bytes remaining after the decoded value are
 /// returned as leftovers.
+///
+/// Decoding bounds bincode's accounted allocation at `MAX_PREAMBLE_LEN`
+/// (1 KiB), rejecting oversized `Vec<u8>` lengths before allocation. The limit
+/// follows bincode's resource accounting; type-specific resource bounds need
+/// independent validation.
 ///
 /// # Returns
 ///
@@ -121,10 +132,11 @@ where
     // than an arbitrary initial chunk size.
     let mut buf = Vec::new();
     read_more(reader, &mut buf, 1).await?;
-    // Build the decoder configuration once to avoid repeated allocations.
+    // Bound container allocation as well as the bytes read into the buffer.
     let config = config::standard()
         .with_big_endian()
-        .with_fixed_int_encoding();
+        .with_fixed_int_encoding()
+        .with_limit::<MAX_PREAMBLE_LEN>();
     loop {
         match borrow_decode_from_slice::<T, _>(&buf, config) {
             Ok((value, consumed)) => {

@@ -821,6 +821,21 @@ full deserialization.[^9][^6] Serializer integration now uses adapter traits:
 message types remain compatible through `Message`, which still provides
 `to_bytes` and `from_bytes` helpers.[^10]
 
+The bundled bincode decoders, including the optional `serializer-serde` bridge,
+apply a fixed `MAX_FRAME_LENGTH` decode limit of 16 MiB. This bounds bincode's
+accounted decoding and allocation work for peer-provided container lengths; it
+is not a runtime frame-size limit. A lower configured frame limit still
+controls accepted frame sizes, while reassembled messages use the same 16 MiB
+decode limit even when their configured reassembly limit is larger. Encoding is
+unchanged. Inbound `Envelope` frames must contain exactly one decoded value;
+trailing bytes are rejected. Metadata prefix parsing may still leave payload
+bytes for full deserialization.
+
+The allocation limit relies on bincode's resource accounting and is not a
+general allocator quota for every container layout or custom decoder. Protocols
+with additional resource requirements need their own validation before
+processing peer input.
+
 ### Migration from `Message`-only bounds
 
 If existing code previously relied on `M: Message` for client/server API calls,

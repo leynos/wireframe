@@ -1,7 +1,10 @@
 //! Message trait and serialization helpers.
 //!
 //! Types implementing [`Message`] can be encoded and decoded using
-//! `bincode` with standard configuration.
+//! `bincode` with standard wire encoding. Decoding caps bincode's accounted byte
+//! budget at the frame ceiling, rejecting oversized `Vec<u8>` lengths before
+//! allocation. Types with additional resource requirements need separate
+//! validation.
 
 use std::error::Error;
 
@@ -13,6 +16,17 @@ use bincode::{
     encode_to_vec,
     error::{DecodeError, EncodeError},
 };
+
+/// Return standard bincode encoding with a bounded decode allocation budget.
+///
+/// For example, `borrow_decode_from_slice(bytes, bounded_bincode_config())`
+/// rejects a `Vec<u8>` length above [`crate::codec::MAX_FRAME_LENGTH`] with
+/// [`DecodeError::LimitExceeded`] before allocating the container.
+/// The fixed ceiling also applies when decoding reassembled messages.
+#[must_use]
+pub(crate) const fn bounded_bincode_config() -> impl config::Config {
+    config::standard().with_limit::<{ crate::codec::MAX_FRAME_LENGTH }>()
+}
 
 /// Context supplied to metadata-aware deserializers.
 ///
@@ -72,8 +86,8 @@ pub trait DecodeWith<S: ?Sized>: Sized {
 ///
 /// Any type deriving [`Encode`] and [`BorrowDecode`] automatically implements
 /// this trait via a blanket implementation. The default methods provide
-/// convenient helpers to serialize and deserialize using bincode's
-/// standard configuration.
+/// convenient helpers using standard wire encoding for serialization and a
+/// bounded accounted byte budget for deserialization.
 pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     /// Serialize the message into a byte vector.
     ///
@@ -87,7 +101,8 @@ pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     ///
     /// # Errors
     ///
-    /// Deserializes a message instance from a byte slice using the standard configuration.
+    /// Uses standard wire encoding with a [`crate::codec::MAX_FRAME_LENGTH`]
+    /// decode budget to bound allocation from declared container lengths.
     ///
     /// Returns the deserialized message and the number of bytes consumed, or a [`DecodeError`] if
     /// deserialization fails.
@@ -107,7 +122,14 @@ pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
     where
         Self: Sized,
     {
-        borrow_decode_from_slice(bytes, config::standard())
+        let result = borrow_decode_from_slice(bytes, bounded_bincode_config());
+        if matches!(&result, Err(DecodeError::LimitExceeded)) {
+            crate::metrics::inc_decode_rejection(
+                crate::metrics::DecodeRejectionPath::Message,
+                crate::metrics::DecodeRejectionReason::LimitExceeded,
+            );
+        }
+        result
     }
 }
 
@@ -244,6 +266,21 @@ mod tests {
     }
 
     #[rstest]
+    fn message_decode_preserves_prefix_consumption() {
+        use crate::message::Message;
+
+        let original = RoundTripMessage { value: 41 };
+        let mut bytes = original.to_bytes().expect("encode prefix value");
+        let encoded_len = bytes.len();
+        bytes.push(99);
+        let (decoded, consumed) = RoundTripMessage::from_bytes(&bytes)
+            .expect("message helper must allow a following value");
+        assert_eq!(decoded, original);
+        assert_eq!(consumed, encoded_len);
+        assert!(consumed < bytes.len());
+    }
+
+    #[rstest]
     fn deserialize_context_empty_defaults_to_none() {
         let context = DeserializeContext::empty();
         assert!(context.frame_metadata.is_none());
@@ -270,6 +307,27 @@ mod tests {
         #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
         struct SerdePayload {
             id: u32,
+        }
+
+        #[rstest]
+        fn serde_bridge_enforces_frame_decode_budget() {
+            use crate::{codec::MAX_FRAME_LENGTH, serializer::SerdeSerializerBridge};
+
+            // Serde sequences account bytes as elements are read, so include
+            // the body to distinguish a bounded decode from UnexpectedEnd.
+            let bytes = BincodeSerializer
+                .serialize_serde(&vec![0_u8; MAX_FRAME_LENGTH])
+                .expect("encode a container whose prefix pushes it over the decode budget");
+            let error = BincodeSerializer
+                .deserialize_serde::<Vec<u8>>(&bytes, &DeserializeContext::empty())
+                .expect_err("serde bridge must enforce the frame decode budget");
+            assert!(
+                matches!(
+                    error.downcast_ref::<bincode::error::DecodeError>(),
+                    Some(bincode::error::DecodeError::LimitExceeded)
+                ),
+                "{error:?}"
+            );
         }
 
         #[rstest]

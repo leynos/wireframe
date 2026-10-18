@@ -139,6 +139,27 @@ async fn run_preamble_success<T: Preamble>(
     }
 }
 
+/// Record bounded preamble decode rejection metrics and diagnostics.
+fn record_preamble_rejection(err: &bincode::error::DecodeError, peer_addr: Option<SocketAddr>) {
+    let reason = if matches!(
+        err,
+        bincode::error::DecodeError::LimitExceeded
+            | bincode::error::DecodeError::Other(crate::preamble::PREAMBLE_TOO_LONG_ERROR)
+    ) {
+        crate::metrics::DecodeRejectionReason::LimitExceeded
+    } else {
+        crate::metrics::DecodeRejectionReason::DecodeError
+    };
+    crate::metrics::inc_decode_rejection(crate::metrics::DecodeRejectionPath::Preamble, reason);
+    tracing::warn!(
+        operation = "preamble_decode",
+        rejection_category = reason.as_str(),
+        ?peer_addr,
+        error = ?err,
+        "preamble rejected"
+    );
+}
+
 /// Invoke the failure callback and preserve diagnostics for rejected peers.
 async fn run_preamble_failure(
     handler: Option<&PreambleFailure>,
@@ -146,6 +167,8 @@ async fn run_preamble_failure(
     stream: &mut TcpStream,
     peer_addr: Option<SocketAddr>,
 ) {
+    record_preamble_rejection(&err, peer_addr);
+
     if let Some(failure_handler) = handler {
         if let Err(e) = failure_handler(&err, stream).await {
             error!(
@@ -160,6 +183,10 @@ async fn run_preamble_failure(
         );
     }
 }
+
+#[cfg(all(test, feature = "metrics"))]
+#[path = "connection_spawner_metrics_tests.rs"]
+mod metrics_tests;
 
 #[cfg(test)]
 mod tests {

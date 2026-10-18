@@ -5,6 +5,46 @@ client connects. The server decodes the preamble with
 [`read_preamble`](../src/preamble.rs) and can invoke user-supplied callbacks on
 success or failure. The helper uses `bincode` to decode any type implementing
 `bincode::BorrowDecode` and reads exactly the number of bytes required.
+Decoding is bounded by `MAX_PREAMBLE_LEN` (1 KiB), including bincode's
+accounted allocation for declared container lengths. The existing read-growth
+guard enforces the same ceiling. Any bytes read beyond the decoded value are
+returned as leftovers for normal frame processing.
+
+The limit protects owned containers such as `Vec<u8>` and follows bincode's
+resource accounting. Protocols must validate any additional resource bounds for
+their chosen preamble type; see the
+[allocation-limit caveat](users-guide.md#packets-payloads-and-serialization).
+
+For screen readers: The peer provides preamble bytes to the server, which calls
+the preamble reader. The reader first reads one byte. Whenever bincode reports
+`UnexpectedEnd { additional }`, it reads exactly that many more bytes and
+retries, within the `MAX_PREAMBLE_LEN` limit. It returns either a decode error
+or the decoded value and leftover bytes to the server.
+
+```mermaid
+sequenceDiagram
+    participant Peer
+    participant Server
+    participant Preamble
+    participant Bincode
+
+    Peer->>Server: provide preamble bytes
+    Server->>Preamble: read_preamble(reader)
+    Preamble->>Preamble: read_more(reader, buffer, 1)
+    loop while bincode requests additional bytes
+        Preamble->>Bincode: borrow_decode_from_slice(buffer, bounded config)
+        alt declared container exceeds MAX_PREAMBLE_LEN
+            Bincode-->>Preamble: DecodeError::LimitExceeded
+            Preamble-->>Server: decoding error
+        else value decodes successfully
+            Bincode-->>Preamble: value and consumed length
+            Preamble-->>Server: decoded value and leftover bytes
+        else input is incomplete
+            Bincode-->>Preamble: UnexpectedEnd { additional }
+            Preamble->>Preamble: read_more(reader, buffer, additional)
+        end
+    end
+```
 
 The flow is summarized below:
 

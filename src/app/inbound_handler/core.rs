@@ -102,7 +102,16 @@ fn purge_expired(
     frame_handling::purge_expired_assemblies(message_assembly);
 }
 
-/// Parse envelope metadata, falling back to full deserialization when needed.
+/// Detect a bincode budget failure so fallback decoding does not repeat the work.
+fn is_bincode_limit_exceeded(error: &(dyn std::error::Error + 'static)) -> bool {
+    error
+        .downcast_ref::<bincode::error::DecodeError>()
+        .is_some_and(|decode_error| {
+            matches!(decode_error, bincode::error::DecodeError::LimitExceeded)
+        })
+}
+
+/// Decode exactly one envelope, using metadata to select full deserialization.
 pub(super) fn parse_envelope<S>(
     serializer: &S,
     payload: &[u8],
@@ -111,22 +120,37 @@ where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
     Envelope: DecodeWith<S>,
 {
-    match serializer.parse(payload) {
+    let (envelope, consumed) = match serializer.parse(payload) {
         Ok((parsed_envelope, metadata_bytes_consumed)) => {
-            if !serializer.should_deserialize_after_parse() {
-                return Ok((parsed_envelope, metadata_bytes_consumed));
+            if serializer.should_deserialize_after_parse() {
+                let context = DeserializeContext {
+                    frame_metadata: payload.get(..metadata_bytes_consumed),
+                    message_id: Some(parsed_envelope.id),
+                    correlation_id: parsed_envelope.correlation_id,
+                    metadata_bytes_consumed: Some(metadata_bytes_consumed),
+                };
+                serializer.deserialize_with_context::<Envelope>(payload, &context)
+            } else {
+                Ok((parsed_envelope, metadata_bytes_consumed))
             }
-
-            let context = DeserializeContext {
-                frame_metadata: payload.get(..metadata_bytes_consumed),
-                message_id: Some(parsed_envelope.id),
-                correlation_id: parsed_envelope.correlation_id,
-                metadata_bytes_consumed: Some(metadata_bytes_consumed),
-            };
-            serializer.deserialize_with_context::<Envelope>(payload, &context)
+        }
+        Err(error) if is_bincode_limit_exceeded(&error) => {
+            Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
         }
         Err(_) => serializer.deserialize::<Envelope>(payload),
+    }?;
+    if consumed != payload.len() {
+        crate::metrics::inc_decode_rejection(
+            crate::metrics::DecodeRejectionPath::Envelope,
+            crate::metrics::DecodeRejectionReason::TrailingBytes,
+        );
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "trailing bytes after envelope: frame must contain exactly one value",
+        )
+        .into());
     }
+    Ok((envelope, consumed))
 }
 
 /// Read and process frames until the stream closes or an I/O error occurs.

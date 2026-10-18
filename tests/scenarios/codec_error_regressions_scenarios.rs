@@ -6,6 +6,14 @@ use crate::fixtures::codec_error_regressions::*;
 
 #[scenario(
     path = "tests/features/codec_error_regressions.feature",
+    name = "Oversized vector length is rejected before allocation"
+)]
+fn oversized_vector_length(codec_error_regressions_world: CodecErrorRegressionsWorld) {
+    let _ = codec_error_regressions_world;
+}
+
+#[scenario(
+    path = "tests/features/codec_error_regressions.feature",
     name = "Oversized payload is classified as framing drop and counted"
 )]
 fn oversized_default_policy(codec_error_regressions_world: CodecErrorRegressionsWorld) {

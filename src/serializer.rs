@@ -112,7 +112,7 @@ pub trait Serializer {
     fn should_deserialize_after_parse(&self) -> bool { true }
 }
 
-/// Serializer using `bincode` with its standard configuration.
+/// Serializer using standard bincode wire encoding and a bounded decode budget.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BincodeSerializer;
 
@@ -171,7 +171,13 @@ impl SerdeSerializerBridge for BincodeSerializer {
         bytes: &[u8],
         _context: &DeserializeContext<'_>,
     ) -> Result<(T, usize), Box<dyn Error + Send + Sync>> {
-        decode_from_slice(bytes, config::standard())
-            .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
+        let result = decode_from_slice(bytes, crate::message::bounded_bincode_config());
+        if matches!(&result, Err(bincode::error::DecodeError::LimitExceeded)) {
+            crate::metrics::inc_decode_rejection(
+                crate::metrics::DecodeRejectionPath::Serde,
+                crate::metrics::DecodeRejectionReason::LimitExceeded,
+            );
+        }
+        result.map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
     }
 }

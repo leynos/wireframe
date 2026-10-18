@@ -27,6 +27,28 @@ The pool rejects the acquisition before assigning a socket, so this error does
 not indicate a broken connection. Applications can report temporary
 unavailability or retry after capacity returns.
 
+## Bounded peer decoding
+
+The bundled bincode decoders now cap accounted decode work for peer-provided
+container lengths. `Message::from_bytes`, the Bincode serializer, reassembled
+messages, and the optional Serde bridge use the fixed `MAX_FRAME_LENGTH` budget
+of 16 MiB. Preamble decoding uses the separate `MAX_PREAMBLE_LEN` budget of 1
+KiB. Native bincode decoding rejects a declared container above its applicable
+budget before reading or allocating its body. The Serde bridge accounts bytes
+as elements are read and rejects decoding once those reads exceed the budget.
+These accounting limits do not replace validation for type-specific resource
+needs or custom decoders.
+
+The lower-level prefix contracts remain available: `Message::from_bytes`
+returns the number of bytes consumed, and `read_preamble` returns bytes read
+ahead of the decoded value as leftovers. At the inbound server boundary, an
+`Envelope` frame must contain exactly one value, so trailing bytes now cause a
+decoding error. If a producer previously appended data after an envelope,
+encode that data within the envelope or send it in another frame. Deployments
+that inspect rejection rates can use the optional
+`wireframe_decode_rejections_total` counter, labelled by the bounded decode
+path and rejection reason.
+
 ## Prepared application transition
 
 `WireframeApp` remains the mutable builder. Register routes, middleware,
