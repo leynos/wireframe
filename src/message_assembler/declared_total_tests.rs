@@ -49,21 +49,27 @@ fn accept_first(
     state.accept_first_frame(input)
 }
 
-/// Feed a sequenced continuation frame and return the state-machine result.
-fn accept_continuation(
-    state: &mut MessageAssemblyState,
+/// A sequenced continuation frame to feed to the state machine.
+#[derive(Clone, Copy, Debug)]
+struct Continuation<'a> {
     key: u64,
     sequence: u32,
-    body: &[u8],
+    body: &'a [u8],
     is_last: bool,
+}
+
+/// Feed a continuation frame and return the state-machine result.
+fn accept_continuation(
+    state: &mut MessageAssemblyState,
+    frame: Continuation<'_>,
 ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
     let header = ContinuationFrameHeader {
-        message_key: MessageKey(key),
-        sequence: Some(FrameSequence(sequence)),
-        body_len: body.len(),
-        is_last,
+        message_key: MessageKey(frame.key),
+        sequence: Some(FrameSequence(frame.sequence)),
+        body_len: frame.body.len(),
+        is_last: frame.is_last,
     };
-    state.accept_continuation_frame(&header, body)
+    state.accept_continuation_frame(&header, frame.body)
 }
 
 // =============================================================================
@@ -152,8 +158,13 @@ fn continuation_exceeding_declared_total_is_rejected() {
     assert_eq!(subject.buffered_count(), 1);
 
     // 5 + 4 = 9 exceeds the declared 8.
-    let err =
-        accept_continuation(&mut subject, 1, 1, b"more", false).expect_err("declaration exceeded");
+    let frame = Continuation {
+        key: 1,
+        sequence: 1,
+        body: b"more",
+        is_last: false,
+    };
+    let err = accept_continuation(&mut subject, frame).expect_err("declaration exceeded");
 
     assert_eq!(
         err,
@@ -177,8 +188,16 @@ fn final_frame_short_of_declared_total_is_rejected() {
     accept_first(&mut subject, &header, b"hello").expect("first frame accepted");
 
     // 5 + 4 = 9, within the declaration, but the series completes here.
-    let err =
-        accept_continuation(&mut subject, 1, 1, b"more", true).expect_err("final frame mismatch");
+    let err = accept_continuation(
+        &mut subject,
+        Continuation {
+            key: 1,
+            sequence: 1,
+            body: b"more",
+            is_last: true,
+        },
+    )
+    .expect_err("final frame mismatch");
 
     assert_eq!(
         err,
@@ -201,9 +220,17 @@ fn multi_frame_exact_declaration_is_dispatched() {
     let header = first_with_total(1, 5, 10, false);
     accept_first(&mut subject, &header, b"hello").expect("first frame accepted");
 
-    let msg = accept_continuation(&mut subject, 1, 1, b"world", true)
-        .expect("declaration honoured")
-        .expect("message completes");
+    let msg = accept_continuation(
+        &mut subject,
+        Continuation {
+            key: 1,
+            sequence: 1,
+            body: b"world",
+            is_last: true,
+        },
+    )
+    .expect("declaration honoured")
+    .expect("message completes");
 
     assert_eq!(msg.body(), b"helloworld");
     assert_eq!(subject.buffered_count(), 0);
@@ -216,14 +243,30 @@ fn non_final_frame_may_exactly_reach_the_declaration() {
     accept_first(&mut subject, &header, b"hello").expect("first frame accepted");
 
     // Exactly reaches the declaration without completing.
-    let msg = accept_continuation(&mut subject, 1, 1, b"world", false)
-        .expect("equals the declaration, so accepted");
+    let msg = accept_continuation(
+        &mut subject,
+        Continuation {
+            key: 1,
+            sequence: 1,
+            body: b"world",
+            is_last: false,
+        },
+    )
+    .expect("equals the declaration, so accepted");
     assert!(msg.is_none());
     assert_eq!(subject.buffered_count(), 1);
 
     // No bytes remain, so the completing frame must be rejected.
-    let err = accept_continuation(&mut subject, 1, 2, b"!", true)
-        .expect_err("no room remains within the declaration");
+    let err = accept_continuation(
+        &mut subject,
+        Continuation {
+            key: 1,
+            sequence: 2,
+            body: b"!",
+            is_last: true,
+        },
+    )
+    .expect_err("no room remains within the declaration");
 
     assert_eq!(
         err,
@@ -246,9 +289,17 @@ fn undeclared_total_is_unaffected() {
     let header = first_header(1, 5, false);
     accept_first(&mut subject, &header, b"hello").expect("first frame accepted");
 
-    let msg = accept_continuation(&mut subject, 1, 1, b"worlds", true)
-        .expect("undeclared total imposes no equality check")
-        .expect("message completes");
+    let msg = accept_continuation(
+        &mut subject,
+        Continuation {
+            key: 1,
+            sequence: 1,
+            body: b"worlds",
+            is_last: true,
+        },
+    )
+    .expect("undeclared total imposes no equality check")
+    .expect("message completes");
 
     assert_eq!(msg.body(), b"helloworlds");
 }
@@ -260,8 +311,16 @@ fn declared_total_equal_to_first_frame_body_leaves_no_room() {
     let header = first_with_total(1, 5, 5, false);
     accept_first(&mut subject, &header, b"hello").expect("boundary declaration accepted");
 
-    let err = accept_continuation(&mut subject, 1, 1, b"!", true)
-        .expect_err("no bytes remain within the declaration");
+    let err = accept_continuation(
+        &mut subject,
+        Continuation {
+            key: 1,
+            sequence: 1,
+            body: b"!",
+            is_last: true,
+        },
+    )
+    .expect_err("no bytes remain within the declaration");
 
     assert_eq!(
         err,
