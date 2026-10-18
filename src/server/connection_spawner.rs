@@ -141,7 +141,11 @@ async fn run_preamble_success<T: Preamble>(
 
 /// Record bounded preamble decode rejection metrics and diagnostics.
 fn record_preamble_rejection(err: &bincode::error::DecodeError, peer_addr: Option<SocketAddr>) {
-    let reason = if matches!(err, bincode::error::DecodeError::LimitExceeded) {
+    let reason = if matches!(
+        err,
+        bincode::error::DecodeError::LimitExceeded
+            | bincode::error::DecodeError::Other(crate::preamble::PREAMBLE_TOO_LONG_ERROR)
+    ) {
         crate::metrics::DecodeRejectionReason::LimitExceeded
     } else {
         crate::metrics::DecodeRejectionReason::DecodeError

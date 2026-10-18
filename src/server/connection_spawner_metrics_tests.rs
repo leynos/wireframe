@@ -8,7 +8,7 @@ use tokio::net::{TcpListener, TcpStream};
 use super::{PreambleFailure, run_preamble_failure};
 
 #[tokio::test]
-async fn preamble_limit_rejection_is_counted_when_handler_succeeds() {
+async fn preamble_budget_rejections_are_counted_when_handler_succeeds() {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind test listener");
@@ -18,14 +18,20 @@ async fn preamble_limit_rejection_is_counted_when_handler_succeeds() {
     let handler: PreambleFailure = Arc::new(|_, _| Box::pin(async { Ok(()) }));
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
+    let errors = [
+        bincode::error::DecodeError::LimitExceeded,
+        bincode::error::DecodeError::Other(crate::preamble::PREAMBLE_TOO_LONG_ERROR),
+    ];
 
     ::metrics::with_local_recorder(&recorder, || {
-        futures::executor::block_on(run_preamble_failure(
-            Some(&handler),
-            bincode::error::DecodeError::LimitExceeded,
-            &mut stream,
-            None,
-        ));
+        for error in errors {
+            futures::executor::block_on(run_preamble_failure(
+                Some(&handler),
+                error,
+                &mut stream,
+                None,
+            ));
+        }
     });
 
     let metric_samples = snapshotter.snapshot().into_vec();
@@ -39,7 +45,7 @@ async fn preamble_limit_rejection_is_counted_when_handler_succeeds() {
                 .key()
                 .labels()
                 .any(|label| label.key() == "reason" && label.value() == "limit_exceeded")
-            && matches!(value, DebugValue::Counter(count) if *count == 1)
+            && matches!(value, DebugValue::Counter(count) if *count == 2)
     }));
     drop(client);
 }

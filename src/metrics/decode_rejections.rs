@@ -45,7 +45,7 @@ impl DecodeRejectionPath {
 /// Bounded reasons for rejecting decoded peer data.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum DecodeRejectionReason {
-    /// Bincode's accounted-work limit was exceeded.
+    /// Bincode's accounted-work limit or the preamble read cap was exceeded.
     LimitExceeded,
     /// A single-value envelope frame contained trailing bytes.
     TrailingBytes,

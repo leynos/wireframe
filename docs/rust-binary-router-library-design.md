@@ -483,10 +483,11 @@ sequenceDiagram
 
 For screen readers: This flow shows a metadata-aware serializer that uses
 `Message::from_bytes` and needs a full decode after metadata parsing or
-fallback after a parse failure. Bincode caps accounted container allocation at
-`MAX_FRAME_LENGTH`. The serializer returns the envelope and consumed length to
-the inbound handler, which rejects trailing frame bytes. Metadata-only routing
-is outside this flow.
+fallback after an ordinary parse failure. If metadata parsing exceeds
+`MAX_FRAME_LENGTH`, the inbound handler returns the limit error without
+fallback. Bincode also applies that bound during full decoding. The serializer
+returns the envelope and consumed length to the inbound handler, which rejects
+trailing frame bytes. Successful metadata-only routing is outside this flow.
 
 ```mermaid
 sequenceDiagram
@@ -497,23 +498,27 @@ sequenceDiagram
 
     Peer->>InboundHandler: send frame payload
     InboundHandler->>Serializer: parse(payload)
-    alt metadata parse succeeds and full decode is required
-        Serializer->>Serializer: deserialize_with_context(payload, context)
-    else metadata parse fails or fallback is required
-        Serializer->>Serializer: deserialize(payload)
-    end
-    Serializer->>Bincode: decode with bounded_bincode_config()
-    alt declared container exceeds MAX_FRAME_LENGTH
-        Bincode-->>Serializer: DecodeError::LimitExceeded
-        Serializer-->>InboundHandler: decoding error
-    else decoded value consumes all payload
-        Bincode-->>Serializer: value and consumed length
-        Serializer-->>InboundHandler: envelope and consumed length
-        InboundHandler->>InboundHandler: accept envelope
-    else trailing bytes remain
-        Bincode-->>Serializer: value and consumed length
-        Serializer-->>InboundHandler: envelope and consumed length
-        InboundHandler->>InboundHandler: reject trailing bytes (InvalidData)
+    alt metadata parse exceeds MAX_FRAME_LENGTH
+        Serializer-->>InboundHandler: DecodeError::LimitExceeded (no fallback)
+    else metadata parse is within MAX_FRAME_LENGTH
+        alt metadata parse succeeds and full decode is required
+            Serializer->>Serializer: deserialize_with_context(payload, context)
+        else metadata parse fails for another reason and fallback is required
+            Serializer->>Serializer: deserialize(payload)
+        end
+        Serializer->>Bincode: decode with bounded_bincode_config()
+        alt declared container exceeds MAX_FRAME_LENGTH
+            Bincode-->>Serializer: DecodeError::LimitExceeded
+            Serializer-->>InboundHandler: decoding error
+        else decoded value consumes all payload
+            Bincode-->>Serializer: value and consumed length
+            Serializer-->>InboundHandler: envelope and consumed length
+            InboundHandler->>InboundHandler: accept envelope
+        else trailing bytes remain
+            Bincode-->>Serializer: value and consumed length
+            Serializer-->>InboundHandler: envelope and consumed length
+            InboundHandler->>InboundHandler: reject trailing bytes (InvalidData)
+        end
     end
 ```
 

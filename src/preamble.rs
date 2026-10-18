@@ -19,6 +19,9 @@ mod tests;
 /// Bound preamble reads so a peer cannot grow the initial buffer indefinitely.
 const MAX_PREAMBLE_LEN: usize = 1024;
 
+/// Stable error text shared by the preamble read guard and rejection metrics.
+pub(crate) const PREAMBLE_TOO_LONG_ERROR: &str = "preamble too long";
+
 /// Trait bound for types accepted as connection preambles.
 ///
 /// The bound allows decoding borrowed data for any lifetime without
@@ -38,7 +41,7 @@ where
 {
     let start = buf.len();
     if start + additional > MAX_PREAMBLE_LEN {
-        return Err(DecodeError::Other("preamble too long"));
+        return Err(DecodeError::Other(PREAMBLE_TOO_LONG_ERROR));
     }
     buf.resize(start + additional, 0);
     let mut read = 0;

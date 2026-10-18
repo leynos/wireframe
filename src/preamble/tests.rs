@@ -4,7 +4,7 @@ use std::io::Cursor;
 
 use rstest::rstest;
 
-use super::{MAX_PREAMBLE_LEN, read_more, read_preamble};
+use super::{MAX_PREAMBLE_LEN, PREAMBLE_TOO_LONG_ERROR, read_more, read_preamble};
 
 /// Configured preamble type containing an owned, peer-sized container.
 #[derive(Debug, PartialEq, bincode::Encode, bincode::Decode)]
@@ -39,7 +39,7 @@ async fn preamble_read_buffer_never_grows_past_ceiling() {
         .expect_err("growth past the preamble cap must fail");
     assert!(matches!(
         error,
-        bincode::error::DecodeError::Other("preamble too long")
+        bincode::error::DecodeError::Other(PREAMBLE_TOO_LONG_ERROR)
     ));
     assert_eq!(buffer.len(), MAX_PREAMBLE_LEN);
     assert_eq!(reader.position(), 0);
