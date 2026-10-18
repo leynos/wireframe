@@ -4,8 +4,10 @@
 
 Accepted.
 
-The contract is implemented by issue
-[#544](https://github.com/leynos/wireframe/issues/544).
+`FirstFrameHeader::total_body_len` is authoritative: the assembler rejects a
+declaration it can already contradict, stops a continuation from overshooting
+it, and requires the completed body to match it exactly. The contract is
+implemented by issue [#544](https://github.com/leynos/wireframe/issues/544).
 
 ## Date
 
