@@ -48,6 +48,8 @@ pub use pool::{
     ClientPoolConfig,
     PoolFairnessPolicy,
     PoolHandle,
+    PoolTaskChurn,
+    PoolTaskChurnObserver,
     PooledClientLease,
     WireframeClientPool,
 };

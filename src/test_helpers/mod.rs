@@ -15,6 +15,8 @@ use crate::message_assembler::{
     ParsedFrameHeader,
 };
 
+pub mod connection_startup;
+
 pub mod frame_codec;
 // `pool_client` drives a real TCP client, and both `crate::client` and
 // `tokio::net` are compiled out under `cfg(loom)`. The feature alone is not
@@ -23,6 +25,16 @@ pub mod frame_codec;
 #[cfg(all(feature = "pool", not(loom)))]
 pub mod pool_client;
 
+pub use connection_startup::{
+    ConnectionStartupCounts,
+    ConnectionStartupInstrumentation,
+    StartupFixturePlan,
+    StartupTestApp,
+    TransformCountingMiddleware,
+    build_counted_app,
+    counted_app_factory,
+    noop_handler,
+};
 pub use frame_codec::{TestAdapter, TestCodec, TestFrame};
 #[cfg(all(feature = "pool", not(loom)))]
 pub use pool_client::{
