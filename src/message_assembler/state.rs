@@ -15,44 +15,12 @@ use super::{
     MessageKey,
     budget::{AggregateBudgets, check_aggregate_budgets, check_size_limit},
     error::{MessageAssemblyError, MessageSeriesError, MessageSeriesStatus},
+    partial::PartialAssembly,
     series::MessageSeries,
-    types::{AssembledMessage, EnvelopeRouting, FirstFrameInput},
+    types::{AssembledMessage, FirstFrameInput},
+    validation,
 };
 
-/// Partial message assembly in progress.
-#[derive(Debug)]
-struct PartialAssembly {
-    /// Ordering state that rejects gaps, duplicates, and post-completion data.
-    series: MessageSeries,
-    /// Envelope routing retained until the assembled message is emitted.
-    routing: EnvelopeRouting,
-    /// First-frame metadata kept separate from the body for reconstruction.
-    metadata: Vec<u8>,
-    /// Ordered body bytes accumulated from first and continuation frames.
-    body_buffer: Vec<u8>,
-    /// Start time used to discard incomplete peer-controlled state.
-    started_at: Instant,
-}
-impl PartialAssembly {
-    /// Create empty assembly storage anchored at the first frame's timestamp.
-    fn new(series: MessageSeries, routing: EnvelopeRouting, started_at: Instant) -> Self {
-        Self {
-            series,
-            routing,
-            metadata: Vec::new(),
-            body_buffer: Vec::new(),
-            started_at,
-        }
-    }
-    /// Append body bytes after the caller has validated size and ordering.
-    fn push_body(&mut self, data: &[u8]) { self.body_buffer.extend_from_slice(data); }
-    /// Replace the first-frame metadata retained for the completed message.
-    fn set_metadata(&mut self, data: Vec<u8>) { self.metadata = data; }
-    /// Return body bytes accumulated so far for per-message budget checks.
-    fn accumulated_len(&self) -> usize { self.body_buffer.len() }
-    /// Logical payload length represented by the body and metadata buffers.
-    fn buffered_bytes(&self) -> usize { self.body_buffer.len().saturating_add(self.metadata.len()) }
-}
 /// Stateful manager for multiple concurrent message assemblies.
 ///
 /// Tracks in-flight assemblies keyed by [`MessageKey`], applying continuity
@@ -165,8 +133,10 @@ impl MessageAssemblyState {
     /// # Errors
     ///
     /// Returns [`MessageAssemblyError::DuplicateFirstFrame`] if an assembly
-    /// for this key is already in progress, or [`MessageAssemblyError::MessageTooLarge`]
-    /// if the body exceeds the configured limit.
+    /// for this key is already in progress,
+    /// [`MessageAssemblyError::MessageTooLarge`] if the body exceeds the
+    /// configured limit, or a declared-total error when the declaration is
+    /// unsatisfiable or not honoured.
     pub fn accept_first_frame(
         &mut self,
         input: FirstFrameInput<'_>,
@@ -180,8 +150,10 @@ impl MessageAssemblyState {
     /// # Errors
     ///
     /// Returns [`MessageAssemblyError::DuplicateFirstFrame`] if an assembly
-    /// for this key is already in progress, or [`MessageAssemblyError::MessageTooLarge`]
-    /// if the body exceeds the configured limit.
+    /// for this key is already in progress,
+    /// [`MessageAssemblyError::MessageTooLarge`] if the body exceeds the
+    /// configured limit, or a declared-total error when the declaration is
+    /// unsatisfiable or not honoured.
     pub fn accept_first_frame_at(
         &mut self,
         input: FirstFrameInput<'_>,
@@ -194,6 +166,10 @@ impl MessageAssemblyState {
         if self.assemblies.contains_key(&key) {
             return Err(MessageAssemblyError::DuplicateFirstFrame { key });
         }
+
+        // A declared total is a protocol commitment: reject declarations that
+        // the first frame already contradicts before consulting size limits.
+        validation::validate_first_frame(input.header, input.body.len())?;
 
         // Validate message size (prefer declared total body length, include metadata)
         let declared_body_len = input.header.total_body_len.unwrap_or(input.body.len());
@@ -234,9 +210,7 @@ impl MessageAssemblyState {
 
         // Start new assembly, preserving envelope routing metadata from the
         // first frame so the completed message is dispatched correctly.
-        let mut partial = PartialAssembly::new(series, input.routing, now);
-        partial.set_metadata(input.metadata);
-        partial.push_body(input.body);
+        let partial = PartialAssembly::new(series, input.routing, input.metadata, input.body, now);
         self.assemblies.insert(key, partial);
 
         Ok(None)
@@ -321,7 +295,7 @@ impl MessageAssemblyState {
         };
 
         // Validate continuity
-        let status = match entry.get_mut().series.accept_continuation(header) {
+        let status = match entry.get_mut().accept_continuation(header) {
             Ok(s) => s,
             Err(e) => {
                 if Self::is_unrecoverable_continuity_error(&e) {
@@ -331,33 +305,49 @@ impl MessageAssemblyState {
             }
         };
 
-        // Check size limit
-        let accumulated = entry.get().accumulated_len();
-        if let Err(e) = check_size_limit(max_message_size, key, accumulated, body.len()) {
+        let partial = entry.get_mut();
+        if let Err(e) = Self::admit_continuation(
+            key,
+            partial,
+            body.len(),
+            buffered_total,
+            max_message_size,
+            &budgets,
+        ) {
             entry.remove();
             return Err(e);
         }
+        partial.push_body(body);
 
-        // Check aggregate budgets
-        if let Err(e) = check_aggregate_budgets(key, buffered_total, body.len(), &budgets) {
-            entry.remove();
-            return Err(e);
+        let MessageSeriesStatus::Complete = status else {
+            return Ok(None);
+        };
+        entry.remove().into_message()
+    }
+
+    /// Apply size, budget, and declared-total admission checks to a
+    /// continuation body before it is buffered.
+    ///
+    /// Any rejection frees the assembly, so the caller removes the entry on
+    /// error.
+    fn admit_continuation(
+        key: MessageKey,
+        partial: &PartialAssembly,
+        body_len: usize,
+        buffered_total: usize,
+        max_message_size: NonZeroUsize,
+        budgets: &AggregateBudgets,
+    ) -> Result<(), MessageAssemblyError> {
+        let accumulated = partial.body_len();
+        check_size_limit(max_message_size, key, accumulated, body_len)?;
+        check_aggregate_budgets(key, buffered_total, body_len, budgets)?;
+
+        // Enforce the declared total before buffering so an oversized
+        // continuation cannot be retained even briefly.
+        if let Some(declared) = partial.declared_total() {
+            validation::validate_continuation(key, declared, accumulated, body_len)?;
         }
-
-        entry.get_mut().push_body(body);
-
-        match status {
-            MessageSeriesStatus::Incomplete => Ok(None),
-            MessageSeriesStatus::Complete => {
-                let partial = entry.remove();
-                Ok(Some(AssembledMessage::new(
-                    key,
-                    partial.routing,
-                    partial.metadata,
-                    partial.body_buffer,
-                )))
-            }
-        }
+        Ok(())
     }
 
     /// Remove any partial assemblies that exceeded the configured timeout.
