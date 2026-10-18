@@ -15,6 +15,28 @@ resource accounting. Protocols must validate any additional resource bounds for
 their chosen preamble type; see the
 [allocation-limit caveat](users-guide.md#packets-payloads-and-serialization).
 
+For screen readers: Preamble bytes are read incrementally and decoded with the
+preamble size limit. Oversized container lengths fail; successful decoding
+returns any bytes left after the preamble value.
+
+```mermaid
+sequenceDiagram
+    participant Peer
+    participant Preamble
+    participant Bincode
+
+    Peer->>Preamble: provide preamble bytes
+    Preamble->>Preamble: read_more(reader, buffer, 1)
+    Preamble->>Bincode: borrow_decode_from_slice(buffer, bounded config)
+    alt declared container exceeds MAX_PREAMBLE_LEN
+        Bincode-->>Preamble: DecodeError::LimitExceeded
+        Preamble-->>Peer: decoding error
+    else value decodes successfully
+        Bincode-->>Preamble: value and consumed length
+        Preamble-->>Peer: decoded value and leftover bytes
+    end
+```
+
 The flow is summarized below:
 
 ```mermaid

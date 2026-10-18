@@ -481,6 +481,37 @@ sequenceDiagram
     end
 ```
 
+For screen readers: An incoming frame passes through metadata parsing and
+bounded bincode decoding. Oversized container lengths cause a decode error, and
+any decoded value that leaves trailing payload bytes is rejected.
+
+```mermaid
+sequenceDiagram
+    participant Peer
+    participant InboundHandler
+    participant Serializer
+    participant Bincode
+
+    Peer->>InboundHandler: send frame payload
+    InboundHandler->>Serializer: parse(payload)
+    alt metadata parse succeeds and full decode is required
+        Serializer->>Serializer: deserialize_with_context(payload, context)
+    else metadata parse fails or fallback is required
+        Serializer->>Serializer: deserialize(payload)
+    end
+    Serializer->>Bincode: decode with bounded_bincode_config()
+    alt declared container exceeds MAX_FRAME_LENGTH
+        Bincode-->>Serializer: DecodeError::LimitExceeded
+        Serializer-->>InboundHandler: decoding error
+    else decoded value consumes all payload
+        Bincode-->>Serializer: value and consumed length
+        Serializer-->>InboundHandler: envelope
+    else trailing bytes remain
+        Bincode-->>Serializer: value and consumed length
+        Serializer-->>InboundHandler: InvalidData
+    end
+```
+
 This separation of framing logic via traits is crucial. Different binary
 protocols employ vastly different methods for delimiting messages on the wire.
 Some use fixed-size headers with length fields, others rely on special
