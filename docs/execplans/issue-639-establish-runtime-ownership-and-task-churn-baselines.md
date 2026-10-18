@@ -836,7 +836,47 @@ Thresholds that trigger escalation when breached.
   directly, and it does not exist at all against main. Both entries describe a
   target this branch no longer sits on.
 
+- [x] (2026-10-18) Cleared the one hosted failure on the rebased candidate
+  `d434f60b`. `build-test` run `38947673516` failed at the
+  `Enforce en-GB-oxendict spelling` step, on the American spelling of
+  "artefact" at `docs/execplans/issue-639-...md:2872`. The line comes from
+  `4366ec1`, whose prose was written after the last local spelling run. Fixed
+  in the tree and re-run locally: `make spelling` exit 0 (and `typos.toml`,
+  which the gate regenerates, is unchanged, so nothing regenerated needs
+  committing), `make check-fmt` exit 0 with `121 files left unchanged`, and
+  `make markdownlint` exit 0 with `0 issues in 0 files`.
+
+  The same run settles an open question recorded below: **the `Lint` step
+  passed on `d434f60b` before the spelling step failed**, so `make lint` —
+  rustdoc, Clippy and `whitaker --all` — is green on the rebased candidate in
+  the hosted environment, which is the environment that does not contend with
+  this host's compile admission. That is stronger evidence than a local rerun:
+  it is the required check's own verdict on the exact published head.
+
 ## Surprises & discoveries
+
+- Observation: **a `make lint` failure caused by admission infrastructure says
+  nothing about the code, and the hosted `Lint` step is the tie-breaker when
+  the local gate cannot run.** Two local `make lint` runs failed with exit 2
+  and no diagnostic pointing at any repository source: run `-2` (3379 s)
+  aborted both rustdoc jobs with
+  `build-limits: the supervisor refused: unhealthy`, and run `-3` (2141 s)
+  passed rustdoc and then had 17 Clippy jobs aborted the same way, every
+  `error: could not compile` naming a `build-limits-rustc` wrapper exit rather
+  than a compiler diagnostic. Both are admission refusals, not code failures,
+  and the instruction is to report them rather than work around them. The
+  decisive evidence came from the required check itself: in `build-test` run
+  `38947673516` on `d434f60b`, the `Lint` step concluded `success` before the
+  later spelling step failed. That is `make lint` — including
+  `whitaker --all -- --all-targets --all-features` — green on the exact
+  published head, in an environment that shares no compiler pool with this
+  host. Impact: the four benchmark and test files that exceed 400 lines (`790`,
+  `740`, `639`, `416`) are *not* flagged by whitaker in practice, so the stale
+  CodeRabbit finding that cited `AGENTS.md`'s 400-line guidance describes a
+  rule the gate does not enforce on those paths; the guide's figure is
+  guidance, while the gate is the contract. It also means a local lint verdict
+  blocked purely on admission should be recorded as *unproven locally*, not as
+  red.
 
 - Observation: **this repository's spelling gate mandates `-ize`, not `-ise`,
   and a gate run only vouches for the tree it ran against.** CI's `build-test`
@@ -2869,7 +2909,7 @@ at `701f343` and the other two at `dab896b`, with `lint` at the final
 `1bacdd5`. That is sound because `git diff --name-only 701f343 HEAD` returns
 **zero non-`.md` paths** — every commit after `701f343` touches this document
 alone. The code is identical across all of them, so the runs validate the same
-artifact; recording which revision each gate saw is what makes that checkable
+artefact; recording which revision each gate saw is what makes that checkable
 rather than asserted.
 
 `check-fmt` is the sole red gate, and it is red on a file this branch does not
