@@ -38,3 +38,4 @@ tokio-util = { version = "0.7", features = ["codec"] }
 # Serializes the tests that assert on process-global state. `serial_test` is
 # already the repository's convention for this; see `tests/push_policies.rs`.
 serial_test = "4.0.1"
+trybuild = "1"

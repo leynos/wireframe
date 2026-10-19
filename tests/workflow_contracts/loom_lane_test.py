@@ -4,8 +4,8 @@ The lane failed to compile for months while its name said it model-checked
 the push queue, and a lane that only compiles its models reads the same from
 the outside as one that runs them. These tests hold the lane to what it must
 do: the workflow step calls ``make test-loom``, which runs the Loom package's
-tests under ``--cfg loom`` with a bounded preemption count and compiles the
-test-support crate under that configuration.
+tests under ``--cfg loom`` with a bounded preemption count and checks that
+non-Loom test-support APIs stay excluded under that configuration.
 
 The target is read through ``make --dry-run`` and tokenized, not searched as
 text, so what is asserted is the command Make would run: the program, its
@@ -73,8 +73,8 @@ def _loom_commands() -> list[tuple[dict[str, str], list[str]]]:
 
     The recipe is read through ``make --dry-run``, so a variable, a line
     continuation or an included file resolves exactly as it would when the
-    lane runs. The first command executes the models; the second compiles
-    ``wireframe_testing`` under the same Loom configuration.
+    lane runs. The first command executes the models; the second checks the
+    ``wireframe_testing`` API surface under the same Loom configuration.
     """
     printed = subprocess.run(
         ["make", "--no-print-directory", "--dry-run", LOOM_TARGET],
@@ -192,23 +192,25 @@ def test_the_target_bounds_loom_exploration() -> None:
     )
 
 
-def test_the_target_compiles_test_support_under_loom() -> None:
-    """Scenario: test-support loses its Loom configuration check.
+def test_the_target_checks_test_support_api_under_loom() -> None:
+    """Scenario: the Loom API-surface test is removed from the lane.
 
-    Invariant: the second command compiles the helper crate with its
-    runtime-benchmark feature under ``--cfg loom``.
+    Invariant: the second command runs the helper crate's compile-fail API
+    fixtures with its runtime-benchmark feature under ``--cfg loom``.
     """
     environment, argv = _loom_commands()[1]
-    assert shlex.split(environment.get("RUSTFLAGS", "")) == ["--cfg", "loom"], (
-        f"the test-support check must set RUSTFLAGS to --cfg loom; got "
-        f"{environment.get('RUSTFLAGS')!r}"
+    assert environment.get("CARGO_ENCODED_RUSTFLAGS") == "--cfg=loom", (
+        "the test-support API test must pass --cfg=loom through "
+        "CARGO_ENCODED_RUSTFLAGS so trybuild's nested Cargo run sees it; got "
+        f"{environment.get('CARGO_ENCODED_RUSTFLAGS')!r}"
     )
     assert argv == [
         "cargo",
-        "check",
+        "test",
         "-p",
         "wireframe_testing",
-        "--lib",
+        "--test",
+        "loom_api_surface",
         "--features",
         "runtime-benchmarks",
-    ], f"the second {LOOM_TARGET} command must compile wireframe_testing; it runs {argv}"
+    ], f"the second {LOOM_TARGET} command must test wireframe_testing's Loom API; it runs {argv}"

@@ -1237,12 +1237,16 @@ functions and step definitions can reuse.
 
 The Loom models live in their own package, `crates/wireframe-loom`, and run with
 `make test-loom`, the scheduled **Advanced Tests** lane's only Make target.
-The target runs the models and checks the test-support crate under `cfg(loom)`:
+The target runs the models and checks the test-support API under `cfg(loom)`:
 
 ```sh
 LOOM_MAX_PREEMPTIONS=3 RUSTFLAGS="--cfg loom" cargo test -p wireframe-loom
-RUSTFLAGS="--cfg loom" cargo check -p wireframe_testing --lib --features runtime-benchmarks
+CARGO_ENCODED_RUSTFLAGS="--cfg=loom" cargo test -p wireframe_testing --test loom_api_surface --features runtime-benchmarks
 ```
+
+The ordinary compile-time API suite confirms that the gated helpers are
+available in a normal build. The Loom fixture asserts that its imports fail
+under the model configuration.
 
 The package exists so that a `--cfg loom` build compiles only what the models
 need. The root package's test build pulls in `wireframe_testing`, whose TCP

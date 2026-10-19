@@ -103,9 +103,9 @@ test-workflow-contracts: ## Validate workflow invocation contracts
 	$(CV005_CONTRACTS) check --repository .
 	$(PYTHON_NO_BYTECODE_ENV) uv run --with 'pytest>=8' --with 'pyyaml>=6' --with 'hypothesis>=6' pytest tests/workflow_contracts -q
 
-test-loom: ## Run the Loom models under --cfg loom
+test-loom: ## Run Loom models and test-support API checks under --cfg loom
 	LOOM_MAX_PREEMPTIONS=$(LOOM_MAX_PREEMPTIONS) RUSTFLAGS="--cfg loom" $(CARGO) test -p $(LOOM_CRATE) $(BUILD_JOBS)
-	RUSTFLAGS="--cfg loom" $(CARGO) check -p wireframe_testing --lib --features runtime-benchmarks $(BUILD_JOBS)
+	CARGO_ENCODED_RUSTFLAGS="--cfg=loom" $(CARGO) test -p wireframe_testing --test loom_api_surface --features runtime-benchmarks $(BUILD_JOBS)
 
 test-doc: ## Run doctests across all features
 	# `wireframe_testing` doctests need generic app types that standalone snippets
@@ -114,10 +114,12 @@ test-doc: ## Run doctests across all features
 
 test-ui: ## Run trybuild compile-time API tests
 	$(CARGO) test --test compile_error
+	CARGO_ENCODED_RUSTFLAGS="--cfg=loom" $(CARGO) test -p wireframe_testing --test loom_api_surface --features runtime-benchmarks
 
 # Developer-only: review every changed snapshot; this target must not run in CI.
 bless-ui: ## Refresh trybuild snapshots for deliberate fixture changes
 	TRYBUILD=overwrite $(CARGO) test --test compile_error
+	CARGO_ENCODED_RUSTFLAGS="--cfg=loom" TRYBUILD=overwrite $(CARGO) test -p wireframe_testing --test loom_api_surface --features runtime-benchmarks
 
 doctest-benchmark: ## Check runnable/no_run doctest ratios
 	./scripts/doctest-benchmark.sh

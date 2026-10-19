@@ -24,7 +24,10 @@ async fn shutdown_wins_over_a_ready_high_priority_push() {
 
     let event = actor.next_event(&ActorState::new(false, false)).await;
 
-    assert!(matches!(event, Event::Shutdown));
+    assert!(
+        matches!(event, Event::Shutdown),
+        "shutdown should take precedence over a ready high-priority push"
+    );
     assert_eq!(
         actor
             .high_rx
