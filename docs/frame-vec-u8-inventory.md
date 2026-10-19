@@ -224,6 +224,11 @@ starts, but the surface is about preamble buffering rather than `F::Frame`.
 
 #### Serializer output
 
+Migration is designed in the [#538 plan][serializer-output-plan], but not
+implemented. Retain the vector surfaces below until the contract and all
+callers migrate. `Bytes::from(Vec<u8>)` can reuse an allocation; the gap is
+that a serializer cannot return an existing shared buffer directly.
+
 - `src/serializer.rs` defines
   `Serializer::serialize<M>(&self, value: &M) -> Result<Vec<u8>, ...>`.
 - `BincodeSerializer` preserves that same return type.
@@ -413,3 +418,6 @@ ADRs:
     [docs/execplans/9-3-1-fragment-adapter-trait.md](./execplans/9-3-1-fragment-adapter-trait.md)
     for the actor/codec-driver boundary and why `Bytes` does not flow through
     `ConnectionActor` directly today.
+
+[serializer-output-plan]:
+execplans/issue-538-plan-zero-copy-serializer-output-migration.md

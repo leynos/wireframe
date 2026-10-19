@@ -167,6 +167,16 @@ not need to manually shuttle between `Vec<u8>`, `Bytes`, and `BytesMut` for
 ordinary middleware or client-hook edits. The workflow must document when an
 edit can reuse unique storage and when it may copy shared storage.
 
+### Proposed serializer application of the accepted container model
+
+The [#538 migration plan][serializer-output-plan] selects a minimal transparent
+`PayloadBytes` wrapper over `Bytes` for serializer output. The type owns
+immutable, shareable bytes and exposes explicit transport extraction through
+`into_bytes`. It has no mutable accessors or editing API. This narrows the
+serializer hand-off without implementing the middleware or hook editing model,
+which remains separate roadmap work. The serializer plan is design only; the
+current implementation still returns `Vec<u8>`.
+
 ## Goals and Non-Goals
 
 ### Goals
@@ -235,3 +245,6 @@ separate concerns. Standardizing stable payload storage on a `Bytes`-compatible
 representation aligns the public API with the default codec path, while
 explicit editing helpers preserve the middleware-first ergonomics that made
 `Vec<u8>` attractive originally.
+
+[serializer-output-plan]:
+execplans/issue-538-plan-zero-copy-serializer-output-migration.md

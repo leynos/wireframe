@@ -806,6 +806,13 @@ wireframe_codec_errors_total{error_type="eof",recovery_policy="disconnect"} 2
 
 ## Packets, payloads, and serialization
 
+A [serializer-output migration plan][serializer-output-plan] proposes
+`PayloadBytes` for a future breaking release. It is not implemented: current
+serializer implementations still return `Vec<u8>`. The planned finite
+conversion helpers preserve vector-based encoding algorithms while requiring an
+explicit return-type change. Decode APIs and client hook signatures remain
+unchanged in that migration.
+
 Packets drive routing. Implement the `Packet` trait (or use the bundled
 `Envelope`) to expose a message identifier, optional correlation id, and raw
 payload. `PacketParts` rebuilds packets after middleware has finished editing
@@ -2860,3 +2867,6 @@ directories (one per shard on full dispatch runs) for offline triage.
     Section 4, for design rationale.
 
 [adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md
+
+[serializer-output-plan]:
+execplans/issue-538-plan-zero-copy-serializer-output-migration.md
