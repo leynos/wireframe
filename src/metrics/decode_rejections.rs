@@ -23,6 +23,7 @@ pub(crate) enum DecodeRejectionPath {
     #[cfg(feature = "serializer-serde")]
     Serde,
     /// Connection preamble decoding.
+    #[cfg(not(loom))]
     Preamble,
     /// The inbound envelope frame boundary.
     Envelope,
@@ -36,6 +37,7 @@ impl DecodeRejectionPath {
             Self::Message => "message",
             #[cfg(feature = "serializer-serde")]
             Self::Serde => "serde",
+            #[cfg(not(loom))]
             Self::Preamble => "preamble",
             Self::Envelope => "envelope",
         }
@@ -50,6 +52,7 @@ pub(crate) enum DecodeRejectionReason {
     /// A single-value envelope frame contained trailing bytes.
     TrailingBytes,
     /// A preamble failed for another decoding or read reason.
+    #[cfg(not(loom))]
     DecodeError,
 }
 
@@ -59,6 +62,7 @@ impl DecodeRejectionReason {
         match self {
             Self::LimitExceeded => "limit_exceeded",
             Self::TrailingBytes => "trailing_bytes",
+            #[cfg(not(loom))]
             Self::DecodeError => "decode_error",
         }
     }
@@ -81,7 +85,7 @@ pub(crate) fn inc_decode_rejection(path: DecodeRejectionPath, reason: DecodeReje
 #[cfg(not(feature = "metrics"))]
 pub(crate) fn inc_decode_rejection(_path: DecodeRejectionPath, _reason: DecodeRejectionReason) {}
 
-#[cfg(all(test, feature = "metrics"))]
+#[cfg(all(test, feature = "metrics", not(loom)))]
 mod tests {
     //! Tests for bounded decode-rejection metric labels.
 

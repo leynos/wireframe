@@ -338,6 +338,16 @@ callers that still own an unprepared builder. Server connection tasks use
 `PreparedApp::handle_connection_result` instead, preserving the once-per-run
 preparation boundary.
 
+### Issue #640: local ownership hot paths
+
+The first ownership refactor borrows the connection actor's cancellation token
+and push sender for each wait, and stores the connection-local `Fragmenter` and
+`FnService` callback by value. Cancellation remains first in the actor's biased
+select, and `Fragmenter` retains its atomic message-ID source. These are
+internal changes; the public `Fragmenter`, push, and middleware contracts are
+unchanged. Regression tests cover ready-queue shutdown precedence, fragment IDs
+across frames, queue closure and backpressure, and captured middleware state.
+
 Server binding uses the public `AppFactory` and `Preamble` traits directly in
 its generic bounds. `AppFactory` requires a factory that is `Send`, `Sync`,
 `Clone`, and `'static`, with a `Send + Sync` serializer, `Send + 'static`
@@ -1230,12 +1240,17 @@ functions and step definitions can reuse.
 ### Loom models
 
 The Loom models live in their own package, `crates/wireframe-loom`, and run with
-`make test-loom`, which is also the scheduled **Advanced Tests** lane's only
-command:
+`make test-loom`, the scheduled **Advanced Tests** lane's only Make target.
+The target runs the models and checks the test-support API under `cfg(loom)`:
 
 ```sh
 LOOM_MAX_PREEMPTIONS=3 RUSTFLAGS="--cfg loom" cargo test -p wireframe-loom
+CARGO_ENCODED_RUSTFLAGS="--cfg=loom" cargo test -p wireframe_testing --test loom_api_surface --features runtime-benchmarks
 ```
+
+The ordinary compile-time API suite confirms that the gated helpers are
+available in a normal build. The Loom fixture asserts that its imports fail
+under the model configuration.
 
 The package exists so that a `--cfg loom` build compiles only what the models
 need. The root package's test build pulls in `wireframe_testing`, whose TCP
@@ -1248,6 +1263,13 @@ harness at all. The package depends on the library with `pool` and
 `test-support` enabled, so `make test-loom` compiles `test_helpers` in the
 configuration #683 broke: dropping `not(loom)` from either `pool_client` gate
 fails the Loom build with the five errors the issue reported.
+
+Issue #640 extends this build boundary to the network-backed
+`wireframe_testing::client_pair` module and `wait_for_listener_release`, the
+optional runtime-ownership benchmark module, and server startup/supervisor
+metric recording support. These items remain available in ordinary builds under
+their existing feature gates; Loom builds omit APIs and metric implementations
+that depend on runtime facilities outside the model.
 
 What Loom schedules, and what it cannot, decides what the models may assert:
 

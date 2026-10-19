@@ -6,6 +6,7 @@
 
 use std::{io, num::NonZeroUsize, time::Duration};
 
+use rstest::{fixture, rstest};
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     app::{Envelope, Packet},
@@ -13,16 +14,18 @@ use wireframe::{
     fragment::{FragmentationConfig, Reassembler, decode_fragment_payload},
     push::{PushHandle, PushQueues},
 };
+use wireframe_testing::TestResult;
 
 const ROUTE_ID: u32 = 7;
 
-use wireframe_testing::TestResult;
-
-fn setup_fragmented_actor() -> TestResult<(
+type FragmentedActor = (
     ConnectionActor<Envelope, wireframe::NoProtocolError>,
     PushHandle<Envelope>,
     FragmentationConfig,
-)> {
+);
+
+#[fixture]
+fn fragmented_actor() -> TestResult<FragmentedActor> {
     let (queues, handle) = PushQueues::<Envelope>::builder()
         .high_capacity(4)
         .low_capacity(4)
@@ -38,9 +41,12 @@ fn setup_fragmented_actor() -> TestResult<(
     Ok((actor, handle, cfg))
 }
 
+#[rstest]
 #[tokio::test]
-async fn connection_actor_fragments_outbound_frames() -> TestResult {
-    let (mut actor, handle, cfg) = setup_fragmented_actor()?;
+async fn connection_actor_fragments_outbound_frames(
+    fragmented_actor: TestResult<FragmentedActor>,
+) -> TestResult {
+    let (mut actor, handle, cfg) = fragmented_actor?;
 
     let cap = cfg.fragment_payload_cap.get();
     let payload = vec![1_u8; cap.saturating_add(16)];
@@ -86,9 +92,51 @@ async fn connection_actor_fragments_outbound_frames() -> TestResult {
     Ok(())
 }
 
+#[rstest]
 #[tokio::test]
-async fn connection_actor_passes_through_small_outbound_frames_unfragmented() -> TestResult {
-    let (mut actor, handle, cfg) = setup_fragmented_actor()?;
+async fn connection_actor_advances_fragment_ids_across_frames(
+    fragmented_actor: TestResult<FragmentedActor>,
+) -> TestResult {
+    let (mut actor, handle, cfg) = fragmented_actor?;
+
+    let payload = vec![3_u8; cfg.fragment_payload_cap.get().saturating_add(16)];
+    for correlation_id in [Some(9), Some(10)] {
+        handle
+            .push_low_priority(Envelope::new(ROUTE_ID, correlation_id, payload.clone()))
+            .await?;
+    }
+    drop(handle);
+
+    let mut out = Vec::new();
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|err| io::Error::other(format!("actor run failed: {err:?}")))?;
+
+    let mut message_ids = Vec::new();
+    for env in out {
+        let payload = env.into_parts().into_payload();
+        let Some((header, _)) = decode_fragment_payload(&payload)? else {
+            return Err("expected every outbound frame to be fragmented".into());
+        };
+        let message_id = header.message_id().get();
+        if message_ids.last() != Some(&message_id) {
+            message_ids.push(message_id);
+        }
+    }
+
+    if message_ids != [0, 1] {
+        return Err(format!("expected sequential fragment IDs [0, 1], got {message_ids:?}").into());
+    }
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn connection_actor_passes_through_small_outbound_frames_unfragmented(
+    fragmented_actor: TestResult<FragmentedActor>,
+) -> TestResult {
+    let (mut actor, handle, cfg) = fragmented_actor?;
 
     let payload_cap = cfg.fragment_payload_cap.get();
     let payload = vec![5_u8; payload_cap.saturating_sub(1)];

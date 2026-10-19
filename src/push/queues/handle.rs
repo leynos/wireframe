@@ -131,7 +131,7 @@ impl<F: FrameLike> PushHandle<F> {
         match tx.try_reserve() {
             Ok(permit) => permit.send(frame),
             Err(mpsc::error::TrySendError::Full(())) => {
-                self.await_send_capacity(tx.clone(), frame).await?;
+                self.await_send_capacity(tx, frame).await?;
             }
             Err(mpsc::error::TrySendError::Closed(())) => return Err(PushError::Closed),
         }
@@ -265,13 +265,11 @@ impl<F: FrameLike> PushHandle<F> {
     /// frame could be sent.
     async fn await_send_capacity(
         &self,
-        sender: mpsc::Sender<F>,
+        sender: &mpsc::Sender<F>,
         frame: F,
     ) -> Result<(), PushError> {
-        // `Sender::send` borrows its receiver, so the sender must be a named
-        // binding: pinning `tx.clone().send(frame)` would hold a borrow of a
-        // temporary that ends with the statement (E0716) before the future is
-        // ever polled.
+        // Keep the caller's sender borrowed while polling so this slow path
+        // does not create a second shared owner just to name the future.
         let mut send = std::pin::pin!(sender.send(frame));
         let mut is_wait_recorded = false;
         poll_fn(|cx| {

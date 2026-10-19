@@ -16,4 +16,5 @@ fn compile_tests() {
     t.compile_fail("tests/ui/zero_test_budget.rs");
     t.pass("tests/ui/client_error_wildcard_match.rs");
     t.compile_fail("tests/ui/client_error_exhaustive_match.rs");
+    t.pass("tests/ui/wireframe_testing_exports.rs");
 }
