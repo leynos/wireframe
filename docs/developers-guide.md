@@ -80,17 +80,16 @@ requests hit):
 Two vCPU cost about 29% less per run for 3m40s more wall time, and memory is
 far inside the 7.9 GiB that shape has.
 
-The reason this guide used to give for four vCPU was `tests/compile_error.rs`,
-a trybuild case that spawns its own cargo build of the whole dependency tree
-while the other 987 tests run beside it. It took 64.5 seconds of the suite's
-65.4 on four vCPU, and on two it was once killed by nextest at 180.0 seconds
-(the default 60-second slow-timeout times three), failing the coverage step at
-exit 100 with 987 of 988 tests passed. On the warm run above it passed on two
-vCPU. A cold cache may still bring the kill back, because the case's siblings
-compete for two cores rather than four; the first failure of that kind is the
-signal to revisit. Giving that one test a longer deadline is the alternative,
-but this repository has no nextest configuration, so that would be new
-machinery to make a smaller runner tolerable.
+The coverage action supplies a 180-second per-test deadline and a ten-minute
+whole-run ceiling. `tests/compile_error.rs` runs twelve trybuild fixtures
+inside one test, including nested Cargo builds. A cold coverage run exceeded
+that deadline on two vCPU after the other tests had completed
+([PR #777's coverage run](https://github.com/leynos/wireframe/actions/runs/39203098537)).
+The checked-in `.config/nextest.toml` preserves the action's deadlines for
+ordinary tests and extends only `wireframe::compile_error::compile_tests` to
+eight minutes. The ten-minute ceiling still bounds the coverage test run. The
+four-vCPU `coverage-upload` lane remains on its measured shape; the smaller
+runner has not been sampled with this per-test budget.
 
 Free disk is the margin to watch: 3,998 MiB at its lowest on two vCPU.
 

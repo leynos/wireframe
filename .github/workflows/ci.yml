@@ -33,12 +33,12 @@ jobs:
     # https://github.com/leynos/wireframe/actions/runs/39038420830). That is
     # about 29% less per run for 3m40s more wall time.
     #
-    # The earlier reason for four vCPU no longer holds on a warm cache:
-    # `tests/compile_error.rs`, the trybuild case that spawns its own cargo
-    # build while the other 987 tests run, was killed by nextest at its 180 s
-    # default on two vCPU, but it passed on the run above. Its siblings
-    # compete for two cores rather than four, so a cold cache may still bring
-    # the kill back; the first failure of that kind is the signal to revisit.
+    # The coverage action supplies a 180-second per-test deadline. The
+    # aggregate tests/compile_error.rs test builds and executes twelve
+    # trybuild fixtures under coverage; its cold nested build exceeded that
+    # deadline even after the ordinary tests completed. .config/nextest.toml
+    # extends only this test to eight minutes, preserves the ordinary
+    # deadline, and retains the ten-minute whole-run ceiling.
     #
     # Disk is the margin to watch: the minimum free space on two vCPU was
     # 3,998 MiB, against 78,392 MiB on four.
