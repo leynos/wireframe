@@ -6,6 +6,8 @@ import tomllib
 import typing as typ
 from pathlib import Path
 
+import pytest
+
 from runner_placement_reader import REPO_ROOT, workflows
 
 NEXTEST_CONFIG: Path = REPO_ROOT / ".config" / "nextest.toml"
@@ -63,9 +65,40 @@ def coverage_action_name(step: dict[str, typ.Any]) -> str:
     'leynos/shared-actions/.github/actions/generate-coverage'
     """
     uses = str(step.get("uses", ""))
-    name, separator, _version = uses.partition("@")
-    assert separator, f"action invocation {uses!r} carries no version pin"
+    name, separator, version = uses.partition("@")
+    assert separator and name, f"action invocation {uses!r} carries no action name"
+    assert version, f"action invocation {uses!r} carries an empty version pin"
     return name
+
+
+@pytest.mark.parametrize(
+    ("uses", "expected"),
+    [
+        (
+            "leynos/shared-actions/.github/actions/generate-coverage@abc123",
+            "leynos/shared-actions/.github/actions/generate-coverage",
+        ),
+        ("actions/checkout@v4", "actions/checkout"),
+    ],
+)
+def test_coverage_action_name_strips_the_version_pin(uses: str, expected: str) -> None:
+    """A pinned invocation yields the action path alone."""
+    assert coverage_action_name({"uses": uses}) == expected
+
+
+@pytest.mark.parametrize(
+    "uses",
+    [
+        "actions/checkout",
+        "actions/checkout@",
+        "@v4",
+        "",
+    ],
+)
+def test_coverage_action_name_rejects_an_invocation_without_a_pin(uses: str) -> None:
+    """A ``uses`` value with no pin, an empty pin, or no name is refused."""
+    with pytest.raises(AssertionError):
+        coverage_action_name({"uses": uses})
 
 
 def test_coverage_action_can_discover_the_checked_in_config() -> None:
