@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use super::{
-    super::{client_pool::ClientPoolInner, lease::PooledClientLease},
+    super::{client_pool::PoolSchedulerControl, core::PoolCore, lease::PooledClientLease},
     PoolScheduler,
     WaiterSender,
 };
@@ -16,9 +16,14 @@ where
     C: Send + 'static,
 {
     /// Serially service waiters so fairness order is deterministic.
-    pub(super) async fn service_waiters(self: Arc<Self>, inner: Arc<ClientPoolInner<S, P, C>>) {
+    pub(super) async fn service_waiters(
+        self: Arc<Self>,
+        core: Arc<PoolCore<S, P, C>>,
+        control: Arc<PoolSchedulerControl<S, P, C>>,
+    ) {
         while let Some(sender) = self.take_next_waiter_or_stop() {
-            self.service_one_waiter(sender, Arc::clone(&inner)).await;
+            self.service_one_waiter(sender, Arc::clone(&core), Arc::clone(&control))
+                .await;
         }
     }
 
@@ -30,15 +35,27 @@ where
     async fn service_one_waiter(
         &self,
         mut sender: WaiterSender<S, P, C>,
-        inner: Arc<ClientPoolInner<S, P, C>>,
+        core: Arc<PoolCore<S, P, C>>,
+        control: Arc<PoolSchedulerControl<S, P, C>>,
     ) {
+        let permit_race_core = Arc::clone(&core);
         let result = tokio::select! {
-            permit_result = inner.acquire_slot_permit() => {
-                permit_result.map(|(slot, permit)| {
-                    PooledClientLease::new(slot, permit, Some(Arc::clone(&inner)))
+            permit_result = permit_race_core.acquire_slot_permit() => {
+                permit_result.and_then(|(slot_index, permit)| {
+                    if core.is_shutdown() {
+                        drop(permit);
+                        return Err(ClientError::disconnected());
+                    }
+                    PooledClientLease::new(
+                        Arc::clone(&core),
+                        slot_index,
+                        permit,
+                        Some(Arc::clone(&control)),
+                    )
+                    .ok_or_else(ClientError::disconnected)
                 })
             }
-            () = inner.shutdown_notified() => {
+            () = core.shutdown_notified() => {
                 self.finish_waiter();
                 drop(sender.send(Err(ClientError::disconnected())));
                 return;

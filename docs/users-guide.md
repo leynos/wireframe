@@ -1770,6 +1770,14 @@ pool.close().await;
 # }
 ```
 
+Closing the pool rejects new acquisitions and completes acquisitions already
+waiting through a `PoolHandle` with a disconnection error. A lease acquired
+before close is not revoked: it keeps the pool core and all fixed slot storage
+alive so its work can finish safely. Physical pools in every slot, including
+their warm sockets, remain alive while a lease or `PoolHandle` retains the
+core. Handle a disconnection error when an acquisition races with shutdown,
+then drop any lease or handle that outlives close.
+
 Pooled leases forward the common request methods instead of exposing a mutable
 reference to a long-lived `WireframeClient`. That keeps actual socket I/O
 serialized per physical connection while still allowing multiple callers to be

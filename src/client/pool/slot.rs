@@ -12,6 +12,8 @@ use tokio::{
     time::Instant,
 };
 
+#[cfg(test)]
+use super::test_support::DropProbe;
 use super::{manager::WireframeConnectionManager, sync::lock_or_recover};
 use crate::{client::ClientError, serializer::Serializer};
 
@@ -30,6 +32,9 @@ where
     idle_timeout: Duration,
     /// Last healthy return time used for idle recycling.
     last_returned_at: Mutex<Option<Instant>>,
+    /// Test-only witness that a by-value slot is released with its core.
+    #[cfg(test)]
+    pub(super) drop_probe: Option<DropProbe>,
 }
 
 impl<S, P, C> PoolSlot<S, P, C>
@@ -49,20 +54,19 @@ where
             permits: Arc::new(Semaphore::new(max_in_flight_per_socket)),
             idle_timeout,
             last_returned_at: Mutex::new(None),
+            #[cfg(test)]
+            drop_probe: None,
         }
     }
 
     /// Try to reserve capacity without waiting or registering a waiter.
-    pub(crate) fn try_acquire_permit(self: &Arc<Self>) -> Option<OwnedSemaphorePermit> {
-        self.permits.clone().try_acquire_owned().ok()
+    pub(crate) fn try_acquire_permit(&self) -> Option<OwnedSemaphorePermit> {
+        Arc::clone(&self.permits).try_acquire_owned().ok()
     }
 
     /// Wait for capacity; semaphore closure is surfaced as disconnection.
-    pub(crate) async fn acquire_permit(
-        self: &Arc<Self>,
-    ) -> Result<OwnedSemaphorePermit, ClientError> {
-        self.permits
-            .clone()
+    pub(crate) async fn acquire_permit(&self) -> Result<OwnedSemaphorePermit, ClientError> {
+        Arc::clone(&self.permits)
             .acquire_owned()
             .await
             .map_err(|_| ClientError::disconnected())
@@ -169,7 +173,6 @@ mod tests {
     //! Unit tests for slot admission permits and idle-recycle bookkeeping.
 
     use std::{
-        net::SocketAddr,
         sync::{Arc, Mutex},
         thread,
         time::Duration,
@@ -180,47 +183,17 @@ mod tests {
     use tracing::Level;
     use wireframe_testing::ObservabilityHandle;
 
-    use super::{super::test_support::CaptureWriter, PoolSlot, lock_or_recover};
-    use crate::{
-        client::{
-            ClientCodecConfig,
-            SocketOptions,
-            connect_parts::ClientBuildParts,
-            hooks::{LifecycleHooks, RequestHooks},
-            pool::manager::WireframeConnectionManager,
-            tracing_config::TracingConfig,
-        },
-        serializer::BincodeSerializer,
+    use super::{
+        super::test_support::{CaptureWriter, test_pool_slot},
+        lock_or_recover,
     };
-
-    /// Build a slot without connecting: `build_unchecked` creates the bb8
-    /// pool lazily, and these tests never touch the socket path.
-    fn test_slot(
-        max_in_flight: usize,
-        idle_timeout: Duration,
-    ) -> Arc<PoolSlot<BincodeSerializer, (), ()>> {
-        let addr = SocketAddr::from(([127, 0, 0, 1], 1));
-        let parts = ClientBuildParts {
-            serializer: BincodeSerializer,
-            codec_config: ClientCodecConfig::default(),
-            socket_options: SocketOptions::default(),
-            preamble_config: None,
-            lifecycle_hooks: LifecycleHooks::default(),
-            request_hooks: RequestHooks::default(),
-            tracing_config: TracingConfig::default(),
-        };
-        let pool = bb8::Pool::builder()
-            .max_size(1)
-            .build_unchecked(WireframeConnectionManager::new(addr, parts));
-        Arc::new(PoolSlot::new(pool, max_in_flight, idle_timeout))
-    }
 
     /// The synchronous fast path must hand out a permit while capacity
     /// remains and refuse once it is exhausted; forcing `None` would push
     /// every acquire onto the waiting path.
     #[tokio::test]
     async fn try_acquire_permit_reflects_capacity() {
-        let slot = test_slot(1, Duration::from_secs(30));
+        let slot = test_pool_slot(1, Duration::from_secs(30));
 
         let held = slot.try_acquire_permit();
         assert!(held.is_some(), "fresh slot must yield an immediate permit");
@@ -242,7 +215,7 @@ mod tests {
     /// (for example when the replacement checkout fails).
     #[tokio::test]
     async fn clear_last_returned_at_resets_recycle_decision() {
-        let slot = test_slot(1, Duration::from_millis(1));
+        let slot = test_pool_slot(1, Duration::from_millis(1));
 
         *slot.lock_last_returned_at() = Some(tokio::time::Instant::now() - Duration::from_mins(1));
         assert!(
@@ -268,7 +241,7 @@ mod tests {
             .build()
             .expect("slot poison-recovery test runtime should build");
         let _runtime_guard = runtime.enter();
-        let slot = test_slot(1, Duration::from_millis(1));
+        let slot = Arc::new(test_pool_slot(1, Duration::from_millis(1)));
         let stale_timestamp = Instant::now() - Duration::from_mins(1);
 
         let poisoned_slot = Arc::clone(&slot);

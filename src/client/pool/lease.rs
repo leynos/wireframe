@@ -8,7 +8,12 @@ use std::sync::Arc;
 
 use tokio::sync::OwnedSemaphorePermit;
 
-use super::{client_pool::ClientPoolInner, managed::ManagedClientConnection, slot::PoolSlot};
+use super::{
+    client_pool::PoolSchedulerControl,
+    core::PoolCore,
+    managed::ManagedClientConnection,
+    slot::PoolSlot,
+};
 use crate::{
     app::Packet,
     client::ClientError,
@@ -23,12 +28,14 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    /// Slot whose physical connection is checked out for each operation.
-    slot: Arc<PoolSlot<S, P, C>>,
+    /// Shared root keeping every physical slot alive for this lease.
+    core: Arc<PoolCore<S, P, C>>,
+    /// Internal identity of the selected physical slot.
+    slot_index: usize,
     /// Admission token held for the lifetime of this lease.
     _permit: OwnedSemaphorePermit,
-    /// Scheduler state to notify when this lease releases capacity.
-    release_inner: Option<Arc<ClientPoolInner<S, P, C>>>,
+    /// Separate scheduler handle to notify when this lease releases capacity.
+    release_control: Option<Arc<PoolSchedulerControl<S, P, C>>>,
 }
 
 impl<S, P, C> PooledClientLease<S, P, C>
@@ -37,18 +44,24 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    /// Construct a lease while retaining the permit until drop.
-    pub(crate) const fn new(
-        slot: Arc<PoolSlot<S, P, C>>,
+    /// Construct a lease only when its index resolves in the shared core.
+    pub(crate) fn new(
+        core: Arc<PoolCore<S, P, C>>,
+        slot_index: usize,
         permit: OwnedSemaphorePermit,
-        release_inner: Option<Arc<ClientPoolInner<S, P, C>>>,
-    ) -> Self {
-        Self {
-            slot,
+        release_control: Option<Arc<PoolSchedulerControl<S, P, C>>>,
+    ) -> Option<Self> {
+        core.slot(slot_index)?;
+        Some(Self {
+            core,
+            slot_index,
             _permit: permit,
-            release_inner,
-        }
+            release_control,
+        })
     }
+
+    /// Resolve the selected slot through the core's checked internal accessor.
+    pub(crate) fn slot(&self) -> Option<&PoolSlot<S, P, C>> { self.core.slot(self.slot_index) }
 
     /// Classify transport errors that make a pooled connection unsafe to reuse.
     const fn should_recycle(err: &ClientError) -> bool { err.should_recycle_connection() }
@@ -58,7 +71,8 @@ where
         &self,
         operation: impl AsyncFnOnce(&mut ManagedClientConnection<S, C>) -> Result<R, ClientError>,
     ) -> Result<R, ClientError> {
-        let mut connection = self.slot.checkout().await?;
+        let slot = self.slot().ok_or_else(ClientError::disconnected)?;
+        let mut connection = slot.checkout().await?;
         let result = operation(&mut connection).await;
         if let Err(err) = &result
             && Self::should_recycle(err)
@@ -153,8 +167,10 @@ where
     C: Send + 'static,
 {
     fn drop(&mut self) {
-        if let Some(inner) = &self.release_inner {
-            inner.scheduler.notify_capacity_available(Arc::clone(inner));
+        if let Some(control) = &self.release_control {
+            control
+                .scheduler
+                .notify_capacity_available(Arc::clone(&self.core), Arc::clone(control));
         }
     }
 }

@@ -1,0 +1,8 @@
+[profile.default]
+# Match the coverage action's policy for ordinary tests.
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+global-timeout = "10m"
+
+[[profile.default.overrides]]
+filter = 'package(=wireframe) & binary(=compile_error) & test(=compile_tests)'
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }

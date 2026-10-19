@@ -12,7 +12,8 @@ use std::{
 use tokio::sync::oneshot;
 
 use super::{
-    client_pool::ClientPoolInner,
+    client_pool::PoolSchedulerControl,
+    core::PoolCore,
     lease::PooledClientLease,
     policy::PoolFairnessPolicy,
     sync::lock_or_recover,
@@ -241,10 +242,11 @@ where
     /// Queue an acquisition, taking an immediate lease when capacity permits.
     pub(crate) async fn acquire_for_handle(
         self: &Arc<Self>,
-        inner: Arc<ClientPoolInner<S, P, C>>,
+        core: Arc<PoolCore<S, P, C>>,
+        control: Arc<PoolSchedulerControl<S, P, C>>,
         handle_id: u64,
     ) -> Result<PooledClientLease<S, P, C>, ClientError> {
-        if inner.is_shutdown() {
+        if core.is_shutdown() {
             return Err(ClientError::disconnected());
         }
 
@@ -271,15 +273,15 @@ where
             }
         }
 
-        if let Some(lease) = inner.try_acquire_immediately() {
+        if let Some(lease) = control.try_acquire_immediately(&core) {
             return self.resolve_immediate_lease(lease, receiver).await;
         }
 
         // No slot had a free permit, so this acquisition genuinely has to wait
         // for capacity. Recorded before parking: the wait exists from here on,
         // whether or not a worker has been spawned to service it yet.
-        inner.churn.record_capacity_wait();
-        self.kick(inner);
+        control.churn.record_capacity_wait();
+        self.kick(core, control);
         receiver.await.map_err(|_| ClientError::disconnected())?
     }
 
@@ -294,18 +296,23 @@ where
     /// Restart service when a released lease may satisfy a waiter.
     pub(crate) fn notify_capacity_available(
         self: &Arc<Self>,
-        inner: Arc<ClientPoolInner<S, P, C>>,
+        core: Arc<PoolCore<S, P, C>>,
+        control: Arc<PoolSchedulerControl<S, P, C>>,
     ) {
-        self.kick(inner);
+        self.kick(core, control);
     }
 
     /// Spawn at most one worker to drain waiters as capacity appears.
-    fn kick(self: &Arc<Self>, inner: Arc<ClientPoolInner<S, P, C>>) {
+    fn kick(
+        self: &Arc<Self>,
+        core: Arc<PoolCore<S, P, C>>,
+        control: Arc<PoolSchedulerControl<S, P, C>>,
+    ) {
         if self.try_begin_servicing() {
-            inner.churn.record_scheduler_spawn();
+            control.churn.record_scheduler_spawn();
             let scheduler = Arc::clone(self);
             tokio::spawn(async move {
-                scheduler.service_waiters(inner).await;
+                scheduler.service_waiters(core, control).await;
             });
         }
     }

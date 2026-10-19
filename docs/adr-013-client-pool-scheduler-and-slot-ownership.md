@@ -15,11 +15,11 @@ First proposed on 2026-08-08 in issue
 ## Context and problem statement
 
 The client pool has one conceptual scheduler, one fixed set of physical socket
-slots, and many logical handles and leases. Its current ownership graph is
-substantially more distributed. `WireframeClientPool` wraps one
+slots, and many logical handles and leases. Before Phase 2, its ownership graph
+was substantially more distributed. `WireframeClientPool` wrapped one
 `Arc<ClientPoolInner>` shaped as:
 
-For screen readers: The following tree shows the current ownership graph —
+For screen readers: The following tree shows the pre-Phase 2 ownership graph —
 `Arc<ClientPoolInner>` holds a shared slice of `Arc<PoolSlot>` values, each
 containing an `Arc<Semaphore>`, alongside an `Arc<PoolScheduler>` combining a
 `Mutex<SchedulerState>`, an `AtomicBool` service guard, and spawn-on-demand
@@ -35,9 +35,9 @@ Arc<ClientPoolInner>
           └── spawn-on-demand service tasks
 ```
 
-_Figure 1: Current client-pool ownership graph._
+_Figure 1: Client-pool ownership graph before Phase 2._
 
-This creates several costs and reasoning hazards:
+That graph created several costs and reasoning hazards:
 
 - `ordered_slots()` clones every `Arc<PoolSlot>` for each acquisition;
 - boxed permit futures default to `'static` and therefore own those slot
@@ -49,7 +49,7 @@ This creates several costs and reasoning hazards:
 - fairness state, restart logic, waiter cancellation, shutdown, and capacity
   notification are divided between a mutex, atomics, callers, and transient
   tasks;
-- the current model makes race recovery difficult enough that mutation
+- the distributed model made race recovery difficult enough that mutation
   survivors covering shutdown and slot rotation are accepted as untested
   interleavings ([#593](https://github.com/leynos/wireframe/issues/593)), and
   scheduler bookkeeping relies on `std::sync::Mutex` poison recovery
@@ -508,6 +508,15 @@ the scheduler topology.
 Remove the nested slot Arc layer while retaining current scheduler behaviour
 ([#645](https://github.com/leynos/wireframe/issues/645)).
 
+This intermediate step names the separation `PoolCore` and
+`PoolSchedulerControl`. The core owns the fixed slots by value and pool-wide
+shutdown state. The control retains the existing scheduler and churn counters,
+but owns no slots. The public pool and logical handles hold both roots; a lease
+holds one core root, its selected slot index, its permit, and a separate
+optional control handle for release notification. This leaves the
+spawn-on-demand scheduler and permit-race structure in place so their later
+changes can be reviewed independently.
+
 ### Phase 3: add actor command protocol
 
 Move waiter queues, fairness, admission, and shutdown state into the long-lived
@@ -517,10 +526,12 @@ are internal scaffolding removed before this ADR flips to Accepted.
 
 ### Phase 4: use scoped permit races
 
-Remove `ordered_slots()` Arc cloning and `'static` boxed slot futures
-([#646](https://github.com/leynos/wireframe/issues/646)). The permit-race
-rework deliberately follows the actor phase so the races are written once
-against the actor's grant loop rather than twice.
+Remove the per-slot `Arc<PoolCore>` clones and `'static` boxed slot futures
+from the current permit race
+([#646](https://github.com/leynos/wireframe/issues/646)). The current code
+clones the core once for each slot future. The scoped-race rework deliberately
+follows the actor phase so the races are written once against the actor's grant
+loop rather than twice.
 
 ### Phase 5: integrate existing safety work
 

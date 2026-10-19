@@ -20,10 +20,11 @@ import typing as typ
 UBICLOUD_LABEL_PREFIX: typ.Final = "ubicloud-"
 
 #: The Ubicloud shape of ``coverage-upload``. Four vCPU, because that lane has
-#: only been sampled on four: its 240 s of work was measured on Namespace's
-#: four-vCPU profile, and on two vCPU the trybuild case
-#: ``tests/compile_error.rs`` was once killed by nextest at its default 180 s
-#: while the other 987 tests competed for the cores.
+#: only been sampled on four: its 240 s run was measured on Namespace's
+#: four-vCPU profile. The coverage action's 180 s deadline once killed the
+#: aggregate trybuild test on two vCPU; the repository now gives that one test
+#: an eight-minute nextest budget, but the smaller shape has not been sampled
+#: with this policy.
 UBICLOUD_LABEL: typ.Final = "ubicloud-standard-4"
 
 #: The shape of ``build-test``'s non-fork arm. Two vCPU, measured on
