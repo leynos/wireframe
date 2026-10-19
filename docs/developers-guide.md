@@ -25,11 +25,17 @@ stay GitHub-hosted, where public-repository minutes are free and nobody is
 blocked by the wait.
 
 `build-test` also serves forks, which cannot obtain an Ubicloud runner, so it
-carries the fork fallback:
+carries the fork fallback. A pull request Dependabot opened takes the same
+hosted arm: hosted minutes cost nothing on a public repository, and Dependabot
+opens many pull requests, so they build cold on the hosted pool. The guard
+tests the pull request's author, not `github.actor`, because the actor is
+whoever triggered the run, so a person pushing to a Dependabot branch would
+flip the runner:
 
 ```yaml
 runs-on: >-
-  ${{ github.event.pull_request.head.repo.fork
+  ${{ (github.event.pull_request.head.repo.fork
+  || github.event.pull_request.user.login == 'dependabot[bot]')
   && 'ubuntu-latest' || 'ubicloud-standard-2' }}
 ```
 
@@ -131,15 +137,17 @@ machinery that derives facts from the workflow tree. A reviewer who wants to
 know what was decided reads the policy module alone.
 
 The contract reads every job's `runs-on` from the parsed document and fails on
-an embedded line break; compares the fork guard and both arms against exact
-strings, so a sibling field cannot stand in for `head.repo.fork`; pins
-placement by `(workflow, job id)` coordinate and compares that set against the
-tree's jobs in both directions; pins each ceiling by value and requires one on
-every job that can select any `ubicloud-` label; asserts the delayed lane has
-none; asserts the two reusable callers declare no runner; and compares
-`.github/actionlint.yaml` against the labels in use in both directions. That
-last comparison is what retires `namespace-profile-default` from the registry
-rather than leaving it behind to authorize a runner family nobody uses.
+an embedded line break; compares the guard (the fork test or the Dependabot
+author test) and both arms against exact strings, so a sibling field cannot
+stand in for `head.repo.fork` and `github.actor` cannot stand in for the
+author; pins placement by `(workflow, job id)` coordinate and compares that set
+against the tree's jobs in both directions; pins each ceiling by value and
+requires one on every job that can select any `ubicloud-` label; asserts the
+delayed lane has none; asserts the two reusable callers declare no runner; and
+compares `.github/actionlint.yaml` against the labels in use in both
+directions. That last comparison is what retires `namespace-profile-default`
+from the registry rather than leaving it behind to authorize a runner family
+nobody uses.
 
 It also checks that the reviewed tables are total against each other, which is
 what stops a lane escaping review by being left out of one of them. Every other
