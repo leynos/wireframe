@@ -46,7 +46,7 @@ WORKFLOW_DIR: typ.Final = REPO_ROOT / ".github" / "workflows"
 ACTIONLINT_CONFIG: typ.Final = REPO_ROOT / ".github" / "actionlint.yaml"
 
 #: One expression, anchored end to end. ``[^'\n]`` in the arms, and the guard's
-#: single-line forms (a bare context, or one parenthesised condition), keep a
+#: single-line forms (a bare context, or one parenthesized condition), keep a
 #: value carrying an embedded line break from matching here as well, so the
 #: line-break failure is reported by its own test rather than arriving as a
 #: confusing "expression not recognized".
