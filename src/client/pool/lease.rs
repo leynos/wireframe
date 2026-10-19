@@ -227,6 +227,20 @@ where
         );
     }
 
+    /// Run a whole request-response exchange under one protocol reservation.
+    ///
+    /// Both the request and its reply belong to this operation, so it can
+    /// never leave the socket holding an unread response. Split-phase sends
+    /// use [`Self::dispatch_on_connection`] directly instead, because they
+    /// keep the protocol gate until the matching receive consumes the reply.
+    async fn dispatch_whole_exchange<R>(
+        &self,
+        operation: impl AsyncFnOnce(&mut ManagedClientConnection<S, C>) -> Result<R, ClientError>,
+    ) -> Result<R, ClientError> {
+        self.dispatch_on_connection(PendingResponseChange::None, operation)
+            .await
+    }
+
     /// Send one message over the leased socket.
     ///
     /// A successful split-phase send leaves one response pending until this
@@ -269,10 +283,8 @@ where
         Req: EncodeWith<S>,
         Resp: DecodeWith<S>,
     {
-        self.dispatch_on_connection(PendingResponseChange::None, async |conn| {
-            conn.client_mut()?.call(request).await
-        })
-        .await
+        self.dispatch_whole_exchange(async |conn| conn.client_mut()?.call(request).await)
+            .await
     }
 
     /// Send one envelope and return the correlation ID used.
@@ -322,10 +334,8 @@ where
     where
         M: Packet + EncodeWith<S> + DecodeWith<S>,
     {
-        self.dispatch_on_connection(PendingResponseChange::None, async |conn| {
-            conn.client_mut()?.call_correlated(request).await
-        })
-        .await
+        self.dispatch_whole_exchange(async |conn| conn.client_mut()?.call_correlated(request).await)
+            .await
     }
 }
 
