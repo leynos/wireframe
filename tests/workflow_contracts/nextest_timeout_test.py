@@ -6,13 +6,13 @@ import tomllib
 import typing as typ
 from pathlib import Path
 
+import pytest
+
 from runner_placement_reader import REPO_ROOT, workflows
 
 NEXTEST_CONFIG: Path = REPO_ROOT / ".config" / "nextest.toml"
-COVERAGE_ACTION: str = (
-    "leynos/shared-actions/.github/actions/generate-coverage@"
-    "e693d81d176d2305e2b736a0be0f9038085dec7f"
-)
+#: The action this test is about, without its version pin.
+COVERAGE_ACTION_NAME: str = "leynos/shared-actions/.github/actions/generate-coverage"
 COMPILE_TEST_FILTER: str = (
     "package(=wireframe) & binary(=compile_error) & test(=compile_tests)"
 )
@@ -38,12 +38,76 @@ def coverage_action_step() -> tuple[dict[str, typ.Any], dict[str, typ.Any]]:
     return job, matches[0]
 
 
+def coverage_action_name(step: dict[str, typ.Any]) -> str:
+    """Return the action a step invokes, without its version pin.
+
+    The pin itself is not this contract's business: ``shared_actions_test``
+    already requires every shared-actions invocation to carry a full commit
+    SHA and to agree on one revision across the workflow tree. Repeating the
+    literal SHA here made a dependabot bump of that shared revision fail a
+    timeout test, because the two had to be updated together.
+
+    Parameters
+    ----------
+    step
+        One parsed workflow step.
+
+    Returns
+    -------
+    str
+        The ``uses`` value with its ``@`` pin removed.
+
+    Examples
+    --------
+    >>> coverage_action_name(
+    ...     {"uses": "leynos/shared-actions/.github/actions/generate-coverage@abc"}
+    ... )
+    'leynos/shared-actions/.github/actions/generate-coverage'
+    """
+    uses = str(step.get("uses", ""))
+    name, separator, version = uses.partition("@")
+    assert separator and name, f"action invocation {uses!r} carries no action name"
+    assert version, f"action invocation {uses!r} carries an empty version pin"
+    return name
+
+
+@pytest.mark.parametrize(
+    ("uses", "expected"),
+    [
+        (
+            "leynos/shared-actions/.github/actions/generate-coverage@abc123",
+            "leynos/shared-actions/.github/actions/generate-coverage",
+        ),
+        ("actions/checkout@v4", "actions/checkout"),
+    ],
+)
+def test_coverage_action_name_strips_the_version_pin(uses: str, expected: str) -> None:
+    """A pinned invocation yields the action path alone."""
+    actual = coverage_action_name({"uses": uses})
+    assert actual == expected, f"{uses!r} should name {expected!r}, got {actual!r}"
+
+
+@pytest.mark.parametrize(
+    "uses",
+    [
+        "actions/checkout",
+        "actions/checkout@",
+        "@v4",
+        "",
+    ],
+)
+def test_coverage_action_name_rejects_an_invocation_without_a_pin(uses: str) -> None:
+    """A ``uses`` value with no pin, an empty pin, or no name is refused."""
+    with pytest.raises(AssertionError, match="action invocation"):
+        coverage_action_name({"uses": uses})
+
+
 def test_coverage_action_can_discover_the_checked_in_config() -> None:
-    """The pinned coverage action uses the repository config without override."""
+    """The coverage action uses the repository config without override."""
     job, step = coverage_action_step()
 
     assert NEXTEST_CONFIG.is_file()
-    assert step["uses"] == COVERAGE_ACTION
+    assert coverage_action_name(step) == COVERAGE_ACTION_NAME
     assert "NEXTEST_CONFIG" not in (job.get("env") or {})
     assert "NEXTEST_CONFIG" not in (step.get("env") or {})
 
