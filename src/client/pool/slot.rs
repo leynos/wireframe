@@ -2,7 +2,12 @@
 
 use std::{
     ops::{Deref, DerefMut},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{
+        Arc,
+        Mutex,
+        MutexGuard,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -28,10 +33,18 @@ where
     pub(crate) pool: Pool<WireframeConnectionManager<S, P, C>>,
     /// Admission semaphore limiting concurrent logical operations.
     permits: Arc<Semaphore>,
+    /// Reserves the socket for one lease's outstanding exchange.
+    ///
+    /// Admission permits bound concurrency; this gate is what makes a
+    /// split-phase reply belong to a single lease, because a lease keeps it
+    /// held between `send` and `receive`.
+    protocol_gate: Arc<Semaphore>,
     /// Idle age at which the physical resource must be replaced.
     idle_timeout: Duration,
     /// Last healthy return time used for idle recycling.
     last_returned_at: Mutex<Option<Instant>>,
+    /// Set when a lease left this socket unusable for anyone else.
+    discard_on_next_checkout: AtomicBool,
     /// Test-only witness that a by-value slot is released with its core.
     #[cfg(test)]
     pub(super) drop_probe: Option<DropProbe>,
@@ -52,8 +65,10 @@ where
         Self {
             pool,
             permits: Arc::new(Semaphore::new(max_in_flight_per_socket)),
+            protocol_gate: Arc::new(Semaphore::new(1)),
             idle_timeout,
             last_returned_at: Mutex::new(None),
+            discard_on_next_checkout: AtomicBool::new(false),
             #[cfg(test)]
             drop_probe: None,
         }
@@ -72,21 +87,61 @@ where
             .map_err(|_| ClientError::disconnected())
     }
 
+    /// Reserve this socket for one lease's outstanding exchange.
+    pub(crate) async fn acquire_protocol_permit(
+        &self,
+    ) -> Result<OwnedSemaphorePermit, ClientError> {
+        Arc::clone(&self.protocol_gate)
+            .acquire_owned()
+            .await
+            .map_err(|_| ClientError::disconnected())
+    }
+
     /// Check out a healthy connection, refreshing an idle one before use.
-    pub(crate) async fn checkout(&self) -> Result<SlotConnection<'_, S, P, C>, ClientError> {
+    ///
+    /// `pending_responses` is the checking-out lease's unread-reply count. An
+    /// idle socket is only replaced when that count is zero: a lease that
+    /// already owns a reply must keep the very socket that reply will arrive
+    /// on, or the pending response would be lost with the old connection.
+    pub(crate) async fn checkout<'a>(
+        &'a self,
+        pending_responses: &'a AtomicUsize,
+    ) -> Result<SlotConnection<'a, S, P, C>, ClientError> {
         let mut connection = self.get_connection().await?;
 
-        if self.should_recycle_idle() {
+        let discard_requested = self.should_discard_lazily();
+        // A lease holding an unread reply must keep the socket that reply will
+        // arrive on, so its pending count wins over the idle-recycle check.
+        let is_idle_expired =
+            pending_responses.load(Ordering::Acquire) == 0 && self.should_recycle_idle();
+
+        if discard_requested || is_idle_expired {
             connection.mark_broken();
             drop(connection);
+            // The replacement checkout re-establishes the timestamp; clearing
+            // it first keeps a failed replacement from recycling the next
+            // socket on the strength of a stale value.
             self.clear_last_returned_at();
             connection = self.get_connection().await?;
         }
 
         Ok(SlotConnection {
             connection,
+            armed: true,
             last_returned_at: &self.last_returned_at,
+            pending_responses,
         })
+    }
+
+    /// Retire the socket on the next checkout because an earlier lease left it
+    /// unsafe to reuse.
+    pub(crate) fn discard_next_checkout(&self) {
+        self.discard_on_next_checkout.store(true, Ordering::Release);
+    }
+
+    /// Claim the one-shot discard requested by an earlier lease.
+    fn should_discard_lazily(&self) -> bool {
+        self.discard_on_next_checkout.swap(false, Ordering::AcqRel)
     }
 
     /// Obtain the bb8 resource and translate checkout failures to client errors.
@@ -127,8 +182,25 @@ where
 {
     /// Checked-out resource whose drop records healthy or broken return state.
     connection: PooledConnection<'a, WireframeConnectionManager<S, P, C>>,
+    /// Invalidates the resource unless an operation completed while checked out.
+    armed: bool,
     /// Slot timestamp updated when the checkout is returned.
     last_returned_at: &'a Mutex<Option<Instant>>,
+    /// Lease-owned unread-reply count cleared when cancellation invalidates it.
+    pending_responses: &'a AtomicUsize,
+}
+
+impl<S, P, C> SlotConnection<'_, S, P, C>
+where
+    S: Serializer + Clone + Send + Sync + 'static,
+    P: bincode::Encode + Clone + Send + Sync + 'static,
+    C: Send + 'static,
+{
+    /// Keep the connection after its operation returned.
+    pub(crate) fn disarm(&mut self) { self.armed = false; }
+
+    /// Invalidate the connection while an operation is still holding it.
+    pub(crate) fn mark_broken(&mut self) { self.connection.mark_broken(); }
 }
 
 impl<S, P, C> Deref for SlotConnection<'_, S, P, C>
@@ -158,6 +230,21 @@ where
     C: Send + 'static,
 {
     fn drop(&mut self) {
+        if self.armed {
+            // The operation future was dropped before it completed, so the
+            // exchange may still be half-written or half-read. A late reply
+            // must never reach the next lease.
+            self.connection.mark_broken();
+            self.pending_responses.store(0, Ordering::Release);
+            crate::metrics::inc_pool_incomplete_operation_discard();
+            tracing::debug!(
+                action = "discard_connection",
+                pool_operation = "client_operation",
+                reason = "operation_incomplete",
+                "discarding pooled client connection after an incomplete operation"
+            );
+        }
+
         let mut last_returned_at = lock_or_recover(self.last_returned_at);
 
         if self.connection.is_broken() {

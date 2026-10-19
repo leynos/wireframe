@@ -483,11 +483,32 @@ cargo run --example client_echo_login --features examples
   - warm reuse keeps the negotiated socket and does not replay preamble;
   - if a slot is idle past its configured timeout, the next checkout lazily
     recycles the socket and reruns the preamble.
+- Cancellation safety:
+  - each checked-out connection remains guarded until its operation completes;
+    dropping an in-flight operation marks the socket broken before it can
+    return to the pool;
+  - completed operations disarm that guard, then the existing recyclable-error
+    policy decides whether a failed socket must be discarded;
+  - a lease tracks successful split-phase sends until matching receives
+    complete, and marks the slot for discard if the lease is dropped with a
+    response still pending;
+  - while that response is pending, the lease holds the slot's protocol gate
+    so another lease cannot check out the same socket, and the idle-recycle
+    decision does not replace a socket whose reply is still expected;
+  - a whole-request call on that lease while a response is pending returns a
+    disconnection error, schedules the socket for discard on the next checkout,
+    and records the `response_pending` discard reason.
 - Admission semantics:
   - `max_in_flight_per_socket` is an admission budget, not a promise of
     parallel writes on one transport;
   - leases may coexist up to that budget, but actual socket I/O remains
-    serialized by the slot's single checked-out client connection.
+    serialized by the slot's single checked-out client connection;
+  - `max_waiters` separately bounds acquisitions queued in policy queues or
+    held by the servicing worker; saturation is rejected before socket access;
+  - once a lease owns a split-phase response, its protocol gate reserves the
+    socket until receive completes or dropping the lease schedules a discard.
+    This response-ownership rule composes with waiter admission and does not
+    change its count.
 - For screen readers: the following flowchart shows how
   `WireframeClientPool::acquire()` selects a slot, enforces the per-socket
   admission limit, decides between warm reuse and idle recycle, reruns the

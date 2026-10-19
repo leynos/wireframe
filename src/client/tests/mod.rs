@@ -7,6 +7,8 @@ mod messaging;
 #[cfg(feature = "pool")]
 mod pool;
 #[cfg(feature = "pool")]
+mod pool_concurrency;
+#[cfg(feature = "pool")]
 mod pool_handle;
 mod request_hooks;
 mod request_hooks_support;
