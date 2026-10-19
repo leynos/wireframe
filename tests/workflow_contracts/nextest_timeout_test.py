@@ -83,7 +83,8 @@ def coverage_action_name(step: dict[str, typ.Any]) -> str:
 )
 def test_coverage_action_name_strips_the_version_pin(uses: str, expected: str) -> None:
     """A pinned invocation yields the action path alone."""
-    assert coverage_action_name({"uses": uses}) == expected
+    actual = coverage_action_name({"uses": uses})
+    assert actual == expected, f"{uses!r} should name {expected!r}, got {actual!r}"
 
 
 @pytest.mark.parametrize(
@@ -97,7 +98,7 @@ def test_coverage_action_name_strips_the_version_pin(uses: str, expected: str) -
 )
 def test_coverage_action_name_rejects_an_invocation_without_a_pin(uses: str) -> None:
     """A ``uses`` value with no pin, an empty pin, or no name is refused."""
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match="action invocation"):
         coverage_action_name({"uses": uses})
 
 
