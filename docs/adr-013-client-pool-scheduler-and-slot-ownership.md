@@ -480,11 +480,11 @@ The implementation must maintain:
 5. Cancelled or deregistered waiters receive no later lease.
 6. Shutdown resolves every queued reply and terminates the task. Shutdown
    withdrawal is the only path that completes a waiter still in a queue: the
-   service worker stops claiming once shutdown is published, and an
-   acquisition that enqueues after a concurrent drain withdraws its own
-   sender before failing. Without that separation the worker raced the drain
-   and masked the `notify_shutdown` mutation, because it resolved queued
-   waiters from the shutdown notification itself.
+   service worker stops claiming once shutdown is published, and an acquisition
+   that enqueues after a concurrent drain withdraws its own sender before
+   failing. Without that separation the worker raced the drain and masked the
+   `notify_shutdown` mutation, because it resolved queued waiters from the
+   shutdown notification itself.
 7. No strong-reference cycle keeps the pool alive after all public handles
    are gone.
 8. Capacity observation is idempotent and cannot create an extra permit.
