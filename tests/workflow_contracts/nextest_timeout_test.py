@@ -44,6 +44,23 @@ def coverage_action_name(step: dict[str, typ.Any]) -> str:
     SHA and to agree on one revision across the workflow tree. Repeating the
     literal SHA here made a dependabot bump of that shared revision fail a
     timeout test, because the two had to be updated together.
+
+    Parameters
+    ----------
+    step
+        One parsed workflow step.
+
+    Returns
+    -------
+    str
+        The ``uses`` value with its ``@`` pin removed.
+
+    Examples
+    --------
+    >>> coverage_action_name(
+    ...     {"uses": "leynos/shared-actions/.github/actions/generate-coverage@abc"}
+    ... )
+    'leynos/shared-actions/.github/actions/generate-coverage'
     """
     uses = str(step.get("uses", ""))
     name, separator, _version = uses.partition("@")
