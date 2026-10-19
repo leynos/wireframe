@@ -482,6 +482,26 @@ recycling a socket. Background waiter servicing lives in
 the full contract. Acquire deadlines and waiter/rejection telemetry remain
 deferred under [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md).
 
+Each `SlotConnection` checkout starts armed. `dispatch_on_connection` disarms
+the guard only after the operation future returns; dropping an armed guard
+marks the socket broken, records a `reason="operation_incomplete"` increment of
+`wireframe_pool_connection_discards_total`, and clears the healthy-return
+timestamp. This covers cancellation and unwinding while an operation is in
+flight. A lease also counts successful split-phase sends and receives. Dropping
+it with an unread response marks its slot for discard on the next checkout,
+records a `reason="response_pending"` increment of the same counter, and
+prevents a late reply from reaching a later lease. A whole-request call or
+failed checkout that finds an unread response schedules the same discard and
+records the same reason.
+
+Each slot has a protocol gate as well as its admission permits. A lease holds
+the gate from send to receive, so another lease cannot check out the same
+socket while a reply is pending; the idle-recycle decision also skips a socket
+with a pending response, because recycling would discard the very connection
+that reply will arrive on. Drop marks the socket for discard before releasing
+the gate. Completed whole-request operations retain the existing
+`ClientError::should_recycle_connection` policy.
+
 `ManagedClientConnection` owns its client in an `Option` and takes it once when
 teardown starts. Calls through `client_mut` return a disconnection error after
 that transfer. Dropping a live connection schedules `close()` on the current

@@ -20,10 +20,17 @@ use std::time::Duration;
 #[cfg(feature = "metrics")]
 use metrics::{counter, gauge, histogram};
 
+mod client_pool;
 mod decode_rejections;
 mod server_startup;
 mod server_supervisor;
 
+pub use client_pool::POOL_CONNECTION_DISCARDS;
+#[cfg(all(feature = "pool", not(loom)))]
+pub(crate) use client_pool::{
+    inc_pool_incomplete_operation_discard,
+    inc_pool_pending_response_discard,
+};
 pub use decode_rejections::DECODE_REJECTIONS;
 pub(crate) use decode_rejections::{
     DecodeRejectionPath,

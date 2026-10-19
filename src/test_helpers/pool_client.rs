@@ -9,7 +9,11 @@ use std::{
 };
 
 use futures::{FutureExt, SinkExt, StreamExt};
-use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
+use tokio::{
+    net::TcpListener,
+    sync::{Mutex, Notify},
+    task::JoinHandle,
+};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
 use crate::{
@@ -51,6 +55,11 @@ pub enum PoolServerBehavior {
     EchoPong,
     /// Send one malformed response payload, then resume normal replies.
     MalformedFirstResponse,
+    /// Hold the first reply until the test releases it, then resume normally.
+    ///
+    /// Lets a test observe a request that is in flight server-side, so it can
+    /// cancel or drop the client operation before the reply is written.
+    LateFirstResponse,
 }
 
 /// Shared pooled test server used by unit and behavioural tests.
@@ -62,6 +71,12 @@ pub struct PoolTestServer {
     preamble_count: Arc<AtomicUsize>,
     /// Count of physical TCP connections accepted by the fixture.
     connection_count: Arc<AtomicUsize>,
+    /// Signals that a held first reply is blocking the fixture.
+    delayed_first_response_started: Arc<Notify>,
+    /// Released by the test once the client operation has been cancelled.
+    delayed_first_response_release: Arc<Notify>,
+    /// Signals that the fixture has attempted the held reply's write.
+    delayed_first_response_attempted: Arc<Notify>,
     /// Background accept loop; aborting it makes dropping the fixture bounded.
     handle: JoinHandle<()>,
 }
@@ -72,8 +87,14 @@ struct PoolServerState {
     preamble_count: Arc<AtomicUsize>,
     /// Shared accepted-connection counter.
     connection_count: Arc<AtomicUsize>,
-    /// One-shot flag controlling malformed-response coverage.
-    malformed_response_sent: Arc<AtomicBool>,
+    /// One-shot flag controlling special first-response coverage.
+    special_response_handled: Arc<AtomicBool>,
+    /// Signals that a held first reply is blocking the fixture.
+    delayed_first_response_started: Arc<Notify>,
+    /// Released by the test once the client operation has been cancelled.
+    delayed_first_response_release: Arc<Notify>,
+    /// Signals that the fixture has attempted the held reply's write.
+    delayed_first_response_attempted: Arc<Notify>,
     /// Response mode selected by the test case.
     behaviour: PoolServerBehavior,
 }
@@ -98,10 +119,16 @@ impl PoolTestServer {
         let addr = listener.local_addr()?;
         let preamble_count = Arc::new(AtomicUsize::new(0));
         let connection_count = Arc::new(AtomicUsize::new(0));
+        let delayed_first_response_started = Arc::new(Notify::new());
+        let delayed_first_response_release = Arc::new(Notify::new());
+        let delayed_first_response_attempted = Arc::new(Notify::new());
         let state = PoolServerState {
             preamble_count: preamble_count.clone(),
             connection_count: connection_count.clone(),
-            malformed_response_sent: Arc::new(AtomicBool::new(false)),
+            special_response_handled: Arc::new(AtomicBool::new(false)),
+            delayed_first_response_started: delayed_first_response_started.clone(),
+            delayed_first_response_release: delayed_first_response_release.clone(),
+            delayed_first_response_attempted: delayed_first_response_attempted.clone(),
             behaviour,
         };
 
@@ -111,6 +138,9 @@ impl PoolTestServer {
             addr,
             preamble_count,
             connection_count,
+            delayed_first_response_started,
+            delayed_first_response_release,
+            delayed_first_response_attempted,
             handle,
         })
     }
@@ -122,10 +152,33 @@ impl PoolTestServer {
     /// Return the number of physical connections accepted by the server.
     #[must_use]
     pub fn connection_count(&self) -> usize { self.connection_count.load(Ordering::SeqCst) }
+
+    /// Wait until [`PoolServerBehavior::LateFirstResponse`] holds a reply.
+    pub async fn wait_for_delayed_first_response(&self) {
+        self.delayed_first_response_started.notified().await;
+    }
+
+    /// Release the reply held by [`PoolServerBehavior::LateFirstResponse`].
+    pub fn release_delayed_first_response(&self) {
+        self.delayed_first_response_release.notify_one();
+    }
+
+    /// Wait until the fixture has attempted the held reply's write.
+    ///
+    /// A cancelled client closes its socket, so this write may fail; the
+    /// signal reports the attempt, not success.
+    pub async fn wait_for_delayed_first_response_attempt(&self) {
+        self.delayed_first_response_attempted.notified().await;
+    }
 }
 
 impl Drop for PoolTestServer {
-    fn drop(&mut self) { self.handle.abort(); }
+    fn drop(&mut self) {
+        // Unblock a detached connection task when a test exits before it has
+        // released the held reply.
+        self.delayed_first_response_release.notify_one();
+        self.handle.abort();
+    }
 }
 
 /// Build a pooled client configured for the shared test protocol.
@@ -191,7 +244,10 @@ async fn run_pool_test_accept_loop(listener: TcpListener, state: PoolServerState
         let state = PoolServerState {
             preamble_count: state.preamble_count.clone(),
             connection_count: state.connection_count.clone(),
-            malformed_response_sent: state.malformed_response_sent.clone(),
+            special_response_handled: state.special_response_handled.clone(),
+            delayed_first_response_started: state.delayed_first_response_started.clone(),
+            delayed_first_response_release: state.delayed_first_response_release.clone(),
+            delayed_first_response_attempted: state.delayed_first_response_attempted.clone(),
             behaviour: state.behaviour,
         };
         tokio::spawn(handle_pool_test_connection(stream, state));
@@ -224,22 +280,59 @@ async fn handle_pool_test_connection(mut stream: tokio::net::TcpStream, state: P
             break;
         };
 
-        let payload = if state.behaviour == PoolServerBehavior::MalformedFirstResponse
-            && !state.malformed_response_sent.swap(true, Ordering::SeqCst)
-        {
-            Vec::new()
-        } else {
-            let encoded = bincode::encode_to_vec(Pong(ping.0), bincode::config::standard());
-            let Ok(payload) = encoded else {
-                break;
-            };
-            payload
+        let is_first_special_response =
+            !state.special_response_handled.swap(true, Ordering::SeqCst);
+        let Some(payload) =
+            pool_test_response_payload(&ping, state.behaviour, is_first_special_response)
+        else {
+            break;
         };
 
-        if framed.send(payload.into()).await.is_err() {
+        let is_late_first_response =
+            matches!(state.behaviour, PoolServerBehavior::LateFirstResponse)
+                && is_first_special_response;
+        if !send_pool_test_response(&mut framed, payload, is_late_first_response, &state).await {
             break;
         }
     }
+}
+
+/// Encode a normal reply, or the empty payload used by malformed coverage.
+fn pool_test_response_payload(
+    ping: &Ping,
+    behaviour: PoolServerBehavior,
+    is_first_special_response: bool,
+) -> Option<Vec<u8>> {
+    if matches!(behaviour, PoolServerBehavior::MalformedFirstResponse) && is_first_special_response
+    {
+        return Some(Vec::new());
+    }
+    bincode::encode_to_vec(Pong(ping.0), bincode::config::standard()).ok()
+}
+
+/// Send one reply, optionally holding it until the test releases it.
+///
+/// The signals let a cancellation test wait until the server has received the
+/// request, cancel its client operation, and only then let the reply be
+/// written into a socket the client has already abandoned.
+///
+/// Returns `false` when the connection can no longer be used.
+async fn send_pool_test_response(
+    framed: &mut Framed<tokio::net::TcpStream, LengthDelimitedCodec>,
+    payload: Vec<u8>,
+    is_late_first_response: bool,
+    state: &PoolServerState,
+) -> bool {
+    if is_late_first_response {
+        state.delayed_first_response_started.notify_one();
+        state.delayed_first_response_release.notified().await;
+    }
+
+    let send_result = framed.send(payload.into()).await;
+    if is_late_first_response {
+        state.delayed_first_response_attempted.notify_one();
+    }
+    send_result.is_ok()
 }
 
 /// Decode the fixture's handshake response and return any buffered bytes.

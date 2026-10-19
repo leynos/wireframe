@@ -12,9 +12,28 @@ use rstest::fixture;
 use tokio::time::timeout;
 use wireframe::{
     client::{ClientError, ClientPoolConfig},
-    test_helpers::{Ping, Pong, PoolTestServer, TestClientPool, build_pooled_client},
+    test_helpers::{
+        Ping,
+        Pong,
+        PoolServerBehavior,
+        PoolTestServer,
+        TestClientPool,
+        build_pooled_client,
+    },
 };
 pub use wireframe_testing::TestResult;
+
+/// Bound on the cancellation scenario's waits and teardown.
+const CANCELLATION_GRACE: Duration = Duration::from_secs(1);
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum CancelledCallCapacity {
+    /// The post-cancellation acquire has not been attempted.
+    #[default]
+    NotChecked,
+    /// A fresh lease was granted after the cancellation completed.
+    Released,
+}
 
 #[derive(Default)]
 struct InFlightLimitOutcome {
@@ -30,6 +49,7 @@ pub struct ClientPoolWorld {
     blocked_waiter_within_limit: bool,
     rejected_waiter_above_limit: bool,
     reconnected_after_idle: bool,
+    cancelled_call_capacity: CancelledCallCapacity,
 }
 
 impl Default for ClientPoolWorld {
@@ -42,6 +62,7 @@ impl Default for ClientPoolWorld {
             blocked_waiter_within_limit: false,
             rejected_waiter_above_limit: false,
             reconnected_after_idle: false,
+            cancelled_call_capacity: CancelledCallCapacity::NotChecked,
         }
     }
 }
@@ -172,6 +193,50 @@ impl ClientPoolWorld {
         Ok(())
     }
 
+    /// Cancel a pooled call while its first response is still unwritten.
+    ///
+    /// The server only writes that late response after the client task is
+    /// cancelled, so a reused socket would read a reply nobody asked for.
+    pub async fn run_cancelled_call_scenario(&mut self) -> TestResult {
+        self.server =
+            Some(PoolTestServer::start_with_behavior(PoolServerBehavior::LateFirstResponse).await?);
+        self.connect_pool(
+            ClientPoolConfig::default()
+                .pool_size(1)
+                .max_in_flight_per_socket(1),
+        )
+        .await?;
+        let pool = self.pool.as_ref().ok_or("pool missing")?;
+        let lease = pool.acquire().await?;
+        let call_task = tokio::spawn(async move { lease.call::<Ping, Pong>(&Ping(1)).await });
+        let server = self.server.as_ref().ok_or("server missing")?;
+        timeout(CANCELLATION_GRACE, server.wait_for_delayed_first_response()).await?;
+
+        call_task.abort();
+        let Err(join_error) = timeout(CANCELLATION_GRACE, call_task).await? else {
+            return Err("cancelled pooled call completed instead of stopping".into());
+        };
+        if !join_error.is_cancelled() {
+            return Err("expected the pooled call task to be cancelled".into());
+        }
+
+        server.release_delayed_first_response();
+        timeout(
+            CANCELLATION_GRACE,
+            server.wait_for_delayed_first_response_attempt(),
+        )
+        .await?;
+
+        let lease = timeout(CANCELLATION_GRACE, pool.acquire()).await??;
+        self.cancelled_call_capacity = CancelledCallCapacity::Released;
+        let response: Pong = lease.call(&Ping(2)).await?;
+        if response != Pong(2) {
+            return Err(format!("unexpected response after cancellation: {response:?}").into());
+        }
+
+        Ok(())
+    }
+
     pub fn warm_reuse_preserved(&self) -> bool {
         self.preamble_callback_count.load(Ordering::SeqCst) == 1
             && self.server.as_ref().is_some_and(|server| {
@@ -185,6 +250,15 @@ impl ClientPoolWorld {
 
     pub fn bounded_waiter_admission_preserved(&self) -> bool {
         self.blocked_waiter_within_limit && self.rejected_waiter_above_limit
+    }
+
+    /// Check that cancellation released capacity and forced a fresh socket.
+    pub fn reconnected_after_cancelled_call(&self) -> bool {
+        self.cancelled_call_capacity == CancelledCallCapacity::Released
+            && self.preamble_callback_count.load(Ordering::SeqCst) == 2
+            && self.server.as_ref().is_some_and(|server| {
+                server.preamble_count() == 2 && server.connection_count() == 2
+            })
     }
 
     pub fn reconnected_after_idle(&self) -> bool {
