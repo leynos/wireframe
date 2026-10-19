@@ -198,11 +198,16 @@ where
         handle.acquire().await
     }
 
-    /// Close the pool and drop all warm sockets.
+    /// Close the pool and release its warm sockets.
     ///
-    /// An outstanding handle that keeps the shared pool state alive still
-    /// observes the shutdown: any later acquisition fails with a disconnected
-    /// error instead of taking capacity that is mid-teardown.
+    /// Shutdown is published before this method returns: an outstanding handle
+    /// that keeps the shared pool state alive still observes it, and any later
+    /// acquisition fails with a disconnected error instead of taking capacity
+    /// mid-teardown.
+    ///
+    /// Dropping the sockets is deferred. A lease acquired before close is not
+    /// revoked, and a `PoolHandle` or lease keeps the pool core (and therefore
+    /// every slot and warm socket) alive until it is dropped.
     ///
     /// # Examples
     ///

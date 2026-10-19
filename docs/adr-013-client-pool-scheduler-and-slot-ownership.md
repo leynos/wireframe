@@ -478,7 +478,13 @@ The implementation must maintain:
 4. Round-robin policy gives each active logical handle turns according to
    the existing contract.
 5. Cancelled or deregistered waiters receive no later lease.
-6. Shutdown resolves every queued reply and terminates the task.
+6. Shutdown resolves every queued reply and terminates the task. Shutdown
+   withdrawal is the only path that completes a waiter still in a queue: the
+   service worker stops claiming once shutdown is published, and an
+   acquisition that enqueues after a concurrent drain withdraws its own
+   sender before failing. Without that separation the worker raced the drain
+   and masked the `notify_shutdown` mutation, because it resolved queued
+   waiters from the shutdown notification itself.
 7. No strong-reference cycle keeps the pool alive after all public handles
    are gone.
 8. Capacity observation is idempotent and cannot create an extra permit.
@@ -561,7 +567,9 @@ Complete or coordinate the following, plus any remaining useful scope from
 - FIFO and round-robin behavioural tests preserve ordering.
 - Saturated pools enforce waiter bounds and acquisition timeouts.
 - Dropped acquire futures are pruned and do not receive leases.
-- Shutdown resolves blocked waiters promptly and the actor terminates.
+- Shutdown resolves blocked waiters promptly and the actor terminates. The
+  resolution must not depend on the service worker: with the drain replaced by
+  a no-op, a waiter left in the queue must still fail rather than time out.
 - Dropping all public handles without `close` eventually releases the pool
   core, including with the `JoinHandle` held by the non-shared close owner.
 - Loom or deterministic state-machine tests cover enqueue, capacity,

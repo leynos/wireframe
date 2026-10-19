@@ -176,12 +176,16 @@ async fn slot_rotation_serves_each_pool_connection(
 /// Kills the `notify_shutdown` mutant: a waiter still queued when the pool
 /// closes must be resolved, not left blocked forever.
 ///
-/// The first waiter is claimed by the background service task and parks on
-/// slot capacity; the second stays in the scheduler queue. The test waits for
-/// both acquisitions to record a capacity wait before closing, so both are
-/// genuinely past the initial shutdown check. Only `notify_shutdown()` drains
-/// the queued waiter, so removing it leaves the second acquire blocked until
-/// the timeout fails this test.
+/// The only permit is held for the whole test, so the service worker can claim
+/// at most one acquisition before it parks waiting for capacity; the other
+/// stays in the scheduler queue. Once shutdown is published the worker stops
+/// claiming, so the queued acquisition cannot be rescued by the worker — only
+/// `notify_shutdown()` can complete it. Removing the drain leaves that
+/// acquisition blocked until the timeout fails this test.
+///
+/// The only interleaving the assertion has to tolerate is which of the two
+/// acquisitions the worker claimed. Both must fail, and the one that was left
+/// queued can only fail through the drain.
 #[rstest]
 #[tokio::test(flavor = "current_thread")]
 async fn shutdown_drains_a_queued_waiter(client_pool_config: ClientPoolConfig) -> TestResult {
@@ -196,11 +200,11 @@ async fn shutdown_drains_a_queued_waiter(client_pool_config: ClientPoolConfig) -
     // Hold the only permit so both acquisitions below have to queue.
     let held_lease = pool.acquire().await?;
     let churn = pool.task_churn_observer();
-    let mut claimed_handle = pool.handle();
-    let mut queued_handle = pool.handle();
+    let mut first_handle = pool.handle();
+    let mut second_handle = pool.handle();
 
-    let claimed = tokio::spawn(async move { claimed_handle.acquire().await.map(|_lease| ()) });
-    let queued = tokio::spawn(async move { queued_handle.acquire().await.map(|_lease| ()) });
+    let first = tokio::spawn(async move { first_handle.acquire().await.map(|_lease| ()) });
+    let second = tokio::spawn(async move { second_handle.acquire().await.map(|_lease| ()) });
 
     // Do not close until both acquisitions have recorded a capacity wait;
     // otherwise either could fail at the initial shutdown check and this test
@@ -213,18 +217,18 @@ async fn shutdown_drains_a_queued_waiter(client_pool_config: ClientPoolConfig) -
 
     pool.close().await;
 
-    let claimed_result = timeout(PROMPT, claimed).await??;
-    let queued_result = timeout(PROMPT, queued).await??;
+    let first_result = timeout(PROMPT, first).await??;
+    let second_result = timeout(PROMPT, second).await??;
 
-    let claimed_error = claimed_result.expect_err("claimed waiter must fail once the pool closes");
-    let queued_error = queued_result.expect_err("queued waiter must fail once the pool closes");
+    let first_error = first_result.expect_err("first waiter must fail once the pool closes");
+    let second_error = second_result.expect_err("second waiter must fail once the pool closes");
     assert!(
-        is_disconnected(&claimed_error),
-        "claimed waiter must report disconnection, got {claimed_error:?}"
+        is_disconnected(&first_error),
+        "first waiter must report disconnection, got {first_error:?}"
     );
     assert!(
-        is_disconnected(&queued_error),
-        "queued waiter must report disconnection, got {queued_error:?}"
+        is_disconnected(&second_error),
+        "second waiter must report disconnection, got {second_error:?}"
     );
 
     drop(held_lease);

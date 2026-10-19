@@ -21,10 +21,17 @@ where
         core: Arc<PoolCore<S, P, C>>,
         control: Arc<PoolSchedulerControl<S, P, C>>,
     ) {
-        while let Some(sender) = self.take_next_waiter_or_stop() {
+        // Once shutdown is published no acquisition can succeed. Stopping here
+        // keeps `notify_shutdown` the authority that completes queued waiters;
+        // the worker only resolves the one waiter it has already claimed.
+        while !core.is_shutdown() {
+            let Some(sender) = self.take_next_waiter_or_stop() else {
+                return;
+            };
             self.service_one_waiter(sender, Arc::clone(&core), Arc::clone(&control))
                 .await;
         }
+        self.stop_servicing();
     }
 
     /// Race slot capacity against shutdown or cancellation for one waiter.
