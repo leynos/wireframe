@@ -69,10 +69,19 @@ where
 
     /// Wait until pool shutdown wakes a cancellation-sensitive operation.
     pub(crate) async fn shutdown_notified(&self) {
+        self.shutdown_notified_after_check(std::future::ready(()))
+            .await;
+    }
+
+    /// Share the shutdown-check boundary with a deterministic interleaving test.
+    async fn shutdown_notified_after_check(&self, after_check: impl Future<Output = ()>) {
+        // Tokio records `notify_waiters` calls made after this future is
+        // created, even before its first poll.
         let notified = self.shutdown_notify.notified();
         if self.is_shutdown() {
             return;
         }
+        after_check.await;
         notified.await;
     }
 

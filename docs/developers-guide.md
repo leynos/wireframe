@@ -305,9 +305,14 @@ boundaries for Epic 635:
 - [ADR 012](adr-012-prepared-application-and-connection-runtime.md) splits
   `WireframeApp` into a registration builder, an immutable `PreparedApp`
   template shared by connection tasks, and a per-connection `ConnectionRuntime`.
-- [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) gives the
-  client-pool scheduler a single persistent owner task and index-based slot
-  leases beneath one `PoolCore` root.
+- [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) records a
+  phased client-pool ownership change. Phase 2 stores fixed slots by value in
+  `PoolCore` and keeps scheduler state in `PoolSchedulerControl`; pools and
+  handles retain both roots, while leases retain the core, a checked slot
+  index, a permit, and an optional control handle. The spawn-on-demand
+  scheduler and per-slot `Arc<PoolCore>` permit-race clones remain in this
+  intermediate phase. The persistent owner task and scoped permit race belong
+  to later phases.
 
 The first implementation slice is now in place: consuming
 `WireframeApp::prepare().await` returns an immutable `PreparedApp` or a typed

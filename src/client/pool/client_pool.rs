@@ -189,7 +189,10 @@ where
         handle.acquire().await
     }
 
-    /// Close the pool and drop all warm sockets.
+    /// Close the pool and reject new acquisitions.
+    ///
+    /// Existing leases and handles retain the pool core and its slot pools
+    /// until they are dropped.
     pub async fn close(self) {
         self.core.shutdown();
         self.control.scheduler.notify_shutdown();

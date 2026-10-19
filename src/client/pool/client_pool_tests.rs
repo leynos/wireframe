@@ -71,16 +71,35 @@ async fn pool_and_handle_drop_keep_lease_slot_alive_until_final_lease_drop() {
 }
 
 #[tokio::test]
-async fn close_rejects_new_acquisitions_while_an_existing_lease_keeps_its_slot() {
+async fn close_rejects_new_and_queued_acquisitions_while_an_existing_lease_keeps_its_slot() {
     let pool = test_pool(None);
     let mut handle = pool.handle();
     let lease = test_lease(&pool);
+    let observer = pool.task_churn_observer();
+    let mut queued_handle = pool.handle();
+    let queued_acquisition = tokio::spawn(async move { queued_handle.acquire().await });
+
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while observer.snapshot().capacity_waits == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the second acquisition should enter the wait path before close");
 
     pool.close().await;
 
     assert!(
         handle.acquire().await.is_err(),
         "a closed pool must reject new leases"
+    );
+    let queued_result = tokio::time::timeout(Duration::from_secs(1), queued_acquisition)
+        .await
+        .expect("pool close should complete the queued acquisition")
+        .expect("the queued acquisition task should complete");
+    assert!(
+        queued_result.is_err(),
+        "a queued acquisition must not receive a lease after close"
     );
     assert!(
         lease.slot().is_some(),
