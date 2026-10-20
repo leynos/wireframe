@@ -62,11 +62,11 @@ jobs:
       # runner needs the linker before coverage runs. The input installs it
       # and sets no flag; the Cargo configuration does that.
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@81374b6f183e59f0570ad36217ded90d3240fda6
+        uses: leynos/shared-actions/.github/actions/setup-rust@5ac271baf94615e9a876ce1b77a4b266dd81f201
         with:
           install-mold: 'true'
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@81374b6f183e59f0570ad36217ded90d3240fda6
+        uses: leynos/shared-actions/.github/actions/generate-coverage@5ac271baf94615e9a876ce1b77a4b266dd81f201
         with:
           output-path: lcov.info
           format: lcov
@@ -92,7 +92,7 @@ jobs:
         # a5765019 is the floor: from it the uploader selects the CodeScene
         # CLI from a committed manifest. Earlier revisions install "latest",
         # which no longer resolves.
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@81374b6f183e59f0570ad36217ded90d3240fda6
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@5ac271baf94615e9a876ce1b77a4b266dd81f201
         with:
           format: lcov
           # Stated rather than left to the action's default, because this
