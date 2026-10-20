@@ -47,15 +47,105 @@ pub(crate) fn inc_pool_pending_response_discard() {
 #[cfg(all(not(feature = "metrics"), feature = "pool", not(loom)))]
 pub(crate) fn inc_pool_pending_response_discard() {}
 
+/// Name of the counter tracking client-pool acquisition attempts by mode and
+/// outcome.
+///
+/// Both labels use fixed vocabularies, so pool activity cannot create new
+/// series. The `mode` label is `"immediate"` for the synchronous fast path and
+/// `"permit_race"` for the asynchronous race; the `outcome` label is one of
+/// `"granted"`, `"exhausted"`, `"shutdown"`, or `"error"`.
+///
+/// ```plaintext
+/// # HELP wireframe_pool_acquisitions_total Count of client-pool acquisition attempts by mode and outcome.
+/// # TYPE wireframe_pool_acquisitions_total counter
+/// wireframe_pool_acquisitions_total{mode="immediate",outcome="granted"} 3
+/// wireframe_pool_acquisitions_total{mode="permit_race",outcome="exhausted"} 1
+/// ```
+pub const POOL_ACQUISITIONS: &str = "wireframe_pool_acquisitions_total";
+
+/// Bounded acquisition paths that decide how a pooled slot is selected.
+///
+/// Gated like [`inc_pool_acquisition`]: under `cfg(loom)` the client module
+/// is compiled out, so leaving these labels visible would only be dead code.
+#[cfg(all(feature = "pool", not(loom)))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PoolAcquisitionMode {
+    /// The synchronous fast path tries each slot once without waiting.
+    Immediate,
+    /// The asynchronous path races one permit future per slot.
+    PermitRace,
+}
+
+#[cfg(all(feature = "pool", not(loom)))]
+impl PoolAcquisitionMode {
+    /// Return the stable metric label for this acquisition path.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Immediate => "immediate",
+            Self::PermitRace => "permit_race",
+        }
+    }
+}
+
+/// Bounded outcomes of one client-pool acquisition attempt.
+#[cfg(all(feature = "pool", not(loom)))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PoolAcquisitionOutcome {
+    /// A slot granted capacity and the caller received a lease.
+    Granted,
+    /// Every slot was scanned without free capacity.
+    Exhausted,
+    /// The pool was already shut down, so no slot was tried.
+    Shutdown,
+    /// A slot wait or checkout failed with an error.
+    Error,
+}
+
+#[cfg(all(feature = "pool", not(loom)))]
+impl PoolAcquisitionOutcome {
+    /// Return the stable metric label for this acquisition outcome.
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Granted => "granted",
+            Self::Exhausted => "exhausted",
+            Self::Shutdown => "shutdown",
+            Self::Error => "error",
+        }
+    }
+}
+
+/// Record one acquisition attempt with fixed mode and outcome labels.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
+#[cfg(all(feature = "metrics", feature = "pool", not(loom)))]
+pub(crate) fn inc_pool_acquisition(mode: PoolAcquisitionMode, outcome: PoolAcquisitionOutcome) {
+    counter!(
+        POOL_ACQUISITIONS,
+        "mode" => mode.as_str(),
+        "outcome" => outcome.as_str()
+    )
+    .increment(1);
+}
+
+/// Record one acquisition attempt with fixed mode and outcome labels.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
+#[cfg(all(not(feature = "metrics"), feature = "pool", not(loom)))]
+pub(crate) fn inc_pool_acquisition(_mode: PoolAcquisitionMode, _outcome: PoolAcquisitionOutcome) {}
+
 #[cfg(all(test, feature = "metrics", feature = "pool", not(loom)))]
 mod tests {
-    //! Tests for bounded client-pool discard labels.
+    //! Tests for bounded client-pool discard and acquisition labels.
 
     use metrics_util::debugging::{DebugValue, DebuggingRecorder};
     use rstest::rstest;
 
     use super::{
+        POOL_ACQUISITIONS,
         POOL_CONNECTION_DISCARDS,
+        PoolAcquisitionMode,
+        PoolAcquisitionOutcome,
+        inc_pool_acquisition,
         inc_pool_incomplete_operation_discard,
         inc_pool_pending_response_discard,
     };
@@ -94,5 +184,41 @@ mod tests {
                     && matches!(value, DebugValue::Counter(count) if *count == 1)
             });
         assert!(found, "{message}");
+    }
+
+    #[rstest]
+    #[case::immediate_granted(PoolAcquisitionMode::Immediate, PoolAcquisitionOutcome::Granted)]
+    #[case::immediate_shutdown(PoolAcquisitionMode::Immediate, PoolAcquisitionOutcome::Shutdown)]
+    #[case::race_exhausted(PoolAcquisitionMode::PermitRace, PoolAcquisitionOutcome::Exhausted)]
+    #[case::race_error(PoolAcquisitionMode::PermitRace, PoolAcquisitionOutcome::Error)]
+    fn acquisition_metric_uses_bounded_mode_and_outcome(
+        #[case] mode: PoolAcquisitionMode,
+        #[case] outcome: PoolAcquisitionOutcome,
+    ) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+
+        ::metrics::with_local_recorder(&recorder, || inc_pool_acquisition(mode, outcome));
+
+        let found = snapshotter
+            .snapshot()
+            .into_vec()
+            .iter()
+            .any(|(key, _, _, value)| {
+                key.key().name() == POOL_ACQUISITIONS
+                    && key
+                        .key()
+                        .labels()
+                        .any(|label| label.key() == "mode" && label.value() == mode.as_str())
+                    && key
+                        .key()
+                        .labels()
+                        .any(|label| label.key() == "outcome" && label.value() == outcome.as_str())
+                    && matches!(value, DebugValue::Counter(count) if *count == 1)
+            });
+        assert!(
+            found,
+            "acquisition metric for {mode:?}/{outcome:?} was not recorded"
+        );
     }
 }

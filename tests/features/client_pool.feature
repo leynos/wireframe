@@ -26,3 +26,10 @@ Feature: Client pool
     Given client pool cancellation safety is configured
     When client pool cancels a delayed in-flight call
     Then client pool reconnects after cancellation and releases capacity
+
+  Scenario: Client pool rotates slots and waits when every slot is leased
+    Given client pool slot rotation is configured with two slots
+    When client pool acquires leases through the public API
+    Then client pool holds two distinct physical sockets
+    And client pool leases distinct slots in rotation order
+    And client pool releases capacity when a lease is dropped

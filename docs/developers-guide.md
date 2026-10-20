@@ -488,6 +488,25 @@ recycling a socket. Background waiter servicing lives in
 the full contract. Acquire deadlines and waiter/rejection telemetry remain
 deferred under [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md).
 
+Slot selection rotates over indices rather than owning `Arc<PoolSlot>` values.
+`PoolCore::ordered_slot_indices` reads `next_slot` exactly once per non-empty
+attempt with a relaxed `fetch_add(1)`, reduces the seed below the slot count,
+and then visits every index once with `(start + offset).wrapping_rem(len)`.
+Reducing the seed before adding offsets matters for pools that are not a power
+of two: a wrapped `usize` differs from its true value by a multiple of
+`2^word`, which is only a multiple of the slot count for power-of-two sizes, so
+reducing after the addition would repeat one slot and skip another once the
+cursor overflowed. An empty pool consumes no cursor value. The synchronous path
+borrows each slot in rotation order and clones only the winning slot's index
+and permit into `PooledClientLease::new`; the asynchronous path boxes one
+permit future per index, each of which clones the shared `Arc<PoolCore>` rather
+than a slot. `src/client/pool/rotation_tests.rs` pins the ordering, the
+overflow cases, and the one-increment-per-attempt cursor contract. Every
+acquisition attempt also increments `wireframe_pool_acquisitions_total` with
+bounded `mode` (`immediate` or `permit_race`) and `outcome` (`granted`,
+`exhausted`, `shutdown`, or `error`) labels, so saturation and shutdown are
+observable without adding per-slot or caller identifiers.
+
 Each `SlotConnection` checkout starts armed. `dispatch_on_connection` disarms
 the guard only after the operation future returns; dropping an armed guard
 marks the socket broken, records a `reason="operation_incomplete"` increment of

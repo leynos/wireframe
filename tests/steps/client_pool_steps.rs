@@ -29,6 +29,11 @@ fn given_client_pool_cancellation_safety(client_pool_world: &mut ClientPoolWorld
     let _ = client_pool_world;
 }
 
+#[given("client pool slot rotation is configured with two slots")]
+fn given_client_pool_slot_rotation(client_pool_world: &mut ClientPoolWorld) {
+    let _ = client_pool_world;
+}
+
 #[when("client pool warm reuse runs against one socket")]
 fn when_client_pool_warm_reuse_runs(client_pool_world: &mut ClientPoolWorld) -> TestResult {
     let rt = tokio::runtime::Runtime::new()?;
@@ -65,6 +70,14 @@ fn when_client_pool_idles_past_timeout(client_pool_world: &mut ClientPoolWorld) 
 fn when_client_pool_cancels_in_flight_call(client_pool_world: &mut ClientPoolWorld) -> TestResult {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(client_pool_world.run_cancelled_call_scenario())
+}
+
+#[when("client pool acquires leases through the public API")]
+fn when_client_pool_acquires_through_public_api(
+    client_pool_world: &mut ClientPoolWorld,
+) -> TestResult {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(client_pool_world.run_multi_slot_rotation_scenario())
 }
 
 #[then("client pool warm reuse preserves one preamble handshake")]
@@ -113,5 +126,32 @@ fn then_client_pool_reconnects_after_cancellation(
         Ok(())
     } else {
         Err("expected cancellation to release capacity and reconnect".into())
+    }
+}
+
+#[then("client pool holds two distinct physical sockets")]
+fn then_client_pool_holds_two_sockets(client_pool_world: &mut ClientPoolWorld) -> TestResult {
+    if client_pool_world.slot_count() == 2 {
+        Ok(())
+    } else {
+        Err("expected the pool to be built with two physical slots".into())
+    }
+}
+
+#[then("client pool leases distinct slots in rotation order")]
+fn then_client_pool_leases_distinct_slots(client_pool_world: &mut ClientPoolWorld) -> TestResult {
+    if client_pool_world.multi_slot_rotation_preserved() {
+        Ok(())
+    } else {
+        Err("expected successive leases to rotate across distinct slots".into())
+    }
+}
+
+#[then("client pool releases capacity when a lease is dropped")]
+fn then_client_pool_releases_capacity(client_pool_world: &mut ClientPoolWorld) -> TestResult {
+    if client_pool_world.saturated_slot_recovered() {
+        Ok(())
+    } else {
+        Err("expected a dropped lease to return capacity to a waiting acquire".into())
     }
 }

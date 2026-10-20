@@ -43,3 +43,11 @@ fn client_pool_recycles_idle_sockets(client_pool_world: ClientPoolWorld) {
 fn client_pool_reconnects_after_cancelled_call(client_pool_world: ClientPoolWorld) {
     let _ = client_pool_world;
 }
+
+#[scenario(
+    path = "tests/features/client_pool.feature",
+    name = "Client pool rotates slots and waits when every slot is leased"
+)]
+fn client_pool_rotates_slots_and_waits_when_saturated(client_pool_world: ClientPoolWorld) {
+    let _ = client_pool_world;
+}
