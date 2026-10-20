@@ -26,7 +26,7 @@ jobs:
     permissions:
       contents: read
       id-token: write # OIDC workflow-source resolution
-    uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@81374b6f183e59f0570ad36217ded90d3240fda6
+    uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@5ac271baf94615e9a876ce1b77a4b266dd81f201
     with:
       # The wireframe_testing companion target is temporarily disabled:
       # its doctests fail to compile standalone, so the mutation

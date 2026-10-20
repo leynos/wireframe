@@ -67,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@81374b6f183e59f0570ad36217ded90d3240fda6
+        uses: leynos/shared-actions/.github/actions/setup-rust@5ac271baf94615e9a876ce1b77a4b266dd81f201
       - name: Install development backend and linker
         # Both runner choices are Ubuntu. Confirm the manifest's Cranelift
         # component and install the Linux linker before debug Make targets.
@@ -79,7 +79,7 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@81374b6f183e59f0570ad36217ded90d3240fda6
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@5ac271baf94615e9a876ce1b77a4b266dd81f201
         with:
           version: "0.6.1"
 
@@ -87,7 +87,7 @@ jobs:
         run: make check-fmt
 
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@81374b6f183e59f0570ad36217ded90d3240fda6
+        uses: leynos/shared-actions/.github/actions/install-whitaker@5ac271baf94615e9a876ce1b77a4b266dd81f201
       - name: Lint
         run: make lint
       - name: Setup uv
@@ -100,7 +100,7 @@ jobs:
       # Merman comes from its release archive, verified against a pinned
       # checksum, rather than being compiled from crates.io on every run.
       - name: Install Nixie and Merman CLI
-        uses: leynos/shared-actions/.github/actions/install-nixie@81374b6f183e59f0570ad36217ded90d3240fda6
+        uses: leynos/shared-actions/.github/actions/install-nixie@5ac271baf94615e9a876ce1b77a4b266dd81f201
         with:
           nixie-version: '1.1.0'
           merman-version: '0.7.0'
@@ -136,7 +136,7 @@ jobs:
       # coverage-main.yml uploads, and it needs nothing from here.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/generate-coverage@81374b6f183e59f0570ad36217ded90d3240fda6
+        uses: leynos/shared-actions/.github/actions/generate-coverage@5ac271baf94615e9a876ce1b77a4b266dd81f201
         with:
           output-path: lcov.info
           format: lcov
