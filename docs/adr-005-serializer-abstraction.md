@@ -148,25 +148,21 @@ Accepted implementation details:
   before the next public API-breaking release or during the zero-copy frame and
   payload roadmap work.
 
-### Planned zero-copy serializer output migration
+### Deferred zero-copy serializer output migration
 
-The design for issue #538 is recorded in the
-[serializer migration plan][serializer-output-plan]. Implementation remains
-deferred. The proposed contract changes `Serializer::serialize`,
-`EncodeWith::encode_with`, and the optional
-`SerdeSerializerBridge::serialize_serde` together to return `PayloadBytes`.
-Existing implementations require a return-type update; vector-producing
-implementers use the finite `PayloadBytes::from_vec` shim. Callers requiring
-vectors use `into_vec`. No `serialize_to_vec` method is proposed.
+Issue #538 owns the deliberate migration away from `Vec<u8>` serializer output.
+The expected implementation steps are:
 
-The plan selects a project-owned immutable wrapper over `Bytes`, with direct
-Bincode encoding into `BytesMut` and a frozen hand-off to codecs. This removes
-the mandatory vector intermediate; it does not claim that the existing
-`Bytes::from(Vec<u8>)` conversion always copies. Wire encoding, decode
-contracts, errors, client hook signatures, and public testing-helper results
-remain unchanged. Pointer-sharing, wire-equivalence, and feature tests are
-required before marking roadmap item 11.1.2 complete. ADR 009's proposed
-serializer amendment must be accepted before implementation.
+- Choose the public byte container for serializer output, aligning with the
+  zero-copy frame and payload roadmap.
+- Change `Serializer::serialize` and serializer adaptor implementations to
+  return that container.
+- Update app outbound helpers such as `encode_message_frame` and
+  `send_response_framed` to remove `Bytes::from(Vec<u8>)` conversion points.
+- Validate compatibility and performance with existing bincode, Serde bridge,
+  app response, and codec-driver tests.
+- Add targeted regression tests for the selected zero-copy behaviour where the
+  chosen container exposes observable ownership or sharing semantics.
 
 ## Outstanding Decisions
 
@@ -187,6 +183,27 @@ decoders.
 [^router-design]: `docs/rust-binary-router-library-design.md`.
 
 [^message-versioning]: `docs/message-versioning.md`.
+
+## Proposed serializer-output addendum — 2026-10-20
+
+Status: proposed; not accepted. This proposal is linked to the
+[issue #538 migration plan][serializer-output-plan]. It does not alter the
+accepted serializer decision above.
+
+The proposed migration changes `Serializer::serialize`,
+`EncodeWith::encode_with`, and the optional
+`SerdeSerializerBridge::serialize_serde` together to return `PayloadBytes`.
+Existing vector-producing implementations can use the finite
+`PayloadBytes::from_vec` compatibility conversion; callers that require a
+vector can use `into_vec`. No `serialize_to_vec` method is proposed.
+
+The proposed wrapper is a minimal owned, immutable wrapper over `Bytes`.
+Bincode output is written directly into `BytesMut` and frozen before hand-off
+to codecs, avoiding a mandatory intermediate `Vec<u8>`. The proposal leaves
+wire encoding, decode contracts, errors, client hook signatures, and public
+testing-helper results unchanged. Pointer-sharing, wire-equivalence, and
+feature coverage are required before roadmap item 11.1.2 can be completed. The
+ADR 009 amendment must be accepted before implementation.
 
 [serializer-output-plan]:
 execplans/issue-538-plan-zero-copy-serializer-output-migration.md

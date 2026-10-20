@@ -491,9 +491,9 @@ slice; packet storage and the remaining public API migration stay separate.
 Establish shared ownership at serializer and packet boundaries, then use the
 ownership and wire evidence to guide channel and replay-buffer migration.
 
-- [ ] 11.1.1. Convert internal packet payload storage and serializer output to
-  the approved zero-copy-capable byte representation. Requires 10.1.1.
-  Serializer delivery is tracked by 11.1.2; packet storage remains open.
+- [ ] 11.1.1. Convert internal packet payload storage to the approved
+  zero-copy-capable byte representation. Requires 10.1.1. Serializer output is
+  tracked by 11.1.2.
 - [ ] 11.1.2. Deliver shared serializer output through server and no-hook
   client transport paths. Requires 10.1.1 and 10.1.2.
   - Design complete for issue

@@ -174,6 +174,10 @@ Success is measured by the following outcomes:
   - Success: pointer-sharing and wire-equivalence regressions pass, as does the
     default/Serde feature end-to-end matrix. Hook signatures and public
     testing-helper results stay unchanged. Accept the ADR 009 amendment first.
+  - Proposed 2026-10-20: accepting the ADR 009 amendment must also revise the
+    checked-off item 1.1.2 requirements for `serialize_to_vec` and deprecation
+    attributes. Until then, both the accepted policy and this proposal remain
+    visible, and implementation stays gated.
   - This delivers the serializer portion of 2.1.1; packet storage remains
     open under 2.1.2, and hook editing under 3.2.1.
 - [ ] 3.2.3. Re-evaluate client preamble leftovers against the chosen public
