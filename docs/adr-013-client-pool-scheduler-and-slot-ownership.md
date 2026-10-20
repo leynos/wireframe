@@ -568,8 +568,11 @@ Complete or coordinate the following, plus any remaining useful scope from
 - Saturated pools enforce waiter bounds and acquisition timeouts.
 - Dropped acquire futures are pruned and do not receive leases.
 - Shutdown resolves blocked waiters promptly and the actor terminates. The
-  resolution must not depend on the service worker: with the drain replaced by
-  a no-op, a waiter left in the queue must still fail rather than time out.
+  resolution must not rest on the service worker: the worker stops claiming at
+  shutdown, so only the shutdown drain (`notify_shutdown`) can complete the
+  waiters still queued. With the shutdown drain replaced by a no-op, at least
+  one waiter is left unresolved and `shutdown_drains_a_queued_waiter` fails
+  rather than passing.
 - Dropping all public handles without `close` eventually releases the pool
   core, including with the `JoinHandle` held by the non-shared close owner.
 - Loom or deterministic state-machine tests cover enqueue, capacity,
