@@ -49,11 +49,19 @@ That graph created several costs and reasoning hazards:
 - fairness state, restart logic, waiter cancellation, shutdown, and capacity
   notification are divided between a mutex, atomics, callers, and transient
   tasks;
-- the distributed model made race recovery difficult enough that mutation
-  survivors covering shutdown and slot rotation are accepted as untested
-  interleavings ([#593](https://github.com/leynos/wireframe/issues/593)), and
-  scheduler bookkeeping relies on `std::sync::Mutex` poison recovery
-  ([#539](https://github.com/leynos/wireframe/issues/539));
+- the distributed model made race recovery difficult enough that the
+  `has_waiters` mutation survivor is accepted as an untested interleaving
+  ([#593](https://github.com/leynos/wireframe/issues/593)); shutdown refusal,
+  slot rotation, and draining queued waiters are now covered by
+  `src/client/tests/pool_lifecycle.rs`, and scheduler bookkeeping relies on
+  `std::sync::Mutex` poison recovery
+  ([#539](https://github.com/leynos/wireframe/issues/539)). Those lifecycle
+  tests synchronize on the per-pool `PoolTaskChurnObserver` from
+  [#639](https://github.com/leynos/wireframe/issues/639) rather than a
+  test-only scheduler seam: its `capacity_waits` counter proves an acquisition
+  passed the initial shutdown check and genuinely parked, which is the property
+  the drain test depends on. Observing it is passive, so the assertion cannot
+  perturb the pool it measures;
 - [#550](https://github.com/leynos/wireframe/issues/550) requires bounded
   waiter admission, which adds another invariant to distributed scheduler state.
 
@@ -470,7 +478,13 @@ The implementation must maintain:
 4. Round-robin policy gives each active logical handle turns according to
    the existing contract.
 5. Cancelled or deregistered waiters receive no later lease.
-6. Shutdown resolves every queued reply and terminates the task.
+6. Shutdown resolves every queued reply and terminates the task. Shutdown
+   withdrawal is the only path that completes a waiter still in a queue: the
+   service worker stops claiming once shutdown is published, and an acquisition
+   that enqueues after a concurrent drain withdraws its own sender before
+   failing. Without that separation the worker raced the drain and masked the
+   `notify_shutdown` mutation, because it resolved queued waiters from the
+   shutdown notification itself.
 7. No strong-reference cycle keeps the pool alive after all public handles
    are gone.
 8. Capacity observation is idempotent and cannot create an extra permit.
@@ -499,9 +513,10 @@ The implementation must maintain:
 ### Phase 1: characterize behaviour
 
 Land the pool baseline/verification issue
-([#639](https://github.com/leynos/wireframe/issues/639)) and existing
-[#593](https://github.com/leynos/wireframe/issues/593) tests before changing
-the scheduler topology.
+([#639](https://github.com/leynos/wireframe/issues/639)) and the
+[#593](https://github.com/leynos/wireframe/issues/593) lifecycle and rotation
+tests (`src/client/tests/pool_lifecycle.rs`) before changing the scheduler
+topology.
 
 ### Phase 2: introduce pool core and index-based leases
 
@@ -552,7 +567,12 @@ Complete or coordinate the following, plus any remaining useful scope from
 - FIFO and round-robin behavioural tests preserve ordering.
 - Saturated pools enforce waiter bounds and acquisition timeouts.
 - Dropped acquire futures are pruned and do not receive leases.
-- Shutdown resolves blocked waiters promptly and the actor terminates.
+- Shutdown resolves blocked waiters promptly and the actor terminates. The
+  resolution must not rest on the service worker: the worker stops claiming at
+  shutdown, so only the shutdown drain (`notify_shutdown`) can complete the
+  waiters still queued. With the shutdown drain replaced by a no-op, at least
+  one waiter is left unresolved and `shutdown_drains_a_queued_waiter` fails
+  rather than passing.
 - Dropping all public handles without `close` eventually releases the pool
   core, including with the `JoinHandle` held by the non-shared close owner.
 - Loom or deterministic state-machine tests cover enqueue, capacity,

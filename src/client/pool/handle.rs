@@ -86,7 +86,8 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`ClientError`] if permit acquisition or pooled checkout fails.
+    /// Returns [`ClientError`] if permit acquisition or pooled checkout fails,
+    /// including when the pool has been closed.
     pub async fn acquire(&mut self) -> Result<PooledClientLease<S, P, C>, ClientError> {
         self.control
             .scheduler

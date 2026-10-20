@@ -1791,6 +1791,10 @@ serialized per physical connection while still allowing multiple callers to be
 admitted against the same warm slot. Treat `max_in_flight_per_socket` as an
 admission budget, not as a guarantee of parallel writes on one TCP stream.
 
+`pool.close().await` hands the pool to teardown. New acquisitions made through a
+`PoolHandle` that outlives the close fail with a disconnection error rather
+than taking capacity from a pool that is going away.
+
 `max_waiters` bounds pending acquisitions separately from active socket
 permits. It defaults to `64`; `max_waiters(0)` is clamped to `1`. Once the
 waiter limit is full, a further `acquire()` returns

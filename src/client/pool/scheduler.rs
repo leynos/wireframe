@@ -273,6 +273,14 @@ where
             }
         }
 
+        // `close` may have drained the queue after the check above; nothing
+        // services a waiter enqueued after the drain, so collect this sender
+        // here rather than park forever. The worker stops at shutdown.
+        if core.is_shutdown() {
+            self.notify_shutdown();
+            return Err(ClientError::disconnected());
+        }
+
         if let Some(lease) = control.try_acquire_immediately(&core) {
             return self.resolve_immediate_lease(lease, receiver).await;
         }
@@ -286,6 +294,10 @@ where
     }
 
     /// Complete every queued waiter with a disconnected error.
+    ///
+    /// Waiters left in the queue are settled only here: the service worker
+    /// stops at shutdown, and [`PoolScheduler::acquire_for_handle`] drains
+    /// again when it enqueues after a concurrent drain.
     pub(crate) fn notify_shutdown(&self) {
         while let Some(waiter) = self.next_waiter() {
             drop(waiter.send(Err(ClientError::disconnected())));
