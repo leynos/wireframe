@@ -198,7 +198,7 @@ where
         handle.acquire().await
     }
 
-    /// Close the pool and release its warm sockets.
+    /// Close the pool to new acquisitions and begin teardown.
     ///
     /// Shutdown is published before this method returns: an outstanding handle
     /// that keeps the shared pool state alive still observes it, and any later
