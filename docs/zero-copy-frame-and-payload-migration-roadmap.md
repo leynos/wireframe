@@ -163,9 +163,23 @@ Success is measured by the following outcomes:
 - [ ] 3.2.1. Replace the `before_send` hook contract with the approved
   edit-on-demand surface. Requires 1.1.1.
   - [ ] Keep hook behaviour observable in tracing and tests.
-- [ ] 3.2.2. Update `Serializer::serialize` and its callers to the selected
-  byte representation. Requires 2.1.1.
-  - [ ] Confirm the new contract across runtime, examples, and docs.
+- [ ] 3.2.2. Migrate all serializer encode contracts and callers to
+  `PayloadBytes` in one breaking change. Requires 1.1.1 and 1.1.2.
+  - Design complete for issue
+    [#538](https://github.com/leynos/wireframe/issues/538);
+    implementation remains open. Follow EP-M1 and EP-M2 in the
+    [plan](execplans/issue-538-plan-zero-copy-serializer-output-migration.md).
+  - Deliver direct Bincode/Serde writer output, finite vector conversions,
+    no-hook client and server hand-offs, and downstream migration examples.
+  - Success: pointer-sharing and wire-equivalence regressions pass, as does the
+    default/Serde feature end-to-end matrix. Hook signatures and public
+    testing-helper results stay unchanged. Accept the ADR 009 amendment first.
+  - Proposed 2026-10-20: accepting the ADR 009 amendment must also revise the
+    checked-off item 1.1.2 requirements for `serialize_to_vec` and deprecation
+    attributes. Until then, both the accepted policy and this proposal remain
+    visible, and implementation stays gated.
+  - This delivers the serializer portion of 2.1.1; packet storage remains
+    open under 2.1.2, and hook editing under 3.2.1.
 - [ ] 3.2.3. Re-evaluate client preamble leftovers against the chosen public
   byte model. Requires 1.1.1.
   - [ ] Keep the existing `Vec<u8>` replay path only if the approved API

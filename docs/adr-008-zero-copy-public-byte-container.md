@@ -235,3 +235,17 @@ separate concerns. Standardizing stable payload storage on a `Bytes`-compatible
 representation aligns the public API with the default codec path, while
 explicit editing helpers preserve the middleware-first ergonomics that made
 `Vec<u8>` attractive originally.
+
+## Proposed serializer application addendum — 2026-10-20
+
+Status: proposed; not accepted. The [issue #538 migration plan]
+[serializer-output-plan] applies the accepted shared-container direction to
+serializer output by proposing a minimal `PayloadBytes` wrapper over `Bytes`.
+It would own immutable, shareable bytes and expose transport extraction through
+`into_bytes`, without mutable accessors or an editing API. This keeps the
+serializer hand-off distinct from the middleware and hook editing model. The
+current serializer implementation remains unchanged until the proposal is
+accepted and delivered.
+
+[serializer-output-plan]:
+execplans/issue-538-plan-zero-copy-serializer-output-migration.md

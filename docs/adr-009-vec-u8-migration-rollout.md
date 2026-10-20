@@ -333,3 +333,52 @@ default build, scoped to a single conversion surface.
     <https://crates.io/crates/cargo-public-api>
 [^hyper]: hyper 1.0 upgrade guide.
     <https://hyper.rs/guides/1/upgrading/>
+
+## Dated addenda
+
+### Editorial erratum — 2026-10-20
+
+This factual correction does not change ADR 009's accepted rollout policy. In
+the accepted “Visibility and deprecation discipline” section, replace the
+nonexistent `PayloadBytes::as_slice` reference with `AsRef<[u8]>` and
+`bytes::Bytes::freeze` with `BytesMut::freeze`. The intended caller options are
+to borrow through `AsRef<[u8]>`, transfer shared ownership with `into_bytes`,
+or use the edit-on-demand editor. `BytesMut::freeze` is the operation that
+freezes a mutable buffer into `Bytes`.
+
+### Proposed serializer amendment for issue #538 — 2026-10-20
+
+Status: proposed; not accepted. See the [serializer migration plan]
+[serializer-output-plan]. The accepted rollout policy above remains in force
+until this amendment is explicitly accepted.
+
+- Do not add `serialize_to_vec`. It helps callers only, cannot preserve old
+  trait implementations, and duplicates the explicit `into_vec` conversion.
+- Keep `PayloadBytes::from_vec` and `into_vec` finite, available in the default
+  build, and documented with their introduction and scheduled removal releases.
+  The proposal omits `#[deprecated]` from these two methods so warning-denying
+  tests can exercise required hook and helper conversions without lint
+  suppressions. Acceptance must explicitly revise the currently accepted
+  deprecation rule for these methods.
+- Retain removal in the second breaking release after introduction, with
+  review at every intervening breaking release. For example, introduction in
+  0.N implies removal in 0.N+2; introduction in 1.x implies removal in 3.0.
+  Record concrete versions at release cut. Migrate internal hook and helper
+  consumers before removal, or accept a dated extension under the existing
+  policy; never remove a helper while retained APIs depend on it.
+- Preserve legacy serializer algorithms through `from_vec`, not unchanged
+  method signatures. Teach callers to borrow with `AsRef<[u8]>` or transfer
+  shared ownership through `into_bytes` before choosing `into_vec`.
+- Do not promise that `into_vec` preserves allocation or pointer identity.
+  `BytesMut::freeze`, not `Bytes::freeze`, is the freezing operation, and the
+  proposed wrapper uses `AsRef<[u8]>`, not an `as_slice` method.
+
+Hook adapter constructors, middleware editing, and packet storage remain out of
+scope; their accepted rollout policy is unchanged. If the amendment is
+accepted, reconcile the earlier accepted helper and deprecation sections,
+including checked-off roadmap item 1.1.2 in the dedicated roadmap, before
+implementation. This proposal does not itself update or supersede those
+requirements.
+
+[serializer-output-plan]:
+execplans/issue-538-plan-zero-copy-serializer-output-migration.md

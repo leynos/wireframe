@@ -68,6 +68,9 @@ reference when navigating the project's design and architecture material.
 
 ## Execution plans
 
+- [Migrate serializer output to shared payload bytes][serializer-output-plan]
+  Draft design for #538, including finite conversions and acceptance evidence.
+
 - [Approve stable public byte container](execplans/10-1-1-approve-stable-public-byte-container.md)
   Completed execution plan for roadmap item `10.1.1` and ADR 008.
 - [Approve actor and codec-driver boundary](execplans/10-1-3-approve-actor-and-codec-driver-boundary.md)
@@ -137,3 +140,6 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
   baselines for the four hot paths Epic #635 proposes to re-topologize.
 - [Server configuration](server/configuration.md) Tuning accept loop backoff
   behaviour and builder options.
+
+[serializer-output-plan]:
+execplans/issue-538-plan-zero-copy-serializer-output-migration.md

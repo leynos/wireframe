@@ -482,15 +482,36 @@ starts. See `docs/frame-vec-u8-inventory.md` and ADRs 008 through 010.
 
 ## 11. Internal zero-copy foundations
 
-This phase removes the remaining internal `Vec<u8>` bottlenecks without
-changing the public API shape prematurely.
+This phase tests whether shared byte hand-offs can remove mandatory vector
+intermediates. Serializer work in 11.1.2 is an explicit breaking contract
+slice; packet storage and the remaining public API migration stay separate.
 
 ### 11.1. Internal byte surfaces
 
-- [ ] 11.1.1. Convert internal packet payload storage and serializer output to
-  the approved zero-copy-capable byte representation. Requires 10.1.1.
-- [ ] 11.1.2. Remove the final default-path `Vec<u8>` copy between
-  serialization and `FrameCodec::wrap_payload`. Requires 11.1.1.
+Establish shared ownership at serializer and packet boundaries, then use the
+ownership and wire evidence to guide channel and replay-buffer migration.
+
+- [ ] 11.1.1. Convert internal packet payload storage to the approved
+  zero-copy-capable byte representation. Requires 10.1.1. Serializer output is
+  tracked by 11.1.2.
+- [ ] 11.1.2. Deliver shared serializer output through server and no-hook
+  client transport paths. Requires 10.1.1 and 10.1.2.
+  - Design complete for issue
+    [#538](https://github.com/leynos/wireframe/issues/538);
+    implementation remains open. See the
+    [plan](execplans/issue-538-plan-zero-copy-serializer-output-migration.md).
+  - [ ] 11.1.2.1. Accept the serializer-specific ADR 009 amendment, then migrate
+    `Serializer`, `EncodeWith`, and the Serde bridge atomically with all
+    implementations and callers (EP-M1). Include direct Bincode encoding into
+    `BytesMut`, finite vector conversions, and migration examples.
+    Success: pointer-sharing, wire-equivalence, conversion, and hook-order
+    regressions pass; raw length-delimited output is not double-framed.
+  - [ ] 11.1.2.2. Deliver the default-feature and Serde-feature end-to-end
+    matrix (EP-M2), after 11.1.2.1. Cover default and protocol-native codecs,
+    custom serializers, hook mutation/order, and serialize/send failures.
+    Success: record each supported combination and passing test evidence.
+  - Packet storage is not a prerequisite for this serializer-only slice.
+    Keep 11.1.1 and 12.2.1 open for their remaining packet and hook work.
 - [ ] 11.1.3. Update zero-copy-capable internal channels and replay buffers
   identified in the inventory so they no longer force `Vec<u8>` hand-offs.
   Requires 11.1.1.
@@ -526,7 +547,8 @@ byte model while preserving explicit editing ergonomics.
 ### 12.2. Client-facing byte APIs
 
 - [ ] 12.2.1. Update `BeforeSendHook` and `Serializer::serialize` to the
-  approved byte surface. Requires 10.1.1 and 11.1.1.
+  approved byte surface. Requires 10.1.1 and 11.1.1. Serializer delivery is
+  tracked by 11.1.2; hook editing remains open.
 - [ ] 12.2.2. Re-evaluate client preamble leftovers and document whether they
   remain `Vec<u8>` for the first breaking release or migrate with the rest of
   the client byte surface. Requires 10.1.2 and 12.2.1.

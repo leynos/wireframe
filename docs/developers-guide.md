@@ -424,6 +424,12 @@ Use this checklist before merging API naming changes:
 
 ## App inbound and outbound helper boundaries
 
+The proposed [serializer migration][serializer-output-plan] will pass owned
+shared bytes into these helpers. It preserves the raw length-delimited path's
+bypass of codec wrapping and keeps serialization and I/O error mappings
+unchanged. This is planned work; the current vector-based contract still
+applies.
+
 Application response paths must keep message serialization and codec frame
 wrapping in one place. Use `app::outbound_encoding::encode_message_frame` when
 an app path needs to turn an `EncodeWith<S>` message into a
@@ -1626,3 +1632,6 @@ Merman was compiled from crates.io on every run until September 2026, about 2.3
 minutes of a paid runner; `tests/workflow_contracts/ci_workflow_test.py` now
 refuses any `run` step in `ci.yml` that names Merman, so the build cannot
 return under another spelling.
+
+[serializer-output-plan]:
+execplans/issue-538-plan-zero-copy-serializer-output-migration.md

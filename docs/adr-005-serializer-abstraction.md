@@ -183,3 +183,27 @@ decoders.
 [^router-design]: `docs/rust-binary-router-library-design.md`.
 
 [^message-versioning]: `docs/message-versioning.md`.
+
+## Proposed serializer-output addendum — 2026-10-20
+
+Status: proposed; not accepted. This proposal is linked to the
+[issue #538 migration plan][serializer-output-plan]. It does not alter the
+accepted serializer decision above.
+
+The proposed migration changes `Serializer::serialize`,
+`EncodeWith::encode_with`, and the optional
+`SerdeSerializerBridge::serialize_serde` together to return `PayloadBytes`.
+Existing vector-producing implementations can use the finite
+`PayloadBytes::from_vec` compatibility conversion; callers that require a
+vector can use `into_vec`. No `serialize_to_vec` method is proposed.
+
+The proposed wrapper is a minimal owned, immutable wrapper over `Bytes`.
+Bincode output is written directly into `BytesMut` and frozen before hand-off
+to codecs, avoiding a mandatory intermediate `Vec<u8>`. The proposal leaves
+wire encoding, decode contracts, errors, client hook signatures, and public
+testing-helper results unchanged. Pointer-sharing, wire-equivalence, and
+feature coverage are required before roadmap item 11.1.2 can be completed. The
+ADR 009 amendment must be accepted before implementation.
+
+[serializer-output-plan]:
+execplans/issue-538-plan-zero-copy-serializer-output-migration.md
