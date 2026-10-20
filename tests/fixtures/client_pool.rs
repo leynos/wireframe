@@ -306,29 +306,38 @@ impl ClientPoolWorld {
         self.start_server().await?;
         self.connect_pool(ClientPoolConfig::default().pool_size(SLOT_COUNT))
             .await?;
-        let pool = self.pool.as_ref().ok_or("pool missing")?;
-        let outcome = &mut self.multi_slot_rotation;
-        outcome.slot_count = pool.pool_size();
+        let pool = Arc::clone(self.pool.as_ref().ok_or("pool missing")?);
+        self.multi_slot_rotation.slot_count = pool.pool_size();
+        self.rotate_two_leases(&pool).await
+    }
 
+    /// Exercise both leases, then prove saturation and post-release recovery.
+    async fn rotate_two_leases(&mut self, pool: &TestClientPool) -> TestResult {
         let first = pool.acquire().await?;
         let second = pool.acquire().await?;
-        outcome.first_slot = first.slot_id();
-        outcome.second_slot = second.slot_id();
+        self.multi_slot_rotation.first_slot = first.slot_id();
+        self.multi_slot_rotation.second_slot = second.slot_id();
 
         // Each lease exercises its own physical socket, so the server must
         // observe one connection per configured slot.
         let _: Pong = first.call(&Ping(1)).await?;
         let _: Pong = second.call(&Ping(2)).await?;
-        outcome.used_distinct_sockets = self.server.as_ref().is_some_and(|server| {
-            server.connection_count() == SLOT_COUNT && server.preamble_count() == SLOT_COUNT
-        });
+        self.multi_slot_rotation.used_distinct_sockets = self.distinct_sockets_observed();
 
-        outcome.blocked_when_saturated = timeout(SATURATION_GRACE, pool.acquire()).await.is_err();
+        self.multi_slot_rotation.blocked_when_saturated =
+            timeout(SATURATION_GRACE, pool.acquire()).await.is_err();
 
         drop(first);
-        outcome.recovered_after_release =
+        self.multi_slot_rotation.recovered_after_release =
             matches!(timeout(RECOVERY_GRACE, pool.acquire()).await, Ok(Ok(_)));
         Ok(())
+    }
+
+    /// Report whether the server saw one connection and preamble per slot.
+    fn distinct_sockets_observed(&self) -> bool {
+        self.server.as_ref().is_some_and(|server| {
+            server.connection_count() == SLOT_COUNT && server.preamble_count() == SLOT_COUNT
+        })
     }
 
     /// Report the configured pool size observed through the public API.
