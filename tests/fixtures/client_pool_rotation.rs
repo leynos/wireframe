@@ -14,7 +14,7 @@ use wireframe::{
     client::{ClientPoolConfig, PoolTaskChurnObserver},
     test_helpers::{Ping, Pong, PoolTestServer, TestClientPool, build_preamble_pool},
 };
-pub use wireframe_testing::TestResult;
+pub use wireframe_testing::{TestError, TestResult};
 
 /// Physical slots configured by every rotation scenario.
 const SLOT_COUNT: usize = 2;
@@ -77,35 +77,41 @@ struct SaturatedStartOutcome {
     held_slot: usize,
     /// Slot released before the reacquisition ran.
     released_slot: usize,
-    /// Slot that granted the reacquisition, if it succeeded.
-    reacquired_slot: Option<usize>,
+    /// Slot granted by the fast rotation walk, or `None` when it parked.
+    ///
+    /// The two facts share one field because they cannot be observed apart: a
+    /// grant that parked was not granted by the walk. Keeping them together
+    /// stops a later reader pairing a slot with the wrong path.
+    fast_path_slot: Option<usize>,
     /// Whether the retained lease still carried a request afterwards.
     held_lease_still_usable: bool,
     /// Whether the reacquired lease carried a request successfully.
     reacquired_lease_usable: bool,
-    /// Whether the reacquisition was granted without parking on capacity.
-    granted_without_waiting: bool,
     /// Whether the two slots had connected as separate physical sockets.
     used_distinct_sockets: bool,
 }
 
+/// Observed result of leasing both slots and resuming a parked acquisition.
+struct ConcurrentRotationOutcome {
+    /// Slot of the lease dropped to resume the parked acquisition.
+    dropped_slot: usize,
+    /// Slot of the lease retained across the parked acquisition.
+    retained_slot: usize,
+    /// Whether the pinned waiter was still pending while both slots were leased.
+    waiter_stayed_pending: bool,
+    /// Slot that granted capacity to the waiter after a lease was dropped.
+    recovered_slot: usize,
+    /// Whether the resumed waiter's lease carried a request successfully.
+    recovered_lease_usable: bool,
+}
+
 /// World backing the pooled slot-rotation scenarios.
+#[derive(Default)]
 pub struct ClientPoolRotationWorld {
     pool: Option<Arc<TestClientPool>>,
     server: Option<PoolTestServer>,
     rotation: MultiSlotRotationOutcome,
     saturated_start: SaturatedStartOutcome,
-}
-
-impl Default for ClientPoolRotationWorld {
-    fn default() -> Self {
-        Self {
-            pool: None,
-            server: None,
-            rotation: MultiSlotRotationOutcome::default(),
-            saturated_start: SaturatedStartOutcome::default(),
-        }
-    }
 }
 
 #[rustfmt::skip]
@@ -142,47 +148,61 @@ impl ClientPoolRotationWorld {
     /// stalled cursor would still produce alternating slots by falling through
     /// the occupied one, so only a free pool distinguishes rotation from luck.
     ///
-    /// An even round count is what makes the final phase deterministic. Each
-    /// selection advances the shared cursor, so the concurrent phase begins at
-    /// slot `rounds % 2`; an even count leaves it at slot 0, which the
-    /// assertions below rely on.
-    ///
     /// The final phase leases both slots and parks a third acquisition.
-    /// Releasing the slot 0 lease is the only capacity change, so the resumed
-    /// waiter must receive that released slot.
+    /// Releasing one lease is the only capacity change, so the resumed waiter
+    /// must receive that released slot whatever the cursor's position.
     pub async fn run_multi_slot_rotation_scenario(&mut self) -> TestResult {
         self.start_rotation_pool().await?;
         let pool = Arc::clone(self.pool()?);
-        let churn = pool.task_churn_observer();
         self.rotation.slot_count = pool.pool_size();
         self.rotation.rotation_order = self.acquire_release_rounds(&pool).await?;
+        let concurrent = Self::lease_both_and_resume_parked_waiter(&pool).await?;
+        self.rotation.dropped_slot = concurrent.dropped_slot;
+        self.rotation.retained_slot = concurrent.retained_slot;
+        self.rotation.waiter_stayed_pending = concurrent.waiter_stayed_pending;
+        self.rotation.recovered_slot = Some(concurrent.recovered_slot);
+        self.rotation.recovered_lease_usable = concurrent.recovered_lease_usable;
+        self.rotation.used_distinct_sockets = self.distinct_sockets_observed();
+        Ok(())
+    }
 
+    /// Lease both slots, park a third acquisition, then resume it on release.
+    ///
+    /// The parked acquisition is pinned rather than raced with a timeout: the
+    /// `&mut JoinHandle` wait observes that it stays pending without cancelling
+    /// the task, so the later await is the same acquisition. Releasing the
+    /// first lease is the only capacity change, which is what makes the
+    /// recovered slot's identity a causal observation.
+    ///
+    /// Takes the shared pool by `Arc` because the spawned waiter must own one.
+    async fn lease_both_and_resume_parked_waiter(
+        pool: &Arc<TestClientPool>,
+    ) -> Result<ConcurrentRotationOutcome, TestError> {
+        let churn = pool.task_churn_observer();
         let first = pool.acquire().await?;
         let second = pool.acquire().await?;
-        self.rotation.dropped_slot = first.slot_id();
-        self.rotation.retained_slot = second.slot_id();
-
         let first_pong: Pong = first.call(&Ping(1)).await?;
         let second_pong: Pong = second.call(&Ping(2)).await?;
         if first_pong != Pong(1) || second_pong != Pong(2) {
             return Err("a concurrent rotation lease returned an unexpected response".into());
         }
 
-        // Pin the acquisition rather than racing it with a timeout: the
-        // `&mut JoinHandle` wait below observes that it stays pending without
-        // cancelling the task, so the later await is the same acquisition.
-        let waiter_pool = Arc::clone(&pool);
+        let waiter_pool = Arc::clone(pool);
         let mut waiter = tokio::spawn(async move { waiter_pool.acquire().await });
-        self.rotation.waiter_stayed_pending = wait_until_parked(&churn).await
+        let dropped_slot = first.slot_id();
+        let waiter_stayed_pending = wait_until_parked(&churn).await
             && timeout(SATURATION_GRACE, &mut waiter).await.is_err();
 
         drop(first);
         let recovered = timeout(RECOVERY_GRACE, waiter).await???;
-        self.rotation.recovered_slot = Some(recovered.slot_id());
         let recovered_pong: Pong = recovered.call(&Ping(3)).await?;
-        self.rotation.recovered_lease_usable = recovered_pong == Pong(3);
-        self.rotation.used_distinct_sockets = self.distinct_sockets_observed();
-        Ok(())
+        Ok(ConcurrentRotationOutcome {
+            dropped_slot,
+            retained_slot: second.slot_id(),
+            waiter_stayed_pending,
+            recovered_slot: recovered.slot_id(),
+            recovered_lease_usable: recovered_pong == Pong(3),
+        })
     }
 
     /// Run three acquire-then-release rounds and record the granted slots.
@@ -212,10 +232,9 @@ impl ClientPoolRotationWorld {
     /// Release one of two leased slots and prove the next acquire skips the
     /// slot that is still held.
     ///
-    /// Two acquisitions leave the cursor pointing at slot 0 again, and slot 0
-    /// is still leased, so a successful third acquisition can only come from
-    /// scanning past slot 0 to the free slot 1. The retained lease is then
-    /// exercised to show the skip did not disturb its capacity.
+    /// With every other slot leased, a third acquisition can only succeed by
+    /// walking past the occupied starting point to the free slot. The retained
+    /// lease is then exercised to show the skip did not disturb its capacity.
     pub async fn run_saturated_start_skip_scenario(&mut self) -> TestResult {
         self.start_rotation_pool().await?;
         let pool = Arc::clone(self.pool()?);
@@ -235,9 +254,8 @@ impl ClientPoolRotationWorld {
         // the fast rotation walk rather than from the permit race. Without this
         // the slot id alone would also pass if rotation failed and the slow
         // path happened to pick the same free slot.
-        self.saturated_start.granted_without_waiting =
-            churn.snapshot().since(before).capacity_waits == 0;
-        self.saturated_start.reacquired_slot = Some(reacquired.slot_id());
+        let granted_without_waiting = churn.snapshot().since(before).capacity_waits == 0;
+        self.saturated_start.fast_path_slot = granted_without_waiting.then(|| reacquired.slot_id());
         let reacquired_pong: Pong = reacquired.call(&Ping(3)).await?;
         self.saturated_start.reacquired_lease_usable = reacquired_pong == Pong(3);
 
@@ -287,16 +305,15 @@ impl ClientPoolRotationWorld {
 
     /// Check that the reacquisition skipped the still-leased starting slot.
     ///
-    /// The cursor returns to slot 0 before the third acquisition, so a grant
-    /// from slot 1 is the observable proof that the occupied slot was skipped
-    /// while the rotation was still being walked.
+    /// A grant that the wait counter attributes to the fast path, and that
+    /// landed on the released slot while its neighbour stayed leased, is the
+    /// observable proof that the occupied slot was skipped mid-walk.
     pub fn saturated_start_skipped(&self) -> bool {
         let outcome = &self.saturated_start;
         outcome.slot_count == SLOT_COUNT
             && outcome.held_slot == 0
             && outcome.released_slot == 1
-            && outcome.reacquired_slot == Some(outcome.released_slot)
-            && outcome.granted_without_waiting
+            && outcome.fast_path_slot == Some(outcome.released_slot)
             && outcome.reacquired_lease_usable
             && outcome.used_distinct_sockets
     }
