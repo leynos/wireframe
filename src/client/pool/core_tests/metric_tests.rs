@@ -50,7 +50,12 @@ fn observe_fast_path(core: &TestCore, outcome: FastPathOutcome) -> Option<SlotPe
     match outcome {
         FastPathOutcome::Granted => core.try_acquire_permit(),
         FastPathOutcome::Exhausted => {
-            let permit = core.try_acquire_permit()?;
+            // `expect`, not `?`: a first acquisition that already fails would
+            // skip the assertion below, and the case would pass without ever
+            // proving a held slot refuses to regrant.
+            let permit = core
+                .try_acquire_permit()
+                .expect("the first acquisition must hold the slot");
             assert!(
                 core.try_acquire_permit().is_none(),
                 "a held slot must not regrant"
