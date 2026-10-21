@@ -59,7 +59,8 @@ pub(crate) fn inc_pool_pending_response_discard() {}
 /// # HELP wireframe_pool_acquisitions_total Count of client-pool acquisition attempts by mode and outcome.
 /// # TYPE wireframe_pool_acquisitions_total counter
 /// wireframe_pool_acquisitions_total{mode="immediate",outcome="granted"} 3
-/// wireframe_pool_acquisitions_total{mode="permit_race",outcome="exhausted"} 1
+/// wireframe_pool_acquisitions_total{mode="immediate",outcome="exhausted"} 1
+/// wireframe_pool_acquisitions_total{mode="permit_race",outcome="error"} 1
 /// ```
 pub const POOL_ACQUISITIONS: &str = "wireframe_pool_acquisitions_total";
 
@@ -95,7 +96,8 @@ pub(crate) enum PoolAcquisitionOutcome {
     Granted,
     /// Every slot was scanned without free capacity.
     Exhausted,
-    /// The pool was already shut down, so no slot was tried.
+    /// The pool was shut down before or during the attempt, so no lease
+    /// was granted.
     Shutdown,
     /// A slot wait or checkout failed with an error.
     Error,

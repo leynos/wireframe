@@ -497,8 +497,8 @@ of two: a wrapped `usize` differs from its true value by a multiple of
 `2^word`, which is only a multiple of the slot count for power-of-two sizes, so
 reducing after the addition would repeat one slot and skip another once the
 cursor overflowed. An empty pool consumes no cursor value. The synchronous path
-borrows each slot in rotation order and clones only the winning slot's index
-and permit into `PooledClientLease::new`; the asynchronous path boxes one
+borrows each slot in rotation order, copies the winning slot's index, and moves
+its permit into `PooledClientLease::new`; the asynchronous path boxes one
 permit future per index, each of which clones the shared `Arc<PoolCore>` rather
 than a slot. `src/client/pool/rotation_tests.rs` pins the ordering, the
 overflow cases, and the one-increment-per-attempt cursor contract. Every

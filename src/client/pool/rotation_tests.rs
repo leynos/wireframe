@@ -89,6 +89,14 @@ async fn generated_rotations_visit_each_slot_once_in_cyclic_order() {
 
 fn check_generated_rotation((slot_count, cursor): (usize, usize)) -> TestCaseResult {
     let start = rotation_start(slot_count, cursor);
+    // Pin the seed contract itself, not only the indices derived from it: the
+    // assertions below compare `rotation_indices` against `start`, so a seed
+    // bug would otherwise be self-consistent and go unnoticed.
+    prop_assert_eq!(
+        start,
+        cursor.wrapping_rem(slot_count),
+        "seed must be the cursor reduced below the slot count"
+    );
     let visited = rotation_indices(slot_count, start).collect::<Vec<_>>();
 
     prop_assert_eq!(visited.len(), slot_count);
