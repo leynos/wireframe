@@ -2,6 +2,7 @@
 
 use std::{fmt, sync::atomic::AtomicU64, time::Instant};
 
+use bytes::Bytes;
 use futures::SinkExt;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
@@ -380,7 +381,13 @@ where
         async {
             // Flush pending frames and send EOF before teardown.
             // Ignore errors since we're closing anyway.
-            drop(self.framed.close().await);
+            //
+            // `SinkExt::<Bytes>::close` rather than the inferred call:
+            // `tokio-util` 0.7.20 implements `Encoder` for both `Bytes` and
+            // `&[u8]`, and `close` has no argument to infer the item from.
+            // Naming the item keeps this compiling under either
+            // implementation set.
+            drop(SinkExt::<Bytes>::close(&mut self.framed).await);
 
             if let (Some(state), Some(handler)) =
                 (self.connection_state.take(), &self.on_disconnect)

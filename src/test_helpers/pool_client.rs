@@ -8,6 +8,7 @@ use std::{
     },
 };
 
+use bytes::Bytes;
 use futures::{FutureExt, SinkExt, StreamExt};
 use tokio::{
     net::TcpListener,
@@ -378,7 +379,10 @@ async fn send_pool_test_response(
         state.delayed_first_response_release.notified().await;
     }
 
-    let send_result = framed.send(payload.into()).await;
+    // `Bytes::from`, not `payload.into()`: `tokio-util` 0.7.20 implements
+    // `Encoder` for both `Bytes` and `&[u8]`, and `send` has no other
+    // argument to infer the item from.
+    let send_result = framed.send(Bytes::from(payload)).await;
     if is_late_first_response {
         state.delayed_first_response_attempted.notify_one();
     }

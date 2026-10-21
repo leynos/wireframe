@@ -6,9 +6,9 @@ publish = false
 
 # A standalone package, deliberately absent from the repository workspace.
 #
-# `make test-ui` must prove that `pool_size` and `slot_id` exist only under
-# `test-support`. Trybuild cannot: it forwards the harness's own feature list to
-# its fixture, and the root manifest's `wireframe_testing` development
+# `make test-feature-gate` must prove that `pool_size` and `slot_id` exist only
+# under `test-support`. Trybuild cannot: it forwards the harness's own feature
+# list to its fixture, and the root manifest's `wireframe_testing` development
 # dependency enables `runtime-benchmarks`, which enables `wireframe/test-support`
 # (`wireframe_testing/Cargo.toml`). Every trybuild fixture therefore has the
 # accessors. A separate package that depends on `wireframe` alone has no such
@@ -26,13 +26,12 @@ publish = false
 # default feature, so leaving it off tests that unrelated defect instead of the
 # gate this package exists to check.
 wireframe = { path = "../../", default-features = false, features = ["metrics", "pool", "serializer-bincode"] }
-# Copying the root lock's resolved versions keeps this package compiling the same
-# dependency graph the repository's gates do. Without the pin, `wireframe`'s
-# caret requirement for `tokio-util` resolves 0.7.20 here, which added a second
-# `Encoder` impl for `LengthDelimitedCodec` and makes the library's own
-# `bytes.into()` call sites ambiguous. That is a real incompatibility, but it is
-# unrelated to the gate, and it would mask the result of this check.
-tokio-util = "=0.7.19"
+# `tokio-util` 0.7.20 implements `Encoder` for both `Bytes` and `&[u8]`.
+# `wireframe`'s own encoder call sites name their item, so they compile under
+# either implementation set. This dependency is therefore left at its plain
+# implicit SemVer-compatible requirement instead of an exact pin, and resolves
+# independently of the root lock.
+tokio-util = "0.7.19"
 
 [lib]
 name = "wireframe_feature_gate"

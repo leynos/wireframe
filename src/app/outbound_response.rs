@@ -3,7 +3,7 @@
 //! This module keeps outbound response serialization and write helpers out of
 //! the inbound frame-dispatch path while preserving the public API.
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use futures::SinkExt;
 use tokio::io::{self, AsyncWrite, AsyncWriteExt};
 use tokio_util::codec::{Encoder, Framed, LengthDelimitedCodec};
@@ -114,6 +114,12 @@ where
         // TODO: Remove this `Vec<u8>` to `Bytes` conversion when the
         // zero-copy serializer migration in
         // https://github.com/leynos/wireframe/issues/538 is complete.
-        framed.send(bytes.into()).await.map_err(SendError::Io)
+        //
+        // `Bytes::from`, not `bytes.into()`: `tokio-util` 0.7.20 implements
+        // `Encoder` for both `Bytes` and `&[u8]`, and `Framed::send` has no
+        // other argument to infer the item from, so `.into()` is ambiguous
+        // there. Naming the item keeps this call compiling under either
+        // implementation set.
+        framed.send(Bytes::from(bytes)).await.map_err(SendError::Io)
     }
 }
