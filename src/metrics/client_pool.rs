@@ -77,7 +77,10 @@ pub(crate) enum PoolAcquisitionMode {
     PermitRace,
 }
 
-#[cfg(all(feature = "pool", not(loom)))]
+// The label text exists only for `inc_pool_acquisition`. The enums stay
+// available without `metrics` because the no-op wrapper still takes them,
+// but the label helpers would then be dead code.
+#[cfg(all(feature = "metrics", feature = "pool", not(loom)))]
 impl PoolAcquisitionMode {
     /// Return the stable metric label for this acquisition path.
     pub(crate) const fn as_str(self) -> &'static str {
@@ -103,7 +106,7 @@ pub(crate) enum PoolAcquisitionOutcome {
     Error,
 }
 
-#[cfg(all(feature = "pool", not(loom)))]
+#[cfg(all(feature = "metrics", feature = "pool", not(loom)))]
 impl PoolAcquisitionOutcome {
     /// Return the stable metric label for this acquisition outcome.
     pub(crate) const fn as_str(self) -> &'static str {
