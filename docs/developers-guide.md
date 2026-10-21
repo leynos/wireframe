@@ -1442,6 +1442,18 @@ pinned `rust-toolchain.toml`. Normal validation is
 `TRYBUILD=overwrite cargo test --test compile_error`. Review refreshed fixtures
 as maintenance changes, and never run the overwrite command in CI.
 
+Trybuild cannot show that a feature-gated item is *absent*. It forwards the
+harness's own feature list to the generated fixture, and this workspace's
+`wireframe_testing` dev-dependency enables `wireframe/test-support` through
+`runtime-benchmarks`, so every fixture has the gated API.
+`make test-feature-gate` covers that direction instead: `tests/feature_gate/`
+is a standalone consumer of `wireframe` alone, and
+[`scripts/check-feature-gate.sh`](../scripts/check-feature-gate.sh) asserts
+that the gated calls fail to compile without the feature, name the expected
+methods in their diagnostics, and compile once it is enabled. A control build
+of the stable public API runs alongside them so a consumer that fails for an
+unrelated reason is reported as a broken probe rather than a passing gate.
+
 ### Feature files and step definitions
 
 Each `.feature` file under `tests/features/` has a corresponding

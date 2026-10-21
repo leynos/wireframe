@@ -1,0 +1,76 @@
+[package]
+name = "wireframe-feature-gate"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# A standalone package, deliberately absent from the repository workspace.
+#
+# `make test-ui` must prove that `pool_size` and `slot_id` exist only under
+# `test-support`. Trybuild cannot: it forwards the harness's own feature list to
+# its fixture, and the root manifest's `wireframe_testing` development
+# dependency enables `runtime-benchmarks`, which enables `wireframe/test-support`
+# (`wireframe_testing/Cargo.toml`). Every trybuild fixture therefore has the
+# accessors. A separate package that depends on `wireframe` alone has no such
+# unification, so its `[features]` table decides whether the accessors exist.
+#
+# `[workspace]` is empty on purpose: it stops Cargo from walking up to the
+# repository manifest and inheriting the members and lints above. The package is
+# compiled by `scripts/check-feature-gate.sh`, never by workspace-wide gates.
+[workspace]
+
+[dependencies]
+# `metrics` is listed because `wireframe` does not currently compile without
+# it: `src/request/mod.rs` uses `tokio_util::io`, which the crate's own
+# `tokio-util` dependency only enables through this feature. `metrics` is a
+# default feature, so leaving it off tests that unrelated defect instead of the
+# gate this package exists to check.
+wireframe = { path = "../../", default-features = false, features = ["metrics", "pool", "serializer-bincode"] }
+# Copying the root lock's resolved versions keeps this package compiling the same
+# dependency graph the repository's gates do. Without the pin, `wireframe`'s
+# caret requirement for `tokio-util` resolves 0.7.20 here, which added a second
+# `Encoder` impl for `LengthDelimitedCodec` and makes the library's own
+# `bytes.into()` call sites ambiguous. That is a real incompatibility, but it is
+# unrelated to the gate, and it would mask the result of this check.
+tokio-util = "=0.7.19"
+
+[lib]
+name = "wireframe_feature_gate"
+path = "src/lib.rs"
+
+# The negative half: a binary whose body is exactly the two gated calls. It is
+# declared regardless of features so the package stays a plain `cargo check`
+# target; it compiles only while `test-support` is off, and the check script
+# requires that failure to name both methods.
+[[bin]]
+name = "support-accessors-probe"
+path = "src/support_accessors_probe.rs"
+required-features = []
+
+[features]
+# Mirrors the opt-in that adds the accessors to the published library.
+test-support = ["wireframe/test-support"]
+
+[lints.clippy]
+# The lints are copied rather than inherited: `[workspace]` above gives this
+# package no parent table to inherit from, and an unresolved
+# `[lints] workspace = true` fails the manifest.
+pedantic = { level = "warn", priority = -1 }
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+blanket_clippy_restriction_lints = "deny"
+cognitive_complexity = "deny"
+needless_pass_by_value = "deny"
+implicit_hasher = "deny"
+missing_docs_in_private_items = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+indexing_slicing = "deny"
+string_slice = "deny"
+integer_division = "deny"
+integer_division_remainder_used = "deny"
+panic_in_result_fn = "deny"
+unreachable = "deny"
