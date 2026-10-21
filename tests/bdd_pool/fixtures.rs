@@ -5,3 +5,6 @@ pub mod client_pool;
 
 #[path = "../fixtures/client_pool_handle.rs"]
 pub mod client_pool_handle;
+
+#[path = "../fixtures/client_pool_rotation.rs"]
+pub mod client_pool_rotation;
