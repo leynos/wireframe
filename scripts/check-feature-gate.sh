@@ -25,6 +25,14 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
 fail() {
+    # Keep the nested cargo logs on failure: the summary alone does not show
+    # which diagnostic was rejected, and the rustc output is the evidence.
+    if [[ -d $work ]]; then
+        trap - EXIT
+        echo "feature-gate: $*" >&2
+        echo "feature-gate: build logs kept in $work" >&2
+        exit 1
+    fi
     echo "feature-gate: $*" >&2
     exit 1
 }
