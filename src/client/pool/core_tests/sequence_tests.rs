@@ -7,7 +7,7 @@ use proptest::{
     test_runner::{Config as ProptestConfig, TestCaseResult, TestRunner},
 };
 use rstest::rstest;
-use tokio::sync::Barrier;
+use tokio::sync::{Barrier, OwnedSemaphorePermit};
 
 use super::support::{TestCore, four_slot_core, one_slot_core, test_core, two_slot_core};
 use crate::client::pool::lease::PooledClientLease;
@@ -87,22 +87,44 @@ async fn async_acquisition_index_resolves_to_the_slot_that_granted_its_permit(
     drop(held_permits);
 }
 
+/// Take both slots, then free the second so the cursor lands on a held slot.
+///
+/// `PoolCore::new` starts the cursor at zero and every acquisition advances it
+/// once, so the *first* attempt in a fresh two-slot core takes slot 0 and leaves
+/// the cursor at 1 — the free slot. Releasing slot 1's permit and returning
+/// slot 0's gives the caller a pool where the next attempt starts on a slot that
+/// cannot grant capacity, which is the case under test. Taking only one permit
+/// first would leave these tests passing without ever exercising it.
+fn hold_first_slot_and_free_the_second(core: &TestCore) -> OwnedSemaphorePermit {
+    let first = core
+        .try_acquire_permit()
+        .expect("the first slot should grant a permit");
+    let second = core
+        .try_acquire_permit()
+        .expect("the second slot should grant a permit");
+    assert_eq!(
+        (first.0, second.0),
+        (0, 1),
+        "fixture slots are ordered, so two acquisitions return the cursor to 0"
+    );
+
+    drop(second.1);
+    first.1
+}
+
 #[rstest]
 #[tokio::test]
 async fn immediate_selection_skips_a_held_starting_slot(two_slot_core: Arc<TestCore>) {
     let core = two_slot_core;
-    // The first attempt takes slot 0 and leaves the cursor at 1, so the next
-    // attempt starts on the held slot. That is exactly the case the old
-    // allocate-and-scan order had to get right: the walk must step past the
-    // leased slot rather than reporting exhaustion.
-    let (held_index, held_permit) = core
-        .try_acquire_permit()
-        .expect("the first slot should grant a permit");
+    // Two acquisitions leave the cursor back at 0, so the attempt under test
+    // begins on the held slot. The walk must step past it to the freed slot
+    // rather than reporting exhaustion.
+    let held_permit = hold_first_slot_and_free_the_second(&core);
+
     let (selected_index, selected_permit) = core
         .try_acquire_permit()
         .expect("the free slot must still be reachable past the held one");
 
-    assert_eq!(held_index, 0);
     assert_eq!(
         selected_index, 1,
         "selection must skip the held starting slot and grant the free one"
@@ -115,15 +137,15 @@ async fn immediate_selection_skips_a_held_starting_slot(two_slot_core: Arc<TestC
 #[tokio::test]
 async fn permit_race_selection_skips_a_held_starting_slot(two_slot_core: Arc<TestCore>) {
     let core = two_slot_core;
-    let held_permit = core
-        .try_acquire_permit()
-        .expect("the first slot should grant a permit")
-        .1;
+    let held_permit = hold_first_slot_and_free_the_second(&core);
 
-    let (selected_index, selected_permit) = core
-        .acquire_slot_permit()
-        .await
-        .expect("the free slot must still be reachable through the permit race");
+    // The race has no timeout of its own; bound it so a regression that leaves
+    // the runnable slot out of the rotation fails instead of hanging the suite.
+    let (selected_index, selected_permit) =
+        tokio::time::timeout(Duration::from_secs(1), core.acquire_slot_permit())
+            .await
+            .expect("the permit race must not wait on capacity the free slot can provide")
+            .expect("the free slot must still be reachable through the permit race");
 
     assert_eq!(
         selected_index, 1,
