@@ -1454,6 +1454,18 @@ methods in their diagnostics, and compile once it is enabled. A control build
 of the stable public API runs alongside them so a consumer that fails for an
 unrelated reason is reported as a broken probe rather than a passing gate.
 
+Because the consumer is its own workspace, no workspace-wide target reaches it,
+so a green `make test` or `make test-ui` says nothing about whether the gate
+ran. CI runs it as its own `Feature-gate compile checks` step in the
+`build-test` job, and `tests/workflow_contracts/feature_gate_lane_test.py` pins
+that: the step's tokenized command is exactly `make test-feature-gate`, the
+step sets neither `if` nor `continue-on-error`, and the Make target still runs
+the check script rather than a placeholder. The same contract asserts the
+consumer's empty `[workspace]` table and its absence from the root members,
+because joining the workspace would let Cargo unify the root dev-dependency's
+`wireframe/test-support` into the consumer and turn the expected compile
+failure into a pass.
+
 ### Feature files and step definitions
 
 Each `.feature` file under `tests/features/` has a corresponding
