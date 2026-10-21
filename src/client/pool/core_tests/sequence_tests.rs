@@ -6,15 +6,11 @@ use proptest::{
     prelude::*,
     test_runner::{Config as ProptestConfig, TestCaseResult, TestRunner},
 };
-use rstest::{fixture, rstest};
+use rstest::rstest;
 use tokio::sync::Barrier;
 
-use crate::{
-    client::pool::{core::PoolCore, lease::PooledClientLease, test_support::test_pool_slot},
-    serializer::BincodeSerializer,
-};
-
-type TestCore = PoolCore<BincodeSerializer, (), ()>;
+use super::support::{TestCore, four_slot_core, one_slot_core, test_core, two_slot_core};
+use crate::client::pool::lease::PooledClientLease;
 
 #[rstest]
 #[tokio::test]
@@ -89,6 +85,52 @@ async fn async_acquisition_index_resolves_to_the_slot_that_granted_its_permit(
         "the async permit result must identify the slot that granted it"
     );
     drop(held_permits);
+}
+
+#[rstest]
+#[tokio::test]
+async fn immediate_selection_skips_a_held_starting_slot(two_slot_core: Arc<TestCore>) {
+    let core = two_slot_core;
+    // The first attempt takes slot 0 and leaves the cursor at 1, so the next
+    // attempt starts on the held slot. That is exactly the case the old
+    // allocate-and-scan order had to get right: the walk must step past the
+    // leased slot rather than reporting exhaustion.
+    let (held_index, held_permit) = core
+        .try_acquire_permit()
+        .expect("the first slot should grant a permit");
+    let (selected_index, selected_permit) = core
+        .try_acquire_permit()
+        .expect("the free slot must still be reachable past the held one");
+
+    assert_eq!(held_index, 0);
+    assert_eq!(
+        selected_index, 1,
+        "selection must skip the held starting slot and grant the free one"
+    );
+    drop(selected_permit);
+    drop(held_permit);
+}
+
+#[rstest]
+#[tokio::test]
+async fn permit_race_selection_skips_a_held_starting_slot(two_slot_core: Arc<TestCore>) {
+    let core = two_slot_core;
+    let held_permit = core
+        .try_acquire_permit()
+        .expect("the first slot should grant a permit")
+        .1;
+
+    let (selected_index, selected_permit) = core
+        .acquire_slot_permit()
+        .await
+        .expect("the free slot must still be reachable through the permit race");
+
+    assert_eq!(
+        selected_index, 1,
+        "the permit race must report the free slot, not the held starting slot"
+    );
+    drop(selected_permit);
+    drop(held_permit);
 }
 
 #[rstest]
@@ -180,26 +222,6 @@ fn run_generated_slot_sequence(
     Ok(())
 }
 
-#[fixture]
-fn four_slot_core() -> Arc<TestCore> {
-    let slot_count = 4;
-    test_core(slot_count)
-}
-
-#[fixture]
-fn one_slot_core() -> Arc<TestCore> {
-    let slot_count = 1;
-    test_core(slot_count)
-}
-
-fn test_core(slot_count: usize) -> Arc<TestCore> {
-    let slots = (0..slot_count)
-        .map(|_| test_pool_slot(1, Duration::from_secs(30)))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-    Arc::new(TestCore::new(slots))
-}
-
 fn apply_generated_slot_step(
     sequence: &mut GeneratedSlotSequence,
     step: usize,
@@ -215,7 +237,7 @@ fn apply_generated_slot_step(
     sequence.assert_valid()
 }
 
-type TestLease = PooledClientLease<BincodeSerializer, (), ()>;
+type TestLease = PooledClientLease<crate::serializer::BincodeSerializer, (), ()>;
 
 struct GeneratedSlotSequence {
     core: Arc<TestCore>,

@@ -230,5 +230,5 @@ fn rotation_indices(len: usize, start: usize) -> impl Iterator<Item = usize> {
 #[path = "rotation_tests.rs"]
 mod rotation_tests;
 #[cfg(test)]
-#[path = "core_tests.rs"]
+#[path = "core_tests/mod.rs"]
 mod tests;
