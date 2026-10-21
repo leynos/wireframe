@@ -81,7 +81,7 @@ Two vCPU cost about 29% less per run for 3m40s more wall time, and memory is
 far inside the 7.9 GiB that shape has.
 
 The coverage action supplies a 180-second per-test deadline and a ten-minute
-whole-run ceiling. `tests/compile_error.rs` runs twelve trybuild fixtures
+whole-run ceiling. `tests/compile_error.rs` runs fourteen trybuild fixtures
 inside one test, including nested Cargo builds. A cold coverage run exceeded
 that deadline on two vCPU after the other tests had completed
 ([PR #777's coverage run](https://github.com/leynos/wireframe/actions/runs/39203098537)).
