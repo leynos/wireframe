@@ -379,14 +379,10 @@ where
             .then(Instant::now);
 
         async {
-            // Flush pending frames and send EOF before teardown.
-            // Ignore errors since we're closing anyway.
-            //
-            // `SinkExt::<Bytes>::close` rather than the inferred call:
-            // `tokio-util` 0.7.20 implements `Encoder` for both `Bytes` and
-            // `&[u8]`, and `close` has no argument to infer the item from.
-            // Naming the item keeps this compiling under either
-            // implementation set.
+            // Flush pending frames and send EOF before teardown. Errors are
+            // ignored since we're closing anyway. `SinkExt::<Bytes>::close`
+            // names the item because `tokio-util` 0.7.20 also implements
+            // `Encoder` for `&[u8]`, leaving `close` nothing to infer from.
             drop(SinkExt::<Bytes>::close(&mut self.framed).await);
 
             if let (Some(state), Some(handler)) =

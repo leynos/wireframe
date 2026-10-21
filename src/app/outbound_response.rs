@@ -115,11 +115,8 @@ where
         // zero-copy serializer migration in
         // https://github.com/leynos/wireframe/issues/538 is complete.
         //
-        // `Bytes::from`, not `bytes.into()`: `tokio-util` 0.7.20 implements
-        // `Encoder` for both `Bytes` and `&[u8]`, and `Framed::send` has no
-        // other argument to infer the item from, so `.into()` is ambiguous
-        // there. Naming the item keeps this call compiling under either
-        // implementation set.
+        // `Bytes::from`, not `bytes.into()`: `tokio-util` 0.7.20 also encodes
+        // `&[u8]`, so `send` has nothing to infer the item from.
         framed.send(Bytes::from(bytes)).await.map_err(SendError::Io)
     }
 }
