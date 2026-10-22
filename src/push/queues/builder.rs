@@ -99,14 +99,14 @@ impl<F: FrameLike> Default for PushQueuesBuilder<F> {
 impl<F: FrameLike> PushQueuesBuilder<F> {
     /// Set the capacity of the high-priority queue.
     #[must_use]
-    pub fn high_capacity(mut self, capacity: usize) -> Self {
+    pub const fn high_capacity(mut self, capacity: usize) -> Self {
         self.high_capacity = capacity;
         self
     }
 
     /// Set the capacity of the low-priority queue.
     #[must_use]
-    pub fn low_capacity(mut self, capacity: usize) -> Self {
+    pub const fn low_capacity(mut self, capacity: usize) -> Self {
         self.low_capacity = capacity;
         self
     }
@@ -115,14 +115,14 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     ///
     /// Passing `None` disables rate limiting.
     #[must_use]
-    pub fn rate(mut self, rate: Option<usize>) -> Self {
+    pub const fn rate(mut self, rate: Option<usize>) -> Self {
         self.rate = rate;
         self
     }
 
     /// Disable rate limiting entirely.
     #[must_use]
-    pub fn unlimited(self) -> Self { self.rate(None) }
+    pub const fn unlimited(self) -> Self { self.rate(None) }
 
     /// Provide a dead-letter queue for discarded frames.
     ///
@@ -137,7 +137,7 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     /// A value of `0` disables count-based logging; interval-based logging
     /// still applies.
     #[must_use]
-    pub fn dlq_log_every_n(mut self, n: usize) -> Self {
+    pub const fn dlq_log_every_n(mut self, n: usize) -> Self {
         // Treat 0 as “disabled by count”; interval-based logging remains.
         self.dlq_log_every_n = n;
         self
@@ -145,7 +145,7 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
 
     /// Minimum interval between DLQ drop log entries.
     #[must_use]
-    pub fn dlq_log_interval(mut self, interval: Duration) -> Self {
+    pub const fn dlq_log_interval(mut self, interval: Duration) -> Self {
         self.dlq_log_interval = interval;
         self
     }

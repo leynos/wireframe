@@ -67,7 +67,7 @@ impl<F> PushHandleProbe<F> {
 
 impl<F: FrameLike> PushHandle<F> {
     /// Wrap shared queue state while retaining cloneable producer ownership.
-    pub(crate) fn from_arc(arc: Arc<PushHandleInner<F>>) -> Self { Self(arc) }
+    pub(crate) const fn from_arc(arc: Arc<PushHandleInner<F>>) -> Self { Self(arc) }
 
     /// Returns a probe for inspecting internal state during loom verification.
     ///

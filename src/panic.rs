@@ -19,11 +19,12 @@ use std::any::Any;
 /// ```
 #[must_use]
 pub fn format_panic(panic: &Box<dyn Any + Send>) -> String {
-    if let Some(message) = panic.downcast_ref::<&'static str>() {
-        (*message).to_owned()
-    } else if let Some(message) = panic.downcast_ref::<String>() {
-        message.clone()
-    } else {
-        format!("{panic:?}")
-    }
+    panic.downcast_ref::<&'static str>().map_or_else(
+        || {
+            panic
+                .downcast_ref::<String>()
+                .map_or_else(|| format!("{panic:?}"), Clone::clone)
+        },
+        |message| (*message).to_owned(),
+    )
 }

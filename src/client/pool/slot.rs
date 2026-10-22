@@ -206,7 +206,7 @@ where
     C: Send + 'static,
 {
     /// Keep the connection after its operation returned.
-    pub(crate) fn disarm(&mut self) { self.armed = false; }
+    pub(crate) const fn disarm(&mut self) { self.armed = false; }
 
     /// Invalidate the connection while an operation is still holding it.
     pub(crate) fn mark_broken(&mut self) { self.connection.mark_broken(); }

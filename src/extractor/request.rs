@@ -49,7 +49,7 @@ impl MessageRequest {
     /// assert!(req.peer_addr.is_some());
     /// ```
     #[must_use]
-    pub fn with_peer_addr(mut self, addr: Option<SocketAddr>) -> Self {
+    pub const fn with_peer_addr(mut self, addr: Option<SocketAddr>) -> Self {
         self.peer_addr = addr;
         self
     }
@@ -179,7 +179,7 @@ impl<'a> Payload<'a> {
     /// ```
     #[must_use]
     #[inline]
-    pub fn new(data: &'a [u8]) -> Self { Self { data } }
+    pub const fn new(data: &'a [u8]) -> Self { Self { data } }
 }
 
 impl<'a> From<&'a [u8]> for Payload<'a> {
@@ -224,5 +224,5 @@ impl Payload<'_> {
     /// assert_eq!(payload.remaining(), 3);
     /// ```
     #[must_use]
-    pub fn remaining(&self) -> usize { self.data.len() }
+    pub const fn remaining(&self) -> usize { self.data.len() }
 }

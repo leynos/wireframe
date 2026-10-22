@@ -47,7 +47,7 @@ pub struct ServiceRequest {
 impl ServiceRequest {
     /// Create a new [`ServiceRequest`] from raw frame bytes.
     #[must_use]
-    pub fn new(frame: Vec<u8>, correlation_id: Option<u64>) -> Self {
+    pub const fn new(frame: Vec<u8>, correlation_id: Option<u64>) -> Self {
         Self {
             inner: FrameContainer::new(frame),
             correlation_id,
@@ -56,7 +56,7 @@ impl ServiceRequest {
 
     /// Borrow the underlying frame bytes.
     #[must_use]
-    pub fn frame(&self) -> &[u8] { self.inner.frame().as_slice() }
+    pub const fn frame(&self) -> &[u8] { self.inner.frame().as_slice() }
 
     /// Return the correlation identifier associated with this request, if any.
     #[must_use]
@@ -71,7 +71,7 @@ impl ServiceRequest {
 
     /// Mutable access to the inner frame bytes.
     #[must_use]
-    pub fn frame_mut(&mut self) -> &mut Vec<u8> { self.inner.frame_mut() }
+    pub const fn frame_mut(&mut self) -> &mut Vec<u8> { self.inner.frame_mut() }
 
     /// Consume the request, returning the inner frame bytes.
     #[must_use]
@@ -90,7 +90,7 @@ pub struct ServiceResponse {
 impl ServiceResponse {
     /// Create a new [`ServiceResponse`] containing the given frame bytes.
     #[must_use]
-    pub fn new(frame: Vec<u8>, correlation_id: Option<u64>) -> Self {
+    pub const fn new(frame: Vec<u8>, correlation_id: Option<u64>) -> Self {
         Self {
             inner: FrameContainer::new(frame),
             correlation_id,
@@ -99,11 +99,11 @@ impl ServiceResponse {
 
     /// Borrow the inner frame bytes.
     #[must_use]
-    pub fn frame(&self) -> &[u8] { self.inner.frame().as_slice() }
+    pub const fn frame(&self) -> &[u8] { self.inner.frame().as_slice() }
 
     /// Mutable access to the response frame bytes.
     #[must_use]
-    pub fn frame_mut(&mut self) -> &mut Vec<u8> { self.inner.frame_mut() }
+    pub const fn frame_mut(&mut self) -> &mut Vec<u8> { self.inner.frame_mut() }
 
     /// Return the correlation identifier associated with this response, if any.
     #[must_use]
@@ -235,7 +235,7 @@ impl<F> FromFn<F> {
 /// # }
 /// let mw = from_fn(logging);
 /// ```
-pub fn from_fn<F>(f: F) -> FromFn<F> { FromFn::new(f) }
+pub const fn from_fn<F>(f: F) -> FromFn<F> { FromFn::new(f) }
 
 /// Service wrapper that applies a middleware function to requests.
 ///
