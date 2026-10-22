@@ -123,12 +123,26 @@ fn digits_len_usize(mut value: usize) -> usize {
 /// Count digits in a signed integer, including its possible minus sign.
 fn digits_len_i64(value: i64) -> usize {
     let mut digits = 1;
-    let mut cursor = value;
-    while cursor <= -10 || cursor >= 10 {
+    let mut cursor = value.unsigned_abs();
+    while cursor >= 10 {
         cursor = cursor.div_euclid(10);
         digits += 1;
     }
     if value < 0 { digits + 1 } else { digits }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::digits_len_i64;
+
+    /// Negative values must count their magnitude, not round toward negative
+    /// infinity: `-99` is three characters and `-10` is three.
+    #[test]
+    fn digits_len_i64_matches_the_rendered_length() {
+        for value in [i64::MIN, -100, -99, -10, -9, -1, 0, 1, 9, 10, 99, i64::MAX] {
+            assert_eq!(digits_len_i64(value), value.to_string().len(), "{value}");
+        }
+    }
 }
 
 /// Add encoded-size components and report overflow as a frame-size error.
