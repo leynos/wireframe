@@ -221,7 +221,7 @@ impl CodecError {
     /// assert_eq!(err.default_recovery_policy(), RecoveryPolicy::Disconnect);
     /// ```
     #[must_use]
-    pub fn default_recovery_policy(&self) -> RecoveryPolicy {
+    pub const fn default_recovery_policy(&self) -> RecoveryPolicy {
         match self {
             // Recoverable errors: drop and continue
             Self::Framing(FramingError::OversizedFrame { .. } | FramingError::EmptyFrame)
@@ -251,7 +251,7 @@ impl CodecError {
     /// assert!(!err.is_clean_close());
     /// ```
     #[must_use]
-    pub fn is_clean_close(&self) -> bool { matches!(self, Self::Eof(EofError::CleanClose)) }
+    pub const fn is_clean_close(&self) -> bool { matches!(self, Self::Eof(EofError::CleanClose)) }
 
     /// Returns true if the connection should be terminated.
     ///
@@ -285,7 +285,7 @@ impl CodecError {
     ///
     /// One of: `"framing"`, `"protocol"`, `"io"`, or `"eof"`.
     #[must_use]
-    pub fn error_type(&self) -> &'static str {
+    pub const fn error_type(&self) -> &'static str {
         match self {
             Self::Framing(_) => "framing",
             Self::Protocol(_) => "protocol",
@@ -293,21 +293,27 @@ impl CodecError {
             Self::Eof(_) => "eof",
         }
     }
+
+    /// Map this codec error onto the closest [`io::Error`] category.
+    ///
+    /// Framing and protocol failures are invalid data; a clean close is an
+    /// unexpected end of file. An existing I/O error passes through unchanged.
+    fn into_io_error(self) -> io::Error {
+        match self {
+            Self::Io(error) => error,
+            Self::Framing(error) => {
+                io::Error::new(io::ErrorKind::InvalidData, Self::Framing(error))
+            }
+            Self::Protocol(error) => {
+                io::Error::new(io::ErrorKind::InvalidData, Self::Protocol(error))
+            }
+            Self::Eof(error) => io::Error::new(io::ErrorKind::UnexpectedEof, Self::Eof(error)),
+        }
+    }
 }
 
 impl From<CodecError> for io::Error {
-    fn from(err: CodecError) -> Self {
-        match err {
-            CodecError::Io(e) => e,
-            CodecError::Framing(e) => {
-                io::Error::new(io::ErrorKind::InvalidData, CodecError::Framing(e))
-            }
-            CodecError::Protocol(e) => {
-                io::Error::new(io::ErrorKind::InvalidData, CodecError::Protocol(e))
-            }
-            CodecError::Eof(e) => io::Error::new(io::ErrorKind::UnexpectedEof, CodecError::Eof(e)),
-        }
-    }
+    fn from(error: CodecError) -> Self { error.into_io_error() }
 }
 
 #[cfg(test)]

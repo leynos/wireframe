@@ -201,5 +201,5 @@ impl ParsedFrameHeader {
     /// assert!(matches!(parsed.into_header(), FrameHeader::First(_)));
     /// ```
     #[must_use]
-    pub fn into_header(self) -> FrameHeader { self.header }
+    pub const fn into_header(self) -> FrameHeader { self.header }
 }

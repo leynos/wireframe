@@ -29,29 +29,29 @@ struct PartialAssembly {
     /// First-frame metadata kept separate from the body for reconstruction.
     metadata: Vec<u8>,
     /// Ordered body bytes accumulated from first and continuation frames.
-    body_buffer: Vec<u8>,
+    body: Vec<u8>,
     /// Start time used to discard incomplete peer-controlled state.
     started_at: Instant,
 }
 impl PartialAssembly {
     /// Create empty assembly storage anchored at the first frame's timestamp.
-    fn new(series: MessageSeries, routing: EnvelopeRouting, started_at: Instant) -> Self {
+    const fn new(series: MessageSeries, routing: EnvelopeRouting, started_at: Instant) -> Self {
         Self {
             series,
             routing,
             metadata: Vec::new(),
-            body_buffer: Vec::new(),
+            body: Vec::new(),
             started_at,
         }
     }
     /// Append body bytes after the caller has validated size and ordering.
-    fn push_body(&mut self, data: &[u8]) { self.body_buffer.extend_from_slice(data); }
+    fn push_body(&mut self, data: &[u8]) { self.body.extend_from_slice(data); }
     /// Replace the first-frame metadata retained for the completed message.
     fn set_metadata(&mut self, data: Vec<u8>) { self.metadata = data; }
     /// Return body bytes accumulated so far for per-message budget checks.
-    fn accumulated_len(&self) -> usize { self.body_buffer.len() }
+    const fn accumulated_len(&self) -> usize { self.body.len() }
     /// Logical payload length represented by the body and metadata buffers.
-    fn buffered_bytes(&self) -> usize { self.body_buffer.len().saturating_add(self.metadata.len()) }
+    const fn buffered_bytes(&self) -> usize { self.body.len().saturating_add(self.metadata.len()) }
 }
 /// Stateful manager for multiple concurrent message assemblies.
 ///
@@ -354,7 +354,7 @@ impl MessageAssemblyState {
                     key,
                     partial.routing,
                     partial.metadata,
-                    partial.body_buffer,
+                    partial.body,
                 )))
             }
         }
