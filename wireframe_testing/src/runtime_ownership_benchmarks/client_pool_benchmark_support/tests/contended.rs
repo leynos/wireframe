@@ -4,6 +4,7 @@ use crate::runtime_ownership_benchmarks::client_pool_benchmark_support::{
     AcquisitionMode,
     PoolMeasurement,
     PoolWorkload,
+    contended_fifo_pool_workloads,
     measure_pool_acquisition,
 };
 
@@ -19,6 +20,33 @@ use crate::runtime_ownership_benchmarks::client_pool_benchmark_support::{
 /// succeeds: a pool that failed every attempt is a different and much more
 /// serious defect, and is reported as such.
 const CONTENDED_BURST_ATTEMPTS: usize = 8;
+
+#[test]
+fn fifo_baseline_workloads_cover_each_pool_size_and_can_contend() {
+    let workloads = contended_fifo_pool_workloads();
+
+    assert_eq!(workloads.map(|workload| workload.pool_size), [1, 4, 16]);
+    assert_eq!(workloads.map(|workload| workload.contenders), [16, 16, 17]);
+    assert_eq!(
+        workloads.map(|workload| workload.mode),
+        [AcquisitionMode::ContendedFifo; 3]
+    );
+    for workload in workloads {
+        assert!(
+            workload.validate().is_ok(),
+            "{} must exceed its slot count to enter the contended path",
+            workload.label()
+        );
+    }
+    assert_eq!(
+        workloads[1].label(),
+        "contended_fifo_pool_4_contenders_16_rounds_8"
+    );
+    assert_eq!(
+        workloads[2].label(),
+        "contended_fifo_pool_16_contenders_17_rounds_8"
+    );
+}
 
 /// Run one contended burst, retrying the acquire path's known spurious failures.
 ///
@@ -79,24 +107,29 @@ async fn contended_mode_needs_more_contenders_than_slots() {
 /// of contention: every release notifies the scheduler whether or not anyone is
 /// waiting.
 #[rstest::rstest]
-#[case(AcquisitionMode::ContendedFifo)]
-#[case(AcquisitionMode::ContendedRoundRobin)]
+#[case::one_slot_fifo(1, 16, AcquisitionMode::ContendedFifo)]
+#[case::four_slots_fifo(4, 16, AcquisitionMode::ContendedFifo)]
+#[case::sixteen_slots_fifo(16, 17, AcquisitionMode::ContendedFifo)]
+#[case::four_slots_round_robin(4, 16, AcquisitionMode::ContendedRoundRobin)]
 #[tokio::test]
-async fn contended_acquisition_observes_capacity_waits(#[case] mode: AcquisitionMode) {
-    const CONTENDERS: usize = 16;
+async fn contended_acquisition_observes_capacity_waits(
+    #[case] pool_size: usize,
+    #[case] contenders: usize,
+    #[case] mode: AcquisitionMode,
+) {
     let measurement = contended_burst_with_retry(PoolWorkload {
-        pool_size: 4,
+        pool_size,
         mode,
         acquisitions: 8,
-        contenders: CONTENDERS,
+        contenders,
     })
     .await
     .expect("contended measurement failed in every retry attempt");
 
     assert!(
-        measurement.capacity_waits >= u64::try_from(CONTENDERS).unwrap_or(u64::MAX),
-        "a burst that empties a 4-slot pool and holds it empty must park every one of \
-         {CONTENDERS} contenders, but {} waits were recorded",
+        measurement.capacity_waits >= u64::try_from(contenders).unwrap_or(u64::MAX),
+        "a burst that empties a {pool_size}-slot pool and holds it empty must park every one of \
+         {contenders} contenders, but {} waits were recorded",
         measurement.capacity_waits
     );
     assert!(

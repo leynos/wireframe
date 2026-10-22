@@ -13,10 +13,7 @@ use wireframe_testing::{
     runtime_ownership_benchmarks::{PoolHarness, PoolWorkload},
 };
 
-use crate::{
-    probes::expect_bench,
-    scopes::{ALLOCATION_ITERATIONS, AllocationWorkloads},
-};
+use crate::{probes::expect_bench, scopes::ALLOCATION_ITERATIONS};
 
 /// Run the pool scope the way the timing pass should replay it.
 ///
@@ -103,7 +100,7 @@ fn pool_bracket_readings(
 }
 
 /// Build the workload the bracket checks measure, at their own parameters.
-fn bracket_workload() -> PoolWorkload { AllocationWorkloads::new().pool }
+fn bracket_workload() -> PoolWorkload { PoolWorkload::default() }
 
 /// Prove the pool scope's bracketed window really excludes pool construction.
 ///

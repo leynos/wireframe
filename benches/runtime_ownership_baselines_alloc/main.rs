@@ -39,14 +39,14 @@
 //!
 //! # Contended pool acquisition
 //!
-//! Contended pool acquisition is counted once, after `Criterion::final_summary`,
-//! and reported as a `tracing` event rather than timed. Sustained contention
-//! intermittently fails or stalls the pool acquire path — a pre-existing defect
-//! recorded in `docs/runtime-ownership-baselines.md` and belonging to ADR 013 /
-//! issue #647. Criterion's timing pass runs far more iterations than an
-//! allocation window, so it reaches that interleaving almost every run; that is
-//! how this binary failed on its first execution. The count itself is unaffected
-//! because it comes from a single counted window.
+//! FIFO contended pool acquisition is counted once per baseline pool size, after
+//! `Criterion::final_summary`, and reported as a `tracing` event rather than
+//! timed. Sustained contention intermittently fails or stalls the pool acquire
+//! path — a pre-existing defect recorded in `docs/runtime-ownership-baselines.md`
+//! and belonging to ADR 013 / issue #647. Criterion's timing pass runs far more
+//! iterations than an allocation window, so it reaches that interleaving almost
+//! every run; that is how this binary failed on its first execution. Each count
+//! comes from one bracketed window.
 //!
 //! # Layout
 //!
