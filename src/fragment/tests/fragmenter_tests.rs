@@ -153,3 +153,40 @@ fn fragmenter_returns_error_for_out_of_bounds_slice() {
         other => panic!("expected SliceBounds, got {other:?}"),
     }
 }
+
+/// Concurrent callers each receive a distinct identifier and none observes the
+/// exhaustion panic, so the compare-exchange behind `try_update` retries on
+/// contention rather than failing.
+#[test]
+fn fragmenter_allocates_distinct_ids_under_contention() -> TestResult {
+    const THREADS: usize = 8;
+    const IDS_PER_THREAD: usize = 2_000;
+
+    let fragmenter = std::sync::Arc::new(Fragmenter::new(
+        NonZeroUsize::new(8).ok_or("fragment size must be non-zero")?,
+    ));
+    let handles: Vec<_> = (0..THREADS)
+        .map(|_| {
+            let fragmenter = std::sync::Arc::clone(&fragmenter);
+            std::thread::spawn(move || {
+                (0..IDS_PER_THREAD)
+                    .map(|_| fragmenter.next_message_id())
+                    .collect::<Vec<_>>()
+            })
+        })
+        .collect();
+    let mut ids = std::collections::HashSet::new();
+    for handle in handles {
+        let batch = handle.join().map_err(|_| "id allocation thread panicked")?;
+        ids.extend(batch);
+    }
+    if ids.len() != THREADS * IDS_PER_THREAD {
+        return Err(format!(
+            "expected {} distinct identifiers, observed {}",
+            THREADS * IDS_PER_THREAD,
+            ids.len()
+        )
+        .into());
+    }
+    Ok(())
+}
