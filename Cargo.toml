@@ -75,6 +75,7 @@ serial_test = "4.0.1"
 metrics-util = "0.20.0"
 tracing-test = { version = "0.2.5", features = ["no-env-filter"] }
 mockall = "0.15.0"
+mockable = "3.0.0"
 monotony = { version = "0.1.0", features = ["test-util"] }
 criterion = "0.8.2"
 cap-std = { version = "4.0.2", features = ["fs_utf8"] }

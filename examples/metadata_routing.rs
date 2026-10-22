@@ -108,9 +108,10 @@ async fn run() -> io::Result<()> {
         .map_err(|error| io::Error::other(error.to_string()))?;
 
     let mut codec = app.length_codec();
-    let app = app.prepare().await.map_err(io::Error::other)?;
+    let prepared_app = app.prepare().await.map_err(io::Error::other)?;
     let (mut client, server) = duplex(1024);
-    let server_task = tokio::spawn(async move { app.handle_connection_result(server).await });
+    let server_task =
+        tokio::spawn(async move { prepared_app.handle_connection_result(server).await });
 
     let payload = Ping.to_bytes().map_err(io::Error::other)?;
     let mut frame = Vec::new();
