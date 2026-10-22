@@ -52,10 +52,6 @@ where
     S: Future<Output = ()> + Send,
 {
     let mut shutdown = Box::pin(shutdown);
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "tokio::select! expands to modulus internally"
-    )]
     let startup_result = select! {
         () = &mut shutdown => {
             record_server_startup_duration(

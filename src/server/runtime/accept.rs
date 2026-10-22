@@ -241,10 +241,6 @@ fn record_accept_loop_exit(shutdown: &CancellationToken, lifecycle: &SupervisorL
 }
 
 /// Select between shutdown and one accept attempt, returning the next delay.
-#[expect(
-    clippy::integer_division_remainder_used,
-    reason = "tokio::select! expands to modulus internally"
-)]
 async fn accept_iteration<T, L, Ser, Ctx, E, Codec>(
     listener: &Arc<L>,
     handles: &AcceptHandles<'_, T, Ser, Ctx, E, Codec>,
