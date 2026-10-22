@@ -17,4 +17,9 @@ fn compile_tests() {
     t.pass("tests/ui/client_error_wildcard_match.rs");
     t.compile_fail("tests/ui/client_error_exhaustive_match.rs");
     t.pass("tests/ui/wireframe_testing_exports.rs");
+    // Trybuild forwards this build's features to the fixture, so the pool
+    // accessors only exist here when `test-support` is enabled. `make test`
+    // runs with `--all-features`, which is where this case gets its coverage.
+    #[cfg(feature = "test-support")]
+    t.pass("tests/ui/client_pool_test_support_api.rs");
 }

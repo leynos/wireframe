@@ -20,3 +20,7 @@ __pycache__/
 *.swp
 *.swo
 *~
+
+# The standalone feature-gate consumer keeps its own lock file and target dir.
+tests/feature_gate/target/
+tests/feature_gate/Cargo.lock

@@ -93,6 +93,13 @@ where
     /// Resolve the selected slot through the core's checked internal accessor.
     pub(crate) fn slot(&self) -> Option<&PoolSlot<S, P, C>> { self.core.slot(self.slot_index) }
 
+    /// Report the physical slot index selected for this lease.
+    ///
+    /// Kept crate-internal so the pool's public test-support surface can expose
+    /// rotation order without making slot identity part of the stable API.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) const fn selected_slot_index(&self) -> usize { self.slot_index }
+
     /// Classify transport errors that make a pooled connection unsafe to reuse.
     const fn should_recycle(err: &ClientError) -> bool { err.should_recycle_connection() }
 

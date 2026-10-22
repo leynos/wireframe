@@ -29,13 +29,13 @@ fn given_client_pool_cancellation_safety(client_pool_world: &mut ClientPoolWorld
     let _ = client_pool_world;
 }
 
-#[when("client pool warm reuse runs against one socket")]
+#[when("client pool warm reuse runs against one socket", result)]
 fn when_client_pool_warm_reuse_runs(client_pool_world: &mut ClientPoolWorld) -> TestResult {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(client_pool_world.run_warm_reuse_scenario())
 }
 
-#[when("client pool acquires more leases than one socket allows")]
+#[when("client pool acquires more leases than one socket allows", result)]
 fn when_client_pool_exhausts_in_flight_budget(
     client_pool_world: &mut ClientPoolWorld,
 ) -> TestResult {
@@ -43,7 +43,7 @@ fn when_client_pool_exhausts_in_flight_budget(
     rt.block_on(client_pool_world.run_in_flight_limit_scenario())
 }
 
-#[when("client pool holds every permit and exceeds its waiter limit")]
+#[when("client pool holds every permit and exceeds its waiter limit", result)]
 fn when_client_pool_exceeds_waiter_limit(client_pool_world: &mut ClientPoolWorld) -> TestResult {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -51,7 +51,7 @@ fn when_client_pool_exceeds_waiter_limit(client_pool_world: &mut ClientPoolWorld
     rt.block_on(client_pool_world.run_waiter_admission_scenario())
 }
 
-#[when("client pool idles past the recycle timeout")]
+#[when("client pool idles past the recycle timeout", result)]
 fn when_client_pool_idles_past_timeout(client_pool_world: &mut ClientPoolWorld) -> TestResult {
     // This scenario uses paused time plus `advance()`, which is only
     // deterministic on a current-thread runtime.
@@ -61,13 +61,13 @@ fn when_client_pool_idles_past_timeout(client_pool_world: &mut ClientPoolWorld) 
     rt.block_on(client_pool_world.run_idle_recycle_scenario())
 }
 
-#[when("client pool cancels a delayed in-flight call")]
+#[when("client pool cancels a delayed in-flight call", result)]
 fn when_client_pool_cancels_in_flight_call(client_pool_world: &mut ClientPoolWorld) -> TestResult {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(client_pool_world.run_cancelled_call_scenario())
 }
 
-#[then("client pool warm reuse preserves one preamble handshake")]
+#[then("client pool warm reuse preserves one preamble handshake", result)]
 fn then_client_pool_warm_reuse_preserves_preamble(
     client_pool_world: &mut ClientPoolWorld,
 ) -> TestResult {
@@ -78,7 +78,7 @@ fn then_client_pool_warm_reuse_preserves_preamble(
     }
 }
 
-#[then("client pool blocks the extra acquire until capacity returns")]
+#[then("client pool blocks the extra acquire until capacity returns", result)]
 fn then_client_pool_blocks_extra_acquire(client_pool_world: &mut ClientPoolWorld) -> TestResult {
     if client_pool_world.blocked_third_acquire() && client_pool_world.recovered_after_release() {
         Ok(())
@@ -87,7 +87,10 @@ fn then_client_pool_blocks_extra_acquire(client_pool_world: &mut ClientPoolWorld
     }
 }
 
-#[then("client pool blocks an allowed waiter and rejects the excess acquire")]
+#[then(
+    "client pool blocks an allowed waiter and rejects the excess acquire",
+    result
+)]
 fn then_client_pool_rejects_excess_waiter(client_pool_world: &mut ClientPoolWorld) -> TestResult {
     if client_pool_world.bounded_waiter_admission_preserved() {
         Ok(())
@@ -96,7 +99,7 @@ fn then_client_pool_rejects_excess_waiter(client_pool_world: &mut ClientPoolWorl
     }
 }
 
-#[then("client pool reconnects and replays the preamble")]
+#[then("client pool reconnects and replays the preamble", result)]
 fn then_client_pool_reconnects_after_idle(client_pool_world: &mut ClientPoolWorld) -> TestResult {
     if client_pool_world.reconnected_after_idle() {
         Ok(())
@@ -105,7 +108,10 @@ fn then_client_pool_reconnects_after_idle(client_pool_world: &mut ClientPoolWorl
     }
 }
 
-#[then("client pool reconnects after cancellation and releases capacity")]
+#[then(
+    "client pool reconnects after cancellation and releases capacity",
+    result
+)]
 fn then_client_pool_reconnects_after_cancellation(
     client_pool_world: &mut ClientPoolWorld,
 ) -> TestResult {

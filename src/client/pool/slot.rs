@@ -87,6 +87,15 @@ where
             .map_err(|_| ClientError::disconnected())
     }
 
+    /// Close the admission gate so waiting acquisitions report disconnection.
+    ///
+    /// Nothing closes this gate in production, so the mapping from a closed
+    /// semaphore to `ClientError::disconnected` is only reachable from tests.
+    /// The switch lives beside the field it controls so the recorder test can
+    /// drive the pool's real classification rather than a copy of it.
+    #[cfg(test)]
+    pub(super) fn close_admission(&self) { self.permits.close(); }
+
     /// Reserve this socket for one lease's outstanding exchange.
     pub(crate) async fn acquire_protocol_permit(
         &self,

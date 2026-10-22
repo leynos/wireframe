@@ -13,7 +13,11 @@ use futures::future::select_all;
 use tokio::sync::{Notify, OwnedSemaphorePermit};
 
 use super::slot::PoolSlot;
-use crate::{client::ClientError, serializer::Serializer};
+use crate::{
+    client::ClientError,
+    metrics::{PoolAcquisitionMode, PoolAcquisitionOutcome},
+    serializer::Serializer,
+};
 
 /// Result of selecting a slot while retaining its independent admission token.
 pub(crate) type SlotPermit = (usize, OwnedSemaphorePermit);
@@ -67,6 +71,14 @@ where
     /// Read the release-acquire shutdown flag used by all waiters.
     pub(crate) fn is_shutdown(&self) -> bool { self.shutdown.load(Ordering::Acquire) }
 
+    /// Report how many physical slots this core owns.
+    ///
+    /// Available in test builds and through `test-support` so behavioural
+    /// tests can prove they exercised a multi-slot pool.
+    #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
+    pub(crate) fn pool_size(&self) -> usize { self.slots.len() }
+
     /// Wait until pool shutdown wakes a cancellation-sensitive operation.
     pub(crate) async fn shutdown_notified(&self) {
         self.shutdown_notified_after_check(std::future::ready(()))
@@ -92,7 +104,22 @@ where
     }
 
     /// Select the first available slot in rotation order without slot Arcs.
+    ///
+    /// The attempt is recorded with its bounded outcome so pool saturation and
+    /// shutdown are visible without adding per-slot or caller identifiers.
     pub(crate) fn try_acquire_permit(&self) -> Option<SlotPermit> {
+        let outcome = self.try_acquire_permit_inner();
+        let outcome_label = match &outcome {
+            Some(_) => PoolAcquisitionOutcome::Granted,
+            None if self.is_shutdown() => PoolAcquisitionOutcome::Shutdown,
+            None => PoolAcquisitionOutcome::Exhausted,
+        };
+        crate::metrics::inc_pool_acquisition(PoolAcquisitionMode::Immediate, outcome_label);
+        outcome
+    }
+
+    /// Try each slot in rotation order, reporting only the permit result.
+    fn try_acquire_permit_inner(&self) -> Option<SlotPermit> {
         if self.is_shutdown() {
             return None;
         }
@@ -113,6 +140,20 @@ where
 
     /// Race slot permits and return the first available capacity or error.
     pub(crate) async fn acquire_slot_permit(self: &Arc<Self>) -> Result<SlotPermit, ClientError> {
+        let result = self.acquire_slot_permit_inner().await;
+        let outcome = match &result {
+            Ok(_) => PoolAcquisitionOutcome::Granted,
+            Err(_) if self.is_shutdown() || self.slots.is_empty() => {
+                PoolAcquisitionOutcome::Shutdown
+            }
+            Err(_) => PoolAcquisitionOutcome::Error,
+        };
+        crate::metrics::inc_pool_acquisition(PoolAcquisitionMode::PermitRace, outcome);
+        result
+    }
+
+    /// Race one owned permit future per slot, keeping the core alive for each.
+    async fn acquire_slot_permit_inner(self: &Arc<Self>) -> Result<SlotPermit, ClientError> {
         if self.is_shutdown() || self.slots.is_empty() {
             return Err(ClientError::disconnected());
         }
@@ -144,20 +185,50 @@ where
     }
 
     /// Rotate slot indices without allocating or cloning slot owners.
+    ///
+    /// The cursor is read once per attempt, and only for a non-empty pool, so
+    /// startup rotation stays cheap and an empty pool consumes no cursor value.
+    /// The seed is reduced below `len` before any offset is added: a wrapped
+    /// `usize` is congruent to its value minus `2^word`, which is a multiple of
+    /// `len` only for power-of-two pool sizes. Reducing after the addition
+    /// would therefore repeat one slot and skip another in a three- or
+    /// five-slot pool once the cursor overflowed.
     fn ordered_slot_indices(&self) -> impl Iterator<Item = usize> + '_ {
         let len = self.slots.len();
         let start = if len == 0 {
             0
         } else {
-            self.next_slot
-                .fetch_add(1, Ordering::Relaxed)
-                .wrapping_rem(len)
+            rotation_start(len, self.next_slot.fetch_add(1, Ordering::Relaxed))
         };
 
-        (0..len).map(move |offset| start.wrapping_add(offset).wrapping_rem(len.max(1)))
+        rotation_indices(len, start)
     }
 }
 
+/// Reduce a raw cursor into a valid first slot index for `len` slots.
+///
+/// The empty case reports zero so the rotation can be described without a
+/// branch at every call site; no cursor value is consumed for an empty pool.
+fn rotation_start(len: usize, cursor: usize) -> usize {
+    if len == 0 {
+        0
+    } else {
+        cursor.wrapping_rem(len)
+    }
+}
+
+/// Visit every slot index once, starting at `start` and wrapping once.
+///
+/// `start` must be below `len`, which [`rotation_start`] guarantees, so the
+/// additions cannot overflow; `wrapping_rem` is the lint-permitted spelling of
+/// the remainder rather than an overflow workaround here.
+fn rotation_indices(len: usize, start: usize) -> impl Iterator<Item = usize> {
+    (0..len).map(move |offset| start.wrapping_add(offset).wrapping_rem(len.max(1)))
+}
+
 #[cfg(test)]
-#[path = "core_tests.rs"]
+#[path = "rotation_tests.rs"]
+mod rotation_tests;
+#[cfg(test)]
+#[path = "core_tests/mod.rs"]
 mod tests;

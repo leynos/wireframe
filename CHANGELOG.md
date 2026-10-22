@@ -20,6 +20,12 @@ All notable changes to this project will be documented in this file.
   The drain test synchronizes on the per-pool `PoolTaskChurnObserver`
   `capacity_waits` counter, so it waits for acquisitions to park rather than
   for elapsed time. (#593)
+- Client pool slot ordering rotates over indices rather than cloning slot
+  owners, with regression coverage for cursor advancement, empty pools, and
+  `usize` overflow in non-power-of-two pools, a behavioural scenario proving
+  rotation across two live slots, and bounded
+  `wireframe_pool_acquisitions_total` telemetry.
+  ([#536](https://github.com/leynos/wireframe/issues/536))
 - **Client (breaking):** Remove `SocketOptions::linger` and
   `WireframeClientBuilder::linger`. Tokio-managed client sockets must not use
   duration-based `SO_LINGER`; call `WireframeClient::close().await` for
