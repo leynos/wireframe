@@ -647,6 +647,63 @@ eightfold to sixteenfold. Both figures move between captures by more than the
 correction accounts for, which is the same caution the allocation table states:
 at this scope, prefer the spawn count.
 
+## Issue #646 permit-race comparison
+
+Both captures use `make bench-runtime-ownership` on the named machine and the
+same pool workloads: 256 uncontended acquire/release operations per timing
+sample, 20 Criterion samples, 20 contended bursts, and four iterations for
+allocation observations. The pre-change run used the Phase 1 benchmark worktree
+based on `ab630169`, with the benchmark scenarios already registered; the
+production race still used boxed `select_all` futures. The after-change run used
+`d29c51d`. The captures were taken on 2026-10-22.
+
+The uncontended scenarios use the pool's immediate `try_acquire_permit` path,
+not the blocked race. Each timing cell gives the Criterion lower, estimate, and
+upper bounds in microseconds. Those bounds show the observed jitter across the
+20 samples; they are not per-function measurements.
+
+| Slots | Before latency (lower / estimate / upper, µs) | After latency (lower / estimate / upper, µs) | Before allocations | After allocations |
+| ----- | --------------------------------------------- | -------------------------------------------- | ------------------ | ----------------- |
+| 1     | 158.50 / 164.95 / 171.08                      | 143.70 / 148.48 / 154.49                     | 1222               | 1233              |
+| 4     | 138.28 / 146.01 / 152.66                      | 120.83 / 124.68 / 128.41                     | 1407               | 1124              |
+| 16    | 147.24 / 151.21 / 155.15                      | 115.07 / 120.78 / 127.88                     | 1616               | 1103              |
+
+Allocation counts cover four iterations of each burst. They include runtime and
+benchmark-harness work and do not attribute allocations to
+`acquire_slot_permit`. The source-level fast-path property is that
+`acquire_slot_permit` allocates nothing when its probe succeeds. When every
+slot is blocked, `FuturesUnordered` allocates one task node for each slot
+future.
+
+The contended distribution records successful bursts only; `outcomes` reports
+successful bursts out of 20. Each distribution cell gives median, p90, and
+maximum in microseconds so the spread remains visible even when failures remove
+bursts from the sample.
+
+| Slots | Contenders | Before outcomes | Before median / p90 / max (µs) | After outcomes | After median / p90 / max (µs) |
+| ----- | ---------- | --------------- | ------------------------------ | -------------- | ----------------------------- |
+| 1     | 16         | 20/20           | 269.404 / 536.208 / 1371.982   | 20/20          | 400.096 / 432.627 / 496.668   |
+| 4     | 16         | 20/20           | 305.135 / 408.506 / 914.004    | 18/20          | 318.435 / 460.577 / 708.211   |
+| 16    | 17         | 4/20            | 374.066 / 850.513 / 850.513    | 3/20           | 354.006 / 601.319 / 601.319   |
+
+The contended allocation observations cover four iterations and include
+scheduler and harness allocations. Rows with failed contenders produced no
+allocation count.
+
+| Slots | Contenders | Before allocations | After allocations |
+| ----- | ---------- | ------------------ | ----------------- |
+| 1     | 16         | 1839               | 2074              |
+| 4     | 16         | 2177               | 1440              |
+| 16    | 17         | unavailable        | unavailable       |
+
+The 16-slot contended run failed with `connection closed by peer` before and
+after the change, so its latency cells describe only a small successful subset
+and its allocation cell is unavailable. The same error appeared in two of 20
+size-4 bursts after the change. This slice therefore does not establish a
+change in the spurious-disconnect rate described below. Treat the contended
+latencies and process-global allocation counts as workload observations, not
+per-function attribution or proof of a throughput change.
+
 ## Known defects in contended pool acquisition
 
 Capturing the pool baseline surfaced two pre-existing defects in the acquire

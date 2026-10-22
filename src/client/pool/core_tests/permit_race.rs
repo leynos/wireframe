@@ -97,6 +97,20 @@ async fn empty_core_rejects_both_immediate_and_async_acquisition() {
 }
 
 #[rstest]
+#[tokio::test(flavor = "current_thread")]
+async fn shutdown_rejects_acquisition_before_waiting_for_slot_capacity() {
+    let core = test_core(2);
+    let held = hold_all_permits(&core);
+    core.shutdown();
+
+    let result = tokio::time::timeout(Duration::from_millis(100), core.acquire_slot_permit()).await;
+
+    assert!(matches!(result, Ok(Err(_))));
+    drop(held);
+    assert_all_slots_are_available(&core);
+}
+
+#[rstest]
 #[tokio::test]
 async fn async_probe_rotates_across_four_slots(four_slot_core: Arc<TestCore>) {
     let mut selected = Vec::new();
