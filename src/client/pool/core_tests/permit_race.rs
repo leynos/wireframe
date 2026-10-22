@@ -5,7 +5,7 @@ use std::{sync::Arc, time::Duration};
 use rstest::rstest;
 use tokio::sync::OwnedSemaphorePermit;
 
-use super::{TestCore, four_slot_core, test_core};
+use super::support::{TestCore, four_slot_core, test_core};
 
 fn hold_all_permits(core: &TestCore) -> Vec<OwnedSemaphorePermit> {
     core.slots

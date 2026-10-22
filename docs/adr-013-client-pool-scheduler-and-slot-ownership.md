@@ -557,6 +557,13 @@ one `FuturesUnordered` task node per slot. The serial service worker permits at
 most one active race per logical handle, and the scheduler keeps its existing
 fairness policy.
 
+The race reuses main's `rotation_start` and `rotation_indices` helpers from
+[#536](https://github.com/leynos/wireframe/issues/536). The iterator exposes
+`Clone` so the probe and blocked race share one rotated order after exactly one
+cursor advance, without materializing an index collection. The bounded
+acquisition metric wrappers introduced alongside those helpers remain around
+both immediate and asynchronous selection.
+
 ### Phase 5: integrate existing safety work
 
 Complete or coordinate the following, plus any remaining useful scope from
