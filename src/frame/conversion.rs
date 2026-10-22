@@ -1,13 +1,10 @@
 //! Conversion helpers for length prefix encoding.
 use std::io;
 
+use bytes::Buf;
+
 use super::format::Endianness;
-use crate::byte_order::{
-    read_network_u64,
-    write_network_u16,
-    write_network_u32,
-    write_network_u64,
-};
+use crate::byte_order::{read_network_u64, write_network_u64};
 
 /// Explains that the configured wire prefix cannot represent any supported
 /// fixed-width integer and therefore cannot be decoded safely.
@@ -23,11 +20,8 @@ pub(crate) const ERR_INCOMPLETE_PREFIX: &str = "incomplete length prefix";
 /// host architecture selected to run the codec.
 #[inline]
 fn u64_from_le_bytes(bytes: [u8; 8]) -> u64 {
-    #[expect(
-        clippy::little_endian_bytes,
-        reason = "Wire endianness is explicit; from_le_bytes keeps decoding host-independent."
-    )]
-    u64::from_le_bytes(bytes)
+    let mut wire_bytes = bytes.as_slice();
+    wire_bytes.get_u64_le()
 }
 
 /// Checked conversion from `usize` to a specific prefix integer type.
@@ -136,32 +130,67 @@ fn convert_len_to_value(len: usize, size: usize) -> io::Result<u64> {
 ///
 /// For big-endian, the function delegates to the typed network-order write
 /// helpers mirroring how the read path delegates to `read_network_u64`.
-fn write_bytes_with_endianness(value: u64, endianness: Endianness, prefix: &mut [u8]) {
+fn write_bytes_with_endianness(
+    value: u64,
+    endianness: Endianness,
+    prefix: &mut [u8],
+) -> io::Result<()> {
     let size = prefix.len();
     match endianness {
         Endianness::Big => write_big_endian_prefix(value, size, prefix),
-        Endianness::Little => write_little_endian_prefix(value, prefix),
+        Endianness::Little => {
+            write_little_endian_prefix(value, prefix);
+            Ok(())
+        }
+    }
+}
+
+/// Reject a length that the configured prefix width cannot represent.
+///
+/// A prefix only carries the low `size` bytes of the network-order encoding, so
+/// a value wider than the prefix would otherwise be silently truncated.
+fn ensure_fits_prefix(value: u64, size: usize) -> io::Result<()> {
+    let is_representable = match size {
+        1 => u8::try_from(value).is_ok(),
+        2 => u16::try_from(value).is_ok(),
+        4 => u32::try_from(value).is_ok(),
+        8 => true,
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                ERR_UNSUPPORTED_PREFIX,
+            ));
+        }
+    };
+
+    if is_representable {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            ERR_FRAME_TOO_LARGE,
+        ))
     }
 }
 
 /// Encode `value` into `prefix` in network (big-endian) byte order.
 ///
-/// Delegates to the typed `write_network_*` helpers so the encode and
-/// decode paths share the same lint-suppressed conversion point.
-/// Callers guarantee the value fits in the requested prefix size via
-/// `checked_prefix_cast` in `convert_len_to_value`.
-fn write_big_endian_prefix(value: u64, size: usize, prefix: &mut [u8]) {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "caller validates value fits in prefix via checked_prefix_cast"
-    )]
-    match size {
-        1 => prefix.copy_from_slice(&[value as u8]),
-        2 => prefix.copy_from_slice(&write_network_u16(value as u16)),
-        4 => prefix.copy_from_slice(&write_network_u32(value as u32)),
-        8 => prefix.copy_from_slice(&write_network_u64(value)),
-        _ => debug_assert!(false, "size validated upstream to be 1, 2, 4, or 8"),
-    }
+/// Encoding the full width once and keeping its trailing bytes yields the same
+/// digits as narrowing to the prefix width first, and it lets the fit check stay
+/// separate from the write.
+fn write_big_endian_prefix(value: u64, size: usize, prefix: &mut [u8]) -> io::Result<()> {
+    ensure_fits_prefix(value, size)?;
+
+    let encoded = write_network_u64(value);
+    let start = 8usize
+        .checked_sub(size)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, ERR_UNSUPPORTED_PREFIX))?;
+    let trailing = encoded
+        .get(start..)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, ERR_UNSUPPORTED_PREFIX))?;
+
+    prefix.copy_from_slice(trailing);
+    Ok(())
 }
 
 /// Encode `value` into `prefix` in little-endian byte order.
@@ -195,13 +224,11 @@ pub fn u64_to_bytes(
 
     let value = convert_len_to_value(len, size)?;
 
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "size validated to be within the 8-byte prefix buffer"
-    )]
-    let prefix = &mut out[..size];
+    let prefix = out
+        .get_mut(..size)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, ERR_UNSUPPORTED_PREFIX))?;
 
-    write_bytes_with_endianness(value, endianness, prefix);
+    write_bytes_with_endianness(value, endianness, prefix)?;
 
     if let Some(tail) = out.get_mut(size..) {
         tail.fill(0);
@@ -218,6 +245,15 @@ mod tests {
 
     use super::*;
     use crate::frame::format::Endianness;
+
+    /// Fixed-width decoding retains exact little-endian byte order.
+    #[rstest]
+    #[case::asymmetric([0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11], 0x1122_3344_5566_7788)]
+    #[case::zero([0; 8], 0)]
+    #[case::maximum([0xff; 8], u64::MAX)]
+    fn little_endian_bytes_decode_exactly(#[case] wire_bytes: [u8; 8], #[case] expected: u64) {
+        assert_eq!(u64_from_le_bytes(wire_bytes), expected);
+    }
 
     #[rstest]
     #[case(&[0xab], Endianness::Big, [0, 0, 0, 0, 0, 0, 0, 0xab])]
