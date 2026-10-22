@@ -178,7 +178,10 @@ where
     /// # Errors
     ///
     /// Returns an [`io::Error`] if stream processing or handler execution fails.
-    #[deprecated(note = "prepare the app once, then call PreparedApp::handle_connection_result")]
+    #[deprecated(
+        since = "0.3.0",
+        note = "prepare the app once, then call PreparedApp::handle_connection_result"
+    )]
     pub async fn handle_connection_result<W>(&self, stream: W) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
@@ -187,7 +190,10 @@ where
     }
 
     /// Handle a connection through the compatibility preparation path.
-    #[deprecated(note = "prepare the app once, then call PreparedApp::handle_connection")]
+    #[deprecated(
+        since = "0.3.0",
+        note = "prepare the app once, then call PreparedApp::handle_connection"
+    )]
     pub async fn handle_connection<W>(&self, stream: W)
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
