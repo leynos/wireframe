@@ -34,7 +34,7 @@ pub(super) fn properties() -> Vec<Property<PlaceholderConnectionModel>> {
     reason = "Stateright property callbacks are function pointers with `&Model` as their required \
               first parameter."
 )]
-fn multi_packet_terminator_is_single(
+const fn multi_packet_terminator_is_single(
     _model: &PlaceholderConnectionModel,
     state: &ConnectionState,
 ) -> bool {
@@ -47,7 +47,10 @@ fn multi_packet_terminator_is_single(
     reason = "Stateright property callbacks are function pointers with `&Model` as their required \
               first parameter."
 )]
-fn high_priority_progress(_model: &PlaceholderConnectionModel, state: &ConnectionState) -> bool {
+const fn high_priority_progress(
+    _model: &PlaceholderConnectionModel,
+    state: &ConnectionState,
+) -> bool {
     state.emissions.high_priority
 }
 
@@ -57,7 +60,10 @@ fn high_priority_progress(_model: &PlaceholderConnectionModel, state: &Connectio
     reason = "Stateright property callbacks are function pointers with `&Model` as their required \
               first parameter."
 )]
-fn low_priority_progress(_model: &PlaceholderConnectionModel, state: &ConnectionState) -> bool {
+const fn low_priority_progress(
+    _model: &PlaceholderConnectionModel,
+    state: &ConnectionState,
+) -> bool {
     state.emissions.low_priority
 }
 
@@ -67,7 +73,7 @@ fn low_priority_progress(_model: &PlaceholderConnectionModel, state: &Connection
     reason = "Stateright property callbacks are function pointers with `&Model` as their required \
               first parameter."
 )]
-fn response_completion(_model: &PlaceholderConnectionModel, state: &ConnectionState) -> bool {
+const fn response_completion(_model: &PlaceholderConnectionModel, state: &ConnectionState) -> bool {
     state.completed_outputs.response
 }
 
@@ -77,7 +83,10 @@ fn response_completion(_model: &PlaceholderConnectionModel, state: &ConnectionSt
     reason = "Stateright property callbacks are function pointers with `&Model` as their required \
               first parameter."
 )]
-fn multi_packet_completion(_model: &PlaceholderConnectionModel, state: &ConnectionState) -> bool {
+const fn multi_packet_completion(
+    _model: &PlaceholderConnectionModel,
+    state: &ConnectionState,
+) -> bool {
     state.completed_outputs.multi_packet
 }
 
@@ -87,7 +96,7 @@ fn multi_packet_completion(_model: &PlaceholderConnectionModel, state: &Connecti
     reason = "Stateright property callbacks are function pointers with `&Model` as their required \
               first parameter."
 )]
-fn shutdown_races_active_output(
+const fn shutdown_races_active_output(
     _model: &PlaceholderConnectionModel,
     state: &ConnectionState,
 ) -> bool {

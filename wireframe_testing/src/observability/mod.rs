@@ -134,7 +134,7 @@ impl ObservabilityHandle {
     /// log::warn!("example");
     /// assert!(obs.logs().pop().is_some());
     /// ```
-    pub fn logs(&mut self) -> &mut LoggerHandle { &mut self.logger }
+    pub const fn logs(&mut self) -> &mut LoggerHandle { &mut self.logger }
 
     /// Access the metrics recorder for use with
     /// [`metrics::with_local_recorder`].
@@ -150,7 +150,7 @@ impl ObservabilityHandle {
     /// });
     /// ```
     #[must_use]
-    pub fn recorder(&self) -> &DebuggingRecorder { &self.recorder }
+    pub const fn recorder(&self) -> &DebuggingRecorder { &self.recorder }
 
     /// Take a snapshot of the current metrics state.
     ///
@@ -223,8 +223,8 @@ impl ObservabilityHandle {
     /// ```
     #[must_use]
     pub fn counter(&self, name: &str, labels: impl Into<Labels>) -> u64 {
-        let labels = labels.into();
-        find_counter(&self.captured, name, &labels.as_str_pairs())
+        let resolved = labels.into();
+        find_counter(&self.captured, name, &resolved.as_str_pairs())
     }
 
     /// Query a counter value by name, aggregating across all label sets.

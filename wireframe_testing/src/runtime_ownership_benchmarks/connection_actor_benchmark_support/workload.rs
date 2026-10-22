@@ -148,12 +148,12 @@ impl ActorWorkload {
     /// Reject workloads the harness cannot measure as described.
     pub(super) fn validate(self) -> Result<(), String> {
         if self.queue_capacity == 0 {
-            return Err("queue_capacity must be at least 1".to_string());
+            return Err("queue_capacity must be at least 1".to_owned());
         }
         let headroom = self
             .queue_capacity
             .checked_mul(2)
-            .ok_or_else(|| "queue_capacity is too large to double".to_string())?;
+            .ok_or_else(|| "queue_capacity is too large to double".to_owned())?;
         if self.frames > headroom {
             return Err(format!(
                 "frames {} exceeds total queue capacity {}; preloading would block on \

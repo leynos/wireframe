@@ -105,7 +105,7 @@ impl AcquisitionMode {
     }
 
     /// Build the pool configuration this mode requires.
-    pub(super) fn configure(
+    pub(super) const fn configure(
         self,
         config: wireframe::client::ClientPoolConfig,
     ) -> wireframe::client::ClientPoolConfig {
@@ -198,7 +198,7 @@ impl PoolWorkload {
     /// Reject workloads whose regime cannot produce the documented outcome.
     pub(super) fn validate(self) -> Result<(), String> {
         if self.pool_size == 0 {
-            return Err("pool_size must be at least 1".to_string());
+            return Err("pool_size must be at least 1".to_owned());
         }
         if self.mode.is_contended() && self.mode.contenders(self.contenders) <= self.pool_size {
             return Err(format!(

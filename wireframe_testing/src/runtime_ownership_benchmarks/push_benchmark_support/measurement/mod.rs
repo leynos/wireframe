@@ -72,7 +72,7 @@ impl SendOutcome {
     /// Saturating rather than wrapping, in keeping with the counters' own
     /// saturating arithmetic: a run long enough to overflow is a misconfigured
     /// workload, and a wrapped total would look deceptively small.
-    pub(super) fn accumulate(self, running: Self) -> Self {
+    pub(super) const fn accumulate(self, running: Self) -> Self {
         Self {
             accepted: running.accepted.saturating_add(self.accepted),
             drained: running.drained.saturating_add(self.drained),

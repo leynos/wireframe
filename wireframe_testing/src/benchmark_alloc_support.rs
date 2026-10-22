@@ -210,7 +210,7 @@ mod tests {
     #[test]
     #[serial]
     fn counting_window_closes_after_failure() {
-        let error = count_allocations(|| Err("deliberate failure".to_string()))
+        let error = count_allocations(|| Err("deliberate failure".to_owned()))
             .expect_err("a failing operation must surface its error");
         assert_eq!(error, "deliberate failure");
         assert!(

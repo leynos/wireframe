@@ -139,7 +139,9 @@ impl WireframePair {
 
         // Send the shutdown signal.
         if let Some(shutdown_tx) = running.shutdown_tx.take() {
-            let _ = shutdown_tx.send(());
+            // The receiver may already have dropped; teardown is not a place
+            // to report that.
+            shutdown_tx.send(()).ok();
         }
 
         // Await the server task through a mutable borrow.
@@ -166,7 +168,7 @@ impl Drop for WireframePair {
     fn drop(&mut self) {
         if let Some(running) = self.running.take() {
             if let Some(shutdown_tx) = running.shutdown_tx {
-                let _ = shutdown_tx.send(());
+                shutdown_tx.send(()).ok();
             }
             if let Some(handle) = running.handle {
                 spawn_bounded_shutdown(handle, std::time::Duration::from_millis(100));
@@ -222,13 +224,13 @@ struct PendingServer(Option<ServerShutdownHandle>);
 
 impl PendingServer {
     /// Take the shutdown channel and handle out of the guard, consuming it.
-    fn take(&mut self) -> Option<ServerShutdownHandle> { self.0.take() }
+    const fn take(&mut self) -> Option<ServerShutdownHandle> { self.0.take() }
 }
 
 impl Drop for PendingServer {
     fn drop(&mut self) {
         if let Some((shutdown_tx, handle)) = self.0.take() {
-            let _ = shutdown_tx.send(());
+            shutdown_tx.send(()).ok();
             spawn_bounded_shutdown(handle, std::time::Duration::from_millis(100));
         }
     }
@@ -304,7 +306,7 @@ where
         server
             .ready_signal(ready_tx)
             .run_with_shutdown(async {
-                let _ = shutdown_rx.await;
+                shutdown_rx.await.ok();
             })
             .await
     });
@@ -315,10 +317,10 @@ where
     // Wait for the server to signal ready.
     if ready_rx.await.is_err() {
         // Server dropped ready_tx without signalling - join the task to get the real error.
-        let (_, handle) = pending
+        let (_, startup_handle) = pending
             .take()
             .ok_or_else(|| TestError::Msg("pending server already taken".into()))?;
-        return match handle.await {
+        return match startup_handle.await {
             Err(join_err) => Err(TestError::Msg(format!(
                 "server task failed to start: {join_err}"
             ))),
@@ -336,7 +338,7 @@ where
     let client = builder.connect(addr).await?;
 
     // Now that the client is connected, take the pending server out of the guard.
-    let (shutdown_tx, handle) = pending
+    let (running_shutdown, running_handle) = pending
         .take()
         .ok_or_else(|| TestError::Msg("pending server already taken".into()))?;
 
@@ -344,8 +346,8 @@ where
         addr,
         running: Some(Running {
             client: Some(client),
-            shutdown_tx: Some(shutdown_tx),
-            handle: Some(handle),
+            shutdown_tx: Some(running_shutdown),
+            handle: Some(running_handle),
         }),
     })
 }
