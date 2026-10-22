@@ -25,7 +25,7 @@ pub struct RewindStream<S> {
 impl<S> RewindStream<S> {
     /// Create a new `RewindStream` that will yield `leftover` before
     /// delegating to `inner`.
-    pub fn new(leftover: Vec<u8>, inner: S) -> Self {
+    pub const fn new(leftover: Vec<u8>, inner: S) -> Self {
         Self {
             leftover,
             pos: 0,
@@ -34,10 +34,10 @@ impl<S> RewindStream<S> {
     }
 
     /// Return a reference to the underlying stream.
-    pub fn inner(&self) -> &S { &self.inner }
+    pub const fn inner(&self) -> &S { &self.inner }
 
     /// Return a mutable reference to the underlying stream.
-    pub fn inner_mut(&mut self) -> &mut S { &mut self.inner }
+    pub const fn inner_mut(&mut self) -> &mut S { &mut self.inner }
 
     /// Consume the wrapper and return the underlying stream.
     ///

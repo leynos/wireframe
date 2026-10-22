@@ -133,13 +133,13 @@ where
                 self.fifo_queue.push_back((handle_id, sender));
                 WaiterEnqueueResult::Enqueued
             }
-            PoolFairnessPolicy::RoundRobin => match self.handle_waiters.get_mut(&handle_id) {
-                Some(queue) => {
+            PoolFairnessPolicy::RoundRobin => self.handle_waiters.get_mut(&handle_id).map_or(
+                WaiterEnqueueResult::UnregisteredHandle,
+                |queue| {
                     queue.push_back(sender);
                     WaiterEnqueueResult::Enqueued
-                }
-                None => WaiterEnqueueResult::UnregisteredHandle,
-            },
+                },
+            ),
         }
     }
 
@@ -161,7 +161,7 @@ where
     }
 
     /// Release one request after its lease is delivered or its receiver closes.
-    fn finish_servicing_waiter(&mut self) {
+    const fn finish_servicing_waiter(&mut self) {
         self.servicing_waiters = self.servicing_waiters.saturating_sub(1);
     }
 

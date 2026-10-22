@@ -209,7 +209,7 @@ where
 ///
 /// The empty case reports zero so the rotation can be described without a
 /// branch at every call site; no cursor value is consumed for an empty pool.
-fn rotation_start(len: usize, cursor: usize) -> usize {
+const fn rotation_start(len: usize, cursor: usize) -> usize {
     if len == 0 {
         0
     } else {

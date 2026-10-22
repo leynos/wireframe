@@ -174,10 +174,10 @@ pub enum Direction {
 impl Direction {
     /// Supplies the bounded metric label value, avoiding call-site strings
     /// that could make inbound and outbound observations incomparable.
-    fn as_str(self) -> &'static str {
+    const fn as_str(self) -> &'static str {
         match self {
-            Direction::Inbound => "inbound",
-            Direction::Outbound => "outbound",
+            Self::Inbound => "inbound",
+            Self::Outbound => "outbound",
         }
     }
 }

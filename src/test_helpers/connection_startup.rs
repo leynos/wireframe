@@ -229,7 +229,7 @@ impl TransformCountingMiddleware {
     /// assert_eq!(layer.tag(), b'A');
     /// ```
     #[must_use]
-    pub fn new(tag: u8, transforms: Arc<AtomicUsize>) -> Self { Self { tag, transforms } }
+    pub const fn new(tag: u8, transforms: Arc<AtomicUsize>) -> Self { Self { tag, transforms } }
 }
 
 impl TransformCountingMiddleware {
