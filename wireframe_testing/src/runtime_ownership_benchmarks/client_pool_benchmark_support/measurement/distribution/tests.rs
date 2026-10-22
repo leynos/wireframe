@@ -33,7 +33,7 @@ fn an_empty_distribution_reports_no_statistics() {
     let latency = ContendedLatency::default();
     assert_eq!(latency.successes(), 0);
     assert_eq!(latency.failure_count(), 0);
-    assert!(latency.samples().is_empty());
+    assert_eq!(latency.samples(), []);
     assert_eq!(latency.min(), None);
     assert_eq!(latency.max(), None);
     assert_eq!(latency.median(), None);
