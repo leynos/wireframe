@@ -183,7 +183,6 @@ impl<F: Send + 'static, E: Send + 'static> Response<F, E> {
     /// assert_eq!(frames, vec![1]);
     /// # }
     /// ```
-    #[must_use]
     pub fn into_stream(self) -> FrameStream<F, E> {
         match self {
             Response::Single(f) => {
