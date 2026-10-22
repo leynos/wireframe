@@ -114,7 +114,7 @@ fn encode_frame_at(frame: &RespFrame, dst: &mut BytesMut, depth: usize) -> Resul
 fn digits_len_usize(mut value: usize) -> usize {
     let mut digits = 1;
     while value >= 10 {
-        value /= 10;
+        value = value.div_euclid(10);
         digits += 1;
     }
     digits
@@ -125,7 +125,7 @@ fn digits_len_i64(value: i64) -> usize {
     let mut digits = 1;
     let mut cursor = value;
     while cursor <= -10 || cursor >= 10 {
-        cursor /= 10;
+        cursor = cursor.div_euclid(10);
         digits += 1;
     }
     if value < 0 { digits + 1 } else { digits }

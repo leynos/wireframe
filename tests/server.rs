@@ -133,10 +133,6 @@ async fn dropping_server_supervisor_releases_listener() -> TestResult {
             .run_with_shutdown(std::future::pending()),
     );
 
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "tokio::select! expands to modulus internally"
-    )]
     let readiness: TestResult = timeout(Duration::from_secs(1), async {
         tokio::select! {
             readiness = &mut ready_rx => {

@@ -58,5 +58,5 @@ fn inherit_correlation_variants(
 #[rstest]
 fn empty_metadata_is_valid() {
     let parts = RequestParts::new(1, None, vec![]);
-    assert!(parts.metadata().is_empty());
+    assert_eq!(parts.metadata(), []);
 }

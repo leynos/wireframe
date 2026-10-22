@@ -323,7 +323,6 @@ proptest! {
         let expected = candidate
             .split('.')
             .collect::<Vec<_>>()
-            .as_slice()
             .iter()
             .copied()
             .all(|part| !part.is_empty() && part.chars().all(|character| character.is_ascii_digit()))

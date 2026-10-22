@@ -76,7 +76,7 @@ fn fragmenter_handles_empty_payload() {
         .fragments()
         .first()
         .expect("batch should contain at least one fragment");
-    assert!(fragment.payload().is_empty());
+    assert_eq!(fragment.payload(), []);
     assert!(fragment.header().is_last_fragment());
     assert_eq!(fragment.header().fragment_index(), FragmentIndex::zero());
 }

@@ -119,7 +119,7 @@ define_counter_step!(
 #[then("the markers appear in registration order")]
 fn then_markers_in_order(client_request_hooks_world: &mut ClientRequestHooksWorld) -> TestResult {
     let log = client_request_hooks_world.marker_log()?;
-    if log != [b'A', b'B'] {
+    if log != *b"AB" {
         return Err(format!("expected markers [A, B] in registration order, got {log:?}").into());
     }
     Ok(())

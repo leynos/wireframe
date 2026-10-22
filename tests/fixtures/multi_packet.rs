@@ -140,7 +140,7 @@ impl MultiPacketWorld {
     /// # Panics
     /// Panics if any messages are present.
     pub fn verify_empty(&self) {
-        assert!(self.messages.is_empty());
+        assert_eq!(self.messages, [] as [u8; 0]);
     }
 
     /// Verify messages were received in order.
