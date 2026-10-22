@@ -41,9 +41,8 @@ where
         core: Arc<PoolCore<S, P, C>>,
         control: Arc<PoolSchedulerControl<S, P, C>>,
     ) {
-        let permit_race_core = Arc::clone(&core);
         let result = tokio::select! {
-            permit_result = permit_race_core.acquire_slot_permit() => {
+            permit_result = core.acquire_slot_permit() => {
                 permit_result.and_then(|(slot_index, permit)| {
                     if core.is_shutdown() {
                         drop(permit);
