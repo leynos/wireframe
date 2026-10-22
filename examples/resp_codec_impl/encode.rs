@@ -111,7 +111,7 @@ fn encode_frame_at(frame: &RespFrame, dst: &mut BytesMut, depth: usize) -> Resul
 }
 
 /// Count decimal digits without allocating a temporary representation.
-fn digits_len_usize(mut value: usize) -> usize {
+const fn digits_len_usize(mut value: usize) -> usize {
     let mut digits = 1;
     while value >= 10 {
         value = value.div_euclid(10);
@@ -121,7 +121,7 @@ fn digits_len_usize(mut value: usize) -> usize {
 }
 
 /// Count digits in a signed integer, including its possible minus sign.
-fn digits_len_i64(value: i64) -> usize {
+const fn digits_len_i64(value: i64) -> usize {
     let mut digits = 1;
     let mut cursor = value.unsigned_abs();
     while cursor >= 10 {

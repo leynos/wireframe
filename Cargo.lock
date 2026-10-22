@@ -1531,6 +1531,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mockable"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "696033a748f67c97f2169b29b428fbab0d12317707cede1ca62fcb786e80b7fe"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
 name = "mockall"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3580,6 +3589,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",
+ "mockable",
  "mockall",
  "monotony",
  "mutants",

@@ -93,9 +93,11 @@ fn multi_packet_response() -> Response<Frame> {
         }
     });
 
-    tokio::spawn(async move {
+    let _summary_task = tokio::spawn(async move {
         // Wait for all chunks to be sent before delivering the summary.
-        let _ = chunk_task.await;
+        if let Err(error) = chunk_task.await {
+            tracing::error!(%error, "chunk producer failed");
+        }
         let summary = Frame::summary(TRANSCRIPT.len());
         if summary_sender.send(summary).await.is_err() {
             tracing::trace!("connection dropped, summary not sent");
@@ -114,7 +116,8 @@ fn log_frame(frame: &Frame) {
 /// Stream errors are propagated so the example demonstrates its normal error
 /// boundary rather than silently truncating a multipart response.
 async fn run() -> Result<(), WireframeError> {
-    let _ = tracing_subscriber::fmt::try_init();
+    // A host embedding this example may already own the global subscriber.
+    let _subscriber_result = tracing_subscriber::fmt::try_init();
     let response = multi_packet_response();
     let mut stream = response.into_stream();
     while let Some(frame) = stream.try_next().await? {
