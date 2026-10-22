@@ -47,13 +47,13 @@ impl ObservabilityHandle {
         labels: impl Into<Labels>,
         expected: u64,
     ) -> Result<(), String> {
-        let labels = labels.into();
-        let actual = find_counter(&self.captured, name, &labels.as_str_pairs());
+        let resolved = labels.into();
+        let actual = find_counter(&self.captured, name, &resolved.as_str_pairs());
         if actual == expected {
             Ok(())
         } else {
             Err(format!(
-                "counter {name} with labels {labels:?}: expected {expected}, got {actual}"
+                "counter {name} with labels {resolved:?}: expected {expected}, got {actual}"
             ))
         }
     }
@@ -81,13 +81,13 @@ impl ObservabilityHandle {
         name: &str,
         labels: impl Into<Labels>,
     ) -> Result<(), String> {
-        let labels = labels.into();
+        let resolved = labels.into();
         let recorded = self
             .captured
             .iter()
             .filter(|(key, ..)| key.key().name() == name)
             .filter(|(key, ..)| {
-                labels
+                resolved
                     .as_str_pairs()
                     .iter()
                     .all(|(label, value)| {
@@ -101,7 +101,7 @@ impl ObservabilityHandle {
             Ok(())
         } else {
             Err(format!(
-                "histogram {name} with labels {labels:?} did not record a value"
+                "histogram {name} with labels {resolved:?} did not record a value"
             ))
         }
     }
@@ -193,8 +193,8 @@ impl ObservabilityHandle {
     /// ```
     pub fn assert_log_contains(&mut self, substring: &str) -> Result<(), String> {
         self.assert_log_matches(
-            |record| record.args().to_string().contains(substring),
-            |record| record.args().to_string(),
+            |record| record.args().contains(substring),
+            |record| record.args().to_owned(),
             |records| format!("no log record containing {substring:?}; captured: {records:?}"),
         )
     }
@@ -220,7 +220,7 @@ impl ObservabilityHandle {
     /// ```
     pub fn assert_log_at_level(&mut self, level: Level, substring: &str) -> Result<(), String> {
         self.assert_log_matches(
-            |record| record.level() == level && record.args().to_string().contains(substring),
+            |record| record.level() == level && record.args().contains(substring),
             |record| format!("[{}] {}", record.level(), record.args()),
             |records| format!("no {level} log containing {substring:?}; captured: {records:?}"),
         )

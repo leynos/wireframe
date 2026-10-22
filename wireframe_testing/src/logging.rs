@@ -138,11 +138,11 @@ mod tests {
         .join();
         assert!(join_result.is_err(), "poisoning thread should panic");
 
-        let mut handle = LoggerHandle::default();
+        let mut recovered = LoggerHandle::default();
         assert!(
-            handle.pop().is_none(),
+            recovered.pop().is_none(),
             "poison recovery should drain stale log records"
         );
-        handle.clear();
+        recovered.clear();
     }
 }
