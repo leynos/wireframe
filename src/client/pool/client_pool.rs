@@ -198,6 +198,30 @@ where
         handle.acquire().await
     }
 
+    /// Report how many physical slots this pool owns.
+    ///
+    /// The count is fixed at construction; it is exposed through the
+    /// `test-support` feature so behavioural tests can assert that they really
+    /// exercised a multi-slot pool.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::net::SocketAddr;
+    /// use wireframe::client::{ClientPoolConfig, WireframeClient};
+    ///
+    /// # async fn demo(addr: SocketAddr) -> Result<(), wireframe::client::ClientError> {
+    /// let pool = WireframeClient::builder()
+    ///     .connect_pool(addr, ClientPoolConfig::default().pool_size(3))
+    ///     .await?;
+    /// assert_eq!(pool.pool_size(), 3);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
+    pub fn pool_size(&self) -> usize { self.core.pool_size() }
+
     /// Close the pool to new acquisitions and begin teardown.
     ///
     /// Shutdown is published before this method returns: an outstanding handle
@@ -236,6 +260,40 @@ where
         tokio::task::yield_now().await;
         drop(self);
     }
+}
+
+impl<S, P, C> PooledClientLease<S, P, C>
+where
+    S: Serializer + Clone + Send + Sync + 'static,
+    P: bincode::Encode + Clone + Send + Sync + 'static,
+    C: Send + 'static,
+{
+    /// Report which physical slot this lease was granted from.
+    ///
+    /// The identifier is a stable index within this lease's pool, not a socket
+    /// address or connection identifier. It is exposed through the
+    /// `test-support` feature so behavioural tests can assert rotation order
+    /// through the public acquisition API.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use std::net::SocketAddr;
+    /// use wireframe::client::{ClientPoolConfig, PooledClientLease, WireframeClient};
+    ///
+    /// # async fn demo(addr: SocketAddr) -> Result<(), wireframe::client::ClientError> {
+    /// let pool = WireframeClient::builder()
+    ///     .connect_pool(addr, ClientPoolConfig::default().pool_size(2))
+    ///     .await?;
+    /// let first = pool.acquire().await?;
+    /// let second = pool.acquire().await?;
+    /// assert_ne!(first.slot_id(), second.slot_id());
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(any(test, feature = "test-support"))]
+    #[must_use]
+    pub fn slot_id(&self) -> usize { self.selected_slot_index() }
 }
 
 #[cfg(test)]

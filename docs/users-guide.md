@@ -1872,6 +1872,34 @@ a successful split-phase send but before its response is received, the pool
 discards that socket before another lease can use it. Completed operations
 continue to use the configured recyclable-error policy.
 
+Slot selection is round-robin. Consecutive acquisitions start one slot further
+around the pool, wrapping at the end, and a slot with no free permit is skipped
+in favour of the next one. The starting point therefore spreads load across
+sockets instead of always growing the first one warm, while a busy slot never
+hides capacity that another slot still has. If every slot is saturated, the
+acquisition waits for a permit rather than reusing a slot that is already at its
+`max_in_flight_per_socket` limit.
+
+#### Client pool metrics
+
+When the `metrics` feature is enabled, every acquisition attempt increments
+`wireframe_pool_acquisitions_total`. The metric has two bounded labels, so pool
+activity cannot create new time series:
+
+- `mode` records which path made the attempt: `immediate` for the synchronous
+  fast path, or `permit_race` for the asynchronous race across slots.
+- `outcome` records the result: `granted`, `exhausted`, `shutdown`, or `error`.
+
+`exhausted` only applies to `immediate`; the asynchronous path either gains a
+permit (`granted`), reports that a slot failed while the pool was live
+(`error`), or is rejected because the pool is shutting down (`shutdown`). The
+pool never adds slot identifiers, caller details, or error strings as labels.
+
+The metric is a counter, so alert on its rate rather than its absolute value: a
+rising `outcome="exhausted"` rate means acquisitions are arriving faster than
+the configured permits can serve them, and a rising `outcome="error"` rate on
+the `permit_race` mode means slots are failing instead of granting capacity.
+
 ### Client preamble exchange
 
 The client builder supports an optional preamble exchange before framing

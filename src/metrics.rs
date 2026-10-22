@@ -21,11 +21,13 @@ use std::time::Duration;
 use metrics::{counter, gauge, histogram};
 
 mod client_pool;
+#[cfg(all(feature = "pool", not(loom)))]
+pub(crate) use client_pool::{PoolAcquisitionMode, PoolAcquisitionOutcome, inc_pool_acquisition};
 mod decode_rejections;
 mod server_startup;
 mod server_supervisor;
 
-pub use client_pool::POOL_CONNECTION_DISCARDS;
+pub use client_pool::{POOL_ACQUISITIONS, POOL_CONNECTION_DISCARDS};
 #[cfg(all(feature = "pool", not(loom)))]
 pub(crate) use client_pool::{
     inc_pool_incomplete_operation_discard,

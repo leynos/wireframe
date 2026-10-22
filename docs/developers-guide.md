@@ -81,7 +81,7 @@ Two vCPU cost about 29% less per run for 3m40s more wall time, and memory is
 far inside the 7.9 GiB that shape has.
 
 The coverage action supplies a 180-second per-test deadline and a ten-minute
-whole-run ceiling. `tests/compile_error.rs` runs twelve trybuild fixtures
+whole-run ceiling. `tests/compile_error.rs` runs fourteen trybuild fixtures
 inside one test, including nested Cargo builds. A cold coverage run exceeded
 that deadline on two vCPU after the other tests had completed
 ([PR #777's coverage run](https://github.com/leynos/wireframe/actions/runs/39203098537)).
@@ -487,6 +487,25 @@ recycling a socket. Background waiter servicing lives in
 [client-pool design](wireframe-client-design.md#bounded-waiter-admission) for
 the full contract. Acquire deadlines and waiter/rejection telemetry remain
 deferred under [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md).
+
+Slot selection rotates over indices rather than owning `Arc<PoolSlot>` values.
+`PoolCore::ordered_slot_indices` reads `next_slot` exactly once per non-empty
+attempt with a relaxed `fetch_add(1)`, reduces the seed below the slot count,
+and then visits every index once with `(start + offset).wrapping_rem(len)`.
+Reducing the seed before adding offsets matters for pools that are not a power
+of two: a wrapped `usize` differs from its true value by a multiple of
+`2^word`, which is only a multiple of the slot count for power-of-two sizes, so
+reducing after the addition would repeat one slot and skip another once the
+cursor overflowed. An empty pool consumes no cursor value. The synchronous path
+borrows each slot in rotation order, copies the winning slot's index, and moves
+its permit into `PooledClientLease::new`; the asynchronous path boxes one
+permit future per index, each of which clones the shared `Arc<PoolCore>` rather
+than a slot. `src/client/pool/rotation_tests.rs` pins the ordering, the
+overflow cases, and the one-increment-per-attempt cursor contract. Every
+acquisition attempt also increments `wireframe_pool_acquisitions_total` with
+bounded `mode` (`immediate` or `permit_race`) and `outcome` (`granted`,
+`exhausted`, `shutdown`, or `error`) labels, so saturation and shutdown are
+observable without adding per-slot or caller identifiers.
 
 Each `SlotConnection` checkout starts armed. `dispatch_on_connection` disarms
 the guard only after the operation future returns; dropping an armed guard
@@ -1422,6 +1441,30 @@ pinned `rust-toolchain.toml`. Normal validation is
 `cargo test --test compile_error`; a deliberate developer-only refresh uses
 `TRYBUILD=overwrite cargo test --test compile_error`. Review refreshed fixtures
 as maintenance changes, and never run the overwrite command in CI.
+
+Trybuild cannot show that a feature-gated item is *absent*. It forwards the
+harness's own feature list to the generated fixture, and this workspace's
+`wireframe_testing` dev-dependency enables `wireframe/test-support` through
+`runtime-benchmarks`, so every fixture has the gated API.
+`make test-feature-gate` covers that direction instead: `tests/feature_gate/`
+is a standalone consumer of `wireframe` alone, and
+[`scripts/check-feature-gate.sh`](../scripts/check-feature-gate.sh) asserts
+that the gated calls fail to compile without the feature, name the expected
+methods in their diagnostics, and compile once it is enabled. A control build
+of the stable public API runs alongside them so a consumer that fails for an
+unrelated reason is reported as a broken probe rather than a passing gate.
+
+Because the consumer is its own workspace, no workspace-wide target reaches it,
+so a green `make test` or `make test-ui` says nothing about whether the gate
+ran. CI runs it as its own `Feature-gate compile checks` step in the
+`build-test` job, and `tests/workflow_contracts/feature_gate_lane_test.py` pins
+that: the step's tokenized command is exactly `make test-feature-gate`, the
+step sets neither `if` nor `continue-on-error`, and the Make target still runs
+the check script rather than a placeholder. The same contract asserts the
+consumer's empty `[workspace]` table and its absence from the root members,
+because joining the workspace would let Cargo unify the root dev-dependency's
+`wireframe/test-support` into the consumer and turn the expected compile
+failure into a pass.
 
 ### Feature files and step definitions
 
