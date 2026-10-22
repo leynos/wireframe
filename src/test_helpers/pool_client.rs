@@ -210,9 +210,9 @@ pub fn build_pooled_client(
     WireframeClient::builder()
         .with_preamble(ClientHello { version: 1 })
         .on_preamble_success(move |_preamble, stream| {
-            let preamble_callback_count = preamble_callback_count.clone();
+            let callback_count = preamble_callback_count.clone();
             async move {
-                preamble_callback_count.fetch_add(1, Ordering::SeqCst);
+                callback_count.fetch_add(1, Ordering::SeqCst);
                 read_server_ack(stream).await
             }
             .boxed()
@@ -261,7 +261,7 @@ async fn run_pool_test_accept_loop(listener: TcpListener, state: PoolServerState
         let Ok((stream, _)) = accept_result else {
             break;
         };
-        let state = PoolServerState {
+        let connection_state = PoolServerState {
             preamble_count: state.preamble_count.clone(),
             connection_count: state.connection_count.clone(),
             serviced_connection_count: state.serviced_connection_count.clone(),
@@ -271,7 +271,7 @@ async fn run_pool_test_accept_loop(listener: TcpListener, state: PoolServerState
             delayed_first_response_attempted: state.delayed_first_response_attempted.clone(),
             behaviour: state.behaviour,
         };
-        tokio::spawn(handle_pool_test_connection(stream, state));
+        tokio::spawn(handle_pool_test_connection(stream, connection_state));
     }
 }
 
