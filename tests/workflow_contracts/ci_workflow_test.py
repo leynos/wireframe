@@ -181,6 +181,7 @@ def test_coverage_generation_stays_pull_request_only_and_ratcheted() -> None:
         "output-path": "lcov.info",
         "format": "lcov",
         "with-ratchet": "true",
+        "baseline-rust-file": ".coverage-baseline-v2.rust",
         "publish-artefact": "false",
     }, "coverage generation must produce the ratcheted LCOV report"
 
