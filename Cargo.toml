@@ -269,3 +269,7 @@ name = "runtime_ownership_baselines_alloc"
 path = "benches/runtime_ownership_baselines_alloc/main.rs"
 harness = false
 required-features = ["test-support", "pool"]
+
+[profile.dev]
+incremental = false
+debug = 0
