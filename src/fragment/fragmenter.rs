@@ -70,7 +70,7 @@ impl Fragmenter {
     pub fn next_message_id(&self) -> MessageId {
         match self
             .next_message_id
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)
             }) {
             Ok(previous) => MessageId::new(previous),
