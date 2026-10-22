@@ -183,7 +183,9 @@ where
     }
 
     /// Replace the fairness configuration.
-    pub fn set_fairness(&mut self, fairness: FairnessConfig) { self.fairness.set_config(fairness); }
+    pub const fn set_fairness(&mut self, fairness: FairnessConfig) {
+        self.fairness.set_config(fairness);
+    }
 
     /// Enable transparent fragmentation for outbound frames.
     ///
@@ -191,7 +193,7 @@ where
     /// into multiple fragments carrying a standard fragment header inside the
     /// payload. Callers continue to enqueue complete frames; fragmentation
     /// occurs just before hooks and metrics are applied.
-    pub fn enable_fragmentation(&mut self, config: FragmentationConfig)
+    pub const fn enable_fragmentation(&mut self, config: FragmentationConfig)
     where
         F: Packet,
     {

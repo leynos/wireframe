@@ -29,7 +29,9 @@ pub(crate) use client_pool::{
     inc_pool_acquisition,
 };
 mod decode_rejections;
+
 mod server_startup;
+
 mod server_supervisor;
 
 pub use client_pool::{
@@ -64,10 +66,13 @@ pub(crate) use server_supervisor::inc_server_supervisor_abnormal_termination;
 
 /// Name of the gauge tracking active connections.
 pub const CONNECTIONS_ACTIVE: &str = "wireframe_connections_active";
+
 /// Name of the counter tracking processed frames.
 pub const FRAMES_PROCESSED: &str = "wireframe_frames_processed_total";
+
 /// Name of the counter tracking error occurrences.
 pub const ERRORS_TOTAL: &str = "wireframe_errors_total";
+
 /// Name of the counter tracking connection panics.
 ///
 /// ```plaintext
@@ -76,6 +81,7 @@ pub const ERRORS_TOTAL: &str = "wireframe_errors_total";
 /// wireframe_connection_panics_total 1
 /// ```
 pub const CONNECTION_PANICS: &str = "wireframe_connection_panics_total";
+
 /// Name of the counter tracking recovered client pool bookkeeping lock poison.
 ///
 /// ```plaintext
@@ -187,10 +193,10 @@ pub enum Direction {
 impl Direction {
     /// Supplies the bounded metric label value, avoiding call-site strings
     /// that could make inbound and outbound observations incomparable.
-    fn as_str(self) -> &'static str {
+    const fn as_str(self) -> &'static str {
         match self {
-            Direction::Inbound => "inbound",
-            Direction::Outbound => "outbound",
+            Self::Inbound => "inbound",
+            Self::Outbound => "outbound",
         }
     }
 }
