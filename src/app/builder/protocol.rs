@@ -96,8 +96,7 @@ where
     pub fn protocol_hooks(&self) -> ProtocolHooks<F::Frame, ()> {
         self.protocol
             .as_ref()
-            .map(ProtocolHooks::from_protocol)
-            .unwrap_or_default()
+            .map_or_else(ProtocolHooks::default, ProtocolHooks::from_protocol)
     }
 
     /// Get the configured message assembler, if any.
