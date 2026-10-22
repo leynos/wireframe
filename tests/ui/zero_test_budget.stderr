@@ -14,6 +14,8 @@ error[E0080]: evaluation panicked: test budget must be non-zero
 note: erroneous constant encountered
  --> tests/ui/../support/non_zero.rs
   |
+  | macro_rules! nz {
+...
   |         NON_ZERO
   |         ^^^^^^^^
   |
@@ -21,8 +23,6 @@ note: erroneous constant encountered
   |
 5 | const ZERO_BUDGET: std::num::NonZeroUsize = nz!(0);
   |                                             ------ in this macro invocation
-  |
-  = note: this note originates in the macro `nz` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 note: erroneous constant encountered
  --> tests/ui/zero_test_budget.rs:9:13
