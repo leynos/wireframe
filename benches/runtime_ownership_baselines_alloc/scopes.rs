@@ -17,6 +17,7 @@ use wireframe_testing::{
         AcquisitionMode,
         ActorWorkload,
         CancellationMode,
+        POOL_SIZES,
         PoolWorkload,
         PushScenario,
         PushWorkload,
@@ -128,7 +129,7 @@ impl<'a> AllocationScope<'a> {
 /// measurement's own counters are dropped: a scope closure's only job is to
 /// perform the work the counting window observes. Adapting every scope through
 /// one helper is what keeps [`allocation_scopes`] short enough to read and keeps
-/// the six scopes visibly identical in shape.
+/// the scopes visibly identical in shape.
 fn run_measurement<T, E: std::fmt::Display>(
     runtime: &Runtime,
     measurement: impl std::future::Future<Output = Result<T, E>>,
@@ -141,11 +142,10 @@ fn run_measurement<T, E: std::fmt::Display>(
 
 /// The workload parameters this binary records allocations for, by scope.
 ///
-/// Split from [`allocation_scopes`] because the six literal constructions alone
-/// push that function past the workspace's line limit. Keeping the parameters in
-/// one block also makes them easy to compare at a glance, which is their point:
-/// each differs from the timing binary's defaults deliberately, to keep the
-/// allocation windows short enough to compare as small integers.
+/// Split from [`allocation_scopes`] so its closures stay below the workspace's
+/// function-size limit. Keeping the parameters in one block also makes them
+/// easy to compare at a glance, which is their point: each differs from the
+/// timing binary's defaults deliberately, to keep allocation windows short.
 pub(crate) struct AllocationWorkloads {
     /// Actor drain, with cancellation disabled so the window covers the loop.
     actor: ActorWorkload,
@@ -157,12 +157,12 @@ pub(crate) struct AllocationWorkloads {
     startup_prepared: StartupWorkload,
     /// The per-connection factory path, which prepares once per connection.
     startup_per_connection: StartupWorkload,
-    /// Uncontended acquire/release, the only pool mode safe to time.
-    pub(crate) pool: PoolWorkload,
+    /// Uncontended acquire/release at the named baseline pool sizes.
+    pool_workloads: [PoolWorkload; POOL_SIZES.len()],
 }
 
 impl AllocationWorkloads {
-    /// Build the six scopes at their allocation-window parameters.
+    /// Build the scopes at their allocation-window parameters.
     pub(crate) fn new() -> Self {
         Self {
             actor: ActorWorkload {
@@ -191,11 +191,11 @@ impl AllocationWorkloads {
                 path: StartupPath::PerConnectionFactory,
                 ..StartupWorkload::default()
             },
-            pool: PoolWorkload {
-                pool_size: 4,
+            pool_workloads: POOL_SIZES.map(|pool_size| PoolWorkload {
+                pool_size,
                 mode: AcquisitionMode::Uncontended,
                 ..PoolWorkload::default()
-            },
+            }),
         }
     }
 }
@@ -209,7 +209,7 @@ pub(crate) fn allocation_scopes(runtime: &Runtime) -> Vec<AllocationScope<'_>> {
     let workloads = AllocationWorkloads::new();
     let iterations = ALLOCATION_ITERATIONS;
 
-    vec![
+    let mut scopes = vec![
         AllocationScope::windowed(workloads.actor.label(), move || {
             run_measurement(runtime, measure_actor_drain(workloads.actor, iterations))
         }),
@@ -231,12 +231,18 @@ pub(crate) fn allocation_scopes(runtime: &Runtime) -> Vec<AllocationScope<'_>> {
                 measure_startup(workloads.startup_per_connection, iterations),
             )
         }),
-        AllocationScope {
-            label: workloads.pool.label(),
-            count: Box::new(move || {
-                count_pool_acquisition_window(runtime, workloads.pool, iterations)
+    ];
+    scopes.extend(
+        workloads
+            .pool_workloads
+            .into_iter()
+            .map(|workload| AllocationScope {
+                label: workload.label(),
+                count: Box::new(move || {
+                    count_pool_acquisition_window(runtime, workload, iterations)
+                }),
+                replay: Box::new(move || run_pool_acquisition(runtime, workload, iterations)),
             }),
-            replay: Box::new(move || run_pool_acquisition(runtime, workloads.pool, iterations)),
-        },
-    ]
+    );
+    scopes
 }

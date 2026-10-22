@@ -58,6 +58,7 @@ pub use client_pool_benchmark_support::{
     PoolHarness,
     PoolMeasurement,
     PoolWorkload,
+    contended_fifo_pool_workloads,
     measure_contended_latency,
     measure_pool_acquisition,
 };

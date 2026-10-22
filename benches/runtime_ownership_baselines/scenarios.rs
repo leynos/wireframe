@@ -20,6 +20,7 @@ use wireframe_testing::runtime_ownership_benchmarks::{
     PushWorkload,
     StartupPath,
     StartupWorkload,
+    contended_fifo_pool_workloads,
 };
 
 /// Criterion sample count for every runtime-ownership group.
@@ -245,21 +246,17 @@ pub(crate) fn uncontended_pool_workloads() -> Vec<PoolWorkload> {
         .collect()
 }
 
-/// The contended pool workloads reported as bounded observations, not timings.
+/// Contended workloads reported as bounded timing observations.
 ///
-/// Both fairness policies run over one pool size: the issue asks for the
-/// policies to be compared, not for every policy to be repeated at every size.
+/// FIFO runs cover all baseline pool sizes. Round-robin remains the existing
+/// size-four comparison so its label and workload stay directly comparable.
 pub(crate) fn contended_pool_workloads() -> Vec<PoolWorkload> {
-    [
-        AcquisitionMode::ContendedFifo,
-        AcquisitionMode::ContendedRoundRobin,
-    ]
-    .into_iter()
-    .map(|mode| PoolWorkload {
+    let mut workloads = contended_fifo_pool_workloads().to_vec();
+    workloads.push(PoolWorkload {
         pool_size: CONTENDED_POOL_SIZE,
-        mode,
+        mode: AcquisitionMode::ContendedRoundRobin,
         contenders: CONTENDED_POOL_CONTENDERS,
         ..PoolWorkload::default()
-    })
-    .collect()
+    });
+    workloads
 }

@@ -363,3 +363,6 @@ impl GeneratedSlotSequence {
         Ok(())
     }
 }
+
+#[path = "core_tests/permit_race.rs"]
+mod permit_race;
