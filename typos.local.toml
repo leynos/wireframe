@@ -34,6 +34,9 @@ ignore = [
   "Ser: Serializer",
   "DecodeWith<Ser>",
   "EncodeWith<Ser>",
+  # The compiler diagnostics snapshot quotes the server impl header verbatim.
+  "impl<F,\\ Ser,\\ Ctx,\\ E,\\ Codec>",
+  "Unbound,\\ Ser,\\ Ctx",
   "st\\(start_paused\\ =\\ true,\\ flavor\\ =\\ \"current_thread\"\\)\\]",
 ]
 
