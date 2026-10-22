@@ -342,9 +342,9 @@ mod tests {
         app_builder: Result<TestApp, Box<dyn Error>>,
         memory_budgets: Result<MemoryBudgets, Box<dyn Error>>,
     ) -> Result<(), Box<dyn Error>> {
-        let memory_budgets = memory_budgets?;
-        let app = app_builder?.memory_budgets(memory_budgets);
-        if app.memory_budgets != Some(memory_budgets) {
+        let configured_budgets = memory_budgets?;
+        let app = app_builder?.memory_budgets(configured_budgets);
+        if app.memory_budgets != Some(configured_budgets) {
             return Err(
                 io::Error::other("memory_budgets should store the configured value").into(),
             );
@@ -357,11 +357,11 @@ mod tests {
         app_builder: Result<TestApp, Box<dyn Error>>,
         memory_budgets: Result<MemoryBudgets, Box<dyn Error>>,
     ) -> Result<(), Box<dyn Error>> {
-        let memory_budgets = memory_budgets?;
+        let configured_budgets = memory_budgets?;
         let app = app_builder?
-            .memory_budgets(memory_budgets)
+            .memory_budgets(configured_budgets)
             .with_codec(LengthDelimitedFrameCodec::new(4096));
-        if app.memory_budgets != Some(memory_budgets) {
+        if app.memory_budgets != Some(configured_budgets) {
             return Err(
                 io::Error::other("with_codec should preserve configured memory budgets").into(),
             );
@@ -374,11 +374,11 @@ mod tests {
         app_builder: Result<TestApp, Box<dyn Error>>,
         memory_budgets: Result<MemoryBudgets, Box<dyn Error>>,
     ) -> Result<(), Box<dyn Error>> {
-        let memory_budgets = memory_budgets?;
+        let configured_budgets = memory_budgets?;
         let app = app_builder?
-            .memory_budgets(memory_budgets)
+            .memory_budgets(configured_budgets)
             .serializer(BincodeSerializer);
-        if app.memory_budgets != Some(memory_budgets) {
+        if app.memory_budgets != Some(configured_budgets) {
             return Err(
                 io::Error::other("serializer should preserve configured memory budgets").into(),
             );

@@ -53,7 +53,7 @@ struct TestAdapter {
 }
 
 impl TestAdapter {
-    fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+    const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 
 impl Decoder for TestAdapter {

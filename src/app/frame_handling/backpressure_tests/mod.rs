@@ -46,16 +46,16 @@ fn custom_budgets(
     per_connection: usize,
     in_flight: usize,
 ) -> TestResult<MemoryBudgets> {
-    let per_message = NonZeroUsize::new(per_message)
+    let per_message_bytes = NonZeroUsize::new(per_message)
         .ok_or_else(|| io::Error::other("per_message must be > 0"))?;
-    let per_connection = NonZeroUsize::new(per_connection)
+    let per_connection_bytes = NonZeroUsize::new(per_connection)
         .ok_or_else(|| io::Error::other("per_connection must be > 0"))?;
-    let in_flight =
+    let in_flight_bytes =
         NonZeroUsize::new(in_flight).ok_or_else(|| io::Error::other("in_flight must be > 0"))?;
     Ok(MemoryBudgets::new(
-        BudgetBytes::new(per_message),
-        BudgetBytes::new(per_connection),
-        BudgetBytes::new(in_flight),
+        BudgetBytes::new(per_message_bytes),
+        BudgetBytes::new(per_connection_bytes),
+        BudgetBytes::new(in_flight_bytes),
     ))
 }
 
