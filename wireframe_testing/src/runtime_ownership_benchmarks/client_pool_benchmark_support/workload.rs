@@ -213,6 +213,31 @@ impl PoolWorkload {
     }
 }
 
+/// FIFO contended workloads for every pool size used by runtime baselines.
+///
+/// The default of sixteen contenders exceeds pool sizes one and four. A
+/// 16-slot pool needs one additional contender for the harness to observe a
+/// capacity wait, so its label records seventeen.
+///
+/// # Examples
+///
+/// ```
+/// use wireframe_testing::runtime_ownership_benchmarks::contended_fifo_pool_workloads;
+///
+/// let workloads = contended_fifo_pool_workloads();
+/// assert_eq!(workloads[0].pool_size, 1);
+/// assert_eq!(workloads[2].contenders, 17);
+/// ```
+#[must_use]
+pub fn contended_fifo_pool_workloads() -> [PoolWorkload; POOL_SIZES.len()] {
+    POOL_SIZES.map(|pool_size| PoolWorkload {
+        pool_size,
+        mode: AcquisitionMode::ContendedFifo,
+        contenders: DEFAULT_CONTENDERS.max(pool_size.saturating_add(1)),
+        ..PoolWorkload::default()
+    })
+}
+
 /// Result of measuring one pool workload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PoolMeasurement {

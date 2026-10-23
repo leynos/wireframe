@@ -2,15 +2,14 @@
 //!
 //! A count is recorded before its timing pass and emitted under a label whose
 //! identity does not depend on it, so Criterion's saved results stay comparable
-//! between runs. The contended pool scope is published as an event alone: it
-//! cannot survive a Criterion timing pass, but the issue still asks for its
-//! number.
+//! between runs. FIFO contended pool counts are published as events alone: they
+//! cannot survive a Criterion timing pass, but the baseline needs their counts.
 
 use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkId, Criterion};
 use tokio::runtime::Runtime;
-use wireframe_testing::runtime_ownership_benchmarks::{AcquisitionMode, PoolWorkload};
+use wireframe_testing::runtime_ownership_benchmarks::contended_fifo_pool_workloads;
 
 use crate::{
     pool_bracket::count_pool_acquisition_window,
@@ -58,26 +57,6 @@ where
     total
 }
 
-/// Contended pool workload, recorded as an observation rather than a timing.
-///
-/// Contenders must outnumber slots for the pool to be exhausted, and the
-/// default `contenders` of 16 clears the default pool size of 4 comfortably.
-///
-/// This workload is deliberately absent from `allocation_scopes`: sustained
-/// contention intermittently stalls the pool acquire path or fails it with a
-/// spurious `disconnected`, and Criterion's timing pass runs far more
-/// iterations than the four in an allocation window, so it reaches that
-/// interleaving almost every run. Measuring it here once, under a counted
-/// window, records the number the issue asks for without handing the scenario
-/// to a pass that cannot survive it. See `docs/runtime-ownership-baselines.md`.
-fn contended_pool_workload() -> PoolWorkload {
-    PoolWorkload {
-        pool_size: 4,
-        mode: AcquisitionMode::ContendedFifo,
-        ..PoolWorkload::default()
-    }
-}
-
 /// Emit a successful contended allocation count as an event.
 ///
 /// Kept as its own function because a `tracing` macro expands to an
@@ -111,7 +90,7 @@ fn report_contended_allocations(label: &str, outcome: Result<usize, String>) {
     }
 }
 
-/// Record the contended pool allocation count as a bounded observation.
+/// Record FIFO contended allocation counts across the baseline pool sizes.
 ///
 /// Run once after Criterion has finished, so a failure is reported rather than
 /// aborting the benchmark run. The count comes from the same bracketed window the
@@ -119,11 +98,11 @@ fn report_contended_allocations(label: &str, outcome: Result<usize, String>) {
 /// and the timing are dropped, because repetition is what the acquire-path defect
 /// makes unreliable. See `docs/runtime-ownership-baselines.md`.
 pub(crate) fn observe_contended_pool_allocations(runtime: &Runtime) {
-    let workload = contended_pool_workload();
-    let label = workload.label();
-    let outcome = count_pool_acquisition_window(runtime, workload, ALLOCATION_ITERATIONS);
-
-    report_contended_allocations(&label, outcome);
+    for workload in contended_fifo_pool_workloads() {
+        let label = workload.label();
+        let outcome = count_pool_acquisition_window(runtime, workload, ALLOCATION_ITERATIONS);
+        report_contended_allocations(&label, outcome);
+    }
 }
 
 /// Install a subscriber for the allocation binary's own events only.

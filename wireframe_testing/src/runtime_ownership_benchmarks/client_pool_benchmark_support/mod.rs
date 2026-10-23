@@ -131,4 +131,5 @@ pub use workload::{
     POOL_SIZES,
     PoolMeasurement,
     PoolWorkload,
+    contended_fifo_pool_workloads,
 };
