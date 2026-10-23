@@ -144,6 +144,43 @@ mod tests {
         }
     }
 
+    /// Exact length and wire bytes for the signed boundaries.
+    #[test]
+    fn integer_frames_encode_to_their_measured_length() -> Result<(), std::io::Error> {
+        use bytes::BytesMut;
+
+        use super::{encode_frame, encoded_len};
+        use crate::resp_codec_impl::frame::RespFrame;
+
+        for (value, wire) in [
+            (-99_i64, ":-99\r\n".to_owned()),
+            (i64::MIN, format!(":{}\r\n", i64::MIN)),
+        ] {
+            let frame = RespFrame::Integer(value);
+            let mut dst = BytesMut::new();
+            encode_frame(&frame, &mut dst)?;
+            assert_eq!(dst.as_ref(), wire.as_bytes());
+            assert_eq!(encoded_len(&frame)?, wire.len());
+        }
+        Ok(())
+    }
+
+    proptest::proptest! {
+        /// The measured length equals the emitted bytes for any integer frame.
+        #[test]
+        fn encoded_len_matches_emitted_bytes(value in proptest::prelude::any::<i64>()) {
+            use bytes::BytesMut;
+
+            use super::{encode_frame, encoded_len};
+            use crate::resp_codec_impl::frame::RespFrame;
+
+            let frame = RespFrame::Integer(value);
+            let mut dst = BytesMut::new();
+            proptest::prop_assert!(encode_frame(&frame, &mut dst).is_ok());
+            proptest::prop_assert_eq!(encoded_len(&frame).ok(), Some(dst.len()));
+        }
+    }
+
     proptest::proptest! {
         /// Any `i64` renders with exactly the length the helper reports.
         #[test]
