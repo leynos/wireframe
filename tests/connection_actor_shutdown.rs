@@ -42,7 +42,7 @@ async fn shutdown_signal_precedence(
     // drop the handle after actor creation to mimic early disconnection
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");
-    assert!(out.is_empty());
+    assert_eq!(out, [] as [u8; 0]);
 }
 
 #[rstest]

@@ -98,3 +98,26 @@ impl FrameCodec for RespFrameCodec {
 
     fn max_frame_length(&self) -> usize { self.max_frame_length }
 }
+
+#[cfg(test)]
+mod tests {
+    use bytes::BytesMut;
+    use tokio_util::codec::Encoder;
+
+    use super::RespAdapter;
+    use crate::resp_codec_impl::frame::RespFrame;
+
+    /// `:-99\r\n` is six bytes: it fits a six-byte limit exactly and is
+    /// rejected by a five-byte one.
+    #[test]
+    fn negative_integer_frame_is_accepted_at_its_exact_size_limit() {
+        let frame = RespFrame::Integer(-99);
+        let mut dst = BytesMut::new();
+        assert!(RespAdapter::new(6).encode(frame.clone(), &mut dst).is_ok());
+        assert_eq!(dst.as_ref(), b":-99\r\n");
+
+        let mut rejected = BytesMut::new();
+        assert!(RespAdapter::new(5).encode(frame, &mut rejected).is_err());
+        assert!(rejected.is_empty());
+    }
+}

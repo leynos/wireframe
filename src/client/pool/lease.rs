@@ -209,7 +209,7 @@ where
                 self.pending_responses.fetch_add(1, Ordering::AcqRel);
             }
             PendingResponseChange::Remove => {
-                let _ = self.pending_responses.fetch_update(
+                let _ = self.pending_responses.try_update(
                     Ordering::AcqRel,
                     Ordering::Acquire,
                     |pending| Some(pending.saturating_sub(1)),

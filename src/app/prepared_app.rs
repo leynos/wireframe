@@ -327,10 +327,10 @@ where
     /// ```
     #[must_use]
     pub fn protocol_hooks(&self) -> crate::hooks::ProtocolHooks<F::Frame, ()> {
-        self.protocol
-            .as_ref()
-            .map(crate::hooks::ProtocolHooks::from_protocol)
-            .unwrap_or_default()
+        self.protocol.as_ref().map_or_else(
+            crate::hooks::ProtocolHooks::default,
+            crate::hooks::ProtocolHooks::from_protocol,
+        )
     }
 
     /// Get the configured message assembler, if any.

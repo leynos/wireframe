@@ -185,10 +185,6 @@ impl Drop for WireframePair {
 /// This gives the server task a chance to run `tracker.close()` and
 /// `tracker.wait().await` for spawned connection tasks before being
 /// force-aborted.
-#[expect(
-    clippy::integer_division_remainder_used,
-    reason = "Tokio's select macro expands to scheduler arithmetic outside this harness"
-)]
 fn spawn_bounded_shutdown(
     mut handle: JoinHandle<Result<(), wireframe::server::ServerError>>,
     timeout: std::time::Duration,

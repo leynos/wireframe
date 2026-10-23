@@ -80,7 +80,7 @@ async fn middleware_modifies_request_and_response_preserves_cid(correlation_id: 
 
 #[tokio::test]
 async fn from_fn_clones_captured_state_across_routes() {
-    let marker = Arc::new([b'!', b'?']);
+    let marker = Arc::new(*b"!?");
     let middleware = from_fn(
         move |mut request: ServiceRequest, _next: Next<'_, HandlerService<Envelope>>| {
             let [request_marker, response_marker] = marker.as_ref();

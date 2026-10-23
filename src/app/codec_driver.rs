@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(first.len(), 1);
 
         let second = pipeline.drain_output();
-        assert!(second.is_empty());
+        assert_eq!(second, [] as [crate::app::Envelope; 0]);
     }
 
     #[rstest]

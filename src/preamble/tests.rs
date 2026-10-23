@@ -65,7 +65,7 @@ async fn bounded_preamble_preserves_valid_containers_and_following_bytes(#[case]
         .await
         .expect("preamble within the budget must decode");
     assert_eq!(decoded, value);
-    assert!(leftover.is_empty());
+    assert_eq!(leftover, [] as [u8; 0]);
     assert_eq!(reader.position(), encoded_len as u64);
     assert!(encoded_len <= MAX_PREAMBLE_LEN);
     assert_eq!(

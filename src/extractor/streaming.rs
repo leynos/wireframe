@@ -54,7 +54,6 @@ impl StreamingBody {
     ///
     /// Use this when you need direct access to the stream for custom
     /// processing with [`futures::StreamExt`] methods.
-    #[must_use]
     pub fn into_stream(self) -> crate::request::RequestBodyStream { self.stream }
 
     /// Convert to an [`AsyncRead`] adapter.

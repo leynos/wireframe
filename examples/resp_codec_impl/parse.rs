@@ -52,7 +52,7 @@ const MAX_RECURSION_DEPTH: usize = 64;
 fn decimal_digits(mut value: usize) -> usize {
     let mut digits = 1;
     while value >= 10 {
-        value /= 10;
+        value = value.div_euclid(10);
         digits += 1;
     }
     digits

@@ -337,10 +337,6 @@ where
     ///
     /// The `strict_priority_order` and `shutdown_signal_precedence` tests
     /// assert that this ordering is preserved across refactors.
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "tokio::select! expands to modulus operations internally"
-    )]
     async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
         let avail = self.compute_availability(state);
         let can_poll_multi_packet = avail.output == AvailableOutput::MultiPacket;

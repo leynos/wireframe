@@ -111,7 +111,6 @@ pub const DEFAULT_BODY_CHANNEL_CAPACITY: usize = 16;
 /// // tx: send chunks from connection
 /// // rx: consume in handler
 /// ```
-#[must_use]
 pub fn body_channel(
     capacity: usize,
 ) -> (mpsc::Sender<Result<Bytes, io::Error>>, RequestBodyStream) {
@@ -178,7 +177,6 @@ impl RequestBodyReader {
     /// **Safe to call when:** the reader has been fully drained (all reads
     /// returned zero bytes or an error), or when deliberately abandoning
     /// any remaining buffered content.
-    #[must_use]
     pub fn into_inner(self) -> RequestBodyStream { self.inner.into_inner() }
 }
 impl AsyncRead for RequestBodyReader {

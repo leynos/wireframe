@@ -287,10 +287,6 @@ impl<F: FrameLike> PushQueues<F> {
     ///     assert_eq!(frame, 2);
     /// }
     /// ```
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "tokio::select! expands to modulus internally"
-    )]
     pub async fn recv(&mut self) -> Option<(PushPriority, F)> {
         let mut high_closed = false;
         let mut low_closed = false;

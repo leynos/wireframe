@@ -184,10 +184,6 @@ async fn drop_supervisor() -> TestResult {
             .ready_signal(ready_tx)
             .run_with_shutdown(future::pending()),
     );
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "tokio::select! expands to modulus internally"
-    )]
     let readiness: TestResult = timeout(Duration::from_secs(1), async {
         tokio::select! {
             ready = &mut ready_rx => ready.map_err(|error| {

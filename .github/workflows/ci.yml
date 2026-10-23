@@ -72,7 +72,7 @@ jobs:
         # Both runner choices are Ubuntu. Confirm the manifest's Cranelift
         # component and install the Linux linker before debug Make targets.
         run: |
-          rustup component add rustc-codegen-cranelift-preview --toolchain nightly-2026-03-26
+          rustup component add rustc-codegen-cranelift-preview --toolchain nightly-2026-10-22
           sudo apt-get update
           sudo apt-get install -y mold
           mold --version
@@ -147,6 +147,10 @@ jobs:
           output-path: lcov.info
           format: lcov
           with-ratchet: 'true'
+          # A new path starts a new baseline: the cache entry's version hashes
+          # this path, so the restore misses the 89.0% measured on the previous
+          # toolchain and the committed file sets the baseline.
+          baseline-rust-file: .coverage-baseline-v2.rust
           # The ratchet reads this report; nothing else does, so it is not
           # published as an artefact.
           publish-artefact: 'false'

@@ -175,7 +175,7 @@ async fn protocol_error_logs_warning(
         .run(&mut out)
         .await
         .map_err(|e| io::Error::other(format!("actor run failed: {e:?}")))?;
-    assert!(out.is_empty());
+    assert_eq!(out, [] as [u8; 0]);
     let mut found = false;
     while let Some(record) = logger.pop() {
         if record.level() == log::Level::Warn && record.args().contains("protocol error") {

@@ -35,10 +35,6 @@ where
     }
 
     /// Race slot capacity against shutdown or cancellation for one waiter.
-    #[expect(
-        clippy::integer_division_remainder_used,
-        reason = "tokio::select! macro internally uses % for random branch selection"
-    )]
     async fn service_one_waiter(
         &self,
         mut sender: WaiterSender<S, P, C>,

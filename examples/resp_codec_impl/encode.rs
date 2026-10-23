@@ -114,7 +114,7 @@ fn encode_frame_at(frame: &RespFrame, dst: &mut BytesMut, depth: usize) -> Resul
 fn digits_len_usize(mut value: usize) -> usize {
     let mut digits = 1;
     while value >= 10 {
-        value /= 10;
+        value = value.div_euclid(10);
         digits += 1;
     }
     digits
@@ -123,12 +123,71 @@ fn digits_len_usize(mut value: usize) -> usize {
 /// Count digits in a signed integer, including its possible minus sign.
 fn digits_len_i64(value: i64) -> usize {
     let mut digits = 1;
-    let mut cursor = value;
-    while cursor <= -10 || cursor >= 10 {
-        cursor /= 10;
+    let mut cursor = value.unsigned_abs();
+    while cursor >= 10 {
+        cursor = cursor.div_euclid(10);
         digits += 1;
     }
     if value < 0 { digits + 1 } else { digits }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::digits_len_i64;
+
+    /// Negative values must count their magnitude, not round toward negative
+    /// infinity: `-99` is three characters and `-10` is three.
+    #[test]
+    fn digits_len_i64_matches_the_rendered_length() {
+        for value in [i64::MIN, -100, -99, -10, -9, -1, 0, 1, 9, 10, 99, i64::MAX] {
+            assert_eq!(digits_len_i64(value), value.to_string().len(), "{value}");
+        }
+    }
+
+    /// Exact length and wire bytes for the signed boundaries.
+    #[test]
+    fn integer_frames_encode_to_their_measured_length() -> Result<(), std::io::Error> {
+        use bytes::BytesMut;
+
+        use super::{encode_frame, encoded_len};
+        use crate::resp_codec_impl::frame::RespFrame;
+
+        for (value, wire) in [
+            (-99_i64, ":-99\r\n".to_owned()),
+            (i64::MIN, format!(":{}\r\n", i64::MIN)),
+        ] {
+            let frame = RespFrame::Integer(value);
+            let mut dst = BytesMut::new();
+            encode_frame(&frame, &mut dst)?;
+            assert_eq!(dst.as_ref(), wire.as_bytes());
+            assert_eq!(encoded_len(&frame)?, wire.len());
+        }
+        Ok(())
+    }
+
+    proptest::proptest! {
+        /// The measured length equals the emitted bytes for any integer frame.
+        #[test]
+        fn encoded_len_matches_emitted_bytes(value in proptest::prelude::any::<i64>()) {
+            use bytes::BytesMut;
+
+            use super::{encode_frame, encoded_len};
+            use crate::resp_codec_impl::frame::RespFrame;
+
+            let frame = RespFrame::Integer(value);
+            let mut dst = BytesMut::new();
+            proptest::prop_assert!(encode_frame(&frame, &mut dst).is_ok());
+            proptest::prop_assert_eq!(encoded_len(&frame).ok(), Some(dst.len()));
+        }
+    }
+
+    proptest::proptest! {
+        /// Any `i64` renders with exactly the length the helper reports.
+        #[test]
+        fn digits_len_i64_matches_for_any_value(value in proptest::prelude::any::<i64>()) {
+            proptest::prop_assert_eq!(digits_len_i64(value), value.to_string().len());
+        }
+    }
 }
 
 /// Add encoded-size components and report overflow as a frame-size error.

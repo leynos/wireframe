@@ -127,10 +127,6 @@ impl Drop for SupervisorCancellationDropGuard<'_> {
 }
 
 /// Wait for deliberate shutdown or for all tracked workers to complete.
-#[expect(
-    clippy::integer_division_remainder_used,
-    reason = "tokio::select! expands to modulus internally"
-)]
 pub(super) async fn await_supervisor_termination<S>(
     shutdown: S,
     shutdown_token: &CancellationToken,

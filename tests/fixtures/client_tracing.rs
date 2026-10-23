@@ -213,7 +213,7 @@ impl ClientTracingWorld {
 
     /// Return the peer address string.
     pub fn peer_addr_string(&self) -> String {
-        self.addr.map(|a| a.to_string()).unwrap_or_default()
+        self.addr.map_or_else(String::new, |a| a.to_string())
     }
 
     /// Check whether captured tracing output contains a needle.
