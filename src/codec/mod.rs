@@ -124,7 +124,7 @@ impl LengthDelimitedFrameCodec {
 
     /// Return the maximum frame length accepted by this codec.
     #[must_use]
-    pub fn max_frame_length(&self) -> usize { self.max_frame_length }
+    pub const fn max_frame_length(&self) -> usize { self.max_frame_length }
 
     /// Build a fresh tokio codec so encoder and decoder state remain isolated.
     fn new_inner_codec(&self) -> LengthDelimitedCodec {
@@ -225,24 +225,24 @@ impl EofContext {
 /// - [`EofError::MidFrame`]: Header complete but payload truncated. The length prefix was
 ///   successfully read but the connection closed before the full payload arrived.
 fn build_eof_error(context: EofContext) -> io::Error {
-    match context.expected {
-        Some(expected) => {
-            // EOF during payload read - we have a header but incomplete payload
-            CodecError::Eof(EofError::MidFrame {
-                bytes_received: context.bytes_received.saturating_sub(LENGTH_HEADER_SIZE),
-                expected,
-            })
-            .into()
-        }
-        None => {
+    context.expected.map_or_else(
+        || {
             // EOF during header read
             CodecError::Eof(EofError::MidHeader {
                 bytes_received: context.bytes_received,
                 header_size: LENGTH_HEADER_SIZE,
             })
             .into()
-        }
-    }
+        },
+        |expected| {
+            // EOF during payload read - we have a header but incomplete payload
+            CodecError::Eof(EofError::MidFrame {
+                bytes_received: context.bytes_received.saturating_sub(LENGTH_HEADER_SIZE),
+                expected,
+            })
+            .into()
+        },
+    )
 }
 
 /// Encoder half of [`LengthDelimitedFrameCodec`].

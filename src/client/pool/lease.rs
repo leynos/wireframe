@@ -209,11 +209,13 @@ where
                 self.pending_responses.fetch_add(1, Ordering::AcqRel);
             }
             PendingResponseChange::Remove => {
-                let _ = self.pending_responses.try_update(
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                    |pending| Some(pending.saturating_sub(1)),
-                );
+                // The update always succeeds because the closure always
+                // returns `Some`, so an unused `Result` is discarded here.
+                self.pending_responses
+                    .try_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
+                        Some(pending.saturating_sub(1))
+                    })
+                    .ok();
             }
             PendingResponseChange::None => {}
         }

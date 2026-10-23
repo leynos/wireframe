@@ -51,7 +51,7 @@ where
             .catch_unwind()
             .await;
         match result {
-            Ok(result) => result,
+            Ok(server_result) => server_result,
             Err(panic) => {
                 let panic_msg = wireframe::panic::format_panic(&panic);
                 Err(io::Error::other(format!("server task failed: {panic_msg}")))

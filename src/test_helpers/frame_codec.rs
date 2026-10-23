@@ -56,7 +56,7 @@ pub struct TestAdapter {
 impl TestAdapter {
     /// Create a new adapter with the given maximum frame length.
     #[must_use]
-    pub fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+    pub const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 
 impl Decoder for TestAdapter {

@@ -65,10 +65,10 @@ struct FrameFlags(u8);
 
 impl FrameFlags {
     /// Whether this frame terminates the logical message.
-    fn is_last(self) -> bool { self.0 & 0b1 == 0b1 }
+    const fn is_last(self) -> bool { self.0 & 0b1 == 0b1 }
 
     /// Whether the header carries its optional length/sequence value.
-    fn has_optional_field(self) -> bool { self.0 & 0b10 == 0b10 }
+    const fn has_optional_field(self) -> bool { self.0 & 0b10 == 0b10 }
 }
 
 /// Parse a protocol-specific frame header for tests.
@@ -222,8 +222,8 @@ pub fn first_frame_payload(
     payload.put_u16(0);
     let body_len = u32::try_from(body.len()).map_err(|_| invalid_data("body length too large"))?;
     payload.put_u32(body_len);
-    if let Some(total) = total {
-        payload.put_u32(total);
+    if let Some(total_body_len) = total {
+        payload.put_u32(total_body_len);
     }
     payload.extend_from_slice(body);
     Ok(payload.to_vec())
