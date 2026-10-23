@@ -143,6 +143,14 @@ mod tests {
             assert_eq!(digits_len_i64(value), value.to_string().len(), "{value}");
         }
     }
+
+    proptest::proptest! {
+        /// Any `i64` renders with exactly the length the helper reports.
+        #[test]
+        fn digits_len_i64_matches_for_any_value(value in proptest::prelude::any::<i64>()) {
+            proptest::prop_assert_eq!(digits_len_i64(value), value.to_string().len());
+        }
+    }
 }
 
 /// Add encoded-size components and report overflow as a frame-size error.
