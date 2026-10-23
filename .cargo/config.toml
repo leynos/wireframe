@@ -26,3 +26,6 @@ rustflags = ["-Zthreads=8"]
 # the Makefile does through `DEV_LINUX_LINK_ARG`.
 [target.'cfg(target_os = "linux")']
 rustflags = ["-Zthreads=8", "-Clink-arg=-fuse-ld=mold"]
+
+[unstable]
+embed-metadata = false

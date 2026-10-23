@@ -215,6 +215,37 @@ def _development_problems(
     return problems
 
 
+def test_development_profile_keeps_the_build_footprint_settings() -> None:
+    """The dev profile disables incremental state and debug information.
+
+    The Concordat ``rust-dev-build-footprint`` rule needs both on the default
+    development profile, with no override that re-enables them; the test
+    profile inherits them.
+    """
+    manifest = tomllib.loads((ROOT / "Cargo.toml").read_text("utf-8"))
+    dev = manifest.get("profile", {}).get("dev", {})
+    assert dev.get("incremental") is False, "profile.dev must set incremental = false"
+    assert dev.get("debug") == 0, "profile.dev must set debug = 0"
+    assert "incremental" not in manifest.get("profile", {}).get("test", {}), (
+        "profile.test must inherit incremental from profile.dev"
+    )
+
+
+def test_configuration_disables_metadata_embedding_on_the_pinned_nightly() -> None:
+    """The native Cargo key replaces any raw rustc metadata flag.
+
+    Dated nightlies from 2026-07-31 take ``embed-metadata = false``; the old
+    ``no-embed-metadata`` key and rustc's own metadata flags must not appear.
+    """
+    config = tomllib.loads((ROOT / ".cargo" / "config.toml").read_text("utf-8"))
+    assert config.get("unstable", {}).get("embed-metadata") is False
+    assert "no-embed-metadata" not in config.get("unstable", {})
+    for flags in _sources().values():
+        assert not any("embed-metadata" in flag for flag in flags), (
+            "metadata embedding is set through Cargo, not a rustc flag"
+        )
+
+
 def test_every_rustflags_source_carries_the_parallel_frontend() -> None:
     """Cargo applies one source, so each must name the flag itself.
 
