@@ -41,6 +41,17 @@ GITHUB_HOSTED_LABEL: typ.Final = "ubuntu-latest"
 #: the same shape that selects the wrong runner on every fork pull request.
 FORK_GUARD: typ.Final = "github.event.pull_request.head.repo.fork"
 
+#: The pull request's author, not ``github.actor``: the actor is whoever
+#: triggered the run, so a person pushing to a Dependabot branch would flip the
+#: runner. Hosted minutes cost nothing on a public repository, so Dependabot's
+#: pull requests take the fork arm too.
+DEPENDABOT_GUARD: typ.Final = (
+    "github.event.pull_request.user.login == 'dependabot[bot]'"
+)
+
+#: The exact guard the fallback keys on: a fork or a Dependabot pull request.
+HOSTED_GUARD: typ.Final = f"({FORK_GUARD} || {DEPENDABOT_GUARD})"
+
 #: The lane that carries the fork fallback: the only one serving pull
 #: requests, and so the only one that can meet a fork.
 FORK_FALLBACK_JOB: typ.Final = ("ci.yml", "build-test")

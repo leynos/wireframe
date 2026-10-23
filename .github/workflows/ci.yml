@@ -55,8 +55,12 @@ jobs:
     # about the Namespace image, not about non-GitHub-hosted runners:
     # repovec-appliance runs the same `whitaker-installer` 0.2.6 on
     # `ubicloud-standard-4`, green, and this lane has now done so too.
+    # Dependabot pull requests run on the hosted pool too (free on a public
+    # repository). The author is tested, not the actor, which changes when
+    # someone else pushes to the branch.
     runs-on: >-
-      ${{ github.event.pull_request.head.repo.fork
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
       && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 30
     permissions:

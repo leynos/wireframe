@@ -135,9 +135,9 @@ from runner_placement_policy import (
     EXPECTED_PLACEMENT,
     FOREIGN_RUNNER_FRAGMENTS,
     FORK_FALLBACK_JOB,
-    FORK_GUARD,
     GITHUB_HOSTED_LABEL,
     GITHUB_HOSTED_LABELS,
+    HOSTED_GUARD,
     UBICLOUD_LABEL,
     UBICLOUD_LABEL_PREFIX,
 )
@@ -271,9 +271,9 @@ def test_the_runner_expression_is_exactly_the_reviewed_one() -> None:
         f"{FORK_FALLBACK_JOB[0]}:{FORK_FALLBACK_JOB[1]} should declare the "
         f"reviewed fork fallback expression; got {value!r}"
     )
-    assert match["guard"] == FORK_GUARD, (
-        f"the fallback is keyed on {match['guard']!r}; only {FORK_GUARD!r} "
-        "identifies a fork"
+    assert match["guard"] == HOSTED_GUARD, (
+        f"the fallback is keyed on {match['guard']!r}; only {HOSTED_GUARD!r} "
+        "identifies a fork or a Dependabot pull request"
     )
     assert match["fork_arm"] == GITHUB_HOSTED_LABEL, (
         f"forks are sent to {match['fork_arm']!r}; a fork cannot obtain an "
