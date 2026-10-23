@@ -92,7 +92,7 @@ echo "markdownlint exit: $?"
 The current repository already shows a split between generic transport frames
 and owned payload-byte APIs:
 
-- `src/codec.rs` defines `FrameCodec` generically over `Self::Frame`.
+- `src/codec/mod.rs` defines `FrameCodec` generically over `Self::Frame`.
 - `src/hooks.rs` defines `WireframeProtocol` generically over
   `type Frame: FrameLike`.
 - `src/app/envelope.rs`, `src/middleware.rs`, `src/client/hooks.rs`, and
@@ -157,9 +157,9 @@ conclusions.
   before proceeding.
 
 - Observation: the runtime no longer hard-codes `F::Frame = Vec<u8>` at the
-  codec or protocol trait layer. Evidence: `src/codec.rs` and `src/hooks.rs`.
-  Impact: the main migration scope is payload ownership and mutability, not a
-  blanket frame-type constraint.
+  codec or protocol trait layer. Evidence: `src/codec/mod.rs` and
+  `src/hooks.rs`. Impact: the main migration scope is payload ownership and
+  mutability, not a blanket frame-type constraint.
 
 - Observation: the strongest remaining coupling is public payload-oriented API
   shape. Evidence: `src/app/envelope.rs`, `src/middleware.rs`,
@@ -207,3 +207,10 @@ Validation outcomes:
 
 This file was restored on 2026-04-11 from commit `c0cbc75` and updated to
 reflect completion of the documentation work in the current worktree.
+
+On 2026-10-23 the two `src/codec.rs` references above were corrected to
+`src/codec/mod.rs`, the path this module has occupied since commit `815dad65`
+("Normalize Rust module layout (#710)"). The inventory document itself already
+cited the current path; only this ExecPlan had drifted, which contradicted its
+own constraint to "reflect the current repository layout rather than historical
+issue context".
