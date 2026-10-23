@@ -92,6 +92,34 @@ _Table 2: Declared-total enforcement points._
 - Protocols that leave `total_body_len` as `None` are unaffected; they retain
   the previous behaviour with no equality requirement.
 
+For screen readers: the following flow chart traces a first frame through its
+declaration check, a continuation through its admission check, and a completed
+message through the final comparison, showing where each rejection frees the
+partial assembly.
+
+```mermaid
+flowchart TD
+    A[Receive first frame] --> B[validate_first_frame]
+    B -->|declared total smaller than body| E1[Reject: DeclaredTotalTooSmall]
+    B -->|single-frame total differs| E2[Reject: DeclaredTotalMismatch]
+    B -->|valid multi-frame declaration| C[Buffer first-frame body]
+    C --> D[Receive continuation]
+    D --> F[validate_continuation]
+    F -->|would exceed declaration or overflow| E3[Reject: DeclaredTotalExceeded]
+    F -->|within declaration| G[Buffer continuation before completion]
+    G --> H{Message complete?}
+    H -->|no| D
+    H -->|yes| I[validate_completion]
+    I -->|assembled length differs| E4[Reject: DeclaredTotalMismatch]
+    I -->|exact declared length| J[Dispatch assembled message]
+    E1 --> K[Free partial assembly]
+    E2 --> K
+    E3 --> K
+    E4 --> K
+```
+
+_Figure 1: Declared-total enforcement from the first frame to dispatch._
+
 The checks live in `src/message_assembler/validation.rs`, next to the state
 machine that applies them. `PartialAssembly` owns the completion check so the
 buffered length and the declaration are read together.
