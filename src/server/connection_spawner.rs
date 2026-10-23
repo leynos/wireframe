@@ -82,7 +82,12 @@ async fn process_stream<T, Ser, Ctx, E, Codec>(
             }
         };
 
-    run_preamble_success(on_success.as_ref(), &preamble, &mut stream, peer_addr).await;
+    if run_preamble_success(on_success.as_ref(), &preamble, &mut stream, peer_addr)
+        .await
+        .is_err()
+    {
+        return;
+    }
     let rewind_stream = RewindStream::new(leftover, stream);
     handle_app_connection(&app, rewind_stream).await;
 }
@@ -131,12 +136,14 @@ async fn run_preamble_success<T: Preamble>(
     preamble: &T,
     stream: &mut TcpStream,
     peer_addr: Option<SocketAddr>,
-) {
+) -> io::Result<()> {
     if let Some(preamble_handler) = handler
         && let Err(e) = preamble_handler(preamble, stream).await
     {
         error!("preamble handler error: error={e}, error_debug={e:?}, peer_addr={peer_addr:?}");
+        return Err(e);
     }
+    Ok(())
 }
 
 /// Record bounded preamble decode rejection metrics and diagnostics.
