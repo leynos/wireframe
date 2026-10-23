@@ -55,21 +55,21 @@ impl Default for RecoveryConfig {
 impl RecoveryConfig {
     /// Set the maximum consecutive dropped frames before disconnect.
     #[must_use]
-    pub fn max_consecutive_drops(mut self, count: u32) -> Self {
+    pub const fn max_consecutive_drops(mut self, count: u32) -> Self {
         self.max_consecutive_drops = count;
         self
     }
 
     /// Set the default quarantine duration.
     #[must_use]
-    pub fn quarantine_duration(mut self, duration: Duration) -> Self {
+    pub const fn quarantine_duration(mut self, duration: Duration) -> Self {
         self.quarantine_duration = duration;
         self
     }
 
     /// Set whether to log dropped frames.
     #[must_use]
-    pub fn log_dropped_frames(mut self, enabled: bool) -> Self {
+    pub const fn log_dropped_frames(mut self, enabled: bool) -> Self {
         self.log_dropped_frames = enabled;
         self
     }

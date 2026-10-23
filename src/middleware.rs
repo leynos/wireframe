@@ -20,15 +20,15 @@ pub struct FrameContainer<F> {
 impl<F> FrameContainer<F> {
     /// Create a new container holding `frame` bytes.
     #[must_use]
-    pub fn new(frame: F) -> Self { Self { frame } }
+    pub const fn new(frame: F) -> Self { Self { frame } }
 
     /// Borrow the inner frame data.
     #[must_use]
-    pub fn frame(&self) -> &F { &self.frame }
+    pub const fn frame(&self) -> &F { &self.frame }
 
     /// Mutable access to the frame data.
     #[must_use]
-    pub fn frame_mut(&mut self) -> &mut F { &mut self.frame }
+    pub const fn frame_mut(&mut self) -> &mut F { &mut self.frame }
 
     /// Consume the container, returning the frame.
     #[must_use]
@@ -60,11 +60,11 @@ impl ServiceRequest {
 
     /// Return the correlation identifier associated with this request, if any.
     #[must_use]
-    pub fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+    pub const fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
     /// Set or clear the correlation identifier on the request.
     #[must_use]
-    pub fn set_correlation_id(&mut self, correlation_id: Option<u64>) -> &mut Self {
+    pub const fn set_correlation_id(&mut self, correlation_id: Option<u64>) -> &mut Self {
         self.correlation_id = correlation_id;
         self
     }
@@ -107,11 +107,11 @@ impl ServiceResponse {
 
     /// Return the correlation identifier associated with this response, if any.
     #[must_use]
-    pub fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+    pub const fn correlation_id(&self) -> Option<u64> { self.correlation_id }
 
     /// Set or clear the correlation identifier.
     #[must_use]
-    pub fn set_correlation_id(&mut self, correlation_id: Option<u64>) -> &mut Self {
+    pub const fn set_correlation_id(&mut self, correlation_id: Option<u64>) -> &mut Self {
         self.correlation_id = correlation_id;
         self
     }
@@ -154,7 +154,7 @@ where
     /// ```
     #[inline]
     #[must_use]
-    pub fn new(service: &'a S) -> Self { Self { service } }
+    pub const fn new(service: &'a S) -> Self { Self { service } }
 
     /// Call the next service with the provided request.
     ///
@@ -206,7 +206,7 @@ pub struct FromFn<F> {
 
 impl<F> FromFn<F> {
     /// Construct middleware from the provided asynchronous function.
-    pub fn new(f: F) -> Self { Self { f } }
+    pub const fn new(f: F) -> Self { Self { f } }
 }
 
 /// Convenience constructor to build middleware from an async function.

@@ -192,7 +192,7 @@ pub struct AssembledMessage {
 impl AssembledMessage {
     /// Create a new assembled message.
     #[must_use]
-    pub fn new(
+    pub const fn new(
         message_key: MessageKey,
         routing: EnvelopeRouting,
         metadata: Vec<u8>,

@@ -45,7 +45,7 @@ impl AggregateBudgets {
 /// Returns [`MessageAssemblyError::ConnectionBudgetExceeded`] or
 /// [`MessageAssemblyError::InFlightBudgetExceeded`] when the respective
 /// limit would be exceeded.
-pub(super) fn check_aggregate_budgets(
+pub(super) const fn check_aggregate_budgets(
     key: MessageKey,
     current_total: usize,
     additional_bytes: usize,
@@ -85,7 +85,7 @@ pub(super) fn check_aggregate_budgets(
 ///
 /// Returns [`MessageAssemblyError::MessageTooLarge`] when the new total
 /// would exceed `max_message_size`.
-pub(super) fn check_size_limit(
+pub(super) const fn check_size_limit(
     max_message_size: NonZeroUsize,
     key: MessageKey,
     accumulated: usize,

@@ -39,7 +39,7 @@ impl HotlineFrameCodec {
     /// assert_eq!(codec.max_frame_length(), 1024);
     /// ```
     #[must_use]
-    pub fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+    pub const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 
 /// Adapter that encodes and decodes Hotline frames.
@@ -50,7 +50,7 @@ pub struct HotlineAdapter {
 }
 
 impl HotlineAdapter {
-    fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+    const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 
 impl Decoder for HotlineAdapter {
@@ -99,21 +99,21 @@ impl Encoder<HotlineFrame> for HotlineAdapter {
 
     fn encode(&mut self, item: HotlineFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
         const HEADER_LEN: usize = 20;
-        let data_size = item.payload.len();
-        if data_size > self.max_frame_length {
+        let payload_size = item.payload.len();
+        if payload_size > self.max_frame_length {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "payload too large",
             ));
         }
-        let total_size = data_size + HEADER_LEN;
-        let data_size = u32::try_from(data_size)
+        let frame_size = payload_size + HEADER_LEN;
+        let wire_payload_size = u32::try_from(payload_size)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "payload too large"))?;
-        let total_size = u32::try_from(total_size)
+        let wire_frame_size = u32::try_from(frame_size)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "payload too large"))?;
-        dst.reserve(total_size as usize);
-        dst.put_u32(data_size);
-        dst.put_u32(total_size);
+        dst.reserve(wire_frame_size as usize);
+        dst.put_u32(wire_payload_size);
+        dst.put_u32(wire_frame_size);
         dst.put_u32(item.transaction_id);
         dst.put_bytes(0, 8);
         dst.extend_from_slice(&item.payload);
@@ -174,7 +174,7 @@ impl MysqlFrameCodec {
     /// assert_eq!(codec.max_frame_length(), 1024);
     /// ```
     #[must_use]
-    pub fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+    pub const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 
 /// Adapter that encodes and decodes `MySQL` frames.
@@ -185,7 +185,7 @@ pub struct MysqlAdapter {
 }
 
 impl MysqlAdapter {
-    fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+    const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 
 impl Decoder for MysqlAdapter {
@@ -243,11 +243,8 @@ impl Encoder<MysqlFrame> for MysqlAdapter {
             ));
         }
 
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "bounded by 0xff_ff_ff check above"
-        )]
-        let payload_len_u32 = payload_len as u32;
+        let payload_len_u32 = u32::try_from(payload_len)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "payload too long"))?;
         let len_lo = (payload_len_u32 & 0xff) as u8;
         let len_mid = ((payload_len_u32 >> 8) & 0xff) as u8;
         let len_hi = ((payload_len_u32 >> 16) & 0xff) as u8;

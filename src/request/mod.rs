@@ -234,7 +234,7 @@ impl RequestParts {
     /// assert_eq!(parts.id(), 1);
     /// ```
     #[must_use]
-    pub fn new(id: u32, correlation_id: Option<u64>, metadata: Vec<u8>) -> Self {
+    pub const fn new(id: u32, correlation_id: Option<u64>, metadata: Vec<u8>) -> Self {
         Self {
             id,
             correlation_id,
@@ -298,7 +298,7 @@ impl RequestParts {
     /// parts.metadata_mut().push(0x02);
     /// assert_eq!(parts.metadata(), &[0x01, 0x02]);
     /// ```
-    pub fn metadata_mut(&mut self) -> &mut Vec<u8> { &mut self.metadata }
+    pub const fn metadata_mut(&mut self) -> &mut Vec<u8> { &mut self.metadata }
 
     /// Consume the parts and return the metadata bytes.
     ///
@@ -356,7 +356,7 @@ impl RequestParts {
     /// must win.
     #[cfg_attr(test, mutants::skip)]
     #[inline]
-    fn select_correlation(current: Option<u64>, source: Option<u64>) -> CorrelationResult {
+    const fn select_correlation(current: Option<u64>, source: Option<u64>) -> CorrelationResult {
         match (current, source) {
             (None, cid) => CorrelationResult::Inherited(cid),
             (Some(found), Some(expected)) if found != expected => {
