@@ -687,8 +687,9 @@ bursts from the sample.
 | 16    | 17         | 4/20            | 374.066 / 850.513 / 850.513    | 3/20           | 354.006 / 601.319 / 601.319   |
 
 The contended allocation observations cover four iterations and include
-scheduler and harness allocations. Rows with failed contenders produced no
-allocation count.
+scheduler and harness allocations. The allocation window runs separately from
+the timing bursts; a row has no allocation count only when its own
+four-iteration allocation window fails.
 
 | Slots | Contenders | Before allocations | After allocations |
 | ----- | ---------- | ------------------ | ----------------- |

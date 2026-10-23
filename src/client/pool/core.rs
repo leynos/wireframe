@@ -137,7 +137,7 @@ where
     /// registered. If every slot is full, the race futures borrow the stable
     /// slot storage; when polled, each future registers one FIFO waiter on its
     /// semaphore. The serial service worker runs at most one race at a time for
-    /// a handle.
+    /// the pool scheduler.
     pub(crate) async fn acquire_slot_permit(&self) -> Result<SlotPermit, ClientError> {
         let result = self.acquire_slot_permit_inner().await;
         let outcome = match &result {

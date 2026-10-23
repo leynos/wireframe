@@ -554,7 +554,7 @@ The immediate probe preserves deterministic start-slot behaviour because
 `FuturesUnordered` does not promise poll order. It allocates no storage
 proportional to pool size when a probe succeeds. A fully blocked race allocates
 one `FuturesUnordered` task node per slot. The serial service worker permits at
-most one active race per logical handle, and the scheduler keeps its existing
+most one active race per pool scheduler, and the scheduler keeps its existing
 fairness policy.
 
 The race reuses main's `rotation_start` and `rotation_indices` helpers from

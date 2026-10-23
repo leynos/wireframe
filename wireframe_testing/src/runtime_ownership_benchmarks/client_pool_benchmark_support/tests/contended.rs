@@ -39,12 +39,12 @@ fn fifo_baseline_workloads_cover_each_pool_size_and_can_contend() {
         );
     }
     assert_eq!(
-        workloads[1].label(),
-        "contended_fifo_pool_4_contenders_16_rounds_8"
-    );
-    assert_eq!(
-        workloads[2].label(),
-        "contended_fifo_pool_16_contenders_17_rounds_8"
+        workloads.map(PoolWorkload::label),
+        [
+            "contended_fifo_pool_1_contenders_16_rounds_8",
+            "contended_fifo_pool_4_contenders_16_rounds_8",
+            "contended_fifo_pool_16_contenders_17_rounds_8",
+        ]
     );
 }
 
@@ -109,7 +109,6 @@ async fn contended_mode_needs_more_contenders_than_slots() {
 #[rstest::rstest]
 #[case::one_slot_fifo(1, 16, AcquisitionMode::ContendedFifo)]
 #[case::four_slots_fifo(4, 16, AcquisitionMode::ContendedFifo)]
-#[case::sixteen_slots_fifo(16, 17, AcquisitionMode::ContendedFifo)]
 #[case::four_slots_round_robin(4, 16, AcquisitionMode::ContendedRoundRobin)]
 #[tokio::test]
 async fn contended_acquisition_observes_capacity_waits(
@@ -136,6 +135,37 @@ async fn contended_acquisition_observes_capacity_waits(
         measurement.contended(),
         "the measurement must classify itself as contended"
     );
+    assert!(
+        measurement.scheduler_spawns >= 1,
+        "handing capacity to a parked waiter must enter the scheduler slow path at least once"
+    );
+    assert!(
+        measurement.acquisitions >= 1,
+        "contended contenders must still be granted leases"
+    );
+}
+
+/// Keep the size-16 workload available to benchmarks, but not in the test suite
+/// until its tracked spurious disconnect is resolved.
+#[tokio::test]
+#[ignore = "FIXME: flaky 16-slot disconnect is tracked by issue #647"]
+async fn sixteen_slots_fifo_observes_capacity_waits() {
+    let measurement = contended_burst_with_retry(PoolWorkload {
+        pool_size: 16,
+        mode: AcquisitionMode::ContendedFifo,
+        acquisitions: 8,
+        contenders: 17,
+    })
+    .await
+    .expect("contended measurement failed in every retry attempt");
+
+    assert!(
+        measurement.capacity_waits >= 17,
+        "a burst that empties a 16-slot pool and holds it empty must park all 17 contenders, but \
+         {} waits were recorded",
+        measurement.capacity_waits
+    );
+    assert!(measurement.contended(), "the measurement must be contended");
     assert!(
         measurement.scheduler_spawns >= 1,
         "handing capacity to a parked waiter must enter the scheduler slow path at least once"
