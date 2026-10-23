@@ -24,7 +24,7 @@ pub struct RespFrameCodec {
 impl RespFrameCodec {
     /// Create a new RESP codec with the given maximum frame length.
     #[must_use]
-    pub fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+    pub const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 
 /// Tokio codec adapter for RESP frames.
@@ -38,7 +38,7 @@ pub struct RespAdapter {
 
 impl RespAdapter {
     /// Build a Tokio adapter carrying the frame-size policy for one direction.
-    fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+    const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 
 impl Decoder for RespAdapter {
