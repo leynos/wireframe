@@ -99,6 +99,34 @@ fn given_first_frame(
     message_assembly_world.add_first_frame(FirstFrameParams::new(key.to_key(), body.into_bytes()));
 }
 
+#[rustfmt::skip]
+#[given("a first frame for key {key:MessageKeyParam} with body {body:string} declaring total {total:CountParam}")]
+fn given_first_frame_with_total(
+    message_assembly_world: &mut MessageAssemblyWorld,
+    key: MessageKeyParam,
+    body: String,
+    total: CountParam,
+) {
+    message_assembly_world.add_first_frame(
+        FirstFrameParams::new(key.to_key(), body.into_bytes()).with_total(total.0),
+    );
+}
+
+#[rustfmt::skip]
+#[given("a final first frame for key {key:MessageKeyParam} with body {body:string} declaring total {total:CountParam}")]
+fn given_final_first_frame_with_total(
+    message_assembly_world: &mut MessageAssemblyWorld,
+    key: MessageKeyParam,
+    body: String,
+    total: CountParam,
+) {
+    message_assembly_world.add_first_frame(
+        FirstFrameParams::new(key.to_key(), body.into_bytes())
+            .with_total(total.0)
+            .final_frame(),
+    );
+}
+
 #[given("a final first frame for key {key:MessageKeyParam} with body {body:string}")]
 fn given_final_first_frame(
     message_assembly_world: &mut MessageAssemblyWorld,
@@ -274,6 +302,33 @@ fn then_error_message_too_large(
 ) -> TestResult {
     message_assembly_world
         .assert_error(MessageAssemblyErrorExpectation::MessageTooLarge { key: key.to_key() })
+}
+
+#[then("the error is declared total too small for key {key:MessageKeyParam}")]
+fn then_error_declared_total_too_small(
+    message_assembly_world: &mut MessageAssemblyWorld,
+    key: MessageKeyParam,
+) -> TestResult {
+    message_assembly_world
+        .assert_error(MessageAssemblyErrorExpectation::DeclaredTotalTooSmall { key: key.to_key() })
+}
+
+#[then("the error is declared total exceeded for key {key:MessageKeyParam}")]
+fn then_error_declared_total_exceeded(
+    message_assembly_world: &mut MessageAssemblyWorld,
+    key: MessageKeyParam,
+) -> TestResult {
+    message_assembly_world
+        .assert_error(MessageAssemblyErrorExpectation::DeclaredTotalExceeded { key: key.to_key() })
+}
+
+#[then("the error is declared total mismatch for key {key:MessageKeyParam}")]
+fn then_error_declared_total_mismatch(
+    message_assembly_world: &mut MessageAssemblyWorld,
+    key: MessageKeyParam,
+) -> TestResult {
+    message_assembly_world
+        .assert_error(MessageAssemblyErrorExpectation::DeclaredTotalMismatch { key: key.to_key() })
 }
 
 #[then("key {key:MessageKeyParam} was evicted")]

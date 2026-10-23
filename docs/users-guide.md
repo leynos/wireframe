@@ -1282,6 +1282,32 @@ assert!(matches!(
 ));
 ```
 
+#### Declared total body length
+
+`FirstFrameHeader::total_body_len` is an authoritative declaration, not a hint.
+When a protocol supplies it, the assembler enforces it at every boundary:
+
+- a first frame that carries more body bytes than it declares is rejected with
+  `MessageAssemblyError::DeclaredTotalTooSmall`, because its declaration can
+  never be satisfied;
+- a single-frame message whose body differs from its declaration is rejected
+  with `MessageAssemblyError::DeclaredTotalMismatch`;
+- a continuation that would push the accumulated body past the declaration is
+  rejected with `MessageAssemblyError::DeclaredTotalExceeded` before its bytes
+  are buffered; and
+- the frame that completes the message must bring the accumulated body to
+  exactly the declared total, or `MessageAssemblyError::DeclaredTotalMismatch`
+  is returned.
+
+A rejected frame also removes the partial assembly, so a mismatched message
+never remains buffered and is never dispatched. Protocols that leave
+`total_body_len` as `None` opt out of the equality requirement and keep the
+previous behaviour.
+
+The declaration is also used for the size-limit check, so an exact total is the
+cheapest way to fail early on an oversized message. The decision is recorded in
+[ADR 015](adr-015-declared-total-body-length-contract.md).
+
 ### Streaming request body consumption
 
 Handlers can opt into streaming request bodies using the `StreamingBody`

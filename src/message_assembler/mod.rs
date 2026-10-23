@@ -23,9 +23,11 @@
 mod budget;
 pub mod error;
 mod header;
+mod partial;
 pub mod series;
 pub mod state;
 pub mod types;
+mod validation;
 
 use std::io;
 

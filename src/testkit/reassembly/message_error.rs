@@ -49,6 +49,21 @@ pub enum MessageAssemblyErrorExpectation {
         /// Message key whose frame triggered the budget guard.
         key: MessageKey,
     },
+    /// Expect a declaration smaller than the first frame's own body.
+    DeclaredTotalTooSmall {
+        /// Message key whose declaration is unsatisfiable.
+        key: MessageKey,
+    },
+    /// Expect a continuation that would overshoot the declared total.
+    DeclaredTotalExceeded {
+        /// Message key whose declaration was exceeded.
+        key: MessageKey,
+    },
+    /// Expect a completed body that differs from the declared total.
+    DeclaredTotalMismatch {
+        /// Message key whose declaration was not honoured.
+        key: MessageKey,
+    },
 }
 
 /// Match a structured assembly error against the expected protocol failure.
@@ -77,6 +92,15 @@ pub(super) fn matches_message_error(
         }
         MessageAssemblyErrorExpectation::InFlightBudgetExceeded { key } => {
             matches_in_flight_budget_exceeded(err, key)
+        }
+        MessageAssemblyErrorExpectation::DeclaredTotalTooSmall { key } => {
+            matches_declared_total_too_small(err, key)
+        }
+        MessageAssemblyErrorExpectation::DeclaredTotalExceeded { key } => {
+            matches_declared_total_exceeded(err, key)
+        }
+        MessageAssemblyErrorExpectation::DeclaredTotalMismatch { key } => {
+            matches_declared_total_mismatch(err, key)
         }
     }
 }
@@ -153,6 +177,33 @@ fn matches_in_flight_budget_exceeded(err: &MessageAssemblyError, key: MessageKey
     matches!(
         err,
         MessageAssemblyError::InFlightBudgetExceeded { key: actual_key, .. }
+            if *actual_key == key
+    )
+}
+
+/// Match a first-frame declaration smaller than the frame's own body.
+fn matches_declared_total_too_small(err: &MessageAssemblyError, key: MessageKey) -> bool {
+    matches!(
+        err,
+        MessageAssemblyError::DeclaredTotalTooSmall { key: actual_key, .. }
+            if *actual_key == key
+    )
+}
+
+/// Match a continuation that would overshoot the declared total.
+fn matches_declared_total_exceeded(err: &MessageAssemblyError, key: MessageKey) -> bool {
+    matches!(
+        err,
+        MessageAssemblyError::DeclaredTotalExceeded { key: actual_key, .. }
+            if *actual_key == key
+    )
+}
+
+/// Match a completed body whose length differs from the declared total.
+fn matches_declared_total_mismatch(err: &MessageAssemblyError, key: MessageKey) -> bool {
+    matches!(
+        err,
+        MessageAssemblyError::DeclaredTotalMismatch { key: actual_key, .. }
             if *actual_key == key
     )
 }
