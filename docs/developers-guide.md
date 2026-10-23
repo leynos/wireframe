@@ -976,6 +976,19 @@ Standard debug Make targets select it explicitly: `build`, `test`, `test-bdd`,
 `dev-build` target runs the configured Cargo build directly, even when a
 library artefact already exists; `dev-test` aliases `test`.
 
+The repository also follows the Concordat `rust-dev-build-footprint` rule.
+`Cargo.toml`'s default development profile sets `incremental = false` and
+`debug = 0`, and the test profile inherits both, so builds keep no incremental
+state and no debug information and write far fewer intermediate artefacts. The
+trade-off is that a debugger sees no symbols or line tables in a default
+development build and every rebuild recompiles whole crates. To debug, run with
+`CARGO_PROFILE_DEV_DEBUG=true`; to rebuild incrementally, set
+`CARGO_INCREMENTAL=1`. `.cargo/config.toml` also sets
+`[unstable] embed-metadata = false`, the native Cargo key for nightlies from
+2026-07-31, so Cargo coordinates metadata output itself. No raw rustc metadata
+flags are used, and the pin is not moved to suit the key.
+`tests/workflow_contracts/build_standard_test.py` holds all three settings.
+
 The repository follows the estate's Rust build standard. `.cargo/config.toml`,
 which Cargo auto-discovers, enables the parallel `rustc` frontend with
 `-Zthreads=8` in both of its `rustflags` sources, and its
