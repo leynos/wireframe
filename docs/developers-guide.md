@@ -963,7 +963,7 @@ as a test assertion on the SHA string.
 
 ## Development builds
 
-The repository pins `nightly-2026-03-26` with `rustfmt`, `clippy`, and
+The repository pins `nightly-2026-10-22` with `rustfmt`, `clippy`, and
 `rust-analyzer`. The toolchain also needs `rustc-codegen-cranelift-preview` for
 the optional development backend. Native Linux development builds use `mold` as
 the linker; CI provisions the component and linker before running the standard
@@ -1025,9 +1025,10 @@ making the faster backend an explicit choice for routine debug work.
 ## Cranelift
 
 The Make test targets still select the development fragment, but the test
-profile overrides Cranelift with LLVM on the pinned `nightly-2026-03-26`
-toolchain. This exception follows reproduced test failures: with Cranelift,
-`make test` aborted in
+profile overrides Cranelift with LLVM. The failures behind this exception were
+reproduced on the previously pinned `nightly-2026-03-26` and have not been
+re-measured on `nightly-2026-10-22`. This exception follows reproduced test
+failures: with Cranelift, `make test` aborted in
 `client::pool::sync::tests::lock_or_recover_reads_poisoned_mutex` with
 `SIGABRT` and `fatal runtime error: failed to initiate panic, error 5`. The
 test passed with the LLVM test-profile override. Under Cranelift, a metrics
@@ -1041,9 +1042,9 @@ source fragment; reproduce the recorded failures and reassess the override when
 the toolchain pin changes. The failures above are the first measurement; the
 re-measurement below supersedes their details.
 
-Re-measured on 2026-09-28 on the pinned `nightly-2026-03-26`, with Cranelift
-for both the development and test profiles, as part of adopting the build
-standard. The exception stands. Three test binaries fail:
+Re-measured on 2026-09-28 on the then-pinned `nightly-2026-03-26`, with
+Cranelift for both the development and test profiles, as part of adopting the
+build standard. The exception stands. Three test binaries fail:
 
 - `wireframe` library tests abort with `SIGABRT` and
   `failed to initiate panic, error 5` at
