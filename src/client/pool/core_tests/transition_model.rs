@@ -58,6 +58,20 @@ enum Terminal {
     ShutdownCancel,
 }
 
+impl Terminal {
+    /// Report whether the scenario should return a winning permit.
+    const fn is_grant(self) -> bool { matches!(self, Self::Grant) }
+
+    /// Report whether cancellation should leave the core open.
+    const fn is_cancel(self) -> bool { matches!(self, Self::Cancel) }
+
+    /// Report whether shutdown is published before the race is dropped.
+    const fn is_shutdown(self) -> bool { matches!(self, Self::Shutdown | Self::ShutdownCancel) }
+
+    /// Report whether the shutdown race is polled after capacity is released.
+    const fn is_inflight_shutdown(self) -> bool { matches!(self, Self::Shutdown) }
+}
+
 /// One bounded readiness and terminal-action scenario.
 struct Schedule {
     /// Number of stable slots in the core.
@@ -132,12 +146,11 @@ where
     Ok(())
 }
 
-/// Publish shutdown and verify a ready in-flight race rejects its permit.
-async fn check_inflight_shutdown<F>(core: &TestCore, acquisition: Pin<&mut F>) -> Result<(), String>
+/// Verify a ready in-flight race rejects its permit after shutdown.
+async fn check_inflight_shutdown<F>(acquisition: Pin<&mut F>) -> Result<(), String>
 where
     F: Future<Output = Result<SlotPermit, ClientError>>,
 {
-    core.shutdown();
     let result = tokio::time::timeout(Duration::from_secs(1), acquisition)
         .await
         .map_err(|error| format!("ready capacity did not wake the shutdown race: {error}"))?;
@@ -156,34 +169,35 @@ async fn apply_terminal<F>(
 where
     F: Future<Output = Result<SlotPermit, ClientError>>,
 {
-    match schedule.terminal {
-        Terminal::Grant => check_grant(core, schedule, acquisition).await,
-        Terminal::Cancel => Ok(()),
-        Terminal::Shutdown => check_inflight_shutdown(core, acquisition).await,
-        Terminal::ShutdownCancel => {
-            core.shutdown();
-            Ok(())
-        }
+    if schedule.terminal.is_shutdown() {
+        core.shutdown();
     }
+    if schedule.terminal.is_grant() {
+        return check_grant(core, schedule, acquisition).await;
+    }
+    if schedule.terminal.is_inflight_shutdown() {
+        return check_inflight_shutdown(acquisition).await;
+    }
+    Ok(())
 }
 
 /// Check a later acquisition after cancellation or shutdown.
 async fn check_later_acquisition(core: &TestCore, terminal: Terminal) -> Result<(), String> {
-    match terminal {
-        Terminal::Grant => Ok(()),
-        Terminal::Cancel => {
-            let (_, permit) =
-                tokio::time::timeout(Duration::from_secs(1), core.acquire_slot_permit())
-                    .await
-                    .map_err(|error| format!("a later race remained queued: {error}"))?
-                    .map_err(|error| format!("a later race did not acquire capacity: {error}"))?;
-            drop(permit);
-            check_all_slots_available(core)
-        }
-        Terminal::Shutdown | Terminal::ShutdownCancel => match core.acquire_slot_permit().await {
-            Err(error) => check_disconnected(error),
-            Ok(_) => Err("a shut-down core granted a later permit".to_owned()),
-        },
+    if terminal.is_grant() {
+        return Ok(());
+    }
+    let result = tokio::time::timeout(Duration::from_secs(1), core.acquire_slot_permit())
+        .await
+        .map_err(|error| format!("a later race remained queued: {error}"))?;
+    if terminal.is_cancel() {
+        let (_, permit) =
+            result.map_err(|error| format!("a later race did not acquire capacity: {error}"))?;
+        drop(permit);
+        return check_all_slots_available(core);
+    }
+    match result {
+        Err(error) => check_disconnected(error),
+        Ok(_) => Err("a shut-down core granted a later permit".to_owned()),
     }
 }
 
