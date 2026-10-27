@@ -12,7 +12,11 @@ workflow.
 `None` to disable that limit, or use a non-zero value to cap partial-message
 count or aggregate buffered payload bytes.
 `FragmentationConfig::for_frame_budget` derives both limits from the frame
-budget.
+budget: at most `min(frame_budget, 64)` concurrent partial messages and
+`frame_budget` multiplied by 64 buffered payload bytes, saturating on overflow.
+These defaults also apply when `WireframeApp` enables fragmentation without a
+custom configuration. Connections that exceed either aggregate cap now close
+immediately; set the corresponding field to `None` to disable that cap.
 
 For example, add both fields to an existing literal:
 

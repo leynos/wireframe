@@ -5,7 +5,7 @@ use std::{num::NonZeroUsize, time::Duration};
 use crate::{
     app::memory_budgets::{BudgetBytes, MemoryBudgets},
     codec::clamp_frame_length,
-    fragment::{FragmentationConfig, config::DEFAULT_MAX_CONCURRENT_PARTIALS},
+    fragment::FragmentationConfig,
 };
 
 /// Smallest permitted read timeout, preventing a busy loop on zero duration.
@@ -34,17 +34,7 @@ pub(super) fn default_fragmentation(frame_budget: usize) -> Option<Fragmentation
         NonZeroUsize::new(clamped_frame_budget.saturating_mul(DEFAULT_MESSAGE_SIZE_MULTIPLIER))
             .or_else(|| NonZeroUsize::new(clamped_frame_budget));
     max_message.and_then(|limit| {
-        let mut config = FragmentationConfig::for_frame_budget(
-            clamped_frame_budget,
-            limit,
-            DEFAULT_FRAGMENT_TIMEOUT,
-        )?;
-        config.max_concurrent_partials =
-            NonZeroUsize::new(clamped_frame_budget.min(DEFAULT_MAX_CONCURRENT_PARTIALS));
-        config.max_buffered_bytes = NonZeroUsize::new(
-            clamped_frame_budget.saturating_mul(DEFAULT_CONNECTION_BUDGET_MULTIPLIER),
-        );
-        Some(config)
+        FragmentationConfig::for_frame_budget(clamped_frame_budget, limit, DEFAULT_FRAGMENT_TIMEOUT)
     })
 }
 
@@ -87,7 +77,10 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
-    use crate::codec::{MAX_FRAME_LENGTH, MIN_FRAME_LENGTH};
+    use crate::{
+        codec::{MAX_FRAME_LENGTH, MIN_FRAME_LENGTH},
+        fragment::config::DEFAULT_MAX_CONCURRENT_PARTIALS,
+    };
 
     #[rstest]
     #[case(1024)]

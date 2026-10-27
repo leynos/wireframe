@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
   `Reassembler::new` with optional partial-count and buffered-byte caps. Update
   downstream struct literals and constructor calls as described in the
   [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md).
+  Default fragmentation now closes connections exceeding either aggregate cap.
   (#543)
 
 - Breaking: `WireframeServer::new` now evaluates its `AppFactory` once per
