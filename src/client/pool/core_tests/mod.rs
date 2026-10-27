@@ -10,3 +10,4 @@ mod metric_tests;
 mod permit_race;
 mod sequence_tests;
 mod support;
+mod transition_model;

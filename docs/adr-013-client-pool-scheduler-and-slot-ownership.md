@@ -607,9 +607,10 @@ Complete or coordinate the following, plus any remaining useful scope from
   and drop behaviour a downstream Loom build cannot schedule. The Loom suites
   cover push queues and connection-gauge transitions; they do not model the
   client pool.
-- A bounded test enumerates every non-empty readiness set for pools of two,
-  three, and four slots. It checks that exactly one ready slot remains leased
-  and every losing slot returns its capacity.
+- Bounded tests enumerate every non-empty readiness set and release order for
+  pools of two, three, and four slots. They check winner and loser capacity,
+  cancellation after release, shutdown after registration, and cancellation
+  after shutdown, using Tokio's actual semaphores.
 - A panic injected into the scheduler task surfaces as `SchedulerFailed`
   with the required log event and metric, not as a silent hang or a clean
   `PoolClosed`.

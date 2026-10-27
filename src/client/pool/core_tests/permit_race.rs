@@ -7,7 +7,7 @@ use tokio::sync::OwnedSemaphorePermit;
 
 use super::support::{TestCore, four_slot_core, test_core};
 
-fn hold_all_permits(core: &TestCore) -> Vec<OwnedSemaphorePermit> {
+pub(super) fn hold_all_permits(core: &TestCore) -> Vec<OwnedSemaphorePermit> {
     core.slots
         .iter()
         .map(|slot| {
@@ -29,7 +29,7 @@ fn hold_every_permit_except(core: &TestCore, free_index: usize) -> Vec<OwnedSema
         .collect()
 }
 
-fn assert_all_slots_are_available(core: &TestCore) {
+pub(super) fn assert_all_slots_are_available(core: &TestCore) {
     let permits = hold_all_permits(core);
     drop(permits);
 }
