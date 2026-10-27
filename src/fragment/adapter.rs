@@ -75,7 +75,12 @@ impl DefaultFragmentAdapter {
     pub fn new(config: FragmentationConfig) -> Self {
         Self {
             fragmenter: Fragmenter::new(config.fragment_payload_cap),
-            reassembler: Reassembler::new(config.max_message_size, config.reassembly_timeout),
+            reassembler: Reassembler::new(
+                config.max_message_size,
+                config.reassembly_timeout,
+                config.max_concurrent_partials,
+                config.max_buffered_bytes,
+            ),
         }
     }
 

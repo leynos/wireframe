@@ -21,6 +21,9 @@ use bincode::error::DecodeError;
 use super::{FragmentHeader, FragmentSeries, FragmentStatus, MessageId, ReassemblyError};
 use crate::message::Message;
 
+mod budget;
+mod first_fragment;
+
 /// Owned state retained while a message's remaining fragments arrive.
 #[derive(Debug)]
 struct PartialMessage {
@@ -110,8 +113,8 @@ impl ReassembledMessage {
 /// Stateful fragment re-assembler with timeout-based eviction.
 #[derive(Debug)]
 pub struct Reassembler {
-    /// Hard cap protecting the process from unbounded peer-controlled growth.
-    max_message_size: NonZeroUsize,
+    /// Per-message and aggregate admission limits with retained-byte accounting.
+    budget: budget::ReassemblyBudget,
     /// Age after which an incomplete series is discarded.
     timeout: Duration,
     /// In-flight buffers keyed by logical message identity.
@@ -119,11 +122,37 @@ pub struct Reassembler {
 }
 
 impl Reassembler {
-    /// Create a new re-assembler that enforces a maximum reconstructed payload size.
+    /// Create a re-assembler with per-message and optional aggregate limits.
+    ///
+    /// Set either aggregate limit to `None` to disable that dimension.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::{num::NonZeroUsize, time::Duration};
+    ///
+    /// use wireframe::fragment::{FragmentHeader, FragmentIndex, MessageId, Reassembler};
+    /// let cap = NonZeroUsize::new(1024).expect("non-zero cap");
+    /// let mut reassembler = Reassembler::new(cap, Duration::from_secs(30), Some(cap), Some(cap));
+    /// let first = FragmentHeader::new(MessageId::new(7), FragmentIndex::zero(), false);
+    /// reassembler
+    ///     .push(first, [1_u8, 2, 3])
+    ///     .expect("first fragment should be accepted");
+    /// assert_eq!(reassembler.buffered_bytes(), 3);
+    /// ```
     #[must_use]
-    pub fn new(max_message_size: NonZeroUsize, timeout: Duration) -> Self {
+    pub fn new(
+        max_message_size: NonZeroUsize,
+        timeout: Duration,
+        max_concurrent_partials: Option<NonZeroUsize>,
+        max_buffered_bytes: Option<NonZeroUsize>,
+    ) -> Self {
         Self {
-            max_message_size,
+            budget: budget::ReassemblyBudget::new(
+                max_message_size,
+                max_concurrent_partials,
+                max_buffered_bytes,
+            ),
             timeout,
             buffers: HashMap::new(),
         }
@@ -165,13 +194,16 @@ impl Reassembler {
         self.purge_expired_at(now);
 
         let payload_bytes = payload.as_ref();
+        let buffered_partials = self.buffers.len();
+        let budget = &mut self.budget;
 
         match self.buffers.entry(header.message_id()) {
             Entry::Occupied(occupied) => {
-                Self::push_existing_fragment(self.max_message_size, occupied, header, payload_bytes)
+                Self::push_existing_fragment(budget, occupied, header, payload_bytes)
             }
-            Entry::Vacant(vacant) => Self::push_first_fragment(
-                self.max_message_size,
+            Entry::Vacant(vacant) => first_fragment::push_first_fragment(
+                budget,
+                buffered_partials,
                 vacant,
                 &FirstFragment {
                     header,
@@ -194,11 +226,13 @@ impl Reassembler {
     pub fn purge_expired_at(&mut self, now: Instant) -> Vec<MessageId> {
         let mut evicted = Vec::new();
         let timeout = self.timeout;
+        let budget = &mut self.budget;
 
         self.buffers.retain(|message_id, partial| {
             let expired = now.saturating_duration_since(partial.started_at()) >= timeout;
             if expired {
                 evicted.push(*message_id);
+                budget.release_bytes(partial.len());
             }
             !expired
         });
@@ -210,46 +244,51 @@ impl Reassembler {
     #[must_use]
     pub fn buffered_len(&self) -> usize { self.buffers.len() }
 
-    /// Reject a buffer size that would exceed the configured message cap.
-    const fn assert_within_limit(
-        limit: NonZeroUsize,
-        message_id: MessageId,
-        attempted: usize,
-    ) -> Result<(), ReassemblyError> {
-        if attempted > limit.get() {
-            return Err(ReassemblyError::MessageTooLarge {
-                message_id,
-                attempted,
-                limit,
-            });
-        }
-        Ok(())
-    }
+    /// Number of payload bytes currently retained across all partial messages.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::{num::NonZeroUsize, time::Duration};
+    ///
+    /// use wireframe::fragment::Reassembler;
+    /// let cap = NonZeroUsize::new(1024).expect("non-zero cap");
+    /// let reassembler = Reassembler::new(cap, Duration::from_secs(30), Some(cap), Some(cap));
+    /// assert_eq!(reassembler.buffered_bytes(), 0);
+    /// ```
+    #[must_use]
+    pub const fn buffered_bytes(&self) -> usize { self.budget.buffered_bytes() }
 
     /// Append an accepted payload and remove the entry when it completes.
     fn append_and_maybe_complete(
-        limit: NonZeroUsize,
+        budget: &mut budget::ReassemblyBudget,
         mut occupied: OccupiedEntry<'_, MessageId, PartialMessage>,
         payload: &[u8],
         completes: bool,
     ) -> Result<Option<ReassembledMessage>, ReassemblyError> {
         let message_id = *occupied.key();
         let Some(attempted) = occupied.get().len().checked_add(payload.len()) else {
-            occupied.remove();
+            let limit = budget.max_message_size();
+            budget.remove_partial(occupied);
             return Err(ReassemblyError::MessageTooLarge {
                 message_id,
                 attempted: usize::MAX,
                 limit,
             });
         };
-        if let Err(err) = Self::assert_within_limit(limit, message_id, attempted) {
-            occupied.remove();
+        if let Err(err) = budget.assert_within_message_limit(message_id, attempted) {
+            budget.remove_partial(occupied);
+            return Err(err);
+        }
+        if let Err(err) = budget.add_bytes(payload.len()) {
+            budget.remove_partial(occupied);
             return Err(err);
         }
 
         occupied.get_mut().push(payload);
         if completes {
-            let buffer = occupied.remove().into_buffer();
+            let partial = budget.remove_partial(occupied);
+            let buffer = partial.into_buffer();
             Ok(Some(ReassembledMessage::new(message_id, buffer)))
         } else {
             Ok(None)
@@ -258,7 +297,7 @@ impl Reassembler {
 
     /// Validate and append a fragment for an already-started series.
     fn push_existing_fragment(
-        limit: NonZeroUsize,
+        budget: &mut budget::ReassemblyBudget,
         mut occupied: OccupiedEntry<'_, MessageId, PartialMessage>,
         header: FragmentHeader,
         payload: &[u8],
@@ -271,37 +310,16 @@ impl Reassembler {
 
         match status {
             Ok(FragmentStatus::Incomplete) => {
-                Self::append_and_maybe_complete(limit, occupied, payload, false)
+                Self::append_and_maybe_complete(budget, occupied, payload, false)
             }
             Ok(FragmentStatus::Duplicate) => Ok(None),
             Ok(FragmentStatus::Complete) => {
-                Self::append_and_maybe_complete(limit, occupied, payload, true)
+                Self::append_and_maybe_complete(budget, occupied, payload, true)
             }
             Err(err) => {
-                occupied.remove();
+                budget.remove_partial(occupied);
                 Err(err)
             }
-        }
-    }
-
-    /// Validate and register the first fragment for a previously unseen id.
-    fn push_first_fragment(
-        limit: NonZeroUsize,
-        vacant: std::collections::hash_map::VacantEntry<'_, MessageId, PartialMessage>,
-        fragment: &FirstFragment<'_>,
-    ) -> Result<Option<ReassembledMessage>, ReassemblyError> {
-        let message_id = fragment.header.message_id();
-        let (series, is_complete) = FragmentSeries::start_with_first(fragment.header)?;
-        Self::assert_within_limit(limit, message_id, fragment.payload.len())?;
-
-        if is_complete {
-            Ok(Some(ReassembledMessage::new(
-                message_id,
-                fragment.payload.to_vec(),
-            )))
-        } else {
-            vacant.insert(PartialMessage::new(series, fragment.payload, fragment.now));
-            Ok(None)
         }
     }
 }

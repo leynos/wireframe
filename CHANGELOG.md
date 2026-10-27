@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Breaking:** Add aggregate limits to `FragmentationConfig` and extend
+  `Reassembler::new` with optional partial-count and buffered-byte caps. Update
+  downstream struct literals and constructor calls as described in the
+  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md).
+  (#543)
+
 - Breaking: `WireframeServer::new` now evaluates its `AppFactory` once per
   server run, prepares the result once, and shares that immutable application
   root across connections. Move per-connection state to `on_connection_setup`,

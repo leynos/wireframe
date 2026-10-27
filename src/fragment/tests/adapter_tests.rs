@@ -49,6 +49,8 @@ fn adapter_config() -> FragmentationConfig {
     FragmentationConfig {
         fragment_payload_cap: FRAGMENT_PAYLOAD_CAP,
         max_message_size: MAX_MESSAGE_SIZE,
+        max_concurrent_partials: NonZeroUsize::new(64),
+        max_buffered_bytes: NonZeroUsize::new(64),
         reassembly_timeout: Duration::from_secs(30),
     }
 }

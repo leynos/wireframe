@@ -5,6 +5,51 @@ drive accepted streams directly. It explains how to move route and middleware
 setup out of connection handling while retaining the existing server factory
 workflow.
 
+## Fragment reassembly limits
+
+`FragmentationConfig` now requires `max_concurrent_partials` and
+`max_buffered_bytes` when constructed with a struct literal. Set either field to
+`None` to disable that limit, or use a non-zero value to cap partial-message
+count or aggregate buffered payload bytes.
+`FragmentationConfig::for_frame_budget` derives both limits from the frame
+budget.
+
+For example, add both fields to an existing literal:
+
+```rust
+use std::{num::NonZeroUsize, time::Duration};
+use wireframe::fragment::FragmentationConfig;
+
+let config = FragmentationConfig {
+    fragment_payload_cap: NonZeroUsize::new(1024).expect("non-zero cap"),
+    max_message_size: NonZeroUsize::new(16 * 1024).expect("non-zero cap"),
+    max_concurrent_partials: NonZeroUsize::new(64),
+    max_buffered_bytes: NonZeroUsize::new(64 * 1024),
+    reassembly_timeout: Duration::from_secs(30),
+};
+```
+
+`Reassembler::new` also accepts the two optional limits after its existing
+message-size and timeout arguments. Pass `None, None` to preserve unbounded
+aggregate buffering, or configure caps for standalone reassemblers:
+
+```rust
+use std::{num::NonZeroUsize, time::Duration};
+use wireframe::fragment::Reassembler;
+
+let message_limit = NonZeroUsize::new(16 * 1024).expect("non-zero cap");
+let reassembler = Reassembler::new(
+    message_limit,
+    Duration::from_secs(30),
+    NonZeroUsize::new(64),
+    NonZeroUsize::new(64 * 1024),
+);
+```
+
+If either configured aggregate cap is exceeded, the connection closes
+immediately. Per-message size violations retain their existing counted
+deserialization-failure behaviour.
+
 ## Client error matching
 
 `ClientError` is now marked `#[non_exhaustive]`, and pooled acquisitions can

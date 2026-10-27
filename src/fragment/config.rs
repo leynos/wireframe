@@ -4,6 +4,11 @@ use std::{num::NonZeroUsize, time::Duration};
 
 use super::fragment_overhead;
 
+/// Default per-connection cap for concurrently retained partial messages.
+pub(crate) const DEFAULT_MAX_CONCURRENT_PARTIALS: usize = 64;
+/// Default aggregate buffered-byte multiplier applied to the frame budget.
+pub(crate) const DEFAULT_FRAGMENT_BUFFERED_BYTES_MULTIPLIER: usize = 64;
+
 /// Settings that bound fragment sizes and reassembly resource usage.
 #[derive(Clone, Copy, Debug)]
 pub struct FragmentationConfig {
@@ -14,6 +19,15 @@ pub struct FragmentationConfig {
     pub fragment_payload_cap: NonZeroUsize,
     /// Hard cap on the fully reassembled logical message size.
     pub max_message_size: NonZeroUsize,
+    /// Optional maximum number of incomplete messages retained concurrently.
+    ///
+    /// `None` leaves the number of partial messages unbounded.
+    pub max_concurrent_partials: Option<NonZeroUsize>,
+    /// Optional maximum number of payload bytes retained across all partial
+    /// messages on one connection.
+    ///
+    /// `None` leaves the aggregate buffered-byte total unbounded.
+    pub max_buffered_bytes: Option<NonZeroUsize>,
     /// Duration after which incomplete reassembly buffers are evicted.
     pub reassembly_timeout: Duration,
 }
@@ -28,7 +42,8 @@ impl FragmentationConfig {
     /// `frame_budget` should reflect the largest payload the transport layer
     /// will accept (for example, a length-delimited codec's `max_frame_length`).
     /// The returned configuration ensures fragment encoding overhead fits
-    /// within that budget.
+    /// within that budget, limits concurrent partials to at most 64, and caps
+    /// aggregate retained payload bytes at 64 times the frame budget.
     ///
     /// Returns `None` when the budget cannot accommodate the fixed overhead.
     #[must_use]
@@ -48,6 +63,12 @@ impl FragmentationConfig {
         Some(Self {
             fragment_payload_cap: NonZeroUsize::new(available)?,
             max_message_size,
+            max_concurrent_partials: NonZeroUsize::new(
+                frame_budget.min(DEFAULT_MAX_CONCURRENT_PARTIALS),
+            ),
+            max_buffered_bytes: NonZeroUsize::new(
+                frame_budget.saturating_mul(DEFAULT_FRAGMENT_BUFFERED_BYTES_MULTIPLIER),
+            ),
             reassembly_timeout,
         })
     }

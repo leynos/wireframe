@@ -54,7 +54,12 @@ pub async fn read_framed_response(
     cfg: &FragmentationConfig,
 ) -> TestResult<FramedResponse> {
     let serializer = BincodeSerializer;
-    let mut reassembler = Reassembler::new(cfg.max_message_size, cfg.reassembly_timeout);
+    let mut reassembler = Reassembler::new(
+        cfg.max_message_size,
+        cfg.reassembly_timeout,
+        cfg.max_concurrent_partials,
+        cfg.max_buffered_bytes,
+    );
     let mut frame_count = 0usize;
 
     while let Some(frame) = client.next().await {

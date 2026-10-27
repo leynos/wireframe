@@ -5,7 +5,7 @@ use std::{num::NonZeroUsize, time::Duration};
 use crate::{
     app::memory_budgets::{BudgetBytes, MemoryBudgets},
     codec::clamp_frame_length,
-    fragment::FragmentationConfig,
+    fragment::{FragmentationConfig, config::DEFAULT_MAX_CONCURRENT_PARTIALS},
 };
 
 /// Smallest permitted read timeout, preventing a busy loop on zero duration.
@@ -34,7 +34,17 @@ pub(super) fn default_fragmentation(frame_budget: usize) -> Option<Fragmentation
         NonZeroUsize::new(clamped_frame_budget.saturating_mul(DEFAULT_MESSAGE_SIZE_MULTIPLIER))
             .or_else(|| NonZeroUsize::new(clamped_frame_budget));
     max_message.and_then(|limit| {
-        FragmentationConfig::for_frame_budget(clamped_frame_budget, limit, DEFAULT_FRAGMENT_TIMEOUT)
+        let mut config = FragmentationConfig::for_frame_budget(
+            clamped_frame_budget,
+            limit,
+            DEFAULT_FRAGMENT_TIMEOUT,
+        )?;
+        config.max_concurrent_partials =
+            NonZeroUsize::new(clamped_frame_budget.min(DEFAULT_MAX_CONCURRENT_PARTIALS));
+        config.max_buffered_bytes = NonZeroUsize::new(
+            clamped_frame_budget.saturating_mul(DEFAULT_CONNECTION_BUDGET_MULTIPLIER),
+        );
+        Some(config)
     })
 }
 
@@ -141,6 +151,23 @@ mod tests {
             expected,
             budgets.bytes_per_message().as_usize(),
             "per-message budget does not match fragmentation multiplier"
+        );
+    }
+
+    #[rstest]
+    #[case(1024)]
+    #[case(4096)]
+    fn default_fragmentation_derives_aggregate_caps(#[case] frame_budget: usize) {
+        let config =
+            default_fragmentation(frame_budget).expect("frame budget should support fragmentation");
+
+        assert_eq!(
+            config.max_concurrent_partials,
+            NonZeroUsize::new(DEFAULT_MAX_CONCURRENT_PARTIALS),
+        );
+        assert_eq!(
+            config.max_buffered_bytes,
+            NonZeroUsize::new(frame_budget * DEFAULT_CONNECTION_BUDGET_MULTIPLIER),
         );
     }
 }

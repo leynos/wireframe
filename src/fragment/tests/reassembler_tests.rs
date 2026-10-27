@@ -34,6 +34,8 @@ fn reassembler_with_first_fragment(
     let mut reassembler = Reassembler::new(
         NonZeroUsize::new(8).ok_or("reassembly capacity must be non-zero")?,
         Duration::from_secs(30),
+        None,
+        None,
     );
     let first = FragmentHeader::new(MessageId::new(message_id), FragmentIndex::zero(), false);
     if reassembler.push(first, first_payload)?.is_some() {
@@ -45,7 +47,7 @@ fn reassembler_with_first_fragment(
 #[test]
 fn reassembler_allows_single_fragment_at_max_message_size() {
     let max_message_size = NonZeroUsize::new(16).expect("non-zero");
-    let mut reassembler = Reassembler::new(max_message_size, Duration::from_secs(5));
+    let mut reassembler = Reassembler::new(max_message_size, Duration::from_secs(5), None, None);
 
     let header = FragmentHeader::new(MessageId::new(20), FragmentIndex::zero(), true);
     let payload = vec![0_u8; max_message_size.get()];
@@ -57,12 +59,13 @@ fn reassembler_allows_single_fragment_at_max_message_size() {
     let assembled = result.expect("single fragment should complete reassembly");
     assert_eq!(assembled.payload().len(), max_message_size.get());
     assert_eq!(reassembler.buffered_len(), 0);
+    assert_eq!(reassembler.buffered_bytes(), 0);
 }
 
 #[test]
 fn reassembler_allows_multi_fragment_at_max_message_size() {
     let max_message_size = NonZeroUsize::new(16).expect("non-zero");
-    let mut reassembler = Reassembler::new(max_message_size, Duration::from_secs(5));
+    let mut reassembler = Reassembler::new(max_message_size, Duration::from_secs(5), None, None);
 
     let first_header = FragmentHeader::new(MessageId::new(21), FragmentIndex::zero(), false);
     let second_header = FragmentHeader::new(MessageId::new(21), FragmentIndex::new(1), true);
@@ -85,6 +88,7 @@ fn reassembler_allows_multi_fragment_at_max_message_size() {
     let assembled = result.expect("fragments should complete reassembly at exact limit");
     assert_eq!(assembled.payload().len(), max_message_size.get());
     assert_eq!(reassembler.buffered_len(), 0);
+    assert_eq!(reassembler.buffered_bytes(), 0);
 }
 
 #[test]
@@ -92,6 +96,8 @@ fn reassembler_returns_single_fragment_immediately() {
     let mut reassembler = Reassembler::new(
         NonZeroUsize::new(16).expect("non-zero"),
         Duration::from_secs(5),
+        None,
+        None,
     );
     let header = FragmentHeader::new(MessageId::new(1), FragmentIndex::zero(), true);
     let payload = vec![1_u8, 2, 3, 4];
@@ -104,6 +110,7 @@ fn reassembler_returns_single_fragment_immediately() {
     assert_eq!(complete.message_id(), MessageId::new(1));
     assert_eq!(complete.payload(), payload.as_slice());
     assert_eq!(reassembler.buffered_len(), 0);
+    assert_eq!(reassembler.buffered_bytes(), 0);
 }
 
 #[rstest]
@@ -113,6 +120,8 @@ fn reassembler_rejects_nonzero_first_index(#[case] is_last: bool) {
     let mut reassembler = Reassembler::new(
         NonZeroUsize::new(16).expect("non-zero"),
         Duration::from_secs(5),
+        None,
+        None,
     );
     let header = FragmentHeader::new(MessageId::new(22), FragmentIndex::new(1), is_last);
 
@@ -145,6 +154,7 @@ fn reassembler_accumulates_ordered_fragments(
 
     assert_eq!(complete.payload(), &[5, 6, 7, 8, 9]);
     assert_eq!(reassembler.buffered_len(), 0);
+    assert_eq!(reassembler.buffered_bytes(), 0);
 }
 
 #[rstest]
@@ -164,6 +174,7 @@ fn reassembler_rejects_out_of_order_and_drops_partial(
         ReassemblyError::Fragment(FragmentError::IndexMismatch { .. })
     ));
     assert_eq!(reassembler.buffered_len(), 0);
+    assert_eq!(reassembler.buffered_bytes(), 0);
 }
 
 #[rstest]
@@ -183,6 +194,7 @@ fn reassembler_suppresses_duplicate_fragment(
             .is_none()
     );
     assert_eq!(reassembler.buffered_len(), 1);
+    assert_eq!(reassembler.buffered_bytes(), 2);
 
     let complete = reassembler
         .push(final_fragment, [3_u8])
@@ -196,6 +208,8 @@ fn reassembler_accepts_zero_length_fragments() {
     let mut reassembler = Reassembler::new(
         NonZeroUsize::new(8).expect("non-zero"),
         Duration::from_secs(10),
+        None,
+        None,
     );
     let first = FragmentHeader::new(MessageId::new(44), FragmentIndex::zero(), false);
     let second = FragmentHeader::new(MessageId::new(44), FragmentIndex::new(1), true);
@@ -212,6 +226,7 @@ fn reassembler_accepts_zero_length_fragments() {
         .expect("final fragment should complete message")
         .expect("message should be complete");
     assert_eq!(complete.payload(), &[7, 8]);
+    assert_eq!(reassembler.buffered_bytes(), 0);
 }
 
 #[test]
@@ -219,6 +234,8 @@ fn reassembler_enforces_maximum_payload_size() {
     let mut reassembler = Reassembler::new(
         NonZeroUsize::new(4).expect("non-zero"),
         Duration::from_secs(30),
+        None,
+        None,
     );
     let first = FragmentHeader::new(MessageId::new(4), FragmentIndex::zero(), false);
     let final_fragment = FragmentHeader::new(MessageId::new(4), FragmentIndex::new(1), true);
@@ -242,6 +259,7 @@ fn reassembler_enforces_maximum_payload_size() {
         }
     );
     assert_eq!(reassembler.buffered_len(), 0);
+    assert_eq!(reassembler.buffered_bytes(), 0);
 }
 
 #[test]
@@ -249,6 +267,8 @@ fn reassembler_purges_expired_messages() {
     let mut reassembler = Reassembler::new(
         NonZeroUsize::new(8).expect("non-zero"),
         Duration::from_secs(2),
+        None,
+        None,
     );
     let now = Instant::now();
     let header = FragmentHeader::new(MessageId::new(5), FragmentIndex::zero(), false);
@@ -260,10 +280,12 @@ fn reassembler_purges_expired_messages() {
             .is_none()
     );
     assert_eq!(reassembler.buffered_len(), 1);
+    assert_eq!(reassembler.buffered_bytes(), 2);
 
     let evicted = reassembler.purge_expired_at(now + Duration::from_secs(3));
     assert_eq!(evicted, vec![MessageId::new(5)]);
     assert_eq!(reassembler.buffered_len(), 0);
+    assert_eq!(reassembler.buffered_bytes(), 0);
 }
 
 #[derive(Clone, Debug, Encode, BorrowDecode, PartialEq, Eq)]
@@ -278,6 +300,8 @@ fn reassembler_decodes_reconstructed_message() {
     let mut reassembler = Reassembler::new(
         NonZeroUsize::new(4).expect("non-zero"),
         Duration::from_secs(10),
+        None,
+        None,
     );
 
     let mut output: Option<ReassembledMessage> = None;
@@ -291,4 +315,5 @@ fn reassembler_decodes_reconstructed_message() {
     let assembled = output.expect("message should complete");
     let decoded: ExampleMessage = assembled.decode().expect("decode message");
     assert_eq!(decoded, ExampleMessage(11));
+    assert_eq!(reassembler.buffered_bytes(), 0);
 }

@@ -39,7 +39,12 @@ impl FragmentWorld {
         timeout_secs: u64,
     ) -> TestResult {
         let size = NonZeroUsize::new(max_message_size).ok_or("reassembly cap must be non-zero")?;
-        self.reassembler = Some(Reassembler::new(size, Duration::from_secs(timeout_secs)));
+        self.reassembler = Some(Reassembler::new(
+            size,
+            Duration::from_secs(timeout_secs),
+            None,
+            None,
+        ));
         self.last_reassembled = None;
         self.last_reassembly_error = None;
         self.last_evicted.clear();
