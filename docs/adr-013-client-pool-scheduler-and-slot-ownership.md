@@ -570,7 +570,9 @@ both immediate and asynchronous selection.
 
 Blocked races record their starts, terminal outcomes, and durations. A guard
 records cancellation when the scheduler drops an unfinished acquisition; the
-immediate probe does not create a blocked-race observation.
+immediate probe does not create a blocked-race observation. The guard borrows a
+monotonic clock: production uses `Instant`, and recorder-backed tests inject a
+deterministic clock to verify the duration value.
 
 ### Phase 5: integrate existing safety work
 

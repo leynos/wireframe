@@ -78,6 +78,10 @@ pub const POOL_PERMIT_RACES: &str = "wireframe_pool_permit_races_total";
 /// Duration of blocked permit races in seconds, labelled by terminal outcome.
 pub const POOL_PERMIT_RACE_DURATION: &str = "wireframe_pool_permit_race_duration_seconds";
 
+/// Production clock used to measure blocked races.
+#[cfg(all(feature = "metrics", feature = "pool", not(loom)))]
+static POOL_PERMIT_RACE_CLOCK: fn() -> Instant = Instant::now;
+
 /// Records cancellation when a blocked race is dropped before completion.
 #[cfg(all(feature = "pool", not(loom)))]
 pub(crate) struct PoolPermitRaceGuard<'a> {
@@ -86,6 +90,9 @@ pub(crate) struct PoolPermitRaceGuard<'a> {
     /// Measure the time spent waiting after the probe found no capacity.
     #[cfg(feature = "metrics")]
     started: Instant,
+    /// Monotonic time source, borrowed for the duration of the race.
+    #[cfg(feature = "metrics")]
+    clock: &'a (dyn Fn() -> Instant + Send + Sync),
     /// Prevent the drop handler from reporting a completed race twice.
     #[cfg(feature = "metrics")]
     finished: bool,
@@ -96,12 +103,26 @@ impl<'a> PoolPermitRaceGuard<'a> {
     /// Start observing a race only after every immediate probe fails.
     pub(crate) fn start(shutdown: &'a AtomicBool) -> Self {
         #[cfg(feature = "metrics")]
+        {
+            Self::start_with_clock(shutdown, &POOL_PERMIT_RACE_CLOCK)
+        }
+        #[cfg(not(feature = "metrics"))]
+        {
+            Self { shutdown }
+        }
+    }
+
+    /// Begin a blocked race using a supplied monotonic clock.
+    #[cfg(feature = "metrics")]
+    fn start_with_clock(
+        shutdown: &'a AtomicBool,
+        clock: &'a (dyn Fn() -> Instant + Send + Sync),
+    ) -> Self {
         counter!(POOL_PERMIT_RACES, "outcome" => "started").increment(1);
         Self {
             shutdown,
-            #[cfg(feature = "metrics")]
-            started: Instant::now(),
-            #[cfg(feature = "metrics")]
+            started: clock(),
+            clock,
             finished: false,
         }
     }
@@ -121,8 +142,11 @@ impl<'a> PoolPermitRaceGuard<'a> {
     #[cfg(feature = "metrics")]
     fn record(&self, outcome: &'static str) {
         counter!(POOL_PERMIT_RACES, "outcome" => outcome).increment(1);
-        histogram!(POOL_PERMIT_RACE_DURATION, "outcome" => outcome)
-            .record(self.started.elapsed().as_secs_f64());
+        histogram!(POOL_PERMIT_RACE_DURATION, "outcome" => outcome).record(
+            (self.clock)()
+                .saturating_duration_since(self.started)
+                .as_secs_f64(),
+        );
     }
 }
 
@@ -152,7 +176,9 @@ impl Drop for PoolPermitRaceGuard<'_> {
 pub(crate) enum PoolAcquisitionMode {
     /// The synchronous fast path tries each slot once without waiting.
     Immediate,
-    /// The asynchronous path races one permit future per slot.
+    /// The asynchronous path probes rotated slots, then races borrowed permit
+    /// futures only when all slots are blocked. [`POOL_PERMIT_RACES`] counts
+    /// the blocked races separately.
     PermitRace,
 }
 
@@ -221,14 +247,21 @@ pub(crate) fn inc_pool_acquisition(_mode: PoolAcquisitionMode, _outcome: PoolAcq
 mod tests {
     //! Tests for bounded client-pool discard and acquisition labels.
 
+    use std::{
+        sync::atomic::{AtomicBool, AtomicU64, Ordering},
+        time::{Duration, Instant},
+    };
+
     use metrics_util::debugging::{DebugValue, DebuggingRecorder};
     use rstest::rstest;
 
     use super::{
         POOL_ACQUISITIONS,
         POOL_CONNECTION_DISCARDS,
+        POOL_PERMIT_RACE_DURATION,
         PoolAcquisitionMode,
         PoolAcquisitionOutcome,
+        PoolPermitRaceGuard,
         inc_pool_acquisition,
         inc_pool_incomplete_operation_discard,
         inc_pool_pending_response_discard,
@@ -303,6 +336,45 @@ mod tests {
         assert!(
             found,
             "acquisition metric for {mode:?}/{outcome:?} was not recorded"
+        );
+    }
+
+    #[rstest]
+    #[case::granted(Some(PoolAcquisitionOutcome::Granted), "granted")]
+    #[case::cancelled(None, "cancelled")]
+    fn blocked_race_records_duration_from_injected_clock(
+        #[case] outcome: Option<PoolAcquisitionOutcome>,
+        #[case] expected_label: &str,
+    ) {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let shutdown = AtomicBool::new(false);
+        let elapsed = AtomicU64::new(0);
+        let origin = Instant::now();
+        let clock = || origin + Duration::from_secs(elapsed.load(Ordering::Relaxed));
+
+        ::metrics::with_local_recorder(&recorder, || {
+            let guard = PoolPermitRaceGuard::start_with_clock(&shutdown, &clock);
+            elapsed.store(7, Ordering::Relaxed);
+            if let Some(outcome) = outcome {
+                guard.finish(outcome);
+            } else {
+                drop(guard);
+            }
+        });
+
+        let found = snapshotter.snapshot().into_vec().iter().any(|(key, _, _, value)| {
+            key.key().name() == POOL_PERMIT_RACE_DURATION
+                && key.key().labels().any(|label| {
+                    label.key() == "outcome" && label.value() == expected_label
+                })
+                && matches!(value, DebugValue::Histogram(samples)
+                    if samples.len() == 1
+                        && samples.first().is_some_and(|sample| sample.0.to_bits() == 7.0_f64.to_bits()))
+        });
+        assert!(
+            found,
+            "the histogram must record the injected seven-second duration"
         );
     }
 }

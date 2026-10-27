@@ -677,8 +677,8 @@ future.
 
 The contended distribution records successful bursts only; `outcomes` reports
 successful bursts out of 20. Each distribution cell gives median, p90, and
-maximum in microseconds so the spread remains visible even when failures remove
-bursts from the sample.
+maximum in microseconds, so the spread remains visible even when failures
+remove bursts from the sample.
 
 | Slots | Contenders | Before outcomes | Before median / p90 / max (µs) | After outcomes | After median / p90 / max (µs) |
 | ----- | ---------- | --------------- | ------------------------------ | -------------- | ----------------------------- |
