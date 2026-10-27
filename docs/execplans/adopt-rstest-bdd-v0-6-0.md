@@ -5,7 +5,8 @@ This ExecPlan is a living document. Keep `Constraints`, `Tolerances`, `Risks`,
 `Outcomes & retrospective`, `Conformance basis`, and `Verification plan`
 current throughout the migration.
 
-Status: IMPLEMENTATION AND VALIDATION COMPLETE. Draft PR delivery is pending.
+Status: COMPLETE. Draft PR [#811](https://github.com/leynos/wireframe/pull/811)
+is open for review.
 
 ## Purpose / big picture
 
@@ -307,7 +308,13 @@ byte intact. Wireframe's previous adapted guide is preserved separately at
 - [x] (2026-10-27) Locked inverse Cargo trees confirm the runtime and macros
   are root development dependencies and the v0.6.0 base harness is a transitive
   dependency of the macros. Both imported guide hashes still match.
-- [ ] Commit the reviewed migration, push the branch, and create a draft PR.
+- [x] (2026-10-27) Committed the reviewed migration as `80b316d6`, pushed the
+  requested branch, and opened draft PR
+  [#811](https://github.com/leynos/wireframe/pull/811). The branch tracks
+  `origin/adopt-rstest-bdd-v0-6-0`.
+- [x] (2026-10-27) The optional CodeGraph branch-context query returned
+  `Too many open files`; the independent source review and required gates
+  completed separately.
 
 ## Imported-document provenance
 
@@ -419,4 +426,4 @@ plus any unavailable check and every residual failure.
 ## Outcomes & retrospective
 
 Implementation and validation are complete. The two new regression scenarios
-account for the BDD inventory increase. Draft pull-request delivery remains.
+account for the BDD inventory increase. Draft PR #811 is open for review.
