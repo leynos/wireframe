@@ -1,14 +1,17 @@
 //! Bounded release, cancellation, and shutdown schedules for blocked races.
 
-use std::{io::ErrorKind, time::Duration};
+use std::{future::Future, io::ErrorKind, pin::Pin, task::Poll, time::Duration};
 
 use rstest::rstest;
 
 use super::{
-    permit_race::{assert_all_slots_are_available, hold_all_permits},
-    support::test_core,
+    permit_race::hold_all_permits,
+    support::{TestCore, test_core},
 };
-use crate::{WireframeError, client::ClientError};
+use crate::{
+    WireframeError,
+    client::{ClientError, pool::core::SlotPermit},
+};
 
 /// Enumerate each ordering of a ready subset without relying on poll order.
 fn release_orders(remaining: &[usize], prefix: &mut Vec<usize>, result: &mut Vec<Vec<usize>>) {
@@ -28,6 +31,20 @@ fn release_orders(remaining: &[usize], prefix: &mut Vec<usize>, result: &mut Vec
     }
 }
 
+/// Enumerate every non-empty ready set and each release order for that set.
+fn readiness_orders(slot_count: usize) -> Vec<(usize, Vec<usize>)> {
+    let mut schedules = Vec::new();
+    for ready in 1..(1_usize << slot_count) {
+        let slots = (0..slot_count)
+            .filter(|index| ready & (1 << *index) != 0)
+            .collect::<Vec<_>>();
+        let mut orders = Vec::new();
+        release_orders(&slots, &mut Vec::new(), &mut orders);
+        schedules.extend(orders.into_iter().map(|order| (ready, order)));
+    }
+    schedules
+}
+
 /// Terminal action after a set of slots has become ready.
 #[derive(Clone, Copy, Debug)]
 enum Terminal {
@@ -39,6 +56,157 @@ enum Terminal {
     Shutdown,
     /// Publish shutdown, then drop the still-pending acquisition.
     ShutdownCancel,
+}
+
+/// One bounded readiness and terminal-action scenario.
+struct Schedule {
+    /// Number of stable slots in the core.
+    slot_count: usize,
+    /// Bit set of slots released after registration.
+    ready: usize,
+    /// Order in which the selected slot permits are released.
+    order: Vec<usize>,
+    /// Action taken after the selected slots are ready.
+    terminal: Terminal,
+}
+
+/// Recognize the typed disconnected error used by pool shutdown.
+fn check_disconnected(error: ClientError) -> Result<(), String> {
+    match error {
+        ClientError::Wireframe(WireframeError::Io(source))
+            if source.kind() == ErrorKind::UnexpectedEof =>
+        {
+            Ok(())
+        }
+        other => Err(format!("expected disconnected error, got {other}")),
+    }
+}
+
+/// Check every raw slot can grant a permit at the same time.
+fn check_all_slots_available(core: &TestCore) -> Result<(), String> {
+    let permits = core
+        .slots
+        .iter()
+        .map(|slot| {
+            slot.try_acquire_permit()
+                .ok_or_else(|| "a slot lost capacity".to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    drop(permits);
+    Ok(())
+}
+
+/// Verify the winner is ready and no losing future retains released capacity.
+async fn check_grant<F>(
+    core: &TestCore,
+    schedule: &Schedule,
+    acquisition: Pin<&mut F>,
+) -> Result<(), String>
+where
+    F: Future<Output = Result<SlotPermit, ClientError>>,
+{
+    let (winner, permit) = tokio::time::timeout(Duration::from_secs(1), acquisition)
+        .await
+        .map_err(|error| format!("released capacity did not wake the race: {error}"))?
+        .map_err(|error| format!("a ready slot did not grant a permit: {error}"))?;
+    if schedule.ready & (1 << winner) == 0 {
+        return Err(format!(
+            "winner {winner} was not ready for {:?}",
+            schedule.order
+        ));
+    }
+    for index in 0..schedule.slot_count {
+        let available = core
+            .slot(index)
+            .ok_or("slot index must exist")?
+            .try_acquire_permit();
+        let expected = index != winner && schedule.ready & (1 << index) != 0;
+        if available.is_some() != expected {
+            return Err(format!(
+                "unexpected capacity for {:?}, order {:?}",
+                schedule.terminal, schedule.order
+            ));
+        }
+    }
+    drop(permit);
+    Ok(())
+}
+
+/// Publish shutdown and verify a ready in-flight race rejects its permit.
+async fn check_inflight_shutdown<F>(core: &TestCore, acquisition: Pin<&mut F>) -> Result<(), String>
+where
+    F: Future<Output = Result<SlotPermit, ClientError>>,
+{
+    core.shutdown();
+    let result = tokio::time::timeout(Duration::from_secs(1), acquisition)
+        .await
+        .map_err(|error| format!("ready capacity did not wake the shutdown race: {error}"))?;
+    match result {
+        Err(error) => check_disconnected(error),
+        Ok(_) => Err("shutdown granted a permit".to_owned()),
+    }
+}
+
+/// Apply the terminal action while the pinned acquisition remains in scope.
+async fn apply_terminal<F>(
+    core: &TestCore,
+    schedule: &Schedule,
+    acquisition: Pin<&mut F>,
+) -> Result<(), String>
+where
+    F: Future<Output = Result<SlotPermit, ClientError>>,
+{
+    match schedule.terminal {
+        Terminal::Grant => check_grant(core, schedule, acquisition).await,
+        Terminal::Cancel => Ok(()),
+        Terminal::Shutdown => check_inflight_shutdown(core, acquisition).await,
+        Terminal::ShutdownCancel => {
+            core.shutdown();
+            Ok(())
+        }
+    }
+}
+
+/// Check a later acquisition after cancellation or shutdown.
+async fn check_later_acquisition(core: &TestCore, terminal: Terminal) -> Result<(), String> {
+    match terminal {
+        Terminal::Grant => Ok(()),
+        Terminal::Cancel => {
+            let (_, permit) =
+                tokio::time::timeout(Duration::from_secs(1), core.acquire_slot_permit())
+                    .await
+                    .map_err(|error| format!("a later race remained queued: {error}"))?
+                    .map_err(|error| format!("a later race did not acquire capacity: {error}"))?;
+            drop(permit);
+            check_all_slots_available(core)
+        }
+        Terminal::Shutdown | Terminal::ShutdownCancel => match core.acquire_slot_permit().await {
+            Err(error) => check_disconnected(error),
+            Ok(_) => Err("a shut-down core granted a later permit".to_owned()),
+        },
+    }
+}
+
+/// Register one race, release its selected slots, and check the terminal state.
+async fn run_schedule(schedule: &Schedule) -> Result<(), String> {
+    let core = test_core(schedule.slot_count);
+    let mut held = hold_all_permits(&core)
+        .into_iter()
+        .map(Some)
+        .collect::<Vec<_>>();
+    {
+        let mut acquisition = std::pin::pin!(core.acquire_slot_permit());
+        if !matches!(futures::poll!(acquisition.as_mut()), Poll::Pending) {
+            return Err("a saturated race must register and remain pending".to_owned());
+        }
+        for index in &schedule.order {
+            drop(held.get_mut(*index).ok_or("slot index must exist")?.take());
+        }
+        apply_terminal(&core, schedule, acquisition.as_mut()).await?;
+    }
+    drop(held);
+    check_all_slots_available(&core)?;
+    check_later_acquisition(&core, schedule.terminal).await
 }
 
 /// Exercise all non-empty readiness subsets and their release permutations.
@@ -60,84 +228,15 @@ async fn blocked_race_transition_schedules_preserve_capacity(
     #[case] slot_count: usize,
     #[case] terminal: Terminal,
 ) {
-    for ready in 1..(1_usize << slot_count) {
-        let slots = (0..slot_count)
-            .filter(|index| ready & (1 << *index) != 0)
-            .collect::<Vec<_>>();
-        let mut orders = Vec::new();
-        release_orders(&slots, &mut Vec::new(), &mut orders);
-        for order in orders {
-            let core = test_core(slot_count);
-            let mut held = hold_all_permits(&core)
-                .into_iter()
-                .map(Some)
-                .collect::<Vec<_>>();
-            {
-                let mut acquisition = std::pin::pin!(core.acquire_slot_permit());
-                assert!(futures::poll!(acquisition.as_mut()).is_pending());
-                for index in &order {
-                    drop(held.get_mut(*index).expect("slot index must exist").take());
-                }
-                match terminal {
-                    Terminal::Grant => {
-                        let (winner, permit) =
-                            tokio::time::timeout(Duration::from_secs(1), acquisition.as_mut())
-                                .await
-                                .expect("released capacity must wake the race")
-                                .expect("a ready slot must grant a permit");
-                        assert_ne!(ready & (1 << winner), 0);
-                        for index in 0..slot_count {
-                            let available = core
-                                .slot(index)
-                                .expect("slot index must exist")
-                                .try_acquire_permit();
-                            assert_eq!(
-                                available.is_some(),
-                                index != winner && ready & (1 << index) != 0,
-                                "unexpected capacity for {terminal:?}, order {order:?}"
-                            );
-                        }
-                        drop(permit);
-                    }
-                    Terminal::Cancel => {}
-                    Terminal::ShutdownCancel => core.shutdown(),
-                    Terminal::Shutdown => {
-                        core.shutdown();
-                        let error =
-                            tokio::time::timeout(Duration::from_secs(1), acquisition.as_mut())
-                                .await
-                                .expect("ready capacity must wake the shutdown race")
-                                .expect_err("shutdown must reject the permit");
-                        assert!(matches!(
-                            error,
-                            ClientError::Wireframe(WireframeError::Io(ref source))
-                                if source.kind() == ErrorKind::UnexpectedEof
-                        ));
-                    }
-                }
-            }
-            drop(held);
-            assert_all_slots_are_available(&core);
-            if matches!(terminal, Terminal::Cancel) {
-                let (_, permit) =
-                    tokio::time::timeout(Duration::from_secs(1), core.acquire_slot_permit())
-                        .await
-                        .expect("a later race must not remain queued")
-                        .expect("a later race must acquire capacity");
-                drop(permit);
-                assert_all_slots_are_available(&core);
-            }
-            if matches!(terminal, Terminal::Shutdown | Terminal::ShutdownCancel) {
-                let error = core
-                    .acquire_slot_permit()
-                    .await
-                    .expect_err("a shut-down core must reject later acquisitions");
-                assert!(matches!(
-                    error,
-                    ClientError::Wireframe(WireframeError::Io(ref source))
-                        if source.kind() == ErrorKind::UnexpectedEof
-                ));
-            }
-        }
+    for (ready, order) in readiness_orders(slot_count) {
+        let schedule = Schedule {
+            slot_count,
+            ready,
+            order,
+            terminal,
+        };
+        run_schedule(&schedule)
+            .await
+            .expect("the bounded race schedule must preserve capacity");
     }
 }
