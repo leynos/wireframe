@@ -149,21 +149,43 @@ fn write_bytes_with_endianness(
 ///
 /// A prefix only carries the low `size` bytes of the network-order encoding, so
 /// a value wider than the prefix would otherwise be silently truncated.
-fn ensure_fits_prefix(value: u64, size: usize) -> io::Result<()> {
-    let is_representable = match size {
+///
+/// # Examples
+///
+/// ```text
+/// value_fits_prefix(255, 1) -> true
+/// value_fits_prefix(256, 1) -> false
+/// ```
+fn value_fits_prefix(value: u64, size: usize) -> bool {
+    match size {
         1 => u8::try_from(value).is_ok(),
         2 => u16::try_from(value).is_ok(),
         4 => u32::try_from(value).is_ok(),
         8 => true,
-        _ => {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                ERR_UNSUPPORTED_PREFIX,
-            ));
-        }
-    };
+        _ => false,
+    }
+}
 
-    if is_representable {
+/// Validates the prefix width and whether `value` fits within that width.
+///
+/// # Errors
+///
+/// Returns [`io::ErrorKind::InvalidInput`] when the width is unsupported or
+/// the value cannot be represented by the selected width.
+///
+/// # Examples
+///
+/// ```text
+/// ensure_fits_prefix(255, 1) -> Ok(())
+/// ensure_fits_prefix(256, 1) -> Err(InvalidInput)
+/// ```
+fn ensure_fits_prefix(value: u64, size: usize) -> io::Result<()> {
+    if !matches!(size, 1 | 2 | 4 | 8) {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            ERR_UNSUPPORTED_PREFIX,
+        ))
+    } else if value_fits_prefix(value, size) {
         Ok(())
     } else {
         Err(io::Error::new(
