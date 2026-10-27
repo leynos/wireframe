@@ -5,6 +5,7 @@ use crate::runtime_ownership_benchmarks::client_pool_benchmark_support::{
     PoolMeasurement,
     PoolWorkload,
     contended_fifo_pool_workloads,
+    measure_contended_latency,
     measure_pool_acquisition,
 };
 
@@ -112,6 +113,36 @@ async fn contended_mode_needs_more_contenders_than_slots() {
 #[case::four_slots_round_robin(4, 16, AcquisitionMode::ContendedRoundRobin)]
 #[tokio::test]
 async fn contended_acquisition_observes_capacity_waits(
+    #[case] pool_size: usize,
+    #[case] contenders: usize,
+    #[case] mode: AcquisitionMode,
+) {
+    let workload = PoolWorkload {
+        pool_size,
+        mode,
+        acquisitions: 8,
+        contenders,
+    };
+    let latency = measure_contended_latency(workload, 1)
+        .await
+        .expect("the sampling harness must finish");
+    let churn = latency.churn();
+
+    assert!(
+        churn.capacity_waits >= u64::try_from(contenders).unwrap_or(u64::MAX),
+        "a burst that empties a {pool_size}-slot pool and holds it empty must park every one of \
+         {contenders} contenders, but {} waits were recorded",
+        churn.capacity_waits
+    );
+}
+
+/// A successful contended burst must also deliver leases and exercise the scheduler.
+#[rstest::rstest]
+#[case::one_slot_fifo(1, 16, AcquisitionMode::ContendedFifo)]
+#[case::four_slots_fifo(4, 16, AcquisitionMode::ContendedFifo)]
+#[case::four_slots_round_robin(4, 16, AcquisitionMode::ContendedRoundRobin)]
+#[tokio::test]
+async fn contended_acquisition_grants_leases(
     #[case] pool_size: usize,
     #[case] contenders: usize,
     #[case] mode: AcquisitionMode,

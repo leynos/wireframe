@@ -2,8 +2,15 @@
 
 // The import is used only by the real (non-loom) increment functions; a
 // `loom` build compiles the tracing-only test matrix and would see it unused.
+#[cfg(all(feature = "pool", not(loom)))]
+use std::sync::atomic::AtomicBool;
 #[cfg(all(feature = "metrics", feature = "pool", not(loom)))]
-use metrics::counter;
+use std::sync::atomic::Ordering;
+#[cfg(all(feature = "metrics", feature = "pool", not(loom)))]
+use std::time::Instant;
+
+#[cfg(all(feature = "metrics", feature = "pool", not(loom)))]
+use metrics::{counter, histogram};
 
 /// Name of the counter tracking pooled sockets discarded before safe reuse.
 ///
@@ -63,6 +70,78 @@ pub(crate) fn inc_pool_pending_response_discard() {}
 /// wireframe_pool_acquisitions_total{mode="permit_race",outcome="error"} 1
 /// ```
 pub const POOL_ACQUISITIONS: &str = "wireframe_pool_acquisitions_total";
+
+/// Counter of blocked permit races, labelled by `started`, `granted`,
+/// `shutdown`, `error`, or `cancelled` outcome.
+pub const POOL_PERMIT_RACES: &str = "wireframe_pool_permit_races_total";
+
+/// Duration of blocked permit races in seconds, labelled by terminal outcome.
+pub const POOL_PERMIT_RACE_DURATION: &str = "wireframe_pool_permit_race_duration_seconds";
+
+/// Records cancellation when a blocked race is dropped before completion.
+#[cfg(all(feature = "pool", not(loom)))]
+pub(crate) struct PoolPermitRaceGuard<'a> {
+    /// Classify a dropped race as shutdown when pool closure caused it.
+    shutdown: &'a AtomicBool,
+    /// Measure the time spent waiting after the probe found no capacity.
+    #[cfg(feature = "metrics")]
+    started: Instant,
+    /// Prevent the drop handler from reporting a completed race twice.
+    #[cfg(feature = "metrics")]
+    finished: bool,
+}
+
+#[cfg(all(feature = "pool", not(loom)))]
+impl<'a> PoolPermitRaceGuard<'a> {
+    /// Start observing a race only after every immediate probe fails.
+    pub(crate) fn start(shutdown: &'a AtomicBool) -> Self {
+        #[cfg(feature = "metrics")]
+        counter!(POOL_PERMIT_RACES, "outcome" => "started").increment(1);
+        Self {
+            shutdown,
+            #[cfg(feature = "metrics")]
+            started: Instant::now(),
+            #[cfg(feature = "metrics")]
+            finished: false,
+        }
+    }
+
+    /// Record a completed race after its shutdown recheck.
+    #[cfg(feature = "metrics")]
+    pub(crate) fn finish(mut self, outcome: PoolAcquisitionOutcome) {
+        self.record(outcome.as_str());
+        self.finished = true;
+    }
+
+    /// Finish the no-op observer when metrics are disabled.
+    #[cfg(not(feature = "metrics"))]
+    pub(crate) fn finish(self, _outcome: PoolAcquisitionOutcome) {}
+
+    /// Record one terminal outcome and its elapsed wait.
+    #[cfg(feature = "metrics")]
+    fn record(&self, outcome: &'static str) {
+        counter!(POOL_PERMIT_RACES, "outcome" => outcome).increment(1);
+        histogram!(POOL_PERMIT_RACE_DURATION, "outcome" => outcome)
+            .record(self.started.elapsed().as_secs_f64());
+    }
+}
+
+#[cfg(all(feature = "pool", not(loom)))]
+impl Drop for PoolPermitRaceGuard<'_> {
+    fn drop(&mut self) {
+        #[cfg(feature = "metrics")]
+        if !self.finished {
+            let outcome = if self.shutdown.load(Ordering::Acquire) {
+                "shutdown"
+            } else {
+                "cancelled"
+            };
+            self.record(outcome);
+        }
+        #[cfg(not(feature = "metrics"))]
+        let _ = self.shutdown;
+    }
+}
 
 /// Bounded acquisition paths that decide how a pooled slot is selected.
 ///

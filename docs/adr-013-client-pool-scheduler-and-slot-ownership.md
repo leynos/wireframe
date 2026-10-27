@@ -557,12 +557,20 @@ one `FuturesUnordered` task node per slot. The serial service worker permits at
 most one active race per pool scheduler, and the scheduler keeps its existing
 fairness policy.
 
+The service worker retains its `Arc<PoolCore>` across `tokio::select!`, so the
+acquisition can borrow the core while shutdown and closed-sender branches
+remain active. This avoids a per-race or per-slot core clone.
+
 The race reuses main's `rotation_start` and `rotation_indices` helpers from
 [#536](https://github.com/leynos/wireframe/issues/536). The iterator exposes
 `Clone` so the probe and blocked race share one rotated order after exactly one
 cursor advance, without materializing an index collection. The bounded
 acquisition metric wrappers introduced alongside those helpers remain around
 both immediate and asynchronous selection.
+
+Blocked races record their starts, terminal outcomes, and durations. A guard
+records cancellation when the scheduler drops an unfinished acquisition; the
+immediate probe does not create a blocked-race observation.
 
 ### Phase 5: integrate existing safety work
 
@@ -599,6 +607,9 @@ Complete or coordinate the following, plus any remaining useful scope from
   and drop behaviour a downstream Loom build cannot schedule. The Loom suites
   cover push queues and connection-gauge transitions; they do not model the
   client pool.
+- A bounded test enumerates every non-empty readiness set for pools of two,
+  three, and four slots. It checks that exactly one ready slot remains leased
+  and every losing slot returns its capacity.
 - A panic injected into the scheduler task surfaces as `SchedulerFailed`
   with the required log event and metric, not as a silent hang or a clean
   `PoolClosed`.

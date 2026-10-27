@@ -11,7 +11,7 @@ use tokio::sync::{Notify, OwnedSemaphorePermit};
 use super::slot::PoolSlot;
 use crate::{
     client::ClientError,
-    metrics::{PoolAcquisitionMode, PoolAcquisitionOutcome},
+    metrics::{PoolAcquisitionMode, PoolAcquisitionOutcome, PoolPermitRaceGuard},
     serializer::Serializer,
 };
 
@@ -139,7 +139,8 @@ where
     /// semaphore. The serial service worker runs at most one race at a time for
     /// the pool scheduler.
     pub(crate) async fn acquire_slot_permit(&self) -> Result<SlotPermit, ClientError> {
-        let result = self.acquire_slot_permit_inner().await;
+        let mut race = None;
+        let result = self.acquire_slot_permit_inner(&mut race).await;
         let outcome = match &result {
             Ok(_) => PoolAcquisitionOutcome::Granted,
             Err(_) if self.is_shutdown() || self.slots.is_empty() => {
@@ -148,11 +149,17 @@ where
             Err(_) => PoolAcquisitionOutcome::Error,
         };
         crate::metrics::inc_pool_acquisition(PoolAcquisitionMode::PermitRace, outcome);
+        if let Some(race) = race {
+            race.finish(outcome);
+        }
         result
     }
 
     /// Try rotated slots before registering blocked semaphore waiters.
-    async fn acquire_slot_permit_inner(&self) -> Result<SlotPermit, ClientError> {
+    async fn acquire_slot_permit_inner<'a>(
+        &'a self,
+        race: &mut Option<PoolPermitRaceGuard<'a>>,
+    ) -> Result<SlotPermit, ClientError> {
         if self.is_shutdown() || self.slots.is_empty() {
             return Err(ClientError::disconnected());
         }
@@ -167,6 +174,7 @@ where
         let (slot_index, permit) = if let Some(selected) = selected {
             selected
         } else {
+            *race = Some(PoolPermitRaceGuard::start(&self.shutdown));
             self.acquire_from_blocked_slots(ordered_indices).await?
         };
 

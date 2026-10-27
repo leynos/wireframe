@@ -268,3 +268,47 @@ async fn cancelling_a_blocked_race_leaves_every_slot_usable() {
     assert!(slot_index < core.slots.len());
     drop(permit);
 }
+
+/// Exhaust all non-empty readiness sets for small blocked races.
+#[rstest]
+#[case::two_slots(2)]
+#[case::three_slots(3)]
+#[case::four_slots(4)]
+#[tokio::test(flavor = "current_thread")]
+async fn blocked_race_preserves_capacity_for_every_ready_set(#[case] slot_count: usize) {
+    for ready in 1..(1_usize << slot_count) {
+        let core = test_core(slot_count);
+        let mut held = hold_all_permits(&core)
+            .into_iter()
+            .map(Some)
+            .collect::<Vec<_>>();
+        let mut acquisition = std::pin::pin!(core.acquire_slot_permit());
+        assert!(futures::poll!(acquisition.as_mut()).is_pending());
+
+        for (index, permit) in held.iter_mut().enumerate() {
+            if ready & (1 << index) != 0 {
+                drop(permit.take());
+            }
+        }
+        let (winner, permit) = tokio::time::timeout(Duration::from_secs(1), acquisition)
+            .await
+            .expect("a ready slot must wake the race")
+            .expect("a ready slot must grant a permit");
+        assert_ne!(ready & (1 << winner), 0);
+
+        for index in 0..slot_count {
+            let available = core
+                .slot(index)
+                .expect("the model slot should exist")
+                .try_acquire_permit();
+            assert_eq!(
+                available.is_some(),
+                index != winner && ready & (1 << index) != 0,
+                "unexpected capacity for slot {index}, ready set {ready:#b}"
+            );
+        }
+        drop(permit);
+        drop(held);
+        assert_all_slots_are_available(&core);
+    }
+}
