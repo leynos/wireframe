@@ -24,6 +24,7 @@ use wireframe::{
         MessageKey,
         ParsedFrameHeader,
     },
+    middleware::{FrameContainer, FromFn, Next, Service, ServiceRequest, ServiceResponse},
     request::RequestParts,
 };
 
@@ -81,8 +82,32 @@ const ASSEMBLED_MESSAGE: AssembledMessage = AssembledMessage::new(
 
 const REQUEST_PARTS: RequestParts = RequestParts::new(3, Some(9), Vec::new());
 
+const FRAME_VALUE: u8 = {
+    let mut container = FrameContainer::new(1u8);
+    *container.frame_mut() = 2;
+    *container.frame()
+};
+
+fn callback() {}
+const MIDDLEWARE: FromFn<fn()> = FromFn::new(callback);
+
+const fn continuation(
+    service: &dyn Service<Error = std::convert::Infallible>,
+) -> Next<'_, dyn Service<Error = std::convert::Infallible> + '_> {
+    Next::new(service)
+}
+
+const fn request_correlation(request: &mut ServiceRequest) -> Option<u64> {
+    request.set_correlation_id(Some(9)).correlation_id()
+}
+
+const fn response_correlation(response: &mut ServiceResponse) -> Option<u64> {
+    response.set_correlation_id(Some(9)).correlation_id()
+}
+
 const _: () = assert!(matches!(RECOVERY_POLICY, RecoveryPolicy::Disconnect));
 const _: () = assert!(IS_CLEAN_CLOSE);
+const _: () = assert!(FRAME_VALUE == 2);
 const _: &str = ERROR_CATEGORY;
 
 const fn metadata_mut(parts: &mut RequestParts) -> &mut Vec<u8> { parts.metadata_mut() }
@@ -97,5 +122,9 @@ fn main() {
         ASSEMBLED_MESSAGE,
         REQUEST_PARTS,
         metadata_mut,
+        MIDDLEWARE,
+        continuation,
+        request_correlation,
+        response_correlation,
     );
 }
