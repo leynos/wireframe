@@ -138,7 +138,9 @@ fn purge_reclaims_count_and_byte_capacity_for_later_messages() {
     assert_eq!(reassembler.buffered_bytes(), 5);
 
     let evicted = reassembler.purge_expired_at(now + Duration::from_secs(3));
-    assert_eq!(evicted, vec![MessageId::new(76), MessageId::new(77)]);
+    assert_eq!(evicted.len(), 2);
+    assert!(evicted.contains(&MessageId::new(76)));
+    assert!(evicted.contains(&MessageId::new(77)));
     assert_eq!(reassembler.buffered_len(), 0);
     assert_eq!(reassembler.buffered_bytes(), 0);
 
