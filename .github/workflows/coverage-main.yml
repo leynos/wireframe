@@ -33,7 +33,7 @@ jobs:
     # here and a constant guard reads as a decision nobody made.
     #
     # Four vCPU, and not measured at two: this lane runs the same runtime
-    # coverage as `ci.yml`; compile-time UI checks run in its separate job.
+    # coverage as `ci.yml`; compile-time UI checks run in a separate CI step.
     # This lane's own 240 s sample was taken on Namespace's shared profile,
     # which is four vCPU and
     # 16 GB, and it has not been sampled on two. It runs on merge pushes

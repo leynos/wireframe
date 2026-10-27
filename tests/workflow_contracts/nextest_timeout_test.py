@@ -140,37 +140,70 @@ def test_only_the_aggregate_compile_test_gets_the_extended_budget() -> None:
     assert 60 * override["slow-timeout"]["terminate-after"] < 10 * 60
 
 
-def assert_ui_job_is_mandatory(job: dict[str, typ.Any]) -> None:
-    """Require the UI job to run the target after Rust and linker setup."""
-    assert "if" not in job, "UI job must run for every CI event"
-    assert not job.get("continue-on-error"), "UI job must fail CI on errors"
+def assert_ui_step_is_mandatory(job: dict[str, typ.Any]) -> None:
+    """Require bounded UI tests after Rust and linker setup in the required job."""
+    assert "if" not in job, "build-test must run for every CI event"
+    assert not job.get("continue-on-error"), "build-test must propagate failures"
+    assert "needs" not in job, "build-test must run without a skipped prerequisite"
+    assert job.get("timeout-minutes") == 60, "build-test needs the reviewed budget"
     steps = job["steps"]
-    ui_steps = [step for step in steps if step.get("run") == "make test-ui"]
-    assert len(ui_steps) == 1, "UI job must run make test-ui exactly once"
+    ui_steps = [step for step in steps if step.get("name") == "Validate compile-time APIs"]
+    assert len(ui_steps) == 1, "build-test must contain exactly one UI step"
     ui = ui_steps[0]
+    assert ui.get("run") == "make test-ui", "UI step must run the complete target"
+    assert ui.get("timeout-minutes") == 30, "UI step must have a finite budget"
     assert "if" not in ui and not ui.get("continue-on-error"), (
         "UI step must run and propagate failures"
     )
+    assert_ui_setup_precedes(steps, ui)
+    assert_no_coverage_flags(job, ui)
+
+
+def assert_ui_setup_precedes(steps: list[dict[str, typ.Any]], ui: dict[str, typ.Any]) -> None:
+    """Require Rust and linker setup before the non-instrumented UI step."""
     setup = [
         step for step in steps
         if str(step.get("uses", "")).startswith(
             "leynos/shared-actions/.github/actions/setup-rust@"
         )
     ]
-    assert len(setup) == 1, "UI job must set up Rust"
-    assert "if" not in setup[0] and not setup[0].get("continue-on-error")
-    assert str(setup[0].get("with", {}).get("install-mold")).lower() == "true"
-    assert steps.index(setup[0]) < steps.index(ui), "setup must precede UI tests"
-    for scope in (job, ui, setup[0]):
+    assert len(setup) == 1, "build-test must set up Rust"
+    assert "if" not in setup[0] and not setup[0].get("continue-on-error"), (
+        "Rust setup must run and propagate failures"
+    )
+    linker = [
+        step for step in steps
+        if step.get("name") == "Install development backend and linker"
+    ]
+    assert len(linker) == 1, "build-test must install the Linux linker"
+    assert "if" not in linker[0] and not linker[0].get("continue-on-error"), (
+        "linker setup must run and propagate failures"
+    )
+    assert steps.index(setup[0]) < steps.index(linker[0]) < steps.index(ui), (
+        "Rust and linker setup must precede UI tests"
+    )
+    assert_no_coverage_flags(setup[0], linker[0])
+
+
+def assert_no_coverage_flags(*scopes: dict[str, typ.Any]) -> None:
+    """Keep coverage instrumentation out of the UI job and its setup."""
+    for scope in scopes:
         env = scope.get("env") or {}
         flags = " ".join(str(env.get(key, "")) for key in (
             "RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS"
         ))
-        assert "coverage" not in flags, "UI job must not enable coverage"
+        assert "coverage" not in flags, "UI step must not enable coverage"
 
 
-def test_ui_job_runs_without_suppression_for_all_ci_events() -> None:
-    """CI retains a separate mandatory, non-instrumented UI gate."""
+def assert_ui_permissions(job: dict[str, typ.Any]) -> None:
+    """Restrict the required UI job to read-only repository contents."""
+    assert job.get("permissions") == {"contents": "read"}, (
+        "build-test must declare exactly contents: read permissions"
+    )
+
+
+def test_ui_step_runs_without_suppression_for_all_ci_events() -> None:
+    """The required CI job runs a bounded non-instrumented UI gate."""
     workflow = typ.cast(dict[str, typ.Any], workflows()["ci.yml"])
     events = workflow.get(True, workflow.get("on"))
     assert "pull_request" in events and "push" in events
@@ -178,58 +211,40 @@ def test_ui_job_runs_without_suppression_for_all_ci_events() -> None:
     assert "coverage" not in str(workflow_flags.get("RUSTFLAGS", ""))
     assert "coverage" not in str(workflow_flags.get("CARGO_ENCODED_RUSTFLAGS", ""))
     assert "main" in events["push"]["branches"]
-    assert_ui_job_is_mandatory(workflow["jobs"]["ui-test"])
+    assert_ui_step_is_mandatory(workflow["jobs"]["build-test"])
+    assert_ui_permissions(workflow["jobs"]["build-test"])
 
 
-def assert_ui_blocks_required_status(job: dict[str, typ.Any]) -> None:
-    """The required build status depends on successful UI validation."""
-    needs = job.get("needs", [])
-    if isinstance(needs, str):
-        needs = [needs]
-    assert "ui-test" in needs, "build-test must depend on ui-test"
-    assert "if" not in job, "build-test must not bypass failed dependencies"
+@pytest.mark.parametrize("permissions", [None, {"contents": "write"}, {"contents": "read", "actions": "read"}])
+def test_ui_permissions_reject_missing_or_broader_access(permissions: object) -> None:
+    """The required UI gate must not omit or broaden its token permissions."""
+    with pytest.raises(AssertionError, match="contents: read"):
+        assert_ui_permissions({"permissions": permissions})
 
 
-def test_ui_failure_blocks_required_build_status() -> None:
-    """A failed UI job prevents the required build status succeeding."""
-    workflow = typ.cast(dict[str, typ.Any], workflows()["ci.yml"])
-    assert_ui_blocks_required_status(workflow["jobs"]["build-test"])
-
-
-@pytest.mark.parametrize("mutation", ["missing_dependency", "always_run"])
-def test_required_build_status_cannot_bypass_ui_failure(mutation: str) -> None:
-    """Missing needs or an unconditional job expression must be rejected."""
+@pytest.mark.parametrize(
+    "mutation", ["conditional", "suppressed", "missing", "wrong_order", "no_timeout"]
+)
+def test_ui_step_contract_rejects_missing_or_ineffective_gate(mutation: str) -> None:
+    """Reject skipped, suppressed, missing, unbounded or prematurely run UI tests."""
     from copy import deepcopy
 
     workflow = typ.cast(dict[str, typ.Any], workflows()["ci.yml"])
     job = deepcopy(workflow["jobs"]["build-test"])
-    if mutation == "missing_dependency":
-        job.pop("needs")
-    else:
-        job["if"] = "always()"
-    with pytest.raises(AssertionError):
-        assert_ui_blocks_required_status(job)
-
-
-@pytest.mark.parametrize("mutation", ["conditional", "suppressed", "missing", "late_setup"])
-def test_ui_job_contract_rejects_missing_or_ineffective_gate(mutation: str) -> None:
-    """The gate contract detects realistic ways UI validation could be skipped."""
-    from copy import deepcopy
-
-    workflow = typ.cast(dict[str, typ.Any], workflows()["ci.yml"])
-    job = deepcopy(workflow["jobs"]["ui-test"])
-    ui = next(step for step in job["steps"] if step.get("run") == "make test-ui")
+    ui = next(step for step in job["steps"] if step.get("name") == "Validate compile-time APIs")
     if mutation == "conditional":
-        job["if"] = "false"
+        ui["if"] = "false"
     elif mutation == "suppressed":
         ui["continue-on-error"] = True
     elif mutation == "missing":
         job["steps"].remove(ui)
+    elif mutation == "no_timeout":
+        ui.pop("timeout-minutes")
     else:
         job["steps"].remove(ui)
         job["steps"].insert(0, ui)
     with pytest.raises(AssertionError):
-        assert_ui_job_is_mandatory(job)
+        assert_ui_step_is_mandatory(job)
 
 
 UI_HARNESSES = frozenset({

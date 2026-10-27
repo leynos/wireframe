@@ -52,10 +52,9 @@ DEPENDABOT_GUARD: typ.Final = (
 #: The exact guard the fallback keys on: a fork or a Dependabot pull request.
 HOSTED_GUARD: typ.Final = f"({FORK_GUARD} || {DEPENDABOT_GUARD})"
 
-#: Both pull-request jobs require the same fallback for forks and Dependabot.
+#: The pull-request job needs a fallback for forks and Dependabot.
 FORK_FALLBACK_JOBS: typ.Final = frozenset({
     ("ci.yml", "build-test"),
-    ("ci.yml", "ui-test"),
 })
 
 #: Every job this repository places, with its reviewed label. A literal label
@@ -64,7 +63,6 @@ FORK_FALLBACK_JOBS: typ.Final = frozenset({
 #: ``test_the_reviewed_tables_are_total`` holds it to the reviewed fallback jobs.
 EXPECTED_PLACEMENT: typ.Final = {
     ("ci.yml", "build-test"): None,
-    ("ci.yml", "ui-test"): None,
     ("coverage-main.yml", "coverage-upload"): UBICLOUD_LABEL,
     ("advanced-tests.yml", "advanced"): GITHUB_HOSTED_LABEL,
     ("delayed-pr-comment.yml", "delay_and_comment"): GITHUB_HOSTED_LABEL,
@@ -73,17 +71,16 @@ EXPECTED_PLACEMENT: typ.Final = {
 #: Ceilings, pinned by value rather than bounded, because a ceiling can drift
 #: to a number nobody chose while every inequality still holds.
 #:
-#: ``build-test`` at 30 and ``coverage-upload`` at 20 are measured, from 556 s
-#: of work on four-vCPU runners (750 s on two vCPU, still inside 30 minutes)
-#: and 240 s on four-vCPU runners. ``advanced`` at 60 and
+#: ``build-test`` at 60 includes a bounded cold UI suite and coverage; the
+#: previous CI run reached 28 minutes. ``coverage-upload``
+#: at 20 was measured at 240 s on four-vCPU runners. ``advanced`` at 60 and
 #: ``refresh-sha`` at 10 are judgements and are recorded as such in the
 #: developers' guide: ``advanced`` has failed every scheduled run since at
 #: least 2026-09-09 and its last green run was 2025-10-04 at 32 s, which a
 #: Loom suite has long since outgrown, and ``refresh-sha`` has never run at
 #: all.
 EXPECTED_CEILING_MINUTES: typ.Final = {
-    ("ci.yml", "build-test"): 30,
-    ("ci.yml", "ui-test"): 30,
+    ("ci.yml", "build-test"): 60,
     ("coverage-main.yml", "coverage-upload"): 20,
     ("advanced-tests.yml", "advanced"): 60,
 }

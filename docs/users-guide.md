@@ -1568,6 +1568,30 @@ worker tasks.[^20][^37][^38] `ServerError` surfaces bind, factory-build, and
 application-preparation failures as typed errors so callers can react
 appropriately.[^21]
 
+## Metrics
+
+Wireframe's default `metrics` feature emits instrumentation through the
+`metrics` facade but does not install a global recorder. The Prometheus
+exporter is a development dependency of Wireframe, so applications that want
+Prometheus metrics must add `metrics-exporter-prometheus` as a direct
+dependency and install its recorder once during startup, before Wireframe
+begins emitting metrics:
+
+```rust,no_run
+use metrics_exporter_prometheus::PrometheusBuilder;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let prometheus = PrometheusBuilder::new().install_recorder()?;
+
+    // Start the application after installing the recorder.
+    let _scrape_output = prometheus.render();
+    Ok(())
+}
+```
+
+Keep the returned handle where the application can expose or render the
+Prometheus output. Applications choose how to serve or otherwise collect it.
+
 ## Client runtime
 
 `WireframeClient` provides a first-class client runtime that mirrors the

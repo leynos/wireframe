@@ -11,16 +11,18 @@ than all four repository-owned lanes sharing one profile.
 
 | Workflow                 | Job                 | Trigger            | Runner                | Ceiling |
 | ------------------------ | ------------------- | ------------------ | --------------------- | ------- |
-| `ci.yml`                 | `build-test`        | pull request, push | `ubicloud-standard-2` | 30 min  |
-| `ci.yml`                 | `ui-test`           | pull request, push | `ubicloud-standard-2` | 30 min  |
+| `ci.yml`                 | `build-test`        | pull request, push | `ubicloud-standard-2` | 60 min  |
 | `coverage-main.yml`      | `coverage-upload`   | push               | `ubicloud-standard-4` | 20 min  |
 | `advanced-tests.yml`     | `advanced`          | schedule           | `ubuntu-latest`       | 60 min  |
 | `delayed-pr-comment.yml` | `delay_and_comment` | dispatch           | `ubuntu-latest`       | none    |
 
 *Table 1: Where each repository-owned lane runs, and its ceiling.*
 
-`build-test` depends on `ui-test`, so UI failures block the existing required
-`build-test` status.
+The required `build-test` job includes an unconditional, bounded 30-minute
+`make test-ui` step after Rust and linker setup and before runtime coverage.
+This keeps compile-time API validation within the existing required status,
+without a job-level condition that could leave branch protection without a
+failure result.
 
 Pull-request, push and tag lanes move to Ubicloud, because those are the ones a
 developer waits on: `build-test` waited 461 seconds for a GitHub-hosted runner
@@ -92,11 +94,12 @@ far inside the 7.9 GiB that shape has.
 
 The coverage action supplies a 180-second per-test deadline and a ten-minute
 whole-run ceiling. `tests/compile_error.rs` runs trybuild fixtures inside one
-test, including nested Cargo builds, so it is not useful runtime coverage and
-can exceed that per-test deadline on a cold two-vCPU runner. The `ui-test` job
-runs `make test-ui` separately for pull requests and pushes to `main`, with a
-30-minute job ceiling. This keeps the compile-time API fixtures covered without
-making the instrumented runtime-coverage run compile them.
+test, including nested Cargo builds, which do not measure runtime behaviour and
+can exceed that per-test deadline on a cold two-vCPU runner. An unconditional
+`make test-ui` step runs in `build-test` for pull requests and pushes to
+`main`, before runtime coverage, with a separate 30-minute step ceiling. This
+keeps the compile-time API fixtures covered without making the instrumented
+runtime- coverage run compile them.
 
 The compile-time harnesses are excluded only when `cfg(coverage)` is active;
 the fixtures remain in `tests/ui/`, and `make test-ui` runs both the root and
@@ -121,12 +124,15 @@ default is the expensive failure mode. A ceiling close to the measured work is
 the other one, because it cancels the run at the moment an overrun becomes
 interesting and discards the log that would explain it.
 
-Two ceilings are measured: `build-test` at 556 seconds on four vCPU (750
-seconds on two, still well inside 30 minutes) and `coverage-upload` at 240
-seconds on four vCPU. Two are judgements, and the guide says so rather than
-implying otherwise. `advanced` has failed every night since at least 2026-09-09
-and its last green run was 2025-10-04 at 32 seconds, so 60 minutes is generous
-enough not to mask the repair when it lands.
+The historical `build-test` sample was 556 seconds on four vCPU and 750 seconds
+on two; the `coverage-upload` sample was 240 seconds on four vCPU. The 60-minute
+`build-test` job ceiling is a judgement, not a measured limit: it allows the
+existing lane and its new bounded UI step to finish, including cold compiler
+work. The UI step's 30-minute ceiling is also a judgement. The four-vCPU
+`coverage-upload` lane remains capped at 20 minutes. `advanced` has failed
+every night since at least 2026-09-09 and its last green run was 2025-10-04 at
+32 seconds, so 60 minutes is generous enough not to mask the repair when it
+lands.
 
 `delay_and_comment` declares no ceiling, deliberately. Its entire duration is a
 `sleep` of the caller's `delay_minutes` input, so any fixed ceiling cancels a
