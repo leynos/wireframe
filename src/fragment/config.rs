@@ -43,7 +43,8 @@ impl FragmentationConfig {
     /// will accept (for example, a length-delimited codec's `max_frame_length`).
     /// The returned configuration ensures fragment encoding overhead fits
     /// within that budget, limits concurrent partials to at most 64, and caps
-    /// aggregate retained payload bytes at 64 times the frame budget.
+    /// aggregate retained payload bytes at the larger of 64 times the frame
+    /// budget and `max_message_size`.
     ///
     /// Returns `None` when the budget cannot accommodate the fixed overhead.
     #[must_use]
@@ -67,7 +68,9 @@ impl FragmentationConfig {
                 frame_budget.min(DEFAULT_MAX_CONCURRENT_PARTIALS),
             ),
             max_buffered_bytes: NonZeroUsize::new(
-                frame_budget.saturating_mul(DEFAULT_FRAGMENT_BUFFERED_BYTES_MULTIPLIER),
+                frame_budget
+                    .saturating_mul(DEFAULT_FRAGMENT_BUFFERED_BYTES_MULTIPLIER)
+                    .max(max_message_size.get()),
             ),
             reassembly_timeout,
         })
@@ -77,5 +80,29 @@ impl FragmentationConfig {
     #[must_use]
     pub fn encoded_fragment_ceiling(&self) -> usize {
         self.fragment_payload_cap.get() + fragment_overhead().get()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Verify the limits derived from frame and message budgets.
+
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    #[case(16 * 1024, 64 * 1024)]
+    #[case(128 * 1024, 128 * 1024)]
+    fn aggregate_byte_limit_covers_message_limit(
+        #[case] message_limit: usize,
+        #[case] expected: usize,
+    ) {
+        let message_limit = NonZeroUsize::new(message_limit).expect("non-zero message limit");
+        let config =
+            FragmentationConfig::for_frame_budget(1024, message_limit, Duration::from_secs(30))
+                .expect("frame budget supports fragmentation");
+
+        assert_eq!(config.max_buffered_bytes, NonZeroUsize::new(expected));
     }
 }

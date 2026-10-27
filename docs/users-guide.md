@@ -1490,8 +1490,8 @@ reassembled payload, `reassembly_timeout` evicts stale partial messages,
 `max_concurrent_partials` limits incomplete messages per connection, and
 `max_buffered_bytes` caps their aggregate payload bytes. The aggregate caps
 close the connection immediately when exceeded. `for_frame_budget` derives both
-aggregate limits from the frame budget. Customize or disable fragmentation via
-the builder:
+aggregate limits from the frame budget, with the byte cap at least as large as
+`max_message_size`. Customize or disable fragmentation via the builder:
 
 ```rust
 use std::{num::NonZeroUsize, time::Duration};
