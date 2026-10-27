@@ -237,6 +237,13 @@ fn workspace_validation_targets_retain_required_cargo_scope() -> TestResult {
     let lint_recipe = makefile
         .target_recipe("lint")
         .ok_or_else(|| "expected `lint` target in Makefile".to_owned())?;
+    let lint_clippy_recipe = makefile
+        .target_recipe("lint-clippy")
+        .ok_or_else(|| "expected `lint-clippy` target in Makefile".to_owned())?;
+    let lint_whitaker_recipe = makefile
+        .target_recipe("lint-whitaker")
+        .ok_or_else(|| "expected `lint-whitaker` target in Makefile".to_owned())?;
+    let lint_gate_recipe = format!("{lint_recipe}\n{lint_clippy_recipe}");
 
     for (target, recipe) in [
         ("test", &test_recipe),
@@ -261,12 +268,16 @@ fn workspace_validation_targets_retain_required_cargo_scope() -> TestResult {
         "`typecheck` should retain all-target and all-feature coverage",
     )?;
     ensure(
-        lint_recipe.contains("doc --workspace --no-deps"),
-        "`lint` should retain workspace rustdoc coverage",
+        lint_gate_recipe.contains("doc --workspace --no-deps"),
+        "the lint gate should retain workspace rustdoc coverage",
     )?;
     ensure(
-        lint_recipe.contains("clippy $(CLIPPY_FLAGS)"),
-        "`lint` should invoke the configured Clippy policy",
+        lint_gate_recipe.contains("clippy $(CLIPPY_FLAGS)"),
+        "the lint gate should invoke the configured Clippy policy",
+    )?;
+    ensure(
+        lint_whitaker_recipe.contains("--all --workspace"),
+        "`lint-whitaker` should dylint-check every workspace member",
     )?;
     ensure(
         makefile_str
