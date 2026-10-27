@@ -122,4 +122,5 @@ step bindings with `rstest-bdd` scenarios and fixtures.
 - Continue running both suites until the missing capabilities land or a
   suitable alternative is agreed, then resume the migration work.
 
-[^rstest-bdd-guide]: See [rstest-bdd user's guide](rstest-bdd-users-guide.md).
+[^rstest-bdd-guide]: See the preserved
+                     [Wireframe rstest-bdd guide](wireframe-rstest-bdd-users-guide.md).

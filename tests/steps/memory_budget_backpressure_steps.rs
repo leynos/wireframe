@@ -25,6 +25,20 @@ fn when_first_frame_arrives(
     memory_budget_backpressure_world.send_first_frame(key, &body)
 }
 
+#[when("the budgeted server processes the first frame")]
+fn when_server_processes_first_frame(
+    memory_budget_backpressure_world: &mut MemoryBudgetBackpressureWorld,
+) -> TestResult {
+    memory_budget_backpressure_world.wait_for_frame_processed()
+}
+
+#[when("the budgeted server parses the next frame")]
+fn when_server_parses_next_frame(
+    memory_budget_backpressure_world: &mut MemoryBudgetBackpressureWorld,
+) -> TestResult {
+    memory_budget_backpressure_world.wait_for_frame_processed()
+}
+
 #[when(
     "a budgeted final continuation frame for key {key:u64} sequence {sequence:u32} with body \
      {body:string} arrives"

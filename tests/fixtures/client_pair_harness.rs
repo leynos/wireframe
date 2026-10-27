@@ -45,7 +45,9 @@ impl std::fmt::Debug for ClientPairHarnessWorld {
 #[fixture]
 pub fn client_pair_harness_world() -> TestResult<ClientPairHarnessWorld> {
     Ok(ClientPairHarnessWorld {
-        runtime: tokio::runtime::Runtime::new()?,
+        runtime: tokio::runtime::Runtime::new().map_err(|error| {
+            format!("client pair harness fixture setup failed: {error}")
+        })?,
         counter: Arc::new(AtomicUsize::new(0)),
         pair: None,
         response: None,

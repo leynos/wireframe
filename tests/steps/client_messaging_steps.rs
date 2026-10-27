@@ -6,8 +6,8 @@ use crate::fixtures::client_messaging::{ClientMessagingWorld, TestResult};
 
 #[given("an envelope echo server")]
 fn given_echo_server(client_messaging_world: &mut ClientMessagingWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
+    let runtime = client_messaging_world.handle();
+    runtime.block_on(async {
         client_messaging_world.start_echo_server().await?;
         client_messaging_world.connect_client().await
     })
@@ -38,8 +38,8 @@ fn given_envelope_with_payload(
 #[given("a server that returns mismatched correlation IDs")]
 fn given_mismatch_server(client_messaging_world: &mut ClientMessagingWorld) -> TestResult {
     client_messaging_world.abort_server();
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(async {
+    let runtime = client_messaging_world.handle();
+    runtime.block_on(async {
         client_messaging_world.start_mismatch_server().await?;
         client_messaging_world.connect_client().await
     })
@@ -47,14 +47,14 @@ fn given_mismatch_server(client_messaging_world: &mut ClientMessagingWorld) -> T
 
 #[when("the client sends the envelope")]
 fn when_client_sends_envelope(client_messaging_world: &mut ClientMessagingWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_messaging_world.send_envelope())
+    let runtime = client_messaging_world.handle();
+    runtime.block_on(client_messaging_world.send_envelope())
 }
 
 #[when("the client calls the server with call_correlated")]
 fn when_client_calls_correlated(client_messaging_world: &mut ClientMessagingWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_messaging_world.call_correlated())
+    let runtime = client_messaging_world.handle();
+    runtime.block_on(client_messaging_world.call_correlated())
 }
 
 #[when("the client sends {count:usize} sequential envelopes")]
@@ -62,8 +62,8 @@ fn when_client_sends_multiple(
     client_messaging_world: &mut ClientMessagingWorld,
     count: usize,
 ) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_messaging_world.send_multiple_envelopes(count))
+    let runtime = client_messaging_world.handle();
+    runtime.block_on(client_messaging_world.send_multiple_envelopes(count))
 }
 
 #[then("the envelope is stamped with an auto-generated correlation ID")]

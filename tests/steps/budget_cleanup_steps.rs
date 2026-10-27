@@ -29,6 +29,13 @@ fn when_cleanup_first_frame(
     budget_cleanup_world.send_first_frame(key, &body)
 }
 
+#[when("the cleanup server processes the first frame")]
+fn when_cleanup_server_processes_first_frame(
+    budget_cleanup_world: &mut BudgetCleanupWorld,
+) -> TestResult {
+    budget_cleanup_world.wait_for_frame_processed()
+}
+
 #[when(
     "a cleanup final continuation for key {key:u64} sequence {sequence:u32} with body \
      {body:string} arrives"
@@ -42,12 +49,9 @@ fn when_cleanup_final_continuation(
     budget_cleanup_world.send_final_continuation_frame(key, sequence, &body)
 }
 
-#[when("cleanup virtual time advances by {millis:u64} milliseconds")]
-fn when_cleanup_virtual_time_advances(
-    budget_cleanup_world: &mut BudgetCleanupWorld,
-    millis: u64,
-) -> TestResult {
-    budget_cleanup_world.advance_millis(millis)
+#[when("cleanup waits {millis:u64} milliseconds")]
+fn when_cleanup_waits(budget_cleanup_world: &mut BudgetCleanupWorld, millis: u64) -> TestResult {
+    budget_cleanup_world.wait_millis(millis)
 }
 
 #[when("the cleanup client disconnects")]

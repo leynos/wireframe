@@ -115,8 +115,11 @@ impl ClientPreambleWorld {
     /// # Errors
     /// Returns an error if binding fails.
     pub async fn start_slow_server(&mut self) -> TestResult {
-        self.spawn_server(|_stream| async move {
+        self.spawn_server(|stream| async move {
+            // Keep the socket open so the client waits for its preamble
+            // timeout instead of receiving EOF from a dropped stream.
             tokio::time::sleep(Duration::from_secs(10)).await;
+            drop(stream);
             Ok(())
         })
         .await

@@ -80,6 +80,8 @@ reference when navigating the project's design and architecture material.
   and assert something a wrong implementation would fail.
 - [Execution plan directory](execplans/) Working plans for roadmap items,
   migrations, verification work, and documentation follow-up tasks.
+- [Migrate rstest-bdd to v0.6.0](execplans/adopt-rstest-bdd-v0-6-0.md)
+  Implementation and validation plan for the published framework migration.
 
 ## Roadmaps
 
@@ -99,6 +101,12 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
 
 ## Testing
 
+- [rstest-bdd user's guide](rstest-bdd-users-guide.md) Upstream framework guide
+  imported from the published v0.6.0 source commit.
+- [Wireframe rstest-bdd guide](wireframe-rstest-bdd-users-guide.md)
+  Wireframe-specific notes preserved from the pre-migration guide.
+- [rstest-bdd v0.6.0 migration guide](rstest-bdd-v0-6-0-migration-guide.md)
+  Upstream migration reference imported from the published v0.6.0 source.
 - [Multi-layered testing strategy](multi-layered-testing-strategy.md) Overview
   of the library's testing approach.
 - [RSTest fixtures](rust-testing-with-rstest-fixtures.md) Using `rstest`

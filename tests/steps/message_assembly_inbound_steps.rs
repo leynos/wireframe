@@ -21,6 +21,13 @@ fn when_first_frame_arrives(
     message_assembly_inbound_world.send_first_frame(key, &body)
 }
 
+#[when("the inbound server processes the first frame")]
+fn when_server_processes_first_frame(
+    message_assembly_inbound_world: &mut MessageAssemblyInboundWorld,
+) -> TestResult {
+    message_assembly_inbound_world.wait_for_frame_processed()
+}
+
 #[when(
     "a continuation frame for key {key:u64} sequence {sequence:u32} with body {body:string} \
      arrives"

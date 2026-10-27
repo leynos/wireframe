@@ -11,11 +11,14 @@ use wireframe::{
     fragment::FragmentationConfig,
     message_assembler::{FrameSequence, MessageKey},
     serializer::{BincodeSerializer, Serializer},
-    test_helpers::{self, TestAssembler},
+    test_helpers,
 };
 pub use wireframe_testing::TestResult;
 
-use super::budget_config_parser::parse_standard_budget_config;
+use super::{
+    budget_config_parser::parse_standard_budget_config,
+    frame_processing_assembler::FrameProcessingAssembler,
+};
 
 const ROUTE_ID: u32 = 88;
 const CORRELATION_ID: Option<u64> = Some(9);
@@ -53,6 +56,7 @@ pub struct MemoryBudgetBackpressureWorld {
     client: Option<Framed<DuplexStream, LengthDelimitedCodec>>,
     server: Option<JoinHandle<std::io::Result<()>>>,
     observed_rx: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    processed_rx: Option<mpsc::UnboundedReceiver<()>>,
     observed_payloads: Vec<Vec<u8>>,
     last_send_error: Option<String>,
 }
@@ -68,6 +72,7 @@ impl MemoryBudgetBackpressureWorld {
             client: None,
             server: None,
             observed_rx: None,
+            processed_rx: None,
             observed_payloads: Vec::new(),
             last_send_error: None,
         }
@@ -101,8 +106,10 @@ impl fmt::Debug for MemoryBudgetBackpressureWorld {
 
 /// Construct the default world used by memory-budget back-pressure BDD tests.
 #[fixture]
-pub fn memory_budget_backpressure_world() -> MemoryBudgetBackpressureWorld {
-    MemoryBudgetBackpressureWorld::default()
+pub fn memory_budget_backpressure_world() -> TestResult<MemoryBudgetBackpressureWorld> {
+    let world = MemoryBudgetBackpressureWorld::default();
+    world.runtime()?;
+    Ok(world)
 }
 
 impl MemoryBudgetBackpressureWorld {
@@ -153,6 +160,7 @@ impl MemoryBudgetBackpressureWorld {
         );
 
         let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (assembler, processed_rx) = FrameProcessingAssembler::new();
         let handler: Handler<Envelope> = std::sync::Arc::new(move |envelope: &Envelope| {
             let tx = tx.clone();
             let payload = envelope.payload_bytes().to_vec();
@@ -164,7 +172,7 @@ impl MemoryBudgetBackpressureWorld {
         let app: WireframeApp = WireframeApp::new()?
             .buffer_capacity(BUFFER_CAPACITY)
             .fragmentation(Some(fragmentation))
-            .with_message_assembler(TestAssembler)
+            .with_message_assembler(assembler)
             .memory_budgets(budgets)
             .route(ROUTE_ID, handler)?;
 
@@ -180,6 +188,7 @@ impl MemoryBudgetBackpressureWorld {
         self.client = Some(client);
         self.server = Some(server);
         self.observed_rx = Some(rx);
+        self.processed_rx = Some(processed_rx);
         self.observed_payloads.clear();
         self.last_send_error = None;
         Ok(())
@@ -225,7 +234,24 @@ impl MemoryBudgetBackpressureWorld {
     /// Advance Tokio virtual time by the supplied duration in milliseconds.
     pub fn advance_millis(&mut self, millis: u64) -> TestResult {
         self.block_on(async { tokio::time::advance(Duration::from_millis(millis)).await })?;
-        Ok(())
+        self.spin_runtime()
+    }
+
+    /// Wait until the server has parsed one previously written frame header.
+    pub fn wait_for_frame_processed(&mut self) -> TestResult {
+        let mut processed_rx = self
+            .processed_rx
+            .take()
+            .ok_or("frame-processing receiver not initialized")?;
+        let result = self.block_on(async {
+            tokio::time::timeout(Duration::from_secs(1), processed_rx.recv()).await
+        });
+        self.processed_rx = Some(processed_rx);
+        match result? {
+            Ok(Some(())) => self.spin_runtime(),
+            Ok(None) => Err("frame-processing signal channel closed".into()),
+            Err(_) => Err("server did not process a frame within one second".into()),
+        }
     }
 
     /// Assert that the expected payload is eventually observed.
@@ -276,7 +302,7 @@ impl MemoryBudgetBackpressureWorld {
         match send_result {
             Ok(Ok(())) => {
                 self.last_send_error = None;
-                Ok(())
+                self.spin_runtime()
             }
             Ok(Err(error)) => {
                 self.last_send_error = Some(error.to_string());

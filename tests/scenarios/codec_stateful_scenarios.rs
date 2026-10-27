@@ -1,6 +1,7 @@
 //! Scenario tests for stateful codec behaviours.
 
 use rstest_bdd_macros::scenario;
+use wireframe_testing::TestError;
 
 use crate::fixtures::codec_stateful::*;
 
@@ -8,6 +9,8 @@ use crate::fixtures::codec_stateful::*;
     path = "tests/features/codec_stateful.feature",
     name = "Sequence counters reset per connection"
 )]
-fn sequence_counters_reset(codec_stateful_world: CodecStatefulWorld) {
-    let _ = codec_stateful_world;
+fn sequence_counters_reset(
+    codec_stateful_world: Result<CodecStatefulWorld, TestError>,
+) -> Result<(), TestError> {
+    Ok(())
 }

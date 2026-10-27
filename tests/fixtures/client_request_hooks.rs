@@ -38,7 +38,7 @@ const MARKER_BYTE: u8 = 0xff;
 type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>;
 
 /// Test world for client request hook scenarios.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ClientRequestHooksWorld {
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,
@@ -48,10 +48,12 @@ pub struct ClientRequestHooksWorld {
     after_receive_count: Arc<AtomicUsize>,
     marker_log: Arc<Mutex<Vec<u8>>>,
     received_payload: Option<Vec<u8>>,
+    runtime: tokio::runtime::Runtime,
 }
 
 impl Drop for ClientRequestHooksWorld {
     fn drop(&mut self) {
+        self.client.take();
         if let Some(handle) = self.server.take() {
             handle.abort();
         }
@@ -64,11 +66,25 @@ impl Drop for ClientRequestHooksWorld {
 /// Fixture for `ClientRequestHooksWorld`.
 #[rustfmt::skip]
 #[fixture]
-pub fn client_request_hooks_world() -> ClientRequestHooksWorld {
-    ClientRequestHooksWorld::default()
+pub fn client_request_hooks_world() -> TestResult<ClientRequestHooksWorld> {
+    Ok(ClientRequestHooksWorld {
+        runtime: tokio::runtime::Runtime::new()
+            .map_err(|error| format!("client request hooks fixture setup failed: {error}"))?,
+        addr: None,
+        server: None,
+        capturing_server: None,
+        client: None,
+        before_send_count: Arc::new(AtomicUsize::new(0)),
+        after_receive_count: Arc::new(AtomicUsize::new(0)),
+        marker_log: Arc::new(Mutex::new(Vec::new())),
+        received_payload: None,
+    })
 }
 
 impl ClientRequestHooksWorld {
+    /// Return a handle for driving async steps on the scenario's shared runtime.
+    pub fn handle(&self) -> tokio::runtime::Handle { self.runtime.handle().clone() }
+
     /// Spawn an echo server that echoes every frame back.
     ///
     /// # Errors

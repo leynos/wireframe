@@ -1021,6 +1021,11 @@ the optional development backend. Native Linux development builds use `mold` as
 the linker; CI provisions the component and linker before running the standard
 debug gates.
 
+The root package declares Rust 1.95 as its minimum. `rstest-bdd` 0.6.0 requires
+Rust 1.88, and existing `AtomicU64::try_update` calls require Rust 1.95. This
+floor applies to the root package's test targets as well as its library. The
+pinned nightly remains the standard repository gate toolchain.
+
 The Makefile keeps the development configuration in
 `tools/dev-fast/config.toml`, outside Cargo's automatic configuration paths.
 Standard debug Make targets select it explicitly: `build`, `test`, `test-bdd`,

@@ -96,7 +96,7 @@ fn make_failure_signal_callback(
 }
 
 /// Test world exercising client preamble exchange.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ClientPreambleWorld {
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<std::io::Result<()>>>,
@@ -107,16 +107,43 @@ pub struct ClientPreambleWorld {
     success_callback_invoked: bool,
     failure_callback_invoked: bool,
     last_error: Option<ClientError>,
+    runtime: Arc<tokio::runtime::Runtime>,
+}
+
+impl Drop for ClientPreambleWorld {
+    fn drop(&mut self) {
+        self.client.take();
+        if let Some(server) = self.server.take() {
+            server.abort();
+        }
+    }
 }
 
 /// Fixture for `ClientPreambleWorld`.
 #[rustfmt::skip]
 #[fixture]
-pub fn client_preamble_world() -> ClientPreambleWorld {
-    ClientPreambleWorld::default()
+pub fn client_preamble_world() -> TestResult<ClientPreambleWorld> {
+    Ok(ClientPreambleWorld {
+        runtime: Arc::new(
+            tokio::runtime::Runtime::new()
+                .map_err(|error| format!("client preamble fixture setup failed: {error}"))?,
+        ),
+        addr: None,
+        server: None,
+        client: None,
+        server_preamble_rx: None,
+        server_received_preamble: None,
+        client_received_ack: None,
+        success_callback_invoked: false,
+        failure_callback_invoked: false,
+        last_error: None,
+    })
 }
 
 impl ClientPreambleWorld {
+    /// Return the scenario runtime so steps drive its I/O and timer drivers.
+    pub fn runtime(&self) -> Arc<tokio::runtime::Runtime> { Arc::clone(&self.runtime) }
+
     async fn spawn_server<F, Fut>(&mut self, handler: F) -> TestResult
     where
         F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,

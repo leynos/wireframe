@@ -41,6 +41,7 @@ mod multi_packet_scenarios;
 mod panic_scenarios;
 mod partial_frame_feeding_scenarios;
 mod request_parts_scenarios;
+mod result_alias_dispatch_scenarios;
 mod serializer_boundaries_scenarios;
 mod slow_io_backpressure_scenarios;
 mod stream_end_scenarios;

@@ -4,14 +4,6 @@ use rstest_bdd_macros::{given, then, when};
 
 use crate::fixtures::client_request_hooks::{ClientRequestHooksWorld, TestResult};
 
-/// Run an async block on a fresh single-threaded Tokio runtime.
-fn run_block_on<F, T>(future: F) -> Result<T, wireframe_testing::TestError>
-where
-    F: std::future::Future<Output = Result<T, wireframe_testing::TestError>>,
-{
-    tokio::runtime::Runtime::new()?.block_on(future)
-}
-
 /// Verify that a counter matches the expected value.
 fn check_counter(counter_name: &str, actual: usize, expected: usize) -> TestResult {
     if actual != expected {
@@ -41,38 +33,44 @@ macro_rules! define_counter_step {
 
 #[given("an envelope echo server for hook testing")]
 fn given_echo_server(client_request_hooks_world: &mut ClientRequestHooksWorld) -> TestResult {
-    run_block_on(client_request_hooks_world.start_echo_server())
+    let runtime = client_request_hooks_world.handle();
+    runtime.block_on(client_request_hooks_world.start_echo_server())
 }
 
 #[given("a client with a before_send counter hook")]
 fn given_before_send_counter(
     client_request_hooks_world: &mut ClientRequestHooksWorld,
 ) -> TestResult {
-    run_block_on(client_request_hooks_world.connect_with_before_send_counter())
+    let runtime = client_request_hooks_world.handle();
+    runtime.block_on(client_request_hooks_world.connect_with_before_send_counter())
 }
 
 #[given("a client with an after_receive counter hook")]
 fn given_after_receive_counter(
     client_request_hooks_world: &mut ClientRequestHooksWorld,
 ) -> TestResult {
-    run_block_on(client_request_hooks_world.connect_with_after_receive_counter())
+    let runtime = client_request_hooks_world.handle();
+    runtime.block_on(client_request_hooks_world.connect_with_after_receive_counter())
 }
 
 #[given("a client with two before_send hooks that append markers")]
 fn given_marker_hooks(client_request_hooks_world: &mut ClientRequestHooksWorld) -> TestResult {
-    run_block_on(client_request_hooks_world.connect_with_marker_hooks())
+    let runtime = client_request_hooks_world.handle();
+    runtime.block_on(client_request_hooks_world.connect_with_marker_hooks())
 }
 
 #[given("a client with both counter hooks")]
 fn given_both_counters(client_request_hooks_world: &mut ClientRequestHooksWorld) -> TestResult {
-    run_block_on(client_request_hooks_world.connect_with_both_counters())
+    let runtime = client_request_hooks_world.handle();
+    runtime.block_on(client_request_hooks_world.connect_with_both_counters())
 }
 
 #[given("a client with a before_send hook that appends a marker byte")]
 fn given_before_send_marker(
     client_request_hooks_world: &mut ClientRequestHooksWorld,
 ) -> TestResult {
-    run_block_on(async {
+    let runtime = client_request_hooks_world.handle();
+    runtime.block_on(async {
         client_request_hooks_world.start_capturing_server().await?;
         client_request_hooks_world
             .connect_with_before_send_marker()
@@ -84,22 +82,26 @@ fn given_before_send_marker(
 fn given_after_receive_replacement(
     client_request_hooks_world: &mut ClientRequestHooksWorld,
 ) -> TestResult {
-    run_block_on(client_request_hooks_world.connect_with_after_receive_replacement())
+    let runtime = client_request_hooks_world.handle();
+    runtime.block_on(client_request_hooks_world.connect_with_after_receive_replacement())
 }
 
 #[when("the client sends an envelope via the hooked client")]
 fn when_send_envelope(client_request_hooks_world: &mut ClientRequestHooksWorld) -> TestResult {
-    run_block_on(client_request_hooks_world.send_envelope())
+    let runtime = client_request_hooks_world.handle();
+    runtime.block_on(client_request_hooks_world.send_envelope())
 }
 
 #[when("the client sends and receives an envelope via the hooked client")]
 fn when_send_and_receive(client_request_hooks_world: &mut ClientRequestHooksWorld) -> TestResult {
-    run_block_on(client_request_hooks_world.send_and_receive_envelope())
+    let runtime = client_request_hooks_world.handle();
+    runtime.block_on(client_request_hooks_world.send_and_receive_envelope())
 }
 
 #[when("the client performs a correlated call via the hooked client")]
 fn when_correlated_call(client_request_hooks_world: &mut ClientRequestHooksWorld) -> TestResult {
-    run_block_on(client_request_hooks_world.perform_correlated_call())
+    let runtime = client_request_hooks_world.handle();
+    runtime.block_on(client_request_hooks_world.perform_correlated_call())
 }
 
 define_counter_step!(
@@ -129,12 +131,8 @@ fn then_markers_in_order(client_request_hooks_world: &mut ClientRequestHooksWorl
 fn then_captured_frame_has_marker(
     client_request_hooks_world: &mut ClientRequestHooksWorld,
 ) -> TestResult {
-    let frames = run_block_on(async {
-        client_request_hooks_world
-            .collect_captured_frames()
-            .await
-            .map_err(Into::into)
-    })?;
+    let runtime = client_request_hooks_world.handle();
+    let frames = runtime.block_on(client_request_hooks_world.collect_captured_frames())?;
     let frame = frames.first().ok_or("no frames captured")?;
     let marker = ClientRequestHooksWorld::marker_byte();
     if frame.last().copied() != Some(marker) {

@@ -1,6 +1,7 @@
 //! Scenario test functions for budget pressure transitions (8.3.6).
 
 use rstest_bdd_macros::scenario;
+use wireframe_testing::TestError;
 
 use crate::fixtures::budget_transitions::*;
 
@@ -8,22 +9,28 @@ use crate::fixtures::budget_transitions::*;
     path = "tests/features/budget_transitions.feature",
     name = "Soft pressure escalates to connection termination"
 )]
-fn soft_pressure_escalates_to_termination(budget_transitions_world: BudgetTransitionsWorld) {
-    drop(budget_transitions_world);
+fn soft_pressure_escalates_to_termination(
+    budget_transitions_world: Result<BudgetTransitionsWorld, TestError>,
+) -> Result<(), TestError> {
+    Ok(())
 }
 
 #[scenario(
     path = "tests/features/budget_transitions.feature",
     name = "Recovery from soft limit after assembly completion"
 )]
-fn recovery_from_soft_limit(budget_transitions_world: BudgetTransitionsWorld) {
-    drop(budget_transitions_world);
+fn recovery_from_soft_limit(
+    budget_transitions_world: Result<BudgetTransitionsWorld, TestError>,
+) -> Result<(), TestError> {
+    Ok(())
 }
 
 #[scenario(
     path = "tests/features/budget_transitions.feature",
     name = "Tightest aggregate dimension controls enforcement"
 )]
-fn tightest_dimension_controls_enforcement(budget_transitions_world: BudgetTransitionsWorld) {
-    drop(budget_transitions_world);
+fn tightest_dimension_controls_enforcement(
+    budget_transitions_world: Result<BudgetTransitionsWorld, TestError>,
+) -> Result<(), TestError> {
+    Ok(())
 }

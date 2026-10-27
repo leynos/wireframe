@@ -6,9 +6,11 @@ Feature: Soft-limit memory budget back-pressure
   Scenario: Soft pressure delays completion until virtual time advances
     Given a back-pressure inbound app configured as 200/2048/10/10
     When a budgeted first frame for key 1 with body "aaaaaaaa" arrives
+    And the budgeted server processes the first frame
     And a budgeted final continuation frame for key 1 sequence 1 with body "bb" arrives
     Then no budgeted payload is available before virtual time advances
     When budgeted virtual time advances by 5 milliseconds
+    And the budgeted server parses the next frame
     Then budgeted payload "aaaaaaaabb" is eventually received
     And no budgeted send error is recorded
 

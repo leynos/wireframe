@@ -97,7 +97,9 @@ impl Drop for ClientLifecycleWorld {
 #[fixture]
 pub fn client_lifecycle_world() -> TestResult<ClientLifecycleWorld> {
     Ok(ClientLifecycleWorld {
-        runtime: tokio::runtime::Runtime::new()?,
+        runtime: tokio::runtime::Runtime::new().map_err(|error| {
+            format!("client lifecycle fixture setup failed: {error}")
+        })?,
         addr: None,
         server: None,
         client: None,

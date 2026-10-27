@@ -8,32 +8,32 @@ use crate::fixtures::client_preamble::{ClientPreambleWorld, TestResult};
 
 #[given("a preamble-aware echo server")]
 fn given_preamble_server(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.start_preamble_server())
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.start_preamble_server())
 }
 
 #[given("a preamble-aware echo server that sends an acknowledgement preamble")]
 fn given_ack_server(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.start_ack_server())
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.start_ack_server())
 }
 
 #[given("a slow preamble server that never responds")]
 fn given_slow_server(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.start_slow_server())
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.start_slow_server())
 }
 
 #[given("a preamble-aware server that replies with invalid acknowledgement bytes")]
 fn given_invalid_ack_server(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.start_invalid_ack_server())
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.start_invalid_ack_server())
 }
 
 #[given("a standard echo server without preamble support")]
 fn given_standard_server(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.start_standard_server())
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.start_standard_server())
 }
 
 #[when("a client connects with a preamble containing version {version:u16}")]
@@ -41,20 +41,20 @@ fn when_connect_with_version(
     client_preamble_world: &mut ClientPreambleWorld,
     version: u16,
 ) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.connect_with_preamble(version))
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.connect_with_preamble(version))
 }
 
 #[when("a client connects with a preamble and reads the acknowledgement")]
 fn when_connect_with_ack(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.connect_with_ack())
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.connect_with_ack())
 }
 
 #[when("a client connects with a preamble and expects an acknowledgement read error")]
 fn when_connect_with_invalid_ack(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.connect_with_invalid_ack())
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.connect_with_invalid_ack())
 }
 
 #[when("a client connects with a {timeout_ms:u64}ms preamble timeout")]
@@ -62,14 +62,14 @@ fn when_connect_with_timeout(
     client_preamble_world: &mut ClientPreambleWorld,
     timeout_ms: u64,
 ) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.connect_with_timeout(Duration::from_millis(timeout_ms)))
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.connect_with_timeout(Duration::from_millis(timeout_ms)))
 }
 
 #[when("a client connects without a preamble")]
 fn when_connect_without_preamble(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.connect_without_preamble())
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.connect_without_preamble())
 }
 
 #[then("the server receives the preamble with version {version:u16}")]
@@ -93,8 +93,8 @@ fn then_success_callback_invoked(client_preamble_world: &mut ClientPreambleWorld
     if !client_preamble_world.success_invoked() {
         return Err("expected success callback to be invoked".into());
     }
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.finish_server())?;
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.finish_server())?;
     Ok(())
 }
 
@@ -103,8 +103,8 @@ fn then_receives_ack(client_preamble_world: &mut ClientPreambleWorld) -> TestRes
     if !client_preamble_world.ack_accepted() {
         return Err("expected client to receive accepted acknowledgement".into());
     }
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.finish_server())?;
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.finish_server())?;
     Ok(())
 }
 
@@ -122,8 +122,8 @@ fn then_preamble_read_error(client_preamble_world: &mut ClientPreambleWorld) -> 
     if !client_preamble_world.was_preamble_read_error() {
         return Err("expected preamble read error".into());
     }
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.finish_server())?;
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.finish_server())?;
     Ok(())
 }
 
@@ -141,7 +141,7 @@ fn then_connects_successfully(client_preamble_world: &mut ClientPreambleWorld) -
     if !client_preamble_world.is_connected() {
         return Err("expected client to connect successfully".into());
     }
-    let rt = tokio::runtime::Runtime::new()?;
-    rt.block_on(client_preamble_world.finish_server())?;
+    let runtime = client_preamble_world.runtime();
+    runtime.block_on(client_preamble_world.finish_server())?;
     Ok(())
 }

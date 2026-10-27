@@ -1,6 +1,7 @@
 //! Scenario test functions for memory budget back-pressure.
 
 use rstest_bdd_macros::scenario;
+use wireframe_testing::TestError;
 
 use crate::fixtures::memory_budget_backpressure::*;
 
@@ -9,9 +10,9 @@ use crate::fixtures::memory_budget_backpressure::*;
     name = "Soft pressure delays completion until virtual time advances"
 )]
 fn soft_pressure_delays_completion(
-    memory_budget_backpressure_world: MemoryBudgetBackpressureWorld,
-) {
-    drop(memory_budget_backpressure_world);
+    memory_budget_backpressure_world: Result<MemoryBudgetBackpressureWorld, TestError>,
+) -> Result<(), TestError> {
+    Ok(())
 }
 
 #[scenario(
@@ -19,7 +20,7 @@ fn soft_pressure_delays_completion(
     name = "Reads continue without delay when pressure is low"
 )]
 fn low_pressure_continues_without_delay(
-    memory_budget_backpressure_world: MemoryBudgetBackpressureWorld,
-) {
-    drop(memory_budget_backpressure_world);
+    memory_budget_backpressure_world: Result<MemoryBudgetBackpressureWorld, TestError>,
+) -> Result<(), TestError> {
+    Ok(())
 }

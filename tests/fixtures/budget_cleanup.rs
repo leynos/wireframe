@@ -11,11 +11,14 @@ use wireframe::{
     fragment::FragmentationConfig,
     message_assembler::{FrameSequence, MessageKey},
     serializer::{BincodeSerializer, Serializer},
-    test_helpers::{self, TestAssembler},
+    test_helpers,
 };
 pub use wireframe_testing::TestResult;
 
-use super::budget_config_parser::parse_standard_budget_config;
+use super::{
+    budget_config_parser::parse_standard_budget_config,
+    frame_processing_assembler::FrameProcessingAssembler,
+};
 
 const ROUTE_ID: u32 = 92;
 const CORRELATION_ID: Option<u64> = Some(21);
@@ -55,6 +58,7 @@ pub struct BudgetCleanupWorld {
     client: Option<Framed<DuplexStream, LengthDelimitedCodec>>,
     server: Option<JoinHandle<std::io::Result<()>>>,
     observed_rx: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    processed_rx: Option<mpsc::UnboundedReceiver<()>>,
     observed_payloads: Vec<Vec<u8>>,
     last_send_error: Option<String>,
     connection_error: Option<String>,
@@ -71,6 +75,7 @@ impl BudgetCleanupWorld {
             client: None,
             server: None,
             observed_rx: None,
+            processed_rx: None,
             observed_payloads: Vec::new(),
             last_send_error: None,
             connection_error: None,
@@ -107,8 +112,10 @@ impl fmt::Debug for BudgetCleanupWorld {
 /// Construct the default world used by budget cleanup BDD tests.
 #[rustfmt::skip]
 #[fixture]
-pub fn budget_cleanup_world() -> BudgetCleanupWorld {
-    BudgetCleanupWorld::default()
+pub fn budget_cleanup_world() -> TestResult<BudgetCleanupWorld> {
+    let world = BudgetCleanupWorld::default();
+    world.runtime()?;
+    Ok(world)
 }
 
 impl BudgetCleanupWorld {
@@ -159,6 +166,7 @@ impl BudgetCleanupWorld {
         );
 
         let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (assembler, processed_rx) = FrameProcessingAssembler::new();
         let handler: Handler<Envelope> = std::sync::Arc::new(move |envelope: &Envelope| {
             let tx = tx.clone();
             let payload = envelope.payload_bytes().to_vec();
@@ -170,7 +178,7 @@ impl BudgetCleanupWorld {
         let app: WireframeApp = WireframeApp::new()?
             .buffer_capacity(BUFFER_CAPACITY)
             .fragmentation(Some(fragmentation))
-            .with_message_assembler(TestAssembler)
+            .with_message_assembler(assembler)
             .memory_budgets(budgets)
             .route(ROUTE_ID, handler)?;
 
@@ -186,6 +194,7 @@ impl BudgetCleanupWorld {
         self.client = Some(client);
         self.server = Some(server);
         self.observed_rx = Some(rx);
+        self.processed_rx = Some(processed_rx);
         self.observed_payloads.clear();
         self.last_send_error = None;
         self.connection_error = None;
@@ -215,10 +224,29 @@ impl BudgetCleanupWorld {
         self.send_payload(payload)
     }
 
-    /// Advance Tokio virtual time by the supplied duration in milliseconds.
-    pub fn advance_millis(&mut self, millis: u64) -> TestResult {
-        self.block_on(async { tokio::time::advance(Duration::from_millis(millis)).await })?;
-        Ok(())
+    /// Let the wall clock pass the assembly timeout duration.
+    pub fn wait_millis(&mut self, millis: u64) -> TestResult {
+        // Assembly expiry uses `std::time::Instant`; Tokio time alone would
+        // leave the stored assembly deadline unchanged.
+        std::thread::sleep(Duration::from_millis(millis));
+        self.spin_runtime()
+    }
+
+    /// Wait until the server has parsed one previously written frame header.
+    pub fn wait_for_frame_processed(&mut self) -> TestResult {
+        let mut processed_rx = self
+            .processed_rx
+            .take()
+            .ok_or("frame-processing receiver not initialized")?;
+        let result = self.block_on(async {
+            tokio::time::timeout(Duration::from_secs(1), processed_rx.recv()).await
+        });
+        self.processed_rx = Some(processed_rx);
+        match result? {
+            Ok(Some(())) => self.spin_runtime(),
+            Ok(None) => Err("frame-processing signal channel closed".into()),
+            Err(_) => Err("server did not process a frame within one second".into()),
+        }
     }
 
     /// Drop the client half of the duplex stream, triggering EOF on the
@@ -278,7 +306,17 @@ impl BudgetCleanupWorld {
         });
         self.client = Some(client);
 
-        self.record_send_result(send_result)
+        self.record_send_result(send_result)?;
+        self.spin_runtime()
+    }
+
+    fn spin_runtime(&self) -> TestResult {
+        self.block_on(async {
+            for _ in 0..8 {
+                tokio::task::yield_now().await;
+            }
+        })?;
+        Ok(())
     }
 
     fn record_send_result(&mut self, send_result: TestResult<std::io::Result<()>>) -> TestResult {
@@ -315,53 +353,5 @@ impl BudgetCleanupWorld {
 }
 
 #[cfg(test)]
-mod tests {
-    //! Fixture self-tests for budget cleanup world wiring and parsing.
-
-    use std::io;
-
-    use super::BudgetCleanupWorld;
-
-    #[test]
-    fn record_send_result_clears_last_error_after_success() {
-        let mut world = BudgetCleanupWorld::default();
-        let first_failure = io::Error::other("first failure");
-        let first_result = world.record_send_result(Ok(Err(first_failure)));
-        let first_error = first_result.expect_err("first send should fail");
-        assert_eq!(first_error.to_string(), "io error: first failure");
-        assert_eq!(
-            world.last_send_error.as_deref(),
-            Some("io error: first failure")
-        );
-
-        let success_result = world.record_send_result(Ok(Ok(())));
-        assert!(success_result.is_ok(), "second send should succeed");
-        assert_eq!(world.last_send_error, None);
-    }
-
-    #[test]
-    fn record_send_result_stores_outer_error_string() {
-        let mut world = BudgetCleanupWorld::default();
-        let outer_error = io::Error::other("outer failure");
-
-        let result = world.record_send_result(Err(outer_error.into()));
-        let returned_error = result.expect_err("outer error should be returned");
-        assert_eq!(returned_error.to_string(), "io error: outer failure");
-        assert_eq!(
-            world.last_send_error.as_deref(),
-            Some("io error: outer failure")
-        );
-    }
-
-    #[test]
-    fn record_send_result_converts_inner_io_error_and_stores_it() {
-        let mut world = BudgetCleanupWorld::default();
-        let result = world.record_send_result(Ok(Err(io::Error::other("inner io failure"))));
-        let returned_error = result.expect_err("inner IO error should be returned");
-        assert_eq!(returned_error.to_string(), "io error: inner io failure");
-        assert_eq!(
-            world.last_send_error.as_deref(),
-            Some("io error: inner io failure")
-        );
-    }
-}
+#[path = "budget_cleanup_tests.rs"]
+mod tests;
