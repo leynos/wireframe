@@ -146,15 +146,23 @@ async fn contended_acquisition_grants_leases(
     #[case] pool_size: usize,
     #[case] contenders: usize,
     #[case] mode: AcquisitionMode,
-) {
+) -> Result<(), String> {
+    assert_contended_grants(pool_size, contenders, mode).await
+}
+
+/// Check successful bursts share the same capacity and progress contract.
+async fn assert_contended_grants(
+    pool_size: usize,
+    contenders: usize,
+    mode: AcquisitionMode,
+) -> Result<(), String> {
     let measurement = contended_burst_with_retry(PoolWorkload {
         pool_size,
         mode,
         acquisitions: 8,
         contenders,
     })
-    .await
-    .expect("contended measurement failed in every retry attempt");
+    .await?;
 
     assert!(
         measurement.capacity_waits >= u64::try_from(contenders).unwrap_or(u64::MAX),
@@ -174,35 +182,13 @@ async fn contended_acquisition_grants_leases(
         measurement.acquisitions >= 1,
         "contended contenders must still be granted leases"
     );
+    Ok(())
 }
 
 /// Keep the size-16 workload available to benchmarks, but not in the test suite
 /// until its tracked spurious disconnect is resolved.
 #[tokio::test]
 #[ignore = "FIXME: flaky 16-slot disconnect is tracked by issue #647"]
-async fn sixteen_slots_fifo_observes_capacity_waits() {
-    let measurement = contended_burst_with_retry(PoolWorkload {
-        pool_size: 16,
-        mode: AcquisitionMode::ContendedFifo,
-        acquisitions: 8,
-        contenders: 17,
-    })
-    .await
-    .expect("contended measurement failed in every retry attempt");
-
-    assert!(
-        measurement.capacity_waits >= 17,
-        "a burst that empties a 16-slot pool and holds it empty must park all 17 contenders, but \
-         {} waits were recorded",
-        measurement.capacity_waits
-    );
-    assert!(measurement.contended(), "the measurement must be contended");
-    assert!(
-        measurement.scheduler_spawns >= 1,
-        "handing capacity to a parked waiter must enter the scheduler slow path at least once"
-    );
-    assert!(
-        measurement.acquisitions >= 1,
-        "contended contenders must still be granted leases"
-    );
+async fn sixteen_slots_fifo_observes_capacity_waits() -> Result<(), String> {
+    assert_contended_grants(16, 17, AcquisitionMode::ContendedFifo).await
 }
