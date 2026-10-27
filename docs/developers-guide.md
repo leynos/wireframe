@@ -12,11 +12,15 @@ than all four repository-owned lanes sharing one profile.
 | Workflow                 | Job                 | Trigger            | Runner                | Ceiling |
 | ------------------------ | ------------------- | ------------------ | --------------------- | ------- |
 | `ci.yml`                 | `build-test`        | pull request, push | `ubicloud-standard-2` | 30 min  |
+| `ci.yml`                 | `ui-test`           | pull request, push | `ubicloud-standard-2` | 30 min  |
 | `coverage-main.yml`      | `coverage-upload`   | push               | `ubicloud-standard-4` | 20 min  |
 | `advanced-tests.yml`     | `advanced`          | schedule           | `ubuntu-latest`       | 60 min  |
 | `delayed-pr-comment.yml` | `delay_and_comment` | dispatch           | `ubuntu-latest`       | none    |
 
 *Table 1: Where each repository-owned lane runs, and its ceiling.*
+
+`build-test` depends on `ui-test`, so UI failures block the existing required
+`build-test` status.
 
 Pull-request, push and tag lanes move to Ubicloud, because those are the ones a
 developer waits on: `build-test` waited 461 seconds for a GitHub-hosted runner
@@ -87,15 +91,20 @@ Two vCPU cost about 29% less per run for 3m40s more wall time, and memory is
 far inside the 7.9 GiB that shape has.
 
 The coverage action supplies a 180-second per-test deadline and a ten-minute
-whole-run ceiling. `tests/compile_error.rs` runs fourteen trybuild fixtures
-inside one test, including nested Cargo builds. A cold coverage run exceeded
-that deadline on two vCPU after the other tests had completed
-([PR #777's coverage run](https://github.com/leynos/wireframe/actions/runs/39203098537)).
-The checked-in `.config/nextest.toml` preserves the action's deadlines for
-ordinary tests and extends only `wireframe::compile_error::compile_tests` to
-eight minutes. The ten-minute ceiling still bounds the coverage test run. The
-four-vCPU `coverage-upload` lane remains on its measured shape; the smaller
-runner has not been sampled with this per-test budget.
+whole-run ceiling. `tests/compile_error.rs` runs trybuild fixtures inside one
+test, including nested Cargo builds, so it is not useful runtime coverage and
+can exceed that per-test deadline on a cold two-vCPU runner. The `ui-test` job
+runs `make test-ui` separately for pull requests and pushes to `main`, with a
+30-minute job ceiling. This keeps the compile-time API fixtures covered without
+making the instrumented runtime-coverage run compile them.
+
+The compile-time harnesses are excluded only when `cfg(coverage)` is active;
+the fixtures remain in `tests/ui/`, and `make test-ui` runs both the root and
+Loom API suites. The checked-in `.config/nextest.toml` retains its eight-minute
+override for `wireframe::compile_error::compile_tests` during ordinary,
+noncoverage nextest runs. The ten-minute ceiling still bounds the coverage test
+run. The four-vCPU `coverage-upload` lane remains on its measured shape; the
+smaller runner has not been sampled for coverage generation.
 
 Free disk is the margin to watch: 3,998 MiB at its lowest on two vCPU.
 
@@ -1023,10 +1032,10 @@ The Loom, verification, and Whitaker commands keep their own `RUSTFLAGS`, as
 the development and release recipes to the standard, and
 `build_standard_ci_test.py` holds the CI install order. The coverage lane
 (`coverage-main.yml:coverage-upload`) installs `mold` through `setup-rust`'s
-`install-mold` input before `generate-coverage`, because the trybuild cases
-compile scratch crates under `target/` that link with `mold` through the Cargo
-configuration. The same file requires every Linux job that runs
-`generate-coverage` to install `mold` first, by that input or by `apt`.
+`install-mold` input before `generate-coverage`, because `.cargo/config.toml`
+selects `mold` for Linux builds, including the instrumented runtime tests. The
+same file requires every Linux job that runs `generate-coverage` to install
+`mold` first, by that input or by `apt`.
 
 The fragment configures the backend only and declares no `[target.<...>]`
 table, so a direct `--config tools/dev-fast/config.toml` invocation behaves the
@@ -1199,6 +1208,9 @@ tracing and the current-thread Tokio runtime explicitly, then use
 `WireframeServer::from_app` for server preparation, listener binding,
 connection spawning, and shutdown-aware accept loops. Keep example-specific
 address parsing, app construction, handlers, and middleware in the example file.
+`tracing-subscriber` and the Prometheus exporter are development dependencies
+for examples, tests, and doctests; applications supply their own tracing
+subscriber and exporter.
 
 Codec benchmark helpers live in `wireframe_testing::codec_benchmarks`. Bench
 targets, direct unit tests, and BDD fixtures should import the workload matrix,
@@ -1459,8 +1471,8 @@ Place new snippets in `tests/ui/`, register them in `tests/compile_error.rs`,
 and commit the generated `.stderr` file for compile-fail cases after verifying
 that the diagnostics describe the intended contract. These files are exact
 `rustc` diagnostic snapshots: generate and refresh them with the repository's
-pinned `rust-toolchain.toml`. Normal validation is
-`cargo test --test compile_error`; a deliberate developer-only refresh uses
+pinned `rust-toolchain.toml`. Normal validation is `make test-ui`; a deliberate
+developer-only refresh uses
 `TRYBUILD=overwrite cargo test --test compile_error`. Review refreshed fixtures
 as maintenance changes, and never run the overwrite command in CI.
 

@@ -2,7 +2,9 @@ error[E0432]: unresolved import `wireframe_testing::client_pair`
  --> tests/ui/loom_non_loom_exports.rs:4:5
   |
 4 | use wireframe_testing::client_pair as _;
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `client_pair` in the root
+  |     ^^^^^^^^^^^^^^^^^^^-----------^^^^^
+  |                        |
+  |                        no `client_pair` in the root
   |
 note: found an item that was configured out
  --> src/lib.rs
@@ -16,7 +18,9 @@ error[E0432]: unresolved import `wireframe_testing::runtime_ownership_benchmarks
  --> tests/ui/loom_non_loom_exports.rs:5:5
   |
 5 | use wireframe_testing::runtime_ownership_benchmarks as _;
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `runtime_ownership_benchmarks` in the root
+  |     ^^^^^^^^^^^^^^^^^^^----------------------------^^^^^
+  |                        |
+  |                        no `runtime_ownership_benchmarks` in the root
   |
 note: found an item that was configured out
  --> src/lib.rs
@@ -30,7 +34,9 @@ error[E0432]: unresolved import `wireframe_testing::wait_for_listener_release`
  --> tests/ui/loom_non_loom_exports.rs:6:5
   |
 6 | use wireframe_testing::wait_for_listener_release as _;
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `wait_for_listener_release` in the root
+  |     ^^^^^^^^^^^^^^^^^^^-------------------------^^^^^
+  |                        |
+  |                        no `wait_for_listener_release` in the root
   |
 note: found an item that was configured out
  --> src/lib.rs
@@ -44,11 +50,17 @@ error[E0432]: unresolved imports `wireframe_testing::WireframePair`, `wireframe_
   --> tests/ui/loom_non_loom_exports.rs:8:5
    |
  8 |     WireframePair as _,
-   |     ^^^^^^^^^^^^^^^^^^ no `WireframePair` in the root
+   |     -------------^^^^^
+   |     |
+   |     no `WireframePair` in the root
  9 |     spawn_wireframe_pair as _,
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^ no `spawn_wireframe_pair` in the root
+   |     --------------------^^^^^
+   |     |
+   |     no `spawn_wireframe_pair` in the root
 10 |     spawn_wireframe_pair_default as _,
-   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `spawn_wireframe_pair_default` in the root
+   |     ----------------------------^^^^^
+   |     |
+   |     no `spawn_wireframe_pair_default` in the root
    |
 note: found an item that was configured out
   --> src/lib.rs

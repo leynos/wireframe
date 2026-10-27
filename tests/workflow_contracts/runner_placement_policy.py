@@ -52,16 +52,19 @@ DEPENDABOT_GUARD: typ.Final = (
 #: The exact guard the fallback keys on: a fork or a Dependabot pull request.
 HOSTED_GUARD: typ.Final = f"({FORK_GUARD} || {DEPENDABOT_GUARD})"
 
-#: The lane that carries the fork fallback: the only one serving pull
-#: requests, and so the only one that can meet a fork.
-FORK_FALLBACK_JOB: typ.Final = ("ci.yml", "build-test")
+#: Both pull-request jobs require the same fallback for forks and Dependabot.
+FORK_FALLBACK_JOBS: typ.Final = frozenset({
+    ("ci.yml", "build-test"),
+    ("ci.yml", "ui-test"),
+})
 
 #: Every job this repository places, with its reviewed label. A literal label
 #: is written as itself; the fork-fallback lane is checked by its expression
 #: instead and appears here as ``None`` so the coordinate set stays total.
-#: ``test_the_reviewed_tables_are_total`` holds it to exactly one ``None``.
+#: ``test_the_reviewed_tables_are_total`` holds it to the reviewed fallback jobs.
 EXPECTED_PLACEMENT: typ.Final = {
     ("ci.yml", "build-test"): None,
+    ("ci.yml", "ui-test"): None,
     ("coverage-main.yml", "coverage-upload"): UBICLOUD_LABEL,
     ("advanced-tests.yml", "advanced"): GITHUB_HOSTED_LABEL,
     ("delayed-pr-comment.yml", "delay_and_comment"): GITHUB_HOSTED_LABEL,
@@ -80,6 +83,7 @@ EXPECTED_PLACEMENT: typ.Final = {
 #: all.
 EXPECTED_CEILING_MINUTES: typ.Final = {
     ("ci.yml", "build-test"): 30,
+    ("ci.yml", "ui-test"): 30,
     ("coverage-main.yml", "coverage-upload"): 20,
     ("advanced-tests.yml", "advanced"): 60,
 }

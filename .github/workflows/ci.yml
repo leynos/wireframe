@@ -19,6 +19,8 @@ concurrency:
 
 jobs:
   build-test:
+    # The existing required status must wait for the UI job to succeed.
+    needs: ui-test
     # The one developer-blocking lane, so the one that moves. It waited 461 s
     # for a GitHub-hosted runner on 2026-09-16 to do 556 s of work.
     #
@@ -33,12 +35,8 @@ jobs:
     # https://github.com/leynos/wireframe/actions/runs/39038420830). That is
     # about 29% less per run for 3m40s more wall time.
     #
-    # The coverage action supplies a 180-second per-test deadline. The
-    # aggregate tests/compile_error.rs test builds and executes twelve
-    # trybuild fixtures under coverage; its cold nested build exceeded that
-    # deadline even after the ordinary tests completed. .config/nextest.toml
-    # extends only this test to eight minutes, preserves the ordinary
-    # deadline, and retains the ten-minute whole-run ceiling.
+    # Compiler-driving UI fixtures run in the dedicated `ui-test` job. The
+    # coverage lane measures runtime tests without a nested trybuild build.
     #
     # Disk is the margin to watch: the minimum free space on two vCPU was
     # 3,998 MiB, against 78,392 MiB on four.
@@ -158,3 +156,22 @@ jobs:
           # The ratchet reads this report; nothing else does, so it is not
           # published as an artefact.
           publish-artefact: 'false'
+
+  # Compile-time API checks require their own cold compiler build and are not
+  # meaningful runtime coverage. Keep them mandatory on both PRs and pushes.
+  ui-test:
+    runs-on: >-
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Rust and linker
+        uses: leynos/shared-actions/.github/actions/setup-rust@8e6a325765ba382691d1b1c65fcccf1fc1d1b00c
+        with:
+          install-mold: 'true'
+      - name: Validate compile-time APIs
+        run: make test-ui

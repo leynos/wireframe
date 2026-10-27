@@ -1,6 +1,7 @@
 //! Check that network-backed test helpers stay outside the Loom API surface.
 
 #![cfg(loom)]
+#![cfg(not(coverage))]
 
 #[test]
 fn loom_build_omits_non_loom_helpers() {
