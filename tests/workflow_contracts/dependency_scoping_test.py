@@ -55,8 +55,8 @@ def test_prometheus_exporter_remains_available_to_non_loom_doctests(manifest: di
         "metrics-exporter-prometheus must be available to non-Loom doctests"
     )
     assert "use metrics_exporter_prometheus::PrometheusBuilder;" in (
-        ROOT / "src" / "metrics.rs"
-    ).read_text(), "src/metrics.rs must retain the documented Prometheus example"
+        ROOT / "src" / "metrics" / "mod.rs"
+    ).read_text(), "src/metrics/mod.rs must retain the documented Prometheus example"
 
 
 def test_metrics_feature_does_not_enable_exporter(manifest: dict[str, typ.Any]) -> None:

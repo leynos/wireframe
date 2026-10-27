@@ -47,7 +47,7 @@ hot cases; the one-time cases are justified on clarity grounds alone:
   per pushed message;
 - the client-pool scheduler couples an `Arc<PoolScheduler>` root, a
   `Mutex<SchedulerState>`, an atomic single-flight flag, and spawn-on-demand
-  service tasks (`src/client/pool/scheduler.rs`) — once per acquisition or
+  service tasks (`src/client/pool/scheduler/mod.rs`) — once per acquisition or
   lease drop;
 - `ProtocolHooks::from_protocol` clones the same `Arc` of the protocol
   object once per callback adapter — six clones for one protocol

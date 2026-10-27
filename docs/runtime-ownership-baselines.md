@@ -776,7 +776,7 @@ The mechanism the rework removed is verifiable in the source, and it is worth
 stating because it is what makes the result explicable rather than merely
 observed. `stop_servicing` — the only writer that clears `is_servicing` to
 false — has exactly one caller, `take_next_waiter_or_stop`
-(`src/client/pool/scheduler.rs`). The immediate-lease arm instead resolves
+(`src/client/pool/scheduler/mod.rs`). The immediate-lease arm instead resolves
 through `next_waiter`, which selects a queued request and never clears the
 flag, so a servicing worker can no longer be orphaned by a concurrent resolver.
 The pre-#535 code cleared the guard on that path, leaving waiters queued with
