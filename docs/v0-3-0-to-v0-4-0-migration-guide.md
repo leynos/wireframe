@@ -138,6 +138,35 @@ mutable drivers remain available as deprecated compatibility paths; migrate
 tests to the prepared helpers when they need to prove one-time middleware
 transformation or reuse prepared route services.
 
+## Install your own tracing subscriber
+
+`tracing-subscriber` is no longer a runtime dependency of Wireframe; it is a
+development dependency used by the examples, benchmarks and tests. The
+`tracing` facade Wireframe emits through stays a runtime dependency, but it has
+no subscriber of its own, so a released application that relied on Wireframe
+pulling in a subscriber must now declare one and install it during start-up.
+
+Add the crate to the application's own manifest:
+
+```toml
+[dependencies]
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+```
+
+Then initialize it before any Wireframe work begins:
+
+```rust
+fn main() {
+    tracing_subscriber::fmt().init();
+    // Start the application here.
+}
+```
+
+Applications that never configured a subscriber see no behaviour change: they
+were discarding Wireframe's events before this release too. Applications that
+did configure one keep working, because installing an application-owned
+subscriber is now the supported arrangement rather than a duplicate.
+
 ## Migrate byte-handling APIs
 
 The prepared-application transition is independent of the zero-copy byte

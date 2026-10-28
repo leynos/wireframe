@@ -58,9 +58,9 @@ is supposed to cover, so a lane cannot escape review by being left out of one
 of them. Without it, a new GitHub-hosted job added to the placement table
 with no ceiling entry passes every ceiling test, because the per-coordinate
 test iterates the ceiling table and the tree walk reads only ``ubicloud-``
-lanes; and a second ``None`` placement value escapes both the label test,
-which skips ``None``, and the expression tests, which look only at the one
-fork-fallback coordinate.
+lanes; and an unreviewed ``None`` placement value escapes both the label test,
+which skips ``None``, and the expression tests, which cover only the reviewed
+fork-fallback coordinates.
 
 Mutation proof; each applied alone and reverted:
 
@@ -85,7 +85,7 @@ Mutation proof; each applied alone and reverted:
 - removing the ``advanced`` entry from ``EXPECTED_CEILING_MINUTES`` fails
   ``test_the_reviewed_tables_are_total`` alone, and nothing else: that is the
   gap the totality test was added to close;
-- giving a second coordinate the ``None`` placement value fails
+- giving an unreviewed coordinate the ``None`` placement value fails
   ``test_the_reviewed_tables_are_total`` alone, for the same reason;
 - deleting ``timeout-minutes`` from ``coverage-upload`` fails
   ``test_the_job_declares_its_reviewed_ceiling`` and
@@ -108,19 +108,6 @@ proved by three further mutations, each applied alone and reverted:
   lane that has not been sampled on two vCPU cannot follow ``build-test``
   unnoticed.
 
-A ninth is not a mutation but a real event, recorded because it is better
-evidence than a contrived one. Moving both Ubicloud lanes from
-``ubicloud-standard-2`` to ``ubicloud-standard-4`` after the smaller shape
-killed a test failed ``test_the_job_carries_its_reviewed_label``,
-``test_the_runner_expression_is_exactly_the_reviewed_one`` and
-``test_the_actionlint_registry_matches_the_labels_in_use`` the moment the
-label changed and before the registry was updated, unprompted.
-``test_every_ubicloud_job_has_a_ceiling`` stayed green throughout, because it
-tests the ``ubicloud-`` prefix rather than a literal label; written against a
-literal it would have silently stopped noticing an unbounded lane at exactly
-that moment, which is a dead-guard defect repovec-appliance found in its own
-placement contract.
-
 Run via ``make test-workflow-contracts``.
 """
 
@@ -134,7 +121,7 @@ from runner_placement_policy import (
     EXPECTED_CEILING_MINUTES,
     EXPECTED_PLACEMENT,
     FOREIGN_RUNNER_FRAGMENTS,
-    FORK_FALLBACK_JOB,
+    FORK_FALLBACK_JOBS,
     GITHUB_HOSTED_LABEL,
     GITHUB_HOSTED_LABELS,
     HOSTED_GUARD,
@@ -187,19 +174,17 @@ def test_the_reviewed_tables_are_total() -> None:
     ``ubicloud-`` lanes, so a new GitHub-hosted lane would inherit the
     six-hour default unremarked.
 
-    A second coordinate carrying the ``None`` placement value escapes the
-    label test, which skips ``None``, and the expression tests, which read
-    only ``FORK_FALLBACK_JOB``. Its runner would then be checked by nothing
-    at all.
+    A coordinate carrying ``None`` must have an expression assertion, since
+    the label test skips it.
     """
     expression_jobs = {
         coordinate
         for coordinate, label in EXPECTED_PLACEMENT.items()
         if label is None
     }
-    assert expression_jobs == {FORK_FALLBACK_JOB}, (
-        "only the fork-fallback lane may be checked by expression rather than "
-        f"by label; {sorted(expression_jobs - {FORK_FALLBACK_JOB})} would have "
+    assert expression_jobs == FORK_FALLBACK_JOBS, (
+        "only reviewed fallback lanes may be checked by expression rather than "
+        f"by label; {sorted(expression_jobs - FORK_FALLBACK_JOBS)} would have "
         "no runner assertion at all"
     )
     needing_ceilings = set(EXPECTED_PLACEMENT) - {CEILING_FREE_JOB}
@@ -236,7 +221,8 @@ def test_the_job_carries_its_reviewed_label(
     )
 
 
-def test_the_runner_expression_parses_to_one_line() -> None:
+@pytest.mark.parametrize("coordinate", sorted(FORK_FALLBACK_JOBS), ids=case_id)
+def test_the_runner_expression_parses_to_one_line(coordinate: tuple[str, str]) -> None:
     """Scenario: the folded scalar's continuation is indented one level deeper.
 
     Invariant: the parsed value is a single line. A more-indented
@@ -244,19 +230,20 @@ def test_the_runner_expression_parses_to_one_line() -> None:
     expression. GitHub evaluates the broken value and the job runs, so a
     green run is not evidence; only the parsed value shows it.
     """
-    value = runner_value(jobs()[FORK_FALLBACK_JOB])
+    value = runner_value(jobs()[coordinate])
     assert isinstance(value, str), (
-        f"{FORK_FALLBACK_JOB[0]}:{FORK_FALLBACK_JOB[1]} should declare runs-on "
+        f"{coordinate[0]}:{coordinate[1]} should declare runs-on "
         f"as one scalar, got {value!r}"
     )
     assert "\n" not in value, (
-        f"{FORK_FALLBACK_JOB[0]}:{FORK_FALLBACK_JOB[1]} has a line break inside "
+        f"{coordinate[0]}:{coordinate[1]} has a line break inside "
         f"its runs-on expression ({value!r}); the folded scalar's continuation "
         "line must sit at the same indent as the line above it"
     )
 
 
-def test_the_runner_expression_is_exactly_the_reviewed_one() -> None:
+@pytest.mark.parametrize("coordinate", sorted(FORK_FALLBACK_JOBS), ids=case_id)
+def test_the_runner_expression_is_exactly_the_reviewed_one(coordinate: tuple[str, str]) -> None:
     """Scenario: the fork guard is swapped for a plausible sibling field.
 
     Invariant: the guard and both arms equal the reviewed strings. Matching
@@ -265,10 +252,10 @@ def test_the_runner_expression_is_exactly_the_reviewed_one() -> None:
     exactly the same form that sends every fork pull request to a runner it
     cannot obtain, and every other pull request to the wrong place.
     """
-    value = str(runner_value(jobs()[FORK_FALLBACK_JOB]))
+    value = str(runner_value(jobs()[coordinate]))
     match = RUNNER_EXPRESSION.match(value)
     assert match is not None, (
-        f"{FORK_FALLBACK_JOB[0]}:{FORK_FALLBACK_JOB[1]} should declare the "
+        f"{coordinate[0]}:{coordinate[1]} should declare the "
         f"reviewed fork fallback expression; got {value!r}"
     )
     assert match["guard"] == HOSTED_GUARD, (

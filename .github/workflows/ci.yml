@@ -33,12 +33,8 @@ jobs:
     # https://github.com/leynos/wireframe/actions/runs/39038420830). That is
     # about 29% less per run for 3m40s more wall time.
     #
-    # The coverage action supplies a 180-second per-test deadline. The
-    # aggregate tests/compile_error.rs test builds and executes twelve
-    # trybuild fixtures under coverage; its cold nested build exceeded that
-    # deadline even after the ordinary tests completed. .config/nextest.toml
-    # extends only this test to eight minutes, preserves the ordinary
-    # deadline, and retains the ten-minute whole-run ceiling.
+    # Compiler-driving UI fixtures have a separate bounded step. Runtime
+    # coverage does not start their nested trybuild compilation.
     #
     # Disk is the margin to watch: the minimum free space on two vCPU was
     # 3,998 MiB, against 78,392 MiB on four.
@@ -62,14 +58,16 @@ jobs:
       ${{ (github.event.pull_request.head.repo.fork
       || github.event.pull_request.user.login == 'dependabot[bot]')
       && 'ubuntu-latest' || 'ubicloud-standard-2' }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: read
     env:
       CARGO_TERM_COLOR: always
       BUILD_PROFILE: debug
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@8e6a325765ba382691d1b1c65fcccf1fc1d1b00c
       - name: Install development backend and linker
@@ -80,6 +78,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y mold
           mold --version
+      # This compiler-driven suite is bounded separately from runtime coverage.
+      - name: Validate compile-time APIs
+        timeout-minutes: 30
+        run: make test-ui
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.

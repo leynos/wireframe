@@ -20,6 +20,32 @@ generated `lcov.info` report to Codecov using a pinned version of the Codecov
 GitHub Action (`18283e04ce6e62d37312384ff67231eb8fd56d24`, corresponding to
 v5.4.3) to make coverage visible across pull requests.
 
+## 1.1 Layer 0: Compile-Time API Boundary
+
+**Objective:** To verify that the public API rejects the code it is supposed to
+reject, and does so with the diagnostic the documentation promises. Runtime
+tests cannot observe this: an API that should fail to compile is, by
+construction, absent from any test binary that does compile.
+
+Two harnesses cover the boundary. `tests/compile_error.rs` drives trybuild
+fixtures in `tests/ui/` for the root crate, in both `pass` and `compile_fail`
+modes. `wireframe_testing/tests/loom_api_surface.rs` is compiled twice, once
+with `--cfg loom` and once without, to prove that Loom-only exports are absent
+from ordinary builds and present under instrumentation.
+
+`make test-ui` runs both harnesses. It runs in the required `build-test` job as
+a bounded step *without* coverage instrumentation, because the nested `cargo`
+invocations inside trybuild and the compile checks would otherwise report
+coverage for code no test executed. Both harnesses therefore carry
+`#![cfg(not(coverage))]`, and the coverage lane excludes only those two nested
+compiler drivers. The runtime suite around them stays instrumented and
+measured, so a green UI gate and a green coverage run answer different
+questions rather than duplicating each other.
+
+**Measurable Objective:** Every compile-fail fixture produces its committed
+`.stderr` diagnostic, both Loom polarity checks build, and no runtime test is
+excluded from coverage.
+
 ## 2. Layer 1: Foundational Correctness (Unit & Integration)
 
 **Objective:** To verify that each component behaves correctly in isolation and

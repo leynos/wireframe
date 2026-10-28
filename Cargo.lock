@@ -3621,7 +3621,6 @@ version = "0.1.0"
 dependencies = [
  "rstest",
  "stateright",
- "wireframe",
 ]
 
 [[package]]

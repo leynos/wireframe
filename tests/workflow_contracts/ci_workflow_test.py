@@ -208,8 +208,16 @@ def test_build_test_checks_out_at_the_default_depth() -> None:
     assert len(checkouts) == 1, (
         f"build-test should check out exactly once; found {len(checkouts)}"
     )
-    options = checkouts[0].get("with") or {}
+    checkout = checkouts[0]
+    uses = str(checkout.get("uses", ""))
+    assert re.fullmatch(r"actions/checkout@[0-9a-f]{40}", uses), (
+        f"build-test must pin checkout to a full commit SHA, got {uses!r}"
+    )
+    options = checkout.get("with") or {}
     assert isinstance(options, dict), "the checkout's with: must be a mapping"
+    assert options.get("persist-credentials") is False, (
+        "build-test checkout must not persist credentials for test builds"
+    )
     assert "fetch-depth" not in options, (
         "build-test must check out at the default depth; it sets fetch-depth "
         f"{options.get('fetch-depth')!r}, and nothing in the lane reads history"

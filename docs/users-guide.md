@@ -1568,6 +1568,58 @@ worker tasks.[^20][^37][^38] `ServerError` surfaces bind, factory-build, and
 application-preparation failures as typed errors so callers can react
 appropriately.[^21]
 
+## Metrics
+
+Wireframe's default `metrics` feature emits instrumentation through the
+`metrics` facade but does not install a global recorder. The Prometheus
+exporter is a development dependency of Wireframe, so applications that want
+Prometheus metrics must add `metrics-exporter-prometheus` as a direct
+dependency and install its recorder once during startup, before Wireframe
+begins emitting metrics:
+
+```rust,no_run
+use std::time::Duration;
+
+use metrics_exporter_prometheus::PrometheusBuilder;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let prometheus = PrometheusBuilder::new().install_recorder()?;
+
+    // Keep the handle: the upkeep task holds a clone of it.
+    let upkeep_handle = prometheus.clone();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(Duration::from_secs(5));
+            upkeep_handle.run_upkeep();
+        }
+    });
+
+    // Start the application after installing the recorder.
+    let _scrape_output = prometheus.render();
+    Ok(())
+}
+```
+
+Keep the returned handle where the application can expose or render the
+Prometheus output. Applications choose how to serve or otherwise collect it.
+
+Wireframe depends on the `tracing` facade, which emits events only when the
+application installs a subscriber; it does not ship one. `tracing-subscriber`
+was previously a runtime dependency of Wireframe and is now a development
+dependency, so an application that wants Wireframe's events must add
+`tracing-subscriber` itself and install a subscriber once during start-up,
+before the application begins emitting. Omit it and the instrumentation still
+compiles, but every event is discarded.
+
+`install_recorder` returns a `PrometheusHandle` but does **not** start the
+exporter's background upkeep task; only `PrometheusBuilder::build` and
+`PrometheusBuilder::install` spawn it. The task drains histogram buckets and
+other self-maintaining structures, so without it that storage grows for as long
+as no scrape triggers a render. Call `PrometheusHandle::run_upkeep` on a timer
+(for example, every five seconds, matching the exporter's own default
+interval), or serve metrics through `PrometheusBuilder::build`/`install` and
+let the exporter own the task.
+
 ## Client runtime
 
 `WireframeClient` provides a first-class client runtime that mirrors the
