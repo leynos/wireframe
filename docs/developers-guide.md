@@ -1495,7 +1495,7 @@ of public items `const fn`, and each family has a fixture that calls it from a
 | `tests/ui/app_const_api.rs`          | app configuration and packet constructors            |
 | `tests/ui/codec_shared_const_api.rs` | codec, recovery, and middleware constructors         |
 | `tests/ui/fragment_const_api.rs`     | fragmentation configuration                          |
-| `tests/ui/server_const_api.rs`       | push-queue builder, `ConnectionId`, and codec access |
+| `tests/ui/server_const_api.rs`       | push-queue builder, `ConnectionId`, codec, and error |
 
 When a new `const fn` joins the public surface, extend the fixture that owns
 that family instead of adding a parallel one. Fixtures must construct their
@@ -1503,9 +1503,10 @@ values in a way the compiler accepts: a `const fn` cannot call a non-const
 constructor such as `Default::default`, cannot access a private field, and
 cannot evaluate a destructor that is not `const`. Pass such values in as
 parameters; the callee's `const`-ness is the property under test, not the
-argument. Some bounds, such as `PushQueuesBuilder`'s frame parameter, are bound
-by a crate-private trait, so a downstream fixture names a concrete type like
-`Vec<u8>` rather than a generic parameter.
+argument. `PushQueuesBuilder`'s frame parameter is the exception worth
+remembering: `FrameLike` is crate-visible, but its blanket implementation makes
+the callable bound `Send + 'static`, so a fixture writes a generic parameter
+and never names the trait.
 
 Trybuild cannot show that a feature-gated item is *absent*. It forwards the
 harness's own feature list to the generated fixture, and this workspace's
