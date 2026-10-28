@@ -1955,12 +1955,12 @@ the configured permits can serve them, and a rising `outcome="error"` rate on
 the `permit_race` mode means slots are failing instead of granting capacity.
 
 When the asynchronous probe finds every slot busy,
-`wireframe_pool_permit_races_total` records a blocked race with
-`outcome="started"`. It records one terminal outcome: `granted`, `shutdown`,
-`error`, or `cancelled` when the acquisition is dropped before completion.
-`wireframe_pool_permit_race_duration_seconds` is a histogram of blocked-race
-waits in seconds with those terminal outcome labels. Immediate probes that find
-capacity do not start a blocked-race observation.
+`wireframe_pool_permit_races_started_total` counts the start of a blocked race.
+`wireframe_pool_permit_races_total` records one terminal outcome: `granted`,
+`shutdown`, `error`, or `cancelled` when the acquisition is dropped before
+completion. `wireframe_pool_permit_race_duration_seconds` is a histogram of
+blocked-race waits in seconds with those terminal outcome labels. Immediate
+probes that find capacity do not start a blocked-race observation.
 
 Compare the rates of starts and terminal outcomes to investigate races that
 remain active, and graph duration and cancellation rates to understand

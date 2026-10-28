@@ -71,7 +71,10 @@ pub(crate) fn inc_pool_pending_response_discard() {}
 /// ```
 pub const POOL_ACQUISITIONS: &str = "wireframe_pool_acquisitions_total";
 
-/// Counter of blocked permit races, labelled by `started`, `granted`,
+/// Counter of blocked permit races that have started.
+pub const POOL_PERMIT_RACES_STARTED: &str = "wireframe_pool_permit_races_started_total";
+
+/// Counter of completed blocked permit races, labelled by `granted`,
 /// `shutdown`, `error`, or `cancelled` outcome.
 pub const POOL_PERMIT_RACES: &str = "wireframe_pool_permit_races_total";
 
@@ -118,7 +121,7 @@ impl<'a> PoolPermitRaceGuard<'a> {
         shutdown: &'a AtomicBool,
         clock: &'a (dyn Fn() -> Instant + Send + Sync),
     ) -> Self {
-        counter!(POOL_PERMIT_RACES, "outcome" => "started").increment(1);
+        counter!(POOL_PERMIT_RACES_STARTED).increment(1);
         Self {
             shutdown,
             started: clock(),

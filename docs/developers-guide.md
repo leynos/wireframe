@@ -534,8 +534,9 @@ or `permit_race`) and `outcome` (`granted`, `exhausted`, `shutdown`, or
 does not increment this counter. Saturation and shutdown remain observable
 without adding per-slot or caller identifiers.
 
-`wireframe_pool_permit_races_total` counts blocked race starts and their
-`granted`, `shutdown`, `error`, or `cancelled` outcomes.
+`wireframe_pool_permit_races_started_total` counts blocked race starts.
+`wireframe_pool_permit_races_total` counts their `granted`, `shutdown`,
+`error`, or `cancelled` terminal outcomes.
 `wireframe_pool_permit_race_duration_seconds` records their duration with the
 same terminal labels. Compare starts with terminal outcomes to inspect stuck
 races, and graph duration and cancellation rates to investigate contention. The

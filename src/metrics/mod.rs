@@ -37,6 +37,7 @@ pub use client_pool::{
     POOL_CONNECTION_DISCARDS,
     POOL_PERMIT_RACE_DURATION,
     POOL_PERMIT_RACES,
+    POOL_PERMIT_RACES_STARTED,
 };
 #[cfg(all(feature = "pool", not(loom)))]
 pub(crate) use client_pool::{

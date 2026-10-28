@@ -657,6 +657,11 @@ based on `ab630169`, with the benchmark scenarios already registered; the
 production race still used boxed `select_all` futures. The after-change run used
 `d29c51d`. The captures were taken on 2026-10-22.
 
+The earlier #639 allocation row of 2052 for four slots predates the #645
+`PoolCore` work. This comparison uses post-#645 worktrees on both sides, so its
+1407 and 1124 counts describe different revisions from that earlier row and
+should not be compared with its same-binary jitter range.
+
 The uncontended scenarios use the pool's immediate `try_acquire_permit` path,
 not the blocked race. Each timing cell gives the Criterion lower, estimate, and
 upper bounds in microseconds. Those bounds show the observed jitter across the

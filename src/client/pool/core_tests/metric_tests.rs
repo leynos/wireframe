@@ -190,11 +190,7 @@ fn free_async_probe_skips_blocked_race() {
     });
     observability.snapshot();
     observability
-        .assert_counter(
-            crate::metrics::POOL_PERMIT_RACES,
-            [("outcome", "started")],
-            0,
-        )
+        .assert_counter(crate::metrics::POOL_PERMIT_RACES_STARTED, [], 0)
         .expect("free probes must not start a blocked race");
 }
 
@@ -241,11 +237,7 @@ fn blocked_race_records_terminal_outcome_and_duration(
     });
     observability.snapshot();
     observability
-        .assert_counter(
-            crate::metrics::POOL_PERMIT_RACES,
-            [("outcome", "started")],
-            1,
-        )
+        .assert_counter(crate::metrics::POOL_PERMIT_RACES_STARTED, [], 1)
         .expect("the blocked race should record its start");
     observability
         .assert_counter(crate::metrics::POOL_PERMIT_RACES, [("outcome", outcome)], 1)
