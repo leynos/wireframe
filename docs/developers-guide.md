@@ -633,7 +633,15 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
 
 - `make check-fmt` verifies workspace formatting.
 - `make lint` runs rustdoc with warnings denied, `cargo clippy`, and
-  `whitaker --all -- --all-targets --all-features`.
+  `whitaker --all --workspace -- --all-targets --all-features`.
+
+  `make lint` is a thin prerequisite of the two halves, `lint-clippy` and
+  `lint-whitaker`, so either can be run alone. `.NOTPARALLEL: lint` keeps the
+  halves sequential even under `make -j lint`, because concurrent runs would
+  interleave their diagnostics. `--workspace` sits before `--` so it reaches
+  the inner `cargo check` that Whitaker drives: `whitaker --all` selects every
+  lint library, not every Cargo package, and the workspace's `default-members`
+  would otherwise leave the helper crates unchecked.
 - `make test` runs the main automated test suite with warnings treated as
   errors.
 
@@ -1154,14 +1162,20 @@ The standard Makefile gates cover all supported workspace members and targets:
     --all-targets --all-features $(BUILD_JOBS)
   ```
 
-- `make lint` runs these workspace-wide checks:
+- `make lint` runs these workspace-wide checks through `lint-clippy` and then
+  `lint-whitaker`; `.NOTPARALLEL: lint` keeps that order under `make -j`:
 
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" \
     $(CARGO) $(DEV_FAST) doc --workspace --no-deps
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) clippy $(CLIPPY_FLAGS)
-  RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
+  RUSTFLAGS="-D warnings" $(WHITAKER) --all --workspace -- --all-targets --all-features
   ```
+
+  `--workspace` must precede `--` so it reaches the inner `cargo check` that
+  Whitaker drives. `whitaker --all` selects every discovered lint library
+  rather than widening the Cargo package selection, so without the flag the
+  workspace's `default-members` would leave the helper crates unchecked.
 
 The shared `[workspace.lints.clippy]`, `[workspace.lints.rust]`, and
 `[workspace.lints.rustdoc]` tables are inherited by each member through
