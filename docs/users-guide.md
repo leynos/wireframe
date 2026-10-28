@@ -2410,19 +2410,21 @@ response, and a cancellation token.
 
 ### Compile-time queue and session configuration
 
-The queue builder's setters are `const fn`, so a complete queue configuration
-can be assembled by the compiler. `high_capacity`, `low_capacity`, `rate`,
+The queue builder's setters are `const fn`, so an existing builder can be
+configured by the compiler. `high_capacity`, `low_capacity`, `rate`,
 `unlimited`, `dlq_log_every_n`, and `dlq_log_interval` all take `self` by value
-and return `Self`, which means a chain works unchanged inside a `const fn`:
+and return `Self`, which means a chain works unchanged inside a `const fn`. The
+builder itself is created at runtime, because `PushQueuesBuilder::default` and
+`PushQueues::builder` are ordinary functions:
 
 ```rust
 use std::time::Duration;
 
 use wireframe::push::PushQueuesBuilder;
 
-const fn configure(
-    builder: PushQueuesBuilder<Vec<u8>>,
-) -> PushQueuesBuilder<Vec<u8>> {
+const fn configure<F: Send + 'static>(
+    builder: PushQueuesBuilder<F>,
+) -> PushQueuesBuilder<F> {
     builder
         .high_capacity(8)
         .low_capacity(4)
@@ -2435,21 +2437,24 @@ let _ = builder;
 ```
 
 `unlimited` is the const shorthand for `rate(None)`, so a chain can also remove
-a rate limit that a previous layer installed. The builder's frame parameter is
-bound by a crate-private trait, so downstream code names a concrete frame type
-such as `Vec<u8>`; that bound is not part of the public surface.
+a rate limit that a previous layer installed. The frame parameter is declared
+with only `Send + 'static`, so downstream code stays generic over its own frame
+type and never names `FrameLike`. That trait is crate-visible, and its blanket
+implementation satisfies the bound for every `Send + 'static` type.
 
 The same const treatment covers `ConnectionId::{new, as_u64}`,
 `LengthDelimitedFrameCodec::max_frame_length`, `ConnectionInfo::peer_addr`,
-`WireframeError::{from_io, from_codec}`, and `WireframeError::is_clean_close`.
-A const `WireframeError` value is only usable where its destructor is not
-required, because an `io::Error` payload has no const destructor; construct one
-inside a `const fn` whose result is a plain value. `PushQueuesBuilder::default`
-and `PushQueues::builder` remain ordinary functions, so build the pending value
-at runtime and pass it into the const chain, as above.
+`WireframeError::{from_io, from_codec}`, and `WireframeError::is_clean_close`. A
+`WireframeError` has a destructor that cannot run in a `const fn`, so a const
+function may borrow an existing error or return a newly built one, but it can
+never drop one. That is why the `from_io` payload arrives as a parameter and
+the result is returned by value.
 
-`tests/ui/server_const_api.rs` compiles these calls inside `const fn` bodies,
-so a setter that loses `const` fails the build rather than silently regressing.
+`tests/ui/server_const_api.rs` compiles these calls inside `const` items and
+`const fn` bodies, so a method that loses `const` fails the build rather than
+silently regressing. The fixture covers the builder setters, both
+`ConnectionId` accessors, `max_frame_length`, `peer_addr`, and the two error
+constructors; anything not listed there has no compile-time guard yet.
 
 `FairnessConfig` and `FairnessTracker` limit consecutive high-priority frames
 and optionally enforce a time slice. Resetting the tracker after low-priority
