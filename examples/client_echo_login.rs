@@ -31,7 +31,10 @@ type Client = WireframeClient<BincodeSerializer, RewindStream<TcpStream>, ()>;
 
 /// Installs the default formatter once, leaving embedding applications free to
 /// provide their own subscriber when this example is reused.
-fn init_tracing() { let _ = tracing_subscriber::fmt::try_init(); }
+fn init_tracing() {
+    // A host embedding this example may already own the global subscriber.
+    let _subscriber_result = tracing_subscriber::fmt::try_init();
+}
 
 /// Returns the address used by the companion echo server.
 fn server_addr() -> ExampleResult<SocketAddr> { Ok("127.0.0.1:7878".parse()?) }

@@ -6,6 +6,7 @@
 use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
+use mockable::{DefaultEnv, Env};
 use tokio::signal;
 use tracing::{info, warn};
 use wireframe::{
@@ -104,9 +105,9 @@ fn build_app() -> wireframe::app::Result<App> {
         .route(1, Arc::new(handle_packet))
 }
 
-/// Read and validate the listener address, reporting malformed configuration.
-fn parse_server_addr() -> std::io::Result<SocketAddr> {
-    let addr_str = std::env::var("SERVER_ADDR").unwrap_or_else(|_| DEFAULT_ADDR.to_string());
+/// Validate a listener address, falling back when the environment lookup fails.
+fn parse_server_addr(addr: &Result<String, std::env::VarError>) -> std::io::Result<SocketAddr> {
+    let addr_str = addr.as_deref().unwrap_or(DEFAULT_ADDR);
     addr_str.parse().map_err(|error| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -120,7 +121,7 @@ async fn run() -> std::io::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
     let app = build_app().map_err(|error| std::io::Error::other(error.to_string()))?;
     let server = WireframeServer::from_app(app)
-        .bind(parse_server_addr()?)
+        .bind(parse_server_addr(&DefaultEnv.raw("SERVER_ADDR"))?)
         .map_err(|error| std::io::Error::other(error.to_string()))?;
     server
         .run_with_shutdown(async {
@@ -138,4 +139,43 @@ fn main() -> std::io::Result<()> {
         .enable_all()
         .build()?
         .block_on(run())
+}
+
+#[cfg(test)]
+mod tests {
+    //! Verifies listener address parsing without mutating the process environment.
+
+    use std::{env::VarError, ffi::OsString, io, net::SocketAddr};
+
+    use rstest::rstest;
+
+    use super::{DEFAULT_ADDR, parse_server_addr};
+
+    #[rstest]
+    #[case::missing(VarError::NotPresent)]
+    #[case::non_unicode(VarError::NotUnicode(OsString::from("raw value")))]
+    fn uses_default_when_lookup_fails(#[case] error: VarError) -> Result<(), io::Error> {
+        let addr = parse_server_addr(&Err(error))?;
+        assert_eq!(addr.to_string(), DEFAULT_ADDR);
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_configured_address() -> Result<(), io::Error> {
+        let addr = parse_server_addr(&Ok("127.0.0.1:9000".to_string()))?;
+        assert_eq!(addr, SocketAddr::from(([127, 0, 0, 1], 9000)));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_malformed_configured_address() -> Result<(), io::Error> {
+        let error = parse_server_addr(&Ok("not-an-address".to_string()))
+            .expect_err("malformed configured address must fail");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(
+            error.to_string(),
+            "SERVER_ADDR must be a valid socket address: invalid socket address syntax"
+        );
+        Ok(())
+    }
 }

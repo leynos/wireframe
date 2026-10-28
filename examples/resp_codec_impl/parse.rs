@@ -49,7 +49,7 @@ const MAX_ARRAY_ELEMENTS: usize = 1024;
 const MAX_RECURSION_DEPTH: usize = 64;
 
 /// Count the number of decimal digits required to represent a value.
-fn decimal_digits(mut value: usize) -> usize {
+const fn decimal_digits(mut value: usize) -> usize {
     let mut digits = 1;
     while value >= 10 {
         value = value.div_euclid(10);
@@ -71,7 +71,7 @@ struct ParseContext<'a> {
 
 impl<'a> ParseContext<'a> {
     /// Capture the immutable buffer view and limits for one parser operation.
-    fn new(buf: &'a BytesMut, start: usize, max_frame_length: usize) -> Self {
+    const fn new(buf: &'a BytesMut, start: usize, max_frame_length: usize) -> Self {
         Self {
             buf,
             start,
@@ -223,9 +223,9 @@ fn parse_bulk_length(
         return Ok(Some((BulkLength::Null, next)));
     }
 
-    let len = usize::try_from(len)
+    let payload_length = usize::try_from(len)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "bulk length too large"))?;
-    Ok(Some((BulkLength::Sized(len), next)))
+    Ok(Some((BulkLength::Sized(payload_length), next)))
 }
 
 /// Validate a bulk payload without consuming incomplete input.
@@ -307,19 +307,19 @@ fn parse_array(
             "invalid negative array length",
         ));
     }
-    let count = usize::try_from(count)
+    let element_count = usize::try_from(count)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "array too large"))?;
     // Limit element count to prevent allocation-based DoS. The cumulative
     // byte validation at the end of this function enforces the actual
     // byte-budget constraint.
-    if count > MAX_ARRAY_ELEMENTS {
+    if element_count > MAX_ARRAY_ELEMENTS {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "array element count exceeds limit",
         ));
     }
-    let mut frames = Vec::with_capacity(count);
-    for _ in 0..count {
+    let mut frames = Vec::with_capacity(element_count);
+    for _ in 0..element_count {
         let Some((frame, consumed)) = parse_frame_at(buf, cursor, max_frame_length, depth + 1)?
         else {
             return Ok(None);
