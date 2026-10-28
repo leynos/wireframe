@@ -76,6 +76,13 @@ fn when_transition_final_continuation(
     budget_transitions_world.send_final_continuation_frame(key, sequence, &body)
 }
 
+#[when("ready transition payloads are collected")]
+fn when_ready_transition_payloads_collected(
+    budget_transitions_world: &mut BudgetTransitionsWorld,
+) -> TestResult {
+    budget_transitions_world.collect_ready_payloads()
+}
+
 // ---------------------------------------------------------------------------
 // Then
 // ---------------------------------------------------------------------------
@@ -97,7 +104,7 @@ fn then_transition_payload_received(
 
 #[then("no transition payload is available before virtual time advances")]
 fn then_no_transition_payload_available(
-    budget_transitions_world: &mut BudgetTransitionsWorld,
+    budget_transitions_world: &BudgetTransitionsWorld,
 ) -> TestResult {
     budget_transitions_world.assert_no_payload_ready()
 }

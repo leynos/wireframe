@@ -1,5 +1,4 @@
-//! Behavioural fixture for budget pressure transitions and dimension
-//! interaction scenarios (8.3.6).
+//! Behavioural fixture for budget pressure and dimension interactions (8.3.6).
 
 use std::{fmt, future::Future, num::NonZeroUsize, str::FromStr, time::Duration};
 
@@ -27,8 +26,7 @@ const BUFFER_CAPACITY: usize = 512;
 const SPIN_ATTEMPTS: usize = 64;
 const SERVER_JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Parsed as
-/// "`timeout_ms` / `per_message` / `per_connection` / `in_flight`".
+/// Parsed as "`timeout_ms` / `per_message` / `per_connection` / `in_flight`".
 #[derive(Clone, Copy, Debug)]
 pub struct TransitionConfig {
     pub timeout_ms: u64,
@@ -51,8 +49,7 @@ impl FromStr for TransitionConfig {
     }
 }
 
-/// Runtime-backed fixture that drives inbound assembly with memory budgets
-/// and validates pressure-level transitions and dimension interactions.
+/// Drives inbound assembly and validates budget pressure and dimension interactions.
 pub struct BudgetTransitionsWorld {
     runtime: Option<tokio::runtime::Runtime>,
     runtime_error: Option<String>,
@@ -268,8 +265,7 @@ impl BudgetTransitionsWorld {
         self.spin_runtime()
     }
 
-    /// Assert that the connection terminated with an `InvalidData` error
-    /// (the kind produced by budget enforcement).
+    /// Assert that budget enforcement terminated the connection with `InvalidData`.
     pub fn assert_connection_aborted(&mut self) -> TestResult {
         self.spin_runtime()?;
         self.drain_ready_payloads()?;
@@ -311,10 +307,14 @@ impl BudgetTransitionsWorld {
         .into())
     }
 
-    /// Assert that no completed payload is available yet.
-    pub fn assert_no_payload_ready(&mut self) -> TestResult {
+    /// Drive ready runtime work and record the payloads available without waiting.
+    pub fn collect_ready_payloads(&mut self) -> TestResult {
         self.spin_runtime()?;
-        self.drain_ready_payloads()?;
+        self.drain_ready_payloads()
+    }
+
+    /// Assert that the recorded observation contains no completed payload.
+    pub fn assert_no_payload_ready(&self) -> TestResult {
         if self.observed_payloads.is_empty() {
             return Ok(());
         }

@@ -1508,6 +1508,16 @@ runtime flavour in their constructor. Do not create another runtime inside a
 step or call `block_on` while already inside a Tokio runtime. See the
 [migration plan](execplans/adopt-rstest-bdd-v0-6-0.md) for details.
 
+The budget-cleanup, budget-transition, memory-backpressure and inbound assembly
+BDD fixtures use the test-only
+[`FrameProcessingAssembler`](../tests/fixtures/frame_processing_assembler.rs)
+to signal after `parse_frame_header` succeeds. Their
+`wait_for_frame_processed()` helpers await that signal with a timeout, so
+timing scenarios can advance Tokio virtual time after the server has parsed a
+frame header, rather than after the client merely wrote bytes to the stream.
+The signal marks header parsing only; it does not mean the complete message has
+reached its handler.
+
 ### Non-zero test values
 
 [`tests/support/non_zero.rs`](../tests/support/non_zero.rs) defines the shared
