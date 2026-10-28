@@ -569,10 +569,16 @@ the following steps:
 
 2. For each step in the scenario (according to the `Given‑When‑Then` sequence),
    look up a matching step function by `(keyword, pattern)` in the registry. A
-   missing step causes the macro to emit a compile‑time error such as
-   `No matching step definition found for: Given an undefined step`, allowing
-   detection of incomplete implementations before tests run. Multiple matching
-   definitions likewise produce an error.
+   missing step is reported at runtime unless compile-time validation is
+   enabled. Both validation features are disabled by default. The
+   `compile-time-validation` feature emits a compile-time warning for missing
+   local definitions; `strict-compile-time-validation` implies it and also
+   turns missing local definitions into compile errors. For example, a
+   diagnostic may read
+   `No matching step definition found for 'Given an undefined step'`. With
+   compile-time validation enabled, multiple matching local definitions produce
+   an ambiguity error. At runtime, the registry prefers an exact pattern, then
+   selects the most specific matching pattern.
 
 3. Invoke the registered step function with the `StepContext` so that fixtures
    are available inside the step.
