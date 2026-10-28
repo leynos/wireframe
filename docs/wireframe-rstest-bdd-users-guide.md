@@ -745,7 +745,7 @@ enables test code to `.await` async operations while preserving the
 ### Using `#[scenario]` with async
 
 Declare the test function as `async fn` and add
-`#[tokio::test(flavor = "current_thread")]` before the `#[scenario]` attribute.
+`#[tokio::test(flavor = "current_thread")]` after the `#[scenario]` attribute.
 The macro detects the async signature and generates an async step executor:
 
 ```rust,no_run
