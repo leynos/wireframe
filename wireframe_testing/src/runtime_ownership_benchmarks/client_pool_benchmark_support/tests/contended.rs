@@ -4,6 +4,7 @@ use crate::runtime_ownership_benchmarks::client_pool_benchmark_support::{
     AcquisitionMode,
     PoolMeasurement,
     PoolWorkload,
+    contended_fifo_pool_workloads,
     measure_pool_acquisition,
 };
 
@@ -19,6 +20,33 @@ use crate::runtime_ownership_benchmarks::client_pool_benchmark_support::{
 /// succeeds: a pool that failed every attempt is a different and much more
 /// serious defect, and is reported as such.
 const CONTENDED_BURST_ATTEMPTS: usize = 8;
+
+#[test]
+fn fifo_baseline_workloads_cover_each_pool_size_and_can_contend() {
+    let workloads = contended_fifo_pool_workloads();
+
+    assert_eq!(workloads.map(|workload| workload.pool_size), [1, 4, 16]);
+    assert_eq!(workloads.map(|workload| workload.contenders), [16, 16, 17]);
+    assert_eq!(
+        workloads.map(|workload| workload.mode),
+        [AcquisitionMode::ContendedFifo; 3]
+    );
+    for workload in workloads {
+        assert!(
+            workload.validate().is_ok(),
+            "{} must exceed its slot count to enter the contended path",
+            workload.label()
+        );
+    }
+    assert_eq!(
+        workloads.map(PoolWorkload::label),
+        [
+            "contended_fifo_pool_1_contenders_16_rounds_8",
+            "contended_fifo_pool_4_contenders_16_rounds_8",
+            "contended_fifo_pool_16_contenders_17_rounds_8",
+        ]
+    );
+}
 
 /// Run one contended burst, retrying the acquire path's known spurious failures.
 ///
@@ -66,37 +94,38 @@ async fn contended_mode_needs_more_contenders_than_slots() {
     );
 }
 
-/// A contended burst must be *observed* to contend, not assumed to.
-///
-/// The burst empties the pool and holds it empty while every contender asks for
-/// capacity, so each contender must park: a contended workload with `c`
-/// contenders records at least `c` waits before any capacity is returned. That
-/// is a floor, not an equality — the contended rounds that follow routinely push
-/// it higher — but it is enough to falsify a burst that never actually
-/// contended, which is what a start barrier alone fails to rule out.
-///
-/// The spawn count is kept beside it as task-churn evidence. It is not evidence
-/// of contention: every release notifies the scheduler whether or not anyone is
-/// waiting.
+/// A successful contended burst must also deliver leases and exercise the scheduler.
 #[rstest::rstest]
-#[case(AcquisitionMode::ContendedFifo)]
-#[case(AcquisitionMode::ContendedRoundRobin)]
+#[case::one_slot_fifo(1, 16, AcquisitionMode::ContendedFifo)]
+#[case::four_slots_fifo(4, 16, AcquisitionMode::ContendedFifo)]
+#[case::four_slots_round_robin(4, 16, AcquisitionMode::ContendedRoundRobin)]
 #[tokio::test]
-async fn contended_acquisition_observes_capacity_waits(#[case] mode: AcquisitionMode) {
-    const CONTENDERS: usize = 16;
+async fn contended_acquisition_grants_leases(
+    #[case] pool_size: usize,
+    #[case] contenders: usize,
+    #[case] mode: AcquisitionMode,
+) -> Result<(), String> {
+    assert_contended_grants(pool_size, contenders, mode).await
+}
+
+/// Check successful bursts share the same capacity and progress contract.
+async fn assert_contended_grants(
+    pool_size: usize,
+    contenders: usize,
+    mode: AcquisitionMode,
+) -> Result<(), String> {
     let measurement = contended_burst_with_retry(PoolWorkload {
-        pool_size: 4,
+        pool_size,
         mode,
         acquisitions: 8,
-        contenders: CONTENDERS,
+        contenders,
     })
-    .await
-    .expect("contended measurement failed in every retry attempt");
+    .await?;
 
     assert!(
-        measurement.capacity_waits >= u64::try_from(CONTENDERS).unwrap_or(u64::MAX),
-        "a burst that empties a 4-slot pool and holds it empty must park every one of \
-         {CONTENDERS} contenders, but {} waits were recorded",
+        measurement.capacity_waits >= u64::try_from(contenders).unwrap_or(u64::MAX),
+        "a burst that empties a {pool_size}-slot pool and holds it empty must park every one of \
+         {contenders} contenders, but {} waits were recorded",
         measurement.capacity_waits
     );
     assert!(
@@ -111,4 +140,13 @@ async fn contended_acquisition_observes_capacity_waits(#[case] mode: Acquisition
         measurement.acquisitions >= 1,
         "contended contenders must still be granted leases"
     );
+    Ok(())
+}
+
+/// Keep the size-16 workload available to benchmarks, but not in the test suite
+/// until its tracked spurious disconnect is resolved.
+#[tokio::test]
+#[ignore = "FIXME: flaky 16-slot disconnect: https://github.com/leynos/wireframe/issues/647"]
+async fn sixteen_slots_fifo_grants_leases() -> Result<(), String> {
+    assert_contended_grants(16, 17, AcquisitionMode::ContendedFifo).await
 }

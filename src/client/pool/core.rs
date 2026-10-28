@@ -2,28 +2,21 @@
 
 use std::{
     future::Future,
-    pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-    },
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-use futures::future::select_all;
+use futures::stream::{FuturesUnordered, StreamExt};
 use tokio::sync::{Notify, OwnedSemaphorePermit};
 
 use super::slot::PoolSlot;
 use crate::{
     client::ClientError,
-    metrics::{PoolAcquisitionMode, PoolAcquisitionOutcome},
+    metrics::{PoolAcquisitionMode, PoolAcquisitionOutcome, PoolPermitRaceGuard},
     serializer::Serializer,
 };
 
 /// Result of selecting a slot while retaining its independent admission token.
 pub(crate) type SlotPermit = (usize, OwnedSemaphorePermit);
-
-/// Owned future used by the existing permit race.
-type SlotPermitFuture = Pin<Box<dyn Future<Output = Result<SlotPermit, ClientError>> + Send>>;
 
 /// One shared root for the pool's fixed physical slots and shutdown state.
 pub(crate) struct PoolCore<S, P, C>
@@ -138,9 +131,16 @@ where
         }
     }
 
-    /// Race slot permits and return the first available capacity or error.
-    pub(crate) async fn acquire_slot_permit(self: &Arc<Self>) -> Result<SlotPermit, ClientError> {
-        let result = self.acquire_slot_permit_inner().await;
+    /// Probe rotated slots before racing borrowed futures over blocked slots.
+    ///
+    /// A free slot at the rotated starting point wins before any waiters are
+    /// registered. If every slot is full, the race futures borrow the stable
+    /// slot storage; when polled, each future registers one FIFO waiter on its
+    /// semaphore. The serial service worker runs at most one race at a time for
+    /// the pool scheduler.
+    pub(crate) async fn acquire_slot_permit(&self) -> Result<SlotPermit, ClientError> {
+        let mut race = None;
+        let result = self.acquire_slot_permit_inner(&mut race).await;
         let outcome = match &result {
             Ok(_) => PoolAcquisitionOutcome::Granted,
             Err(_) if self.is_shutdown() || self.slots.is_empty() => {
@@ -149,33 +149,35 @@ where
             Err(_) => PoolAcquisitionOutcome::Error,
         };
         crate::metrics::inc_pool_acquisition(PoolAcquisitionMode::PermitRace, outcome);
+        if let Some(race) = race {
+            race.finish(outcome);
+        }
         result
     }
 
-    /// Race one owned permit future per slot, keeping the core alive for each.
-    async fn acquire_slot_permit_inner(self: &Arc<Self>) -> Result<SlotPermit, ClientError> {
+    /// Try rotated slots before registering blocked semaphore waiters.
+    async fn acquire_slot_permit_inner<'a>(
+        &'a self,
+        race: &mut Option<PoolPermitRaceGuard<'a>>,
+    ) -> Result<SlotPermit, ClientError> {
         if self.is_shutdown() || self.slots.is_empty() {
             return Err(ClientError::disconnected());
         }
 
-        let waiters = self
-            .ordered_slot_indices()
-            .map(|slot_index| {
-                // Keep the existing owned-future race in this slice. The
-                // futures retain the core root instead of individual slots;
-                // the scoped-race follow-up can remove these per-slot clones.
-                let core = Arc::clone(self);
-                Box::pin(async move {
-                    let slot = core
-                        .slot(slot_index)
-                        .ok_or_else(ClientError::disconnected)?;
-                    let permit = slot.acquire_permit().await?;
-                    Ok((slot_index, permit))
-                }) as SlotPermitFuture
-            })
-            .collect::<Vec<SlotPermitFuture>>();
-        let (result, ..) = select_all(waiters).await;
-        let (slot_index, permit) = result?;
+        let ordered_indices = self.ordered_slot_indices();
+        let selected = ordered_indices.clone().find_map(|slot_index| {
+            self.slot(slot_index)?
+                .try_acquire_permit()
+                .map(|permit| (slot_index, permit))
+        });
+
+        let (slot_index, permit) = if let Some(selected) = selected {
+            selected
+        } else {
+            *race = Some(PoolPermitRaceGuard::start(&self.shutdown));
+            self.acquire_from_blocked_slots(ordered_indices).await?
+        };
+
         if self.is_shutdown() {
             drop(permit);
             Err(ClientError::disconnected())
@@ -184,7 +186,34 @@ where
         }
     }
 
-    /// Rotate slot indices without allocating or cloning slot owners.
+    /// Race borrowed FIFO acquisitions after every immediate probe fails.
+    async fn acquire_from_blocked_slots(
+        &self,
+        ordered_indices: impl Iterator<Item = usize>,
+    ) -> Result<SlotPermit, ClientError> {
+        // FuturesUnordered does not promise poll order, so the caller probes
+        // first to make a free rotated starting slot deterministic. Each
+        // future borrows the core's stable slots. Dropping the stream cancels
+        // losing semaphore acquisitions and releases any assigned permits.
+        let mut pending = FuturesUnordered::new();
+        for slot_index in ordered_indices {
+            let slot = self
+                .slot(slot_index)
+                .ok_or_else(ClientError::disconnected)?;
+            pending.push(async move {
+                let permit = slot.acquire_permit().await?;
+                Ok((slot_index, permit))
+            });
+        }
+        let result = pending
+            .next()
+            .await
+            .unwrap_or_else(|| Err(ClientError::disconnected()));
+        drop(pending);
+        result
+    }
+
+    /// Rotate slot indices once for the immediate probe and blocked race.
     ///
     /// The cursor is read once per attempt, and only for a non-empty pool, so
     /// startup rotation stays cheap and an empty pool consumes no cursor value.
@@ -193,7 +222,10 @@ where
     /// `len` only for power-of-two pool sizes. Reducing after the addition
     /// would therefore repeat one slot and skip another in a three- or
     /// five-slot pool once the cursor overflowed.
-    fn ordered_slot_indices(&self) -> impl Iterator<Item = usize> + '_ {
+    ///
+    /// Each call advances the starting cursor exactly once, even when a slot
+    /// is selected by the immediate probe.
+    fn ordered_slot_indices(&self) -> impl Iterator<Item = usize> + Clone + '_ {
         let len = self.slots.len();
         let start = if len == 0 {
             0
@@ -222,7 +254,7 @@ fn rotation_start(len: usize, cursor: usize) -> usize {
 /// `start` must be below `len`, which [`rotation_start`] guarantees, so the
 /// additions cannot overflow; `wrapping_rem` is the lint-permitted spelling of
 /// the remainder rather than an overflow workaround here.
-fn rotation_indices(len: usize, start: usize) -> impl Iterator<Item = usize> {
+fn rotation_indices(len: usize, start: usize) -> impl Iterator<Item = usize> + Clone {
     (0..len).map(move |offset| start.wrapping_add(offset).wrapping_rem(len.max(1)))
 }
 

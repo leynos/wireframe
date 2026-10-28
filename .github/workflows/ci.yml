@@ -95,7 +95,13 @@ jobs:
       - name: Install Whitaker
         uses: leynos/shared-actions/.github/actions/install-whitaker@8e6a325765ba382691d1b1c65fcccf1fc1d1b00c
       - name: Lint
-        run: make lint
+        # Dylint 6.0.1 expects a local master branch in its rust-clippy clone.
+        # Limit the compatibility wrapper to this step; all other Git calls
+        # pass through to the runner's normal Git executable.
+        run: |
+          export DYLINT_REAL_GIT="$(command -v git)"
+          export PATH="$GITHUB_WORKSPACE/scripts/dylint-git:$PATH"
+          make lint
       - name: Setup uv
         uses: astral-sh/setup-uv@18d369b23da25a81e9458561248e1aafff6a70fa
         with:
@@ -134,6 +140,8 @@ jobs:
       # about whether the gate ran.
       - name: Feature-gate compile checks
         run: make test-feature-gate
+      - name: Pool without metrics compile check
+        run: make test-pool-no-metrics
       # Coverage runs on pull requests only and drives the ratchet gate.
       # Main-branch coverage — the CodeScene upload plus the authoritative
       # ratchet baseline every pull request compares against — is produced

@@ -685,6 +685,38 @@ sequenceDiagram
 
 _Figure 2: Bounded waiter admission and saturation rejection._
 
+For screen readers: the sequence shows the scheduler asking `PoolCore` to
+acquire a slot permit. The core obtains the rotated slot order and probes each
+slot. If a permit is available, it returns immediately. If every slot is
+blocked, it races futures that borrow the stable slots; the first completed
+acquisition returns its slot index and permit, then dropping the stream cancels
+the losing acquisitions. The core returns the slot and permit or a disconnected
+error.
+
+```mermaid
+sequenceDiagram
+    participant Scheduler
+    participant PoolCore
+    participant PoolSlot
+    participant FuturesUnordered
+
+    Scheduler->>PoolCore: acquire_slot_permit()
+    PoolCore->>PoolCore: ordered_slot_indices()
+    PoolCore->>PoolSlot: try_acquire_permit() for rotated slots
+    alt permit available
+        PoolSlot-->>PoolCore: OwnedSemaphorePermit
+    else every slot blocked
+        PoolCore->>FuturesUnordered: push borrowed slot acquisitions
+        FuturesUnordered->>PoolSlot: acquire_permit() for each slot
+        PoolSlot-->>FuturesUnordered: first available permit
+        FuturesUnordered-->>PoolCore: slot_index and permit
+        PoolCore->>FuturesUnordered: drop(pending)
+    end
+    PoolCore-->>Scheduler: SlotPermit or disconnected
+```
+
+_Figure 3: Rotated slot-permit probing and the borrowed blocked-slot race._
+
 ## Decision record for 17.4.2
 
 - Decision: document only the currently reachable troubleshooting surface for

@@ -1934,12 +1934,14 @@ acquisition waits for a permit rather than reusing a slot that is already at its
 
 #### Client pool metrics
 
-When the `metrics` feature is enabled, every acquisition attempt increments
-`wireframe_pool_acquisitions_total`. The metric has two bounded labels, so pool
-activity cannot create new time series:
+When the `metrics` feature is enabled, synchronous attempts and completed
+asynchronous attempts increment `wireframe_pool_acquisitions_total`. An
+asynchronous acquisition cancelled while waiting is excluded. The metric has
+two bounded labels, so pool activity cannot create new time series:
 
 - `mode` records which path made the attempt: `immediate` for the synchronous
-  fast path, or `permit_race` for the asynchronous race across slots.
+  fast path, or `permit_race` for asynchronous acquisition, including its
+  immediate probe and any subsequent race across slots.
 - `outcome` records the result: `granted`, `exhausted`, `shutdown`, or `error`.
 
 `exhausted` only applies to `immediate`; the asynchronous path either gains a
@@ -1951,6 +1953,20 @@ The metric is a counter, so alert on its rate rather than its absolute value: a
 rising `outcome="exhausted"` rate means acquisitions are arriving faster than
 the configured permits can serve them, and a rising `outcome="error"` rate on
 the `permit_race` mode means slots are failing instead of granting capacity.
+
+When the asynchronous probe finds every slot busy,
+`wireframe_pool_permit_races_started_total` counts the start of a blocked race.
+`wireframe_pool_permit_races_total` records one terminal outcome: `granted`,
+`shutdown`, `error`, or `cancelled` when the acquisition is dropped before
+completion. `wireframe_pool_permit_race_duration_seconds` is a histogram of
+blocked-race waits in seconds with those terminal outcome labels. Immediate
+probes that find capacity do not start a blocked-race observation.
+
+Compare the rates of starts and terminal outcomes to investigate races that
+remain active, and graph duration and cancellation rates to understand
+contention. A `shutdown` outcome indicates pool closure; `cancelled` indicates
+an acquisition dropped while the pool was still open. These metrics use fixed
+labels and do not identify slots or callers.
 
 ### Client preamble exchange
 

@@ -541,12 +541,44 @@ are internal scaffolding removed before this ADR flips to Accepted.
 
 ### Phase 4: use scoped permit races
 
-Remove the per-slot `Arc<PoolCore>` clones and `'static` boxed slot futures
-from the current permit race
-([#646](https://github.com/leynos/wireframe/issues/646)). The current code
-clones the core once for each slot future. The scoped-race rework deliberately
-follows the actor phase so the races are written once against the actor's grant
-loop rather than twice.
+Use the fixed slot storage and index-based leases introduced by #645 to remove
+the per-slot `Arc<PoolCore>` clones and `'static` boxed futures from permit
+acquisition ([#646](https://github.com/leynos/wireframe/issues/646)). Advance
+the round-robin cursor once, probe the rotated slots without allocation, then
+use `FuturesUnordered` only when every slot is blocked. Each blocked future
+borrows its stable `PoolSlot` and registers a FIFO semaphore waiter when
+polled. Dropping the stream cancels losing acquisitions and releases any
+permits they acquired before the winner was selected.
+
+The immediate probe preserves deterministic start-slot behaviour because
+`FuturesUnordered` does not promise poll order. It allocates no storage
+proportional to pool size when a probe succeeds. A fully blocked race allocates
+one `FuturesUnordered` task node per slot. The serial service worker permits at
+most one active race per pool scheduler, and the scheduler keeps its existing
+fairness policy.
+
+The service worker retains its `Arc<PoolCore>` across `tokio::select!`, so the
+acquisition can borrow the core while shutdown and closed-sender branches
+remain active. This avoids a per-race or per-slot core clone.
+
+The race reuses the `rotation_start` and `rotation_indices` helpers from
+[#536](https://github.com/leynos/wireframe/issues/536). The iterator exposes
+`Clone` so the probe and blocked race share one rotated order after exactly one
+cursor advance, without materializing an index collection. The bounded
+acquisition metric wrappers introduced alongside those helpers remain around
+both immediate and asynchronous selection.
+
+The scheduler and metrics entry points use their respective `mod.rs` files,
+following the module layout established by #798. The metrics-disabled pool
+build uses the existing `tokio-util` `io` feature. Validation follows the
+repository-pinned Rust toolchain and CI action versions; the historical
+baseline captures retain the toolchain metadata from their runs.
+
+Blocked races record their starts, terminal outcomes, and durations. A guard
+records cancellation when the scheduler drops an unfinished acquisition; the
+immediate probe does not create a blocked-race observation. The guard borrows a
+monotonic clock: production uses `Instant`, and recorder-backed tests inject a
+deterministic clock to verify the duration value.
 
 ### Phase 5: integrate existing safety work
 
@@ -575,11 +607,18 @@ Complete or coordinate the following, plus any remaining useful scope from
   rather than passing.
 - Dropping all public handles without `close` eventually releases the pool
   core, including with the `JoinHandle` held by the non-shared close owner.
-- Loom or deterministic state-machine tests cover enqueue, capacity,
-  cancellation, deregistration, and shutdown races, naming at minimum: the
-  pending-flag RAII clear when a permit race is dropped mid-`select!`, and a
-  permit won exactly as its waiter's receiver drops. No loom coverage exists
-  for the pool today; the only loom suite exercises the push queues.
+- Deterministic current-thread tests manually poll pool permit races to cover
+  registration, simultaneous readiness, winner and loser permit ownership,
+  outer cancellation, and close. A saturated-core test verifies shutdown
+  rejects an acquisition before it queues behind slot waiters. This uses
+  Tokio's actual semaphore and scheduler primitives, whose queue registration
+  and drop behaviour a downstream Loom build cannot schedule. The Loom suites
+  cover push queues and connection-gauge transitions; they do not model the
+  client pool.
+- Bounded tests enumerate every non-empty readiness set and release order for
+  pools of two, three, and four slots. They check winner and loser capacity,
+  cancellation after release, shutdown after registration, and cancellation
+  after shutdown, using Tokio's actual semaphores.
 - A panic injected into the scheduler task surfaces as `SchedulerFailed`
   with the required log event and metric, not as a silent hang or a clean
   `PoolClosed`.

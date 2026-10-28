@@ -168,3 +168,84 @@ fn expect_pool_acquisition(observability: &mut ObservabilityHandle, mode: &str, 
         )
         .expect("the acquisition wrapper should record the expected label pair");
 }
+
+/// A free rotated probe must not start a blocked race.
+#[cfg(feature = "metrics")]
+#[test]
+fn free_async_probe_skips_blocked_race() {
+    let mut observability = ObservabilityHandle::new();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build a current-thread runtime");
+    metrics::with_local_recorder(observability.recorder(), || {
+        runtime.block_on(async {
+            let core = test_core(4);
+            for expected in 0..4 {
+                let (index, permit) = core.acquire_slot_permit().await.expect("free slot grants");
+                assert_eq!(index, expected);
+                drop(permit);
+            }
+        });
+    });
+    observability.snapshot();
+    observability
+        .assert_counter(crate::metrics::POOL_PERMIT_RACES_STARTED, [], 0)
+        .expect("free probes must not start a blocked race");
+}
+
+/// Exercise blocked-race metrics through the real acquisition future.
+#[cfg(feature = "metrics")]
+#[rstest]
+#[case::granted("granted", false)]
+#[case::shutdown("shutdown", false)]
+#[case::shutdown_drop("shutdown", true)]
+#[case::cancelled("cancelled", true)]
+#[test]
+fn blocked_race_records_terminal_outcome_and_duration(
+    #[case] outcome: &str,
+    #[case] drop_pending: bool,
+) {
+    let mut observability = ObservabilityHandle::new();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build a current-thread runtime");
+
+    metrics::with_local_recorder(observability.recorder(), || {
+        runtime.block_on(async {
+            let core = test_core(1);
+            let mut held = core
+                .slot(0)
+                .expect("the only slot should exist")
+                .try_acquire_permit();
+            assert!(held.is_some());
+            {
+                let mut acquisition = std::pin::pin!(core.acquire_slot_permit());
+                assert!(futures::poll!(acquisition.as_mut()).is_pending());
+                if outcome == "shutdown" {
+                    core.shutdown();
+                }
+                if !drop_pending {
+                    drop(held.take());
+                    let result = acquisition.as_mut().await;
+                    assert_eq!(result.is_ok(), outcome == "granted");
+                }
+            }
+            drop(held);
+        });
+    });
+    observability.snapshot();
+    observability
+        .assert_counter(crate::metrics::POOL_PERMIT_RACES_STARTED, [], 1)
+        .expect("the blocked race should record its start");
+    observability
+        .assert_counter(crate::metrics::POOL_PERMIT_RACES, [("outcome", outcome)], 1)
+        .expect("the blocked race should record its terminal outcome");
+    observability
+        .assert_histogram_recorded(
+            crate::metrics::POOL_PERMIT_RACE_DURATION,
+            [("outcome", outcome)],
+        )
+        .expect("the blocked race should record its duration");
+}

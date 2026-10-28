@@ -331,10 +331,10 @@ boundaries for Epic 635:
   phased client-pool ownership change. Phase 2 stores fixed slots by value in
   `PoolCore` and keeps scheduler state in `PoolSchedulerControl`; pools and
   handles retain both roots, while leases retain the core, a checked slot
-  index, a permit, and an optional control handle. The spawn-on-demand
-  scheduler and per-slot `Arc<PoolCore>` permit-race clones remain in this
-  intermediate phase. The persistent owner task and scoped permit race belong
-  to later phases.
+  index, a permit, and an optional control handle. Phase 4 probes the rotated
+  slots and races borrowed acquisitions when all slots are blocked. The
+  spawn-on-demand scheduler remains; a persistent owner task is planned for
+  [#647](https://github.com/leynos/wireframe/issues/647).
 
 The first implementation slice is now in place: consuming
 `WireframeApp::prepare().await` returns an immutable `PreparedApp` or a typed
@@ -521,14 +521,32 @@ of two: a wrapped `usize` differs from its true value by a multiple of
 reducing after the addition would repeat one slot and skip another once the
 cursor overflowed. An empty pool consumes no cursor value. The synchronous path
 borrows each slot in rotation order, copies the winning slot's index, and moves
-its permit into `PooledClientLease::new`; the asynchronous path boxes one
-permit future per index, each of which clones the shared `Arc<PoolCore>` rather
-than a slot. `src/client/pool/rotation_tests.rs` pins the ordering, the
-overflow cases, and the one-increment-per-attempt cursor contract. Every
-acquisition attempt also increments `wireframe_pool_acquisitions_total` with
-bounded `mode` (`immediate` or `permit_race`) and `outcome` (`granted`,
-`exhausted`, `shutdown`, or `error`) labels, so saturation and shutdown are
-observable without adding per-slot or caller identifiers.
+its permit into `PooledClientLease::new`. The asynchronous path borrows the
+core and probes the same rotation without allocation proportional to pool size.
+When all slots are blocked, `FuturesUnordered` races borrowed slot futures;
+dropping the stream cancels the losers and releases their permits. Each blocked
+race allocates a task node per slot. `src/client/pool/rotation_tests.rs` pins
+the ordering, the overflow cases, and the one-increment-per-attempt cursor
+contract. Synchronous acquisition attempts and completed asynchronous attempts
+increment `wireframe_pool_acquisitions_total` with bounded `mode` (`immediate`
+or `permit_race`) and `outcome` (`granted`, `exhausted`, `shutdown`, or
+`error`) labels. A blocked asynchronous acquisition cancelled before completion
+does not increment this counter. Saturation and shutdown remain observable
+without adding per-slot or caller identifiers.
+
+`wireframe_pool_permit_races_started_total` counts blocked race starts.
+`wireframe_pool_permit_races_total` counts their `granted`, `shutdown`,
+`error`, or `cancelled` terminal outcomes.
+`wireframe_pool_permit_race_duration_seconds` records their duration with the
+same terminal labels. Compare starts with terminal outcomes to inspect stuck
+races, and graph duration and cancellation rates to investigate contention. The
+metrics use no slot or caller identifiers; the immediate probe does not start a
+blocked-race observation.
+
+The `tokio-util` dependency enables `io` directly because request streaming uses
+`StreamReader`. This also keeps the pool build usable with the `metrics`
+feature disabled, without relying on feature unification from the metrics
+exporter.
 
 Each `SlotConnection` checkout starts armed. `dispatch_on_connection` disarms
 the guard only after the operation future returns; dropping an armed guard
@@ -636,10 +654,19 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
   `whitaker --all -- --all-targets --all-features`.
 - `make test` runs the main automated test suite with warnings treated as
   errors.
+- `make test-pool-no-metrics` checks the `pool,serializer-bincode` feature set
+  with default features disabled and warnings denied. The required `build-test`
+  CI job runs it in the `Pool without metrics compile check` step.
 
 Install Whitaker through the standalone installer described in the
 [Whitaker user's guide](whitaker-users-guide.md) so local linting matches
 continuous integration (CI).
+
+The CI lint step uses a scoped Git wrapper for Dylint 6.0.1: its driver build
+expects a local `master` branch in its `rust-clippy` clone, whose default
+branch is now `main`. The wrapper creates the expected local `master` reference
+after that clone and forwards other Git commands unchanged. Remove it when the
+Dylint dependency no longer assumes the old default branch.
 
 ### CodeScene coverage baseline
 

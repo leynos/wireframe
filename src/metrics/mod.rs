@@ -22,12 +22,23 @@ use metrics::{counter, gauge, histogram};
 
 mod client_pool;
 #[cfg(all(feature = "pool", not(loom)))]
-pub(crate) use client_pool::{PoolAcquisitionMode, PoolAcquisitionOutcome, inc_pool_acquisition};
+pub(crate) use client_pool::{
+    PoolAcquisitionMode,
+    PoolAcquisitionOutcome,
+    PoolPermitRaceGuard,
+    inc_pool_acquisition,
+};
 mod decode_rejections;
 mod server_startup;
 mod server_supervisor;
 
-pub use client_pool::{POOL_ACQUISITIONS, POOL_CONNECTION_DISCARDS};
+pub use client_pool::{
+    POOL_ACQUISITIONS,
+    POOL_CONNECTION_DISCARDS,
+    POOL_PERMIT_RACE_DURATION,
+    POOL_PERMIT_RACES,
+    POOL_PERMIT_RACES_STARTED,
+};
 #[cfg(all(feature = "pool", not(loom)))]
 pub(crate) use client_pool::{
     inc_pool_incomplete_operation_discard,
@@ -152,6 +163,7 @@ pub(crate) enum PreparationOutcome {
     Failure,
 }
 
+#[cfg(feature = "metrics")]
 impl PreparationOutcome {
     /// Return the stable metric label value for this preparation outcome.
     pub(crate) const fn as_str(self) -> &'static str {
@@ -171,6 +183,7 @@ pub enum Direction {
     Outbound,
 }
 
+#[cfg(feature = "metrics")]
 impl Direction {
     /// Supplies the bounded metric label value, avoiding call-site strings
     /// that could make inbound and outbound observations incomparable.
