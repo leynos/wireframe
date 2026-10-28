@@ -107,8 +107,8 @@ contended burst carries a timeout.
 
 Every figure below is a single run on the named machine at the sample budget
 the binaries pin (20 samples for timings, 10 for allocations). Criterion
-reports an interval, not a point; the figure quoted is the middle estimate,
-with the interval beside it so the run-to-run spread is visible.
+reports a point estimate with confidence-interval bounds; those bounds do not
+represent the observed spread between runs.
 
 A baseline without its revision is not reproducible, so each capture is named
 with the commit that produced it. Two captures are recorded here, and a table
@@ -650,8 +650,8 @@ at this scope, prefer the spawn count.
 ## Issue #646 permit-race comparison
 
 Both captures use `make bench-runtime-ownership` on the named machine and the
-same pool workloads: 256 uncontended acquire/release operations per timing
-sample, 20 Criterion samples, 20 contended bursts, and four iterations for
+same pool workloads: 256 uncontended acquire/release operations per benchmark
+iteration, 20 Criterion samples, 20 contended bursts, and four iterations for
 allocation observations. The pre-change run used the Phase 1 benchmark worktree
 based on `ab630169`, with the benchmark scenarios already registered; the
 production race still used boxed `select_all` futures. The after-change run used
@@ -663,9 +663,10 @@ The earlier #639 allocation row of 2052 for four slots predates the #645
 should not be compared with its same-binary jitter range.
 
 The uncontended scenarios use the pool's immediate `try_acquire_permit` path,
-not the blocked race. Each timing cell gives the Criterion lower, estimate, and
-upper bounds in microseconds. Those bounds show the observed jitter across the
-20 samples; they are not per-function measurements.
+not the blocked race. Each timing cell gives Criterion's lower confidence
+bound, point estimate, and upper confidence bound for the estimated
+per-iteration time in microseconds; these are not per-function measurements or
+sample extrema.
 
 | Slots | Before latency (lower / estimate / upper, µs) | After latency (lower / estimate / upper, µs) | Before allocations | After allocations |
 | ----- | --------------------------------------------- | -------------------------------------------- | ------------------ | ----------------- |
@@ -675,10 +676,11 @@ upper bounds in microseconds. Those bounds show the observed jitter across the
 
 Allocation counts cover four iterations of each burst. They include runtime and
 benchmark-harness work and do not attribute allocations to
-`acquire_slot_permit`. The source-level fast-path property is that
-`acquire_slot_permit` allocates nothing when its probe succeeds. When every
-slot is blocked, `FuturesUnordered` allocates one task node for each slot
-future.
+`acquire_slot_permit`. Permit selection allocates nothing when its probe
+succeeds; metrics-enabled acquisition recording may allocate a fixed label key.
+The captures predate the later acquisition instrumentation, so they do not
+measure that cost. When every slot is blocked, `FuturesUnordered` allocates one
+task node for each slot future.
 
 The contended distribution records successful bursts only; `outcomes` reports
 successful bursts out of 20. Each distribution cell gives median, p90, and
