@@ -181,6 +181,40 @@ Behavioural details:
 - I/O failures, framing errors, and server task panics are all returned as
   `io::Error` values, so tests can assert on error handling.
 
+### Five-argument compatibility drivers
+
+Four published helpers take five parameters, which is one above the repository's
+`too-many-arguments-threshold = 4`:
+
+- `drive_with_fragments_with_capacity`
+- `drive_with_partial_fragments`
+- `drive_with_partial_frames_with_capacity`
+- `MessageAssemblySnapshot::new`
+
+All four are present in the published 0.3.0 archive, so none can change shape
+without breaking a consumer. They are resolved in two different ways, because
+they are two different kinds of API:
+
+- **Deprecated shims keep their signature.** The three drivers are already
+  `#[deprecated]` and already delegate to a four-argument preferred form
+  (`drive_with_fragments`, `drive_with_partial_frames`). Their expectation
+  carries a reason that names the compatibility commitment, so the lint finding
+  is scoped to the shim rather than excused across the crate.
+- **The live constructor is scheduled to change shape.**
+  `MessageAssemblySnapshot::new` is live and has no four-argument replacement,
+  so it keeps a reasoned expectation until a named observation struct can
+  replace the parameter list. Its two trailing `usize` counts are a data clump:
+  seven of the nine in-repo call sites pass `0, 0`, which is what makes the
+  grouping concrete. The deprecation-free path is to introduce
+  `MessageAssemblyObservation<'a>` (with `Default` for the two counts), accept
+  it as one parameter, and retain the published five-argument signature as a
+  deprecated delegating shim.
+
+Neither arrangement weakens the threshold: a new five-argument API in this
+crate still fails Clippy. What the expectations record is that these four
+parameter lists are published surface fixed by compatibility, not accidental
+width.
+
 ### Slow-I/O drivers
 
 Roadmap item `8.5.2` extends the in-memory harness with explicit slow reader
