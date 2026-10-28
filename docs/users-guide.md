@@ -1578,10 +1578,21 @@ dependency and install its recorder once during startup, before Wireframe
 begins emitting metrics:
 
 ```rust,no_run
+use std::time::Duration;
+
 use metrics_exporter_prometheus::PrometheusBuilder;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let prometheus = PrometheusBuilder::new().install_recorder()?;
+
+    // Keep the handle: the upkeep task holds a clone of it.
+    let upkeep_handle = prometheus.clone();
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(Duration::from_secs(5));
+            upkeep_handle.run_upkeep();
+        }
+    });
 
     // Start the application after installing the recorder.
     let _scrape_output = prometheus.render();
@@ -1591,6 +1602,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Keep the returned handle where the application can expose or render the
 Prometheus output. Applications choose how to serve or otherwise collect it.
+
+`install_recorder` returns a `PrometheusHandle` but does **not** start the
+exporter's background upkeep task; only `PrometheusBuilder::build` and
+`PrometheusBuilder::install` spawn it. The task drains histogram buckets and
+other self-maintaining structures, so without it that storage grows for as long
+as no scrape triggers a render. Call `PrometheusHandle::run_upkeep` on a timer
+(for example, every five seconds, matching the exporter's own default
+interval), or serve metrics through `PrometheusBuilder::build`/`install` and
+let the exporter own the task.
 
 ## Client runtime
 
