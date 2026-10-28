@@ -48,6 +48,7 @@ impl fmt::Debug for MessageAssemblyInboundWorld {
 }
 
 impl Default for MessageAssemblyInboundWorld {
+    /// Create the world and retain runtime initialization errors for its fixture.
     fn default() -> Self {
         match tokio::runtime::Builder::new_current_thread()
             .enable_all()

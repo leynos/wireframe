@@ -111,6 +111,8 @@ pub struct ClientPreambleWorld {
 }
 
 impl Drop for ClientPreambleWorld {
+    /// Drop the client and request abortion of any remaining server task.
+    /// Task abortion is not awaited.
     fn drop(&mut self) {
         self.client.take();
         if let Some(server) = self.server.take() {

@@ -88,6 +88,7 @@ fn then_server_receives_preamble(
     Ok(())
 }
 
+/// Checks the success callback was invoked and propagates the server result.
 #[then("the client success callback is invoked")]
 fn then_success_callback_invoked(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
     if !client_preamble_world.success_invoked() {
@@ -98,6 +99,7 @@ fn then_success_callback_invoked(client_preamble_world: &mut ClientPreambleWorld
     Ok(())
 }
 
+/// Checks the acknowledgement is accepted and propagates the server result.
 #[then("the client receives an accepted acknowledgement")]
 fn then_receives_ack(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
     if !client_preamble_world.ack_accepted() {
@@ -117,6 +119,8 @@ fn then_timeout_error(client_preamble_world: &mut ClientPreambleWorld) -> TestRe
     Ok(())
 }
 
+/// Checks the client recorded a preamble read error and propagates the server
+/// result.
 #[then("the client fails with a preamble read error")]
 fn then_preamble_read_error(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
     if !client_preamble_world.was_preamble_read_error() {
@@ -136,6 +140,7 @@ fn then_failure_callback_invoked(client_preamble_world: &mut ClientPreambleWorld
     Ok(())
 }
 
+/// Checks the client connected and propagates the server result.
 #[then("the client connects successfully")]
 fn then_connects_successfully(client_preamble_world: &mut ClientPreambleWorld) -> TestResult {
     if !client_preamble_world.is_connected() {

@@ -127,6 +127,7 @@ fn then_markers_in_order(client_request_hooks_world: &mut ClientRequestHooksWorl
     Ok(())
 }
 
+/// Checks a captured frame exists and ends with the configured marker byte.
 #[then("the captured frame ends with the marker byte")]
 fn then_captured_frame_has_marker(
     client_request_hooks_world: &mut ClientRequestHooksWorld,

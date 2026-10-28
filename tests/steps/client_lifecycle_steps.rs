@@ -98,6 +98,7 @@ fn then_teardown_invoked_once(client_lifecycle_world: &mut ClientLifecycleWorld)
     assert_count_equals(client_lifecycle_world.teardown_count(), 1, "teardown")
 }
 
+/// Checks the teardown state matches setup and propagates the server result.
 #[then("the teardown callback receives the state from setup")]
 fn then_teardown_receives_state(client_lifecycle_world: &mut ClientLifecycleWorld) -> TestResult {
     let state = client_lifecycle_world.teardown_received_state();
@@ -111,6 +112,7 @@ fn then_teardown_receives_state(client_lifecycle_world: &mut ClientLifecycleWorl
     runtime.block_on(world.finish_server())
 }
 
+/// Checks that the error callback ran at least once.
 #[then("the error callback is invoked")]
 fn then_error_callback_invoked(client_lifecycle_world: &mut ClientLifecycleWorld) -> TestResult {
     let count = client_lifecycle_world.error_count();
@@ -120,6 +122,7 @@ fn then_error_callback_invoked(client_lifecycle_world: &mut ClientLifecycleWorld
     Ok(())
 }
 
+/// Checks that the preamble success callback was invoked.
 #[then("the preamble success callback is invoked")]
 fn then_preamble_success_invoked(client_lifecycle_world: &mut ClientLifecycleWorld) -> TestResult {
     if !client_lifecycle_world.preamble_success_invoked() {
@@ -128,6 +131,8 @@ fn then_preamble_success_invoked(client_lifecycle_world: &mut ClientLifecycleWor
     Ok(())
 }
 
+/// Checks the captured error is a Wireframe I/O error and propagates the
+/// server result.
 #[then("the client error is a Wireframe transport error")]
 fn then_client_error_is_wireframe_transport_error(
     client_lifecycle_world: &mut ClientLifecycleWorld,

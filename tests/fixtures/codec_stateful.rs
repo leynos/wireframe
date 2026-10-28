@@ -182,6 +182,7 @@ pub struct CodecStatefulWorld {
 }
 
 impl Drop for CodecStatefulWorld {
+    /// Request abortion of a remaining server task without awaiting it.
     fn drop(&mut self) {
         if let Some(server) = self.server.take() {
             server.handle.abort();

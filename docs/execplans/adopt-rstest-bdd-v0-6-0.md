@@ -331,6 +331,12 @@ byte intact. Wireframe's previous adapted guide is preserved separately at
   the full workspace test suite. Formatting, lint, UI, doctest, feature-gate,
   Loom, workflow contracts, Rust 1.95, Markdown, spelling, and Mermaid checks
   also passed. Review confirmation of these repairs remains pending.
+- [ ] (2026-10-28) CodeRabbit confirmed both guide threads, the clock and
+  module comments, and the compile-time UI coverage on `c902f62a`. Its
+  independent docstring audit identified nine step functions and five trait
+  methods for further documentation. Verified their assertion, cleanup, and
+  initialization contracts and documented each; reconcile the official coverage
+  row after the follow-up is published.
 
 ## Imported-document provenance
 
