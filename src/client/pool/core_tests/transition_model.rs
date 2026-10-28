@@ -254,3 +254,45 @@ async fn blocked_race_transition_schedules_preserve_capacity(
             .expect("the bounded race schedule must preserve capacity");
     }
 }
+
+/// Poll after one release while the remaining slot permits stay held.
+#[rstest]
+#[case(2)]
+#[case(4)]
+#[tokio::test(flavor = "current_thread")]
+async fn first_released_slot_wins_before_later_releases(#[case] slot_count: usize) {
+    for first in 0..slot_count {
+        let core = test_core(slot_count);
+        let mut held = hold_all_permits(&core)
+            .into_iter()
+            .map(Some)
+            .collect::<Vec<_>>();
+        let mut acquisition = std::pin::pin!(core.acquire_slot_permit());
+        assert!(futures::poll!(acquisition.as_mut()).is_pending());
+        drop(held.get_mut(first).expect("slot permit exists").take());
+        let (winner, permit) = tokio::time::timeout(Duration::from_secs(1), acquisition.as_mut())
+            .await
+            .expect("released slot must wake the race")
+            .expect("released slot grants");
+        assert_eq!(winner, first);
+        assert!(
+            core.slot(first)
+                .expect("winner exists")
+                .try_acquire_permit()
+                .is_none()
+        );
+        drop(held);
+        for index in 0..slot_count {
+            if index != winner {
+                assert!(
+                    core.slot(index)
+                        .expect("slot exists")
+                        .try_acquire_permit()
+                        .is_some()
+                );
+            }
+        }
+        drop(permit);
+        check_all_slots_available(&core).expect("every slot must retain capacity");
+    }
+}

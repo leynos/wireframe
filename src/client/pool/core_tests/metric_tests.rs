@@ -169,6 +169,35 @@ fn expect_pool_acquisition(observability: &mut ObservabilityHandle, mode: &str, 
         .expect("the acquisition wrapper should record the expected label pair");
 }
 
+/// A free rotated probe must not start a blocked race.
+#[cfg(feature = "metrics")]
+#[test]
+fn free_async_probe_skips_blocked_race() {
+    let mut observability = ObservabilityHandle::new();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build a current-thread runtime");
+    metrics::with_local_recorder(observability.recorder(), || {
+        runtime.block_on(async {
+            let core = test_core(4);
+            for expected in 0..4 {
+                let (index, permit) = core.acquire_slot_permit().await.expect("free slot grants");
+                assert_eq!(index, expected);
+                drop(permit);
+            }
+        });
+    });
+    observability.snapshot();
+    observability
+        .assert_counter(
+            crate::metrics::POOL_PERMIT_RACES,
+            [("outcome", "started")],
+            0,
+        )
+        .expect("free probes must not start a blocked race");
+}
+
 /// Exercise blocked-race metrics through the real acquisition future.
 #[cfg(feature = "metrics")]
 #[rstest]

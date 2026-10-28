@@ -5,7 +5,6 @@ use crate::runtime_ownership_benchmarks::client_pool_benchmark_support::{
     PoolMeasurement,
     PoolWorkload,
     contended_fifo_pool_workloads,
-    measure_contended_latency,
     measure_pool_acquisition,
 };
 
@@ -123,16 +122,15 @@ async fn contended_acquisition_observes_capacity_waits(
         acquisitions: 8,
         contenders,
     };
-    let latency = measure_contended_latency(workload, 1)
+    let measurement = contended_burst_with_retry(workload)
         .await
-        .expect("the sampling harness must finish");
-    let churn = latency.churn();
+        .expect("a contended burst must finish");
 
     assert!(
-        churn.capacity_waits >= u64::try_from(contenders).unwrap_or(u64::MAX),
+        measurement.capacity_waits >= u64::try_from(contenders).unwrap_or(u64::MAX),
         "a burst that empties a {pool_size}-slot pool and holds it empty must park every one of \
          {contenders} contenders, but {} waits were recorded",
-        churn.capacity_waits
+        measurement.capacity_waits
     );
 }
 
@@ -188,7 +186,7 @@ async fn assert_contended_grants(
 /// Keep the size-16 workload available to benchmarks, but not in the test suite
 /// until its tracked spurious disconnect is resolved.
 #[tokio::test]
-#[ignore = "FIXME: flaky 16-slot disconnect is tracked by issue #647"]
-async fn sixteen_slots_fifo_observes_capacity_waits() -> Result<(), String> {
+#[ignore = "FIXME: flaky 16-slot disconnect: https://github.com/leynos/wireframe/issues/647"]
+async fn sixteen_slots_fifo_grants_leases() -> Result<(), String> {
     assert_contended_grants(16, 17, AcquisitionMode::ContendedFifo).await
 }

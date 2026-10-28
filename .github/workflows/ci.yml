@@ -134,6 +134,8 @@ jobs:
       # about whether the gate ran.
       - name: Feature-gate compile checks
         run: make test-feature-gate
+      - name: Pool without metrics compile check
+        run: make test-pool-no-metrics
       # Coverage runs on pull requests only and drives the ratchet gate.
       # Main-branch coverage — the CodeScene upload plus the authoritative
       # ratchet baseline every pull request compares against — is produced

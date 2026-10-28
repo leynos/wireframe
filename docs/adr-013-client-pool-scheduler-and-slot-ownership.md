@@ -561,17 +561,16 @@ The service worker retains its `Arc<PoolCore>` across `tokio::select!`, so the
 acquisition can borrow the core while shutdown and closed-sender branches
 remain active. This avoids a per-race or per-slot core clone.
 
-The race reuses main's `rotation_start` and `rotation_indices` helpers from
+The race reuses the `rotation_start` and `rotation_indices` helpers from
 [#536](https://github.com/leynos/wireframe/issues/536). The iterator exposes
 `Clone` so the probe and blocked race share one rotated order after exactly one
 cursor advance, without materializing an index collection. The bounded
 acquisition metric wrappers introduced alongside those helpers remain around
 both immediate and asynchronous selection.
 
-After main moved self-named modules in #798, the scheduler and metrics entry
-points remain in their respective `mod.rs` files. Main also enables the
-`tokio-util` `io` feature, so the metrics-disabled pool build retains that
-upstream dependency setting without a separate branch change.
+The scheduler and metrics entry points use their respective `mod.rs` files,
+following the module layout established by #798. The metrics-disabled pool
+build uses the existing `tokio-util` `io` feature.
 
 Blocked races record their starts, terminal outcomes, and durations. A guard
 records cancellation when the scheduler drops an unfinished acquisition; the

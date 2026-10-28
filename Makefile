@@ -1,4 +1,4 @@
-.PHONY: help all clean test test-doc test-ui test-feature-gate bless-ui test-workflow-contracts test-loom doctest-benchmark
+.PHONY: help all clean test test-doc test-ui test-feature-gate test-pool-no-metrics bless-ui test-workflow-contracts test-loom doctest-benchmark
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
 .PHONY: install-kani check-kani-version install-verus run-verus test-verification kani \
@@ -122,6 +122,9 @@ test-ui: ## Run trybuild compile-time API tests
 # with its own lock file is the only way to check that direction.
 test-feature-gate: ## Verify feature-gated APIs are actually absent when disabled
 	./scripts/check-feature-gate.sh
+
+test-pool-no-metrics: ## Check the pool builds without metrics
+	$(CARGO) $(DEV_FAST) check --lib --no-default-features --features pool,serializer-bincode $(BUILD_JOBS)
 
 # Developer-only: review every changed snapshot; this target must not run in CI.
 bless-ui: ## Refresh trybuild snapshots for deliberate fixture changes
