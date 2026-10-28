@@ -836,14 +836,13 @@ usual `cargo test` command. Test functions created by the `#[scenario]` macro
 behave like other `rstest` tests; they honour `#[tokio::test]` or
 `#[async_std::test]` attributes if applied to the original function. Each
 scenario runs its steps sequentially in the order defined in the feature file.
-By default, missing steps emit a compile‑time warning and are checked again at
-runtime, so steps can live in other crates. Enabling the
-`compile-time-validation` feature on `rstest-bdd-macros` registers steps and
-performs compile‑time validation, emitting warnings for any that are missing.
-The `strict-compile-time-validation` feature builds on this and turns those
-warnings into `compile_error!`s when all step definitions are local. This
-prevents behaviour specifications from silently drifting from the code while
-still permitting cross‑crate step sharing.
+By default, missing steps are checked at runtime, so steps can live in other
+crates. Enabling the `compile-time-validation` feature on `rstest-bdd-macros`
+registers steps and performs compile‑time validation, emitting warnings for any
+that are missing. The `strict-compile-time-validation` feature builds on this
+and turns those warnings into `compile_error!`s when all step definitions are
+local. This prevents behaviour specifications from silently drifting from the
+code while still permitting cross‑crate step sharing.
 
 To enable validation, pin a feature in the project's `dev-dependencies`:
 
