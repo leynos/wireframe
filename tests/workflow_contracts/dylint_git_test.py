@@ -16,19 +16,22 @@ CLIPPY = "https://github.com/rust-lang/rust-clippy"
     [
         (
             ["clone", CLIPPY, "/tmp/destination", "--quiet"],
-            ["clone", "--branch", "master", CLIPPY, "/tmp/destination", "--quiet"],
+            [
+                ["clone", CLIPPY, "/tmp/destination", "--quiet"],
+                ["-C", "/tmp/destination", "branch", "master"],
+            ],
         ),
         (
             ["clone", "https://github.com/example/other", "/tmp/destination"],
-            ["clone", "https://github.com/example/other", "/tmp/destination"],
+            [["clone", "https://github.com/example/other", "/tmp/destination"]],
         ),
-        (["--version"], ["--version"]),
+        (["--version"], [["--version"]]),
     ],
 )
 def test_git_wrapper_forwards_commands(
-    tmp_path: Path, arguments: list[str], expected: list[str]
+    tmp_path: Path, arguments: list[str], expected: list[list[str]]
 ) -> None:
-    """Select the legacy branch only for Dylint's exact clone command."""
+    """Create the legacy ref only for Dylint's exact clone command."""
     fake_git = tmp_path / "git"
     fake_git.write_text(
         "#!/usr/bin/env python3\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n",
@@ -39,10 +42,10 @@ def test_git_wrapper_forwards_commands(
     result = subprocess.run(
         [str(WRAPPER), *arguments], env=env, check=True, capture_output=True, text=True
     )
-    assert json.loads(result.stdout) == expected
+    assert [json.loads(line) for line in result.stdout.splitlines()] == expected
 
 
-def test_clippy_clone_checks_out_master_when_default_is_main(tmp_path: Path) -> None:
+def test_clippy_clone_creates_master_when_default_is_main(tmp_path: Path) -> None:
     """A real clone exposes the local branch expected by Dylint."""
     source = tmp_path / "source"
     subprocess.run(["git", "init", "-q", "-b", "main", str(source)], check=True)
@@ -62,7 +65,6 @@ def test_clippy_clone_checks_out_master_when_default_is_main(tmp_path: Path) -> 
         ],
         check=True,
     )
-    subprocess.run(["git", "-C", str(source), "branch", "master"], check=True)
     fake_git = tmp_path / "git"
     fake_git.write_text(
         "#!/usr/bin/env python3\n"
@@ -77,7 +79,9 @@ def test_clippy_clone_checks_out_master_when_default_is_main(tmp_path: Path) -> 
     subprocess.run(
         [str(WRAPPER), "clone", CLIPPY, str(target), "--quiet"], env=env, check=True
     )
-    branch = subprocess.check_output(
-        ["git", "-C", str(target), "branch", "--show-current"], text=True
+    refs = subprocess.check_output(
+        ["git", "-C", str(target), "show-ref", "--heads"], text=True
     )
-    assert branch.strip() == "master"
+    assert "refs/heads/main" in refs
+    assert "refs/heads/master" in refs
+    subprocess.run(["git", "-C", str(target), "checkout", "-q", "master"], check=True)
