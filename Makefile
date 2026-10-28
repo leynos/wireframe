@@ -124,7 +124,7 @@ test-feature-gate: ## Verify feature-gated APIs are actually absent when disable
 	./scripts/check-feature-gate.sh
 
 test-pool-no-metrics: ## Check the pool builds without metrics
-	$(CARGO) $(DEV_FAST) check --lib --no-default-features --features pool,serializer-bincode $(BUILD_JOBS)
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) check --lib --no-default-features --features pool,serializer-bincode $(BUILD_JOBS)
 
 # Developer-only: review every changed snapshot; this target must not run in CI.
 bless-ui: ## Refresh trybuild snapshots for deliberate fixture changes

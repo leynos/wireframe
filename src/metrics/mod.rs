@@ -162,6 +162,7 @@ pub(crate) enum PreparationOutcome {
     Failure,
 }
 
+#[cfg(feature = "metrics")]
 impl PreparationOutcome {
     /// Return the stable metric label value for this preparation outcome.
     pub(crate) const fn as_str(self) -> &'static str {
@@ -181,6 +182,7 @@ pub enum Direction {
     Outbound,
 }
 
+#[cfg(feature = "metrics")]
 impl Direction {
     /// Supplies the bounded metric label value, avoiding call-site strings
     /// that could make inbound and outbound observations incomparable.

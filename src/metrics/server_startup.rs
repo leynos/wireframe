@@ -52,7 +52,7 @@ pub(crate) enum ServerStartupOutcome {
     Cancelled,
 }
 
-#[cfg(not(loom))]
+#[cfg(all(feature = "metrics", not(loom)))]
 impl ServerStartupOutcome {
     /// Return the stable metric label value for this outcome.
     pub(crate) const fn as_str(self) -> &'static str {
