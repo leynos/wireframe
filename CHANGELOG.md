@@ -9,7 +9,8 @@ All notable changes to this project will be documented in this file.
   downstream struct literals and constructor calls as described in the
   [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md).
   Default fragmentation now closes connections exceeding either aggregate cap.
-  (#543)
+  Retained fragment bytes also count towards connection memory-budget pacing
+  and hard-cap aborts, even when message assembly is disabled. (#543)
 
 - Breaking: `WireframeServer::new` now evaluates its `AppFactory` once per
   server run, prepares the result once, and shares that immutable application

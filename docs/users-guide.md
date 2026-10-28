@@ -1094,13 +1094,16 @@ If `memory_budgets(...)` is not configured explicitly, Wireframe derives the
 same three fields from `buffer_capacity`, so the protection model remains
 active even on the default path.
 
+Retained fragment bytes and message-assembly bytes are combined for read pacing
+and hard-cap decisions, including when message assembly is disabled.
+
 Wireframe provides a three-tier protection model for inbound memory budgets:
 
 1. **Per-frame enforcement** — frames that would cause total buffered bytes to
    exceed the per-connection or in-flight budget are rejected, the offending
    partial assembly is freed, and the failure is surfaced through the existing
    deserialization-failure policy (`InvalidData`).
-2. **Soft-limit read pacing** — when buffered assembly bytes reach the
+2. **Soft-limit read pacing** — when combined buffered bytes reach the
    soft-pressure threshold (80% of the smaller aggregate cap from
    `bytes_per_connection` and `bytes_in_flight`), the inbound connection loop
    briefly pauses socket reads before polling the next frame. This propagates
@@ -1108,8 +1111,8 @@ Wireframe provides a three-tier protection model for inbound memory budgets:
 3. **Hard-cap connection abort** — if total buffered bytes strictly exceed the
    aggregate cap (100% of the smaller of `bytes_per_connection` and
    `bytes_in_flight`), the connection is terminated immediately with
-   `InvalidData`. This is a defence-in-depth safety net; under normal
-   operation, per-frame enforcement prevents this state from being reached.
+   `InvalidData`. The combined total can exceed this cap even when each
+   individual assembly layer remains within its own limits.
 
 #### Derived budget defaults
 
