@@ -42,6 +42,14 @@ def _make_dry_run(target: str) -> list[str]:
     return result.stdout.splitlines()
 
 
+# A controlled failing gate: the lint recipe must neither guard, ignore nor
+# divert this exit status. `false` is used rather than `exit 7`, because a
+# trailing shell comment or stray argument would let a `|| true` guard hide an
+# `exit` and the test would stop distinguishing a binding gate from a soft skip.
+# Kept as a command rather than a fixture file so no executable bit is needed.
+FAILING_GATE = "false"
+
+
 def _whitaker_lines() -> list[str]:
     """Return the single Whitaker invocation ``make lint`` would run."""
     lines = [line for line in _make_dry_run("lint") if "probe-whitaker" in line]
@@ -91,4 +99,38 @@ def test_lint_runs_clippy_before_whitaker_even_under_parallel_make() -> None:
     )
     assert "lint: lint-clippy lint-whitaker" in makefile, (
         "`lint` must run the Clippy and Whitaker halves as separate targets"
+    )
+
+
+def test_a_failing_whitaker_fails_the_aggregate_lint_target() -> None:
+    """The gate is binding, not merely mentioned in a recipe.
+
+    ``make lint`` must surface a Whitaker failure. A guard such as
+    ``|| true`` or an ignored-error prefix would hide it and turn the suite
+    into advice.
+    """
+    environment = os.environ.copy()
+    environment.pop("RUSTFLAGS", None)
+    result = subprocess.run(
+        [
+            "make",
+            "-f",
+            str(MAKEFILE_PATH),
+            "lint",
+            f"WHITAKER={FAILING_GATE}",
+            "CARGO=true",
+            "CLIPPY_FLAGS=--version",
+            "DEV_WARNING_FLAGS=",
+            "RUSTDOC_FLAGS=",
+            "DEV_FAST=",
+        ],
+        check=False,
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0, (
+        "`make lint` must fail when the Whitaker gate fails, "
+        f"but it exited 0:\n{result.stdout}\n{result.stderr}"
     )
