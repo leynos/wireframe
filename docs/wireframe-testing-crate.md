@@ -192,14 +192,20 @@ Four published helpers take five parameters, which is one above the repository's
 - `MessageAssemblySnapshot::new`
 
 All four are present in the published 0.3.0 archive, so none can change shape
-without breaking a consumer. They are resolved in two different ways, because
+without breaking a consumer. They are resolved in two different ways because
 they are two different kinds of API:
 
-- **Deprecated shims keep their signature.** The three drivers are already
-  `#[deprecated]` and already delegate to a four-argument preferred form
-  (`drive_with_fragments`, `drive_with_partial_frames`). Their expectation
-  carries a reason that names the compatibility commitment, so the lint finding
-  is scoped to the shim rather than excused across the crate.
+- **Compatibility shims keep their signature.** The three drivers carry a
+  scoped
+  `#[expect(clippy::too_many_arguments, reason = "compatibility with the
+  existing wireframe_testing helper API")]`,
+  not a crate-wide allowance, so the lint finding is scoped to the shim. They
+  are not themselves `#[deprecated]`: the deprecation sits on the legacy
+  builder connection path they drive, which the expectation accepts. Each is
+  the *delegating* form. The four-argument helpers (`drive_with_fragments`,
+  `drive_with_partial_frames`) call the capacity variants and supply
+  `DEFAULT_CAPACITY`, so the capacity variants are the primitives and the
+  four-argument helpers are the convenience wrappers.
 - **The live constructor is scheduled to change shape.**
   `MessageAssemblySnapshot::new` is live and has no four-argument replacement,
   so it keeps a reasoned expectation until a named observation struct can

@@ -140,10 +140,12 @@ fn u64_to_bytes_zeroes_remainder(
     );
 }
 
+/// Byte order in either supported polarity, for prefix round-trip properties.
 fn prefix_endianness() -> impl Strategy<Value = Endianness> {
     prop_oneof![Just(Endianness::Big), Just(Endianness::Little)]
 }
 
+/// Prefix widths paired with a value each one can represent exactly.
 fn representable_prefix_cases() -> impl Strategy<Value = (usize, usize, Endianness)> {
     prop_oneof![Just(1usize), Just(2), Just(4), Just(8)].prop_flat_map(|size| {
         let maximum = match size {
@@ -156,13 +158,21 @@ fn representable_prefix_cases() -> impl Strategy<Value = (usize, usize, Endianne
     })
 }
 
+/// Prefix widths paired with a value one greater than each can represent.
+///
+/// The four-byte case only exists where `usize` is wider than 32 bits;
+/// below that it is omitted rather than filtered, so the union never holds a
+/// branch that cannot satisfy its own range.
 fn oversized_prefix_cases() -> impl Strategy<Value = (usize, usize, Endianness)> {
-    let size = prop_oneof![
-        Just(1usize),
-        Just(2),
-        Just(4).prop_filter("four-byte overflow requires a wider usize", |_| usize::BITS
-            > 32),
-    ];
+    // A four-byte prefix cannot overflow a 32-bit `usize`, so that branch is
+    // absent rather than filtered: `prop_filter` would keep drawing `Just(4)`
+    // on such a target and exhaust the rejection budget without ever
+    // exercising the encoder.
+    let size = if usize::BITS > 32 {
+        prop_oneof![Just(1usize), Just(2), Just(4)].boxed()
+    } else {
+        prop_oneof![Just(1usize), Just(2)].boxed()
+    };
     size.prop_flat_map(|size| {
         let minimum = match size {
             1 => usize::from(u8::MAX) + 1,
