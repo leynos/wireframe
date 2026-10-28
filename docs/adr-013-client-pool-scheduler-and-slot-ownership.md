@@ -107,7 +107,7 @@ single-owner coordination rule.
 Primary code surfaces:
 
 - `src/client/pool/client_pool.rs`;
-- `src/client/pool/scheduler.rs`;
+- `src/client/pool/scheduler/mod.rs`;
 - `src/client/pool/handle.rs`;
 - `src/client/pool/lease.rs`;
 - `src/client/pool/slot.rs`;

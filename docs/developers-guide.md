@@ -1092,7 +1092,7 @@ build standard. The exception stands. Three test binaries fail:
   `panic_in_server_is_mapped_to_io_error_other`, a handler panic that is not
   caught.
 
-The `src/metrics.rs` doctest still fails to link, with undefined AWS-LC
+The `src/metrics/mod.rs` doctest still fails to link, with undefined AWS-LC
 symbols. Re-measure on the next toolchain pin.
 
 ## Cargo workspace semantics

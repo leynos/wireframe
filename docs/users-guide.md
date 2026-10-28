@@ -2906,7 +2906,7 @@ directories (one per shard on full dispatch runs) for offline triage.
 [^29]: Implemented in `src/fairness.rs` (lines 1-79).
 [^30]: Implemented in `src/connection.rs` (lines 240-441).
 [^31]: Implemented in `src/connection.rs` (lines 22-46).
-[^33]: Implemented in `src/metrics.rs` (lines 21-111).
+[^33]: Implemented in `src/metrics/mod.rs` (lines 21-111).
 [^34]: Implemented in `src/response.rs` (lines 46-151).
 [^35]: Implemented in `src/response.rs` (lines 156-209).
 [^36]: Demonstrated in `examples/async_stream.rs` (lines 1-23).

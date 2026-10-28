@@ -392,7 +392,7 @@ where
 }
 
 #[cfg(test)]
-#[path = "scheduler_tests.rs"]
+#[path = "../scheduler_tests.rs"]
 mod poison_tests;
 mod service;
 #[cfg(test)]

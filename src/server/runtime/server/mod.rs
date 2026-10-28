@@ -395,5 +395,5 @@ where
 }
 
 #[cfg(test)]
-#[path = "server/observation_tests.rs"]
+#[path = "observation_tests.rs"]
 mod observation_tests;
