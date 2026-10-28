@@ -125,6 +125,10 @@ impl DefaultFragmentAdapter {
         Ok(Some(E::from_fragment_parts(passthrough)))
     }
 
+    /// Return the number of bytes retained by incomplete fragments.
+    #[must_use]
+    pub fn buffered_bytes(&self) -> usize { self.reassembler.buffered_bytes() }
+
     /// Purge stale reassembly entries and return evicted identifiers.
     pub fn purge_expired(&mut self) -> Vec<MessageId> { self.reassembler.purge_expired() }
 }

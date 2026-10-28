@@ -86,6 +86,13 @@ impl FramePipeline {
         }
     }
 
+    /// Return bytes retained by incomplete fragments on this connection.
+    pub(crate) fn fragmentation_buffered_bytes(&self) -> usize {
+        self.fragmentation
+            .as_ref()
+            .map_or(0, FragmentationState::buffered_bytes)
+    }
+
     /// Purge expired fragment reassembly state, if fragmentation is enabled.
     pub(crate) fn purge_expired(&mut self) {
         if let Some(state) = self.fragmentation.as_mut() {

@@ -8,3 +8,6 @@
 pub mod eviction;
 #[path = "rejection.rs"]
 pub mod rejection;
+
+#[path = "aggregate_cap.rs"]
+pub mod aggregate_cap;

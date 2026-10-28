@@ -44,11 +44,12 @@ pub(crate) enum MemoryPressureAction {
 pub(crate) fn evaluate_memory_pressure(
     state: Option<&MessageAssemblyState>,
     budgets: Option<MemoryBudgets>,
+    fragment_bytes: usize,
 ) -> MemoryPressureAction {
-    if has_hard_cap_been_breached(state, budgets) {
+    if has_hard_cap_been_breached(state, budgets, fragment_bytes) {
         return MemoryPressureAction::Abort;
     }
-    if should_pause_inbound_reads(state, budgets) {
+    if should_pause_inbound_reads(state, budgets, fragment_bytes) {
         return MemoryPressureAction::Pause(SOFT_LIMIT_PAUSE_DURATION);
     }
     MemoryPressureAction::Continue
@@ -96,11 +97,14 @@ pub(crate) async fn apply_memory_pressure(
 pub(super) fn has_hard_cap_been_breached(
     state: Option<&MessageAssemblyState>,
     budgets: Option<MemoryBudgets>,
+    fragment_bytes: usize,
 ) -> bool {
-    let (Some(assembly_state), Some(memory_budgets)) = (state, budgets) else {
+    let Some(memory_budgets) = budgets else {
         return false;
     };
-    let buffered_bytes = assembly_state.total_buffered_bytes();
+    let buffered_bytes = state
+        .map_or(0, MessageAssemblyState::total_buffered_bytes)
+        .saturating_add(fragment_bytes);
     let aggregate_limit = active_aggregate_limit_bytes(memory_budgets);
     buffered_bytes > aggregate_limit
 }
@@ -110,12 +114,15 @@ pub(super) fn has_hard_cap_been_breached(
 pub(super) fn should_pause_inbound_reads(
     state: Option<&MessageAssemblyState>,
     budgets: Option<MemoryBudgets>,
+    fragment_bytes: usize,
 ) -> bool {
-    let (Some(assembly_state), Some(memory_budgets)) = (state, budgets) else {
+    let Some(memory_budgets) = budgets else {
         return false;
     };
 
-    let buffered_bytes = assembly_state.total_buffered_bytes();
+    let buffered_bytes = state
+        .map_or(0, MessageAssemblyState::total_buffered_bytes)
+        .saturating_add(fragment_bytes);
     let aggregate_limit = active_aggregate_limit_bytes(memory_budgets);
     is_at_or_above_soft_limit(buffered_bytes, aggregate_limit)
 }

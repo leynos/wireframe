@@ -86,7 +86,7 @@ fn state_with_buffered_bytes(buffered_bytes: usize) -> TestResult<MessageAssembl
 #[rstest]
 fn should_not_pause_when_budgets_are_not_configured() -> TestResult {
     let state = state_with_buffered_bytes(95)?;
-    if should_pause_inbound_reads(Some(&state), None) {
+    if should_pause_inbound_reads(Some(&state), None, 0) {
         return Err(
             io::Error::other("did not expect pause when budgets are not configured").into(),
         );
@@ -96,7 +96,7 @@ fn should_not_pause_when_budgets_are_not_configured() -> TestResult {
 
 #[rstest]
 fn should_not_pause_when_state_is_not_available(budgets: TestResult<MemoryBudgets>) -> TestResult {
-    if should_pause_inbound_reads(None, Some(budgets?)) {
+    if should_pause_inbound_reads(None, Some(budgets?), 0) {
         return Err(io::Error::other("did not expect pause when state is not available").into());
     }
     Ok(())
@@ -112,7 +112,7 @@ fn soft_limit_pause_threshold_behaviour(
     budgets: TestResult<MemoryBudgets>,
 ) -> TestResult {
     let state = state_with_buffered_bytes(buffered_bytes)?;
-    let actual = should_pause_inbound_reads(Some(&state), Some(budgets?));
+    let actual = should_pause_inbound_reads(Some(&state), Some(budgets?), 0);
     if actual != should_pause {
         return Err(io::Error::other(format!(
             concat!(
@@ -130,7 +130,7 @@ fn soft_limit_pause_threshold_behaviour(
 fn uses_smallest_aggregate_budget_dimension() -> TestResult {
     let budgets = custom_budgets(1024, 200, 100)?;
     let state = state_with_buffered_bytes(80)?;
-    if !should_pause_inbound_reads(Some(&state), Some(budgets)) {
+    if !should_pause_inbound_reads(Some(&state), Some(budgets), 0) {
         return Err(io::Error::other("expected pause at derived soft limit threshold").into());
     }
     Ok(())
@@ -141,7 +141,7 @@ fn uses_smallest_aggregate_budget_dimension() -> TestResult {
 #[rstest]
 fn hard_cap_not_breached_when_budgets_are_not_configured() -> TestResult {
     let state = state_with_buffered_bytes(200)?;
-    if has_hard_cap_been_breached(Some(&state), None) {
+    if has_hard_cap_been_breached(Some(&state), None, 0) {
         return Err(
             io::Error::other("did not expect breach when budgets are not configured").into(),
         );
@@ -153,7 +153,7 @@ fn hard_cap_not_breached_when_budgets_are_not_configured() -> TestResult {
 fn hard_cap_not_breached_when_state_is_not_available(
     budgets: TestResult<MemoryBudgets>,
 ) -> TestResult {
-    if has_hard_cap_been_breached(None, Some(budgets?)) {
+    if has_hard_cap_been_breached(None, Some(budgets?), 0) {
         return Err(io::Error::other("did not expect breach when state is not available").into());
     }
     Ok(())
@@ -169,7 +169,7 @@ fn hard_cap_threshold_behaviour(
     budgets: TestResult<MemoryBudgets>,
 ) -> TestResult {
     let state = state_with_buffered_bytes(buffered_bytes)?;
-    let actual = has_hard_cap_been_breached(Some(&state), Some(budgets?));
+    let actual = has_hard_cap_been_breached(Some(&state), Some(budgets?), 0);
     if actual != expected_breached {
         return Err(io::Error::other(format!(
             concat!(
@@ -187,7 +187,7 @@ fn hard_cap_threshold_behaviour(
 fn hard_cap_uses_smallest_aggregate_budget_dimension() -> TestResult {
     let budgets = custom_budgets(1024, 200, 100)?;
     let state = state_with_buffered_bytes(101)?;
-    if !has_hard_cap_been_breached(Some(&state), Some(budgets)) {
+    if !has_hard_cap_been_breached(Some(&state), Some(budgets), 0) {
         return Err(io::Error::other("expected breach at smallest aggregate dimension").into());
     }
     Ok(())
@@ -244,7 +244,7 @@ fn evaluate_memory_pressure_behaviour(
 ) -> TestResult {
     let budget_config = if use_budgets { Some(budgets?) } else { None };
     let state = state_with_buffered_bytes(buffered_bytes)?;
-    let actual = evaluate_memory_pressure(Some(&state), budget_config);
+    let actual = evaluate_memory_pressure(Some(&state), budget_config, 0);
     let representative = expected.to_representative();
     if !action_matches(&actual, &representative) {
         return Err(io::Error::other(format!(
@@ -258,7 +258,7 @@ fn evaluate_memory_pressure_behaviour(
 #[rstest]
 fn evaluate_pause_uses_expected_duration(budgets: TestResult<MemoryBudgets>) -> TestResult {
     let state = state_with_buffered_bytes(80)?;
-    let action = evaluate_memory_pressure(Some(&state), Some(budgets?));
+    let action = evaluate_memory_pressure(Some(&state), Some(budgets?), 0);
     match action {
         MemoryPressureAction::Pause(duration) => {
             if duration != Duration::from_millis(5) {
@@ -339,3 +339,28 @@ fn resolve_derived_budgets_change_with_frame_budget() -> TestResult {
 }
 
 mod async_policy;
+
+#[rstest]
+#[case(0, 79, ExpectedAction::Continue)]
+#[case(0, 80, ExpectedAction::Pause)]
+#[case(40, 40, ExpectedAction::Pause)]
+#[case(50, 50, ExpectedAction::Pause)]
+#[case(50, 51, ExpectedAction::Abort)]
+#[case(0, 101, ExpectedAction::Abort)]
+fn fragment_bytes_contribute_to_pressure(
+    #[case] assembly_bytes: usize,
+    #[case] fragment_bytes: usize,
+    #[case] expected: ExpectedAction,
+    budgets: TestResult<MemoryBudgets>,
+) -> TestResult {
+    let state = state_with_buffered_bytes(assembly_bytes)?;
+    let action = evaluate_memory_pressure(
+        (assembly_bytes != 0).then_some(&state),
+        Some(budgets?),
+        fragment_bytes,
+    );
+    if !action_matches(&action, &expected.to_representative()) {
+        return Err(io::Error::other(format!("unexpected pressure action: {action:?}")).into());
+    }
+    Ok(())
+}
