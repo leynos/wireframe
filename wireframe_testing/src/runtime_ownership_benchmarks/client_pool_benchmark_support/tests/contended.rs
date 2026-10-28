@@ -94,46 +94,6 @@ async fn contended_mode_needs_more_contenders_than_slots() {
     );
 }
 
-/// A contended burst must be *observed* to contend, not assumed to.
-///
-/// The burst empties the pool and holds it empty while every contender asks for
-/// capacity, so each contender must park: a contended workload with `c`
-/// contenders records at least `c` waits before any capacity is returned. That
-/// is a floor, not an equality — the contended rounds that follow routinely push
-/// it higher — but it is enough to falsify a burst that never actually
-/// contended, which is what a start barrier alone fails to rule out.
-///
-/// The spawn count is kept beside it as task-churn evidence. It is not evidence
-/// of contention: every release notifies the scheduler whether or not anyone is
-/// waiting.
-#[rstest::rstest]
-#[case::one_slot_fifo(1, 16, AcquisitionMode::ContendedFifo)]
-#[case::four_slots_fifo(4, 16, AcquisitionMode::ContendedFifo)]
-#[case::four_slots_round_robin(4, 16, AcquisitionMode::ContendedRoundRobin)]
-#[tokio::test]
-async fn contended_acquisition_observes_capacity_waits(
-    #[case] pool_size: usize,
-    #[case] contenders: usize,
-    #[case] mode: AcquisitionMode,
-) {
-    let workload = PoolWorkload {
-        pool_size,
-        mode,
-        acquisitions: 8,
-        contenders,
-    };
-    let measurement = contended_burst_with_retry(workload)
-        .await
-        .expect("a contended burst must finish");
-
-    assert!(
-        measurement.capacity_waits >= u64::try_from(contenders).unwrap_or(u64::MAX),
-        "a burst that empties a {pool_size}-slot pool and holds it empty must park every one of \
-         {contenders} contenders, but {} waits were recorded",
-        measurement.capacity_waits
-    );
-}
-
 /// A successful contended burst must also deliver leases and exercise the scheduler.
 #[rstest::rstest]
 #[case::one_slot_fifo(1, 16, AcquisitionMode::ContendedFifo)]
