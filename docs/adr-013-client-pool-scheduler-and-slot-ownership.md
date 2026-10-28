@@ -570,7 +570,9 @@ both immediate and asynchronous selection.
 
 The scheduler and metrics entry points use their respective `mod.rs` files,
 following the module layout established by #798. The metrics-disabled pool
-build uses the existing `tokio-util` `io` feature.
+build uses the existing `tokio-util` `io` feature. Validation follows the
+repository-pinned Rust toolchain and CI action versions; the historical
+baseline captures retain the toolchain metadata from their runs.
 
 Blocked races record their starts, terminal outcomes, and durations. A guard
 records cancellation when the scheduler drops an unfinished acquisition; the
