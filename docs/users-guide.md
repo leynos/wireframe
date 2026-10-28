@@ -1934,9 +1934,10 @@ acquisition waits for a permit rather than reusing a slot that is already at its
 
 #### Client pool metrics
 
-When the `metrics` feature is enabled, every acquisition attempt increments
-`wireframe_pool_acquisitions_total`. The metric has two bounded labels, so pool
-activity cannot create new time series:
+When the `metrics` feature is enabled, synchronous attempts and completed
+asynchronous attempts increment `wireframe_pool_acquisitions_total`. An
+asynchronous acquisition cancelled while waiting is excluded. The metric has
+two bounded labels, so pool activity cannot create new time series:
 
 - `mode` records which path made the attempt: `immediate` for the synchronous
   fast path, or `permit_race` for asynchronous acquisition, including its

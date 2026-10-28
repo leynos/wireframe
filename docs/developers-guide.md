@@ -527,11 +527,12 @@ When all slots are blocked, `FuturesUnordered` races borrowed slot futures;
 dropping the stream cancels the losers and releases their permits. Each blocked
 race allocates a task node per slot. `src/client/pool/rotation_tests.rs` pins
 the ordering, the overflow cases, and the one-increment-per-attempt cursor
-contract. Every acquisition attempt also increments
-`wireframe_pool_acquisitions_total` with bounded `mode` (`immediate` or
-`permit_race`) and `outcome` (`granted`, `exhausted`, `shutdown`, or `error`)
-labels, so saturation and shutdown are observable without adding per-slot or
-caller identifiers.
+contract. Synchronous acquisition attempts and completed asynchronous attempts
+increment `wireframe_pool_acquisitions_total` with bounded `mode` (`immediate`
+or `permit_race`) and `outcome` (`granted`, `exhausted`, `shutdown`, or
+`error`) labels. A blocked asynchronous acquisition cancelled before completion
+does not increment this counter. Saturation and shutdown remain observable
+without adding per-slot or caller identifiers.
 
 `wireframe_pool_permit_races_total` counts blocked race starts and their
 `granted`, `shutdown`, `error`, or `cancelled` outcomes.
@@ -652,6 +653,9 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
   `whitaker --all -- --all-targets --all-features`.
 - `make test` runs the main automated test suite with warnings treated as
   errors.
+- `make test-pool-no-metrics` checks the `pool,serializer-bincode` feature set
+  with default features disabled and warnings denied. The required `build-test`
+  CI job runs it in the `Pool without metrics compile check` step.
 
 Install Whitaker through the standalone installer described in the
 [Whitaker user's guide](whitaker-users-guide.md) so local linting matches
