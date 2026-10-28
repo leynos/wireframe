@@ -1603,6 +1603,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 Keep the returned handle where the application can expose or render the
 Prometheus output. Applications choose how to serve or otherwise collect it.
 
+Wireframe depends on the `tracing` facade, which emits events only when the
+application installs a subscriber; it does not ship one. `tracing-subscriber`
+was previously a runtime dependency of Wireframe and is now a development
+dependency, so an application that wants Wireframe's events must add
+`tracing-subscriber` itself and install a subscriber once during start-up,
+before the application begins emitting. Omit it and the instrumentation still
+compiles, but every event is discarded.
+
 `install_recorder` returns a `PrometheusHandle` but does **not** start the
 exporter's background upkeep task; only `PrometheusBuilder::build` and
 `PrometheusBuilder::install` spawn it. The task drains histogram buckets and
