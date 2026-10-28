@@ -441,6 +441,9 @@ The derive macro clears every slot by implementing `ScenarioState::reset`. The
 separately. Implement `Default` yourself when the state needs custom
 initialization.
 
+This compact example uses a formatted string in place of a real CLI call; it
+demonstrates storing results in slots and checking them in later steps.
+
 ```rust,no_run
 use rstest::fixture;
 use rstest_bdd::{ScenarioState, Slot};
@@ -457,7 +460,7 @@ fn cli_state() -> CliState {
     CliState::default()
 }
 
-#[when("I run the CLI with {word}")]
+#[when("I run the CLI with {argument}")]
 fn run_command(cli_state: &CliState, argument: String) {
     let result = format!("ran {argument}");
     cli_state.output.set(result);
@@ -782,10 +785,12 @@ async fn increment_counter(counter: Counter) {}
 The macro generates `#[rstest::rstest]` without duplicating
 `#[tokio::test(flavor = "current_thread")]` when the user already supplies it.
 
-### Using `scenarios!` with async
+### Using `scenarios!` with Tokio
 
-The `scenarios!` macro accepts a `runtime` argument to generate async tests for
-all discovered scenarios:
+In v0.6.0, the legacy `runtime = "tokio-current-thread"` argument remains
+available as a deprecated alias for the explicit Tokio harness and emits a
+deprecation warning. New code should select `TokioHarness` directly; add
+`rstest-bdd-harness-tokio` to the package's `dev-dependencies`:
 
 ```rust,no_run
 use rstest_bdd_macros::{given, then, when, scenarios};
@@ -794,26 +799,29 @@ use rstest_bdd_macros::{given, then, when, scenarios};
 #[when("an action occurs")] fn action() {}
 #[then("events are recorded")] fn events() {}
 
-scenarios!("tests/features/auto", runtime = "tokio-current-thread");
+scenarios!(
+    "tests/features/auto",
+    harness = rstest_bdd_harness_tokio::TokioHarness,
+);
 ```
 
-When `runtime = "tokio-current-thread"` is specified:
-
-- Generated test functions are `async fn`.
-- Each test is annotated with `#[tokio::test(flavor = "current_thread")]`.
-- Steps execute sequentially within the single-threaded Tokio runtime.
+Both forms run synchronous scenario closures inside the Tokio harness; they do
+not generate async test functions. Async steps run by a harness are polled once
+and must complete immediately. A step that yields `Pending` fails with an
+execution error. For work that must suspend and resume, declare an async
+`#[scenario]` test with `#[tokio::test(flavor = "current_thread")]`, as shown
+above.
 
 ### Current limitations
 
-- **Sync step definitions only:** The async executor currently calls the sync
-  `run` handler directly rather than `run_async`. This avoids higher-ranked
-  trait bound (HRTB) lifetime issues but means steps cannot `.await`
-  internally. True async step definitions (with `async fn` bodies) are planned
-  for a future release.
+- **Harness-driven async steps must be immediately ready:** A Tokio harness
+  cannot drive an async step across multiple polls. Use an async scenario test
+  for steps that need to await a future which may return `Pending`.
 - **Current-thread mode only:** Multi-threaded Tokio mode would require `Send`
   futures, which conflicts with the `RefCell`-backed fixture storage. See
   [ADR-001](adr-001-async-fixtures-and-test.md) for the full design rationale.
-- **No `async_std` runtime:** Only Tokio is supported at present.
+- **No `async_std` harness:** The documented async test and harness support in
+  this release uses Tokio.
 
 ## Running and maintaining tests
 
@@ -1234,7 +1242,7 @@ Localization tooling can be added to `Cargo.toml` as follows:
 
 ```toml
 [dependencies]
-rstest-bdd = "0.5.0"
+rstest-bdd = "0.6.0"
 i18n-embed = { version = "0.16", features = ["fluent-system", "desktop-requester"] }
 unic-langid = "0.9"
 ```

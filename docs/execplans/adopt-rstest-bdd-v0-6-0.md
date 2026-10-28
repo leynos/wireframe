@@ -346,6 +346,11 @@ byte intact. Wireframe's previous adapted guide is preserved separately at
   candidate-specific assessment found no remaining implementation omission or
   correctness defect.
 
+- [ ] (2026-10-28) Address the subsequent formal review: correct the local
+  guide's placeholder, localization version, and async harness guidance; wait
+  for the client to observe the streaming test's reset before sending. Validate
+  the fixture repeatedly and reconcile the review on the published candidate.
+
 ## Imported-document provenance
 
 The upstream repository is `https://github.com/leynos/rstest-bdd`. The fetched

@@ -66,6 +66,18 @@ pub fn client_send_streaming_world() -> TestResult<ClientSendStreamingWorld> {
 /// crate.
 fn test_body(n: usize) -> Vec<u8> { (0u8..=u8::MAX).cycle().take(n).collect() }
 
+/// Wait until the client has observed the server's abortive close.
+async fn wait_for_connection_reset(tcp: &tokio::net::TcpStream) -> TestResult {
+    let mut probe = [0; 1];
+    // A server-side close signal does not establish that the reset has reached
+    // the client. Observing it here leaves the connection closed before sending.
+    match tokio::time::timeout(Duration::from_secs(1), tcp.peek(&mut probe)).await? {
+        Err(error) if error.kind() == io::ErrorKind::ConnectionReset => Ok(()),
+        Err(error) => Err(error.into()),
+        Ok(bytes) => Err(format!("expected connection reset, peek returned {bytes} bytes").into()),
+    }
+}
+
 impl ClientSendStreamingWorld {
     fn new() -> TestResult<Self> {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -120,8 +132,7 @@ impl ClientSendStreamingWorld {
         Ok(())
     }
 
-    /// Start a server that accepts and immediately shuts down the write
-    /// side, triggering a deterministic transport error on the client.
+    /// Start a server that accepts and immediately resets the connection.
     pub async fn start_dropping_server(&mut self) -> TestResult {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         self.addr = Some(listener.local_addr()?);
@@ -145,14 +156,14 @@ impl ClientSendStreamingWorld {
     pub async fn connect_client(&mut self) -> TestResult {
         let addr = self.addr.ok_or("server address missing")?;
         let client = WireframeClient::builder().connect(addr).await?;
-        self.client = Some(client);
         if let Some(server_closed) = self.server_closed.take() {
             tokio::time::timeout(Duration::from_secs(1), server_closed)
                 .await
                 .map_err(|_| "dropping server did not close the connection")?
                 .map_err(|_| "dropping server closed signal was lost")?;
-            tokio::task::yield_now().await;
+            wait_for_connection_reset(client.tcp_stream()).await?;
         }
+        self.client = Some(client);
         Ok(())
     }
 
