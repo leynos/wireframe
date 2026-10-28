@@ -1,4 +1,19 @@
-"""Contracts for the coverage lane's cargo-nextest timeout policy."""
+"""Contract for the bounded, non-instrumented compile-time UI gate.
+
+Two policies share this module because both describe when compiler-driven work
+is allowed to run. The first half pins the coverage lane's `cargo-nextest`
+timeouts: the aggregate `compile_error` test gets an eight-minute override
+while the global ceiling stays at ten, so a hung nested compiler run cannot
+consume the whole job.
+
+The second half guards the split between compile-time validation and runtime
+coverage in `ci.yml`. `build-test` must run `make test-ui` unconditionally,
+after Rust and linker setup and with a finite budget, and it must not carry
+coverage instrumentation. The gate itself keeps both harnesses,
+`tests/compile_error.rs` and `wireframe_testing/tests/loom_api_surface.rs`,
+and coverage opts out of exactly those two nested compiler drivers rather than
+the runtime suite around them.
+"""
 
 from __future__ import annotations
 

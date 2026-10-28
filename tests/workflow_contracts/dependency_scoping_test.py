@@ -87,15 +87,38 @@ def test_itoa_remains_available_to_resp_example(manifest: dict[str, typ.Any]) ->
     )
 
 
+VERIFICATION_DEPENDENCY_TABLES = ("dependencies", "dev-dependencies")
+
+
+def assert_verification_has_no_wireframe_dependency(
+    verification: dict[str, typ.Any],
+) -> None:
+    """Reject a wireframe edge in either verification dependency table.
+
+    A dev-dependency edge pulls the main crate into the verification build just
+    as a runtime edge does, so both tables need the same guard.
+    """
+    assert "stateright" in verification["dependencies"], (
+        "wireframe-verification must retain its stateright runtime dependency"
+    )
+    for table in VERIFICATION_DEPENDENCY_TABLES:
+        dependencies = verification.get(table, {})
+        assert "wireframe" not in dependencies, (
+            f"wireframe-verification must not depend on wireframe via {table}"
+        )
+
+
 def test_verification_crate_retains_model_checker_without_wireframe() -> None:
     """The model checker needs stateright but does not depend on wireframe."""
     path = ROOT / "crates" / "wireframe-verification" / "Cargo.toml"
     with path.open("rb") as cargo_file:
-        verification = tomllib.load(cargo_file)
-    dependencies = verification["dependencies"]
-    assert "stateright" in dependencies, (
-        "wireframe-verification must retain its stateright runtime dependency"
-    )
-    assert "wireframe" not in dependencies, (
-        "wireframe-verification must not depend on the unused wireframe crate"
-    )
+        assert_verification_has_no_wireframe_dependency(tomllib.load(cargo_file))
+
+
+@pytest.mark.parametrize("table", VERIFICATION_DEPENDENCY_TABLES)
+def test_verification_guard_rejects_a_wireframe_edge(table: str) -> None:
+    """Either table admits the main crate only by defeating the guard."""
+    verification: dict[str, typ.Any] = {"dependencies": {"stateright": "0.31.0"}}
+    verification.setdefault(table, {})["wireframe"] = {"path": "../.."}
+    with pytest.raises(AssertionError, match=table):
+        assert_verification_has_no_wireframe_dependency(verification)
