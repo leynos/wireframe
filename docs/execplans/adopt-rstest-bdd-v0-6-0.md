@@ -337,11 +337,14 @@ byte intact. Wireframe's previous adapted guide is preserved separately at
   methods for further documentation. Verified their assertion, cleanup, and
   initialization contracts and documented each; reconcile the official coverage
   row after the follow-up is published.
-- [ ] (2026-10-28) Rebase onto main `5d4381df`, which separates UI tests from
+- [x] (2026-10-28) Rebase onto main `45bf405f`, which separates UI tests from
   coverage and updates shared source and dependencies. The merged UI harness
-  retains both migration contracts and main's coverage exclusion. Revalidate
-  the rebased candidate, including the dedicated UI gate, before publication
-  and renew the candidate-specific assessment and review.
+  retains both migration contracts and main's coverage exclusion. Formatting,
+  lint, 207 BDD tests, the full suite, UI, doctests, feature gates, 283
+  workflow contracts, Markdown, Mermaid, and CodeScene delta passed locally.
+  Hosted CI, CodeQL, and CodeScene passed for `30b93c4c`; CodeRabbit's
+  candidate-specific assessment found no remaining implementation omission or
+  correctness defect.
 
 ## Imported-document provenance
 
