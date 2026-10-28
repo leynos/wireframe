@@ -1,4 +1,4 @@
-//! Step definitions for rstest-bdd tests.
+//! Step definitions consumed by the scenario modules for rstest-bdd tests.
 //!
 //! Step functions are synchronous and use a scenario world's shared Tokio
 //! runtime or handle when performing asynchronous world operations.

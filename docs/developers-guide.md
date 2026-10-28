@@ -1487,6 +1487,27 @@ describes one or more scenarios using the standard Given/When/Then syntax.
 Scenario functions are annotated with `#[scenario(path = "…", name = "…")]` and
 receive fixture parameters by name.
 
+For a fallible BDD world, return `Result<World, TestError>` (or the equivalent
+`wireframe_testing::TestResult<World>`) from its fixture. Pass that result by
+value to the scenario and give the scenario a fallible return type such as
+`Result<(), TestError>`. The v0.6 scenario macro unwraps the owned fixture
+result with `?` before inserting the `World` into `StepContext`; it rejects
+borrowed result fixtures. Step definitions therefore request `&World` or
+`&mut World`, not a `Result` wrapper. When a step can fail, return
+`wireframe_testing::TestResult` so the framework records the failed step. The
+fixture and scenario signatures are in
+`tests/scenarios/client_messaging_scenarios.rs`. See the
+[v0.6.0 migration guide](rstest-bdd-v0-6-0-migration-guide.md) for the full
+framework contract.
+
+Step definitions remain synchronous. When they need async world operations,
+they use the runtime or handle owned by that scenario's world fixture to drive
+those operations. Fixtures configured with a current-thread runtime use that
+same runtime for their I/O and server tasks; other fixtures may select their
+runtime flavour in their constructor. Do not create another runtime inside a
+step or call `block_on` while already inside a Tokio runtime. See the
+[migration plan](execplans/adopt-rstest-bdd-v0-6-0.md) for details.
+
 ### Non-zero test values
 
 [`tests/support/non_zero.rs`](../tests/support/non_zero.rs) defines the shared
