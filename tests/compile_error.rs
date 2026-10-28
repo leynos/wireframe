@@ -10,6 +10,7 @@ fn compile_tests() {
     t.pass("tests/ui/server_factory_forms.rs");
     t.pass("tests/ui/wireframe_result_default_no_protocol.rs");
     t.pass("tests/ui/client_const_api.rs");
+    t.pass("tests/ui/codec_shared_const_api.rs");
     t.pass("tests/ui/fragment_const_api.rs");
     t.pass("tests/ui/app_const_api.rs");
     t.compile_fail("tests/ui/server_rejects_non_send_factory.rs");

@@ -2,6 +2,7 @@
 
 use std::io;
 
+use proptest::prelude::*;
 use rstest::rstest;
 
 use super::{conversion::*, format::*};
@@ -137,4 +138,68 @@ fn u64_to_bytes_zeroes_remainder(
             .iter()
             .all(|&b| b == 0)
     );
+}
+
+fn prefix_endianness() -> impl Strategy<Value = Endianness> {
+    prop_oneof![Just(Endianness::Big), Just(Endianness::Little)]
+}
+
+fn representable_prefix_cases() -> impl Strategy<Value = (usize, usize, Endianness)> {
+    prop_oneof![Just(1usize), Just(2), Just(4), Just(8)].prop_flat_map(|size| {
+        let maximum = match size {
+            1 => usize::from(u8::MAX),
+            2 => usize::from(u16::MAX),
+            4 => usize::try_from(u32::MAX).unwrap_or(usize::MAX),
+            _ => usize::try_from(u64::MAX).unwrap_or(usize::MAX),
+        };
+        (Just(size), 0..=maximum, prefix_endianness())
+    })
+}
+
+fn oversized_prefix_cases() -> impl Strategy<Value = (usize, usize, Endianness)> {
+    let size = prop_oneof![
+        Just(1usize),
+        Just(2),
+        Just(4).prop_filter("four-byte overflow requires a wider usize", |_| usize::BITS
+            > 32),
+    ];
+    size.prop_flat_map(|size| {
+        let minimum = match size {
+            1 => usize::from(u8::MAX) + 1,
+            2 => usize::from(u16::MAX) + 1,
+            _ => {
+                usize::try_from(u32::MAX)
+                    .expect("a four-byte overflow value requires usize wider than 32 bits")
+                    + 1
+            }
+        };
+        (Just(size), minimum..=usize::MAX, prefix_endianness())
+    })
+}
+
+proptest! {
+    /// Variable-width prefixes preserve representable values in either byte order.
+    #[test]
+    fn variable_width_prefixes_round_trip((size, value, endianness) in representable_prefix_cases()) {
+        let mut encoded = [0u8; 8];
+        let written = u64_to_bytes(value, size, endianness, &mut encoded)
+            .expect("generated value fits its prefix width");
+        let encoded_prefix = encoded
+            .get(..written)
+            .expect("prefix encoder reports an in-bounds byte count");
+        let decoded = bytes_to_u64(encoded_prefix, size, endianness)
+            .expect("encoded prefix has the requested width");
+
+        prop_assert_eq!(decoded, u64::try_from(value).expect("generated value fits in u64"));
+    }
+
+    /// Values above any representable supported prefix are rejected explicitly.
+    #[test]
+    fn variable_width_prefixes_reject_oversized_values((size, value, endianness) in oversized_prefix_cases()) {
+        let mut encoded = [0u8; 8];
+        let error = u64_to_bytes(value, size, endianness, &mut encoded)
+            .expect_err("value exceeds the selected prefix width");
+
+        prop_assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    }
 }

@@ -46,21 +46,21 @@ impl CodecErrorContext {
 
     /// Set the connection identifier.
     #[must_use]
-    pub fn with_connection_id(mut self, id: u64) -> Self {
+    pub const fn with_connection_id(mut self, id: u64) -> Self {
         self.connection_id = Some(id);
         self
     }
 
     /// Set the peer address.
     #[must_use]
-    pub fn with_peer_address(mut self, addr: SocketAddr) -> Self {
+    pub const fn with_peer_address(mut self, addr: SocketAddr) -> Self {
         self.peer_address = Some(addr);
         self
     }
 
     /// Set the correlation identifier.
     #[must_use]
-    pub fn with_correlation_id(mut self, id: u64) -> Self {
+    pub const fn with_correlation_id(mut self, id: u64) -> Self {
         self.correlation_id = Some(id);
         self
     }
