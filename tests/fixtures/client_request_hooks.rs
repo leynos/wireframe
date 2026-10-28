@@ -64,6 +64,10 @@ impl Drop for ClientRequestHooksWorld {
 }
 
 /// Fixture for `ClientRequestHooksWorld`.
+///
+/// # Errors
+///
+/// Returns an error if Tokio runtime initialization fails.
 #[rustfmt::skip]
 #[fixture]
 pub fn client_request_hooks_world() -> TestResult<ClientRequestHooksWorld> {

@@ -154,6 +154,7 @@ struct StatefulServer {
     handle: JoinHandle<()>,
 }
 
+/// Accept up to two connections and serve them through the stateful codec app.
 #[expect(
     deprecated,
     reason = "fixture covers the legacy builder connection API"
@@ -192,6 +193,10 @@ impl Drop for CodecStatefulWorld {
 ///
 /// Note: rustfmt collapses simple fixtures into one line, which triggers
 /// `unused_braces`, so keep `rustfmt::skip`.
+///
+/// # Errors
+///
+/// Returns an error if Tokio runtime initialization fails.
 #[rustfmt::skip]
 #[fixture]
 pub fn codec_stateful_world() -> TestResult<CodecStatefulWorld> {

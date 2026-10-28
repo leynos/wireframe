@@ -120,6 +120,10 @@ impl Drop for ClientPreambleWorld {
 }
 
 /// Fixture for `ClientPreambleWorld`.
+///
+/// # Errors
+///
+/// Returns an error if Tokio runtime initialization fails.
 #[rustfmt::skip]
 #[fixture]
 pub fn client_preamble_world() -> TestResult<ClientPreambleWorld> {

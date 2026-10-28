@@ -46,6 +46,10 @@ impl std::fmt::Debug for ClientSendStreamingWorld {
 }
 
 /// Fixture for `ClientSendStreamingWorld`.
+///
+/// # Errors
+///
+/// Returns an error if Tokio runtime initialization fails.
 #[rustfmt::skip]
 #[fixture]
 pub fn client_send_streaming_world() -> TestResult<ClientSendStreamingWorld> {

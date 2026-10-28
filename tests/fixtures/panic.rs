@@ -85,6 +85,10 @@ pub struct PanicWorld {
 }
 
 /// Fixture for `PanicWorld`.
+///
+/// # Errors
+///
+/// Returns an error if Tokio runtime initialization fails.
 // rustfmt collapses simple fixtures into one line, which triggers unused_braces.
 #[rustfmt::skip]
 #[fixture]

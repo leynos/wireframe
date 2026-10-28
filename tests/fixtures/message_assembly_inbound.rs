@@ -83,6 +83,10 @@ impl Default for MessageAssemblyInboundWorld {
 /// Injected by rstest into each `#[scenario]` function so that step
 /// definitions can drive `WireframeApp::handle_connection_result` through
 /// the full assembly pipeline.
+///
+/// # Errors
+///
+/// Returns an error if the scenario runtime is unavailable.
 // rustfmt collapses simple fixtures into one line, which triggers unused_braces.
 #[rustfmt::skip]
 #[fixture]
@@ -114,9 +118,10 @@ impl MessageAssemblyInboundWorld {
 
     /// Build and start a `WireframeApp` with message assembly enabled.
     ///
-    /// Pauses the Tokio clock so that subsequent `wait_millis` calls advance
-    /// time deterministically. The handler forwards received payloads to an
-    /// internal channel for later assertion.
+    /// Pauses Tokio's clock for server timers. `wait_millis` sleeps in
+    /// wall-clock time because assembly expiry uses `std::time::Instant`.
+    /// The handler forwards received payloads to an internal channel for later
+    /// assertion.
     ///
     /// # Errors
     ///
@@ -156,8 +161,8 @@ impl MessageAssemblyInboundWorld {
         let (client_stream, server_stream) = tokio::io::duplex(2048);
         let client = Framed::new(client_stream, codec);
 
-        // Pause the tokio clock so that time-advance steps are deterministic
-        // and independent of real wall-clock scheduling.
+        // Pause Tokio's clock for server timers. `wait_millis` still sleeps in
+        // wall-clock time for `std::time::Instant`-based expiry.
         self.block_on(async { tokio::time::pause() })?;
         let server = self
             .runtime()?
@@ -211,6 +216,12 @@ impl MessageAssemblyInboundWorld {
         self.send_continuation_or_final((key.into(), sequence.into()), body, true)
     }
 
+    /// Encode and send a continuation or final message-assembly frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if frame encoding fails, the client is unavailable,
+    /// or sending the payload fails.
     fn send_continuation_or_final(
         &mut self,
         frame: (MessageKey, FrameSequence),
@@ -306,6 +317,8 @@ impl MessageAssemblyInboundWorld {
         Err(format!("unexpected send error: {:?}", self.last_send_error).into())
     }
 
+    /// Serialize and send a payload, then give runtime tasks a bounded
+    /// cooperative yield; serialization, send, and runtime errors propagate.
     fn send_payload(&mut self, payload: Vec<u8>) -> TestResult {
         let envelope = Envelope::new(ROUTE_ID, CORRELATION_ID, payload);
         let serializer = BincodeSerializer;
@@ -349,6 +362,13 @@ impl MessageAssemblyInboundWorld {
         Ok(())
     }
 
+    /// Yield cooperatively to runtime tasks for a bounded number of turns.
+    /// This gives ready work a chance to progress but does not guarantee
+    /// completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if unavailable or called within a Tokio runtime.
     fn spin_runtime(&self) -> TestResult {
         self.block_on(async {
             for _ in 0..8 {

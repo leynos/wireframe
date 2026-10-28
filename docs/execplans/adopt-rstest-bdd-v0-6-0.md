@@ -5,8 +5,8 @@ This ExecPlan is a living document. Keep `Constraints`, `Tolerances`, `Risks`,
 `Outcomes & retrospective`, `Conformance basis`, and `Verification plan`
 current throughout the migration.
 
-Status: COMPLETE. Draft PR [#811](https://github.com/leynos/wireframe/pull/811)
-is open for review.
+Status: IN REVIEW. PR [#811](https://github.com/leynos/wireframe/pull/811) is
+ready; current review findings are being reconciled.
 
 ## Purpose / big picture
 
@@ -315,6 +315,22 @@ byte intact. Wireframe's previous adapted guide is preserved separately at
 - [x] (2026-10-27) The optional CodeGraph branch-context query returned
   `Too many open files`; the independent source review and required gates
   completed separately.
+- [ ] (2026-10-28) Reconcile CodeRabbit review `5676483914` on `2253bb36`:
+  two Wireframe guide findings, an inbound assembly clock-comment finding, and
+  the module documentation, docstring coverage, and compile-time UI pre-merge
+  rows. Preserve the imported upstream guide bytes and renew candidate-specific
+  validation and assessment after any repair.
+- [x] (2026-10-28) Validate the review repairs: correct the local guide's
+  macro versions and `ScenarioState`/`Default` example, update the clock and
+  step-module comments, document substantive fixture helpers, and exercise the
+  v0.6 owned fallible signature and strict missing-step diagnostic with focused
+  trybuild cases. The first run generated only the reviewed missing-step
+  diagnostic. Because trybuild builds a binary without `--test`, the pass
+  fixture retains and executes the generated scenario wrapper. Both focused
+  cases passed without snapshot overwrite, followed by all 207 BDD tests and
+  the full workspace test suite. Formatting, lint, UI, doctest, feature-gate,
+  Loom, workflow contracts, Rust 1.95, Markdown, spelling, and Mermaid checks
+  also passed. Review confirmation of these repairs remains pending.
 
 ## Imported-document provenance
 
@@ -425,5 +441,5 @@ plus any unavailable check and every residual failure.
 
 ## Outcomes & retrospective
 
-Implementation and validation are complete. The two new regression scenarios
-account for the BDD inventory increase. Draft PR #811 is open for review.
+Implementation and its initial validation are complete. The two new regression
+scenarios account for the BDD inventory increase. PR review is in progress.

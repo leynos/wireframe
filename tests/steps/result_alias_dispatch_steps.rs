@@ -5,11 +5,13 @@ use wireframe_testing::{TestError, TestResult};
 
 use crate::fixtures::result_alias_dispatch::AliasOverrideValue;
 
+/// Return a deliberate error through the step-result alias.
 #[when("an aliased step returns an error")]
 fn when_aliased_step_returns_error() -> TestResult {
     Err(TestError::Msg("aliased step failure".to_owned()))
 }
 
+/// Check the fixture's initial value before returning its replacement.
 #[when("an aliased step returns the replacement value")]
 fn when_aliased_step_returns_replacement(
     alias_override_value: &mut AliasOverrideValue,
@@ -24,6 +26,7 @@ fn when_aliased_step_returns_replacement(
     }
 }
 
+/// Check that the injected replacement matches the scenario expectation.
 #[then("the replacement fixture is visible as {expected:u32}")]
 fn then_replacement_fixture_is_visible(
     expected: u32,

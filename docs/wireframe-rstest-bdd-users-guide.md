@@ -436,20 +436,17 @@ slot starts empty and supports helpers such as `set`, `replace`,
 `get_or_insert_with`, `take`, and predicates `is_empty`/`is_filled`.
 
 Define a state struct whose fields are `Slot<T>` and derive [`ScenarioState`].
-The derive macro clears every slot by implementing `ScenarioState::reset` and
-it automatically adds a [`Default`] implementation that leaves all slots empty.
-**Do not** also derive or implement `Default`: Rust will report a
-duplicate-implementation error because the macro already provides it. For
-custom initialization, plan to use the future `#[scenario_state(no_default)]`
-flag (or equivalent) to opt out of the generated `Default` and supply bespoke
-logic.
+The derive macro clears every slot by implementing `ScenarioState::reset`. The
+`ScenarioState` trait also requires `Default`, so derive or implement it
+separately. Implement `Default` yourself when the state needs custom
+initialization.
 
 ```rust,no_run
 use rstest::fixture;
 use rstest_bdd::{ScenarioState, Slot};
 use rstest_bdd_macros::{given, scenario, then, when, ScenarioState};
 
-#[derive(ScenarioState)]
+#[derive(Default, ScenarioState)]
 struct CliState {
     output: Slot<String>,
     exit_code: Slot<i32>,
@@ -838,14 +835,14 @@ To enable validation, pin a feature in the project's `dev-dependencies`:
 
 ```toml
 [dev-dependencies]
-rstest-bdd-macros = { version = "0.5.0", features = ["compile-time-validation"] }
+rstest-bdd-macros = { version = "0.6.0", features = ["compile-time-validation"] }
 ```
 
 For strict checking use:
 
 ```toml
 [dev-dependencies]
-rstest-bdd-macros = { version = "0.5.0", features = ["strict-compile-time-validation"] }
+rstest-bdd-macros = { version = "0.6.0", features = ["strict-compile-time-validation"] }
 ```
 
 Steps are only validated when one of these features is enabled.

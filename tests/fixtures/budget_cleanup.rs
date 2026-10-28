@@ -110,6 +110,10 @@ impl fmt::Debug for BudgetCleanupWorld {
 }
 
 /// Construct the default world used by budget cleanup BDD tests.
+///
+/// # Errors
+///
+/// Returns an error if the scenario runtime is unavailable.
 #[rustfmt::skip]
 #[fixture]
 pub fn budget_cleanup_world() -> TestResult<BudgetCleanupWorld> {
@@ -293,6 +297,8 @@ impl BudgetCleanupWorld {
         }
     }
 
+    /// Serialize and send a payload, then give runtime tasks a bounded
+    /// cooperative yield; serialization, send, and runtime errors propagate.
     fn send_payload(&mut self, payload: Vec<u8>) -> TestResult {
         let envelope = Envelope::new(ROUTE_ID, CORRELATION_ID, payload);
         let serializer = BincodeSerializer;
@@ -310,6 +316,13 @@ impl BudgetCleanupWorld {
         self.spin_runtime()
     }
 
+    /// Yield cooperatively to runtime tasks for a bounded number of turns.
+    /// This gives ready work a chance to progress but does not guarantee
+    /// completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if unavailable or called within a Tokio runtime.
     fn spin_runtime(&self) -> TestResult {
         self.block_on(async {
             for _ in 0..8 {
@@ -342,6 +355,11 @@ impl BudgetCleanupWorld {
         }
     }
 
+    /// Move currently queued payloads into the observed list without waiting.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the payload receiver is not initialized.
     fn drain_ready_payloads(&mut self) -> TestResult {
         let mut observed_rx = self.observed_rx.take().ok_or("receiver not initialized")?;
         while let Ok(payload) = observed_rx.try_recv() {
