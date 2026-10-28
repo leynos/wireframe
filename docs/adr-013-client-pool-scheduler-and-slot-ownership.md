@@ -568,6 +568,11 @@ cursor advance, without materializing an index collection. The bounded
 acquisition metric wrappers introduced alongside those helpers remain around
 both immediate and asynchronous selection.
 
+After main moved self-named modules in #798, the scheduler and metrics entry
+points remain in their respective `mod.rs` files. Main also enables the
+`tokio-util` `io` feature, so the metrics-disabled pool build retains that
+upstream dependency setting without a separate branch change.
+
 Blocked races record their starts, terminal outcomes, and durations. A guard
 records cancellation when the scheduler drops an unfinished acquisition; the
 immediate probe does not create a blocked-race observation. The guard borrows a
