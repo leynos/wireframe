@@ -337,6 +337,11 @@ byte intact. Wireframe's previous adapted guide is preserved separately at
   methods for further documentation. Verified their assertion, cleanup, and
   initialization contracts and documented each; reconcile the official coverage
   row after the follow-up is published.
+- [ ] (2026-10-28) Rebase onto main `5d4381df`, which separates UI tests from
+  coverage and updates shared source and dependencies. The merged UI harness
+  retains both migration contracts and main's coverage exclusion. Revalidate
+  the rebased candidate, including the dedicated UI gate, before publication
+  and renew the candidate-specific assessment and review.
 
 ## Imported-document provenance
 
