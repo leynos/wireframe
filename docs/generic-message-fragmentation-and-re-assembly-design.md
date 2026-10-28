@@ -509,8 +509,7 @@ The fragment adapter also enforces `max_message_size`, `reassembly_timeout`,
 limits bound the number of incomplete messages and their combined payload
 bytes. An aggregate fragment cap breach aborts the connection immediately;
 per-message failures follow the counted deserialization failure policy. See
-[ADR-002](adr-002-streaming-requests-and-shared-message-assembly.md) for the
-connection memory-budget model.
+[ADR 0002][adr-0002] for the connection memory-budget model.
 
 Fragment and message-assembly buffered bytes are summed for pressure decisions,
 including when message assembly is disabled.
@@ -549,4 +548,4 @@ buffer budgets because they do not remain buffered in assembly state.
 See [ADR 0002][adr-0002] for the complete budget configuration surface and
 failure mode semantics.
 
-[adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md
+[adr-0002]: adr-002-streaming-requests-and-shared-message-assembly.md

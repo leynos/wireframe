@@ -46,6 +46,10 @@ fn handle_reassembly_result(
                 ReassemblyError::TooManyConcurrentPartials { .. }
                     | ReassemblyError::AggregateBufferCapExceeded { .. }
             ) {
+                log::warn!(
+                    "fragment aggregate cap exceeded; aborting connection: \
+                     correlation_id={correlation_id:?}, error={err:?}"
+                );
                 return Err(io::Error::new(io::ErrorKind::InvalidData, err));
             }
             failures.record(correlation_id, "fragment reassembly failed", err)?;
