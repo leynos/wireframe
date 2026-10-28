@@ -662,6 +662,12 @@ Install Whitaker through the standalone installer described in the
 [Whitaker user's guide](whitaker-users-guide.md) so local linting matches
 continuous integration (CI).
 
+The CI lint step uses a scoped Git wrapper for Dylint 6.0.1: its driver build
+expects a local `master` branch in its `rust-clippy` clone, whose default
+branch is now `main`. The wrapper selects `master` for that clone and forwards
+other Git commands unchanged. Remove it when the Dylint dependency no longer
+assumes the old default branch.
+
 ### CodeScene coverage baseline
 
 The `Coverage (main)` workflow in `.github/workflows/coverage-main.yml` runs on

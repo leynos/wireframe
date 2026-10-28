@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Dylint 6.0.1 expects a local master branch after cloning rust-clippy.
+# Its default branch is now main, so select master for this clone only.
+set -eu
+
+if [[ "${1-}" == clone && "${2-}" == https://github.com/rust-lang/rust-clippy ]]; then
+    shift 2
+    exec "${DYLINT_REAL_GIT:?}" clone --branch master https://github.com/rust-lang/rust-clippy "$@"
+fi
+
+exec "${DYLINT_REAL_GIT:?}" "$@"

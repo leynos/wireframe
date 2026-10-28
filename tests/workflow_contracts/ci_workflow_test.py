@@ -256,8 +256,14 @@ def _assert_installed_before_lint(install: dict[str, object]) -> None:
     workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
     steps = cast("list[dict[str, object]]", workflow["jobs"]["build-test"]["steps"])
     install_index = next((i for i, step in enumerate(steps) if step is install or step == install), None)
+    lint_command = (
+        'export DYLINT_REAL_GIT="$(command -v git)"\n'
+        'export PATH="$GITHUB_WORKSPACE/scripts/dylint-git:$PATH"\n'
+        "make lint"
+    )
     lint_index = next(
-        (i for i, step in enumerate(steps) if step.get("run") == "make lint"), None
+        (i for i, step in enumerate(steps) if str(step.get("run", "")).strip() == lint_command),
+        None,
     )
     assert install_index is not None, "install-whitaker must be a build-test step"
     assert lint_index is not None, "build-test must run `make lint`"
