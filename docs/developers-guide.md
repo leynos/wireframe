@@ -1503,13 +1503,14 @@ trybuild suite rather than a runtime test. The census layers made a large set
 of public items `const fn`, and each family has a fixture that calls it from a
 `const fn` body:
 
-| Fixture                              | Surface it pins                                      |
-| ------------------------------------ | ---------------------------------------------------- |
-| `tests/ui/client_const_api.rs`       | client builder and configuration setters             |
-| `tests/ui/app_const_api.rs`          | app configuration and packet constructors            |
-| `tests/ui/codec_shared_const_api.rs` | codec, recovery, and middleware constructors         |
-| `tests/ui/fragment_const_api.rs`     | fragmentation configuration                          |
-| `tests/ui/server_const_api.rs`       | push-queue builder, `ConnectionId`, codec, and error |
+| Fixture                                 | Surface it pins                                       |
+| --------------------------------------- | ----------------------------------------------------- |
+| `tests/ui/client_const_api.rs`          | client builder and configuration setters              |
+| `tests/ui/app_const_api.rs`             | app configuration and packet constructors             |
+| `tests/ui/codec_shared_const_api.rs`    | codec, recovery, and middleware constructors          |
+| `tests/ui/fragment_const_api.rs`        | fragmentation configuration                           |
+| `tests/ui/server_const_api.rs`          | push-queue builder, `ConnectionId`, codec, and error  |
+| `tests/ui/const_config_docs_example.rs` | the `Compile-time configuration` users'-guide example |
 
 When a new `const fn` joins the public surface, extend the fixture that owns
 that family instead of adding a parallel one. Fixtures must construct their
