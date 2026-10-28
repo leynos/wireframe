@@ -315,7 +315,7 @@ byte intact. Wireframe's previous adapted guide is preserved separately at
 - [x] (2026-10-27) The optional CodeGraph branch-context query returned
   `Too many open files`; the independent source review and required gates
   completed separately.
-- [ ] (2026-10-28) Reconcile CodeRabbit review `5676483914` on `2253bb36`:
+- [x] (2026-10-28) Reconcile CodeRabbit review `5676483914` on `2253bb36`:
   two Wireframe guide findings, an inbound assembly clock-comment finding, and
   the module documentation, docstring coverage, and compile-time UI pre-merge
   rows. Preserve the imported upstream guide bytes and renew candidate-specific
@@ -330,13 +330,13 @@ byte intact. Wireframe's previous adapted guide is preserved separately at
   cases passed without snapshot overwrite, followed by all 207 BDD tests and
   the full workspace test suite. Formatting, lint, UI, doctest, feature-gate,
   Loom, workflow contracts, Rust 1.95, Markdown, spelling, and Mermaid checks
-  also passed. Review confirmation of these repairs remains pending.
-- [ ] (2026-10-28) CodeRabbit confirmed both guide threads, the clock and
+  also passed. CodeRabbit confirmed the repairs in subsequent replies.
+- [x] (2026-10-28) CodeRabbit confirmed both guide threads, the clock and
   module comments, and the compile-time UI coverage on `c902f62a`. Its
   independent docstring audit identified nine step functions and five trait
   methods for further documentation. Verified their assertion, cleanup, and
-  initialization contracts and documented each; reconcile the official coverage
-  row after the follow-up is published.
+  initialization contracts and documented each. Its later formal review
+  reported 91.18% docstring coverage and passed the coverage check.
 - [x] (2026-10-28) Rebase onto main `45bf405f`, which separates UI tests from
   coverage and updates shared source and dependencies. The merged UI harness
   retains both migration contracts and main's coverage exclusion. Formatting,
@@ -346,10 +346,17 @@ byte intact. Wireframe's previous adapted guide is preserved separately at
   candidate-specific assessment found no remaining implementation omission or
   correctness defect.
 
-- [ ] (2026-10-28) Address the subsequent formal review: correct the local
+- [x] (2026-10-28) Address the subsequent formal review: correct the local
   guide's placeholder, localization version, and async harness guidance; wait
   for the client to observe the streaming test's reset before sending. Validate
   the fixture repeatedly and reconcile the review on the published candidate.
+  After rebasing onto `b9f26011`, the reset scenario passed 20 consecutive
+  runs; 207 BDD tests, the full suite, UI, lint, documentation, feature gates,
+  283 workflow contracts, and CodeScene passed. CodeRabbit confirmed each
+  repair in source and its assessment of `874790a5` found no implementation
+  defect.
+- [ ] Refresh the official pre-merge checks for the final published head and
+  reconcile the resulting review before merging.
 
 ## Imported-document provenance
 
