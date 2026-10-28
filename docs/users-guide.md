@@ -2353,6 +2353,49 @@ low-priority queue; `close` lets tests release resources when no actor is
 running.[^27] The connection actor consumes these queues, an optional streaming
 response, and a cancellation token.
 
+### Compile-time queue and session configuration
+
+The queue builder's setters are `const fn`, so a complete queue configuration
+can be assembled by the compiler. `high_capacity`, `low_capacity`, `rate`,
+`unlimited`, `dlq_log_every_n`, and `dlq_log_interval` all take `self` by value
+and return `Self`, which means a chain works unchanged inside a `const fn`:
+
+```rust
+use std::time::Duration;
+
+use wireframe::push::PushQueuesBuilder;
+
+const fn configure(
+    builder: PushQueuesBuilder<Vec<u8>>,
+) -> PushQueuesBuilder<Vec<u8>> {
+    builder
+        .high_capacity(8)
+        .low_capacity(4)
+        .rate(Some(64))
+        .dlq_log_interval(Duration::from_secs(5))
+}
+
+let builder = configure(PushQueuesBuilder::<Vec<u8>>::default());
+let _ = builder;
+```
+
+`unlimited` is the const shorthand for `rate(None)`, so a chain can also remove
+a rate limit that a previous layer installed. The builder's frame parameter is
+bound by a crate-private trait, so downstream code names a concrete frame type
+such as `Vec<u8>`; that bound is not part of the public surface.
+
+The same const treatment covers `ConnectionId::{new, as_u64}`,
+`LengthDelimitedFrameCodec::max_frame_length`, `ConnectionInfo::peer_addr`,
+`WireframeError::{from_io, from_codec}`, and `WireframeError::is_clean_close`.
+A const `WireframeError` value is only usable where its destructor is not
+required, because an `io::Error` payload has no const destructor; construct one
+inside a `const fn` whose result is a plain value. `PushQueuesBuilder::default`
+and `PushQueues::builder` remain ordinary functions, so build the pending value
+at runtime and pass it into the const chain, as above.
+
+`tests/ui/server_const_api.rs` compiles these calls inside `const fn` bodies,
+so a setter that loses `const` fails the build rather than silently regressing.
+
 `FairnessConfig` and `FairnessTracker` limit consecutive high-priority frames
 and optionally enforce a time slice. Resetting the tracker after low-priority
 work keeps fairness predictable.[^28][^29] `ConnectionActor::run` polls the
