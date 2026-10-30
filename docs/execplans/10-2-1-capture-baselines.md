@@ -58,27 +58,28 @@ This section assumes no prior knowledge of the repository.
 `wireframe` is a Rust library for building servers and clients that speak
 custom binary protocols. A server application is a `WireframeApp<S, C, E, F>`
 where `S` is a serializer, `E` is a packet (envelope) type, and `F` is a frame
-codec. The default instantiation (`src/app/builder/core.rs:29-34`) is:
+codec. The default instantiation (`src/app/builder/core.rs:28-33`) is:
 
 ```rust
 WireframeApp<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>
 ```
 
-Its `Default` implementation (`src/app/builder/core.rs:52-80`) leaves
+Its `Default` implementation (`src/app/builder/core.rs:63-90`) leaves
 `middleware` empty and `protocol`, `fragmentation`, and `message_assembler` all
 `None`. Throughout this plan, "the default codec path" means exactly this
 configuration.
 
 ### The four stages
 
-**Inbound decode.** `process_stream` (`src/app/inbound_handler.rs:158-226`)
-wraps the transport in a `tokio_util::codec::Framed` built from `CombinedCodec`
-(`src/app/combined_codec.rs:8-18`). Frames reach `handle_frame` (`:228-276`),
-then `build_dispatchable_envelope` (`:278-322`), then `parse_envelope` (`:74`),
-which calls `BincodeSerializer::parse` (`src/serializer.rs:150-157`) and thence
-`bincode`. The `Vec<u8>` that becomes `Envelope.payload` is allocated inside
-`bincode`, not inside `wireframe`; it is observable only through allocator
-instrumentation.
+**Inbound decode.** `process_stream`
+(`src/app/inbound_handler/core.rs:156-241`) wraps the transport in a
+`tokio_util::codec::Framed` built from `CombinedCodec`
+(`src/app/combined_codec.rs:8-19`). Frames reach `handle_frame` (`:243-301`),
+then `build_dispatchable_envelope` (`:303-353`), then `parse_envelope`
+(`:115`), which calls `BincodeSerializer::parse` (`src/serializer.rs:150-157`)
+and thence `bincode`. The `Vec<u8>` that becomes `Envelope.payload` is
+allocated inside `bincode`, not inside `wireframe`; it is observable only
+through allocator instrumentation.
 
 **Middleware pass-through.** `forward_response`
 (`src/app/frame_handling/response.rs:29-63`) builds
@@ -86,14 +87,14 @@ instrumentation.
 `service.call(request)` at line 42, and rebuilds the packet from
 `resp.into_inner()` at line 55. The payload itself is moved, never copied. The
 stage is not free, however: `Service` is declared `#[async_trait]`
-(`src/middleware.rs:168-169`), so every `call` boxes a future.
+(`src/middleware.rs:174-175`), so every `call` boxes a future.
 
 **Request hooks.** The client-side hooks in `src/client/hooks.rs`:
-`BeforeSendHook = Arc<dyn Fn(&mut Vec<u8>) + Send + Sync>` (line 152) and
-`AfterReceiveHook` (line 176), held in the `pub(crate)` struct `RequestHooks`
-(lines 184-189). They are invoked by `WireframeClient::invoke_before_send_hooks`
-(`src/client/messaging.rs:335`, inside the
-`impl<S, T, C> WireframeClient<S, T, C>` block opened at line 27) — a method on
+`BeforeSendHook = Arc<dyn Fn(&mut Vec<u8>) + Send + Sync>` (line 148) and
+`AfterReceiveHook` (line 172), held in the `pub(crate)` struct `RequestHooks`
+(lines 179-185). They are invoked by `WireframeClient::invoke_before_send_hooks`
+(`src/client/messaging.rs:345`, inside the
+`impl<S, T, C> WireframeClient<S, T, C>` block opened at line 28) — a method on
 the client, not on `RequestHooks`.
 
 On the default path `RequestHooks` is two empty vectors, so the stage is a loop
@@ -102,8 +103,8 @@ records a *hook-shape cost model*, not a default-path figure. The plan says so
 in the document rather than pretending otherwise.
 
 **Outbound encode.** `encode_message_frame`
-(`src/app/outbound_encoding.rs:22-38`), called from `send_envelope`
-(`src/app/codec_driver.rs:132`) and `flush_pipeline_output` (`:164-180`).
+(`src/app/outbound_encoding.rs:23-39`), called from `send_envelope`
+(`src/app/codec_driver.rs:125`) and `flush_pipeline_output` (`:159-185`).
 
 ### Where the default path actually copies
 
@@ -115,9 +116,9 @@ currently pointed at code that is already free.
 
 What does **not** copy:
 
-- `LengthDelimitedFrameCodec::wrap_payload` (`src/codec.rs:283`) is the identity
-  function; `type Frame = Bytes` (`:262`).
-- `Bytes::from(Vec<u8>)` (`src/app/outbound_encoding.rs:36`) takes ownership of
+- `LengthDelimitedFrameCodec::wrap_payload` (`src/codec/mod.rs:294`) is the
+  identity function; `type Frame = Bytes` (`:273`).
+- `Bytes::from(Vec<u8>)` (`src/app/outbound_encoding.rs:37`) takes ownership of
   the vector's buffer rather than copying it.
 
 What does cost, in order along the outbound path:
@@ -135,10 +136,11 @@ What does cost, in order along the outbound path:
    `Vec` does not.
 3. **The framed encoder copies the whole payload again, and item `11.1.2`
    cannot remove it.** `LengthDelimitedEncoder::encode`
-   (`src/codec.rs:248-257`) delegates to `tokio_util`'s `LengthDelimitedCodec`,
-   which reserves space in the `Framed` write buffer and copies the payload
-   into it. This copy is outside `encode_message_frame` and therefore outside
-   the boundary a naive reading of the roadmap would measure.
+   (`src/codec/mod.rs:257-270`) delegates to `tokio_util`'s
+   `LengthDelimitedCodec`, which reserves space in the `Framed` write buffer
+   and copies the payload into it. This copy is outside `encode_message_frame`
+   and therefore outside the boundary a naive reading of the roadmap would
+   measure.
 
 The consequence is concrete: a baseline scoped to `encode_message_frame` would
 record roughly one payload-sized copy where the default path performs two, and
@@ -147,8 +149,8 @@ plan therefore measures the framed encoder as a fifth row and states in the
 baseline document that it is out of scope for `11.1.2`.
 
 A related asymmetry inbound: `FrameCodec::frame_payload_bytes` has a default
-body of `Bytes::copy_from_slice` (`src/codec.rs:89-91`), which copies, but
-`LengthDelimitedFrameCodec` overrides it with `frame.clone()` (`:281`). The
+body of `Bytes::copy_from_slice` (`src/codec/mod.rs:90-92`), which copies, but
+`LengthDelimitedFrameCodec` overrides it with `frame.clone()` (`:292`). The
 default path does not pay that copy; a protocol-native codec that omits the
 override would. That is item `11.2.3`'s concern, not this one's.
 
@@ -158,17 +160,17 @@ Roadmap item `9.6.1` (`docs/execplans/9-6-1-codec-performance-benchmarks.md`,
 COMPLETE) built codec-level benchmarks: `benches/codec_performance.rs`
 (Criterion groups `codec/encode`, `codec/decode`,
 `codec/fragmentation_overhead`), `benches/codec_performance_alloc.rs` (group
-`codec/allocations`, with a private `CountingAllocator` at lines 34-77 and a
-`#[global_allocator]` at lines 38-39), and the shared support module
+`codec/allocations`, with a private, gated `CountingAllocator` at lines 35-92
+and a `#[global_allocator]` at lines 47-48), and the shared support module
 `wireframe_testing/src/codec_benchmarks/` defining `SMALL_PAYLOAD_BYTES = 32`,
 `LARGE_PAYLOAD_BYTES = 64 * 1024`, `PayloadClass`, `payload_for_class`,
-`Measurement`, and the workload matrix. `make bench-codec` (`Makefile:66-67`)
+`Measurement`, and the workload matrix. `make bench-codec` (`Makefile:137-138`)
 runs both bench binaries by name.
 
 Three gaps matter. The existing coverage stops at the codec boundary, with
 nothing for middleware, hooks, or the serializer bridge. `CountingAllocator`
 never reads `layout.size()`, so it cannot report bytes, and it uses
-process-global atomics, which its own documentation (lines 79-84) concedes
+process-global atomics, which its own documentation (lines 94-99) concedes
 makes it "a noisy relative baseline". And nothing anywhere measures copied
 bytes.
 
@@ -184,10 +186,10 @@ its consumers span Tokio worker threads. `benches/codec_performance_alloc.rs`
 still carries its own private copy.
 
 The repository does, however, already have the right idiom for the invariant
-half of this work. `src/codec/tests.rs` asserts zero-copy behaviour by pointer
-identity: `length_delimited_wrap_payload_reuses_bytes` (lines 63-71), the
-parameterized `wrap_payload_reuses_bytes` (lines 195-212) and
-`frame_payload_bytes_reuses_memory` (lines 214-232) across length-delimited,
+half of this work. `src/codec/tests/mod.rs` asserts zero-copy behaviour by
+pointer identity: `length_delimited_wrap_payload_reuses_bytes` (lines 63-71),
+the parameterized `wrap_payload_reuses_bytes` (lines 194-211) and
+`frame_payload_bytes_reuses_memory` (lines 213-229) across length-delimited,
 Hotline, and MySQL codecs, and the helper `assert_decode_zero_copy` (lines
 236-245). This plan extends that idiom rather than inventing a new one.
 
@@ -221,9 +223,9 @@ Hotline, and MySQL codecs, and the helper `assert_decode_zero_copy` (lines
 There is no Terms of Reference document in this repository. The upstream
 artefacts are:
 
-- `docs/roadmap.md` section 10.2, item `10.2.1` (lines 470-481), as at commit
-  `d77dd76`. Item `10.1.1` is complete (lines 460-462), so this item is
-  unblocked.
+- `docs/roadmap.md` section 10.2, item `10.2.1` (lines 473-475, section
+  471-481), as at commit `e5d01b54`. Item `10.1.1` is complete (lines 461-463),
+  so this item is unblocked.
 - `docs/adr-008-zero-copy-public-byte-container.md` (Accepted), technical
   requirement at lines 85-86 and the non-goal at line 181 declining to
   guarantee zero allocation on mutation paths.
@@ -235,8 +237,8 @@ artefacts are:
   lines 196-206 pinning the sole production `wrap_payload` call site.
 - `docs/frame-vec-u8-inventory.md`, in particular the middleware data-flow
   discussion at lines 116-119 and the explicit payload-flow statement at lines
-  240-244, plus lines 200-204 on client hooks and 226-228 on the serializer.
-- `docs/roadmap.md` section 15 (Formal verification, lines 583-718), which owns
+  247-251, plus lines 200-205 on client hooks and 225-239 on the serializer.
+- `docs/roadmap.md` section 15 (Formal verification, lines 606-740), which owns
   the prover work this plan deliberately does not do. See `Decision log` D-8.
 
 Trace links:
@@ -258,7 +260,7 @@ INVENTORY-middleware-moves-payload -> EP-M3
 ## Constraints
 
 - The four stages, the metric set, and "the default codec path" are fixed by
-  `docs/roadmap.md:472-474`. Do not narrow them. The framed-encoder row is an
+  `docs/roadmap.md:473-475`. Do not narrow them. The framed-encoder row is an
   addition, justified above, not a substitution.
 - A probe must drive production code, never re-implement it. Where a production
   step is not reachable, extract it into a named production function that both
@@ -287,7 +289,7 @@ INVENTORY-middleware-moves-payload -> EP-M3
   pronouns.
 - Register new documents in `docs/contents.md`; append to `CHANGELOG.md` under
   `## Unreleased`; edit `docs/roadmap.md` with `mapsplice`
-  (`docs/developers-guide.md:512-540`) using inline links, not footnotes.
+  (`docs/developers-guide.md:1668-1695`) using inline links, not footnotes.
 - Run gates with `set -o pipefail` and `tee` to `/tmp`. Delegate full gate runs
   to the `scrutineer` sub-agent.
 - Commit after each milestone; every commit passes `make check-fmt`,
@@ -369,17 +371,18 @@ INVENTORY-middleware-moves-payload -> EP-M3
   stale silently. Severity: medium. Likelihood: medium. Mitigation: the
   provenance stamp records the git commit at capture time, and a test fails
   when that commit predates the most recent change to `src/serializer.rs`,
-  `src/codec.rs`, or `src/app/outbound_encoding.rs`. Staleness becomes visible
-  without needing Valgrind to detect it.
+  `src/codec/mod.rs`, or `src/app/outbound_encoding.rs`. Staleness becomes
+  visible without needing Valgrind to detect it.
 
 - Risk: `make test` does not build `wireframe_testing`'s tests, because
   `Cargo.toml:15` sets `default-members = ["."]`, and CI does not run
-  `make test` at all — `.github/workflows/ci.yml` runs `check-fmt`, `lint`,
-  `markdownlint`, `nixie`, `test-workflow-contracts`, and a coverage action.
-  Severity: high. Likelihood: certain if unaddressed. Mitigation: all invariant
-  tests live in the root crate's `tests/`, which the gates do build. EP-M1
-  additionally verifies that the counters agree between the dev profile and the
-  coverage build before anything depends on them.
+  `make test` at all — `.github/workflows/ci.yml` runs `test-ui`, `check-fmt`,
+  `lint`, `spelling`, `nixie`, `test-workflow-contracts`, `test-feature-gate`,
+  `test-pool-no-metrics`, and a coverage action. Severity: high. Likelihood:
+  certain if unaddressed. Mitigation: all invariant tests live in the root
+  crate's `tests/`, which the gates do build. EP-M1 additionally verifies that
+  the counters agree between the dev profile and the coverage build before
+  anything depends on them.
 
 - Risk: the seam extractions in EP-M2 drag on items 11.x and 12.x.
   Severity: low. Likelihood: medium. Mitigation: each extraction moves an
@@ -453,7 +456,7 @@ invert when the migration lands, and each is listed in the inversion register
 
 - **V-3a**: `wrap_payload` on the default codec returns a `Bytes` whose pointer
   equals the input's. Method: pointer-identity assertion, extending the
-  existing idiom at `src/codec/tests.rs:195-212`. Expected to keep holding.
+  existing idiom at `src/codec/tests/mod.rs:194-211`. Expected to keep holding.
 - **V-3b**: outbound encode performs at least one payload-sized allocation.
   Expected to **invert at 11.1.2**.
 - **V-3c**: outbound encode performs at least one non-payload-sized allocation
@@ -519,10 +522,10 @@ invert when the migration lands, and each is listed in the inversion register
 
 ### Why no Verus proof and no Kani harness
 
-`docs/roadmap.md` section 15 (lines 583-718) is a dedicated formal-verification
-phase that owns this work: item `15.1.4` (line 611) adds the `make kani`,
-`make kani-full`, and `make verus` targets; item `15.3.1` (line 651) adds the
-first Kani smoke harnesses; item `15.5.2` (line 704) adds proof-only modules
+`docs/roadmap.md` section 15 (lines 606-740) is a dedicated formal-verification
+phase that owns this work: item `15.1.4` (lines 634-637) added the `make kani`,
+`make kani-full`, and `make verus` targets; item `15.3.1` (line 674) adds the
+first Kani smoke harnesses; item `15.5.2` (line 727) adds proof-only modules
 under `verus/` for accounting invariants. Item `15.1.4` has since landed on
 `main`: the `make kani`, `make kani-full`, and `make verus` targets exist, but
 each is an explicit stub naming the item that will populate it (`Makefile`,
@@ -554,17 +557,18 @@ Confirm the four stage boundaries and the copy analysis above against the
 current tree. Then do three things.
 
 First, ship the roadmap and ADR-010 wording correction as its own docs-only
-commit. `docs/roadmap.md:475-477` (item 10.2.2) and `:491-492` (item 11.1.2)
-currently point implementers at `wrap_payload`, which is free. This correction
-is independently valuable and must not wait for the measurement work.
+commit. `docs/roadmap.md:476-478` (item 10.2.2) and ADR-010's known-risks
+section still point implementers at `wrap_payload`, which is free. Item `11.1.2`
+(`:497-514`) has since been reworded on `main` around a Bincode `BytesMut`
+encoder and no longer names `wrap_payload`; check that its new wording also
+covers, or explicitly excludes, the framed-encoder copy. This correction is
+independently valuable and must not wait for the measurement work.
 
-Second, record answers to two open questions in `Surprises and discoveries`:
-whether `src/app/codec_driver.rs:1-12`'s claim that the frame pipeline applies
-protocol `before_send` hooks is accurate — no such invocation was located in
-`FramePipeline::process` (`:56-71`) — and the absence of
-`docs/repository-layout.md`, which `AGENTS.md:41-43` and the style guide both
-reference. Neither is fixed here; if the first is a genuine defect, raise an
-issue.
+Second, confirm in `Surprises and discoveries` that `FramePipeline::process`
+(`src/app/codec_driver.rs:56-75`) still applies no `before_send` hook on the
+default path. `main` has since corrected the module documentation (`:1-12`) to
+describe only fragmentation and metrics, so the earlier discrepancy is closed;
+only the behavioural fact remains to be recorded.
 
 Third, run one fifteen-minute experiment that decides the shape of EP-M5: a
 single `valgrind --tool=dhat --mode=copy` over a throwaway 32-byte outbound
@@ -671,7 +675,7 @@ Milestone EP-M5.
   `const { Cell::new(0) }` initializers, reached via `try_with`. The escape
   detector is a process-global `AtomicU64` of open scopes plus a per-thread
   owner check. `alloc_zeroed` is overridden explicitly, matching the existing
-  bench allocator (`benches/codec_performance_alloc.rs:66-70`); omitting it
+  bench allocator (`benches/codec_performance_alloc.rs:81-85`); omitting it
   would route through `alloc` and shift the counts. An
   `install_probe_allocator!()` macro makes each binary's registration one
   greppable line.
@@ -711,7 +715,7 @@ Milestone EP-M5.
   3. `src/client/hooks.rs` — extract a free function
      `invoke_before_send(hooks: &[BeforeSendHook], bytes: &mut Vec<u8>)`
      and have `WireframeClient::invoke_before_send_hooks`
-     (`src/client/messaging.rs:335`) delegate to it. The method is on the
+     (`src/client/messaging.rs:345`) delegate to it. The method is on the
      client and reaching it otherwise requires a live `Framed` transport,
      contradicting the definition of a probe.
   4. `src/app/outbound_encoding.rs` — the shim returns
@@ -800,7 +804,10 @@ Milestone EP-M5.
   without re-parsing Markdown, and `render_report(&[BaselineRow]) -> String`
   producing a captioned Markdown table sorted by
   `(stage, payload_class, hook_shape)`. Both live in `wireframe_testing`, which
-  declares no `print_stdout` deny, so the printing binary does not need an
+  now inherits the workspace's `print_stdout` and `print_stderr` denies
+  (`Cargo.toml:127-128`) through `[lints] workspace = true`. The printing
+  binary therefore writes through a locked `std::io::stdout()` with `writeln!`,
+  propagating the `io::Result`, rather than reaching for `println!` and an
   `#[expect]` attribute.
 - **The environment stamp** is part of the rendered output: `rustc` version,
   the locked versions of `bincode`, `bytes`, and `tokio-util`,
@@ -829,15 +836,16 @@ Milestone EP-M5.
   separate calibration stage, and gives a free linearity check: figures that do
   not scale mean the harness is measuring setup. Division uses `checked_div`,
   because `integer_division` and `integer_division_remainder_used` are both
-  `deny` (`Cargo.toml:129-130`), and the two raw totals and `N` are published
+  `deny` (`Cargo.toml:135-136`), and the two raw totals and `N` are published
   alongside the quotient so truncation is recoverable. Recorded defaults:
   `N = 10_000` for `Large`, `N = 100_000` for `Small`. A named script under
   `scripts/` parses DHAT's `dhat.out.<pid>` output; its input format is stated
   in the script's header comment.
 - **Timings**: `benches/pipeline_baseline.rs`, registered in `Cargo.toml` as
   `[[bench]] name = "pipeline_baseline", harness = false`, and added by name to
-  `make bench-codec`, which lists its benches explicitly (`Makefile:66-67`).
-  Reuse the existing `iter_custom` shape from
+  `make bench-codec`, which lists its benches explicitly (`Makefile:137-138`).
+  Reuse the existing `iter_custom` shape from `benches/codec_performance.rs`
+  (lines 51, 76, 119, and 133), with workloads built from
   `wireframe_testing/src/codec_benchmarks/codec_benchmark_support.rs`, which
   amortizes clock resolution across a batch. Use `Throughput::Bytes` for
   decode, encode, and the framed write; `Throughput::Elements(1)` for
@@ -862,7 +870,7 @@ Milestone EP-M5.
     because `rust-toolchain.toml` and `tools/verus/VERSION` are pinned
     independently and a CI-wired prover would turn a pin gap into a red build.
   - `docs/developers-guide.md` — a subsection after "Example and benchmark
-    support" (line 331 onward) covering the instrument, the probes, the two
+    support" (line 1236 onward) covering the instrument, the probes, the two
     make targets, the regeneration workflow, and the rule that a dependency
     bump legitimately changes the recorded numbers.
   - `docs/contents.md`, `CHANGELOG.md`, and `docs/roadmap.md` (via `mapsplice`,
@@ -951,18 +959,19 @@ a `baseline-copy-probe` binary and `benches/pipeline_baseline.rs`;
 `baseline_document_sync.rs`, plus the BDD feature and steps.
 
 Reused rather than duplicated: `PayloadClass`, `payload_for_class`,
-`Measurement`, and the `iter_custom` shape from
+`Measurement` from
 `wireframe_testing::codec_benchmarks::codec_benchmark_support`; the
-pointer-identity idiom from `src/codec/tests.rs`.
+`iter_custom` shape from `benches/codec_performance.rs`; the pointer-identity
+idiom from `src/codec/tests/mod.rs`.
 
 ## Relevant documentation and skills
 
 Read before starting: `AGENTS.md`; `docs/documentation-style-guide.md`
-(including the ADR template at lines 418-495); `docs/developers-guide.md`
-(quality gates 176-188, benchmark support 331-352, formal tooling 354-393, test
-infrastructure 394-511, `mapsplice` 512-540); `docs/frame-vec-u8-inventory.md`;
-ADRs 008, 009, and 010; `docs/rust-testing-with-rstest-fixtures.md`;
-`docs/rstest-bdd-users-guide.md`;
+(including the ADR template at lines 417-494); `docs/developers-guide.md`
+(quality gates 648-670, benchmark support 1236-1279, formal tooling 1290-1350,
+test infrastructure 1451-1667, `mapsplice` 1668-1695);
+`docs/frame-vec-u8-inventory.md`; ADRs 008, 009, and 010;
+`docs/rust-testing-with-rstest-fixtures.md`; `docs/rstest-bdd-users-guide.md`;
 `docs/reliable-testing-in-rust-via-dependency-injection.md`;
 `docs/rust-doctest-dry-guide.md` (note `make doctest-benchmark` enforces a
 runnable-doctest ratio, and `missing_docs` is denied, so every new public item
@@ -1006,13 +1015,15 @@ for this item; see the verification plan.
 - Observation: the "final default-path `Vec<u8>` copy between serialization and
   `FrameCodec::wrap_payload`" is not where the phrase suggests, and there is a
   second payload-sized copy the roadmap does not mention. Evidence:
-  `src/codec.rs:283` (`wrap_payload` is the identity),
-  `src/app/outbound_encoding.rs:36` (`Bytes::from` takes ownership),
+  `src/codec/mod.rs:294` (`wrap_payload` is the identity),
+  `src/app/outbound_encoding.rs:37` (`Bytes::from` takes ownership),
   `src/serializer.rs:67-71` (the serializer must materialize a `Vec<u8>`), and
-  `src/codec.rs:248-257` (`LengthDelimitedEncoder::encode` delegates to
+  `src/codec/mod.rs:257-270` (`LengthDelimitedEncoder::encode` delegates to
   `tokio_util`, which copies the payload into the `Framed` write buffer).
-  Impact: `docs/roadmap.md:475-477` and `:491-492` and ADR-010's known-risks
-  section point item `11.1.2` at free operations. Stage A ships the correction.
+  Impact: `docs/roadmap.md:476-478` (item 10.2.2) and ADR-010's known-risks
+  section point the migration at free operations; item `11.1.2`'s own wording
+  (`:497-514`) was revised on `main` and no longer does. Stage A ships the
+  correction.
 
 - Observation: `Bytes::from(Vec<u8>)` does not copy, but it is not free.
   Evidence: `bytes-1.12.1/src/bytes.rs:947-967` heap-allocates a 24-byte
@@ -1023,13 +1034,15 @@ for this item; see the verification plan.
   right-sized buffer.
 
 - Observation: middleware pass-through is not allocation-free.
-  Evidence: `Service` is `#[async_trait]` (`src/middleware.rs:168-169`), so
+  Evidence: `Service` is `#[async_trait]` (`src/middleware.rs:174-175`), so
   every `call` boxes a future. Impact: the claim is "zero *payload-sized*
   allocations", not "zero allocations". Stated in V-3d and in ADR-011.
 
 - Observation: CI does not run `make test`.
-  Evidence: `.github/workflows/ci.yml` runs `make check-fmt`, `make lint`,
-  `make markdownlint`, `make nixie`, and `make test-workflow-contracts`; Rust
+  Evidence: `.github/workflows/ci.yml:84-144` runs `make test-ui`,
+  `make check-fmt`, `make lint`, `make spelling`, `make nixie`,
+  `make test-workflow-contracts`, `make test-feature-gate`, and
+  `make test-pool-no-metrics`, with Markdown linted by an action; runtime Rust
   tests reach CI only through a pinned coverage action. Impact: revision 1's
   anti-rot argument was false. Compounding it, `Cargo.toml:15` sets
   `default-members = ["."]`, so `make test` does not build
@@ -1037,19 +1050,21 @@ for this item; see the verification plan.
   root crate's `tests/`.
 
 - Observation: `wireframe_testing` cannot see anything gated on `test-support`.
-  Evidence: `wireframe_testing/Cargo.toml:16` declares `features = ["testkit"]`
-  and the crate has no `[features]` section. It compiles inside the workspace
-  only because feature unification papers over the gap;
-  `cargo build -p wireframe_testing` would break, as would docs.rs. Impact:
-  EP-M2 adds an opt-in `baseline` feature rather than enabling `test-support`
-  unconditionally, which would ship the shims to every consumer of a published
-  crate.
+  Evidence: `wireframe_testing/Cargo.toml:25` declares `features = ["testkit"]`
+  for its `wireframe` dependency; when this plan was drafted the crate had no
+  `[features]` section, and it now has only `runtime-benchmarks` (lines 13-18).
+  It compiles inside the workspace only because feature unification papers over
+  the gap; `cargo build -p wireframe_testing` would break, as would docs.rs.
+  Impact: EP-M2 adds an opt-in `baseline` feature rather than enabling
+  `test-support` unconditionally, which would ship the shims to every consumer
+  of a published crate.
 
 - Observation: roadmap section 15 already owns the prover work.
-  Evidence: `docs/roadmap.md:583-718`; item `15.1.4` (line 611) adds the make
-  targets, `15.3.1` (line 651) the first Kani harnesses, `15.5.2` (line 704) the
-  `verus/` proof modules — the exact entry point revision 1 proposed to
-  occupy. Impact: EP-M2 of revision 1 was cut. See `Decision log` D-8.
+  Evidence: `docs/roadmap.md:606-740`; item `15.1.4` (lines 634-637, since
+  completed as stub targets) adds the make targets, `15.3.1` (line 674) the
+  first Kani harnesses, `15.5.2` (line 727) the `verus/` proof modules — the
+  exact entry point revision 1 proposed to occupy. Impact: EP-M2 of revision 1
+  was cut. See `Decision log` D-8.
 
 - Observation: Cargo Dependabot runs daily with auto-merge.
   Evidence: `.github/dependabot.yml` (`package-ecosystem: "cargo"`,
@@ -1059,7 +1074,7 @@ for this item; see the verification plan.
   invariants-versus-measurements split.
 
 - Observation: the repository already has the right idiom for the invariant
-  half. Evidence: `src/codec/tests.rs:63-71`, `:195-212`, `:214-232`,
+  half. Evidence: `src/codec/tests/mod.rs:63-71`, `:194-211`, `:213-229`,
   `:236-245` assert zero-copy by pointer identity, parameterized across three
   codecs. Impact: V-3a extends an existing convention instead of inventing one.
 
@@ -1098,19 +1113,20 @@ for this item; see the verification plan.
   before any allocation claim, so this plan's baseline is its comparison point;
   its scope still omits the framed-encoder copy recorded here.
 
-- Observation: `docs/repository-layout.md` is referenced by `AGENTS.md:41-43`,
-  the style guide, and the roadmap, but does not exist. Impact: out of scope;
-  recorded so it is not mistaken for a search failure.
+- Observation: `docs/repository-layout.md`, referenced by `AGENTS.md:41-43`,
+  the style guide, and the roadmap, was missing when this plan was drafted and
+  now exists on `main`. Impact: none; consult it during Stage A.
 
-- Observation: `src/app/codec_driver.rs:1-12` documents that the frame pipeline
-  applies protocol `before_send` hooks, but no such invocation was located in
-  `FramePipeline::process` (`:56-71`). Impact: to be confirmed in Stage A; if
-  the documentation is stale, raise a separate issue rather than fixing it here.
+- Observation: `src/app/codec_driver.rs:1-12` once documented that the frame
+  pipeline applies protocol `before_send` hooks, but no such invocation exists
+  in `FramePipeline::process` (now `:56-75`). `main` has since rewritten the
+  module documentation to describe fragmentation and metrics only. Impact: the
+  documentation defect is closed; Stage A records the behaviour.
 
 ## Decision log
 
 - **D-1.** Extend `wireframe_testing::codec_benchmarks` rather than starting a
-  parallel harness. `docs/developers-guide.md:331-352` already directs bench
+  parallel harness. `docs/developers-guide.md:1236-1279` already directs bench
   targets, unit tests, and BDD fixtures there. 2026-08-23.
 
 - **D-2.** Define a copied byte as a byte passed to `memcpy`, `memmove`,
@@ -1136,7 +1152,7 @@ for this item; see the verification plan.
   registers no hooks, the row is documented as a hook-shape cost model with a
   stated synthetic hook body, not as a default-path figure. 2026-08-23.
 
-- **D-5.** Baseline the default codec only. `docs/roadmap.md:472-474` says "on
+- **D-5.** Baseline the default codec only. `docs/roadmap.md:473-475` says "on
   the default codec path"; item `11.2.3` is where a protocol-native codec is
   required. Hotline figures are recorded as supplementary and marked
   non-normative where the existing matrix makes them free. 2026-08-23.
@@ -1182,11 +1198,12 @@ for this item; see the verification plan.
 
 - **D-11.** Measure the framed-encoder copy as a fifth row. A baseline scoped
   to `encode_message_frame` would record roughly half the outbound payload
-  traffic, because `LengthDelimitedEncoder::encode` (`src/codec.rs:248-257`)
-  copies the payload into the `Framed` write buffer outside that boundary. Item
-  `10.2.2` would then set thresholds against half the traffic, and item
-  `11.1.2` would appear to remove "the final copy" while a payload-sized copy
-  per frame remained. 2026-08-23, decided at design review.
+  traffic, because `LengthDelimitedEncoder::encode`
+  (`src/codec/mod.rs:257-270`) copies the payload into the `Framed` write
+  buffer outside that boundary. Item `10.2.2` would then set thresholds against
+  half the traffic, and item `11.1.2` would appear to remove "the final copy"
+  while a payload-sized copy per frame remained. 2026-08-23, decided at design
+  review.
 
 - **D-12.** Target Criterion 0.8.2, the version now on `main`, and import
   `black_box` from `std::hint`. Commit `a31c01a` upgraded the crate and
