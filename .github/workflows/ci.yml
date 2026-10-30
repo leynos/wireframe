@@ -93,7 +93,7 @@ jobs:
         run: make check-fmt
 
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@8e6a325765ba382691d1b1c65fcccf1fc1d1b00c
+        uses: leynos/shared-actions/.github/actions/install-whitaker@5a99aed78ce68dcebd3052b75c31e6f173162b1e # shared-actions 5a99aed7 (whitaker-installer 0.2.11)
       - name: Lint
         # Dylint 6.0.1 expects a local master branch in its rust-clippy clone.
         # Limit the compatibility wrapper to this step; all other Git calls
