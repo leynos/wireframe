@@ -1,9 +1,9 @@
 # 10.2.1 Capture allocation, copied-byte, throughput, and latency baselines
 
-This execution plan (ExecPlan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises and discoveries`,
-`Decision log`, `Outcomes and retrospective`, `Conformance basis`, and
-`Verification plan` must be kept up to date as work proceeds.
+This execution plan (ExecPlan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises and discoveries`, `Decision log`,
+`Outcomes and retrospective`, `Conformance basis`, and `Verification plan`
+must be kept up to date as work proceeds.
 
 Status: DRAFT
 
@@ -74,11 +74,11 @@ configuration.
 **Inbound decode.** `process_stream` (`src/app/inbound_handler.rs:158-226`)
 wraps the transport in a `tokio_util::codec::Framed` built from `CombinedCodec`
 (`src/app/combined_codec.rs:8-18`). Frames reach `handle_frame` (`:228-276`),
-then `build_dispatchable_envelope` (`:278-322`), then `parse_envelope`
-(`:74`), which calls `BincodeSerializer::parse` (`src/serializer.rs:150-157`)
-and thence `bincode`. The `Vec<u8>` that becomes `Envelope.payload` is
-allocated inside `bincode`, not inside `wireframe`; it is observable only
-through allocator instrumentation.
+then `build_dispatchable_envelope` (`:278-322`), then `parse_envelope` (`:74`),
+which calls `BincodeSerializer::parse` (`src/serializer.rs:150-157`) and thence
+`bincode`. The `Vec<u8>` that becomes `Envelope.payload` is allocated inside
+`bincode`, not inside `wireframe`; it is observable only through allocator
+instrumentation.
 
 **Middleware pass-through.** `forward_response`
 (`src/app/frame_handling/response.rs:29-63`) builds
@@ -91,10 +91,10 @@ stage is not free, however: `Service` is declared `#[async_trait]`
 **Request hooks.** The client-side hooks in `src/client/hooks.rs`:
 `BeforeSendHook = Arc<dyn Fn(&mut Vec<u8>) + Send + Sync>` (line 152) and
 `AfterReceiveHook` (line 176), held in the `pub(crate)` struct `RequestHooks`
-(lines 184-189). They are invoked by
-`WireframeClient::invoke_before_send_hooks` (`src/client/messaging.rs:335`,
-inside the `impl<S, T, C> WireframeClient<S, T, C>` block opened at line 27) —
-a method on the client, not on `RequestHooks`.
+(lines 184-189). They are invoked by `WireframeClient::invoke_before_send_hooks`
+(`src/client/messaging.rs:335`, inside the
+`impl<S, T, C> WireframeClient<S, T, C>` block opened at line 27) — a method on
+the client, not on `RequestHooks`.
 
 On the default path `RequestHooks` is two empty vectors, so the stage is a loop
 over nothing. Measuring it therefore requires synthetic hooks, and the row
@@ -162,8 +162,8 @@ COMPLETE) built codec-level benchmarks: `benches/codec_performance.rs`
 `#[global_allocator]` at lines 38-39), and the shared support module
 `wireframe_testing/src/codec_benchmarks/` defining `SMALL_PAYLOAD_BYTES = 32`,
 `LARGE_PAYLOAD_BYTES = 64 * 1024`, `PayloadClass`, `payload_for_class`,
-`Measurement`, and the workload matrix. `make bench-codec`
-(`Makefile:66-67`) runs both bench binaries by name.
+`Measurement`, and the workload matrix. `make bench-codec` (`Makefile:66-67`)
+runs both bench binaries by name.
 
 Three gaps matter. The existing coverage stops at the codec boundary, with
 nothing for middleware, hooks, or the serializer bridge. `CountingAllocator`
@@ -171,6 +171,17 @@ never reads `layout.size()`, so it cannot report bytes, and it uses
 process-global atomics, which its own documentation (lines 79-84) concedes
 makes it "a noisy relative baseline". And nothing anywhere measures copied
 bytes.
+
+Issue 639's runtime-ownership baselines
+(`docs/execplans/issue-639-establish-runtime-ownership-and-task-churn-baselines.md`,
+APPROVED) have since lifted that counting mechanism into a shared module,
+`wireframe_testing/src/benchmark_alloc_support.rs`: a stateless
+`CountingAllocator` that each binary installs as its `#[global_allocator]`, a
+process-global `AtomicUsize` behind an `AtomicBool` gate, and a
+`count_allocations` helper that always closes its window. It shares the codec
+bench's limitations — no byte totals, no thread scoping — by design, because
+its consumers span Tokio worker threads. `benches/codec_performance_alloc.rs`
+still carries its own private copy.
 
 The repository does, however, already have the right idiom for the invariant
 half of this work. `src/codec/tests.rs` asserts zero-copy behaviour by pointer
@@ -197,9 +208,9 @@ Hotline, and MySQL codecs, and the helper `assert_decode_zero_copy` (lines
   defined in `wireframe_testing::codec_benchmarks`.
 - **Probe**: a synchronous, in-process function that drives one production
   stage once for one payload class, with no transport. The middleware stage is
-  the exception: `Service::call` is async, so its probe uses a
-  `current_thread` runtime and blocks on the future. The plan says so rather
-  than pretending the stage is synchronous.
+  the exception: `Service::call` is async, so its probe uses a `current_thread`
+  runtime and blocks on the future. The plan says so rather than pretending the
+  stage is synchronous.
 - **Reproducible measurement**: a measurement that yields an identical value
   for a fixed toolchain, a fixed `Cargo.lock`, a fixed optimization profile,
   and a 64-bit target. No measurement in this plan is claimed to be
@@ -258,8 +269,8 @@ INVENTORY-middleware-moves-payload -> EP-M3
   recorded. This is the constraint that keeps a daily Dependabot cadence from
   turning the baseline into a rubber stamp.
 - Nothing new may become part of the default-feature public surface of either
-  `wireframe` or `wireframe_testing`. New surfaces are feature-gated and
-  off by default.
+  `wireframe` or `wireframe_testing`. New surfaces are feature-gated and off by
+  default.
 - `#[global_allocator]` must never be declared inside a library. The
   `wireframe_testing` crate provides the allocator *type*; each consuming
   binary installs it. Every measurement entry point must verify the allocator
@@ -311,75 +322,70 @@ INVENTORY-middleware-moves-payload -> EP-M3
 
 - Risk: the thread-local instrument silently under-reports when work escapes to
   another thread, and an under-report is indistinguishable from the zero that
-  means success.
-  Severity: high. Likelihood: medium.
-  Mitigation: the instrument carries an escape detector. A process-global
-  counter records allocations seen on any thread while a measurement scope is
-  open on another; a measurement whose `escaped` flag is set is an error, not a
-  number. This is a hard requirement of EP-M1, not a nicety.
+  means success. Severity: high. Likelihood: medium. Mitigation: the instrument
+  carries an escape detector. A process-global counter records allocations seen
+  on any thread while a measurement scope is open on another; a measurement
+  whose `escaped` flag is set is an error, not a number. This is a hard
+  requirement of EP-M1, not a nicety.
 
 - Risk: thread-local access inside `GlobalAlloc` recurses or fails during
   thread-local storage setup and teardown, because initializing thread-local
-  storage may itself allocate.
-  Severity: high. Likelihood: medium.
-  Mitigation: declare the counters with `thread_local!` using
-  `const { Cell::new(0) }` so first access performs no lazy allocation, reach
-  them with `try_with`, and treat failure as "not measuring". Add a test that
-  allocates during thread teardown and asserts the process does not abort.
+  storage may itself allocate. Severity: high. Likelihood: medium. Mitigation:
+  declare the counters with `thread_local!` using `const { Cell::new(0) }` so
+  first access performs no lazy allocation, reach them with `try_with`, and
+  treat failure as "not measuring". Add a test that allocates during thread
+  teardown and asserts the process does not abort.
 
 - Risk: recorded numbers drift because `bincode`, `bytes`, or `tokio-util`
   changes. Cargo Dependabot runs daily (`.github/dependabot.yml`) with
-  auto-merge configured.
-  Severity: high without mitigation, low with. Likelihood: high.
-  Mitigation: no test asserts a number. The generated document carries an
-  environment stamp naming the toolchain and the locked versions of the three
-  crates, so a changed number is self-explaining rather than alarming.
+  auto-merge configured. Severity: high without mitigation, low with.
+  Likelihood: high. Mitigation: no test asserts a number. The generated
+  document carries an environment stamp naming the toolchain and the locked
+  versions of the three crates, so a changed number is self-explaining rather
+  than alarming.
 
 - Risk: an uninstalled `#[global_allocator]` in one of the six consuming
-  binaries yields all-zero counters that read as success.
-  Severity: high. Likelihood: medium.
-  Mitigation: `assert_installed()` allocates a canary and errors if the
-  counters do not move. Called at the entry of every measurement binary. The
-  report renderer refuses to emit an all-zero row without an explicit marker.
+  binaries yields all-zero counters that read as success. Severity: high.
+  Likelihood: medium. Mitigation: `assert_installed()` allocates a canary and
+  errors if the counters do not move. Called at the entry of every measurement
+  binary. The report renderer refuses to emit an all-zero row without an
+  explicit marker.
 
 - Risk: first-touch lazy initialization inside `bincode`, `tokio-util`, or
   `tracing` is attributed to whichever probe runs first on a thread, making
-  counters order-dependent.
-  Severity: medium. Likelihood: high.
-  Mitigation: every probe performs one unmeasured warm-up iteration before the
-  measured run, and the tolerance above distinguishes first-touch variance from
-  an instrument defect.
+  counters order-dependent. Severity: medium. Likelihood: high. Mitigation:
+  every probe performs one unmeasured warm-up iteration before the measured
+  run, and the tolerance above distinguishes first-touch variance from an
+  instrument defect.
 
 - Risk: Valgrind does not run on Apple Silicon, stranding contributors on the
-  copied-byte metric.
-  Severity: medium. Likelihood: medium.
-  Mitigation: `make baseline-copy` runs inside a pinned rootless-Podman image,
-  which also makes figures comparable across Linux distributions by fixing
-  libc and the Valgrind version. `BASELINE_COPY_NATIVE=1` selects the faster
-  native path. The image digest goes into the provenance stamp.
+  copied-byte metric. Severity: medium. Likelihood: medium. Mitigation:
+  `make baseline-copy` runs inside a pinned rootless-Podman image, which also
+  makes figures comparable across Linux distributions by fixing libc and the
+  Valgrind version. `BASELINE_COPY_NATIVE=1` selects the faster native path.
+  The image digest goes into the provenance stamp.
 
 - Risk: the copied-byte table is the one artefact no test guards, so it goes
-  stale silently.
-  Severity: medium. Likelihood: medium.
-  Mitigation: the provenance stamp records the git commit at capture time, and
-  a test fails when that commit predates the most recent change to
-  `src/serializer.rs`, `src/codec.rs`, or `src/app/outbound_encoding.rs`.
-  Staleness becomes visible without needing Valgrind to detect it.
+  stale silently. Severity: medium. Likelihood: medium. Mitigation: the
+  provenance stamp records the git commit at capture time, and a test fails
+  when that commit predates the most recent change to `src/serializer.rs`,
+  `src/codec.rs`, or `src/app/outbound_encoding.rs`. Staleness becomes visible
+  without needing Valgrind to detect it.
 
 - Risk: `make test` does not build `wireframe_testing`'s tests, because
   `Cargo.toml:15` sets `default-members = ["."]`, and CI does not run
   `make test` at all — `.github/workflows/ci.yml` runs `check-fmt`, `lint`,
   `markdownlint`, `nixie`, `test-workflow-contracts`, and a coverage action.
-  Severity: high. Likelihood: certain if unaddressed.
-  Mitigation: all invariant tests live in the root crate's `tests/`, which the
-  gates do build. EP-M1 additionally verifies that the counters agree between
-  the dev profile and the coverage build before anything depends on them.
+  Severity: high. Likelihood: certain if unaddressed. Mitigation: all invariant
+  tests live in the root crate's `tests/`, which the gates do build. EP-M1
+  additionally verifies that the counters agree between the dev profile and the
+  coverage build before anything depends on them.
 
 - Risk: the seam extractions in EP-M2 drag on items 11.x and 12.x.
-  Severity: low. Likelihood: medium.
-  Mitigation: each extraction moves an existing statement sequence into a named
-  function called from its original site. Later items change the function's
-  body along with everything else; the probe follows.
+  Severity: low. Likelihood: medium. Mitigation: each extraction moves an
+  existing statement sequence into a named function called from its original
+  site. Later items change the function's body along with everything else; the
+  probe follows.
 
 ## Verification plan
 
@@ -414,8 +420,8 @@ supported targets; Criterion's timing methodology is sound.
 - **Artefact**: `tests/baseline_alloc_scoping.rs` in the root crate, so the
   gates actually run it.
 - **Evidence**: `make test` passes. Record `proptest` classification output
-  showing that generated cases reach depth 3 and do spawn threads; an
-  unreached class means the generator is wrong and the run does not count.
+  showing that generated cases reach depth 3 and do spawn threads; an unreached
+  class means the generator is wrong and the run does not count.
 - **Non-vacuity**: three negative controls, each of which must fail the
   property — a variant sharing the counter across threads, a variant whose
   scope guard does not restore state on unwind, and a variant with the escape
@@ -517,9 +523,11 @@ invert when the migration lands, and each is listed in the inversion register
 phase that owns this work: item `15.1.4` (line 611) adds the `make kani`,
 `make kani-full`, and `make verus` targets; item `15.3.1` (line 651) adds the
 first Kani smoke harnesses; item `15.5.2` (line 704) adds proof-only modules
-under `verus/` for accounting invariants. None is done, and
-`docs/developers-guide.md:376-379` records that `make run-verus` is expected to
-fail until they are.
+under `verus/` for accounting invariants. Item `15.1.4` has since landed on
+`main`: the `make kani`, `make kani-full`, and `make verus` targets exist, but
+each is an explicit stub naming the item that will populate it (`Makefile`,
+"stub until roadmap 15.3.1" and "stub until roadmap 15.5.2"). The harnesses and
+proofs themselves remain unscheduled before those items.
 
 An earlier revision of this plan proposed discharging the instrument's counter
 arithmetic in Verus and its `GlobalAlloc` implementation in Kani. That was the
@@ -534,7 +542,9 @@ property tests and V-2's seeded fault attack misattribution directly.
 The counter arithmetic is instead covered by an `rstest` table of eight known
 event sequences, including the `realloc` case and the counting-disabled case,
 against hand-computed expected values. If the estate later wants a proof of it,
-it belongs as a sub-item under roadmap section 15.3, once `15.1.4` exists.
+it belongs as a sub-item under roadmap section 15.3; the precondition this
+revision previously named, `15.1.4`, is now met, so the remaining dependency is
+`15.3.1`'s harness layout.
 
 ## Plan of work
 
@@ -560,9 +570,9 @@ Third, run one fifteen-minute experiment that decides the shape of EP-M5: a
 single `valgrind --tool=dhat --mode=copy` over a throwaway 32-byte outbound
 encode. An earlier revision assumed LLVM inlines small copies so DHAT would
 undercount the `Small` class. That assumption is untested and probably wrong,
-because the copies at issue take runtime lengths across crate boundaries and
-so emit real `memcpy` calls. If `Small` copied bytes scale with payload size,
-the `Small` class is measurable and stays in scope.
+because the copies at issue take runtime lengths across crate boundaries and so
+emit real `memcpy` calls. If `Small` copied bytes scale with payload size, the
+`Small` class is measurable and stays in scope.
 
 Validation: the correction is committed and gates pass; the two answers and the
 experiment result are written into this plan.
@@ -591,11 +601,27 @@ Milestone EP-M5.
 
 ### EP-M1 — the allocation instrument
 
-- **Outcome**: `wireframe_testing::codec_benchmarks::alloc_probe` exists, is
-  verified against V-1, and `benches/codec_performance_alloc.rs` uses it
-  instead of its private `CountingAllocator`.
+- **Outcome**: `wireframe_testing::benchmark_alloc_support::traffic_probe`
+  exists, is verified against V-1, and `benches/codec_performance_alloc.rs`
+  uses it instead of its private `CountingAllocator`.
+- **Relationship to the shared module**: `main` now carries
+  `wireframe_testing/src/benchmark_alloc_support.rs`, added for the
+  runtime-ownership baselines (issue 639). It provides a process-global,
+  events-only `CountingAllocator` behind an `AtomicBool` gate, plus
+  `count_allocations`, and `benches/runtime_ownership_baselines_alloc` depends
+  on exactly those semantics because its scenarios span Tokio worker threads.
+  The probe is therefore a child module of that file's family, not a second
+  framework and not a change to the existing counter: it reuses the module's
+  window-closing discipline and installation convention and adds the two
+  properties the existing counter deliberately lacks — byte totals and thread
+  scoping with escape detection. A binary installs one allocator or the other,
+  never both, since Rust permits one `#[global_allocator]` per binary. Giving
+  the module a child means moving `benchmark_alloc_support.rs` to
+  `benchmark_alloc_support/mod.rs` unchanged, because `main` normalized the
+  tree to `mod.rs` layout in commit `815dad6`; make that move its own commit so
+  the diff of the new code reads cleanly.
 - **Interfaces**, in
-  `wireframe_testing/src/codec_benchmarks/alloc_probe.rs`:
+  `wireframe_testing/src/benchmark_alloc_support/traffic_probe.rs`:
 
   ```rust
   /// Allocator traffic observed on one thread within a measured scope.
@@ -657,10 +683,11 @@ Milestone EP-M5.
   `wrap_allocs_<n>` label shape, with old and new values recorded side by side
   in the commit message, because the thread-local change will move them and
   every saved Criterion baseline under `target/criterion` is orphaned by it.
-- **Conformance check**: no `wireframe` API changed. `wireframe_testing` gains
-  a module and a `[lints]` section inheriting the workspace lint policy, so the
-  most correctness-critical component in this item is held to the same standard
-  as the rest of the tree rather than the least-linted crate in it.
+- **Conformance check**: no `wireframe` API changed, and the existing
+  `benchmark_alloc_support` items and their doctests are untouched.
+  `wireframe_testing` already inherits the workspace lint policy through
+  `[lints] workspace = true` (`wireframe_testing/Cargo.toml`), so the
+  instrument is held to the same standard as the rest of the tree.
 - **Recovery**: additive plus a one-file bench substitution, committed
   separately so it reverts alone.
 - **Remaining gaps**: no probes yet.
@@ -671,9 +698,12 @@ Milestone EP-M5.
   probes that drive production code.
 - **Production seams** (each a behaviour-preserving extraction, called from its
   original site):
-  1. `src/app/inbound_handler.rs` — widen `parse_envelope` (line 74, currently
-     a bare private `fn`) to `pub(crate)`, and add the shim inside this module
-     rather than a sibling, because a sibling module cannot see a private item.
+  1. `src/app/inbound_handler/` — `parse_envelope` now lives in the private
+     child module `core` (`src/app/inbound_handler/core.rs:115`) and is
+     already `pub(super)`, so it is visible throughout `inbound_handler` and
+     its descendants. Add the shim as a gated child module,
+     `src/app/inbound_handler/baseline_support.rs`, which can call it without
+     widening its visibility. No production signature changes.
   2. `src/app/frame_handling/response.rs` — extract
      `pub(crate) async fn middleware_round_trip(...)` covering lines 41-55, and
      call it from `forward_response`. Without this the middleware probe would
@@ -689,14 +719,18 @@ Milestone EP-M5.
      `EncodedFrame` is `pub(crate)` (line 18) and returning it from a `pub`
      function trips `private_interfaces`, which `-D warnings` makes an error.
 - **Feature plumbing**, which is a hard compile break if omitted:
-  `wireframe_testing/Cargo.toml` currently declares
-  `wireframe = { path = "..", features = ["testkit"] }` and has no `[features]`
-  section, so it cannot see anything gated on `test-support`. Add
-  `[features] baseline = ["wireframe/test-support"]`, default off, gate the new
-  modules behind it, and add `features = ["baseline"]` to the root crate's
-  dev-dependency on `wireframe_testing`. Enabling `test-support`
-  unconditionally would ship the shims to every downstream consumer of a
-  published crate.
+  `wireframe_testing/Cargo.toml` declares
+  `wireframe = { path = "..", features = ["testkit"] }`, so its default build
+  cannot see anything gated on `test-support`. `main` has since established the
+  pattern to follow: a `[features]` section whose
+  `runtime-benchmarks = ["wireframe/test-support", "wireframe/pool"]` gates the
+  runtime-ownership helpers (`wireframe_testing/src/lib.rs:34`), enabled from
+  the root crate's dev-dependency (`Cargo.toml:65`). Add a sibling
+  `baseline = ["wireframe/test-support"]`, default off, gate the new modules
+  behind it, and append `"baseline"` to that dev-dependency's feature list. Do
+  not piggyback on `runtime-benchmarks`: a feature named for its purpose keeps
+  each suite removable on its own. Enabling `test-support` unconditionally
+  would ship the shims to every downstream consumer of a published crate.
 - **Interfaces**, in
   `wireframe_testing/src/codec_benchmarks/default_path_baseline.rs`:
 
@@ -726,8 +760,8 @@ Milestone EP-M5.
   pub fn run_stage(fixture: &StageFixture) -> StageOutput;
   ```
 
-  `run_stage` returns `StageOutput` so the caller can `black_box` it; a
-  `-> ()` signature would let the optimizer elide the work being measured.
+  `run_stage` returns `StageOutput` so the caller can `black_box` it; a `-> ()`
+  signature would let the optimizer elide the work being measured.
   `PayloadClass` gains `PartialOrd, Ord` upstream so the report can sort.
 - **Acceptance evidence**: `tests/baseline_invariants.rs` passes V-2 including
   the seeded-fault control, and V-3a through V-3e hold with their controls
@@ -764,10 +798,10 @@ Milestone EP-M5.
 - **Interfaces**: `collect_baseline()`, returning
   `Result<Vec<BaselineRow>, BaselineError>` so item `10.2.2` can set thresholds
   without re-parsing Markdown, and `render_report(&[BaselineRow]) -> String`
-  producing a captioned
-  Markdown table sorted by `(stage, payload_class, hook_shape)`. Both live in
-  `wireframe_testing`, which declares no `print_stdout` deny, so the printing
-  binary does not need an `#[expect]` attribute.
+  producing a captioned Markdown table sorted by
+  `(stage, payload_class, hook_shape)`. Both live in `wireframe_testing`, which
+  declares no `print_stdout` deny, so the printing binary does not need an
+  `#[expect]` attribute.
 - **The environment stamp** is part of the rendered output: `rustc` version,
   the locked versions of `bincode`, `bytes`, and `tokio-util`,
   `target_pointer_width`, the cargo profile, and the git commit. A changed
@@ -777,8 +811,8 @@ Milestone EP-M5.
   hand-transcription step, so V-5 verifies a generated artefact.
 - **Acceptance evidence**: `make baseline` then `make baseline --check` exits
   zero; altering one digit and re-running `--check` exits non-zero naming the
-  region; `tests/baseline_report_format.rs` passes V-4 with the
-  reverse-order control.
+  region; `tests/baseline_report_format.rs` passes V-4 with the reverse-order
+  control.
 - **Conformance check**: `insta` appears only in `[dev-dependencies]`, and the
   snapshot is driven by synthetic rows, so no dependency bump can touch it.
 
@@ -884,8 +918,7 @@ Acceptance is behavioural.
 
 Quality criteria: `make check-fmt`, `make lint`, `make test`,
 `make markdownlint`, and `make nixie` all pass. No performance threshold is set
-by this item; choosing thresholds is item `10.2.2`. No security surface
-changes.
+by this item; choosing thresholds is item `10.2.2`. No security surface changes.
 
 ## Idempotence and recovery
 
@@ -906,12 +939,16 @@ pinned rootless-Podman image so the figures are portable and comparable;
 requirement, and `make baseline-copy` fails with a clear diagnostic when the
 tool is absent rather than recording zeros.
 
-New modules: `wireframe_testing/src/codec_benchmarks/{alloc_probe,
-default_path_baseline, baseline_report}.rs`; a `baseline-copy-probe` binary and
-`benches/pipeline_baseline.rs`; `scripts/parse-dhat-copy.<ext>`; root-crate
-tests `baseline_alloc_scoping.rs`, `baseline_invariants.rs`,
-`baseline_report_format.rs`, `baseline_document_sync.rs`, plus the BDD feature
-and steps.
+New modules: `wireframe_testing/src/benchmark_alloc_support/traffic_probe.rs`
+(with `benchmark_alloc_support.rs` moved unchanged to
+`benchmark_alloc_support/mod.rs`, following the `mod.rs` layout `main` adopted
+in commit `815dad6`), and
+`wireframe_testing/src/codec_benchmarks/{default_path_baseline,
+baseline_report}.rs`;
+a `baseline-copy-probe` binary and `benches/pipeline_baseline.rs`;
+`scripts/parse-dhat-copy.<ext>`; root-crate tests `baseline_alloc_scoping.rs`,
+`baseline_invariants.rs`, `baseline_report_format.rs`,
+`baseline_document_sync.rs`, plus the BDD feature and steps.
 
 Reused rather than duplicated: `PayloadClass`, `payload_for_class`,
 `Measurement`, and the `iter_custom` shape from
@@ -921,17 +958,15 @@ pointer-identity idiom from `src/codec/tests.rs`.
 ## Relevant documentation and skills
 
 Read before starting: `AGENTS.md`; `docs/documentation-style-guide.md`
-(including the ADR template at lines 418-495);
-`docs/developers-guide.md` (quality gates 176-188, benchmark support 331-352,
-formal tooling 354-393, test infrastructure 394-511, `mapsplice` 512-540);
-`docs/frame-vec-u8-inventory.md`; ADRs 008, 009, and 010;
-`docs/rust-testing-with-rstest-fixtures.md`;
+(including the ADR template at lines 418-495); `docs/developers-guide.md`
+(quality gates 176-188, benchmark support 331-352, formal tooling 354-393, test
+infrastructure 394-511, `mapsplice` 512-540); `docs/frame-vec-u8-inventory.md`;
+ADRs 008, 009, and 010; `docs/rust-testing-with-rstest-fixtures.md`;
 `docs/rstest-bdd-users-guide.md`;
 `docs/reliable-testing-in-rust-via-dependency-injection.md`;
 `docs/rust-doctest-dry-guide.md` (note `make doctest-benchmark` enforces a
 runnable-doctest ratio, and `missing_docs` is denied, so every new public item
-needs a doc comment);
-`docs/multi-layered-testing-strategy.md`;
+needs a doc comment); `docs/multi-layered-testing-strategy.md`;
 `docs/formal-verification-methods-in-wireframe.md` (for why the prover work
 belongs to roadmap section 15);
 `docs/generic-message-fragmentation-and-re-assembly-design.md`,
@@ -970,8 +1005,8 @@ for this item; see the verification plan.
 
 - Observation: the "final default-path `Vec<u8>` copy between serialization and
   `FrameCodec::wrap_payload`" is not where the phrase suggests, and there is a
-  second payload-sized copy the roadmap does not mention.
-  Evidence: `src/codec.rs:283` (`wrap_payload` is the identity),
+  second payload-sized copy the roadmap does not mention. Evidence:
+  `src/codec.rs:283` (`wrap_payload` is the identity),
   `src/app/outbound_encoding.rs:36` (`Bytes::from` takes ownership),
   `src/serializer.rs:67-71` (the serializer must materialize a `Vec<u8>`), and
   `src/codec.rs:248-257` (`LengthDelimitedEncoder::encode` delegates to
@@ -982,41 +1017,39 @@ for this item; see the verification plan.
 - Observation: `Bytes::from(Vec<u8>)` does not copy, but it is not free.
   Evidence: `bytes-1.12.1/src/bytes.rs:947-967` heap-allocates a 24-byte
   `Shared` control block whenever `len != capacity`, which is the normal case
-  for `bincode`'s amortized output vector.
-  Impact: the outbound row's expected allocation count is at least two, and
-  invariant V-3c states the control-block allocation explicitly so that
-  `11.1.2` is judged on whether it produces a right-sized buffer.
+  for `bincode`'s amortized output vector. Impact: the outbound row's expected
+  allocation count is at least two, and invariant V-3c states the control-block
+  allocation explicitly so that `11.1.2` is judged on whether it produces a
+  right-sized buffer.
 
 - Observation: middleware pass-through is not allocation-free.
   Evidence: `Service` is `#[async_trait]` (`src/middleware.rs:168-169`), so
-  every `call` boxes a future.
-  Impact: the claim is "zero *payload-sized* allocations", not "zero
-  allocations". Stated in V-3d and in ADR-011.
+  every `call` boxes a future. Impact: the claim is "zero *payload-sized*
+  allocations", not "zero allocations". Stated in V-3d and in ADR-011.
 
 - Observation: CI does not run `make test`.
   Evidence: `.github/workflows/ci.yml` runs `make check-fmt`, `make lint`,
   `make markdownlint`, `make nixie`, and `make test-workflow-contracts`; Rust
-  tests reach CI only through a pinned coverage action.
-  Impact: revision 1's anti-rot argument was false. Compounding it,
-  `Cargo.toml:15` sets `default-members = ["."]`, so `make test` does not build
+  tests reach CI only through a pinned coverage action. Impact: revision 1's
+  anti-rot argument was false. Compounding it, `Cargo.toml:15` sets
+  `default-members = ["."]`, so `make test` does not build
   `wireframe_testing`'s tests either. All invariant tests therefore live in the
   root crate's `tests/`.
 
 - Observation: `wireframe_testing` cannot see anything gated on `test-support`.
-  Evidence: `wireframe_testing/Cargo.toml:16` declares
-  `features = ["testkit"]` and the crate has no `[features]` section. It
-  compiles inside the workspace only because feature unification papers over
-  the gap; `cargo build -p wireframe_testing` would break, as would docs.rs.
-  Impact: EP-M2 adds an opt-in `baseline` feature rather than enabling
-  `test-support` unconditionally, which would ship the shims to every consumer
-  of a published crate.
+  Evidence: `wireframe_testing/Cargo.toml:16` declares `features = ["testkit"]`
+  and the crate has no `[features]` section. It compiles inside the workspace
+  only because feature unification papers over the gap;
+  `cargo build -p wireframe_testing` would break, as would docs.rs. Impact:
+  EP-M2 adds an opt-in `baseline` feature rather than enabling `test-support`
+  unconditionally, which would ship the shims to every consumer of a published
+  crate.
 
 - Observation: roadmap section 15 already owns the prover work.
   Evidence: `docs/roadmap.md:583-718`; item `15.1.4` (line 611) adds the make
-  targets, `15.3.1` (line 651) the first Kani harnesses, `15.5.2` (line 704)
-  the `verus/` proof modules — the exact entry point revision 1 proposed to
-  occupy.
-  Impact: EP-M2 of revision 1 was cut. See `Decision log` D-8.
+  targets, `15.3.1` (line 651) the first Kani harnesses, `15.5.2` (line 704) the
+  `verus/` proof modules — the exact entry point revision 1 proposed to
+  occupy. Impact: EP-M2 of revision 1 was cut. See `Decision log` D-8.
 
 - Observation: Cargo Dependabot runs daily with auto-merge.
   Evidence: `.github/dependabot.yml` (`package-ecosystem: "cargo"`,
@@ -1026,33 +1059,53 @@ for this item; see the verification plan.
   invariants-versus-measurements split.
 
 - Observation: the repository already has the right idiom for the invariant
-  half.
-  Evidence: `src/codec/tests.rs:63-71`, `:195-212`, `:214-232`, `:236-245`
-  assert zero-copy by pointer identity, parameterized across three codecs.
-  Impact: V-3a extends an existing convention instead of inventing one.
+  half. Evidence: `src/codec/tests.rs:63-71`, `:195-212`, `:214-232`,
+  `:236-245` assert zero-copy by pointer identity, parameterized across three
+  codecs. Impact: V-3a extends an existing convention instead of inventing one.
 
 - Observation: `main` upgraded Criterion from 0.5.1 to 0.8.2 while this plan
-  was being drafted, and three dependency bumps landed alongside it.
-  Evidence: commits `a31c01a` (Criterion upgrade and `black_box` deprecation
-  fix, touching `benches/codec_performance.rs` and
-  `benches/codec_performance_alloc.rs`), `0210f51`, `5ff9ba2`, and `2e16058`.
-  Impact: two-fold. New bench code must import `std::hint::black_box` rather
-  than `criterion::black_box`. And the churn is direct evidence for decision
-  D-6: four dependency-affecting commits reached `main` inside a single day,
-  which is exactly the cadence that would have kept a committed allocation
-  figure permanently red. The API this plan relies on — `iter_custom`,
-  `Throughput::Bytes`, `Throughput::Elements`, and `BenchmarkId` — is
-  unchanged in 0.8.2.
+  was being drafted, and three dependency bumps landed alongside it. Evidence:
+  commits `a31c01a` (Criterion upgrade and `black_box` deprecation fix, touching
+  `benches/codec_performance.rs` and `benches/codec_performance_alloc.rs`),
+  `0210f51`, `5ff9ba2`, and `2e16058`. Impact: two-fold. New bench code must
+  import `std::hint::black_box` rather than `criterion::black_box`. And the
+  churn is direct evidence for decision D-6: four dependency-affecting commits
+  reached `main` inside a single day, which is exactly the cadence that would
+  have kept a committed allocation figure permanently red. The API this plan
+  relies on — `iter_custom`, `Throughput::Bytes`, `Throughput::Elements`, and
+  `BenchmarkId` — is unchanged in 0.8.2.
+
+- Observation: a second rebase onto `main` (2026-10-30) crossed 110 commits,
+  several of which change this plan's premises rather than merely its line
+  numbers. Evidence: commit `37208b74` (issue 639, runtime-ownership baselines)
+  added `wireframe_testing/src/benchmark_alloc_support.rs`, a
+  `runtime-benchmarks` feature in `wireframe_testing/Cargo.toml`,
+  `[lints] workspace = true` there, and `make bench-runtime-ownership`; commit
+  `815dad6` normalized the tree to `mod.rs` layout, moving `src/codec.rs` and
+  splitting `src/app/inbound_handler.rs`, after which `parse_envelope` is
+  `pub(super)`; commit `8a97934d` landed roadmap item `15.1.4` with stub prover
+  targets; commit `ccaccd8b` added the DRAFT item `11.1.2` plan,
+  `docs/execplans/issue-538-plan-zero-copy-serializer-output-migration.md`; and
+  commit `f0c14036` bounded `bincode` decode allocations on the inbound path
+  this plan measures. Impact: EP-M1 builds inside the shared allocator module
+  instead of beside it; the decode seam needs no visibility change; the feature
+  plumbing follows an existing precedent; and the inbound-decode row now
+  measures a bounded decoder, which is the behaviour item `11.2.3` will compare
+  against. The issue 639 plan independently adopted the same rule as decision
+  D-6 — no benchmark result as a correctness gate, no absolute threshold in a
+  test — which corroborates it. The item `11.1.2` plan already concedes that
+  `Bytes::from(Vec<u8>)` transfers without copying and asks for measurement
+  before any allocation claim, so this plan's baseline is its comparison point;
+  its scope still omits the framed-encoder copy recorded here.
 
 - Observation: `docs/repository-layout.md` is referenced by `AGENTS.md:41-43`,
-  the style guide, and the roadmap, but does not exist.
-  Impact: out of scope; recorded so it is not mistaken for a search failure.
+  the style guide, and the roadmap, but does not exist. Impact: out of scope;
+  recorded so it is not mistaken for a search failure.
 
 - Observation: `src/app/codec_driver.rs:1-12` documents that the frame pipeline
   applies protocol `before_send` hooks, but no such invocation was located in
-  `FramePipeline::process` (`:56-71`).
-  Impact: to be confirmed in Stage A; if the documentation is stale, raise a
-  separate issue rather than fixing it here.
+  `FramePipeline::process` (`:56-71`). Impact: to be confirmed in Stage A; if
+  the documentation is stale, raise a separate issue rather than fixing it here.
 
 ## Decision log
 
@@ -1079,9 +1132,9 @@ for this item; see the verification plan.
 - **D-4.** "Request hooks" means the client-side hooks in `src/client/hooks.rs`.
   Server-side `WireframeProtocol` hooks are inert on the default path
   (`protocol` is `None`) and client preamble replay is scheduled for item
-  `12.2.2` (`docs/frame-vec-u8-inventory.md:212-222`). Because the default
-  path registers no hooks, the row is documented as a hook-shape cost model
-  with a stated synthetic hook body, not as a default-path figure. 2026-08-23.
+  `12.2.2` (`docs/frame-vec-u8-inventory.md:212-222`). Because the default path
+  registers no hooks, the row is documented as a hook-shape cost model with a
+  stated synthetic hook body, not as a default-path figure. 2026-08-23.
 
 - **D-5.** Baseline the default codec only. `docs/roadmap.md:472-474` says "on
   the default codec path"; item `11.2.3` is where a protocol-native codec is
@@ -1089,15 +1142,15 @@ for this item; see the verification plan.
   non-normative where the existing matrix makes them free. 2026-08-23.
 
 - **D-6.** Assert invariants; record measurements. No test asserts an absolute
-  number. Allocation counts are properties of `bincode`, `bytes`,
-  `tokio-util`, `libstd`, the toolchain, and the optimization profile as much
-  as of `wireframe`; `Vec`'s growth strategy is an unspecified implementation
-  detail, and Cargo Dependabot runs daily. A committed number would therefore
-  produce red bot PRs whose only remedy is re-blessing, and a re-blessing
-  reflex destroys exactly the before-and-after comparability items `10.2.2`,
-  `11.2.3`, and `13.2.1` need. Invariants such as "at least one payload-sized
-  allocation" survive dependency churn and invert precisely when the migration
-  lands. 2026-08-23, revised after design review.
+  number. Allocation counts are properties of `bincode`, `bytes`, `tokio-util`,
+  `libstd`, the toolchain, and the optimization profile as much as of
+  `wireframe`; `Vec`'s growth strategy is an unspecified implementation detail,
+  and Cargo Dependabot runs daily. A committed number would therefore produce
+  red bot PRs whose only remedy is re-blessing, and a re-blessing reflex
+  destroys exactly the before-and-after comparability items `10.2.2`, `11.2.3`,
+  and `13.2.1` need. Invariants such as "at least one payload-sized allocation"
+  survive dependency churn and invert precisely when the migration lands.
+  2026-08-23, revised after design review.
 
 - **D-7.** Extract production seams rather than re-implementing steps in
   probes. A probe that re-implements what it measures verifies only itself; a
@@ -1130,8 +1183,8 @@ for this item; see the verification plan.
 - **D-11.** Measure the framed-encoder copy as a fifth row. A baseline scoped
   to `encode_message_frame` would record roughly half the outbound payload
   traffic, because `LengthDelimitedEncoder::encode` (`src/codec.rs:248-257`)
-  copies the payload into the `Framed` write buffer outside that boundary.
-  Item `10.2.2` would then set thresholds against half the traffic, and item
+  copies the payload into the `Framed` write buffer outside that boundary. Item
+  `10.2.2` would then set thresholds against half the traffic, and item
   `11.1.2` would appear to remove "the final copy" while a payload-sized copy
   per frame remained. 2026-08-23, decided at design review.
 
@@ -1142,15 +1195,24 @@ for this item; see the verification plan.
   The API surface this plan depends on is unchanged across the upgrade.
   2026-08-23, recorded when rebasing onto `main`.
 
+- **D-13.** Build the traffic probe as a child of
+  `wireframe_testing::benchmark_alloc_support` and leave that module's
+  process-global counter untouched. The runtime-ownership benches need
+  cross-thread counting, which a thread-scoped probe with escape detection
+  would reject as an error, so replacing the counter would break them; a
+  parallel framework elsewhere would contradict the issue 639 plan's rule that
+  new allocation work mirrors the existing pattern. Gate the new `wireframe`
+  shims behind a purpose-named `baseline` feature modelled on
+  `runtime-benchmarks`. 2026-10-30, recorded when rebasing onto `main`.
+
 ## Outcomes and retrospective
 
 To be completed at EP-M5. Before setting this plan to `COMPLETE`, reconcile
 every entry in `Surprises and discoveries` against the upstream artefacts in
-`Conformance basis`. The copy analysis affects the wording of
-`docs/roadmap.md` items `10.2.2` and `11.1.2` and ADR-010's known-risks
-section; Stage A ships that correction, and the retrospective must confirm it
-landed. Do not mark the plan complete while an upstream change remains
-unrecorded.
+`Conformance basis`. The copy analysis affects the wording of `docs/roadmap.md`
+items `10.2.2` and `11.1.2` and ADR-010's known-risks section; Stage A ships
+that correction, and the retrospective must confirm it landed. Do not mark the
+plan complete while an upstream change remains unrecorded.
 
 ## Artefacts and notes
 
@@ -1198,16 +1260,23 @@ What changed, and why:
 - **The `Small`-class undercount caveat became a Stage A experiment**, since
   the inlining hypothesis behind it was never tested and is probably wrong.
 - **Scope tightened** from six milestones to five, and the tolerance from
-  32 files and 2,500 lines to 20 and 1,400, matching the completed `9.6.1`
-  plan.
+  32 files and 2,500 lines to 20 and 1,400, matching the completed `9.6.1` plan.
 
 **Rebase onto `main` (2026-08-23)** brought Criterion 0.8.2 and three
 dependency bumps. The plan gained decision D-12 and a discovery entry: new
 bench code imports `std::hint::black_box`, and the churn itself is evidence for
 the invariants-not-numbers split.
 
-Effect on remaining work: Stage A now ships an independently valuable
-docs-only correction before any instrument exists, and the measurement work
-that follows is smaller, introduces one new tool rather than three, and
-produces an artefact that answers "did the copy go away?" with a test that
-inverts rather than a number that needs interpreting.
+**Rebase onto `main` (2026-10-30)** crossed 110 commits. Citations were
+re-verified against the reorganized tree, and three design points moved with
+`main`: the instrument now extends the shared `benchmark_alloc_support` module
+(decision D-13); the decode shim relies on `parse_envelope` already being
+`pub(super)`; and the formal-verification rationale reflects that `15.1.4` has
+landed as stub targets. The invariants-not-numbers split is unchanged and now
+has an independent precedent in the issue 639 plan.
+
+Effect on remaining work: Stage A now ships an independently valuable docs-only
+correction before any instrument exists, and the measurement work that follows
+is smaller, introduces one new tool rather than three, and produces an artefact
+that answers "did the copy go away?" with a test that inverts rather than a
+number that needs interpreting.
