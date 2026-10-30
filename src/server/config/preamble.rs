@@ -92,6 +92,11 @@ where
         /// The handler must implement [`crate::server::PreambleSuccessHandler`].
         /// See [`crate::server::PreambleHandler`] for a ready-to-use alias.
         ///
+        /// The handler is awaited before the connection is dispatched. If it
+        /// returns an error, the error is logged and the connection is closed
+        /// without invoking the application, so it can reject a peer after
+        /// semantic validation.
+        ///
         /// # Examples
         ///
         /// ```

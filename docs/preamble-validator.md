@@ -62,22 +62,30 @@ sequenceDiagram
         PreambleDecoder-->>Server: Decoded preamble (T)
         Server->>SuccessCallback: Invoke with preamble data
         SuccessCallback-->>Client: Optional response
+        alt Callback returned an error
+            Server-->>Client: Close connection
+        else Callback succeeded
+            Server->>Client: Dispatch to WireframeApp
+        end
     else Decode failure
         PreambleDecoder-->>Server: DecodeError
         Server->>FailureCallback: Invoke with error
+        Server-->>Client: Close connection
     end
-    Server-->>Client: (Continues or closes connection)
 ```
 
 The success callback receives the decoded preamble and a mutable `TcpStream`.
 It may write a handshake response before the connection is passed to
-`WireframeApp`. The failure callback is also asynchronous and receives the
-mutable stream so it can emit an error reply before the connection closes. Use
-`preamble_timeout` to cap how long the read may take; the timeout follows the
-failure callback path. In the tests, a `HotlinePreamble` struct illustrates the
-pattern, but any preamble type may be used. Register callbacks via
-`on_preamble_decode_success` and `on_preamble_decode_failure` on
-`WireframeServer`.
+`WireframeApp`. A success callback that returns an error fails closed: the
+error is logged and the connection is closed without application dispatch, so
+the callback can enforce pre-application access controls. Write any rejection
+response before returning the error. The failure callback is also asynchronous
+and receives the mutable stream so it can emit an error reply before the
+connection closes. Use `preamble_timeout` to cap how long the read may take;
+the timeout follows the failure callback path. In the tests, a
+`HotlinePreamble` struct illustrates the pattern, but any preamble type may be
+used. Register callbacks via `on_preamble_decode_success` and
+`on_preamble_decode_failure` on `WireframeServer`.
 
 ## Call Order
 
@@ -125,12 +133,15 @@ sequenceDiagram
     end
 
     alt preamble_result is Ok
-        ProcessStream->>ProcessStream: invoke on_success if Some
         opt on_success is Some
             ProcessStream->>WireframeApp: on_preamble_success(preamble, stream)
-            WireframeApp-->>ProcessStream: Result
+            WireframeApp-->>ProcessStream: io::Result
         end
-        ProcessStream->>WireframeApp: hand off stream and preamble
+        alt success callback returned an error
+            ProcessStream->>Client: close connection without app dispatch
+        else success callback succeeded or is absent
+            ProcessStream->>WireframeApp: hand off stream and preamble
+        end
     else preamble_result is Err (decode failure or timeout)
         alt on_failure is Some
             ProcessStream->>PreambleFailureHandler: on_preamble_failure(error, stream)
