@@ -49,6 +49,42 @@ that inspect rejection rates can use the optional
 `wireframe_decode_rejections_total` counter, labelled by the bounded decode
 path and rejection reason.
 
+## Declared total body length is authoritative
+
+`FirstFrameHeader::total_body_len` is now a protocol commitment. Message
+assembly rejects a first frame that already contradicts its declaration, stops
+a continuation from overshooting it, and requires the completed body to match
+it exactly. See [ADR 015](adr-015-declared-total-body-length-contract.md) for
+the decision.
+
+Applications that declare a total must supply the exact body length. A protocol
+that declares an approximate size will now see its messages rejected, because
+the length actually assembled can no longer differ from the length promised.
+Leaving `total_body_len` as `None` opts out of the equality requirement and
+keeps the previous behaviour, so that is the migration path for a protocol
+whose totals were only ever advisory.
+
+`MessageAssemblyError` gains three variants: `DeclaredTotalTooSmall`,
+`DeclaredTotalExceeded`, and `DeclaredTotalMismatch`. The enum is not
+`#[non_exhaustive]`, so an exhaustive match written against the previous
+variants fails to compile. Add the new arms:
+
+```rust
+use wireframe::message_assembler::MessageAssemblyError;
+
+fn is_retryable(error: MessageAssemblyError) -> bool {
+    match error {
+        MessageAssemblyError::DeclaredTotalTooSmall { .. }
+        | MessageAssemblyError::DeclaredTotalExceeded { .. }
+        | MessageAssemblyError::DeclaredTotalMismatch { .. } => false,
+        _ => true,
+    }
+}
+```
+
+The inbound adapter maps all three to `io::ErrorKind::InvalidData` and counts a
+deserialization failure, so a rejected message never reaches a handler.
+
 ## Prepared application transition
 
 `WireframeApp` remains the mutable builder. Register routes, middleware,

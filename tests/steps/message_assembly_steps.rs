@@ -77,6 +77,70 @@ fn given_state(
     message_assembly_world.create_state(config);
 }
 
+/// The frame attributes a Gherkin phrase may add beyond key and body.
+#[derive(Clone, Debug, Default)]
+struct FrameOptions {
+    metadata: Option<Vec<u8>>,
+    total: Option<usize>,
+    is_last: bool,
+}
+
+impl FrameOptions {
+    /// Attach `metadata` to the frame.
+    fn metadata(self, metadata: Vec<u8>) -> Self {
+        Self {
+            metadata: Some(metadata),
+            ..self
+        }
+    }
+
+    /// Declare a total body length.
+    fn total(self, total: CountParam) -> Self {
+        Self {
+            total: Some(total.0),
+            ..self
+        }
+    }
+
+    /// Mark the frame as completing its message.
+    fn final_frame(self) -> Self {
+        Self {
+            is_last: true,
+            ..self
+        }
+    }
+
+    /// Apply these attributes to `params`.
+    fn apply_to(self, params: FirstFrameParams) -> FirstFrameParams {
+        let with_metadata = match self.metadata {
+            Some(metadata) => params.with_metadata(metadata),
+            None => params,
+        };
+        let with_total = match self.total {
+            Some(total) => with_metadata.with_total(total),
+            None => with_metadata,
+        };
+        if self.is_last {
+            with_total.final_frame()
+        } else {
+            with_total
+        }
+    }
+}
+
+/// Record the single first frame the scenario is currently describing.
+fn record_first_frame(
+    world: &mut MessageAssemblyWorld,
+    key: MessageKeyParam,
+    body: &str,
+    options: FrameOptions,
+) {
+    world.add_first_frame(options.apply_to(FirstFrameParams::new(
+        key.to_key(),
+        body.as_bytes().to_vec(),
+    )));
+}
+
 #[rustfmt::skip]
 #[given("a first frame for key {key:MessageKeyParam} with metadata {metadata:string} and body {body:string}")]
 fn given_first_frame_with_metadata(
@@ -85,9 +149,8 @@ fn given_first_frame_with_metadata(
     metadata: String,
     body: String,
 ) {
-    message_assembly_world.add_first_frame(
-        FirstFrameParams::new(key.to_key(), body.into_bytes()).with_metadata(metadata.into_bytes()),
-    );
+    let options = FrameOptions::default().metadata(metadata.into_bytes());
+    record_first_frame(message_assembly_world, key, &body, options);
 }
 
 #[given("a first frame for key {key:MessageKeyParam} with body {body:string}")]
@@ -96,7 +159,7 @@ fn given_first_frame(
     key: MessageKeyParam,
     body: String,
 ) {
-    message_assembly_world.add_first_frame(FirstFrameParams::new(key.to_key(), body.into_bytes()));
+    record_first_frame(message_assembly_world, key, &body, FrameOptions::default());
 }
 
 #[rustfmt::skip]
@@ -107,9 +170,8 @@ fn given_first_frame_with_total(
     body: String,
     total: CountParam,
 ) {
-    message_assembly_world.add_first_frame(
-        FirstFrameParams::new(key.to_key(), body.into_bytes()).with_total(total.0),
-    );
+    let options = FrameOptions::default().total(total);
+    record_first_frame(message_assembly_world, key, &body, options);
 }
 
 #[rustfmt::skip]
@@ -120,11 +182,8 @@ fn given_final_first_frame_with_total(
     body: String,
     total: CountParam,
 ) {
-    message_assembly_world.add_first_frame(
-        FirstFrameParams::new(key.to_key(), body.into_bytes())
-            .with_total(total.0)
-            .final_frame(),
-    );
+    let options = FrameOptions::default().total(total).final_frame();
+    record_first_frame(message_assembly_world, key, &body, options);
 }
 
 #[given("a final first frame for key {key:MessageKeyParam} with body {body:string}")]
@@ -133,8 +192,8 @@ fn given_final_first_frame(
     key: MessageKeyParam,
     body: String,
 ) {
-    message_assembly_world
-        .add_first_frame(FirstFrameParams::new(key.to_key(), body.into_bytes()).final_frame());
+    let options = FrameOptions::default().final_frame();
+    record_first_frame(message_assembly_world, key, &body, options);
 }
 
 // =============================================================================

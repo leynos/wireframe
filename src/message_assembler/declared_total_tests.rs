@@ -195,9 +195,24 @@ fn final_frame_short_of_declared_total_is_rejected(
     );
 }
 
+/// A completing frame dispatches the assembled body whether the protocol
+/// declared an exact total or declared nothing at all.
+///
+/// The two cases share one body: the only difference is whether the
+/// declaration exists for the completion check to enforce.
 #[rstest]
-fn multi_frame_exact_declaration_is_dispatched(#[from(subject)] mut subject: MessageAssemblyState) {
-    let header = first_with_total(1, 5, 10, false);
+#[case::exact_declaration(Some(10), "world", "helloworld")]
+#[case::undeclared_total(None, "worlds", "helloworlds")]
+fn completing_frame_dispatches_the_assembled_body(
+    #[from(subject)] mut subject: MessageAssemblyState,
+    #[case] declared: Option<usize>,
+    #[case] final_body: &str,
+    #[case] expected: &str,
+) {
+    let header = FirstFrameHeader {
+        total_body_len: declared,
+        ..first_header(1, 5, false)
+    };
     accept_first(&mut subject, &header, b"hello").expect("first frame accepted");
 
     let msg = accept_continuation(
@@ -205,14 +220,14 @@ fn multi_frame_exact_declaration_is_dispatched(#[from(subject)] mut subject: Mes
         Continuation {
             key: 1,
             sequence: 1,
-            body: b"world",
+            body: final_body.as_bytes(),
             is_last: true,
         },
     )
-    .expect("declaration honoured")
+    .expect("body honours the declaration")
     .expect("message completes");
 
-    assert_eq!(msg.body(), b"helloworld");
+    assert_eq!(msg.body(), expected.as_bytes());
     assert_eq!(subject.buffered_count(), 0);
 }
 
@@ -258,30 +273,6 @@ fn non_final_frame_may_exactly_reach_the_declaration(
         }
     );
     assert_eq!(subject.buffered_count(), 0);
-}
-
-// =============================================================================
-// Protocols without a declaration
-// =============================================================================
-
-#[rstest]
-fn undeclared_total_is_unaffected(#[from(subject)] mut subject: MessageAssemblyState) {
-    let header = first_header(1, 5, false);
-    accept_first(&mut subject, &header, b"hello").expect("first frame accepted");
-
-    let msg = accept_continuation(
-        &mut subject,
-        Continuation {
-            key: 1,
-            sequence: 1,
-            body: b"worlds",
-            is_last: true,
-        },
-    )
-    .expect("undeclared total imposes no equality check")
-    .expect("message completes");
-
-    assert_eq!(msg.body(), b"helloworlds");
 }
 
 #[rstest]

@@ -213,3 +213,10 @@ mod budget_tests;
 
 #[path = "declared_total_tests.rs"]
 mod declared_total_tests;
+
+// =============================================================================
+// Declared total properties (issue #544) - see declared_total_property_tests.rs
+// =============================================================================
+
+#[path = "declared_total_property_tests.rs"]
+mod declared_total_property_tests;

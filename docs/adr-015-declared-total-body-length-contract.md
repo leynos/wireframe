@@ -165,6 +165,15 @@ buffered length and the declaration are read together.
 - Unit tests cover under-declared single-frame totals, over-declared
   single-frame totals, an over-declared continuation, a final frame short of
   the declaration, exact equality, and the `None` opt-out.
+- Property tests in `src/message_assembler/declared_total_property_tests.rs`
+  quantify over arbitrary `usize` lengths. They pin acceptance against the
+  remaining room, reject unrepresentable sums near `usize::MAX` as
+  `DeclaredTotalExceeded`, and drive the public state machine across generated
+  multi-frame partitions, asserting that an overshooting frame is never
+  buffered and that only an exact final total dispatches.
+- `tests/ui/message_assembly_error_exhaustive_match.rs` pins the compile-time
+  break caused by the three new variants: a match naming only the pre-change
+  variants fails to compile, as it does for `ClientError`.
 - Behavioural tests in `tests/features/message_assembly.feature` exercise the
   same paths through the public API.
 - `make check-fmt`, `make lint`, and `make test` pass.
