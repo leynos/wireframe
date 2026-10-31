@@ -58,7 +58,7 @@ it exactly. See [ADR 015](adr-015-declared-total-body-length-contract.md) for
 the decision.
 
 Applications that declare a total must supply the exact body length. A protocol
-that declares an approximate size will now see its messages rejected, because
+that declares an approximate size will now see its messages rejected because
 the length actually assembled can no longer differ from the length promised.
 Leaving `total_body_len` as `None` opts out of the equality requirement and
 keeps the previous behaviour, so that is the migration path for a protocol

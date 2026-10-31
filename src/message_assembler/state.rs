@@ -220,7 +220,11 @@ impl MessageAssemblyState {
     /// # Errors
     ///
     /// Returns an error if no assembly exists for this key, if continuity
-    /// validation fails, or if the size limit would be exceeded.
+    /// validation fails, or if the size limit would be exceeded. Returns
+    /// [`MessageAssemblyError::DeclaredTotalExceeded`] when the frame would
+    /// carry the body past its declared total, or
+    /// [`MessageAssemblyError::DeclaredTotalMismatch`] when the completing
+    /// frame leaves the body short of the declaration.
     pub fn accept_continuation_frame(
         &mut self,
         header: &ContinuationFrameHeader,
@@ -253,7 +257,11 @@ impl MessageAssemblyState {
     /// # Errors
     ///
     /// Returns an error if no assembly exists for this key, if continuity
-    /// validation fails, or if the size limit would be exceeded.
+    /// validation fails, or if the size limit would be exceeded. Returns
+    /// [`MessageAssemblyError::DeclaredTotalExceeded`] when the frame would
+    /// carry the body past its declared total, or
+    /// [`MessageAssemblyError::DeclaredTotalMismatch`] when the completing
+    /// frame leaves the body short of the declaration.
     pub fn accept_continuation_frame_at(
         &mut self,
         header: &ContinuationFrameHeader,
