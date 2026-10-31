@@ -17,7 +17,8 @@ pub use wireframe_testing::TestResult;
 
 use super::{
     budget_config_parser::parse_standard_budget_config,
-    frame_processing_assembler::FrameProcessingAssembler,
+    frame_processing_assembler::{FrameProcessingAssembler, FrameSignal, poll_frame_signal},
+    virtual_time::advance_duration,
 };
 
 const ROUTE_ID: u32 = 93;
@@ -206,9 +207,8 @@ impl BudgetTransitionsWorld {
     /// Send multiple non-final first frames for keys in a range.
     ///
     /// Send errors are intentionally ignored: the scenarios that call this
-    /// method overflow the budget, so the server-side connection will abort
-    /// mid-way through. The caller asserts the abort reason separately via
-    /// [`Self::assert_connection_aborted`].
+    /// method overflow the budget, so the server aborts mid-way; the caller
+    /// asserts the abort reason via [`Self::assert_connection_aborted`].
     pub fn send_first_frames_for_range(&mut self, start: u64, end: u64, body: &str) -> TestResult {
         for key in start..=end {
             if self.send_first_frame(key, body).is_err() {
@@ -248,20 +248,20 @@ impl BudgetTransitionsWorld {
             .processed_rx
             .take()
             .ok_or("frame-processing receiver not initialized")?;
-        let result = self.block_on(async {
-            tokio::time::timeout(Duration::from_secs(1), processed_rx.recv()).await
-        });
+        let signal = poll_frame_signal(self.runtime()?, &mut processed_rx);
         self.processed_rx = Some(processed_rx);
-        match result? {
-            Ok(Some(())) => self.spin_runtime(),
-            Ok(None) => Err("frame-processing signal channel closed".into()),
-            Err(_) => Err("server did not process a frame within one second".into()),
+        match signal {
+            FrameSignal::Processed => self.spin_runtime(),
+            FrameSignal::ChannelClosed => Err("frame-processing signal channel closed".into()),
+            FrameSignal::Pending => {
+                Err("server did not process a frame within the bounded wait".into())
+            }
         }
     }
 
-    /// Advance Tokio virtual time by the supplied duration in milliseconds.
+    /// Advance Tokio virtual time by `millis` plus one timer-wheel tick.
     pub fn advance_millis(&mut self, millis: u64) -> TestResult {
-        self.block_on(async { tokio::time::advance(Duration::from_millis(millis)).await })?;
+        self.block_on(async { tokio::time::advance(advance_duration(millis)).await })?;
         self.spin_runtime()
     }
 

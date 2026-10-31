@@ -1511,12 +1511,23 @@ step or call `block_on` while already inside a Tokio runtime. See the
 The budget-cleanup, budget-transition, memory-backpressure and inbound assembly
 BDD fixtures use the test-only
 [`FrameProcessingAssembler`](../tests/fixtures/frame_processing_assembler.rs)
-to signal after `parse_frame_header` succeeds. Their
-`wait_for_frame_processed()` helpers await that signal with a timeout, so
-timing scenarios can advance Tokio virtual time after the server has parsed a
-frame header, rather than after the client merely wrote bytes to the stream.
-The signal marks header parsing only; it does not mean the complete message has
-reached its handler.
+to signal after `parse_frame_header` succeeds, so timing scenarios can advance
+Tokio virtual time after the server has parsed a frame header, rather than
+after the client merely wrote bytes to the stream. The budget-transition and
+memory-backpressure `wait_for_frame_processed()` helpers poll for that signal
+with a bounded number of runtime yields instead of awaiting a timer, because
+those fixtures pause Tokio virtual time: awaiting a timer under `pause()` lets
+the runtime auto-advance the clock, which could let a delayed frame-processing
+signal satisfy the wait and mask the regression. Because those helpers only
+yield and never park the runtime, the Tokio time driver never auto-advances;
+the fixtures therefore extend an explicit virtual-time advance by one
+timer-wheel tick (Tokio rounds a timer deadline up to the end of the next
+millisecond, `deadline_to_tick`), so a pacing delay equal to the requested
+advance still expires; the slack is only 1 ms, so a delay that regressed beyond
+the requested advance still leaves the signal pending. The budget-cleanup and
+inbound assembly helpers await the signal with a timeout. The signal marks
+header parsing only; it does not mean the complete message has reached its
+handler.
 
 ### Non-zero test values
 
