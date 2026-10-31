@@ -312,8 +312,10 @@ pub struct WireframeServer<
     pub(crate) backoff_config: BackoffConfig,
     /// Maximum duration allowed for reading a preamble before timing out.
     ///
-    /// `None` disables the timeout. A zero or sub-millisecond timeout is
-    /// normalized to 1 ms when configured.
+    /// Defaults to [`DEFAULT_PREAMBLE_TIMEOUT`] (10 s). `None` disables the
+    /// bound and is only reachable through
+    /// [`WireframeServer::disable_preamble_timeout`]. A zero or sub-millisecond
+    /// timeout is normalized to 1 ms when configured.
     pub(crate) preamble_timeout: Option<Duration>,
     /// Typestate tracking whether the server has been bound to a listener.
     /// [`Unbound`] servers require binding before they can run.
@@ -352,6 +354,8 @@ impl ServerState for Unbound {}
 impl ServerState for Bound {}
 
 mod config;
+/// Default deadline applied to the connection preamble read.
+pub use config::preamble::DEFAULT_PREAMBLE_TIMEOUT;
 pub use config::{binding, preamble};
 mod connection_spawner;
 

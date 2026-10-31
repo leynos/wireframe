@@ -15,6 +15,24 @@ use crate::{
     server::{AppFactory, PreambleSuccessHandler, ServerState},
 };
 
+/// Default deadline for reading a connection preamble.
+///
+/// [`WireframeServer::new`] and [`WireframeServer::from_app`] install this
+/// bound so unauthenticated connection setup cannot wait forever. Choose a
+/// different deadline with [`WireframeServer::preamble_timeout`], or opt out
+/// entirely with [`WireframeServer::disable_preamble_timeout`].
+///
+/// # Examples
+///
+/// ```
+/// use std::time::Duration;
+///
+/// use wireframe::server::DEFAULT_PREAMBLE_TIMEOUT;
+///
+/// assert_eq!(DEFAULT_PREAMBLE_TIMEOUT, Duration::from_secs(10));
+/// ```
+pub const DEFAULT_PREAMBLE_TIMEOUT: Duration = Duration::from_secs(10);
+
 impl<F, T, S, Ser, Ctx, E, Codec> WireframeServer<F, T, S, Ser, Ctx, E, Codec>
 where
     F: AppFactory<Ser, Ctx, E, Codec>,
@@ -64,10 +82,20 @@ where
 
     /// Configure a timeout for reading the connection preamble.
     ///
-    /// The timeout is applied around the preamble read. When it elapses, the
-    /// preamble decode failure handler is invoked (if registered) and the
-    /// connection is closed. Values below 1 ms are clamped to 1 ms to avoid
-    /// immediate expiry. Omit this setter to disable the timeout.
+    /// The timeout is applied around the preamble read only. When it elapses,
+    /// the preamble decode failure handler is invoked (if registered) and the
+    /// connection is closed. It does not bound the success or failure
+    /// callbacks, nor application message handling after the handshake.
+    ///
+    /// Servers start with [`DEFAULT_PREAMBLE_TIMEOUT`]. This setter and
+    /// [`disable_preamble_timeout`](Self::disable_preamble_timeout) override
+    /// that default, and the last one called wins. Values below 1 ms are
+    /// clamped to 1 ms, so passing [`Duration::ZERO`] still leaves a deadline;
+    /// call the opt-out to remove the bound.
+    ///
+    /// The deadline covers the whole read, including the wait for the first
+    /// byte. A unit preamble (`T = ()`) still reads one byte, so a server-first
+    /// protocol whose client waits for a greeting must disable the timeout.
     ///
     /// # Examples
     ///
@@ -83,6 +111,33 @@ where
     pub fn preamble_timeout(mut self, timeout: Duration) -> Self {
         let normalized = timeout.max(Duration::from_millis(1));
         self.preamble_timeout = Some(normalized);
+        self
+    }
+
+    /// Disable the default preamble read deadline.
+    ///
+    /// [`WireframeServer::new`] and [`WireframeServer::from_app`] bound the
+    /// preamble read with [`DEFAULT_PREAMBLE_TIMEOUT`]. This method removes
+    /// that bound, so a peer that never sends a preamble keeps its connection
+    /// task alive indefinitely and can delay graceful drain. Prefer a longer
+    /// [`preamble_timeout`](Self::preamble_timeout) unless the protocol really
+    /// is server-first.
+    ///
+    /// The last configuration call wins: calling
+    /// [`preamble_timeout`](Self::preamble_timeout) afterwards re-enables a
+    /// deadline.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use wireframe::{app::WireframeApp, server::WireframeServer};
+    ///
+    /// let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+    ///     .disable_preamble_timeout();
+    /// ```
+    #[must_use]
+    pub fn disable_preamble_timeout(mut self) -> Self {
+        self.preamble_timeout = None;
         self
     }
 
