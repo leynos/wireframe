@@ -1,8 +1,11 @@
 //! Tests for [`WireframeServer`] configuration.
 #![cfg(not(loom))]
 
+use std::io::{ErrorKind, Result as IoResult};
+
 use rstest::rstest;
 use tokio::{
+    io::AsyncReadExt,
     net::TcpStream,
     sync::oneshot,
     time::{Duration, sleep, timeout},
@@ -233,9 +236,42 @@ async fn connection_panic_is_caught(
         .try_write(&[0; 8])
         .expect("failed to write dummy bytes");
     drop(first);
-    TcpStream::connect(addr)
+
+    // The second connection must be accepted *and* handled after the first
+    // task panicked. Sending data proves the worker reached connection
+    // handling, and its own peer address ties the second log entry to it.
+    let mut second = TcpStream::connect(addr)
         .await
         .expect("second connection should succeed after panic");
+    let second_peer_addr = second.local_addr().expect("second connection peer address");
+    second
+        .writable()
+        .await
+        .expect("second connection not writable");
+    second
+        .try_write(&[0; 8])
+        .expect("failed to write dummy bytes on second connection");
+
+    // The panicking task drops its accepted socket, closing the connection.
+    // Observing that close keeps the shutdown signal from racing ahead of the
+    // second connection being handled.
+    let mut probe = [0_u8; 1];
+    match timeout(Duration::from_secs(5), second.read(&mut probe)).await {
+        Ok(result) if peer_closed(&result) => {}
+        Ok(Ok(read)) => {
+            return Err(
+                format!("second connection returned {read} bytes instead of closing").into(),
+            );
+        }
+        Ok(Err(error)) => {
+            return Err(format!("second connection read failed: {error}").into());
+        }
+        Err(_) => {
+            return Err("second connection was not handled after the first panic".into());
+        }
+    }
+    drop(second);
+
     shutdown_tx
         .send(())
         .expect("server shutdown receiver was dropped");
@@ -243,15 +279,30 @@ async fn connection_panic_is_caught(
     tokio::task::yield_now().await;
 
     logs_assert(|lines: &[&str]| {
-        lines
-            .iter()
-            .find(|line| {
+        for peer in [peer_addr, second_peer_addr] {
+            let logged = lines.iter().any(|line| {
                 line.contains("connection task panicked")
                     && line.contains("panic=boom")
-                    && line.contains(&format!("peer_addr=Some({peer_addr})"))
-            })
-            .map(|_| ())
-            .ok_or_else(|| "panic log not found".to_string())
+                    && line.contains(&format!("peer_addr=Some({peer})"))
+            });
+            if !logged {
+                return Err(format!("panic log not found for peer {peer}"));
+            }
+        }
+        Ok(())
     });
     Ok(())
+}
+
+/// Report whether a client read observed the server closing the connection.
+///
+/// A graceful close yields end-of-file. A reset counts too: the panicking
+/// connection task never drains the bytes the client sent, so dropping its
+/// accepted socket rejects the leftover data with an RST.
+fn peer_closed(result: &IoResult<usize>) -> bool {
+    match result {
+        Ok(0) => true,
+        Err(error) => error.kind() == ErrorKind::ConnectionReset,
+        Ok(_) => false,
+    }
 }
