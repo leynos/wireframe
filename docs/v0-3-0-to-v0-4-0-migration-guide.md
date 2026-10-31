@@ -175,6 +175,41 @@ fn is_retryable(error: MessageAssemblyError) -> bool {
 The inbound adapter maps all three to `io::ErrorKind::InvalidData` and counts a
 deserialization failure, so a rejected message never reaches a handler.
 
+## Preamble deadline
+
+`WireframeServer::new` and `WireframeServer::from_app` now bound the preamble
+read with `DEFAULT_PREAMBLE_TIMEOUT`, a 10-second deadline. Previously the read
+was unbounded unless `preamble_timeout` was set, so a peer that connected and
+never sent its preamble kept a connection task alive indefinitely. The deadline
+covers only the read; success and failure callbacks and application message
+handling run outside it.
+
+Most clients send their preamble immediately and need no change. Adjust the
+configuration when:
+
+- A client waits for a server greeting before sending anything (server-first
+  protocols). Call `disable_preamble_timeout()` so the server does not close
+  the connection first.
+- A legitimate handshake exchanges several messages and can exceed 10 seconds.
+  Call `preamble_timeout(Duration)` with a larger, explicit bound.
+
+The two setters override each other and the last call wins. `Duration::ZERO`
+still clamps to 1 ms, so use `disable_preamble_timeout()` rather than a zero
+duration to remove the deadline. Disabling it restores the previous behaviour,
+including the availability risk it carried.
+
+```rust,no_run
+use std::time::Duration;
+
+use wireframe::{app::WireframeApp, server::WireframeServer};
+
+let slower_handshake = WireframeServer::new(|| WireframeApp::default())
+    .preamble_timeout(Duration::from_secs(30));
+
+let server_first = WireframeServer::new(|| WireframeApp::default())
+    .disable_preamble_timeout();
+```
+
 ## Prepared application transition
 
 `WireframeApp` remains the mutable builder. Register routes, middleware,
