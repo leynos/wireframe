@@ -17,12 +17,13 @@ pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>
 
 /// Callback invoked when a connection is closed.
 ///
-/// Once a matching [`ConnectionSetup`] has produced state, teardown runs
-/// exactly once after the connection stops processing. That guarantee covers
-/// clean completion and stream-processing errors, including malformed frames
-/// and failed sends. Teardown does not run when setup was absent, and it does
-/// not finalize task panic or cancellation; those paths remain tracked by
-/// ADR-012 and issue #643.
+/// When an application registers this callback and a matching
+/// [`ConnectionSetup`] has produced state, teardown runs exactly once after
+/// the connection stops processing. That guarantee covers clean completion and
+/// stream-processing errors, including malformed frames and failed sends.
+/// Teardown does not run when setup was absent or no teardown callback is
+/// registered, and it does not finalize task panic or cancellation; those
+/// paths remain tracked by ADR-012 and issue #643.
 ///
 /// # Examples
 ///

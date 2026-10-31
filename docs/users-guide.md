@@ -1425,15 +1425,16 @@ additional ergonomics on top of the core primitives.[^13]
 
 `WireframeApp` supports optional setup and teardown callbacks that run once per
 connection. Setup can return arbitrary state retained until teardown executes
-after the stream finishes processing. Teardown runs exactly once whenever setup
-produced state, covering clean completion and decode, protocol, or transport
-errors. It does not run when no setup hook is configured, nor on task panic or
-cancellation.[^2] Preparation moves those callback definitions into the
-immutable `PreparedApp`; `PreparedApp::handle_connection` reuses the prepared
-middleware chains, enforces read timeouts, and records metrics for inbound
-frames, serialization failures, and handler errors before logging
-warnings.[^6][^7] `PacketParts::inherit_correlation` ensures response packets
-carry the correct correlation identifier even when middleware omits it.[^8]
+after the stream finishes processing. When a teardown hook is registered and
+setup has produced state, teardown runs exactly once, covering clean completion
+and decode, protocol, or transport errors. It does not run when either hook is
+absent, nor on task panic or cancellation.[^2] Preparation moves those callback
+definitions into the immutable `PreparedApp`; `PreparedApp::handle_connection`
+reuses the prepared middleware chains, enforces read timeouts, and records
+metrics for inbound frames, serialization failures, and handler errors before
+logging warnings.[^6][^7] `PacketParts::inherit_correlation` ensures response
+packets carry the correct correlation identifier even when middleware omits
+it.[^8]
 
 Immediate responses are available through `send_response` and
 `send_response_framed`, both of which report serialization or I/O problems via
