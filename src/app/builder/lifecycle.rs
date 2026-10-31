@@ -53,6 +53,14 @@ where
     /// The callback receives the connection state produced by
     /// [`on_connection_setup`](Self::on_connection_setup).
     ///
+    /// After registration, once setup has produced state, teardown runs
+    /// exactly once after the connection stops processing. This holds for
+    /// clean completion and for stream-processing errors such as malformed
+    /// frames or failed sends. Teardown is skipped when no setup hook produced
+    /// state or no teardown callback is registered, and it does not run on task
+    /// panic or cancellation; those terminal paths are tracked by ADR-012 and
+    /// issue #643.
+    ///
     /// # Errors
     ///
     /// This function always succeeds currently but uses [`Result`] for
