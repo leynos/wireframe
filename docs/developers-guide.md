@@ -1015,7 +1015,7 @@ as a test assertion on the SHA string.
 
 ## Development builds
 
-The repository pins `nightly-2026-10-22` with `rustfmt`, `clippy`, and
+The repository pins `nightly-2026-10-30` with `rustfmt`, `clippy`, and
 `rust-analyzer`. The toolchain also needs `rustc-codegen-cranelift-preview` for
 the optional development backend. Native Linux development builds use `mold` as
 the linker; CI provisions the component and linker before running the standard
@@ -1092,7 +1092,7 @@ making the faster backend an explicit choice for routine debug work.
 The Make test targets still select the development fragment, but the test
 profile overrides Cranelift with LLVM. The failures behind this exception were
 reproduced on the previously pinned `nightly-2026-03-26` and have not been
-re-measured on `nightly-2026-10-22`. This exception follows reproduced test
+re-measured on `nightly-2026-10-30`. This exception follows reproduced test
 failures: with Cranelift, `make test` aborted in
 `client::pool::sync::tests::lock_or_recover_reads_poisoned_mutex` with
 `SIGABRT` and `fatal runtime error: failed to initiate panic, error 5`. The
@@ -1123,6 +1123,11 @@ build standard. The exception stands. Three test binaries fail:
 
 The `src/metrics/mod.rs` doctest still fails to link, with undefined AWS-LC
 symbols. Re-measure on the next toolchain pin.
+
+The pinned toolchain is now `nightly-2026-10-30`. No measurement has been taken
+on it: the suite was last run under Cranelift on `nightly-2026-03-26`, and this
+exception stands on that result. The deferral runs until the next toolchain pin
+change, when the suite is re-measured under Cranelift.
 
 ## Cargo workspace semantics
 
