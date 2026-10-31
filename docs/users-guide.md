@@ -1299,10 +1299,11 @@ When a protocol supplies it, the assembler enforces it at every boundary:
   exactly the declared total, or `MessageAssemblyError::DeclaredTotalMismatch`
   is returned.
 
-A rejected frame also removes the partial assembly, so a mismatched message
-never remains buffered and is never dispatched. Protocols that leave
-`total_body_len` as `None` opt out of the equality requirement and keep the
-previous behaviour.
+A rejected continuation or a completion mismatch also removes its partial
+assembly, so a mismatched message never remains buffered and is never
+dispatched. A rejected first frame is refused before any assembly exists, so
+there is nothing to remove. Protocols that leave `total_body_len` as `None` opt
+out of the equality requirement and keep the previous behaviour.
 
 The declaration is also used for the size-limit check, so an exact total is the
 cheapest way to fail early on an oversized message. The decision is recorded in

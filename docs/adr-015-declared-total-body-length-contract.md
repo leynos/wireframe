@@ -128,7 +128,9 @@ buffered length and the declaration are read together.
 
 ### Positive
 
-- The dispatched body length always equals the peer's declaration.
+- When the first frame declares a total, the dispatched body length always
+  equals that declaration. A frame that leaves `total_body_len` as `None` opts
+  out, so equality is guaranteed only for declared messages.
 - An under-declared message can no longer bypass an application-configured size
   limit.
 - Failures are typed per enforcement point, so diagnostics distinguish an
@@ -148,7 +150,8 @@ buffered length and the declaration are read together.
 - Do not enforce only in the inbound adapter: another adapter would still see
   the unsafe domain contract.
 - Do not compare only at completion: a peer could force the runtime to buffer
-  an arbitrarily large body first.
+  a body up to the configured message-size limit before the mismatch is
+  detected, rather than rejecting the overshooting frame when it arrives.
 - Do not return the mismatched body with a warning: dispatch is the security
   boundary.
 
