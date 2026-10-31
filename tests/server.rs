@@ -1,5 +1,6 @@
 //! Tests for [`WireframeServer`] configuration.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use rstest::rstest;
 use tokio::{

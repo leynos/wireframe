@@ -3,6 +3,8 @@
 //! The application listens for incoming frames and simply echoes each
 //! envelope back to the client.
 
+#![forbid(unsafe_code)]
+
 use wireframe::{app::Envelope, serializer::BincodeSerializer, server::WireframeServer};
 
 /// Concrete application type used by the example's bincode-encoded envelope

@@ -1,6 +1,7 @@
 //! Integration tests for partial-frame and fragment feeding utilities in
 //! `wireframe_testing`.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{io, num::NonZeroUsize, sync::Arc};
 

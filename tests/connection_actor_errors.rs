@@ -1,5 +1,6 @@
 //! Error propagation and protocol hook tests for `ConnectionActor`.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{
     io,

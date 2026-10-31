@@ -1,5 +1,6 @@
 //! Tests for the `SessionRegistry`.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use rstest::{fixture, rstest};
 use wireframe::{

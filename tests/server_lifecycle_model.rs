@@ -4,6 +4,7 @@
 //! combination against a current-thread Tokio runtime. The model keeps the
 //! runtime alive while dropped and aborted supervisors release their listeners.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::future;
 

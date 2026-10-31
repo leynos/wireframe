@@ -3,6 +3,7 @@
 //! This separate target keeps the optional `pool` feature isolated from the
 //! main BDD harness while still exercising `client_pool.feature`.
 
+#![forbid(unsafe_code)]
 #![cfg(all(not(loom), feature = "pool"))]
 
 mod fixtures;

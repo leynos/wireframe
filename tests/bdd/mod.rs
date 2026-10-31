@@ -4,6 +4,7 @@
 //! former Cucumber test suite. These tests use the same `.feature` files but
 //! execute under the standard `cargo test` harness with rstest fixtures.
 
+#![forbid(unsafe_code)]
 #![cfg(not(loom))]
 
 #[path = "../common/terminator.rs"]

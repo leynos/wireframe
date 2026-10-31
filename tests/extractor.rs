@@ -2,6 +2,7 @@
 //!
 //! Validate message parsing, connection info, and shared state behaviour.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::net::SocketAddr;
 

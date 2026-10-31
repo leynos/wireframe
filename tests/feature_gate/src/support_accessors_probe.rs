@@ -5,6 +5,8 @@
 //! `pool_size` and `slot_id`; any other failure is reported as a broken probe,
 //! not as a passing gate.
 
+#![forbid(unsafe_code)]
+
 use std::{net::SocketAddr, process::ExitCode};
 
 use wireframe::client::{ClientError, ClientPoolConfig, WireframeClient};

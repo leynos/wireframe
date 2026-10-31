@@ -8,6 +8,8 @@
 //! package depends on `wireframe` alone; see its `Cargo.toml` for the full
 //! rationale.
 
+#![forbid(unsafe_code)]
+
 /// Compiles against the stable public pool API in every configuration.
 pub mod public_api;
 /// Compiles only when the `test-support` feature is enabled.

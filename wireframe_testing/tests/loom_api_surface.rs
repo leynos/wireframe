@@ -1,5 +1,6 @@
 //! Check that network-backed test helpers stay outside the Loom API surface.
 
+#![forbid(unsafe_code)]
 #![cfg(loom)]
 #![cfg(not(coverage))]
 

@@ -2,6 +2,7 @@
 //!
 //! They cover priority ordering, policy behaviour, and closed queue errors.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 mod support;
 

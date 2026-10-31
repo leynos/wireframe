@@ -1,5 +1,6 @@
 //! Tests for connection preamble reading.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 #[path = "basic.rs"]
 mod basic;

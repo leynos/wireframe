@@ -1,5 +1,6 @@
 //! Unit tests for codec benchmark workload and measurement helpers.
 
+#![forbid(unsafe_code)]
 // These checks rely on real-time measurement behaviour and are unsuitable for loom.
 #![cfg(not(loom))]
 

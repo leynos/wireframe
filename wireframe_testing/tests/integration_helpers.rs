@@ -1,5 +1,7 @@
 //! Integration coverage for `wireframe_testing` integration helpers.
 
+#![forbid(unsafe_code)]
+
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},

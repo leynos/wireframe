@@ -3,6 +3,8 @@
 //! These tests verify that counters and gauges update as expected using
 //! `metrics_util::debugging::DebuggingRecorder`.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
+
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use rstest::rstest;
 

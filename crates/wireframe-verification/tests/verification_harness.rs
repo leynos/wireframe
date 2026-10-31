@@ -1,5 +1,7 @@
 //! Integration checks for the shared verification harness.
 
+#![forbid(unsafe_code)]
+
 use std::num::NonZeroUsize;
 
 use rstest::rstest;

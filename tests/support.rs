@@ -1,5 +1,6 @@
 //! Shared fixtures for integration tests.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use wireframe::push::{PushQueues, PushQueuesBuilder};
 

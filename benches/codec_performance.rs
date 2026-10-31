@@ -5,6 +5,8 @@
 //! - default and custom codec paths (`LengthDelimitedFrameCodec`, `HotlineFrameCodec`), and
 //! - fragmented versus unfragmented payload-wrapping overhead.
 
+#![forbid(unsafe_code)]
+
 use std::hint::black_box;
 
 use criterion::{BenchmarkId, Criterion, Throughput};

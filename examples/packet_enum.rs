@@ -3,6 +3,8 @@
 //! The application defines an enum representing different packet variants and
 //! shows how to dispatch handlers based on the variant received.
 
+#![forbid(unsafe_code)]
+
 use std::{collections::HashMap, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 
 use async_trait::async_trait;
