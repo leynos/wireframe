@@ -95,13 +95,7 @@ jobs:
       - name: Install Whitaker
         uses: leynos/shared-actions/.github/actions/install-whitaker@6e99f225cb06684f9e6f89b63a7ca4a04095c067 # shared-actions 5a99aed7 (whitaker-installer 0.2.11)
       - name: Lint
-        # Dylint 6.0.1 expects a local master branch in its rust-clippy clone.
-        # Limit the compatibility wrapper to this step; all other Git calls
-        # pass through to the runner's normal Git executable.
-        run: |
-          export DYLINT_REAL_GIT="$(command -v git)"
-          export PATH="$GITHUB_WORKSPACE/scripts/dylint-git:$PATH"
-          make lint
+        run: make lint
       - name: Setup uv
         uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
