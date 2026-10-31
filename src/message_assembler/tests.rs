@@ -206,3 +206,17 @@ mod state_tests;
 
 #[path = "budget_tests.rs"]
 mod budget_tests;
+
+// =============================================================================
+// Declared total enforcement tests (issue #544) - see declared_total_tests.rs
+// =============================================================================
+
+#[path = "declared_total_tests.rs"]
+mod declared_total_tests;
+
+// =============================================================================
+// Declared total properties (issue #544) - see declared_total_property_tests.rs
+// =============================================================================
+
+#[path = "declared_total_property_tests.rs"]
+mod declared_total_property_tests;

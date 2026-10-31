@@ -19,6 +19,7 @@ fn compile_tests() {
     t.compile_fail("tests/ui/zero_test_budget.rs");
     t.pass("tests/ui/client_error_wildcard_match.rs");
     t.compile_fail("tests/ui/client_error_exhaustive_match.rs");
+    t.compile_fail("tests/ui/message_assembly_error_exhaustive_match.rs");
     t.pass("tests/ui/wireframe_testing_exports.rs");
     // Trybuild forwards this build's features to the fixture, so the pool
     // accessors only exist here when `test-support` is enabled. `make test`

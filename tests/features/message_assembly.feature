@@ -69,6 +69,39 @@ Feature: Message assembly multiplexing and continuity validation
     Then the error is message too large for key 1
     And the buffered count is 0
 
+  Scenario: Under-declared single-frame total is rejected
+    Given a final first frame for key 1 with body "hello" declaring total 3
+    When the first frame is accepted
+    Then the error is declared total too small for key 1
+    And the buffered count is 0
+
+  Scenario: Over-declared single-frame total is rejected
+    Given a final first frame for key 1 with body "hello" declaring total 9
+    When the first frame is accepted
+    Then the error is declared total mismatch for key 1
+    And the buffered count is 0
+
+  Scenario: Continuation exceeding the declared total is rejected
+    Given a first frame for key 1 with body "hello" declaring total 8
+    When the first frame is accepted
+    And a continuation for key 1 with body "more" arrives
+    Then the error is declared total exceeded for key 1
+    And the buffered count is 0
+
+  Scenario: Final frame short of the declared total is rejected
+    Given a first frame for key 1 with body "hello" declaring total 10
+    When the first frame is accepted
+    And a final continuation for key 1 with sequence 1 and body "more" arrives
+    Then the error is declared total mismatch for key 1
+    And the buffered count is 0
+
+  Scenario: Exactly declared multi-frame message completes
+    Given a first frame for key 1 with body "hello" declaring total 10
+    When the first frame is accepted
+    And a final continuation for key 1 with sequence 1 and body "world" arrives
+    Then the assembly completes with body "helloworld"
+    And the buffered count is 0
+
   Scenario: Expired assemblies are purged
     Given a first frame for key 1 with body "partial"
     When the first frame is accepted at time T

@@ -614,6 +614,51 @@ duplicate/gap/out-of-order validation; and `advance_sequence_or_overflow()`
 owns the overflow decision. Each piece is independently testable and the
 decision tree stays flat and readable during future refactors.
 
+### Declared total body length architecture
+
+`FirstFrameHeader::total_body_len` is authoritative, following ADR 015. The
+contract is enforced in domain code so every adapter inherits it, and the work
+is split across four modules in `src/message_assembler/`:
+
+- `validation.rs` holds the pure checks. `validate_first_frame`,
+  `validate_continuation`, and `validate_completion` take lengths and return a
+  `MessageAssemblyError`; they hold no state and perform no I/O, so each
+  boundary is testable without an assembly.
+- `partial.rs` owns an in-flight `PartialAssembly`. It keeps the completion
+  check next to the buffered bytes it compares, so the accumulated length and
+  the declaration are read together.
+- `state.rs` owns admission and routing. It stops growing past its module size
+  budget by delegating the length arithmetic to `validation`.
+- `budget.rs` holds `ContinuationLimits`, which bundles the per-message cap
+  with the aggregate `AggregateBudgets` so a caller cannot pair the cap with
+  the wrong budgets.
+
+The four enforcement points:
+
+| Boundary                | Rejected condition                            | Variant                 |
+| ----------------------- | --------------------------------------------- | ----------------------- |
+| First frame             | declaration smaller than the frame's body     | `DeclaredTotalTooSmall` |
+| First frame, final      | body differs from the declaration             | `DeclaredTotalMismatch` |
+| Continuation            | accumulated body would exceed the declaration | `DeclaredTotalExceeded` |
+| Completing continuation | accumulated body differs from the declaration | `DeclaredTotalMismatch` |
+
+`validate_continuation` runs before the bytes are buffered, so a frame that
+would overshoot is never retained, even briefly. A rejected continuation or
+completion removes the partial assembly, so a failed message cannot linger
+under its key. The inbound adapter in `src/app/frame_handling/assembly.rs`
+translates the resulting `MessageAssemblyError` into
+`io::ErrorKind::InvalidData` through `DeserFailureTracker`; the domain never
+sees `io::Error`.
+
+Overflow is part of the contract, not an incidental guard. The accumulator uses
+`usize::checked_add`, and an unrepresentable sum is reported as
+`DeclaredTotalExceeded` with `attempted: usize::MAX` rather than wrapping to a
+small value that would appear to fit. `declared_total_property_tests.rs` pins
+that boundary over values near `usize::MAX`, and
+`tests/ui/message_assembly_error_exhaustive_match.rs` pins the compile-time
+break caused by the three new variants, matching the existing `ClientError`
+fixture.
+
 ### `fill_buf_with_prefix`
 
 The private helper `fill_buf_with_prefix(buf, prefix, endianness)` in

@@ -129,4 +129,50 @@ pub enum MessageAssemblyError {
         /// Configured in-flight byte cap.
         limit: NonZeroUsize,
     },
+
+    /// The first frame declared fewer total body bytes than it carried.
+    ///
+    /// A declaration smaller than the first frame's own body can never be
+    /// satisfied, and accepting it would let a peer understate the size of the
+    /// message that is actually dispatched.
+    #[error(
+        "declared total body length too small for key {key}: declared {declared} bytes, first \
+         frame carries {body_len}"
+    )]
+    DeclaredTotalTooSmall {
+        /// Message key whose declaration is unsatisfiable.
+        key: MessageKey,
+        /// Total body length declared by the first frame.
+        declared: usize,
+        /// Body bytes actually carried by the first frame.
+        body_len: usize,
+    },
+
+    /// Appending this frame would carry the body past its declared total.
+    #[error(
+        "declared total body length exceeded for key {key}: declared {declared} bytes, \
+         accumulated {attempted}"
+    )]
+    DeclaredTotalExceeded {
+        /// Message key whose declaration was exceeded.
+        key: MessageKey,
+        /// Total body length declared by the first frame.
+        declared: usize,
+        /// Body bytes that would result from accepting the frame.
+        attempted: usize,
+    },
+
+    /// The completed message's body length differed from its declared total.
+    #[error(
+        "declared total body length mismatch for key {key}: declared {declared} bytes, assembled \
+         {actual}"
+    )]
+    DeclaredTotalMismatch {
+        /// Message key whose declaration was not honoured.
+        key: MessageKey,
+        /// Total body length declared by the first frame.
+        declared: usize,
+        /// Body bytes actually assembled.
+        actual: usize,
+    },
 }
