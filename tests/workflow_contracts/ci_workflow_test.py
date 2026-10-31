@@ -282,7 +282,8 @@ def test_whitaker_is_installed_only_through_the_pinned_shared_action() -> None:
     `WHITAKER_INSTALLER_VERSION` variable is defined, because the action owns
     the installer version. Which shared-actions revision is acceptable is
     concordat's QG-002 rule, not this repository's; the shared-action contract
-    keeps every reference on one commit. The count is asserted first, because a
+    keeps every other reference on one commit, and leaves `install-whitaker`
+    out of that equality. The count is asserted first, because a
     contract over no steps is satisfied by deleting the install.
     """
     steps = _workflow_steps()
