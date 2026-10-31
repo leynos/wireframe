@@ -1015,7 +1015,7 @@ as a test assertion on the SHA string.
 
 ## Development builds
 
-The repository pins `nightly-2026-10-22` with `rustfmt`, `clippy`, and
+The repository pins `nightly-2026-10-30` with `rustfmt`, `clippy`, and
 `rust-analyzer`. The toolchain also needs `rustc-codegen-cranelift-preview` for
 the optional development backend. Native Linux development builds use `mold` as
 the linker; CI provisions the component and linker before running the standard
