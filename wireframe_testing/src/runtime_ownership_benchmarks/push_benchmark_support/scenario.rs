@@ -193,7 +193,7 @@ impl PushScenario {
     /// assert!(PushScenario::OverflowDrop.policy().is_some());
     /// ```
     #[must_use]
-    pub fn policy(self) -> Option<PushPolicy> {
+    pub const fn policy(self) -> Option<PushPolicy> {
         match self {
             Self::OverflowReturnError => Some(PushPolicy::ReturnErrorIfFull),
             Self::OverflowDrop => Some(PushPolicy::DropIfFull),
@@ -301,10 +301,10 @@ impl PushWorkload {
     /// Returns a description of whichever constraint the workload breaks.
     pub(super) fn validate(self) -> Result<(), String> {
         if self.queue_capacity == 0 {
-            return Err("queue_capacity must be at least 1".to_string());
+            return Err("queue_capacity must be at least 1".to_owned());
         }
         if self.sends == 0 {
-            return Err("sends must be at least 1".to_string());
+            return Err("sends must be at least 1".to_owned());
         }
         if self.scenario.is_uncontended() && self.sends > self.queue_capacity {
             return Err(format!(

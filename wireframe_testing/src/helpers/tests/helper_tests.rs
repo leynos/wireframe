@@ -43,7 +43,7 @@ async fn drive_with_payloads_wraps_frames() -> io::Result<()> {
                 format!("failed to create app: {error}"),
             )
         })?;
-    let app = app
+    let routed_app = app
         .route(
             1,
             Arc::new(|_: &Envelope| -> BoxFuture<'static, ()> { Box::pin(async {}) }),
@@ -64,7 +64,7 @@ async fn drive_with_payloads_wraps_frames() -> io::Result<()> {
         )
     })?;
 
-    let out = drive_with_payloads(app, vec![encoded]).await?;
+    let out = drive_with_payloads(routed_app, vec![encoded]).await?;
     let frames = decode_frames(&out)?;
     if frames.len() != 1 {
         return Err(io::Error::new(

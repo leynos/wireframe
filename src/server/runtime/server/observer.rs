@@ -74,7 +74,10 @@ fn classify_join_error(error: JoinError) -> SupervisorJoinOutcome {
     if error.is_cancelled() {
         SupervisorJoinOutcome::Cancelled
     } else {
-        debug_assert!(error.is_panic());
+        debug_assert!(
+            error.is_panic(),
+            "a join error that is neither cancelled nor a panic cannot be classified"
+        );
         SupervisorJoinOutcome::Panicked(format_panic(&error.into_panic()))
     }
 }

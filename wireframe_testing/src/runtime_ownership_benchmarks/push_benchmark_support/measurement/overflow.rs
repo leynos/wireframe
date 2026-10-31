@@ -27,7 +27,7 @@ async fn fill_to_capacity(
         match sent {
             Ok(()) => filled += 1,
             Err(PushError::Closed) => {
-                return Err("queue closed while filling to capacity".to_string());
+                return Err("queue closed while filling to capacity".to_owned());
             }
             // `QueueFull` is the expected stop; `PushError` is non-exhaustive,
             // so any future variant also stops here rather than being mistaken
@@ -63,7 +63,7 @@ pub(super) async fn send_overflow(workload: PushWorkload) -> Result<SendOutcome,
             Ok(()) => outcome.accepted += 1,
             Err(PushError::QueueFull) => outcome.reported_queue_full = true,
             Err(PushError::Closed) => {
-                return Err("queue closed during overflow sends".to_string());
+                return Err("queue closed during overflow sends".to_owned());
             }
             // Non-exhaustive enum: an unrecognized error is reported as a
             // diagnostic rather than being silently counted as a drop.

@@ -33,7 +33,7 @@ where
         _payload: &mut Payload<'_>,
     ) -> Result<Self, Self::Error> {
         req.state::<T>()
-            .ok_or(ExtractError::MissingState(std::any::type_name::<T>()))
+            .ok_or_else(|| ExtractError::MissingState(std::any::type_name::<T>()))
     }
 }
 

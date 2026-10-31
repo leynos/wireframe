@@ -2369,6 +2369,54 @@ low-priority queue; `close` lets tests release resources when no actor is
 running.[^27] The connection actor consumes these queues, an optional streaming
 response, and a cancellation token.
 
+### Compile-time queue and session configuration
+
+The queue builder's setters are `const fn`, so an existing builder can be
+configured by the compiler. `high_capacity`, `low_capacity`, `rate`,
+`unlimited`, `dlq_log_every_n`, and `dlq_log_interval` all take `self` by value
+and return `Self`, which means a chain works unchanged inside a `const fn`. The
+builder itself is created at runtime, because `PushQueuesBuilder::default` and
+`PushQueues::builder` are ordinary functions:
+
+```rust
+use std::time::Duration;
+
+use wireframe::push::PushQueuesBuilder;
+
+const fn configure<F: Send + 'static>(
+    builder: PushQueuesBuilder<F>,
+) -> PushQueuesBuilder<F> {
+    builder
+        .high_capacity(8)
+        .low_capacity(4)
+        .rate(Some(64))
+        .dlq_log_interval(Duration::from_secs(5))
+}
+
+let builder = configure(PushQueuesBuilder::<Vec<u8>>::default());
+let _ = builder;
+```
+
+`unlimited` is the const shorthand for `rate(None)`, so a chain can also remove
+a rate limit that a previous layer installed. The frame parameter is declared
+with only `Send + 'static`, so downstream code stays generic over its own frame
+type and never names `FrameLike`. That trait is crate-visible, and its blanket
+implementation satisfies the bound for every `Send + 'static` type.
+
+The same const treatment covers `ConnectionId::{new, as_u64}`,
+`LengthDelimitedFrameCodec::max_frame_length`, `ConnectionInfo::peer_addr`,
+`WireframeError::{from_io, from_codec}`, and `WireframeError::is_clean_close`. A
+`WireframeError` has a destructor that cannot run in a `const fn`, so a const
+function may borrow an existing error or return a newly built one, but it can
+never drop one. That is why the `from_io` payload arrives as a parameter and
+the result is returned by value.
+
+`tests/ui/server_const_api.rs` compiles these calls inside `const` items and
+`const fn` bodies, so a method that loses `const` fails the build rather than
+silently regressing. The fixture covers the builder setters, both
+`ConnectionId` accessors, `max_frame_length`, `peer_addr`, and the two error
+constructors; anything not listed there has no compile-time guard yet.
+
 `FairnessConfig` and `FairnessTracker` limit consecutive high-priority frames
 and optionally enforce a time slice. Resetting the tracker after low-priority
 work keeps fairness predictable.[^28][^29] `ConnectionActor::run` polls the
