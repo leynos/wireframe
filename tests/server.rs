@@ -7,8 +7,11 @@ use tokio::{
     sync::oneshot,
     time::{Duration, sleep, timeout},
 };
+use tracing::Instrument;
+use tracing_test::traced_test;
 use wireframe::server::WireframeServer;
 use wireframe_testing::{
+    TestApp,
     TestResult,
     factory,
     unused_listener,
@@ -182,5 +185,73 @@ async fn server_reaches_readiness_and_accepts_before_shutdown() -> TestResult {
         .send(())
         .expect("server shutdown receiver was dropped");
     handle.await??;
+    Ok(())
+}
+
+/// Ensure the server survives panicking connection tasks.
+#[rstest]
+#[traced_test]
+#[tokio::test]
+async fn connection_panic_is_caught(
+    factory: impl Fn() -> TestApp + Send + Sync + Clone + 'static,
+) -> TestResult {
+    let listener = unused_listener()?;
+    let server = WireframeServer::new(move || {
+        factory()
+            .on_connection_setup(|| async { panic!("boom") })
+            .expect("failed to install panic setup callback")
+    })
+    .workers(1)
+    .bind_existing_listener(listener)?;
+    let addr = server
+        .local_addr()
+        .ok_or_else(|| "local address missing".to_string())?;
+
+    let (ready_tx, ready_rx) = oneshot::channel();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let span = tracing::Span::current();
+    let handle = tokio::spawn(
+        async move {
+            server
+                .ready_signal(ready_tx)
+                .run_with_shutdown(async {
+                    let _ = shutdown_rx.await;
+                })
+                .await
+        }
+        .instrument(span),
+    );
+
+    wait_for_server_readiness(ready_rx).await?;
+
+    let first = TcpStream::connect(addr)
+        .await
+        .expect("first connection should succeed");
+    let peer_addr = first.local_addr().expect("first connection peer address");
+    first.writable().await.expect("connection not writable");
+    first
+        .try_write(&[0; 8])
+        .expect("failed to write dummy bytes");
+    drop(first);
+    TcpStream::connect(addr)
+        .await
+        .expect("second connection should succeed after panic");
+    shutdown_tx
+        .send(())
+        .expect("server shutdown receiver was dropped");
+    handle.await.expect("server join error")?;
+    tokio::task::yield_now().await;
+
+    logs_assert(|lines: &[&str]| {
+        lines
+            .iter()
+            .find(|line| {
+                line.contains("connection task panicked")
+                    && line.contains("panic=boom")
+                    && line.contains(&format!("peer_addr=Some({peer_addr})"))
+            })
+            .map(|_| ())
+            .ok_or_else(|| "panic log not found".to_string())
+    });
     Ok(())
 }
