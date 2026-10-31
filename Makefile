@@ -1,6 +1,9 @@
 .PHONY: help all clean test test-doc test-ui test-feature-gate bless-ui test-workflow-contracts test-loom doctest-benchmark
-.PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie typecheck
+.PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
+# Kept off the build/test line above so that unrelated edits to that long line
+# cannot collide with the two new lint targets during a stack restack.
+.PHONY: lint-clippy lint-whitaker
 .PHONY: install-kani check-kani-version install-verus run-verus test-verification kani \
 	kani-full verus formal-pr formal-nightly formal
 
