@@ -100,8 +100,11 @@ fn test_with_preamble_preserves_timeout_configuration(
     assert_eq!(opted_out.preamble_timeout, None);
 }
 
+// `bind_existing_listener` converts the std listener with
+// `TcpListener::from_std`, which requires a Tokio runtime context.
 #[rstest]
-fn test_binding_preserves_timeout_configuration(
+#[tokio::test]
+async fn test_binding_preserves_timeout_configuration(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) -> io::Result<()> {
     let timeout = Duration::from_millis(25);
