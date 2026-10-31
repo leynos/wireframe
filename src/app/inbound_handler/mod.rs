@@ -55,6 +55,12 @@ where
 }
 
 /// Drive a connection using immutable application inputs and prepared routes.
+///
+/// When a setup hook produced state, teardown runs exactly once before this
+/// function returns, whether stream processing completed cleanly or returned
+/// an error such as a malformed frame or a failed send. Panic and cancellation
+/// finalization are outside this ordering and remain tracked by ADR-012 and
+/// issue #643.
 pub(crate) async fn process_connection<S, C, E, F, W>(
     stream: W,
     context: ConnectionProcessingContext<'_, S, C, E, F>,
@@ -84,6 +90,12 @@ where
         None
     };
 
+    // Keep the processing result instead of propagating it with `?`. Setup has
+    // already produced state, so an early return here would skip teardown and
+    // leak per-connection resources on decode, protocol, or transport errors.
+    // Do not add `?` to this await: teardown must observe every path that can
+    // still return a value. Panic and cancellation are not finalized here; see
+    // ADR-012 and issue #643.
     let processing_result = core::process_stream(
         stream,
         core::StreamProcessingContext {
