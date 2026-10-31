@@ -72,12 +72,14 @@ sequenceDiagram
 The success callback receives the decoded preamble and a mutable `TcpStream`.
 It may write a handshake response before the connection is passed to
 `WireframeApp`. The failure callback is also asynchronous and receives the
-mutable stream so it can emit an error reply before the connection closes. Use
-`preamble_timeout` to cap how long the read may take; the timeout follows the
-failure callback path. In the tests, a `HotlinePreamble` struct illustrates the
-pattern, but any preamble type may be used. Register callbacks via
-`on_preamble_decode_success` and `on_preamble_decode_failure` on
-`WireframeServer`.
+mutable stream so it can emit an error reply before the connection closes.
+Servers apply `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) to the read by default;
+call `preamble_timeout` for a different deadline or `disable_preamble_timeout`
+to opt out. The timeout follows the failure callback path and covers only the
+read, not the callbacks or application handling. In the tests, a
+`HotlinePreamble` struct illustrates the pattern, but any preamble type may be
+used. Register callbacks via `on_preamble_decode_success` and
+`on_preamble_decode_failure` on `WireframeServer`.
 
 ## Call Order
 
@@ -111,7 +113,7 @@ sequenceDiagram
 
     ConnectionTask->>ProcessStream: process_stream(stream, peer_addr, factory, on_success, on_failure, preamble_timeout)
 
-    alt preamble_timeout is Some
+    alt preamble_timeout is Some (default)
         ProcessStream->>ProcessStream: timeout(preamble_timeout, read_preamble)
         ProcessStream->>ReadPreamble: read_preamble(stream)
         alt preamble read completes in time
@@ -119,7 +121,7 @@ sequenceDiagram
         else preamble read times out
             ProcessStream-->>ProcessStream: Err(timeout_error)
         end
-    else preamble_timeout is None
+    else preamble_timeout is None (explicit opt-out)
         ProcessStream->>ReadPreamble: read_preamble(stream)
         ReadPreamble-->>ProcessStream: Result(preamble or error)
     end

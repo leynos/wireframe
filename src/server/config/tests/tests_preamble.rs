@@ -18,6 +18,7 @@ use super::PreambleHandlerKind;
 use crate::{
     app::WireframeApp,
     server::{
+        DEFAULT_PREAMBLE_TIMEOUT,
         WireframeServer,
         default_worker_count,
         test_util::{TestPreamble, factory, server_with_preamble},
@@ -42,6 +43,95 @@ fn test_preamble_timeout_configuration(
 
     let clamped = WireframeServer::new(factory).preamble_timeout(Duration::ZERO);
     assert_eq!(clamped.preamble_timeout, Some(Duration::from_millis(1)));
+}
+
+#[rstest]
+fn test_default_preamble_timeout(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let from_factory = WireframeServer::new(factory);
+    assert_eq!(
+        from_factory.preamble_timeout,
+        Some(DEFAULT_PREAMBLE_TIMEOUT)
+    );
+
+    let from_app: WireframeServer<_> = WireframeServer::from_app(WireframeApp::default());
+    assert_eq!(from_app.preamble_timeout, Some(DEFAULT_PREAMBLE_TIMEOUT));
+}
+
+#[rstest]
+fn test_disable_preamble_timeout(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let timeout = Duration::from_millis(25);
+
+    let opted_out = WireframeServer::new(factory.clone()).disable_preamble_timeout();
+    assert_eq!(opted_out.preamble_timeout, None);
+
+    // The last call wins: a setter re-enables the deadline after an opt-out.
+    let reenabled = WireframeServer::new(factory.clone())
+        .disable_preamble_timeout()
+        .preamble_timeout(timeout);
+    assert_eq!(reenabled.preamble_timeout, Some(timeout));
+
+    let disabled_after_setter = WireframeServer::new(factory)
+        .preamble_timeout(timeout)
+        .disable_preamble_timeout();
+    assert_eq!(disabled_after_setter.preamble_timeout, None);
+}
+
+#[rstest]
+fn test_with_preamble_preserves_timeout_configuration(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) {
+    let timeout = Duration::from_millis(25);
+
+    let default = WireframeServer::new(factory.clone()).with_preamble::<TestPreamble>();
+    assert_eq!(default.preamble_timeout, Some(DEFAULT_PREAMBLE_TIMEOUT));
+
+    let custom = WireframeServer::new(factory.clone())
+        .preamble_timeout(timeout)
+        .with_preamble::<TestPreamble>();
+    assert_eq!(custom.preamble_timeout, Some(timeout));
+
+    let opted_out = WireframeServer::new(factory)
+        .disable_preamble_timeout()
+        .with_preamble::<TestPreamble>();
+    assert_eq!(opted_out.preamble_timeout, None);
+}
+
+// `bind_existing_listener` converts the std listener with
+// `TcpListener::from_std`, which requires a Tokio runtime context.
+#[rstest]
+#[tokio::test]
+async fn test_binding_preserves_timeout_configuration(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) -> io::Result<()> {
+    let timeout = Duration::from_millis(25);
+    let listener = || StdTcpListener::bind("127.0.0.1:0");
+
+    let default = WireframeServer::new(factory.clone())
+        .bind_existing_listener(listener()?)
+        .expect("bind default server");
+    assert_eq!(default.preamble_timeout, Some(DEFAULT_PREAMBLE_TIMEOUT));
+
+    let rebound = default
+        .bind("127.0.0.1:0".parse().expect("parse rebind address"))
+        .expect("rebind default server");
+    assert_eq!(rebound.preamble_timeout, Some(DEFAULT_PREAMBLE_TIMEOUT));
+
+    let custom = WireframeServer::new(factory.clone())
+        .preamble_timeout(timeout)
+        .bind_existing_listener(listener()?)
+        .expect("bind custom server");
+    assert_eq!(custom.preamble_timeout, Some(timeout));
+
+    let opted_out = WireframeServer::new(factory)
+        .disable_preamble_timeout()
+        .bind_existing_listener(listener()?)
+        .expect("bind opted-out server");
+    assert_eq!(opted_out.preamble_timeout, None);
+    Ok(())
 }
 
 #[rstest]
