@@ -305,7 +305,7 @@ def test_ci_provisions_backend_and_linker_before_lint() -> None:
     assert isinstance(commands, str), "backend and linker provisioning needs run commands"
     required_commands = (
         "rustup component add rustc-codegen-cranelift-preview "
-        "--toolchain nightly-2026-10-22",
+        "--toolchain nightly-2026-10-30",
         "sudo apt-get update",
         "sudo apt-get install -y mold",
         "mold --version",
