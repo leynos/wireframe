@@ -57,6 +57,8 @@
 //! window, `probes` proves the counter resolves what the baselines depend on,
 //! and `reporting` writes the counts out.
 
+#![forbid(unsafe_code)]
+
 mod pool_bracket;
 mod probes;
 mod reporting;
@@ -64,7 +66,7 @@ mod scopes;
 
 use criterion::Criterion;
 use tokio::runtime::Runtime;
-use wireframe_testing::benchmark_alloc_support::CountingAllocator;
+use wireframe_bench_alloc::CountingAllocator;
 
 use crate::{
     pool_bracket::{

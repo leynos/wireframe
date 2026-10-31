@@ -8,10 +8,8 @@
 use std::time::{Duration, Instant};
 
 use tokio::runtime::Runtime;
-use wireframe_testing::{
-    benchmark_alloc_support::count_allocations,
-    runtime_ownership_benchmarks::{PoolHarness, PoolWorkload},
-};
+use wireframe_bench_counting::count_allocations;
+use wireframe_testing::runtime_ownership_benchmarks::{PoolHarness, PoolWorkload};
 
 use crate::{probes::expect_bench, scopes::ALLOCATION_ITERATIONS};
 

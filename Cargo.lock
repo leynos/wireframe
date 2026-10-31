@@ -3612,7 +3612,24 @@ dependencies = [
  "tracing-test",
  "trybuild",
  "wireframe",
+ "wireframe-bench-alloc",
+ "wireframe-bench-counting",
  "wireframe_testing",
+]
+
+[[package]]
+name = "wireframe-bench-alloc"
+version = "0.1.0"
+dependencies = [
+ "serial_test",
+ "wireframe-bench-counting",
+]
+
+[[package]]
+name = "wireframe-bench-counting"
+version = "0.1.0"
+dependencies = [
+ "serial_test",
 ]
 
 [[package]]

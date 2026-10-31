@@ -1,0 +1,15 @@
+[package]
+name = "wireframe-bench-alloc"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "The workspace's single audited unsafe boundary: a counting global allocator for benchmarks."
+
+[lints]
+workspace = true
+
+[dependencies]
+wireframe-bench-counting = { path = "../wireframe-bench-counting" }
+
+[dev-dependencies]
+serial_test = "4.0.1"
