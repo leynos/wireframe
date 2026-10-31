@@ -65,6 +65,9 @@ reference when navigating the project's design and architecture material.
   client pool.
 - [ADR 014: server shutdown ownership and terminal observation](adr-014-server-shutdown-ownership.md)
   Proposed awaitable server shutdown and supervisor-failure observation.
+- [ADR 015: a single audited unsafe boundary](adr-015-unsafe-code-boundary.md)
+  Proposed isolation of the counting allocator so every safe target root can
+  forbid unsafe code.
 
 ## Execution plans
 
@@ -138,6 +141,8 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
   writing project documentation.
 - [Runtime-ownership baselines](runtime-ownership-baselines.md) Recorded
   baselines for the four hot paths Epic #635 proposes to re-topologize.
+- [Unsafe-code boundary verification](rust-boundary-verification.md) What the
+  prohibition covers, how it is compiled and interpreted, and its limits.
 - [Server configuration](server/configuration.md) Tuning accept loop backoff
   behaviour and builder options.
 

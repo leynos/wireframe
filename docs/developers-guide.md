@@ -1129,12 +1129,13 @@ symbols. Re-measure on the next toolchain pin.
 Wireframe now uses a hybrid root manifest: the repository root `Cargo.toml`
 contains both `[package]` and `[workspace]`.
 
-The workspace explicitly lists the root package, the internal Loom models
-crate, the internal verification crate, and the testing helper crate, while
-keeping only the root package as a default member:
+The workspace explicitly lists the root package, the allocation-benchmark
+crates, the internal Loom models crate, the internal verification crate, and
+the testing helper crate, while keeping only the root package as a default
+member:
 
-- `members = [".", "crates/wireframe-loom", "crates/wireframe-verification", "wireframe_testing"]`
-- `default-members = ["."]`
+- the `members` array in the root `Cargo.toml`;
+- `default-members = ["."]`.
 
 Plain root-level commands such as `cargo build`, `cargo check`, `cargo test`,
 and `cargo clippy` retain their existing ergonomics and continue to target the
@@ -1235,6 +1236,29 @@ behaviour-driven development (BDD) fixture for these assertions. Extend it by
 loading more workspace-state inputs in `load()` and adding focused verification
 methods that the step definitions and scenario can reuse.
 
+### Unsafe-code boundary
+
+`[workspace.lints.rust]` sets `unsafe_code = "deny"` as a floor, and every safe
+Cargo target root raises it to `#![forbid(unsafe_code)]` in its own source.
+`forbid` is absolute, so no `#[allow]` or `#[expect]` can reintroduce unsafe
+code in a safe root. The floor is what makes forgetting the attribute fail
+closed rather than silently permitting unsafe code.
+
+Exactly one crate holds unsafe code: `crates/wireframe-bench-alloc`, the
+counting `GlobalAlloc` that the allocation baselines install. It uses a scoped
+`#[expect(unsafe_code, reason = "...")]` instead of `forbid`, because Cargo
+prevents a member from lowering the inherited `deny` and a crate-level `forbid`
+would overrule the expectation. Its safe mechanism lives in
+`crates/wireframe-bench-counting`.
+
+Adding a target root means adding the prohibition; `make unsafe-boundary`
+compiles negative probes that prove the lint rejects unsafe code, and
+`tests/workspace_unsafe_boundary.rs` fails when a root omits the attribute or
+when workspace membership changes without an inventory decision. See
+[unsafe-code boundary verification](rust-boundary-verification.md) for the
+scope and limits of each check, and [ADR 015](adr-015-unsafe-code-boundary.md)
+for the decision.
+
 ## Example and benchmark support
 
 TCP server examples that share the standard
@@ -1279,6 +1303,14 @@ itself and reports a latency distribution with the failures counted beside it,
 rather than letting one failure abort the run; the recorded numbers, the
 environment they were taken in, and the regression policy are in
 [runtime-ownership baselines](runtime-ownership-baselines.md).
+
+The allocation binary installs `wireframe_bench_alloc::CountingAllocator` and
+measures with `wireframe_bench_counting::count_allocations`. Both types live in
+those internal crates rather than in `wireframe_testing`, because a
+`publish = false` dependency would break publishing the published crate and
+because the `GlobalAlloc` implementation must stay inside the audited boundary
+crate. Do not define a second allocator in a benchmark target: the textual
+contract test fails if the workspace defines one twice.
 
 Fragment transport integration tests import
 `tests/common/fragment_helpers/mod.rs` as a facade. Keep the public re-export

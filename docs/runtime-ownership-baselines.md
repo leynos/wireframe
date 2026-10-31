@@ -87,6 +87,13 @@ runtime_ownership_baselines_alloc --features test-support,pool`.
 The two binaries are separate because `#[global_allocator]` is per-process:
 installing the counting allocator in the timing binary would tax every sample.
 
+The allocator itself lives in `crates/wireframe-bench-alloc`, the workspace's
+single audited unsafe boundary, and the safe counting mechanism it drives lives
+in `crates/wireframe-bench-counting`. Both benchmark targets share those types
+rather than defining their own, so the two counts cannot drift apart. See
+[unsafe-code boundary verification](rust-boundary-verification.md) for how the
+boundary is checked.
+
 Criterion writes its own baseline under `target/criterion` and reports a
 subsequent run as a percentage change against it. Nothing in continuous
 integration runs these benchmarks, and they are not a gate.
