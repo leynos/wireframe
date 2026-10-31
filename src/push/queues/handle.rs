@@ -370,7 +370,7 @@ impl<F: FrameLike> PushHandle<F> {
                             dlq = self.0.dead_letter.has_queue()
                         );
                     }
-                    self.0.dead_letter.route_or_count(f);
+                    self.0.dead_letter.route_or_count(f, priority, policy);
                     Ok(())
                 }
             },
