@@ -61,7 +61,7 @@ Namespace's shared profile is Ubuntu 22.04, which carries glibc 2.35.
 `ubicloud-standard-4` is Ubuntu 24.04, which carries glibc 2.39, so the
 constraint is satisfied rather than waived. repovec-appliance runs the same
 `whitaker-installer` on Ubicloud, green, and so does this lane, which now takes
-the 0.2.9 release the shared action pins. Should a lane ever need the
+the 0.2.11 release the shared action pins. Should a lane ever need the
 `-ubuntu-2204` variant, the old constraint returns with it.
 
 Whitaker is installed through the shared `install-whitaker` action, which owns
@@ -743,8 +743,11 @@ PyYAML. Run them locally with `make test-workflow-contracts`. They validate:
 
 - every `leynos/shared-actions` invocation across the repository workflows
   targets an approved action or reusable workflow path, uses a full
-  40-character lowercase hex commit SHA, and shares the same version — the
-  value itself is not asserted, so Dependabot bumps it freely (see
+  40-character lowercase hex commit SHA, and shares the same version, except
+  `install-whitaker`: that action is exempt from revision equality (but not
+  from full-SHA validation or concordat's QG-002 approval), because only
+  approved revisions of it are admitted. The value itself is not asserted, so
+  Dependabot bumps it freely (see
   [Workflow pins and Dependabot](#workflow-pins-and-dependabot));
 - job permissions are exactly least-privilege (`contents: read`,
   `id-token: write`);
@@ -989,7 +992,8 @@ must not verify the specific SHA value.
   reusable-workflow path and is pinned to a full 40-character commit SHA, not a
   mutable branch such as `main` or `rolling`.
 - Do assert all `leynos/shared-actions` invocations across all workflows use
-  the same commit SHA.
+  the same commit SHA, except `install-whitaker`, which keeps its own
+  QG-002-approved revision (it still needs a full-SHA pin).
 - Do assert the expected `on:` triggers, least-privilege `permissions:`, and
   the inputs the caller relies on.
 - Do not hard-code the current SHA value as an expected string. Match it with

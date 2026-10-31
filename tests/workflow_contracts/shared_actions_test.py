@@ -172,7 +172,7 @@ def test_shared_action_invocations_use_one_consistent_version() -> None:
     versions = _shared_action_versions(include_install_whitaker=False)
     distinct_versions = {version for _, version in versions}
     assert len(distinct_versions) == 1, (
-        "all leynos/shared-actions invocations must use one version; found "
+        "all leynos/shared-actions invocations except install-whitaker must use one version; found "
         + ", ".join(f"{path.name}@{version}" for path, version in versions)
     )
 
@@ -187,6 +187,7 @@ def test_install_whitaker_is_the_only_invocation_left_out_of_the_version_check(
         "_shared_action_invocations",
         lambda: [
             (Path("ci.yml"), f"{prefix}actions/install-whitaker@{'a' * 40}"),
+            (Path("ci.yml"), f"{prefix}actions/install-whitaker-extra@{'c' * 40}"),
             (Path("ci.yml"), f"{prefix}actions/setup-rust@{'b' * 40}"),
             (Path("ci.yml"), f"{prefix}workflows/mutation-cargo.yml@{'b' * 40}"),
         ],
@@ -194,10 +195,27 @@ def test_install_whitaker_is_the_only_invocation_left_out_of_the_version_check(
 
     assert _shared_action_versions() == [
         (Path("ci.yml"), "a" * 40),
+        (Path("ci.yml"), "c" * 40),
         (Path("ci.yml"), "b" * 40),
         (Path("ci.yml"), "b" * 40),
     ]
     assert _shared_action_versions(include_install_whitaker=False) == [
+        (Path("ci.yml"), "c" * 40),
         (Path("ci.yml"), "b" * 40),
         (Path("ci.yml"), "b" * 40),
     ]
+
+
+def test_install_whitaker_exemption_still_validates_the_pin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed ``install-whitaker`` pin is rejected before it is excluded."""
+    prefix = "leynos/shared-actions/.github/"
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "_shared_action_invocations",
+        lambda: [(Path("ci.yml"), f"{prefix}actions/install-whitaker@main")],
+    )
+
+    with pytest.raises(AssertionError, match="40-character lowercase hex commit SHA"):
+        _shared_action_versions(include_install_whitaker=False)
