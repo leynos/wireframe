@@ -52,9 +52,16 @@ fn when_final_continuation_arrives(
     memory_budget_backpressure_world.send_final_continuation_frame(key, sequence, &body)
 }
 
+#[when("ready budgeted payloads are collected")]
+fn when_ready_payloads_collected(
+    memory_budget_backpressure_world: &mut MemoryBudgetBackpressureWorld,
+) -> TestResult {
+    memory_budget_backpressure_world.collect_ready_payloads()
+}
+
 #[then("no budgeted payload is available before virtual time advances")]
 fn then_no_payload_available(
-    memory_budget_backpressure_world: &mut MemoryBudgetBackpressureWorld,
+    memory_budget_backpressure_world: &MemoryBudgetBackpressureWorld,
 ) -> TestResult {
     memory_budget_backpressure_world.assert_no_payload_ready()
 }

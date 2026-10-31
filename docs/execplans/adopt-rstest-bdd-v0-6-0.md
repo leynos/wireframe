@@ -469,3 +469,17 @@ plus any unavailable check and every residual failure.
 
 Implementation and its initial validation are complete. The two new regression
 scenarios account for the BDD inventory increase. PR review is in progress.
+
+Review round two raised two pre-merge findings, both now addressed:
+
+- The budget-transition `assert_no_payload_ready` assertion also drove the
+  runtime and drained payloads. Runtime spinning and payload collection are now
+  separate command operations invoked from a `When` step, leaving the `Then`
+  assertion read-only over recorded state. The memory-backpressure world had
+  the same mixing, so it received the same separation to keep the fix systemic.
+- The developers' guide now describes the test-only frame-processing signal and
+  what it does and does not prove about server progress.
+- The guide's stale nightly pin was fixed upstream instead: main's
+  `d68514b4` (PR #822) records `nightly-2026-10-30` and adds a Cranelift
+  exception note against it, so the rebase keeps that text rather than
+  duplicating it here.

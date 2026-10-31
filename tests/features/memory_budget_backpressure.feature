@@ -8,6 +8,7 @@ Feature: Soft-limit memory budget back-pressure
     When a budgeted first frame for key 1 with body "aaaaaaaa" arrives
     And the budgeted server processes the first frame
     And a budgeted final continuation frame for key 1 sequence 1 with body "bb" arrives
+    And ready budgeted payloads are collected
     Then no budgeted payload is available before virtual time advances
     When budgeted virtual time advances by 5 milliseconds
     And the budgeted server parses the next frame

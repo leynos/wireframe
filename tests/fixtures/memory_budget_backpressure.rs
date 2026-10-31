@@ -221,10 +221,14 @@ impl MemoryBudgetBackpressureWorld {
         self.send_payload(payload)
     }
 
-    /// Assert that no payload has been emitted yet.
-    pub fn assert_no_payload_ready(&mut self) -> TestResult {
+    /// Drive ready runtime work and record the payloads available without waiting.
+    pub fn collect_ready_payloads(&mut self) -> TestResult {
         self.spin_runtime()?;
-        self.drain_ready_payloads()?;
+        self.drain_ready_payloads()
+    }
+
+    /// Assert that the recorded observation contains no completed payload.
+    pub fn assert_no_payload_ready(&self) -> TestResult {
         if self.observed_payloads.is_empty() {
             return Ok(());
         }
