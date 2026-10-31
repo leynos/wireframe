@@ -192,8 +192,12 @@ async fn server_reaches_readiness_and_accepts_before_shutdown() -> TestResult {
 }
 
 /// Ensure the server survives panicking connection tasks.
-#[rstest]
+///
+/// `#[traced_test]` precedes `#[rstest]` so the injected `logs_assert` helper
+/// stays in scope, matching the parameterised unit tests in
+/// `src/server/connection_spawner_tests.rs`.
 #[traced_test]
+#[rstest]
 #[tokio::test]
 async fn connection_panic_is_caught(
     factory: impl Fn() -> TestApp + Send + Sync + Clone + 'static,
