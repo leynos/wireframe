@@ -133,9 +133,11 @@ impl AsyncRead for FailingWriteStream {
         _cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        let remaining = &self.bytes[self.read_pos..];
+        let remaining = self.bytes.get(self.read_pos..).unwrap_or_default();
         let take = remaining.len().min(buf.remaining());
-        buf.put_slice(&remaining[..take]);
+        if let Some(chunk) = remaining.get(..take) {
+            buf.put_slice(chunk);
+        }
         self.read_pos += take;
         Poll::Ready(Ok(()))
     }
@@ -234,7 +236,7 @@ async fn teardown_runs_once_after_clean_completion() -> TestResult<()> {
 
     check_equal(
         &response_payload(&response)?,
-        &[b'X'],
+        b"X",
         "clean connection should return the handler response",
     )?;
     probe.assert_exactly_once()
