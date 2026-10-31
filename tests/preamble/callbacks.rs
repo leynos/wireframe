@@ -1,6 +1,12 @@
 //! Callback behaviour tests for preamble handling.
 
-use std::{io, sync::Arc};
+use std::{
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 use rstest::rstest;
 use tokio::{
@@ -164,6 +170,72 @@ async fn failure_handler_error_is_logged_and_connection_closes(
             Err(e) => panic!("unexpected read error: {e:?}"),
         }
         Ok(())
+    })
+    .await?;
+    Ok(())
+}
+
+#[rstest]
+#[tokio::test]
+async fn success_handler_error_closes_connection_without_app_dispatch(
+    factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+) -> TestResult {
+    let app_setup_count = Arc::new(AtomicUsize::new(0));
+    let app_factory = {
+        let app_setup_count = Arc::clone(&app_setup_count);
+        move || {
+            let app_setup_count = Arc::clone(&app_setup_count);
+            factory()
+                .on_connection_setup(move || {
+                    let app_setup_count = Arc::clone(&app_setup_count);
+                    async move {
+                        app_setup_count.fetch_add(1, Ordering::SeqCst);
+                    }
+                })
+                .expect("failed to install app dispatch counter")
+        }
+    };
+
+    let (success_holder, success_rx) = channel_holder();
+    let (failure_holder, _failure_rx) = channel_holder();
+    let notify_success = success_cb::<HotlinePreamble>(success_holder);
+    let server = server_with_handlers(
+        app_factory,
+        move |preamble, stream| {
+            let notified = notify_success(preamble, stream);
+            Box::pin(async move {
+                notified.await?;
+                Err::<(), io::Error>(io::Error::other("boom"))
+            })
+        },
+        failure_cb(failure_holder),
+    );
+
+    with_running_server(server, {
+        let app_setup_count = Arc::clone(&app_setup_count);
+        move |addr| async move {
+            let mut stream = TcpStream::connect(addr).await?;
+            stream.write_all(b"TRTPHOTL\x00\x01\x00\x02").await?;
+            stream.shutdown().await?;
+
+            recv_within(Duration::from_secs(1), success_rx).await?;
+
+            let mut buf = [0u8; 1];
+            let read = timeout(Duration::from_millis(200), stream.read(&mut buf)).await?;
+            match read {
+                Ok(0) => {}
+                Ok(n) => panic!("expected connection close, read {n} bytes"),
+                Err(e) if e.kind() == io::ErrorKind::ConnectionReset => {}
+                Err(e) => panic!("unexpected read error: {e:?}"),
+            }
+
+            assert_eq!(
+                app_setup_count.load(Ordering::SeqCst),
+                0,
+                "application connection setup ran after preamble success handler failed",
+            );
+            Ok(())
+        }
     })
     .await?;
     Ok(())

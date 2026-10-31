@@ -112,6 +112,13 @@ out, an optional failure handler runs before the connection is closed. The
 handler is asynchronous and receives both the error and the mutable
 `TcpStream`, allowing a response to be written back to the client.
 
+After a successful decode, an optional success handler runs before the
+connection reaches the application. The handler is awaited, so it can complete
+a handshake or reject the peer. A success handler that returns an error fails
+closed: the error is logged and the connection is closed without invoking
+`WireframeApp`, which lets the handler enforce pre-application access controls.
+Submit any rejection response before returning the error.
+
 ```rust,no_run
 use std::time::Duration;
 

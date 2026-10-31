@@ -31,6 +31,11 @@ pub(crate) fn default_worker_count() -> usize {
 /// Implementors may perform asynchronous I/O on the provided stream before the
 /// connection is handed off to [`WireframeApp`].
 ///
+/// Returning an error rejects the connection: the error is logged, the stream
+/// is closed, and the application never receives it. A handler can therefore
+/// enforce pre-application access controls by writing any rejection response
+/// and then returning the error.
+///
 /// # Examples
 /// ```no_run
 /// use std::io;
