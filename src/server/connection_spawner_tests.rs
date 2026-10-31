@@ -1,7 +1,10 @@
 //! Coverage for connection task spawning and panic recovery behaviour.
 
 use rstest::rstest;
-use tokio::net::{TcpListener, TcpStream};
+use tokio::{
+    io::AsyncWriteExt,
+    net::{TcpListener, TcpStream},
+};
 use tokio_util::task::TaskTracker;
 use tracing_test::traced_test;
 
@@ -69,10 +72,15 @@ async fn spawn_connection_task_logs_panic(
         }
     });
 
-    let client = TcpStream::connect(addr).await.expect("connect");
+    let mut client = TcpStream::connect(addr).await.expect("connect");
     let peer_addr = client.local_addr().expect("client.local_addr");
-    client.writable().await.expect("client.writable");
-    client.try_write(&[0; 8]).expect("client.try_write");
+    // The panicking task may close the connection before this write lands, so
+    // a closed-peer error is itself evidence that the connection was handled.
+    match client.write_all(&[0; 8]).await {
+        Ok(()) => {}
+        Err(error) if is_peer_closed_error(&error) => {}
+        Err(error) => panic!("client write failed: {error}"),
+    }
     drop(client);
 
     handle.await.expect("join connection task driver");
@@ -89,4 +97,12 @@ async fn spawn_connection_task_logs_panic(
             .map(|_| ())
             .ok_or_else(|| format!("panic log not found for {expected_panic}"))
     });
+}
+
+/// Report whether an I/O error means the peer had already closed.
+fn is_peer_closed_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+    )
 }
