@@ -88,8 +88,9 @@ Related issues and decisions:
   packet/transport-frame boundary remains unchanged;
 - [#547](https://github.com/leynos/wireframe/issues/547), normal app
   responses bypass configured protocol hooks;
-- [#549](https://github.com/leynos/wireframe/issues/549), teardown is
-  skipped after stream-processing errors;
+- [#549](https://github.com/leynos/wireframe/issues/549), returned
+  stream-processing errors reach teardown; panic and cancellation finalization
+  remain open under [#643](https://github.com/leynos/wireframe/issues/643);
 - [#598](https://github.com/leynos/wireframe/issues/598), public protocol
   and message-assembler accessors lack direct coverage;
 - [#538](https://github.com/leynos/wireframe/issues/538), zero-copy
@@ -366,11 +367,13 @@ The resulting route map is owned directly by `PreparedApp`; no inner
 
 Once setup succeeds, teardown must run exactly once on every terminal path,
 including decode, protocol, transport, cancellation, and panic-recovery paths
-where execution can safely continue. Today, `handle_connection_result` returns
-early when stream processing fails and skips the teardown callback entirely.
-The connection runtime should use an explicit guard/finalization path rather
-than a clean-path-only tail call. This coordinates with
-[#549](https://github.com/leynos/wireframe/issues/549).
+where execution can safely continue. The returned-error path now keeps the
+`process_stream` result, awaits teardown when setup produced state, and only
+then returns the error, so decode, protocol, and transport failures no longer
+skip cleanup. That tail sequence is not an unwind or cancellation guard: panic
+and task cancellation still require the runtime-level finalization tracked under
+[#643](https://github.com/leynos/wireframe/issues/643). The returned-error
+behaviour is covered by [#549](https://github.com/leynos/wireframe/issues/549).
 
 The guard mechanism must be panic-aware. Teardown callbacks are async, so a
 `Drop`-based guard cannot run them during unwind. The terminal paths are
@@ -505,7 +508,10 @@ documentation obligations, delivered under
 - Readiness is not signalled before preparation completes.
 - Factory/preparation failure prevents acceptance and returns a typed
   server error.
-- Setup/teardown runs exactly once across clean close and error paths.
+- Setup/teardown runs exactly once across clean close and returned-error
+  paths, evidenced by the lifecycle regression tests in
+  `tests/prepared_app/teardown.rs`; panic and cancellation coverage remains with
+  [#643](https://github.com/leynos/wireframe/issues/643).
 - Protocol `before_send` applies to ordinary responses and actor-driven
   outputs according to ADR 010.
 - Existing handler ordering, codec, fragmentation, message assembly,

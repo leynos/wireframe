@@ -41,7 +41,8 @@ pub struct WireframeApp<
     pub(in crate::app) app_data: AppDataStore,
     /// Optional asynchronous hook that creates per-connection state.
     pub(in crate::app) on_connect: Option<Arc<ConnectionSetup<C>>>,
-    /// Optional asynchronous hook that releases state after clean processing.
+    /// Optional asynchronous hook that releases state after processing,
+    /// including returned stream-processing errors.
     pub(in crate::app) on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
     /// Optional protocol hook used to customize frame-level processing.
     pub(in crate::app) protocol:

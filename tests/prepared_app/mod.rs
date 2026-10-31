@@ -9,6 +9,9 @@ mod common;
 #[path = "tcp.rs"]
 mod tcp;
 
+#[path = "teardown.rs"]
+mod teardown;
+
 use std::{
     sync::{
         Arc,
@@ -17,6 +20,8 @@ use std::{
     time::Duration,
 };
 
+#[path = "../common/fallible_assertions/check.rs"]
+mod fallible_check;
 #[path = "../common/fallible_assertions/check_equal.rs"]
 mod fallible_check_equal;
 
