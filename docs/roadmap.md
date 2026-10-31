@@ -472,13 +472,25 @@ starts. See `docs/frame-vec-u8-inventory.md` and ADRs 008 through 010.
 
 - [ ] 10.2.1. Capture allocation, copied-byte, throughput, and latency
   baselines for inbound decode, middleware pass-through, request hooks, and
-  outbound encode on the default codec path. Requires 10.1.1.
+  outbound encode on the default codec path. Requires 10.1.1. The matrix is
+  defined in the [zero-copy benchmark plan](zero-copy-benchmark-plan.md). Of
+  the four stages, only inbound decode has a harness; the existing encode
+  benchmark covers the codec layer rather than the serializer-to-`wrap_payload`
+  path. Codec-stage throughput, latency, and allocation counts are now recorded
+  in the [zero-copy benchmark baselines](zero-copy-benchmark-baselines.md),
+  which states the remaining stages and copied bytes as unmeasured, so this
+  item stays open until they are measurable.
 - [ ] 10.2.2. Record benchmark acceptance thresholds that require removal of
   the final default-path `Vec<u8>` copy between serialization and
-  `FrameCodec::wrap_payload`. Requires 10.2.1.
-- [ ] 10.2.3. Publish a migration-guide outline listing the exact public
+  `FrameCodec::wrap_payload`. Requires 10.2.1. Thresholds for the measurable
+  stages are proposed in the
+  [zero-copy benchmark baselines](zero-copy-benchmark-baselines.md); the
+  removal requirement itself is stated there as a pointer-identity and
+  allocation gate.
+- [x] 10.2.3. Publish a migration-guide outline listing the exact public
   signatures and workflows that will change for packets, middleware, client
-  hooks, and serializers. Requires 10.1.2.
+  hooks, and serializers. Requires 10.1.2. See the
+  [zero-copy migration guide outline](zero-copy-migration-guide-outline.md).
 
 ## 11. Internal zero-copy foundations
 

@@ -82,24 +82,34 @@ Success is measured by the following outcomes:
 
 ### 1.2. Establish performance and migration baselines
 
-- [ ] 1.2.1. Define the benchmark matrix for the migration. Requires 1.1.1.
-  - [ ] Cover inbound decode, middleware pass-through, request-hook mutation,
+- [x] 1.2.1. Define the benchmark matrix for the migration. Requires 1.1.1.
+  See the [zero-copy benchmark plan](zero-copy-benchmark-plan.md).
+  - [x] Cover inbound decode, middleware pass-through, request-hook mutation,
     and outbound encode for the default codec path.
-  - [ ] Include at least one protocol-native example codec to confirm the plan
-    is not length-delimited specific.
+  - [x] Include at least one protocol-native example codec to confirm the plan
+    is not length-delimited specific. `HotlineFrameCodec` fills this role.
 - [ ] 1.2.2. Record baseline measurements and acceptance thresholds. Requires
-  1.2.1.
+  1.2.1. Partially delivered: the codec-stage baselines and proposed thresholds
+  are published in
+  [zero-copy benchmark baselines](zero-copy-benchmark-baselines.md), but that
+  document records three of the four stages and the copied-byte metric as
+  unmeasured, so this item stays open.
   - [ ] Capture allocations, copied bytes, throughput, and latency for the
-    current `Vec<u8>`-bound surfaces.
+    current `Vec<u8>`-bound surfaces. Encode and decode throughput, latency,
+    and allocation counts are captured; copied bytes and the middleware,
+    request-hook, and outbound-encode stages are not.
   - [ ] Set acceptance thresholds that require removal of the final outbound
     copy on the default path and forbid more than a small agreed regression in
-    throughput or latency.
+    throughput or latency. Proposed thresholds exist for the measured
+    workloads; agreement and the unmeasured stages remain outstanding.
   - [ ] Success criteria: the repository contains a benchmark note or report
-    that later phases can compare against directly.
-- [ ] 1.2.3. Inventory downstream breakpoints and draft the migration guide
-  outline. Requires 1.1.2.
-  - [ ] List the exact public signatures that will change.
-  - [ ] Capture before-and-after examples for middleware, hooks, serializers,
+    that later phases can compare against directly. True for the codec stages
+    only; the report states its own gaps rather than implying full coverage.
+- [x] 1.2.3. Inventory downstream breakpoints and draft the migration guide
+  outline. Requires 1.1.2. See the
+  [zero-copy migration guide outline](zero-copy-migration-guide-outline.md).
+  - [x] List the exact public signatures that will change.
+  - [x] Capture before-and-after examples for middleware, hooks, serializers,
     and custom codecs.
 
 ## 2. Internal zero-copy foundations
