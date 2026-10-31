@@ -88,14 +88,28 @@ reference when navigating the project's design and architecture material.
 - [Wireframe 1.0 roadmap](wireframe-1-0-detailed-development-roadmap.md)
   Detailed tasks leading to Wireframe 1.0.
 - [Project roadmap](roadmap.md) High-level development roadmap.
-- [Zero-copy frame and payload migration roadmap](zero-copy-frame-and-payload-migration-roadmap.md)
-  Phased plan for migrating from `Vec<u8>`-owned frame APIs to a zero-copy
-  alternative.
 <!-- markdownlint-disable-next-line MD013 -->
 - [1.0 philosophy][philosophy] Philosophy and feature set for Wireframe 1.0.
 
 [philosophy]:
 the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
+
+## Zero-copy migration
+
+- [Zero-copy frame and payload migration roadmap](zero-copy-frame-and-payload-migration-roadmap.md)
+  Phased plan for migrating from `Vec<u8>`-owned frame APIs to a zero-copy
+  alternative.
+- [Zero-copy benchmark plan](zero-copy-benchmark-plan.md) Measurement matrix
+  covering inbound decode, middleware pass-through, request hooks, and outbound
+  encode.
+- [Zero-copy benchmark baselines](zero-copy-benchmark-baselines.md) Measured
+  codec-stage baselines, proposed acceptance thresholds, and the stages that
+  remain unmeasured.
+- [Zero-copy migration guide outline](zero-copy-migration-guide-outline.md)
+  Affected public signatures and before-and-after examples for the migration
+  guide.
+- [Zero-copy release plan](zero-copy-release-plan.md) Release sequencing,
+  canaries, validation gates, rollback criteria, and versioning determination.
 
 ## Testing
 
