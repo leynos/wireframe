@@ -635,7 +635,7 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
 - `make lint` runs rustdoc with warnings denied, `cargo clippy`, and
   `whitaker --all --workspace -- --all-targets --all-features`.
 
-  `make lint` is a thin prerequisite of the two halves, `lint-clippy` and
+  `make lint` is a thin aggregate target for the two halves, `lint-clippy` and
   `lint-whitaker`, so either can be run alone. `.NOTPARALLEL: lint` keeps the
   halves sequential even under `make -j lint`, because concurrent runs would
   interleave their diagnostics. `--workspace` sits before `--` so it reaches
@@ -1510,7 +1510,7 @@ of public items `const fn`, and each family has a fixture that calls it from a
 | `tests/ui/codec_shared_const_api.rs`    | codec, recovery, and middleware constructors          |
 | `tests/ui/fragment_const_api.rs`        | fragmentation configuration                           |
 | `tests/ui/server_const_api.rs`          | push-queue builder, `ConnectionId`, codec, and error  |
-| `tests/ui/const_config_docs_example.rs` | the `Compile-time configuration` users'-guide example |
+| `tests/ui/const_config_docs_example.rs` | the `Compile-time configuration` users' guide example |
 
 When a new `const fn` joins the public surface, extend the fixture that owns
 that family instead of adding a parallel one. Fixtures must construct their

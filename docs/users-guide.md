@@ -1641,14 +1641,16 @@ The `const` surface covers:
   and `WireframeError::is_clean_close`.
 - **Codec error context.** `CodecErrorContext` with `with_connection_id`,
   `with_peer_address`, and `with_correlation_id`.
-- **Codec parameters.** `HotlineFrameCodec::new` and `MysqlFrameCodec::new`
-  with their `max_frame_length` accessors.
+- **Codec parameters.** `HotlineFrameCodec::new` and `MysqlFrameCodec::new`.
+  Their `max_frame_length` accessor is the non-`const` `FrameCodec` trait
+  method, so it stays a runtime read.
 - **Message assembly.** `ParsedFrameHeader::new`, `FirstFrameHeader`,
   `FrameHeader`, `MessageKey`, `EnvelopeId`, `CorrelationId`,
   `EnvelopeRouting`, and `AssembledMessage::new`.
-- **Requests and middleware.** `RequestParts::new` with its accessors,
-  `FrameContainer`, `FromFn::new`, `Next::new`, and the correlation-id setter
-  and getter on `ServiceRequest` and `ServiceResponse`.
+- **Requests and middleware.** `RequestParts::new`, plus its `const` accessors
+  `id`, `correlation_id`, and `metadata_mut` (`metadata` borrows and is not
+  `const`), `FrameContainer`, `FromFn::new`, `Next::new`, and the
+  correlation-id setter and getter on `ServiceRequest` and `ServiceResponse`.
 - **Connection and queue tuning.** The connection builder's `set_fairness` and
   `enable_fragmentation`, the queue builder's `high_capacity`, `low_capacity`,
   `rate`, `unlimited`, `dlq_log_interval`, and `dlq_log_every_n`, and
@@ -1704,12 +1706,14 @@ const _: () = assert!(matches!(RECOVERY_POLICY, RecoveryPolicy::Disconnect));
 const _: () = assert!(IS_CLEAN_CLOSE);
 ```
 
-Two limits are worth knowing. A `const fn` cannot drop a value, so any helper
-whose semantics require a destructor stays a runtime call; `CodecErrorContext`
-and `RecoveryConfig` are therefore plain data with builder methods rather than
-types owning a `Drop` implementation. And these are additive: every listed item
-was already callable at runtime, so code written against an earlier release
-keeps compiling unchanged.
+Two limits are worth knowing. A `const fn` cannot run a destructor, so it
+cannot drop a value whose fields need dropping: `CodecErrorContext` carries
+`codec_state: Option<String>`, which means an owned context cannot be dropped
+inside a `const fn` at all. Any helper whose semantics require cleanup
+therefore stays a runtime call. `CodecErrorContext` and `RecoveryConfig` are
+plain data with builder methods rather than types that implement `Drop`. These
+items are additive: every listed item was already callable at runtime, so code
+written against an earlier release keeps compiling unchanged.
 
 ## Client runtime
 
