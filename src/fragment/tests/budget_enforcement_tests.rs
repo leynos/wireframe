@@ -24,82 +24,113 @@ fn reassembler_with_caps(
     )
 }
 
-#[rstest]
-fn concurrent_partial_cap_rejects_a_new_message_without_allocating_it() {
-    let mut reassembler = reassembler_with_caps(8, Some(1), None);
-    let first = FragmentHeader::new(MessageId::new(70), FragmentIndex::zero(), false);
-    let second = FragmentHeader::new(MessageId::new(71), FragmentIndex::zero(), false);
+/// One non-final fragment pushed by a rejection scenario.
+#[derive(Clone, Copy)]
+struct FragmentPush {
+    message_id: u64,
+    index: u32,
+    payload: &'static [u8],
+}
 
-    reassembler
-        .push(first, [1_u8, 2])
-        .expect("first partial should fit the count cap");
-    let error = reassembler
-        .push(second, [3_u8])
-        .expect_err("a second partial should exceed the count cap");
+impl FragmentPush {
+    const fn new(message_id: u64, index: u32, payload: &'static [u8]) -> Self {
+        Self {
+            message_id,
+            index,
+            payload,
+        }
+    }
 
-    assert_eq!(
-        error,
-        ReassemblyError::TooManyConcurrentPartials {
-            attempted: 2,
-            limit: NonZeroUsize::new(1).expect("non-zero limit"),
-        },
-    );
-    assert_eq!(reassembler.buffered_len(), 1);
-    assert_eq!(reassembler.buffered_bytes(), 2);
+    fn header(self) -> FragmentHeader {
+        FragmentHeader::new(
+            MessageId::new(self.message_id),
+            FragmentIndex::new(self.index),
+            false,
+        )
+    }
+}
+
+/// Aggregate-budget rejection scenario: admitted fragments, then one rejected.
+struct RejectionScenario {
+    max_message_size: usize,
+    max_concurrent_partials: Option<usize>,
+    max_buffered_bytes: Option<usize>,
+    /// Fragments the budget must admit before the rejected push.
+    admitted: Vec<FragmentPush>,
+    /// Fragment the budget must reject.
+    rejected: FragmentPush,
+    /// Error the budget must report for the rejected fragment.
+    expected: ReassemblyError,
+    /// Partial messages retained after the rejection.
+    retained_partials: usize,
+    /// Payload bytes retained after the rejection.
+    retained_bytes: usize,
 }
 
 #[rstest]
-fn aggregate_byte_cap_accepts_exact_fit_and_rejects_new_partial_growth() {
-    let mut reassembler = reassembler_with_caps(8, Some(3), Some(5));
-    let first = FragmentHeader::new(MessageId::new(72), FragmentIndex::zero(), false);
-    let second = FragmentHeader::new(MessageId::new(73), FragmentIndex::zero(), false);
-    let third = FragmentHeader::new(MessageId::new(74), FragmentIndex::zero(), false);
-
-    reassembler
-        .push(first, [1_u8, 2, 3])
-        .expect("first partial should fit");
-    reassembler
-        .push(second, [4_u8, 5])
-        .expect("aggregate cap should accept an exact fit");
-    assert_eq!(reassembler.buffered_len(), 2);
-    assert_eq!(reassembler.buffered_bytes(), 5);
+#[case::concurrent_cap_rejects_new_message(RejectionScenario {
+    max_message_size: 8,
+    max_concurrent_partials: Some(1),
+    max_buffered_bytes: None,
+    admitted: vec![FragmentPush::new(70, 0, &[1, 2])],
+    rejected: FragmentPush::new(71, 0, &[3]),
+    expected: ReassemblyError::TooManyConcurrentPartials {
+        attempted: 2,
+        limit: NonZeroUsize::new(1).expect("non-zero limit"),
+    },
+    retained_partials: 1,
+    retained_bytes: 2,
+})]
+#[case::aggregate_cap_rejects_new_partial(RejectionScenario {
+    max_message_size: 8,
+    max_concurrent_partials: Some(3),
+    max_buffered_bytes: Some(5),
+    admitted: vec![
+        FragmentPush::new(72, 0, &[1, 2, 3]),
+        FragmentPush::new(73, 0, &[4, 5]),
+    ],
+    rejected: FragmentPush::new(74, 0, &[6]),
+    expected: ReassemblyError::AggregateBufferCapExceeded {
+        attempted: 6,
+        limit: NonZeroUsize::new(5).expect("non-zero limit"),
+    },
+    retained_partials: 2,
+    retained_bytes: 5,
+})]
+#[case::aggregate_cap_reclaims_after_append(RejectionScenario {
+    max_message_size: 8,
+    max_concurrent_partials: None,
+    max_buffered_bytes: Some(5),
+    admitted: vec![FragmentPush::new(75, 0, &[1, 2, 3])],
+    rejected: FragmentPush::new(75, 1, &[4, 5, 6]),
+    expected: ReassemblyError::AggregateBufferCapExceeded {
+        attempted: 6,
+        limit: NonZeroUsize::new(5).expect("non-zero limit"),
+    },
+    retained_partials: 0,
+    retained_bytes: 0,
+})]
+fn rejected_fragment_preserves_retained_budget(#[case] scenario: RejectionScenario) {
+    let mut reassembler = reassembler_with_caps(
+        scenario.max_message_size,
+        scenario.max_concurrent_partials,
+        scenario.max_buffered_bytes,
+    );
+    for fragment in &scenario.admitted {
+        reassembler
+            .push(fragment.header(), fragment.payload)
+            .expect("admitted fragment should fit the budget");
+    }
 
     let error = reassembler
-        .push(third, [6_u8])
-        .expect_err("new payload should exceed the aggregate byte cap");
+        .push(scenario.rejected.header(), scenario.rejected.payload)
+        .expect_err("fragment budget should reject the push");
+
+    assert_eq!(error, scenario.expected);
     assert_eq!(
-        error,
-        ReassemblyError::AggregateBufferCapExceeded {
-            attempted: 6,
-            limit: NonZeroUsize::new(5).expect("non-zero limit"),
-        },
+        (reassembler.buffered_len(), reassembler.buffered_bytes()),
+        (scenario.retained_partials, scenario.retained_bytes),
     );
-    assert_eq!(reassembler.buffered_len(), 2);
-    assert_eq!(reassembler.buffered_bytes(), 5);
-}
-
-#[rstest]
-fn aggregate_byte_cap_rejects_append_growth_and_reclaims_the_partial() {
-    let mut reassembler = reassembler_with_caps(8, None, Some(5));
-    let first = FragmentHeader::new(MessageId::new(75), FragmentIndex::zero(), false);
-    let second = FragmentHeader::new(MessageId::new(75), FragmentIndex::new(1), false);
-
-    reassembler
-        .push(first, [1_u8, 2, 3])
-        .expect("first fragment should fit");
-    let error = reassembler
-        .push(second, [4_u8, 5, 6])
-        .expect_err("append should exceed the aggregate byte cap");
-
-    assert_eq!(
-        error,
-        ReassemblyError::AggregateBufferCapExceeded {
-            attempted: 6,
-            limit: NonZeroUsize::new(5).expect("non-zero limit"),
-        },
-    );
-    assert_eq!(reassembler.buffered_len(), 0);
-    assert_eq!(reassembler.buffered_bytes(), 0);
 }
 
 #[rstest]
