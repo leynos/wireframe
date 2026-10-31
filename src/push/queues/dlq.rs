@@ -66,7 +66,7 @@ impl<F> DeadLetterState<F> {
     }
 
     /// Whether a dead-letter queue is configured to receive dropped frames.
-    pub(crate) fn has_queue(&self) -> bool { self.sink.is_some() }
+    pub(crate) const fn has_queue(&self) -> bool { self.sink.is_some() }
 
     /// Hand `frame` to the dead-letter queue, recording a loss if that fails.
     ///
@@ -87,9 +87,8 @@ impl<F> DeadLetterState<F> {
             return;
         };
         let lost_frame = match returned {
-            mpsc::error::TrySendError::Full(frame) | mpsc::error::TrySendError::Closed(frame) => {
-                frame
-            }
+            mpsc::error::TrySendError::Full(rejected)
+            | mpsc::error::TrySendError::Closed(rejected) => rejected,
         };
         let dropped = self.drops.fetch_add(1, Ordering::Relaxed) + 1;
         self.log_if_due(lost_frame, dropped);

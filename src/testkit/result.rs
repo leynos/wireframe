@@ -102,7 +102,7 @@ impl From<String> for TestError {
 }
 
 impl From<&str> for TestError {
-    fn from(value: &str) -> Self { Self::Msg(value.to_string()) }
+    fn from(value: &str) -> Self { Self::Msg(value.to_owned()) }
 }
 
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for TestError {

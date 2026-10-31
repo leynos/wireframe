@@ -60,12 +60,12 @@ pub(crate) struct FairnessTracker<C: Clock = TokioClock> {
 
 impl FairnessTracker {
     /// Create a tracker using Tokio's monotonic clock.
-    pub(crate) fn new(config: FairnessConfig) -> Self { Self::with_clock(config, TokioClock) }
+    pub(crate) const fn new(config: FairnessConfig) -> Self { Self::with_clock(config, TokioClock) }
 }
 
 impl<C: Clock> FairnessTracker<C> {
     /// Construct a tracker with an explicit clock for deterministic tests.
-    pub(crate) fn with_clock(config: FairnessConfig, clock: C) -> Self {
+    pub(crate) const fn with_clock(config: FairnessConfig, clock: C) -> Self {
         Self {
             config,
             clock,
@@ -75,7 +75,7 @@ impl<C: Clock> FairnessTracker<C> {
     }
 
     /// Replace policy and clear prior burst history so old traffic cannot bias it.
-    pub(crate) fn set_config(&mut self, config: FairnessConfig) {
+    pub(crate) const fn set_config(&mut self, config: FairnessConfig) {
         self.config = config;
         self.reset();
     }
@@ -104,10 +104,10 @@ impl<C: Clock> FairnessTracker<C> {
     }
 
     /// End the current high-priority burst after low-priority or multi-queue work.
-    pub(crate) fn reset(&mut self) { self.clear(); }
+    pub(crate) const fn reset(&mut self) { self.clear(); }
 
     /// Clear counters and timer without changing configured fairness policy.
-    fn clear(&mut self) {
+    const fn clear(&mut self) {
         self.high_counter = 0;
         self.high_start = None;
     }

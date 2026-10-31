@@ -13,6 +13,7 @@ fn compile_tests() {
     t.pass("tests/ui/codec_shared_const_api.rs");
     t.pass("tests/ui/fragment_const_api.rs");
     t.pass("tests/ui/app_const_api.rs");
+    t.pass("tests/ui/server_const_api.rs");
     t.compile_fail("tests/ui/server_rejects_non_send_factory.rs");
     t.compile_fail("tests/ui/wireframe_result_default_rejects_unit_protocol.rs");
     t.compile_fail("tests/ui/prepared_app_rejects_route.rs");

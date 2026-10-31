@@ -33,6 +33,6 @@ pub enum ServerError {
         message: String,
         /// Original supervisor error, when termination returned an error.
         #[source]
-        source: Option<Arc<ServerError>>,
+        source: Option<Arc<Self>>,
     },
 }

@@ -119,7 +119,7 @@ fn failures_are_counted_in_full_and_retained_in_bounded_memory() {
     assert_eq!(latency.failures().len(), RETAINED_FAILURES);
     assert_eq!(
         latency.failures().first(),
-        Some(&"burst 0 failed".to_string()),
+        Some(&"burst 0 failed".to_owned()),
         "retention keeps the earliest messages, which name the first occurrence"
     );
 }

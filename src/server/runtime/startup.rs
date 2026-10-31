@@ -38,7 +38,8 @@ where
 {
     let app = build_application(&factory, startup_started)?;
     let prepared = prepare_or_shutdown(app.prepare(), shutdown, startup_started).await?;
-    Ok(prepared.map(|(app, shutdown)| (Arc::new(app), shutdown)))
+    Ok(prepared
+        .map(|(prepared_app, prepared_shutdown)| (Arc::new(prepared_app), prepared_shutdown)))
 }
 
 /// Await preparation unless shutdown completes first, recording its outcome.
@@ -51,16 +52,16 @@ where
     P: Future<Output = Result<T, PrepareError>>,
     S: Future<Output = ()> + Send,
 {
-    let mut shutdown = Box::pin(shutdown);
+    let mut prepared_shutdown = Box::pin(shutdown);
     let startup_result = select! {
-        () = &mut shutdown => {
+        () = &mut prepared_shutdown => {
             record_server_startup_duration(
                 ServerStartupOutcome::Cancelled,
                 startup_started.elapsed(),
             );
             Ok(None)
         },
-        result = preparation => Ok(Some((record_preparation_result(result, startup_started)?, shutdown))),
+        result = preparation => Ok(Some((record_preparation_result(result, startup_started)?, prepared_shutdown))),
     };
     startup_result
 }

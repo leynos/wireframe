@@ -98,8 +98,8 @@ where
     let server_fut = panic_guarded_server(server_fn, server);
 
     let writer_fut = async {
-        let mut writer = write_strategy(writer).await?;
-        writer.shutdown().await?;
+        let mut paced_writer = write_strategy(writer).await?;
+        paced_writer.shutdown().await?;
         io::Result::Ok(())
     };
 

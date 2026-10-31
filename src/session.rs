@@ -30,7 +30,7 @@ impl ConnectionId {
     /// assert_eq!(id.as_u64(), 42);
     /// ```
     #[must_use]
-    pub fn new(id: u64) -> Self { Self(id) }
+    pub const fn new(id: u64) -> Self { Self(id) }
 
     /// Return the inner `u64` representation.
     ///
@@ -43,7 +43,7 @@ impl ConnectionId {
     /// assert_eq!(id.as_u64(), 7);
     /// ```
     #[must_use]
-    pub fn as_u64(&self) -> u64 { self.0 }
+    pub const fn as_u64(&self) -> u64 { self.0 }
 }
 
 impl std::fmt::Display for ConnectionId {
@@ -63,12 +63,11 @@ impl<F: FrameLike> SessionRegistry<F> {
         mut map: impl FnMut(ConnectionId, Arc<PushHandleInner<F>>) -> T,
     ) -> Vec<T> {
         let mut out = Vec::with_capacity(self.0.len());
-        self.0.retain(|id, weak| match weak.upgrade() {
-            Some(inner) => {
+        self.0.retain(|id, weak| {
+            weak.upgrade().is_some_and(|inner| {
                 out.push(map(*id, inner));
                 true
-            }
-            None => false,
+            })
         });
         out
     }

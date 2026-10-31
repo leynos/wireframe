@@ -31,7 +31,7 @@ impl<'a> MessageAssemblySnapshot<'a> {
         reason = "snapshot constructor mirrors the observable message-assembly state"
     )]
     #[must_use]
-    pub fn new(
+    pub const fn new(
         last_result: Option<&'a Result<Option<AssembledMessage>, MessageAssemblyError>>,
         completed_messages: &'a [AssembledMessage],
         evicted_keys: &'a [MessageKey],
@@ -49,7 +49,7 @@ impl<'a> MessageAssemblySnapshot<'a> {
 
     /// Extract the last completed message from the snapshot.
     #[must_use]
-    pub fn last_completed(&self) -> Option<&'a AssembledMessage> {
+    pub const fn last_completed(&self) -> Option<&'a AssembledMessage> {
         match self.last_result {
             Some(Ok(Some(message))) => Some(message),
             _ => None,
@@ -199,8 +199,8 @@ fn describe_last_result(
     last_result: Option<&Result<Option<AssembledMessage>, MessageAssemblyError>>,
 ) -> String {
     match last_result {
-        None => "no result recorded".to_string(),
-        Some(Ok(None)) => "incomplete assembly".to_string(),
+        None => "no result recorded".to_owned(),
+        Some(Ok(None)) => "incomplete assembly".to_owned(),
         Some(Ok(Some(message))) => {
             format!("completed assembly for key {}", message.message_key())
         }
