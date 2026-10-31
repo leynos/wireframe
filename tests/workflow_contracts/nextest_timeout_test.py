@@ -58,7 +58,8 @@ def coverage_action_name(step: dict[str, typ.Any]) -> str:
 
     The pin itself is not this contract's business: ``shared_actions_test``
     already requires every shared-actions invocation to carry a full commit
-    SHA and to agree on one revision across the workflow tree. Repeating the
+    SHA and to agree on one revision across the workflow tree (except
+    ``install-whitaker``, which keeps its own approved revision). Repeating the
     literal SHA here made a dependabot bump of that shared revision fail a
     timeout test, because the two had to be updated together.
 
