@@ -5,7 +5,7 @@ use std::io::{ErrorKind, Result as IoResult};
 
 use rstest::rstest;
 use tokio::{
-    io::AsyncReadExt,
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     sync::oneshot,
     time::{Duration, sleep, timeout},
@@ -231,49 +231,21 @@ async fn connection_panic_is_caught(
 
     wait_for_server_readiness(ready_rx).await?;
 
-    let first = TcpStream::connect(addr)
+    let mut first = TcpStream::connect(addr)
         .await
         .expect("first connection should succeed");
     let peer_addr = first.local_addr().expect("first connection peer address");
-    first.writable().await.expect("connection not writable");
-    first
-        .try_write(&[0; 8])
-        .expect("failed to write dummy bytes");
+    drive_until_closed(&mut first, "first connection").await?;
     drop(first);
 
-    // The second connection must be accepted *and* handled after the first
-    // task panicked. Sending data proves the worker reached connection
-    // handling, and its own peer address ties the second log entry to it.
+    // Opening the second connection only once the first has closed proves the
+    // server accepts connections *after* a handler panicked, rather than
+    // racing both connections into their handlers.
     let mut second = TcpStream::connect(addr)
         .await
         .expect("second connection should succeed after panic");
     let second_peer_addr = second.local_addr().expect("second connection peer address");
-    second
-        .writable()
-        .await
-        .expect("second connection not writable");
-    second
-        .try_write(&[0; 8])
-        .expect("failed to write dummy bytes on second connection");
-
-    // The panicking task drops its accepted socket, closing the connection.
-    // Observing that close keeps the shutdown signal from racing ahead of the
-    // second connection being handled.
-    let mut probe = [0_u8; 1];
-    match timeout(Duration::from_secs(5), second.read(&mut probe)).await {
-        Ok(result) if peer_closed(&result) => {}
-        Ok(Ok(read)) => {
-            return Err(
-                format!("second connection returned {read} bytes instead of closing").into(),
-            );
-        }
-        Ok(Err(error)) => {
-            return Err(format!("second connection read failed: {error}").into());
-        }
-        Err(_) => {
-            return Err("second connection was not handled after the first panic".into());
-        }
-    }
+    drive_until_closed(&mut second, "second connection").await?;
     drop(second);
 
     shutdown_tx
@@ -298,15 +270,43 @@ async fn connection_panic_is_caught(
     Ok(())
 }
 
-/// Report whether a client read observed the server closing the connection.
+/// Send data on a client stream, then wait until the server closes it.
 ///
-/// A graceful close yields end-of-file. A reset counts too: the panicking
-/// connection task never drains the bytes the client sent, so dropping its
-/// accepted socket rejects the leftover data with an RST.
+/// Closing proves the connection reached a handler, because the panicking task
+/// owns and drops the accepted socket. The panicking handler may close the
+/// connection before the write lands, so a closed-peer write error counts as
+/// handled rather than as a failure. A graceful close yields end-of-file; a
+/// reset counts too, because the handler never drains the bytes sent, so
+/// dropping its socket rejects the leftover data with an RST.
+async fn drive_until_closed(stream: &mut TcpStream, label: &str) -> TestResult {
+    if let Err(error) = stream.write_all(&[0; 8]).await
+        && !is_peer_closed_error(&error)
+    {
+        return Err(format!("{label} write failed: {error}").into());
+    }
+
+    let mut probe = [0_u8; 1];
+    match timeout(Duration::from_secs(5), stream.read(&mut probe)).await {
+        Ok(result) if peer_closed(&result) => Ok(()),
+        Ok(Ok(read)) => Err(format!("{label} returned {read} bytes instead of closing").into()),
+        Ok(Err(error)) => Err(format!("{label} read failed: {error}").into()),
+        Err(_) => Err(format!("{label} was not handled").into()),
+    }
+}
+
+/// Report whether a read observed the peer closing the connection.
 fn peer_closed(result: &IoResult<usize>) -> bool {
     match result {
         Ok(0) => true,
-        Err(error) => error.kind() == ErrorKind::ConnectionReset,
+        Err(error) => is_peer_closed_error(error),
         Ok(_) => false,
     }
+}
+
+/// Report whether an I/O error means the peer had already closed.
+fn is_peer_closed_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.kind(),
+        ErrorKind::BrokenPipe | ErrorKind::ConnectionReset
+    )
 }
