@@ -77,7 +77,10 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
-    use crate::codec::{MAX_FRAME_LENGTH, MIN_FRAME_LENGTH};
+    use crate::{
+        codec::{MAX_FRAME_LENGTH, MIN_FRAME_LENGTH},
+        fragment::config::DEFAULT_MAX_CONCURRENT_PARTIALS,
+    };
 
     #[rstest]
     #[case(1024)]
@@ -141,6 +144,23 @@ mod tests {
             expected,
             budgets.bytes_per_message().as_usize(),
             "per-message budget does not match fragmentation multiplier"
+        );
+    }
+
+    #[rstest]
+    #[case(1024)]
+    #[case(4096)]
+    fn default_fragmentation_derives_aggregate_caps(#[case] frame_budget: usize) {
+        let config =
+            default_fragmentation(frame_budget).expect("frame budget should support fragmentation");
+
+        assert_eq!(
+            config.max_concurrent_partials,
+            NonZeroUsize::new(DEFAULT_MAX_CONCURRENT_PARTIALS),
+        );
+        assert_eq!(
+            config.max_buffered_bytes,
+            NonZeroUsize::new(frame_budget * DEFAULT_CONNECTION_BUDGET_MULTIPLIER),
         );
     }
 }

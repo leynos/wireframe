@@ -92,4 +92,21 @@ pub enum ReassemblyError {
         /// Configured reassembly cap.
         limit: NonZeroUsize,
     },
+    /// The connection already retains the configured number of incomplete
+    /// messages.
+    #[error("too many concurrent partial messages: {attempted} would exceed {limit} message limit")]
+    TooManyConcurrentPartials {
+        /// Number of partial messages that would be retained after admission.
+        attempted: usize,
+        /// Configured maximum number of incomplete messages.
+        limit: NonZeroUsize,
+    },
+    /// Retaining the incoming payload would exceed the connection-wide byte cap.
+    #[error("aggregate fragment buffer exceeds cap: {attempted} bytes > {limit} byte limit")]
+    AggregateBufferCapExceeded {
+        /// Total buffered bytes that triggered the guard.
+        attempted: usize,
+        /// Configured aggregate buffered-byte cap.
+        limit: NonZeroUsize,
+    },
 }

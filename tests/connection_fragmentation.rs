@@ -68,7 +68,12 @@ async fn connection_actor_fragments_outbound_frames(
         .into());
     }
 
-    let mut reassembler = Reassembler::new(cfg.max_message_size, cfg.reassembly_timeout);
+    let mut reassembler = Reassembler::new(
+        cfg.max_message_size,
+        cfg.reassembly_timeout,
+        cfg.max_concurrent_partials,
+        cfg.max_buffered_bytes,
+    );
     let mut assembled: Option<Vec<u8>> = None;
     for env in out {
         let payload = env.into_parts().into_payload();

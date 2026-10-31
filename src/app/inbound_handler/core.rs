@@ -199,19 +199,19 @@ where
         )
     });
     let mut pipeline = FramePipeline::new(fragmentation);
-    let timeout_dur = Duration::from_millis(read_timeout_ms);
 
     loop {
         let pressure = frame_handling::evaluate_memory_pressure(
             message_assembly.as_ref(),
             Some(effective_budgets),
+            pipeline.fragmentation_buffered_bytes(),
         );
         frame_handling::apply_memory_pressure(pressure, || {
             purge_expired(&mut pipeline, &mut message_assembly);
         })
         .await?;
 
-        match timeout(timeout_dur, framed.next()).await {
+        match timeout(Duration::from_millis(read_timeout_ms), framed.next()).await {
             Ok(Some(Ok(frame))) => {
                 handle_frame(
                     &frame,

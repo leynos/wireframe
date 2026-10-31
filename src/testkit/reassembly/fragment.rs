@@ -47,6 +47,10 @@ pub enum FragmentReassemblyErrorExpectation {
     },
     /// Expect an over-limit assembled message regardless of identifier.
     MessageTooLargeAny,
+    /// Expect the configured concurrent partial-message cap to be exceeded.
+    TooManyConcurrentPartials,
+    /// Expect the aggregate buffered-byte cap to be exceeded.
+    AggregateBufferCapExceeded,
     /// Expect an out-of-order fragment.
     IndexMismatch,
     /// Expect a fragment from the wrong logical message.
@@ -153,17 +157,13 @@ fn matches_fragment_error(
     expected: FragmentReassemblyErrorExpectation,
 ) -> bool {
     match expected {
-        FragmentReassemblyErrorExpectation::MessageTooLarge { message_id } => {
-            matches!(
-                err,
-                ReassemblyError::MessageTooLarge {
-                    message_id: actual_id,
-                    ..
-                } if *actual_id == message_id
-            )
+        FragmentReassemblyErrorExpectation::MessageTooLarge { .. }
+        | FragmentReassemblyErrorExpectation::MessageTooLargeAny => {
+            matches_message_size_error(err, expected)
         }
-        FragmentReassemblyErrorExpectation::MessageTooLargeAny => {
-            matches!(err, ReassemblyError::MessageTooLarge { .. })
+        FragmentReassemblyErrorExpectation::TooManyConcurrentPartials
+        | FragmentReassemblyErrorExpectation::AggregateBufferCapExceeded => {
+            matches_aggregate_limit_error(err, expected)
         }
         FragmentReassemblyErrorExpectation::IndexMismatch => matches!(
             err,
@@ -181,5 +181,41 @@ fn matches_fragment_error(
             err,
             ReassemblyError::Fragment(FragmentError::IndexOverflow { .. })
         ),
+    }
+}
+
+/// Match expectations that distinguish per-message size errors.
+fn matches_message_size_error(
+    err: &ReassemblyError,
+    expected: FragmentReassemblyErrorExpectation,
+) -> bool {
+    match expected {
+        FragmentReassemblyErrorExpectation::MessageTooLarge { message_id } => matches!(
+            err,
+            ReassemblyError::MessageTooLarge {
+                message_id: actual_id,
+                ..
+            } if *actual_id == message_id
+        ),
+        FragmentReassemblyErrorExpectation::MessageTooLargeAny => {
+            matches!(err, ReassemblyError::MessageTooLarge { .. })
+        }
+        _ => false,
+    }
+}
+
+/// Match expectations that distinguish aggregate admission errors.
+fn matches_aggregate_limit_error(
+    err: &ReassemblyError,
+    expected: FragmentReassemblyErrorExpectation,
+) -> bool {
+    match expected {
+        FragmentReassemblyErrorExpectation::TooManyConcurrentPartials => {
+            matches!(err, ReassemblyError::TooManyConcurrentPartials { .. })
+        }
+        FragmentReassemblyErrorExpectation::AggregateBufferCapExceeded => {
+            matches!(err, ReassemblyError::AggregateBufferCapExceeded { .. })
+        }
+        _ => false,
     }
 }

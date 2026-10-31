@@ -3,10 +3,9 @@
 use std::io;
 
 use super::core::DeserFailureTracker;
-use crate::app::{
-    Envelope,
-    codec_driver::FramePipeline,
-    fragmentation_state::FragmentProcessError,
+use crate::{
+    app::{Envelope, codec_driver::FramePipeline, fragmentation_state::FragmentProcessError},
+    fragment::ReassemblyError,
 };
 
 /// Attempt to reassemble a potentially fragmented envelope.
@@ -42,6 +41,17 @@ fn handle_reassembly_result(
             Ok(None)
         }
         Err(FragmentProcessError::Reassembly(err)) => {
+            if matches!(
+                err,
+                ReassemblyError::TooManyConcurrentPartials { .. }
+                    | ReassemblyError::AggregateBufferCapExceeded { .. }
+            ) {
+                log::warn!(
+                    "fragment aggregate cap exceeded; aborting connection: \
+                     correlation_id={correlation_id:?}, error={err:?}"
+                );
+                return Err(io::Error::new(io::ErrorKind::InvalidData, err));
+            }
             failures.record(correlation_id, "fragment reassembly failed", err)?;
             Ok(None)
         }

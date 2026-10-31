@@ -75,7 +75,12 @@ impl DefaultFragmentAdapter {
     pub fn new(config: FragmentationConfig) -> Self {
         Self {
             fragmenter: Fragmenter::new(config.fragment_payload_cap),
-            reassembler: Reassembler::new(config.max_message_size, config.reassembly_timeout),
+            reassembler: Reassembler::new(
+                config.max_message_size,
+                config.reassembly_timeout,
+                config.max_concurrent_partials,
+                config.max_buffered_bytes,
+            ),
         }
     }
 
@@ -119,6 +124,10 @@ impl DefaultFragmentAdapter {
         let passthrough = FragmentParts::new(id, correlation_id, payload);
         Ok(Some(E::from_fragment_parts(passthrough)))
     }
+
+    /// Return the number of bytes retained by incomplete fragments.
+    #[must_use]
+    pub fn buffered_bytes(&self) -> usize { self.reassembler.buffered_bytes() }
 
     /// Purge stale reassembly entries and return evicted identifiers.
     pub fn purge_expired(&mut self) -> Vec<MessageId> { self.reassembler.purge_expired() }

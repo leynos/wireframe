@@ -196,7 +196,12 @@ impl UnifiedCodecWorld {
         cfg: &FragmentationConfig,
     ) -> TestResult<Vec<u8>> {
         let serializer = BincodeSerializer;
-        let mut reassembler = Reassembler::new(cfg.max_message_size, cfg.reassembly_timeout);
+        let mut reassembler = Reassembler::new(
+            cfg.max_message_size,
+            cfg.reassembly_timeout,
+            cfg.max_concurrent_partials,
+            cfg.max_buffered_bytes,
+        );
 
         let result: TestResult<Vec<u8>> = timeout(
             Duration::from_secs(2),

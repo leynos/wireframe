@@ -4,6 +4,7 @@
 //! to navigate.
 
 mod adapter_tests;
+mod budget_enforcement_tests;
 mod fragmenter_tests;
 mod header_series_tests;
 mod reassembler_tests;
