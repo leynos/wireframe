@@ -29,9 +29,14 @@ construction, absent from any test binary that does compile.
 
 Two harnesses cover the boundary. `tests/compile_error.rs` drives trybuild
 fixtures in `tests/ui/` for the root crate, in both `pass` and `compile_fail`
-modes. `wireframe_testing/tests/loom_api_surface.rs` is compiled twice, once
-with `--cfg loom` and once without, to prove that Loom-only exports are absent
-from ordinary builds and present under instrumentation.
+modes. `wireframe_testing/tests/loom_api_surface.rs` is a Loom-only check:
+`make test-ui` runs it with `CARGO_ENCODED_RUSTFLAGS="--cfg=loom"`, and its
+crate-level `#![cfg(loom)]` guard removes the test entirely without that
+configuration. It does not compare the two polarities. Its fixture asserts that
+the helpers excluded from the Loom API — `client_pair`,
+`runtime_ownership_benchmarks`, `wait_for_listener_release`, `WireframePair`,
+and the two `spawn_wireframe_pair` forms — stay unavailable to a Loom build. It
+says nothing about Loom-only exports appearing in an ordinary build.
 
 `make test-ui` runs both harnesses. It runs in the required `build-test` job as
 a bounded step *without* coverage instrumentation, because the nested `cargo`
@@ -43,8 +48,8 @@ measured, so a green UI gate and a green coverage run answer different
 questions rather than duplicating each other.
 
 **Measurable Objective:** Every compile-fail fixture produces its committed
-`.stderr` diagnostic, both Loom polarity checks build, and no runtime test is
-excluded from coverage.
+`.stderr` diagnostic, the Loom API-surface fixture rejects each non-Loom helper
+with its committed `.stderr`, and no runtime test is excluded from coverage.
 
 ## 2. Layer 1: Foundational Correctness (Unit & Integration)
 

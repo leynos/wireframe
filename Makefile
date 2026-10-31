@@ -1,6 +1,9 @@
 .PHONY: help all clean test test-doc test-ui test-feature-gate test-pool-no-metrics bless-ui test-workflow-contracts test-loom doctest-benchmark
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
+# Kept off the build/test line above so that unrelated edits to that long line
+# cannot collide with the two new lint targets during a stack restack.
+.PHONY: lint-clippy lint-whitaker
 .PHONY: install-kani check-kani-version install-verus run-verus test-verification kani \
 	kani-full verus formal-pr formal-nightly formal
 
@@ -155,10 +158,29 @@ target/%/lib$(CRATE).rlib: ## Build library in debug or release
 	  target/$(if $(findstring release,$(@)),release,debug)/lib$(CRATE).rlib \
 	  $@
 
-lint: ## Run Clippy with warnings denied
+# Sourcing `lint` from both halves keeps a bare `make -j lint` honest: each
+# recipe line is its own shell, so listing them under one target would let the
+# two linters start together and interleave their diagnostics. Prerequisites of
+# a single target run in parallel under `-j`, so ordering comes from
+# `.NOTPARALLEL` and not from the order they are named.
+.NOTPARALLEL: lint
+
+lint: lint-clippy lint-whitaker ## Run Clippy and Whitaker with warnings denied
+
+lint-clippy: ## Run rustdoc and Clippy with warnings denied
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) $(DEV_FAST) doc --workspace --no-deps
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) clippy $(CLIPPY_FLAGS)
-	RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
+
+# `whitaker --all` selects every discovered lint library; it does not widen the
+# Cargo package selection. The arguments after `--` go to `cargo check`, which
+# otherwise honours the workspace's `default-members` (just the root package),
+# leaving the three helper crates never dylint-checked. `--workspace` must
+# precede `--` to reach that inner Cargo invocation rather than the linter.
+#
+# Whitaker keeps its own installer-managed toolchain: no `DEV_FAST` config and
+# no Make-owned development linker flag reach this line.
+lint-whitaker: ## Run Whitaker over every workspace member
+	RUSTFLAGS="-D warnings" $(WHITAKER) --all --workspace -- --all-targets --all-features
 
 fmt: ## Format Rust and Markdown sources
 	$(CARGO) fmt --all

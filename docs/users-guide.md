@@ -1620,6 +1620,101 @@ as no scrape triggers a render. Call `PrometheusHandle::run_upkeep` on a timer
 interval), or serve metrics through `PrometheusBuilder::build`/`install` and
 let the exporter own the task.
 
+## Compile-time configuration
+
+Much of Wireframe's configuration surface is callable in a `const` context, so
+a configuration value can be computed by the compiler and checked in a `static`
+or `const` item rather than assembled at startup. This matters when a value
+must be known before `main` runs — a `static` lookup table, an array length, a
+compile-time assertion — and it turns a large class of configuration mistakes
+into compile errors.
+
+The `const` surface covers:
+
+- **Codec errors and recovery.** `CodecError::is_clean_close`,
+  `CodecError::error_type`, and `CodecError::default_recovery_policy`;
+  `EofError::is_clean_close`; and the `RecoveryConfig` builder methods
+  `max_consecutive_drops`, `quarantine_duration`, and `log_dropped_frames`.
+  `RecoveryConfig` starts from `RecoveryConfig::default()` — a struct literal
+  works in a `const` item too, because every field is public.
+- **Top-level errors.** `WireframeError::from_io`, `WireframeError::from_codec`,
+  and `WireframeError::is_clean_close`.
+- **Codec error context.** `CodecErrorContext` with `with_connection_id`,
+  `with_peer_address`, and `with_correlation_id`.
+- **Codec parameters.** `HotlineFrameCodec::new` and `MysqlFrameCodec::new`.
+  Their `max_frame_length` accessor is the non-`const` `FrameCodec` trait
+  method, so it stays a runtime read.
+- **Message assembly.** `ParsedFrameHeader::new`, `FirstFrameHeader`,
+  `FrameHeader`, `MessageKey`, `EnvelopeId`, `CorrelationId`,
+  `EnvelopeRouting`, and `AssembledMessage::new`.
+- **Requests and middleware.** `RequestParts::new`, plus its `const` accessors
+  `id`, `correlation_id`, and `metadata_mut` (`metadata` borrows and is not
+  `const`), `FrameContainer`, `FromFn::new`, `Next::new`, and the
+  correlation-id setter and getter on `ServiceRequest` and `ServiceResponse`.
+- **Connection and queue tuning.** The connection builder's `set_fairness` and
+  `enable_fragmentation`, the queue builder's `high_capacity`, `low_capacity`,
+  `rate`, `unlimited`, `dlq_log_interval`, and `dlq_log_every_n`, and
+  `ClientPool` lease identifiers via `slot_id`.
+
+A representative const context, taken from the committed compile-time fixture,
+builds a recovery policy, an error context, and two codec configurations and
+asserts on them without any runtime call:
+
+```rust
+use std::{
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    time::Duration,
+};
+
+use wireframe::codec::{
+    examples::HotlineFrameCodec,
+    CodecError,
+    CodecErrorContext,
+    EofError,
+    RecoveryConfig,
+    RecoveryPolicy,
+};
+
+const CLEAN_CLOSE: CodecError = CodecError::Eof(EofError::CleanClose);
+const RECOVERY_POLICY: RecoveryPolicy = CLEAN_CLOSE.default_recovery_policy();
+const IS_CLEAN_CLOSE: bool = CLEAN_CLOSE.is_clean_close();
+
+// `RecoveryConfig::default()` is not a `const fn`, so a const item spells the
+// fields out; the builder methods are `const` and chain from there.
+const RECOVERY_CONFIG: RecoveryConfig = RecoveryConfig {
+    max_consecutive_drops: 0,
+    quarantine_duration: Duration::ZERO,
+    log_dropped_frames: false,
+}
+.max_consecutive_drops(3)
+.quarantine_duration(Duration::from_secs(5))
+.log_dropped_frames(true);
+
+const ERROR_CONTEXT: CodecErrorContext = CodecErrorContext {
+    connection_id: None,
+    peer_address: None,
+    correlation_id: None,
+    codec_state: None,
+}
+.with_connection_id(7)
+.with_peer_address(SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 8080)))
+.with_correlation_id(9);
+
+const HOTLINE_CODEC: HotlineFrameCodec = HotlineFrameCodec::new(1024);
+
+const _: () = assert!(matches!(RECOVERY_POLICY, RecoveryPolicy::Disconnect));
+const _: () = assert!(IS_CLEAN_CLOSE);
+```
+
+Two limits are worth knowing. A `const fn` cannot run a destructor, so it
+cannot drop a value whose fields need dropping: `CodecErrorContext` carries
+`codec_state: Option<String>`, which means an owned context cannot be dropped
+inside a `const fn` at all. Any helper whose semantics require cleanup
+therefore stays a runtime call. `CodecErrorContext` and `RecoveryConfig` are
+plain data with builder methods rather than types that implement `Drop`. These
+items are additive: every listed item was already callable at runtime, so code
+written against an earlier release keeps compiling unchanged.
+
 ## Client runtime
 
 `WireframeClient` provides a first-class client runtime that mirrors the

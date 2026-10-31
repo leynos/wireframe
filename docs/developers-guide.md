@@ -651,7 +651,15 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
 
 - `make check-fmt` verifies workspace formatting.
 - `make lint` runs rustdoc with warnings denied, `cargo clippy`, and
-  `whitaker --all -- --all-targets --all-features`.
+  `whitaker --all --workspace -- --all-targets --all-features`.
+
+  `make lint` is a thin aggregate target for the two halves, `lint-clippy` and
+  `lint-whitaker`, so either can be run alone. `.NOTPARALLEL: lint` keeps the
+  halves sequential even under `make -j lint`, because concurrent runs would
+  interleave their diagnostics. `--workspace` sits before `--` so it reaches
+  the inner `cargo check` that Whitaker drives: `whitaker --all` selects every
+  lint library, not every Cargo package, and the workspace's `default-members`
+  would otherwise leave the helper crates unchecked.
 - `make test` runs the main automated test suite with warnings treated as
   errors.
 - `make test-pool-no-metrics` checks the `pool,serializer-bincode` feature set
@@ -1181,14 +1189,20 @@ The standard Makefile gates cover all supported workspace members and targets:
     --all-targets --all-features $(BUILD_JOBS)
   ```
 
-- `make lint` runs these workspace-wide checks:
+- `make lint` runs these workspace-wide checks through `lint-clippy` and then
+  `lint-whitaker`; `.NOTPARALLEL: lint` keeps that order under `make -j`:
 
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" \
     $(CARGO) $(DEV_FAST) doc --workspace --no-deps
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) clippy $(CLIPPY_FLAGS)
-  RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
+  RUSTFLAGS="-D warnings" $(WHITAKER) --all --workspace -- --all-targets --all-features
   ```
+
+  `--workspace` must precede `--` so it reaches the inner `cargo check` that
+  Whitaker drives. `whitaker --all` selects every discovered lint library
+  rather than widening the Cargo package selection, so without the flag the
+  workspace's `default-members` would leave the helper crates unchecked.
 
 The shared `[workspace.lints.clippy]`, `[workspace.lints.rust]`, and
 `[workspace.lints.rustdoc]` tables are inherited by each member through
@@ -1516,13 +1530,14 @@ trybuild suite rather than a runtime test. The census layers made a large set
 of public items `const fn`, and each family has a fixture that calls it from a
 `const fn` body:
 
-| Fixture                              | Surface it pins                                      |
-| ------------------------------------ | ---------------------------------------------------- |
-| `tests/ui/client_const_api.rs`       | client builder and configuration setters             |
-| `tests/ui/app_const_api.rs`          | app configuration and packet constructors            |
-| `tests/ui/codec_shared_const_api.rs` | codec, recovery, and middleware constructors         |
-| `tests/ui/fragment_const_api.rs`     | fragmentation configuration                          |
-| `tests/ui/server_const_api.rs`       | push-queue builder, `ConnectionId`, codec, and error |
+| Fixture                                 | Surface it pins                                       |
+| --------------------------------------- | ----------------------------------------------------- |
+| `tests/ui/client_const_api.rs`          | client builder and configuration setters              |
+| `tests/ui/app_const_api.rs`             | app configuration and packet constructors             |
+| `tests/ui/codec_shared_const_api.rs`    | codec, recovery, and middleware constructors          |
+| `tests/ui/fragment_const_api.rs`        | fragmentation configuration                           |
+| `tests/ui/server_const_api.rs`          | push-queue builder, `ConnectionId`, codec, and error  |
+| `tests/ui/const_config_docs_example.rs` | the `Compile-time configuration` users' guide example |
 
 When a new `const fn` joins the public surface, extend the fixture that owns
 that family instead of adding a parallel one. Fixtures must construct their
