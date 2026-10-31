@@ -5,6 +5,8 @@
 //! workspace members, and still keeps the root package as the only default
 //! member.
 
+#![forbid(unsafe_code)]
+
 #[path = "common/workspace_manifest_support.rs"]
 mod workspace_manifest_support;
 
@@ -66,6 +68,21 @@ fn check_workspace_members(members: &[Value], expected: &[(&str, &str)]) -> Test
     Ok(())
 }
 
+/// Collect the body of one TOML table, without its header line.
+///
+/// The `members` array is written over several lines, so a single-line equality
+/// check cannot describe it. Gathering the body also stops a member listed in
+/// some unrelated table from satisfying the check.
+fn table_body<'a>(manifest: &'a str, table: &str) -> String {
+    manifest
+        .lines()
+        .skip_while(|line| line.trim() != table)
+        .skip(1)
+        .take_while(|line| !line.trim().starts_with('['))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 #[rstest]
 fn root_manifest_declares_explicit_workspace_section() -> TestResult {
     let manifest = root_manifest()?;
@@ -73,15 +90,27 @@ fn root_manifest_declares_explicit_workspace_section() -> TestResult {
         has_manifest_table(&manifest, "[workspace]"),
         "root Cargo.toml should declare an explicit [workspace] section",
     )?;
+    // The `members` array is written over several lines, so the check looks for
+    // each entry in the table body rather than matching one exact line. Which of
+    // those entries Cargo actually resolves is asserted against `cargo metadata`
+    // in `cargo_metadata_reports_explicit_members_without_widening_default_members`.
+    let workspace = table_body(&manifest, "[workspace]");
     check(
-        has_manifest_line(
-            &manifest,
-            "[workspace]",
-            "members = [\".\", \"crates/wireframe-loom\", \"crates/wireframe-verification\", \
-             \"wireframe_testing\"]",
-        ),
-        "the workspace should explicitly list the root, Loom, verification, and testing crates",
+        workspace.contains("members = ["),
+        "the workspace should declare a `members` array",
     )?;
+    for expected in [
+        "\"crates/wireframe-bench-alloc\"",
+        "\"crates/wireframe-bench-counting\"",
+        "\"crates/wireframe-loom\"",
+        "\"crates/wireframe-verification\"",
+        "\"wireframe_testing\"",
+    ] {
+        check(
+            workspace.contains(expected),
+            format!("the workspace `members` array should name {expected}"),
+        )?;
+    }
     check(
         has_manifest_line(&manifest, "[workspace]", "default-members = [\".\"]"),
         "15.1.2 should keep the root package as the only default workspace member",

@@ -5,6 +5,14 @@ and shared test support. Its main areas are:
 
 - `src/` contains the published `wireframe` library.
 - `crates/wireframe-verification/` contains verification support.
+- `crates/wireframe-bench-alloc/` is the workspace's only audited crate: it
+  holds the counting `GlobalAlloc` implementation that the allocation baselines
+  install. Every other Cargo target root forbids unsafe code; see
+  [the unsafe-code boundary](adr-015-unsafe-code-boundary.md) and
+  [boundary verification](rust-boundary-verification.md).
+- `crates/wireframe-bench-counting/` contains the safe allocation-counting
+  mechanism those baselines share. It forbids unsafe code like every other safe
+  root.
 - `wireframe_testing/` contains shared test fixtures and helpers.
 - `tests/` contains integration and behaviour-driven tests. An
   integration-test root laid out as `tests/<name>/mod.rs` needs an explicit

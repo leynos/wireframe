@@ -1,5 +1,6 @@
 //! Compile-time trait-bound and public-default tests.
 
+#![forbid(unsafe_code)]
 #![cfg(not(coverage))]
 
 /// Check public type contracts and reject a zero fixture budget at compile time.

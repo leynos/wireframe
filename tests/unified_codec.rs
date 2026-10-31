@@ -5,6 +5,7 @@
 //! These tests exercise the codec path end-to-end via
 //! `WireframeApp::handle_connection_result` over in-memory duplex streams.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::time::Duration;
 

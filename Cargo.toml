@@ -11,7 +11,14 @@ categories = ["network-programming", "asynchronous"]
 documentation = "https://docs.rs/wireframe"
 
 [workspace]
-members = [".", "crates/wireframe-loom", "crates/wireframe-verification", "wireframe_testing"]
+members = [
+    ".",
+    "crates/wireframe-bench-alloc",
+    "crates/wireframe-bench-counting",
+    "crates/wireframe-loom",
+    "crates/wireframe-verification",
+    "wireframe_testing",
+]
 default-members = ["."]
 resolver = "3"
 
@@ -62,6 +69,8 @@ rstest = "0.27.0"
 rstest-bdd = "0.5.0"
 rstest-bdd-macros = { version = "0.5.0", features = ["strict-compile-time-validation"] }
 wireframe = { path = ".", features = ["test-support", "pool", "testkit"] }
+wireframe-bench-alloc = { path = "./crates/wireframe-bench-alloc" }
+wireframe-bench-counting = { path = "./crates/wireframe-bench-counting" }
 wireframe_testing = { path = "./wireframe_testing", features = ["runtime-benchmarks"] }
 logtest = "2.0.0"
 # No-op decorator attributes recognised by cargo-mutants; used only under
@@ -146,6 +155,12 @@ big_endian_bytes = "deny"
 unknown_lints = "deny"
 renamed_and_removed_lints = "deny"
 missing_docs = "deny"
+# Floor, not the ceiling. Cargo cannot let a member weaken an inherited lint, so
+# this entry is what makes a target root that forgets its own
+# `#![forbid(unsafe_code)]` fail closed instead of silently allowing unsafe code.
+# Every safe root raises the level to `forbid` itself; the single audited boundary
+# crate (`crates/wireframe-bench-alloc`) carries a scoped `#[expect]` instead.
+unsafe_code = "deny"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(coverage)'] }
 
 [workspace.lints.rustdoc]

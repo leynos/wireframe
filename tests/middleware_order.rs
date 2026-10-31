@@ -2,6 +2,7 @@
 //!
 //! Verifies tags are applied in reverse to request and response bodies.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 #[path = "common/fallible_assertions/check_equal.rs"]
 mod fallible_check_equal;

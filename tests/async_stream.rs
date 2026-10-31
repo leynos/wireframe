@@ -3,6 +3,7 @@
 //! These ensure that a `ConnectionActor` correctly drains frames from an
 //! async-stream based `FrameStream`.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use async_stream::try_stream;
 use rstest::rstest;

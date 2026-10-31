@@ -2,6 +2,7 @@
 //!
 //! Confirm that a custom middleware can modify requests and responses.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::sync::Arc;
 

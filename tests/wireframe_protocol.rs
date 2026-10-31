@@ -5,6 +5,7 @@
 //! with the expected connection context and that frame mutations occur as
 //! intended.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{
     io,

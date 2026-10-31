@@ -3,6 +3,7 @@
 //! Verifies that frames exceeding the fragment payload cap are split into
 //! multiple fragments and that small frames pass through unfragmented.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{io, num::NonZeroUsize, time::Duration};
 

@@ -1,5 +1,7 @@
 //! Tests for `correlation_id` propagation in streaming responses.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
+
 use std::io;
 
 use async_stream::try_stream;

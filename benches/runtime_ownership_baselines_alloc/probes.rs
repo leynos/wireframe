@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use wireframe_testing::benchmark_alloc_support::count_allocations;
+use wireframe_bench_counting::count_allocations;
 
 /// Items per probe in the nested-`Arc` sensitivity experiment.
 pub(crate) const ARC_PROBE_ITEMS: usize = 256;

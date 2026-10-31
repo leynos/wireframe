@@ -1,12 +1,19 @@
 .PHONY: help all clean test test-doc test-ui test-feature-gate test-pool-no-metrics bless-ui test-workflow-contracts test-loom doctest-benchmark
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
+.PHONY: unsafe-boundary boundary-miri
 .PHONY: install-kani check-kani-version install-verus run-verus test-verification kani \
 	kani-full verus formal-pr formal-nightly formal
 
 CRATE ?= wireframe
 CARGO ?= cargo
 BUILD_JOBS ?=
+# The workspace's single audited unsafe boundary; see
+# docs/rust-boundary-verification.md.
+BENCH_ALLOC_CRATE ?= wireframe-bench-alloc
+# Miri lags the repository's compiler pin, so it is pinned separately. Keeping
+# its own pin means a toolchain bump cannot silently skip the boundary check.
+MIRI_TOOLCHAIN ?= nightly-2026-08-07
 DEV_FAST_CONFIG := tools/dev-fast/config.toml
 DEV_FAST := --config $(DEV_FAST_CONFIG)
 # `mold` is a native Linux linker, so select it only when both the host and
@@ -141,6 +148,12 @@ bench-runtime-ownership: ## Run runtime-ownership baseline benchmarks
 	RUSTFLAGS="-D warnings" $(CARGO) bench --bench runtime_ownership_baselines --bench runtime_ownership_baselines_alloc --features test-support,pool $(BUILD_JOBS)
 
 bench: bench-codec bench-runtime-ownership ## Run all benchmark suites
+
+unsafe-boundary: ## Prove the unsafe_code prohibition rejects unsafe Rust
+	./scripts/check-unsafe-boundary.sh
+
+boundary-miri: ## Check the audited allocator boundary under Miri
+	$(CARGO) +$(MIRI_TOOLCHAIN) miri test -p $(BENCH_ALLOC_CRATE) -- --test-threads=1
 
 typecheck: ## Run a workspace typecheck
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) check --workspace --all-targets --all-features $(BUILD_JOBS)

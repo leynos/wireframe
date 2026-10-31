@@ -1,0 +1,12 @@
+[package]
+name = "wireframe-bench-counting"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Safe process-global allocation counting shared by Wireframe's allocation baselines."
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serial_test = "4.0.1"

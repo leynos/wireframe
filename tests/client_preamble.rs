@@ -1,5 +1,6 @@
 //! Integration tests for client preamble exchange.
 
+#![forbid(unsafe_code)]
 #![cfg(not(loom))]
 
 use std::{

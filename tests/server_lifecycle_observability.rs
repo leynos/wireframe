@@ -3,6 +3,7 @@
 //! Metrics use a current-thread runtime because the local recorder must remain
 //! installed while accept loops observe cancellation and emit their exits.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::future::{self, Future};
 

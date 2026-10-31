@@ -1,5 +1,7 @@
 //! End-to-end TCP coverage for prepared applications and server integration.
 
+#![forbid(unsafe_code)]
+
 mod common;
 
 use std::sync::{

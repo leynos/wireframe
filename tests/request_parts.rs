@@ -1,5 +1,6 @@
 //! Tests for `RequestParts` accessors and correlation inheritance.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use wireframe::request::RequestParts;
 

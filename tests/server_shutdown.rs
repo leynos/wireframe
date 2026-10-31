@@ -1,5 +1,6 @@
 //! Integration tests for awaitable `WireframeServer` shutdown.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{io, net::SocketAddr, sync::Arc};
 

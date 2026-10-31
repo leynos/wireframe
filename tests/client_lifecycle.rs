@@ -1,4 +1,5 @@
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 #![expect(
     clippy::excessive_nesting,
     reason = "async closures within builder patterns are inherently nested"

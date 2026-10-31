@@ -11,22 +11,20 @@ use std::{
 };
 
 use tokio::runtime::Runtime;
-use wireframe_testing::{
-    benchmark_alloc_support::count_allocations,
-    runtime_ownership_benchmarks::{
-        AcquisitionMode,
-        ActorWorkload,
-        CancellationMode,
-        POOL_SIZES,
-        PoolWorkload,
-        PushScenario,
-        PushWorkload,
-        StartupPath,
-        StartupWorkload,
-        measure_actor_drain,
-        measure_push,
-        measure_startup,
-    },
+use wireframe_bench_counting::count_allocations;
+use wireframe_testing::runtime_ownership_benchmarks::{
+    AcquisitionMode,
+    ActorWorkload,
+    CancellationMode,
+    POOL_SIZES,
+    PoolWorkload,
+    PushScenario,
+    PushWorkload,
+    StartupPath,
+    StartupWorkload,
+    measure_actor_drain,
+    measure_push,
+    measure_startup,
 };
 
 use crate::pool_bracket::{count_pool_acquisition_window, run_pool_acquisition};

@@ -4,6 +4,8 @@
 //! `async_stream::try_stream`. It returns a `Response` that can be
 //! consumed by a `ConnectionActor`.
 
+#![forbid(unsafe_code)]
+
 use std::io;
 
 use async_stream::try_stream;
