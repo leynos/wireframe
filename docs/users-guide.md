@@ -2361,8 +2361,12 @@ When the dead-letter queue is itself full or closed, the throttled
 since the previous report; concurrent producers never make it count a drop
 twice or lose one, and a producer that finds nothing left to report emits no
 `dropped=0` line. `dlq_log_every_n` and `dlq_log_interval` set how often it
-fires. Cloneable handles downgrade to `Weak` references for registration in a
-session registry.[^25]
+fires. The warning names the dead-letter state, priority and policy of the
+frame that triggered it, along with its Rust type, but never its contents. Only
+frames the DLQ accepted reach its receiver, so an application must consume from
+that receiver to inspect or log them; a frame refused because the DLQ was full
+or closed is lost, with no copy available. Cloneable handles downgrade to
+`Weak` references for registration in a session registry.[^25]
 
 `PushQueues::recv` prefers high-priority frames but eventually drains the
 low-priority queue; `close` lets tests release resources when no actor is

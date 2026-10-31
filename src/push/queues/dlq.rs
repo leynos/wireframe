@@ -17,7 +17,39 @@ use std::time::{Duration, Instant};
 use log::warn;
 use tokio::sync::mpsc;
 
-use super::sync::{AtomicUsize, Mutex, Ordering};
+use super::{
+    PushPolicy,
+    PushPriority,
+    sync::{AtomicUsize, Mutex, Ordering},
+};
+
+/// Why the dead-letter queue refused a frame.
+///
+/// The variant is logged in place of the frame itself: it tells an operator
+/// how the queue failed without disclosing the payload.
+#[derive(Clone, Copy, Debug)]
+enum DlqState {
+    /// The dead-letter queue exists but has no free capacity.
+    Full,
+    /// The dead-letter queue's receiver has been dropped.
+    Closed,
+}
+
+/// Bounded description of a refused dead-letter send, safe to log.
+///
+/// This is the complete input to the loss diagnostic. It deliberately carries
+/// no frame payload: the diagnostic must not disclose what was dropped.
+#[derive(Clone, Copy)]
+struct DropReport {
+    /// Drops counted so far, including the one that triggered this report.
+    dropped: usize,
+    /// Priority of the queue that refused the frame.
+    priority: PushPriority,
+    /// Policy that requested the dead-letter hand-off.
+    policy: PushPolicy,
+    /// Why the dead-letter queue refused the frame.
+    dlq_state: DlqState,
+}
 
 /// Shared dead-letter drop state: the pending count, the last log time, and
 /// the cadence that decides when the diagnostic fires.
@@ -74,32 +106,45 @@ impl<F> DeadLetterState<F> {
     /// counted, whatever the caller's drop policy was. With no dead-letter
     /// queue configured there is nothing to fail to send to, so nothing is
     /// counted either.
-    pub(crate) fn route_or_count(&self, frame: F)
-    where
-        F: std::fmt::Debug,
-    {
+    ///
+    /// A refused frame is dropped here without being inspected. The resulting
+    /// diagnostic records only bounded metadata — the dead-letter state,
+    /// priority, policy and frame type — never the frame's contents, which may
+    /// carry application payload or secrets.
+    pub(crate) fn route_or_count(&self, frame: F, priority: PushPriority, policy: PushPolicy) {
         let Some(queue) = &self.sink else {
             return;
         };
-        // Both failure variants hand the frame back, so the diagnostic can
-        // name the frame that was lost without cloning it beforehand.
-        let Err(returned) = queue.try_send(frame) else {
-            return;
-        };
-        let lost_frame = match returned {
-            mpsc::error::TrySendError::Full(frame) | mpsc::error::TrySendError::Closed(frame) => {
-                frame
-            }
+        // The frame is lost either way, so this is where it leaves ownership:
+        // neither failure variant is unwrapped and the payload is never
+        // formatted.
+        let dlq_state = match queue.try_send(frame) {
+            Ok(()) => return,
+            Err(mpsc::error::TrySendError::Full(_)) => DlqState::Full,
+            Err(mpsc::error::TrySendError::Closed(_)) => DlqState::Closed,
         };
         let dropped = self.drops.fetch_add(1, Ordering::Relaxed) + 1;
-        self.log_if_due(lost_frame, dropped);
+        self.log_if_due(DropReport {
+            dropped,
+            priority,
+            policy,
+            dlq_state,
+        });
     }
 
     /// Emit the diagnostic and reset the counter when the cadence says so.
-    fn log_if_due(&self, lost_frame: F, dropped: usize)
-    where
-        F: std::fmt::Debug,
-    {
+    ///
+    /// The warning describes why the triggering frame was lost and how often
+    /// drops are reported; it never includes the frame's contents. The
+    /// `trigger_*` fields describe only the frame that caused this report,
+    /// while `dropped` aggregates every loss since the previous report.
+    fn log_if_due(&self, report: DropReport) {
+        let DropReport {
+            dropped,
+            priority,
+            policy,
+            dlq_state,
+        } = report;
         let log_every_n = self.log_every_n;
         let log_interval = self.log_interval;
         let mut last_log = match self.last_log.lock() {
@@ -125,8 +170,17 @@ impl<F> DeadLetterState<F> {
         if reported == 0 {
             return;
         }
+        // Name the frame's type only. The payload is deliberately absent:
+        // these logs may be shipped to aggregators with broader access than
+        // the application's own DLQ consumer.
+        //
+        // `dropped` can aggregate losses from several priorities, policies or
+        // dead-letter states, so the diagnostic fields are prefixed `trigger_`
+        // to mark them as properties of the frame that fired this report.
+        let frame_type = std::any::type_name::<F>();
         warn!(
-            "DLQ dropped frames (full or closed): frame={lost_frame:?}, dropped={reported}, \
+            "DLQ dropped frames: trigger_dlq_state={dlq_state:?}, trigger_priority={priority:?}, \
+             trigger_policy={policy:?}, frame_type={frame_type}, dropped={reported}, \
              log_every_n={log_every_n}, log_interval={log_interval:?}"
         );
         #[cfg(loom)]
