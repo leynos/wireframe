@@ -662,11 +662,9 @@ Install Whitaker through the standalone installer described in the
 [Whitaker user's guide](whitaker-users-guide.md) so local linting matches
 continuous integration (CI).
 
-The CI lint step uses a scoped Git wrapper for Dylint 6.0.1: its driver build
-expects a local `master` branch in its `rust-clippy` clone, whose default
-branch is now `main`. The wrapper creates the expected local `master` reference
-after that clone and forwards other Git commands unchanged. Remove it when the
-Dylint dependency no longer assumes the old default branch.
+CI installs Whitaker through the shared `install-whitaker` action, which builds
+the Dylint driver from a verified Clippy snapshot instead of cloning
+`rust-clippy`, so the lint step runs plain `make lint` with no Git wrapper.
 
 ### CodeScene coverage baseline
 
