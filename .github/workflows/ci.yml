@@ -69,7 +69,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@6e99f225cb06684f9e6f89b63a7ca4a04095c067
+        uses: leynos/shared-actions/.github/actions/setup-rust@5a99aed78ce68dcebd3052b75c31e6f173162b1e
       - name: Install development backend and linker
         # Both runner choices are Ubuntu. Confirm the manifest's Cranelift
         # component and install the Linux linker before debug Make targets.
@@ -85,7 +85,7 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@6e99f225cb06684f9e6f89b63a7ca4a04095c067
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@5a99aed78ce68dcebd3052b75c31e6f173162b1e
         with:
           version: "0.6.1"
 
@@ -112,7 +112,7 @@ jobs:
       # Merman comes from its release archive, verified against a pinned
       # checksum, rather than being compiled from crates.io on every run.
       - name: Install Nixie and Merman CLI
-        uses: leynos/shared-actions/.github/actions/install-nixie@6e99f225cb06684f9e6f89b63a7ca4a04095c067
+        uses: leynos/shared-actions/.github/actions/install-nixie@5a99aed78ce68dcebd3052b75c31e6f173162b1e
         with:
           nixie-version: '1.1.0'
           merman-version: '0.7.0'
@@ -156,7 +156,7 @@ jobs:
       # coverage-main.yml uploads, and it needs nothing from here.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/generate-coverage@6e99f225cb06684f9e6f89b63a7ca4a04095c067
+        uses: leynos/shared-actions/.github/actions/generate-coverage@5a99aed78ce68dcebd3052b75c31e6f173162b1e
         with:
           output-path: lcov.info
           format: lcov
