@@ -483,3 +483,11 @@ Review round two raised two pre-merge findings, both now addressed:
   `d68514b4` (PR #822) records `nightly-2026-10-30` and adds a Cranelift
   exception note against it, so the rebase keeps that text rather than
   duplicating it here.
+
+Every repository gate was then re-run on the rebased head `2ae8035f`, from base
+`d68514b4`, and passed: `make check-fmt`, `make lint`, `make typecheck`,
+`make test` (1488 tests across 84 suites), `make markdownlint` including the
+spelling gate, `make nixie`, `make test-bdd` (207),
+`make test-workflow-contracts` (285), `make test-doc`, `make test-ui`,
+`make test-feature-gate`, and `make test-loom`. The only reported warning is
+the pre-existing unused Cargo configuration key.
