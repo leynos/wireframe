@@ -2,6 +2,7 @@
 name = "wireframe"
 version = "0.3.0"
 edition = "2024"
+rust-version = "1.95"
 description = "Simplify building servers and clients for custom binary protocols."
 license = "ISC"
 repository = "https://github.com/leynos/wireframe"
@@ -59,8 +60,8 @@ bb8 = { version = "0.9.1", optional = true }
 itoa = "1.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 rstest = "0.27.0"
-rstest-bdd = "0.5.0"
-rstest-bdd-macros = { version = "0.5.0", features = ["strict-compile-time-validation"] }
+rstest-bdd = "0.6.0"
+rstest-bdd-macros = { version = "0.6.0", features = ["strict-compile-time-validation"] }
 wireframe = { path = ".", features = ["test-support", "pool", "testkit"] }
 wireframe_testing = { path = "./wireframe_testing", features = ["runtime-benchmarks"] }
 logtest = "2.0.0"

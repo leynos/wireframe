@@ -25,6 +25,7 @@ Feature: Inbound message assembly integration
   Scenario: Timeout purges partial assembly before continuation arrives
     Given an inbound app with message assembly timeout 10 milliseconds
     When a first frame for key 7 with body "ab" arrives
+    And the inbound server processes the first frame
     And time advances by 30 milliseconds
     And a final continuation frame for key 7 sequence 1 with body "cd" arrives
     Then the handler receives 0 payloads

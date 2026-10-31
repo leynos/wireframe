@@ -41,6 +41,28 @@ fn when_transition_first_frame(
     budget_transitions_world.send_first_frame(key, &body)
 }
 
+#[when("the transition server processes the first frame")]
+fn when_transition_server_processes_first_frame(
+    budget_transitions_world: &mut BudgetTransitionsWorld,
+) -> TestResult {
+    budget_transitions_world.wait_for_frame_processed()
+}
+
+#[when("the transition server parses the next frame")]
+fn when_transition_server_parses_next_frame(
+    budget_transitions_world: &mut BudgetTransitionsWorld,
+) -> TestResult {
+    budget_transitions_world.wait_for_frame_processed()
+}
+
+#[when("transition virtual time advances by {millis:u64} milliseconds")]
+fn when_transition_virtual_time_advances(
+    budget_transitions_world: &mut BudgetTransitionsWorld,
+    millis: u64,
+) -> TestResult {
+    budget_transitions_world.advance_millis(millis)
+}
+
 #[when(
     "a transition final continuation for key {key:u64} sequence {sequence:u32} with body \
      {body:string} arrives"
@@ -52,6 +74,13 @@ fn when_transition_final_continuation(
     body: String,
 ) -> TestResult {
     budget_transitions_world.send_final_continuation_frame(key, sequence, &body)
+}
+
+#[when("ready transition payloads are collected")]
+fn when_ready_transition_payloads_collected(
+    budget_transitions_world: &mut BudgetTransitionsWorld,
+) -> TestResult {
+    budget_transitions_world.collect_ready_payloads()
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +100,13 @@ fn then_transition_payload_received(
     expected: String,
 ) -> TestResult {
     budget_transitions_world.assert_payload_received(&expected)
+}
+
+#[then("no transition payload is available before virtual time advances")]
+fn then_no_transition_payload_available(
+    budget_transitions_world: &BudgetTransitionsWorld,
+) -> TestResult {
+    budget_transitions_world.assert_no_payload_ready()
 }
 
 #[then("no transition connection error is recorded")]

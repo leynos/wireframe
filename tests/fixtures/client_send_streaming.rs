@@ -4,7 +4,7 @@ use std::{io, net::SocketAddr, time::Duration};
 
 use futures::StreamExt;
 use rstest::fixture;
-use tokio::{io::AsyncWriteExt, net::TcpListener, task::JoinHandle};
+use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::client::{ClientError, SendStreamingConfig, WireframeClient};
 pub use wireframe_testing::TestResult;
@@ -12,9 +12,9 @@ pub use wireframe_testing::TestResult;
 /// Test world for outbound streaming send scenarios.
 pub struct ClientSendStreamingWorld {
     runtime: Option<tokio::runtime::Runtime>,
-    runtime_error: Option<String>,
     addr: Option<SocketAddr>,
-    server: Option<JoinHandle<Vec<Vec<u8>>>>,
+    server: Option<JoinHandle<io::Result<Vec<Vec<u8>>>>>,
+    server_closed: Option<tokio::sync::oneshot::Receiver<()>>,
     client: Option<
         WireframeClient<
             wireframe::serializer::BincodeSerializer,
@@ -27,6 +27,17 @@ pub struct ClientSendStreamingWorld {
     protocol_header: Vec<u8>,
 }
 
+impl Drop for ClientSendStreamingWorld {
+    /// Drop the client and request abortion of any remaining server task.
+    /// Task abortion is not awaited.
+    fn drop(&mut self) {
+        self.client.take();
+        if let Some(server) = self.server.take() {
+            server.abort();
+        }
+    }
+}
+
 impl std::fmt::Debug for ClientSendStreamingWorld {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ClientSendStreamingWorld")
@@ -37,9 +48,13 @@ impl std::fmt::Debug for ClientSendStreamingWorld {
 }
 
 /// Fixture for `ClientSendStreamingWorld`.
+///
+/// # Errors
+///
+/// Returns an error if Tokio runtime initialization fails.
 #[rustfmt::skip]
 #[fixture]
-pub fn client_send_streaming_world() -> ClientSendStreamingWorld {
+pub fn client_send_streaming_world() -> TestResult<ClientSendStreamingWorld> {
     ClientSendStreamingWorld::new()
 }
 
@@ -51,26 +66,35 @@ pub fn client_send_streaming_world() -> ClientSendStreamingWorld {
 /// crate.
 fn test_body(n: usize) -> Vec<u8> { (0u8..=u8::MAX).cycle().take(n).collect() }
 
+/// Wait until the client has observed the server's abortive close.
+async fn wait_for_connection_reset(tcp: &tokio::net::TcpStream) -> TestResult {
+    let mut probe = [0; 1];
+    // A server-side close signal does not establish that the reset has reached
+    // the client. Observing it here leaves the connection closed before sending.
+    match tokio::time::timeout(Duration::from_secs(1), tcp.peek(&mut probe)).await? {
+        Err(error) if error.kind() == io::ErrorKind::ConnectionReset => Ok(()),
+        Err(error) => Err(error.into()),
+        Ok(bytes) => Err(format!("expected connection reset, peek returned {bytes} bytes").into()),
+    }
+}
+
 impl ClientSendStreamingWorld {
-    fn new() -> Self {
-        let (runtime, runtime_error) = match tokio::runtime::Builder::new_current_thread()
+    fn new() -> TestResult<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
-        {
-            Ok(rt) => (Some(rt), None),
-            Err(e) => (None, Some(format!("failed to create runtime: {e}"))),
-        };
-        Self {
-            runtime,
-            runtime_error,
+            .map_err(|error| format!("send-streaming fixture setup failed: {error}"))?;
+        Ok(Self {
+            runtime: Some(runtime),
             addr: None,
             server: None,
+            server_closed: None,
             client: None,
             received_frames: Vec::new(),
             frames_sent: None,
             last_error: None,
             protocol_header: vec![0xca, 0xfe, 0xba, 0xbe],
-        }
+        })
     }
 
     /// Run a future on the shared runtime.
@@ -80,11 +104,7 @@ impl ClientSendStreamingWorld {
             &'a mut Self,
         ) -> std::pin::Pin<Box<dyn std::future::Future<Output = T> + 'a>>,
     ) -> TestResult<T> {
-        let err_msg = self
-            .runtime_error
-            .as_deref()
-            .unwrap_or("runtime unavailable");
-        let rt = self.runtime.take().ok_or(err_msg)?;
+        let rt = self.runtime.take().ok_or("runtime unavailable")?;
         let result = rt.block_on(f(self));
         self.runtime = Some(rt);
         Ok(result)
@@ -101,33 +121,33 @@ impl ClientSendStreamingWorld {
 
         self.server = Some(tokio::spawn(async move {
             let mut collected = Vec::new();
-            let Ok((tcp, _)) = listener.accept().await else {
-                return collected;
-            };
+            let (tcp, _) = listener.accept().await?;
             let mut transport = Framed::new(tcp, LengthDelimitedCodec::new());
-            while let Some(Ok(bytes)) = transport.next().await {
-                collected.push(bytes.to_vec());
+            while let Some(frame) = transport.next().await {
+                collected.push(frame?.to_vec());
             }
-            collected
+            Ok(collected)
         }));
 
         Ok(())
     }
 
-    /// Start a server that accepts and immediately shuts down the write
-    /// side, triggering a deterministic transport error on the client.
+    /// Start a server that accepts and immediately resets the connection.
     pub async fn start_dropping_server(&mut self) -> TestResult {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         self.addr = Some(listener.local_addr()?);
 
-        // Spawn as a `JoinHandle<Vec<Vec<u8>>>` so the type matches.
+        let (closed_tx, closed_rx) = tokio::sync::oneshot::channel();
         self.server = Some(tokio::spawn(async move {
-            let Ok((mut tcp, _)) = listener.accept().await else {
-                return Vec::new();
-            };
-            let _ = tcp.shutdown().await;
-            Vec::new()
+            let (tcp, _) = listener.accept().await?;
+            socket2::SockRef::from(&tcp).set_linger(Some(Duration::ZERO))?;
+            drop(tcp);
+            closed_tx
+                .send(())
+                .map_err(|()| io::Error::other("client closed signal receiver was dropped"))?;
+            Ok(Vec::new())
         }));
+        self.server_closed = Some(closed_rx);
 
         Ok(())
     }
@@ -136,6 +156,13 @@ impl ClientSendStreamingWorld {
     pub async fn connect_client(&mut self) -> TestResult {
         let addr = self.addr.ok_or("server address missing")?;
         let client = WireframeClient::builder().connect(addr).await?;
+        if let Some(server_closed) = self.server_closed.take() {
+            tokio::time::timeout(Duration::from_secs(1), server_closed)
+                .await
+                .map_err(|_| "dropping server did not close the connection")?
+                .map_err(|_| "dropping server closed signal was lost")?;
+            wait_for_connection_reset(client.tcp_stream()).await?;
+        }
         self.client = Some(client);
         Ok(())
     }
@@ -209,7 +236,7 @@ impl ClientSendStreamingWorld {
         if let Some(handle) = self.server.take() {
             self.received_frames = handle
                 .await
-                .map_err(|e| format!("server task panicked: {e}"))?;
+                .map_err(|e| format!("server task panicked: {e}"))??;
         }
         Ok(())
     }

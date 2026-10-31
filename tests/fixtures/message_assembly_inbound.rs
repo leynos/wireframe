@@ -11,9 +11,11 @@ use wireframe::{
     fragment::FragmentationConfig,
     message_assembler::{FrameSequence, MessageKey},
     serializer::{BincodeSerializer, Serializer},
-    test_helpers::{self, TestAssembler},
+    test_helpers,
 };
 pub use wireframe_testing::TestResult;
+
+use super::frame_processing_assembler::FrameProcessingAssembler;
 
 const ROUTE_ID: u32 = 77;
 const CORRELATION_ID: Option<u64> = Some(5);
@@ -29,6 +31,7 @@ pub struct MessageAssemblyInboundWorld {
     client: Option<Framed<DuplexStream, LengthDelimitedCodec>>,
     server: Option<JoinHandle<std::io::Result<()>>>,
     observed_rx: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    processed_rx: Option<mpsc::UnboundedReceiver<()>>,
     observed_payloads: Vec<Vec<u8>>,
     last_send_error: Option<String>,
 }
@@ -45,6 +48,7 @@ impl fmt::Debug for MessageAssemblyInboundWorld {
 }
 
 impl Default for MessageAssemblyInboundWorld {
+    /// Create the world and retain runtime initialization errors for its fixture.
     fn default() -> Self {
         match tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -56,6 +60,7 @@ impl Default for MessageAssemblyInboundWorld {
                 client: None,
                 server: None,
                 observed_rx: None,
+                processed_rx: None,
                 observed_payloads: Vec::new(),
                 last_send_error: None,
             },
@@ -65,6 +70,7 @@ impl Default for MessageAssemblyInboundWorld {
                 client: None,
                 server: None,
                 observed_rx: None,
+                processed_rx: None,
                 observed_payloads: Vec::new(),
                 last_send_error: None,
             },
@@ -78,11 +84,17 @@ impl Default for MessageAssemblyInboundWorld {
 /// Injected by rstest into each `#[scenario]` function so that step
 /// definitions can drive `WireframeApp::handle_connection_result` through
 /// the full assembly pipeline.
+///
+/// # Errors
+///
+/// Returns an error if the scenario runtime is unavailable.
 // rustfmt collapses simple fixtures into one line, which triggers unused_braces.
 #[rustfmt::skip]
 #[fixture]
-pub fn message_assembly_inbound_world() -> MessageAssemblyInboundWorld {
-    MessageAssemblyInboundWorld::default()
+pub fn message_assembly_inbound_world() -> TestResult<MessageAssemblyInboundWorld> {
+    let world = MessageAssemblyInboundWorld::default();
+    world.runtime()?;
+    Ok(world)
 }
 
 impl MessageAssemblyInboundWorld {
@@ -107,9 +119,10 @@ impl MessageAssemblyInboundWorld {
 
     /// Build and start a `WireframeApp` with message assembly enabled.
     ///
-    /// Pauses the Tokio clock so that subsequent `wait_millis` calls advance
-    /// time deterministically. The handler forwards received payloads to an
-    /// internal channel for later assertion.
+    /// Pauses Tokio's clock for server timers. `wait_millis` sleeps in
+    /// wall-clock time because assembly expiry uses `std::time::Instant`.
+    /// The handler forwards received payloads to an internal channel for later
+    /// assertion.
     ///
     /// # Errors
     ///
@@ -130,6 +143,7 @@ impl MessageAssemblyInboundWorld {
         .ok_or("frame budget too small for fragmentation config")?;
 
         let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (assembler, processed_rx) = FrameProcessingAssembler::new();
         let handler: Handler<Envelope> = std::sync::Arc::new(move |env: &Envelope| {
             let tx = tx.clone();
             let payload = env.payload_bytes().to_vec();
@@ -141,15 +155,15 @@ impl MessageAssemblyInboundWorld {
         let app: WireframeApp = WireframeApp::new()?
             .buffer_capacity(BUFFER_CAPACITY)
             .fragmentation(Some(config))
-            .with_message_assembler(TestAssembler)
+            .with_message_assembler(assembler)
             .route(ROUTE_ID, handler)?;
 
         let codec = app.length_codec();
         let (client_stream, server_stream) = tokio::io::duplex(2048);
         let client = Framed::new(client_stream, codec);
 
-        // Pause the tokio clock so that time-advance steps are deterministic
-        // and independent of real wall-clock scheduling.
+        // Pause Tokio's clock for server timers. `wait_millis` still sleeps in
+        // wall-clock time for `std::time::Instant`-based expiry.
         self.block_on(async { tokio::time::pause() })?;
         let server = self
             .runtime()?
@@ -158,6 +172,7 @@ impl MessageAssemblyInboundWorld {
         self.client = Some(client);
         self.server = Some(server);
         self.observed_rx = Some(rx);
+        self.processed_rx = Some(processed_rx);
         self.observed_payloads.clear();
         self.last_send_error = None;
         Ok(())
@@ -202,6 +217,12 @@ impl MessageAssemblyInboundWorld {
         self.send_continuation_or_final((key.into(), sequence.into()), body, true)
     }
 
+    /// Encode and send a continuation or final message-assembly frame.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if frame encoding fails, the client is unavailable,
+    /// or sending the payload fails.
     fn send_continuation_or_final(
         &mut self,
         frame: (MessageKey, FrameSequence),
@@ -214,14 +235,32 @@ impl MessageAssemblyInboundWorld {
         self.send_payload(payload)
     }
 
-    /// Advance the paused Tokio clock by `millis` milliseconds.
+    /// Let the wall clock pass the assembly timeout duration.
     ///
     /// # Errors
     ///
     /// Returns an error if the runtime is unavailable.
     pub fn wait_millis(&mut self, millis: u64) -> TestResult {
-        self.block_on(async { tokio::time::advance(Duration::from_millis(millis)).await })?;
-        Ok(())
+        // Assembly expiry uses `std::time::Instant`, so advancing Tokio's
+        // paused clock would not age the stored deadline.
+        std::thread::sleep(Duration::from_millis(millis));
+        self.spin_runtime()
+    }
+
+    /// Wait until the server has parsed one previously written frame header.
+    pub fn wait_for_frame_processed(&mut self) -> TestResult {
+        let mut processed_rx = self
+            .processed_rx
+            .take()
+            .ok_or("frame-processing receiver not initialized")?;
+        let result =
+            self.block_on(async { timeout(Duration::from_secs(1), processed_rx.recv()).await });
+        self.processed_rx = Some(processed_rx);
+        match result? {
+            Ok(Some(())) => self.spin_runtime(),
+            Ok(None) => Err("frame-processing signal channel closed".into()),
+            Err(_) => Err("server did not process a frame within one second".into()),
+        }
     }
 
     /// Assert that the handler has received a payload matching `expected`.
@@ -279,6 +318,8 @@ impl MessageAssemblyInboundWorld {
         Err(format!("unexpected send error: {:?}", self.last_send_error).into())
     }
 
+    /// Serialize and send a payload, then give runtime tasks a bounded
+    /// cooperative yield; serialization, send, and runtime errors propagate.
     fn send_payload(&mut self, payload: Vec<u8>) -> TestResult {
         let envelope = Envelope::new(ROUTE_ID, CORRELATION_ID, payload);
         let serializer = BincodeSerializer;
@@ -295,7 +336,7 @@ impl MessageAssemblyInboundWorld {
         match send_result {
             Ok(Ok(())) => {
                 self.last_send_error = None;
-                Ok(())
+                self.spin_runtime()
             }
             Ok(Err(err)) => {
                 self.last_send_error = Some(err.to_string());
@@ -319,6 +360,22 @@ impl MessageAssemblyInboundWorld {
         });
         self.observed_rx = Some(observed_rx);
         self.observed_payloads.extend(result?);
+        Ok(())
+    }
+
+    /// Yield cooperatively to runtime tasks for a bounded number of turns.
+    /// This gives ready work a chance to progress but does not guarantee
+    /// completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if unavailable or called within a Tokio runtime.
+    fn spin_runtime(&self) -> TestResult {
+        self.block_on(async {
+            for _ in 0..8 {
+                tokio::task::yield_now().await;
+            }
+        })?;
         Ok(())
     }
 }

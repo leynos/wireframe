@@ -1,6 +1,7 @@
 //! Scenario tests for inbound message assembly integration.
 
 use rstest_bdd_macros::scenario;
+use wireframe_testing::TestError;
 
 use crate::fixtures::message_assembly_inbound::*;
 
@@ -9,9 +10,9 @@ use crate::fixtures::message_assembly_inbound::*;
     name = "Interleaved assembly dispatches completed payloads"
 )]
 fn message_assembly_inbound_interleaved(
-    message_assembly_inbound_world: MessageAssemblyInboundWorld,
-) {
-    drop(message_assembly_inbound_world);
+    message_assembly_inbound_world: Result<MessageAssemblyInboundWorld, TestError>,
+) -> Result<(), TestError> {
+    Ok(())
 }
 
 #[scenario(
@@ -19,15 +20,17 @@ fn message_assembly_inbound_interleaved(
     name = "Ordering violations are rejected and recovery can complete"
 )]
 fn message_assembly_inbound_ordering_violation(
-    message_assembly_inbound_world: MessageAssemblyInboundWorld,
-) {
-    drop(message_assembly_inbound_world);
+    message_assembly_inbound_world: Result<MessageAssemblyInboundWorld, TestError>,
+) -> Result<(), TestError> {
+    Ok(())
 }
 
 #[scenario(
     path = "tests/features/message_assembly_inbound.feature",
     name = "Timeout purges partial assembly before continuation arrives"
 )]
-fn message_assembly_inbound_timeout(message_assembly_inbound_world: MessageAssemblyInboundWorld) {
-    drop(message_assembly_inbound_world);
+fn message_assembly_inbound_timeout(
+    message_assembly_inbound_world: Result<MessageAssemblyInboundWorld, TestError>,
+) -> Result<(), TestError> {
+    Ok(())
 }

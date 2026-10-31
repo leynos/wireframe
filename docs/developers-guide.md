@@ -1066,6 +1066,11 @@ the optional development backend. Native Linux development builds use `mold` as
 the linker; CI provisions the component and linker before running the standard
 debug gates.
 
+The root package declares Rust 1.95 as its minimum. `rstest-bdd` 0.6.0 requires
+Rust 1.88, and existing `AtomicU64::try_update` calls require Rust 1.95. This
+floor applies to the root package's test targets as well as its library. The
+pinned nightly remains the standard repository gate toolchain.
+
 The Makefile keeps the development configuration in
 `tools/dev-fast/config.toml`, outside Cargo's automatic configuration paths.
 Standard debug Make targets select it explicitly: `build`, `test`, `test-bdd`,
@@ -1526,6 +1531,48 @@ BDD scenarios live in `.feature` files under `tests/features/`. Each file
 describes one or more scenarios using the standard Given/When/Then syntax.
 Scenario functions are annotated with `#[scenario(path = "…", name = "…")]` and
 receive fixture parameters by name.
+
+For a fallible BDD world, return `Result<World, TestError>` (or the equivalent
+`wireframe_testing::TestResult<World>`) from its fixture. Pass that result by
+value to the scenario and give the scenario a fallible return type such as
+`Result<(), TestError>`. The v0.6 scenario macro unwraps the owned fixture
+result with `?` before inserting the `World` into `StepContext`; it rejects
+borrowed result fixtures. Step definitions therefore request `&World` or
+`&mut World`, not a `Result` wrapper. When a step can fail, return
+`wireframe_testing::TestResult` so the framework records the failed step. The
+fixture and scenario signatures are in
+`tests/scenarios/client_messaging_scenarios.rs`. See the
+[v0.6.0 migration guide](rstest-bdd-v0-6-0-migration-guide.md) for the full
+framework contract.
+
+Step definitions remain synchronous. When they need async world operations,
+they use the runtime or handle owned by that scenario's world fixture to drive
+those operations. Fixtures configured with a current-thread runtime use that
+same runtime for their I/O and server tasks; other fixtures may select their
+runtime flavour in their constructor. Do not create another runtime inside a
+step or call `block_on` while already inside a Tokio runtime. See the
+[migration plan](execplans/adopt-rstest-bdd-v0-6-0.md) for details.
+
+The budget-cleanup, budget-transition, memory-backpressure and inbound assembly
+BDD fixtures use the test-only
+[`FrameProcessingAssembler`](../tests/fixtures/frame_processing_assembler.rs)
+to signal after `parse_frame_header` succeeds, so timing scenarios can advance
+Tokio virtual time after the server has parsed a frame header, rather than
+after the client merely wrote bytes to the stream. The budget-transition and
+memory-backpressure `wait_for_frame_processed()` helpers poll for that signal
+with a bounded number of runtime yields instead of awaiting a timer, because
+those fixtures pause Tokio virtual time: awaiting a timer under `pause()` lets
+the runtime auto-advance the clock, which could let a delayed frame-processing
+signal satisfy the wait and mask the regression. Because those helpers only
+yield and never park the runtime, the Tokio time driver never auto-advances;
+the fixtures therefore extend an explicit virtual-time advance by one
+timer-wheel tick (Tokio rounds a timer deadline up to the end of the next
+millisecond, `deadline_to_tick`), so a pacing delay equal to the requested
+advance still expires; the slack is only 1 ms, so a delay that regressed beyond
+the requested advance still leaves the signal pending. The budget-cleanup and
+inbound assembly helpers await the signal with a timeout. The signal marks
+header parsing only; it does not mean the complete message has reached its
+handler.
 
 ### Non-zero test values
 

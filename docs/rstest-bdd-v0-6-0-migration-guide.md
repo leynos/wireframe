@@ -1,0 +1,997 @@
+# v0.6.0 migration guide
+
+This guide covers user-facing changes made after the `v0.5.0` tag and before
+`v0.6.0`. It groups the changes by the amount of migration work they require:
+breaking changes, additive features that extend existing practice, and features
+that need a new testing practice to be useful.
+
+## Breaking changes
+
+- Implicit fixture names now normalize exactly one leading underscore.
+  Parameters named `world` and `_world` both resolve to the implicit fixture key
+  `world`; `__world` resolves to `_world`. Explicit `#[from(...)]` fixture
+  names remain exact.
+- The legacy `scenarios!(..., runtime = "tokio-current-thread")` form now acts
+  as a deprecated compatibility alias for
+  `harness = rstest_bdd_harness_tokio::TokioHarness`. Generated tests are
+  synchronous and run inside the Tokio harness.
+- Custom implementations of the unreleased `HarnessAdapter` development API
+  must return `HarnessResult<T>` from `run`. This affects projects that adopted
+  the harness API from the `v0.6.0` development branch before the final release.
+
+- Feature paths in diagnostics and reports are now manifest-relative
+  (`ScenarioMetadata::feature_path`, the JSON reporter, the JUnit `classname`
+  attribute and `cargo bdd --dump-steps`). A feature file outside the crate's
+  manifest directory keeps its absolute path.
+- `StepContext::insert_value` now returns `InsertOutcome` instead of
+  `Option<Box<dyn Any>>`. Only code that calls `insert_value` directly is
+  affected; generated scenario code is updated by the macros.
+- Scenarios that previously passed may now correctly fail when a step's local
+  alias of `Result<T, E>` returns `Err`. Successful aliases now inject `T`
+  rather than boxing the whole `Result<T, E>` as a payload, and their error
+  type must implement `Display`.
+- Rust indexing entry points now return `RustStepIndexResult` on successful
+  reads and parses. Update callers of `index_rust_file` and `index_rust_source`
+  to consume the owned `.index` and inspect its recoverable `.diagnostics`;
+  only file-read and whole-source parse failures remain `RustStepIndexError`
+  values. Language-server state retains the file index, not the per-function
+  diagnostics. The former public `index_feature_file` entry point has also been
+  removed: disk-backed feature reads are managed by the server and stay inside
+  the validated workspace root, while direct callers should use
+  `index_feature_source` for source text.
+- The public `publish_rust_diagnostics` entry point has been removed. Save
+  handling now publishes Rust indexing diagnostics as part of the Rust save
+  path. Callers that index directly should use the supported
+  `RustStepIndexResult::diagnostics` contract instead of calling the removed
+  publisher.
+- `record_bypassed_steps` now takes a `BypassedScenario` descriptor and the
+  bypassed steps, replacing the six-parameter form and the separate
+  `record_bypassed_steps_with_tags` entry point. Only code that calls it
+  directly is affected; generated scenario code is updated by the macros.
+- `rstest_bdd_server::discovery::find_feature_files` now returns
+  `Result<Vec<PathBuf>, ServerError>`. Callers must propagate the result and
+  handle `ServerError::Io`; do not turn discovery failures into empty or
+  partial feature lists.
+- The minimum supported Rust version (MSRV) is now 1.88. The `gherkin 0.16`
+  parser dependency requires Rust 1.88, so `workspace.package.rust-version` and
+  every standalone fixture manifest declare `rust-version = "1.88"`; `cargo`
+  refuses to compile the workspace on older compilers.
+
+### Update underscore-prefixed implicit fixtures
+
+If a scenario or step parameter used a leading underscore only to silence the
+Rust unused-variable lint, no source change is needed:
+
+```rust,no_run
+#[scenario(path = "tests/features/search.feature")]
+fn search_works(_world: SearchWorld) {}
+```
+
+The parameter above now requests the `world` fixture key. If the code intended
+to request a literal `_world` fixture key, make that intent explicit:
+
+```rust,no_run
+#[scenario(path = "tests/features/search.feature")]
+fn search_works(#[from(_world)] world: SearchWorld) {}
+```
+
+Use the same pattern in step functions when a literal underscore-prefixed key
+is required. This keeps unused-binding naming and fixture selection separate.
+
+### Update custom harness adapters
+
+`HarnessAdapter::run` now returns `HarnessResult<T>`, an alias for
+`Result<T, HarnessError>`, instead of returning `T` directly. This makes
+harness infrastructure failures explicit: runtime construction failures, for
+example, are propagated as `Err(HarnessError::RuntimeBuildFailed(_))` rather
+than surfacing as opaque panics.
+
+Before:
+
+```rust,no_run
+use rstest_bdd_harness::{HarnessAdapter, StdScenarioRunRequest};
+
+struct MyHarness;
+
+impl HarnessAdapter for MyHarness {
+    type Context = ();
+
+    fn run<T>(&self, request: StdScenarioRunRequest<'_, T>) -> T {
+        request.run_without_context()
+    }
+}
+```
+
+After:
+
+```rust,no_run
+use rstest_bdd_harness::{HarnessAdapter, HarnessResult, StdScenarioRunRequest};
+
+struct MyHarness;
+
+impl HarnessAdapter for MyHarness {
+    type Context = ();
+
+    fn run<T>(
+        &self,
+        request: StdScenarioRunRequest<'_, T>,
+    ) -> HarnessResult<T> {
+        Ok(request.run_without_context())
+    }
+}
+```
+
+Harnesses that build runtimes or other infrastructure should map construction
+errors into `HarnessError` and use `?`:
+
+```rust,no_run
+use rstest_bdd_harness::{HarnessError, HarnessResult};
+
+fn build_runtime() -> HarnessResult<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(HarnessError::RuntimeBuildFailed)
+}
+```
+
+Harnesses selected by `#[scenario(..., harness = ...)]` or
+`scenarios!(..., harness = ...)` are instantiated with `Default`, so custom
+harness types used through the macros must implement both `HarnessAdapter` and
+`Default`.
+
+### Audit step return aliases
+
+Step wrappers now classify unhinted non-unit returns by their concrete type. An
+alias of `Result<T, E>` propagates `Err` and uses the `T` from `Ok(T)` as the
+fixture override. This corrects the former false green where an `Err` was boxed
+as an unused value and the scenario passed. It can reveal an assertion failure
+in a scenario that used to appear green.
+
+The migration also changes the successful payload shape: code that depended on
+a dropped `Result<T, E>` payload now receives `T` and can override a matching
+fixture. The `E` type must implement `Display`; implement `Display` for the
+error type. That is the only supported remedy, because the framework renders
+step errors through that trait.
+
+### Update direct `insert_value` callers
+
+`StepContext::insert_value` previously returned `Option<Box<dyn Any>>`, where
+`None` conflated three outcomes: the value was recorded and displaced nothing,
+no fixture matched its type, or several fixtures matched and the value was
+dropped. It now returns `InsertOutcome`, which names all three.
+
+Where the old `Option` was used only to recover the displaced override, call
+`into_previous()`:
+
+```rust,no_run
+// Before:
+let previous = ctx.insert_value(Box::new(7_u32));
+
+// After:
+let previous = ctx.insert_value(Box::new(7_u32)).into_previous();
+```
+
+Where the distinction matters, match the outcome instead:
+
+```rust,no_run
+match ctx.insert_value(Box::new(7_u32)) {
+    InsertOutcome::Inserted(previous) => { /* recorded; `previous` displaced */ }
+    InsertOutcome::NoMatch => { /* no fixture has this type; value dropped */ }
+    InsertOutcome::AmbiguousIgnored => { /* several match; value dropped */ }
+}
+```
+
+`InsertOutcome` is `#[must_use]`, so discarding it implicitly now warns. Use
+`is_inserted()` for a boolean check that does not consume the outcome.
+
+### Propagate feature-file discovery errors
+
+Update callers of the public `find_feature_files` API to return its
+`ServerError` rather than treating a failed traversal as an empty result:
+
+```rust,no_run
+use std::path::{Path, PathBuf};
+
+use rstest_bdd_server::discovery::find_feature_files;
+use rstest_bdd_server::error::ServerError;
+
+fn discover_features(root: &Path) -> Result<Vec<PathBuf>, ServerError> {
+    let feature_files = find_feature_files(root)?;
+    Ok(feature_files)
+}
+```
+
+When the caller needs to distinguish filesystem failures, handle
+`ServerError::Io` explicitly. Do not use an empty fallback or discard failed
+directory reads while retaining successful entries: either approach can hide
+missing feature files and produce an incomplete discovery result.
+
+### Update direct `record_bypassed_steps` callers
+
+`record_bypassed_steps` previously took the feature path, scenario name,
+scenario line, tags, skip reason, and the bypassed steps as six positional
+parameters. A second entry point, `record_bypassed_steps_with_tags`, existed
+only so callers that already owned a `Vec<String>` could pass the tags by
+reference instead of cloning.
+
+Both are replaced by a single function taking a `BypassedScenario` descriptor
+plus the steps. The descriptor borrows its tags, so the reason the second entry
+point existed no longer applies:
+
+```rust,ignore
+// Before:
+record_bypassed_steps(
+    "tests/features/skip.feature",
+    "skips",
+    7,
+    tags.clone(),
+    Some("fixture forced skip"),
+    [(StepKeyword::Given, "a bypassed step")],
+);
+
+// After:
+record_bypassed_steps(
+    BypassedScenario::new("tests/features/skip.feature", "skips", 7)
+        .with_tags(&tags)
+        .with_reason(Some("fixture forced skip")),
+    [(StepKeyword::Given, "a bypassed step")],
+);
+```
+
+`with_tags` and `with_reason` are optional. A scenario with neither needs only
+the constructor:
+
+```rust,no_run
+record_bypassed_steps(
+    BypassedScenario::new("tests/features/skip.feature", "skips", 7),
+    [(StepKeyword::Given, "a bypassed step")],
+);
+```
+
+Callers of `record_bypassed_steps_with_tags` migrate to the same form; the
+descriptor already borrows the tag slice, so drop the `_with_tags` suffix and
+pass `&tags` to `with_tags`.
+
+## New features available by extending existing practice
+
+- `rstest-bdd-harness` provides shared harness adapter and attribute-policy
+  interfaces. Suites that already use `#[scenario]` or `scenarios!` can keep
+  their existing test shape and add harness configuration only where needed.
+- `#[scenario]` and `scenarios!` accept `harness = ...` and `attributes = ...`
+  arguments. These are additive macro arguments; existing scenario definitions
+  without them continue to run inline.
+- Known first-party harness paths infer their matching attribute policies when
+  `attributes = ...` is omitted: `rstest_bdd_harness::StdHarness`,
+  `rstest_bdd_harness_tokio::TokioHarness`, and
+  `rstest_bdd_harness_gpui::GpuiHarness`.
+- The language server accepts `--workspace-root` and
+  `RSTEST_BDD_LSP_WORKSPACE_ROOT` to override workspace discovery, and
+  `--debounce-ms` to tune file-change processing delay. Existing editor
+  integrations can adopt these as normal command-line or environment
+  configuration.
+- The `examples/tokio-reminders` and `examples/gpui-counter` crates provide
+  working examples for the new Tokio and GPUI harness integrations.
+
+## New features requiring new practices
+
+- Result-returning fixtures can now be passed to scenario functions as
+  `Result<T, E>` or `StepResult<T, E>`, but the scenario must also return a
+  fallible type so generated fixture unwrapping can use `?`.
+- Harness adapters can inject typed context through
+  `HarnessAdapter::Context`. Steps request that value with the reserved
+  `rstest_bdd_harness_context` fixture key.
+- Tokio integration should use the explicit
+  `rstest_bdd_harness_tokio::TokioHarness` form instead of the deprecated
+  `runtime = "tokio-current-thread"` compatibility syntax. The first-party
+  Tokio attribute policy is inferred from the canonical harness path, so new
+  examples no longer need a paired `attributes = ...` argument by default.
+- GPUI integration should use the opt-in `rstest-bdd-harness-gpui` crate and
+  the canonical `rstest_bdd_harness_gpui::GpuiHarness` path. The first-party
+  GPUI attribute policy is inferred when `attributes = ...` is omitted. When
+  native GPUI is used outside this workspace's shim, account for the platform
+  libraries required by upstream GPUI.
+- Third-party attribute policies still need explicit user documentation. The
+  macros trait-check user-provided policy types, but path-based code generation
+  only recognizes first-party policy paths and imported first-party policy type
+  names today.
+
+### Harness dependency matrix
+
+Downstream `Cargo.toml` files should list the smallest crate set that matches
+the harness surface they use:
+
+- **Plain BDD scenarios:** add `rstest`, `rstest-bdd`, and
+  `rstest-bdd-macros`. Add `rstest-bdd-harness` directly only when test code
+  imports base harness API types.
+- **Tokio first-party harness:** add `rstest`, `rstest-bdd`,
+  `rstest-bdd-macros`, `rstest-bdd-harness-tokio`, and `tokio`. Add
+  `rstest-bdd-harness` directly only when implementing a custom harness or
+  importing base API types.
+- **GPUI first-party harness:** add `rstest`, `rstest-bdd`,
+  `rstest-bdd-macros`, `rstest-bdd-harness-gpui`, and `gpui`. Add
+  `rstest-bdd-harness` directly only when implementing a custom harness or
+  importing base API types.
+- **Custom harness implementation:** add `rstest`, `rstest-bdd`,
+  `rstest-bdd-macros`, and `rstest-bdd-harness`. Custom harnesses implement
+  `HarnessAdapter` and usually use `ScenarioRunRequest`.
+
+First-party adapter crates re-export the base harness API used by generated
+tests, so selecting `rstest_bdd_harness_tokio::TokioHarness` or
+`rstest_bdd_harness_gpui::GpuiHarness` does not require a separate direct
+`rstest-bdd-harness` entry in the consuming crate. The
+`examples/tokio-reminders` and `examples/gpui-counter` manifests intentionally
+omit that direct dependency and compile as workspace proof points.
+
+> **Canonical-path requirement:** the macro detects first-party adapters
+> by matching the crate-root identifier in the supplied path against the
+> known adapter crate names. When the Tokio or GPUI adapter crate is
+> renamed in `Cargo.toml` (for example
+> `tok = { package = "rstest-bdd-harness-tokio", … }`) or the harness type is
+> re-exported
+> under a different module path, the macro cannot identify it as a
+> first-party adapter and falls back to resolving base API types through
+> `rstest-bdd-harness`. In those cases, add `rstest-bdd-harness` as a
+> direct dev-dependency.
+>
+> **Fallback warning:** a non-canonical first-party adapter path now emits one
+> fallback warning. On stable Rust this is a deprecation warning; adding
+> `#![deny(deprecated)]` escalates it to an error. Use the canonical Tokio or
+> GPUI path above, or add the direct `rstest-bdd-harness` dev-dependency when a
+> re-exported path is required.
+
+Adapter-only manifests work when macro arguments use first-party crate-root
+paths, such as `rstest_bdd_harness::StdHarness`,
+`rstest_bdd_harness_tokio::TokioHarness`, or
+`rstest_bdd_harness_gpui::GpuiHarness`. They also work when the adapter type is
+imported directly and the macro argument is the single-segment first-party type
+name, such as `TokioHarness`, `TokioAttributePolicy`, `GpuiHarness`, or
+`GpuiAttributePolicy`. Local type aliases and matching type names under other
+module roots are not recognized as first-party paths. When the macro call uses
+one of those non-recognized forms, or omits `attributes = ...` while the
+harness argument is not recognized as first-party, generated code falls back to
+`rstest-bdd-harness` and therefore requires a direct base harness dependency.
+
+### Workspace dependency migration for contributors
+
+Workspace contributors should not restore the old root `[patch.crates-io]`
+table after publishing v0.6.0. The workspace now keeps development on the
+current checkout through `version` plus `path` entries in
+`[workspace.dependencies]`, and member crates inherit those entries with
+`.workspace = true`.
+
+This means local development continues to use the latest in-tree `rstest-bdd-*`
+crates even after the same version exists on crates.io. During packaging, Cargo
+uses the version requirement for the published dependency surface. The GPUI
+shim uses the same approach: local builds use `vendor/gpui`, while the
+`lading publish` release workflow strips local patches from the staged
+workspace before packaging against upstream `gpui`.
+
+External users should not copy the workspace paths. Downstream projects should
+depend on published crates by version only, for example
+`rstest-bdd-harness-tokio = "0.6.0"` or `rstest-bdd-harness-gpui = "0.6.0"`.
+
+### Adopt fallible fixtures
+
+Use result-like fixture parameters when fixture construction can fail and the
+scenario should propagate that error directly:
+
+```rust,no_run
+use rstest::fixture;
+use rstest_bdd::StepResult;
+use rstest_bdd_macros::scenario;
+
+struct World;
+
+#[fixture]
+fn world() -> Result<World, String> {
+    Ok(World)
+}
+
+#[scenario(path = "tests/features/search.feature")]
+fn search_works(world: Result<World, String>) -> Result<(), String> {
+    Ok(())
+}
+```
+
+The generated scenario unwraps `world` with `?` before inserting the inner
+`World` value into `StepContext`. Borrowed result-like fixtures are rejected:
+use `Result<T, E>` or `StepResult<T, E>` by value rather than `&Result<T, E>` or
+`&StepResult<T, E>`.
+
+### Adopt harness context
+
+Harnesses that provide framework or application state should expose it through
+`HarnessAdapter::Context` and call `request.run(context)`:
+
+```rust,no_run
+use rstest_bdd_harness::{HarnessAdapter, HarnessResult, ScenarioRunRequest};
+
+#[derive(Default)]
+struct AppHarness;
+
+struct AppContext {
+    counter: usize,
+}
+
+impl HarnessAdapter for AppHarness {
+    type Context = AppContext;
+
+    fn run<T>(
+        &self,
+        request: ScenarioRunRequest<'_, Self::Context, T>,
+    ) -> HarnessResult<T> {
+        Ok(request.run(AppContext { counter: 7 }))
+    }
+}
+```
+
+Step functions request the harness-provided context with `#[from(...)]`:
+
+```rust,no_run
+use rstest_bdd_macros::given;
+
+#[given("the app counter starts at {n}")]
+fn starts_at(
+    #[from(rstest_bdd_harness_context)] app: &AppContext,
+    n: usize,
+) {
+    assert_eq!(app.counter, n);
+}
+```
+
+#### Use the harness-context marker (v0.6.1 beta)
+
+The v0.6.1 beta adds `#[harness_context]` as a readable way to request the
+harness-provided context. Replace the legacy spelling above with:
+
+```rust,no_run
+#[given("the app counter starts at {n}")]
+fn starts_at(
+    #[harness_context] app: &AppContext,
+    n: usize,
+) {
+    assert_eq!(app.counter, n);
+}
+```
+
+The marker, `#[from(rstest_bdd_harness_context)] app: &AppContext`, and a
+parameter named `rstest_bdd_harness_context` all request the same reserved
+fixture key. Existing `#[from(rstest_bdd_harness_context)]` code remains
+supported. The marker is bare, takes no arguments, and may appear only once per
+parameter. Do not combine it with `#[from]`, `#[datatable]`, or `#[step_args]`,
+or use it on a parameter bound to a step-pattern placeholder.
+
+Harnesses that do not inject context should keep `type Context = ()` and call
+`request.run_without_context()`.
+
+### Migrate Tokio scenarios to explicit harness configuration
+
+Replace the deprecated `runtime = "tokio-current-thread"` syntax:
+
+```rust,no_run
+use rstest_bdd_macros::scenarios;
+
+scenarios!(
+    "tests/features/reminders",
+    runtime = "tokio-current-thread"
+);
+```
+
+with explicit harness selection:
+
+```rust,no_run
+use rstest_bdd_macros::scenarios;
+
+scenarios!(
+    "tests/features/reminders",
+    harness = rstest_bdd_harness_tokio::TokioHarness,
+);
+```
+
+`TokioHarness` runs synchronous scenario closures inside a Tokio current-thread
+runtime with a `LocalSet`. Step functions can use
+`tokio::runtime::Handle::current()` and `tokio::task::spawn_local`. Immediate
+`async fn` step definitions can complete under the harness, but multi-poll
+async steps that yield `Pending` are not supported in this mode. Use explicit
+`.await` coordination in the code under test, or use an async scenario with an
+external Tokio test attribute when the scenario itself must be asynchronous.
+When `attributes = ...` is omitted, the macro infers
+`rstest_bdd_harness_tokio::TokioAttributePolicy` for the canonical
+`TokioHarness` path. Keep `attributes = ...` only for overrides,
+attributes-only configuration, or non-recognized harness paths.
+
+### Adopt GPUI harness configuration
+
+Add the GPUI harness crate as a dev-dependency and select the first-party
+harness in scenarios that need GPUI test context injection:
+
+```toml
+[dev-dependencies]
+rstest-bdd-harness-gpui = "0.6.0"
+```
+
+```rust,no_run
+use rstest_bdd_macros::scenario;
+
+#[scenario(
+    path = "tests/features/counter.feature",
+    harness = rstest_bdd_harness_gpui::GpuiHarness,
+)]
+fn counter_updates() {}
+```
+
+When `attributes = ...` is omitted, the macro infers
+`rstest_bdd_harness_gpui::GpuiAttributePolicy` for the canonical `GpuiHarness`
+path. Steps can request the injected `gpui::TestAppContext` with
+`#[from(rstest_bdd_harness_context)]`. Keep `attributes = ...` only for
+overrides, attributes-only configuration, or non-recognized harness paths.
+
+Stateful GPUI scenarios — those that share durable view and window handles
+across steps and need mutable access to `TestAppContext` — also need the v0.6
+interim thread-local pattern documented under
+[Migrate a stateful GPUI test](#migrate-a-stateful-gpui-test) below.
+
+#### Migrate a stateful GPUI test
+
+> **Note: this is a v0.6 interim shape.**
+>
+> The thread-local scenario-state pattern below works around the v0.6
+> `StepContext::borrow_mut` contract ([ADR-007][adr-007]). The guard-based
+> redesign recorded in [ADR-012][adr-012] shipped in v0.7.0 and supersedes
+> this workaround; see [Adopt guard-based `StepContext` borrowing
+> (v0.7.0)](#adopt-guard-based-stepcontext-borrowing-v070) for the migration
+> mapping.
+
+Apply this migration when an existing scenario stored a `VisualTestContext`
+between steps or relied on a non-thread-local mutable world together with
+`#[from(rstest_bdd_harness_context)]`. The
+[Stateful GPUI scenarios with durable handles][users-guide-playbook] subsection
+of the user guide is the in-depth reference; the steps below mirror its outline:
+
+1. **Update the dev-dependency.** In `Cargo.toml`, depend on
+   `rstest-bdd-harness-gpui = "0.6.0"` and add `serial_test` and `rstest` as
+   dev-dependencies if they are not already present.
+2. **Introduce scenario state and reset helpers.** Add a `ScenarioState`
+   struct that stores `Option<gpui::Entity<T>>` and
+   `Option<gpui::AnyWindowHandle>` instead of a `VisualTestContext`, hold it in
+   a `thread_local!` `RefCell`, and define `reset_state_before_assignment` and
+   `reset_state_after_scenario` helpers that clear the cell.
+3. **Wire a `Drop`-based cleanup fixture.** Add a
+   `ScenarioStateCleanup` value whose `Drop` impl calls
+   `reset_state_after_scenario`, and a
+   `#[fixture] fn scenario_state_cleanup() -> ScenarioStateCleanup` that calls
+   `reset_state_before_assignment` before returning the guard. Pull the fixture
+   into every stateful `#[scenario]` and apply `#[serial]` from the
+   `serial_test` crate.
+4. **Reset before assigning fresh handles.** In the `#[given]` that opens
+   a fresh window, call `reset_state_before_assignment` before the call to
+   `cx.add_window_view(...)`; both the constructor-side reset and the
+   `Drop`-side reset are required to cover panic, skip, and reused-thread paths.
+5. **Rebuild `VisualTestContext` per step.** Replace any stored
+   `VisualTestContext` field with the durable handles, and in each subsequent
+   step reconstruct the visual context with
+   `gpui::VisualTestContext::from_window(window, cx)`. The vendored gpui return
+   is `Option<VisualTestContext>`; treat `None` as an invariant violation:
+
+   ```rust,ignore
+   let Some(visual_cx) = gpui::VisualTestContext::from_window(window, cx) else {
+       panic!("stored window handle should reconstruct visual context");
+   };
+   ```
+
+   Published `gpui 0.2.2` returns `VisualTestContext` by value instead, so no
+   `Option` unwrapping is needed there.
+
+For a downstream crate using published `gpui 0.2.2`, translate the `#[given]`
+and later step call sites as follows. The view type must implement `Render`,
+and its constructor receives the published view context:
+
+```rust,ignore
+use gpui::{AppContext as _, VisualContext as _};
+
+let (entity, visual_cx) =
+    cx.add_window_view(|_window, view_cx| View::new(view_cx));
+let window = visual_cx.window_handle();
+
+let mut visual_cx = gpui::VisualTestContext::from_window(window, cx);
+visual_cx.update_entity(&entity, |view, _view_cx| view.value += 1);
+let value = visual_cx.read_entity(&entity, |view, _app| view.value);
+assert_eq!(value, 1);
+```
+
+Published `add_window_view` returns the visual context by mutable reference,
+`window_handle` comes from `VisualContext`, and the entity methods come from
+`AppContext`. The entity methods take `&Entity<T>` and two-argument callbacks,
+then return the callback value directly. The user guide provides complete
+[published step variants][published-variants] alongside the vendored
+regression-suite snippets.
+
+For a worked-out example, see the regression suite at
+`crates/rstest-bdd-harness-gpui/tests/stateful_window.rs` and the
+[stateful playbook][users-guide-playbook] subsection. The pattern's rationale
+lives in §§2.7.6.1–2.7.6.2 of the [rstest-bdd design](rstest-bdd-design.md).
+
+[adr-007]: adr-007-harness-context-injection.md
+
+[adr-012]: adr-012-guard-based-stepcontext-borrowing.md
+
+[design-beta2-quick-wins]: rstest-bdd-design.md#2763-v060-beta2-quick-wins
+
+[design-borrow-constraint]:
+rstest-bdd-design.md#2761-borrow-constraint-exposed-by-gpui-adoption
+
+[design-interim-gpui]: rstest-bdd-design.md#2762-interim-gpui-state-pattern
+
+[design-redesign]: rstest-bdd-design.md#2765-v070-pre-100-redesign
+
+[rustc-e0499]: https://doc.rust-lang.org/error_codes/E0499.html
+
+[rustc-e0502]: https://doc.rust-lang.org/error_codes/E0502.html
+
+[rustonomicon-splitting]:
+https://doc.rust-lang.org/nomicon/borrow-splitting.html
+
+[users-guide-playbook]:
+users-guide.md#stateful-gpui-scenarios-with-durable-handles
+
+[published-variants]:
+users-guide.md#published-gpui-022-stateful-step-variants
+
+### Adopt guard-based `StepContext` borrowing (v0.7.0)
+
+> This subsection describes v0.7.0 behaviour, not a v0.6.0 change. It is
+> included here so readers upgrading off 0.6.x can plan the move in one
+> place. [ADR-012][adr-012] is the authoritative record.
+
+`StepContext` borrow methods now take `&self` instead of `&mut self`. Guards
+for distinct fixtures — including multiple mutable guards — can be held
+concurrently, so a step may declare
+`#[from(rstest_bdd_harness_context)] cx: &mut gpui::TestAppContext` alongside
+`world: &mut UiWorld` without the v0.6 `E0499`/`E0502` failure described in
+[Two mutable fixtures trigger `E0499` or `E0502`](#two-mutable-fixtures-trigger-e0499-or-e0502).
+A conflicting borrow of the *same* fixture still fails, but as a typed error
+rather than a compile-time rejection.
+
+New `try_borrow` and `try_borrow_mut` methods return
+`Result<_, FixtureBorrowError>`, with variants `NotFound`, `TypeMismatch`,
+`AlreadyBorrowed`, and `NotMutable`. A conflicting borrow of the same fixture
+now reports `AlreadyBorrowed` instead of panicking. The existing
+`Option`-returning `borrow_ref` and `borrow_mut` methods remain as conveniences
+that delegate to the `try_*` APIs.
+
+`FixtureRef` and `FixtureRefMut` are now opaque structs. They implement `Deref`/
+`DerefMut`, `AsRef`/`AsMut`, and `Debug`, and keep the existing accessor
+methods. Code that relied on their previous transparent shape should go through
+`Deref`/`DerefMut` (or the accessors) instead.
+
+`StepContext::get::<T>` now serves shared fixture storage only and deliberately
+ignores step-returned override values, because overrides moved behind `RefCell`
+when they became interiorly mutable. Read overrides through the guard API
+(`try_borrow`/`try_borrow_mut`, or the `Option`-returning conveniences) instead.
+
+#### Retire the thread-local workaround
+
+The framework — not caller discipline — now guarantees scenario-boundary reset:
+it builds a fresh `StepContext` for each scenario and drops its owned,
+scenario-scoped cells on success, on failure (including unwinding), and on
+skip. There are no public lifecycle hooks and no caller-managed reset API.
+`rstest` fixture scopes are unchanged by this guarantee: an `#[once]` fixture
+is still shared exactly as `rstest` defines it, because per-scenario freshness
+applies to framework-owned storage, not to every fixture.
+
+To migrate off the v0.6
+[thread-local workaround](#migrate-a-stateful-gpui-test):
+
+- Move the `thread_local! { RefCell<World> }` state into an ordinary
+  `rstest` `#[fixture]`.
+- Declare `world: &mut UiWorld` directly on the steps that need it, instead
+  of `WORLD.with(|w| w.borrow_mut())`.
+- Delete both the `reset_state_before_assignment()` calls and the
+  `Drop`-based `ScenarioStateCleanup` fixture.
+
+Before (v0.6 interim shape):
+
+```rust,ignore
+thread_local! {
+    static WORLD: RefCell<Option<World>> = RefCell::new(None);
+}
+
+#[given("the shell is open")]
+fn given_shell_open(
+    #[from(rstest_bdd_harness_context)] cx: &mut gpui::TestAppContext,
+) -> StepResult<()> {
+    WORLD.with(|w| {
+        let mut world = w.borrow_mut();
+        // ...update world using `cx`...
+    });
+    Ok(())
+}
+```
+
+After (v0.7.0 guard-based borrowing):
+
+```rust,ignore
+#[given("the shell is open")]
+fn given_shell_open(
+    #[from(rstest_bdd_harness_context)] cx: &mut gpui::TestAppContext,
+    world: &mut UiWorld,
+) -> StepResult<()> {
+    let (shell, visual_cx) = cx.add_window_view(|_context| Shell::default());
+    world.shell = Some(shell);
+    world.window = Some(visual_cx.window_handle());
+    Ok(())
+}
+
+#[when("the shell receives input")]
+fn when_shell_receives_input(
+    #[from(rstest_bdd_harness_context)] cx: &mut gpui::TestAppContext,
+    world: &mut UiWorld,
+) -> StepResult<()> {
+    let Some(window) = world.window else {
+        panic!("the given step should have stored a window handle");
+    };
+    let Some(mut visual_cx) = gpui::VisualTestContext::from_window(window, cx)
+    else {
+        panic!("stored window handle should reconstruct visual context");
+    };
+    // ...drive the shell through `visual_cx`...
+    Ok(())
+}
+```
+
+Guard-based borrowing removes the `E0499`/`E0502` obstacle to holding `cx` and
+`world` at once, but it does not make a stored `VisualTestContext` valid. That
+value is tied to the `TestAppContext` it was built against, and each step
+receives a fresh one, so `UiWorld` still keeps only the durable `Entity<T>` and
+`AnyWindowHandle` and rebuilds the visual context per step, as
+[Rebuild `VisualTestContext` per step](#migrate-a-stateful-gpui-test) requires.
+
+### Feature paths in diagnostics and reports are now manifest-relative
+
+`ScenarioMetadata::feature_path` and every surface that displays it — the JSON
+reporter's `feature_path` field, the JUnit `classname` attribute, and
+`cargo bdd --dump-steps` output — now carry the path of the feature file
+*relative to the consuming crate's manifest directory* when the file lies
+within it, and the absolute path otherwise. Previously the value was always an
+absolute path.
+
+Before:
+
+```json
+{ "feature_path": "/home/alice/project/tests/features/login.feature" }
+```
+
+After:
+
+```json
+{ "feature_path": "tests/features/login.feature" }
+```
+
+This brings the implementation into line with the JSON contract already
+documented at `docs/roadmap.md:316`. Four surfaces are affected:
+`ScenarioMetadata::feature_path`, the JSON reporter, the JUnit `classname`
+attribute, and `cargo bdd --dump-steps` output.
+
+Two consequences to plan for:
+
+- **JUnit-consumers key test history, ownership rules and quarantine lists
+  on `classname` + `name`.** The `classname` discontinuity above is a
+  *one-time* break on upgrade: no action prevents it, and no action is needed,
+  because the previous value was an absolute build-machine path that already
+  differed between a developer's machine and Continuous Integration (CI). The
+  trade is a single discontinuity for a value that is stable thereafter.
+- **Workspace-wide uniqueness is lost.** When several crates in one workspace
+  use the same conventional feature layout, merged `cargo bdd` output (and
+  `format_location`) now collides on the identical relative path. Qualify
+  entries by package name in your reporting layer if you merge dumps.
+
+### Feature-file rebuild invalidation
+
+Since v0.6.0, `#[scenario]` and `scenarios!` register every bound `.feature`
+file as a Cargo rebuild dependency, so editing only a `.feature` file
+recompiles the scenario binary and the tests reflect the new text immediately.
+The previous caveat that "editing only a `.feature` file does not trigger a
+rebuild" is removed; no `touch` workaround is needed.
+
+One compile-time error may appear after upgrading. A feature-file path that
+shares **no filesystem root** with its crate's manifest directory — a different
+Windows drive, a UNC prefix, a non-UTF-8 path, or an empty path — cannot be
+registered as a rebuild dependency and now fails to compile with a clear
+`compile_error!` naming the file. This is a deliberate, overwhelmingly rare
+exception (such a path is non-portable anyway). Remedy: use a manifest-relative
+path, or a path on the same filesystem root.
+
+**Hermetic build systems** — Bazel, Buck2, Nix sandboxes — parse dep-info and
+require every listed input to be declared. They will need `.feature` files
+added to their declared input sets; that is correct behaviour and the point of
+the change, but it surfaces as an "undeclared dependency" failure until the
+input set is updated.
+
+## Migration checklist
+
+- [ ] Review scenario and step parameters that start with `_`; add explicit
+  `#[from(_name)]` where the literal underscore-prefixed fixture key is
+  required.
+- [ ] Replace `scenarios!(..., runtime = "tokio-current-thread")` with
+  `harness = rstest_bdd_harness_tokio::TokioHarness`.
+- [ ] Update custom `HarnessAdapter` implementations to return
+  `HarnessResult<T>` and wrap infallible paths in `Ok(...)`.
+- [ ] Use `request.run(context)` for harnesses with typed context and
+  `request.run_without_context()` for unit-context harnesses.
+- [ ] Make scenarios return `Result` or `StepResult` before passing
+  `Result<T, E>` or `StepResult<T, E>` fixtures by value.
+- [ ] Audit named step return aliases. Confirm fallible aliases return errors
+  that implement `Display`, and confirm `Ok(T)` overrides a matching `T`
+  fixture only when exactly one matching `TypeId` exists; missing or ambiguous
+  matches leave fixtures unchanged.
+- [ ] Add `rstest-bdd-harness-tokio` or `rstest-bdd-harness-gpui` only to test
+  targets that need those framework integrations.
+- [ ] Remove redundant paired first-party `attributes = ...` arguments from
+  Tokio and GPUI examples unless the scenario is intentionally demonstrating an
+  override.
+- [ ] Before promoting any GPUI scenario from non-stateful to stateful, apply
+  the two-sided reset protocol from
+  [Migrate a stateful GPUI test](#migrate-a-stateful-gpui-test): wire
+  `scenario_state_cleanup` into every stateful `#[scenario]`, mark the scenario
+  `#[serial]`, and reset the thread-local state before assigning fresh handles.
+- [ ] Replace direct `record_bypassed_steps` and
+  `record_bypassed_steps_with_tags` calls with the `BypassedScenario`
+  descriptor form.
+- [ ] Re-baseline JUnit history, ownership and quarantine rules after the
+  one-time `classname` discontinuity (feature paths are now manifest-relative).
+- [ ] Replace any feature-file path with a manifest-relative path when the
+  file is inside the crate, or an absolute path on the same filesystem root
+  when the file is external; the D4 `compile_error!` names an offending file.
+- [ ] Update hermetic build inputs to declare the bound `.feature` files.
+- [ ] Run feature-gated downstream tests before assuming v0.6.0 broke the API:
+  use `cargo test --workspace --all-features`, or the project's Continuous
+  Integration (CI)-equivalent gate such as `make test` when a Make-based gate
+  wraps the same feature set; the design note tracks this
+  [v0.6.0-beta2 quick win][design-beta2-quick-wins].
+
+## Common errors and fixes
+
+- **Error:**
+  ``cannot borrow `*ctx` as mutable more than once at a time (E0499)`` or
+  ``cannot borrow `*ctx` as mutable because it is also borrowed as immutable (E0502)``
+  in a generated step wrapper
+  - **Fix:** See [Two mutable fixtures trigger `E0499` or
+    `E0502`](#two-mutable-fixtures-trigger-e0499-or-e0502).
+- **Error:** type mismatch: expected `HarnessResult<T>`, found `T`
+  - **Fix:** Wrap the return expression in `Ok(...)`.
+- **Error:** the trait bound `MyHarness: Default` is not satisfied
+  - **Fix:** Derive or implement `Default` for harness types selected by macro
+    `harness = ...` arguments.
+- **Error:** fixture parameter borrows a result-like type
+  - **Fix:** Pass the fixture as owned `Result<T, E>` or `StepResult<T, E>`,
+    and make the scenario return a compatible fallible type.
+- **Error:** `a step's error type \`MyError\` must implement
+  \`std::fmt::Display\``
+  - **Fix:** Implement `Display` for `MyError`. Step errors are rendered through
+    `Display`; do not try to restore the old boxed-payload behaviour.
+- **Error:** an underscore-prefixed parameter no longer resolves to the
+  expected fixture
+  - **Fix:** Use `#[from(_fixture_name)]` when the literal fixture key starts
+    with an underscore.
+
+### Two mutable fixtures trigger `E0499` or `E0502`
+
+> This is a v0.6 interim workaround, superseded from v0.7.0. The limitation
+> is recorded in [rstest-bdd design §2.7.6.1][design-borrow-constraint]; the
+> replacement guard-based borrow model shipped with [ADR-012][adr-012],
+> which lets one step borrow distinct mutable fixtures concurrently. Apply
+> the workarounds below only while staying on 0.6.x; on upgrade, declare
+> ordinary `&mut` fixture parameters and delete the thread-local reset
+> discipline. See [Adopt guard-based `StepContext` borrowing
+> (v0.7.0)](#adopt-guard-based-stepcontext-borrowing-v070) for the migration
+> mapping.
+
+The symptom is a rustc borrow-checker error in generated wrapper code, not in
+the step body itself. Two mutable fixture parameters usually produce
+[`E0499`][rustc-e0499],
+``cannot borrow `*ctx` as mutable more than once at a time``. One mutable
+fixture plus one immutable fixture can produce [`E0502`][rustc-e0502],
+``cannot borrow `*ctx` as mutable because it is also borrowed as immutable``.
+
+This GPUI-shaped snippet is intentionally rejected by the v0.6 generated
+wrapper; see *Why this happens* below.
+
+```rust,ignore
+#[given("the shell is open")]
+fn given_shell_open(
+    #[from(rstest_bdd_harness_context)] cx: &mut gpui::TestAppContext,
+    world: &mut UiWorld,
+) -> StepResult<()> {
+    let (shell, visual_cx) = cx.add_window_view(|_context| Shell::default());
+    world.shell = Some(shell);
+    world.window = Some(visual_cx.window_handle());
+    Ok(())
+}
+```
+
+The rejection here comes from the two `&mut` fixture parameters, not from the
+body: the snippet already stores only durable handles, as the playbook requires.
+
+The same constraint is not GPUI-specific. This non-GPUI shape is also rejected
+when both parameters come from the same `StepContext`.
+
+```rust,ignore
+#[when("the account is saved")]
+fn save_account(pool: &mut SqlPool, world: &mut World) -> StepResult<()> {
+    pool.store(&world.account)?;
+    world.saved = true;
+    Ok(())
+}
+```
+
+#### Why this happens
+
+The wrapper has to borrow each requested fixture before it can call the step
+function. For two `&mut T` parameters, that means two sequential
+`ctx.borrow_mut::<T>(...)` calls while the first guard is still live.
+`StepContext::borrow_mut` takes `&mut self`, so the second call asks for a new
+exclusive borrow of `ctx` before the first one has ended. The mixed case is the
+same shape with different mutability: `borrow_ref` holds a shared `&ctx` guard
+while `borrow_mut` needs an exclusive `&mut ctx` guard.
+
+Design §2.7.6.1 names this as a current `StepContext` design limitation, not a
+GPUI-only behaviour. ADR-007 keeps harness context injection under the reserved
+`rstest_bdd_harness_context` fixture key, so the v0.6 answer is to change the
+step shape. At the Rust-language level, the borrow checker does not treat
+`HashMap` lookups at different keys as automatically disjoint; see the
+Rustonomicon's discussion of [splitting borrows][rustonomicon-splitting].
+
+#### Workarounds
+
+**Redirect to the stateful GPUI playbook** when the second mutable fixture is
+the harness context. Store durable handles in resettable scenario state, then
+let each step borrow only `&mut gpui::TestAppContext` from `StepContext`.
+Follow [Stateful GPUI scenarios with durable handles][users-guide-playbook] for
+the full pattern, or the migration guide's
+[Migrate a stateful GPUI test](#migrate-a-stateful-gpui-test) subsection for
+the upgrade sequence. Do not adopt this thread-local shape for scenarios that
+need only one mutable fixture; it is the v0.6 workaround for the two-mutable
+case alone.
+
+**Reshape both parameters to `&T`** when read-only access to both fixtures is
+enough. That turns the generated wrapper into two `borrow_ref` calls, both
+holding shared borrows of `ctx`, which the borrow checker accepts. Reshaping
+only one parameter does not fix the conflict: `&T` plus `&mut T` is the mixed
+case and still produces `E0502`.
+
+**Split the step** when neither escape fits. Write consecutive Gherkin steps
+where each step touches one fixture only, and pass durable state between them
+through ordinary scenario fixtures or through the stateful GPUI playbook:
+
+```gherkin
+When the account is saved
+Then the saved account is visible
+```
+
+If both halves still need both fixtures mutably, splitting has not changed the
+borrow shape; the same constraint resurfaces inside one of the new steps. Use
+the playbook redirect instead.
+
+#### Where to read more
+
+- [rstest-bdd design §2.7.6.1][design-borrow-constraint] explains the borrow
+  constraint.
+- [rstest-bdd design §2.7.6.2][design-interim-gpui] records the interim GPUI
+  state pattern.
+- [rstest-bdd design §2.7.6.5][design-redesign] records the guard-based redesign
+  shipped in v0.7.0.
+- [ADR-007][adr-007] records the harness-context injection contract.
+- [ADR-012][adr-012] records the guard-based `StepContext` borrowing redesign;
+  see also
+  [Adopt guard-based `StepContext` borrowing (v0.7.0)](#adopt-guard-based-stepcontext-borrowing-v070)
+  in this guide.
+- [Stateful GPUI scenarios with durable handles][users-guide-playbook] is the
+  user-guide playbook.
+
+## Further reading
+
+- [Developer's guide](developers-guide.md)
+- [ADR 006 – Fallible scenario functions](adr-006-fallible-scenario-functions.md)
+- [ADR 007 – Harness context injection](adr-007-harness-context-injection.md)
+- [ADR 009 – Consistent implicit fixture-name normalization](adr-009-consistent-implicit-fixture-name-normalization.md)

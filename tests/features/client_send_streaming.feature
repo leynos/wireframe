@@ -22,5 +22,5 @@ Feature: Client outbound streaming sends
 
   Scenario: Client handles transport failure during streaming send
     Given a send-streaming server that disconnects immediately
-    When the client streams 300 bytes with a 4 byte header and 100 byte chunks
+    When the client streams 8388608 bytes with a 4 byte header and 65536 byte chunks
     Then a send-streaming transport error is returned

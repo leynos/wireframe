@@ -1,5 +1,4 @@
-//! Behavioural fixture for budget pressure transitions and dimension
-//! interaction scenarios (8.3.6).
+//! Behavioural fixture for budget pressure and dimension interactions (8.3.6).
 
 use std::{fmt, future::Future, num::NonZeroUsize, str::FromStr, time::Duration};
 
@@ -12,11 +11,15 @@ use wireframe::{
     fragment::FragmentationConfig,
     message_assembler::{FrameSequence, MessageKey},
     serializer::{BincodeSerializer, Serializer},
-    test_helpers::{self, TestAssembler},
+    test_helpers,
 };
 pub use wireframe_testing::TestResult;
 
-use super::budget_config_parser::parse_standard_budget_config;
+use super::{
+    budget_config_parser::parse_standard_budget_config,
+    frame_processing_assembler::{FrameProcessingAssembler, FrameSignal, poll_frame_signal},
+    virtual_time::advance_duration,
+};
 
 const ROUTE_ID: u32 = 93;
 const CORRELATION_ID: Option<u64> = Some(22);
@@ -24,8 +27,7 @@ const BUFFER_CAPACITY: usize = 512;
 const SPIN_ATTEMPTS: usize = 64;
 const SERVER_JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Parsed as
-/// "`timeout_ms` / `per_message` / `per_connection` / `in_flight`".
+/// Parsed as "`timeout_ms` / `per_message` / `per_connection` / `in_flight`".
 #[derive(Clone, Copy, Debug)]
 pub struct TransitionConfig {
     pub timeout_ms: u64,
@@ -48,14 +50,14 @@ impl FromStr for TransitionConfig {
     }
 }
 
-/// Runtime-backed fixture that drives inbound assembly with memory budgets
-/// and validates pressure-level transitions and dimension interactions.
+/// Drives inbound assembly and validates budget pressure and dimension interactions.
 pub struct BudgetTransitionsWorld {
     runtime: Option<tokio::runtime::Runtime>,
     runtime_error: Option<String>,
     client: Option<Framed<DuplexStream, LengthDelimitedCodec>>,
     server: Option<JoinHandle<std::io::Result<()>>>,
     observed_rx: Option<mpsc::UnboundedReceiver<Vec<u8>>>,
+    processed_rx: Option<mpsc::UnboundedReceiver<()>>,
     observed_payloads: Vec<Vec<u8>>,
     last_send_error: Option<String>,
     connection_error: Option<String>,
@@ -72,6 +74,7 @@ impl BudgetTransitionsWorld {
             client: None,
             server: None,
             observed_rx: None,
+            processed_rx: None,
             observed_payloads: Vec::new(),
             last_send_error: None,
             connection_error: None,
@@ -106,10 +109,16 @@ impl fmt::Debug for BudgetTransitionsWorld {
 }
 
 /// Construct the default world used by budget transitions BDD tests.
+///
+/// # Errors
+///
+/// Returns an error if the scenario runtime is unavailable.
 #[rustfmt::skip]
 #[fixture]
-pub fn budget_transitions_world() -> BudgetTransitionsWorld {
-    BudgetTransitionsWorld::default()
+pub fn budget_transitions_world() -> TestResult<BudgetTransitionsWorld> {
+    let world = BudgetTransitionsWorld::default();
+    world.runtime()?;
+    Ok(world)
 }
 
 impl BudgetTransitionsWorld {
@@ -160,6 +169,7 @@ impl BudgetTransitionsWorld {
         );
 
         let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (assembler, processed_rx) = FrameProcessingAssembler::new();
         let handler: Handler<Envelope> = std::sync::Arc::new(move |envelope: &Envelope| {
             let tx = tx.clone();
             let payload = envelope.payload_bytes().to_vec();
@@ -171,7 +181,7 @@ impl BudgetTransitionsWorld {
         let app: WireframeApp = WireframeApp::new()?
             .buffer_capacity(BUFFER_CAPACITY)
             .fragmentation(Some(fragmentation))
-            .with_message_assembler(TestAssembler)
+            .with_message_assembler(assembler)
             .memory_budgets(budgets)
             .route(ROUTE_ID, handler)?;
 
@@ -187,6 +197,7 @@ impl BudgetTransitionsWorld {
         self.client = Some(client);
         self.server = Some(server);
         self.observed_rx = Some(rx);
+        self.processed_rx = Some(processed_rx);
         self.observed_payloads.clear();
         self.last_send_error = None;
         self.connection_error = None;
@@ -196,9 +207,8 @@ impl BudgetTransitionsWorld {
     /// Send multiple non-final first frames for keys in a range.
     ///
     /// Send errors are intentionally ignored: the scenarios that call this
-    /// method overflow the budget, so the server-side connection will abort
-    /// mid-way through. The caller asserts the abort reason separately via
-    /// [`Self::assert_connection_aborted`].
+    /// method overflow the budget, so the server aborts mid-way; the caller
+    /// asserts the abort reason via [`Self::assert_connection_aborted`].
     pub fn send_first_frames_for_range(&mut self, start: u64, end: u64, body: &str) -> TestResult {
         for key in start..=end {
             if self.send_first_frame(key, body).is_err() {
@@ -232,8 +242,30 @@ impl BudgetTransitionsWorld {
         self.send_payload(payload)
     }
 
-    /// Assert that the connection terminated with an `InvalidData` error
-    /// (the kind produced by budget enforcement).
+    /// Wait until the server has parsed one previously written frame header.
+    pub fn wait_for_frame_processed(&mut self) -> TestResult {
+        let mut processed_rx = self
+            .processed_rx
+            .take()
+            .ok_or("frame-processing receiver not initialized")?;
+        let signal = poll_frame_signal(self.runtime()?, &mut processed_rx);
+        self.processed_rx = Some(processed_rx);
+        match signal {
+            FrameSignal::Processed => self.spin_runtime(),
+            FrameSignal::ChannelClosed => Err("frame-processing signal channel closed".into()),
+            FrameSignal::Pending => {
+                Err("server did not process a frame within the bounded wait".into())
+            }
+        }
+    }
+
+    /// Advance Tokio virtual time by `millis` plus one timer-wheel tick.
+    pub fn advance_millis(&mut self, millis: u64) -> TestResult {
+        self.block_on(async { tokio::time::advance(advance_duration(millis)).await })?;
+        self.spin_runtime()
+    }
+
+    /// Assert that budget enforcement terminated the connection with `InvalidData`.
     pub fn assert_connection_aborted(&mut self) -> TestResult {
         self.spin_runtime()?;
         self.drain_ready_payloads()?;
@@ -275,6 +307,24 @@ impl BudgetTransitionsWorld {
         .into())
     }
 
+    /// Drive ready runtime work and record the payloads available without waiting.
+    pub fn collect_ready_payloads(&mut self) -> TestResult {
+        self.spin_runtime()?;
+        self.drain_ready_payloads()
+    }
+
+    /// Assert that the recorded observation contains no completed payload.
+    pub fn assert_no_payload_ready(&self) -> TestResult {
+        if self.observed_payloads.is_empty() {
+            return Ok(());
+        }
+        Err(format!(
+            "expected no payload to be ready, observed={:?}",
+            self.observed_payloads
+        )
+        .into())
+    }
+
     /// Assert that no connection error has occurred.
     pub fn assert_no_connection_error(&mut self) -> TestResult {
         if let Some(ref error) = self.connection_error {
@@ -288,6 +338,7 @@ impl BudgetTransitionsWorld {
         }
     }
 
+    /// Send a payload, yield cooperatively, and propagate errors.
     fn send_payload(&mut self, payload: Vec<u8>) -> TestResult {
         let envelope = Envelope::new(ROUTE_ID, CORRELATION_ID, payload);
         let serializer = BincodeSerializer;
@@ -307,7 +358,8 @@ impl BudgetTransitionsWorld {
         } else {
             self.last_send_error = None;
         }
-        result
+        result?;
+        self.spin_runtime()
     }
 
     /// Join the server task with a bounded timeout.
@@ -322,6 +374,9 @@ impl BudgetTransitionsWorld {
         }
     }
 
+    /// Yield cooperatively to runtime tasks for a bounded number of turns.
+    /// Ready work can progress, but completion is not guaranteed; an
+    /// unavailable or nested runtime produces an error.
     fn spin_runtime(&self) -> TestResult {
         self.block_on(async {
             for _ in 0..8 {
@@ -331,6 +386,8 @@ impl BudgetTransitionsWorld {
         Ok(())
     }
 
+    /// Move currently queued payloads into the observed list without waiting.
+    /// Returns an error if the payload receiver is not initialized.
     fn drain_ready_payloads(&mut self) -> TestResult {
         let mut observed_rx = self.observed_rx.take().ok_or("receiver not initialized")?;
         while let Ok(payload) = observed_rx.try_recv() {

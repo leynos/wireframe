@@ -1,0 +1,10 @@
+error: No matching step definition found for 'Given a deliberately undefined strict step'
+ --> tests/ui/rstest_bdd_v06/strict_missing_step.rs:6:1
+  |
+6 | / #[scenario(
+7 | |     path = "rstest_bdd_v06/missing_step.feature",
+8 | |     name = "Missing step is rejected"
+9 | | )]
+  | |__^
+  |
+  = note: this error originates in the attribute macro `scenario` (in Nightly builds, run with -Z macro-backtrace for more info)

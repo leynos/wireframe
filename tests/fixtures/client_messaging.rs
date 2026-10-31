@@ -22,7 +22,7 @@ pub use wireframe_testing::TestResult;
 use wireframe_testing::{ServerMode, process_frame};
 
 /// Test world for client messaging scenarios.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ClientMessagingWorld {
     addr: Option<SocketAddr>,
     server: Option<JoinHandle<()>>,
@@ -36,16 +36,39 @@ pub struct ClientMessagingWorld {
     expected_message_id: Option<u32>,
     /// Expected payload for response verification.
     expected_payload: Option<String>,
+    runtime: tokio::runtime::Runtime,
+}
+
+impl Drop for ClientMessagingWorld {
+    fn drop(&mut self) {
+        self.client.take();
+        self.abort_server();
+    }
 }
 
 /// Fixture for `ClientMessagingWorld`.
 #[rustfmt::skip]
 #[fixture]
-pub fn client_messaging_world() -> ClientMessagingWorld {
-    ClientMessagingWorld::default()
+pub fn client_messaging_world() -> TestResult<ClientMessagingWorld> {
+    Ok(ClientMessagingWorld {
+        runtime: tokio::runtime::Runtime::new()
+            .map_err(|error| format!("client messaging fixture setup failed: {error}"))?,
+        addr: None,
+        server: None,
+        client: None,
+        envelope: None,
+        sent_correlation_ids: Vec::new(),
+        response: None,
+        last_error: None,
+        expected_message_id: None,
+        expected_payload: None,
+    })
 }
 
 impl ClientMessagingWorld {
+    /// Return a handle for driving async steps on the scenario's shared runtime.
+    pub fn handle(&self) -> tokio::runtime::Handle { self.runtime.handle().clone() }
+
     /// Start an envelope echo server.
     ///
     /// # Errors

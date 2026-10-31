@@ -154,6 +154,7 @@ struct StatefulServer {
     handle: JoinHandle<()>,
 }
 
+/// Accept up to two connections and serve them through the stateful codec app.
 #[expect(
     deprecated,
     reason = "fixture covers the legacy builder connection API"
@@ -170,26 +171,50 @@ async fn serve_stateful_connections(
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 /// Test world for stateful codec scenarios.
 pub struct CodecStatefulWorld {
     server: Option<StatefulServer>,
     max_frame_length: usize,
     first_sequences: Vec<u64>,
     second_sequences: Vec<u64>,
+    runtime: tokio::runtime::Runtime,
+}
+
+impl Drop for CodecStatefulWorld {
+    /// Request abortion of a remaining server task without awaiting it.
+    fn drop(&mut self) {
+        if let Some(server) = self.server.take() {
+            server.handle.abort();
+        }
+    }
 }
 
 /// Fixture for stateful codec scenarios used by rstest-bdd steps.
 ///
 /// Note: rustfmt collapses simple fixtures into one line, which triggers
 /// `unused_braces`, so keep `rustfmt::skip`.
+///
+/// # Errors
+///
+/// Returns an error if Tokio runtime initialization fails.
 #[rustfmt::skip]
 #[fixture]
-pub fn codec_stateful_world() -> CodecStatefulWorld {
-    CodecStatefulWorld::default()
+pub fn codec_stateful_world() -> TestResult<CodecStatefulWorld> {
+    Ok(CodecStatefulWorld {
+        runtime: tokio::runtime::Runtime::new()
+            .map_err(|error| format!("stateful codec fixture setup failed: {error}"))?,
+        server: None,
+        max_frame_length: 0,
+        first_sequences: Vec::new(),
+        second_sequences: Vec::new(),
+    })
 }
 
 impl CodecStatefulWorld {
+    /// Return a handle for driving async steps on the scenario's shared runtime.
+    pub fn handle(&self) -> tokio::runtime::Handle { self.runtime.handle().clone() }
+
     /// Start a server using the sequence-aware codec.
     ///
     /// # Errors

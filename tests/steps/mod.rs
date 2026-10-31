@@ -1,7 +1,7 @@
-//! Step definitions for rstest-bdd tests.
+//! Step definitions consumed by the scenario modules for rstest-bdd tests.
 //!
-//! Step functions are synchronous and call async world methods via
-//! `Runtime::new().block_on(...)`.
+//! Step functions are synchronous and use a scenario world's shared Tokio
+//! runtime or handle when performing asynchronous world operations.
 
 mod budget_cleanup_steps;
 mod budget_enforcement_steps;
@@ -37,6 +37,7 @@ mod multi_packet_steps;
 mod panic_steps;
 mod partial_frame_feeding_steps;
 mod request_parts_steps;
+mod result_alias_dispatch_steps;
 mod serializer_boundaries_steps;
 mod slow_io_backpressure_steps;
 mod stream_end_steps;

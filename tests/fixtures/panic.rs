@@ -77,21 +77,34 @@ impl Drop for PanicServer {
 }
 
 /// Test world that drives a server which intentionally panics during setup.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct PanicWorld {
+    runtime: tokio::runtime::Runtime,
     server: Option<PanicServer>,
     attempts: usize,
 }
 
 /// Fixture for `PanicWorld`.
+///
+/// # Errors
+///
+/// Returns an error if Tokio runtime initialization fails.
 // rustfmt collapses simple fixtures into one line, which triggers unused_braces.
 #[rustfmt::skip]
 #[fixture]
-pub fn panic_world() -> PanicWorld {
-    PanicWorld::default()
+pub fn panic_world() -> TestResult<PanicWorld> {
+    Ok(PanicWorld {
+        runtime: tokio::runtime::Runtime::new()
+            .map_err(|error| format!("panic resilience fixture setup failed: {error}"))?,
+        server: None,
+        attempts: 0,
+    })
 }
 
 impl PanicWorld {
+    /// Return a handle for driving async steps on the scenario's shared runtime.
+    pub fn handle(&self) -> tokio::runtime::Handle { self.runtime.handle().clone() }
+
     /// Start a server that panics during connection setup.
     ///
     /// # Errors
@@ -129,4 +142,8 @@ impl PanicWorld {
         tokio::task::yield_now().await;
         Ok(())
     }
+}
+
+impl Drop for PanicWorld {
+    fn drop(&mut self) { self.server.take(); }
 }

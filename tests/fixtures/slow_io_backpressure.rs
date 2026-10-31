@@ -151,7 +151,8 @@ pub fn slow_io_backpressure_world() -> TestResult<SlowIoBackpressureWorld> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .start_paused(true)
-        .build()?;
+        .build()
+        .map_err(|error| format!("slow-io fixture setup failed: {error}"))?;
     Ok(SlowIoBackpressureWorld {
         runtime,
         max_frame_length: None,
@@ -292,7 +293,11 @@ impl SlowIoBackpressureWorld {
 
     /// Assert that the drive has not completed yet.
     pub fn assert_pending(&mut self) -> TestResult {
-        self.block_on(async { tokio::task::yield_now().await })?;
+        self.block_on(async {
+            for _ in 0..8 {
+                tokio::task::yield_now().await;
+            }
+        })?;
         let task = self
             .task
             .as_ref()
@@ -306,8 +311,13 @@ impl SlowIoBackpressureWorld {
     /// Advance Tokio virtual time.
     pub fn advance_millis(&mut self, millis: u64) -> TestResult {
         self.block_on(async {
-            tokio::time::advance(Duration::from_millis(millis)).await;
-            tokio::task::yield_now().await;
+            let mut remaining = millis;
+            while remaining > 0 {
+                let step = remaining.min(5);
+                tokio::time::advance(Duration::from_millis(step)).await;
+                tokio::task::yield_now().await;
+                remaining -= step;
+            }
         })?;
         Ok(())
     }

@@ -13,7 +13,12 @@ Feature: Budget pressure transitions and dimension interactions
   Scenario: Recovery from soft limit after assembly completion
     Given a transition app configured as 200/2048/10/10
     When a transition first frame for key 20 with body "aaaaaaaa" arrives
+    And the transition server processes the first frame
     And a transition final continuation for key 20 sequence 1 with body "b" arrives
+    And ready transition payloads are collected
+    Then no transition payload is available before virtual time advances
+    When transition virtual time advances by 5 milliseconds
+    And the transition server parses the next frame
     Then transition payload "aaaaaaaab" is eventually received
     When a transition first frame for key 21 with body "cc" arrives
     And a transition final continuation for key 21 sequence 1 with body "d" arrives
