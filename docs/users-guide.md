@@ -1548,9 +1548,10 @@ application root, rewinds leftover preamble bytes, and hands the stream to it.
 Transient accept failures trigger exponential backoff capped by the configured
 maximum delay.[^18][^19] Preamble hooks support asynchronous success handlers
 and asynchronous failure callbacks that receive the stream, enabling replies or
-decode-error logging before the application runs. An optional
-`preamble_timeout` caps how long `read_preamble` waits; timeouts use the
-failure callback path.[^20]
+decode-error logging before the application runs. The server bounds the read
+with `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) by default; `preamble_timeout`
+replaces that deadline and `disable_preamble_timeout` removes it. The deadline
+covers only the preamble read, and timeouts use the failure callback path.[^20]
 
 For an awaitable lifecycle outside the foreground task, call
 `WireframeServer::spawn().await`. It returns a cloneable `ServerShutdown`:

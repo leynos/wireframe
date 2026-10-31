@@ -105,12 +105,23 @@ let server = WireframeServer::new(|| WireframeApp::default())
 ## Preamble handling
 
 Servers that expect a preamble can bound how long they wait for it and decide
-what to do when decoding fails. `preamble_timeout(Duration)` wraps
-`read_preamble` in a timeout; values below 1 ms are clamped to 1 ms, and
-omitting the setter leaves the read unbounded. When decoding fails or times
-out, an optional failure handler runs before the connection is closed. The
-handler is asynchronous and receives both the error and the mutable
-`TcpStream`, allowing a response to be written back to the client.
+what to do when decoding fails. Every server starts with a 10-second deadline,
+exposed as `wireframe::server::DEFAULT_PREAMBLE_TIMEOUT`, which wraps
+`read_preamble` in a timeout. `preamble_timeout(Duration)` replaces that
+deadline; values below 1 ms are clamped to 1 ms, so `Duration::ZERO` still
+leaves a usable bound. The last configuration call wins.
+
+`disable_preamble_timeout()` removes the deadline entirely. Use it only for
+protocols where the client waits for a server greeting before sending anything,
+because a peer that never sends a preamble otherwise keeps its connection task
+alive indefinitely and delays graceful drain. The deadline covers only the
+preamble read: the success and failure callbacks and application message
+handling run outside it.
+
+When decoding fails or times out, an optional failure handler runs before the
+connection is closed. The handler is asynchronous and receives both the error
+and the mutable `TcpStream`, allowing a response to be written back to the
+client.
 
 ```rust,no_run
 use std::time::Duration;
