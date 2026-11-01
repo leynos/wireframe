@@ -54,6 +54,40 @@ impl WireframeProtocol for ResponseMarkerProtocol {
 /// Handler that accepts an envelope and returns an empty response payload.
 fn echo_handler() -> Handler<Envelope> { Arc::new(|_env: &Envelope| Box::pin(async {})) }
 
+/// Build an app that routes [`echo_handler`] through a marking protocol.
+fn marked_app(calls: &Arc<AtomicUsize>) -> TestResult<ResponseApp> {
+    let app = ResponseApp::new()?
+        .route(1, echo_handler())?
+        .with_protocol(ResponseMarkerProtocol {
+            calls: Arc::clone(calls),
+        });
+    Ok(app)
+}
+
+/// Assert that every observed response is marked and the hook ran `expected`
+/// times.
+///
+/// Takes already-decoded payloads so this helper stays assertion-only; a
+/// `Result`-returning helper would trip `clippy::panic_in_result_fn`.
+fn assert_marked_responses(
+    payloads: &[Vec<u8>],
+    calls: &Arc<AtomicUsize>,
+    expected: usize,
+    path: &str,
+) {
+    let expected_payloads = vec![Vec::<u8>::new(); expected];
+    assert_eq!(
+        payloads,
+        expected_payloads.as_slice(),
+        "{path}: every response should carry the protocol marker"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        expected,
+        "{path}: before_send should run once per response"
+    );
+}
+
 /// Encode one request envelope into a length-delimited frame.
 fn request_frame(id: u32) -> TestResult<Vec<u8>> {
     let payload = BincodeSerializer.serialize(&Envelope::new(id, Some(7), Vec::new()))?;
@@ -89,24 +123,12 @@ fn decode_marked_payloads(bytes: &[u8]) -> TestResult<Vec<Vec<u8>>> {
 #[tokio::test]
 async fn prepared_app_runs_before_send_for_handler_responses() -> TestResult<()> {
     let calls = Arc::new(AtomicUsize::new(0));
-    let app = ResponseApp::new()?
-        .route(1, echo_handler())?
-        .with_protocol(ResponseMarkerProtocol {
-            calls: Arc::clone(&calls),
-        });
+    let app = marked_app(&calls)?;
 
     let bytes = prepare_and_drive_with_frames(app, vec![request_frame(1)?]).await?;
 
-    assert_eq!(
-        decode_marked_payloads(&bytes)?,
-        vec![Vec::<u8>::new()],
-        "the response should carry the protocol marker"
-    );
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        1,
-        "before_send should run for the handler response"
-    );
+    let payloads = decode_marked_payloads(&bytes)?;
+    assert_marked_responses(&payloads, &calls, 1, "prepared path");
     Ok(())
 }
 
@@ -114,24 +136,12 @@ async fn prepared_app_runs_before_send_for_handler_responses() -> TestResult<()>
 #[tokio::test]
 async fn unprepared_app_runs_before_send_for_handler_responses() -> TestResult<()> {
     let calls = Arc::new(AtomicUsize::new(0));
-    let app = ResponseApp::new()?
-        .route(1, echo_handler())?
-        .with_protocol(ResponseMarkerProtocol {
-            calls: Arc::clone(&calls),
-        });
+    let app = marked_app(&calls)?;
 
     let bytes = drive_with_frames(app, vec![request_frame(1)?]).await?;
 
-    assert_eq!(
-        decode_marked_payloads(&bytes)?,
-        vec![Vec::<u8>::new()],
-        "the compatibility path should also apply before_send"
-    );
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        1,
-        "before_send should run on the unprepared path"
-    );
+    let payloads = decode_marked_payloads(&bytes)?;
+    assert_marked_responses(&payloads, &calls, 1, "unprepared path");
     Ok(())
 }
 
@@ -139,25 +149,13 @@ async fn unprepared_app_runs_before_send_for_handler_responses() -> TestResult<(
 #[tokio::test]
 async fn before_send_runs_for_every_response_on_one_connection() -> TestResult<()> {
     let calls = Arc::new(AtomicUsize::new(0));
-    let app = ResponseApp::new()?
-        .route(1, echo_handler())?
-        .with_protocol(ResponseMarkerProtocol {
-            calls: Arc::clone(&calls),
-        });
+    let app = marked_app(&calls)?;
 
     let bytes =
         prepare_and_drive_with_frames(app, vec![request_frame(1)?, request_frame(1)?]).await?;
 
-    assert_eq!(
-        decode_marked_payloads(&bytes)?.len(),
-        2,
-        "both responses should be marked on the same connection"
-    );
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        2,
-        "before_send should run once per response"
-    );
+    let payloads = decode_marked_payloads(&bytes)?;
+    assert_marked_responses(&payloads, &calls, 2, "same connection");
     Ok(())
 }
 
