@@ -1551,21 +1551,35 @@ fragmentation is delegated to an upstream gateway). The `ConnectionActor`
 mirrors the same behaviour for push traffic and streaming responses through
 `enable_fragmentation`, ensuring client-visible frames follow the same format.
 
-On the server side, a unified `FramePipeline` applies the same fragmentation
-logic to all outbound `Envelope` values — handler responses, streaming frames,
-and multi-packet channels — before serialization and codec wrapping. This
-guarantees that a single connection-scoped `FragmentationState` manages both
-outbound fragmentation and inbound reassembly.
+On the server side, a unified `FramePipeline` applies fragmentation to every
+outbound handler response `Envelope` before serialization and codec wrapping.
+Streaming responses and multi-packet channels are emitted by the
+`ConnectionActor`, which applies the same fragmentation logic through
+`enable_fragmentation`. In both cases a single connection-scoped
+`FragmentationState` manages outbound fragmentation and inbound reassembly.
 
 ## Protocol hooks
 
 Install a custom protocol with `with_protocol`. `protocol_hooks()` converts the
-stored implementation into `ProtocolHooks`, which the connection actor consumes
-when draining responses and push queues.[^2][^7] `WireframeProtocol` exposes
+stored implementation into `ProtocolHooks`.[^2][^7] `WireframeProtocol` exposes
 callbacks for connection setup, per-frame mutation, command completion,
-protocol errors, and optional end-of-stream frames. The connection actor
-invokes these hooks around every outbound frame and when response streams end
-or emit errors.[^14]
+protocol errors, and optional end-of-stream frames.[^14]
+
+`before_send` runs on every `WireframeApp` handler response frame. The
+application builds a fresh `ProtocolHooks` value for each connection, and the
+response pipeline calls `before_send` after serialization and codec wrapping,
+immediately before the frame is written to the transport. Every fragment of a
+fragmented response passes through the hook individually, and the same
+connection-local `ConnectionContext` is used for all frames on that connection.
+This gives protocol implementations one place to stamp, encrypt, or observe
+ordinary server responses.
+
+The application path does not run the remaining protocol hooks: connection
+setup, command end, stream end, error, and end-of-file callbacks remain the
+responsibility of the `ConnectionActor` for push and streaming traffic. The
+direct response helpers that write frames without the `FramePipeline` also
+bypass `before_send`; use `WireframeApp` routes when a response must traverse
+configured protocol hooks.
 
 ## Running servers
 

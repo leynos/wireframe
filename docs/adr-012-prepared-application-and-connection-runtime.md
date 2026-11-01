@@ -406,6 +406,15 @@ normal app responses as well as actor-driven push/streaming output. This
 coordinates with [#547](https://github.com/leynos/wireframe/issues/547) while
 preserving ADR 010's packet-oriented hook decision.
 
+`PreparedApp` builds a fresh `ProtocolHooks` value for each connection from the
+prepared protocol and passes it, together with a new `ConnectionContext`, to
+the connection's `FramePipeline`. The pipeline runs `before_send` on every
+serialized and codec-wrapped handler-response frame, including each fragment of
+a fragmented response, immediately before the transport write. Hooks are never
+shared between connections. The remaining protocol hooks stay on the
+`ConnectionActor` push and streaming paths; the direct response helpers bypass
+`before_send` by design.
+
 ### 7. Unify examples with the production runtime
 
 Examples should stop maintaining a separate `Arc<WireframeApp>` bootstrap

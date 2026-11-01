@@ -685,13 +685,21 @@ classDiagram
         +protocol()
         +protocol_hooks()
     }
+    class FramePipeline {
+        -hooks: ProtocolHooks<F.Frame>
+        -context: ConnectionContext
+        +process(&mut self, Envelope)
+        +before_send(&mut self, &mut F.Frame)
+    }
     class ConnectionActor {
         -hooks: ProtocolHooks<F>
         -ctx: ConnectionContext
     }
     WireframeApp --> "1" WireframeProtocol : uses
-    WireframeApp --> "1" ProtocolHooks : creates
+    WireframeApp --> "1" ProtocolHooks : creates per connection
     ProtocolHooks --> "1" WireframeProtocol : from_protocol
+    FramePipeline --> "1" ProtocolHooks : uses
+    FramePipeline --> "1" ConnectionContext : owns
     ConnectionActor --> "1" ProtocolHooks : uses
     ConnectionActor --> "1" ConnectionContext : owns
     ProtocolHooks --> "1" ConnectionContext : passes to hooks
@@ -857,12 +865,18 @@ features of the 1.0 release.
 
 - **Unified Codec Pipeline:** On the server side, the `FramePipeline`
   (`src/app/codec_driver.rs`) applies outbound fragmentation and metrics to
-  every `Envelope` before it reaches the wire. Handler responses pass through
-  the pipeline before serialization and codec wrapping, ensuring the same
-  fragmentation logic applies to both handler responses and push traffic.
-  Protocol hooks are applied at the connection-actor level and are currently
-  deferred for the app-router path pending resolution of the `F::Frame` vs
-  `Envelope` type constraint.
+  every handler-response `Envelope` before it reaches the wire. Push,
+  streaming, and multi-packet frames are emitted by the `ConnectionActor`,
+  which applies the same fragmentation logic through `enable_fragmentation`.
+
+  The application pipeline order is: fragmentation → serialize →
+  `FrameCodec::wrap_payload` → `before_send` → transport write. The pipeline
+  owns the `ProtocolHooks` and `ConnectionContext` built for its connection, so
+  `before_send` sees the exact codec frame that will be written and retains
+  connection-local state across every response. Only `before_send` is shared
+  with the actor path; connection setup, command end, stream end, error, and
+  end-of-file hooks remain actor-only. The direct response helpers that bypass
+  the pipeline also bypass `before_send`.
 
 ```rust,ignore
 // Codec stack with explicit frame-size limits and fragmentation.
