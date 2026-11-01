@@ -1,8 +1,6 @@
 //! Logical-session handle API for fair pooled acquisition.
 
-use std::sync::Arc;
-
-use super::{client_pool::PoolSchedulerControl, core::PoolCore, lease::PooledClientLease};
+use super::{lease::PooledClientLease, scheduler::SchedulerHandle};
 use crate::{
     client::ClientError,
     message::{DecodeWith, EncodeWith},
@@ -38,10 +36,12 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    /// Shared physical slot storage retained by acquired leases.
-    core: Arc<PoolCore<S, P, C>>,
-    /// Fairness scheduler, kept separate from physical slot ownership.
-    control: Arc<PoolSchedulerControl<S, P, C>>,
+    /// Command handle onto the pool's scheduler task.
+    ///
+    /// Holding a clone keeps the scheduler alive, which is what lets a handle
+    /// outlive [`WireframeClientPool`](super::WireframeClientPool) without
+    /// leaving queued work unserviced.
+    scheduler: SchedulerHandle<S, P, C>,
     /// Scheduler identity removed when this handle is dropped.
     handle_id: u64,
 }
@@ -52,15 +52,10 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    /// Bind a scheduler-assigned identity to the independent pool roots.
-    pub(crate) const fn new(
-        core: Arc<PoolCore<S, P, C>>,
-        control: Arc<PoolSchedulerControl<S, P, C>>,
-        handle_id: u64,
-    ) -> Self {
+    /// Bind a scheduler-assigned identity to the pool's command handle.
+    pub(crate) const fn new(scheduler: SchedulerHandle<S, P, C>, handle_id: u64) -> Self {
         Self {
-            core,
-            control,
+            scheduler,
             handle_id,
         }
     }
@@ -88,15 +83,11 @@ where
     ///
     /// Returns [`ClientError`] if permit acquisition or pooled checkout fails,
     /// including when the pool has been closed.
+    ///
+    /// A closed pool reports [`ClientError::PoolClosed`]; a pool whose
+    /// scheduler task failed reports [`ClientError::SchedulerFailed`].
     pub async fn acquire(&mut self) -> Result<PooledClientLease<S, P, C>, ClientError> {
-        self.control
-            .scheduler
-            .acquire_for_handle(
-                Arc::clone(&self.core),
-                Arc::clone(&self.control),
-                self.handle_id,
-            )
-            .await
+        self.scheduler.acquire(self.handle_id).await
     }
 
     /// Perform a complete request-response round trip through a fair lease.
@@ -143,5 +134,5 @@ where
     P: bincode::Encode + Clone + Send + Sync + 'static,
     C: Send + 'static,
 {
-    fn drop(&mut self) { self.control.scheduler.deregister_handle(self.handle_id); }
+    fn drop(&mut self) { self.scheduler.deregister(self.handle_id); }
 }

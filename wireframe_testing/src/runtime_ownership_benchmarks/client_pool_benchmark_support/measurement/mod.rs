@@ -46,8 +46,7 @@ use super::workload::{PoolMeasurement, PoolWorkload};
 /// Acquisitions used to warm a freshly built pool before it is measured.
 ///
 /// One is enough to force the work that only happens once: the first slot
-/// checkout, and the first idle-to-busy transition of the scheduler. A second
-/// would add its own churn to no purpose.
+/// checkout. A second would add its own churn to no purpose.
 pub(super) const WARMUP_ACQUISITIONS: usize = 1;
 
 /// Live task count for the current runtime.

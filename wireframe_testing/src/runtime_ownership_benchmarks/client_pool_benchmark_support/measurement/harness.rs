@@ -91,17 +91,18 @@ impl PoolHarness {
         acquire_round(&mut warmup_handle, WARMUP_ACQUISITIONS)
             .await
             .map_err(|err| format!("pool warm-up acquire failed: {err}"))?;
-        // Let any worker the warm-up woke exit before the measured phase starts,
-        // so its exit is not charged to the first measured iteration. The gauge
-        // is sampled after that settle, which is what makes the seed's opening
-        // reading comparable with the first phase's closing one.
+        // Let the tasks the warm-up touched settle before the measured phase
+        // starts, so any task it finished with is not charged to the first
+        // measured iteration. The gauge is sampled after that settle, which is
+        // what makes the seed's opening reading comparable with the first
+        // phase's closing one.
         //
         // The settle is the only thing the warm-up contributes to the
         // measurement. Its churn is deliberately *not* folded into the totals:
         // it happened before every counted window opened, so including it would
         // put out-of-window work into a figure that claims to be the measured
-        // phases' delta — and a measured burst that never entered the scheduler
-        // could then still report a spawn, borrowed from the warm-up.
+        // phases' delta — and the pool's construction-time scheduler spawn
+        // would then be reported as acquisition cost.
         settled_alive_tasks().await?;
 
         Ok(Self {
@@ -182,7 +183,7 @@ impl PoolHarness {
                 Err(error) => latency.push_failure(error),
             }
             // Settle between bursts for the same reason the phase bracket does:
-            // a worker the released capacity woke is still being polled, and
+            // a task the released capacity touched is still being polled, and
             // the next burst must not inherit its exit.
             settled_alive_tasks().await?;
         }

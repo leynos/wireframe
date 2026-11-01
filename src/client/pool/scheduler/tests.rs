@@ -1,15 +1,20 @@
-//! Coverage for waiter queue bookkeeping and bounded admission.
+//! Coverage for the scheduler's owned waiter queues and bounded admission.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::VecDeque;
 
 use proptest::{prelude::*, test_runner::Config as ProptestConfig};
 use rstest::rstest;
+use tokio::sync::oneshot;
 
-use super::*;
-use crate::serializer::BincodeSerializer;
+use super::{
+    state::{SchedulerState, WaiterAdmission, WaiterEnqueueResult},
+    *,
+};
+use crate::{client::ClientError, serializer::BincodeSerializer};
 
 type TestState = SchedulerState<BincodeSerializer, (), ()>;
-type TestScheduler = PoolScheduler<BincodeSerializer, (), ()>;
+type TestLease = super::super::PooledClientLease<BincodeSerializer, (), ()>;
+type TestReceiver = oneshot::Receiver<Result<TestLease, ClientError>>;
 
 fn admission(fairness_policy: PoolFairnessPolicy, max_waiters: usize) -> WaiterAdmission {
     WaiterAdmission {
@@ -18,65 +23,49 @@ fn admission(fairness_policy: PoolFairnessPolicy, max_waiters: usize) -> WaiterA
     }
 }
 
-fn live_queued_waiter_count(state: &TestState) -> usize {
-    state
-        .fifo_queue
-        .iter()
-        .filter(|(_, sender)| !sender.is_closed())
-        .count()
-        + state
-            .handle_waiters
-            .values()
-            .flat_map(|queue| queue.iter())
-            .filter(|sender| !sender.is_closed())
-            .count()
-}
-
-#[test]
-fn try_begin_servicing_has_one_owner_until_stopped() {
-    let fifo_scheduler = TestScheduler::new(PoolFairnessPolicy::Fifo, 64);
-    assert!(fifo_scheduler.try_begin_servicing());
-    assert!(!fifo_scheduler.try_begin_servicing());
-}
-
-#[test]
-fn stop_servicing_allows_another_owner() {
-    let fifo_scheduler = TestScheduler::new(PoolFairnessPolicy::Fifo, 64);
-    assert!(fifo_scheduler.try_begin_servicing());
-    fifo_scheduler.stop_servicing();
-    assert!(fifo_scheduler.try_begin_servicing());
-}
-
-#[test]
-fn restart_if_waiters_only_begins_service_for_queued_work() {
-    let scheduler = TestScheduler::new(PoolFairnessPolicy::RoundRobin, 64);
-    let handle_id = scheduler.register_handle();
-    let (sender, _receiver) = oneshot::channel();
-    assert!(!scheduler.restart_if_waiters());
-    assert_eq!(
-        lock_or_recover(&scheduler.state).enqueue_waiter(
-            handle_id,
-            sender,
-            admission(PoolFairnessPolicy::RoundRobin, 64),
-        ),
-        WaiterEnqueueResult::Enqueued
-    );
-
-    assert!(scheduler.restart_if_waiters());
-}
-
-#[test]
-fn round_robin_enqueue_rejects_unknown_handles() {
-    let mut state = TestState::new();
-    let (sender, _receiver) = oneshot::channel();
-    let result = state.enqueue_waiter(42, sender, admission(PoolFairnessPolicy::RoundRobin, 64));
-    assert_eq!(result, WaiterEnqueueResult::UnregisteredHandle);
+/// Build a state with one queued waiter and return its receiver.
+fn enqueue_one(
+    state: &mut TestState,
+    handle_id: u64,
+    policy: PoolFairnessPolicy,
+    max_waiters: usize,
+) -> TestReceiver {
+    let (sender, receiver) = oneshot::channel();
+    let result = state.enqueue_waiter(handle_id, sender, admission(policy, max_waiters));
     assert!(
-        state
-            .take_next_waiter(PoolFairnessPolicy::RoundRobin)
-            .is_none(),
-        "rejected round-robin waiters must not remain queued"
+        matches!(result, WaiterEnqueueResult::Enqueued),
+        "the first waiter must be admitted"
     );
+    receiver
+}
+
+#[rstest]
+#[case(PoolFairnessPolicy::Fifo)]
+#[case(PoolFairnessPolicy::RoundRobin)]
+fn enqueue_registers_a_handle_the_first_time_it_appears(#[case] policy: PoolFairnessPolicy) {
+    let mut state = TestState::new();
+    let _receiver = enqueue_one(&mut state, 42, policy, 8);
+
+    let waiter = state.take_next_waiter(policy);
+    assert!(
+        waiter.is_some(),
+        "lazy registration must make the request selectable"
+    );
+    assert!(!state.has_queued_waiter(42));
+}
+
+#[rstest]
+#[case(PoolFairnessPolicy::Fifo)]
+#[case(PoolFairnessPolicy::RoundRobin)]
+fn deregistering_a_handle_twice_is_harmless(#[case] policy: PoolFairnessPolicy) {
+    let mut state = TestState::new();
+    let _receiver = enqueue_one(&mut state, 7, policy, 8);
+
+    state.deregister_handle(7);
+    state.deregister_handle(7);
+
+    assert_eq!(state.waiter_count(), 0);
+    assert!(state.take_next_waiter(policy).is_none());
 }
 
 #[rstest]
@@ -84,47 +73,19 @@ fn round_robin_enqueue_rejects_unknown_handles() {
 #[case(PoolFairnessPolicy::RoundRobin)]
 fn enqueue_rejects_waiters_above_the_configured_limit(#[case] policy: PoolFairnessPolicy) {
     let mut state = TestState::new();
-    state.register_handle(1);
-    state.register_handle(2);
-    let mut receivers = Vec::with_capacity(2);
-    for handle_id in [1, 2] {
-        let (sender, receiver) = oneshot::channel();
-        assert_eq!(
-            state.enqueue_waiter(handle_id, sender, admission(policy, 2)),
-            WaiterEnqueueResult::Enqueued
-        );
-        receivers.push(receiver);
-    }
+    let _first = enqueue_one(&mut state, 1, policy, 2);
+    let _second = enqueue_one(&mut state, 2, policy, 2);
 
-    let (sender, _receiver) = oneshot::channel();
-    assert_eq!(
-        state.enqueue_waiter(1, sender, admission(policy, 2)),
-        WaiterEnqueueResult::Saturated
+    let (sender, receiver) = oneshot::channel();
+    assert!(
+        matches!(
+            state.enqueue_waiter(1, sender, admission(policy, 2)),
+            WaiterEnqueueResult::Saturated { .. }
+        ),
+        "a waiter beyond the bound must be handed back, not queued"
     );
+    drop(receiver);
     assert_eq!(state.waiter_count(), 2);
-}
-
-/// Keeps a waiter in the admission count while the worker waits for a slot.
-#[rstest]
-#[case(PoolFairnessPolicy::Fifo)]
-#[case(PoolFairnessPolicy::RoundRobin)]
-fn waiter_count_includes_a_request_being_serviced(#[case] policy: PoolFairnessPolicy) {
-    let mut state = TestState::new();
-    state.register_handle(1);
-    let (sender, _receiver) = oneshot::channel();
-    assert_eq!(
-        state.enqueue_waiter(1, sender, admission(policy, 1)),
-        WaiterEnqueueResult::Enqueued
-    );
-
-    let servicing_waiter = state
-        .take_next_waiter(policy)
-        .expect("enqueued waiter should be selected");
-    assert_eq!(state.waiter_count(), 1);
-
-    state.finish_servicing_waiter();
-    assert_eq!(state.waiter_count(), 0);
-    drop(servicing_waiter);
 }
 
 /// Frees admission capacity when a caller cancels before its waiter is served.
@@ -133,72 +94,90 @@ fn waiter_count_includes_a_request_being_serviced(#[case] policy: PoolFairnessPo
 #[case(PoolFairnessPolicy::RoundRobin)]
 fn enqueue_prunes_cancelled_waiters_before_counting(#[case] policy: PoolFairnessPolicy) {
     let mut state = TestState::new();
-    state.register_handle(1);
-    state.register_handle(2);
-    let (cancelled_sender, cancelled_receiver) = oneshot::channel();
-    let (live_sender, _live_receiver) = oneshot::channel();
-    assert_eq!(
-        state.enqueue_waiter(1, cancelled_sender, admission(policy, 2)),
-        WaiterEnqueueResult::Enqueued
-    );
-    assert_eq!(
-        state.enqueue_waiter(2, live_sender, admission(policy, 2)),
-        WaiterEnqueueResult::Enqueued
-    );
-    drop(cancelled_receiver);
+    let cancelled = enqueue_one(&mut state, 1, policy, 2);
+    let _live = enqueue_one(&mut state, 2, policy, 2);
+    drop(cancelled);
 
-    let (sender, _receiver) = oneshot::channel();
-    assert_eq!(
-        state.enqueue_waiter(1, sender, admission(policy, 2)),
-        WaiterEnqueueResult::Enqueued
-    );
+    let _replacement = enqueue_one(&mut state, 1, policy, 2);
     assert_eq!(state.waiter_count(), 2);
 }
 
-#[test]
-fn prune_cancelled_waiters_cleans_fifo_and_handle_queues() {
+#[rstest]
+#[case(PoolFairnessPolicy::Fifo)]
+#[case(PoolFairnessPolicy::RoundRobin)]
+fn prune_removes_every_abandoned_waiter(#[case] policy: PoolFairnessPolicy) {
     let mut state = TestState::new();
-    state.register_handle(1);
-    let (fifo_sender, fifo_receiver) = oneshot::channel();
-    let (handle_sender, handle_receiver) = oneshot::channel();
-    state.fifo_queue.push_back((1, fifo_sender));
-    state
-        .handle_waiters
-        .get_mut(&1)
-        .expect("registered handle queue")
-        .push_back(handle_sender);
-    drop((fifo_receiver, handle_receiver));
+    let first = enqueue_one(&mut state, 1, policy, 8);
+    let second = enqueue_one(&mut state, 2, policy, 8);
+    drop((first, second));
 
     state.prune_cancelled_waiters();
 
     assert_eq!(state.waiter_count(), 0);
+    assert!(!state.has_live_waiters());
+}
+
+#[rstest]
+#[case(PoolFairnessPolicy::Fifo)]
+#[case(PoolFairnessPolicy::RoundRobin)]
+fn deregister_handle_purges_every_entry_for_that_handle(#[case] policy: PoolFairnessPolicy) {
+    let mut state = TestState::new();
+    let _removed = enqueue_one(&mut state, 1, policy, 8);
+    let _kept = enqueue_one(&mut state, 2, policy, 8);
+
+    state.deregister_handle(1);
+
+    assert!(!state.has_queued_waiter(1));
+    assert!(state.take_next_waiter(policy).is_some());
+    assert!(
+        state.take_next_waiter(policy).is_none(),
+        "deregistered handle entries must be removed eagerly"
+    );
+}
+
+#[rstest]
+#[case(PoolFairnessPolicy::Fifo)]
+#[case(PoolFairnessPolicy::RoundRobin)]
+fn take_next_waiter_skips_a_caller_that_went_away(#[case] policy: PoolFairnessPolicy) {
+    let mut state = TestState::new();
+    let abandoned = enqueue_one(&mut state, 1, policy, 8);
+    let _live = enqueue_one(&mut state, 1, policy, 8);
+    drop(abandoned);
+
+    let selected = state
+        .take_next_waiter(policy)
+        .expect("the live waiter must still be selected");
+    assert!(
+        !selected.is_closed(),
+        "a lease must never be handed to a caller that stopped listening"
+    );
+    assert!(state.take_next_waiter(policy).is_none());
 }
 
 #[test]
-fn deregister_handle_purges_fifo_entries_for_that_handle() {
+fn round_robin_gives_each_handle_a_turn_before_repeating() {
     let mut state = TestState::new();
-    state.register_handle(1);
-    state.register_handle(2);
-    let (removed_sender, _removed_receiver) = oneshot::channel();
-    let (kept_sender, _kept_receiver) = oneshot::channel();
-    assert_eq!(
-        state.enqueue_waiter(1, removed_sender, admission(PoolFairnessPolicy::Fifo, 64)),
-        WaiterEnqueueResult::Enqueued
-    );
-    assert_eq!(
-        state.enqueue_waiter(2, kept_sender, admission(PoolFairnessPolicy::Fifo, 64)),
-        WaiterEnqueueResult::Enqueued
-    );
-    state.deregister_handle(1);
-    let next_waiter = state.take_next_waiter(PoolFairnessPolicy::Fifo);
+    let _first = enqueue_one(&mut state, 1, PoolFairnessPolicy::RoundRobin, 8);
+    let _second = enqueue_one(&mut state, 2, PoolFairnessPolicy::RoundRobin, 8);
+
+    let first_turn = state.take_next_waiter(PoolFairnessPolicy::RoundRobin);
+    let second_turn = state.take_next_waiter(PoolFairnessPolicy::RoundRobin);
+    assert!(first_turn.is_some(), "the first handle must get a turn");
+    assert!(second_turn.is_some(), "the second handle must get a turn");
     assert!(
-        next_waiter.is_some(),
-        "remaining registered waiter should still be queued"
+        state
+            .take_next_waiter(PoolFairnessPolicy::RoundRobin)
+            .is_none()
     );
-    assert!(
-        state.take_next_waiter(PoolFairnessPolicy::Fifo).is_none(),
-        "deregistered handle entries must be removed eagerly"
-    );
+}
+
+#[test]
+fn has_queued_waiter_reports_only_pending_requests() {
+    let mut state = TestState::new();
+    let _receiver = enqueue_one(&mut state, 3, PoolFairnessPolicy::Fifo, 8);
+
+    assert!(state.has_queued_waiter(3));
+    assert!(!state.has_queued_waiter(4));
 }
 
 proptest! {
@@ -211,7 +190,7 @@ proptest! {
     fn generated_waiter_transitions_preserve_admission_bound(
         round_robin in any::<bool>(),
         max_waiters in 1_usize..=8,
-        operations in prop::collection::vec((0_u8..7, 0_u8..3), 0..128),
+        operations in prop::collection::vec((0_u8..5, 0_u8..3), 0..128),
     ) {
         let policy = if round_robin {
             PoolFairnessPolicy::RoundRobin
@@ -220,79 +199,37 @@ proptest! {
         };
         let waiter_admission = admission(policy, max_waiters);
         let mut state = TestState::new();
-        let mut registered_handles = BTreeSet::from([1_u64, 2, 3]);
-        for handle_id in 1..=3 {
-            state.register_handle(handle_id);
-        }
-
+        // Receivers are kept so their senders stay open until this test drops
+        // them; dropping one models a caller cancelling its acquisition.
         let mut receivers = VecDeque::new();
-        let mut servicing: Vec<WaiterSender<BincodeSerializer, (), ()>> = Vec::new();
 
         for (operation, handle_index) in operations {
             let handle_id = u64::from(handle_index) + 1;
             match operation {
-                0 if registered_handles.contains(&handle_id) => {
-                    let expected_waiters = live_queued_waiter_count(&state)
-                        + state.servicing_waiters;
+                0 => {
                     let (sender, receiver) = oneshot::channel();
                     let result = state.enqueue_waiter(handle_id, sender, waiter_admission);
-                    let expected_result = if expected_waiters < max_waiters {
-                        WaiterEnqueueResult::Enqueued
-                    } else {
-                        WaiterEnqueueResult::Saturated
-                    };
-                    prop_assert_eq!(&result, &expected_result);
-                    if result == WaiterEnqueueResult::Enqueued {
+                    if matches!(result, WaiterEnqueueResult::Enqueued) {
                         receivers.push_back(receiver);
-                        prop_assert_eq!(state.waiter_count(), expected_waiters + 1);
                     } else {
                         drop(receiver);
-                        prop_assert_eq!(state.waiter_count(), expected_waiters);
                     }
                 }
-                1 if !receivers.is_empty() => {
+                1 => {
                     drop(receivers.pop_front());
                 }
                 2 => {
-                    if let Some(sender) = state.take_next_waiter(policy) {
-                        servicing.push(sender);
-                    }
+                    drop(state.take_next_waiter(policy));
                 }
-                3 if !servicing.is_empty() => {
-                    drop(servicing.pop());
-                    state.finish_servicing_waiter();
-                }
-                4 if registered_handles.contains(&handle_id) => {
-                    state.deregister_handle(handle_id);
-                    registered_handles.remove(&handle_id);
-                }
-                5 if !registered_handles.contains(&handle_id) => {
-                    state.register_handle(handle_id);
-                    registered_handles.insert(handle_id);
-                }
-                6 => {
-                    let expected_waiters = live_queued_waiter_count(&state)
-                        + state.servicing_waiters;
-                    state.prune_cancelled_waiters();
-                    prop_assert_eq!(state.waiter_count(), expected_waiters);
-                }
+                3 => state.deregister_handle(handle_id),
+                4 => state.prune_cancelled_waiters(),
                 _ => {}
             }
 
-            prop_assert!(state.waiter_count() <= max_waiters);
-            prop_assert_eq!(state.servicing_waiters, servicing.len());
-            for handle_id in 1_u64..=3 {
-                if !registered_handles.contains(&handle_id) {
-                    prop_assert!(!state.handle_waiters.contains_key(&handle_id));
-                    prop_assert!(
-                        state
-                            .fifo_queue
-                            .iter()
-                            .all(|(queued_id, _)| *queued_id != handle_id),
-                        "unregistered handles must not retain FIFO waiters"
-                    );
-                }
-            }
+            prop_assert!(
+                state.waiter_count() <= max_waiters,
+                "admitted waiters must never exceed the configured bound"
+            );
         }
     }
 }

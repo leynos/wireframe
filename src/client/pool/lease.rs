@@ -18,7 +18,6 @@ use std::sync::{
 use tokio::sync::{Mutex, OwnedSemaphorePermit};
 
 use super::{
-    client_pool::PoolSchedulerControl,
     core::PoolCore,
     managed::ManagedClientConnection,
     slot::{PoolSlot, SlotConnection},
@@ -53,9 +52,11 @@ where
     /// Internal identity of the selected physical slot.
     slot_index: usize,
     /// Admission token held for the lifetime of this lease.
+    ///
+    /// Dropping the lease releases this permit, which is the only capacity
+    /// notification the scheduler needs: a waiting permit race observes it
+    /// directly. No message is sent and no task is spawned on release.
     _permit: OwnedSemaphorePermit,
-    /// Separate scheduler handle to notify when this lease releases capacity.
-    release_control: Option<Arc<PoolSchedulerControl<S, P, C>>>,
     /// Number of split-phase responses this lease has not consumed yet.
     pending_responses: AtomicUsize,
     /// Protocol gate retained until this lease consumes its pending responses.
@@ -77,14 +78,12 @@ where
         core: Arc<PoolCore<S, P, C>>,
         slot_index: usize,
         permit: OwnedSemaphorePermit,
-        release_control: Option<Arc<PoolSchedulerControl<S, P, C>>>,
     ) -> Option<Self> {
         core.slot(slot_index)?;
         Some(Self {
             core,
             slot_index,
             _permit: permit,
-            release_control,
             pending_responses: AtomicUsize::new(0),
             pending_response_permit: Mutex::new(None),
         })
@@ -355,16 +354,11 @@ where
     C: Send + 'static,
 {
     fn drop(&mut self) {
-        // Mark the slot before releasing capacity so no waiter can claim a
-        // socket that is still owed this lease's reply.
+        // Mark the slot before `_permit` drops at the end of this function, so
+        // no waiter can claim a socket that is still owed this lease's reply.
+        // The permit release itself is the scheduler's capacity notification.
         if self.pending_responses.load(Ordering::Acquire) > 0 {
             self.discard_connection_with_pending_response();
-        }
-
-        if let Some(control) = &self.release_control {
-            control
-                .scheduler
-                .notify_capacity_available(Arc::clone(&self.core), Arc::clone(control));
         }
     }
 }

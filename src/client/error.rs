@@ -76,6 +76,18 @@ pub enum ClientError {
         /// Maximum number of acquisitions admitted to the waiter queues.
         limit: usize,
     },
+    /// The pool has been closed and will not grant further leases.
+    ///
+    /// Queued acquisitions are resolved with this error when the pool closes,
+    /// so a caller waiting for capacity learns promptly that the pool is gone.
+    #[error("client pool is closed")]
+    PoolClosed,
+    /// The pool's scheduler task terminated abnormally.
+    ///
+    /// This indicates an internal fault rather than an orderly shutdown. The
+    /// pool is not restarted; callers should discard it and reconnect.
+    #[error("client pool scheduler failed")]
+    SchedulerFailed,
 }
 
 impl ClientError {
@@ -98,8 +110,20 @@ impl ClientError {
     #[cfg(feature = "pool")]
     pub(crate) const fn pool_saturated(limit: usize) -> Self { Self::PoolSaturated { limit } }
 
+    /// Build the typed error returned once the pool has closed.
+    #[cfg(feature = "pool")]
+    pub(crate) const fn pool_closed() -> Self { Self::PoolClosed }
+
+    /// Build the typed error returned when the pool scheduler failed.
+    #[cfg(feature = "pool")]
+    pub(crate) const fn scheduler_failed() -> Self { Self::SchedulerFailed }
+
     /// Return `true` when this error leaves the underlying connection unsafe
     /// to reuse in the pool.
+    ///
+    /// Pool lifecycle errors describe the pool, not the connection: a lease
+    /// refused because the pool closed says nothing about any socket's
+    /// protocol state, so none of them require recycling.
     #[must_use]
     pub const fn should_recycle_connection(&self) -> bool {
         match self {
@@ -109,7 +133,11 @@ impl ClientError {
             | Self::PreambleTimeout
             | Self::CorrelationMismatch { .. }
             | Self::StreamCorrelationMismatch { .. } => true,
-            Self::Serialize(_) | Self::PreambleEncode(_) | Self::PoolSaturated { .. } => false,
+            Self::Serialize(_)
+            | Self::PreambleEncode(_)
+            | Self::PoolSaturated { .. }
+            | Self::PoolClosed
+            | Self::SchedulerFailed => false,
         }
     }
 }
@@ -191,5 +219,19 @@ mod tests {
 
         assert!(matches!(error, ClientError::PoolSaturated { limit: actual } if actual == limit));
         assert!(!error.should_recycle_connection());
+    }
+
+    #[rstest]
+    #[case(ClientError::PoolClosed, "client pool is closed")]
+    #[case(ClientError::SchedulerFailed, "client pool scheduler failed")]
+    fn pool_lifecycle_errors_do_not_recycle_a_connection(
+        #[case] error: ClientError,
+        #[case] expected_message: &str,
+    ) {
+        assert_eq!(error.to_string(), expected_message);
+        assert!(
+            !error.should_recycle_connection(),
+            "a pool lifecycle error must not discard a healthy socket"
+        );
     }
 }

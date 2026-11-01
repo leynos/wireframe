@@ -2,45 +2,35 @@
 //!
 //! Pool acquisition has two regimes the issue asks to separate. An
 //! **uncontended** acquire finds a free slot on the fast path and parks no
-//! waiter, so the pool never needs a worker to hand capacity on. A
-//! **contended** acquire exhausts the pool, parks waiters, and enters the
-//! scheduler slow path.
+//! waiter. A **contended** acquire exhausts the pool, parks waiters in the
+//! scheduler's queues, and waits for a permit race to observe a release.
 //!
-//! # Measured task churn, and why the obvious claim is false
+//! # Measured task churn
 //!
-//! It is tempting to assert that uncontended acquisition spawns no scheduler
-//! task. Measurement shows otherwise, and the numbers are recorded rather than
-//! asserted away. `PooledClientLease::drop` unconditionally calls
-//! `notify_capacity_available` (`src/client/pool/lease.rs`), so *every* release
-//! reaches `PoolScheduler::kick`, and `try_acquire_immediately` arms the lease
-//! with a release handle even on the fast path
-//! (`src/client/pool/client_pool.rs`). `kick` then wins its
-//! idle-to-busy compare-exchange and spawns a worker that immediately finds an
-//! empty queue and exits.
+//! Each pool starts exactly one scheduler task when it is constructed. Every
+//! acquisition is a command to that task, and every release is a permit drop
+//! that the task's in-flight race observes, so a measured acquisition phase
+//! spawns **no** further tasks. `scheduler_spawns` is a lifetime counter on the
+//! pool, so the assertion is a delta of zero over a phase; a non-zero delta now
+//! means a regression to spawn-on-demand servicing.
 //!
-//! So the observable contract is **bounded**, not zero: a burst spawns at least
-//! one worker and at most one per idle-to-busy transition. Measured deltas for
-//! acquisition counts of 1, 16, and 256 were 1, 1, and 2 respectively, across
-//! pool sizes 1, 4, and 16. That per-release churn is a genuine cost of the
-//! current ownership topology and is exactly the kind of finding issue #639
-//! exists to record before #637/#638 change it.
+//! Earlier baselines recorded one or two spawns per burst, when every lease
+//! release kicked a transient service worker. Those figures are retained in
+//! `docs/runtime-ownership-baselines.md` as the pre-#647 comparison.
 //!
 //! # What the counters are compared against
 //!
-//! Because a non-zero delta is expected on both paths, the uncontended case is
-//! not a control for the spawn counter itself. The evidence that the counter can
-//! move is the *contended* case, which forces repeated entry to the slow path;
-//! the uncontended case bounds how far the fast path is allowed to drift.
-//!
-//! The second counter, [`PoolMeasurement::capacity_waits`], *is* discriminating
-//! in both directions, and the two regimes assert opposite things about it. An
-//! uncontended workload must report zero, because its single caller never
-//! exhausts the pool; a contended one must report at least its contender count,
-//! because the burst empties the pool and holds it empty while every contender
-//! asks for capacity. Contender counts and start barriers only make waiting
-//! *possible* — a task that wins a permit can finish several immediately-ready
-//! acquisitions before another is polled — so the contended assertion counts the
-//! waiting rather than inferring it from the shape of the burst.
+//! Because both regimes now report a zero spawn delta, the spawn counter is a
+//! regression guard rather than a contention witness. The evidence that a burst
+//! really contends is [`PoolMeasurement::capacity_waits`], which remains
+//! discriminating in both directions: an uncontended workload must report zero,
+//! because its single caller never exhausts the pool; a contended one must
+//! report at least its contender count, because the burst empties the pool and
+//! holds it empty while every contender asks for capacity. Contender counts and
+//! start barriers only make waiting *possible* — a task that wins a permit can
+//! finish several immediately-ready acquisitions before another is polled — so
+//! the contended assertion counts the waiting rather than inferring it from the
+//! shape of the burst.
 //!
 //! Both counters come from the pool under measurement rather than from the
 //! process: `WireframeClientPool::task_churn_observer` hands back a read-only
@@ -58,39 +48,19 @@
 //! once per call in `measurement`, and construction cost is reported separately
 //! on [`PoolMeasurement::construction`] rather than discarded.
 //!
-//! # Known defects on the acquire path
+//! # Contended acquisition and Criterion
 //!
-//! Contended acquisition is **not** reliable enough to time with Criterion,
-//! for two separate reasons that were originally observed together.
+//! Contended acquisition remains outside Criterion's timed groups. A burst can
+//! still stall, and a failure during warm-up would abort the whole run, so
+//! [`CONTENDED_BURST_TIMEOUT`] bounds that case and the contended counters are
+//! reported as observations after the summary.
 //!
-//! The first is a spurious `disconnected` error, which is **still live**: a
-//! contended round can report `connection closed by peer` while the pool is
-//! still serving traffic, reproducible on a long-lived pool. Measured on the
-//! named baseline machine, it reaches roughly 1 round in 73 at 8 contenders on
-//! the FIFO policy.
-//!
-//! The second is a stall — every contender parked with waiters still queued, so
-//! no burst completes. This was observed against the pre-#535 scheduler and
-//! **no longer reproduces**: two re-tests on the post-#535 tree found zero
-//! stalls across 80,000 rounds at both recorded contender counts. The result is
-//! one-sided, so read it as "no longer reproducible" rather than "fixed".
-//! [`CONTENDED_BURST_TIMEOUT`] still bounds a stall, because a bounded failure
-//! is worth more than an unbounded one and the disconnect defect still fails
-//! bursts.
-//!
-//! Both are pre-existing: they reproduce without any change to `scheduler.rs`,
-//! and a candidate fix that suppressed the error was rejected because it
-//! converted a fast failure into an intermittent hang, which is strictly worse.
-//! That rejection was measured against the pre-#535 scheduler, so it is not a
-//! verdict on a repair built on the current state machine.
-//!
-//! The defects are therefore *recorded*, not fixed, which is the correct scope
-//! for issue #639: it establishes baselines before Epic #635 changes ownership
-//! topology, and the pool acquire path is ADR 013 / issue #647's subject. That
-//! issue is a proposal to rework the path, not a defect tracker; the live
-//! disconnect defect belongs to the same path.
-//!
-//! The figures and the experiments behind them are in
+//! The spurious `disconnected` refusal recorded in the pre-#647 baselines is
+//! retired by the persistent scheduler: it prunes cancelled waiters before
+//! selecting one and reports typed pool-life-cycle errors instead. A 400-round
+//! regression test asserts that no round is refused for that reason. The stall
+//! was never reproduced on the post-#535 tree and remains bounded rather than
+//! diagnosed. The figures and experiments behind both defects are in
 //! `docs/runtime-ownership-baselines.md`.
 //!
 //! # Transport

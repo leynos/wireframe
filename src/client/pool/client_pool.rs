@@ -4,6 +4,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use bb8::Pool;
 use bincode::Encode;
+use tokio::task::JoinHandle;
 
 use super::{
     ClientPoolConfig,
@@ -12,63 +13,13 @@ use super::{
     handle::PoolHandle,
     lease::PooledClientLease,
     manager::WireframeConnectionManager,
-    scheduler::PoolScheduler,
+    scheduler::{self, SchedulerHandle},
     slot::PoolSlot,
 };
 use crate::{
     client::{ClientError, connect_parts::ClientBuildParts},
     serializer::Serializer,
 };
-
-/// Cloneable scheduler state kept separate from physical slot ownership.
-pub(crate) struct PoolSchedulerControl<S, P = (), C = ()>
-where
-    S: Serializer + Clone + Send + Sync + 'static,
-    P: Encode + Clone + Send + Sync + 'static,
-    C: Send + 'static,
-{
-    /// Fairness coordinator for handles waiting on slot capacity.
-    pub(crate) scheduler: Arc<PoolScheduler<S, P, C>>,
-    /// Task-churn counters scoped to this pool rather than the process.
-    ///
-    /// Per-pool so a delta read across one workload cannot absorb churn from a
-    /// pool another test is driving concurrently. See
-    /// [`PoolTaskChurnObserver`].
-    pub(crate) churn: Arc<PoolTaskChurnCounts>,
-}
-
-impl<S, P, C> PoolSchedulerControl<S, P, C>
-where
-    S: Serializer + Clone + Send + Sync + 'static,
-    P: Encode + Clone + Send + Sync + 'static,
-    C: Send + 'static,
-{
-    /// Create scheduler bookkeeping independently from physical slot storage.
-    pub(crate) fn new(fairness_policy: super::PoolFairnessPolicy, max_waiters: usize) -> Self {
-        Self {
-            scheduler: Arc::new(PoolScheduler::new(fairness_policy, max_waiters)),
-            churn: Arc::new(PoolTaskChurnCounts::default()),
-        }
-    }
-
-    /// Make an immediate lease while the core retains its selected slot.
-    pub(crate) fn try_acquire_immediately(
-        self: &Arc<Self>,
-        core: &Arc<PoolCore<S, P, C>>,
-    ) -> Option<PooledClientLease<S, P, C>> {
-        let (slot_index, permit) = core.try_acquire_permit()?;
-        PooledClientLease::new(Arc::clone(core), slot_index, permit, Some(Arc::clone(self)))
-    }
-
-    /// Close the scheduler side of the pool and drain queued acquisitions.
-    ///
-    /// Shutdown is split across the two roots that own the relevant state:
-    /// `PoolCore` publishes the shutdown flag and wakes permit waits, while
-    /// the scheduler must resolve the requests it has already queued. Draining
-    /// them here means a `PoolHandle` that outlives [`WireframeClientPool`]
-    /// cannot be left blocked on a pool that is going away.
-    pub(crate) fn shutdown(&self) { self.scheduler.notify_shutdown(); }
-}
 
 /// Pool of configured slots that create physical wireframe connections on
 /// demand.
@@ -80,8 +31,10 @@ where
 {
     /// Shared fixed physical slots retained by every live lease.
     core: Arc<PoolCore<S, P, C>>,
-    /// Fairness and release-notification state, without slot ownership.
-    control: Arc<PoolSchedulerControl<S, P, C>>,
+    /// Cloneable command handle onto the pool's single scheduler task.
+    scheduler: SchedulerHandle<S, P, C>,
+    /// Join handle used by [`Self::close`] to await scheduler termination.
+    task: JoinHandle<()>,
 }
 
 impl<S, P, C> WireframeClientPool<S, P, C>
@@ -115,9 +68,13 @@ where
             ));
         }
 
+        let core = Arc::new(PoolCore::new(slots.into_boxed_slice()));
+        let churn = Arc::new(PoolTaskChurnCounts::default());
+        let (scheduler, task) = scheduler::start(&core, fairness_policy, max_waiters, churn);
         Ok(Self {
-            core: Arc::new(PoolCore::new(slots.into_boxed_slice())),
-            control: Arc::new(PoolSchedulerControl::new(fairness_policy, max_waiters)),
+            core,
+            scheduler,
+            task,
         })
     }
 
@@ -149,15 +106,15 @@ where
     /// drop(lease);
     ///
     /// let churn = observer.snapshot().since(before);
-    /// // One acquire/release transition, so at most one worker: a worker an
-    /// // earlier acquisition left servicing could make this zero.
-    /// assert!(churn.scheduler_spawns <= 2);
+    /// // The pool spawned its scheduler when it was built, so acquiring and
+    /// // releasing a lease spawns nothing at all.
+    /// assert_eq!(churn.scheduler_spawns, 0);
     /// # Ok(())
     /// # }
     /// ```
     #[must_use]
     pub fn task_churn_observer(&self) -> PoolTaskChurnObserver {
-        PoolTaskChurnObserver::new(Arc::clone(&self.control.churn))
+        PoolTaskChurnObserver::new(self.scheduler.churn())
     }
 
     /// Create a stable logical-session handle governed by the pool scheduler.
@@ -184,8 +141,8 @@ where
     /// ```
     #[must_use]
     pub fn handle(&self) -> PoolHandle<S, P, C> {
-        let handle_id = self.control.scheduler.register_handle();
-        PoolHandle::new(Arc::clone(&self.core), Arc::clone(&self.control), handle_id)
+        let handle_id = self.scheduler.allocate_handle_id();
+        PoolHandle::new(self.scheduler.clone(), handle_id)
     }
 
     /// Acquire one pooled-client lease.
@@ -222,22 +179,25 @@ where
     #[must_use]
     pub fn pool_size(&self) -> usize { self.core.pool_size() }
 
-    /// Close the pool to new acquisitions and begin teardown.
+    /// Close the pool to new acquisitions and await scheduler shutdown.
     ///
     /// Shutdown is published before this method returns: an outstanding handle
     /// that keeps the shared pool state alive still observes it, and any later
-    /// acquisition fails with a disconnected error instead of taking capacity
-    /// mid-teardown.
+    /// acquisition fails with [`ClientError::PoolClosed`] instead of taking
+    /// capacity mid-teardown. Every acquisition already queued is resolved with
+    /// the same error rather than being left parked.
     ///
-    /// Dropping the sockets is deferred. A lease acquired before close is not
-    /// revoked, and a `PoolHandle` or lease keeps the pool core (and therefore
-    /// every slot and warm socket) alive until it is dropped.
+    /// The pool's single scheduler task is joined before this returns, so a
+    /// caller can rely on the task being gone afterwards. Dropping the sockets
+    /// is still deferred: a lease acquired before close is not revoked, and a
+    /// `PoolHandle` or lease keeps the pool core (and therefore every slot and
+    /// warm socket) alive until it is dropped.
     ///
     /// # Examples
     ///
     /// ```no_run
     /// # use std::net::SocketAddr;
-    /// use wireframe::client::{ClientPoolConfig, WireframeClient};
+    /// use wireframe::client::{ClientError, ClientPoolConfig, WireframeClient};
     ///
     /// # async fn demo(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
     /// let pool = WireframeClient::builder()
@@ -250,15 +210,25 @@ where
     ///     Ok(_lease) => panic!("closed pool must refuse"),
     ///     Err(error) => error,
     /// };
-    /// assert!(error.should_recycle_connection());
+    /// assert!(matches!(error, ClientError::PoolClosed));
     /// # Ok(())
     /// # }
     /// ```
     pub async fn close(self) {
-        self.core.shutdown();
-        self.control.shutdown();
-        tokio::task::yield_now().await;
-        drop(self);
+        let Self {
+            core,
+            scheduler,
+            task,
+        } = self;
+        scheduler.mark_closed();
+        core.shutdown();
+        // Closing the mailbox is the scheduler's shutdown signal; dropping the
+        // core reference lets teardown proceed once the task releases its own.
+        drop(scheduler);
+        drop(core);
+        if let Err(error) = task.await {
+            tracing::error!(%error, "client pool scheduler task terminated with a join error");
+        }
     }
 }
 

@@ -257,10 +257,12 @@ pub struct PoolMeasurement {
     /// the pool holds, which is a property of the configuration rather than of
     /// the acquisition path.
     pub construction: Duration,
-    /// Scheduler worker tasks spawned by the measured pool.
+    /// Scheduler tasks spawned by the measured pool during the measured phases.
     ///
-    /// Scoped to the pool under measurement, not to the process, so a
-    /// concurrent unrelated pool cannot contribute to this number.
+    /// A pool starts its one scheduler task at construction, which is outside
+    /// the bracketed window, so a measured acquisition phase reports `0` here
+    /// however many leases it grants. Scoped to the pool under measurement, not
+    /// to the process, so a concurrent unrelated pool cannot contribute.
     pub scheduler_spawns: u64,
     /// Acquisitions that had to wait for capacity on the measured pool.
     ///
@@ -319,7 +321,7 @@ impl PoolMeasurement {
     ///     acquisitions: 16,
     ///     elapsed: Duration::ZERO,
     ///     construction: Duration::ZERO,
-    ///     scheduler_spawns: 1,
+    ///     scheduler_spawns: 0,
     ///     capacity_waits: 0,
     ///     alive_tasks_before: 2,
     ///     alive_tasks_after: 2,

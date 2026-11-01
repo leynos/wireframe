@@ -1,12 +1,10 @@
 //! Per-pool observation of scheduler task churn and capacity waiting.
 //!
-//! [`PoolScheduler::kick`](super::scheduler::PoolScheduler::kick) spawns a
-//! worker task only when it wins a compare-exchange from idle to servicing, so
-//! the number of spawns measures how often the scheduler slow path was entered.
-//! Exposing the count lets benchmarks bracket the spawns an uncontended
-//! acquire/drop burst can cause, and prove that a contended scenario genuinely
-//! exercised the path. It does not let them assert that an uncontended run
-//! spawns nothing; see [`PoolTaskChurn`].
+//! A pool spawns exactly one scheduler task, when the pool is constructed.
+//! Every later acquisition is a command to that task, so an acquire/drop burst
+//! adds nothing to [`PoolTaskChurn::scheduler_spawns`]. The counter therefore
+//! witnesses construction, not slow-path entry; [`PoolTaskChurn::capacity_waits`]
+//! is the direct observation that callers genuinely queued for capacity.
 //!
 //! # Why the counters are per-pool and not process-wide
 //!
@@ -26,10 +24,10 @@
 //! # Cost
 //!
 //! Both counters are relaxed atomic increments on a cache line owned by a
-//! single pool. They sit on the acquire path, but only on the path that is
-//! already taking a lock and racing futures, so they do not change the shape of
-//! the path being measured. See [`PoolTaskChurnObserver`] for the no-op claim
-//! that matters — that observing changes nothing.
+//! single pool. They are written by the scheduler task alone — construction
+//! records the spawn, and the acquire handler records a wait — so they add no
+//! synchronization to a caller's path. See [`PoolTaskChurnObserver`] for the
+//! no-op claim that matters — that observing changes nothing.
 
 use std::sync::{
     Arc,
@@ -43,39 +41,27 @@ use std::sync::{
 /// pool alive.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PoolTaskChurn {
-    /// Scheduler worker tasks spawned by
-    /// [`PoolScheduler::kick`](super::scheduler::PoolScheduler::kick).
+    /// Scheduler tasks spawned for this pool.
     ///
-    /// This is the observable half of the "one scheduler task at a time"
-    /// invariant: `kick` wins its compare-exchange at most once per
-    /// idle-to-busy transition, so concurrent releases can never spawn more
-    /// than one worker for the same transition.
+    /// Exactly one task serves a pool and it is started when the pool is
+    /// constructed, so this counter is `1` for the pool's whole life. It is the
+    /// observable half of the "one scheduler task per pool" invariant: an
+    /// acquire/drop burst is mailbox traffic handled by the task that already
+    /// runs, and adds nothing here.
     ///
-    /// The count is a *bound*, not a floor, for an uncontended run.
-    /// [`PooledClientLease::drop`](super::lease::PooledClientLease) notifies the
-    /// scheduler unconditionally, so a release reaches `kick` even when nobody
-    /// is waiting and the pool never exhausts. A burst of `n` acquire/release
-    /// cycles therefore spawns between 0 and `2n` workers: at most one per
-    /// transition, and possibly none at all, because a worker the burst itself
-    /// woke still holds servicing while the remaining releases arrive — every
-    /// one of those loses the compare-exchange. Assert against that bracket
-    /// rather than asserting the count does not move; only a contended scenario
-    /// proves the slow path is reachable at all.
-    ///
-    /// A lower bound of one is sound only when the scheduler is known to be idle
-    /// as the burst begins. Do not assume it: a preceding phase can leave a
-    /// worker running.
+    /// Read it as a construction witness, not as evidence that a slow path was
+    /// reached. [`Self::capacity_waits`] is the counter that shows callers
+    /// actually queued.
     pub scheduler_spawns: u64,
     /// Acquisitions that could not take a lease immediately and had to await
     /// capacity.
     ///
-    /// This is the direct observation that a pool was genuinely exhausted:
-    /// [`PoolScheduler::acquire_for_handle`](super::scheduler::PoolScheduler)
-    /// fast-paths when any slot has a free permit, so a non-zero delta means
-    /// this pool ran out of capacity while a caller was asking for it. Contender
-    /// counts and start barriers only make that *possible*; this counts it
-    /// happening, which is what lets a contended scenario assert that it
-    /// contended rather than assume it.
+    /// This is the direct observation that a pool was genuinely exhausted: the
+    /// scheduler grants from any slot with a free permit before parking a
+    /// request, so a non-zero delta means this pool ran out of capacity while a
+    /// caller was asking for it. Contender counts and start barriers only make
+    /// that *possible*; this counts it happening, which is what lets a
+    /// contended scenario assert that it contended rather than assume it.
     pub capacity_waits: u64,
 }
 
@@ -156,18 +142,18 @@ impl PoolTaskChurn {
 
 /// The live counters behind a [`PoolTaskChurnObserver`].
 ///
-/// Atomic because the scheduler is shared across threads and increments from
-/// whichever task is acquiring or releasing.
+/// Atomic so the observer can read them from any thread while the scheduler
+/// task writes them from its own.
 #[derive(Debug, Default)]
 pub(crate) struct PoolTaskChurnCounts {
-    /// Spawns recorded by `PoolScheduler::kick`.
+    /// Spawns recorded when a pool's scheduler task is started.
     scheduler_spawns: AtomicU64,
     /// Waiters that had to park because no slot had a free permit.
     capacity_waits: AtomicU64,
 }
 
 impl PoolTaskChurnCounts {
-    /// Record one scheduler worker-task spawn.
+    /// Record one scheduler task spawn.
     pub(crate) fn record_scheduler_spawn(&self) {
         self.scheduler_spawns.fetch_add(1, Ordering::Relaxed);
     }
@@ -208,9 +194,9 @@ impl PoolTaskChurnCounts {
 /// let before = observer.snapshot();
 /// // ... exercise pooled handles ...
 /// let churn = observer.snapshot().since(before);
-/// // A bound, not a floor: a worker left servicing by an earlier phase can make
-/// // every release in this window lose the idle-to-busy compare-exchange.
-/// assert!(churn.scheduler_spawns <= 2 * 4);
+/// // The pool already owns its scheduler task, so acquiring and releasing
+/// // leases spawns nothing.
+/// assert_eq!(churn.scheduler_spawns, 0);
 /// # Ok(())
 /// # }
 /// ```
