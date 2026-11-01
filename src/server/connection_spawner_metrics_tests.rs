@@ -50,6 +50,7 @@ async fn preamble_budget_rejections_are_counted_when_handler_succeeds() {
     drop(client);
 }
 
+/// A success-handler error increments the post-decode rejection counter.
 #[tokio::test]
 async fn success_handler_errors_are_counted_as_preamble_rejections() {
     let listener = TcpListener::bind("127.0.0.1:0")

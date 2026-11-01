@@ -62,12 +62,15 @@ mod tests {
 
     use super::{PREAMBLE_REJECTIONS, PreambleRejectionReason, inc_preamble_rejection};
 
+    /// Report whether a metric sample carries an exact label key/value pair.
     fn has_label(key: &CompositeKey, expected_key: &str, expected_value: &str) -> bool {
         key.key()
             .labels()
             .any(|label| label.key() == expected_key && label.value() == expected_value)
     }
 
+    /// Rejections after a successful decode carry only the fixed `reason`
+    /// label.
     #[test]
     fn preamble_rejections_use_fixed_reason_label() {
         let recorder = DebuggingRecorder::new();
