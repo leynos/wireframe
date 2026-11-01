@@ -175,6 +175,11 @@ async fn failure_handler_error_is_logged_and_connection_closes(
     Ok(())
 }
 
+/// A failing success callback rejects the peer before application dispatch.
+///
+/// The server must not hand the connection to `WireframeApp` after
+/// `on_preamble_decode_success` returns an error. The peer therefore observes
+/// a close, and the application's connection setup never runs.
 #[rstest]
 #[tokio::test]
 async fn success_handler_error_closes_connection_without_app_dispatch(

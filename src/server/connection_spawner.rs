@@ -141,6 +141,9 @@ async fn run_preamble_success<T: Preamble>(
         && let Err(e) = preamble_handler(preamble, stream).await
     {
         error!("preamble handler error: error={e}, error_debug={e:?}, peer_addr={peer_addr:?}");
+        crate::metrics::inc_preamble_rejection(
+            crate::metrics::PreambleRejectionReason::SuccessHandlerError,
+        );
         return Err(e);
     }
     Ok(())
