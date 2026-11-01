@@ -361,6 +361,29 @@ callers that still own an unprepared builder. Server connection tasks use
 `PreparedApp::handle_connection_result` instead, preserving the once-per-run
 preparation boundary.
 
+### Preamble handshake boundary
+
+A connection task completes the preamble handshake before any application code
+runs, and the order is fixed:
+
+1. `read_preamble_with_timeout` reads and decodes the optional preamble,
+   applying `preamble_timeout` when one is configured.
+2. `run_preamble_success` invokes the success callback, if one is registered,
+   while the stream is still exclusively borrowed.
+3. `process_stream` rewinds any leftover bytes into a `RewindStream`.
+4. `PreparedApp::handle_connection_result` runs the application.
+
+`PreambleSuccessHandler` returns `io::Result<()>` because it is the authority
+for pre-application access control. `run_preamble_success` logs a callback
+error, increments
+`wireframe_preamble_rejections_total{reason="success_handler_error"}`, and
+returns the error. `process_stream` then returns before step 3, so the stream
+is dropped and `WireframeApp` never receives it. Any change to this order must
+preserve that fail-closed early return. A decode failure or timeout enters the
+failure-callback path (`run_preamble_failure`) instead, records
+`wireframe_decode_rejections_total{path="preamble"}` with a bounded reason, and
+also closes the connection.
+
 ### Issue #640: local ownership hot paths
 
 The first ownership refactor borrows the connection actor's cancellation token

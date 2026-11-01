@@ -148,6 +148,11 @@ The optional `metrics` feature also records bounded decode rejections in
 `limit_exceeded`, `trailing_bytes`, or `decode_error`. These fixed values make
 rejection rates observable without creating metric series from peer input.
 
+Rejections that occur after a successful decode are counted separately in
+`wireframe_preamble_rejections_total`. Its `reason` label is currently
+`success_handler_error`, recorded when a preamble success callback returns an
+error and the connection fails closed before application dispatch.
+
 **Measurable Objective:** A `wireframe` application, when configured with a
 suitable `tracing-subscriber`, must emit all the metrics listed above, allowing
 for the construction of a comprehensive operational health dashboard.
