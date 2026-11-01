@@ -166,7 +166,7 @@ impl StartupWorkload {
     /// Reject workloads whose accounting cannot be asserted.
     pub(super) fn validate(self) -> Result<(), String> {
         if self.connections == 0 {
-            return Err("connections must be at least 1".to_string());
+            return Err("connections must be at least 1".to_owned());
         }
         // `StartupFixturePlan::new` floors both counts at one, so a zero here
         // would silently measure a different application than the label claims.

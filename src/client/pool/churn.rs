@@ -222,7 +222,7 @@ pub struct PoolTaskChurnObserver {
 
 impl PoolTaskChurnObserver {
     /// Wrap a pool's counters.
-    pub(crate) fn new(counts: Arc<PoolTaskChurnCounts>) -> Self { Self { counts } }
+    pub(crate) const fn new(counts: Arc<PoolTaskChurnCounts>) -> Self { Self { counts } }
 
     /// Read the counters' current values.
     #[must_use]

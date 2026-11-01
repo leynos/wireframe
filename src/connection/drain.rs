@@ -116,7 +116,7 @@ where
     }
 
     /// Reset burst history after low-priority or [`QueueKind::Multi`] frames.
-    pub(super) fn after_low(&mut self) { self.fairness.reset(); }
+    pub(super) const fn after_low(&mut self) { self.fairness.reset(); }
 
     /// Common logic for handling closed receivers.
     pub(super) fn handle_closed_receiver(

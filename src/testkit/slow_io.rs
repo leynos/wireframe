@@ -37,7 +37,9 @@ pub struct SlowIoPacing {
 impl SlowIoPacing {
     /// Create a pacing configuration for chunked transfers.
     #[must_use]
-    pub fn new(chunk_size: NonZeroUsize, delay: Duration) -> Self { Self { chunk_size, delay } }
+    pub const fn new(chunk_size: NonZeroUsize, delay: Duration) -> Self {
+        Self { chunk_size, delay }
+    }
 }
 
 /// Shared configuration for slow-I/O app driving.
@@ -68,21 +70,21 @@ impl SlowIoConfig {
 
     /// Set the pacing for bytes written into the app.
     #[must_use]
-    pub fn with_writer_pacing(mut self, pacing: SlowIoPacing) -> Self {
+    pub const fn with_writer_pacing(mut self, pacing: SlowIoPacing) -> Self {
         self.writer_pacing = Some(pacing);
         self
     }
 
     /// Set the pacing for bytes read from the app.
     #[must_use]
-    pub fn with_reader_pacing(mut self, pacing: SlowIoPacing) -> Self {
+    pub const fn with_reader_pacing(mut self, pacing: SlowIoPacing) -> Self {
         self.reader_pacing = Some(pacing);
         self
     }
 
     /// Set the duplex stream capacity.
     #[must_use]
-    pub fn with_capacity(mut self, capacity: usize) -> Self {
+    pub const fn with_capacity(mut self, capacity: usize) -> Self {
         self.capacity = capacity;
         self
     }
@@ -120,14 +122,14 @@ fn validate_pacing_chunk_size(
     direction: &str,
     capacity: usize,
 ) -> io::Result<()> {
-    if let Some(pacing) = pacing
-        && pacing.chunk_size.get() > capacity
+    if let Some(configured_pacing) = pacing
+        && configured_pacing.chunk_size.get() > capacity
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!(
                 "{direction} chunk size {} must not exceed capacity {}",
-                pacing.chunk_size.get(),
+                configured_pacing.chunk_size.get(),
                 capacity
             ),
         ));
@@ -153,8 +155,8 @@ where
 {
     match pacing {
         None => writer.write_all(bytes).await,
-        Some(pacing) => {
-            let step = pacing.chunk_size.get();
+        Some(configured_pacing) => {
+            let step = configured_pacing.chunk_size.get();
             let total = bytes.len();
             let mut offset = 0;
             while offset < total {
@@ -164,7 +166,7 @@ where
                     .ok_or_else(|| io::Error::other("writer chunk slice out of bounds"))?;
                 writer.write_all(chunk).await?;
                 offset = end;
-                pause_between_chunks(pacing.delay, offset < total).await;
+                pause_between_chunks(configured_pacing.delay, offset < total).await;
             }
             Ok(())
         }
@@ -185,12 +187,12 @@ where
             reader.read_to_end(&mut out).await?;
             Ok(out)
         }
-        Some(pacing) => {
+        Some(configured_pacing) => {
             let mut out = Vec::new();
             let mut should_pause_before_read = false;
-            let mut buf = vec![0; pacing.chunk_size.get()];
+            let mut buf = vec![0; configured_pacing.chunk_size.get()];
             loop {
-                pause_between_chunks(pacing.delay, should_pause_before_read).await;
+                pause_between_chunks(configured_pacing.delay, should_pause_before_read).await;
                 let read = reader.read(&mut buf).await?;
                 if read == 0 {
                     break;
@@ -218,19 +220,22 @@ where
     F: FnOnce(DuplexStream) -> Fut,
     Fut: std::future::Future<Output = ()>,
 {
-    let config = config.validate()?;
+    let validated_config = config.validate()?;
 
     drive_with_strategies(
         server_fn,
-        config.capacity,
+        validated_config.capacity,
         |mut writer: WriteHalf<DuplexStream>| async {
-            write_with_optional_pacing(&mut writer, &wire_bytes, config.writer_pacing).await?;
+            write_with_optional_pacing(&mut writer, &wire_bytes, validated_config.writer_pacing)
+                .await?;
             Ok(writer)
         },
         |mut reader| async {
-            match config.reader_pacing {
+            match validated_config.reader_pacing {
                 None => read_all(reader).await,
-                Some(_) => read_with_optional_pacing(&mut reader, config.reader_pacing).await,
+                Some(_) => {
+                    read_with_optional_pacing(&mut reader, validated_config.reader_pacing).await
+                }
             }
         },
     )

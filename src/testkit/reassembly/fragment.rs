@@ -22,7 +22,7 @@ pub struct FragmentReassemblySnapshot<'a> {
 impl<'a> FragmentReassemblySnapshot<'a> {
     /// Create a snapshot from the caller's current reassembly state.
     #[must_use]
-    pub fn new(
+    pub const fn new(
         last_reassembled: Option<&'a ReassembledMessage>,
         last_error: Option<&'a ReassemblyError>,
         evicted_ids: &'a [MessageId],

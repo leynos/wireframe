@@ -293,7 +293,7 @@ where
     /// ```
     #[cfg(any(test, feature = "test-support"))]
     #[must_use]
-    pub fn slot_id(&self) -> usize { self.selected_slot_index() }
+    pub const fn slot_id(&self) -> usize { self.selected_slot_index() }
 }
 
 #[cfg(test)]

@@ -44,15 +44,15 @@ impl<E> From<E> for WireframeError<E> {
 impl<E> WireframeError<E> {
     /// Convert an I/O error into a `WireframeError`.
     #[must_use]
-    pub fn from_io(error: std::io::Error) -> Self { Self::Io(error) }
+    pub const fn from_io(error: std::io::Error) -> Self { Self::Io(error) }
 
     /// Convert a codec error into a `WireframeError`.
     #[must_use]
-    pub fn from_codec(error: crate::codec::CodecError) -> Self { Self::Codec(error) }
+    pub const fn from_codec(error: crate::codec::CodecError) -> Self { Self::Codec(error) }
 
     /// Returns true if this error represents a clean connection close.
     #[must_use]
-    pub fn is_clean_close(&self) -> bool {
+    pub const fn is_clean_close(&self) -> bool {
         matches!(self, Self::Codec(codec_error) if codec_error.is_clean_close())
     }
 }
@@ -73,8 +73,8 @@ fn transport_or_codec_source<E>(
     error: &WireframeError<E>,
 ) -> Option<&(dyn std::error::Error + 'static)> {
     match error {
-        WireframeError::Io(error) => Some(error),
-        WireframeError::Codec(error) => Some(error),
+        WireframeError::Io(io_error) => Some(io_error),
+        WireframeError::Codec(codec_error) => Some(codec_error),
         WireframeError::DuplicateRoute(_) | WireframeError::Protocol(_) => None,
     }
 }
@@ -101,7 +101,7 @@ where
     E: std::error::Error + 'static,
 {
     match error {
-        WireframeError::Protocol(error) => Some(error),
+        WireframeError::Protocol(protocol_error) => Some(protocol_error),
         WireframeError::DuplicateRoute(_) | WireframeError::Io(_) | WireframeError::Codec(_) => {
             None
         }

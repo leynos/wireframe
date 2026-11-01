@@ -22,7 +22,7 @@ impl PlaceholderConnectionModel {
     /// The bound limits path exploration rather than changing which connection
     /// transitions are legal.
     #[must_use]
-    pub fn new(max_steps: u8) -> Self { Self { max_steps } }
+    pub const fn new(max_steps: u8) -> Self { Self { max_steps } }
 
     /// Clone `state` and advance the step counter by one.
     fn stepped(state: &ConnectionState) -> ConnectionState {

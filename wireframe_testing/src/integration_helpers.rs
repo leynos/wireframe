@@ -164,7 +164,7 @@ impl CommonTestEnvelope {
     /// assert_eq!(envelope.id, 7);
     /// ```
     #[must_use]
-    pub fn new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) -> Self {
+    pub const fn new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) -> Self {
         Self {
             id,
             correlation_id,
@@ -183,7 +183,7 @@ impl CommonTestEnvelope {
     /// assert_eq!(envelope.correlation_id, None);
     /// ```
     #[must_use]
-    pub fn with_payload(id: u32, payload: Vec<u8>) -> Self {
+    pub const fn with_payload(id: u32, payload: Vec<u8>) -> Self {
         Self {
             id,
             correlation_id: None,
@@ -202,7 +202,7 @@ impl CommonTestEnvelope {
     /// assert_eq!(envelope.payload, Vec::<u8>::new());
     /// ```
     #[must_use]
-    pub fn with_id(id: u32) -> Self {
+    pub const fn with_id(id: u32) -> Self {
         Self {
             id,
             correlation_id: None,
@@ -287,9 +287,9 @@ pub type CommonHandler = Arc<
 /// let handler = echo_handler(&counter);
 /// ```
 pub fn echo_handler(counter: &Arc<AtomicUsize>) -> CommonHandler {
-    let counter = counter.clone();
+    let shared_counter = counter.clone();
     Arc::new(move |_: &CommonTestEnvelope| {
-        let c = counter.clone();
+        let c = shared_counter.clone();
         Box::pin(async move {
             c.fetch_add(1, Ordering::SeqCst);
         })

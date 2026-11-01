@@ -95,10 +95,10 @@ pub fn valid_hotline_frame(
     payload: &[u8],
     transaction_id: impl Into<TransactionId>,
 ) -> HotlineFrame {
-    let transaction_id = transaction_id.into().0;
+    let resolved_transaction_id = transaction_id.into().0;
     let codec = HotlineFrameCodec::new(payload.len());
     let mut frame = codec.wrap_payload(Bytes::copy_from_slice(payload));
-    frame.transaction_id = transaction_id;
+    frame.transaction_id = resolved_transaction_id;
     frame
 }
 
@@ -122,8 +122,8 @@ pub fn valid_hotline_frame(
 /// ```
 #[must_use]
 pub fn oversized_hotline_wire(max_frame_length: impl Into<MaxFrameLength>) -> Vec<u8> {
-    let max_frame_length = max_frame_length.into().0;
-    let oversized_len = max_frame_length.saturating_add(1);
+    let resolved_max = max_frame_length.into().0;
+    let oversized_len = resolved_max.saturating_add(1);
     let payload = vec![0xab; oversized_len];
     build_hotline_wire(HotlineWireFixture {
         payload: &payload,
@@ -213,14 +213,14 @@ pub fn truncated_hotline_header() -> Vec<u8> {
 pub fn truncated_hotline_payload(payload_len: impl Into<PayloadLength>) -> Vec<u8> {
     // Clamp to at least 1 so the header always claims more payload than
     // the buffer provides, guaranteeing a genuinely truncated frame.
-    let payload_len = payload_len.into().0.max(1);
+    let declared_len = payload_len.into().0.max(1);
     let header = HotlineHeader {
-        data_size: u32_from_usize(payload_len),
-        total_size: u32_from_usize(payload_len.saturating_add(HEADER_LEN)),
+        data_size: u32_from_usize(declared_len),
+        total_size: u32_from_usize(declared_len.saturating_add(HEADER_LEN)),
         transaction_id: TransactionId(0),
     };
 
-    let half_payload = payload_len >> 1;
+    let half_payload = declared_len >> 1;
     let mut buf = Vec::with_capacity(HEADER_LEN + half_payload);
     append_hotline_header(&mut buf, header);
     buf.extend_from_slice(&vec![0xcc; half_payload]);
@@ -251,10 +251,10 @@ pub fn correlated_hotline_wire(
     transaction_id: impl Into<TransactionId>,
     payloads: &[&[u8]],
 ) -> Vec<u8> {
-    let transaction_id = transaction_id.into().0;
+    let resolved_transaction_id = transaction_id.into().0;
     let mut buf = Vec::new();
     for payload in payloads {
-        buf.extend_from_slice(&valid_hotline_wire(payload, transaction_id));
+        buf.extend_from_slice(&valid_hotline_wire(payload, resolved_transaction_id));
     }
     buf
 }
@@ -282,14 +282,14 @@ pub fn sequential_hotline_wire(
     base_transaction_id: impl Into<TransactionId>,
     payloads: &[&[u8]],
 ) -> Vec<u8> {
-    let base_transaction_id = base_transaction_id.into().0;
+    let first_transaction_id = base_transaction_id.into().0;
     let mut buf = Vec::new();
     for (i, payload) in payloads.iter().enumerate() {
         #[expect(
             clippy::cast_possible_truncation,
             reason = "fixture payloads slice length will not exceed u32::MAX"
         )]
-        let tid = base_transaction_id.wrapping_add(i as u32);
+        let tid = first_transaction_id.wrapping_add(i as u32);
         buf.extend_from_slice(&valid_hotline_wire(payload, tid));
     }
     buf
@@ -323,12 +323,12 @@ enum TotalSizePolicy {
 impl TotalSizePolicy {
     /// Calculate the declared frame length for the fixture's validation scenario.
     fn total_size(self, data_size: usize) -> u32 {
-        let total_size = data_size.saturating_add(HEADER_LEN);
-        let total_size = match self {
-            Self::Matching => total_size,
-            Self::OffByOne => total_size.saturating_add(1),
+        let base_total = data_size.saturating_add(HEADER_LEN);
+        let declared_total = match self {
+            Self::Matching => base_total,
+            Self::OffByOne => base_total.saturating_add(1),
         };
-        u32_from_usize(total_size)
+        u32_from_usize(declared_total)
     }
 }
 

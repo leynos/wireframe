@@ -112,9 +112,9 @@ pub fn measure_fragmented_wrap(
     fragment_payload_cap: usize,
 ) -> Result<Measurement, String> {
     let payload = payload_for_class(payload_class);
-    let fragment_payload_cap =
+    let validated_cap =
         NonZeroUsize::new(fragment_payload_cap).ok_or("fragment payload cap must be non-zero")?;
-    let fragmenter = Fragmenter::new(fragment_payload_cap);
+    let fragmenter = Fragmenter::new(validated_cap);
     let codec = LengthDelimitedFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
     let started = std::time::Instant::now();
     let mut total_bytes = 0_u64;

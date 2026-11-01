@@ -71,16 +71,18 @@ pub(super) struct CompletedOutputs {
 
 impl ConnectionState {
     /// Returns `true` when no output stream is currently active.
-    pub(crate) fn is_output_idle(&self) -> bool { matches!(self.active_output, ActiveOutput::Idle) }
+    pub(crate) const fn is_output_idle(&self) -> bool {
+        matches!(self.active_output, ActiveOutput::Idle)
+    }
 
     /// Returns `true` when a new output stream may be installed (output idle and no shutdown
     /// pending).
-    pub(crate) fn can_install_output(&self) -> bool {
+    pub(crate) const fn can_install_output(&self) -> bool {
         !self.shutdown.requested && self.is_output_idle()
     }
 
     /// Returns `true` when the fairness policy permits emitting the queued low-priority output.
-    pub(crate) fn can_emit_low_priority(&self) -> bool {
+    pub(crate) const fn can_emit_low_priority(&self) -> bool {
         self.pending_outputs.low_priority_queued
             && (!self.pending_outputs.high_priority_queued
                 || self.pending_outputs.fairness_allows_low)

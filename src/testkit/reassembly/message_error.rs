@@ -72,9 +72,10 @@ pub(super) fn matches_message_error(
     expected: MessageAssemblyErrorExpectation,
 ) -> bool {
     match expected {
-        MessageAssemblyErrorExpectation::SequenceMismatch { expected, found } => {
-            matches_sequence_mismatch(err, expected, found)
-        }
+        MessageAssemblyErrorExpectation::SequenceMismatch {
+            expected: expected_sequence,
+            found,
+        } => matches_sequence_mismatch(err, expected_sequence, found),
         MessageAssemblyErrorExpectation::DuplicateFrame { key, sequence } => {
             matches_duplicate_frame(err, key, sequence)
         }

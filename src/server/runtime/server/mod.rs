@@ -271,7 +271,7 @@ where
             preamble_timeout,
             ..
         } = self;
-        let Some((app, shutdown)) =
+        let Some((app, prepared_shutdown)) =
             prepare_application_or_shutdown(factory, shutdown, startup_started).await?
         else {
             return Ok(());
@@ -293,7 +293,7 @@ where
             supervisor.lifecycle.clone(),
         );
         runtime
-            .run_with_shutdown(shutdown, &supervisor, startup_started)
+            .run_with_shutdown(prepared_shutdown, &supervisor, startup_started)
             .await
     }
 

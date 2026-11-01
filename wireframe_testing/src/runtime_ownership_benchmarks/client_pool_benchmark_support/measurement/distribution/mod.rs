@@ -97,7 +97,7 @@ impl ContendedLatency {
     }
 
     /// Fold one burst's churn into the run's total.
-    pub(super) fn push_churn(&mut self, churn: PoolTaskChurn) {
+    pub(super) const fn push_churn(&mut self, churn: PoolTaskChurn) {
         self.churn = self.churn.saturating_add(churn);
     }
 
@@ -111,7 +111,7 @@ impl ContendedLatency {
     /// assert_eq!(ContendedLatency::default().successes(), 0);
     /// ```
     #[must_use]
-    pub fn successes(&self) -> usize { self.samples.len() }
+    pub const fn successes(&self) -> usize { self.samples.len() }
 
     /// Bursts that failed, whether or not their message was retained.
     ///

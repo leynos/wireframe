@@ -43,14 +43,14 @@ where
     C: Send + 'static,
     E: Packet,
 {
-    let capacity = capacity.unwrap_or(super::DEFAULT_CAPACITY);
-    if capacity == 0 {
+    let resolved_capacity = capacity.unwrap_or(super::DEFAULT_CAPACITY);
+    if resolved_capacity == 0 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "capacity must be greater than zero",
         ));
     }
-    if capacity > MAX_CAPACITY {
+    if resolved_capacity > MAX_CAPACITY {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             format!("capacity must not exceed {MAX_CAPACITY} bytes"),
@@ -60,7 +60,7 @@ where
     drive_internal(
         |server| async move { app.handle_connection_result(server).await },
         frames,
-        capacity,
+        resolved_capacity,
     )
     .await
 }

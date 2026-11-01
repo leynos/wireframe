@@ -142,7 +142,7 @@ pub(super) async fn acquisition_phase(
 /// those rounds could run. Folding the second into the first would put
 /// `pool_size` eager loopback handshakes back inside the figure the scope exists
 /// to report.
-pub(super) fn finish(
+pub(super) const fn finish(
     outcome: PhaseOutcome,
     elapsed: Duration,
     construction: Duration,

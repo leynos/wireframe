@@ -29,7 +29,7 @@ impl ConnectionInfo {
     /// assert_eq!(info.peer_addr(), Some(addr));
     /// ```
     #[must_use]
-    pub fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
+    pub const fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
 }
 
 impl FromMessageRequest for ConnectionInfo {

@@ -141,15 +141,15 @@ pub(super) async fn contended_round_bounded(
     observer: &PoolTaskChurnObserver,
 ) -> Result<u64, String> {
     let burst = contended_round(workload, pool, observer);
-    match tokio::time::timeout(CONTENDED_BURST_TIMEOUT, burst).await {
-        Ok(result) => result,
-        Err(_) => Err(format!(
+    let Ok(result) = tokio::time::timeout(CONTENDED_BURST_TIMEOUT, burst).await else {
+        return Err(format!(
             "contended burst did not complete within {CONTENDED_BURST_TIMEOUT:?}: every contender \
              is stalled with waiters still queued (pool acquire-path hang, last observed before \
              #535 and not reproduced since; see docs/runtime-ownership-baselines.md and issue \
              #647)"
-        )),
-    }
+        ));
+    };
+    result
 }
 
 /// Empty the pool, prove contenders had to wait for it, then run the rounds.
@@ -211,19 +211,21 @@ fn contend(
     let mut tasks = Vec::with_capacity(contenders);
     for _ in 0..contenders {
         let mut handle = pool.handle();
-        let barrier = Arc::clone(&barrier);
-        let granted = Arc::clone(&granted);
-        let failures = Arc::clone(&failures);
+        // Each contender needs its own `Arc` clone; the originals stay alive so
+        // nothing is dropped while other contenders are still starting.
+        let contender_barrier = Arc::clone(&barrier);
+        let contender_granted = Arc::clone(&granted);
+        let contender_failures = Arc::clone(&failures);
         tasks.push(tokio::spawn(async move {
-            barrier.wait().await;
+            contender_barrier.wait().await;
             match acquire_round(&mut handle, rounds_per_contender).await {
                 Ok(count) => {
-                    granted.fetch_add(
+                    contender_granted.fetch_add(
                         usize::try_from(count).unwrap_or(usize::MAX),
                         Ordering::SeqCst,
                     );
                 }
-                Err(err) => push_failure(&failures, &err),
+                Err(err) => push_failure(&contender_failures, &err),
             }
         }));
     }
@@ -263,9 +265,8 @@ async fn awaits_forced_waits(
         }
     };
 
-    match tokio::time::timeout(CONTENDED_WAIT_TIMEOUT, pending).await {
-        Ok(waits) => Ok(waits),
-        Err(_) => Err(format!(
+    let Ok(waits) = tokio::time::timeout(CONTENDED_WAIT_TIMEOUT, pending).await else {
+        return Err(format!(
             "pool was exhausted, so {contenders} contenders had to wait for capacity, but only {} \
              waits were recorded within {CONTENDED_WAIT_TIMEOUT:?}; the exhaustion or its \
              instrumentation is not working",
@@ -273,8 +274,9 @@ async fn awaits_forced_waits(
                 .snapshot()
                 .capacity_waits
                 .saturating_sub(waits_before)
-        )),
-    }
+        ));
+    };
+    Ok(waits)
 }
 
 /// Record one contender's acquisition failure without losing the others.

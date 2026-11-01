@@ -98,7 +98,7 @@ impl<F> PushQueueConfig<F> {
     /// Create a new configuration with default dead-letter queue logging
     /// cadence.
     #[must_use]
-    pub fn new(
+    pub const fn new(
         high_capacity: usize,
         low_capacity: usize,
         rate: Option<usize>,
@@ -127,7 +127,7 @@ impl<F: FrameLike> PushQueues<F> {
     pub fn builder() -> PushQueuesBuilder<F> { PushQueuesBuilder::default() }
 
     /// Returns the invalid rate if it is zero or exceeds the maximum.
-    fn invalid_rate(rate: Option<usize>) -> Option<usize> {
+    const fn invalid_rate(rate: Option<usize>) -> Option<usize> {
         match rate {
             Some(r) if r == 0 || r > MAX_PUSH_RATE => Some(r),
             _ => None,

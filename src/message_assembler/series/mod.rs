@@ -94,7 +94,7 @@ impl MessageSeries {
     /// assert!(!series.is_complete());
     /// ```
     #[must_use]
-    pub fn from_first_frame(header: &FirstFrameHeader) -> Self {
+    pub const fn from_first_frame(header: &FirstFrameHeader) -> Self {
         Self {
             message_key: header.message_key,
             next_sequence: None,
@@ -273,7 +273,7 @@ impl MessageSeries {
 impl MessageSeries {
     /// Testing helper that forces the next expected sequence.
     #[doc(hidden)]
-    pub fn force_next_sequence_for_tests(&mut self, next: FrameSequence) {
+    pub const fn force_next_sequence_for_tests(&mut self, next: FrameSequence) {
         self.sequence_tracking = SequenceTracking::Tracked;
         self.next_sequence = Some(next);
     }
