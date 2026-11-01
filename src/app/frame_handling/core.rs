@@ -59,8 +59,9 @@ where
     pub(crate) serializer: &'a S,
     /// Framed transport receiving encoded response frames.
     pub(crate) framed: &'a mut Framed<W, ConnectionCodec<F>>,
-    /// Outbound pipeline that applies fragmentation and metrics.
-    pub(crate) pipeline: &'a mut FramePipeline,
+    /// Outbound pipeline that applies fragmentation, `before_send`, and
+    /// metrics.
+    pub(crate) pipeline: &'a mut FramePipeline<F::Frame>,
     /// Codec that wraps serialized payloads into wire frames.
     pub(crate) codec: &'a F,
 }

@@ -17,6 +17,7 @@ use super::{
 use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
+    hooks::ProtocolHooks,
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
@@ -48,6 +49,8 @@ where
     pub(crate) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
     /// Fragmentation settings used to initialize the frame pipeline.
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
+    /// Protocol hooks built for this connection from the installed protocol.
+    pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
@@ -81,6 +84,7 @@ where
         on_disconnect,
         message_assembler,
         fragmentation,
+        protocol_hooks,
         memory_budgets,
         read_timeout_ms,
     } = context;
@@ -104,6 +108,7 @@ where
             codec,
             message_assembler,
             fragmentation,
+            protocol_hooks,
             memory_budgets,
             read_timeout_ms,
         },
@@ -178,6 +183,7 @@ where
                 on_disconnect: self.on_disconnect.as_ref(),
                 message_assembler: self.message_assembler.as_ref(),
                 fragmentation: self.fragmentation,
+                protocol_hooks: self.protocol_hooks(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
             },

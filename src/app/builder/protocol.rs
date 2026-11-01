@@ -22,7 +22,15 @@ where
     ///
     /// The protocol defines hooks for connection setup, frame modification, and
     /// command completion. It is wrapped in an [`Arc`] and stored for later use
-    /// by the connection actor.
+    /// by the connection actor and the application response pipeline.
+    ///
+    /// A fresh [`ProtocolHooks`] value is built for each connection. The
+    /// `before_send` hook runs for every `WireframeApp` handler response frame
+    /// after serialization and codec wrapping, immediately before the frame is
+    /// written to the transport. The application path does **not** run the
+    /// connection setup, command end, stream end, error, or end-of-file hooks;
+    /// those belong to the connection actor's push and streaming paths. The
+    /// direct response helpers on [`WireframeApp`] also bypass `before_send`.
     ///
     /// At present, the protocol must use `ProtocolError = ()`. This keeps the
     /// protocol object safe for dynamic dispatch, maintains a uniform

@@ -15,7 +15,7 @@ use super::ResponseContext;
 use crate::{
     app::{
         Envelope,
-        codec_driver::{FramePipeline, send_envelope},
+        codec_driver::{FramePipeline, OutboundTransport, send_envelope},
         combined_codec::CombinedCodec,
     },
     codec::FrameCodec,
@@ -175,8 +175,14 @@ async fn send_envelope_wraps_with_codec(harness: TestHarness) {
         client,
     } = harness;
 
+    let mut pipeline: FramePipeline<TestFrame> = FramePipeline::new(None);
     let envelope = Envelope::new(1, Some(99), vec![1, 2, 3, 4]);
-    send_envelope(&BincodeSerializer, &codec, &mut framed, &envelope)
+    let mut transport = OutboundTransport {
+        serializer: &BincodeSerializer,
+        codec: &codec,
+        framed: &mut framed,
+    };
+    send_envelope(&mut transport, &envelope, &mut pipeline)
         .await
         .expect("send should succeed");
 
@@ -204,7 +210,7 @@ async fn response_context_holds_references(harness: TestHarness) {
         client: _client,
     } = harness;
     let serializer = BincodeSerializer;
-    let mut pipeline = FramePipeline::new(None);
+    let mut pipeline: FramePipeline<TestFrame> = FramePipeline::new(None);
 
     let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
         serializer: &serializer,
@@ -230,7 +236,13 @@ async fn send_envelope_returns_error_on_failure(small_harness: TestHarness) {
     // Payload exceeds max_frame_length after serialization, so encode will fail
     let oversized_payload = vec![0u8; 100];
     let envelope = Envelope::new(1, Some(99), oversized_payload);
-    let result = send_envelope(&BincodeSerializer, &codec, &mut framed, &envelope).await;
+    let mut pipeline: FramePipeline<TestFrame> = FramePipeline::new(None);
+    let mut transport = OutboundTransport {
+        serializer: &BincodeSerializer,
+        codec: &codec,
+        framed: &mut framed,
+    };
+    let result = send_envelope(&mut transport, &envelope, &mut pipeline).await;
 
     assert!(
         result.is_err(),

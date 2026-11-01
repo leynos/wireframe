@@ -6,7 +6,12 @@ use log::warn;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    app::{Envelope, Packet, PacketParts, codec_driver::flush_pipeline_output},
+    app::{
+        Envelope,
+        Packet,
+        PacketParts,
+        codec_driver::{OutboundTransport, flush_pipeline_output},
+    },
     codec::FrameCodec,
     message::EncodeWith,
     middleware::{HandlerService, Service, ServiceRequest},
@@ -24,8 +29,11 @@ use crate::{
 /// send) still return `io::Error` and are propagated to the caller.
 ///
 /// Responses are processed through the [`FramePipeline`] which applies
-/// fragmentation, protocol hooks (`before_send`), and outbound metrics before
-/// serializing and sending via the codec.
+/// fragmentation and outbound metrics while buffering envelopes. The flush
+/// stage then serializes each envelope, wraps it via the codec, runs the
+/// configured protocol `before_send` hook, and writes it to the transport.
+/// The pipeline owns per-connection hooks, so `before_send` observes the same
+/// [`crate::hooks::ConnectionContext`] for every frame on the connection.
 pub(crate) async fn forward_response<S, E, W, F>(
     env: Envelope,
     service: &HandlerService<E>,
@@ -56,8 +64,13 @@ where
         .inherit_correlation(env.correlation_id);
     let envelope = Envelope::from_parts(parts);
 
-    // Route through the pipeline: fragment → before_send → metrics
+    // Route through the pipeline: fragment → metrics, then flush with
+    // serialize → wrap_payload → before_send → send.
     ctx.pipeline.process(envelope)?;
-    let mut output = ctx.pipeline.drain_output();
-    flush_pipeline_output(ctx.serializer, ctx.codec, ctx.framed, &mut output).await
+    let mut transport = OutboundTransport {
+        serializer: ctx.serializer,
+        codec: ctx.codec,
+        framed: &mut *ctx.framed,
+    };
+    flush_pipeline_output(&mut transport, ctx.pipeline).await
 }
