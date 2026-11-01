@@ -230,12 +230,15 @@ Creating a pool starts one scheduler task. The task owns:
 No lease drop or acquire call spawns an additional scheduler service task.
 
 The actor loop must remain responsive while a grant is pending: it `select!`s
-over its mailbox and any pending permit race, performs O(1) bookkeeping per
-event, and no command handler awaits unboundedly inline. The
-pending-acquisition flag is cleared through RAII so that a permit race dropped
-mid-`select!` (by shutdown or command handling) cannot leave the flag stuck and
-wedge granting. A permit won for a waiter whose reply channel has already
-closed is dropped and immediately re-enters the grant loop.
+over shutdown, its mailbox, and any pending permit race, performs O(1)
+bookkeeping per event, and no command handler awaits unboundedly inline. The
+pending race is held in a loop-scoped `Option<PendingGrant>`. That guard owns
+the boxed future and a local `Arc<PoolCore>` clone, so the task stores no
+self-referential borrow and no separate "servicing" flag exists to be left set:
+every event clears the option, and dropping the guard cancels the race and any
+semaphore waiter it registered. A permit won for a waiter whose reply channel
+has already closed is dropped, and the grant loop immediately selects the next
+live waiter.
 
 Replacing the current inline mutex-plus-`try_acquire` acquisition with a
 command/reply round trip regresses the uncontended path from sub-microsecond to
@@ -258,13 +261,24 @@ Acquire {
 DeregisterHandle {
     handle_id: u64,
 }
-Shutdown {
-    reply: oneshot::Sender<()>,
-}
 ```
 
 Capacity release is deliberately absent from the command set; section 3 defines
-it as a level-triggered signal outside the mailbox.
+it as a level-triggered signal outside the mailbox. Shutdown is absent for the
+same kind of reason. `close` publishes it on `PoolCore` and drops the pool's
+own sender, so the task has two shutdown signals that need no command: a
+level-checked `AtomicBool` notified through `tokio::sync::Notify`, and closure
+of the mailbox when every public sender is gone. A biased `select!` arm
+observes shutdown first, so neither a saturated mailbox nor a long permit race
+can delay it. Because the task owns the only receiver, mailbox closure is a
+reliable implicit shutdown and needs no acknowledgement message.
+
+The mailbox is unbounded, and its bound is not the memory-safety boundary.
+Waiter admission (section 7) caps how many callers can occupy a queue slot, and
+`DeregisterHandle` must be sendable without awaiting or failing so a handle's
+`Drop` can stay synchronous. A bounded mailbox would either make that send
+fallible or reintroduce a sender that waits on the actor, neither of which is
+acceptable.
 
 Logical handle IDs may still come from an atomic counter in the public handle
 factory so `WireframeClientPool::handle()` remains synchronous. The actor
@@ -303,15 +317,20 @@ invariant by construction — a level-triggered check cannot mint an extra permi
 
 Avoid a task/root cycle by separating:
 
-- a cloneable scheduler command handle, whose sender keeps the actor's
-  mailbox alive;
+- a cloneable `SchedulerHandle` holding an unbounded sender and an
+  `Arc<SchedulerStatus>`; the status holds the logical-handle ID counter, the
+  lifecycle flag, the per-pool churn counters, and the pool's metric identity.
+  It holds no core, no receiver, no waiter queue, and no join handle;
 - an `Arc<PoolCore>` containing fixed slot storage and shared
   shutdown/connection resources;
-- the scheduler task's receiver and owned scheduler state.
+- the scheduler task's receiver and owned scheduler state, with the task
+  holding one `Arc<PoolCore>` for its lifetime.
 
 `PoolCore` must not own the command sender if the scheduler task owns
 `Arc<PoolCore>`. Dropping the final public sender then closes the mailbox,
-allowing the task to exit and release its core reference.
+allowing the task to exit and release its core reference. Keeping the join
+handle only in `WireframeClientPool` keeps that cycle broken as well: the task
+cannot reach the handle that would await it.
 
 ### 5. Store slots by value and identify them by index
 
@@ -367,9 +386,11 @@ Do not clone every slot merely to default trait-object futures to `'static`.
 The `max_waiters` portion of
 [#550](https://github.com/leynos/wireframe/issues/550) is implemented in the
 current scheduler. `ClientPoolConfig::max_waiters` defaults to `64` and clamps
-values below one to `1`. Admission prunes cancelled receivers and counts both
-policy queues and the request currently held by the servicing worker while it
-waits for a slot permit. A full limit returns the typed
+values below one to `1`. Admission prunes cancelled receivers and counts the
+requests still queued under either policy. A waiter stays counted from
+admission until a permit is actually handed to it; the single outstanding
+permit race belongs to the task, so it is not an additional counted waiter and
+a parked caller is counted exactly once. A full limit returns the typed
 `ClientError::PoolSaturated { limit }` error; it does not recycle a socket.
 `ClientError` is now `#[non_exhaustive]`.
 
@@ -391,27 +412,32 @@ that the socket is clean.
 
 ### 9. Make shutdown awaitable
 
-`WireframeClientPool::close` delivers `Shutdown`, waits for the scheduler
-acknowledgement and task completion, then releases pool resources. `Shutdown`
-delivery must be guaranteed non-blocking — reserved mailbox capacity, a
-dedicated channel, or a `CancellationToken` — so a saturated pool cannot
-deadlock its own shutdown.
+`WireframeClientPool::close` publishes shutdown, drops its sender and core
+reference, and awaits the stored `JoinHandle`. Publication is two steps that
+cannot block: `SchedulerStatus` is marked closed first, then
+`PoolCore::shutdown()` stores the release-acquire flag and calls
+`Notify::notify_waiters`. The task's `select!` is biased towards the shutdown
+notification, and `PoolCore` checks the flag after registering for the
+notification, so a publication racing with the task's entry into `select!` is
+still observed. A saturated mailbox cannot deadlock shutdown because no message
+needs to be enqueued.
 
-On observing `Shutdown`, the actor enters a draining state: mailbox order is
-the fence, and every command observed after `Shutdown` — including acquisitions
-submitted through still-live cloned senders — is resolved with a dedicated
-`ClientError::PoolClosed` variant. Queued waiters are resolved with the same
-error. `PoolClosed` is distinct from `ClientError::disconnected()`, which
-reports a transport-level peer close and wrongly classifies as recyclable;
-`PoolClosed` reports `should_recycle_connection() == false` and lets callers
-programmatically distinguish "pool closed, retry elsewhere" from a real peer
-failure.
+Admission, not mailbox ordering, is the fence. `SchedulerHandle::acquire`
+checks the lifecycle before sending, and the task checks it again before
+queueing a received `Acquire`, so an acquisition made after close begins is
+refused with `ClientError::PoolClosed` instead of occupying a queue slot. The
+task then drains every already-queued waiter, closes its receiver, and resolves
+any buffered `Acquire` commands with the same error. `PoolClosed` is distinct
+from `ClientError::disconnected()`, which reports a transport-level peer close
+and wrongly classifies as recyclable; `PoolClosed` reports
+`should_recycle_connection() == false` and lets callers programmatically
+distinguish "pool closed, retry elsewhere" from a real peer failure.
 
 `close` waits for the actor and queued waiters, not for outstanding leases.
-After actor termination by either route — explicit `Shutdown` or mailbox
-closure when the final public sender drops — outstanding leases remain valid;
-their permit releases require no scheduler observation, which is coherent
-because capacity observation is level-triggered (section 3).
+After actor termination by either route — explicit close or mailbox closure
+when the final public sender drops — outstanding leases remain valid; their
+permit releases require no scheduler observation, which is coherent because
+capacity observation is level-triggered (section 3).
 
 ### 10. Detect and report scheduler failure
 
@@ -440,6 +466,17 @@ The design requires:
 - the failure policy is fail-pool-permanently: subsequent acquisitions
   return `SchedulerFailed`, and automatic actor restart is out of scope for
   this ADR.
+
+The implemented detection has two paths. `impl Drop for SchedulerTask` runs
+while the task future unwinds; it checks `std::thread::panicking()` and, when
+true, publishes `Failed`, increments `wireframe_pool_scheduler_failures_total`,
+and logs an error before the receiver and waiter queues are released. Queued
+callers therefore observe `SchedulerFailed` rather than `PoolClosed`. The
+second path is a non-shutdown error from the permit race: the task marks itself
+failed, resolves every queued waiter with the lifecycle error, and closes its
+receiver. The lifecycle record lives beside the sender in every handle, so a
+caller that reaches a dead mailbox still receives the typed error instead of a
+channel error.
 
 ## Consequences
 
@@ -478,13 +515,12 @@ The implementation must maintain:
 4. Round-robin policy gives each active logical handle turns according to
    the existing contract.
 5. Cancelled or deregistered waiters receive no later lease.
-6. Shutdown resolves every queued reply and terminates the task. Shutdown
-   withdrawal is the only path that completes a waiter still in a queue: the
-   service worker stops claiming once shutdown is published, and an acquisition
-   that enqueues after a concurrent drain withdraws its own sender before
-   failing. Without that separation the worker raced the drain and masked the
-   `notify_shutdown` mutation, because it resolved queued waiters from the
-   shutdown notification itself.
+6. Shutdown resolves every queued reply and terminates the task. The task
+   observes the shutdown notification on a biased `select!` arm and drains what
+   is already queued; admission checks the lifecycle flag both in the handle
+   and in the task, so an acquisition that arrives after close begins is
+   refused before it can occupy a queue slot. The drain and admission test the
+   same flag, so neither can mask the other or leave a reply unresolved.
 7. No strong-reference cycle keeps the pool alive after all public handles
    are gone.
 8. Capacity observation is idempotent and cannot create an extra permit.
@@ -530,14 +566,19 @@ but owns no slots. The public pool and logical handles hold both roots; a lease
 holds one core root, its selected slot index, its permit, and a separate
 optional control handle for release notification. This leaves the
 spawn-on-demand scheduler and permit-race structure in place so their later
-changes can be reviewed independently.
+changes can be reviewed independently. Both `PoolSchedulerControl` and that
+release-notification handle are phase-3 scaffolding: they no longer exist once
+the persistent task owns the queues, because the task observes permit release
+directly (section 3).
 
 ### Phase 3: add actor command protocol
 
 Move waiter queues, fairness, admission, and shutdown state into the long-lived
-task ([#647](https://github.com/leynos/wireframe/issues/647)). Keep
-compatibility wrappers around existing `PoolHandle` and pool APIs; the wrappers
-are internal scaffolding removed before this ADR flips to Accepted.
+task ([#647](https://github.com/leynos/wireframe/issues/647)). Keep the public
+`PoolHandle`, `PooledClientLease`, and `WireframeClientPool` surfaces
+unchanged. Internal compatibility wrappers, if introduced, are scaffolding and
+are removed before this ADR flips to Accepted; the implemented slice removes
+them in the same change.
 
 ### Phase 4: use scoped permit races
 
@@ -553,13 +594,15 @@ permits they acquired before the winner was selected.
 The immediate probe preserves deterministic start-slot behaviour because
 `FuturesUnordered` does not promise poll order. It allocates no storage
 proportional to pool size when a probe succeeds. A fully blocked race allocates
-one `FuturesUnordered` task node per slot. The serial service worker permits at
-most one active race per pool scheduler, and the scheduler keeps its existing
-fairness policy.
+one `FuturesUnordered` task node per slot. The single scheduler task holds at
+most one active race per pool, and the scheduler keeps its existing fairness
+policy.
 
-The service worker retains its `Arc<PoolCore>` across `tokio::select!`, so the
-acquisition can borrow the core while shutdown and closed-sender branches
-remain active. This avoids a per-race or per-slot core clone.
+The scheduler task keeps a local `Arc<PoolCore>` clone for its whole run, and
+the loop-scoped pending guard borrows it across `tokio::select!`. The
+acquisition can therefore borrow the core while shutdown and mailbox-closure
+branches remain active, without a per-race or per-slot core clone and without
+storing a self-referential borrow in the task's state.
 
 The race reuses the `rotation_start` and `rotation_indices` helpers from
 [#536](https://github.com/leynos/wireframe/issues/536). The iterator exposes
@@ -600,11 +643,13 @@ Complete or coordinate the following, plus any remaining useful scope from
 - Saturated pools enforce waiter bounds and acquisition timeouts.
 - Dropped acquire futures are pruned and do not receive leases.
 - Shutdown resolves blocked waiters promptly and the actor terminates. The
-  resolution must not rest on the service worker: the worker stops claiming at
-  shutdown, so only the shutdown drain (`notify_shutdown`) can complete the
-  waiters still queued. With the shutdown drain replaced by a no-op, at least
-  one waiter is left unresolved and `shutdown_drains_a_queued_waiter` fails
-  rather than passing.
+  resolution rests on the task's shutdown drain, which is selected ahead of the
+  mailbox and the pending permit race. With the drain replaced by a no-op, at
+  least one waiter is left unresolved and `shutdown_drains_a_queued_waiter`
+  fails rather than passing.
+- Waiter admission is exercised in isolation: a handler-level test admits up to
+  `max_waiters` requests, refuses the next with `PoolSaturated { limit }`, and
+  shows that a cancelled waiter frees its slot before the bound is checked.
 - Dropping all public handles without `close` eventually releases the pool
   core, including with the `JoinHandle` held by the non-shared close owner.
 - Deterministic current-thread tests manually poll pool permit races to cover
@@ -634,21 +679,20 @@ Complete or coordinate the following, plus any remaining useful scope from
 
 ## Outstanding decisions before acceptance
 
-- Bounded versus unbounded internal command mailbox; waiter admission must
-  remain bounded either way, and `Shutdown` delivery must remain guaranteed
-  regardless of the choice.
-- Whether explicit `close` also waits on the oneshot acknowledgement in
-  addition to awaiting the stored `JoinHandle`; section 10 requires the
-  non-shared close owner to drop the final command sender and await the
-  `JoinHandle` in any case.
 - Whether [#535](https://github.com/leynos/wireframe/issues/535) is closed
   as superseded or retained for smaller transition helpers inside the actor.
 
-The following earlier open questions are now resolved in the text: waiter
-rejection and timeout errors are named in section 7; command ordering across
-cloned senders is pinned in section 2 (per-handle sender clones);
-[#539](https://github.com/leynos/wireframe/issues/539) is resolved by section
-10, with actor-termination detection replacing poison recovery.
+The following earlier open questions are now resolved in the text:
+
+- The command mailbox is unbounded, with bounded waiter admission (section 7)
+  as the memory boundary and `DeregisterHandle` kept non-blocking (section 2).
+- Shutdown is published on `PoolCore` and by mailbox closure, not as a
+  command, and `close` awaits the stored `JoinHandle` rather than a separate
+  acknowledgement (sections 2 and 9).
+- Waiter rejection and timeout errors are named in section 7; command ordering
+  across cloned senders is pinned in section 2 (per-handle sender clones);
+  [#539](https://github.com/leynos/wireframe/issues/539) is resolved by section
+  10, with actor-termination detection replacing poison recovery.
 
 ## References
 

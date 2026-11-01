@@ -327,14 +327,16 @@ boundaries for Epic 635:
 - [ADR 012](adr-012-prepared-application-and-connection-runtime.md) splits
   `WireframeApp` into a registration builder, an immutable `PreparedApp`
   template shared by connection tasks, and a per-connection `ConnectionRuntime`.
-- [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) records a
-  phased client-pool ownership change. Phase 2 stores fixed slots by value in
-  `PoolCore` and keeps scheduler state in `PoolSchedulerControl`; pools and
-  handles retain both roots, while leases retain the core, a checked slot
-  index, a permit, and an optional control handle. Phase 4 probes the rotated
-  slots and races borrowed acquisitions when all slots are blocked. The
-  spawn-on-demand scheduler remains; a persistent owner task is planned for
-  [#647](https://github.com/leynos/wireframe/issues/647).
+- [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) records the
+  client-pool ownership change. Phase 2 stores fixed slots by value in
+  `PoolCore` and reduces leases to the core, a checked slot index, and a permit
+  ([#645](https://github.com/leynos/wireframe/issues/645)); phase 3 replaces
+  spawn-on-demand servicing with one persistent scheduler task per pool
+  ([#647](https://github.com/leynos/wireframe/issues/647)); phase 4 probes the
+  rotated slots and races borrowed acquisitions only when all slots are blocked
+  ([#646](https://github.com/leynos/wireframe/issues/646)). The task owns the
+  fairness queues; a cloneable `SchedulerHandle` owns only the command sender
+  and the shared lifecycle record, so no strong cycle retains the pool.
 
 The first implementation slice is now in place: consuming
 `WireframeApp::prepare().await` returns an immutable `PreparedApp` or a typed
@@ -514,22 +516,27 @@ transitions use `rebuild_with_params`; connection-state transitions use
 state, so `on_connection_setup` clears any teardown hook registered before it.
 Register teardown after setup when both hooks are required.
 
-Client pool internals should use `client::pool::sync::lock_or_recover` for
-poison-tolerant `Mutex` access. Keep the policy local to pool synchronization
-code so scheduler and slot state recovery cannot drift. Recovery logs a warning
-and increments the `wireframe_pool_bookkeeping_poison_recoveries_total`
-counter. Client connection construction should flow through
+Slot bookkeeping that genuinely needs a `Mutex` should use
+`client::pool::sync::lock_or_recover` for poison-tolerant access. Scheduler
+queues are not behind a mutex: they are owned by the pool's single scheduler
+task, so they have no poisoned state to recover. Recovery logs a warning and
+increments the `wireframe_pool_bookkeeping_poison_recoveries_total` counter.
+Client connection construction should flow through
 `WireframeClientBuilder::into_parts()` and `ClientBuildParts`, which keeps
 single-client and pooled-client socket setup, preamble exchange, lifecycle
 hooks, request hooks, and tracing configuration on the same path. Pooled lease
 methods should go through `PooledClientLease::dispatch_on_connection` so
 checkout and recycle-on-error policy stay in one place.
 
-Pool admission uses `ClientPoolConfig::max_waiters` to bound queued and
-currently serviced acquisitions. It prunes cancelled requests before counting
-them and rejects excess requests with `ClientError::PoolSaturated` without
-recycling a socket. Background waiter servicing lives in
-`client::pool::scheduler::service`; see the
+Pool admission uses `ClientPoolConfig::max_waiters` to bound queued
+acquisitions. It prunes cancelled requests before counting them and rejects
+excess requests with `ClientError::PoolSaturated` without recycling a socket.
+Each pool owns exactly one scheduler task, defined in
+`client::pool::scheduler`; acquisition is a mailbox command to that task, and
+the task holds at most one outstanding slot-permit race on the pool's behalf. A
+closed pool resolves queued and later acquisitions with
+`ClientError::PoolClosed`, and an abnormally terminated task reports
+`ClientError::SchedulerFailed`. See the
 [client-pool design](wireframe-client-design.md#bounded-waiter-admission) for
 the full contract. Acquire deadlines and waiter/rejection telemetry remain
 deferred under [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md).
