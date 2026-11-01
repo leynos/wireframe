@@ -1553,10 +1553,12 @@ mirrors the same behaviour for push traffic and streaming responses through
 
 On the server side, a unified `FramePipeline` applies fragmentation to every
 outbound handler response `Envelope` before serialization and codec wrapping.
-Streaming responses and multi-packet channels are emitted by the
-`ConnectionActor`, which applies the same fragmentation logic through
-`enable_fragmentation`. In both cases a single connection-scoped
-`FragmentationState` manages outbound fragmentation and inbound reassembly.
+Its connection-scoped `FragmentationState` adapter owns both the outbound
+fragmenter and the inbound reassembler. Streaming responses and multi-packet
+channels are emitted by the `ConnectionActor`, which keeps its own
+connection-local `Fragmenter` and applies the same fragmentation logic through
+`enable_fragmentation`. The two paths share the wire format rather than one
+fragmentation state.
 
 ## Protocol hooks
 
