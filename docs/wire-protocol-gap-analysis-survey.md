@@ -3,7 +3,8 @@
 ## Status and scope
 
 Surveyed on 2026-11-01 against Wireframe commit
-`f346af31b9e654fc1de88d1af5cd34b3c6e35427`. This is an architectural audit and
+`f346af31b9e654fc1de88d1af5cd34b3c6e35427`, reconciled after rebasing onto
+`ed59d71b4869043f6a55e9502d6f31f557d994b4`. This is an architectural audit and
 set of proposed extension RFCs, not an interoperability certification or an
 implementation commitment. Findings below distinguish source observations from
 proposed designs. No protocol server was built or exercised for this survey.
@@ -25,10 +26,8 @@ Scope resolves the protocol names as follows:
   framing specification.
 - **AMQP:** evaluate both Advanced Message Queuing Protocol 0-9-1 and 1.0.
   They are different protocols, not interchangeable codec configurations.
-- **“RSTP (with streaming)”** is interpreted as Real Time Streaming Protocol
-  (RTSP), covering 1.0 and 2.0 with TCP-interleaved media. If Rapid Spanning
-  Tree Protocol was intended, that is a link-layer bridge protocol and requires
-  a different transport survey.
+- **RTSP:** Real Time Streaming Protocol, covering 1.0 and 2.0 with
+  TCP-interleaved media.
 - **IEC 60870-5 over TCP/IP:** primarily IEC 60870-5-104. Serial 101 framing
   tunnelled over TCP is a distinct gateway profile, not equivalent to 104.
 - **DNP3:** TCP transport for IEEE Std 1815-2010. Later editions and security
@@ -407,6 +406,23 @@ The existing
 should inform the RFCs. These recommendations make no borrow-checker-dependent
 API promise; the pinned nightly alone does not establish a verified
 borrow-checker posture for a future implementation.
+
+## Rebase reconciliation
+
+The updated baseline adds lint cleanup, public `const fn` qualifications and
+compile-time API fixtures, plus regenerated spelling configuration. Inspection
+of the codec and connection changes found no change to the runtime boundaries
+or protocol verdicts above. Retain those findings and inherit the updated
+spelling configuration unchanged.
+
+Future extension RFC implementations should follow the
+[developer guide's const-API guidance](developers-guide.md#the-const-api-surface):
+extend the existing fixture for each public API family when adding a
+`const fn`, rather than introducing a parallel fixture. Public queue adapters
+should use the callable `Send + 'static` bounds described in the
+[users' guide](users-guide.md#compile-time-queue-and-session-configuration),
+without naming the crate-visible `FrameLike` trait. These are implementation
+constraints for the proposals, not additional protocol blockers.
 
 ## Evidence limits and follow-up
 
