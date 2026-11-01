@@ -5,6 +5,9 @@ reference when navigating the project's design and architecture material.
 
 ## Design documents
 
+- [Wire protocol gap analysis survey](wire-protocol-gap-analysis-survey.md)
+  Audit of external protocol support and proposed generic extension RFCs.
+
 - [Outbound messaging design](asynchronous-outbound-messaging-design.md)
   Comprehensive design for server-initiated pushes.
 - [Message fragments](generic-message-fragmentation-and-re-assembly-design.md)
