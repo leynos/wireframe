@@ -30,6 +30,8 @@ pub(crate) use client_pool::{
 };
 mod decode_rejections;
 
+mod preamble_rejections;
+
 mod server_startup;
 
 mod server_supervisor;
@@ -52,6 +54,8 @@ pub(crate) use decode_rejections::{
     DecodeRejectionReason,
     inc_decode_rejection,
 };
+pub use preamble_rejections::PREAMBLE_REJECTIONS;
+pub(crate) use preamble_rejections::{PreambleRejectionReason, inc_preamble_rejection};
 pub use server_startup::{SERVER_STARTUP_DURATION, SERVER_STARTUP_FAILURES};
 #[cfg(not(loom))]
 pub(crate) use server_startup::{
