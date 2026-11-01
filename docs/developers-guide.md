@@ -1814,7 +1814,10 @@ is a standalone consumer of `wireframe` alone, and
 that the gated calls fail to compile without the feature, name the expected
 methods in their diagnostics, and compile once it is enabled. A control build
 of the stable public API runs alongside them so a consumer that fails for an
-unrelated reason is reported as a broken probe rather than a passing gate.
+unrelated reason is reported as a broken probe rather than a passing gate. That
+control build selects neither `metrics` nor any HTTP/2 dependency, so it also
+fails unless the root manifest declares `tokio-util`'s `io` feature directly
+for request streaming ([#792](https://github.com/leynos/wireframe/issues/792)).
 
 Because the consumer is its own workspace, no workspace-wide target reaches it,
 so a green `make test` or `make test-ui` says nothing about whether the gate
