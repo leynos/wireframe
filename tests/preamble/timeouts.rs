@@ -10,7 +10,10 @@ use tokio::{
     sync::oneshot,
     time::{Duration, Instant, timeout},
 };
-use wireframe::server::{DEFAULT_PREAMBLE_TIMEOUT, WireframeServer};
+use wireframe::{
+    app::WireframeApp,
+    server::{DEFAULT_PREAMBLE_TIMEOUT, WireframeServer},
+};
 use wireframe_testing::{TestResult, factory};
 
 use crate::support::{
@@ -89,68 +92,119 @@ fn timeout_success_handler(
     }
 }
 
-#[tokio::test]
-async fn preamble_timeout_invokes_failure_handler_and_closes_connection() -> TestResult {
-    let factory = factory();
+/// A valid, promptly delivered `HotlinePreamble` payload.
+const PROMPT_PREAMBLE: &[u8] = b"TRTPHOTL\x00\x01\x00\x02";
+
+/// Build a failure callback that requires a timed-out decode error.
+///
+/// The callback optionally replies before shutting the stream down, then
+/// signals through the shared holder.
+fn timed_out_failure_handler(
+    holder: Holder,
+    reply: Option<&'static [u8]>,
+) -> impl for<'a> Fn(&'a DecodeError, &'a mut TcpStream) -> BoxFuture<'a, io::Result<()>>
++ Send
++ Sync
++ 'static {
+    move |err, stream| {
+        let holder = holder.clone();
+        Box::pin(async move {
+            ensure_timed_out_decode_error(err)?;
+            if let Some(reply) = reply {
+                stream.write_all(reply).await?;
+                stream.flush().await?;
+            }
+            stream.shutdown().await?;
+            notify_holder(&holder)?;
+            Ok::<(), io::Error>(())
+        })
+    }
+}
+
+/// Read one byte and report whether the peer closed the connection.
+async fn expect_closed(stream: &mut TcpStream, limit: Duration) -> TestResult<bool> {
+    let mut eof = [0u8; 1];
+    let read = timeout(limit, stream.read(&mut eof)).await;
+    is_connection_closed(read?)
+}
+
+/// Drive a server whose deadline must expire and assert the outcome.
+///
+/// The failure callback must observe a timed-out decode error, optionally
+/// reply, and close the connection. `minimum_elapsed` guards the tests that
+/// assert the server waited for its configured deadline before acting.
+async fn assert_timed_out_connection<F>(
+    server: WireframeServer<F, HotlinePreamble>,
+    minimum_elapsed: Duration,
+    reply: Option<&'static [u8]>,
+) -> TestResult
+where
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+{
     let (failure_holder, failure_rx) = channel_holder();
     let (result_tx, result_rx) = oneshot::channel();
-    let server = WireframeServer::new(factory)
-        .with_preamble::<HotlinePreamble>()
-        .preamble_timeout(Duration::from_millis(50))
-        .on_preamble_decode_failure(move |err, stream| {
-            let failure_holder = failure_holder.clone();
-            Box::pin(async move {
-                ensure_timed_out_decode_error(err)?;
-                stream.write_all(b"ERR").await?;
-                stream.flush().await?;
-                stream.shutdown().await?;
-                notify_holder(&failure_holder)?;
-                Ok::<(), io::Error>(())
-            })
-        });
+    let server =
+        server.on_preamble_decode_failure(timed_out_failure_handler(failure_holder, reply));
 
     with_running_server(server, move |addr| async move {
         let mut stream = TcpStream::connect(addr).await?;
-        recv_within(Duration::from_secs(1), failure_rx).await?;
-        let mut buf = [0u8; 3];
-        timeout(
-            Duration::from_millis(READ_TIMEOUT_MS),
-            stream.read_exact(&mut buf),
-        )
-        .await??;
-        let mut eof = [0u8; 1];
-        let read = timeout(Duration::from_millis(200), stream.read(&mut eof)).await;
-        let closed = is_connection_closed(read?)?;
-        let _ = result_tx.send((buf, closed));
+        let started = Instant::now();
+        // The test-side bound outlives the server deadline so paused time
+        // auto-advances to the server's timer first.
+        recv_within(beyond_default_timeout(), failure_rx).await?;
+        let elapsed = started.elapsed();
+
+        let reply_bytes = if let Some(expected) = reply {
+            let mut buf = vec![0u8; expected.len()];
+            timeout(
+                Duration::from_millis(READ_TIMEOUT_MS),
+                stream.read_exact(&mut buf),
+            )
+            .await??;
+            Some(buf)
+        } else {
+            None
+        };
+        let closed = expect_closed(&mut stream, Duration::from_millis(200)).await?;
+        let _ = result_tx.send((elapsed, closed, reply_bytes));
         Ok(())
     })
     .await?;
-    let (buf, closed) = recv_within(Duration::from_secs(1), result_rx).await?;
-    if buf.as_slice() != b"ERR" {
-        return Err(format!("response mismatch: expected b\"ERR\", got {buf:?}").into());
-    }
+
+    let (elapsed, closed, reply_bytes) = recv_within(Duration::from_secs(1), result_rx).await?;
     if !closed {
-        return Err("expected connection to close".into());
+        return Err("expected the connection to close after a timed-out preamble".into());
+    }
+    if elapsed < minimum_elapsed {
+        return Err(format!("failure fired before the deadline: {elapsed:?}").into());
+    }
+    if let Some(expected) = reply {
+        let actual = reply_bytes
+            .as_deref()
+            .ok_or_else(|| io::Error::other("failure callback sent no reply"))?;
+        if actual != expected {
+            return Err(format!("response mismatch: expected {expected:?}, got {actual:?}").into());
+        }
     }
     Ok(())
 }
 
-#[tokio::test]
-async fn preamble_timeout_allows_timely_preamble() -> TestResult {
-    let factory = factory();
+/// Drive a server with a prompt preamble and assert the success path.
+async fn assert_prompt_preamble_succeeds<F>(
+    server: WireframeServer<F, HotlinePreamble>,
+) -> TestResult
+where
+    F: Fn() -> WireframeApp + Send + Sync + Clone + 'static,
+{
     let (success_holder, success_rx) = channel_holder();
     let (failure_holder, failure_rx) = channel_holder();
-    let (result_tx, result_rx) = oneshot::channel();
-    let server = WireframeServer::new(factory)
-        .with_preamble::<HotlinePreamble>()
-        .preamble_timeout(Duration::from_millis(150))
-        .on_preamble_decode_success(timeout_success_handler(success_holder.clone()))
-        .on_preamble_decode_failure(failure_cb(failure_holder.clone()));
+    let server = server
+        .on_preamble_decode_success(timeout_success_handler(success_holder))
+        .on_preamble_decode_failure(failure_cb(failure_holder));
 
     with_running_server(server, move |addr| async move {
         let mut stream = TcpStream::connect(addr).await?;
-        let bytes = b"TRTPHOTL\x00\x01\x00\x02";
-        stream.write_all(bytes).await?;
+        stream.write_all(PROMPT_PREAMBLE).await?;
 
         recv_within(Duration::from_millis(200), success_rx).await?;
         let failure_fired = timeout(Duration::from_millis(150), failure_rx)
@@ -163,18 +217,31 @@ async fn preamble_timeout_allows_timely_preamble() -> TestResult {
             stream.read_exact(&mut buf),
         )
         .await??;
-        let _ = result_tx.send((buf, failure_fired));
+        if buf.as_slice() != b"OK" {
+            return Err(format!("response mismatch: expected b\"OK\", got {buf:?}").into());
+        }
+        if failure_fired {
+            return Err("failure handler should not fire for timely preamble".into());
+        }
         Ok(())
     })
-    .await?;
-    let (buf, failure_fired) = recv_within(Duration::from_secs(1), result_rx).await?;
-    if buf.as_slice() != b"OK" {
-        return Err(format!("response mismatch: expected b\"OK\", got {buf:?}").into());
-    }
-    if failure_fired {
-        return Err("failure handler should not fire for timely preamble".into());
-    }
-    Ok(())
+    .await
+}
+
+#[tokio::test]
+async fn preamble_timeout_invokes_failure_handler_and_closes_connection() -> TestResult {
+    let server = WireframeServer::new(factory())
+        .with_preamble::<HotlinePreamble>()
+        .preamble_timeout(Duration::from_millis(50));
+    assert_timed_out_connection(server, Duration::ZERO, Some(b"ERR")).await
+}
+
+#[tokio::test]
+async fn preamble_timeout_allows_timely_preamble() -> TestResult {
+    let server = WireframeServer::new(factory())
+        .with_preamble::<HotlinePreamble>()
+        .preamble_timeout(Duration::from_millis(150));
+    assert_prompt_preamble_succeeds(server).await
 }
 
 /// A default server closes an idle connection after the default deadline.
@@ -209,39 +276,8 @@ async fn default_preamble_timeout_closes_idle_unit_preamble_connection() -> Test
 /// The default deadline reaches non-unit preambles and reports `TimedOut`.
 #[tokio::test(start_paused = true)]
 async fn default_preamble_timeout_reports_timed_out_decode_error() -> TestResult {
-    let factory = factory();
-    let (failure_holder, failure_rx) = channel_holder();
-    let server = WireframeServer::new(factory)
-        .with_preamble::<HotlinePreamble>()
-        .on_preamble_decode_failure(move |err, stream| {
-            let failure_holder = failure_holder.clone();
-            Box::pin(async move {
-                ensure_timed_out_decode_error(err)?;
-                stream.shutdown().await?;
-                notify_holder(&failure_holder)?;
-                Ok::<(), io::Error>(())
-            })
-        });
-
-    with_running_server(server, move |addr| async move {
-        let mut stream = TcpStream::connect(addr).await?;
-        let started = Instant::now();
-        // The test-side bound outlives the server deadline so paused time
-        // auto-advances to the server's timer first.
-        recv_within(beyond_default_timeout(), failure_rx).await?;
-        let elapsed = started.elapsed();
-        let mut eof = [0u8; 1];
-        let read = timeout(beyond_default_timeout(), stream.read(&mut eof)).await;
-        let closed = is_connection_closed(read?)?;
-        if !closed {
-            return Err("expected the connection to close after a timed-out preamble".into());
-        }
-        if elapsed < DEFAULT_PREAMBLE_TIMEOUT {
-            return Err(format!("failure fired before the default deadline: {elapsed:?}").into());
-        }
-        Ok(())
-    })
-    .await
+    let server = WireframeServer::new(factory()).with_preamble::<HotlinePreamble>();
+    assert_timed_out_connection(server, DEFAULT_PREAMBLE_TIMEOUT, None).await
 }
 
 /// Disabling the deadline keeps an idle connection open indefinitely.
@@ -283,37 +319,6 @@ async fn disabled_preamble_timeout_keeps_idle_connection_open() -> TestResult {
 /// A default deadline still accepts a prompt preamble.
 #[tokio::test]
 async fn default_preamble_timeout_allows_timely_preamble() -> TestResult {
-    let factory = factory();
-    let (success_holder, success_rx) = channel_holder();
-    let (failure_holder, failure_rx) = channel_holder();
-    let server = WireframeServer::new(factory)
-        .with_preamble::<HotlinePreamble>()
-        .on_preamble_decode_success(timeout_success_handler(success_holder))
-        .on_preamble_decode_failure(failure_cb(failure_holder));
-
-    with_running_server(server, move |addr| async move {
-        let mut stream = TcpStream::connect(addr).await?;
-        let bytes = b"TRTPHOTL\x00\x01\x00\x02";
-        stream.write_all(bytes).await?;
-
-        recv_within(Duration::from_millis(200), success_rx).await?;
-        let failure_fired = timeout(Duration::from_millis(150), failure_rx)
-            .await
-            .is_ok();
-
-        let mut buf = [0u8; 2];
-        timeout(
-            Duration::from_millis(READ_TIMEOUT_MS),
-            stream.read_exact(&mut buf),
-        )
-        .await??;
-        if buf.as_slice() != b"OK" {
-            return Err(format!("response mismatch: expected b\"OK\", got {buf:?}").into());
-        }
-        if failure_fired {
-            return Err("failure handler should not fire for a timely preamble".into());
-        }
-        Ok(())
-    })
-    .await
+    let server = WireframeServer::new(factory()).with_preamble::<HotlinePreamble>();
+    assert_prompt_preamble_succeeds(server).await
 }
