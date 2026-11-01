@@ -140,7 +140,7 @@ sequenceDiagram
         alt success callback returned an error
             ProcessStream->>Client: close connection without app dispatch
         else success callback succeeded or is absent
-            ProcessStream->>WireframeApp: hand off stream and preamble
+            ProcessStream->>WireframeApp: hand off stream and leftover bytes
         end
     else preamble_result is Err (decode failure or timeout)
         alt on_failure is Some
