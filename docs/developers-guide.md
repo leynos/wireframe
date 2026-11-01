@@ -363,8 +363,8 @@ preparation boundary.
 
 ### Preamble handshake boundary
 
-A connection task completes the preamble handshake before any application code
-runs, and the order is fixed:
+A connection task completes the preamble handshake before dispatch to
+`PreparedApp`, and the order is fixed:
 
 1. `read_preamble_with_timeout` reads and decodes the optional preamble,
    applying `preamble_timeout` when one is configured.
