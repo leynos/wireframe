@@ -34,7 +34,7 @@ impl PanicPayload {
 
 /// Panics in connection handlers are logged and do not tear down the worker.
 ///
-/// `#[traced_test]` must precede `#[rstest]`: parameterised cases are emitted
+/// `#[traced_test]` must precede `#[rstest]`: parameterized cases are emitted
 /// into a child module, and the injected `logs_assert` helper is only in scope
 /// for the function body it is expanded into.
 #[traced_test]

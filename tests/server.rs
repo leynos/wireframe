@@ -194,7 +194,7 @@ async fn server_reaches_readiness_and_accepts_before_shutdown() -> TestResult {
 /// Ensure the server survives panicking connection tasks.
 ///
 /// `#[traced_test]` precedes `#[rstest]` so the injected `logs_assert` helper
-/// stays in scope, matching the parameterised unit tests in
+/// stays in scope, matching the parameterized unit tests in
 /// `src/server/connection_spawner_tests.rs`.
 #[traced_test]
 #[rstest]
