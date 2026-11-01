@@ -1,4 +1,14 @@
-//! Tests for [`WireframeServer`] configuration.
+//! Integration tests for [`WireframeServer`].
+//!
+//! The suite exercises the public server surface end to end: worker
+//! configuration and normalization, readiness and graceful shutdown, listener
+//! release when a supervisor is dropped or aborted, connection acceptance
+//! once the server is ready, and panic recovery inside a connection task.
+//!
+//! The panic-recovery case validates the public server behaviour implemented
+//! by the connection-task component. It drives two sequential connections
+//! through the public API, so it asserts only what a caller can observe: the
+//! server logs the panic and keeps accepting connections afterwards.
 #![cfg(not(loom))]
 
 use std::io::{ErrorKind, Result as IoResult};
