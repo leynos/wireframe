@@ -22,6 +22,9 @@ use crate::{
     serializer::BincodeSerializer,
 };
 
+#[path = "codec_driver_tests/fragmentation_properties.rs"]
+mod fragmentation_properties;
+
 /// Byte appended by the test protocol's `before_send` hook.
 const MARKER: u8 = 0xa5;
 
@@ -94,12 +97,14 @@ async fn collect_frames(client: &mut TestFramed) -> Vec<Bytes> {
     frames
 }
 
+/// Default unfragmented pipeline shared by the buffering tests.
 #[fixture]
 fn pipeline() -> FramePipeline {
     let config = None;
     FramePipeline::new(config)
 }
 
+/// Processing one envelope buffers exactly one frame with its identifiers.
 #[rstest]
 fn process_single_envelope_emits_one_frame(mut pipeline: FramePipeline) {
     let env = Envelope::new(1, Some(42), vec![1, 2, 3]);
@@ -116,6 +121,7 @@ fn process_single_envelope_emits_one_frame(mut pipeline: FramePipeline) {
     assert_eq!(first.payload, vec![1, 2, 3]);
 }
 
+/// Draining the buffer leaves it empty for the next flush.
 #[rstest]
 fn drain_clears_buffer(mut pipeline: FramePipeline) {
     pipeline
@@ -128,11 +134,13 @@ fn drain_clears_buffer(mut pipeline: FramePipeline) {
     assert_eq!(second, [] as [crate::app::Envelope; 0]);
 }
 
+/// A pipeline built without a config reports no fragmentation state.
 #[rstest]
 fn pipeline_without_fragmentation(pipeline: FramePipeline) {
     assert!(!pipeline.has_fragmentation());
 }
 
+/// `before_send` mutates every frame flushed from the pipeline.
 #[rstest]
 #[tokio::test]
 async fn before_send_mutates_every_flushed_frame() {
@@ -174,6 +182,7 @@ async fn before_send_mutates_every_flushed_frame() {
     );
 }
 
+/// `before_send` runs once for every fragment of a fragmented envelope.
 #[rstest]
 #[tokio::test]
 async fn before_send_runs_for_each_fragment() {
@@ -224,6 +233,7 @@ async fn before_send_runs_for_each_fragment() {
     );
 }
 
+/// Default hooks leave the encoded frame byte-for-byte unchanged.
 #[rstest]
 #[tokio::test]
 async fn default_hooks_leave_frames_unchanged() {

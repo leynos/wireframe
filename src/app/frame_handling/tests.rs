@@ -19,8 +19,12 @@ use crate::{
         combined_codec::CombinedCodec,
     },
     codec::FrameCodec,
+    hooks::{ConnectionContext, ProtocolHooks},
     serializer::BincodeSerializer,
 };
+
+/// Byte appended to frames by the ordering test's `before_send` hook.
+const MARKER: u8 = 0xa5;
 
 /// Test frame carrying a tag byte and payload.
 #[derive(Clone, Debug)]
@@ -60,6 +64,7 @@ impl Decoder for TestAdapter {
     type Item = TestFrame;
     type Error = std::io::Error;
 
+    /// Decode one tag-and-length frame, returning `None` until it is complete.
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         const HEADER_LEN: usize = 2;
         if src.len() < HEADER_LEN {
@@ -90,6 +95,7 @@ impl Decoder for TestAdapter {
 impl Encoder<TestFrame> for TestAdapter {
     type Error = std::io::Error;
 
+    /// Encode one frame as a tag byte, a length byte, and the payload.
     fn encode(&mut self, item: TestFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
         if item.payload.len() > self.max_frame_length {
             return Err(std::io::Error::new(
@@ -198,6 +204,65 @@ async fn send_envelope_wraps_with_codec(harness: TestHarness) {
 
     assert_eq!(frame.tag, 0x42, "wrap_payload should set tag to 0x42");
     assert_eq!(codec.wraps(), 1, "wrap_payload should advance codec state");
+}
+
+/// Verify `before_send` observes the codec-wrapped frame, not the raw payload.
+///
+/// The hook records the tag that [`TestCodec::wrap_payload`] assigns and
+/// appends [`MARKER`] to the frame payload. Running the hook before wrapping
+/// would leave the tag unset and lose the marker, so the assertions pin the
+/// documented ordering: serialize, wrap, hook, send.
+#[rstest]
+#[tokio::test]
+async fn before_send_observes_codec_wrapped_frame(harness: TestHarness) {
+    let TestHarness {
+        codec,
+        mut framed,
+        client,
+    } = harness;
+
+    let observed_tag = Arc::new(AtomicUsize::new(usize::MAX));
+    let hook_tag = Arc::clone(&observed_tag);
+    let hooks = ProtocolHooks {
+        before_send: Some(Box::new(
+            move |frame: &mut TestFrame, _ctx: &mut ConnectionContext| {
+                hook_tag.store(usize::from(frame.tag), Ordering::SeqCst);
+                frame.payload.push(MARKER);
+            },
+        )),
+        ..ProtocolHooks::default()
+    };
+    let mut pipeline: FramePipeline<TestFrame> = FramePipeline::with_hooks(None, hooks);
+    let envelope = Envelope::new(1, Some(99), vec![1, 2, 3, 4]);
+    let mut transport = OutboundTransport {
+        serializer: &BincodeSerializer,
+        codec: &codec,
+        framed: &mut framed,
+    };
+    send_envelope(&mut transport, &envelope, &mut pipeline)
+        .await
+        .expect("send should succeed");
+
+    drop(framed);
+
+    let combined_client = CombinedCodec::new(codec.decoder(), codec.encoder());
+    let mut client_framed = tokio_util::codec::Framed::new(client, combined_client);
+    let frame = client_framed
+        .next()
+        .await
+        .expect("expected a frame")
+        .expect("decode should succeed");
+
+    assert_eq!(
+        observed_tag.load(Ordering::SeqCst),
+        usize::from(0x42u8),
+        "before_send should see the codec-wrapped frame"
+    );
+    assert_eq!(frame.tag, 0x42, "codec wrapping should survive the hook");
+    assert!(
+        frame.payload.ends_with(&[MARKER]),
+        "hook mutation should reach the wire"
+    );
 }
 
 /// Verify `ResponseContext` fields are accessible and usable.

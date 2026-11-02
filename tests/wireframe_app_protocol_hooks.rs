@@ -43,6 +43,7 @@ impl WireframeProtocol for ResponseMarkerProtocol {
     type Frame = Bytes;
     type ProtocolError = ();
 
+    /// Append [`APP_MARKER`] to every outbound frame and count the call.
     fn before_send(&self, frame: &mut Self::Frame, _ctx: &mut ConnectionContext) {
         let mut bytes = frame.to_vec();
         bytes.push(APP_MARKER);
@@ -119,6 +120,7 @@ fn decode_marked_payloads(bytes: &[u8]) -> TestResult<Vec<Vec<u8>>> {
         .collect()
 }
 
+/// The prepared connection path marks every handler response.
 #[rstest]
 #[tokio::test]
 async fn prepared_app_runs_before_send_for_handler_responses() -> TestResult<()> {
@@ -132,6 +134,7 @@ async fn prepared_app_runs_before_send_for_handler_responses() -> TestResult<()>
     Ok(())
 }
 
+/// The unprepared compatibility path marks every handler response.
 #[rstest]
 #[tokio::test]
 async fn unprepared_app_runs_before_send_for_handler_responses() -> TestResult<()> {
@@ -145,6 +148,7 @@ async fn unprepared_app_runs_before_send_for_handler_responses() -> TestResult<(
     Ok(())
 }
 
+/// Repeated responses on one connection each run `before_send`.
 #[rstest]
 #[tokio::test]
 async fn before_send_runs_for_every_response_on_one_connection() -> TestResult<()> {
@@ -159,6 +163,7 @@ async fn before_send_runs_for_every_response_on_one_connection() -> TestResult<(
     Ok(())
 }
 
+/// Without an installed protocol the response frame stays unmarked.
 #[rstest]
 #[tokio::test]
 async fn responses_without_a_protocol_are_not_marked() -> TestResult<()> {
