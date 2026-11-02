@@ -3,8 +3,9 @@
 //! The zero-copy benchmark matrix names four stages. The codec helpers cover
 //! inbound decode; the sibling modules cover the other three:
 //!
-//! - [`pipeline_middleware`] measures middleware pass-through through the real `from_fn` chain and
-//!   `Service::call` path;
+//! - [`pipeline_middleware`] measures middleware pass-through through a chain built from the
+//!   library's `Transform` and `Service` traits, mirroring `FnService` dispatch. It does not use
+//!   `from_fn`, which cannot accept a middleware that forwards to `next.call`;
 //! - [`pipeline_hooks`] measures request-hook dispatch through the client's own before-send
 //!   dispatch loop;
 //! - [`pipeline_outbound`] measures outbound encode through the real `encode_message_frame` seam.

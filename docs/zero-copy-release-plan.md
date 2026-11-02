@@ -188,14 +188,14 @@ gated.
 
 ## Blockers
 
-| Blocker                                                     | Blocks                                            | Owner item |
-| ----------------------------------------------------------- | ------------------------------------------------- | ---------- |
-| Serializer amendment is proposed, not accepted              | Step 1, and every serializer example in the guide | `11.1.2.1` |
-| Acceptance thresholds have no performance-reviewer sign-off | Step 6 cannot be declared passed                  | Epic #284  |
-| `PayloadBytes` is unimplemented                             | Steps 3 and 4                                     | `11.1.1`   |
-| `Envelope`'s bincode derive has no decided wrapper strategy | Step 4                                            | `3.1.1`    |
-| Programme roles are unassigned                              | Step 4 onwards                                    | Epic #284  |
-| Target release version (`0.4.0` versus `0.5.0`) undecided   | Step 5 wording                                    | `14.1.1`   |
+| Blocker                                                     | Blocks                                                                | Owner item |
+| ----------------------------------------------------------- | --------------------------------------------------------------------- | ---------- |
+| Serializer amendment is proposed, not accepted              | Step 1, and the optional `serialize_to_vec` shim example in the guide | `11.1.2.1` |
+| Acceptance thresholds have no performance-reviewer sign-off | Step 6 cannot be declared passed                                      | Epic #284  |
+| `PayloadBytes` is unimplemented                             | Steps 3 and 4                                                         | `11.1.1`   |
+| `Envelope`'s bincode derive has no decided wrapper strategy | Step 4                                                                | `3.1.1`    |
+| Programme roles are unassigned                              | Step 4 onwards                                                        | Epic #284  |
+| Target release version (`0.4.0` versus `0.5.0`) undecided   | Step 5 wording                                                        | `14.1.1`   |
 
 None of these blockers prevents publishing this plan. Each prevents a claim of
 readiness, which is the distinction the epic needs to keep.

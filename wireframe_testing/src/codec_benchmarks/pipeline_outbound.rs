@@ -54,7 +54,6 @@ impl EncodeWith<VectorSerializer> for PayloadMessage {
     ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
         let mut bytes = Vec::with_capacity(self.payload.len());
         bytes.extend_from_slice(&self.payload);
-        benchmark_counters::record_serialized(bytes.len());
         Ok(bytes)
     }
 }
@@ -139,6 +138,11 @@ fn measure_serializer_only(
         let bytes = serializer
             .serialize(message)
             .map_err(|error| format!("serializer failed: {error}"))?;
+        // This pass calls the serializer directly rather than going through a
+        // production boundary, so it records the materialization itself. The
+        // serialize-and-wrap pass must not repeat this: it reaches
+        // `encode_message_frame`, which already records.
+        benchmark_counters::record_serialized(bytes.len());
         // Hand the whole buffer to `black_box`, not just its length. Observing
         // only the length lets the optimizer fold it to a constant and delete
         // both the allocation and the fill, which measures the loop, not the
@@ -171,10 +175,13 @@ pub fn measure_outbound_wrap(
     let message = payload_message(workload);
     let serializer = VectorSerializer;
     benchmark_counters::reset();
-    let started = Instant::now();
-    match workload.codec {
+    // Each arm builds its codec before starting the clock. Codec construction
+    // is setup, and timing it would bias the first Criterion samples, where the
+    // iteration count is still small.
+    let elapsed = match workload.codec {
         CodecUnderTest::LengthDelimited => {
             let codec = LengthDelimitedFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
+            let started = Instant::now();
             for _ in 0..iterations {
                 let frame = benchmark_encode_message_frame(&serializer, &codec, &message)
                     .map_err(|error| format!("length-delimited encode failed: {error}"))?;
@@ -182,9 +189,11 @@ pub fn measure_outbound_wrap(
                 // optimized away; observing its length alone would allow that.
                 let _ = black_box(LengthDelimitedFrameCodec::frame_payload(&frame));
             }
+            started.elapsed()
         }
         CodecUnderTest::Hotline => {
             let codec = HotlineFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
+            let started = Instant::now();
             for _ in 0..iterations {
                 let frame = benchmark_encode_message_frame(&serializer, &codec, &message)
                     .map_err(|error| format!("hotline encode failed: {error}"))?;
@@ -192,12 +201,13 @@ pub fn measure_outbound_wrap(
                 // keeps the serializer's fill observable.
                 let _ = black_box(HotlineFrameCodec::frame_payload(&frame));
             }
+            started.elapsed()
         }
-    }
+    };
     Ok(Measurement {
         operations: iterations,
         payload_bytes: iterations.saturating_mul(payload_len),
-        elapsed: started.elapsed(),
+        elapsed,
     })
 }
 

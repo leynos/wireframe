@@ -483,9 +483,11 @@ class; payload allocation is separately evidenced by the copied-byte counters.
 A mutation stage may copy one payload buffer per mutating operation and must
 not copy on its read-only branch.
 
-T6. The copied-byte assertion in `wireframe_testing/tests/copied_bytes.rs` must
-pass unchanged. A post-migration outbound total above one payload copy per
-message fails the gate.
+T6. A post-migration outbound total above one payload copy per message fails
+the copied-byte gate. The pre-migration assertions in
+`wireframe_testing/tests/copied_bytes.rs` encode the current two-copy total, so
+the migration must lower them to one copy; a performance reviewer must agree to
+that change before it lands.
 
 T7. A stage with no harness has no threshold and is reported as unmeasured. It
 is not assumed unchanged. No stage is in that position now; the

@@ -209,7 +209,11 @@ even when the timing is stable.
 `benchmark-counters` feature, and the recorders compile to empty inline
 functions when the feature is off:
 
-1. `record_serialized` — the serializer materializes an owned `Vec<u8>`.
+1. `record_serialized` — the serializer materializes an owned `Vec<u8>`. It is
+   recorded at the production outbound boundaries, `encode_message_frame` and
+   `serialize_and_send`, not in `EncodeWith::encode_with`: a Serde-backed
+   serializer never reaches that method, so recording there would miss those
+   messages and double-count a harness that calls `serialize` itself.
 2. `record_handoff` — `Bytes::from(Vec<u8>)` had to relocate the payload. It
    is recorded by `bytes_from_vec`, which compares `as_ptr()` before and after.
    With `bytes` 1.12.1 neither an exact-capacity vector nor one with spare
@@ -239,11 +243,16 @@ workload uses `iter_custom` with the shared `measure_*` helper, so one
 Criterion iteration is a batch of helper iterations and per-iteration
 amortization happens inside the helper.
 
-Every workload sets `Throughput::Bytes(payload_len)`. Middleware pass-through,
-hook dispatch, and outbound encode all move a payload of known size, so each
-reports bytes per second as well as time per operation. A stage that could not
-express a throughput value would have to document why and report time only;
-none of the four now needs that exception.
+Codec encode and outbound workloads set `Throughput::Bytes(payload_len)`: both
+sides move a known payload, so bytes per second is the meaningful rate.
+Middleware pass-through and hook dispatch set `Throughput::Elements(1)`,
+because their cost is per message and does not scale with payload size.
+Reporting 64 KiB per message there produced terabyte-per-second figures that
+described neither the stage nor any user-visible throughput; the
+[justified exceptions](zero-copy-benchmark-baselines.md#justified-exceptions)
+section of the baselines records the reasoning. A stage that could not express
+any throughput value would have to document why and report time only; none of
+the four now needs that exception.
 
 Comparisons use Criterion baselines rather than a stored spreadsheet:
 

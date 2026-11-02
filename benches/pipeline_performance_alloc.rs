@@ -9,19 +9,20 @@ use std::{fmt::Write as _, hint::black_box, time::Duration};
 
 use criterion::{BenchmarkId, Criterion};
 use tokio::runtime::Runtime;
-use wireframe_testing::codec_benchmarks::{
-    AccessMode,
-    BenchmarkWorkload,
-    CountingAllocator,
-    VALIDATION_ITERATIONS,
-    benchmark_workloads,
-    count_allocations,
-    measure_hook_dispatch,
-    measure_middleware_passthrough,
-    measure_outbound_serialize,
-    measure_outbound_wrap,
-    pipeline_label,
-    workload_label,
+use wireframe_testing::{
+    benchmark_alloc_support::{CountingAllocator, count_allocations},
+    codec_benchmarks::{
+        AccessMode,
+        BenchmarkWorkload,
+        VALIDATION_ITERATIONS,
+        benchmark_workloads,
+        measure_hook_dispatch,
+        measure_middleware_passthrough,
+        measure_outbound_serialize,
+        measure_outbound_wrap,
+        pipeline_label,
+        workload_label,
+    },
 };
 
 /// Process allocator used by this benchmark so the pipeline stages allocate
@@ -98,14 +99,17 @@ fn benchmark_middleware_allocations(c: &mut Criterion, runtime: &Runtime) {
 
     for workload in benchmark_workloads() {
         for mode in ACCESS_MODES {
-            let allocations = count_allocations(|| {
+            let allocations = match count_allocations(|| {
                 runtime.block_on(measure_middleware_passthrough(
                     workload,
                     mode,
                     VALIDATION_ITERATIONS,
                 ));
                 Ok(())
-            });
+            }) {
+                Ok(allocations) => allocations,
+                Err(err) => panic!("middleware allocation baseline failed: {err}"),
+            };
             let label = with_allocations(
                 pipeline_label("middleware_passthrough", workload, mode),
                 allocations,
@@ -126,10 +130,13 @@ fn benchmark_hook_allocations(c: &mut Criterion) {
 
     for workload in benchmark_workloads() {
         for mode in ACCESS_MODES {
-            let allocations = count_allocations(|| {
+            let allocations = match count_allocations(|| {
                 let _ = measure_hook_dispatch(workload, mode, VALIDATION_ITERATIONS);
                 Ok(())
-            });
+            }) {
+                Ok(allocations) => allocations,
+                Err(err) => panic!("hook allocation baseline failed: {err}"),
+            };
             let label =
                 with_allocations(pipeline_label("hook_mutation", workload, mode), allocations);
 
@@ -147,10 +154,13 @@ fn benchmark_outbound_allocations(c: &mut Criterion) {
     let mut group = c.benchmark_group("pipeline/outbound_allocations");
 
     for workload in benchmark_workloads() {
-        let serialize_allocations = count_allocations(|| {
+        let serialize_allocations = match count_allocations(|| {
             let _ = measure_outbound_serialize(workload, VALIDATION_ITERATIONS)?;
             Ok(())
-        });
+        }) {
+            Ok(allocations) => allocations,
+            Err(err) => panic!("serializer allocation baseline failed: {err}"),
+        };
         let serialize_label = with_allocations(
             workload_label("outbound_serialize", workload),
             serialize_allocations,
@@ -159,10 +169,13 @@ fn benchmark_outbound_allocations(c: &mut Criterion) {
             b.iter_custom(|iters| time_serialize_batch(workload, iters));
         });
 
-        let wrap_allocations = count_allocations(|| {
+        let wrap_allocations = match count_allocations(|| {
             let _ = measure_outbound_wrap(workload, VALIDATION_ITERATIONS)?;
             Ok(())
-        });
+        }) {
+            Ok(allocations) => allocations,
+            Err(err) => panic!("outbound encode allocation baseline failed: {err}"),
+        };
         let wrap_label = with_allocations(
             workload_label("outbound_encode", workload),
             wrap_allocations,

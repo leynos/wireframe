@@ -15,19 +15,20 @@ use wireframe::codec::{
     LengthDelimitedFrameCodec,
     examples::{HotlineAdapter, HotlineFrameCodec},
 };
-use wireframe_testing::codec_benchmarks::{
-    AllocationBaseline,
-    BenchmarkWorkload,
-    CodecUnderTest,
-    CountingAllocator,
-    LARGE_PAYLOAD_BYTES,
-    VALIDATION_ITERATIONS,
-    allocation_label,
-    benchmark_workloads,
-    count_allocations,
-    measure_decode,
-    measure_encode,
-    payload_for_class,
+use wireframe_testing::{
+    benchmark_alloc_support::{CountingAllocator, count_allocations},
+    codec_benchmarks::{
+        AllocationBaseline,
+        BenchmarkWorkload,
+        CodecUnderTest,
+        LARGE_PAYLOAD_BYTES,
+        VALIDATION_ITERATIONS,
+        allocation_label,
+        benchmark_workloads,
+        measure_decode,
+        measure_encode,
+        payload_for_class,
+    },
 };
 
 /// Process allocator used by this benchmark so encode/decode baselines cover
@@ -182,18 +183,24 @@ fn benchmark_allocations(c: &mut Criterion) {
     let mut group = c.benchmark_group("codec/allocations");
 
     for workload in benchmark_workloads() {
-        let wrap_allocations = count_allocations(|| {
+        let wrap_allocations = match count_allocations(|| {
             let _ = measure_encode(workload, VALIDATION_ITERATIONS)?;
             Ok(())
-        });
+        }) {
+            Ok(allocations) => allocations,
+            Err(err) => panic!("allocation wrap baseline failed: {err}"),
+        };
 
         let mut prepared_decode_input = match prepare_decode_input(workload) {
             Ok(prepared_decode_input) => prepared_decode_input,
             Err(err) => panic!("allocation decode baseline setup failed: {err}"),
         };
-        let decode_allocations = count_allocations(|| {
+        let decode_allocations = match count_allocations(|| {
             run_prepared_decode_iterations(&mut prepared_decode_input, VALIDATION_ITERATIONS)
-        });
+        }) {
+            Ok(allocations) => allocations,
+            Err(err) => panic!("allocation decode baseline failed: {err}"),
+        };
 
         let label = allocation_label(
             workload,

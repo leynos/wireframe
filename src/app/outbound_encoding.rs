@@ -30,6 +30,10 @@ where
     M: EncodeWith<S>,
 {
     let bytes = serializer.serialize(msg).map_err(SendError::Serialize)?;
+    // Record the materialization here rather than in `EncodeWith::encode_with`:
+    // this is the seam every framed outbound message passes through, whatever
+    // serializer implementation produced the vector.
+    crate::benchmark_counters::record_serialized(bytes.len());
     // Keep this bridge behaviour-preserving until issue #538 changes the
     // public serializer contract to return a Bytes-native container. The
     // conversion goes through the counter so a benchmark can report whether
