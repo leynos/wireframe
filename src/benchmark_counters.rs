@@ -102,56 +102,72 @@ impl CopiedBytes {
     }
 }
 
-/// Serializer materialization counter.
+/// A counter that accumulates when the feature is on and does nothing when it
+/// is off.
+///
+/// Keeping the `cfg` switch inside this type lets each recorder stay a
+/// one-line call, instead of repeating the same conditional block at every
+/// seam.
 #[cfg(feature = "benchmark-counters")]
-static SERIALIZED_BYTES: AtomicU64 = AtomicU64::new(0);
+struct Counter(AtomicU64);
+
+#[cfg(feature = "benchmark-counters")]
+impl Counter {
+    /// Creates a counter at zero.
+    const fn new() -> Self { Self(AtomicU64::new(0)) }
+
+    /// Adds `bytes` to the accumulated total.
+    #[inline]
+    fn add(&self, bytes: usize) { self.0.fetch_add(bytes as u64, Ordering::Relaxed); }
+
+    /// Returns the bytes accumulated so far.
+    fn load(&self) -> u64 { self.0.load(Ordering::Relaxed) }
+
+    /// Resets the accumulated total to zero.
+    fn clear(&self) { self.0.store(0, Ordering::Relaxed); }
+}
+
+/// Inert stand-in for [`Counter`] in a build without the feature. It is a
+/// zero-sized type, so the statics below occupy no storage.
+#[cfg(not(feature = "benchmark-counters"))]
+struct Counter;
+
+#[cfg(not(feature = "benchmark-counters"))]
+impl Counter {
+    /// Creates the inert counter.
+    const fn new() -> Self { Self }
+
+    /// Discards `bytes`; nothing is accumulated without the feature.
+    #[inline]
+    fn add(&self, bytes: usize) { let _ = bytes; }
+
+    /// Always reports zero, because nothing was accumulated.
+    fn load(&self) -> u64 { 0 }
+
+    /// Does nothing, because there is no total to reset.
+    fn clear(&self) {}
+}
+
+/// Serializer materialization counter.
+static SERIALIZED_BYTES: Counter = Counter::new();
 
 /// Serializer-to-`Bytes` hand-off counter.
-#[cfg(feature = "benchmark-counters")]
-static HANDOFF_BYTES: AtomicU64 = AtomicU64::new(0);
+static HANDOFF_BYTES: Counter = Counter::new();
 
 /// Codec framing counter.
-#[cfg(feature = "benchmark-counters")]
-static FRAMED_BYTES: AtomicU64 = AtomicU64::new(0);
+static FRAMED_BYTES: Counter = Counter::new();
 
 /// Records bytes written into a serializer's returned vector.
 #[inline]
-pub fn record_serialized(bytes: usize) {
-    #[cfg(feature = "benchmark-counters")]
-    {
-        SERIALIZED_BYTES.fetch_add(bytes as u64, Ordering::Relaxed);
-    }
-    #[cfg(not(feature = "benchmark-counters"))]
-    {
-        let _ = bytes;
-    }
-}
+pub fn record_serialized(bytes: usize) { SERIALIZED_BYTES.add(bytes); }
 
 /// Records bytes copied by the serializer-to-`Bytes` hand-off.
 #[inline]
-pub fn record_handoff(bytes: usize) {
-    #[cfg(feature = "benchmark-counters")]
-    {
-        HANDOFF_BYTES.fetch_add(bytes as u64, Ordering::Relaxed);
-    }
-    #[cfg(not(feature = "benchmark-counters"))]
-    {
-        let _ = bytes;
-    }
-}
+pub fn record_handoff(bytes: usize) { HANDOFF_BYTES.add(bytes); }
 
 /// Records bytes copied into a codec write buffer.
 #[inline]
-pub fn record_framed(bytes: usize) {
-    #[cfg(feature = "benchmark-counters")]
-    {
-        FRAMED_BYTES.fetch_add(bytes as u64, Ordering::Relaxed);
-    }
-    #[cfg(not(feature = "benchmark-counters"))]
-    {
-        let _ = bytes;
-    }
-}
+pub fn record_framed(bytes: usize) { FRAMED_BYTES.add(bytes); }
 
 /// Returns the counters accumulated since the last [`reset`].
 ///
@@ -159,17 +175,10 @@ pub fn record_framed(bytes: usize) {
 /// caller cannot mistake a disabled counter for a measured zero-copy path.
 #[must_use]
 pub fn snapshot() -> CopiedBytes {
-    #[cfg(feature = "benchmark-counters")]
-    {
-        CopiedBytes {
-            serialized: SERIALIZED_BYTES.load(Ordering::Relaxed),
-            handoff: HANDOFF_BYTES.load(Ordering::Relaxed),
-            framed: FRAMED_BYTES.load(Ordering::Relaxed),
-        }
-    }
-    #[cfg(not(feature = "benchmark-counters"))]
-    {
-        CopiedBytes::default()
+    CopiedBytes {
+        serialized: SERIALIZED_BYTES.load(),
+        handoff: HANDOFF_BYTES.load(),
+        framed: FRAMED_BYTES.load(),
     }
 }
 
@@ -178,12 +187,9 @@ pub fn snapshot() -> CopiedBytes {
 /// Call this immediately before the timed region so setup work cannot be
 /// mistaken for per-operation cost.
 pub fn reset() {
-    #[cfg(feature = "benchmark-counters")]
-    {
-        SERIALIZED_BYTES.store(0, Ordering::Relaxed);
-        HANDOFF_BYTES.store(0, Ordering::Relaxed);
-        FRAMED_BYTES.store(0, Ordering::Relaxed);
-    }
+    SERIALIZED_BYTES.clear();
+    HANDOFF_BYTES.clear();
+    FRAMED_BYTES.clear();
 }
 
 /// Converts a serializer vector into the codec hand-off container.

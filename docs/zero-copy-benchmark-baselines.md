@@ -80,6 +80,13 @@ The capture was taken at the revision above with a clean working tree, so
 object is recorded as well, so a rebase that rewrites the commit can still be
 identified against the content that was measured.
 
+One source commit after the capture deduplicated the counter recorders in
+`src/benchmark_counters.rs` behind a private `Counter` type. It changes no
+harness, payload, feature, or emitted atomic operation: each recorder still
+performs one relaxed `fetch_add` at the same seam, and the disabled build's
+statics are still zero-sized. The capture therefore remains comparable, and
+`git checkout bef53308` still names the sources that were measured.
+
 The host was running other agents' compile work throughout the capture. That is
 the ordinary state of this machine, not an incident, but it means these are
 *relative* baselines: they describe the code as it stands under contention, and
