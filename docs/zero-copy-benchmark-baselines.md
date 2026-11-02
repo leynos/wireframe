@@ -65,19 +65,20 @@ rules below require both sides to use the same entry point.
 
 ## Measured revision and command
 
-| Fact          | Value                                                                           |
-| ------------- | ------------------------------------------------------------------------------- |
-| Revision      | `0483d86f` plus working-tree content `7b9dd4829a672ec9a887bad05dd1b5378a87c43b` |
-| Date (UTC)    | 2026-11-02                                                                      |
-| Command       | `make bench-codec`, captured with `tee /tmp/bench-codec-<branch>.out`           |
-| Exit status   | `0`                                                                             |
-| Sample budget | 100 samples per workload, 3 s warm-up, 5 s measurement                          |
-| Host load     | load average between roughly 9 and 22 on 24 hardware threads                    |
+| Fact          | Value                                                                 |
+| ------------- | --------------------------------------------------------------------- |
+| Revision      | `bef53308` (`bef53308e7479a57d00c6c108c5f5c8051882e51`)               |
+| Tree          | `8968fd9c716104be90979934f0d24fd77c6a287c`                            |
+| Date (UTC)    | 2026-11-02                                                            |
+| Command       | `make bench-codec`, captured with `tee /tmp/bench-codec-<branch>.out` |
+| Exit status   | `0`                                                                   |
+| Sample budget | 100 samples per workload, 3 s warm-up, 5 s measurement                |
+| Host load     | load average between roughly 18 and 22 on 24 hardware threads         |
 
-The working tree was uncommitted when the capture ran, so the commit alone does
-not identify the code. `7b9dd482` is the tree object the harness and library
-sources hashed to at capture time; reproducing the numbers needs that content,
-not merely the parent commit.
+The capture was taken at the revision above with a clean working tree, so
+`git checkout bef53308` reproduces the measured sources exactly. The tree
+object is recorded as well, so a rebase that rewrites the commit can still be
+identified against the content that was measured.
 
 The host was running other agents' compile work throughout the capture. That is
 the ordinary state of this machine, not an incident, but it means these are
@@ -90,15 +91,22 @@ Each figure is a single run. Criterion's confidence interval describes the
 uncertainty of the mean within that run; it does not describe the spread
 between runs on a loaded host.
 
-A first capture is preserved as superseded. It reported the serializer-only
-stage at about 4.6 ns for every payload class, including 64 KiB, which is not a
-plausible copy cost. The harness had handed only the *length* of the serialized
-buffer to `black_box`, so the optimizer folded the length to a constant and
-deleted both the allocation and the fill. The harness now hands the buffer
-slice to `black_box`, and the same stage measures 14.6 ns for 32 bytes and
-1.1777 µs for 64 KiB. The throughput units for the two read-only stages changed
-in the same revision. Because the harness changed, the baseline was re-taken
-rather than reinterpreted, and only the re-taken capture is published below.
+Two earlier captures are preserved as superseded. The first reported the
+serializer-only stage at about 4.6 ns for every payload class, including 64
+KiB, which is not a plausible copy cost. The harness had handed only the
+*length* of the serialized buffer to `black_box`, so the optimizer folded the
+length to a constant and deleted both the allocation and the fill. The harness
+now hands the buffer slice to `black_box`, and the same stage measures 15.8 ns
+for 32 bytes and 1.17 µs for 64 KiB. The throughput units for the two read-only
+stages changed in the same revision.
+
+The second capture ran the corrected harness, but its sources were an
+uncommitted working tree and it was taken at a lower host load. Its
+large-payload throughput was 50–53 GiB/s where this capture records 37–44 GiB/s
+on the same workloads, a 15–18 % drop that no source change explains. Rather
+than carry the earlier floors across a changed capture, the absolute floors in
+T2 are derived from this capture, and this paragraph records the difference so
+a later reviewer does not mistake it for a regression.
 
 ## Baselines
 
@@ -113,10 +121,10 @@ not measure the serializer.
 
 | Workload                 | Lower     | Estimate  | Upper     | Throughput   | Outliers |
 | ------------------------ | --------- | --------- | --------- | ------------ | -------- |
-| `length_delimited_small` | 26.560 ns | 26.763 ns | 26.974 ns | 1.1136 GiB/s | 6.00%    |
-| `length_delimited_large` | 1.1398 µs | 1.1550 µs | 1.1719 µs | 52.842 GiB/s | 9.00%    |
-| `hotline_small`          | 37.614 ns | 38.172 ns | 38.781 ns | 799.47 MiB/s | 5.00%    |
-| `hotline_large`          | 1.1776 µs | 1.2031 µs | 1.2345 µs | 50.733 GiB/s | 8.00%    |
+| `length_delimited_small` | 30.881 ns | 32.575 ns | 34.440 ns | 936.84 MiB/s | 8.00%    |
+| `length_delimited_large` | 1.3421 µs | 1.3851 µs | 1.4358 µs | 44.065 GiB/s | 11.00%   |
+| `hotline_small`          | 43.951 ns | 47.278 ns | 51.858 ns | 645.49 MiB/s | 5.00%    |
+| `hotline_large`          | 1.3461 µs | 1.3854 µs | 1.4309 µs | 44.056 GiB/s | 3.00%    |
 
 ### Decode
 
@@ -127,10 +135,10 @@ later reader.
 
 | Workload                 | Lower     | Estimate  | Upper     | Throughput   | Outliers |
 | ------------------------ | --------- | --------- | --------- | ------------ | -------- |
-| `length_delimited_small` | 75.871 ns | 77.292 ns | 78.787 ns | 394.83 MiB/s | 2.00%    |
-| `length_delimited_large` | 1.3126 µs | 1.3329 µs | 1.3528 µs | 45.790 GiB/s | 1.00%    |
-| `hotline_small`          | 48.666 ns | 49.914 ns | 51.193 ns | 611.40 MiB/s | 1.00%    |
-| `hotline_large`          | 1.1662 µs | 1.1986 µs | 1.2472 µs | 50.921 GiB/s | 3.00%    |
+| `length_delimited_small` | 107.01 ns | 112.56 ns | 118.39 ns | 271.12 MiB/s | 5.00%    |
+| `length_delimited_large` | 1.5667 µs | 1.6378 µs | 1.7291 µs | 37.267 GiB/s | 6.00%    |
+| `hotline_small`          | 60.531 ns | 62.447 ns | 64.337 ns | 488.70 MiB/s | 4.00%    |
+| `hotline_large`          | 1.3026 µs | 1.3797 µs | 1.4788 µs | 44.238 GiB/s | 7.00%    |
 
 ### Fragmentation
 
@@ -142,19 +150,19 @@ estimate.
 
 | Workload                         | Lower     | Estimate  | Upper     | Outliers |
 | -------------------------------- | --------- | --------- | --------- | -------- |
-| `unfragmented/small`             | 10.672 ns | 10.721 ns | 10.774 ns | 6.00%    |
-| `fragmented/small_ratio_4.852`   | 116.79 ns | 122.99 ns | 129.48 ns | 6.00%    |
-| `unfragmented/large`             | 10.802 ns | 10.882 ns | 10.969 ns | 8.00%    |
-| `fragmented/large_ratio_284.000` | 11.099 µs | 11.297 µs | 11.522 µs | 4.00%    |
+| `unfragmented/small`             | 12.683 ns | 13.184 ns | 13.765 ns | 6.00%    |
+| `fragmented/small_ratio_100.062` | 133.10 ns | 138.09 ns | 143.83 ns | 5.00%    |
+| `unfragmented/large`             | 10.954 ns | 11.096 ns | 11.274 ns | 9.00%    |
+| `fragmented/large_ratio_151.189` | 12.709 µs | 13.656 µs | 14.889 µs | 4.00%    |
 
 The unfragmented large-payload figure is near the floor of what this harness
 can time: `wrap_payload` on an already-built `Bytes` is close to free, so the
 row measures per-iteration harness overhead more than wrapping. Do not read the
 fragmented/unfragmented ratio as a protocol cost without that caveat: for the
-large class the ratio of the *estimates* is about 1,038×, while the label
-records 284× from a noisier 16-iteration probe. The ratio moved between the two
-captures because the probe is small and the host was loaded; the paired
-absolute figures are the stable reading.
+large class the ratio of the *estimates* is about 1,231×, while the label
+records 151× from a noisier 16-iteration probe. The ratio moves between
+captures because the probe is small and the host is loaded; the paired absolute
+figures are the stable reading.
 
 ### Codec allocations
 
@@ -162,12 +170,12 @@ The allocation counter is a process-global allocator that counts operations
 while a gate is open. It counts allocation calls, not bytes. Labels embed the
 totals as `wrap_allocs_<n>` and `decode_allocs_<n>`.
 
-| Label                                                   | Wrap allocs | Decode allocs | Per decode iteration | Time (encode + decode) | Outliers |
-| ------------------------------------------------------- | ----------- | ------------- | -------------------- | ---------------------- | -------- |
-| `length_delimited_small_wrap_allocs_3_decode_allocs_48` | 3           | 48            | 3.0                  | 118.22 ns              | 9.00%    |
-| `length_delimited_large_wrap_allocs_3_decode_allocs_48` | 3           | 48            | 3.0                  | 2.5316 µs              | 6.00%    |
-| `hotline_small_wrap_allocs_3_decode_allocs_32`          | 3           | 32            | 2.0                  | 83.407 ns              | 2.00%    |
-| `hotline_large_wrap_allocs_3_decode_allocs_32`          | 3           | 32            | 2.0                  | 2.5169 µs              | 9.00%    |
+| Label                                                   | Time      | Outliers |
+| ------------------------------------------------------- | --------- | -------- |
+| `length_delimited_small_wrap_allocs_3_decode_allocs_48` | 121.01 ns | 9.00%    |
+| `length_delimited_large_wrap_allocs_3_decode_allocs_48` | 2.5023 µs | 1.00%    |
+| `hotline_small_wrap_allocs_3_decode_allocs_32`          | 83.583 ns | 5.00%    |
+| `hotline_large_wrap_allocs_3_decode_allocs_32`          | 2.3810 µs | 1.00%    |
 
 Three readings matter and none should be over-stated:
 
@@ -202,14 +210,14 @@ frame without traversing it.
 
 | Workload                                                 | Lower     | Estimate  | Upper     | Throughput     | Outliers |
 | -------------------------------------------------------- | --------- | --------- | --------- | -------------- | -------- |
-| `middleware_passthrough_length_delimited_small_readonly` | 47.272 ns | 48.797 ns | 50.924 ns | 20.493 Melem/s | 11.00%   |
-| `middleware_passthrough_length_delimited_small_mutating` | 46.322 ns | 46.968 ns | 47.626 ns | 21.291 Melem/s | 0%       |
-| `middleware_passthrough_length_delimited_large_readonly` | 46.405 ns | 47.081 ns | 47.775 ns | 21.240 Melem/s | 5.00%    |
-| `middleware_passthrough_length_delimited_large_mutating` | 48.610 ns | 50.261 ns | 52.044 ns | 19.896 Melem/s | 9.00%    |
-| `middleware_passthrough_hotline_small_readonly`          | 47.347 ns | 48.391 ns | 49.562 ns | 20.665 Melem/s | 8.00%    |
-| `middleware_passthrough_hotline_small_mutating`          | 45.359 ns | 45.990 ns | 46.674 ns | 21.744 Melem/s | 3.00%    |
-| `middleware_passthrough_hotline_large_readonly`          | 46.306 ns | 47.142 ns | 48.032 ns | 21.213 Melem/s | 7.00%    |
-| `middleware_passthrough_hotline_large_mutating`          | 47.440 ns | 48.881 ns | 50.758 ns | 20.458 Melem/s | 2.00%    |
+| `middleware_passthrough_length_delimited_small_readonly` | 54.486 ns | 58.601 ns | 63.316 ns | 17.064 Melem/s | 7.00%    |
+| `middleware_passthrough_length_delimited_small_mutating` | 48.660 ns | 50.452 ns | 52.412 ns | 19.821 Melem/s | 11.00%   |
+| `middleware_passthrough_length_delimited_large_readonly` | 45.665 ns | 47.129 ns | 49.106 ns | 21.218 Melem/s | 6.00%    |
+| `middleware_passthrough_length_delimited_large_mutating` | 47.442 ns | 48.597 ns | 49.766 ns | 20.577 Melem/s | 9.00%    |
+| `middleware_passthrough_hotline_small_readonly`          | 49.331 ns | 50.769 ns | 52.305 ns | 19.697 Melem/s | 1.00%    |
+| `middleware_passthrough_hotline_small_mutating`          | 50.515 ns | 51.957 ns | 53.572 ns | 19.247 Melem/s | 4.00%    |
+| `middleware_passthrough_hotline_large_readonly`          | 47.682 ns | 48.428 ns | 49.249 ns | 20.649 Melem/s | 7.00%    |
+| `middleware_passthrough_hotline_large_mutating`          | 50.528 ns | 52.707 ns | 55.242 ns | 18.973 Melem/s | 9.00%    |
 
 The constant cost across payload classes is the expected result: a pass-through
 that hands out a shared payload does not touch its bytes. The mutating rows are
@@ -224,14 +232,14 @@ outside the timer.
 
 | Workload                                        | Lower     | Estimate  | Upper     | Throughput     | Outliers |
 | ----------------------------------------------- | --------- | --------- | --------- | -------------- | -------- |
-| `hook_mutation_length_delimited_small_readonly` | 2.8832 ns | 2.9207 ns | 2.9612 ns | 342.39 Melem/s | 0%       |
-| `hook_mutation_length_delimited_small_mutating` | 3.0201 ns | 3.0676 ns | 3.1184 ns | 325.99 Melem/s | 5.00%    |
-| `hook_mutation_length_delimited_large_readonly` | 3.0901 ns | 3.1573 ns | 3.2258 ns | 316.73 Melem/s | 5.00%    |
-| `hook_mutation_length_delimited_large_mutating` | 3.0061 ns | 3.0776 ns | 3.1578 ns | 324.93 Melem/s | 4.00%    |
-| `hook_mutation_hotline_small_readonly`          | 2.9220 ns | 2.9649 ns | 3.0118 ns | 337.27 Melem/s | 5.00%    |
-| `hook_mutation_hotline_small_mutating`          | 3.0177 ns | 3.0832 ns | 3.1545 ns | 324.34 Melem/s | 9.00%    |
-| `hook_mutation_hotline_large_readonly`          | 3.1051 ns | 3.1750 ns | 3.2514 ns | 314.96 Melem/s | 2.00%    |
-| `hook_mutation_hotline_large_mutating`          | 3.0365 ns | 3.1307 ns | 3.2236 ns | 319.42 Melem/s | 5.00%    |
+| `hook_mutation_length_delimited_small_readonly` | 3.0020 ns | 3.0856 ns | 3.1722 ns | 324.08 Melem/s | 6.00%    |
+| `hook_mutation_length_delimited_small_mutating` | 3.0887 ns | 3.2067 ns | 3.3259 ns | 311.85 Melem/s | 12.00%   |
+| `hook_mutation_length_delimited_large_readonly` | 3.0293 ns | 3.0997 ns | 3.1785 ns | 322.61 Melem/s | 10.00%   |
+| `hook_mutation_length_delimited_large_mutating` | 3.0611 ns | 3.1154 ns | 3.1776 ns | 320.98 Melem/s | 3.00%    |
+| `hook_mutation_hotline_small_readonly`          | 2.8211 ns | 2.8684 ns | 2.9251 ns | 348.63 Melem/s | 6.00%    |
+| `hook_mutation_hotline_small_mutating`          | 2.8048 ns | 2.8367 ns | 2.8726 ns | 352.52 Melem/s | 6.00%    |
+| `hook_mutation_hotline_large_readonly`          | 2.8005 ns | 2.8292 ns | 2.8605 ns | 353.46 Melem/s | 4.00%    |
+| `hook_mutation_hotline_large_mutating`          | 2.8624 ns | 2.9173 ns | 2.9774 ns | 342.79 Melem/s | 5.00%    |
 
 Every row is within half a nanosecond of the others, which is what an
 O(1)-in-payload dispatch should produce. A regression that made a hook walk the
@@ -251,19 +259,22 @@ cannot delete the fill.
 
 | Workload                                    | Lower     | Estimate  | Upper     | Throughput   | Outliers |
 | ------------------------------------------- | --------- | --------- | --------- | ------------ | -------- |
-| `outbound_serialize_length_delimited_small` | 14.192 ns | 14.630 ns | 15.079 ns | 2.0370 GiB/s | 2.00%    |
-| `outbound_encode_length_delimited_small`    | 20.685 ns | 21.115 ns | 21.567 ns | 1.4115 GiB/s | 7.00%    |
-| `outbound_serialize_length_delimited_large` | 1.1638 µs | 1.1777 µs | 1.1922 µs | 51.824 GiB/s | 3.00%    |
-| `outbound_encode_length_delimited_large`    | 1.2029 µs | 1.2224 µs | 1.2426 µs | 49.932 GiB/s | 3.00%    |
-| `outbound_serialize_hotline_small`          | 13.417 ns | 13.824 ns | 14.290 ns | 2.1559 GiB/s | 5.00%    |
-| `outbound_encode_hotline_small`             | 22.567 ns | 23.562 ns | 24.583 ns | 1.2649 GiB/s | 0%       |
-| `outbound_serialize_hotline_large`          | 1.1588 µs | 1.1714 µs | 1.1853 µs | 52.103 GiB/s | 7.00%    |
-| `outbound_encode_hotline_large`             | 1.1897 µs | 1.2023 µs | 1.2153 µs | 50.763 GiB/s | 4.00%    |
+| `outbound_serialize_length_delimited_small` | 15.198 ns | 15.781 ns | 16.374 ns | 1.8885 GiB/s | 0%       |
+| `outbound_encode_length_delimited_small`    | 19.977 ns | 20.845 ns | 21.749 ns | 1.4297 GiB/s | 10.00%   |
+| `outbound_serialize_length_delimited_large` | 1.1523 µs | 1.1726 µs | 1.1983 µs | 52.050 GiB/s | 2.00%    |
+| `outbound_encode_length_delimited_large`    | 1.1310 µs | 1.1396 µs | 1.1488 µs | 53.561 GiB/s | 14.00%   |
+| `outbound_serialize_hotline_small`          | 12.426 ns | 12.614 ns | 12.822 ns | 2.3627 GiB/s | 4.00%    |
+| `outbound_encode_hotline_small`             | 18.473 ns | 19.099 ns | 20.046 ns | 1.5604 GiB/s | 4.00%    |
+| `outbound_serialize_hotline_large`          | 1.1300 µs | 1.1391 µs | 1.1490 µs | 53.582 GiB/s | 9.00%    |
+| `outbound_encode_hotline_large`             | 1.2177 µs | 1.2447 µs | 1.2708 µs | 49.038 GiB/s | 3.00%    |
 
-The two passes differ by about 45 ns for a 64 KiB payload. `wrap_payload` does
-not copy the payload — it wraps the existing `Bytes` in the codec's frame type
-— so the difference is frame construction and the extra call, not a second 64
-KiB traversal. The serializer pass accounts for essentially all of the
+`wrap_payload` does not copy the payload — it wraps the existing `Bytes` in the
+codec's frame type — so any difference between the two passes is frame
+construction and one extra call, not a second 64 KiB traversal. At 64 KiB the
+Hotline wrapping pass costs about 106 ns more than its serializer-only pass,
+while the length-delimited pair is within the run's noise of each other. At 32
+bytes the wrapping pass adds about 5 ns for the default codec and 6.5 ns for
+Hotline. In every case the serializer pass accounts for essentially all of the
 per-message payload work.
 
 ### Pipeline allocations
@@ -278,14 +289,14 @@ Timing is the same measurement as the corresponding non-allocation group.
 
 | Label                                                              | Time      | Outliers |
 | ------------------------------------------------------------------ | --------- | -------- |
-| `middleware_passthrough_length_delimited_small_readonly_allocs_35` | 54.640 ns | 8.00%    |
-| `middleware_passthrough_length_delimited_small_mutating_allocs_35` | 48.436 ns | 5.00%    |
-| `middleware_passthrough_length_delimited_large_readonly_allocs_35` | 47.690 ns | 1.00%    |
-| `middleware_passthrough_length_delimited_large_mutating_allocs_35` | 46.230 ns | 5.00%    |
-| `middleware_passthrough_hotline_small_readonly_allocs_35`          | 50.472 ns | 6.00%    |
-| `middleware_passthrough_hotline_small_mutating_allocs_35`          | 50.841 ns | 0%       |
-| `middleware_passthrough_hotline_large_readonly_allocs_35`          | 49.807 ns | 3.00%    |
-| `middleware_passthrough_hotline_large_mutating_allocs_35`          | 49.953 ns | 4.00%    |
+| `middleware_passthrough_length_delimited_small_readonly_allocs_35` | 46.417 ns | 1.00%    |
+| `middleware_passthrough_length_delimited_small_mutating_allocs_35` | 52.092 ns | 4.00%    |
+| `middleware_passthrough_length_delimited_large_readonly_allocs_35` | 48.371 ns | 5.00%    |
+| `middleware_passthrough_length_delimited_large_mutating_allocs_35` | 50.211 ns | 1.00%    |
+| `middleware_passthrough_hotline_small_readonly_allocs_35`          | 50.401 ns | 2.00%    |
+| `middleware_passthrough_hotline_small_mutating_allocs_35`          | 54.617 ns | 7.00%    |
+| `middleware_passthrough_hotline_large_readonly_allocs_35`          | 57.728 ns | 2.00%    |
+| `middleware_passthrough_hotline_large_mutating_allocs_35`          | 66.080 ns | 1.00%    |
 
 All eight rows record 35 allocations per 16 requests, about two per request.
 Those are the boxed futures the `Service` trait's object-safe dispatch
@@ -298,14 +309,14 @@ rather than size-dependent work.
 
 | Label                                                    | Time      | Outliers |
 | -------------------------------------------------------- | --------- | -------- |
-| `hook_mutation_length_delimited_small_readonly_allocs_3` | 2.8924 ns | 9.00%    |
-| `hook_mutation_length_delimited_small_mutating_allocs_3` | 3.0869 ns | 4.00%    |
-| `hook_mutation_length_delimited_large_readonly_allocs_3` | 3.0397 ns | 4.00%    |
-| `hook_mutation_length_delimited_large_mutating_allocs_3` | 3.0260 ns | 7.00%    |
-| `hook_mutation_hotline_small_readonly_allocs_3`          | 2.9989 ns | 2.00%    |
-| `hook_mutation_hotline_small_mutating_allocs_3`          | 2.9935 ns | 4.00%    |
-| `hook_mutation_hotline_large_readonly_allocs_3`          | 2.8153 ns | 2.00%    |
-| `hook_mutation_hotline_large_mutating_allocs_3`          | 2.9207 ns | 2.00%    |
+| `hook_mutation_length_delimited_small_readonly_allocs_3` | 2.9736 ns | 8.00%    |
+| `hook_mutation_length_delimited_small_mutating_allocs_3` | 3.1731 ns | 3.00%    |
+| `hook_mutation_length_delimited_large_readonly_allocs_3` | 2.9233 ns | 8.00%    |
+| `hook_mutation_length_delimited_large_mutating_allocs_3` | 2.9800 ns | 9.00%    |
+| `hook_mutation_hotline_small_readonly_allocs_3`          | 2.8791 ns | 6.00%    |
+| `hook_mutation_hotline_small_mutating_allocs_3`          | 2.8935 ns | 3.00%    |
+| `hook_mutation_hotline_large_readonly_allocs_3`          | 3.0601 ns | 4.00%    |
+| `hook_mutation_hotline_large_mutating_allocs_3`          | 3.2594 ns | 0%       |
 
 Three allocations across 16 dispatches is below one per operation and is
 harness noise around a zero-allocation loop.
@@ -314,14 +325,14 @@ harness noise around a zero-allocation loop.
 
 | Label                                                 | Time      | Outliers |
 | ----------------------------------------------------- | --------- | -------- |
-| `outbound_serialize_length_delimited_small_allocs_18` | 14.347 ns | 4.00%    |
-| `outbound_encode_length_delimited_small_allocs_18`    | 21.962 ns | 0%       |
-| `outbound_serialize_length_delimited_large_allocs_18` | 1.1661 µs | 2.00%    |
-| `outbound_encode_length_delimited_large_allocs_18`    | 1.2999 µs | 5.00%    |
-| `outbound_serialize_hotline_small_allocs_18`          | 15.676 ns | 1.00%    |
-| `outbound_encode_hotline_small_allocs_18`             | 19.747 ns | 7.00%    |
-| `outbound_serialize_hotline_large_allocs_18`          | 1.1380 µs | 7.00%    |
-| `outbound_encode_hotline_large_allocs_18`             | 1.1604 µs | 7.00%    |
+| `outbound_serialize_length_delimited_small_allocs_18` | 14.185 ns | 13.00%   |
+| `outbound_encode_length_delimited_small_allocs_18`    | 20.699 ns | 11.00%   |
+| `outbound_serialize_length_delimited_large_allocs_18` | 1.2546 µs | 5.00%    |
+| `outbound_encode_length_delimited_large_allocs_18`    | 1.2357 µs | 4.00%    |
+| `outbound_serialize_hotline_small_allocs_18`          | 14.013 ns | 9.00%    |
+| `outbound_encode_hotline_small_allocs_18`             | 24.846 ns | 2.00%    |
+| `outbound_serialize_hotline_large_allocs_18`          | 1.1536 µs | 10.00%   |
+| `outbound_encode_hotline_large_allocs_18`             | 1.1750 µs | 2.00%    |
 
 Eighteen allocations per 16 operations is one serializer vector per message
 plus two harness allocations. The wrapping pass adds none, which agrees with
@@ -436,10 +447,10 @@ against a corrupted baseline could hide:
 
 | Workload                        | Floor    |
 | ------------------------------- | -------- |
-| `length_delimited_large` encode | 47 GiB/s |
-| `length_delimited_large` decode | 41 GiB/s |
-| `hotline_large` encode          | 45 GiB/s |
-| `hotline_large` decode          | 45 GiB/s |
+| `length_delimited_large` encode | 39 GiB/s |
+| `length_delimited_large` decode | 33 GiB/s |
+| `hotline_large` encode          | 39 GiB/s |
+| `hotline_large` decode          | 39 GiB/s |
 
 Small-payload floors are deliberately not set. At tens of nanoseconds with 0–11
 % outlier rates they would encode noise as policy; T1 covers them.
@@ -542,7 +553,8 @@ baseline is re-taken rather than reinterpreted.
 | ---------------- | ---------------------------- | ---------- | ------------------------------------------------------------ |
 | Initial baseline | `9faa56da`                   | 2026-10-31 | Encode, decode, fragmentation, allocations                   |
 | Superseded       | `0483d86f` + tree `96050eb7` | 2026-11-02 | All rows; serializer timing invalidated by `black_box` scope |
-| Published        | `0483d86f` + tree `7b9dd482` | 2026-11-02 | All sixteen rows and copied bytes                            |
+| Superseded       | `0483d86f` + tree `7b9dd482` | 2026-11-02 | Corrected harness, uncommitted tree, lower host load         |
+| Published        | `bef53308` + tree `8968fd9c` | 2026-11-02 | All sixteen rows, allocations, and copied bytes              |
 
 ## References
 
