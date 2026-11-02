@@ -730,3 +730,17 @@ connection driver that bridges the existing `ConnectionActor` to a `Framed`
 stream, unifying hook invocation, fragmentation, and codec encoding for all
 outbound frame sources. The standalone `ConnectionActor` with its `Vec<F>`
 output is preserved for client code and direct testing.
+
+## Revision note (2026-11-02)
+
+The deferred protocol-hook item recorded in Outcomes & retrospective is now
+delivered under issue #547. `FramePipeline` owns the per-connection
+`ProtocolHooks` and `ConnectionContext`, so `before_send` runs for handler
+responses once the frame is serialized and wrapped by the `FrameCodec`,
+immediately before the transport write. Hook output must fit the codec's
+`max_frame_length`; an oversized frame fails the send rather than being
+truncated. Actor-owned push and streaming traffic keeps its own hook pipeline,
+and the direct response helpers still bypass the hook. The deferral statements
+in Outcomes & retrospective describe the state at the original completion and
+are superseded by this note; see the
+[ADR 010 addendum](../adr-010-transport-frame-boundary-for-zero-copy.md#addendum-application-response-before_send-2026-11-02).
