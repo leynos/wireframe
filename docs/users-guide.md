@@ -1574,7 +1574,11 @@ immediately before the frame is written to the transport. Every fragment of a
 fragmented response passes through the hook individually, and the same
 connection-local `ConnectionContext` is used for all frames on that connection.
 This gives protocol implementations one place to stamp, encrypt, or observe
-ordinary server responses.
+ordinary server responses. The hook may grow the frame, but it receives no
+implicit space for doing so: whatever it writes must keep the frame within the
+codec's `max_frame_length`. A frame that exceeds that limit is rejected by the
+codec with an oversized-frame error, which fails the send and ends the
+connection.
 
 The application path does not run the remaining protocol hooks: connection
 setup, command end, stream end, error, and end-of-file callbacks remain the

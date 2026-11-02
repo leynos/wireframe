@@ -873,10 +873,13 @@ features of the 1.0 release.
   `FrameCodec::wrap_payload` → `before_send` → transport write. The pipeline
   owns the `ProtocolHooks` and `ConnectionContext` built for its connection, so
   `before_send` sees the exact codec frame that will be written and retains
-  connection-local state across every response. Only `before_send` is shared
-  with the actor path; connection setup, command end, stream end, error, and
-  end-of-file hooks remain actor-only. The direct response helpers that bypass
-  the pipeline also bypass `before_send`.
+  connection-local state across every response. The hook is not given any
+  reserved headroom: a mutation that pushes the frame past the codec's
+  `max_frame_length` is rejected by the encoder, fails the send, and ends the
+  connection. Only `before_send` is shared with the actor path; connection
+  setup, command end, stream end, error, and end-of-file hooks remain
+  actor-only. The direct response helpers that bypass the pipeline also bypass
+  `before_send`.
 
 ```rust,ignore
 // Codec stack with explicit frame-size limits and fragmentation.

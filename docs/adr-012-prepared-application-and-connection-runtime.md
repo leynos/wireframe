@@ -411,9 +411,11 @@ prepared protocol and passes it, together with a new `ConnectionContext`, to
 the connection's `FramePipeline`. The pipeline runs `before_send` on every
 serialized and codec-wrapped handler-response frame, including each fragment of
 a fragmented response, immediately before the transport write. Hooks are never
-shared between connections. The remaining protocol hooks stay on the
-`ConnectionActor` push and streaming paths; the direct response helpers bypass
-`before_send` by design.
+shared between connections. Because the hook may change the frame, it is
+responsible for keeping it within the codec's `max_frame_length`; growing it
+past that limit fails the send and ends the connection. The remaining protocol
+hooks stay on the `ConnectionActor` push and streaming paths; the direct
+response helpers bypass `before_send` by design.
 
 ### 7. Unify examples with the production runtime
 

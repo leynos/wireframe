@@ -40,6 +40,20 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     fn on_connection_setup(&self, _handle: PushHandle<Self::Frame>, _ctx: &mut ConnectionContext) {}
 
     /// Invoked before any frame (push or response) is written to the socket.
+    ///
+    /// The hook receives the fully encoded frame, after fragmentation and
+    /// codec wrapping, so it sees the exact bytes that will be written and may
+    /// enlarge the frame (for example, to stamp a trailer). There is no
+    /// implicit allowance for that growth: implementations **must** leave the
+    /// frame within the codec's [`FrameCodec::max_frame_length`]. Exceeding it
+    /// makes the codec encoder reject the frame with
+    /// [`FramingError::OversizedFrame`], which surfaces as a send failure and
+    /// ends the connection. Fragmented output is sized below the frame budget,
+    /// but the resulting slack belongs to fragmentation overhead rather than
+    /// to hooks.
+    ///
+    /// [`FrameCodec::max_frame_length`]: crate::codec::FrameCodec::max_frame_length
+    /// [`FramingError::OversizedFrame`]: crate::codec::FramingError::OversizedFrame
     fn before_send(&self, _frame: &mut Self::Frame, _ctx: &mut ConnectionContext) {}
 
     /// Invoked when a request/response cycle completes.

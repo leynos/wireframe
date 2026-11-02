@@ -18,7 +18,7 @@ use tokio_util::codec::Framed;
 use super::*;
 use crate::{
     app::combined_codec::CombinedCodec,
-    codec::LengthDelimitedFrameCodec,
+    codec::{LengthDelimitedFrameCodec, MIN_FRAME_LENGTH},
     serializer::BincodeSerializer,
 };
 
@@ -62,6 +62,23 @@ fn marker_hooks(counter: &Arc<AtomicUsize>) -> ProtocolHooks<Bytes, ()> {
                 bytes.push(MARKER);
                 *frame = Bytes::from(bytes);
                 counter.fetch_add(1, Ordering::SeqCst);
+            },
+        )),
+        ..ProtocolHooks::default()
+    }
+}
+
+/// Build hooks whose `before_send` grows every frame by `extra` bytes.
+///
+/// Used to pin down what happens when a hook ignores the frame-length
+/// contract.
+fn growing_hooks(extra: usize) -> ProtocolHooks<Bytes, ()> {
+    ProtocolHooks {
+        before_send: Some(Box::new(
+            move |frame: &mut Bytes, _ctx: &mut ConnectionContext| {
+                let mut bytes = frame.to_vec();
+                bytes.resize(bytes.len().saturating_add(extra), MARKER);
+                *frame = Bytes::from(bytes);
             },
         )),
         ..ProtocolHooks::default()
@@ -240,4 +257,40 @@ async fn default_hooks_leave_frames_unchanged() {
     assert_eq!(consumed, frame.len());
     assert_eq!(decoded.id, 7);
     assert_eq!(decoded.payload, payload);
+}
+
+/// A hook that pushes a frame past the codec limit must fail the send rather
+/// than deliver a truncated or oversized frame.
+#[rstest]
+#[tokio::test]
+async fn before_send_output_over_the_frame_limit_fails_the_send() {
+    let mut pipeline: FramePipeline<Bytes> =
+        FramePipeline::with_hooks(None, growing_hooks(MIN_FRAME_LENGTH));
+    pipeline
+        .process(Envelope::new(1, None, vec![1]))
+        .expect("envelope should process");
+
+    let codec = TestCodec::new(MIN_FRAME_LENGTH);
+    let (client, server) = tokio::io::duplex(1024);
+    let mut server = Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
+    let mut client = Framed::new(client, CombinedCodec::new(codec.decoder(), codec.encoder()));
+    let mut transport = OutboundTransport {
+        serializer: &BincodeSerializer,
+        codec: &codec,
+        framed: &mut server,
+    };
+
+    let error = flush_pipeline_output(&mut transport, &mut pipeline)
+        .await
+        .expect_err("a frame grown past the codec limit must not be sent");
+    assert!(
+        error.to_string().contains("frame exceeds max length"),
+        "the failure should name the codec limit, got: {error}"
+    );
+
+    drop(server);
+    assert!(
+        collect_frames(&mut client).await.is_empty(),
+        "no oversized frame should reach the wire"
+    );
 }
