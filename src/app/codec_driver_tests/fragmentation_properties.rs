@@ -58,7 +58,9 @@ fn run_fragmented_property_case(
         .map_err(|error| TestCaseError::fail(error.to_string()))?;
     runtime
         .block_on(exercise_fragmented_property_case(
-            frame_budget, size_case, slack,
+            frame_budget,
+            size_case,
+            slack,
         ))
         .map_err(|error| TestCaseError::fail(error.to_string()))
 }

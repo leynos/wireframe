@@ -297,8 +297,8 @@ does not become responsible for codec frame buffers.
 The codec driver owns the `packet -> bytes -> transport frame` transition,
 including serialization and `FrameCodec::wrap_payload`. Most protocol hooks
 remain packet-oriented and run on the connection actor's path before
-serialization. The exception is `before_send` for application handler
-responses: `FramePipeline` owns the per-connection `ProtocolHooks` and
+serialization. The exception is `before_send` for application handler responses:
+`FramePipeline` owns the per-connection `ProtocolHooks` and
 `ConnectionContext`, and runs `before_send` on the codec-wrapped frame after
 serialization and `wrap_payload`, immediately before `Framed::send`. Each
 connection constructs fresh hooks, so hook state never crosses connections.
