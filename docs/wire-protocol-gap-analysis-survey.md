@@ -8,6 +8,11 @@ Surveyed on 2026-11-01 against Wireframe commit
 set of proposed extension RFCs, not an interoperability certification or an
 implementation commitment. Findings below distinguish source observations from
 proposed designs. No protocol server was built or exercised for this survey.
+Signal-like cryptographic and application APIs are explicitly out of scope. All
+other listed protocols remain in scope for framework-gap closure and toy-server
+validation. Production protocol implementations must use Wireframe primitives
+and protocol-neutral dependencies; existing implementations may appear in test
+code only when their licences permit.
 
 The target is an external adapter that uses supported public APIs, preserves
 the peer's wire format, and can reuse Wireframe's routing and runtime services.
@@ -29,9 +34,6 @@ Scope resolves the protocol names as follows:
   profile.
 - **OSCAR:** classic AIM/ICQ FLAP transport and SNAC messaging, with client
   compatibility profiles chosen by the external server.
-- **Signal:** distinguish the Signal cryptographic protocol from compatibility
-  with Signal Messenger's service. Both are discussed; neither is a single TCP
-  framing specification.
 - **AMQP:** evaluate both Advanced Message Queuing Protocol 0-9-1 and 1.0.
   They are different protocols, not interchangeable codec configurations.
 - **RTSP:** Real Time Streaming Protocol, covering 1.0 and 2.0 with
@@ -59,7 +61,8 @@ Scope resolves the protocol names as follows:
 Wireframe has useful framing and message abstractions, but its prepared
 application driver is not yet a general duplex protocol runtime. The dominant
 blockers are independent receive/send progress, explicit session events,
-protocol-native metadata, and integration with existing framed transports.
+protocol-native metadata, and negotiated session setup. Routing messages from
+already-parsed library streams is a lower-priority integration convenience.
 Adding bespoke protocol state machines would leave those gaps intact.
 
 Modbus TCP request/response serving has no identified fundamental public-API
@@ -67,13 +70,12 @@ blocker. OSCAR packet parsing also fits the available codec surface, but a full
 messaging server needs unsolicited output and connection lifecycle control.
 WebSocket, RTSP streaming, AMQP, IEC 104 and DNP3 need a coherent external
 session-adapter boundary to reuse the prepared application without building a
-parallel runtime around it. Signal service compatibility has substantial
-application requirements beyond any Wireframe extension. Kafka adds ordered,
-version-aware exchanges; MySQL/MariaDB and PostgreSQL expose phase transitions,
-transport upgrades and multi-message replies. OpenRA needs cross-connection
-order relay. Quake 3 adds a hard datagram-transport gap. The recommended
-extensions therefore target native messages and transport semantics, not
-compatibility wrappers around Wireframe's current envelope.
+parallel runtime around it. Kafka adds ordered, version-aware exchanges;
+MySQL/MariaDB and PostgreSQL expose phase transitions, transport upgrades and
+multi-message replies. OpenRA needs cross-connection order relay. Quake 3 adds
+a hard datagram-transport gap. The recommended extensions therefore target
+native messages and transport semantics, not compatibility wrappers around
+Wireframe's current envelope.
 
 “Blocked” below means blocked under that integration criterion. An external
 server can already own its transport and state machine and use selected
@@ -144,11 +146,10 @@ kinds and boundaries unless another adapter recreates them. A slow handler in
 the prepared loop can delay reading a ping or close request.
 
 **Verdict:** framing is extensible; seamless use of an existing WebSocket
-engine and timely control handling are integration blockers. Prefer an external
-`tokio-tungstenite` adapter, preserving text/binary/control semantics, over
-another WebSocket implementation in Wireframe.[^2] Proposed RFCs A, B and C
-below address the boundary. Compression remains an adapter concern with
-explicit decompression limits, not an implicit feature of a generic codec.
+engine and timely control handling are integration blockers. A
+`tokio-tungstenite` bridge is a lower-priority option.[^2] RFCs A–E address the
+underlying generic needs. Compression remains an adapter concern with explicit
+decompression limits, not an implicit feature of a generic codec.
 
 ### OSCAR
 
@@ -168,34 +169,12 @@ is blocked by the lack of an integrated unsolicited-send/session path. RFCs A
 and B provide that path; D reduces parsing boilerplate. Buddy lists, presence,
 authentication, rate classes and historical-client quirks belong outside core.
 
-### Signal
-
-`libsignal` implements cryptographic protocols, including the Double Ratchet;
-it is not a drop-in Signal Messenger server or TCP codec.[^4] Carrying opaque
-Signal ciphertext in an application-owned Wireframe protocol presents no
-identified framing blocker, but does not make that service compatible with
-Signal clients.
-
-Signal Messenger service compatibility involves HTTP/WebSocket APIs,
-authenticated devices, delivery queues, acknowledgements, account and key
-services, and external persistence. Signal-Server and its WebSocket resources
-are the implementation reference, rather than a frozen general-purpose wire
-standard.[^5] Compatibility must pin a client/server revision and supported
-endpoint set; this survey does not assert complete current API coverage.
-
-**Verdict:** the WebSocket/runtime gaps apply to a compatible service adapter;
-cryptographic correctness and service completeness are separate blockers that
-Wireframe cannot solve. RFCs A–C would enable integration. Keep Signal schemas,
-cryptography and service logic in external packages, with independent licence
-and compatibility review. Do not terminate end-to-end message encryption in
-Wireframe merely to route ciphertext.
-
 ### AMQP 0-9-1 and 1.0
 
 AMQP 0-9-1 multiplexes channels and distinguishes method, content-header,
 content-body and heartbeat frames. AMQP 1.0 has a different frame layout and
 connection/session/link model, including flow control and delivery settlement.
-Both require protocol negotiation and autonomous control traffic.[^6][^7]
+Both require protocol negotiation and autonomous control traffic.[^4][^5]
 
 Length/header codecs can cover their outer framing, but channel IDs are not
 request correlation IDs, and link credit is not equivalent to socket
@@ -210,7 +189,7 @@ central; C handles negotiated transport setup and D shares frame utilities.
 Broker exchanges, queues, routing, persistence and settlement policy remain
 external. `fe2o3-amqp` is an AMQP 1.0 Rust implementation to evaluate; RabbitMQ
 is a useful 0-9-1 interoperability peer. Neither should be represented as a
-generic interchangeable AMQP codec.[^8]
+generic interchangeable AMQP codec.[^6]
 
 ### RTSP with streaming
 
@@ -219,7 +198,7 @@ TCP-interleaved delivery, textual RTSP messages and binary media records share
 a connection. The binary record uses a dollar marker, channel identifier and
 16-bit length. Real-time Transport Protocol (RTP) and RTP Control Protocol
 (RTCP) have their own packet semantics. RTSP 1.0 and 2.0 require separate
-compatibility decisions.[^9]
+compatibility decisions.[^7]
 
 A discriminated codec can parse text headers, bounded `Content-Length` bodies
 and interleaved records. `PLAY` must not turn the connection into a response
@@ -232,7 +211,7 @@ progress, native channel metadata and session-owned output. RFCs A–C and E
 address these; D supplies bounded text/binary framing composition. Media
 pacing, timestamps, codecs, session descriptions and UDP socket management stay
 in the external media server. `gortsplib` and MediaMTX are useful reference
-implementations and interoperability peers, not Rust codec dependencies.[^10]
+implementations and interoperability peers, not Rust codec dependencies.[^8]
 
 ### IEC 60870-5-104
 
@@ -242,7 +221,7 @@ and unnumbered frames have different roles. Start/stop data transfer, test
 frames, send/receive sequence tracking, acknowledgement windows and timers must
 progress even without an application request. The `lib60870` guide provides a
 public implementation reference, including asynchronous server messages and
-configurable connection parameters.[^11]
+configurable connection parameters.[^9]
 
 The start marker and short length header fit the codec surface. The difficult
 part is maintaining the connection's transfer state, acknowledgements and
@@ -263,7 +242,7 @@ DNP3 retains link framing over TCP, with addressing and cyclic redundancy
 checks (CRCs); the CRC layout includes checks across successive data blocks. It
 also has transport segmentation and application fragments, confirmations and
 unsolicited responses. OpenDNP3's link implementation demonstrates why ordinary
-length-prefix framing cannot simply strip one fixed trailer.[^12]
+length-prefix framing cannot simply strip one fixed trailer.[^10]
 
 A custom decoder can validate and remove block CRCs, and a custom encoder can
 restore them. Generic Wireframe fragment indices are not DNP3 sequence fields.
@@ -281,14 +260,14 @@ licensed standard and makes no conformance claim for that edition.
 OpenDNP3 is Apache-licensed but archived. Step Function's Rust DNP3 project is
 source-available under non-commercial/non-production terms and explicitly says
 it is not open source. Treat it as a separately licensed candidate, not an
-assumed reusable open-source component.[^13]
+assumed reusable open-source component.[^11]
 
 ### Modbus TCP
 
 Modbus TCP uses a seven-byte Modbus application protocol (MBAP) header. Its
 length field counts following bytes, including the unit identifier; transaction
 IDs must be copied into responses. The normal application data unit has a
-260-byte maximum. Modbus TCP does not add the serial RTU CRC.[^14]
+260-byte maximum. Modbus TCP does not add the serial RTU CRC.[^12]
 
 A custom codec can retain the transaction/unit identifiers, and a local
 serializer can map function codes and native request/response bodies through
@@ -300,9 +279,9 @@ return a generic handler error that the driver logs and drops.
 Native metadata mapping is awkward but possible through public APIs. RFC A
 makes that mapping explicit and D removes length-header boilerplate. RFC B
 becomes useful when independent concurrent transactions or slow device access
-matter. `tokio-modbus` already supplies TCP-server support and is a useful
-reuse candidate and independent test peer.[^15] Function semantics, register
-maps, device access and gateway ordering remain external.
+matter. A licensed independent client can validate the toy server.[^13]
+Function semantics, register maps, device access and gateway ordering remain
+external.
 
 ### Apache Kafka
 
@@ -310,7 +289,7 @@ Kafka uses TCP with a signed 32-bit big-endian size prefix excluding that
 prefix. Requests carry an API key, API version and correlation ID; responses
 need the corresponding request's version context. Flexible versions add compact
 encodings and tagged fields. `ApiVersions`, authentication and the selected
-listener security profile determine the supported exchange.[^16]
+listener security profile determine the supported exchange.[^14]
 
 Ordinary bounded request/response APIs fit custom framing and serialization.
 Kafka's connection ordering must be preserved even if handlers execute
@@ -327,7 +306,7 @@ and E supply the generic contracts, with C for authentication/transport setup.
 Broker storage, replication, group coordination and transactions remain
 external. The `kafka-protocol` crate provides generated, version-aware message
 codecs, not a broker; pin its supported schema set and use real Kafka clients
-as independent peers.[^17]
+as independent peers.[^15]
 
 ### MySQL and MariaDB
 
@@ -335,7 +314,7 @@ The classic protocol has a three-byte little-endian payload length and a
 one-byte packet sequence. Payloads of `0xffffff` bytes continue into another
 packet; an exact multiple needs an empty terminating packet. Sequence numbers
 advance within an exchange and reset for a new command. They are not request
-correlation identifiers. Compression adds another framing layer.[^18]
+correlation identifiers. Compression adds another framing layer.[^16]
 
 The server speaks first, advertising capabilities and authentication data.
 Negotiation can switch to TLS after `SSLRequest`, change authentication method
@@ -343,7 +322,7 @@ and enable compression. Command responses include ordered result metadata, rows
 and capability-dependent terminators; prepared statements also use binary
 encodings. Some commands, including `COM_STMT_CLOSE`, send no response. MySQL
 and MariaDB share the basic packet format but have divergent capabilities and
-authentication behaviour; select a supported product/version profile.[^19]
+authentication behaviour; select a supported product/version profile.[^17]
 
 Wireframe already includes a feature-gated
 [`MysqlFrameCodec` example](../src/codec/examples.rs). It parses individual
@@ -357,10 +336,9 @@ integrated server-first negotiation, shared exchange sequencing, transport
 transitions and bounded multi-message output. External setup and a custom codec
 can work around parts of this, but integration should not require
 reimplementing the driver. RFCs A–E address these capabilities. SQL execution,
-prepared statement storage and database semantics stay external.
-`opensrv-mysql` is a server-side reuse candidate in the OpenSrv project, whose
-README identifies it as alpha; test its actual capability coverage against both
-MySQL and MariaDB clients.[^20]
+prepared statement storage and database semantics stay external. Test-only
+clients may validate each profile when their licences permit; protocol
+libraries are not production dependencies.[^18]
 
 ### PostgreSQL
 
@@ -370,13 +348,13 @@ the four-byte length field itself. Startup negotiates protocol and
 authentication; TLS can use `SSLRequest` with a one-byte server response or a
 supported direct-TLS profile. The PostgreSQL 18 documentation covers protocol
 3.2 as well as the long-lived 3.0 baseline; pin the minor version rather than
-assuming every PostgreSQL endpoint has the same startup fields.[^21]
+assuming every PostgreSQL endpoint has the same startup fields.[^19]
 
 Simple queries produce multiple messages. Extended queries separate Parse,
 Bind, Execute and Sync, with ordered pipelining and an error-recovery rule that
 discards input until Sync. COPY introduces inbound, outbound and bidirectional
 streams; notifications can be unsolicited. Cancellation arrives on a separate
-connection carrying session key data and receives no direct reply.[^22]
+connection carrying session key data and receives no direct reply.[^20]
 
 **Verdict:** native packet decoding is straightforward; integrated phase
 transitions, output streams, recovery-to-Sync, cross-connection cancellation
@@ -389,7 +367,7 @@ semantics, type catalogues and replication payloads stay external.
 startup/query APIs and supports COPY and cancellation. Its README separately
 marks streaming/logical replication support incomplete; COPY support alone must
 not be reported as full replication support. A `psql` smoke test should be
-supplemented by an extended-query client and cancellation/COPY tests.[^23]
+supplemented by an extended-query client and cancellation/COPY tests.[^21]
 
 ### OpenRA
 
@@ -398,7 +376,7 @@ server connection/dispatch code at `bleed` commit
 `9636b63eaee62fcb60ef2e896e7985bdf2f1ee68`. This is a source-defined protocol
 profile, not a promise of compatibility with every OpenRA release or mod. The
 files are reference material for an external implementation; no OpenRA
-contribution is proposed.[^24]
+contribution is proposed.[^22]
 
 The game connection uses TCP. The server first writes handshake version and
 client index. Thereafter client-to-server traffic has a length followed by
@@ -407,7 +385,7 @@ originating client index outside that length-counted payload. Frame zero
 carries immediate orders. Handshake orders negotiate mod/version and identity;
 subsequent traffic includes synchronization hashes, acknowledgements, pings and
 tick-scale messages. The server relays orders between clients rather than
-answering each packet with an independent RPC response.[^24]
+answering each packet with an independent RPC response.[^22]
 
 **Verdict:** the asymmetric length/header layouts fit configurable codecs. The
 blockers are server-first setup and integrated, bounded fan-out with
@@ -427,13 +405,13 @@ carry a `qport` used with the address to recognize a session despite
 source-port translation. The original netchan implementation adds native
 fragment offsets and lengths, including a final empty fragment at an exact
 fragment-size boundary. Datagram loss, duplication and reordering are expected
-input conditions, not stream-decoder failures.[^25]
+input conditions, not stream-decoder failures.[^23]
 
 Reliable commands and replaceable snapshots have different delivery rules.
 Payload interpretation uses bit-level fields, Huffman coding, delta baselines
 and connection-dependent XOR obfuscation; that obfuscation is not encryption.
 The supplied protocol guide explains these layers and is checked against the
-released engine source for the transport and encoding boundaries.[^26]
+released engine source for the transport and encoding boundaries.[^24]
 
 **Verdict:** the current TCP/`AsyncRead + AsyncWrite` runtime is a hard
 transport integration blocker. Putting UDP packets into a synthetic reliable
@@ -464,12 +442,11 @@ _Table 2: Additional requirements without protocol-specific core APIs._
 
 ## Recommended extension RFCs
 
-These are proposal labels, not allocated repository RFC numbers. Existing code
-is reusable material, not a compatibility constraint. Replace abstractions
-where that yields a smaller, clearer public surface. No proposal must preserve
-a default Wireframe protocol, bincode envelope, preamble, fragmentation header
-or terminator. Optional examples may demonstrate new protocols without imposing
-their format on framework users.
+These proposals map directly to
+[RFC 0003](rfcs/0003-native-message-adapter-boundary.md) through
+[RFC 0009](rfcs/0009-datagram-session-transport.md). Existing APIs and wire
+formats may be replaced. Production dependencies must remain protocol-neutral;
+protocol implementations may be used in test code only when licences permit.
 
 Each proposal needs an external-crate acceptance example: no `pub(crate)`
 access, copied driver, hidden global state, or protocol-name branches in core.
@@ -544,8 +521,8 @@ must include buffered input/output and explicit rules for bytes at the upgrade
 boundary; never replay plaintext as encrypted application input. A typed
 session enum can change parsing mode without runtime trait-object sprawl.
 
-Acceptance: a `tokio-tungstenite` bridge preserves message kinds; coalesced
-handshake and first-message input loses no bytes. MySQL-style greeting/TLS
+Acceptance: a native external WebSocket toy server passes raw-wire fixtures; a
+`tokio-tungstenite` bridge is an optional comparison. MySQL-style greeting/TLS
 upgrade and PostgreSQL-style startup/tagged-message transitions use the same
 setup contract. Setup rejection, timeout and shutdown leave no detached task.
 Coordinate with existing
@@ -649,14 +626,13 @@ A transport shim that turns packets into a synthetic TCP stream fails this gate.
 
 ## Sequencing and decision gates
 
-Start with A and B, using Modbus as the small native-mapping experiment and a
-synthetic duplex protocol as the scheduling experiment. Add C with an existing
-WebSocket engine. Develop D only where those experiments demonstrate repeated
-framing code; a new helper is not required merely because a protocol exists.
-Build E against both a multiplexed credit-controlled experiment and bounded SQL
-result streaming. Prove the G transport boundary early, before freezing A–C: a
-stream-only runtime would already exclude Quake 3. F accompanies every step and
-must not wait until the abstractions are frozen.
+Start with the native adapter, framing, and test harness using Hotline and
+Modbus toy servers to validate mxd-first needs and generic reuse. Integrate the
+duplex runtime and bounded assembly before negotiated database protocols. Add
+timed telecontrol, streaming, fan-out, and datagrams as subsequent vertical
+slices. Add routing for pre-parsed library frames last; it is lower priority
+than native protocol support. RFC 0008 establishes the test harness alongside
+the first adapter and expands its matrix as each toy server lands.
 
 Use database phase transitions and OpenRA-style fan-out to challenge the
 session API. Prefer replacing the current envelope driver over preserving it
@@ -711,52 +687,62 @@ security profiles separately. The survey establishes framework gaps and
 candidate experiments; it does not claim production readiness or measured
 latency, throughput or memory performance.
 
+## Consumer evidence
+
+At pinned `mxd` commit `e0dbf2b8289f3b296d8b2825ba533b31ca82363b`, its
+[frame codec](https://github.com/leynos/mxd/blob/e0dbf2b8289f3b296d8b2825ba533b31ca82363b/src/wireframe/codec/frame.rs)
+parses native frames, then translates them into a bincode `Envelope`. Its
+[message assembly](https://github.com/leynos/mxd/blob/e0dbf2b8289f3b296d8b2825ba533b31ca82363b/src/wireframe/message_assembly.rs)
+uses `InboundSeriesTracker` for limits and timeouts. The
+[handshake](https://github.com/leynos/mxd/blob/e0dbf2b8289f3b296d8b2825ba533b31ca82363b/src/wireframe/handshake.rs)
+replies on `TcpStream`. It already has registry-backed push and broadcast.
+Priorities are native message integration without compulsory envelopes,
+reusable bounded assembly, negotiated session progress, and independent
+receive/send progress. Hotline does not define the framework's sole purpose.
+
 ## Sources
 
 [^1]: [RFC 6455, especially sections 4–7](https://www.rfc-editor.org/rfc/rfc6455).
 [^2]: [Tokio Tungstenite](https://github.com/snapview/tokio-tungstenite).
 [^3]: [Open OSCAR Server](https://github.com/mk6i/open-oscar-server) and
     [AIM OSCAR Server's FLAP/SNAC overview](https://github.com/ox/aim-oscar-server).
-[^4]: [Signal's libsignal](https://github.com/signalapp/libsignal).
-[^5]: [Signal-Server](https://github.com/signalapp/Signal-Server) and its
-    [WebSocket resources](https://github.com/signalapp/Signal-Server/tree/main/websocket-resources).
-[^6]: [AMQP 0-9-1 specification](https://www.rabbitmq.com/resources/specs/amqp0-9-1.pdf)
+[^4]: [AMQP 0-9-1 specification](https://www.rabbitmq.com/resources/specs/amqp0-9-1.pdf)
     and [RabbitMQ heartbeat documentation](https://www.rabbitmq.com/docs/heartbeats).
-[^7]: [OASIS AMQP 1.0 transport specification](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html).
-[^8]: [fe2o3-amqp](https://github.com/minghuaw/fe2o3-amqp).
-[^9]: [RTSP 1.0, RFC 2326](https://www.rfc-editor.org/rfc/rfc2326) and
+[^5]: [OASIS AMQP 1.0 transport specification](https://docs.oasis-open.org/amqp/core/v1.0/os/amqp-core-transport-v1.0-os.html).
+[^6]: [fe2o3-amqp](https://github.com/minghuaw/fe2o3-amqp).
+[^7]: [RTSP 1.0, RFC 2326](https://www.rfc-editor.org/rfc/rfc2326) and
     [RTSP 2.0, RFC 7826](https://www.rfc-editor.org/rfc/rfc7826.html), especially
     the embedded/interleaved binary data sections.
-[^10]: [gortsplib](https://github.com/bluenviron/gortsplib), developed for
+[^8]: [gortsplib](https://github.com/bluenviron/gortsplib), developed for
     [MediaMTX](https://github.com/bluenviron/mediamtx).
-[^11]: [lib60870 user guide](https://github.com/mz-automation/lib60870/blob/master/user_guide.adoc)
+[^9]: [lib60870 user guide](https://github.com/mz-automation/lib60870/blob/master/user_guide.adoc)
     and [project and licensing information](https://github.com/mz-automation/lib60870).
-[^12]: [OpenDNP3 link frame implementation](https://github.com/dnp3/opendnp3/blob/release/cpp/lib/src/link/LinkFrame.cpp)
+[^10]: [OpenDNP3 link frame implementation](https://github.com/dnp3/opendnp3/blob/release/cpp/lib/src/link/LinkFrame.cpp)
     and [link header](https://github.com/dnp3/opendnp3/blob/release/cpp/lib/src/link/LinkHeader.h).
-[^13]: [OpenDNP3 status and licence](https://github.com/dnp3/opendnp3) and
+[^11]: [OpenDNP3 status and licence](https://github.com/dnp3/opendnp3) and
     [Step Function DNP3 status and licensing](https://github.com/stepfunc/dnp3).
-[^14]: [Modbus TCP implementation guide](https://www.modbus.org/file/secure/messagingimplementationguide.pdf)
+[^12]: [Modbus TCP implementation guide](https://www.modbus.org/file/secure/messagingimplementationguide.pdf)
     and [application protocol specification](https://www.modbus.org/file/secure/modbusprotocolspecification.pdf).
-[^15]: [tokio-modbus and TCP-server feature](https://github.com/slowtec/tokio-modbus).
+[^13]: [tokio-modbus and TCP-server feature](https://github.com/slowtec/tokio-modbus).
 
-[^16]: [Apache Kafka protocol guide](https://kafka.apache.org/44/design/protocol/).
-[^17]: [kafka-protocol generated Rust codecs](https://github.com/kafka-protocol-rs/kafka-protocol-rs).
-[^18]: [MySQL basic packets](https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_packets.html)
+[^14]: [Apache Kafka protocol guide](https://kafka.apache.org/44/design/protocol/).
+[^15]: [kafka-protocol generated Rust codecs](https://github.com/kafka-protocol-rs/kafka-protocol-rs).
+[^16]: [MySQL basic packets](https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_packets.html)
     and [MariaDB packet format](https://mariadb.com/docs/server/reference/clientserver-protocol/0-packet).
-[^19]: [MySQL connection phase](https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_connection_phase.html),
+[^17]: [MySQL connection phase](https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_connection_phase.html),
     [MariaDB connection negotiation](https://mariadb.com/docs/server/reference/clientserver-protocol/1-connecting/connection)
     and [MySQL statement close](https://dev.mysql.com/doc/dev/mysql-server/9.7.1/page_protocol_com_stmt_close.html).
-[^20]: [OpenSrv and its MySQL/MariaDB server implementation](https://github.com/databendlabs/opensrv).
-[^21]: [PostgreSQL protocol overview](https://www.postgresql.org/docs/18/protocol-overview.html)
+[^18]: [OpenSrv and its MySQL/MariaDB server implementation](https://github.com/databendlabs/opensrv).
+[^19]: [PostgreSQL protocol overview](https://www.postgresql.org/docs/18/protocol-overview.html)
     and [message formats](https://www.postgresql.org/docs/18/protocol-message-formats.html).
-[^22]: [PostgreSQL protocol flow](https://www.postgresql.org/docs/18/protocol-flow.html).
-[^23]: [pgwire server implementation and support matrix](https://github.com/sunng87/pgwire).
-[^24]: OpenRA commit `9636b63eaee62fcb60ef2e896e7985bdf2f1ee68`:
+[^20]: [PostgreSQL protocol flow](https://www.postgresql.org/docs/18/protocol-flow.html).
+[^21]: [pgwire server implementation and support matrix](https://github.com/sunng87/pgwire).
+[^22]: OpenRA commit `9636b63eaee62fcb60ef2e896e7985bdf2f1ee68`:
     [client connection](https://github.com/OpenRA/OpenRA/blob/9636b63eaee62fcb60ef2e896e7985bdf2f1ee68/OpenRA.Game/Network/Connection.cs),
     [order encoding](https://github.com/OpenRA/OpenRA/blob/9636b63eaee62fcb60ef2e896e7985bdf2f1ee68/OpenRA.Game/Network/OrderIO.cs),
     [handshake](https://github.com/OpenRA/OpenRA/blob/9636b63eaee62fcb60ef2e896e7985bdf2f1ee68/OpenRA.Game/Network/Handshake.cs),
     [server connection](https://github.com/OpenRA/OpenRA/blob/9636b63eaee62fcb60ef2e896e7985bdf2f1ee68/OpenRA.Game/Server/Connection.cs)
     and [server dispatch](https://github.com/OpenRA/OpenRA/blob/9636b63eaee62fcb60ef2e896e7985bdf2f1ee68/OpenRA.Game/Server/Server.cs).
-[^25]: [Released Quake III netchan implementation](https://github.com/id-Software/Quake-III-Arena/blob/master/code/qcommon/net_chan.c).
-[^26]: [Quake 3 protocol guide](https://www.jfedor.org/quake3/)
+[^23]: [Released Quake III netchan implementation](https://github.com/id-Software/Quake-III-Arena/blob/master/code/qcommon/net_chan.c).
+[^24]: [Quake 3 protocol guide](https://www.jfedor.org/quake3/)
     and [released server netchan encoding](https://github.com/id-Software/Quake-III-Arena/blob/master/code/server/sv_net_chan.c).
