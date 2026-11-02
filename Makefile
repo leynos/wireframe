@@ -134,8 +134,8 @@ bless-ui: ## Refresh trybuild snapshots for deliberate fixture changes
 doctest-benchmark: ## Check runnable/no_run doctest ratios
 	./scripts/doctest-benchmark.sh
 
-bench-codec: ## Run codec performance benchmarks
-	RUSTFLAGS="-D warnings" $(CARGO) bench --bench codec_performance --bench codec_performance_alloc --features test-support $(BUILD_JOBS)
+bench-codec: ## Run codec and pipeline performance benchmarks
+	RUSTFLAGS="-D warnings" $(CARGO) bench --bench codec_performance --bench codec_performance_alloc --bench pipeline_performance --bench pipeline_performance_alloc --features test-support,benchmark-counters $(BUILD_JOBS)
 
 bench-runtime-ownership: ## Run runtime-ownership baseline benchmarks
 	RUSTFLAGS="-D warnings" $(CARGO) bench --bench runtime_ownership_baselines --bench runtime_ownership_baselines_alloc --features test-support,pool $(BUILD_JOBS)

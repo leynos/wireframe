@@ -4,11 +4,7 @@
 //! binary. Baseline counts are embedded in benchmark labels as
 //! `wrap_allocs_<n>` and `decode_allocs_<n>`.
 
-use std::{
-    alloc::{GlobalAlloc, Layout, System},
-    hint::black_box,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering, fence},
-};
+use std::hint::black_box;
 
 use bytes::{Bytes, BytesMut};
 use criterion::{BenchmarkId, Criterion};
@@ -23,98 +19,29 @@ use wireframe_testing::codec_benchmarks::{
     AllocationBaseline,
     BenchmarkWorkload,
     CodecUnderTest,
+    CountingAllocator,
     LARGE_PAYLOAD_BYTES,
     VALIDATION_ITERATIONS,
     allocation_label,
     benchmark_workloads,
+    count_allocations,
     measure_decode,
     measure_encode,
     payload_for_class,
 };
-
-/// Forwards allocations to the system allocator while counting only those
-/// observed while the benchmark's measurement window is enabled.
-struct CountingAllocator;
-
-/// Number of allocation operations observed in the current measurement
-/// window, including allocations made by the benchmark harness.
-static ALLOCATION_COUNT: AtomicUsize = AtomicUsize::new(0);
-/// Gate that keeps setup and reporting allocations out of a baseline count.
-static ALLOCATION_COUNTING_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// Process allocator used by this benchmark so encode/decode baselines cover
 /// the same allocation path as the code under test.
 #[global_allocator]
 static GLOBAL_ALLOCATOR: CountingAllocator = CountingAllocator;
 
-/// Decoder type used by the length-delimited workload, kept as an alias so
-/// the prepared-input enum and its macro-generated constructor share a clear
+/// Decoder type used by the length-delimited workload, kept as an alias so the
+/// prepared-input enum and its macro-generated constructor share a clear
 /// type-level contract.
 type LengthDelimitedFrameDecoder = LengthDelimitedDecoder;
-/// Decoder type used by the Hotline workload, paired with the encoded bytes
-/// it consumes during each prepared decode iteration.
+/// Decoder type used by the Hotline workload, paired with the encoded bytes it
+/// consumes during each prepared decode iteration.
 type HotlineFrameDecoder = HotlineAdapter;
-
-/// Increment the shared counter only while an allocation baseline is active;
-/// the acquire load pairs with the measurement fences when toggling the gate.
-fn record_allocation_if_enabled() {
-    if ALLOCATION_COUNTING_ENABLED.load(Ordering::Acquire) {
-        ALLOCATION_COUNT.fetch_add(1, Ordering::SeqCst);
-    }
-}
-
-// SAFETY: This allocator forwards all allocation operations directly to
-// `System` while incrementing an atomic counter. It does not change pointer
-// ownership or layout semantics.
-unsafe impl GlobalAlloc for CountingAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        record_allocation_if_enabled();
-        // SAFETY: Delegates to the system allocator with unchanged `layout`.
-        unsafe { System.alloc(layout) }
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        // SAFETY: Delegates to the system allocator with unchanged arguments.
-        unsafe { System.dealloc(ptr, layout) };
-    }
-
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        record_allocation_if_enabled();
-        // SAFETY: Delegates to the system allocator with unchanged `layout`.
-        unsafe { System.alloc_zeroed(layout) }
-    }
-
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        record_allocation_if_enabled();
-        // SAFETY: Delegates to the system allocator with unchanged arguments.
-        unsafe { System.realloc(ptr, layout, new_size) }
-    }
-}
-
-/// Measure allocations in a scoped window using the process-global counter.
-///
-/// The result is a global allocation delta during `operation`, not a precise
-/// codec-only measurement. It includes allocations from benchmark harness code,
-/// closures, iterator state, and any other activity occurring in the window.
-/// Treat the value as a noisy relative baseline for comparison across runs.
-fn count_allocations<F>(operation: F) -> usize
-where
-    F: FnOnce() -> Result<(), String>,
-{
-    ALLOCATION_COUNT.store(0, Ordering::SeqCst);
-    ALLOCATION_COUNTING_ENABLED.store(true, Ordering::SeqCst);
-    fence(Ordering::SeqCst);
-
-    if let Err(err) = operation() {
-        fence(Ordering::SeqCst);
-        ALLOCATION_COUNTING_ENABLED.store(false, Ordering::SeqCst);
-        panic!("allocation baseline operation failed: {err}");
-    }
-
-    fence(Ordering::SeqCst);
-    ALLOCATION_COUNTING_ENABLED.store(false, Ordering::SeqCst);
-    ALLOCATION_COUNT.load(Ordering::SeqCst)
-}
 
 /// Owns encoded input and its stateful decoder so repeated decode measurements
 /// reuse the same prepared wire representation without measuring setup work.

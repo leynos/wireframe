@@ -19,6 +19,7 @@ extern crate self as wireframe;
 
 pub mod app;
 pub mod app_data_store;
+pub mod benchmark_counters;
 pub mod byte_order;
 #[cfg(not(loom))]
 pub mod client;

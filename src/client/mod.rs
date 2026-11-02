@@ -36,6 +36,9 @@ pub use builder::WireframeClientBuilder;
 pub use codec_config::ClientCodecConfig;
 pub use config::SocketOptions;
 pub use error::{ClientError, ClientProtocolError, ClientWireframeError};
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use hooks::benchmark_run_before_send_hooks;
 pub use hooks::{
     AfterReceiveHook,
     BeforeSendHook,

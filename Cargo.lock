@@ -3637,6 +3637,7 @@ dependencies = [
 name = "wireframe_testing"
 version = "0.3.0"
 dependencies = [
+ "async-trait",
  "bincode",
  "bytes",
  "futures",

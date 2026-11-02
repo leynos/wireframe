@@ -265,6 +265,10 @@ impl Encoder<Bytes> for LengthDelimitedEncoder {
             })
             .into());
         }
+        // `tokio_util` copies the payload into `dst`; the counter records that
+        // copy so a byte-level baseline can report it even though the
+        // allocation count does not change.
+        crate::benchmark_counters::record_framed(item.len());
         self.inner.encode(item, dst)
     }
 }

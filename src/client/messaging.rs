@@ -343,9 +343,7 @@ where
 
     /// Invoke all registered before-send hooks in registration order.
     pub(crate) fn invoke_before_send_hooks(&self, bytes: &mut Vec<u8>) {
-        for hook in &self.request_hooks.before_send {
-            hook(bytes);
-        }
+        super::hooks::dispatch_before_send(&self.request_hooks.before_send, bytes);
     }
 
     /// Invoke all registered after-receive hooks in registration order.

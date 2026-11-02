@@ -141,8 +141,11 @@ where
     T: Message,
 {
     fn encode_with(&self, _serializer: &S) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
-        self.to_bytes()
-            .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
+        let bytes = self
+            .to_bytes()
+            .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)?;
+        crate::benchmark_counters::record_serialized(bytes.len());
+        Ok(bytes)
     }
 }
 

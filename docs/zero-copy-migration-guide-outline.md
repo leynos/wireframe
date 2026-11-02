@@ -47,13 +47,13 @@ because the exact shape is fixed by the implementing roadmap item.
 
 | Item                | Current signature                                                                  | Location                  | Planned change                                                      |
 | ------------------- | ---------------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------- |
-| `PacketParts` field | `payload: Vec<u8>`                                                                 | `src/app/envelope.rs:143` | Becomes the stable byte wrapper (roadmap `3.1.1`)                   |
+| `PacketParts` field | `payload: Vec<u8>`                                                                 | `src/app/envelope.rs:140` | Becomes the stable byte wrapper (roadmap `3.1.1`)                   |
 | `PacketParts::new`  | `pub const fn new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) -> Self` | `src/app/envelope.rs:203` | Takes the stable wrapper; `Vec<u8>` callers use the helper          |
-| `PacketParts` read  | `pub fn payload_bytes(&self) -> &[u8]`                                             | `src/app/envelope.rs:180` | Unchanged; borrow stays a slice                                     |
+| `PacketParts` read  | `pub fn payload_bytes(&self) -> &[u8]`                                             | `src/app/envelope.rs:248` | Unchanged; borrow stays a slice                                     |
 | `PacketParts` take  | `pub fn into_payload(self) -> Vec<u8>`                                             | `src/app/envelope.rs:261` | Returns the stable wrapper; a vector-taking shim is the same helper |
-| `Envelope` field    | `payload: Vec<u8>`                                                                 | `src/app/envelope.rs:157` | Becomes the stable byte wrapper (roadmap `3.1.1`)                   |
+| `Envelope` field    | `pub(crate) payload: Vec<u8>`                                                      | `src/app/envelope.rs:155` | Becomes the stable byte wrapper (roadmap `3.1.1`)                   |
 | `Envelope::new`     | `pub const fn new(id: u32, correlation_id: Option<u64>, payload: Vec<u8>) -> Self` | `src/app/envelope.rs:161` | As `PacketParts::new`                                               |
-| `Envelope` read     | `pub fn payload_bytes(&self) -> &[u8]`                                             | `src/app/envelope.rs:248` | Unchanged                                                           |
+| `Envelope` read     | `pub fn payload_bytes(&self) -> &[u8]`                                             | `src/app/envelope.rs:180` | Unchanged                                                           |
 | `Packet` trait      | `fn into_parts(self) -> PacketParts`, `fn from_parts(parts: PacketParts) -> Self`  | `src/app/envelope.rs:62`  | Signatures unchanged; the payload type inside `PacketParts` changes |
 
 `Envelope` also derives `bincode::Decode` and `bincode::Encode`
@@ -86,7 +86,7 @@ ergonomics.
 | Item                          | Current signature                                                                                 | Location                                 | Planned change                                           |
 | ----------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------- | -------------------------------------------------------- |
 | `BeforeSendHook`              | `pub type BeforeSendHook = Arc<dyn Fn(&mut Vec<u8>) + Send + Sync>`                               | `src/client/hooks.rs:148`                | Editor surface over the stable wrapper (roadmap `3.2.1`) |
-| `AfterReceiveHook`            | `pub type AfterReceiveHook = Arc<dyn Fn(&mut BytesMut) + Send + Sync>`                            | `src/client/hooks.rs:172`                | Unchanged; inbound already uses `BytesMut`               |
+| `AfterReceiveHook`            | `pub type AfterReceiveHook = Arc<dyn Fn(&mut BytesMut) + Send + Sync>`                            | `src/client/hooks.rs:201`                | Unchanged; inbound already uses `BytesMut`               |
 | `RequestHooks::before_send`   | `pub fn before_send<F>(mut self, f: F) -> Self where F: Fn(&mut Vec<u8>) + Send + Sync + 'static` | `src/client/builder/request_hooks.rs:37` | Accepts the new editor; keeps a vector-taking adapter    |
 | `RequestHooks::after_receive` | `pub fn after_receive<F>(mut self, f: F) -> Self` (bounded on `Fn(&mut BytesMut)`)                | `src/client/builder/request_hooks.rs:71` | Unchanged                                                |
 
@@ -117,7 +117,7 @@ removes it. That question is tracked under roadmap item `11.1.2.1`.
 | `FrameCodec::frame_payload`       | `fn frame_payload(frame: &Self::Frame) -> &[u8]`                        | `src/codec/mod.rs:79`  | Unchanged                                                    |
 | `FrameCodec::frame_payload_bytes` | `fn frame_payload_bytes(frame: &Self::Frame) -> Bytes` (default copies) | `src/codec/mod.rs:90`  | Override to return a cheap clone when the frame stores bytes |
 | `FrameCodec::wrap_payload`        | `fn wrap_payload(&self, payload: Bytes) -> Self::Frame`                 | `src/codec/mod.rs:95`  | Unchanged; the argument is already `Bytes`                   |
-| `LengthDelimitedFrameCodec`       | `type Frame = Bytes`; `wrap_payload` returns its argument               | `src/codec/mod.rs:272` | Already zero-copy; serves as the reference example           |
+| `LengthDelimitedFrameCodec`       | `type Frame = Bytes`; `wrap_payload` returns its argument               | `src/codec/mod.rs:276` | Already zero-copy; serves as the reference example           |
 
 Custom codecs are the least disruptive surface. The trait already takes and
 returns `Bytes`, so a codec that stores `Bytes` in its frame needs no signature
@@ -130,7 +130,7 @@ implementation copies.
 | ------------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `CorrelatableFrame for Vec<u8>` | `src/correlation.rs:23`                           | Removed in the breaking release under roadmap `11.2.2`, reviewed under `14.2.1`     |
 | `Packet for Vec<u8>`            | `src/connection/test_support.rs:35`               | Stays, test-only, behind `cfg(all(not(loom), any(test, feature = "test-support")))` |
-| Client preamble leftovers       | `src/client/mod.rs:84`, `src/rewind_stream.rs:28` | Retained as `Vec<u8>` per ADR 009                                                   |
+| Client preamble leftovers       | `src/client/mod.rs:88`, `src/rewind_stream.rs:28` | Retained as `Vec<u8>` per ADR 009                                                   |
 
 ## Before and after
 
@@ -327,7 +327,7 @@ release, and roadmap item `12.2.2` re-evaluates them afterwards. The reason is
 structural rather than historical: the preamble exchange reads ahead of the
 server's response, hands the surplus bytes back to the connection, and the
 `RewindStream` replays them before any frame decoding happens
-(`src/client/mod.rs:84`, `src/rewind_stream.rs:28`). Those bytes are not a
+(`src/client/mod.rs:88`, `src/rewind_stream.rs:28`). Those bytes are not a
 frame payload, so converting them to the payload representation would create a
 conversion at both ends of a path that never reaches a codec.
 

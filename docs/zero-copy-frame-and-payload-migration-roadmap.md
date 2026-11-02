@@ -89,22 +89,24 @@ Success is measured by the following outcomes:
   - [x] Include at least one protocol-native example codec to confirm the plan
     is not length-delimited specific. `HotlineFrameCodec` fills this role.
 - [ ] 1.2.2. Record baseline measurements and acceptance thresholds. Requires
-  1.2.1. Partially delivered: the codec-stage baselines and proposed thresholds
-  are published in
-  [zero-copy benchmark baselines](zero-copy-benchmark-baselines.md), but that
-  document records three of the four stages and the copied-byte metric as
-  unmeasured, so this item stays open.
-  - [ ] Capture allocations, copied bytes, throughput, and latency for the
-    current `Vec<u8>`-bound surfaces. Encode and decode throughput, latency,
-    and allocation counts are captured; copied bytes and the middleware,
-    request-hook, and outbound-encode stages are not.
+  1.2.1. Partially delivered: the baselines and proposed thresholds are
+  published in
+  [zero-copy benchmark baselines](zero-copy-benchmark-baselines.md), but the
+  thresholds still need a performance reviewer's agreement, so this item stays
+  open.
+  - [x] Capture allocations, copied bytes, throughput, and latency for the
+    current `Vec<u8>`-bound surfaces. All sixteen matrix rows are captured for
+    both codecs and both payload classes, and the copied-byte counts are
+    asserted per seam by the test suite.
   - [ ] Set acceptance thresholds that require removal of the final outbound
     copy on the default path and forbid more than a small agreed regression in
-    throughput or latency. Proposed thresholds exist for the measured
-    workloads; agreement and the unmeasured stages remain outstanding.
+    throughput or latency. Proposed thresholds now cover every measured
+    workload; agreement remains outstanding.
   - [ ] Success criteria: the repository contains a benchmark note or report
-    that later phases can compare against directly. True for the codec stages
-    only; the report states its own gaps rather than implying full coverage.
+    that later phases can compare against directly. The report now covers the
+    full matrix and states its measurement choices rather than implying
+    coverage it does not have; the open part is reviewer agreement on the
+    thresholds.
 - [x] 1.2.3. Inventory downstream breakpoints and draft the migration guide
   outline. Requires 1.1.2. See the
   [zero-copy migration guide outline](zero-copy-migration-guide-outline.md).

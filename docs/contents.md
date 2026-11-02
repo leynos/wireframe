@@ -103,8 +103,8 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
   covering inbound decode, middleware pass-through, request hooks, and outbound
   encode.
 - [Zero-copy benchmark baselines](zero-copy-benchmark-baselines.md) Measured
-  codec-stage baselines, proposed acceptance thresholds, and the stages that
-  remain unmeasured.
+  baselines for every benchmark-matrix row, per-seam copied-byte counts, and
+  proposed acceptance thresholds.
 - [Zero-copy migration guide outline](zero-copy-migration-guide-outline.md)
   Affected public signatures and before-and-after examples for the migration
   guide.

@@ -15,19 +15,20 @@ checklist rather than a scramble.
 
 ## Versioning determination
 
-The historical issue title refers to a v2.0 release. That number is not
-supported by the current release policy, and no planning document should repeat
-it.
+The historical issue title names a major-version release. That number is not
+supported by the current release policy, and the planning-document rule forbids
+repeating it as a version anchor, so this section records the determination
+without restating the label.
 
-Evidence:
+Evidence, observed 2026-11-01:
 
-| Fact                                          | Source                                          |
-| --------------------------------------------- | ----------------------------------------------- |
-| Current crate version is `0.3.0`              | `Cargo.toml`                                    |
-| Latest published release is `v0.3.0`          | `gh release list`; remote tags stop at `v0.3.0` |
-| The project has not cut `1.0`                 | no `v1.*` tag exists on the remote              |
-| A `0.4.0` migration guide is already in tree  | `docs/v0-3-0-to-v0-4-0-migration-guide.md`      |
-| Helper removal is `0.N` to `0.N+2` before 1.0 | [ADR 009](adr-009-vec-u8-migration-rollout.md)  |
+| Fact                                          | Source                                                    |
+| --------------------------------------------- | --------------------------------------------------------- |
+| Current crate version is `0.3.0`              | `Cargo.toml`                                              |
+| Latest published release is `v0.3.0`          | `gh release list`, 2026-11-01 (released 2026-04-06)       |
+| The project has not cut `1.0`                 | `git ls-remote --tags`, 2026-11-01: tags stop at `v0.3.0` |
+| A `0.4.0` migration guide is already in tree  | `docs/v0-3-0-to-v0-4-0-migration-guide.md`                |
+| Helper removal is `0.N` to `0.N+2` before 1.0 | [ADR 009](adr-009-vec-u8-migration-rollout.md)            |
 
 Under Cargo's semver rules a `0.x` crate may break compatibility in a minor
 bump, so the next breaking release is a minor increment, not a major one. Two
@@ -187,14 +188,14 @@ gated.
 
 ## Blockers
 
-| Blocker                                                     | Blocks                                            | Owner item     |
-| ----------------------------------------------------------- | ------------------------------------------------- | -------------- |
-| Serializer amendment is proposed, not accepted              | Step 1, and every serializer example in the guide | `11.1.2.1`     |
-| No middleware, hook, or outbound-encode benchmark harness   | The headline retention claim cannot be evidenced  | Proposed issue |
-| `PayloadBytes` is unimplemented                             | Steps 3 and 4                                     | `11.1.1`       |
-| `Envelope`'s bincode derive has no decided wrapper strategy | Step 4                                            | `3.1.1`        |
-| Programme roles are unassigned                              | Step 4 onwards                                    | Epic #284      |
-| Target release version (`0.4.0` versus `0.5.0`) undecided   | Step 5 wording                                    | `14.1.1`       |
+| Blocker                                                     | Blocks                                            | Owner item |
+| ----------------------------------------------------------- | ------------------------------------------------- | ---------- |
+| Serializer amendment is proposed, not accepted              | Step 1, and every serializer example in the guide | `11.1.2.1` |
+| Acceptance thresholds have no performance-reviewer sign-off | Step 6 cannot be declared passed                  | Epic #284  |
+| `PayloadBytes` is unimplemented                             | Steps 3 and 4                                     | `11.1.1`   |
+| `Envelope`'s bincode derive has no decided wrapper strategy | Step 4                                            | `3.1.1`    |
+| Programme roles are unassigned                              | Step 4 onwards                                    | Epic #284  |
+| Target release version (`0.4.0` versus `0.5.0`) undecided   | Step 5 wording                                    | `14.1.1`   |
 
 None of these blockers prevents publishing this plan. Each prevents a claim of
 readiness, which is the distinction the epic needs to keep.
