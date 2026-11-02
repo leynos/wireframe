@@ -8,8 +8,6 @@
 //! contract returns `Vec<u8>`, so this module keeps the `Bytes::from`
 //! conversion until that public contract can change deliberately.
 
-use bytes::Bytes;
-
 use super::SendError;
 use crate::{codec::FrameCodec, message::EncodeWith, serializer::Serializer};
 
@@ -32,10 +30,47 @@ where
     M: EncodeWith<S>,
 {
     let bytes = serializer.serialize(msg).map_err(SendError::Serialize)?;
+    // Record the materialization here rather than in `EncodeWith::encode_with`:
+    // this is the seam every framed outbound message passes through, whatever
+    // serializer implementation produced the vector.
+    crate::benchmark_counters::record_serialized(bytes.len());
     // Keep this bridge behaviour-preserving until issue #538 changes the
-    // public serializer contract to return a Bytes-native container.
-    let frame = codec.wrap_payload(Bytes::from(bytes));
+    // public serializer contract to return a Bytes-native container. The
+    // conversion goes through the counter so a benchmark can report whether
+    // the vector's allocation survived the hand-off.
+    let frame = codec.wrap_payload(crate::benchmark_counters::bytes_from_vec(bytes));
     Ok(EncodedFrame { frame })
+}
+
+/// Benchmark entry point for the outbound serialize-then-wrap seam.
+///
+/// This mirrors [`encode_message_frame`] for harnesses that live outside the
+/// crate. It exists only with the `test-support` feature and returns the codec
+/// frame rather than the crate-private [`EncodedFrame`] wrapper, so callers
+/// cannot observe or depend on internal structure.
+///
+/// # Errors
+///
+/// Returns [`SendError::Serialize`] when the serializer rejects `msg`.
+///
+/// # Examples
+///
+/// ```ignore
+/// let frame = benchmark_encode_message_frame(&serializer, &codec, &message)?;
+/// ```
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn benchmark_encode_message_frame<S, F, M>(
+    serializer: &S,
+    codec: &F,
+    msg: &M,
+) -> Result<F::Frame, SendError>
+where
+    S: Serializer + Send + Sync,
+    F: FrameCodec,
+    M: EncodeWith<S>,
+{
+    encode_message_frame(serializer, codec, msg).map(|encoded| encoded.frame)
 }
 
 #[cfg(test)]

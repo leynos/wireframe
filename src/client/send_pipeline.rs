@@ -38,6 +38,12 @@ where
             }
         };
 
+        // Count the materialization at the client boundary as well, because a
+        // client send does not pass through `encode_message_frame`. Hooks run
+        // afterwards, so a mutation enlarges the buffer without being counted
+        // as a serializer copy.
+        crate::benchmark_counters::record_serialized(bytes.len());
+
         self.invoke_before_send_hooks(&mut bytes);
         let span = span_for_frame(&self.tracing_config, bytes.len());
         let send_result = async {

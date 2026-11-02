@@ -147,6 +147,35 @@ impl<C> Default for LifecycleHooks<C> {
 /// ```
 pub type BeforeSendHook = Arc<dyn Fn(&mut Vec<u8>) + Send + Sync>;
 
+/// Runs every before-send hook in registration order.
+///
+/// This is the dispatch loop the client executes after serialization, factored
+/// out so benchmark harnesses time the same code the client runs instead of a
+/// reimplementation that could drift from it.
+pub(crate) fn dispatch_before_send(hooks: &[BeforeSendHook], bytes: &mut Vec<u8>) {
+    for hook in hooks {
+        hook(bytes);
+    }
+}
+
+/// Benchmark entry point for the before-send dispatch loop.
+///
+/// Exists only with the `test-support` feature so a harness outside the crate
+/// can measure the same dispatch path the client uses.
+///
+/// # Examples
+///
+/// ```ignore
+/// let hooks: Vec<BeforeSendHook> = vec![Arc::new(|_bytes: &mut Vec<u8>| ())];
+/// let mut buffer = vec![0_u8; 32];
+/// wireframe::client::benchmark_run_before_send_hooks(&hooks, &mut buffer);
+/// ```
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn benchmark_run_before_send_hooks(hooks: &[BeforeSendHook], bytes: &mut Vec<u8>) {
+    dispatch_before_send(hooks, bytes);
+}
+
 /// Hook invoked after a frame is read from the transport, before
 /// deserialization.
 ///

@@ -16,6 +16,10 @@ documentation = "https://docs.rs/wireframe_testing"
 # feature so a plain `cargo check -p wireframe_testing` still works against the
 # crate's default feature set.
 runtime-benchmarks = ["wireframe/test-support", "wireframe/pool"]
+# Helpers for the middleware, request-hook, and outbound-encode benchmark
+# stages. They need Wireframe's test-support entry points and the copied-byte
+# counters, so they stay behind a feature of their own.
+pipeline-benchmarks = ["wireframe/test-support", "wireframe/benchmark-counters"]
 
 [lints]
 workspace = true
@@ -33,6 +37,7 @@ metrics = "0.24.3"
 metrics-util = "0.20"
 futures = "0.3"
 tokio-util = { version = "0.7", features = ["codec"] }
+async-trait = "0.1.89"
 
 [dev-dependencies]
 # Serializes the tests that assert on process-global state. `serial_test` is

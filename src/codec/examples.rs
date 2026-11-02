@@ -116,6 +116,9 @@ impl Encoder<HotlineFrame> for HotlineAdapter {
         dst.put_u32(wire_frame_size);
         dst.put_u32(item.transaction_id);
         dst.put_bytes(0, 8);
+        // The payload is copied into the transport buffer; record it so the
+        // copied-byte baseline is comparable across codecs.
+        crate::benchmark_counters::record_framed(payload_size);
         dst.extend_from_slice(&item.payload);
         Ok(())
     }

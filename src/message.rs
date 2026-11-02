@@ -135,6 +135,13 @@ pub trait Message: Encode + for<'de> BorrowDecode<'de, ()> {
 
 impl<T> Message for T where T: Encode + for<'de> BorrowDecode<'de, ()> {}
 
+// Copied-byte accounting lives at the production outbound boundaries
+// (`app::outbound_encoding::encode_message_frame` and
+// `client::send_pipeline::serialize_and_send`), not in this blanket
+// implementation. Not every serializer reaches `encode_with` — a Serde-backed
+// serializer takes its own path — so recording here would count some messages
+// and miss others, and would also double-count a harness that calls the
+// serializer itself.
 impl<S, T> EncodeWith<S> for T
 where
     S: crate::serializer::MessageCompatibilitySerializer + ?Sized,
