@@ -391,11 +391,18 @@ match self.tx.try_send(frame) {
 By default the library logs each DLQ drop to maximize visibility during
 development and testing. Applications can tune verbosity using the push queue
 builder's `dlq_log_every_n` and `dlq_log_interval` settings to throttle
-warnings per handle in production.
+warnings per handle in production. The warning records bounded metadata only —
+dead-letter state, priority, policy and frame type — and never the frame
+itself, whose payload may be sensitive.
 
 A separate part of the application is then responsible for consuming from the
-DLQ's receiver to inspect, log, and re-process these failed messages, ensuring
-zero message loss even under transient high load.
+DLQ's receiver to inspect, log, and re-process these failed messages. The
+hand-off is best-effort: a successful `try_send` confirms only that the frame
+was accepted into the in-memory queue, not that it was delivered, and buffered
+frames are discarded if the receiver is dropped before reading them. A frame
+refused because the queue was full or closed is lost immediately, so the
+receiver never sees it. Guaranteed delivery therefore requires
+application-managed draining combined with persistence or another durable sink.
 
 ## 5. Metrics and Observability
 

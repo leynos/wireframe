@@ -728,6 +728,21 @@ that would normally be dropped by the `PushPolicy::DropIfFull` or
 part of the application is then responsible for consuming from the DLQ to
 inspect, log, and potentially retry these failed messages.
 
+When the DLQ itself cannot accept a frame — it is full, or its receiver has
+been dropped — the library records the loss with a throttled warning. That
+warning contains bounded metadata only: the dead-letter state (`full` or
+`closed`), the priority and drop policy of the frame that triggered the report,
+the Rust type name of the frame, the aggregate number of drops since the
+previous report, and the configured `dlq_log_every_n` and `dlq_log_interval`
+cadence. It never formats the frame, because payload bytes may be sensitive and
+logs are often shipped to aggregators with broader access than the
+application's own DLQ consumer. Only frames the DLQ accepted reach its
+receiver, so inspecting, logging or retrying those frames is the application's
+responsibility, since only it knows what the payload means. A frame refused
+because the queue was full or closed is lost, and the library keeps no copy.
+Payload length is not reported either: the generic frame bounds are
+`Send + 'static` and expose no size.
+
 The following sequence diagram illustrates how frames are routed when a DLQ is
 configured:
 
@@ -742,7 +757,7 @@ sequenceDiagram
     alt Queue full
         PushHandle->>DLQ: try_send(frame)
         alt DLQ full
-            PushHandle->>PushHandle: log error (frame lost)
+            PushHandle->>PushHandle: log metadata (frame lost, contents omitted)
         else DLQ has space
             DLQ-->>PushHandle: frame accepted
         end
