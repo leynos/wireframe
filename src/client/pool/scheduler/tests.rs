@@ -208,11 +208,20 @@ proptest! {
             match operation {
                 0 => {
                     let (sender, receiver) = oneshot::channel();
-                    let result = state.enqueue_waiter(handle_id, sender, waiter_admission);
-                    if matches!(result, WaiterEnqueueResult::Enqueued) {
-                        receivers.push_back(receiver);
-                    } else {
-                        drop(receiver);
+                    match state.enqueue_waiter(handle_id, sender, waiter_admission) {
+                        WaiterEnqueueResult::Enqueued => receivers.push_back(receiver),
+                        WaiterEnqueueResult::Saturated { rejected } => {
+                            // A refusal must occur exactly at the bound, never
+                            // above it, and must hand the sender back so the
+                            // actor can resolve it with the typed error.
+                            prop_assert_eq!(
+                                state.waiter_count(),
+                                max_waiters,
+                                "saturation must happen exactly at the admission bound"
+                            );
+                            drop(rejected);
+                            drop(receiver);
+                        }
                     }
                 }
                 1 => {

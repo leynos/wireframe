@@ -221,9 +221,12 @@ where
             task,
         } = self;
         scheduler.mark_closed();
+        // `PoolCore::shutdown` notifies the scheduler's biased shutdown arm,
+        // which drains queued and buffered acquisitions before the task ends.
+        // Closing the mailbox by dropping the last sender is the fallback
+        // signal when every handle has already gone; dropping the core
+        // reference here lets teardown proceed once the task releases its own.
         core.shutdown();
-        // Closing the mailbox is the scheduler's shutdown signal; dropping the
-        // core reference lets teardown proceed once the task releases its own.
         drop(scheduler);
         drop(core);
         if let Err(error) = task.await {

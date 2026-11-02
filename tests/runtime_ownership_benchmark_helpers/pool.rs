@@ -71,7 +71,7 @@ fn uncontended_acquisition_spawns_no_scheduler_tasks(#[case] pool_size: usize) {
 #[rstest]
 #[case::fifo(AcquisitionMode::ContendedFifo)]
 #[case::round_robin(AcquisitionMode::ContendedRoundRobin)]
-fn contended_acquisition_does_spawn_pool_scheduler_tasks(#[case] mode: AcquisitionMode) {
+fn contended_acquisition_spawns_no_additional_scheduler_tasks(#[case] mode: AcquisitionMode) {
     let pool_size = 4;
     let contenders = 16;
     let measurement = contended_burst_with_retry(|| {

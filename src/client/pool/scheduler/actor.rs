@@ -120,7 +120,9 @@ where
     fn drop(&mut self) {
         if std::thread::panicking() {
             self.status.mark_failed();
-            crate::metrics::inc_pool_scheduler_failure(self.status.pool_id());
+            crate::metrics::inc_pool_scheduler_failure();
+            // The pool identity is unbounded across replacement pools, so it
+            // belongs in the event rather than a metric label.
             tracing::error!(
                 pool_id = self.status.pool_id(),
                 "client pool scheduler task panicked; the pool will refuse new acquisitions"
@@ -307,7 +309,7 @@ where
     fn fail_on_race_error(&mut self, error: &ClientError) {
         if self.status.is_running() {
             self.status.mark_failed();
-            crate::metrics::inc_pool_scheduler_failure(self.status.pool_id());
+            crate::metrics::inc_pool_scheduler_failure();
             tracing::error!(
                 pool_id = self.status.pool_id(),
                 %error,

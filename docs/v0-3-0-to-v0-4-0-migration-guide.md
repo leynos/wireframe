@@ -77,6 +77,46 @@ The pool rejects the acquisition before assigning a socket, so this error does
 not indicate a broken connection. Applications can report temporary
 unavailability or retry after capacity returns.
 
+## Client pool lifecycle and scheduler failures
+
+A client pool now owns one persistent scheduler task for its whole lifetime
+instead of spawning a servicing task as capacity is released. The observable
+contract changes in three ways.
+
+First, `WireframeClientPool::close` is asynchronous and must be awaited. It
+returns once every queued and buffered acquisition has been resolved, so an
+existing `pool.close();` statement must become `pool.close().await;`.
+
+Second, acquisitions on a closed pool return `ClientError::PoolClosed`, and
+acquisitions on a pool whose scheduler task terminated abnormally return
+`ClientError::SchedulerFailed`. Queued callers observe the same errors rather
+than waiting forever or reporting a transport failure. Neither error means the
+socket is dirty: `should_recycle_connection` returns `false` for both, so
+discard the pool and reconnect instead of returning a lease.
+
+Third, `ClientError::PoolSaturated { limit }` keeps its existing meaning. The
+pool rejects the acquisition before assigning a slot, so callers can still
+treat it as temporary unavailability and retry once capacity returns.
+
+```rust
+use wireframe::client::{ClientError, ClientPoolConfig, WireframeClient};
+
+# async fn demo(addr: std::net::SocketAddr) -> Result<(), Box<dyn std::error::Error>> {
+let pool = WireframeClient::builder()
+    .connect_pool(addr, ClientPoolConfig::default())
+    .await?;
+let mut handle = pool.handle();
+pool.close().await;
+
+let error = match handle.acquire().await {
+    Ok(_lease) => panic!("closed pool must refuse"),
+    Err(error) => error,
+};
+assert!(matches!(error, ClientError::PoolClosed));
+# Ok(())
+# }
+```
+
 ## Bounded peer decoding
 
 The bundled bincode decoders now cap accounted decode work for peer-provided

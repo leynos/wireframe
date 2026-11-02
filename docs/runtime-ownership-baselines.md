@@ -538,13 +538,16 @@ Corrected capture (PR [#756](https://github.com/leynos/wireframe/pull/756)):
 | `contended_round_robin_pool_4_contenders_16_rounds_8` | 20       | 20        | 0        | 143.064 µs | 311.048 µs | 515.133 µs | 1.009155 ms | 347.647 µs |
 
 Both policies recorded **zero failures** in this run, where the same tables
-carried 1 and 0 in the previous one. The spurious-`disconnected` defect
-recorded below is still live — the re-test figures in
-[What re-testing found](#what-re-testing-found) put it at roughly 1 in 110
-bursts for FIFO at 16 contenders — so a 20-attempt sample expects about 0.2
-failures and observing none is unremarkable. The failure count is reported per
-run precisely so that a reader can see when it moves, and a comparison across
-runs at this sample size should treat the count as the noisy quantity it is.
+carried 1 and 0 in the previous one. This is a
+pre-[#647](https://github.com/leynos/wireframe/issues/647) capture, made before
+the persistent scheduler actor replaced spawn-on-demand servicing: the
+spurious-`disconnected` defect recorded below was still live at the time — the
+re-test figures in [What re-testing found](#what-re-testing-found) put it at
+roughly 1 in 110 bursts for FIFO at 16 contenders — so a 20-attempt sample
+expected about 0.2 failures and observing none was unremarkable. The failure
+count is reported per run precisely so that a reader can see when it moves, and
+a comparison across runs at this sample size should treat the count as the
+noisy quantity it is.
 
 The spread is wide in both directions and much wider than the previous
 capture's, which is why order statistics are quoted rather than a mean and
@@ -625,16 +628,19 @@ demonstrably moves under demand. They are no longer reported as a per-burst
 column, because the counter is now per-pool and folded across a run; the
 *uncontended* bounds below are where they do their work.
 
-The same counter under *no* contention isolates what the acquire path costs
-when it is not fighting itself. An uncontended burst records 1 spawn for a
-burst of 1 or 16 acquisitions and 2 for 256, identically at pool size 1, 4, and
-16. So the hidden ownership cost is neither per acquisition nor per release: it
-is one scheduler task per idle-to-busy transition, and a burst only re-enters
-the slow path when its worker wins the drain race and exits before the next
-release arrives. `kick` spawns only on that compare-exchange, which is what
-bounds the count — a burst cannot spawn more workers than it performs
-transitions, and the suite asserts both the lower and upper bound so neither
-half can rot silently.
+In the pre-#647 capture, the same counter under *no* contention isolated what
+the acquire path cost when it was not fighting itself. An uncontended burst
+recorded 1 spawn for a burst of 1 or 16 acquisitions and 2 for 256, identically
+at pool size 1, 4, and 16. So the hidden ownership cost was neither per
+acquisition nor per release: it was one spawn-on-demand scheduler task per
+idle-to-busy transition, and a burst only re-entered the slow path when its
+worker won the drain race and exited before the next release arrived. `kick`
+spawned only on that compare-exchange, which is what bounded the count — a
+burst could not spawn more workers than it performed transitions — and the
+suite asserted both the lower and upper bound so neither half could rot
+silently. [#647](https://github.com/leynos/wireframe/issues/647) removes that
+mechanism entirely: the pool now owns one task for its whole lifetime, so the
+contemporaneous bounds assert zero scheduler spawns per acquisition instead.
 
 The contended observation also carries an allocation count, taken once from a
 counted window after Criterion finishes: 3003 allocations over four iterations
@@ -907,9 +913,10 @@ The acquire path is the subject of
 [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) and issue
 [#647](https://github.com/leynos/wireframe/issues/647). Fixing it is out of
 scope for #639, whose purpose is to record baselines before the ownership
-topology changes. The spurious `disconnected` defect re-tested above is still
-live, and it has no separate tracker: it belongs to the same path that #647
-proposes to rework, so a reader looking for its disposition should start there.
+topology changes. The spurious `disconnected` defect re-tested above was live
+in the pre-#647 tree, and it had no separate tracker: it belonged to the same
+path that #647 later reworked, so a reader looking for its disposition should
+start there.
 
 ## Issue #647: persistent scheduler actor
 

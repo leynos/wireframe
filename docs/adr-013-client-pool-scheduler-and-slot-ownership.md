@@ -230,15 +230,19 @@ Creating a pool starts one scheduler task. The task owns:
 No lease drop or acquire call spawns an additional scheduler service task.
 
 The actor loop must remain responsive while a grant is pending: it `select!`s
-over shutdown, its mailbox, and any pending permit race, performs O(1)
-bookkeeping per event, and no command handler awaits unboundedly inline. The
-pending race is held in a loop-scoped `Option<PendingGrant>`. That guard owns
-the boxed future and a local `Arc<PoolCore>` clone, so the task stores no
-self-referential borrow and no separate "servicing" flag exists to be left set:
-every event clears the option, and dropping the guard cancels the race and any
-semaphore waiter it registered. A permit won for a waiter whose reply channel
-has already closed is dropped, and the grant loop immediately selects the next
-live waiter.
+over shutdown, its mailbox, and any pending permit race, and no command handler
+awaits unboundedly inline. Bookkeeping per event is bounded rather than
+constant: admission prunes cancelled waiters, which visits every queued waiter
+and every registered handle, so the cost is bounded by `max_waiters` and the
+handle count. The pending race is held in a loop-scoped `Option<PendingGrant>`.
+That guard owns only the boxed future; the race borrows an `Arc<PoolCore>`
+clone held by the loop, so the task stores no self-referential borrow and no
+separate "servicing" flag exists to be left set. Only a completed or failed
+race clears the option — a command leaves an in-flight race in place so
+capacity release stays level-triggered — and ending the loop drops the guard,
+which cancels the race and any semaphore waiter it registered. A permit won for
+a waiter whose reply channel has already closed is dropped, and the grant loop
+immediately selects the next live waiter.
 
 Replacing the current inline mutex-plus-`try_acquire` acquisition with a
 command/reply round trip regresses the uncontended path from sub-microsecond to
@@ -461,8 +465,10 @@ The design requires:
 - abnormal termination maps to a dedicated error — for example
   `ClientError::SchedulerFailed` — distinct from `PoolClosed`, so callers and
   operators can tell a crash from a clean shutdown;
-- abnormal termination emits an error-level structured log event and a
-  metric carrying the pool identity;
+- abnormal termination emits an error-level structured log event carrying the
+  pool identity and increments a shared, unlabelled scheduler-failure counter —
+  pool identities are unbounded across replacement pools, so they must not
+  become metric labels;
 - the failure policy is fail-pool-permanently: subsequent acquisitions
   return `SchedulerFailed`, and automatic actor restart is out of scope for
   this ADR.
