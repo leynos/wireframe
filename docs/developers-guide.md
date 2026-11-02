@@ -295,10 +295,20 @@ packet-oriented and works with `Envelope` or another packet-shaped type; it
 does not become responsible for codec frame buffers.
 
 The codec driver owns the `packet -> bytes -> transport frame` transition,
-including serialization and `FrameCodec::wrap_payload`. Protocol hooks remain
-packet-oriented and run before serialization. The known gap is narrower:
-`before_send` does not yet fire for app-router responses routed through
-`FramePipeline`; roadmap item `11.2.1` owns that closure.
+including serialization and `FrameCodec::wrap_payload`. Most protocol hooks
+remain packet-oriented and run on the connection actor's path before
+serialization. The exception is `before_send` for application handler
+responses: `FramePipeline` owns the per-connection `ProtocolHooks` and
+`ConnectionContext`, and runs `before_send` on the codec-wrapped frame after
+serialization and `wrap_payload`, immediately before `Framed::send`. Each
+connection constructs fresh hooks, so hook state never crosses connections.
+
+The hook therefore receives the exact frame that will be written, and its
+mutation reaches the wire. Hook output must still fit the codec's
+`max_frame_length`; an oversized frame fails the send and ends the connection.
+Actor-driven push and streaming traffic runs its own hook pipeline, and the
+direct response helpers bypass `before_send`. The
+[users' guide](users-guide.md) states the user-facing contract.
 
 The connection actor stores its outbound producer as one `ActiveOutput` value,
 so a response stream and a multi-packet channel cannot both be active. Its
