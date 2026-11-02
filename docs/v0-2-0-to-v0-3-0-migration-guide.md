@@ -895,7 +895,7 @@ yielding a `SendStreamingOutcome`.*
 > responses. Server-side multi-packet response production – where handlers
 > return a `(mpsc::Sender, Response)` tuple and use helpers such as
 > `Response::with_channel` – is a distinct concern governed by
-> [ADR 0001](adr-001-multi-packet-streaming-response-api.md).
+> [ADR 0001](adrs/adr-0001-multi-packet-streaming-response-api.md).
 
 `WireframeClient` gains two new call methods for multi-frame responses:
 

@@ -12,8 +12,9 @@ The ruling: refocus the lane on the synchronization around the connection
 actor's write loop that Loom can model, drop the assertions that run through
 Tokio channels Loom cannot schedule, correct the two design documents'
 queue-full claims, and propose the rest in an RFC. That RFC is
-[RFC 0002](../rfcs/0002-model-checking-the-write-loop.md). The milestones below
-record what this change delivers and what it hands to the RFC.
+[RFC 0002](../rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md).
+The milestones below record what this change delivers and what it hands to the
+RFC.
 
 ## Purpose / big picture
 

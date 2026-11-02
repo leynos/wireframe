@@ -80,8 +80,8 @@ Tests and examples that implement `FrameCodec` live in:
 Relevant documentation to update or cross-check:
 
 - `docs/roadmap.md` (mark 9.1.1 done when complete).
-- `docs/adr-004-pluggable-protocol-codecs.md` (record the signature change and
-  per-connection state decision).
+- `docs/adrs/adr-0004-pluggable-protocol-codecs.md` (record the signature
+  change and per-connection state decision).
 - `docs/users-guide.md` (public interface description of `FrameCodec`).
 - `docs/multi-packet-and-streaming-responses-design.md` (references current
   `wrap_payload` limits; update if the description changes).
@@ -165,7 +165,8 @@ roadmap item 9.1.1 as done, then run the required Makefile gates.
        using the same codec to observe the sequence counters.
 
 6. Update documentation:
-   - `docs/adr-004-pluggable-protocol-codecs.md`: record the new signature,
+   - `docs/adrs/adr-0004-pluggable-protocol-codecs.md`: record the new
+     signature,
      the rationale for `Bytes`, and the per-connection state decision.
    - `docs/users-guide.md`: update the `FrameCodec` requirements section and
      any examples to show `wrap_payload(&self, Bytes)`.

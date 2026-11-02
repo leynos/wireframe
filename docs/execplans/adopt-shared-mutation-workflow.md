@@ -186,14 +186,15 @@ as survivors because their feature-gated tests now run.
 ## Context and orientation
 
 Wireframe is a Rust async networking library. Its mutation testing was
-introduced by ADR-007 (`docs/adr-007-mutation-testing-with-cargo-mutants.md`)
-as a bespoke workflow at `.github/workflows/mutation-testing.yml`: a single job
-that detects Rust files changed on `main` in the last 25 hours (skipping
-cheaply when none), runs `cargo mutants` scoped to those files (a second
-invocation covers the non-workspace `wireframe_testing` crate), treats exit
-codes 2/3 as informative, and posts a jq-built summary. Its first full dispatch
-run measured 1,821 mutants at roughly 15 single-job hours — beyond GitHub's job
-ceiling — which motivated the sharded reusable workflow now available as
+introduced by ADR-007
+(`docs/adrs/adr-0007-mutation-testing-with-cargo-mutants.md`) as a bespoke
+workflow at `.github/workflows/mutation-testing.yml`: a single job that detects
+Rust files changed on `main` in the last 25 hours (skipping cheaply when none),
+runs `cargo mutants` scoped to those files (a second invocation covers the
+non-workspace `wireframe_testing` crate), treats exit codes 2/3 as informative,
+and posts a jq-built summary. Its first full dispatch run measured 1,821
+mutants at roughly 15 single-job hours — beyond GitHub's job ceiling — which
+motivated the sharded reusable workflow now available as
 `leynos/shared-actions/.github/workflows/mutation-cargo.yml` (see that
 repository's `docs/mutation-cargo-workflow.md` for the caller guide and inputs
 table). The shared workflow reproduces the bespoke behaviour and adds: shard
@@ -224,12 +225,12 @@ and `id-token: write`, using the pinned shared workflow with
 `extra-args: "--all-features"`. All other inputs keep the shared defaults,
 which match ADR-007's values.
 
-Stage C: amend `docs/adr-007-mutation-testing-with-cargo-mutants.md` — status
-note recording that the bespoke implementation is superseded by the shared
-reusable workflow (decision unchanged, implementation relocated), with the
-caller shown and the sketch retained as history. Update the "Mutation testing"
-section of `docs/developers-guide.md` to describe the caller, the shard
-behaviour on dispatch runs, and the issue #571 configuration.
+Stage C: amend `docs/adrs/adr-0007-mutation-testing-with-cargo-mutants.md` —
+status note recording that the bespoke implementation is superseded by the
+shared reusable workflow (decision unchanged, implementation relocated), with
+the caller shown and the sketch retained as history. Update the "Mutation
+testing" section of `docs/developers-guide.md` to describe the caller, the
+shard behaviour on dispatch runs, and the issue #571 configuration.
 
 Stage D: validate and commit (single commit), then push and request a
 CodeRabbit review via the scrutineer gate-runner.

@@ -135,8 +135,8 @@ The completion path now enforces an explicit final equality check between the
 accumulated body length and `expected_total`, and the first-frame and
 continuation paths reject declarations that cannot be honoured.[^24] The
 contract is recorded as authoritative in
-[ADR 015](adr-015-declared-total-body-length-contract.md), following Position A
-below.
+[ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md),
+following Position A below.
 
 This is where Verus becomes plausible, now that the contract decision is
 settled.
@@ -197,9 +197,9 @@ verify, and closer to what the implementation already does.
 ### 2. Is `total_body_len` authoritative or advisory?
 
 **Resolved:** authoritative, recorded in
-[ADR 015](adr-015-declared-total-body-length-contract.md). Completion fails if
-the actual body length differs, and the first-frame and continuation paths
-reject declarations that cannot be honoured.[^22][^24]
+[ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md).
+Completion fails if the actual body length differs, and the first-frame and
+continuation paths reject declarations that cannot be honoured.[^22][^24]
 
 The alternatives were:
 
@@ -1015,7 +1015,8 @@ Loom is doing the right kind of job in `crates/wireframe-loom`: exploring the
 behaviour of shared dead-letter accounting under concurrent producers.[^2] Its
 reach stops at Tokio's primitives, which is why the connection actor's ordering
 belongs to Stateright rather than to Loom;
-[RFC 0002](rfcs/0002-model-checking-the-write-loop.md) sets out what remains.
+[RFC 0002](rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md)
+sets out what remains.
 
 The right relationship is:
 

@@ -36,8 +36,9 @@ completed payloads to handlers. Unit tests (`rstest`) and behavioural tests
 - Maintain current behaviour when no assembler is configured.
 - Keep all new or modified source files under 400 lines.
 - Use `rstest` for unit tests and `rstest-bdd` v0.5.0 for behavioural tests.
-- Record design decisions in a relevant design document (`docs/adr-002-...`
-  and supporting design docs where needed).
+- Record design decisions in a relevant design document
+  (`docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md` and
+  supporting design docs where needed).
 - Update `docs/users-guide.md` for any library-consumer visible behaviour
   change.
 - Mark `docs/roadmap.md` items 8.2.5 and 8.2.6 as done only after all quality
@@ -176,7 +177,7 @@ The inbound runtime pipeline in `src/app/inbound_handler.rs` is now:
 
 Design references that must stay aligned:
 
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md`
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`
 - `docs/generic-message-fragmentation-and-re-assembly-design.md`
 - `docs/multi-packet-and-streaming-responses-design.md`
 - `docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md`
@@ -278,7 +279,8 @@ mark roadmap entries 8.2.5 and 8.2.6 as done only after all gates pass.
 
 6. Update docs and roadmap.
 
-   - Update `docs/adr-002-streaming-requests-and-shared-message-assembly.md`
+   - Update
+     `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`
      with the concrete inbound integration and failure-handling decisions.
    - Update supporting design docs listed above to remove "planned" wording for
      8.2.5 and document the implemented composition.

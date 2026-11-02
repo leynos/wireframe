@@ -90,8 +90,8 @@ and especially the following runtime surfaces:
 
 It complements rather than supersedes:
 
-- [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md), which fixes
-  the packet/transport-frame ownership boundary;
+- [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md),
+  which fixes the packet/transport-frame ownership boundary;
 - [#34](https://github.com/leynos/wireframe/issues/34), which removed a
   historical double-spawn path;
 - [#535](https://github.com/leynos/wireframe/issues/535),
@@ -360,10 +360,10 @@ Implementation work governed by this ADR should demonstrate:
   eventually cancels its accept loops and releases the listener; the graceful
   shutdown path and in-flight connection-task drain remain unchanged. The other
   intentional behaviour changes are recorded in
-  [ADR 012](adr-012-prepared-application-and-connection-runtime.md) (factory
-  evaluation frequency, readiness timing, startup error surfacing) and
-  [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) (lease-drop
-  servicing), and this ADR must not be cited against them;
+  [ADR 012](adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
+  (factory evaluation frequency, readiness timing, startup error surfacing) and
+  [ADR 013](adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md)
+  (lease-drop servicing), and this ADR must not be cited against them;
 - no new leaked task or strong-reference cycle;
 - no loss of public cloneable-handle semantics;
 - benchmark coverage for affected hot paths;
@@ -387,7 +387,7 @@ protocol, and bounded-waiter integration.
 ## References
 
 - Epic [#635](https://github.com/leynos/wireframe/issues/635)
-- [ADR 010: transport-frame boundary for the zero-copy migration](adr-010-transport-frame-boundary-for-zero-copy.md)
+- [ADR 010: transport-frame boundary for the zero-copy migration](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
 - [#34](https://github.com/leynos/wireframe/issues/34)
 - [#535](https://github.com/leynos/wireframe/issues/535)
 - [#547](https://github.com/leynos/wireframe/issues/547)

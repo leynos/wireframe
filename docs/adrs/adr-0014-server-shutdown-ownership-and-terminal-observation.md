@@ -276,7 +276,7 @@ are not reported as supervisor crashes.
 
 ## References
 
-- [ADR 011: runtime ownership and task-lifetime boundaries](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)
-- [ADR 012: prepared application templates and connection-local runtimes](adr-012-prepared-application-and-connection-runtime.md)
-- [ADR 013: single-owner client-pool scheduler and slot graph](adr-013-client-pool-scheduler-and-slot-ownership.md)
+- [ADR 011: runtime ownership and task-lifetime boundaries](adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
+- [ADR 012: prepared application templates and connection-local runtimes](adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
+- [ADR 013: single-owner client-pool scheduler and slot graph](adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md)
 - [Issue #657](https://github.com/leynos/wireframe/issues/657)

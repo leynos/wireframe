@@ -52,7 +52,7 @@ Success is observable when:
 - `rstest-bdd` (v0.5.0) scenarios validate connection termination under budget
   violation and connection health within budget;
 - design decisions are recorded in
-  `docs/adr-002-streaming-requests-and-shared-message-assembly.md`;
+  `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`;
 - `docs/users-guide.md` explains the three-tier protection model; and
 - `docs/roadmap.md` marks `8.3.4` as done only after all quality gates pass.
 
@@ -279,7 +279,7 @@ unique across all step files.
 ### Relevant docs to keep aligned
 
 - `docs/roadmap.md` (`8.3.4` target row, currently unchecked).
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md`.
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`.
 - `docs/generic-message-fragmentation-and-re-assembly-design.md`.
 - `docs/users-guide.md`.
 
@@ -343,8 +343,8 @@ Scenarios:
 
 ### Stage D: documentation and roadmap updates
 
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md`: add 8.3.4
-  implementation decisions.
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`: add
+  8.3.4 implementation decisions.
 - `docs/users-guide.md`: expand "Per-connection memory budgets" section.
 - `docs/generic-message-fragmentation-and-re-assembly-design.md`: align
   wording if needed.
@@ -451,7 +451,8 @@ Expected artefacts after completion:
 - Modified: `tests/fixtures/mod.rs`.
 - Modified: `tests/steps/mod.rs`.
 - Modified: `tests/scenarios/mod.rs`.
-- Modified: `docs/adr-002-streaming-requests-and-shared-message-assembly.md`.
+- Modified:
+  `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`.
 - Modified: `docs/users-guide.md`.
 - Modified: `docs/roadmap.md`.
 - New: `docs/execplans/8-3-4-hard-cap-behaviour.md`.

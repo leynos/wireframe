@@ -14,16 +14,18 @@ for this docs-only milestone.
 
 Roadmap item `10.1.2` closes the second of three design questions that block
 the zero-copy payload migration in epic 284. Roadmap item `10.1.1` already
-approved [ADR 008](../adr-008-zero-copy-public-byte-container.md), which fixes
-`bytes::Bytes` (or a transparent project wrapper) as the stable public byte
-representation and adopts an explicit edit-on-demand workflow for mutation.
-That leaves the question of *how downstream users move across the release
-boundary*: which `Vec<u8>` helpers stay, for how long, behind what visibility,
-and how the project will know when to remove them.
+approved [ADR 008](../adrs/adr-0008-zero-copy-public-byte-container.md), which
+fixes `bytes::Bytes` (or a transparent project wrapper) as the stable public
+byte representation and adopts an explicit edit-on-demand workflow for
+mutation. That leaves the question of *how downstream users move across the
+release boundary*: which `Vec<u8>` helpers stay, for how long, behind what
+visibility, and how the project will know when to remove them.
 
 After this work is approved and implemented, maintainers can see success by
-opening [ADR 009](../adr-009-vec-u8-migration-rollout.md) and finding the
-status field set to `Accepted` with three previously open questions resolved:
+opening
+[ADR 009](../adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+and finding the status field set to `Accepted` with three previously open
+questions resolved:
 
 1. Which `Vec<u8>` compatibility helpers ship in the breaking release.
 2. Whether those helpers are feature-gated or ship in the default build.
@@ -203,7 +205,9 @@ to implement against. No runtime Rust code changes are authorized by this plan.
 - [x] (2026-06-15) Received explicit user approval of the plan and the
       recommended policy answers. CodeRabbit review waived for this
       docs-only milestone.
-- [x] (2026-06-15) Edited `docs/adr-009-vec-u8-migration-rollout.md` to
+- [x] (2026-06-15) Edited
+      `docs/adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md`
+      to
       `Accepted` with the resolved helper set, visibility, and removal
       signal, and added the prior-art footnotes.
 - [x] (2026-06-15) Aligned `docs/roadmap.md` (ticked `10.1.2`),
@@ -490,8 +494,9 @@ progress-recording commit. The migration-guide diagram fix conflicted with
 main's independent, more comprehensive fix in commit `9f666a6` and was resolved
 in main's favour, so the migration guide is no longer part of this branch's
 diff. After the rebase the branch's diff against `origin/main` is exactly the
-five `10.1.2` documents: `docs/adr-009-vec-u8-migration-rollout.md`, this
-ExecPlan, `docs/frame-vec-u8-inventory.md`, `docs/roadmap.md`, and
+five `10.1.2` documents:
+`docs/adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md`,
+this ExecPlan, `docs/frame-vec-u8-inventory.md`, `docs/roadmap.md`, and
 `docs/zero-copy-frame-and-payload-migration-roadmap.md`. The roadmap tick
 auto-merged cleanly alongside main's `15.1.3` edit.
 
@@ -530,18 +535,18 @@ release. The same decision appears as item `1.1.2` in
 
 The current state of the related design documents is:
 
-- [`adr-008-zero-copy-public-byte-container.md`](../adr-008-zero-copy-public-byte-container.md):
+- [`adr-0008-zero-copy-public-byte-container.md`](../adrs/adr-0008-zero-copy-public-byte-container.md):
   `Accepted` on 2026-05-26. Names `bytes::Bytes` (or a transparent project
   wrapper) as the stable public byte representation and adopts an explicit
   edit-on-demand workflow for mutation. Section "Follow-up Decisions" calls out
   roadmap item `10.1.2` and ADR 009 as the venue for deciding which `Vec<u8>`
   compatibility helpers survive the breaking release, whether any helpers are
   feature-gated, and when retained helpers are reviewed again.
-- [`adr-009-vec-u8-migration-rollout.md`](../adr-009-vec-u8-migration-rollout.md):
+- [`adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md`](../adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md):
   status `Proposed`. Proposes Option C ("staged breaking release with finite
   compatibility helpers"). Section "Outstanding Decisions" lists the three open
   questions this plan must resolve.
-- [`adr-010-transport-frame-boundary-for-zero-copy.md`](../adr-010-transport-frame-boundary-for-zero-copy.md):
+- [`adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md`](../adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md):
   status `Proposed`. Out of scope for `10.1.2`. Closure belongs to `10.1.3`.
 - [`frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md): records the
   public payload surfaces still owned by `Vec<u8>` and resolves the direction
@@ -600,9 +605,9 @@ Adjacent documentation to keep aligned with this milestone:
 - [`docs/roadmap.md`](../roadmap.md)
 - [`docs/zero-copy-frame-and-payload-migration-roadmap.md`](../zero-copy-frame-and-payload-migration-roadmap.md)
 - [`docs/frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md)
-- [`docs/adr-008-zero-copy-public-byte-container.md`](../adr-008-zero-copy-public-byte-container.md)
-- [`docs/adr-009-vec-u8-migration-rollout.md`](../adr-009-vec-u8-migration-rollout.md)
-- [`docs/adr-010-transport-frame-boundary-for-zero-copy.md`](../adr-010-transport-frame-boundary-for-zero-copy.md)
+- [`docs/adrs/adr-0008-zero-copy-public-byte-container.md`](../adrs/adr-0008-zero-copy-public-byte-container.md)
+- [`docs/adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md`](../adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+- [`docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md`](../adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
 - [`docs/documentation-style-guide.md`](../documentation-style-guide.md)
 - [`docs/users-guide.md`](../users-guide.md)
 - [`docs/developers-guide.md`](../developers-guide.md)
@@ -686,7 +691,9 @@ position the review has cast serious doubt on without user direction.
 
 ### Stage D: accept ADR 009
 
-Edit `docs/adr-009-vec-u8-migration-rollout.md` so that:
+Edit
+`docs/adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md`
+so that:
 
 1. The `Status` field becomes `Accepted` and records the acceptance date.
 2. The "Outstanding Decisions" section is resolved into accepted answers
@@ -803,7 +810,7 @@ the commit. Address every concern or record why it is out of scope.
 Use the `commit-message` skill for the final commit message. Stage the intended
 files individually rather than `git add -A`. The expected staged set is:
 
-- `docs/adr-009-vec-u8-migration-rollout.md`
+- `docs/adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md`
 - `docs/roadmap.md`
 - `docs/zero-copy-frame-and-payload-migration-roadmap.md`
 - `docs/frame-vec-u8-inventory.md` (only if a "Coordination notes" or
@@ -847,7 +854,7 @@ From the repository root:
 
    ```sh
    sed -n '444,473p' docs/roadmap.md
-   sed -n '1,170p' docs/adr-009-vec-u8-migration-rollout.md
+   sed -n '1,170p' docs/adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md
    sed -n '47,98p' docs/zero-copy-frame-and-payload-migration-roadmap.md
    sed -n '340,407p' docs/frame-vec-u8-inventory.md
    ```
@@ -873,7 +880,9 @@ From the repository root:
    "Outstanding Decisions" section of ADR 009. Record the crew's feedback in
    `Surprises & discoveries` and update `Decision log` for any new trade-offs.
 
-6. Edit `docs/adr-009-vec-u8-migration-rollout.md` as described in Stage D.
+6. Edit
+   `docs/adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md`
+   as described in Stage D.
 
 7. Edit `docs/roadmap.md` and
    `docs/zero-copy-frame-and-payload-migration-roadmap.md` to reflect the

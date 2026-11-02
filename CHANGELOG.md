@@ -47,7 +47,7 @@ All notable changes to this project will be documented in this file.
   Protocol implementations must supply exact totals or leave `total_body_len` as
   `None`. Downstream exhaustive matches on `MessageAssemblyError` need arms
   for the three new variants. See
-  [ADR 015](docs/adr-015-declared-total-body-length-contract.md).
+  [ADR 015](docs/adrs/adr-0015-declared-total-body-length-is-authoritative.md).
   ([#544](https://github.com/leynos/wireframe/issues/544))
 - Added scheduler and slot poison-recovery coverage, and extracted
   `scheduler_tests.rs` to keep `scheduler.rs` below 400 lines. (#539)
