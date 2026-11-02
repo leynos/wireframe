@@ -2432,14 +2432,14 @@ Upstream artefacts and their revisions at the time of writing:
   ownership" epic, the parent of this work.
 - Issue [#639](https://github.com/leynos/wireframe/issues/639) — this task.
   Its Scope, Method, and Acceptance criteria are the primary requirements.
-- [ADR 011](adr-011-runtime-ownership-and-task-lifetime-boundaries.md),
+- [ADR 011](../adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md),
   status Proposed, 411 lines — rules R1-R7, and a `## Verification` section
   requiring "benchmark coverage for affected hot paths".
-- [ADR 012](adr-012-prepared-application-and-connection-runtime.md), status
-  Proposed — `## Verification` requires "Connection-startup benchmarks compare
-  the old and prepared paths".
-- [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md), status
-  Proposed — `## Verification` requires "Criterion/allocation benchmarks
+- [ADR 012](../adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md),
+  status Proposed — `## Verification` requires "Connection-startup benchmarks
+  compare the old and prepared paths".
+- [ADR 013](../adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md),
+  status Proposed — `## Verification` requires "Criterion/allocation benchmarks
   compare uncontended and contended acquire/drop before and after, explicitly
   naming uncontended single-caller acquire/drop latency", "Uncontended
   acquire/drop creates no additional scheduler task after pool construction;

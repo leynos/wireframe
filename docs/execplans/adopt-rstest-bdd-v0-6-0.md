@@ -445,10 +445,10 @@ package now declares 1.95, while other package floors remain unchanged.
 ## Conformance basis
 
 The migration follows the root `AGENTS.md`, the accepted scope in
-`docs/adr-003-replace-cucumber-with-rstest-bdd.md`, and the immutable upstream
-v0.6.0 user and migration guides recorded above. The repository's current BDD
-architecture and test policy are the governing local design; no new public
-runtime interface is planned.
+`docs/adrs/adr-0003-replace-cucumber-with-rstest-bdd-for-behavioural-tests.md`,
+and the immutable upstream v0.6.0 user and migration guides recorded above. The
+repository's current BDD architecture and test policy are the governing local
+design; no new public runtime interface is planned.
 
 ## Verification plan
 

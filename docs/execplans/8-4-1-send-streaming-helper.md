@@ -471,7 +471,7 @@ pass.
 
 ### Stage D: documentation and roadmap updates
 
-1. `docs/adr-002-streaming-requests-and-shared-message-assembly.md`:
+1. `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`:
    Add an "Implementation decisions (2026-02-26)" subsection under Section 4
    documenting:
    - `send_streaming` lives in `src/client/send_streaming.rs`.
@@ -624,7 +624,8 @@ Expected artefacts after completion:
 - Modified: `tests/fixtures/mod.rs` (add module declaration).
 - Modified: `tests/steps/mod.rs` (add module declaration).
 - Modified: `tests/scenarios/mod.rs` (add module declaration).
-- Modified: `docs/adr-002-streaming-requests-and-shared-message-assembly.md`.
+- Modified:
+  `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`.
 - Modified: `docs/users-guide.md`.
 - Modified: `docs/roadmap.md` (mark 8.4.1–8.4.5 done).
 - New: `docs/execplans/8-4-1-send-streaming-helper.md` (this file).

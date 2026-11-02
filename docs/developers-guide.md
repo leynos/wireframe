@@ -398,24 +398,24 @@ refusal, so a reader reverted to `yaml.safe_load` fails them.
 
 ## Public byte-container model
 
-[ADR 008](adr-008-zero-copy-public-byte-container.md) accepts `bytes::Bytes`,
-or a transparent project wrapper over `bytes::Bytes`, as Wireframe's stable
-public byte representation for packet, envelope, serializer, middleware, and
-hook payload hand-offs.
+[ADR 008](adrs/adr-0008-zero-copy-public-byte-container.md) accepts
+`bytes::Bytes`, or a transparent project wrapper over `bytes::Bytes`, as
+Wireframe's stable public byte representation for packet, envelope, serializer,
+middleware, and hook payload hand-offs.
 
 Read-only packet and routing paths should preserve shared byte storage and
 cheap cloning. Middleware and client hook mutation must go through an explicit
 edit-on-demand workflow, copying only when an edit needs unique mutable
 storage. Do not introduce new public `Vec<u8>` payload contracts unless the
-[ADR 009 compatibility policy](adr-009-vec-u8-migration-rollout.md) for the
-zero-copy rollout explicitly calls for them.
+[ADR 009 compatibility policy](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+for the zero-copy rollout explicitly calls for them.
 
 ## Actor and codec-driver boundary
 
-[ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) accepts the
-runtime boundary for zero-copy transport framing. The connection actor remains
-packet-oriented and works with `Envelope` or another packet-shaped type; it
-does not become responsible for codec frame buffers.
+[ADR 010](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+accepts the runtime boundary for zero-copy transport framing. The connection
+actor remains packet-oriented and works with `Envelope` or another
+packet-shaped type; it does not become responsible for codec frame buffers.
 
 The codec driver owns the `packet -> bytes -> transport frame` transition,
 including serialization and `FrameCodec::wrap_payload`. Most protocol hooks
@@ -458,18 +458,18 @@ describes the surrounding reassembly boundary.
 Three proposed decision records govern runtime ownership and task-lifetime
 boundaries for Epic 635:
 
-- [ADR 011](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)
+- [ADR 011](adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
   defines ownership rules R1-R7 (shared roots, borrowed handles, sole-owner
   moves, and actor coordination) with mechanical lint enforcement for the
   grep-able rules.
-- [ADR 012](adr-012-prepared-application-and-connection-runtime.md) splits
-  `WireframeApp` into a registration builder, an immutable `PreparedApp`
+- [ADR 012](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
+  splits `WireframeApp` into a registration builder, an immutable `PreparedApp`
   template shared by connection tasks, and a per-connection `ConnectionRuntime`.
-- [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) records the
-  client-pool ownership change. Phase 2 stores fixed slots by value in
-  `PoolCore` and reduces leases to the core, a checked slot index, and a permit
-  ([#645](https://github.com/leynos/wireframe/issues/645)); phase 3 replaces
-  spawn-on-demand servicing with one persistent scheduler task per pool
+- [ADR 013](adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md)
+  records the client-pool ownership change. Phase 2 stores fixed slots by value
+  in `PoolCore` and reduces leases to the core, a checked slot index, and a
+  permit ([#645](https://github.com/leynos/wireframe/issues/645)); phase 3
+  replaces spawn-on-demand servicing with one persistent scheduler task per pool
   ([#647](https://github.com/leynos/wireframe/issues/647)); phase 4 probes the
   rotated slots and races borrowed acquisitions only when all slots are blocked
   ([#646](https://github.com/leynos/wireframe/issues/646)). The task owns the
@@ -554,7 +554,8 @@ guard cancels accept loops when that future is dropped, including after a
 accepted connection tasks.
 
 Code that needs deterministic listener hand-off should use the awaitable
-runtime contract recorded in [ADR 014](adr-014-server-shutdown-ownership.md):
+runtime contract recorded in
+[ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md):
 `WireframeServer::spawn().await` prepares the application and returns a
 cloneable `ServerShutdown` control. `stop()` synchronously requests shutdown
 through a `CancellationToken`, so it is idempotent, non-blocking, and cannot
@@ -680,7 +681,8 @@ closed pool resolves queued and later acquisitions with
 `ClientError::SchedulerFailed`. See the
 [client-pool design](wireframe-client-design.md#bounded-waiter-admission) for
 the full contract. Acquire deadlines and waiter/rejection telemetry remain
-deferred under [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md).
+deferred under
+[ADR 013](adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md).
 
 Slot selection rotates over indices rather than owning `Arc<PoolSlot>` values.
 `PoolCore::ordered_slot_indices` reads `next_slot` exactly once per non-empty
@@ -938,8 +940,8 @@ gate can evaluate anything.
 
 Scheduled mutation testing runs in CI via
 `.github/workflows/mutation-testing.yml` (see
-[ADR-007](adr-007-mutation-testing-with-cargo-mutants.md) for the design and
-its rationale). Key points for contributors:
+[ADR-007](adrs/adr-0007-mutation-testing-with-cargo-mutants.md) for the design
+and its rationale). Key points for contributors:
 
 - The workflow is a thin caller of the shared reusable workflow
   `leynos/shared-actions/.github/workflows/mutation-cargo.yml` (pinned by
@@ -1743,7 +1745,8 @@ Loom 0.7.2 has no `Weak`, and the session registry holds
 `Weak<PushHandleInner>` from `Arc::downgrade`, so the handle's `Arc` cannot be
 widened to Loom's without breaking the registry. Handle and registry lifetimes
 are left to the deterministic registry tests;
-[RFC 0002](rfcs/0002-model-checking-the-write-loop.md) lists the options.
+[RFC 0002](rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md)
+lists the options.
 
 The other Loom primitive on the actor's path is the active-connection gauge.
 Under `cfg(loom)` it is a `loom::lazy_static!` atomic, because Loom's atomics
@@ -1770,7 +1773,8 @@ regardless of any interleaving Loom chooses. Queue-full behaviour is tested
 deterministically in `tests/push.rs`, and the write loop's
 `select!(biased; ...)` ordering, which is built entirely from Tokio primitives,
 is covered by the deterministic ordering tests and the Stateright model;
-[RFC 0002](rfcs/0002-model-checking-the-write-loop.md) proposes the rest.
+[RFC 0002](rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md)
+proposes the rest.
 
 Every assertion in the models was shown able to fail by a mutation of
 `route_to_dlq`, `log_dlq_drop` or the gauge guard. The ones that matter most

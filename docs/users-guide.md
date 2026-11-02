@@ -1347,7 +1347,7 @@ out of the equality requirement and keep the previous behaviour.
 
 The declaration is also used for the size-limit check, so an exact total is the
 cheapest way to fail early on an oversized message. The decision is recorded in
-[ADR 015](adr-015-declared-total-body-length-contract.md).
+[ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md).
 
 ### Streaming request body consumption
 
@@ -3173,7 +3173,7 @@ asserting on. Runs happen through the shared reusable workflow
 `leynos/shared-actions/.github/workflows/mutation-cargo.yml`, pinned by commit
 SHA, and are informational only — they never gate pull requests, so a red
 mutation run does not block contributions or releases. The design rationale is
-recorded in [ADR-007](adr-007-mutation-testing-with-cargo-mutants.md).
+recorded in [ADR-007](adrs/adr-0007-mutation-testing-with-cargo-mutants.md).
 
 Two run modes exist. Scheduled daily runs mutate only the Rust files changed on
 `main` in the preceding 25 hours and skip in seconds on quiet days. Manual
@@ -3281,7 +3281,7 @@ directories (one per shard on full dispatch runs) for offline triage.
     `tests/features/client_request_hooks.feature`.
 
 [^53]: Implemented in `src/client/send_streaming.rs`. See
-    [ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md),
+    [ADR 0002](adrs/adr-0002-streaming-requests-and-shared-message-assembly.md),
     Section 4, for design rationale.
 
 [adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md

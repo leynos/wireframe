@@ -511,8 +511,8 @@ All scenarios pass. Then run `make lint` and `make test` for full regression.
 ### Stage D: documentation and roadmap updates
 
 **D1.** ADR-002
-(`docs/adr-002-streaming-requests-and-shared-message-assembly.md`): add a new
-implementation decisions block after the existing 8.3.4 entry:
+(`docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`): add a
+new implementation decisions block after the existing 8.3.4 entry:
 
 - Roadmap item `8.3.5` implements derived default memory budgets.
 - When `WireframeApp::memory_budgets(...)` is not called, defaults are derived
@@ -657,7 +657,8 @@ Expected artefacts after completion:
 - Modified: `tests/fixtures/mod.rs`.
 - Modified: `tests/steps/mod.rs`.
 - Modified: `tests/scenarios/mod.rs`.
-- Modified: `docs/adr-002-streaming-requests-and-shared-message-assembly.md`.
+- Modified:
+  `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`.
 - Modified: `docs/users-guide.md`.
 - Modified: `docs/roadmap.md`.
 - New:

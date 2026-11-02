@@ -189,7 +189,7 @@ Implementation complete. All quality gates pass.
 - `src/app/memory_budgets.rs` — updated doc comment
 - `docs/roadmap.md` — marked 8.3.2 done
 - `docs/users-guide.md` — documented enforcement semantics
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md` — added
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md` — added
   implementation decisions
 - `tests/fixtures/mod.rs`, `tests/steps/mod.rs`, `tests/scenarios/mod.rs` —
   registered budget enforcement modules
@@ -261,8 +261,8 @@ The call site is in `src/app/connection.rs` line 257:
 
 ### Relevant design documents
 
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md` — sections
-  on budget enforcement and failure modes.
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md` —
+  sections on budget enforcement and failure modes.
 - `docs/generic-message-fragmentation-and-re-assembly-design.md` — section
   9.3 on memory budget integration.
 - `docs/hardening-wireframe-a-guide-to-production-resilience.md` — resource
@@ -426,7 +426,8 @@ Go/no-go: all BDD scenarios pass via `make test`.
 
 1. Update `src/app/memory_budgets.rs` module doc comment.
 2. Update `docs/users-guide.md` "Per-connection memory budgets" section.
-3. Update `docs/adr-002-streaming-requests-and-shared-message-assembly.md`.
+3. Update
+   `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`.
 4. Mark `8.3.2` as done in `docs/roadmap.md`.
 5. Run full quality gates.
 
@@ -553,7 +554,8 @@ Expected artefacts after completion:
 - Modified: `src/app/memory_budgets.rs` (doc comment update).
 - Modified: `tests/fixtures/mod.rs`, `tests/steps/mod.rs`,
   `tests/scenarios/mod.rs`.
-- Modified: `docs/adr-002-streaming-requests-and-shared-message-assembly.md`,
+- Modified:
+  `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`,
   `docs/users-guide.md`, `docs/roadmap.md`.
 - Gate logs: `/tmp/wireframe-8-3-2-*.log`.
 

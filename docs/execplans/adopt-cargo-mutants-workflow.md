@@ -58,7 +58,7 @@ results table (or skip message) and download the artefacts.
   job must set `timeout-minutes: 300` as a backstop against unbounded full runs.
 - The checkout step must set `persist-credentials: false`; the workflow only
   needs read access.
-- The ADR at `docs/adr-007-mutation-testing-with-cargo-mutants.md` must be
+- The ADR at `docs/adrs/adr-0007-mutation-testing-with-cargo-mutants.md` must be
   updated to reflect any corrections discovered during implementation
   (especially the jq field names in the workflow sketch).
 - All Markdown files must pass `make markdownlint`.
@@ -256,8 +256,9 @@ Key paths:
 - `.github/workflows/advanced-tests.yml` — Daily scheduled and manually
   dispatchable workflow running Loom-based concurrency tests. Structural
   reference for the new workflow (daily cron trigger pattern).
-- `docs/adr-007-mutation-testing-with-cargo-mutants.md` — The ADR proposing
-  this work. Contains a workflow sketch with jq filters that need correction.
+- `docs/adrs/adr-0007-mutation-testing-with-cargo-mutants.md` — The ADR
+  proposing this work. Contains a workflow sketch with jq filters that need
+  correction.
 - `docs/documentation-style-guide.md` — Formatting, spelling, and ADR
   conventions.
 - `AGENTS.md` — Coding standards and commit quality gates.
@@ -380,8 +381,8 @@ Create `.github/workflows/mutation-testing.yml` with the following structure:
 
 ### Stage C: Update the ADR (complete)
 
-Update the ADR at `docs/adr-007-mutation-testing-with-cargo-mutants.md` to
-reflect:
+Update the ADR at `docs/adrs/adr-0007-mutation-testing-with-cargo-mutants.md`
+to reflect:
 
 - Daily schedule with change-detection guard (25-hour window, tip-existence
   guard).
@@ -420,7 +421,7 @@ step.
 
 **Stage C — update ADR (complete 2026-07-04):**
 
-The ADR at `docs/adr-007-mutation-testing-with-cargo-mutants.md` already
+The ADR at `docs/adrs/adr-0007-mutation-testing-with-cargo-mutants.md` already
 carries the corrected jq field names, daily schedule with guard, workspace
 split, and Resolved Decisions section, plus the 2026-07-04 corrections: default
 output locations (no `--output`), exit-code policy, 25-hour window with
@@ -454,7 +455,7 @@ Commit (gated by `make markdownlint` passing):
 
 ```sh
 git add .github/workflows/mutation-testing.yml \
-       docs/adr-007-mutation-testing-with-cargo-mutants.md
+       docs/adrs/adr-0007-mutation-testing-with-cargo-mutants.md
 git commit
 ```
 

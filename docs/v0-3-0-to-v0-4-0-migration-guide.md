@@ -144,8 +144,9 @@ path and rejection reason.
 `FirstFrameHeader::total_body_len` is now a protocol commitment. Message
 assembly rejects a first frame that already contradicts its declaration, stops
 a continuation from overshooting it, and requires the completed body to match
-it exactly. See [ADR 015](adr-015-declared-total-body-length-contract.md) for
-the decision.
+it exactly. See
+[ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md) for the
+decision.
 
 Applications that declare a total must supply the exact body length. A protocol
 that declares an approximate size will now see its messages rejected because
@@ -390,7 +391,7 @@ wrapper) for read-only hand-offs and an explicit edit-on-demand operation for
 mutation. Middleware and hook editor APIs are not yet finalized; their
 migration is deferred to roadmap items 12.1.2 and 12.2.1. The compatibility
 helper names described below are defined by
-[ADR 009](adr-009-vec-u8-migration-rollout.md).
+[ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md).
 
 ### Middleware
 
@@ -406,7 +407,8 @@ the frame altogether.
 The hook editor API is also deferred to roadmap item 12.2.1. Keep existing
 `Vec<u8>` hook implementations until that API is finalized; client preamble
 leftovers intentionally remain `Vec<u8>` in this release. The compatibility
-policy is defined in [ADR 009](adr-009-vec-u8-migration-rollout.md).
+policy is defined in
+[ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md).
 
 ### Serializers
 
@@ -464,8 +466,8 @@ impl FrameCodec for MyCodec {
 Keep `Vec<u8>` conversion at the edge of legacy callers with
 `PayloadBytes::from_vec` or `PayloadBytes::into_vec`; do not add per-codec
 conversion constructors. See
-[ADR 008](adr-008-zero-copy-public-byte-container.md) for the read-only and
-edit-on-demand design, and the
+[ADR 008](adrs/adr-0008-zero-copy-public-byte-container.md) for the read-only
+and edit-on-demand design, and the
 [zero-copy migration roadmap](zero-copy-frame-and-payload-migration-roadmap.md)
 for the staged rollout.
 

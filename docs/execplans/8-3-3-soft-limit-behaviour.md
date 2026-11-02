@@ -29,7 +29,7 @@ Success is observable when:
 - behaviour is covered by `rstest-bdd` (`0.5.0`) scenarios using a live inbound
   runtime fixture;
 - design decisions are recorded in
-  `docs/adr-002-streaming-requests-and-shared-message-assembly.md`;
+  `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`;
 - `docs/users-guide.md` explains the soft-limit runtime behaviour for library
   consumers; and
 - `docs/roadmap.md` marks `8.3.3` as done only after all quality gates pass.
@@ -169,7 +169,7 @@ Implemented roadmap item `8.3.3` with no public API changes:
   `tests/steps/memory_budget_backpressure_steps.rs`, and
   `tests/scenarios/memory_budget_backpressure_scenarios.rs`.
 - Updated documentation in:
-  `docs/adr-002-streaming-requests-and-shared-message-assembly.md`,
+  `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`,
   `docs/generic-message-fragmentation-and-re-assembly-design.md`,
   `docs/users-guide.md`, and `docs/roadmap.md`.
 
@@ -205,7 +205,7 @@ Current inbound read path:
 Relevant docs to keep aligned:
 
 - `docs/roadmap.md` (`8.3.3` target row).
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md`.
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`.
 - `docs/generic-message-fragmentation-and-re-assembly-design.md`.
 - `docs/multi-packet-and-streaming-responses-design.md`.
 - `docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md`.
@@ -299,7 +299,7 @@ Update documentation to reflect implemented behaviour and decisions.
 
 Required updates:
 
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md`:
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`:
   add `8.3.3` implementation decisions and soft-limit semantics.
 - `docs/users-guide.md`:
   update "Per-connection memory budgets" to explain soft-limit read pausing and
@@ -411,7 +411,8 @@ Expected artefacts after completion:
 - Modified: `tests/fixtures/mod.rs`.
 - Modified: `tests/steps/mod.rs`.
 - Modified: `tests/scenarios/mod.rs`.
-- Modified: `docs/adr-002-streaming-requests-and-shared-message-assembly.md`.
+- Modified:
+  `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`.
 - Modified: `docs/users-guide.md`.
 - Modified: `docs/generic-message-fragmentation-and-re-assembly-design.md`
   (if wording requires alignment).

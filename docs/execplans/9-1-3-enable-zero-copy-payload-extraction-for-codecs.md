@@ -34,7 +34,8 @@ copying, validated by pointer-equality assertions in unit tests.
 - [x] Add zero-copy regression test for `HotlineFrameCodec` wrap.
 - [x] Add zero-copy regression test for `MysqlFrameCodec` decode.
 - [x] Add zero-copy regression test for `MysqlFrameCodec` wrap.
-- [x] Update `docs/adr-004-pluggable-protocol-codecs.md` (Architecture Decision
+- [x] Update `docs/adrs/adr-0004-pluggable-protocol-codecs.md` (Architecture
+      Decision
       Record) with design decision.
 - [x] Update `docs/users-guide.md` with zero-copy guidance.
 - [x] Mark roadmap entry 9.1.3 as done.
@@ -192,7 +193,7 @@ Documentation to update:
 
 - `docs/roadmap.md` - Mark 9.1.3 done
 - `docs/users-guide.md` - Custom codec guidance
-- `docs/adr-004-pluggable-protocol-codecs.md` - Design decisions
+- `docs/adrs/adr-0004-pluggable-protocol-codecs.md` - Design decisions
 
 ## Plan of Work
 
@@ -360,7 +361,7 @@ Add tests that verify pointer equality to prove zero-copy behaviour:
    }
    ```
 
-10. Update `docs/adr-004-pluggable-protocol-codecs.md`:
+10. Update `docs/adrs/adr-0004-pluggable-protocol-codecs.md`:
 
     Add under "Resolved Decisions":
 
@@ -547,15 +548,15 @@ pub struct MysqlFrame {
 
 ## Files to Modify
 
-| File                                        | Change                                    |
-| ------------------------------------------- | ----------------------------------------- |
-| `src/codec.rs`                              | Add `frame_payload_bytes` method to trait |
-| `src/codec/examples.rs`                     | Update frame types to use `Bytes`         |
-| `src/codec/tests.rs`                        | Add zero-copy regression tests            |
-| `tests/example_codecs.rs`                   | Update tests for `Bytes` payloads         |
-| `docs/adr-004-pluggable-protocol-codecs.md` | Document zero-copy design                 |
-| `docs/users-guide.md`                       | Add zero-copy implementation guidance     |
-| `docs/roadmap.md`                           | Mark 9.1.3 as done                        |
+| File                                              | Change                                    |
+| ------------------------------------------------- | ----------------------------------------- |
+| `src/codec.rs`                                    | Add `frame_payload_bytes` method to trait |
+| `src/codec/examples.rs`                           | Update frame types to use `Bytes`         |
+| `src/codec/tests.rs`                              | Add zero-copy regression tests            |
+| `tests/example_codecs.rs`                         | Update tests for `Bytes` payloads         |
+| `docs/adrs/adr-0004-pluggable-protocol-codecs.md` | Document zero-copy design                 |
+| `docs/users-guide.md`                             | Add zero-copy implementation guidance     |
+| `docs/roadmap.md`                                 | Mark 9.1.3 as done                        |
 
 ## Revision note (required when editing an ExecPlan)
 
@@ -566,7 +567,7 @@ pub struct MysqlFrame {
   in Concrete Steps items 10 and 11 that violated MD040 (fenced code blocks
   must have a language specified); updated placeholder date "2026-01-XX" to
   "2026-01-19" in ADR update snippet; expanded "ADR" acronym in Progress
-  checklist item for `adr-004-pluggable-protocol-codecs.md`.
+  checklist item for `adr-0004-pluggable-protocol-codecs.md`.
 - 2026-01-19: Added explicit dependency note in "Context and Orientation"
   section stating that ExecPlan 9.1.2 must complete its error propagation
   surfaces and WireframeError extensions before 9.1.3 can begin.

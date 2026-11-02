@@ -208,11 +208,11 @@ stream.
 - [x] 6.3.1. Provide a helper (for example `Response::with_channel`) that
   returns a bounded channel sender alongside a `Response::MultiPacket` so
   handlers can opt into streaming ergonomically (see
-  [ADR 0001](adr-001-multi-packet-streaming-response-api.md)).
+  [ADR 0001](adrs/adr-0001-multi-packet-streaming-response-api.md)).
 - [x] 6.3.2. Update the multi-packet design documentation and user guide with
   tuple return examples that explain initial-frame handling, back-pressure, and
   graceful termination (see
-  [ADR 0001](adr-001-multi-packet-streaming-response-api.md)).
+  [ADR 0001](adrs/adr-0001-multi-packet-streaming-response-api.md)).
 - [x] 6.3.3. Add an example handler (or test fixture) demonstrating spawning a
   background task that pushes frames through the returned sender while the
   connection actor manages delivery.
@@ -261,9 +261,9 @@ into a single frame, making the process transparent to the application logic.
 ## 8. Streaming requests and shared message assembly
 
 This phase implements the decisions from
-[ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md), adding
-first-class streaming request bodies, a generic message assembly abstraction,
-and standardized per-connection memory budgets.
+[ADR 0002](adrs/adr-0002-streaming-requests-and-shared-message-assembly.md),
+adding first-class streaming request bodies, a generic message assembly
+abstraction, and standardized per-connection memory budgets.
 
 ### 8.1. Streaming request bodies
 
@@ -347,7 +347,7 @@ integration boundaries.
   codecs.
   - [x] Update the trait to accept `&self` and a `Bytes` payload to reduce
     copies, then document the change in
-    `adr-004-pluggable-protocol-codecs.md`.
+    `adrs/adr-0004-pluggable-protocol-codecs.md`.
   - [x] Update `LengthDelimitedFrameCodec` and any adaptors to use the new
     payload type.
   - [x] Reuse a per-connection encoder, so sequence counters can advance
@@ -420,7 +420,7 @@ integration boundaries.
 - [x] 9.5.1. Decouple message encoding from `bincode`-specific traits to
   support alternative serializers (see the
   [binary router library design](rust-binary-router-library-design.md) and
-  [ADR 0005](adr-005-serializer-abstraction.md)).
+  [ADR 0005](adrs/adr-0005-serializer-abstraction-beyond-bincode.md)).
   - [x] Introduce a serializer-agnostic message trait or adaptor layer for
     `Message` types.
   - [x] Provide optional wire-rs or Serde bridges to reduce manual boilerplate.
@@ -445,7 +445,8 @@ integration boundaries.
   invalid frames, including oversized payloads and correlation metadata.
 - [x] 9.7.3. Introduce a test observability harness in `wireframe_testing` that
   captures logs and metrics per test run for asserting codec failures and
-  recovery policies (see [ADR 0006](adr-006-test-observability.md)).
+  recovery policies (see
+  [ADR 0006](adrs/adr-0006-test-observability-harness.md)).
 - [x] 9.7.4. Add regression tests backed by `wireframe_testing` for the
       `CodecError`
   taxonomy and recovery policy behaviours defined in 9.1.2. Requires 9.1.2.
@@ -460,13 +461,13 @@ starts. See `docs/frame-vec-u8-inventory.md` and ADRs 008 through 010.
 
 - [x] 10.1.1. Approve the stable public byte-container and edit-on-demand model
   for `PacketParts`, `Envelope`, middleware, client hooks, and serializer
-  output. See `docs/adr-008-zero-copy-public-byte-container.md`.
+  output. See `docs/adrs/adr-0008-zero-copy-public-byte-container.md`.
 - [x] 10.1.2. Approve the compatibility and rollout policy for downstream
   users, including which `Vec<u8>` helpers survive the breaking release. See
-  `docs/adr-009-vec-u8-migration-rollout.md`.
+  `docs/adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md`.
 - [x] 10.1.3. Approve the actor and codec-driver boundary so `Vec<u8>` bridges
   leave the core runtime deliberately rather than incidentally. See
-  `docs/adr-010-transport-frame-boundary-for-zero-copy.md`.
+  `docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md`.
 
 ### 10.2. Baselines and migration planning
 
@@ -669,7 +670,8 @@ cited section names the specific question it answers.
   inputs. Requires 15.1.1. See §"Is `total_body_len` authoritative or
   advisory?". Success criteria: an ADR records the decision, runtime code
   enforces the chosen semantics, and tests verify both conforming and violating
-  inputs. See [ADR 015](adr-015-declared-total-body-length-contract.md); issue
+  inputs. See
+  [ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md); issue
   [#544](https://github.com/leynos/wireframe/issues/544) added conformance and
   violation coverage.
 - [ ] 15.2.3. Publish named fairness and priority guarantees for
@@ -734,7 +736,7 @@ cited section names the specific question it answers.
   [§"What Verus should prove in Wireframe"](formal-verification-methods-in-wireframe.md#what-verus-should-prove-in-wireframe).
   Requires 15.2.2. Success criteria: runtime assertions or checks enforce the
   contract, and existing tests confirm the enforcement. See
-  [ADR 015](adr-015-declared-total-body-length-contract.md).
+  [ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md).
 - [ ] 15.5.2. Add proof-only modules under `verus/` for declared-total and
   buffered-byte accounting invariants. See
   [formal verification guide §Proof style recommendation](formal-verification-methods-in-wireframe.md#proof-style-recommendation)
@@ -830,15 +832,15 @@ document so larger deployments can adopt the library confidently.
   concurrent-handle invariants with `proptest` alongside the example-based
   `rstest` cases. See RFC 0001 for the lifecycle harness and
   `RunningWireframeServer` requirements
-  ([§5.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#52-running-server-handle)
+  ([§5.2](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#52-running-server-handle)
   and
-  [§5.3](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#53-lifecycle-guarantees)
+  [§5.3](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#53-lifecycle-guarantees)
   and
-  [§5.5](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#55-existing-pair-compatibility))
+  [§5.5](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#55-existing-pair-compatibility))
   and for the `rstest` and `proptest` requirements
-  ([§7.1](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#71-lifecycle-integration-tests)
+  ([§7.1](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#71-lifecycle-integration-tests)
   and
-  [§7.5](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#75-property-based-invariant-coverage)).
+  [§7.5](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#75-property-based-invariant-coverage)).
   The source-compatibility wrapper clause applies to the existing harness
   audience; it does not constrain the separate pre-1.0 native-protocol API
   redesign in phase 21.
@@ -850,18 +852,18 @@ document so larger deployments can adopt the library confidently.
   helpers' inferred types and rejects misconfigured lifecycle calls. Requires
   17.3.3. See RFC 0001 for the caller-supplied connector and connection-failure
   cleanup
-  ([§5.4](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#54-caller-supplied-client-connector))
+  ([§5.4](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#54-caller-supplied-client-connector))
   and for protocol-generic and `trybuild` verification
-  ([§7.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#72-protocol-generic-proof)
+  ([§7.2](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#72-protocol-generic-proof)
   and
-  [§7.3](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#73-compatibility-and-compile-time-coverage)).
+  [§7.3](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#73-compatibility-and-compile-time-coverage)).
 - [x] 17.3.5. Make `wireframe_testing` an explicit quality-gate target. Run
   `cargo test -p wireframe_testing --all-targets --all-features` and
   `cargo test -p wireframe_testing --doc --all-features` in the Makefile and
   Continuous Integration workflow, repair the examples tracked by issue #578,
   and prevent the companion crate from drifting behind the root package. This
   item must complete before publishing the lifecycle extension. See RFC 0001
-  [§7.4](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#74-companion-crate-quality-gates).
+  [§7.4](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#74-companion-crate-quality-gates).
 
 ### 17.4. Docs and adoption
 
@@ -934,7 +936,7 @@ parallel runtime.
   immutable `PreparedApp`, building route middleware chains once and providing
   prepared connection drivers. See issue
   [#641](https://github.com/leynos/wireframe/issues/641) and
-  [ADR 012](adr-012-prepared-application-and-connection-runtime.md).
+  [ADR 012](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md).
 - [x] 20.1.2. Prepare the application factory once before server readiness and
   share the immutable prepared root with accept loops and connection tasks. See
   issue [#642](https://github.com/leynos/wireframe/issues/642).

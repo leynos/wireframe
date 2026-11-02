@@ -1,4 +1,4 @@
-# ADR 001: replace Cucumber with rstest-bdd for behavioural tests
+# ADR 003: replace Cucumber with rstest-bdd for behavioural tests
 
 ## Status
 
@@ -123,4 +123,4 @@ step bindings with `rstest-bdd` scenarios and fixtures.
   suitable alternative is agreed, then resume the migration work.
 
 [^rstest-bdd-guide]: See the preserved
-                     [Wireframe rstest-bdd guide](wireframe-rstest-bdd-users-guide.md).
+                     [Wireframe rstest-bdd guide](../wireframe-rstest-bdd-users-guide.md).
