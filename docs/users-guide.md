@@ -1514,9 +1514,9 @@ that exceed the frame budget are split into fragments carrying a
 with the `FRAG` marker. The connection reassembles fragments before invoking
 handlers, so handlers continue to work with complete `Envelope` values.[^6]
 
-Layering order is fixed. Outbound processing runs serializer → fragmentation →
-codec wrapping. Inbound processing runs codec decode → fragment reassembly →
-deserialization.
+Layering order is fixed. Outbound processing runs fragmentation → serializer →
+codec wrapping → `before_send`. Inbound processing runs codec decode → fragment
+reassembly → deserialization.
 
 Fragmented messages enforce four guards: `max_message_size` caps the total
 reassembled payload, `reassembly_timeout` evicts stale partial messages,

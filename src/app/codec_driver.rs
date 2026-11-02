@@ -67,6 +67,27 @@ impl<T> FramePipeline<T> {
     }
 
     /// Create a pipeline with per-connection protocol hooks.
+    ///
+    /// The pipeline owns both the hooks and a fresh [`ConnectionContext`], so
+    /// connection-local hook state never leaks into another connection. Each
+    /// buffered envelope is serialized part-way through flushing; the hook
+    /// then runs on the encoded frame while the frame is still in memory.
+    ///
+    /// ```text
+    /// let hooks = ProtocolHooks {
+    ///     before_send: Some(Box::new(|frame: &mut Bytes, _ctx| {
+    ///         let mut bytes = frame.to_vec();
+    ///         bytes.push(MARKER);
+    ///         *frame = Bytes::from(bytes);
+    ///     })),
+    ///     ..ProtocolHooks::default()
+    /// };
+    /// let mut pipeline = FramePipeline::with_hooks(fragmentation, hooks);
+    /// pipeline.process(envelope)?;
+    /// // Every frame drained by `flush_pipeline_output` now carries the
+    /// // marker appended by the hook, including each fragment.
+    /// flush_pipeline_output(&mut transport, &mut pipeline).await?;
+    /// ```
     pub(crate) fn with_hooks(
         fragmentation: Option<FragmentationConfig>,
         hooks: ProtocolHooks<T, ()>,
