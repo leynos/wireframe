@@ -63,57 +63,79 @@ linker row is also not incidental — a capture taken through `make` and one
 taken through a bare `cargo bench` may differ in link step, and the comparison
 rules below require both sides to use the same entry point.
 
-## Measured revision and command
+## Measurement provenance
 
-| Fact          | Value                                                                 |
-| ------------- | --------------------------------------------------------------------- |
-| Revision      | `bef53308` (`bef53308e7479a57d00c6c108c5f5c8051882e51`)               |
-| Tree          | `8968fd9c716104be90979934f0d24fd77c6a287c`                            |
-| Date (UTC)    | 2026-11-02                                                            |
-| Command       | `make bench-codec`, captured with `tee /tmp/bench-codec-<branch>.out` |
-| Exit status   | `0`                                                                   |
-| Sample budget | 100 samples per workload, 3 s warm-up, 5 s measurement                |
-| Host load     | load average between roughly 18 and 22 on 24 hardware threads         |
+A table below that names a capture uses that one; every other table is from C4.
+A comparison across two captures is not evidence about the code, because host
+load and harness shape both move between runs.
 
-The capture was taken at the revision above with a clean working tree, so
-`git checkout bef53308` reproduces the measured sources exactly. The tree
-object is recorded as well, so a rebase that rewrites the commit can still be
-identified against the content that was measured.
+| Capture | Status     | Revision and tree                                           | Date (UTC) | Host load  | Supplies                                                     |
+| ------- | ---------- | ----------------------------------------------------------- | ---------- | ---------- | ------------------------------------------------------------ |
+| C1      | Superseded | `9faa56da`                                                  | 2026-10-31 | unrecorded | Encode, decode, fragmentation, allocations                   |
+| C2      | Superseded | `0483d86f`, tree `96050eb7`                                 | 2026-11-02 | unrecorded | All rows; serializer timing invalidated by `black_box` scope |
+| C3      | Superseded | `0483d86f`, tree `7b9dd482`                                 | 2026-11-02 | below C4   | Corrected harness, uncommitted tree                          |
+| C4      | Published  | `bef53308`, tree `8968fd9c716104be90979934f0d24fd77c6a287c` | 2026-11-02 | 18–22      | every table except the outbound encode group                 |
+| C5      | Published  | `17b74b3f`, tree `9af3bf3e72f238c4a8053b6bc3dcf991541584c3` | 2026-11-02 | 32–57      | outbound encode timings and outbound allocation times        |
 
-One source commit after the capture deduplicated the counter recorders in
+C4 and C5 both used `make bench-codec`, teed to
+`/tmp/bench-codec-<branch>.out`, with `RUSTFLAGS="-D warnings"`, the
+`test-support,benchmark-counters` features, 100 samples per workload, 3 s
+warm-up, and 5 s measurement. Both ran to exit status `0`. Each was taken with
+a clean working tree, so `git checkout <revision>` reproduces the measured
+sources exactly; the tree object is recorded as well, so a rebase that rewrites
+the commit can still be identified against the content that was measured.
+
+C5 exists because the outbound encode harness changed shape after C4: the timer
+now starts inside each codec arm, after the codec is constructed, instead of
+before the match. C4's outbound timings charge codec construction to the
+measured interval, so they are superseded and no longer published. Every other
+harness is unchanged between the two revisions, so C4 remains the published
+capture for those tables.
+
+C5 was taken at a substantially higher host load than C4 — 32 to 57 against 18
+to 22 on 24 hardware threads — because other agents' compile work was running
+throughout. Its absolute outbound figures are therefore *not* comparable with
+C4's, and no T1 or T2 comparison may be drawn across the two captures. C5
+exists to show the shape of the two outbound passes under the new timer, not to
+revise an absolute floor.
+
+One source commit between C4 and C5 deduplicated the counter recorders in
 `src/benchmark_counters.rs` behind a private `Counter` type. It changes no
 harness, payload, feature, or emitted atomic operation: each recorder still
 performs one relaxed `fetch_add` at the same seam, and the disabled build's
-statics are still zero-sized. The capture therefore remains comparable, and
-`git checkout bef53308` still names the sources that were measured.
+statics are still zero-sized. A later commit routed that recording through the
+two production outbound boundaries described under
+[copied bytes](#copied-bytes); it adds one recorder call at a seam C4 already
+counted and removes a duplicate one, so it does not change the deterministic
+byte totals.
 
-The host was running other agents' compile work throughout the capture. That is
-the ordinary state of this machine, not an incident, but it means these are
+The host was running other agents' compile work throughout both captures. That
+is the ordinary state of this machine, not an incident, but it means these are
 *relative* baselines: they describe the code as it stands under contention, and
 they must be compared against a later capture taken under comparable
-contention. Criterion reported between zero and eleven outliers per workload,
-which the outlier columns record.
+contention. Criterion reported between one and thirteen outliers per outbound
+workload in C5, which the outlier columns record.
 
 Each figure is a single run. Criterion's confidence interval describes the
 uncertainty of the mean within that run; it does not describe the spread
 between runs on a loaded host.
 
-Two earlier captures are preserved as superseded. The first reported the
-serializer-only stage at about 4.6 ns for every payload class, including 64
-KiB, which is not a plausible copy cost. The harness had handed only the
-*length* of the serialized buffer to `black_box`, so the optimizer folded the
-length to a constant and deleted both the allocation and the fill. The harness
-now hands the buffer slice to `black_box`, and the same stage measures 15.8 ns
-for 32 bytes and 1.17 µs for 64 KiB. The throughput units for the two read-only
-stages changed in the same revision.
+Two earlier captures, C2 and C3, are preserved as superseded. The first
+reported the serializer-only stage at about 4.6 ns for every payload class,
+including 64 KiB, which is not a plausible copy cost. The harness had handed
+only the *length* of the serialized buffer to `black_box`, so the optimizer
+folded the length to a constant and deleted both the allocation and the fill.
+The harness now hands the buffer slice to `black_box`, and the same stage
+measures 15.8 ns for 32 bytes and 1.17 µs for 64 KiB. The throughput units for
+the two read-only stages changed in the same revision.
 
 The second capture ran the corrected harness, but its sources were an
 uncommitted working tree and it was taken at a lower host load. Its
-large-payload throughput was 50–53 GiB/s where this capture records 37–44 GiB/s
-on the same workloads, a 15–18 % drop that no source change explains. Rather
-than carry the earlier floors across a changed capture, the absolute floors in
-T2 are derived from this capture, and this paragraph records the difference so
-a later reviewer does not mistake it for a regression.
+large-payload throughput was 50–53 GiB/s where C4 records 37–44 GiB/s on the
+same workloads, a 15–18 % drop that no source change explains. Rather than
+carry the earlier floors across a changed capture, the absolute floors in T2
+are derived from C4, and this paragraph records the difference so a later
+reviewer does not mistake it for a regression.
 
 ## Baselines
 
@@ -260,29 +282,36 @@ migration removes the seam between the steps, so they are measured separately:
 `serialize` followed by `wrap_payload`.
 
 The harness serializer sizes its output exactly, like `bincode::encode_to_vec`,
-so the vector's length equals its capacity. Setup happens before the timer, and
-both passes hand their resulting buffer slice to `black_box` so the optimizer
-cannot delete the fill.
+so the vector's length equals its capacity. Setup happens before the timer,
+each pass constructs its codec before starting that pass's timer, and both
+passes hand their resulting buffer slice to `black_box` so the optimizer cannot
+delete the fill.
+
+Every figure in this table is from C5, the capture taken after the timer moved
+inside each codec arm.
 
 | Workload                                    | Lower     | Estimate  | Upper     | Throughput   | Outliers |
 | ------------------------------------------- | --------- | --------- | --------- | ------------ | -------- |
-| `outbound_serialize_length_delimited_small` | 15.198 ns | 15.781 ns | 16.374 ns | 1.8885 GiB/s | 0%       |
-| `outbound_encode_length_delimited_small`    | 19.977 ns | 20.845 ns | 21.749 ns | 1.4297 GiB/s | 10.00%   |
-| `outbound_serialize_length_delimited_large` | 1.1523 µs | 1.1726 µs | 1.1983 µs | 52.050 GiB/s | 2.00%    |
-| `outbound_encode_length_delimited_large`    | 1.1310 µs | 1.1396 µs | 1.1488 µs | 53.561 GiB/s | 14.00%   |
-| `outbound_serialize_hotline_small`          | 12.426 ns | 12.614 ns | 12.822 ns | 2.3627 GiB/s | 4.00%    |
-| `outbound_encode_hotline_small`             | 18.473 ns | 19.099 ns | 20.046 ns | 1.5604 GiB/s | 4.00%    |
-| `outbound_serialize_hotline_large`          | 1.1300 µs | 1.1391 µs | 1.1490 µs | 53.582 GiB/s | 9.00%    |
-| `outbound_encode_hotline_large`             | 1.2177 µs | 1.2447 µs | 1.2708 µs | 49.038 GiB/s | 3.00%    |
+| `outbound_serialize_length_delimited_small` | 16.017 ns | 16.432 ns | 16.866 ns | 1.8137 GiB/s | 2.00%    |
+| `outbound_encode_length_delimited_small`    | 22.162 ns | 22.751 ns | 23.348 ns | 1.3100 GiB/s | 5.00%    |
+| `outbound_serialize_length_delimited_large` | 1.3727 µs | 1.4280 µs | 1.5103 µs | 42.743 GiB/s | 3.00%    |
+| `outbound_encode_length_delimited_large`    | 1.3602 µs | 1.3891 µs | 1.4183 µs | 43.938 GiB/s | 2.00%    |
+| `outbound_serialize_hotline_small`          | 19.875 ns | 20.672 ns | 21.474 ns | 1.4417 GiB/s | 1.00%    |
+| `outbound_encode_hotline_small`             | 25.700 ns | 27.038 ns | 28.616 ns | 1.1023 GiB/s | 4.00%    |
+| `outbound_serialize_hotline_large`          | 1.4578 µs | 1.5041 µs | 1.5513 µs | 40.578 GiB/s | 7.00%    |
+| `outbound_encode_hotline_large`             | 1.3173 µs | 1.3468 µs | 1.3832 µs | 45.320 GiB/s | 4.00%    |
 
 `wrap_payload` does not copy the payload — it wraps the existing `Bytes` in the
 codec's frame type — so any difference between the two passes is frame
-construction and one extra call, not a second 64 KiB traversal. At 64 KiB the
-Hotline wrapping pass costs about 106 ns more than its serializer-only pass,
-while the length-delimited pair is within the run's noise of each other. At 32
-bytes the wrapping pass adds about 5 ns for the default codec and 6.5 ns for
-Hotline. In every case the serializer pass accounts for essentially all of the
-per-message payload work.
+construction and one extra call, not a second 64 KiB traversal. At 32 bytes the
+wrapping pass adds 6.3 ns for the default codec and 6.4 ns for Hotline, which
+is the frame construction and the extra call. At 64 KiB the wrapping pass is
+*lower* than the serializer-only pass in this capture, by 39 ns for the default
+codec and 158 ns for Hotline. That ordering is not evidence that wrapping
+removes work: the two stages were measured minutes apart on a host whose load
+moved between 32 and 57, and a confidence interval describes the mean within
+one measurement, not the drift between measurements. In every case the
+serializer pass accounts for essentially all of the per-message payload work.
 
 ### Pipeline allocations
 
@@ -330,16 +359,19 @@ harness noise around a zero-allocation loop.
 
 #### Outbound encode allocations
 
+Times are from C5, which measures the same harness as the timing table above.
+The allocation counts are unchanged: every label still records 18.
+
 | Label                                                 | Time      | Outliers |
 | ----------------------------------------------------- | --------- | -------- |
-| `outbound_serialize_length_delimited_small_allocs_18` | 14.185 ns | 13.00%   |
-| `outbound_encode_length_delimited_small_allocs_18`    | 20.699 ns | 11.00%   |
-| `outbound_serialize_length_delimited_large_allocs_18` | 1.2546 µs | 5.00%    |
-| `outbound_encode_length_delimited_large_allocs_18`    | 1.2357 µs | 4.00%    |
-| `outbound_serialize_hotline_small_allocs_18`          | 14.013 ns | 9.00%    |
-| `outbound_encode_hotline_small_allocs_18`             | 24.846 ns | 2.00%    |
-| `outbound_serialize_hotline_large_allocs_18`          | 1.1536 µs | 10.00%   |
-| `outbound_encode_hotline_large_allocs_18`             | 1.1750 µs | 2.00%    |
+| `outbound_serialize_length_delimited_small_allocs_18` | 21.252 ns | 13.00%   |
+| `outbound_encode_length_delimited_small_allocs_18`    | 33.806 ns | 7.00%    |
+| `outbound_serialize_length_delimited_large_allocs_18` | 1.5970 µs | 8.00%    |
+| `outbound_encode_length_delimited_large_allocs_18`    | 1.6297 µs | 13.00%   |
+| `outbound_serialize_hotline_small_allocs_18`          | 24.353 ns | 12.00%   |
+| `outbound_encode_hotline_small_allocs_18`             | 38.456 ns | 11.00%   |
+| `outbound_serialize_hotline_large_allocs_18`          | 1.9332 µs | 11.00%   |
+| `outbound_encode_hotline_large_allocs_18`             | 1.8605 µs | 7.00%    |
 
 Eighteen allocations per 16 operations is one serializer vector per message
 plus two harness allocations. The wrapping pass adds none, which agrees with
@@ -536,9 +568,8 @@ than left implicit:
   captures. The paired absolute figures are the stable reading.
 - **Serializer-only timing needs the buffer to escape.** Handing only the
   length to `black_box` let the optimizer delete the allocation and fill; the
-  superseded capture in
-  [measured revision and command](#measured-revision-and-command) records the
-  effect.
+  superseded capture in [measurement provenance](#measurement-provenance)
+  records the effect.
 
 ## Reproducing
 
@@ -556,14 +587,10 @@ the host both evolve. A number is comparable only to one taken from the same
 harness source under comparable contention; when the harness changes, the
 baseline is re-taken rather than reinterpreted.
 
-## Captures
+## Capture registry
 
-| Capture          | Revision                     | Date       | Covers                                                       |
-| ---------------- | ---------------------------- | ---------- | ------------------------------------------------------------ |
-| Initial baseline | `9faa56da`                   | 2026-10-31 | Encode, decode, fragmentation, allocations                   |
-| Superseded       | `0483d86f` + tree `96050eb7` | 2026-11-02 | All rows; serializer timing invalidated by `black_box` scope |
-| Superseded       | `0483d86f` + tree `7b9dd482` | 2026-11-02 | Corrected harness, uncommitted tree, lower host load         |
-| Published        | `bef53308` + tree `8968fd9c` | 2026-11-02 | All sixteen rows, allocations, and copied bytes              |
+The registry of captures, their revisions and trees, and which tables each one
+supplies is in [measurement provenance](#measurement-provenance).
 
 ## References
 
