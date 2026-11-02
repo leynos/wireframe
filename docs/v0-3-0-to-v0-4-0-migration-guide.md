@@ -382,3 +382,30 @@ let server = WireframeServer::new(build_startup_app).bind(addr)?;
 let app = build_startup_app()?;
 let server = WireframeServer::from_app(app).bind(addr)?;
 ```
+
+## Protocol hooks on application responses
+
+`WireframeApp` handler responses now pass through the protocol's `before_send`
+hook. Previously only actor-driven push and multi-packet frames did so, and
+ordinary request/response traffic bypassed the hook.
+
+The hook runs per connection, after the response is serialized and wrapped by
+the `FrameCodec`, and immediately before the frame is written. It therefore
+receives the exact frame that reaches the wire:
+
+```text
+serialize -> FrameCodec::wrap_payload -> before_send -> transport write
+```
+
+Each connection constructs its own hooks, so hook state never crosses
+connections. A hook that appends a marker now marks every handler response,
+including every fragment of a fragmented response.
+
+Hook output must fit the codec's `max_frame_length`. A hook that grows a frame
+past that limit fails the send and ends the connection; the frame is neither
+truncated nor written.
+
+Two paths still skip the hook. The direct response helpers (`send_response`,
+`send_response_framed`, and `send_response_framed_with_codec`) bypass it, and
+actor-owned push and streaming traffic runs its own pipeline. See the
+[users' guide](users-guide.md) for the user-facing contract.

@@ -232,3 +232,18 @@ packets as the same abstraction leads to awkward constraints, especially when
 the default codec frame is `Bytes`. Making the codec driver the explicit
 transport-frame boundary preserves that lesson, supports the zero-copy goal,
 and avoids rebuilding actor semantics around transport-specific frame types.
+
+## Addendum: application response `before_send` (2026-11-02)
+
+The limitation recorded under Known Risks and Limitations is closed.
+`FramePipeline` now owns the per-connection `ProtocolHooks` and
+`ConnectionContext`, so `before_send` runs for application handler responses as
+well as actor-driven frames. The hook runs after serialization and
+`FrameCodec::wrap_payload`, immediately before the transport write, and each
+connection constructs its own hooks, so hook state never crosses connections.
+
+Two boundaries remain as designed. The direct response helpers (`send_response`,
+`send_response_framed`, and `send_response_framed_with_codec`) bypass the
+hook, and actor-owned push and streaming traffic keeps its own hook pipeline.
+Hook output must fit the codec's `max_frame_length`; an oversized frame fails
+the send rather than being truncated.
