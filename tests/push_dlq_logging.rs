@@ -137,17 +137,12 @@ fn push_secret_frame(
         .map_err(|e| io::Error::other(format!("try_push failed: {e}")))
 }
 
-/// Assert there is exactly one DLQ warning, naming the expected state,
-/// priority and policy, and that no record leaks either marker.
-fn assert_single_safe_warning(
-    records: &[(log::Level, String)],
-    failure: DlqFailure,
-    priority: PushPriority,
-    policy: PushPolicy,
-) -> io::Result<()> {
+/// Return the single DLQ loss warning, or explain why there is not exactly one.
+fn single_dlq_warning(records: &[(log::Level, String)]) -> io::Result<&str> {
     let mut warnings = records
         .iter()
-        .filter(|record| record.0 == log::Level::Warn && record.1.contains("DLQ dropped frames"));
+        .filter(|record| record.0 == log::Level::Warn && record.1.contains("DLQ dropped frames"))
+        .map(|record| record.1.as_str());
     let Some(warning) = warnings.next() else {
         return Err(io::Error::other(format!(
             "expected one DLQ warning: {records:?}"
@@ -158,35 +153,48 @@ fn assert_single_safe_warning(
             "expected exactly one DLQ warning: {records:?}"
         )));
     }
-    if !warning.1.contains(failure.expected_state()) {
-        return Err(io::Error::other(format!(
-            "DLQ warning missing {}: {}",
-            failure.expected_state(),
-            warning.1
-        )));
+    Ok(warning)
+}
+
+/// Require `warning` to contain `expected`, naming both on failure.
+fn require_field(warning: &str, expected: &str) -> io::Result<()> {
+    if warning.contains(expected) {
+        return Ok(());
     }
+    Err(io::Error::other(format!(
+        "DLQ warning missing {expected}: {warning}"
+    )))
+}
+
+/// Assert that no captured record contains either frame marker.
+fn assert_no_marker_leaked(records: &[(log::Level, String)]) -> io::Result<()> {
+    let Some((_, text)) = records
+        .iter()
+        .find(|(_, text)| text.contains(DROPPED_SECRET) || text.contains(PRELOADED_FRAME))
+    else {
+        return Ok(());
+    };
+    Err(io::Error::other(format!(
+        "DLQ warning disclosed frame contents: {text}"
+    )))
+}
+
+/// Assert there is exactly one DLQ warning, naming the expected state,
+/// priority and policy, and that no record leaks either marker.
+fn assert_single_safe_warning(
+    records: &[(log::Level, String)],
+    failure: DlqFailure,
+    priority: PushPriority,
+    policy: PushPolicy,
+) -> io::Result<()> {
+    let warning = single_dlq_warning(records)?;
     // The trigger metadata identifies the frame that fired this report, so a
     // warning attributed to the wrong priority or policy would mislead an
     // operator even though it leaked no payload.
-    for expected in [
-        format!("trigger_priority={priority:?}"),
-        format!("trigger_policy={policy:?}"),
-    ] {
-        if !warning.1.contains(expected.as_str()) {
-            return Err(io::Error::other(format!(
-                "DLQ warning missing {expected}: {}",
-                warning.1
-            )));
-        }
-    }
-    for (_, text) in records {
-        if text.contains(DROPPED_SECRET) || text.contains(PRELOADED_FRAME) {
-            return Err(io::Error::other(format!(
-                "DLQ warning disclosed frame contents: {text}"
-            )));
-        }
-    }
-    Ok(())
+    require_field(warning, failure.expected_state())?;
+    require_field(warning, &format!("trigger_priority={priority:?}"))?;
+    require_field(warning, &format!("trigger_policy={policy:?}"))?;
+    assert_no_marker_leaked(records)
 }
 
 /// A dropped frame's `Debug` output must never appear in the DLQ warning.
