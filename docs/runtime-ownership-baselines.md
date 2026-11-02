@@ -538,13 +538,16 @@ Corrected capture (PR [#756](https://github.com/leynos/wireframe/pull/756)):
 | `contended_round_robin_pool_4_contenders_16_rounds_8` | 20       | 20        | 0        | 143.064 µs | 311.048 µs | 515.133 µs | 1.009155 ms | 347.647 µs |
 
 Both policies recorded **zero failures** in this run, where the same tables
-carried 1 and 0 in the previous one. The spurious-`disconnected` defect
-recorded below is still live — the re-test figures in
-[What re-testing found](#what-re-testing-found) put it at roughly 1 in 110
-bursts for FIFO at 16 contenders — so a 20-attempt sample expects about 0.2
-failures and observing none is unremarkable. The failure count is reported per
-run precisely so that a reader can see when it moves, and a comparison across
-runs at this sample size should treat the count as the noisy quantity it is.
+carried 1 and 0 in the previous one. This is a
+pre-[#647](https://github.com/leynos/wireframe/issues/647) capture, made before
+the persistent scheduler actor replaced spawn-on-demand servicing: the
+spurious-`disconnected` defect recorded below was still live at the time — the
+re-test figures in [What re-testing found](#what-re-testing-found) put it at
+roughly 1 in 110 bursts for FIFO at 16 contenders — so a 20-attempt sample
+expected about 0.2 failures and observing none was unremarkable. The failure
+count is reported per run precisely so that a reader can see when it moves, and
+a comparison across runs at this sample size should treat the count as the
+noisy quantity it is.
 
 The spread is wide in both directions and much wider than the previous
 capture's, which is why order statistics are quoted rather than a mean and
@@ -625,16 +628,19 @@ demonstrably moves under demand. They are no longer reported as a per-burst
 column, because the counter is now per-pool and folded across a run; the
 *uncontended* bounds below are where they do their work.
 
-The same counter under *no* contention isolates what the acquire path costs
-when it is not fighting itself. An uncontended burst records 1 spawn for a
-burst of 1 or 16 acquisitions and 2 for 256, identically at pool size 1, 4, and
-16. So the hidden ownership cost is neither per acquisition nor per release: it
-is one scheduler task per idle-to-busy transition, and a burst only re-enters
-the slow path when its worker wins the drain race and exits before the next
-release arrives. `kick` spawns only on that compare-exchange, which is what
-bounds the count — a burst cannot spawn more workers than it performs
-transitions, and the suite asserts both the lower and upper bound so neither
-half can rot silently.
+In the pre-#647 capture, the same counter under *no* contention isolated what
+the acquire path cost when it was not fighting itself. An uncontended burst
+recorded 1 spawn for a burst of 1 or 16 acquisitions and 2 for 256, identically
+at pool size 1, 4, and 16. So the hidden ownership cost was neither per
+acquisition nor per release: it was one spawn-on-demand scheduler task per
+idle-to-busy transition, and a burst only re-entered the slow path when its
+worker won the drain race and exited before the next release arrived. `kick`
+spawned only on that compare-exchange, which is what bounded the count — a
+burst could not spawn more workers than it performed transitions — and the
+suite asserted both the lower and upper bound so neither half could rot
+silently. [#647](https://github.com/leynos/wireframe/issues/647) removes that
+mechanism entirely: the pool now owns one task for its whole lifetime, so the
+contemporaneous bounds assert zero scheduler spawns per acquisition instead.
 
 The contended observation also carries an allocation count, taken once from a
 counted window after Criterion finishes: 3003 allocations over four iterations
@@ -715,9 +721,16 @@ per-function attribution or proof of a throughput change.
 ## Known defects in contended pool acquisition
 
 Capturing the pool baseline surfaced two pre-existing defects in the acquire
-path. Neither was introduced by this work, and neither is fixed by it. Both are
-recorded here because they are exactly the kind of hidden ownership cost Epic
-[#635](https://github.com/leynos/wireframe/issues/635) exists to uncover.
+path. Neither was introduced by this work, and neither was fixed by it. Both
+are recorded here because they are exactly the kind of hidden ownership cost
+Epic [#635](https://github.com/leynos/wireframe/issues/635) exists to uncover.
+
+The later scheduler rework
+([#647](https://github.com/leynos/wireframe/issues/647)) retires the
+spurious-`disconnected` defect; see
+[Issue #647: persistent scheduler actor](#issue-647-persistent-scheduler-actor).
+The paragraphs below describe the pre-#647 tree and are kept as the record
+that motivated the rework.
 
 One of the two, the stall, **stopped reproducing** after this branch was cut,
 when `main` landed #535 ("Simplify client-pool waiter state transitions"). The
@@ -821,10 +834,11 @@ as unclassified.
 Zero unclassified failures were observed in any run, so every error matched one
 of the two known signatures.
 
-The spurious `disconnected` therefore remains live, and it remains the dominant
-observable failure at this scope. Its recorded rates have moved, and the
-direction differs by policy: the FIFO rate is clearly above the 1-in-400
-recorded for 8 contenders, while 16 contenders is in the region of the
+On the post-#535 tree recorded here, the spurious `disconnected` therefore
+remained live and was the dominant observable failure at this scope. It is
+removed by the #647 scheduler rework described below. Its recorded rates had
+moved, and the direction differs by policy: the FIFO rate is clearly above the
+1-in-400 recorded for 8 contenders, while 16 contenders is in the region of the
 originally recorded 1-in-913. Whether that is a genuine shift or machine and
 load profile is not settled by these experiments, which ran on a loaded machine
 — the correct regime for a contention defect, but not a controlled-quiet
@@ -899,9 +913,49 @@ The acquire path is the subject of
 [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) and issue
 [#647](https://github.com/leynos/wireframe/issues/647). Fixing it is out of
 scope for #639, whose purpose is to record baselines before the ownership
-topology changes. The spurious `disconnected` defect re-tested above is still
-live, and it has no separate tracker: it belongs to the same path that #647
-proposes to rework, so a reader looking for its disposition should start there.
+topology changes. The spurious `disconnected` defect re-tested above was live
+in the pre-#647 tree, and it had no separate tracker: it belonged to the same
+path that #647 later reworked, so a reader looking for its disposition should
+start there.
+
+## Issue #647: persistent scheduler actor
+
+The scheduler rework replaces spawn-on-demand servicing with one long-lived
+task per pool. Each pool starts that task during construction, and every
+acquisition is a command to its mailbox. The task owns the FIFO and round-robin
+queues, admits waiters under `max_waiters`, and holds at most one outstanding
+slot-permit race, which observes a released `OwnedSemaphorePermit` directly. A
+lease release therefore sends nothing and spawns nothing: dropping the lease
+drops the permit.
+
+Measured consequences for the counters this document uses:
+
+- `scheduler_spawns` is 1 per pool for the pool's whole life, recorded at
+  construction. A measured acquisition phase reports a delta of **0**, however
+  many leases it grants; a non-zero delta now means a regression to per-release
+  spawning.
+- `capacity_waits` remains the witness that a contended burst really parked
+  callers. It is incremented when the requesting handle still has a queued
+  request after the immediate grant sweep, so it can no longer be inferred from
+  task churn.
+- The live-task delta still cancels the persistent task out, because the task
+  exists before and after every measured phase. The uncontended bound therefore
+  stays near zero rather than growing by one per acquisition.
+
+The spurious `disconnected` defect is retired by pruning cancelled waiters
+before selection and by refusing life-cycle states with typed errors:
+`PoolClosed` for an orderly close and `SchedulerFailed` for an abnormal task
+termination. Neither recycles a connection. The prior one-line repair attempt
+recorded above (deliver the discarded lease anyway) is not what landed; the
+landed fix removes the abandoned waiter from the queue instead of handing a
+lease to a dead receiver.
+
+The 16-slot FIFO contended workload that was excluded from the suite because of
+this defect now runs unconditionally, and a 400-round regression test asserts
+that no round is refused. The benchmark's old "allowed failure" case is
+replaced by that assertion. The recorded contended timing tables above predate
+this change and have not been re-captured; compare a future capture against
+them as a different scheduler, not as the same code under a different load.
 
 ## Instrumentation sensitivity
 
@@ -1066,10 +1120,11 @@ thresholds, and they belong in the suite.
 
 - Epic [#635](https://github.com/leynos/wireframe/issues/635)
 - [#639](https://github.com/leynos/wireframe/issues/639)
-- [#647](https://github.com/leynos/wireframe/issues/647) — the open proposal
-  to replace spawn-on-demand pool servicing with a persistent scheduler actor.
-  Both defects recorded here live on the path it proposes to rework; neither is
-  its stated motivation.
+- [#647](https://github.com/leynos/wireframe/issues/647) — replaces
+  spawn-on-demand pool servicing with a persistent scheduler actor. Both
+  defects recorded here lived on the path it reworks; the
+  spurious-`disconnected` defect is retired by it, as recorded in
+  [Issue #647: persistent scheduler actor](#issue-647-persistent-scheduler-actor).
 - [#535](https://github.com/leynos/wireframe/issues/535) — the waiter
   state-transition rework whose arrival prompted the re-test in
   [What re-testing found](#what-re-testing-found).

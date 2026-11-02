@@ -92,9 +92,8 @@ impl PhaseOutcome {
 /// The pool is borrowed rather than created, so nothing in this function pays
 /// for construction. An uncontended phase loops the caller's handle; a
 /// contended phase runs the bounded racing burst. Both finish by waiting for
-/// the live-task gauge to settle, because a worker spawned by the final release
-/// observes an empty queue and exits on its first poll — reading the gauge
-/// before that happens would report a task already on its way out.
+/// the live-task gauge to settle, so a task that another component has just
+/// finished with is not reported while it is still queued for its final poll.
 ///
 /// # Errors
 ///

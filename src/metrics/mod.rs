@@ -30,6 +30,8 @@ pub(crate) use client_pool::{
 };
 mod decode_rejections;
 
+mod pool_scheduler;
+
 mod preamble_rejections;
 
 mod server_startup;
@@ -54,6 +56,9 @@ pub(crate) use decode_rejections::{
     DecodeRejectionReason,
     inc_decode_rejection,
 };
+pub use pool_scheduler::POOL_SCHEDULER_FAILURES;
+#[cfg(all(feature = "pool", not(loom)))]
+pub(crate) use pool_scheduler::inc_pool_scheduler_failure;
 pub use preamble_rejections::PREAMBLE_REJECTIONS;
 pub(crate) use preamble_rejections::{PreambleRejectionReason, inc_preamble_rejection};
 pub use server_startup::{SERVER_STARTUP_DURATION, SERVER_STARTUP_FAILURES};

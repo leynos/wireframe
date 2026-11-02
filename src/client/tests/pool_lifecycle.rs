@@ -5,7 +5,6 @@
 //! rotation, and draining waiters that are queued when the pool closes.
 
 use std::{
-    io,
     sync::{Arc, atomic::AtomicUsize},
     time::Duration,
 };
@@ -14,7 +13,6 @@ use rstest::{fixture, rstest};
 use tokio::time::timeout;
 
 use crate::{
-    WireframeError,
     client::{ClientError, ClientPoolConfig, PoolTaskChurnObserver},
     test_helpers::{Ping, Pong, PoolTestServer, TestClientPool, build_pooled_client},
 };
@@ -34,17 +32,11 @@ fn client_pool_config() -> ClientPoolConfig {
     ClientPoolConfig::default()
 }
 
-/// Report whether `error` is the pool's disconnection error.
-fn is_disconnected(error: &ClientError) -> bool {
-    matches!(
-        error,
-        ClientError::Wireframe(WireframeError::Io(source))
-            if source.kind() == io::ErrorKind::UnexpectedEof
-    )
-}
+/// Report whether `error` is the typed closure error the pool reports.
+fn is_pool_closed(error: &ClientError) -> bool { matches!(error, ClientError::PoolClosed) }
 
 /// Await an acquisition a closed pool must reject, asserting how it failed.
-async fn expect_disconnected<F, T>(acquisition: F) -> TestResult
+async fn expect_pool_closed<F, T>(acquisition: F) -> TestResult
 where
     F: std::future::Future<Output = Result<T, ClientError>>,
 {
@@ -54,10 +46,10 @@ where
     let Err(error) = result else {
         return Err("a closed pool must refuse the acquisition".into());
     };
-    if is_disconnected(&error) {
+    if is_pool_closed(&error) {
         Ok(())
     } else {
-        Err(format!("closed pool must report disconnection, got {error:?}").into())
+        Err(format!("closed pool must report PoolClosed, got {error:?}").into())
     }
 }
 
@@ -113,9 +105,10 @@ async fn wait_for_capacity_waits(observer: &PoolTaskChurnObserver, expected: u64
 /// Kills the `is_shutdown` mutant: a closed pool must refuse acquisitions even
 /// while an outstanding handle keeps the shared pool state alive.
 ///
-/// The handle owns a strong reference, so `close()` cannot drop the state; the
-/// shutdown flag is the only thing that tells the handle the pool is gone. A
-/// mutant that always reports "not shut down" hands out a lease instead.
+/// The handle keeps a command sender alive, so closing the pool does not close
+/// the mailbox underneath it. The shared lifecycle record is what tells the
+/// handle the pool is gone. A mutant that always reports "still running" hands
+/// out a lease instead.
 #[rstest]
 #[tokio::test]
 async fn close_refuses_later_handle_acquisitions(
@@ -132,7 +125,7 @@ async fn close_refuses_later_handle_acquisitions(
     let mut handle = pool.handle();
     pool.close().await;
 
-    expect_disconnected(handle.acquire()).await
+    expect_pool_closed(handle.acquire()).await
 }
 
 /// Kills the `ordered_slots` rotation mutant: round-robin acquisition must
@@ -176,16 +169,11 @@ async fn slot_rotation_serves_each_pool_connection(
 /// Kills the `notify_shutdown` mutant: a waiter still queued when the pool
 /// closes must be resolved, not left blocked forever.
 ///
-/// The only permit is held for the whole test, so the service worker can claim
-/// at most one acquisition before it parks waiting for capacity; the other
-/// stays in the scheduler queue. Once shutdown is published the worker stops
-/// claiming, so the queued acquisition cannot be rescued by the worker — only
-/// `notify_shutdown()` can complete it. Removing the drain leaves that
-/// acquisition blocked until the timeout fails this test.
-///
-/// The only interleaving the assertion has to tolerate is which of the two
-/// acquisitions the worker claimed. Both must fail, and the one that was left
-/// queued can only fail through the drain.
+/// The only permit is held for the whole test, so both acquisitions must park
+/// in the scheduler's waiter queue. Once shutdown is published the scheduler
+/// stops granting and drains its queue, so only the shutdown drain can
+/// complete them. Removing the drain leaves both blocked until the timeout
+/// fails this test.
 #[rstest]
 #[tokio::test(flavor = "current_thread")]
 async fn shutdown_drains_a_queued_waiter(client_pool_config: ClientPoolConfig) -> TestResult {
@@ -223,12 +211,12 @@ async fn shutdown_drains_a_queued_waiter(client_pool_config: ClientPoolConfig) -
     let first_error = first_result.expect_err("first waiter must fail once the pool closes");
     let second_error = second_result.expect_err("second waiter must fail once the pool closes");
     assert!(
-        is_disconnected(&first_error),
-        "first waiter must report disconnection, got {first_error:?}"
+        is_pool_closed(&first_error),
+        "first waiter must report PoolClosed, got {first_error:?}"
     );
     assert!(
-        is_disconnected(&second_error),
-        "second waiter must report disconnection, got {second_error:?}"
+        is_pool_closed(&second_error),
+        "second waiter must report PoolClosed, got {second_error:?}"
     );
 
     drop(held_lease);

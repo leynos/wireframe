@@ -29,7 +29,7 @@ async fn acquired_indices_continue_to_resolve_the_same_by_value_slots(
             let (slot_index, permit) = core
                 .try_acquire_permit()
                 .expect("each fixed slot should grant one permit");
-            let lease = PooledClientLease::new(Arc::clone(&core), slot_index, permit, None)
+            let lease = PooledClientLease::new(Arc::clone(&core), slot_index, permit)
                 .expect("selected index should resolve in the shared core");
             (slot_index, lease)
         })
@@ -75,7 +75,7 @@ async fn async_acquisition_index_resolves_to_the_slot_that_granted_its_permit(
         .acquire_slot_permit()
         .await
         .expect("the only available slot should grant its permit");
-    let lease = PooledClientLease::new(Arc::clone(&core), slot_index, permit, None)
+    let lease = PooledClientLease::new(Arc::clone(&core), slot_index, permit)
         .expect("the returned index should resolve in the core");
 
     assert_eq!(slot_index, selected_index);
@@ -165,7 +165,7 @@ async fn lease_construction_rejects_an_out_of_range_slot_index(one_slot_core: Ar
         .expect("the only slot should grant a permit");
 
     assert!(
-        PooledClientLease::new(core, 1, permit, None).is_none(),
+        PooledClientLease::new(core, 1, permit).is_none(),
         "a lease must not be constructed with an invalid slot index"
     );
 }
@@ -318,7 +318,7 @@ impl GeneratedSlotSequence {
                 .expect("the returned slot index should be in range")
                 .is_none()
         );
-        let lease = PooledClientLease::new(Arc::clone(&self.core), slot_index, permit, None)
+        let lease = PooledClientLease::new(Arc::clone(&self.core), slot_index, permit)
             .expect("every returned index should resolve");
         self.assert_lease_identity(slot_index, &lease)?;
         *self

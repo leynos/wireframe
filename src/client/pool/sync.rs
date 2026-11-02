@@ -14,8 +14,9 @@ use tracing::warn;
 /// # When to use
 ///
 /// Use this helper only for pool-internal bookkeeping whose consistency is
-/// re-established by the next scheduler or slot operation. Current callers are
-/// the pool scheduler waiter table and slot-return timestamp state.
+/// re-established by the next slot operation. The current caller is
+/// slot-return timestamp state; the scheduler's waiter queues are owned by its
+/// task and are not behind a mutex at all.
 ///
 /// Do not use this helper for connection state, protocol state, serializer
 /// state, lifecycle hook state, or user-provided state. Those locks must
@@ -63,9 +64,9 @@ mod tests {
 
     #[gtest]
     fn lock_or_recover_reads_poisoned_mutex() {
-        // This covers the local recovery primitive. Issue #539 adds broader
-        // scheduler and slot integration coverage in `scheduler_tests.rs` and
-        // `slot.rs`, proving later pool operations re-establish consistency.
+        // This covers the local recovery primitive. Slot-level integration
+        // coverage lives in `slot.rs`, proving later pool operations
+        // re-establish consistency.
         let mutex = Arc::new(Mutex::new(42));
         let poisoned_mutex = Arc::clone(&mutex);
         let join_result = thread::spawn(move || {

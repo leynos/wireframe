@@ -503,8 +503,8 @@ cargo run --example client_echo_login --features examples
     parallel writes on one transport;
   - leases may coexist up to that budget, but actual socket I/O remains
     serialized by the slot's single checked-out client connection;
-  - `max_waiters` separately bounds acquisitions queued in policy queues or
-    held by the servicing worker; saturation is rejected before socket access;
+  - `max_waiters` separately bounds acquisitions queued in the scheduler's
+    policy queues; saturation is rejected before socket access;
   - once a lease owns a split-phase response, its protocol gate reserves the
     socket until receive completes or dropping the lease schedules a discard.
     This response-ownership rule composes with waiter admission and does not
@@ -570,10 +570,13 @@ flowchart TD
   handle to fairness instead of socket ownership preserves warm-socket reuse
   without implying transport pinning.
 - Scheduling model:
-  - `WireframeClientPool` now owns shared inner state plus a handle scheduler;
-  - `pool.handle()` registers one stable logical-session ID;
-  - blocked `PoolHandle::acquire()` calls queue against that scheduler, which
-    obtains a real slot permit before waking the chosen handle.
+  - `WireframeClientPool` owns the shared `PoolCore` and exactly one
+    persistent scheduler task;
+  - `pool.handle()` synchronously allocates one stable logical-session ID and
+    returns a cloneable command handle; it performs no scheduler work;
+  - `PoolHandle::acquire()` is a mailbox command to the scheduler task, which
+    owns the fairness queues and obtains a real slot permit before waking the
+    chosen handle.
 - Fairness distinction:
   - slot rotation still decides which physical socket to try first across the
     pool's warm connections;
@@ -599,9 +602,11 @@ flowchart TD
 
 `ClientPoolConfig::max_waiters` bounds pending acquisitions independently of
 the socket and per-socket in-flight limits. It defaults to `64`; values below
-one are clamped to `1`. Before admission, the scheduler removes requests whose
-oneshot receivers were cancelled and counts both policy queues and the waiter
-currently being serviced while it waits for a slot permit.
+one are clamped to `1`. Before admission, the scheduler task removes requests
+whose oneshot receivers were cancelled and counts the requests still queued
+under either fairness policy. A caller holds no queue slot while its permit
+race is outstanding: the task owns that race, and a waiter is dequeued only
+when a permit is actually handed to it.
 
 Once the limit is full, `WireframeClientPool::acquire` and
 `PoolHandle::acquire` return `ClientError::PoolSaturated { limit }`
@@ -609,89 +614,94 @@ immediately. This rejection involves no socket and does not mark a connection
 for recycle. An acquire deadline remains future scheduler-actor work.
 
 For screen readers: this sequence diagram follows a caller acquiring a pool
-lease. The scheduler queues the caller under the configured fairness policy,
-then tries to acquire a lease immediately. If a lease is available, the
-scheduler hands it to the next queued waiter or returns it to the caller. If no
-lease is available, the scheduler claims servicing ownership and spawns a
-worker only if it succeeds. The worker serves waiters in policy order. When the
-queue is empty, it stops servicing and rechecks for arrivals that raced with
-the stop, restarting if needed. Shutdown drains queued waiters with
-disconnected errors. A caller waiting for a queued lease awaits its receiver.
+lease. `PoolHandle::acquire` sends an `Acquire` command to the pool's single
+scheduler task and awaits a one-shot reply. The task admits the request to the
+configured fairness queue and sweeps the rotated slots for a free permit. If
+one is available it builds a lease and sends it to the waiter the policy
+selects, which may be an earlier queued session rather than this caller. If
+every slot is blocked the task starts at most one asynchronous permit race and
+continues serving its mailbox. A lease drop releases a permit that the race
+observes; the task then resumes its sweep. Pool closure resolves queued and
+later commands with `PoolClosed`, and an abnormal task termination resolves
+them with `SchedulerFailed`.
 
 ```mermaid
 sequenceDiagram
     participant Caller
-    participant Scheduler
-    participant Pool
-    participant Worker
-    participant Waiter
+    participant Handle as PoolHandle
+    participant Task as SchedulerTask
+    participant Core as PoolCore
 
-    Caller->>Scheduler: acquire()
-    Scheduler->>Scheduler: enqueue waiter
-    Scheduler->>Pool: try_acquire_immediately()
-    alt lease available
-        Pool-->>Scheduler: lease
-        Scheduler->>Scheduler: next_waiter()
-        alt queued waiter exists
-            Scheduler->>Waiter: send(Ok(lease))
-            Scheduler-->>Caller: receiver.await
-        else no queued waiter
-            Scheduler-->>Caller: Ok(lease)
-        end
-    else no lease available
-        Scheduler->>Scheduler: try_begin_servicing()
-        alt worker acquired
-            Scheduler->>Worker: service_waiters()
-            Worker->>Scheduler: next_waiter()
-            Worker->>Pool: acquire slot permit
-            Worker->>Waiter: send lease
-        end
-        Scheduler-->>Caller: receiver.await
+    Caller->>Handle: acquire()
+    Handle->>Task: Acquire { handle_id, reply }
+    Task->>Task: prune and admit waiter
+    Task->>Core: try_acquire_permit() over rotated slots
+    alt permit available
+        Core-->>Task: slot index and permit
+        Task->>Task: take_next_waiter(policy)
+        Task-->>Handle: send(Ok(lease))
+        Handle-->>Caller: lease
+    else every slot blocked
+        Task->>Core: acquire_slot_permit() race
+        Note over Task,Core: at most one race per pool
+        Core-->>Task: permit when a lease is dropped
+        Task->>Task: take_next_waiter(policy)
+        Task-->>Handle: send(Ok(lease))
+        Handle-->>Caller: lease
     end
 ```
 
-_Figure 1: Client-pool waiter acquisition and servicing transitions._
+_Figure 1: Client-pool waiter acquisition through the persistent scheduler._
 
-For screen readers: this sequence diagram shows a caller requesting a pooled
-lease. The scheduler first prunes cancelled waiters and counts those still
-admitted. If the waiter limit has been reached, it returns
-`PoolSaturated { limit }` to the pool, which returns the error to the caller.
-Otherwise, the scheduler admits the waiter, the service worker acquires a slot
-permit, and the caller receives a pooled lease.
+For screen readers: this sequence diagram shows bounded waiter admission. The
+task prunes cancelled waiters before counting the requests still queued. If the
+count has reached `max_waiters`, the task answers the command with
+`PoolSaturated { limit }`. Otherwise it registers the logical handle, queues
+the request under the fairness policy, and the grant sweep may satisfy it
+immediately. The command mailbox itself is unbounded, but admission is not: a
+caller only occupies a counted queue slot after this check passes, and a
+cancelled waiter stops occupying one.
 
 ```mermaid
 sequenceDiagram
     actor Caller
-    participant Pool as WireframeClientPool
-    participant Scheduler as PoolScheduler
-    participant Worker as ServiceWorker
+    participant Handle as PoolHandle
+    participant Task as SchedulerTask
     participant Slot as SlotPermits
 
-    Caller->>Pool: acquire()
-    Pool->>Scheduler: enqueue_waiter()
-    Scheduler->>Scheduler: prune_cancelled_waiters()
-    Scheduler->>Scheduler: waiter_count()
+    Caller->>Handle: acquire()
+    Handle->>Task: Acquire { handle_id, reply }
+    Task->>Task: prune_cancelled_waiters()
+    Task->>Task: waiter_count()
     alt waiter limit reached
-        Scheduler-->>Pool: PoolSaturated { limit }
-        Pool-->>Caller: PoolSaturated { limit }
+        Task-->>Handle: send(Err(PoolSaturated { limit }))
+        Handle-->>Caller: PoolSaturated { limit }
     else waiter admitted
-        Scheduler-->>Pool: Enqueued
-        Scheduler->>Worker: service_waiters()
-        Worker->>Slot: acquire_slot_permit()
-        Slot-->>Worker: lease permit
-        Worker-->>Caller: pooled lease
+        Task->>Task: enqueue under fairness policy
+        Task->>Slot: try_acquire_permit()
+        alt permit available
+            Slot-->>Task: slot index and permit
+            Task-->>Handle: send(Ok(lease))
+            Handle-->>Caller: pooled lease
+        else every slot blocked
+            Task->>Slot: acquire_slot_permit() race
+            Slot-->>Task: slot index and permit on release
+            Task-->>Handle: send(Ok(lease))
+            Handle-->>Caller: pooled lease
+        end
     end
 ```
 
 _Figure 2: Bounded waiter admission and saturation rejection._
 
-For screen readers: the sequence shows the scheduler asking `PoolCore` to
+For screen readers: the sequence shows the scheduler task asking `PoolCore` to
 acquire a slot permit. The core obtains the rotated slot order and probes each
 slot. If a permit is available, it returns immediately. If every slot is
 blocked, it races futures that borrow the stable slots; the first completed
 acquisition returns its slot index and permit, then dropping the stream cancels
-the losing acquisitions. The core returns the slot and permit or a disconnected
-error.
+the losing acquisitions. The core returns the slot and permit or a
+connection-level error, which the task treats as an unrecoverable scheduler
+fault and reports to every queued waiter.
 
 ```mermaid
 sequenceDiagram

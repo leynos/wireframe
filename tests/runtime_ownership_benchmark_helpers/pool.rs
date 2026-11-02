@@ -1,20 +1,16 @@
-//! V-O1 and V-O5 — the scheduler spawn counter observes `kick` wins, and pool
-//! task count is stable for uncontended acquisition.
+//! V-O1 and V-O5 — acquisition never spawns a scheduler task, and the live task
+//! count is stable across uncontended acquisition.
 //!
-//! The contract asserted here is a **bound**, not a zero. `PooledClientLease::drop`
-//! calls `notify_capacity_available` unconditionally, and `try_acquire_immediately`
-//! arms even a fast-path lease with a release handle, so every release reaches
-//! `PoolScheduler::kick`. Measurement confirmed spawn deltas of 1 for 16-acquisition
-//! bursts at pool sizes 1, 4, and 16. See the `ExecPlan`'s `Surprises &
-//! discoveries` entry for the full trace.
+//! Each pool starts exactly one scheduler task when it is constructed, and that
+//! task serves every later acquisition from its mailbox. Construction happens
+//! before the measurement bracket opens, so a measured phase must report a
+//! spawn delta of **zero** however many leases it grants. The task is long
+//! lived, so it is present in both live-task readings and cancels out of the
+//! delta rather than appearing as churn.
 //!
-//! The lower bound of one is an *observation* on an otherwise idle runtime, not
-//! an invariant of `kick`: a worker left servicing by an earlier phase can make
-//! every release lose the idle-to-busy compare-exchange, and the burst then
-//! spawns nothing. This test builds and warms its own pool immediately before
-//! measuring, so the scheduler is idle when the burst starts and the assertion is
-//! sound here; a caller reusing a pool that another phase may have just left busy
-//! must assert only the upper bound.
+//! `capacity_waits` remains the direct witness that a contended burst really
+//! queued: a spawn count can no longer stand in for that, because it never
+//! moves during a measured phase.
 
 use std::time::{Duration, Instant};
 
@@ -32,7 +28,7 @@ use super::harness::{ITERATIONS, block_on, block_on_current_thread, contended_bu
 #[case::single(1)]
 #[case::small(4)]
 #[case::large(16)]
-fn uncontended_acquisition_spawns_a_bounded_number_of_scheduler_tasks(#[case] pool_size: usize) {
+fn uncontended_acquisition_spawns_no_scheduler_tasks(#[case] pool_size: usize) {
     let acquisitions = 16;
     // Current-thread runtime *only* for this case: it is the one case that reads
     // the live-task gauge, and that gauge is only meaningful when the runtime is
@@ -53,41 +49,21 @@ fn uncontended_acquisition_spawns_a_bounded_number_of_scheduler_tasks(#[case] po
         u64::try_from(acquisitions).unwrap_or(u64::MAX),
         "every lease the caller asked for must be granted"
     );
-    // The slow path is entered at least once per burst, but only on an
-    // idle-to-busy transition, so the count is bounded rather than free.
-    assert!(
-        measurement.scheduler_spawns >= 1,
-        "a release always notifies the scheduler, so a burst must spawn at least one worker"
+    // The pool's scheduler task was started by construction, which the bracket
+    // excludes. Acquiring and releasing leases is mailbox traffic to a task
+    // that already exists, so it can never spawn another.
+    assert_eq!(
+        measurement.scheduler_spawns, 0,
+        "acquisition must not start a scheduler task; the pool owns exactly one"
     );
-    let transitions = u64::try_from(acquisitions.saturating_mul(2)).unwrap_or(u64::MAX);
-    assert!(
-        measurement.scheduler_spawns <= transitions,
-        "spawns ({}) must not exceed the {} acquire/release transitions",
-        measurement.scheduler_spawns,
-        transitions
-    );
-    // The bracket excludes pool construction, so the settled delta must be a
-    // small constant rather than scaling with the pool size. Measured over 180
-    // current-thread runs at pool sizes 1, 4, and 16, the delta was only ever
-    // −1 or 0 — a *negative* delta, because a burst can leave a pre-existing
-    // worker idle-exiting. Construction, by contrast, contributed 2, 5, and 17
-    // when the bracket was moved to include it, scaling with `pool_size`.
-    //
-    // The bound is a non-scaling ceiling rather than a tight fit to those two
-    // observed values: pinning it to `<= 0` would encode a scheduling accident,
-    // and the property under test is "does not grow with the pool", not "happens
-    // to settle at or below zero". A ceiling of 2 would still fail on all three
-    // mutated cases above, so it discriminates the failure the bracket exists to
-    // catch while leaving headroom for a scheduler that has not quiesced yet.
-    //
-    // This is the same property the in-module
-    // `acquisition_phase_does_not_leak_pool_construction_tasks` asserts, from
-    // outside the support crate; that case is the one verified by the mutation
-    // transcript recorded in `docs/runtime-ownership-baselines.md`.
+    // The live-task delta cancels the persistent scheduler task out: it is
+    // alive before the first measured phase and still alive after the last.
+    // What remains is any unrelated runtime task, which this bound keeps small
+    // rather than pinning to a scheduling accident. A per-acquisition spawn
+    // would move the delta by one per lease and fail this immediately.
     assert!(
         measurement.alive_task_delta() <= 2,
-        "a closed {pool_size}-slot pool must settle to a small constant task delta, not one that \
-         scales with the pool: saw {}",
+        "uncontended acquisition over {pool_size} slots must not grow the live task count: saw {}",
         measurement.alive_task_delta()
     );
 }
@@ -95,7 +71,7 @@ fn uncontended_acquisition_spawns_a_bounded_number_of_scheduler_tasks(#[case] po
 #[rstest]
 #[case::fifo(AcquisitionMode::ContendedFifo)]
 #[case::round_robin(AcquisitionMode::ContendedRoundRobin)]
-fn contended_acquisition_does_spawn_pool_scheduler_tasks(#[case] mode: AcquisitionMode) {
+fn contended_acquisition_spawns_no_additional_scheduler_tasks(#[case] mode: AcquisitionMode) {
     let pool_size = 4;
     let contenders = 16;
     let measurement = contended_burst_with_retry(|| {
@@ -129,13 +105,13 @@ fn contended_acquisition_does_spawn_pool_scheduler_tasks(#[case] mode: Acquisiti
         measurement.contended(),
         "the contended measurement must classify itself as contended"
     );
-    // Spawns are the task-churn evidence, kept beside the contention witness
-    // rather than standing in for it: every release notifies the scheduler
-    // whether or not anyone is waiting, so a moving spawn count says the
-    // scheduler was entered, not that a caller had to wait.
-    assert!(
-        measurement.scheduler_spawns > 0,
-        "handing capacity back to parked waiters must enter the scheduler slow path at least once"
+    // Contention is served by the pool's existing task, so the spawn count must
+    // stay flat even while callers queue. This is the counterpart to the
+    // capacity-wait witness above: waiters really parked, and parking them cost
+    // no new task.
+    assert_eq!(
+        measurement.scheduler_spawns, 0,
+        "serving parked waiters must reuse the pool's scheduler task, not spawn another"
     );
 }
 
@@ -169,60 +145,38 @@ fn pool_sizes_cover_the_issue_requirement() {
     );
 }
 
-/// Contended acquisition is **known** to surface spurious `disconnected`
-/// errors, and this test pins that known-unsound behaviour rather than
-/// pretending it is fixed.
+/// Contended acquisition must never refuse a caller with a spurious
+/// `disconnected` error.
 ///
-/// `PoolScheduler::acquire_for_handle` reports `disconnected` whenever it
-/// dequeues a waiter whose session has already stopped listening. A contended
-/// round reaches that state naturally: a caller that abandons an acquisition
-/// leaves its sender queued, and `notify_shutdown` abandons receivers outright.
-/// The lease being discarded is healthy, so a caller can be told the pool has
-/// gone away while the pool is still serving traffic.
+/// The pre-#647 scheduler reported `disconnected` whenever it dequeued a waiter
+/// whose session had stopped listening. A contended round reached that state
+/// naturally: a caller that abandoned an acquisition left its sender queued, so
+/// a healthy lease could be discarded while the pool was still serving traffic.
+/// The persistent scheduler prunes cancelled waiters before selecting one and
+/// refuses callers with typed pool-lifecycle errors instead, so no round may
+/// fail for that reason.
 ///
-/// The condition is reproduced here on a *long-lived* pool (no rebuild, no task
-/// leak), which is what proves it is an acquire-path defect rather than an
-/// artefact of the benchmark's per-iteration pool construction. Measurement on
-/// the named baseline machine, before #535: the first failure lands at burst
-/// 913 of 20,000 at 16 contenders, and at roughly 1 round in 400 for the
-/// lighter 8-contender workload below. Re-tested after #535, the same workload
-/// fails at roughly 1 round in 73 on the FIFO policy and 1 in 632 on
-/// round-robin.
-///
-/// This is deliberately an *allowed failure* rather than an assertion of
-/// correctness, and it is deliberately **not** a pin on the defect: the
-/// assertion tolerates every outcome from "no round failed" to "all but one
-/// round failed", so fixing the acquire path will not make it fail. What it
-/// rules out is the strictly worse state in which *no* round succeeds, which
-/// would be a different and more serious defect than the interleaving
-/// recorded here. Filed under ADR 013
-/// (`docs/adr-013-client-pool-scheduler-and-slot-ownership.md`) and issue #647.
+/// The condition is reproduced on the per-round pools the benchmark builds,
+/// which is where the earlier measurement observed it: roughly one round in 73
+/// on the FIFO policy and one in 632 on round-robin, so 400 rounds makes a
+/// regression very likely to show.
 #[rstest]
 #[case::fifo(AcquisitionMode::ContendedFifo)]
 #[case::round_robin(AcquisitionMode::ContendedRoundRobin)]
-fn contended_acquisition_may_report_a_known_spurious_disconnect(#[case] mode: AcquisitionMode) {
-    /// Rounds attempted, matched to the documented failure rate: at roughly one
-    /// failing round in 400, this many rounds is what makes an observed failure
-    /// likely rather than lucky.
+fn contended_acquisition_is_never_refused_with_a_spurious_disconnect(
+    #[case] mode: AcquisitionMode,
+) {
+    /// Rounds attempted, matched to the recorded pre-fix failure rate.
     const ROUNDS: usize = 400;
-
-    /// Floor on how many rounds must be attempted before an observation counts.
-    ///
-    /// Only reachable when the acquire path stalls far more often than the
-    /// recorded rate, since each stall is capped at `CONTENDED_BURST_TIMEOUT`
-    /// and the budget below allows several. Failing here means the path is
-    /// behaving worse than the recorded defect, which is worth surfacing rather
-    /// than reporting as a clean observation.
-    const MIN_ATTEMPTS: usize = 32;
 
     /// Wall-clock budget for the whole loop.
     ///
     /// A healthy run completes 400 rounds in about two seconds. The budget
     /// exists for the pathological case: a stalled round costs the full
     /// `CONTENDED_BURST_TIMEOUT` (30 s), so without a bound a machine that
-    /// stalled on many rounds would hold this test — and the gate — for an
-    /// unbounded time. Reaching the budget stops the loop and reports how far
-    /// it got instead of discarding the observation made so far.
+    /// stalled repeatedly would hold this test — and the gate — for an
+    /// unbounded time. Reaching the budget stops the loop and reports the
+    /// failures seen so far, which fail the assertion below.
     const TIME_BUDGET: Duration = Duration::from_mins(3);
 
     let started = Instant::now();
@@ -246,20 +200,10 @@ fn contended_acquisition_may_report_a_known_spurious_disconnect(#[case] mode: Ac
         }
     }
 
+    assert!(attempted > 0, "no round completed within {TIME_BUDGET:?}");
     assert!(
-        attempted >= MIN_ATTEMPTS,
-        "only {attempted} of {ROUNDS} rounds completed within {TIME_BUDGET:?} ({failures} \
-         failed), so the acquire path is stalling far more often than the recorded defect; the \
-         observation is inconclusive rather than clean",
-        failures = failures.len()
-    );
-
-    // The tolerance is "some rounds may fail", not "all rounds may fail": a
-    // pool that failed *every* round would be broken in a different and much
-    // more serious way than the known interleaving defect.
-    assert!(
-        failures.len() < attempted,
-        "contended acquisition failed in every one of the {attempted} rounds attempted, which is \
-         a broader failure than the known spurious-disconnect interleaving"
+        failures.is_empty(),
+        "contended acquisition must serve every round: {} of {attempted} failed: {failures:?}",
+        failures.len()
     );
 }

@@ -19,27 +19,19 @@ async fn zero_iterations_measures_nothing() {
     assert_eq!(measurement.alive_task_delta(), 0);
 }
 
-/// Every lease release reaches `kick` on an idle scheduler, so a burst spawns.
+/// Acquisition is mailbox traffic to the pool's existing scheduler task.
 ///
-/// This is the measurement that falsified the "uncontended spawns nothing"
-/// assumption. It is recorded as a test rather than a comment so the corrected
-/// contract is pinned: if a later refactor removes the per-release notify, this
-/// fails and the baseline table must be revisited.
-///
-/// The lower bound is only sound because the measurement builds and warms its
-/// own pool and closes it, so `kick` sees an idle scheduler at the burst's
-/// start. `kick` spawns on a compare-exchange, not on a count, so a worker left
-/// servicing by an earlier phase would make every release here lose the
-/// exchange and the count legitimately zero. That is why this test asserts the
-/// bound on a fresh pool rather than on a reused one, and why the shared
-/// helper's doc states the precondition.
+/// The pool starts that task when it is constructed, which the measurement
+/// bracket excludes, so the measured phase must report no spawns at all. This
+/// pins the post-#647 contract: a later refactor that reintroduced a
+/// per-release spawn would move this count and fail here.
 #[rstest::rstest]
 #[case(1, 1)]
 #[case(1, 16)]
 #[case(4, 16)]
 #[case(16, 16)]
 #[tokio::test]
-async fn uncontended_acquisition_spawns_at_least_one_scheduler_task(
+async fn uncontended_acquisition_spawns_no_scheduler_tasks(
     #[case] pool_size: usize,
     #[case] acquisitions: usize,
 ) {
@@ -60,10 +52,10 @@ async fn uncontended_acquisition_spawns_at_least_one_scheduler_task(
         u64::try_from(acquisitions).unwrap_or(u64::MAX),
         "every requested lease must be granted"
     );
-    assert!(
-        measurement.scheduler_spawns >= 1,
-        "a release always notifies the scheduler, so a {acquisitions}-acquisition burst on a \
-         {pool_size}-slot pool must spawn at least one worker"
+    assert_eq!(
+        measurement.scheduler_spawns, 0,
+        "a {acquisitions}-acquisition burst on a {pool_size}-slot pool must reuse the scheduler \
+         task it started at construction"
     );
     assert!(
         !measurement.contended(),
@@ -107,39 +99,46 @@ async fn uncontended_acquisition_records_no_capacity_waits(
     );
 }
 
-/// The spawn count is bounded by the number of acquire/release transitions.
+/// A pool owns exactly one scheduler task for its whole life.
 ///
-/// `kick` spawns only on an idle-to-busy compare-exchange, so a burst cannot
-/// spawn more workers than it performs transitions. This is what makes the
-/// measurement a *bound* rather than an arbitrary number.
+/// The measurement reports a delta, which cannot distinguish "no spawns" from
+/// "one spawn at construction". This reads the pool's own counter, which is
+/// never reset, so it proves the pool starts one task and that acquisition adds
+/// none.
 #[rstest::rstest]
-#[case(1, 4)]
-#[case(4, 16)]
-#[case(16, 64)]
+#[case(1)]
+#[case(4)]
+#[case(16)]
 #[tokio::test]
-async fn uncontended_spawns_are_bounded_by_transitions(
-    #[case] pool_size: usize,
-    #[case] acquisitions: usize,
-) {
-    let measurement = measure_pool_acquisition(
-        PoolWorkload {
-            pool_size,
-            mode: AcquisitionMode::Uncontended,
-            acquisitions,
-            contenders: 1,
-        },
-        1,
+async fn a_pool_starts_exactly_one_scheduler_task(#[case] pool_size: usize) {
+    let (_server, pool, _preamble) = wireframe::test_helpers::pool_client::build_preamble_pool(
+        wireframe::client::ClientPoolConfig::default().pool_size(pool_size),
     )
     .await
-    .expect("uncontended measurement failed");
+    .expect("pool construction must succeed");
 
-    let transitions = u64::try_from(acquisitions.saturating_mul(2)).unwrap_or(u64::MAX);
-    assert!(
-        measurement.scheduler_spawns <= transitions,
-        "spawns ({}) must not exceed the {} acquire/release transitions",
-        measurement.scheduler_spawns,
-        transitions
+    let observer = pool.task_churn_observer();
+    assert_eq!(
+        observer.snapshot().scheduler_spawns,
+        1,
+        "constructing a {pool_size}-slot pool must start exactly one scheduler task"
     );
+
+    let mut handle = pool.handle();
+    for _ in 0..16 {
+        let lease = handle
+            .acquire()
+            .await
+            .expect("an uncontended acquire must succeed");
+        drop(lease);
+    }
+
+    assert_eq!(
+        observer.snapshot().scheduler_spawns,
+        1,
+        "sixteen acquisitions must not start another scheduler task"
+    );
+    pool.close().await;
 }
 
 /// The bracketed region excludes pool construction.
@@ -167,17 +166,15 @@ async fn acquisition_phase_does_not_leak_pool_construction_tasks(#[case] pool_si
 
     // The two readings bracket the acquisition, not the construction: the
     // `before` sample is taken once the pool is already built, so the eagerly
-    // connected tasks sit on both sides of the subtraction and cancel. Pool
-    // closure is not what makes this delta clean — it happens after the `after`
-    // sample — and it could not be moved inside the bracket without measuring
-    // teardown. `<= 0` is affordable here because `#[tokio::test]` defaults to a
-    // current-thread runtime, where this gauge is deterministic; the same
-    // assertion made on a multi-thread runtime would be reading the whole
-    // runtime's scheduler.
+    // connected tasks and the pool's persistent scheduler task sit on both sides
+    // of the subtraction and cancel. `<= 0` is affordable here because
+    // `#[tokio::test]` defaults to a current-thread runtime, where this gauge is
+    // deterministic; the same assertion made on a multi-thread runtime would be
+    // reading the whole runtime's scheduler.
     assert!(
         measurement.alive_task_delta() <= 0,
-        "a closed pool must not leave construction tasks behind: delta {} on a {pool_size}-slot \
-         pool (before {}, after {})",
+        "acquisition must not leave tasks behind: delta {} on a {pool_size}-slot pool (before {}, \
+         after {})",
         measurement.alive_task_delta(),
         measurement.alive_tasks_before,
         measurement.alive_tasks_after

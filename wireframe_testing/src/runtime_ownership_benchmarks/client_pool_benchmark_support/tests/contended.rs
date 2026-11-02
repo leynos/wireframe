@@ -132,9 +132,9 @@ async fn assert_contended_grants(
         measurement.contended(),
         "the measurement must classify itself as contended"
     );
-    assert!(
-        measurement.scheduler_spawns >= 1,
-        "handing capacity to a parked waiter must enter the scheduler slow path at least once"
+    assert_eq!(
+        measurement.scheduler_spawns, 0,
+        "handing capacity to parked waiters must reuse the pool's scheduler task"
     );
     assert!(
         measurement.acquisitions >= 1,
@@ -143,10 +143,10 @@ async fn assert_contended_grants(
     Ok(())
 }
 
-/// Keep the size-16 workload available to benchmarks, but not in the test suite
-/// until its tracked spurious disconnect is resolved.
+/// The size-16 workload used to be excluded from the suite because of a
+/// spurious `disconnected` refusal. The persistent scheduler prunes cancelled
+/// waiters and reports typed life-cycle errors, so it runs unconditionally now.
 #[tokio::test]
-#[ignore = "FIXME: flaky 16-slot disconnect: https://github.com/leynos/wireframe/issues/647"]
 async fn sixteen_slots_fifo_grants_leases() -> Result<(), String> {
     assert_contended_grants(16, 17, AcquisitionMode::ContendedFifo).await
 }

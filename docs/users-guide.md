@@ -1875,12 +1875,12 @@ pool.close().await;
 ```
 
 Closing the pool rejects new acquisitions and completes acquisitions already
-waiting through a `PoolHandle` with a disconnection error. A lease acquired
+waiting through a `PoolHandle` with `ClientError::PoolClosed`. A lease acquired
 before close is not revoked: it keeps the pool core and all fixed slot storage
 alive so its work can finish safely. Physical pools in every slot, including
 their warm sockets, remain alive while a lease or `PoolHandle` retains the
-core. Handle a disconnection error when an acquisition races with shutdown,
-then drop any lease or handle that outlives close.
+core. Handle `PoolClosed` when an acquisition races with shutdown, then drop
+any lease or handle that outlives close.
 
 Pooled leases forward the common request methods instead of exposing a mutable
 reference to a long-lived `WireframeClient`. That keeps actual socket I/O
@@ -1888,15 +1888,20 @@ serialized per physical connection while still allowing multiple callers to be
 admitted against the same warm slot. Treat `max_in_flight_per_socket` as an
 admission budget, not as a guarantee of parallel writes on one TCP stream.
 
-`pool.close().await` hands the pool to teardown. New acquisitions made through a
-`PoolHandle` that outlives the close fail with a disconnection error rather
-than taking capacity from a pool that is going away.
+`pool.close().await` hands the pool to teardown and awaits the pool's scheduler
+task. New acquisitions made through a `PoolHandle` that outlives the close fail
+with `ClientError::PoolClosed` rather than taking capacity from a pool that is
+going away.
 
 `max_waiters` bounds pending acquisitions separately from active socket
 permits. It defaults to `64`; `max_waiters(0)` is clamped to `1`. Once the
 waiter limit is full, a further `acquire()` returns
 `ClientError::PoolSaturated { limit }` immediately. Cancelled acquisitions do
 not consume queued capacity, and a saturation error does not recycle a socket.
+An acquisition through a handle that outlived the pool reports
+`ClientError::PoolClosed` after an orderly close, or
+`ClientError::SchedulerFailed` if the scheduler task ended abnormally. Neither
+error recycles a socket, and neither is retried automatically.
 
 Create a `PoolHandle` when one logical session needs repeated pooled access and
 that session should participate in the configured fairness policy over time:

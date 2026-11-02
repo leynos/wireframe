@@ -1,8 +1,6 @@
 //! Tests for pool, handle, lease, and shared-core lifetimes.
 
 use std::{
-    error::Error,
-    io,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -11,13 +9,18 @@ use std::{
 };
 
 use crate::{
-    client::pool::{
-        PoolFairnessPolicy,
-        PoolTaskChurnObserver,
-        client_pool::{PoolSchedulerControl, WireframeClientPool},
-        core::PoolCore,
-        lease::PooledClientLease,
-        test_support::{DropProbe, test_pool_slot},
+    client::{
+        ClientError,
+        pool::{
+            PoolFairnessPolicy,
+            PoolTaskChurnObserver,
+            churn::PoolTaskChurnCounts,
+            client_pool::WireframeClientPool,
+            core::PoolCore,
+            lease::PooledClientLease,
+            scheduler,
+            test_support::{DropProbe, test_pool_slot},
+        },
     },
     serializer::BincodeSerializer,
 };
@@ -34,9 +37,13 @@ fn test_pool(drop_count: Option<Arc<AtomicUsize>>) -> TestPool {
         core.drop_probe = Some(DropProbe::new(count));
     }
 
+    let core = Arc::new(core);
+    let churn = Arc::new(PoolTaskChurnCounts::default());
+    let (scheduler, task) = scheduler::start(&core, PoolFairnessPolicy::Fifo, 8, churn);
     TestPool {
-        core: Arc::new(core),
-        control: Arc::new(PoolSchedulerControl::new(PoolFairnessPolicy::Fifo, 8)),
+        core,
+        scheduler,
+        task,
     }
 }
 
@@ -46,22 +53,8 @@ fn test_lease(pool: &TestPool) -> PooledClientLease<BincodeSerializer, (), ()> {
     let permit = slot
         .try_acquire_permit()
         .expect("the only pool slot should grant a permit");
-    PooledClientLease::new(core, 0, permit, None)
+    PooledClientLease::new(core, 0, permit)
         .expect("the selected slot should resolve in the pool core")
-}
-
-fn has_unexpected_eof(error: &(dyn Error + 'static)) -> bool {
-    let mut source = Some(error);
-    while let Some(error) = source {
-        if error
-            .downcast_ref::<io::Error>()
-            .is_some_and(|io_error| io_error.kind() == io::ErrorKind::UnexpectedEof)
-        {
-            return true;
-        }
-        source = error.source();
-    }
-    false
 }
 
 async fn wait_for_capacity_wait(observer: &PoolTaskChurnObserver, message: &str) {
@@ -90,10 +83,41 @@ async fn pool_and_handle_drop_keep_lease_slot_alive_until_final_lease_drop() {
     assert!(lease.slot().is_some(), "lease remains the core's owner");
 
     drop(lease);
-    assert_eq!(
-        drops.load(Ordering::Acquire),
-        2,
-        "the core and its by-value slot must both drop with the final lease"
+    // The scheduler task holds its own core reference until the closed mailbox
+    // wakes it, so the final release is observed after a scheduling turn rather
+    // than synchronously with the last handle drop.
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while drops.load(Ordering::Acquire) != 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the core and its by-value slot must both drop with the final lease");
+}
+
+#[tokio::test]
+async fn a_scheduler_panic_fails_the_pool_and_refuses_new_acquisitions() {
+    let core: Arc<PoolCore<BincodeSerializer, (), ()>> = Arc::new(PoolCore::new(
+        vec![test_pool_slot(1, Duration::from_secs(30))].into_boxed_slice(),
+    ));
+    let churn = Arc::new(PoolTaskChurnCounts::default());
+    let (scheduler, task) = scheduler::start(&core, PoolFairnessPolicy::Fifo, 8, churn);
+
+    scheduler.panic_for_test();
+    let join = tokio::time::timeout(Duration::from_secs(1), task)
+        .await
+        .expect("the injected panic should terminate the scheduler task promptly");
+    assert!(
+        join.is_err_and(|error| error.is_panic()),
+        "the scheduler task should report the injected panic"
+    );
+
+    let Err(error) = scheduler.acquire(1).await else {
+        panic!("a failed scheduler must refuse new acquisitions");
+    };
+    assert!(
+        matches!(error, ClientError::SchedulerFailed),
+        "an abnormal termination should be distinguishable from an orderly close: {error}"
     );
 }
 
@@ -119,8 +143,8 @@ async fn close_rejects_new_and_queued_acquisitions_while_an_existing_lease_keeps
         panic!("a closed pool must reject new leases");
     };
     assert!(
-        has_unexpected_eof(&new_error),
-        "a closed pool should report the disconnected UnexpectedEof error: {new_error}"
+        matches!(new_error, ClientError::PoolClosed),
+        "a closed pool should report the typed closure error: {new_error}"
     );
     let queued_result = tokio::time::timeout(Duration::from_secs(1), queued_acquisition)
         .await
@@ -130,8 +154,8 @@ async fn close_rejects_new_and_queued_acquisitions_while_an_existing_lease_keeps
         panic!("a queued acquisition must not receive a lease after close");
     };
     assert!(
-        has_unexpected_eof(&queued_error),
-        "a queued acquisition should report the disconnected UnexpectedEof error: {queued_error}"
+        matches!(queued_error, ClientError::PoolClosed),
+        "a queued acquisition should report the typed closure error: {queued_error}"
     );
     assert!(
         lease.slot().is_some(),

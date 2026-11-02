@@ -90,8 +90,9 @@ async fn sampled_bursts_report_this_runs_churn() {
          report at least {floor} waits; {} were reported",
         latency.churn().capacity_waits
     );
-    assert!(
-        latency.churn().scheduler_spawns >= 1,
-        "serving parked waiters must enter the scheduler's slow path at least once"
+    assert_eq!(
+        latency.churn().scheduler_spawns,
+        0,
+        "serving parked waiters must reuse the pool's scheduler task"
     );
 }
