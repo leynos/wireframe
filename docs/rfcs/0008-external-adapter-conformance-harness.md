@@ -29,7 +29,7 @@ bytes with independent provenance. Existing protocol implementations may be
 test-only oracles only after review confirms their licence permits the
 repository's test and fixture distribution. If not, author expected vectors
 independently from the protocol specification and document provenance; never
-automatically fall back to unlicensed source or captured artifacts. Production
+automatically fall back to unlicensed source or captured artefacts. Production
 crates may use generic TLS, cryptographic, and transport libraries, but must
 not depend on protocol parser/server implementations.
 
@@ -94,7 +94,7 @@ rather than blocking all implementation until every toy exists. Stage 3 runs
 the complete offline matrix in CI and verifies no production dependency was
 introduced.
 
-The harness owns sockets, clocks, scripted actions and test artifact capture;
+The harness owns sockets, clocks, scripted actions and test artefact capture;
 the toy owns protocol state; the independent oracle owns expected bytes. A toy
 must not call its own encoder to generate the expected decoder fixture. Licence
 review must record the component, version, licence, usage and distribution

@@ -83,7 +83,7 @@ Prove event order and shutdown races with a deterministic fake transport, then
 integrate one prepared TCP connection. RFC 0008 supplies the executable
 contract toys. Decide whether ordered emission uses a session reorder buffer or
 per-stream lanes; either choice must preserve global memory bounds. Review
-whether graceful shutdown should flush protocol close output before canceling
+whether graceful shutdown should flush protocol close output before cancelling
 handlers. Risks are task leaks, head-of-line blocking and ambiguous acceptance
 semantics. Tests must assert each ticket terminates exactly once.
 
