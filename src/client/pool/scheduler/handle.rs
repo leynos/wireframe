@@ -60,7 +60,7 @@ pub(crate) struct SchedulerStatus {
     lifecycle: AtomicU8,
     /// Task-churn counters scoped to this pool.
     churn: Arc<PoolTaskChurnCounts>,
-    /// Process-local identifier used only as a bounded metric label.
+    /// Process-local identifier used for structured failure logging.
     pool_id: u64,
 }
 
@@ -115,7 +115,7 @@ impl SchedulerStatus {
     /// Counters describing this pool's scheduler activity.
     pub(crate) fn churn(&self) -> &PoolTaskChurnCounts { &self.churn }
 
-    /// Process-local pool identifier, used as a bounded metric label.
+    /// Process-local pool identifier, used for structured failure logging.
     pub(crate) fn pool_id(&self) -> u64 { self.pool_id }
 }
 
