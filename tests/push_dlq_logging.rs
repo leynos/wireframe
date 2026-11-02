@@ -137,11 +137,13 @@ fn push_secret_frame(
         .map_err(|e| io::Error::other(format!("try_push failed: {e}")))
 }
 
-/// Assert there is exactly one DLQ warning, naming the expected state, and
-/// that no record leaks either marker.
+/// Assert there is exactly one DLQ warning, naming the expected state,
+/// priority and policy, and that no record leaks either marker.
 fn assert_single_safe_warning(
     records: &[(log::Level, String)],
     failure: DlqFailure,
+    priority: PushPriority,
+    policy: PushPolicy,
 ) -> io::Result<()> {
     let mut warnings = records
         .iter()
@@ -163,6 +165,20 @@ fn assert_single_safe_warning(
             warning.1
         )));
     }
+    // The trigger metadata identifies the frame that fired this report, so a
+    // warning attributed to the wrong priority or policy would mislead an
+    // operator even though it leaked no payload.
+    for expected in [
+        format!("trigger_priority={priority:?}"),
+        format!("trigger_policy={policy:?}"),
+    ] {
+        if !warning.1.contains(expected.as_str()) {
+            return Err(io::Error::other(format!(
+                "DLQ warning missing {expected}: {}",
+                warning.1
+            )));
+        }
+    }
     for (_, text) in records {
         if text.contains(DROPPED_SECRET) || text.contains(PRELOADED_FRAME) {
             return Err(io::Error::other(format!(
@@ -177,7 +193,8 @@ fn assert_single_safe_warning(
 ///
 /// Covers both ways a configured DLQ can refuse a frame, both priorities and
 /// both dropping policies. In every combination the warning must name the
-/// dead-letter state and stay silent about the payload.
+/// dead-letter state, priority and policy that fired it, and stay silent about
+/// the payload.
 #[rstest]
 #[case::full_high_drop(DlqFailure::Full, PushPriority::High, PushPolicy::DropIfFull)]
 #[case::full_high_warn(DlqFailure::Full, PushPriority::High, PushPolicy::WarnAndDropIfFull)]
@@ -202,7 +219,7 @@ fn dlq_loss_warning_omits_frame_contents(
         let refusing = refusing_dlq(failure, priority).await?;
         push_secret_frame(&refusing.handle, priority, policy)?;
         let records = drain_records(&mut logger);
-        assert_single_safe_warning(&records, failure)
+        assert_single_safe_warning(&records, failure, priority, policy)
     })?;
     Ok(())
 }
