@@ -70,6 +70,10 @@ jobs:
           output-path: lcov.info
           format: lcov
           with-ratchet: 'true'
+          # The same watchdog as `ci.yml`, and for the same reason: it bounds
+          # the whole cargo run, sits outside the nextest global-timeout
+          # (600 s) and inside this job's 20-minute ceiling.
+          cargo-wait-timeout: '900'
           # A new path starts a new baseline: the cache entry's version hashes
           # this path, so the restore misses the 89.0% measured on the previous
           # toolchain and the committed file sets the baseline.
