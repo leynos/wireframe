@@ -118,14 +118,70 @@ requests hit):
 Two vCPU cost about 29% less per run for 3m40s more wall time, and memory is
 far inside the 7.9 GiB that shape has.
 
-The coverage action supplies a 180-second per-test deadline and a ten-minute
-whole-run ceiling. `tests/compile_error.rs` runs trybuild fixtures inside one
-test, including nested Cargo builds, which do not measure runtime behaviour and
-can exceed that per-test deadline on a cold two-vCPU runner. An unconditional
-`make test-ui` step runs in `build-test` for pull requests and pushes to
-`main`, before runtime coverage, with a separate 30-minute step ceiling. This
-keeps the compile-time API fixtures covered without making the instrumented
-runtime- coverage run compile them.
+`tests/compile_error.rs` is one trybuild case that compiles its fixtures
+against the whole dependency tree. On every green run it is 95% or more of the
+suite, and its runtime varies enough that an inherited deadline is not a
+reviewed number: the same four-vCPU lane measured 99.5 s and 130.3 s on
+adjacent commits. Nextest's default of 180.012 s is therefore a timeout
+awaiting a slower runner, and it reports as a cancelled run rather than as a
+slow test with a number attached.
+
+Every tier is stated, and each is wider than the one inside it:
+
+| Tier                     | Value   | Bound by                                  |
+| ------------------------ | ------- | ----------------------------------------- |
+| Default per-test         | 180 s   | `slow-timeout` period × `terminate-after` |
+| `compile_tests` override | 480 s   | `slow-timeout` period × `terminate-after` |
+| Whole run                | 600 s   | `global-timeout`                          |
+| Cargo watchdog           | 900 s   | `cargo-wait-timeout` input                |
+| Coverage job ceiling     | 1,200 s | `coverage-upload` `timeout-minutes`       |
+
+*Table 3: The timeout tiers, innermost first. The `build-test` ceiling is 3,600
+s, so the smaller coverage job is the binding one.*
+
+The ordering invariant is
+`default deadline < override deadline <
+global-timeout < cargo-wait-timeout < coverage job ceiling`.
+`tests/workflow_contracts/nextest_timeout_test.py` proves it, and
+`nextest_target_discovery_test.py` proves the override still reaches the target
+it names.
+
+The override is written as 60 s × 8 rather than 480 s × 1 because nextest
+prints a SLOW notice at each period. An overrun then reports the elapsed time
+before it terminates the test, instead of arriving as a single kill.
+
+`cargo-wait-timeout` is the `generate-coverage` action's input, stated in both
+`ci.yml` and `coverage-main.yml`. Reading the action's `run_rust.py` at the
+pinned revision confirms what it bounds: the whole `cargo llvm-cov nextest`
+subprocess the action spawns, not one test. It is a hang detector sized for a
+cold sccache store, so 900 s sits outside the 600 s nextest ceiling and inside
+the smaller 20-minute `coverage-upload` job. Omitting it would inherit the
+action's 1,800 s default, which is outside that job's ceiling. The nested
+trybuild Cargo build is a descendant of the watched process, so the watchdog
+does not give it a separate deadline; the per-test override is what bounds it.
+
+The discovery contract reads `cargo metadata` for the target a filter names,
+then checks that target's source for the named `#[test]` function and for
+`trybuild::TestCases`. The source check is deliberate evidence, not a
+substitute for nextest's test list: producing that list would run the
+compilation the contract exists to bound. A target renamed, moved to
+`tests/compile_error/mod.rs` without a declaration, or hidden behind
+`autotests = false` fails the contract rather than silently receiving the
+default allowance.
+
+`make test-ui` is not nextest. It runs plain `cargo test` in its own CI step,
+so it has no Cargo watchdog wrapper, and its 30-minute step ceiling is its only
+bound.
+
+Work reduction is out of scope. Issue #691's first option — a trimmed fixture
+crate, or sharing one compilation between the `pass` and `compile_fail` cases —
+would change what the contract proves, and no measurement separates trybuild's
+own overhead from the dependency build that dominates the 99.5–130.3 s range.
+The fixtures in `compile_tests` share one `trybuild::TestCases` value and one
+incremental target directory, so there is no repeated harness setup to remove.
+A second trybuild-driving test, `rstest_bdd_v06_contracts`, lives in the same
+binary and keeps the default allowance; the measured whole-suite time leaves at
+most a second for everything outside `compile_tests`.
 
 The compile-time harnesses are excluded only when `cfg(coverage)` is active;
 the fixtures remain in `tests/ui/`, and `make test-ui` runs both the root and
