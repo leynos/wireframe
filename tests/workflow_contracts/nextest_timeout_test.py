@@ -1,10 +1,12 @@
 """Contract for the bounded, non-instrumented compile-time UI gate.
 
 Two policies share this module because both describe when compiler-driven work
-is allowed to run. The first half pins the coverage lane's `cargo-nextest`
-timeouts: the aggregate `compile_error` test gets an eight-minute override
-while the global ceiling stays at ten, so a hung nested compiler run cannot
-consume the whole job.
+is allowed to run. The first half pins the checked-in `cargo-nextest` policy:
+`compile_tests` gets an eight-minute override while the global ceiling stays at
+ten, and both coverage workflows state a 900 s Cargo watchdog. That policy
+applies to noncoverage nextest runs. The coverage invocation compiles the
+compile-time harnesses out with `cfg(coverage)`, so the watchdog bounds the
+runtime suite there rather than the compile test.
 
 The second half guards the split between compile-time validation and runtime
 coverage in `ci.yml`. `build-test` must run `make test-ui` unconditionally,

@@ -3,7 +3,9 @@
 # filter names a target `cargo metadata` discovers. A renamed or moved target
 # must fail those contracts rather than fall back to the default allowance.
 [profile.default]
-# Match the coverage action's policy for ordinary tests.
+# Match the coverage action's default policy for the runtime suite. The
+# coverage invocation sets cfg(coverage), so the compile-time harnesses are
+# compiled out there; this file governs noncoverage nextest runs.
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 global-timeout = "10m"
 

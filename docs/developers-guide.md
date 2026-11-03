@@ -122,9 +122,11 @@ far inside the 7.9 GiB that shape has.
 against the whole dependency tree. On every green run it is 95% or more of the
 suite, and its runtime varies enough that an inherited deadline is not a
 reviewed number: the same four-vCPU lane measured 99.5 s and 130.3 s on
-adjacent commits. Nextest's default of 180.012 s is therefore a timeout
-awaiting a slower runner, and it reports as a cancelled run rather than as a
-slow test with a number attached.
+adjacent commits. Nextest's default of 180.012 s was therefore a timeout
+awaiting a slower runner, and it reported as a cancelled run rather than as a
+slow test with a number attached. That is why the override below exists, and
+why the compiler-driven harnesses were later moved out of the coverage
+invocation.
 
 Every tier is stated, and each is wider than the one inside it:
 
@@ -146,9 +148,25 @@ global-timeout < cargo-wait-timeout < coverage job ceiling`.
 `nextest_target_discovery_test.py` proves the override still reaches the target
 it names.
 
-The override is written as 60 s × 8 rather than 480 s × 1 because nextest
-prints a SLOW notice at each period. An overrun then reports the elapsed time
-before it terminates the test, instead of arriving as a single kill.
+Three execution paths matter, and the tiers do not all bound the same one:
+
+- The **noncoverage nextest policy** is `.config/nextest.toml`. It applies
+  whenever nextest runs without `cfg(coverage)`, such as a developer's local
+  `cargo nextest run`. There the 480 s override gives `compile_tests` a
+  reviewed deadline. The override is written as 60 s × 8 rather than 480 s × 1
+  because nextest prints a SLOW notice at each period, so an overrun reports
+  the elapsed time and then terminates the test with a timeout result rather
+  than arriving as a whole-run kill.
+- The **coverage invocation** runs `cargo llvm-cov nextest` in `build-test`,
+  and `cargo llvm-cov` sets `cfg(coverage)`. `tests/compile_error.rs` and
+  `wireframe_testing/tests/loom_api_surface.rs` carry `#![cfg(not(coverage))]`,
+  so those harnesses are compiled out: no compile test runs there. The 180 s
+  default, 600 s `global-timeout` and 900 s `cargo-wait-timeout` bound the
+  runtime suite in that invocation, not the compile test.
+- The **CI compile-time gate** is the `make test-ui` step in `build-test`. It
+  runs plain `cargo test`, so no nextest setting applies. Its 30-minute step
+  ceiling is its only timeout, and an overrun fails that step rather than
+  producing a per-test nextest result.
 
 `cargo-wait-timeout` is the `generate-coverage` action's input, stated in both
 `ci.yml` and `coverage-main.yml`. Reading the action's `run_rust.py` at the
@@ -156,22 +174,22 @@ pinned revision confirms what it bounds: the whole `cargo llvm-cov nextest`
 subprocess the action spawns, not one test. It is a hang detector sized for a
 cold sccache store, so 900 s sits outside the 600 s nextest ceiling and inside
 the smaller 20-minute `coverage-upload` job. Omitting it would inherit the
-action's 1,800 s default, which is outside that job's ceiling. The nested
-trybuild Cargo build is a descendant of the watched process, so the watchdog
-does not give it a separate deadline; the per-test override is what bounds it.
+action's 1,800 s default, which is outside that job's ceiling. A nested Cargo
+build is a descendant of the watched process, so the watchdog does not give it
+a separate deadline.
 
 The discovery contract reads `cargo metadata` for the target a filter names,
-then checks that target's source for the named `#[test]` function and for
-`trybuild::TestCases`. The source check is deliberate evidence, not a
-substitute for nextest's test list: producing that list would run the
-compilation the contract exists to bound. A target renamed, moved to
-`tests/compile_error/mod.rs` without a declaration, or hidden behind
-`autotests = false` fails the contract rather than silently receiving the
-default allowance.
-
-`make test-ui` is not nextest. It runs plain `cargo test` in its own CI step,
-so it has no Cargo watchdog wrapper, and its 30-minute step ceiling is its only
-bound.
+then checks that target's source for a crate-root `#[test]` function with the
+filter's exact name and for `trybuild::TestCases`. The source check is
+deliberate evidence, not a substitute for nextest's test list: producing that
+list would run the compilation the contract exists to bound. Because nextest
+matches `test(=name)` against the fully qualified test name, the contract
+computes the module path from inline `mod` blocks and rejects a definition that
+exists only as `contracts::compile_tests`; comments and string literals are
+stripped first, so a commented-out definition is not evidence. A target
+renamed, moved to `tests/compile_error/mod.rs` without a declaration, or hidden
+behind `autotests = false` fails the contract rather than silently receiving
+the default allowance.
 
 Work reduction is out of scope. Issue #691's first option — a trimmed fixture
 crate, or sharing one compilation between the `pass` and `compile_fail` cases —
@@ -185,11 +203,8 @@ most a second for everything outside `compile_tests`.
 
 The compile-time harnesses are excluded only when `cfg(coverage)` is active;
 the fixtures remain in `tests/ui/`, and `make test-ui` runs both the root and
-Loom API suites. The checked-in `.config/nextest.toml` retains its eight-minute
-override for `wireframe::compile_error::compile_tests` during ordinary,
-noncoverage nextest runs. The ten-minute ceiling still bounds the coverage test
-run. The four-vCPU `coverage-upload` lane remains on its measured shape; the
-smaller runner has not been sampled for coverage generation.
+Loom API suites. The four-vCPU `coverage-upload` lane remains on its measured
+shape; the smaller runner has not been sampled for coverage generation.
 
 Free disk is the margin to watch: 3,998 MiB at its lowest on two vCPU.
 
