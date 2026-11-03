@@ -109,6 +109,14 @@ fn companion_crates_inherit_private_documentation_clippy_policy() -> TestResult 
         "the shared Clippy policy must deny undocumented private implementation items",
     )?;
     check(
+        has_manifest_line(
+            &root_manifest,
+            "[workspace.lints.clippy]",
+            "disallowed_methods = \"deny\"",
+        ),
+        "the shared Clippy policy must deny the prohibited environment APIs",
+    )?;
+    check(
         has_manifest_table(&root_manifest, "[lints]"),
         "the root package must opt into workspace lint inheritance",
     )?;
@@ -135,6 +143,31 @@ fn companion_crates_inherit_private_documentation_clippy_policy() -> TestResult 
             format!("{package_name} must inherit the shared Clippy policy"),
         )?;
     }
+    Ok(())
+}
+
+/// Each prohibited environment API must carry its remediation in `clippy.toml`.
+///
+/// The reason string is part of the contract: it is what a contributor sees
+/// when the lint fires, so a path without its matching reason is not a usable
+/// prohibition.
+#[rstest]
+#[case::read_var("std::env::var", "inject an environment reader")]
+#[case::read_var_os("std::env::var_os", "inject an environment reader")]
+#[case::read_vars("std::env::vars", "inject an environment reader")]
+#[case::read_vars_os("std::env::vars_os", "inject an environment reader")]
+#[case::write_set_var("std::env::set_var", "use a stub environment in tests")]
+#[case::write_remove_var("std::env::remove_var", "use a stub environment in tests")]
+fn clippy_prohibits_ambient_environment_access(
+    #[case] path: &str,
+    #[case] reason: &str,
+) -> TestResult {
+    let clippy_config = read_repo_file("clippy.toml")?;
+    let entry = format!("{{ path = \"{path}\", reason = \"{reason}\" }}");
+    check(
+        clippy_config.contains(&entry),
+        format!("clippy.toml must prohibit {path} with the reason `{reason}`"),
+    )?;
     Ok(())
 }
 

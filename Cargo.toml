@@ -147,6 +147,11 @@ host_endian_bytes = "deny"
 little_endian_bytes = "deny"
 big_endian_bytes = "deny"
 
+# 5. environment boundary
+# `clippy.toml` lists the six prohibited `std::env` APIs. Denying the lint here
+# makes it an error even when a member or CI lane forgets `-D warnings`.
+disallowed_methods = "deny"
+
 [workspace.lints.rust]
 unknown_lints = "deny"
 renamed_and_removed_lints = "deny"
