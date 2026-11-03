@@ -19,15 +19,19 @@ from __future__ import annotations
 
 import tomllib
 import typing as typ
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
 
 from runner_placement_reader import REPO_ROOT, workflows
+from timeout_policy import (
+    COVERAGE_ACTION_NAME,
+    coverage_action_name,
+    timeout_tier_violations,
+)
 
 NEXTEST_CONFIG: Path = REPO_ROOT / ".config" / "nextest.toml"
-#: The action this test is about, without its version pin.
-COVERAGE_ACTION_NAME: str = "leynos/shared-actions/.github/actions/generate-coverage"
 COMPILE_TEST_FILTER: str = (
     "package(=wireframe) & binary(=compile_error) & test(=compile_tests)"
 )
@@ -51,70 +55,6 @@ def coverage_action_step() -> tuple[dict[str, typ.Any], dict[str, typ.Any]]:
     ]
     assert len(matches) == 1, "CI must have one generate-coverage step"
     return job, matches[0]
-
-
-def coverage_action_name(step: dict[str, typ.Any]) -> str:
-    """Return the action a step invokes, without its version pin.
-
-    The pin itself is not this contract's business: ``shared_actions_test``
-    already requires every shared-actions invocation to carry a full commit
-    SHA and to agree on one revision across the workflow tree. Repeating the
-    literal SHA here made a dependabot bump of that shared revision fail a
-    timeout test, because the two had to be updated together.
-
-    Parameters
-    ----------
-    step
-        One parsed workflow step.
-
-    Returns
-    -------
-    str
-        The ``uses`` value with its ``@`` pin removed.
-
-    Examples
-    --------
-    >>> coverage_action_name(
-    ...     {"uses": "leynos/shared-actions/.github/actions/generate-coverage@abc"}
-    ... )
-    'leynos/shared-actions/.github/actions/generate-coverage'
-    """
-    uses = str(step.get("uses", ""))
-    name, separator, version = uses.partition("@")
-    assert separator and name, f"action invocation {uses!r} carries no action name"
-    assert version, f"action invocation {uses!r} carries an empty version pin"
-    return name
-
-
-@pytest.mark.parametrize(
-    ("uses", "expected"),
-    [
-        (
-            "leynos/shared-actions/.github/actions/generate-coverage@abc123",
-            "leynos/shared-actions/.github/actions/generate-coverage",
-        ),
-        ("actions/checkout@v4", "actions/checkout"),
-    ],
-)
-def test_coverage_action_name_strips_the_version_pin(uses: str, expected: str) -> None:
-    """A pinned invocation yields the action path alone."""
-    actual = coverage_action_name({"uses": uses})
-    assert actual == expected, f"{uses!r} should name {expected!r}, got {actual!r}"
-
-
-@pytest.mark.parametrize(
-    "uses",
-    [
-        "actions/checkout",
-        "actions/checkout@",
-        "@v4",
-        "",
-    ],
-)
-def test_coverage_action_name_rejects_an_invocation_without_a_pin(uses: str) -> None:
-    """A ``uses`` value with no pin, an empty pin, or no name is refused."""
-    with pytest.raises(AssertionError, match="action invocation"):
-        coverage_action_name({"uses": uses})
 
 
 def test_coverage_action_can_discover_the_checked_in_config() -> None:
@@ -155,6 +95,132 @@ def test_only_the_aggregate_compile_test_gets_the_extended_budget() -> None:
     assert 60 * override["slow-timeout"]["terminate-after"] < 10 * 60
 
 
+def assert_no_timeout_violations(
+    config: dict[str, typ.Any], workflow_documents: dict[str, dict[str, typ.Any]]
+) -> None:
+    """Require every timeout tier to be stated, ordered and reachable."""
+    violations = timeout_tier_violations(config, workflow_documents)
+    assert violations == [], "\n".join(violations)
+
+
+def test_repository_timeout_tiers_are_proved_and_ordered() -> None:
+    """The repository states every tier and orders them widest outwards."""
+    config = nextest_config()
+    assert_no_timeout_violations(config, workflows())
+    override = config["profile"]["default"]["overrides"][0]["slow-timeout"]
+    assert 60 * 1 < 60 * override["terminate-after"] < 10 * 60
+    # The reviewed watchdog sits inside the smaller coverage job ceiling.
+    assert 10 * 60 < 900 < 20 * 60
+
+
+def _coverage_step(
+    workflow_name: str, job_id: str, workflow_documents: dict[str, dict[str, typ.Any]]
+) -> dict[str, typ.Any]:
+    """Return the one generate-coverage step in a workflow job."""
+    steps = workflow_documents[workflow_name]["jobs"][job_id]["steps"]
+    return next(
+        step for step in steps if "generate-coverage" in str(step.get("uses", ""))
+    )
+
+
+def _mutate_timeout_tiers(
+    mutation: str,
+    config: dict[str, typ.Any],
+    workflow_documents: dict[str, dict[str, typ.Any]],
+) -> None:
+    """Apply one timeout-tier mutation in place."""
+    default = config["profile"]["default"]
+    if mutation == "no_default_terminate_after":
+        default["slow-timeout"].pop("terminate-after")
+    elif mutation == "override_terminate_after_10":
+        default["overrides"][0]["slow-timeout"]["terminate-after"] = 10
+    elif mutation == "no_global_timeout":
+        default.pop("global-timeout")
+    elif mutation == "missing_watchdog":
+        _coverage_step(
+            "coverage-main.yml", "coverage-upload", workflow_documents
+        )["with"].pop("cargo-wait-timeout")
+    elif mutation == "different_watchdogs":
+        _coverage_step(
+            "coverage-main.yml", "coverage-upload", workflow_documents
+        )["with"]["cargo-wait-timeout"] = "901"
+    elif mutation == "watchdog_1800":
+        for workflow_name, job_id in (
+            ("ci.yml", "build-test"),
+            ("coverage-main.yml", "coverage-upload"),
+        ):
+            _coverage_step(workflow_name, job_id, workflow_documents)["with"][
+                "cargo-wait-timeout"
+            ] = "1800"
+    elif mutation == "no_job_ceiling":
+        workflow_documents["ci.yml"]["jobs"]["build-test"].pop("timeout-minutes")
+    else:  # pragma: no cover - the parametrization is closed
+        message = f"unknown timeout mutation {mutation!r}"
+        raise AssertionError(message)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "no_default_terminate_after",
+        "override_terminate_after_10",
+        "no_global_timeout",
+        "missing_watchdog",
+        "different_watchdogs",
+        "watchdog_1800",
+        "no_job_ceiling",
+    ],
+)
+def test_timeout_tier_mutations_break_the_chain(mutation: str) -> None:
+    """Each mutation alone breaks an ordering or leaves a tier unstated."""
+    config = deepcopy(nextest_config())
+    workflow_documents = deepcopy(workflows())
+    _mutate_timeout_tiers(mutation, config, workflow_documents)
+    with pytest.raises(AssertionError):
+        assert_no_timeout_violations(config, workflow_documents)
+
+
+def assert_workflow_contracts_follow_setup(job: dict[str, typ.Any]) -> None:
+    """Require the workflow-contract step to follow Rust setup in ``build-test``."""
+    steps = job["steps"]
+    contract_steps = [
+        step for step in steps if step.get("run") == "make test-workflow-contracts"
+    ]
+    assert len(contract_steps) == 1, "build-test must run the contract suite once"
+    setup = [
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith(
+            "leynos/shared-actions/.github/actions/setup-rust@"
+        )
+    ]
+    assert len(setup) == 1, "build-test must set up Rust"
+    assert steps.index(setup[0]) < steps.index(contract_steps[0]), (
+        "workflow contracts must run after Rust setup"
+    )
+
+
+def test_workflow_contracts_step_follows_rust_setup() -> None:
+    """The contract suite runs in the required job, after Rust is available."""
+    job = typ.cast(
+        dict[str, typ.Any], workflows()["ci.yml"]["jobs"]["build-test"]
+    )
+    assert_workflow_contracts_follow_setup(job)
+
+
+def test_workflow_contracts_order_rejects_a_premature_step() -> None:
+    """A contract step moved ahead of Rust setup violates the ordering."""
+    job = deepcopy(workflows()["ci.yml"]["jobs"]["build-test"])
+    contract = next(
+        step for step in job["steps"]
+        if step.get("run") == "make test-workflow-contracts"
+    )
+    job["steps"].remove(contract)
+    job["steps"].insert(0, contract)
+    with pytest.raises(AssertionError):
+        assert_workflow_contracts_follow_setup(job)
+
+
 def assert_ui_step_is_mandatory(job: dict[str, typ.Any]) -> None:
     """Require bounded UI tests after Rust and linker setup in the required job."""
     assert "if" not in job, "build-test must run for every CI event"
@@ -174,7 +240,9 @@ def assert_ui_step_is_mandatory(job: dict[str, typ.Any]) -> None:
     assert_no_coverage_flags(job, ui)
 
 
-def assert_ui_setup_precedes(steps: list[dict[str, typ.Any]], ui: dict[str, typ.Any]) -> None:
+def assert_ui_setup_precedes(
+    steps: list[dict[str, typ.Any]], ui: dict[str, typ.Any]
+) -> None:
     """Require Rust and linker setup before the non-instrumented UI step."""
     setup = [
         step for step in steps
@@ -230,7 +298,10 @@ def test_ui_step_runs_without_suppression_for_all_ci_events() -> None:
     assert_ui_permissions(workflow["jobs"]["build-test"])
 
 
-@pytest.mark.parametrize("permissions", [None, {"contents": "write"}, {"contents": "read", "actions": "read"}])
+@pytest.mark.parametrize(
+    "permissions",
+    [None, {"contents": "write"}, {"contents": "read", "actions": "read"}],
+)
 def test_ui_permissions_reject_missing_or_broader_access(permissions: object) -> None:
     """The required UI gate must not omit or broaden its token permissions."""
     with pytest.raises(AssertionError, match="contents: read"):
@@ -242,8 +313,6 @@ def test_ui_permissions_reject_missing_or_broader_access(permissions: object) ->
 )
 def test_ui_step_contract_rejects_missing_or_ineffective_gate(mutation: str) -> None:
     """Reject skipped, suppressed, missing, unbounded or prematurely run UI tests."""
-    from copy import deepcopy
-
     workflow = typ.cast(dict[str, typ.Any], workflows()["ci.yml"])
     job = deepcopy(workflow["jobs"]["build-test"])
     ui = next(step for step in job["steps"] if step.get("name") == "Validate compile-time APIs")
