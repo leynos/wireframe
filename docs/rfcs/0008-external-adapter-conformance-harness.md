@@ -61,9 +61,10 @@ claims of full peer compatibility.
 
 Signal-like cryptographic and service APIs are out of scope. Test-only oracle
 choice is conditional on licence compatibility with test distribution. If not
-compatible, use checked-in vectors with source, version, capture method, and
-review record; never copy implementation code. The production dependency graph
-must remain free of these protocol parser/server libraries.
+compatible, use independently authored specification vectors with source and
+version provenance; never copy implementation code or unlicensed captures. The
+production dependency graph must remain free of these protocol parser/server
+libraries.
 
 The table deliberately separates AMQP generations, RTSP versions, MySQL and
 MariaDB, and pins evolving Kafka, OpenRA and Quake profiles. A row may be split

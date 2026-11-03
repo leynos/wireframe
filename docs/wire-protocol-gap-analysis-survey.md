@@ -574,6 +574,11 @@ wire-frame, logical-message and queued-byte limits; do not hard-code the
 current 16 MiB bincode policy as every protocol's maximum. Configuration
 remains bounded and must reject oversized declarations before allocation.
 
+RFC 0007 extends proposed ADR 002's protocol-neutral streaming, layered
+assembly, continuity, and bounds goals. It supersedes ADR 002's mandatory
+additive compatibility and legacy defaults for this pre-1.0 redesign; ADR 002
+remains proposed until a later decision records adoption.
+
 Permit an external policy to replace stale unsent snapshots while preserving
 reliable commands. A shared scheduler must not impose retransmission or
 latest-value replacement on protocols that require ordered delivery.
