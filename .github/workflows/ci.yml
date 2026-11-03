@@ -69,7 +69,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@6e99f225cb06684f9e6f89b63a7ca4a04095c067
+        uses: leynos/shared-actions/.github/actions/setup-rust@872f59f53717b5bebe8e24b2f4a7496b089a939a
       - name: Install development backend and linker
         # Both runner choices are Ubuntu. Confirm the manifest's Cranelift
         # component and install the Linux linker before debug Make targets.
@@ -85,7 +85,7 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@6e99f225cb06684f9e6f89b63a7ca4a04095c067
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@872f59f53717b5bebe8e24b2f4a7496b089a939a
         with:
           version: "0.6.1"
 
@@ -93,7 +93,7 @@ jobs:
         run: make check-fmt
 
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@5a99aed78ce68dcebd3052b75c31e6f173162b1e # shared-actions 5a99aed7 (whitaker-installer 0.2.11)
+        uses: leynos/shared-actions/.github/actions/install-whitaker@872f59f53717b5bebe8e24b2f4a7496b089a939a # shared-actions 5a99aed7 (whitaker-installer 0.2.11)
       - name: Lint
         run: make lint
       - name: Setup uv
@@ -106,7 +106,7 @@ jobs:
       # Merman comes from its release archive, verified against a pinned
       # checksum, rather than being compiled from crates.io on every run.
       - name: Install Nixie and Merman CLI
-        uses: leynos/shared-actions/.github/actions/install-nixie@6e99f225cb06684f9e6f89b63a7ca4a04095c067
+        uses: leynos/shared-actions/.github/actions/install-nixie@872f59f53717b5bebe8e24b2f4a7496b089a939a
         with:
           nixie-version: '1.1.0'
           merman-version: '0.7.0'
@@ -150,7 +150,7 @@ jobs:
       # coverage-main.yml uploads, and it needs nothing from here.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/generate-coverage@6e99f225cb06684f9e6f89b63a7ca4a04095c067
+        uses: leynos/shared-actions/.github/actions/generate-coverage@872f59f53717b5bebe8e24b2f4a7496b089a939a
         with:
           output-path: lcov.info
           format: lcov
