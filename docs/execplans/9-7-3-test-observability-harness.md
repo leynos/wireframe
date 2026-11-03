@@ -221,7 +221,8 @@ tests/
   features/                         # Gherkin feature files
 
 docs/
-  adr-0006-test-observability-harness.md     # ADR (status: Accepted)
+  adrs/
+    adr-0006-test-observability-harness.md   # ADR (status: Accepted)
   wireframe-testing-crate.md        # Design doc with proposed ObservabilityHandle API
   roadmap.md                        # line 437: - [x] 9.7.3.
   users-guide.md                    # Testing section at line 224
