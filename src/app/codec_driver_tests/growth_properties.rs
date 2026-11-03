@@ -10,6 +10,7 @@ use proptest::{
     prelude::*,
     test_runner::{TestCaseError, TestCaseResult},
 };
+use rstest::rstest;
 use tokio::runtime::Builder;
 
 use super::*;
@@ -39,6 +40,20 @@ proptest! {
     fn hook_growth_respects_the_codec_limit(delta in -8i64..=8i64) {
         run_growth_property_case(delta)?;
     }
+}
+
+/// Pin each boundary class so the three outcomes are not sampled by chance.
+///
+/// The property above sweeps offsets around the headroom, but a run need not
+/// draw an offset that lands exactly on the limit. These cases make the
+/// below, exactly-at, and above classes deterministic.
+#[rstest]
+#[case(-1, "below the limit")]
+#[case(0, "exactly at the limit")]
+#[case(1, "above the limit")]
+fn hook_growth_boundary_classes(#[case] delta: i64, #[case] class: &str) -> TestCaseResult {
+    run_growth_property_case(delta)
+        .map_err(|error| TestCaseError::fail(format!("{class}: {error}")))
 }
 
 /// Drive one generated growth case on a deterministic runtime.
@@ -96,6 +111,10 @@ async fn exercise_growth_property_case(delta: i64) -> Result<(), Box<dyn std::er
             written.len()
         )
         .into());
+    }
+    let grown = written.get(base_len..).unwrap_or_default();
+    if extra > 0 && !grown.iter().all(|byte| *byte == MARKER) {
+        return Err("the hook's growth did not reach the wire".into());
     }
     Ok(())
 }

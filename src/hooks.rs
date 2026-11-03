@@ -41,18 +41,24 @@ pub trait WireframeProtocol: Send + Sync + 'static {
 
     /// Invoked before any frame (push or response) is written to the socket.
     ///
-    /// The hook receives the fully encoded frame, after fragmentation and
-    /// codec wrapping, so it sees the exact bytes that will be written and may
-    /// enlarge the frame (for example, to stamp a trailer). There is no
-    /// implicit allowance for that growth: implementations **must** leave the
-    /// frame within the codec's [`FrameCodec::max_frame_length`]. Exceeding it
-    /// makes the codec encoder reject the frame with
+    /// The hook receives the serialized, codec-wrapped frame before codec
+    /// encoding, after fragmentation and [`FrameCodec::wrap_payload`]. A
+    /// custom encoder may still add its own header or trailer after the hook
+    /// runs, so the hook sees the frame payload rather than the exact bytes
+    /// written to the socket. The hook may enlarge the frame (for example, to
+    /// stamp a trailer). There is no implicit allowance for that growth:
+    /// implementations **must** leave the frame within the codec's
+    /// [`FrameCodec::max_frame_length`]. The default
+    /// [`LengthDelimitedFrameCodec`] rejects an oversized frame with
     /// [`FramingError::OversizedFrame`], which surfaces as a send failure and
-    /// ends the connection. Fragmented output is sized below the frame budget,
-    /// but the resulting slack belongs to fragmentation overhead rather than
-    /// to hooks.
+    /// ends the connection. A custom codec defines its own behaviour: it may
+    /// return a different error, or not enforce the limit at all. Fragmented
+    /// output is sized below the frame budget, but the resulting slack belongs
+    /// to fragmentation overhead rather than to hooks.
     ///
+    /// [`FrameCodec::wrap_payload`]: crate::codec::FrameCodec::wrap_payload
     /// [`FrameCodec::max_frame_length`]: crate::codec::FrameCodec::max_frame_length
+    /// [`LengthDelimitedFrameCodec`]: crate::codec::LengthDelimitedFrameCodec
     /// [`FramingError::OversizedFrame`]: crate::codec::FramingError::OversizedFrame
     fn before_send(&self, _frame: &mut Self::Frame, _ctx: &mut ConnectionContext) {}
 
@@ -217,6 +223,12 @@ impl<F, E> ProtocolHooks<F, E> {
     }
 
     /// Construct hooks from a [`WireframeProtocol`] implementation.
+    ///
+    /// Each callback is a fresh wrapper that captures a clone of the same
+    /// `Arc`-backed protocol. Fresh hooks and a fresh [`ConnectionContext`]
+    /// therefore isolate per-connection context and callback state, but they
+    /// do **not** isolate mutable state stored inside the protocol: every
+    /// connection that installs the same protocol shares that state.
     pub fn from_protocol<P>(protocol: &Arc<P>) -> Self
     where
         P: WireframeProtocol<Frame = F, ProtocolError = E> + ?Sized,

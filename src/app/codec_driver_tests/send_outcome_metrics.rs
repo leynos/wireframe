@@ -4,14 +4,21 @@
 //! caused by hook growth, and a transport failure, because operators use those
 //! classes to tell a misbehaving hook apart from a broken peer connection.
 
+use std::{error::Error, future::poll_fn, io, pin::Pin, task::Poll};
+
 use metrics::{SharedString, Unit};
 use metrics_util::{
     CompositeKey,
     debugging::{DebugValue, DebuggingRecorder},
 };
+use tokio::io::{AsyncRead, ReadBuf};
 
 use super::*;
-use crate::metrics::APP_RESPONSE_SENDS;
+use crate::{
+    message::{DecodeWith, EncodeWith},
+    metrics::APP_RESPONSE_SENDS,
+    serializer::{MessageCompatibilitySerializer, Serializer},
+};
 
 type MetricSample = (CompositeKey, Option<Unit>, Option<SharedString>, DebugValue);
 
@@ -135,4 +142,80 @@ fn closed_peer_records_transport_failure() {
     assert_eq!(outcome_count(&samples, "transport_failure"), 1);
     assert_eq!(outcome_count(&samples, "success"), 0);
     assert_eq!(outcome_count(&samples, "codec_rejected"), 0);
+}
+
+/// Serializer that refuses every value, isolating the serialization stage.
+#[derive(Debug)]
+struct FailingSerializer;
+
+impl MessageCompatibilitySerializer for FailingSerializer {}
+
+impl Serializer for FailingSerializer {
+    fn serialize<M>(&self, _value: &M) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>>
+    where
+        M: EncodeWith<Self>,
+    {
+        Err(Box::new(io::Error::other(
+            "serializer refused the envelope",
+        )))
+    }
+
+    fn deserialize<M>(&self, _bytes: &[u8]) -> Result<(M, usize), Box<dyn Error + Send + Sync>>
+    where
+        M: DecodeWith<Self>,
+    {
+        Err(Box::new(io::Error::other(
+            "failing serializer does not decode",
+        )))
+    }
+}
+
+/// A serializer failure records one failure outcome and writes nothing.
+#[test]
+fn serialization_failure_records_serialization_failure_outcome() {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+
+    ::metrics::with_local_recorder(&recorder, || {
+        futures::executor::block_on(async {
+            let mut pipeline: FramePipeline<Bytes> = FramePipeline::new(None);
+            pipeline
+                .process(Envelope::new(1, None, vec![1, 2, 3]))
+                .expect("envelope should process");
+            let codec = TestCodec::default();
+            let (mut client, server) = tokio::io::duplex(1024);
+            let mut server =
+                Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
+            let mut transport = OutboundTransport {
+                serializer: &FailingSerializer,
+                codec: &codec,
+                framed: &mut server,
+            };
+            let error = flush_pipeline_output(&mut transport, &mut pipeline)
+                .await
+                .expect_err("a serializer failure must fail the flush");
+            assert!(
+                error
+                    .to_string()
+                    .contains("serialization error: serializer refused the envelope"),
+                "the failure should preserve the serializer error, got: {error}"
+            );
+            // `DuplexStream` has no `try_read`, so poll the read once: a
+            // pending read proves the peer received no bytes.
+            let mut probe = [0_u8; 1];
+            let mut buf = ReadBuf::new(&mut probe);
+            let polled =
+                poll_fn(|cx| Poll::Ready(Pin::new(&mut client).poll_read(cx, &mut buf))).await;
+            assert!(
+                matches!(polled, Poll::Pending),
+                "no frame must reach the peer, got: {polled:?}"
+            );
+        });
+    });
+
+    let samples = snapshotter.snapshot().into_vec();
+    assert_eq!(outcome_count(&samples, "serialization_failure"), 1);
+    assert_eq!(outcome_count(&samples, "success"), 0);
+    assert_eq!(outcome_count(&samples, "codec_rejected"), 0);
+    assert_eq!(outcome_count(&samples, "transport_failure"), 0);
 }

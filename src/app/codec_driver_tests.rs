@@ -26,6 +26,7 @@ use crate::{
 mod fragmentation_properties;
 #[path = "codec_driver_tests/growth_properties.rs"]
 mod growth_properties;
+#[cfg(feature = "metrics")]
 #[path = "codec_driver_tests/send_outcome_metrics.rs"]
 mod send_outcome_metrics;
 

@@ -390,11 +390,12 @@ hook. Previously only actor-driven push and multi-packet frames did so, and
 ordinary request/response traffic bypassed the hook.
 
 The hook runs per connection, after the response is serialized and wrapped by
-the `FrameCodec`, and immediately before the frame is written. It therefore
-receives the exact frame that reaches the wire:
+the `FrameCodec`, and immediately before the frame is written. It receives the
+serialized, codec-wrapped frame before codec encoding, so a custom encoder may
+still add its own header or trailer after the hook returns:
 
 ```text
-serialize -> FrameCodec::wrap_payload -> before_send -> transport write
+serialize -> FrameCodec::wrap_payload -> before_send -> codec encode -> socket
 ```
 
 Each connection constructs its own `ProtocolHooks` and `ConnectionContext`, so
