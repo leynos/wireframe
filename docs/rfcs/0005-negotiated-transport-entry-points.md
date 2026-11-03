@@ -23,8 +23,8 @@ atomically. The session retains ownership of its reader, writer, cancellation,
 and tasks. Buffered bytes reach the new phase exactly once. Consumed bytes
 cannot be reinterpreted. The existing reservation for unread bytes transfers to
 the new phase without double-counting and remains charged until consumption,
-rejection, cancellation, or session close releases it once. Setup bounds bytes,
-time, rounds, and cancellation.
+rejection, abort, setup timeout, cancellation, or session close releases it
+once. Setup bounds bytes, time, rounds, and cancellation.
 
 First priority is raw stream negotiation: server-first greeting, client-first
 startup, TLS handoff, and in-band phase changes. Adapting an existing parsed
@@ -44,7 +44,9 @@ Scripted peers cover both greeting directions, coalesced handshake and first
 message, positive/negative upgrade, flush order, rejection, timeout, and
 cancellation. No byte is lost, duplicated, or replayed across a phase change. A
 WebSocket parsed-stream bridge is a separate optional example, not a condition
-for raw setup support.
+for raw setup support. Generated transition, short-write, cancellation, and
+timeout traces must prove reservation transfer is never double-charged or
+released twice and no input byte is lost, duplicated, or replayed.
 
 ## Transition semantics
 

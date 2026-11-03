@@ -29,7 +29,9 @@ Superseded is terminal only for an adapter-declared replaceable unsent frame.
 Partial-write failure terminates the stream and never silently replays.
 Graceful close stops admission, drains only a bounded accepted set, then emits
 one terminal result. Cancellation reclaims tasks, queues, and adapter context.
-Errors preserve transport, peer-decode, application and shutdown distinctions.
+Errors distinguish transport, peer-decode, adapter-contract, application,
+resource-exhaustion, and shutdown failures. These categories are not
+exhaustive; distinct recovery paths must not be collapsed.
 
 ## Alternatives
 
@@ -87,7 +89,9 @@ contract toys. Decide whether ordered emission uses a session reorder buffer or
 per-stream lanes; either choice must preserve global memory bounds. Review
 whether graceful shutdown should flush protocol close output before cancelling
 handlers. Risks are task leaks, head-of-line blocking and ambiguous acceptance
-semantics. Tests must assert each ticket terminates exactly once.
+semantics. Use `proptest` to generate action, completion, cancellation, and
+close interleavings. Assert each ticket terminates exactly once, ordered lanes
+do not overtake, and unrelated ready lanes progress within configured bounds.
 
 This proposal refines, rather than erases, the ownership concerns in ADR 011
 and proposed ADR 012. It supersedes any assumption that the current actor's

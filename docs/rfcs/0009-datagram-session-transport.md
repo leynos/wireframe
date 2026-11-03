@@ -22,9 +22,10 @@ failure result. Core never splits, retries, acknowledges, or deduplicates. It
 gives no network-order guarantee; an adapter may select a local ordered send
 lane. Adapters choose session keys, connectionless behaviour, expiry, native
 fragmentation and reliability. Session lifecycle follows RFC 0004; packet bytes
-and peer state consume RFC 0007 budgets. Validate address changes against
-protocol identity before updating mappings. Bound unvalidated peer state and
-response rates.
+and peer state consume RFC 0007 budgets. The peer/session-entry class charges
+validated and unvalidated entries, including retained bytes and entry count,
+before insertion. Validate address changes against protocol identity before
+updating mappings. Bound unvalidated peer state and response rates.
 
 ## Alternatives
 
@@ -38,7 +39,9 @@ A Quake-style toy handles challenge and bounded fragments under loss,
 duplication, reordering, truncation, and translated source ports. A second
 stateless datagram toy uses the same API without Quake fields. Tests cover send
 failure, expiry, cancellation, anti-amplification bounds, and cleanup. Stream
-transports retain their stream contracts.
+transports retain their stream contracts. Use `proptest` to generate datagram
+loss, duplication, reordering, expiry, and cancellation traces; verify event
+boundaries and exactly-once entry release without assuming network ordering.
 
 ## Packet lifecycle and failure rules
 

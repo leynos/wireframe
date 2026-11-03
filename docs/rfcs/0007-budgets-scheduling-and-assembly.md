@@ -16,11 +16,13 @@ necessarily block control work or an independent channel.
 
 Core applies finite per-session and per-key limits for wire/decoded bytes,
 logical assembly, decompressed bytes, output bytes, active streams, and queued
-work. Decompression must reserve its own finite expansion budget before
-allocating; wire or compressed-size limits do not substitute for this bound.
-Reserve before allocation/enqueue and release on completion, abort, timeout,
-cancellation, and disconnect. Adapters provide bounded logical keys, classify
-control/data, and report assembly lifecycle. The adapter owns fragment
+work, and validated and unvalidated peer/session entries. The finite
+peer/session-entry class charges both entry count and retained state bytes
+before insertion. Decompression must reserve its own finite expansion budget
+before allocating; wire or compressed-size limits do not substitute for this
+bound. Reserve before allocation/enqueue and release on completion, abort,
+timeout, cancellation, and disconnect. Adapters provide bounded logical keys,
+classify control/data, and report assembly lifecycle. The adapter owns fragment
 identifiers, duplicate policy, rollover, acknowledgements, and timeout
 semantics; core owns accounting, deadlines and fair scheduling.
 
@@ -42,7 +44,9 @@ Concurrent fragmented inputs never exceed configured limits; all terminal paths
 release reservations. A zero-credit stream cannot prevent an independent ready
 stream or bounded control traffic. Snapshot replacement only occurs when an
 adapter opts in. Test SQL result streams, IEC/DNP3 segmentation, AMQP credit
-and UDP fragments.
+and UDP fragments. Generate reservation, completion, supersession, timeout, and
+cancellation traces with `proptest`; assert each reservation releases once and
+peak usage and scheduler progress stay within configured bounds.
 
 ## Accounting and scheduling semantics
 

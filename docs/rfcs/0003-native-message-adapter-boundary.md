@@ -52,7 +52,9 @@ Wireframe dispatch. A universal message type erases peer distinctions.
 A Hotline toy preserves native header and correlation through a reply without
 bincode; Modbus preserves transaction/unit identifiers; PostgreSQL preserves
 tagged reply context. External examples compile using public APIs only. RFC
-0008 defines the full verification matrix.
+0008 defines the full verification matrix. Generated action, completion, and
+cancellation traces must prove each dispatch context is consumed or released
+exactly once, including recovery and close races.
 
 ## Conceptual operations and invariants
 
@@ -66,7 +68,8 @@ associated types or an enum if it preserves these properties:
   specifies graceful or immediate termination.
 - `encode(reply_context, completion) -> bounded native frames` consumes reply
   context exactly once. Context cannot be cloned or silently dropped; abort,
-  timeout and disconnect explicitly discard it and release its budget.
+  timeout, recovery, and terminal close explicitly discard it and release its
+  budget; cancellation remains a distinct terminal outcome.
 - Invalid action combinations (dispatch after close, control send without a
   live session, duplicate completion, or context from another session) are
   rejected as adapter contract errors. They do not panic or become peer decode
