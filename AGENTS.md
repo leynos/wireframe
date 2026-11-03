@@ -219,13 +219,14 @@ project:
   inside the harness process may call `std::env::set_var`,
   `std::env::remove_var`, or a helper wrapping them. This binds unit tests,
   integration-test binaries, and in-process behavioural tests alike.
-- **Inject the environment instead.** Any behaviour depending upon environment
-  variables must accept an injected environment: `mockable::Env`, with
-  `mockable::DefaultEnv` supplied in production and `mockable::MockEnv` in
-  tests. A narrow closure seam of the same shape is acceptable where a trait
-  object would be disproportionate. Production code must not call
-  `std::env::var`/`var_os` outside the composition root that constructs the
-  injected value; `clippy.toml` denies those calls.
+- **Inject the environment instead.** Behaviour depending upon environment
+  variables must accept the dependency rather than read it. Pass an already
+  resolved lookup result when one caller reads one variable, a narrow closure
+  for a small reusable reader, or `mockable::Env` — with `mockable::DefaultEnv`
+  in production and `mockable::MockEnv` in tests — when the number of variables
+  or tests justifies the trait. Production code must not call
+  `std::env::var`/`var_os` outside the composition root that resolves the value;
+  `clippy.toml` denies those calls.
 - **Process-wide locks are not an escape hatch.** Serializing environment
   mutation behind a `Mutex`, `OnceLock`, or `serial_test` attribute is not an
   accepted fallback; where injection looks impossible, correct the signature.
