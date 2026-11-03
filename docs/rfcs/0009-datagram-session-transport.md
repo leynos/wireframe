@@ -69,4 +69,4 @@ listener.
 
 The stream transport remains the default path for stream protocols. This RFC
 adds a generic datagram transport and does not add Quake field names,
-reliability semantics or parser code to production Wireframe.
+reliability semantics, or parser code to production Wireframe.
