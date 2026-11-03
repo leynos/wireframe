@@ -15,7 +15,7 @@
 //! varies with the lifetime and cannot satisfy that bound. This module therefore
 //! mirrors the shape of the library's `FnService` instead: the same trait
 //! objects, the same `Send + Sync` bounds, and the same `Next::new(&self.inner)`
-//! dispatch, with only the callback erased behind [`Policy`].
+//! dispatch, with only the callback erased behind `Policy`.
 
 use std::{convert::Infallible, hint::black_box, time::Instant};
 

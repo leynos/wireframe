@@ -125,7 +125,7 @@ impl ContendedLatency {
     #[must_use]
     pub const fn failure_count(&self) -> usize { self.failure_count }
 
-    /// The retained failure messages, at most [`RETAINED_FAILURES`] of them.
+    /// The retained failure messages, at most `RETAINED_FAILURES` of them.
     ///
     /// # Examples
     ///
