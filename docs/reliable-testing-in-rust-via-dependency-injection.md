@@ -29,15 +29,22 @@ ______________________________________________________________________
 
 ### 1. Add `mockable`
 
-First, add the crate to development dependencies in `Cargo.toml`.
+First, add the crate to `Cargo.toml`: production code needs the runtime
+dependency, and tests add the `mock` feature on top of it.
 
 ```toml
+[dependencies]
+chrono = "0.4"
+mockable = { version = "3.0.0", features = ["clock"] }
+
 [dev-dependencies]
 mockable = { version = "3.0.0", features = ["clock", "mock"] }
 ```
 
-The `mock` feature supplies `MockEnv` and `MockClock`; `clock` supplies the
-`Clock` trait and brings `chrono` types into scope.
+The runtime dependency supplies `DefaultEnv` and `DefaultClock`; the `clock`
+feature adds the `Clock` trait, whose methods use `chrono` types, so `chrono`
+must also be a direct dependency. The `mock` feature in `[dev-dependencies]`
+adds `MockEnv` and `MockClock`.
 
 ### 2. The Untestable Code (Before)
 
@@ -61,8 +68,8 @@ The function is refactored to accept a generic type that implements the
 use mockable::Env;
 
 pub fn get_api_key(env: &impl Env) -> Option<String> {
-    match env.var("API_KEY") {
-        Ok(key) if !key.is_empty() => Some(key),
+    match env.string("API_KEY") {
+        Some(key) if !key.is_empty() => Some(key),
         _ => None,
     }
 }
@@ -78,8 +85,8 @@ condition without touching the actual process environment. `MockEnv` is a
 `mockall` mock, so each test configures expectations instead of writing values
 into it.
 
-`Env::var` is a provided method that delegates to `string`, so stubbing
-`expect_string` is enough here.
+The lookup calls `Env::string`, which returns `Option<String>`, so the tests
+stub that method with `expect_string`.
 
 ```rust
 #[cfg(test)]

@@ -1360,9 +1360,12 @@ that merely relocates the read. Subprocess tests configure the child with
 `Command::env_clear` and explicit `Command::env` calls instead of mutating the
 parent test process, which keeps the suite parallel-safe; see
 [reliable testing in Rust via dependency injection](reliable-testing-in-rust-via-dependency-injection.md)
-for the injected-reader background. A capture that must remain at a genuine
-composition root carries an item-scoped
+for the injected-reader background. A direct prohibited call that must remain
+at a genuine composition root carries an item-scoped
 `#[expect(clippy::disallowed_methods, reason = "...")]`; never use `allow`.
+Indirect access through an injected reader, such as `DefaultEnv::raw`, does not
+trigger the lint and must not carry the expectation, because an unfulfilled
+expectation fails the lint gate.
 
 Codec benchmark helpers live in `wireframe_testing::codec_benchmarks`. Bench
 targets, direct unit tests, and BDD fixtures should import the workload matrix,
