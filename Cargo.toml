@@ -118,6 +118,13 @@ testkit = []
 # One lint policy for every workspace package. Members opt in with
 # `[lints] workspace = true`; a package-local table beside that opt-in would
 # silently override the shared policy, so the manifest test rejects one.
+#
+# This table inherits the existing policy into every package; it is not yet
+# the full Netsuke baseline. `clippy::disallowed_methods`,
+# `clippy::missing_assert_message`, `rust::unsafe_code = "forbid"` and the
+# remaining `unexpected_cfgs` declarations stay with issue #664, because
+# forbidding unsafe code needs the `ManuallyDrop::take` path in
+# `src/client/pool/managed.rs` redesigned first.
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 

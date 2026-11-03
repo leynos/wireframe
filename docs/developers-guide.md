@@ -748,8 +748,9 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
   Whitaker drives: `whitaker --all` selects every lint library, not every Cargo
   package, and the workspace's `default-members` would otherwise leave the
   helper crates unchecked. `lint-doc` builds documentation for every member,
-  including `wireframe_testing`; issue #578 concerns only that crate's
-  doctests, which the separate `test-doc` target runs.
+  including `wireframe_testing`. Ordinary workspace tests cover that crate's
+  test targets; issue #578 covers only its doctests, which the separate
+  `test-doc` target excludes until that issue is resolved.
 - `make test` runs the main automated test suite with warnings treated as
   errors.
 - `make test-pool-no-metrics` checks the `pool,serializer-bincode` feature set
@@ -768,7 +769,21 @@ wrapper and no action-owned version.
 Repository-wide exclusions for Whitaker lints live in the root `dylint.toml`.
 It is deliberately empty: add an `excluded_paths` entry only with a reproduced
 diagnostic and a stated external constraint. Do not add `excluded_crates`,
-which would drop a whole workspace member from the policy.
+which would drop a whole workspace member from the policy. The contract test
+also rejects a bare crate name, a glob, a repository-root path, a linter table
+without that evidence, and repository-wide tuning keys such as a shared
+threshold or locale.
+
+The shared policy is the inheritance mechanism for every workspace package, not
+the finished Netsuke baseline. Aligning the remaining baseline rules, namely
+`clippy::disallowed_methods`, `clippy::missing_assert_message`,
+`rust::unsafe_code = "forbid"` and further `unexpected_cfgs` declarations, is
+tracked by issue [#664]. Forbidding unsafe code needs the `ManuallyDrop::take`
+path in `src/client/pool/managed.rs` redesigned first, so that work is
+deliberately out of scope here: this change makes the existing policy reach
+every crate and does not claim the baseline itself.
+
+[#664]: https://github.com/leynos/wireframe/issues/664
 
 ### CodeScene coverage baseline
 

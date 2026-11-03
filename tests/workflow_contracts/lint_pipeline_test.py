@@ -44,6 +44,99 @@ FULL_COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 RUSTDOCFLAGS_RE = re.compile(r'RUSTDOCFLAGS="([^"]*)"')
 #: A leading shell-variable assignment, which is not an argument to anything.
 ASSIGNMENT_PREFIX_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*="[^"]*"\s+')
+#: Dylint tuning keys that weaken every lint at once. A shared threshold or
+#: locale change is a policy decision rather than a local exception, so the
+#: contract rejects it instead of trying to trace an approver.
+REPOSITORY_WIDE_TUNING_KEYS = frozenset(
+    {
+        "extra_test_attributes",
+        "locale",
+        "locales",
+        "test_attributes",
+        "threshold",
+        "thresholds",
+    }
+)
+#: A fully qualified Rust module path such as ``wireframe::legacy_io``. A bare
+#: crate name, a trailing separator, ``.`` or a glob would widen the exception
+#: past the module that raised the diagnostic.
+MODULE_PATH_RE = re.compile(r"^[a-z_][a-z0-9_]*(?:::[a-z_][a-z0-9_]*)+$")
+#: Evidence every exclusion must carry in the comment block above it.
+EXCLUSION_EVIDENCE = ("reproduced by", "external constraint", "tracked by")
+ISSUE_REFERENCE_RE = re.compile(r"(?:#\d+|https://\S+/issues/\d+)")
+EXCLUDED_PATHS_KEY_RE = re.compile(r"^\s*excluded_paths\s*=")
+TABLE_HEADER_RE = re.compile(r"^\[[^\]]+\]$")
+
+
+def _preceding_comment_block(lines: list[str], index: int) -> str:
+    """Return the comment text directly above ``lines[index]``.
+
+    A table header between the comment and the key is skipped, so the evidence
+    may sit above either the header or the key, matching the example in
+    ``dylint.toml``.
+    """
+    collected: list[str] = []
+    for line in reversed(lines[:index]):
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            collected.append(stripped.lstrip("#").strip())
+        elif not stripped:
+            break
+        elif TABLE_HEADER_RE.fullmatch(stripped) and not collected:
+            continue
+        else:
+            break
+    return " ".join(reversed(collected)).lower()
+
+
+def _assert_dylint_policy(source: str) -> None:
+    """Assert the exclusion policy encoded in ``dylint.toml``."""
+    configuration = tomllib.loads(source)
+    crate_wide: list[str] = []
+    tuning: list[str] = []
+    weak_paths: list[str] = []
+
+    def walk(table: dict[str, object], path: str) -> None:
+        for key, value in table.items():
+            if key == "excluded_crates":
+                crate_wide.append(f"{path}.{key}")
+            if key in REPOSITORY_WIDE_TUNING_KEYS:
+                tuning.append(f"{path}.{key}")
+            if key == "excluded_paths" and isinstance(value, list):
+                weak_paths.extend(
+                    f"{path}.{key}={entry!r}"
+                    for entry in value
+                    if not MODULE_PATH_RE.fullmatch(str(entry))
+                )
+            if isinstance(value, dict):
+                walk(value, f"{path}.{key}")
+
+    walk(configuration, "dylint")
+    assert not crate_wide, (
+        f"crate-wide exclusions are forbidden; scope excluded_paths instead: {crate_wide}"
+    )
+    assert not tuning, (
+        "repository-wide tuning keys need the ticket owner's approval and are "
+        f"rejected by this contract: {tuning}"
+    )
+    assert not weak_paths, (
+        "exclusions must name a module path such as `wireframe::legacy_io`; "
+        f"these would widen past the diagnostic: {weak_paths}"
+    )
+
+    lines = source.splitlines()
+    unjustified = []
+    for index, line in enumerate(lines):
+        if not EXCLUDED_PATHS_KEY_RE.match(line):
+            continue
+        evidence = _preceding_comment_block(lines, index)
+        missing = [item for item in EXCLUSION_EVIDENCE if item not in evidence]
+        if missing or not ISSUE_REFERENCE_RE.search(evidence):
+            unjustified.append(f"line {index + 1} lacks {missing or ['an owning issue']}")
+    assert not unjustified, (
+        "every exclusion needs a comment naming the reproduced diagnostic, the "
+        f"external constraint and the issue that removes it: {unjustified}"
+    )
 
 
 def _lint_dry_run(makefile: Path = MAKEFILE_PATH) -> list[str]:
@@ -247,20 +340,78 @@ def test_each_whitaker_pin_is_assigned_once_in_the_makefile() -> None:
 def test_dylint_config_forbids_crate_wide_exclusions() -> None:
     """``dylint.toml`` exists, parses, and keeps exclusions module-scoped."""
     assert DYLINT_CONFIG_PATH.is_file(), "the repository needs a root dylint.toml"
-    configuration = tomllib.loads(DYLINT_CONFIG_PATH.read_text(encoding="utf-8"))
-    offenders = []
+    _assert_dylint_policy(DYLINT_CONFIG_PATH.read_text(encoding="utf-8"))
 
-    def walk(table: dict[str, object], path: str) -> None:
-        for key, value in table.items():
-            if key == "excluded_crates":
-                offenders.append(f"{path}.{key}")
-            if isinstance(value, dict):
-                walk(value, f"{path}.{key}")
 
-    walk(configuration, "dylint")
-    assert not offenders, (
-        f"crate-wide exclusions are forbidden; scope excluded_paths instead: {offenders}"
+def test_dylint_policy_accepts_a_justified_module_exclusion() -> None:
+    """The documented exception shape must remain admissible."""
+    source = (
+        "[legacy_io]\n"
+        "# Reproduced by `make lint-whitaker` on 2026-11-04.\n"
+        "# External constraint: the upstream codec owns the handle.\n"
+        "# Removal tracked by #578.\n"
+        'excluded_paths = ["wireframe::legacy_io"]\n'
     )
+
+    _assert_dylint_policy(source)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            '[dylint]\nexcluded_crates = ["wireframe"]\n',
+            "crate-wide",
+            id="excluded_crates",
+        ),
+        pytest.param(
+            '[legacy]\nexcluded_paths = ["wireframe"]\n',
+            "module path",
+            id="bare_crate_name",
+        ),
+        pytest.param(
+            '[legacy]\nexcluded_paths = ["wireframe::"]\n',
+            "module path",
+            id="trailing_separator",
+        ),
+        pytest.param(
+            '[legacy]\nexcluded_paths = ["."]\n',
+            "module path",
+            id="repository_root",
+        ),
+        pytest.param(
+            '[legacy]\nexcluded_paths = ["crates/*"]\n',
+            "module path",
+            id="glob",
+        ),
+        pytest.param(
+            '[legacy]\nexcluded_paths = ["wireframe::legacy"]\n',
+            "needs a comment",
+            id="missing_justification",
+        ),
+        pytest.param(
+            "[legacy]\n"
+            "# Reproduced by a run. External constraint: none.\n"
+            'excluded_paths = ["wireframe::legacy"]\n',
+            "needs a comment",
+            id="missing_owning_issue",
+        ),
+        pytest.param(
+            "[legacy]\nthresholds = { complexity = 20 }\n",
+            "tuning",
+            id="thresholds",
+        ),
+        pytest.param(
+            '[legacy]\nlocale = "en-GB"\n',
+            "tuning",
+            id="locale",
+        ),
+    ],
+)
+def test_dylint_policy_rejects_unsafe_exceptions(source: str, expected: str) -> None:
+    """Each rejected shape must fail for its own stated reason."""
+    with pytest.raises(AssertionError, match=expected):
+        _assert_dylint_policy(source)
 
 
 @pytest.mark.parametrize(
