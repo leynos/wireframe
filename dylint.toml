@@ -1,0 +1,31 @@
+# Whitaker (Dylint) configuration for the Wireframe workspace.
+#
+# This file is the repository's only lint-exception register. The policy is
+# deliberately strict:
+#
+# - Prefer a fix. An exclusion is admitted only after the widened
+#   `make lint-whitaker` run reproduces the diagnostic, and only where an
+#   external constraint makes the fix impossible or unsafe.
+# - Scope an exclusion to the narrowest module path that still silences the
+#   proven diagnostic. Use `excluded_paths` with fully qualified Rust paths
+#   (for example `wireframe::legacy_io`); a trailing `::` or a bare crate name
+#   is rejected because it widens to the whole crate.
+# - Never use `excluded_crates`: it exempts an entire crate, which cannot
+#   express the module-level boundary this repository requires.
+# - Every entry must carry a comment naming the reproduced diagnostic, the
+#   external constraint, and the issue that owns removing it. Entries without
+#   that evidence are removed in review.
+# - Do not add repository-wide tuning keys (thresholds, locales, extra test
+#   attributes) without the ticket owner's approval; changing a shared
+#   threshold weakens every crate at once.
+#
+# There are currently no exclusions. Add entries here in the lint table that
+# raised the diagnostic, for example:
+#
+# ```toml
+# [no_std_fs_operations]
+# # Reproduced by `make lint-whitaker` on <date> from <diagnostic id>.
+# # External constraint: <why the fix cannot be applied>.
+# # Removal tracked by <issue>.
+# excluded_paths = ["wireframe::the_one_module"]
+# ```

@@ -61,17 +61,21 @@ Namespace's shared profile is Ubuntu 22.04, which carries glibc 2.35.
 `ubicloud-standard-4` is Ubuntu 24.04, which carries glibc 2.39, so the
 constraint is satisfied rather than waived. repovec-appliance runs the same
 `whitaker-installer` on Ubicloud, green, and so does this lane, which now takes
-the 0.2.11 release the shared action pins. Should a lane ever need the
+the 0.2.11 release the Makefile pins. Should a lane ever need the
 `-ubuntu-2204` variant, the old constraint returns with it.
 
-Whitaker is installed through the shared `install-whitaker` action, which owns
-its installer cache. The action keys that cache by operating system,
-architecture, installer version, `dylint.toml` and Cargo home, not by
-`runner.environment`. The repository's own cache step and the contract that
-pinned its key are retired with it: both runner environments are Ubuntu 24.04
-today, so they share a glibc and no restore can run on an older one. Should the
-two environments ever diverge, key the action's cache provider instead of
-restoring a compiled installer by hand.
+Whitaker is installed through `make install-whitaker`, which contributors and
+CI both run. The Makefile owns every pin in one block: the installer release,
+the `cargo-dylint` and `dylint-link` releases, and the Whitaker suite commit.
+CI therefore installs exactly the tools the contributor installs, and a
+reviewed bump is a single edit followed by `make install-whitaker` and
+`make lint`.
+
+The shared `install-whitaker` action, the repository's own cache step and the
+contract that pinned its key are retired. Both runner environments are Ubuntu
+24.04 today, so they share a glibc, and no restore can select an older one.
+`tests/workflow_contracts/lint_pipeline_test.py` rejects a pin declared outside
+the Makefile, so a workflow-level version or cache key cannot creep back in.
 
 ### Why `build-test` has two vCPU and `coverage-upload` four
 
@@ -725,29 +729,46 @@ introducing additional breaking changes.
 Use the Makefile targets as the contributor entrypoint for routine validation:
 
 - `make check-fmt` verifies workspace formatting.
-- `make lint` runs rustdoc with warnings denied, `cargo clippy`, and
-  `whitaker --all --workspace -- --all-targets --all-features`.
+- `make lint` runs the three lint stages over every workspace package, target
+  and feature, with warnings denied:
 
-  `make lint` is a thin aggregate target for the two halves, `lint-clippy` and
-  `lint-whitaker`, so either can be run alone. `.NOTPARALLEL: lint` keeps the
-  halves sequential even under `make -j lint`, because concurrent runs would
-  interleave their diagnostics. `--workspace` sits before `--` so it reaches
-  the inner `cargo check` that Whitaker drives: `whitaker --all` selects every
-  lint library, not every Cargo package, and the workspace's `default-members`
-  would otherwise leave the helper crates unchecked.
+  - `lint-doc` builds rustdoc with
+    `--workspace --all-features --no-deps` under
+    `RUSTDOCFLAGS="--cfg docsrs -D warnings"`;
+  - `lint-clippy` runs Clippy with
+    `--workspace --all-targets --all-features -- -D warnings`;
+  - `lint-whitaker` runs
+    `whitaker --all -- --workspace --all-targets --all-features` under
+    `RUSTFLAGS="-D warnings"`.
+
+  `make lint` is a thin aggregate target, so each leaf can be run alone.
+  `.NOTPARALLEL: lint` keeps the stages sequential even under `make -j lint`,
+  because concurrent runs would interleave their diagnostics. `--workspace` and
+  its companions follow `--` so they reach the inner `cargo check` that
+  Whitaker drives: `whitaker --all` selects every lint library, not every Cargo
+  package, and the workspace's `default-members` would otherwise leave the
+  helper crates unchecked. `lint-doc` builds documentation for every member,
+  including `wireframe_testing`; issue #578 concerns only that crate's
+  doctests, which the separate `test-doc` target runs.
 - `make test` runs the main automated test suite with warnings treated as
   errors.
 - `make test-pool-no-metrics` checks the `pool,serializer-bincode` feature set
   with default features disabled and warnings denied. The required `build-test`
   CI job runs it in the `Pool without metrics compile check` step.
 
-Install Whitaker through the standalone installer described in the
-[Whitaker user's guide](whitaker-users-guide.md) so local linting matches
-continuous integration (CI).
+Install the pinned toolchain with `make install-whitaker` before the first
+`make lint`. The target installs `cargo-dylint`, `dylint-link`, the Whitaker
+installer and the suite revision from the single pin block in the Makefile, so
+local linting and CI use identical versions; see the
+[Whitaker user's guide](whitaker-users-guide.md).
 
-CI installs Whitaker through the shared `install-whitaker` action, which builds
-the Dylint driver from a verified Clippy snapshot instead of cloning
-`rust-clippy`, so the lint step runs plain `make lint` with no Git wrapper.
+CI runs that same target, so the lint step is plain `make lint` with no Git
+wrapper and no action-owned version.
+
+Repository-wide exclusions for Whitaker lints live in the root `dylint.toml`.
+It is deliberately empty: add an `excluded_paths` entry only with a reproduced
+diagnostic and a stated external constraint. Do not add `excluded_crates`,
+which would drop a whole workspace member from the policy.
 
 ### CodeScene coverage baseline
 
@@ -1276,20 +1297,24 @@ The standard Makefile gates cover all supported workspace members and targets:
     --all-targets --all-features $(BUILD_JOBS)
   ```
 
-- `make lint` runs these workspace-wide checks through `lint-clippy` and then
-  `lint-whitaker`; `.NOTPARALLEL: lint` keeps that order under `make -j`:
+- `make lint` runs these workspace-wide checks in order through `lint-doc`,
+  `lint-clippy` and `lint-whitaker`; `.NOTPARALLEL: lint` keeps that order under
+  `make -j`:
 
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" \
-    $(CARGO) $(DEV_FAST) doc --workspace --no-deps
-  RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) clippy $(CLIPPY_FLAGS)
-  RUSTFLAGS="-D warnings" $(WHITAKER) --all --workspace -- --all-targets --all-features
+    $(CARGO) $(DEV_FAST) doc --workspace --all-features --no-deps
+  RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) clippy \
+    --workspace --all-targets --all-features -- -D warnings
+  RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --workspace --all-targets \
+    --all-features
   ```
 
-  `--workspace` must precede `--` so it reaches the inner `cargo check` that
-  Whitaker drives. `whitaker --all` selects every discovered lint library
-  rather than widening the Cargo package selection, so without the flag the
-  workspace's `default-members` would leave the helper crates unchecked.
+  `--workspace`, `--all-targets` and `--all-features` must follow `--` so they
+  reach the inner `cargo check` that Whitaker drives. `whitaker --all` selects
+  every discovered lint library rather than widening the Cargo package
+  selection, so without the flags the workspace's `default-members` would leave
+  the helper crates and non-default targets unchecked.
 
 The shared `[workspace.lints.clippy]`, `[workspace.lints.rust]`, and
 `[workspace.lints.rustdoc]` tables are inherited by each member through

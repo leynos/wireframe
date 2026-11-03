@@ -93,13 +93,32 @@ fn root_manifest_declares_explicit_workspace_section() -> TestResult {
     Ok(())
 }
 
+/// Return the package-local lint tables declared alongside an inheritance opt-in.
+///
+/// Cargo merges such a table with the inherited policy rather than replacing it,
+/// so a package can quietly raise a shared lint's level without touching the
+/// workspace manifest. Naming them here keeps the policy single-sourced.
+fn package_local_lint_tables(manifest: &str) -> Vec<&str> {
+    manifest
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("[lints."))
+        .collect()
+}
+
 #[rstest]
 fn companion_crates_inherit_private_documentation_clippy_policy() -> TestResult {
     let root_manifest = root_manifest()?;
-    check(
-        has_manifest_table(&root_manifest, "[workspace.lints.clippy]"),
-        "the workspace must define its shared Clippy policy",
-    )?;
+    for (table, description) in [
+        ("[workspace.lints.clippy]", "Clippy"),
+        ("[workspace.lints.rust]", "rustc"),
+        ("[workspace.lints.rustdoc]", "rustdoc"),
+    ] {
+        check(
+            has_manifest_table(&root_manifest, table),
+            format!("the workspace must define its shared {description} policy"),
+        )?;
+    }
     check(
         has_manifest_line(
             &root_manifest,
@@ -115,6 +134,10 @@ fn companion_crates_inherit_private_documentation_clippy_policy() -> TestResult 
     check(
         has_manifest_line(&root_manifest, "[lints]", "workspace = true"),
         "the root package must inherit the shared Clippy policy",
+    )?;
+    check(
+        package_local_lint_tables(&root_manifest).is_empty(),
+        "the root package must not layer its own lint table over the inherited policy",
     )?;
 
     for (package_name, manifest_path) in [
@@ -133,6 +156,10 @@ fn companion_crates_inherit_private_documentation_clippy_policy() -> TestResult 
         check(
             has_manifest_line(&manifest, "[lints]", "workspace = true"),
             format!("{package_name} must inherit the shared Clippy policy"),
+        )?;
+        check(
+            package_local_lint_tables(&manifest).is_empty(),
+            format!("{package_name} must not layer its own lint table over the policy"),
         )?;
     }
     Ok(())

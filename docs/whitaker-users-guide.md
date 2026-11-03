@@ -6,6 +6,31 @@ explains how to integrate the lints into a project and configure them.
 For contributors who want to develop new lints or work on Whitaker itself, see
 the [Developer's Guide](developers-guide.md).
 
+## Installing in this repository
+
+Wireframe pins the whole Whitaker toolchain in one block in the `Makefile`: the
+installer release, the `cargo-dylint` and `dylint-link` releases, and the
+Whitaker suite commit. Install exactly those versions with:
+
+```sh
+make install-whitaker
+```
+
+Do not install `cargo-dylint`, `dylint-link` or `whitaker-installer`
+separately, and do not pass `--suite-version` by hand. A version that appears
+anywhere but the Makefile breaks the workflow contract tests and lets local
+results drift from CI, which runs the same target. To bump the toolchain, edit
+the pin block, run `make install-whitaker`, then `make lint`.
+
+Lint exclusions for the repository live in the root `dylint.toml`. Keep them
+empty unless a reproduced diagnostic has a stated external constraint, and
+scope them with `excluded_paths`; `excluded_crates` would exempt a whole
+workspace member from the policy. The workflow contract tests in
+`tests/workflow_contracts/lint_pipeline_test.py` enforce both rules.
+
+The rest of this guide describes the upstream installation and configuration
+options that the pinned toolchain implements.
+
 ## Quick setup
 
 ### Prerequisites

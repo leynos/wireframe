@@ -93,7 +93,10 @@ jobs:
         run: make check-fmt
 
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@872f59f53717b5bebe8e24b2f4a7496b089a939a # shared-actions 5a99aed7 (whitaker-installer 0.2.11)
+        # The Makefile owns every pin: installer, Dylint tools and suite
+        # revision. CI installs through the same target a contributor runs, so
+        # the lint pipeline cannot drift between them.
+        run: make install-whitaker
       - name: Lint
         run: make lint
       - name: Setup uv

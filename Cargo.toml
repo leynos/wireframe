@@ -115,6 +115,9 @@ benchmark-counters = []
 test-support = []
 testkit = []
 
+# One lint policy for every workspace package. Members opt in with
+# `[lints] workspace = true`; a package-local table beside that opt-in would
+# silently override the shared policy, so the manifest test rejects one.
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 

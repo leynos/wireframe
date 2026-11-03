@@ -119,7 +119,7 @@ each one is evidence for:
 | Gate                       | Command                            | Evidence                                                                                                          |
 | -------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Formatting                 | `make check-fmt`                   | Style conformance                                                                                                 |
-| Lint                       | `make lint`                        | Clippy and dylint, warnings denied                                                                                |
+| Lint                       | `make lint`                        | Rustdoc, Clippy and dylint, warnings denied                                                                       |
 | Typecheck                  | `make typecheck`                   | Workspace type correctness                                                                                        |
 | Unit and behavioural tests | `make test`                        | Correctness contracts                                                                                             |
 | Feature matrix             | feature-gate scripts in `scripts/` | Optional-feature builds stay sound                                                                                |

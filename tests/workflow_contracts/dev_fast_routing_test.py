@@ -344,7 +344,7 @@ def test_lint_contract_detects_a_removed_cargo_invocation(tmp_path: Path) -> Non
     source = MAKEFILE_PATH.read_text(encoding="utf-8")
     removed = (
         '\tRUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" '
-        "$(CARGO) $(DEV_FAST) doc --workspace --no-deps\n"
+        "$(CARGO) $(DEV_FAST) doc $(DOC_FLAGS)\n"
     )
     assert source.count(removed) == 1, "the lint recipe mutation must be unambiguous"
     mutated_makefile = tmp_path / "Makefile"

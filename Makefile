@@ -2,8 +2,9 @@
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
 # Kept off the build/test line above so that unrelated edits to that long line
-# cannot collide with the two new lint targets during a stack restack.
-.PHONY: lint-clippy lint-whitaker
+# cannot collide with the lint targets during a stack restack.
+.PHONY: lint-doc lint-clippy lint-whitaker
+.PHONY: install-whitaker
 .PHONY: install-kani check-kani-version install-verus run-verus test-verification kani \
 	kani-full verus formal-pr formal-nightly formal
 
@@ -40,6 +41,7 @@ DEV_BUILD_FLAGS = $(strip $(RUSTFLAGS) $(DEV_STANDARD_FLAGS))
 RELEASE_BUILD_ENV = RUSTFLAGS="$${RUSTFLAGS-}"
 DEV_BUILD_ENV = RUSTFLAGS="$(DEV_BUILD_FLAGS)"
 CLIPPY_FLAGS ?= --workspace --all-targets --all-features -- -D warnings
+DOC_FLAGS ?= --workspace --all-features --no-deps
 RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
 MDLINT ?= $(shell command -v markdownlint-cli2 2>/dev/null || printf '%s' "$$HOME/.bun/bin/markdownlint-cli2")
 # `make fmt` and `make check-fmt` call mdtablefix directly. `--git` selects the
@@ -51,6 +53,29 @@ MDTABLEFIX ?= mdtablefix
 MDTABLEFIX_SELECT = --git --include-untracked
 MDTABLEFIX_RULES = --wrap --renumber --breaks --ellipsis --fences
 WHITAKER ?= whitaker
+# Whitaker pin
+#
+# Every component of the lint suite is pinned here, in one place, so a reviewed
+# bump is a single edit. `WHITAKER_SUITE_REV` is a full commit on
+# `leynos/whitaker`'s default branch rather than a floating release tag: the
+# rolling tag moves, and a moving suite would change this repository's lint
+# results without a reviewed diff. A pinned suite is built from source, so the
+# installer also needs the suite's own `rust-toolchain.toml` components, which
+# it installs through rustup.
+#
+# `cargo-dylint` and `dylint-link` are pinned to exactly 6.3.0 because that is
+# the Dylint release the pinned Whitaker suite builds against
+# (`installer/dependency-binaries.toml`). A different major or minor can reject
+# libraries compiled by the suite or fail to find its driver.
+WHITAKER_INSTALLER ?= whitaker-installer
+WHITAKER_INSTALLER_VERSION ?= 0.2.11
+CARGO_DYLINT_VERSION ?= 6.3.0
+DYLINT_LINK_VERSION ?= 6.3.0
+WHITAKER_SUITE_REV ?= 00186d43f5121df92bcc207e48b3b2a4ca945937
+# `--all` selects every discovered lint library. The arguments after `--` are
+# forwarded to the `cargo check` that Whitaker drives, so they widen package,
+# target and feature coverage there rather than being read as lint options.
+WHITAKER_FLAGS ?= --all -- --workspace --all-targets --all-features
 NIXIE_VERSION ?= 1.1.0
 UV ?= uv
 UV_ENV = UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools
@@ -158,29 +183,41 @@ target/%/lib$(CRATE).rlib: ## Build library in debug or release
 	  target/$(if $(findstring release,$(@)),release,debug)/lib$(CRATE).rlib \
 	  $@
 
-# Sourcing `lint` from both halves keeps a bare `make -j lint` honest: each
-# recipe line is its own shell, so listing them under one target would let the
-# two linters start together and interleave their diagnostics. Prerequisites of
-# a single target run in parallel under `-j`, so ordering comes from
+# `lint` is the one aggregate CI and contributor tooling invoke. Splitting it
+# into named leaves keeps each stage runnable on its own while leaving the
+# aggregate recipe-free, so the pipeline cannot drift between the two.
+#
+# Each leaf is one recipe line: a bare `make -j lint` would otherwise start the
+# three linters together and interleave their diagnostics. Prerequisites of a
+# single target run in parallel under `-j`, so ordering comes from
 # `.NOTPARALLEL` and not from the order they are named.
 .NOTPARALLEL: lint
 
-lint: lint-clippy lint-whitaker ## Run Clippy and Whitaker with warnings denied
+lint: lint-doc lint-clippy lint-whitaker ## Run rustdoc, Clippy and Whitaker with warnings denied
 
-lint-clippy: ## Run rustdoc and Clippy with warnings denied
-	RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) $(DEV_FAST) doc --workspace --no-deps
+lint-doc: ## Build workspace rustdoc for every feature with warnings denied
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) $(DEV_FAST) doc $(DOC_FLAGS)
+
+lint-clippy: ## Run Clippy over the whole workspace with warnings denied
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) clippy $(CLIPPY_FLAGS)
 
-# `whitaker --all` selects every discovered lint library; it does not widen the
-# Cargo package selection. The arguments after `--` go to `cargo check`, which
-# otherwise honours the workspace's `default-members` (just the root package),
-# leaving the three helper crates never dylint-checked. `--workspace` must
-# precede `--` to reach that inner Cargo invocation rather than the linter.
-#
 # Whitaker keeps its own installer-managed toolchain: no `DEV_FAST` config and
-# no Make-owned development linker flag reach this line.
+# no Make-owned development linker flag reach this line. `WHITAKER_FLAGS`
+# carries the workspace, all-target and all-feature selection after `--`, so
+# they reach the `cargo check` Whitaker drives rather than being read as lint
+# options.
 lint-whitaker: ## Run Whitaker over every workspace member
-	RUSTFLAGS="-D warnings" $(WHITAKER) --all --workspace -- --all-targets --all-features
+	RUSTFLAGS="-D warnings" $(WHITAKER) $(WHITAKER_FLAGS)
+
+# Installation stays explicit rather than a `lint` prerequisite: a contributor
+# with an existing installation should not pay for it on every run, and CI
+# installs once before its single `make lint` step. The suite revision is
+# resolved outside any Whitaker checkout so the installer clones its own copy.
+install-whitaker: ## Install the pinned Whitaker suite and Dylint tools
+	$(CARGO) install --locked --version $(CARGO_DYLINT_VERSION) cargo-dylint
+	$(CARGO) install --locked --version $(DYLINT_LINK_VERSION) dylint-link
+	$(CARGO) install --locked --version $(WHITAKER_INSTALLER_VERSION) $(WHITAKER_INSTALLER)
+	$(WHITAKER_INSTALLER) --suite-version $(WHITAKER_SUITE_REV)
 
 fmt: ## Format Rust and Markdown sources
 	$(CARGO) fmt --all
