@@ -3223,7 +3223,7 @@ directories (one per shard on full dispatch runs) for offline triage.
     `src/client/config.rs`, and `src/client/error.rs`.
 [^45]: Implemented in `src/request.rs`.
 [^46]: See ADR 0002 for design rationale:
-    `docs/adr/0002-streaming-requests-and-shared-message-assembly.md`.
+    `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`.
 [^47]: Client preamble support implemented in `src/client/builder.rs`
     (lines 288-566) and `src/client/mod.rs` (callback types).
 [^48]: Client lifecycle hooks implemented in `src/client/hooks.rs`,
@@ -3252,7 +3252,7 @@ directories (one per shard on full dispatch runs) for offline triage.
     [ADR 0002](adrs/adr-0002-streaming-requests-and-shared-message-assembly.md),
     Section 4, for design rationale.
 
-[adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md
+[adr-0002-ref]: adrs/adr-0002-streaming-requests-and-shared-message-assembly.md
 
 [serializer-output-plan]:
 execplans/issue-538-plan-zero-copy-serializer-output-migration.md
