@@ -105,7 +105,10 @@ fn build_app() -> wireframe::app::Result<App> {
         .route(1, Arc::new(handle_packet))
 }
 
-/// Validate a listener address, falling back when the environment lookup fails.
+/// Validate a listener address from an already-performed environment lookup.
+///
+/// The lookup result is injected rather than read here, so the fallback and
+/// validation rules are testable without mutating the process environment.
 fn parse_server_addr(addr: &Result<String, std::env::VarError>) -> std::io::Result<SocketAddr> {
     let addr_str = addr.as_deref().unwrap_or(DEFAULT_ADDR);
     addr_str.parse().map_err(|error| {
@@ -117,6 +120,11 @@ fn parse_server_addr(addr: &Result<String, std::env::VarError>) -> std::io::Resu
 }
 
 /// Initialize tracing, bind the listener, and serve until shutdown is signalled.
+///
+/// This is the executable's composition root and the only place that captures
+/// `SERVER_ADDR` from the process environment. The capture is handed to
+/// [`parse_server_addr`] as a value, keeping the parsing rules free of ambient
+/// state.
 async fn run() -> std::io::Result<()> {
     let _ = tracing_subscriber::fmt::try_init();
     let app = build_app().map_err(|error| std::io::Error::other(error.to_string()))?;
@@ -156,14 +164,30 @@ mod tests {
     #[case::non_unicode(VarError::NotUnicode(OsString::from("raw value")))]
     fn uses_default_when_lookup_fails(#[case] error: VarError) -> Result<(), io::Error> {
         let addr = parse_server_addr(&Err(error))?;
-        assert_eq!(addr.to_string(), DEFAULT_ADDR);
+        let expected = DEFAULT_ADDR
+            .parse::<SocketAddr>()
+            .map_err(io::Error::other)?;
+        assert_eq!(addr, expected);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::ipv4("127.0.0.1:9000", SocketAddr::from(([127u8, 0, 0, 1], 9000)))]
+    #[case::ipv6("[::1]:9000", SocketAddr::from(([0u16, 0, 0, 0, 0, 0, 0, 1], 9000)))]
+    fn accepts_configured_address(
+        #[case] configured: &str,
+        #[case] expected: SocketAddr,
+    ) -> Result<(), io::Error> {
+        let addr = parse_server_addr(&Ok(configured.to_owned()))?;
+        assert_eq!(addr, expected);
         Ok(())
     }
 
     #[test]
-    fn accepts_configured_address() -> Result<(), io::Error> {
-        let addr = parse_server_addr(&Ok("127.0.0.1:9000".to_string()))?;
-        assert_eq!(addr, SocketAddr::from(([127, 0, 0, 1], 9000)));
+    fn rejects_empty_configured_address() -> Result<(), io::Error> {
+        let error = parse_server_addr(&Ok(String::new()))
+            .expect_err("an empty configured address must fail rather than fall back");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         Ok(())
     }
 
