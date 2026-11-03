@@ -16,6 +16,7 @@ from nextest_policy import (
     drives_trybuild,
     is_loom_gated,
     parse_target_filter,
+    qualified_test_names,
 )
 from timeout_policy import (
     DurationSyntaxError,
@@ -97,11 +98,75 @@ def test_a_filter_outside_the_exact_conjunction_is_refused(text: str) -> None:
         pytest.param(
             "fn compile_tests() {}\n", False, id="no-test-attribute"
         ),
+        pytest.param(
+            "// #[test]\n// fn compile_tests() {}\n",
+            False,
+            id="line-commented-out",
+        ),
+        pytest.param(
+            "/* #[test]\nfn compile_tests() {} */\n",
+            False,
+            id="block-commented-out",
+        ),
+        pytest.param(
+            "mod contracts {\n    #[test]\n    fn compile_tests() {}\n}\n",
+            False,
+            id="nested-module",
+        ),
+        pytest.param(
+            "mod outer {\n    mod inner {\n        #[test]\n"
+            "        fn compile_tests() {}\n    }\n}\n",
+            False,
+            id="doubly-nested-module",
+        ),
+        pytest.param(
+            "impl Harness {\n    #[test]\n    fn compile_tests() {}\n}\n",
+            False,
+            id="impl-block",
+        ),
+        pytest.param(
+            "mod contracts {\n    #[test]\n    fn compile_tests() {}\n}\n"
+            "#[test]\nfn compile_tests() {}\n",
+            True,
+            id="root-and-nested",
+        ),
     ],
 )
-def test_test_function_detection_is_source_level(source: str, expected: bool) -> None:
-    """The named ``#[test]`` function is found, and a bare ``fn`` is not."""
+def test_test_function_detection_is_module_aware(
+    source: str, expected: bool
+) -> None:
+    """Only a crate-root ``#[test]`` has the name an exact matcher selects."""
     assert defines_test_function(source, "compile_tests") is expected
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("#[test]\nfn a() {}\n", {"a"}, id="crate-root"),
+        pytest.param(
+            "mod m {\n    #[test]\n    fn b() {}\n}\n", {"m::b"}, id="nested"
+        ),
+        pytest.param(
+            "mod a {\n    mod b {\n        #[test]\n        fn c() {}\n"
+            "    }\n}\n",
+            {"a::b::c"},
+            id="doubly-nested",
+        ),
+        pytest.param(
+            "// #[test]\n// fn commented() {}\n", set(), id="commented-out"
+        ),
+        pytest.param(
+            "impl Harness {\n    #[test]\n    fn method() {}\n}\n",
+            set(),
+            id="not-a-test-item",
+        ),
+    ],
+)
+def test_test_function_paths_are_fully_qualified(
+    source: str, expected: set[str]
+) -> None:
+    """The module path is established rather than assumed to be the bare name."""
+    assert qualified_test_names(source) == frozenset(expected)
 
 
 @pytest.mark.parametrize(
@@ -110,10 +175,21 @@ def test_test_function_detection_is_source_level(source: str, expected: bool) ->
         pytest.param("let t = trybuild::TestCases::new();", True, id="plain"),
         pytest.param("let t = trybuild :: TestCases::new();", True, id="spaced"),
         pytest.param("let t = other::TestCases::new();", False, id="other-crate"),
+        pytest.param(
+            "// let t = trybuild::TestCases::new();", False, id="line-comment"
+        ),
+        pytest.param(
+            "/* let t = trybuild::TestCases::new(); */", False, id="block-comment"
+        ),
+        pytest.param(
+            'let path = "trybuild::TestCases::new()";',
+            False,
+            id="string-literal",
+        ),
     ],
 )
 def test_trybuild_detection(source: str, expected: bool) -> None:
-    """A trybuild driver is recognized however its path is spaced."""
+    """A live trybuild driver is recognized however its path is spaced."""
     assert drives_trybuild(source) is expected
 
 
@@ -123,10 +199,11 @@ def test_trybuild_detection(source: str, expected: bool) -> None:
         pytest.param("#![cfg(loom)]\n", True, id="crate-gate"),
         pytest.param("#![cfg(not(coverage))]\n", False, id="coverage-gate"),
         pytest.param("#[cfg(loom)]\n", False, id="item-gate"),
+        pytest.param("// #![cfg(loom)]\n", False, id="commented-out"),
     ],
 )
 def test_loom_gate_detection(source: str, expected: bool) -> None:
-    """Only a crate-level Loom gate excludes a target from the ordinary run."""
+    """Only a live crate-level Loom gate excludes a target from the run."""
     assert is_loom_gated(source) is expected
 
 

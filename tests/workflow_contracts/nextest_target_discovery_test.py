@@ -49,6 +49,26 @@ fn not_compile_tests() {
 }
 """
 
+# Nextest names this test `contracts::compile_tests`, so the exact matcher
+# `test(=compile_tests)` selects nothing even though the source text contains
+# the name.
+NESTED_MODULE_TEST_SOURCE = """\
+mod contracts {
+    #[test]
+    fn compile_tests() {
+        let _ = trybuild::TestCases::new();
+    }
+}
+"""
+
+# A commented-out definition is not evidence that nextest will run anything.
+COMMENTED_OUT_TEST_SOURCE = """\
+// #[test]
+// fn compile_tests() {
+//     let _ = trybuild::TestCases::new();
+// }
+"""
+
 
 def read_source(path: Path) -> str:
     """Read one target's source text."""
@@ -218,6 +238,22 @@ RENAMED_TARGET = (
             False,
             id="renamed-test-function",
         ),
+        pytest.param(
+            "nested-module-test",
+            (),
+            (),
+            {"tests/compile_error.rs": NESTED_MODULE_TEST_SOURCE},
+            False,
+            id="nested-module-test",
+        ),
+        pytest.param(
+            "commented-out-test",
+            (),
+            (),
+            {"tests/compile_error.rs": COMMENTED_OUT_TEST_SOURCE},
+            False,
+            id="commented-out-test",
+        ),
     ],
 )
 def test_fixture_crate_discovery(
@@ -245,6 +281,20 @@ def test_fixture_crate_discovery(
         assert violations, f"{case} should be rejected"
 
 
+def test_nested_module_violation_names_the_qualified_path(tmp_path: Path) -> None:
+    """The rejection reports the module path the exact matcher cannot select."""
+    manifest = write_crate(
+        tmp_path,
+        files={"tests/compile_error.rs": NESTED_MODULE_TEST_SOURCE},
+    )
+    violations = override_target_violations(
+        repository_config(), read_test_targets(manifest), read_source
+    )
+    assert any(
+        "contracts::compile_tests" in violation for violation in violations
+    ), violations
+
+
 def _non_trybuild_target(targets: typ.Sequence[CargoTestTarget]) -> CargoTestTarget:
     """Return a discovered target that does not drive trybuild."""
     return next(
@@ -255,43 +305,96 @@ def _non_trybuild_target(targets: typ.Sequence[CargoTestTarget]) -> CargoTestTar
     )
 
 
+def _set_filter(
+    config: dict[str, typ.Any], _targets: typ.Sequence[CargoTestTarget], text: str
+) -> None:
+    """Replace the one override's filter with ``text``."""
+    config["profile"]["default"]["overrides"][0]["filter"] = text
+
+
+def _without_binary(
+    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+) -> None:
+    """Drop the binary matcher from the filter."""
+    _set_filter(config, targets, "package(=wireframe) & test(=compile_tests)")
+
+
+def _without_package(
+    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+) -> None:
+    """Drop the package matcher from the filter."""
+    _set_filter(config, targets, "binary(=compile_error) & test(=compile_tests)")
+
+
+def _without_test(
+    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+) -> None:
+    """Drop the test matcher from the filter."""
+    _set_filter(config, targets, "package(=wireframe) & binary(=compile_error)")
+
+
+def _wrong_package(
+    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+) -> None:
+    """Name a package that discovers no such target."""
+    _set_filter(
+        config,
+        targets,
+        "package(=other) & binary(=compile_error) & test(=compile_tests)",
+    )
+
+
+def _non_exact_binary(
+    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+) -> None:
+    """State the binary matcher as a substring rather than an exact match."""
+    _set_filter(
+        config,
+        targets,
+        "package(=wireframe) & binary(compile_error) & test(=compile_tests)",
+    )
+
+
+def _extra_override(
+    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+) -> None:
+    """Append an override for a target that does not drive trybuild."""
+    target = _non_trybuild_target(targets)
+    config["profile"]["default"]["overrides"].append({
+        "filter": (
+            f"package(={target.package}) & binary(={target.name})"
+            " & test(=some_test)"
+        ),
+        "slow-timeout": {
+            "period": "60s",
+            "terminate-after": 8,
+            "grace-period": "5s",
+        },
+    })
+
+
+_OVERRIDE_MUTATIONS: typ.Final = {
+    "no_binary": _without_binary,
+    "no_package": _without_package,
+    "no_test": _without_test,
+    "wrong_package": _wrong_package,
+    "non_exact": _non_exact_binary,
+    "extra_override": _extra_override,
+}
+
+
 def _mutate_override_config(
     mutation: str,
     config: dict[str, typ.Any],
     targets: typ.Sequence[CargoTestTarget],
 ) -> None:
     """Apply one override-config mutation in place."""
-    override = config["profile"]["default"]["overrides"][0]
-    if mutation == "no_binary":
-        override["filter"] = "package(=wireframe) & test(=compile_tests)"
-    elif mutation == "no_package":
-        override["filter"] = "binary(=compile_error) & test(=compile_tests)"
-    elif mutation == "no_test":
-        override["filter"] = "package(=wireframe) & binary(=compile_error)"
-    elif mutation == "wrong_package":
-        override["filter"] = (
-            "package(=other) & binary(=compile_error) & test(=compile_tests)"
-        )
-    elif mutation == "non_exact":
-        override["filter"] = (
-            "package(=wireframe) & binary(compile_error) & test(=compile_tests)"
-        )
-    elif mutation == "extra_override":
-        target = _non_trybuild_target(targets)
-        config["profile"]["default"]["overrides"].append({
-            "filter": (
-                f"package(={target.package}) & binary(={target.name})"
-                " & test(=some_test)"
-            ),
-            "slow-timeout": {
-                "period": "60s",
-                "terminate-after": 8,
-                "grace-period": "5s",
-            },
-        })
-    else:  # pragma: no cover - the parametrization is closed
+    try:
+        mutate = _OVERRIDE_MUTATIONS[mutation]
+    except KeyError:
         message = f"unknown override mutation {mutation!r}"
-        raise AssertionError(message)
+        raise AssertionError(message) from None
+    mutate(config, targets)
 
 
 def _source_reader_with(

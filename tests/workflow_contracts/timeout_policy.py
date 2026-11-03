@@ -104,6 +104,11 @@ def parse_duration(text: str) -> float:
     return seconds
 
 
+def _is_positive_int(value: object) -> bool:
+    """Return whether ``value`` is an integer above zero rather than a bool."""
+    return not isinstance(value, bool) and isinstance(value, int) and value > 0
+
+
 def _slow_timeout_deadline(
     slow_timeout: object, label: str, violations: list[str]
 ) -> float | None:
@@ -126,11 +131,7 @@ def _slow_timeout_deadline(
         violations.append(f"{label} slow-timeout: {exc}")
         return None
     terminate_after = slow_timeout["terminate-after"]
-    if (
-        isinstance(terminate_after, bool)
-        or not isinstance(terminate_after, int)
-        or terminate_after < 1
-    ):
+    if not _is_positive_int(terminate_after):
         violations.append(
             f"{label} slow-timeout terminate-after {terminate_after!r} is not "
             "a positive integer"
@@ -139,9 +140,19 @@ def _slow_timeout_deadline(
     return period * terminate_after
 
 
+def _is_numeric(value: object) -> bool:
+    """Return whether ``value`` may be read as a number rather than a bool."""
+    return not isinstance(value, bool) and isinstance(value, (int, float, str))
+
+
+def _is_positive_finite(seconds: float) -> bool:
+    """Return whether ``seconds`` is a finite value above zero."""
+    return math.isfinite(seconds) and seconds > 0
+
+
 def _watchdog_seconds(raw: object, label: str, violations: list[str]) -> float | None:
     """Return a Cargo watchdog budget in seconds, or record why it is unusable."""
-    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+    if not _is_numeric(raw):
         violations.append(f"{label} cargo-wait-timeout {raw!r} is not a number")
         return None
     try:
@@ -149,7 +160,7 @@ def _watchdog_seconds(raw: object, label: str, violations: list[str]) -> float |
     except ValueError:
         violations.append(f"{label} cargo-wait-timeout {raw!r} is not a number")
         return None
-    if not math.isfinite(seconds) or seconds <= 0:
+    if not _is_positive_finite(seconds):
         violations.append(
             f"{label} cargo-wait-timeout {raw!r} is not a positive number of seconds"
         )
@@ -157,19 +168,141 @@ def _watchdog_seconds(raw: object, label: str, violations: list[str]) -> float |
     return seconds
 
 
+def _invokes_coverage(step: dict[str, typ.Any]) -> bool:
+    """Return whether a step invokes the coverage action at its pinned name."""
+    return "uses" in step and coverage_action_name(step) == COVERAGE_ACTION_NAME
+
+
+def _workflow_invocations(
+    workflow_name: str, workflow: dict[str, typ.Any]
+) -> typ.Iterator[tuple[str, str, dict[str, typ.Any], dict[str, typ.Any]]]:
+    """Yield the coverage invocations in one workflow."""
+    for job_id, job in (workflow.get("jobs") or {}).items():
+        for step in job.get("steps") or []:
+            if _invokes_coverage(step):
+                yield workflow_name, job_id, job, step
+
+
 def _coverage_invocations(
     workflows: dict[str, dict[str, typ.Any]],
 ) -> list[tuple[str, str, dict[str, typ.Any], dict[str, typ.Any]]]:
     """Return ``(workflow, job id, job, step)`` for every coverage invocation."""
-    invocations = []
-    for workflow_name, workflow in workflows.items():
-        for job_id, job in (workflow.get("jobs") or {}).items():
-            for step in job.get("steps") or []:
-                if "uses" not in step:
-                    continue
-                if coverage_action_name(step) == COVERAGE_ACTION_NAME:
-                    invocations.append((workflow_name, job_id, job, step))
-    return invocations
+    return [
+        invocation
+        for workflow_name, workflow in workflows.items()
+        for invocation in _workflow_invocations(workflow_name, workflow)
+    ]
+
+
+def _default_tier_violations(
+    default: dict[str, typ.Any], violations: list[str]
+) -> tuple[float | None, float | None]:
+    """Check the default deadline and whole-run ceiling; return both in seconds."""
+    default_deadline = _slow_timeout_deadline(
+        default.get("slow-timeout"), "default", violations
+    )
+    if "global-timeout" not in default:
+        violations.append("default profile has no global-timeout")
+        return default_deadline, None
+    try:
+        return default_deadline, parse_duration(default["global-timeout"])
+    except DurationSyntaxError as exc:
+        violations.append(f"default global-timeout: {exc}")
+        return default_deadline, None
+
+
+def _override_tier_violations(
+    overrides: object,
+    default_deadline: float | None,
+    global_timeout: float | None,
+    violations: list[str],
+) -> None:
+    """Check every override sits between the default deadline and the ceiling."""
+    if not isinstance(overrides, list):
+        violations.append("profile.default.overrides is not a list")
+        return
+    for index, override in enumerate(overrides):
+        deadline = _slow_timeout_deadline(
+            override.get("slow-timeout"), f"override {index}", violations
+        )
+        if deadline is None:
+            continue
+        if default_deadline is not None and not default_deadline < deadline:
+            violations.append(
+                f"override {index} deadline {deadline}s does not exceed the "
+                f"default deadline {default_deadline}s"
+            )
+        if global_timeout is not None and not deadline < global_timeout:
+            violations.append(
+                f"override {index} deadline {deadline}s does not precede the "
+                f"global-timeout {global_timeout}s"
+            )
+
+
+def _missing_workflow_violations(
+    invocations: typ.Sequence[
+        tuple[str, str, dict[str, typ.Any], dict[str, typ.Any]]
+    ],
+    violations: list[str],
+) -> None:
+    """Require each coverage workflow to invoke the coverage action."""
+    seen_workflows = {workflow for workflow, _, _, _ in invocations}
+    for workflow_name in COVERAGE_WORKFLOWS:
+        if workflow_name not in seen_workflows:
+            violations.append(
+                f"{workflow_name} has no {COVERAGE_ACTION_NAME} invocation"
+            )
+
+
+def _ceiling_violations(
+    label: str, seconds: float, job: dict[str, typ.Any], violations: list[str]
+) -> None:
+    """Require the watchdog to sit inside the job's stated ceiling."""
+    ceiling = job.get("timeout-minutes")
+    if not _is_positive_int(ceiling):
+        violations.append(f"{label} has no positive timeout-minutes")
+    elif not seconds < ceiling * 60:
+        violations.append(
+            f"{label} cargo-wait-timeout {seconds}s does not precede the "
+            f"job ceiling {ceiling * 60}s"
+        )
+
+
+def _watchdog_violations(
+    invocations: typ.Sequence[
+        tuple[str, str, dict[str, typ.Any], dict[str, typ.Any]]
+    ],
+    global_timeout: float | None,
+    violations: list[str],
+) -> list[float]:
+    """Check each invocation states a watchdog ordered inside its job ceiling."""
+    watchdogs: list[float] = []
+    for workflow_name, job_id, job, step in invocations:
+        label = f"{workflow_name}/{job_id}"
+        raw = (step.get("with") or {}).get("cargo-wait-timeout")
+        seconds = _watchdog_seconds(raw, label, violations)
+        if seconds is None:
+            continue
+        watchdogs.append(seconds)
+        if global_timeout is not None and not global_timeout < seconds:
+            violations.append(
+                f"{label} cargo-wait-timeout {seconds}s does not exceed the "
+                f"global-timeout {global_timeout}s"
+            )
+        _ceiling_violations(label, seconds, job, violations)
+    return watchdogs
+
+
+def _agreement_violations(
+    watchdogs: typ.Sequence[float], violations: list[str]
+) -> None:
+    """Require every coverage invocation to state the same watchdog."""
+    distinct = set(watchdogs)
+    if len(distinct) > 1:
+        violations.append(
+            "coverage invocations disagree on cargo-wait-timeout: "
+            + ", ".join(f"{seconds:g}s" for seconds in sorted(distinct))
+        )
 
 
 def timeout_tier_violations(
@@ -197,73 +330,14 @@ def timeout_tier_violations(
     """
     violations: list[str] = []
     default = nextest_config.get("profile", {}).get("default", {})
-    default_deadline = _slow_timeout_deadline(
-        default.get("slow-timeout"), "default", violations
+    default_deadline, global_timeout = _default_tier_violations(
+        default, violations
     )
-    global_timeout = None
-    if "global-timeout" not in default:
-        violations.append("default profile has no global-timeout")
-    else:
-        try:
-            global_timeout = parse_duration(default["global-timeout"])
-        except DurationSyntaxError as exc:
-            violations.append(f"default global-timeout: {exc}")
-
-    overrides = default.get("overrides", [])
-    if not isinstance(overrides, list):
-        violations.append("profile.default.overrides is not a list")
-        overrides = []
-    for index, override in enumerate(overrides):
-        deadline = _slow_timeout_deadline(
-            override.get("slow-timeout"), f"override {index}", violations
-        )
-        if deadline is None:
-            continue
-        if default_deadline is not None and not default_deadline < deadline:
-            violations.append(
-                f"override {index} deadline {deadline}s does not exceed the "
-                f"default deadline {default_deadline}s"
-            )
-        if global_timeout is not None and not deadline < global_timeout:
-            violations.append(
-                f"override {index} deadline {deadline}s does not precede the "
-                f"global-timeout {global_timeout}s"
-            )
-
+    _override_tier_violations(
+        default.get("overrides", []), default_deadline, global_timeout, violations
+    )
     invocations = _coverage_invocations(workflows)
-    seen_workflows = {workflow for workflow, _, _, _ in invocations}
-    for workflow_name in COVERAGE_WORKFLOWS:
-        if workflow_name not in seen_workflows:
-            violations.append(
-                f"{workflow_name} has no {COVERAGE_ACTION_NAME} invocation"
-            )
-
-    watchdogs: dict[tuple[str, str], float] = {}
-    for workflow_name, job_id, job, step in invocations:
-        label = f"{workflow_name}/{job_id}"
-        raw = (step.get("with") or {}).get("cargo-wait-timeout")
-        seconds = _watchdog_seconds(raw, label, violations)
-        if seconds is None:
-            continue
-        watchdogs[(workflow_name, job_id)] = seconds
-        if global_timeout is not None and not global_timeout < seconds:
-            violations.append(
-                f"{label} cargo-wait-timeout {seconds}s does not exceed the "
-                f"global-timeout {global_timeout}s"
-            )
-        ceiling = job.get("timeout-minutes")
-        if isinstance(ceiling, bool) or not isinstance(ceiling, int) or ceiling <= 0:
-            violations.append(f"{label} has no positive timeout-minutes")
-        elif not seconds < ceiling * 60:
-            violations.append(
-                f"{label} cargo-wait-timeout {seconds}s does not precede the "
-                f"job ceiling {ceiling * 60}s"
-            )
-
-    distinct = set(watchdogs.values())
-    if len(distinct) > 1:
-        violations.append(
-            "coverage invocations disagree on cargo-wait-timeout: "
-            + ", ".join(f"{seconds:g}s" for seconds in sorted(distinct))
-        )
+    _missing_workflow_violations(invocations, violations)
+    watchdogs = _watchdog_violations(invocations, global_timeout, violations)
+    _agreement_violations(watchdogs, violations)
     return violations

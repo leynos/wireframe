@@ -123,40 +123,90 @@ def _coverage_step(
     )
 
 
+def _drop_default_terminate_after(
+    config: dict[str, typ.Any], _workflows: dict[str, dict[str, typ.Any]]
+) -> None:
+    """Remove the default per-test deadline."""
+    config["profile"]["default"]["slow-timeout"].pop("terminate-after")
+
+
+def _lengthen_override_deadline(
+    config: dict[str, typ.Any], _workflows: dict[str, dict[str, typ.Any]]
+) -> None:
+    """Push the override deadline up to the whole-run ceiling."""
+    config["profile"]["default"]["overrides"][0]["slow-timeout"][
+        "terminate-after"
+    ] = 10
+
+
+def _drop_global_timeout(
+    config: dict[str, typ.Any], _workflows: dict[str, dict[str, typ.Any]]
+) -> None:
+    """Remove the whole-run ceiling."""
+    config["profile"]["default"].pop("global-timeout")
+
+
+def _drop_watchdog(
+    _config: dict[str, typ.Any], workflows: dict[str, dict[str, typ.Any]]
+) -> None:
+    """Remove the watchdog from one coverage workflow."""
+    _coverage_step("coverage-main.yml", "coverage-upload", workflows)["with"].pop(
+        "cargo-wait-timeout"
+    )
+
+
+def _disagree_on_watchdog(
+    _config: dict[str, typ.Any], workflows: dict[str, dict[str, typ.Any]]
+) -> None:
+    """State a different watchdog in one coverage workflow."""
+    _coverage_step("coverage-main.yml", "coverage-upload", workflows)["with"][
+        "cargo-wait-timeout"
+    ] = "901"
+
+
+def _widen_watchdog(
+    _config: dict[str, typ.Any], workflows: dict[str, dict[str, typ.Any]]
+) -> None:
+    """State a watchdog beyond the enclosing job ceiling."""
+    for workflow_name, job_id in (
+        ("ci.yml", "build-test"),
+        ("coverage-main.yml", "coverage-upload"),
+    ):
+        _coverage_step(workflow_name, job_id, workflows)["with"][
+            "cargo-wait-timeout"
+        ] = "1800"
+
+
+def _drop_job_ceiling(
+    _config: dict[str, typ.Any], workflows: dict[str, dict[str, typ.Any]]
+) -> None:
+    """Remove the coverage job's stated ceiling."""
+    workflows["ci.yml"]["jobs"]["build-test"].pop("timeout-minutes")
+
+
+_TIMEOUT_MUTATIONS: typ.Final = {
+    "no_default_terminate_after": _drop_default_terminate_after,
+    "override_terminate_after_10": _lengthen_override_deadline,
+    "no_global_timeout": _drop_global_timeout,
+    "missing_watchdog": _drop_watchdog,
+    "different_watchdogs": _disagree_on_watchdog,
+    "watchdog_1800": _widen_watchdog,
+    "no_job_ceiling": _drop_job_ceiling,
+}
+
+
 def _mutate_timeout_tiers(
     mutation: str,
     config: dict[str, typ.Any],
     workflow_documents: dict[str, dict[str, typ.Any]],
 ) -> None:
     """Apply one timeout-tier mutation in place."""
-    default = config["profile"]["default"]
-    if mutation == "no_default_terminate_after":
-        default["slow-timeout"].pop("terminate-after")
-    elif mutation == "override_terminate_after_10":
-        default["overrides"][0]["slow-timeout"]["terminate-after"] = 10
-    elif mutation == "no_global_timeout":
-        default.pop("global-timeout")
-    elif mutation == "missing_watchdog":
-        _coverage_step(
-            "coverage-main.yml", "coverage-upload", workflow_documents
-        )["with"].pop("cargo-wait-timeout")
-    elif mutation == "different_watchdogs":
-        _coverage_step(
-            "coverage-main.yml", "coverage-upload", workflow_documents
-        )["with"]["cargo-wait-timeout"] = "901"
-    elif mutation == "watchdog_1800":
-        for workflow_name, job_id in (
-            ("ci.yml", "build-test"),
-            ("coverage-main.yml", "coverage-upload"),
-        ):
-            _coverage_step(workflow_name, job_id, workflow_documents)["with"][
-                "cargo-wait-timeout"
-            ] = "1800"
-    elif mutation == "no_job_ceiling":
-        workflow_documents["ci.yml"]["jobs"]["build-test"].pop("timeout-minutes")
-    else:  # pragma: no cover - the parametrization is closed
+    try:
+        mutate = _TIMEOUT_MUTATIONS[mutation]
+    except KeyError:
         message = f"unknown timeout mutation {mutation!r}"
-        raise AssertionError(message)
+        raise AssertionError(message) from None
+    mutate(config, workflow_documents)
 
 
 @pytest.mark.parametrize(
