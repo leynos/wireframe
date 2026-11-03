@@ -124,7 +124,7 @@ def defines_test_function(source: str, name: str) -> bool:
     """Return whether ``source`` writes ``#[test] fn name``.
 
     Attributes may sit between the ``#[test]`` attribute and the function, so
-    a ``#[cfg(...)]``-gated test is still recognised.
+    a ``#[cfg(...)]``-gated test is still recognized.
     """
     tail_pattern = re.compile(
         rf"(?:\s|//[^\n]*\n|#!?\[[^\]]*\]\s*)*fn\s+{re.escape(name)}\b"

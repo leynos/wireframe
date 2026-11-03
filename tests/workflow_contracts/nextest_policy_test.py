@@ -113,7 +113,7 @@ def test_test_function_detection_is_source_level(source: str, expected: bool) ->
     ],
 )
 def test_trybuild_detection(source: str, expected: bool) -> None:
-    """A trybuild driver is recognised however its path is spaced."""
+    """A trybuild driver is recognized however its path is spaced."""
     assert drives_trybuild(source) is expected
 
 
