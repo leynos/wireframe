@@ -3,26 +3,28 @@
 - Status: proposed
 - Scope: expose packet boundaries and peer metadata for generic datagram
   adapters.
-- Depends on: RFCs 0003, 0004 and 0007; RFC 0008 validates the transport.
+- Depends on: RFCs 0003, 0004, and 0007; RFC 0008 will validate the transport.
 
 ## Problem
 
-A stream does not represent packet loss, duplication, truncation, reordering or
-source-address changes. A synthetic stream shim hides these semantics. Quake 3
-therefore needs a native transport boundary; stream protocols remain free to
+A stream does not represent packet loss, duplication, truncation, reordering,
+or source-address changes. A synthetic stream shim hides these semantics. Quake
+3 therefore needs a native transport boundary; stream protocols remain free to
 use stream entry points. Datagram support is a general framework capability.
 
 ## Contract
 
 A datagram includes immutable bytes, remote peer address and available local
-destination/interface metadata. Deliver each packet once as one unit;
+destination/interface metadata. Deliver each received datagram event once as
+one unit; duplicate network packets generate separate events for the adapter;
 truncation is explicit. Sending is one bounded packet with acceptance or
-failure result. Core never splits, retries, acknowledges, reorders or
-deduplicates. Adapters choose session keys, connectionless behaviour, expiry,
-native fragmentation and reliability. Session lifecycle follows RFC 0004;
-packet bytes and peer state consume RFC 0007 budgets. Validate address changes
-against protocol identity before updating mappings. Bound unvalidated peer
-state and response rates.
+failure result. Core never splits, retries, acknowledges, or deduplicates. It
+gives no network-order guarantee; an adapter may select a local ordered send
+lane. Adapters choose session keys, connectionless behaviour, expiry, native
+fragmentation and reliability. Session lifecycle follows RFC 0004; packet bytes
+and peer state consume RFC 0007 budgets. Validate address changes against
+protocol identity before updating mappings. Bound unvalidated peer state and
+response rates.
 
 ## Alternatives
 
@@ -33,9 +35,9 @@ The API exposes datagram semantics and leaves delivery rules external.
 ## Acceptance
 
 A Quake-style toy handles challenge and bounded fragments under loss,
-duplication, reordering, truncation and translated source ports. A second
+duplication, reordering, truncation, and translated source ports. A second
 stateless datagram toy uses the same API without Quake fields. Tests cover send
-failure, expiry, cancellation, anti-amplification bounds and cleanup. Stream
+failure, expiry, cancellation, anti-amplification bounds, and cleanup. Stream
 transports retain their stream contracts.
 
 ## Packet lifecycle and failure rules
@@ -45,7 +47,7 @@ metadata. Oversize receive/truncation is reported explicitly; the
 implementation does not pass a silently shortened packet to a decoder. The
 adapter either handles the packet statelessly or returns a bounded session key
 after validation. Session creation is charged before insertion. Expiry,
-cancellation, transport close and adapter rejection each remove the key and
+cancellation, transport close, and adapter rejection each remove the key and
 release state once.
 
 A send action represents exactly one datagram. It is either rejected before
@@ -61,7 +63,7 @@ Prototype one connectionless challenge toy, then a session-keyed Quake subset
 with translated addresses and native fragmentation. Use RFC 0008's simulated
 loss rather than nondeterministic network tests. Decide how portable
 destination metadata is represented and how socket errors reach session
-handles. Risks are address spoofing, amplification and unbounded peer tables;
+handles. Risks are address spoofing, amplification, and unbounded peer tables;
 admission limits, response budgets and expiry are mandatory before exposing a
 listener.
 

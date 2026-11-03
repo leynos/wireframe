@@ -4,6 +4,28 @@ This guide defines the architectural vocabulary used across Wireframe source,
 rustdoc, and user-facing documentation. Treat it as the naming contract for new
 APIs and refactors.
 
+## Proposed native-protocol boundaries
+
+The following RFCs are proposals, not descriptions of implemented APIs. The
+[protocol gap survey](wire-protocol-gap-analysis-survey.md) and
+[roadmap phase 21](roadmap.md#21-protocol-neutral-adapters-for-the-first-consumers)
+record the consumer evidence, validation profiles, and delivery order.
+
+- [RFC 0003](rfcs/0003-native-message-adapter-boundary.md) proposes native
+  frame-to-message adaptation with owned reply context.
+- [RFC 0004](rfcs/0004-duplex-session-driver.md) proposes a duplex session
+  driver with explicit lifecycle, cancellation, and bounded output.
+- [RFC 0005](rfcs/0005-negotiated-transport-entry-points.md) proposes generic
+  setup, buffered-byte handoff, and transport transitions.
+- [RFC 0006](rfcs/0006-configurable-framing-primitives.md) proposes bounded,
+  composable framing primitives for external codecs.
+- [RFC 0007](rfcs/0007-budgets-scheduling-and-assembly.md) proposes resource
+  accounting, scheduling, and assembly policies.
+- [RFC 0008](rfcs/0008-external-adapter-conformance-harness.md) proposes an
+  independent-peer conformance harness and bounded toy servers.
+- [RFC 0009](rfcs/0009-datagram-session-transport.md) proposes a datagram
+  entry point with packet boundaries and peer metadata.
+
 ## GitHub Actions runner placement
 
 Namespace is retired. Each lane now sits where the kind of work decides, rather

@@ -15,16 +15,20 @@ necessarily block control work or an independent channel.
 ## Contract
 
 Core applies finite per-session and per-key limits for wire/decoded bytes,
-logical assembly, output bytes, active streams and queued work. Reserve before
-allocation/enqueue and release on completion, abort, timeout, cancellation and
-disconnect. Adapters provide bounded logical keys, classify control/data, and
-report assembly lifecycle. The adapter owns fragment identifiers, duplicate
-policy, rollover, acknowledgements and timeout semantics; core owns accounting,
-deadlines and fair scheduling.
+logical assembly, decompressed bytes, output bytes, active streams, and queued
+work. Decompression must reserve its own finite expansion budget before
+allocating; wire or compressed-size limits do not substitute for this bound.
+Reserve before allocation/enqueue and release on completion, abort, timeout,
+cancellation, and disconnect. Adapters provide bounded logical keys, classify
+control/data, and report assembly lifecycle. The adapter owns fragment
+identifiers, duplicate policy, rollover, acknowledgements, and timeout
+semantics; core owns accounting, deadlines and fair scheduling.
 
 Adapters may select strict FIFO or replacement of stale unsent snapshots.
-Replacement is never implicit. Reliable output is never silently discarded.
-Metrics use bounded labels. Invalid or unbounded required limits are rejected.
+Replacement is never implicit. A superseded unsent frame receives a terminal
+`superseded` outcome exactly once and releases its reservation before the
+replacement is charged. Reliable output is never silently discarded. Metrics
+use bounded labels. Invalid or unbounded required limits are rejected.
 
 ## Alternatives
 
@@ -50,10 +54,10 @@ releases its partial assembly and queue without cancelling unrelated keys.
 Session close releases all remaining reservations and reports abandoned work.
 
 Scheduler readiness means both transport writable and protocol policy allows
-send; transport readiness alone does not grant AMQP-like credit. Control
-capacity is finite and rate-limited so a peer cannot starve data with control
+sending; transport readiness alone does not grant AMQP-like credit. Control
+capacity is finite and rate-limited, so a peer cannot starve data with control
 frames. FIFO ordering applies within an adapter-declared ordered lane. Across
-lanes, fairness is observable but need not promise strict round robin. Stale
+lanes, fairness is observable but need not promise strict round-robin. Stale
 replacement is legal only for unsent frames in an adapter-declared replaceable
 class; accepted/partially written data cannot be rewritten.
 
@@ -65,6 +69,12 @@ Choose whether budgets are represented by owned reservation guards or a session
 ledger after checking cancellation and cross-task use. Risks include inaccurate
 adapter size estimates and excessive reservation granularity. Core must charge
 actual owned bytes where possible and cap adapter-declared expansion.
+
+RFC 0007 extends proposed ADR 002: protocol-neutral streaming requests,
+separate transport and message assembly, continuity validation, and finite
+resource limits remain design goals. ADR 002's mandatory additive API and
+legacy default-envelope compatibility are superseded for this pre-1.0 redesign.
+ADR 002 remains proposed until a later decision records adoption.
 
 RFC 0007 replaces any interpretation of `MAX_FRAME_LENGTH` as a universal
 logical-message limit. Reconcile existing assembly and queue docs during

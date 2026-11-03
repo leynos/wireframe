@@ -3,7 +3,7 @@
 - Status: proposed
 - Scope: establish and transition connections while preserving buffered bytes
   and transport ownership.
-- Depends on: RFCs 0003 and 0004; RFC 0008 validates the boundary. Setup
+- Depends on: RFCs 0003 and 0004; RFC 0008 will validate the boundary. Setup
 semantics may be co-designed before the duplex driver lands.
 
 ## Problem
@@ -18,16 +18,19 @@ decoder after it has buffered bytes can lose or misclassify peer data.
 Listener setup receives an accepted transport and peer metadata; it returns
 rejection or an owned stream plus session metadata and initial phase. An
 in-session phase transition is an explicit action after a confirmed writer
-flush barrier. It transfers unread bytes, reader/writer ownership, cancellation
-and peer identity atomically. Buffered bytes reach the new phase exactly once.
-Consumed bytes cannot be reinterpreted. Setup bounds bytes, time, rounds and
-cancellation.
+flush barrier. It transfers unread bytes, phase state, and peer identity
+atomically. The session retains ownership of its reader, writer, cancellation,
+and tasks. Buffered bytes reach the new phase exactly once. Consumed bytes
+cannot be reinterpreted. The existing reservation for unread bytes transfers to
+the new phase without double-counting and remains charged until consumption,
+rejection, cancellation, or session close releases it once. Setup bounds bytes,
+time, rounds, and cancellation.
 
 First priority is raw stream negotiation: server-first greeting, client-first
-startup, TLS handoff and in-band phase changes. Adapting an existing parsed
+startup, TLS handoff, and in-band phase changes. Adapting an existing parsed
 stream/sink is supported as a lower-priority optional connector and preserves
 message kinds and limits. Core provides setup mechanics, not TLS policy,
-authentication or protocol state machines.
+authentication, or protocol state machines.
 
 ## Alternatives
 
@@ -38,8 +41,8 @@ into bytes erases boundaries; reopening a socket loses session state.
 ## Acceptance
 
 Scripted peers cover both greeting directions, coalesced handshake and first
-message, positive/negative upgrade, flush order, rejection, timeout and
-cancellation. No byte is lost, duplicated or replayed across a phase change. A
+message, positive/negative upgrade, flush order, rejection, timeout, and
+cancellation. No byte is lost, duplicated, or replayed across a phase change. A
 WebSocket parsed-stream bridge is a separate optional example, not a condition
 for raw setup support.
 

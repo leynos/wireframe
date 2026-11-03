@@ -10,7 +10,7 @@
 ## Problem
 
 Codec round-trips can share encoder/decoder bugs. Parser tests do not establish
-lifecycle, negotiation, resource, cancellation or delivery behaviour. Every
+lifecycle, negotiation, resource, cancellation, or delivery behaviour. Every
 examined protocol must have a verified toy that tests the survey implication;
 this is explicitly not full interoperability or conformance certification.
 
@@ -23,15 +23,15 @@ unimplemented runtime APIs. RFC 0001 remains the lifecycle connector base.
 
 Extend `wireframe_testing` with deterministic raw stream peers, scripted setup,
 short reads/writes, controllable time, cancellation, and bounded datagram
-delivery with loss, duplication, reordering and truncation. Fixtures use public
-production APIs, publish a bounded supported subset and preserve golden native
-bytes with independent provenance. Existing protocol implementations may be
-test-only oracles only after review confirms their licence permits the
-repository's test and fixture distribution. If not, author expected vectors
-independently from the protocol specification and document provenance; never
-automatically fall back to unlicensed source or captured artefacts. Production
-crates may use generic TLS, cryptographic, and transport libraries, but must
-not depend on protocol parser/server implementations.
+delivery with loss, duplication, reordering, and truncation. Fixtures use
+public production APIs, publish a bounded supported subset, and preserve golden
+native bytes with independent provenance. Existing protocol implementations may
+be test-only oracles only after review confirms their licence permits the
+repository's test and fixture distribution. If not, derive expected vectors
+from the protocol specification without copying an implementation, and document
+provenance; never automatically fall back to unlicensed source or captured
+artefacts. Production crates may use generic TLS, cryptographic, and transport
+libraries, but must not depend on protocol parser/server implementations.
 
 ## Bounded protocol matrix
 
@@ -40,7 +40,7 @@ profile/version, supported messages, limits, oracle provenance, and exclusions
 in its README/test module. Subsets are evidence for framework gaps, never
 claims of full peer compatibility.
 
-| Profile                          | Minimal toy exchange                                                                                                                                | Required negative, liveness and budget evidence                                                                                                                                                                       | Independent oracle                                                                                                |
+| Profile                          | Minimal toy exchange                                                                                                                                | Required negative, liveness, and budget evidence                                                                                                                                                                      | Independent oracle                                                                                                |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | WebSocket RFC 6455               | HTTP/1.1 upgrade; fragmented UTF-8 text; interleaved ping/pong; close                                                                               | Reject bad key/version/mask and invalid split UTF-8; continuation/control interleaving; ping progresses during stalled request; cap fragments                                                                         | RFC 6455 vectors and reviewed test-only Tungstenite if licence permits                                            |
 | OSCAR FLAP/SNAC                  | FLAP login-channel record and one SNAC request/reply with sequence                                                                                  | Reject bad marker/length; unsolicited server event progresses; cap record and per-session output                                                                                                                      | Open-source OSCAR source vectors with licence review, otherwise hand-checked FLAP/SNAC vectors                    |
@@ -54,14 +54,14 @@ claims of full peer compatibility.
 | Apache Kafka                     | ApiVersions negotiation including flexible/tagged fields; Metadata request/reply; Produce with acks=0 and no response                               | Reject unknown version/truncated tagged fields; ordered response under concurrency; cap frame and decompression output                                                                                                | Apache protocol fixtures or licensed test-only client after review; pin schema version                            |
 | MySQL classic                    | server greeting; client capability response; SSLRequest to TLS phase transition; COM_STMT_CLOSE with no response; bounded COM_QUERY result          | Reject sequence mismatch/oversize continuation; actual SSLRequest phase barrier; reject sequence/length errors; test 0xffffff continuation plus empty exact-multiple terminator; cap packet, logical message and rows | MySQL documentation vectors; test-only licensed client after review                                               |
 | MariaDB classic                  | greeting/capability exchange; SSLRequest TLS transition; COM_STMT_CLOSE no-response; bounded query result under pinned MariaDB profile              | Reject divergent/unknown capability and sequence; actual upgrade, packet-sequence mismatch, 0xffffff continuation and empty exact-multiple terminator; cap packets/results                                            | MariaDB documentation vectors; separately licensed test-only client after review                                  |
-| PostgreSQL v3                    | StartupMessage; AuthenticationOk/ReadyForQuery; extended Parse/Bind/Execute/Sync; error recovery through Sync; COPY and NotificationResponse subset | Reject malformed startup/message length; cancel long operation on a second connection; recover extended-query error at Sync; cap row, COPY and notification queues                                                    | PostgreSQL protocol documentation vectors and independent `psql` capture corpus                                   |
+| PostgreSQL v3                    | StartupMessage; AuthenticationOk/ReadyForQuery; extended Parse/Bind/Execute/Sync; error recovery through Sync; COPY and NotificationResponse subset | Reject malformed startup/message length; cancel long operation on a second connection; recover extended-query error at Sync; cap row, COPY, and notification queues                                                   | PostgreSQL protocol documentation vectors and independent `psql` capture corpus                                   |
 | OpenRA pinned profile            | server handshake header; handshake order; one frame/order relay and acknowledgement                                                                 | Reject wrong size/mod profile; slow recipient does not stall other peer; enforce 131072-byte source-profile order bound                                                                                               | Pinned OpenRA source/build only as test oracle after GPL separation review; otherwise recorded vectors            |
 | Quake 3 Arena pinned UDP profile | connectionless challenge/response; connect packet; one connected sequenced and fragmented message                                                   | Inject loss/duplicate/reorder/translation; expire fragments; cap datagram, fragment and unvalidated-peer state                                                                                                        | Released engine packet corpus/manual vectors; any engine oracle isolated and licence-reviewed                     |
-| Hotline profile used by mxd      | client-initiated handshake/auth subset and one correlated request/reply plus series completion                                                      | Reject short header/invalid series; disconnect notification while request stalls; cap series bytes, parts and deadline                                                                                                | mxd's independently captured fixtures with provenance; no production dependency                                   |
+| Hotline profile used by mxd      | client-initiated handshake/auth subset and one correlated request/reply plus series completion                                                      | Reject short header/invalid series; disconnect notification while request stalls; cap series bytes, parts, and deadline                                                                                               | mxd's independently captured fixtures with provenance; no production dependency                                   |
 
 Signal-like cryptographic and service APIs are out of scope. Test-only oracle
 choice is conditional on licence compatibility with test distribution. If not
-compatible, use checked-in vectors with source, version, capture method and
+compatible, use checked-in vectors with source, version, capture method, and
 review record; never copy implementation code. The production dependency graph
 must remain free of these protocol parser/server libraries.
 
@@ -76,11 +76,11 @@ Every row requires a runnable bounded server toy and an independent peer client
 that exchanges the row's stated messages. It also requires independent golden
 vectors, malformed/truncation and split/coalescing tests, budget checks and
 lifecycle tests. Datagram cases inject loss/reordering; stateful cases exercise
-timeout, cancellation and phase transition. Reports name subsets and avoid
-claiming full protocol conformance. Any oracle source, client or vector
+timeout, cancellation, and phase transition. Reports name subsets and avoid
+claiming full protocol conformance. Any oracle source, client, or vector
 distribution must be licence-reviewed. If an oracle licence is incompatible or
 unclear, use independently authored vectors derived from specifications with
-provenance; do not copy, record or redistribute that oracle's output. Generic
+provenance; do not copy, record, or redistribute that oracle's output. Generic
 TLS/crypto/transport libraries are allowed in production; protocol
 parser/server implementations remain test-only. The suite runs offline.
 
@@ -94,10 +94,10 @@ rather than blocking all implementation until every toy exists. Stage 3 runs
 the complete offline matrix in CI and verifies no production dependency was
 introduced.
 
-The harness owns sockets, clocks, scripted actions and test artefact capture;
+The harness owns sockets, clocks, scripted actions, and test artefact capture;
 the toy owns protocol state; the independent oracle owns expected bytes. A toy
 must not call its own encoder to generate the expected decoder fixture. Licence
-review must record the component, version, licence, usage and distribution
+review must record the component, version, licence, usage, and distribution
 compatibility before adding an oracle dependency. Unresolved decisions include
 where profile manifests live and whether independent captures are checked in as
 binary fixtures or compact hexadecimal text. Prefer readable text unless

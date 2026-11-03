@@ -10,9 +10,10 @@
 
 Wireframe already has output queues. mxd owns a push-handle registry, including
 unsolicited disconnect notifications. These facilities do not alone define a
-session that advances reads while application work, output streams, deadlines
-or control traffic are pending. Blocking receive on a handler can delay
-protocol progress; unbounded per-message tasks can reorder dependent replies.
+session that advances reads while application work, output streams, deadlines,
+or control traffic are pending. Awaiting a handler before reading again can
+delay protocol progress; unbounded per-message tasks can reorder dependent
+replies.
 
 ## Contract
 
@@ -23,11 +24,12 @@ concurrent dispatch and whether completion preserves arrival order. Unsolicited
 native output uses the session writer. Push registry integration uses the same
 bounded writer and terminal lifecycle; push facilities already exist.
 
-Output reports accepted, encoded, flushed, failed or cancelled. Partial-write
-failure terminates the stream and never silently replays. Graceful close stops
-admission, drains only a bounded accepted set, then emits one terminal result.
-Cancellation reclaims tasks, queues and adapter context. Errors preserve
-transport, peer-decode, application and shutdown distinctions.
+Output reports accepted, encoded, flushed, failed, cancelled, or superseded.
+Superseded is terminal only for an adapter-declared replaceable unsent frame.
+Partial-write failure terminates the stream and never silently replays.
+Graceful close stops admission, drains only a bounded accepted set, then emits
+one terminal result. Cancellation reclaims tasks, queues, and adapter context.
+Errors preserve transport, peer-decode, application and shutdown distinctions.
 
 ## Alternatives
 
@@ -61,9 +63,9 @@ Reject it, emit diagnostics, and close or fail the session according to the
 error class; never treat it as malformed peer input. A recoverable framing
 error follows RFC 0006 and is passed to the adapter, which may continue, close,
 or request bounded resynchronization. The decoder owns the buffer and validates
-positive progress; the session caps bytes, attempts and deadline. Fatal framing
-errors close. Recovery never replays dispatched work. EOF is delivered once
-after buffered complete frames; truncated trailing input is a decode
+positive progress; the session caps bytes, attempts, and deadline. Fatal
+framing errors close. Recovery never replays dispatched work. EOF is delivered
+once after buffered complete frames; truncated trailing input is a decode
 termination, not clean EOF.
 
 ## Ownership and backpressure

@@ -1130,5 +1130,7 @@ and sessions. OpenRA fan-out is validated in 21.4.4.
   - Include Hotline, Modbus, OSCAR, WebSocket, RTSP 1.0/2.0, AMQP 0-9-1/1.0,
     Kafka, MySQL, MariaDB, PostgreSQL, IEC 104, DNP3 IEEE Std 1815-2010,
     OpenRA, and Quake 3.
-  - Success: every profile has an independently checked runnable toy; no
-    protocol implementation appears in Wireframe production dependencies.
+  - Success: every profile has a runnable server and independent peer, golden
+    vectors, split/coalescing and malformed/truncation tests, budget and
+    lifecycle checks, and offline execution. No protocol implementation appears
+    in Wireframe production dependencies.

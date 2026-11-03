@@ -3,7 +3,7 @@
 - Status: proposed
 - Scope: small bounded primitives for native codecs without core protocol
   state machines.
-- Depends on: RFC 0003. RFC 0007 consumes these primitives to account for
+- Dependencies: RFC 0003. RFC 0007 consumes these primitives to account for
   their retained and assembled bytes.
 
 ## Problem
@@ -22,8 +22,8 @@ asymmetric inbound/outbound layouts. Incomplete input reports needed progress;
 overflow, invalid length, truncation and EOF remain distinguishable. Check
 limits before allocation. Document byte consumption on failure and minimum
 progress. Resynchronization is opt-in and bounded. Sequence rollover,
-compression state, authentication and reliability remain ordinary external Rust
-adapter code. Do not create a universal framing language.
+compression state, authentication, and reliability remain ordinary external
+Rust adapter code. Do not create a universal framing language.
 
 ## Alternatives
 
@@ -38,7 +38,7 @@ Property tests cover every split point, coalescing, overflow, invalid
 discriminants, incomplete EOF, exact allocation bounds and progress.
 Independent toys exercise Hotline fixed headers, FLAP, MBAP, Kafka lengths,
 MySQL 3-byte lengths, PostgreSQL startup/tagged records, IEC 104, DNP3 CRC
-blocks, RTSP mixed records, AMQP headers, OpenRA asymmetric layouts and Quake
+blocks, RTSP mixed records, AMQP headers, OpenRA asymmetric layouts, and Quake
 datagram payloads. These fixtures specify bounded subsets, not complete
 implementations.
 
@@ -59,10 +59,13 @@ from repeating against the same failing prefix forever.
 A length-field decoder is configured with field offset and width, byte order,
 base adjustment, included/excluded field semantics, maximum wire size and
 maximum decoded payload size. Arithmetic uses checked operations. It reports
-`NeedMore(n)`, `Frame(frame, retained_metadata)`, or a typed framing error.
-`NeedMore` must not consume bytes needed to decode the frame. Invalid or
-oversized declared lengths fail before reserve/allocate. EOF with no buffered
-bytes is clean; EOF within a header or body is typed truncation.
+`NeedMore(n)`, `Frame(frame, retained_metadata)`,
+`Recoverable(error, consumed)`, or `Fatal(error)`. The recoverable variant
+reports the exact consumed byte count; a resynchronization attempt must make
+positive progress or terminate. `NeedMore` must not consume bytes needed to
+decode the frame. Invalid or oversized declared lengths fail before
+reserve/allocate. EOF with no buffered bytes is clean; EOF within a header or
+body is typed truncation.
 
 Composition is ordered and deterministic. A discriminator selects exactly one
 branch; zero or multiple matching branches is a configuration error. A pure
@@ -79,10 +82,14 @@ demonstrate mixed text/binary composition and block validation with RFC 0008
 toys. Decide whether variable-width integers belong in the primitive set only
 after multiple independent examples need them. Risks include a flag-heavy
 configuration API and callbacks that allocate outside framework budgets. Keep
-the surface small; expose buffer reservation through the budget contract in RFC
-0007.
+the surface small. Core reserves input-buffer budget before reading or
+retaining bytes, including leftover bytes after coalesced frames. Release each
+reservation on consumption, abort, timeout, cancellation, or session close.
 
-Existing Tokio codec support remains usable behind an adapter. This proposal
-replaces any requirement to preserve current codec constructor shapes or
-Envelope serializers. ADR 004 remains historical input; update its status when
-this contract is approved.
+Existing Tokio codec support remains usable behind an adapter. This pre-1.0
+proposal permits breaking changes to all `FrameCodec` methods, including
+`decoder`, `encoder`, `frame_payload`, `wrap_payload`, `max_frame_length`,
+`frame_payload_bytes`, and `correlation_id`. Existing implementations in
+`src/codec/examples.rs` and `src/test_helpers/frame_codec.rs` must migrate.
+Codec constructors and `Envelope` serializers are likewise replaceable. ADR 004
+remains historical input; update its status when this contract is approved.

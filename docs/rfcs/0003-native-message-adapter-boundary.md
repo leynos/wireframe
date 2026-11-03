@@ -9,18 +9,20 @@
 
 ## Problem
 
-A protocol's route, correlation token, channel, kind and reply context need not
-match Wireframe's route and correlation fields. mxd maps its native 20-byte
+A protocol's route, correlation token, channel, kind, and reply context need
+not match Wireframe's route and correlation fields. mxd maps its native 20-byte
 Hotline header through `route_id_for(header.ty)` and a bincode `Envelope`, then
 unwraps the envelope to encode. This works but makes native applications
 translate protocol semantics into framework-shaped messages.
 
 ## Contract
 
-The session first feeds bounded bytes to the RFC 0006 decoder. Only complete
-native `Frame` values cross this boundary; the decoder retains incomplete bytes
-and owns bounded recovery/resynchronization. The adapter receives one such
-frame and connection-local context, then returns bounded actions: dispatch with
+The session first feeds bounded bytes to a decoder implementing the bounded
+framing contract. RFC 0006 may supply reusable primitives but is not a
+prerequisite: adapters may supply their own decoder. Only complete native
+`Frame` values cross this boundary; the decoder retains incomplete bytes and
+owns bounded recovery/resynchronization. The adapter receives one such frame
+and connection-local context, then returns bounded actions: dispatch with
 opaque reply context; send control output; complete without output; close; or
 request recovery. Application completion returns the opaque context. The
 adapter maps zero, one or many native frames. Inbound and outbound frame types
@@ -31,10 +33,10 @@ Each `Dispatch` action creates its own independently owned reply context and
 operation ticket, so multiple dispatches from one frame cannot alias a mutable
 context. A control action has no reply context. Each operation context is
 consumed once by completion or explicitly released on cancellation, timeout,
-recovery or terminal close; cancellation is a terminal outcome, not an illegal
+recovery, or terminal close; cancellation is a terminal outcome, not an illegal
 drop. Errors distinguish malformed input, adapter failure, application failure,
 resource exhaustion and transport termination. Successful no-reply is not an
-error. Core owns dispatch, cancellation and context accounting; the adapter
+error. Core owns dispatch, cancellation, and context accounting; the adapter
 owns protocol-field meaning; the application owns domain semantics. Core has no
 protocol-name branches. Already-parsed message-stream routing is optional and
 lower priority than raw negotiation and native framing.
@@ -78,7 +80,7 @@ cast.
 
 ## mxd migration example
 
-At mxd commit `e0dbf2b8289f3b296d8b2825ba533b31ca82363c`,
+At mxd commit `e0dbf2b8289f3b296d8b2825ba533b31ca82363b`,
 `src/wireframe/codec/frame.rs` handles native 20-byte headers, maps `header.ty`
 through `route_id_for`, and translates with a bincode `Envelope`. The proposed
 adapter lets this codec return the Hotline message type and correlation token
