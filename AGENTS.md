@@ -215,11 +215,26 @@ project:
 - Use `rstest` fixtures for shared setup.
 - Replace duplicated tests with `#[rstest(...)]` parameterized cases.
 - Prefer `mockall` for ad hoc mocks/stubs.
-- For testing of functionality depending upon environment variables, dependency
-  injection and the `mockable` crate are the preferred option.
-- If mockable cannot be used, env mutations in tests MUST be wrapped in shared
-  guards and mutexes placed in a shared `test_utils` or `test_helpers` crate.
-  Direct environment mutation is FORBIDDEN in tests.
+- **In-process environment mutation is FORBIDDEN in tests.** No test executing
+  inside the harness process may call `std::env::set_var`,
+  `std::env::remove_var`, or a helper wrapping them. This binds unit tests,
+  integration-test binaries, and in-process behavioural tests alike.
+- **Inject the environment instead.** Any behaviour depending upon environment
+  variables must accept an injected environment: `mockable::Env`, with
+  `mockable::DefaultEnv` supplied in production and `mockable::MockEnv` in
+  tests. A narrow closure seam of the same shape is acceptable where a trait
+  object would be disproportionate. Production code must not call
+  `std::env::var`/`var_os` outside the composition root that constructs the
+  injected value; `clippy.toml` denies those calls.
+- **Process-wide locks are not an escape hatch.** Serializing environment
+  mutation behind a `Mutex`, `OnceLock`, or `serial_test` attribute is not an
+  accepted fallback; where injection looks impossible, correct the signature.
+  See the environment seam rule in the
+  [developers' guide](docs/developers-guide.md#example-and-benchmark-support).
+- **Subprocess isolation is the sole exemption.** End-to-end tests that invoke
+  a built binary may configure the child with
+  `Command::env`/`Command::env_clear` because the mutation is confined to the
+  child process.
 
 ### Dependency management
 

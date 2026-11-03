@@ -202,8 +202,10 @@ ______________________________________________________________________
   isolated, deterministic control.
 - **`Real*` for Production:** Use `RealEnv` and `RealClock` in the application
   to interact with the actual system.
-- **`RealEnv` is NOT a Scope Guard:** `RealEnv` directly mutates the global
-  process environment without automatic cleanup. For integration tests that
-  require modifying the live environment, consider a crate such as
-  [temp_env](https://crates.io/crates/temp-env). For unit tests, `MockEnv` is
-  preferable.
+- **`RealEnv` is NOT a Scope Guard:** `RealEnv` reads the global process
+  environment without automatic cleanup. The workspace policy prohibits
+  mutating the parent test process, so integration tests that need a controlled
+  environment configure the child with `Command::env_clear` and explicit
+  `Command::env` calls instead of a guard crate. For unit tests, `MockEnv` is
+  preferable. See the environment seam rule in the
+  [developers' guide](developers-guide.md#example-and-benchmark-support).
