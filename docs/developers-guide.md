@@ -301,13 +301,18 @@ serialization. The exception is `before_send` for application handler responses:
 `FramePipeline` owns the per-connection `ProtocolHooks` and
 `ConnectionContext`, and runs `before_send` on the codec-wrapped frame after
 serialization and `wrap_payload`, immediately before `Framed::send`. Each
-connection constructs fresh hooks, so hook state never crosses connections.
+connection constructs fresh `ProtocolHooks` and a fresh `ConnectionContext`, so
+per-connection context and callback instances are not shared. State held by a
+shared `WireframeProtocol` implementation is still shared by every connection
+that installs it.
 
 The hook therefore receives the exact frame that will be written, and its
 mutation reaches the wire. Hook output must still fit the codec's
-`max_frame_length`; an oversized frame fails the send and ends the connection.
-Actor-driven push and streaming traffic runs its own hook pipeline, and the
-direct response helpers bypass `before_send`. The
+`max_frame_length`. The pipeline does not check this limit: the default
+`LengthDelimitedFrameCodec` rejects an oversized frame, so the send fails and
+ends the connection, while a custom encoder must enforce `max_frame_length`
+itself. Actor-driven push and streaming traffic runs its own hook pipeline, and
+the direct response helpers bypass `before_send`. The
 [users' guide](users-guide.md) states the user-facing contract.
 
 The connection actor stores its outbound producer as one `ActiveOutput` value,

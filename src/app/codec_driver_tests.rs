@@ -26,6 +26,8 @@ use crate::{
 mod fragmentation_properties;
 #[path = "codec_driver_tests/growth_properties.rs"]
 mod growth_properties;
+#[path = "codec_driver_tests/send_outcome_metrics.rs"]
+mod send_outcome_metrics;
 
 /// Byte appended by the test protocol's `before_send` hook.
 const MARKER: u8 = 0xa5;

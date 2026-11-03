@@ -24,10 +24,11 @@ use super::{
     outbound_encoding::encode_message_frame,
 };
 use crate::{
-    codec::FrameCodec,
+    codec::{CodecError, FrameCodec},
     fragment::{FragmentationConfig, FragmentationError},
     hooks::{ConnectionContext, ProtocolHooks},
     message::EncodeWith,
+    metrics::{AppResponseSendOutcome, inc_app_response_send},
     serializer::Serializer,
 };
 
@@ -217,23 +218,53 @@ where
             let id = envelope.id;
             let correlation_id = envelope.correlation_id;
             warn!(
-                "failed to serialize outbound envelope: id={id}, \
-                 correlation_id={correlation_id:?}, error={e:?}"
+                "failed to serialize outbound envelope: stage=serialize, \
+                 category=serialization_failure, id={id}, correlation_id={correlation_id:?}, \
+                 error={e:?}"
             );
             crate::metrics::inc_handler_errors();
+            inc_app_response_send(AppResponseSendOutcome::SerializationFailure);
             io::Error::other(e)
         })?;
     pipeline.before_send(&mut encoded.frame);
-    transport.framed.send(encoded.frame).await.map_err(|e| {
-        let id = envelope.id;
-        let correlation_id = envelope.correlation_id;
-        warn!(
-            "failed to send outbound frame: id={id}, correlation_id={correlation_id:?}, \
-             error={e:?}"
-        );
-        crate::metrics::inc_handler_errors();
-        io::Error::other(e)
-    })
+    match transport.framed.send(encoded.frame).await {
+        Ok(()) => {
+            inc_app_response_send(AppResponseSendOutcome::Success);
+            Ok(())
+        }
+        Err(error) => {
+            let id = envelope.id;
+            let correlation_id = envelope.correlation_id;
+            let outcome = classify_send_error(&error);
+            warn!(
+                "failed to send outbound frame: stage=write, category={}, id={id}, \
+                 correlation_id={correlation_id:?}, error={error:?}",
+                outcome.as_str()
+            );
+            crate::metrics::inc_handler_errors();
+            inc_app_response_send(outcome);
+            Err(io::Error::other(error))
+        }
+    }
+}
+
+/// Classify an outbound write failure for the bounded send-outcome metric.
+///
+/// The default [`FrameCodec`] reports an oversized hook result as a
+/// [`CodecError`] wrapped inside the I/O error, which separates a codec
+/// rejection from a transport failure. A custom encoder that reports the same
+/// condition as a plain [`io::Error`] is counted as a transport failure; the
+/// counter stays bounded either way.
+fn classify_send_error(error: &io::Error) -> AppResponseSendOutcome {
+    let is_codec_rejection = error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<CodecError>())
+        .is_some_and(|codec_error| matches!(codec_error, CodecError::Framing(_)));
+    if is_codec_rejection {
+        AppResponseSendOutcome::CodecRejected
+    } else {
+        AppResponseSendOutcome::TransportFailure
+    }
 }
 
 /// Flush a batch of pipeline-produced [`Envelope`] values through the codec

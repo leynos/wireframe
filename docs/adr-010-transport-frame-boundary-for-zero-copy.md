@@ -239,11 +239,17 @@ The limitation recorded under Known Risks and Limitations is closed.
 `FramePipeline` now owns the per-connection `ProtocolHooks` and
 `ConnectionContext`, so `before_send` runs for application handler responses as
 well as actor-driven frames. The hook runs after serialization and
-`FrameCodec::wrap_payload`, immediately before the transport write, and each
-connection constructs its own hooks, so hook state never crosses connections.
+`FrameCodec::wrap_payload`, immediately before the transport write. Each
+connection constructs its own `ProtocolHooks` and `ConnectionContext`, so
+per-connection context and callback instances are not shared. State held by a
+shared `WireframeProtocol` implementation is still shared by every connection
+that installs it.
 
 Two boundaries remain as designed. The direct response helpers (`send_response`,
 `send_response_framed`, and `send_response_framed_with_codec`) bypass the
 hook, and actor-owned push and streaming traffic keeps its own hook pipeline.
-Hook output must fit the codec's `max_frame_length`; an oversized frame fails
-the send rather than being truncated.
+Hook output must fit the codec's `max_frame_length`. The pipeline does not
+check this limit. The default `LengthDelimitedFrameCodec` rejects an oversized
+frame, so the send fails and the frame is not written. A custom encoder defines
+its own behaviour for an oversized frame, so it must enforce `max_frame_length`
+itself.

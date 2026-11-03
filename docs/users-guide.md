@@ -1576,9 +1576,10 @@ connection-local `ConnectionContext` is used for all frames on that connection.
 This gives protocol implementations one place to stamp, encrypt, or observe
 ordinary server responses. The hook may grow the frame, but it receives no
 implicit space for doing so: whatever it writes must keep the frame within the
-codec's `max_frame_length`. A frame that exceeds that limit is rejected by the
-codec with an oversized-frame error, which fails the send and ends the
-connection.
+codec's `max_frame_length`. The default `LengthDelimitedFrameCodec` rejects a
+frame that exceeds that limit with an oversized-frame error, which fails the
+send and ends the connection. A custom codec defines its own behaviour for an
+oversized frame, so it must enforce `max_frame_length` itself.
 
 The application path does not run the remaining protocol hooks: connection
 setup, command end, stream end, error, and end-of-file callbacks remain the
@@ -2962,6 +2963,18 @@ These metrics are emitted around preparation and prepared-application
 connection handling, so repeated connections show reuse of the already-built
 route services without repeating middleware transforms. All three helpers are
 no-ops when the `metrics` feature is disabled.
+
+Outbound application responses also record
+`wireframe_app_response_sends_total`, which counts each frame written by the
+response pipeline after serialization, codec wrapping, and `before_send`. Its
+bounded `outcome` label is `"success"`, `"serialization_failure"`,
+`"codec_rejected"` when the codec refuses the frame (for example after a hook
+grows it past `max_frame_length`), or `"transport_failure"`. The label set is
+fixed, so application data never becomes a metric label. The helper is a no-op
+when the `metrics` feature is disabled. A failed response send also logs a
+warning carrying a stable `stage` (`serialize` or `write`) and a `category`
+that matches the outcome label, so log records and metric series can be
+correlated.
 
 ## Mutation testing
 

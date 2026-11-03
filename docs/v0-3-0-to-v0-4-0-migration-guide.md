@@ -397,15 +397,21 @@ receives the exact frame that reaches the wire:
 serialize -> FrameCodec::wrap_payload -> before_send -> transport write
 ```
 
-Each connection constructs its own hooks, so hook state never crosses
-connections. A hook that appends a marker now marks every handler response,
-including every fragment of a fragmented response.
+Each connection constructs its own `ProtocolHooks` and `ConnectionContext`, so
+per-connection context and callback instances are not shared. State held by a
+shared `WireframeProtocol` implementation is still shared by every connection
+that installs it. A hook that appends a marker now marks every handler
+response, including every fragment of a fragmented response.
 
-Hook output must fit the codec's `max_frame_length`. A hook that grows a frame
-past that limit fails the send and ends the connection; the frame is neither
-truncated nor written.
+Hook output must fit the codec's `max_frame_length`. The pipeline does not
+check this limit. The default `LengthDelimitedFrameCodec` rejects an oversized
+frame, so the send fails and the frame is not written; a custom encoder defines
+its own behaviour for an oversized frame, so it must enforce `max_frame_length`
+itself.
 
-Two paths still skip the hook. The direct response helpers (`send_response`,
-`send_response_framed`, and `send_response_framed_with_codec`) bypass it, and
-actor-owned push and streaming traffic runs its own pipeline. See the
-[users' guide](users-guide.md) for the user-facing contract.
+Only the direct response helpers (`send_response`, `send_response_framed`, and
+`send_response_framed_with_codec`) bypass the hook. Actor-owned push and
+streaming traffic runs its own hook pipeline: `ConnectionActor::push_frame`
+invokes `before_send` on actor frames, so that traffic is not bypassed. See the
+[users' guide](users-guide.md)
+for the user-facing contract.
