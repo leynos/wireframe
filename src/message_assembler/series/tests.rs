@@ -17,29 +17,16 @@ fn make_series() -> MessageSeries {
 fn advance_sequence_or_overflow_advances_on_normal_increment() {
     let mut series = make_series();
     let seq = FrameSequence(1);
-    assert!(
-        series.advance_sequence_or_overflow(seq, false).is_ok(),
-        "assertion failed: series.advance_sequence_or_overflow(seq, false).is_ok()"
-    );
-    assert_eq!(
-        series.next_sequence,
-        Some(FrameSequence(2)),
-        "series.next_sequence should equal Some(FrameSequence(2))"
-    );
+    assert!(series.advance_sequence_or_overflow(seq, false).is_ok());
+    assert_eq!(series.next_sequence, Some(FrameSequence(2)));
 }
 
 #[test]
 fn advance_sequence_or_overflow_allows_overflow_on_last_frame() {
     let mut series = make_series();
     let seq = FrameSequence(u32::MAX);
-    assert!(
-        series.advance_sequence_or_overflow(seq, true).is_ok(),
-        "assertion failed: series.advance_sequence_or_overflow(seq, true).is_ok()"
-    );
-    assert_eq!(
-        series.next_sequence, None,
-        "series.next_sequence should equal None"
-    );
+    assert!(series.advance_sequence_or_overflow(seq, true).is_ok());
+    assert_eq!(series.next_sequence, None);
 }
 
 #[test]
@@ -47,52 +34,29 @@ fn advance_sequence_or_overflow_errors_on_overflow_mid_stream() {
     let mut series = make_series();
     let seq = FrameSequence(u32::MAX);
     let result = series.advance_sequence_or_overflow(seq, false);
-    assert!(
-        matches!(
-            result,
-            Err(MessageSeriesError::SequenceOverflow { last }) if last == seq
-        ),
-        "assertion failed: matches!( result, Err(MessageSeriesError::SequenceOverflow {{ last }}) \
-         if last == seq )"
-    );
+    assert!(matches!(
+        result,
+        Err(MessageSeriesError::SequenceOverflow { last }) if last == seq
+    ));
 }
 
 #[test]
 fn start_sequence_tracking_switches_to_tracked_mode() {
     let mut series = make_series();
-    assert_eq!(
-        series.sequence_tracking,
-        SequenceTracking::Untracked,
-        "series.sequence_tracking should equal SequenceTracking::Untracked"
-    );
+    assert_eq!(series.sequence_tracking, SequenceTracking::Untracked);
     let seq = FrameSequence(0);
     let result = series.start_sequence_tracking(seq, false);
-    assert!(result.is_ok(), "assertion failed: result.is_ok()");
-    assert_eq!(
-        series.sequence_tracking,
-        SequenceTracking::Tracked,
-        "series.sequence_tracking should equal SequenceTracking::Tracked"
-    );
-    assert_eq!(
-        series.next_sequence,
-        Some(FrameSequence(1)),
-        "series.next_sequence should equal Some(FrameSequence(1))"
-    );
+    assert!(result.is_ok());
+    assert_eq!(series.sequence_tracking, SequenceTracking::Tracked);
+    assert_eq!(series.next_sequence, Some(FrameSequence(1)));
 }
 
 #[test]
 fn start_sequence_tracking_delegates_overflow_on_last() {
     let mut series = make_series();
     let seq = FrameSequence(u32::MAX);
-    assert!(
-        series.start_sequence_tracking(seq, true).is_ok(),
-        "assertion failed: series.start_sequence_tracking(seq, true).is_ok()"
-    );
-    assert_eq!(
-        series.sequence_tracking,
-        SequenceTracking::Tracked,
-        "series.sequence_tracking should equal SequenceTracking::Tracked"
-    );
+    assert!(series.start_sequence_tracking(seq, true).is_ok());
+    assert_eq!(series.sequence_tracking, SequenceTracking::Tracked);
 }
 
 #[test]
@@ -102,14 +66,9 @@ fn advance_tracked_sequence_accepts_expected_sequence() {
     assert!(
         series
             .advance_tracked_sequence(FrameSequence(3), false)
-            .is_ok(),
-        "assertion failed: series .advance_tracked_sequence(FrameSequence(3), false) .is_ok()"
+            .is_ok()
     );
-    assert_eq!(
-        series.next_sequence,
-        Some(FrameSequence(4)),
-        "series.next_sequence should equal Some(FrameSequence(4))"
-    );
+    assert_eq!(series.next_sequence, Some(FrameSequence(4)));
 }
 
 #[test]
@@ -117,10 +76,10 @@ fn advance_tracked_sequence_rejects_duplicate() {
     let mut series = make_series();
     series.force_next_sequence_for_tests(FrameSequence(5));
     let result = series.advance_tracked_sequence(FrameSequence(2), false);
-    assert!(
-        matches!(result, Err(MessageSeriesError::DuplicateFrame { .. })),
-        "assertion failed: matches!( result, Err(MessageSeriesError::DuplicateFrame {{ .. }}) )"
-    );
+    assert!(matches!(
+        result,
+        Err(MessageSeriesError::DuplicateFrame { .. })
+    ));
 }
 
 #[test]
@@ -128,38 +87,24 @@ fn advance_tracked_sequence_rejects_out_of_order() {
     let mut series = make_series();
     series.force_next_sequence_for_tests(FrameSequence(3));
     let result = series.advance_tracked_sequence(FrameSequence(7), false);
-    assert!(
-        matches!(result, Err(MessageSeriesError::SequenceMismatch { .. })),
-        "assertion failed: matches!( result, Err(MessageSeriesError::SequenceMismatch {{ .. }}) )"
-    );
+    assert!(matches!(
+        result,
+        Err(MessageSeriesError::SequenceMismatch { .. })
+    ));
 }
 
 #[test]
 fn start_sequence_tracking_overflow_mid_stream_preserves_state() {
     let mut series = make_series();
-    assert_eq!(
-        series.sequence_tracking,
-        SequenceTracking::Untracked,
-        "series.sequence_tracking should equal SequenceTracking::Untracked"
-    );
-    assert_eq!(
-        series.next_sequence, None,
-        "series.next_sequence should equal None"
-    );
+    assert_eq!(series.sequence_tracking, SequenceTracking::Untracked);
+    assert_eq!(series.next_sequence, None);
     let result = series.start_sequence_tracking(FrameSequence(u32::MAX), false);
-    assert!(
-        matches!(result, Err(MessageSeriesError::SequenceOverflow { .. })),
-        "assertion failed: matches!( result, Err(MessageSeriesError::SequenceOverflow {{ .. }}) )"
-    );
-    assert_eq!(
-        series.sequence_tracking,
-        SequenceTracking::Untracked,
-        "series.sequence_tracking should equal SequenceTracking::Untracked"
-    );
-    assert_eq!(
-        series.next_sequence, None,
-        "series.next_sequence should equal None"
-    );
+    assert!(matches!(
+        result,
+        Err(MessageSeriesError::SequenceOverflow { .. })
+    ));
+    assert_eq!(series.sequence_tracking, SequenceTracking::Untracked);
+    assert_eq!(series.next_sequence, None);
 }
 
 mod property {

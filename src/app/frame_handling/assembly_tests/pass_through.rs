@@ -39,11 +39,7 @@ fn assemble_if_needed_passes_through_when_assembler_is_none(
         "assemble_if_needed should succeed",
     );
 
-    assert_eq!(
-        result.as_ref(),
-        Some(&envelope),
-        "result.as_ref() should equal Some(&envelope)"
-    );
+    assert_eq!(result.as_ref(), Some(&envelope));
     assert_eq!(deser_failures, 0, "no failures when assembler is absent");
 }
 
@@ -71,10 +67,6 @@ fn assemble_if_needed_passes_through_when_state_is_none(
         "assemble_if_needed should succeed",
     );
 
-    assert_eq!(
-        result.as_ref(),
-        Some(&envelope),
-        "result.as_ref() should equal Some(&envelope)"
-    );
+    assert_eq!(result.as_ref(), Some(&envelope));
     assert_eq!(deser_failures, 0, "no failures when state is absent");
 }

@@ -122,11 +122,7 @@ async fn fifo_policy_preserves_wait_order(client_pool_config: ClientPoolConfig) 
     third.await??;
 
     let observed = grants.lock().await.clone();
-    assert_eq!(
-        observed,
-        vec!["first", "second", "third"],
-        "observed should equal vec![\"first\", \"second\", \"third\"]"
-    );
+    assert_eq!(observed, vec!["first", "second", "third"]);
     Ok(())
 }
 
@@ -191,23 +187,11 @@ async fn handle_path_preserves_warm_reuse_and_preamble(
     let first: Pong = handle.call(&Ping(7)).await?;
     let second: Pong = handle.call(&Ping(8)).await?;
 
-    assert_eq!(first, Pong(7), "first should equal Pong(7)");
-    assert_eq!(second, Pong(8), "second should equal Pong(8)");
-    assert_eq!(
-        preamble_callback_count.load(Ordering::SeqCst),
-        1,
-        "preamble_callback_count.load(Ordering::SeqCst) should equal 1"
-    );
-    assert_eq!(
-        server.preamble_count(),
-        1,
-        "server.preamble_count() should equal 1"
-    );
-    assert_eq!(
-        server.connection_count(),
-        1,
-        "server.connection_count() should equal 1"
-    );
+    assert_eq!(first, Pong(7));
+    assert_eq!(second, Pong(8));
+    assert_eq!(preamble_callback_count.load(Ordering::SeqCst), 1);
+    assert_eq!(server.preamble_count(), 1);
+    assert_eq!(server.connection_count(), 1);
     Ok(())
 }
 
@@ -222,27 +206,15 @@ async fn handle_path_recycles_after_idle_timeout(
     let mut handle = pool.handle();
 
     let first: Pong = handle.call(&Ping(1)).await?;
-    assert_eq!(first, Pong(1), "first should equal Pong(1)");
+    assert_eq!(first, Pong(1));
 
     advance(idle_timeout + idle_timeout).await;
     tokio::task::yield_now().await;
 
     let second: Pong = handle.call(&Ping(2)).await?;
-    assert_eq!(second, Pong(2), "second should equal Pong(2)");
-    assert_eq!(
-        preamble_callback_count.load(Ordering::SeqCst),
-        2,
-        "preamble_callback_count.load(Ordering::SeqCst) should equal 2"
-    );
-    assert_eq!(
-        server.preamble_count(),
-        2,
-        "server.preamble_count() should equal 2"
-    );
-    assert_eq!(
-        server.connection_count(),
-        2,
-        "server.connection_count() should equal 2"
-    );
+    assert_eq!(second, Pong(2));
+    assert_eq!(preamble_callback_count.load(Ordering::SeqCst), 2);
+    assert_eq!(server.preamble_count(), 2);
+    assert_eq!(server.connection_count(), 2);
     Ok(())
 }

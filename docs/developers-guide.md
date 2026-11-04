@@ -1366,9 +1366,11 @@ The rule groups that follow from the baseline are:
   assertion outside `#[test]` functions and `#[cfg(test)]` modules, including
   debug assertions, to state the invariant it checks; a bare
   `assert!(condition)` is rejected there even when the condition looks obvious.
-  The lint exempts test code, but the repository convention is still to give
-  test assertions a message so a failure explains itself without re-reading the
-  test.
+  The lint exempts test code, so a test may keep the bare form. Add a message
+  where it names the invariant the assertion protects; a generated restatement
+  of the expression adds nothing that the assertion's own failure output does
+  not already show, and it inflates the module enough to trip CodeScene's
+  duplication and method-length gates.
 - **Panic-prone operations** — `unwrap_used`, `expect_used`,
   `indexing_slicing`, `string_slice`, and the integer and panic rules.
 - **Nursery idiom polish** — `or_fun_call`, `option_if_let_else`, the

@@ -23,90 +23,40 @@ fn framing_error_oversized_recommends_drop() {
         size: 2000,
         max: 1024,
     });
-    assert_eq!(
-        err.default_recovery_policy(),
-        RecoveryPolicy::Drop,
-        "err.default_recovery_policy() should equal RecoveryPolicy::Drop"
-    );
-    assert!(
-        !err.should_disconnect(),
-        "assertion failed: !err.should_disconnect()"
-    );
-    assert_eq!(
-        err.error_type(),
-        "framing",
-        "err.error_type() should equal \"framing\""
-    );
+    assert_eq!(err.default_recovery_policy(), RecoveryPolicy::Drop);
+    assert!(!err.should_disconnect());
+    assert_eq!(err.error_type(), "framing");
 }
 
 #[test]
 fn framing_error_invalid_encoding_recommends_disconnect() {
     let err = CodecError::Framing(FramingError::InvalidLengthEncoding);
-    assert_eq!(
-        err.default_recovery_policy(),
-        RecoveryPolicy::Disconnect,
-        "err.default_recovery_policy() should equal RecoveryPolicy::Disconnect"
-    );
-    assert!(
-        err.should_disconnect(),
-        "assertion failed: err.should_disconnect()"
-    );
+    assert_eq!(err.default_recovery_policy(), RecoveryPolicy::Disconnect);
+    assert!(err.should_disconnect());
 }
 
 #[test]
 fn protocol_error_recommends_drop() {
     let err = CodecError::Protocol(ProtocolError::UnknownMessageType { type_id: 99 });
-    assert_eq!(
-        err.default_recovery_policy(),
-        RecoveryPolicy::Drop,
-        "err.default_recovery_policy() should equal RecoveryPolicy::Drop"
-    );
-    assert!(
-        !err.should_disconnect(),
-        "assertion failed: !err.should_disconnect()"
-    );
-    assert_eq!(
-        err.error_type(),
-        "protocol",
-        "err.error_type() should equal \"protocol\""
-    );
+    assert_eq!(err.default_recovery_policy(), RecoveryPolicy::Drop);
+    assert!(!err.should_disconnect());
+    assert_eq!(err.error_type(), "protocol");
 }
 
 #[test]
 fn io_error_recommends_disconnect() {
     let err = CodecError::Io(io::Error::other("connection reset"));
-    assert_eq!(
-        err.default_recovery_policy(),
-        RecoveryPolicy::Disconnect,
-        "err.default_recovery_policy() should equal RecoveryPolicy::Disconnect"
-    );
-    assert!(
-        err.should_disconnect(),
-        "assertion failed: err.should_disconnect()"
-    );
-    assert_eq!(
-        err.error_type(),
-        "io",
-        "err.error_type() should equal \"io\""
-    );
+    assert_eq!(err.default_recovery_policy(), RecoveryPolicy::Disconnect);
+    assert!(err.should_disconnect());
+    assert_eq!(err.error_type(), "io");
 }
 
 #[test]
 fn eof_clean_close_is_detectable() {
     let err = CodecError::Eof(EofError::CleanClose);
-    assert!(
-        err.is_clean_close(),
-        "assertion failed: err.is_clean_close()"
-    );
-    assert!(
-        err.should_disconnect(),
-        "assertion failed: err.should_disconnect()"
-    );
-    assert_eq!(
-        err.error_type(),
-        "eof",
-        "err.error_type() should equal \"eof\""
-    );
+    assert!(err.is_clean_close());
+    assert!(err.should_disconnect());
+    assert_eq!(err.error_type(), "eof");
 }
 
 #[test]
@@ -115,36 +65,22 @@ fn eof_mid_frame_is_not_clean() {
         bytes_received: 100,
         expected: 200,
     });
-    assert!(
-        !err.is_clean_close(),
-        "assertion failed: !err.is_clean_close()"
-    );
-    assert!(
-        err.should_disconnect(),
-        "assertion failed: err.should_disconnect()"
-    );
+    assert!(!err.is_clean_close());
+    assert!(err.should_disconnect());
 }
 
 #[test]
 fn codec_error_converts_to_io_error() {
     let err = CodecError::Framing(FramingError::EmptyFrame);
     let io_err: io::Error = err.into();
-    assert_eq!(
-        io_err.kind(),
-        io::ErrorKind::InvalidData,
-        "io_err.kind() should equal io::ErrorKind::InvalidData"
-    );
+    assert_eq!(io_err.kind(), io::ErrorKind::InvalidData);
 
     let mid_frame_err = CodecError::Eof(EofError::MidFrame {
         bytes_received: 10,
         expected: 20,
     });
     let mid_frame_io_err: io::Error = mid_frame_err.into();
-    assert_eq!(
-        mid_frame_io_err.kind(),
-        io::ErrorKind::UnexpectedEof,
-        "io_err.kind() should equal io::ErrorKind::UnexpectedEof"
-    );
+    assert_eq!(mid_frame_io_err.kind(), io::ErrorKind::UnexpectedEof);
 }
 
 // ============================================================================
@@ -158,21 +94,9 @@ fn context_builder_sets_all_fields() {
         .with_correlation_id(123)
         .with_codec_state("seq=5");
 
-    assert_eq!(
-        ctx.connection_id,
-        Some(42),
-        "ctx.connection_id should equal Some(42)"
-    );
-    assert_eq!(
-        ctx.correlation_id,
-        Some(123),
-        "ctx.correlation_id should equal Some(123)"
-    );
-    assert_eq!(
-        ctx.codec_state,
-        Some("seq=5".to_owned()),
-        "ctx.codec_state should equal Some(\"seq=5\".to_string())"
-    );
+    assert_eq!(ctx.connection_id, Some(42));
+    assert_eq!(ctx.correlation_id, Some(123));
+    assert_eq!(ctx.codec_state, Some("seq=5".to_owned()));
 }
 
 #[test]
@@ -181,11 +105,7 @@ fn context_with_peer_address() {
 
     let addr: SocketAddr = "127.0.0.1:8080".parse().expect("valid test address");
     let ctx = CodecErrorContext::new().with_peer_address(addr);
-    assert_eq!(
-        ctx.peer_address,
-        Some(addr),
-        "ctx.peer_address should equal Some(addr)"
-    );
+    assert_eq!(ctx.peer_address, Some(addr));
 }
 
 // ============================================================================
@@ -194,11 +114,7 @@ fn context_with_peer_address() {
 
 #[test]
 fn recovery_policy_default_is_drop() {
-    assert_eq!(
-        RecoveryPolicy::default(),
-        RecoveryPolicy::Drop,
-        "RecoveryPolicy::default() should equal RecoveryPolicy::Drop"
-    );
+    assert_eq!(RecoveryPolicy::default(), RecoveryPolicy::Drop);
 }
 
 #[test]
@@ -210,19 +126,9 @@ fn recovery_config_builder() {
         .quarantine_duration(Duration::from_mins(1))
         .log_dropped_frames(false);
 
-    assert_eq!(
-        config.max_consecutive_drops, 5,
-        "config.max_consecutive_drops should equal 5"
-    );
-    assert_eq!(
-        config.quarantine_duration,
-        Duration::from_mins(1),
-        "config.quarantine_duration should equal Duration::from_mins(1)"
-    );
-    assert!(
-        !config.log_dropped_frames,
-        "assertion failed: !config.log_dropped_frames"
-    );
+    assert_eq!(config.max_consecutive_drops, 5);
+    assert_eq!(config.quarantine_duration, Duration::from_mins(1));
+    assert!(!config.log_dropped_frames);
 }
 
 // ============================================================================
@@ -244,18 +150,10 @@ fn custom_hook_overrides_default_policy() {
 
     // Oversized frame normally would be Drop
     let err = CodecError::Framing(FramingError::OversizedFrame { size: 100, max: 50 });
-    assert_eq!(
-        err.default_recovery_policy(),
-        RecoveryPolicy::Drop,
-        "err.default_recovery_policy() should equal RecoveryPolicy::Drop"
-    );
+    assert_eq!(err.default_recovery_policy(), RecoveryPolicy::Drop);
 
     // But our strict hook says Disconnect
-    assert_eq!(
-        hook.recovery_policy(&err, &ctx),
-        RecoveryPolicy::Disconnect,
-        "hook.recovery_policy(&err, &ctx) should equal RecoveryPolicy::Disconnect"
-    );
+    assert_eq!(hook.recovery_policy(&err, &ctx), RecoveryPolicy::Disconnect);
 }
 
 // NOTE: Decoder EOF and oversized frame tests are covered in src/codec.rs unit tests.
@@ -273,10 +171,7 @@ fn wireframe_error_from_codec_method() {
     let codec_err = CodecError::Eof(EofError::CleanClose);
     let wf_err: WireframeError<()> = WireframeError::from_codec(codec_err);
 
-    assert!(
-        wf_err.is_clean_close(),
-        "assertion failed: wf_err.is_clean_close()"
-    );
+    assert!(wf_err.is_clean_close());
 }
 
 #[test]
@@ -287,10 +182,7 @@ fn wireframe_error_io_is_not_clean_close() {
     // forced to a constant `true` must fail here.
     let wf_err: WireframeError<()> = WireframeError::from_io(io::Error::other("reset"));
 
-    assert!(
-        !wf_err.is_clean_close(),
-        "assertion failed: !wf_err.is_clean_close()"
-    );
+    assert!(!wf_err.is_clean_close());
 }
 
 #[test]
@@ -302,10 +194,7 @@ fn wireframe_error_from_mid_frame_codec_is_not_clean_close() {
     let codec_err = CodecError::Framing(FramingError::InvalidLengthEncoding);
     let wf_err: WireframeError<()> = WireframeError::from_codec(codec_err);
 
-    assert!(
-        !wf_err.is_clean_close(),
-        "assertion failed: !wf_err.is_clean_close()"
-    );
+    assert!(!wf_err.is_clean_close());
 }
 
 #[test]
@@ -316,10 +205,7 @@ fn wireframe_error_protocol_is_not_clean_close() {
     // guard must reject it.
     let wf_err: WireframeError<&str> = WireframeError::from("boom");
 
-    assert!(
-        !wf_err.is_clean_close(),
-        "assertion failed: !wf_err.is_clean_close()"
-    );
+    assert!(!wf_err.is_clean_close());
 }
 
 #[test]
@@ -333,14 +219,8 @@ fn wireframe_error_codec_variant_displays_correctly() {
     let wf_err: WireframeError<()> = WireframeError::from_codec(codec_err);
 
     let display = wf_err.to_string();
-    assert!(
-        display.contains("codec error"),
-        "assertion failed: display.contains(\"codec error\")"
-    );
-    assert!(
-        display.contains("framing error"),
-        "assertion failed: display.contains(\"framing error\")"
-    );
+    assert!(display.contains("codec error"));
+    assert!(display.contains("framing error"));
 }
 
 #[test]
@@ -351,8 +231,5 @@ fn send_error_from_codec() {
     let send_err: SendError = codec_err.into();
 
     let display = send_err.to_string();
-    assert!(
-        display.contains("codec error"),
-        "assertion failed: display.contains(\"codec error\")"
-    );
+    assert!(display.contains("codec error"));
 }

@@ -31,7 +31,7 @@ async fn handle_retrieved_while_alive(registry: SessionRegistry<u8>) -> TestResu
     let retrieved = registry.get(&id).expect("handle should be present");
     retrieved.push_high_priority(7).await?;
     let (_, val) = queues.recv().await.expect("recv failed");
-    assert_eq!(val, 7, "val should equal 7");
+    assert_eq!(val, 7);
     Ok(())
 }
 
@@ -44,10 +44,7 @@ async fn get_returns_none_after_drop(registry: SessionRegistry<u8>) -> TestResul
     registry.insert(id, &handle);
     drop(handle);
 
-    assert!(
-        registry.get(&id).is_none(),
-        "assertion failed: registry.get(&id).is_none()"
-    );
+    assert!(registry.get(&id).is_none());
     Ok(())
 }
 
@@ -60,14 +57,8 @@ async fn get_prunes_dead_handle(registry: SessionRegistry<u8>) -> TestResult<()>
     registry.insert(id, &handle);
     drop(handle);
 
-    assert!(
-        registry.get(&id).is_none(),
-        "assertion failed: registry.get(&id).is_none()"
-    );
-    assert!(
-        !registry.active_ids().contains(&id),
-        "assertion failed: !registry.active_ids().contains(&id)"
-    );
+    assert!(registry.get(&id).is_none());
+    assert!(!registry.active_ids().contains(&id));
     Ok(())
 }
 
@@ -84,9 +75,9 @@ async fn active_handles_lists_live_connections(registry: SessionRegistry<u8>) ->
     drop(handle1);
 
     let handles = registry.active_handles();
-    assert_eq!(handles.len(), 1, "handles.len() should equal 1");
+    assert_eq!(handles.len(), 1);
     let first = handles.first().expect("no active handles");
-    assert_eq!(first.0, id2, "first.0 should equal id2");
+    assert_eq!(first.0, id2);
     Ok(())
 }
 
@@ -100,9 +91,6 @@ async fn prune_removes_dead_entries(registry: SessionRegistry<u8>) -> TestResult
     drop(handle);
     registry.prune();
 
-    assert!(
-        registry.get(&id).is_none(),
-        "assertion failed: registry.get(&id).is_none()"
-    );
+    assert!(registry.get(&id).is_none());
     Ok(())
 }

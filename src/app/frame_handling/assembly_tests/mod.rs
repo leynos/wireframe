@@ -126,9 +126,7 @@ fn inbound_assembly_handles_interleaved_sequences(
             ),
             "first key1 should process",
         )
-        .is_none(),
-        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
-         &mut deser_failures, key1_first, ), \"first key1 should process\", ) .is_none()"
+        .is_none()
     );
     assert!(
         ok(
@@ -140,9 +138,7 @@ fn inbound_assembly_handles_interleaved_sequences(
             ),
             "first key2 should process",
         )
-        .is_none(),
-        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
-         &mut deser_failures, key2_first, ), \"first key2 should process\", ) .is_none()"
+        .is_none()
     );
 
     let completed_a = require_completed(
@@ -157,11 +153,7 @@ fn inbound_assembly_handles_interleaved_sequences(
         ),
         "key1 should complete",
     );
-    assert_eq!(
-        completed_a.payload_bytes(),
-        b"A1A2",
-        "completed_a.payload_bytes() should equal b\"A1A2\""
-    );
+    assert_eq!(completed_a.payload_bytes(), b"A1A2");
 
     let completed_b = require_completed(
         ok(
@@ -175,11 +167,7 @@ fn inbound_assembly_handles_interleaved_sequences(
         ),
         "key2 should complete",
     );
-    assert_eq!(
-        completed_b.payload_bytes(),
-        b"B1B2",
-        "completed_b.payload_bytes() should equal b\"B1B2\""
-    );
+    assert_eq!(completed_b.payload_bytes(), b"B1B2");
 
     assert_eq!(deser_failures, 0, "no failures expected");
 }
@@ -246,9 +234,7 @@ fn inbound_assembly_rejects_ordering_violations(
             ),
             "first frame should process",
         )
-        .is_none(),
-        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
-         &mut deser_failures, first, ), \"first frame should process\", ) .is_none()"
+        .is_none()
     );
     assert!(
         ok(
@@ -260,9 +246,7 @@ fn inbound_assembly_rejects_ordering_violations(
             ),
             "first continuation should process",
         )
-        .is_none(),
-        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
-         &mut deser_failures, cont_seq1, ), \"first continuation should process\", ) .is_none()"
+        .is_none()
     );
     assert!(
         ok(
@@ -274,10 +258,7 @@ fn inbound_assembly_rejects_ordering_violations(
             ),
             "out-of-order continuation should be recoverable",
         )
-        .is_none(),
-        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
-         &mut deser_failures, cont_seq3, ), \"out-of-order continuation should be recoverable\", \
-         ) .is_none()"
+        .is_none()
     );
     assert_eq!(
         deser_failures, 1,
@@ -296,11 +277,7 @@ fn inbound_assembly_rejects_ordering_violations(
         ),
         "message should complete after recovery",
     );
-    assert_eq!(
-        completed.payload_bytes(),
-        b"abcdgh",
-        "completed.payload_bytes() should equal b\"abcdgh\""
-    );
+    assert_eq!(completed.payload_bytes(), b"abcdgh");
 }
 
 #[rstest]
@@ -328,9 +305,7 @@ fn inbound_assembly_timeout_purges_partial_state(
             ),
             "first frame should process",
         )
-        .is_none(),
-        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
-         &mut deser_failures, first, ), \"first frame should process\", ) .is_none()"
+        .is_none()
     );
 
     // Advance a synthetic clock past the 60-second assembly timeout so the
@@ -363,10 +338,7 @@ fn inbound_assembly_timeout_purges_partial_state(
             ),
             "continuation after purge should be recoverable",
         )
-        .is_none(),
-        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
-         &mut deser_failures, continuation, ), \"continuation after purge should be \
-         recoverable\", ) .is_none()"
+        .is_none()
     );
     assert_eq!(
         deser_failures, 1,
