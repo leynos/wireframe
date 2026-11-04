@@ -5,3 +5,19 @@ too-many-lines-threshold = 70          # default is 100
 excessive-nesting-threshold = 4        # default is off
 
 allow-expect-in-tests = true
+
+# Enforce the environment-boundary policy in AGENTS.md. The reason strings
+# surface in the diagnostic, so a contributor who trips one is told what to do
+# instead. Sanctioned sites carry
+# `#[expect(clippy::disallowed_methods, reason = "...")]` rather than `allow`,
+# so the expectation goes unfulfilled — and warns — once the site is migrated.
+# The accepted seam taxonomy is leynos/netsuke ADR 0008
+# (docs/adrs/adr-0008-environment-seam-taxonomy.md).
+disallowed-methods = [
+  { path = "std::env::var", reason = "inject an environment reader" },
+  { path = "std::env::var_os", reason = "inject an environment reader" },
+  { path = "std::env::vars", reason = "inject an environment reader" },
+  { path = "std::env::vars_os", reason = "inject an environment reader" },
+  { path = "std::env::set_var", reason = "use a stub environment in tests" },
+  { path = "std::env::remove_var", reason = "use a stub environment in tests" },
+]

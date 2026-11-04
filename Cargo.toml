@@ -82,6 +82,7 @@ criterion = "0.8.2"
 cap-std = { version = "4.0.2", features = ["fs_utf8"] }
 camino = "1.2.2"
 serde_json = "1.0.141"
+toml = "1.1.2"
 trybuild = "1"
 
 tokio = { version = "1.47.1", default-features = false, features = [
@@ -156,6 +157,11 @@ unreachable = "deny"
 host_endian_bytes = "deny"
 little_endian_bytes = "deny"
 big_endian_bytes = "deny"
+
+# 5. environment boundary
+# `clippy.toml` lists the six prohibited `std::env` APIs. Denying the lint here
+# makes it an error even when a member or CI lane forgets `-D warnings`.
+disallowed_methods = "deny"
 
 [workspace.lints.rust]
 unknown_lints = "deny"

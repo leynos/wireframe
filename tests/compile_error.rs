@@ -49,7 +49,9 @@ fn rstest_bdd_v06_contracts() -> Result<(), Box<dyn Error>> {
 
 /// Stage feature inputs beneath the manifest directory created by trybuild.
 fn stage_bdd_feature_files() -> Result<(), Box<dyn Error>> {
-    let target = trybuild_target_directory()?;
+    // Cargo injects `CARGO` when it compiles this test, so capture it at
+    // compile time instead of reading the process environment at run time.
+    let target = trybuild_target_directory(option_env!("CARGO").unwrap_or("cargo"))?;
     let target_dir = Dir::open_ambient_dir(target, ambient_authority())?;
     let destination = Utf8PathBuf::from("tests/trybuild/wireframe/rstest_bdd_v06");
     target_dir.create_dir_all(&destination)?;
@@ -64,8 +66,7 @@ fn stage_bdd_feature_files() -> Result<(), Box<dyn Error>> {
 }
 
 /// Resolve the target root the same way trybuild does, including Cargo config.
-fn trybuild_target_directory() -> Result<Utf8PathBuf, Box<dyn Error>> {
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+fn trybuild_target_directory(cargo: &str) -> Result<Utf8PathBuf, Box<dyn Error>> {
     let output = Command::new(cargo)
         .args(["metadata", "--no-deps", "--format-version=1", "--locked"])
         .current_dir(env!("CARGO_MANIFEST_DIR"))

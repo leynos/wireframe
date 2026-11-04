@@ -1405,6 +1405,27 @@ address parsing, app construction, handlers, and middleware in the example file.
 for examples, tests, and doctests; applications supply their own tracing
 subscriber and exporter.
 
+Clippy rejects `std::env::var`, `var_os`, `vars`, `vars_os`, `set_var`, and
+`remove_var` through the disallowed-methods list in `clippy.toml`; the
+`disallowed_methods` lint is denied in the workspace lint table. Capture real
+environment values only at an executable composition root, such as an example's
+`run` function, and pass the lookup result into small parsing helpers as an
+explicit value. The seam taxonomy in
+[Netsuke ADR 008: environment seam taxonomy](https://github.com/leynos/netsuke/blob/main/docs/adrs/adr-0008-environment-seam-taxonomy.md)
+selects the narrowest shape: an explicit value for one variable read by one
+caller, a private closure for a small reusable reader, and `mockable::Env` only
+when the number of variables or tests justifies the trait. Do not add a wrapper
+that merely relocates the read. Subprocess tests configure the child with
+`Command::env_clear` and explicit `Command::env` calls instead of mutating the
+parent test process, which keeps the suite parallel-safe; see
+[reliable testing in Rust via dependency injection](reliable-testing-in-rust-via-dependency-injection.md)
+for the injected-reader background. A direct prohibited call that must remain
+at a genuine composition root carries an item-scoped
+`#[expect(clippy::disallowed_methods, reason = "...")]`; never use `allow`.
+Indirect access through an injected reader, such as `DefaultEnv::raw`, does not
+trigger the lint and must not carry the expectation, because an unfulfilled
+expectation fails the lint gate.
+
 Codec benchmark helpers live in `wireframe_testing::codec_benchmarks`. Bench
 targets, direct unit tests, and BDD fixtures should import the workload matrix,
 measurement helpers, fragmentation helpers, and allocation-label helpers from

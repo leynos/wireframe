@@ -215,11 +215,28 @@ project:
 - Use `rstest` fixtures for shared setup.
 - Replace duplicated tests with `#[rstest(...)]` parameterized cases.
 - Prefer `mockall` for ad hoc mocks/stubs.
-- For testing of functionality depending upon environment variables, dependency
-  injection and the `mockable` crate are the preferred option.
-- If mockable cannot be used, env mutations in tests MUST be wrapped in shared
-  guards and mutexes placed in a shared `test_utils` or `test_helpers` crate.
-  Direct environment mutation is FORBIDDEN in tests.
+- **In-process environment mutation is FORBIDDEN in tests.** No test executing
+  inside the harness process may call `std::env::set_var`,
+  `std::env::remove_var`, or a helper wrapping them. This binds unit tests,
+  integration-test binaries, and in-process behavioural tests alike.
+- **Inject the environment instead.** Behaviour depending upon environment
+  variables must accept the dependency rather than read it. Pass an already
+  resolved lookup result when one caller reads one variable, a narrow closure
+  for a small reusable reader, or `mockable::Env` — with `mockable::DefaultEnv`
+  in production and `mockable::MockEnv` in tests — when the number of variables
+  or tests justifies the trait. Production code must not call
+  `std::env::var`/`var_os` outside the composition root that resolves the value;
+  `clippy.toml` denies those calls.
+- **Process-wide locks are not an escape hatch.** Serializing environment
+  mutation behind a `Mutex`, `OnceLock`, or `serial_test` attribute is not an
+  accepted fallback; where injection looks impossible, correct the signature.
+  See the environment seam rule in the
+  [developers' guide](docs/developers-guide.md#example-and-benchmark-support).
+- **Subprocess isolation is the sole exemption.** End-to-end tests that invoke
+  a built binary may configure the child because the mutation is confined to
+  the child process. Clear the inherited environment with `Command::env_clear`
+  and then set only the variables the child needs with `Command::env`; setting
+  variables without clearing still lets unrelated host state leak in.
 
 ### Dependency management
 
