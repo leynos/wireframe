@@ -1362,9 +1362,13 @@ inherit a workspace table, so it carries a copy that must be kept in step.
 The rule groups that follow from the baseline are:
 
 - **Hygiene** — `disallowed_methods`, `missing_assert_message`, and the
-  attribute and documentation rules. `missing_assert_message` means every
-  assertion in a test or a debug assertion states the invariant it checks; a
-  bare `assert!(condition)` is rejected even when the condition looks obvious.
+  attribute and documentation rules. `missing_assert_message` requires every
+  assertion outside `#[test]` functions and `#[cfg(test)]` modules, including
+  debug assertions, to state the invariant it checks; a bare
+  `assert!(condition)` is rejected there even when the condition looks obvious.
+  The lint exempts test code, but the repository convention is still to give
+  test assertions a message so a failure explains itself without re-reading the
+  test.
 - **Panic-prone operations** — `unwrap_used`, `expect_used`,
   `indexing_slicing`, `string_slice`, and the integer and panic rules.
 - **Nursery idiom polish** — `or_fun_call`, `option_if_let_else`, the
