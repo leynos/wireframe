@@ -62,14 +62,14 @@ fn framed_pair() -> FramedPair {
 
 /// Build hooks whose `before_send` appends [`MARKER`] and counts calls.
 fn marker_hooks(counter: &Arc<AtomicUsize>) -> ProtocolHooks<Bytes, ()> {
-    let counter = Arc::clone(counter);
+    let call_counter = Arc::clone(counter);
     ProtocolHooks {
         before_send: Some(Box::new(
             move |frame: &mut Bytes, _ctx: &mut ConnectionContext| {
                 let mut bytes = frame.to_vec();
                 bytes.push(MARKER);
                 *frame = Bytes::from(bytes);
-                counter.fetch_add(1, Ordering::SeqCst);
+                call_counter.fetch_add(1, Ordering::SeqCst);
             },
         )),
         ..ProtocolHooks::default()
@@ -287,12 +287,14 @@ async fn before_send_output_over_the_frame_limit_fails_the_send() {
 
     let codec = TestCodec::new(MIN_FRAME_LENGTH);
     let (client, server) = tokio::io::duplex(1024);
-    let mut server = Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
-    let mut client = Framed::new(client, CombinedCodec::new(codec.decoder(), codec.encoder()));
+    let mut server_framed =
+        Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
+    let mut client_framed =
+        Framed::new(client, CombinedCodec::new(codec.decoder(), codec.encoder()));
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut server,
+        framed: &mut server_framed,
     };
 
     let error = flush_pipeline_output(&mut transport, &mut pipeline)
@@ -303,9 +305,9 @@ async fn before_send_output_over_the_frame_limit_fails_the_send() {
         "the failure should name the codec limit, got: {error}"
     );
 
-    drop(server);
+    drop(server_framed);
     assert!(
-        collect_frames(&mut client).await.is_empty(),
+        collect_frames(&mut client_framed).await.is_empty(),
         "no oversized frame should reach the wire"
     );
 }
