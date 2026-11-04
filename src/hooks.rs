@@ -39,7 +39,8 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// asynchronous server pushes.
     fn on_connection_setup(&self, _handle: PushHandle<Self::Frame>, _ctx: &mut ConnectionContext) {}
 
-    /// Invoked before any frame (push or response) is written to the socket.
+    /// Invoked before application-response and connection-actor frames are
+    /// written to the socket.
     ///
     /// The frame representation depends on which producer emits it:
     ///
@@ -53,8 +54,14 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     ///   `Self::Frame` form. `ConnectionActor::push_frame` runs the hook on the frame and then
     ///   appends it to the output; it does not serialize or codec-wrap the frame itself.
     ///
-    /// In both cases the hook may enlarge the frame (for example, to stamp a
-    /// trailer). There is no implicit allowance for that growth:
+    /// The direct response helpers on [`crate::app::WireframeApp`]
+    /// (`send_response`, `send_response_framed`, and
+    /// `send_response_framed_with_codec`) write to a caller-supplied stream or
+    /// framed sink instead of the connection output, and do not invoke this
+    /// hook.
+    ///
+    /// In both of the paths above the hook may enlarge the frame (for example,
+    /// to stamp a trailer). There is no implicit allowance for that growth:
     /// implementations **must** leave the frame within the codec's
     /// [`FrameCodec::max_frame_length`]. The default
     /// [`LengthDelimitedFrameCodec`] rejects an oversized frame with
