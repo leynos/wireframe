@@ -233,9 +233,10 @@ project:
   See the environment seam rule in the
   [developers' guide](docs/developers-guide.md#example-and-benchmark-support).
 - **Subprocess isolation is the sole exemption.** End-to-end tests that invoke
-  a built binary may configure the child with
-  `Command::env`/`Command::env_clear` because the mutation is confined to the
-  child process.
+  a built binary may configure the child because the mutation is confined to
+  the child process. Clear the inherited environment with `Command::env_clear`
+  and then set only the variables the child needs with `Command::env`; setting
+  variables without clearing still lets unrelated host state leak in.
 
 ### Dependency management
 
