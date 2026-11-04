@@ -6,18 +6,24 @@
 # - Prefer a fix. An exclusion is admitted only after the widened
 #   `make lint-whitaker` run reproduces the diagnostic, and only where an
 #   external constraint makes the fix impossible or unsafe.
-# - Scope an exclusion to the narrowest module path that still silences the
-#   proven diagnostic. Use `excluded_paths` with fully qualified Rust paths
-#   (for example `wireframe::legacy_io`); a trailing `::` or a bare crate name
-#   is rejected because it widens to the whole crate.
-# - Never use `excluded_crates`: it exempts an entire crate, which cannot
-#   express the module-level boundary this repository requires.
+# - `excluded_paths` is read only by `no_std_fs_operations`. The other lints
+#   reject unknown keys and fall back to their defaults, so an exclusion written
+#   in their table would silently do nothing. Scope each entry to the narrowest
+#   module path that still silences the proven diagnostic, using the crate
+#   identifier (for example `wireframe::legacy_io`); a trailing `::` or a bare
+#   crate name is rejected because it widens to the whole crate.
+# - Never use `excluded_crates`, although `no_std_fs_operations` accepts it: it
+#   exempts an entire crate, which cannot express the module-level boundary
+#   this repository requires.
 # - Every entry must carry a comment naming the reproduced diagnostic, the
 #   external constraint, and the issue that owns removing it. Entries without
 #   that evidence are removed in review.
 # - Do not add repository-wide tuning keys (thresholds, locales, extra test
 #   attributes) without the ticket owner's approval; changing a shared
-#   threshold weakens every crate at once.
+#   threshold weakens every crate at once. Lints that expose a numeric limit
+#   take their own key in their own table (`[module_max_lines] max_lines`,
+#   `[conditional_max_n_branches] max_branches`); raising one is a policy
+#   decision, not a local exception.
 #
 # There are currently no exclusions. Add entries here in the lint table that
 # raised the diagnostic, for example:

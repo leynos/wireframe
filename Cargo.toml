@@ -116,8 +116,10 @@ test-support = []
 testkit = []
 
 # One lint policy for every workspace package. Members opt in with
-# `[lints] workspace = true`; a package-local table beside that opt-in would
-# silently override the shared policy, so the manifest test rejects one.
+# `[lints] workspace = true`. Cargo rejects a package-local lint table beside
+# that opt-in, so a lint that needs a custom level or `check-cfg` entry belongs
+# in the `[workspace.lints.*]` tables below. The manifest test reports a stray
+# local table with a clearer message than Cargo's.
 #
 # This table inherits the existing policy into every package; it is not yet
 # the full Netsuke baseline. `clippy::disallowed_methods`,

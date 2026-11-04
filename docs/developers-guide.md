@@ -769,10 +769,13 @@ wrapper and no action-owned version.
 Repository-wide exclusions for Whitaker lints live in the root `dylint.toml`.
 It is deliberately empty: add an `excluded_paths` entry only with a reproduced
 diagnostic and a stated external constraint. Do not add `excluded_crates`,
-which would drop a whole workspace member from the policy. The contract test
-also rejects a bare crate name, a glob, a repository-root path, a linter table
-without that evidence, and repository-wide tuning keys such as a shared
-threshold or locale.
+which would drop a whole workspace member from the policy. `excluded_paths` is
+read only by `no_std_fs_operations`; every other lint rejects unknown keys and
+falls back to its defaults, so an exclusion written in another lint's table is
+rejected rather than silently ignored. The contract test also rejects a bare
+crate name, a glob, a repository-root path, a scalar instead of a list, a
+linter table without that evidence, and repository-wide tuning keys such as a
+shared threshold or locale.
 
 The shared policy is the inheritance mechanism for every workspace package, not
 the finished Netsuke baseline. Aligning the remaining baseline rules, namely

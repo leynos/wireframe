@@ -24,9 +24,10 @@ the pin block, run `make install-whitaker`, then `make lint`.
 
 Lint exclusions for the repository live in the root `dylint.toml`. Keep them
 empty unless a reproduced diagnostic has a stated external constraint, and
-scope them with `excluded_paths`; `excluded_crates` would exempt a whole
-workspace member from the policy. The workflow contract tests in
-`tests/workflow_contracts/lint_pipeline_test.py` enforce both rules.
+scope them with `excluded_paths` under the `[no_std_fs_operations]` table, the
+only lint that reads the key; `excluded_crates` would exempt a whole workspace
+member from the policy. The workflow contract tests in
+`tests/workflow_contracts/dylint_policy_test.py` enforce both rules.
 
 The rest of this guide describes the upstream installation and configuration
 options that the pinned toolchain implements.
@@ -74,19 +75,22 @@ After installation, run `whitaker --all` in any Rust project to lint it. Use
 
 ### Adding Whitaker to a project
 
-Add the following to the workspace `Cargo.toml`:
+With the installer-managed toolchain, run the lints through the wrapper:
+
+```sh
+whitaker --all
+```
+
+`whitaker` starts `cargo dylint` with the environment the pinned bootstrap
+created. Plain `cargo dylint --all` does not use that bootstrap and resolves
+the suite from crates.io instead, so prefer the wrapper. If you invoke
+`cargo dylint` directly, declare the library in the workspace manifest first:
 
 ```toml
 [workspace.metadata.dylint]
 [[workspace.metadata.dylint.libraries]]
 git = "https://github.com/leynos/whitaker"
 pattern = "whitaker_suite"
-```
-
-Then run the lints:
-
-```sh
-cargo dylint --all
 ```
 
 ### Version pinning

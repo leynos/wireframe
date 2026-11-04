@@ -95,9 +95,9 @@ fn root_manifest_declares_explicit_workspace_section() -> TestResult {
 
 /// Return the package-local lint tables declared alongside an inheritance opt-in.
 ///
-/// Cargo merges such a table with the inherited policy rather than replacing it,
-/// so a package can quietly raise a shared lint's level without touching the
-/// workspace manifest. Naming them here keeps the policy single-sourced.
+/// Cargo rejects a package-local lint table beside `[lints] workspace = true`.
+/// Reporting the tables here gives a repository-specific message and keeps the
+/// policy single-sourced in the workspace manifest.
 fn package_local_lint_tables(manifest: &str) -> Vec<&str> {
     manifest
         .lines()
