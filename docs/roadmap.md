@@ -1131,9 +1131,10 @@ and sessions. OpenRA fan-out is validated in 21.4.4.
     Kafka, MySQL, MariaDB, PostgreSQL, IEC 104, DNP3 IEEE Std 1815-2010,
     OpenRA, and Quake 3.
   - Generate lifecycle, ordered-completion, setup-transition, reservation,
-    scheduling, and datagram traces with `proptest`. Assert exactly-once
-    context and reservation release, ordering, byte conservation, finite
-    budgets, and datagram boundaries under cancellation and faults.
+    scheduling, and datagram traces with `proptest`. Assert each operation
+    context is consumed on completion or released on termination exactly once,
+    and each reservation is released exactly once. Check ordering, byte
+    conservation, finite budgets, and datagram boundaries under faults.
   - Success: every profile has a runnable server and independent peer, golden
     vectors, split/coalescing and malformed/truncation tests, budget and
     lifecycle checks, and offline execution. No protocol implementation appears

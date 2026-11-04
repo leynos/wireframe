@@ -20,8 +20,10 @@ work, and validated and unvalidated peer/session entries. The finite
 peer/session-entry class charges both entry count and retained state bytes
 before insertion. Decompression must reserve its own finite expansion budget
 before allocating; wire or compressed-size limits do not substitute for this
-bound. Reserve before allocation/enqueue and release on completion, abort,
-timeout, cancellation, and disconnect. Adapters provide bounded logical keys,
+bound. Reserve before allocation or enqueue. Release wire and decoded-byte
+reservations when those bytes are consumed; release logical assembly
+reservations on completion. Abort, timeout, cancellation, and disconnect
+release any remaining reservations. Adapters provide bounded logical keys,
 classify control/data, and report assembly lifecycle. The adapter owns fragment
 identifiers, duplicate policy, rollover, acknowledgements, and timeout
 semantics; core owns accounting, deadlines and fair scheduling.
