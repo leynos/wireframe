@@ -19,6 +19,7 @@ import re
 from pathlib import Path
 from typing import cast
 
+import pytest
 import yaml
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
@@ -235,6 +236,7 @@ WHITAKER_ROUTE_RE = re.compile(
     r"whitaker-installer"
     r"|cargo\s+(\+\S+\s+)?(install|binstall)[^\n]*(cargo-dylint|dylint-link)"
     r"|cargo\s+(\+\S+\s+)?dylint\b"
+    r"|(?<![\w./-])whitaker(?:-ls)?\b"
     r"|(?<![\w-])(cargo-dylint|dylint-link)\b",
 )
 
@@ -273,6 +275,17 @@ def _assert_installed_before_lint(install: dict[str, object]) -> None:
     )
 
 
+def _whitaker_routes(
+    steps: list[tuple[str, str, dict[str, object]]],
+) -> list[str]:
+    """Return ``file:job: step`` for each step that runs Whitaker by hand."""
+    return [
+        f"{file}:{job}: {step.get('name')}"
+        for file, job, step in steps
+        if WHITAKER_ROUTE_RE.search(str(step.get("run", "")))
+    ]
+
+
 def test_whitaker_is_installed_only_through_the_pinned_make_target() -> None:
     """Exactly one step installs Whitaker, and the Makefile owns every pin.
 
@@ -309,11 +322,7 @@ def test_whitaker_is_installed_only_through_the_pinned_make_target() -> None:
         f"the shared install-whitaker action must be retired: {shared_actions}"
     )
 
-    routes = [
-        f"{file}:{job}: {step.get('name')}"
-        for file, job, step in steps
-        if WHITAKER_ROUTE_RE.search(str(step.get("run", "")))
-    ]
+    routes = _whitaker_routes(steps)
     assert not routes, f"a script installs or runs Whitaker by hand: {routes}"
 
     caches = [
@@ -332,6 +341,35 @@ def test_whitaker_is_installed_only_through_the_pinned_make_target() -> None:
         assert token not in text, (
             f"{token} belongs to the Makefile, not a workflow"
         )
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        "whitaker --all",
+        "whitaker-ls",
+        "whitaker-installer",
+        "cargo dylint --all",
+        "cargo install cargo-dylint",
+    ],
+)
+def test_the_whitaker_route_contract_rejects_a_manual_invocation(run: str) -> None:
+    """Every handwritten route is reported, including a bare ``whitaker``.
+
+    The workflow contract is only as strong as its detector. A step added as
+    ``whitaker --all`` must be caught, not accepted because only the installer
+    and ``cargo dylint`` spellings were recognized.
+    """
+    steps = [("ci.yml", "build-test", {"name": "Lint", "run": run})]
+    assert _whitaker_routes(steps) == ["ci.yml:build-test: Lint"]
+
+
+def test_the_whitaker_route_contract_allows_the_make_owned_install() -> None:
+    """The sanctioned ``make install-whitaker`` step is not a manual route."""
+    steps = [
+        ("ci.yml", "build-test", {"name": "Install", "run": INSTALL_WHITAKER_RUN}),
+    ]
+    assert _whitaker_routes(steps) == []
 
 
 def test_whitaker_pins_live_only_in_the_makefile() -> None:

@@ -8,7 +8,9 @@ bump is one edit.
 
 Run with ``make test-workflow-contracts``. The dry runs substitute probe
 commands, so these assertions read Make's evaluated recipes without compiling
-anything or installing a linter.
+anything or installing a linter. The failure-propagation tests run
+``make lint`` with stubbed commands, so its exit status proves the aggregate
+is binding without compiling either.
 """
 
 from __future__ import annotations
@@ -282,3 +284,64 @@ def test_lint_pipeline_contract_fails_on_a_removed_guarantee(
     mutated_makefile.write_text(source.replace(original, mutated), encoding="utf-8")
     with pytest.raises(AssertionError):
         _assert_lint_pipeline(_lint_dry_run(mutated_makefile), mutated_makefile)
+
+
+#: A Cargo stand-in that fails for exactly one subcommand. Every lint leaf
+#: shells out to ``$(CARGO)``, so this isolates one leaf without editing the
+#: Makefile: a ``doc`` failure cannot be masked by ``clippy`` succeeding.
+FAILING_CARGO_TEMPLATE = """#!/bin/sh
+for argument in "$@"; do
+    if [ "$argument" = "{subcommand}" ]; then
+        exit 1
+    fi
+done
+exit 0
+"""
+
+
+def _failing_cargo(tmp_path: Path, subcommand: str) -> Path:
+    """Write a Cargo stand-in that fails only for ``subcommand``."""
+    script = tmp_path / f"failing-cargo-{subcommand}.sh"
+    script.write_text(
+        FAILING_CARGO_TEMPLATE.format(subcommand=subcommand), encoding="utf-8"
+    )
+    return script
+
+
+@pytest.mark.parametrize("subcommand", ["doc", "clippy"])
+def test_make_lint_propagates_a_failing_cargo_leaf(
+    tmp_path: Path, subcommand: str
+) -> None:
+    """The aggregate is binding for the rustdoc and Clippy leaves too.
+
+    A recipe that prefixed its command with ``-`` or appended ``|| true``
+    would report success while the leaf failed. The stub keeps the other
+    leaves trivial, so a non-zero exit can only come from the failing one.
+    """
+    environment = {
+        key: value for key, value in os.environ.items() if key != "RUSTFLAGS"
+    }
+    result = subprocess.run(
+        [
+            "make",
+            "-f",
+            str(MAKEFILE_PATH),
+            "lint",
+            f"CARGO=sh {_failing_cargo(tmp_path, subcommand)}",
+            "WHITAKER=true",
+            "DEV_FAST=",
+            "DEV_WARNING_FLAGS=",
+            "RUSTDOC_FLAGS=",
+            "DOC_FLAGS=",
+            "CLIPPY_FLAGS=",
+        ],
+        check=False,
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0, (
+        f"`make lint` must fail when the {subcommand} leaf fails, "
+        f"but it exited 0:\n{result.stdout}\n{result.stderr}"
+    )

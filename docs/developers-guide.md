@@ -863,11 +863,10 @@ PyYAML. Run them locally with `make test-workflow-contracts`. They validate:
 
 - every `leynos/shared-actions` invocation across the repository workflows
   targets an approved action or reusable workflow path, uses a full
-  40-character lowercase hex commit SHA, and shares the same version, except
-  `install-whitaker`: that action is exempt from revision equality (but not
-  from full-SHA validation or concordat's QG-002 approval), because only
-  approved revisions of it are admitted. The value itself is not asserted, so
-  Dependabot bumps it freely (see
+  40-character lowercase hex commit SHA, and shares the same version. No
+  workflow installs Whitaker through the shared action any more: the Makefile
+  owns that installation, so revision equality has no exception. The value
+  itself is not asserted, so Dependabot bumps it freely (see
   [Workflow pins and Dependabot](#workflow-pins-and-dependabot));
 - job permissions are exactly least-privilege (`contents: read`,
   `id-token: write`);
@@ -1112,8 +1111,8 @@ must not verify the specific SHA value.
   reusable-workflow path and is pinned to a full 40-character commit SHA, not a
   mutable branch such as `main` or `rolling`.
 - Do assert all `leynos/shared-actions` invocations across all workflows use
-  the same commit SHA, except `install-whitaker`, which keeps its own
-  QG-002-approved revision (it still needs a full-SHA pin).
+  the same commit SHA. Whitaker is installed by `make install-whitaker`, not a
+  shared action, so no invocation needs an exemption.
 - Do assert the expected `on:` triggers, least-privilege `permissions:`, and
   the inputs the caller relies on.
 - Do not hard-code the current SHA value as an expected string. Match it with
