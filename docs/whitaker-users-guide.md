@@ -82,9 +82,10 @@ whitaker --all
 ```
 
 `whitaker` starts `cargo dylint` with the environment the pinned bootstrap
-created. Plain `cargo dylint --all` does not use that bootstrap and resolves
-the suite from crates.io instead, so prefer the wrapper. If you invoke
-`cargo dylint` directly, declare the library in the workspace manifest first:
+created. Plain `cargo dylint --all` does not use the Clippy snapshot and driver
+directory that the wrapper supplies, and can attempt to clone public Clippy.
+Prefer the wrapper. If the direct command is required, declare the library in
+the workspace manifest first:
 
 ```toml
 [workspace.metadata.dylint]

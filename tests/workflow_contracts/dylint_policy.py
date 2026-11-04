@@ -17,11 +17,12 @@ import re
 import tomllib
 from collections.abc import Iterator
 
-#: Dylint tuning keys that weaken every lint at once. A shared threshold or
-#: locale change is a policy decision rather than a local exception, so the
-#: contract rejects it instead of trying to trace an approver.
+#: Dylint tuning keys that weaken every lint at once. A shared threshold, locale
+#: or test-attribute list is a policy decision rather than a local exception, so
+#: the contract rejects it instead of trying to trace an approver.
 REPOSITORY_WIDE_TUNING_KEYS = frozenset(
     {
+        "additional_test_attributes",
         "extra_test_attributes",
         "locale",
         "locales",
@@ -40,10 +41,14 @@ EXCLUSION_LINT = "no_std_fs_operations"
 MODULE_PATH_RE = re.compile(r"^[a-z_][a-z0-9_]*(?:::[a-z_][a-z0-9_]*)+$")
 #: Evidence every exclusion must carry in the comment block above it.
 EXCLUSION_EVIDENCE = ("reproduced by", "external constraint", "tracked by")
+#: A diagnostic identifier such as ``no_std_fs_operations``. Prose does not use
+#: underscored words, so a match is a reliable sign that the comment names the
+#: lint that produced the diagnostic.
+DIAGNOSTIC_ID_RE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
 ISSUE_REFERENCE_RE = re.compile(r"(?:#\d+|https://\S+/issues/\d+)")
-#: An ``excluded_paths`` assignment, including a dotted key or an inline-table
-#: member, but never a commented-out example.
-EXCLUDED_PATHS_KEY_RE = re.compile(r"^[^#]*\bexcluded_paths\s*=")
+#: An ``excluded_paths`` assignment, including a quoted key, a dotted key or an
+#: inline-table member, but never a commented-out example.
+EXCLUDED_PATHS_KEY_RE = re.compile(r"""^[^#]*\b["']?excluded_paths["']?\s*=""")
 TABLE_HEADER_RE = re.compile(r"^\[[^\]]+\]$")
 
 COMMENT = "comment"
@@ -68,6 +73,19 @@ def preceding_comment_block(lines: list[str], index: int) -> str:
     A table header between the comment and the key is skipped, so the evidence
     may sit above either the header or the key, matching the example in
     ``dylint.toml``. The walk stops at the first blank or non-comment line.
+
+    Parameters
+    ----------
+    lines : list[str]
+        The configuration file split into lines.
+    index : int
+        Zero-based position of the key whose evidence is sought.
+
+    Returns
+    -------
+    str
+        The joined, lower-cased comment text, or an empty string when the key
+        has no comment above it.
     """
     collected: list[str] = []
     for line in reversed(lines[:index]):
@@ -83,27 +101,78 @@ def preceding_comment_block(lines: list[str], index: int) -> str:
 def iter_config_entries(
     table: dict[str, object], path: str
 ) -> Iterator[tuple[str, str, object]]:
-    """Yield ``(path, key, value)`` for every entry, descending into tables."""
+    """Yield ``(path, key, value)`` for every entry, descending into tables.
+
+    Parameters
+    ----------
+    table : dict[str, object]
+        A parsed TOML table, such as the ``dylint`` root or one of its
+        sub-tables.
+    path : str
+        Dotted path of ``table`` from the document root, used as the prefix of
+        every yielded entry.
+
+    Yields
+    ------
+    tuple[str, str, object]
+        The dotted table path, the bare key, and its value. A nested table
+        yields its own entry first and then the entries beneath it.
+    """
     for key, value in table.items():
         yield path, key, value
-        if isinstance(value, dict):
-            yield from iter_config_entries(value, f"{path}.{key}")
+        match value:
+            case dict():
+                yield from iter_config_entries(value, f"{path}.{key}")
 
 
 def crate_wide_exclusions(entries: list[tuple[str, str, object]]) -> list[str]:
-    """Return every ``excluded_crates`` key, which exempts a whole crate."""
+    """Return every ``excluded_crates`` key, which exempts a whole crate.
+
+    Parameters
+    ----------
+    entries : list[tuple[str, str, object]]
+        Flattened configuration entries from :func:`iter_config_entries`.
+
+    Returns
+    -------
+    list[str]
+        Dotted names of the offending keys; empty when the policy holds.
+    """
     return [f"{path}.{key}" for path, key, _ in entries if key == "excluded_crates"]
 
 
 def repository_wide_tuning(entries: list[tuple[str, str, object]]) -> list[str]:
-    """Return every key that tunes a lint for the whole repository."""
+    """Return every key that tunes a lint for the whole repository.
+
+    Parameters
+    ----------
+    entries : list[tuple[str, str, object]]
+        Flattened configuration entries from :func:`iter_config_entries`.
+
+    Returns
+    -------
+    list[str]
+        Dotted names of the offending keys; empty when the policy holds.
+    """
     return [
         f"{path}.{key}" for path, key, _ in entries if key in REPOSITORY_WIDE_TUNING_KEYS
     ]
 
 
 def misplaced_exclusion_keys(entries: list[tuple[str, str, object]]) -> list[str]:
-    """Return exclusion keys that sit under a lint which ignores them."""
+    """Return exclusion keys that sit under a lint which ignores them.
+
+    Parameters
+    ----------
+    entries : list[tuple[str, str, object]]
+        Flattened configuration entries from :func:`iter_config_entries`.
+
+    Returns
+    -------
+    list[str]
+        Dotted names of the misplaced keys; empty when every key sits under
+        :data:`EXCLUSION_LINT`.
+    """
     permitted = f"dylint.{EXCLUSION_LINT}"
     return [
         f"{path}.{key}"
@@ -113,7 +182,19 @@ def misplaced_exclusion_keys(entries: list[tuple[str, str, object]]) -> list[str
 
 
 def widened_exclusions(entries: list[tuple[str, str, object]]) -> list[str]:
-    """Return ``excluded_paths`` values that are not lists of module paths."""
+    """Return ``excluded_paths`` values that are not lists of module paths.
+
+    Parameters
+    ----------
+    entries : list[tuple[str, str, object]]
+        Flattened configuration entries from :func:`iter_config_entries`.
+
+    Returns
+    -------
+    list[str]
+        A description of every scalar value and every list member that is not
+        a module path; empty when the policy holds.
+    """
     return [
         f"{path}.{key}={value!r}"
         for path, key, value in entries
@@ -128,15 +209,31 @@ def widened_exclusions(entries: list[tuple[str, str, object]]) -> list[str]:
 
 
 def assert_exclusions_are_justified(lines: list[str]) -> None:
-    """Require evidence above every ``excluded_paths`` assignment."""
+    """Require evidence above every ``excluded_paths`` assignment.
+
+    Parameters
+    ----------
+    lines : list[str]
+        The configuration file split into lines.
+
+    Raises
+    ------
+    AssertionError
+        When a key lacks the reproduced diagnostic, the external constraint,
+        the owning issue, or any comment block at all.
+    """
     unjustified = []
     for index, line in enumerate(lines):
         if not EXCLUDED_PATHS_KEY_RE.match(line):
             continue
         evidence = preceding_comment_block(lines, index)
         missing = [item for item in EXCLUSION_EVIDENCE if item not in evidence]
-        if missing or not ISSUE_REFERENCE_RE.search(evidence):
-            unjustified.append(f"line {index + 1} lacks {missing or ['an owning issue']}")
+        if not DIAGNOSTIC_ID_RE.search(evidence):
+            missing.append("a diagnostic identifier")
+        if not ISSUE_REFERENCE_RE.search(evidence):
+            missing.append("an owning issue")
+        if missing:
+            unjustified.append(f"line {index + 1} lacks {missing}")
     assert not unjustified, (
         "every exclusion needs a comment naming the reproduced diagnostic, the "
         f"external constraint and the issue that removes it: {unjustified}"
@@ -149,7 +246,18 @@ def _assert_absent(findings: list[str], message: str) -> None:
 
 
 def assert_dylint_policy(source: str) -> None:
-    """Assert the exclusion policy encoded in ``dylint.toml``."""
+    """Assert the exclusion policy encoded in ``dylint.toml``.
+
+    Parameters
+    ----------
+    source : str
+        The full text of the configuration file.
+
+    Raises
+    ------
+    AssertionError
+        When any rule in this module rejects a shape in ``source``.
+    """
     entries = list(iter_config_entries(tomllib.loads(source), "dylint"))
 
     _assert_absent(

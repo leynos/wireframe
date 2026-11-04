@@ -24,7 +24,8 @@ def test_dylint_policy_accepts_a_justified_module_exclusion() -> None:
     """The documented exception shape must remain admissible."""
     source = (
         "[no_std_fs_operations]\n"
-        "# Reproduced by `make lint-whitaker` on 2026-11-04.\n"
+        "# Reproduced by `make lint-whitaker` on 2026-11-04 from\n"
+        "# `no_std_fs_operations`.\n"
         "# External constraint: the upstream codec owns the handle.\n"
         "# Removal tracked by #578.\n"
         'excluded_paths = ["wireframe::legacy_io"]\n'
@@ -100,9 +101,28 @@ def test_dylint_policy_accepts_a_justified_module_exclusion() -> None:
             id="excluded_paths_in_another_table",
         ),
         pytest.param(
+            '[no_std_fs_operations]\n"excluded_paths" = ["wireframe::legacy"]\n',
+            "needs a comment",
+            id="quoted_key_missing_justification",
+        ),
+        pytest.param(
+            "[no_std_fs_operations]\n"
+            "# Reproduced by a run. External constraint: none.\n"
+            "# Removal tracked by #578.\n"
+            'excluded_paths = ["wireframe::legacy"]\n',
+            "diagnostic identifier",
+            id="missing_diagnostic_identifier",
+        ),
+        pytest.param(
             "[module_max_lines]\nthresholds = { complexity = 20 }\n",
             "tuning",
             id="thresholds",
+        ),
+        pytest.param(
+            "[no_expect_outside_tests]\n"
+            'additional_test_attributes = ["async_std::test"]\n',
+            "tuning",
+            id="additional_test_attributes",
         ),
         pytest.param(
             '[dylint]\nlocale = "en-GB"\n',
