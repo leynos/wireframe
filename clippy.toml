@@ -1,9 +1,5 @@
-# Align with CodeScene’s ceiling.
-#
-# Deliberate divergence from the `leynos/netsuke` baseline: Netsuke raises this
-# to 32 because its `tracing` bridge inflates the measured complexity of
-# macro-generated branches. Wireframe has no such bridge, so it keeps the
-# stricter CodeScene ceiling of 9.
+# Deliberate divergence from the `leynos/netsuke` baseline: retain
+# Wireframe's stricter CodeScene ceiling of 9 rather than Netsuke's 32.
 cognitive-complexity-threshold = 9     # default is 25
 too-many-arguments-threshold = 4       # default is 7
 too-many-lines-threshold = 70          # default is 100
