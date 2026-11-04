@@ -35,6 +35,9 @@ REPOSITORY_WIDE_TUNING_KEYS = frozenset(
 #: rejects unknown keys, so an exclusion placed in their table is silently
 #: replaced by that lint's defaults.
 EXCLUSION_LINT = "no_std_fs_operations"
+#: The key that exempts an entire crate. The repository requires a
+#: module-level boundary, which a crate-wide exemption cannot express.
+CRATE_WIDE_EXCLUSION_KEYS = frozenset({"excluded_crates"})
 #: A fully qualified Rust module path such as ``wireframe::legacy_io``. A bare
 #: crate name, a trailing separator, ``.`` or a glob would widen the exception
 #: past the module that raised the diagnostic.
@@ -125,38 +128,24 @@ def iter_config_entries(
                 yield from iter_config_entries(value, f"{path}.{key}")
 
 
-def crate_wide_exclusions(entries: list[tuple[str, str, object]]) -> list[str]:
-    """Return every ``excluded_crates`` key, which exempts a whole crate.
+def entries_with_keys(
+    entries: list[tuple[str, str, object]], keys: frozenset[str]
+) -> list[str]:
+    """Return the dotted names of entries whose key is one of ``keys``.
 
     Parameters
     ----------
     entries : list[tuple[str, str, object]]
         Flattened configuration entries from :func:`iter_config_entries`.
+    keys : frozenset[str]
+        The keys to report, such as :data:`REPOSITORY_WIDE_TUNING_KEYS`.
 
     Returns
     -------
     list[str]
-        Dotted names of the offending keys; empty when the policy holds.
+        Dotted names of the offending keys; empty when none are present.
     """
-    return [f"{path}.{key}" for path, key, _ in entries if key == "excluded_crates"]
-
-
-def repository_wide_tuning(entries: list[tuple[str, str, object]]) -> list[str]:
-    """Return every key that tunes a lint for the whole repository.
-
-    Parameters
-    ----------
-    entries : list[tuple[str, str, object]]
-        Flattened configuration entries from :func:`iter_config_entries`.
-
-    Returns
-    -------
-    list[str]
-        Dotted names of the offending keys; empty when the policy holds.
-    """
-    return [
-        f"{path}.{key}" for path, key, _ in entries if key in REPOSITORY_WIDE_TUNING_KEYS
-    ]
+    return [f"{path}.{key}" for path, key, _ in entries if key in keys]
 
 
 def misplaced_exclusion_keys(entries: list[tuple[str, str, object]]) -> list[str]:
@@ -261,11 +250,11 @@ def assert_dylint_policy(source: str) -> None:
     entries = list(iter_config_entries(tomllib.loads(source), "dylint"))
 
     _assert_absent(
-        crate_wide_exclusions(entries),
+        entries_with_keys(entries, CRATE_WIDE_EXCLUSION_KEYS),
         "crate-wide exclusions are forbidden; scope excluded_paths instead",
     )
     _assert_absent(
-        repository_wide_tuning(entries),
+        entries_with_keys(entries, REPOSITORY_WIDE_TUNING_KEYS),
         "repository-wide tuning keys need the ticket owner's approval and are "
         "rejected by this contract",
     )
