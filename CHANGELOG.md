@@ -12,6 +12,16 @@ All notable changes to this project will be documented in this file.
   Retained fragment bytes also count towards connection memory-budget pacing
   and hard-cap aborts, even when message assembly is disabled. (#543)
 
+- Breaking: `WireframeServer` now bounds the connection preamble read with
+  `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) by default, so an unauthenticated
+  connection cannot wait indefinitely for its first byte. Call
+  `preamble_timeout(Duration)` to choose another deadline, or
+  `disable_preamble_timeout()` to restore unbounded waiting when a peer
+  legitimately needs it. `Duration::ZERO` still clamps to 1 ms. Addresses
+  [#546](https://github.com/leynos/wireframe/issues/546) (finding
+  `csf_b9252731043bde37f2f34d2f`). See
+  `docs/v0-3-0-to-v0-4-0-migration-guide.md`.
+
 - Breaking: `WireframeServer::new` now evaluates its `AppFactory` once per
   server run, prepares the result once, and shares that immutable application
   root across connections. Move per-connection state to `on_connection_setup`,

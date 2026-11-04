@@ -1594,8 +1594,10 @@ decode-error logging before the application runs. A success handler that
 returns an error fails closed: the error is logged, the connection is closed,
 and `WireframeApp` never receives the stream. Write any rejection response
 before returning the error; the server writes nothing on the handler's behalf.
-An optional `preamble_timeout` caps how long `read_preamble` waits; timeouts
-use the failure callback path.[^20]
+The server bounds the read with `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) by
+default; `preamble_timeout` replaces that deadline and
+`disable_preamble_timeout` removes it. The deadline covers only the preamble
+read, and timeouts use the failure callback path.[^20]
 
 For an awaitable lifecycle outside the foreground task, call
 `WireframeServer::spawn().await`. It returns a cloneable `ServerShutdown`:

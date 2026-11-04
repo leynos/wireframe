@@ -72,7 +72,11 @@ where
     /// already been built.
     ///
     /// The worker count defaults to the number of available CPU cores (or 1 if
-    /// this cannot be determined). The server is initially [`Unbound`]; call
+    /// this cannot be determined). The preamble read is bounded by
+    /// [`preamble::DEFAULT_PREAMBLE_TIMEOUT`] unless
+    /// [`preamble_timeout`](WireframeServer::preamble_timeout) or
+    /// [`disable_preamble_timeout`](WireframeServer::disable_preamble_timeout)
+    /// overrides it. The server is initially [`Unbound`]; call
     /// [`bind`](WireframeServer::bind) or
     /// [`bind_existing_listener`](WireframeServer::bind_existing_listener)
     /// (methods provided by the [`binding`] module) before running the server.
@@ -95,7 +99,7 @@ where
             on_preamble_failure: None,
             ready_tx: None,
             backoff_config: BackoffConfig::default(),
-            preamble_timeout: None,
+            preamble_timeout: Some(preamble::DEFAULT_PREAMBLE_TIMEOUT),
             state: Unbound,
             _app: PhantomData,
             _preamble: PhantomData,
