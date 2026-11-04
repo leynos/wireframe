@@ -150,7 +150,8 @@ fn companion_crates_inherit_private_documentation_clippy_policy() -> TestResult 
 ///
 /// The reason string is part of the contract: it is what a contributor sees
 /// when the lint fires, so a path without its matching reason is not a usable
-/// prohibition.
+/// prohibition. The file is parsed as TOML rather than searched as text, so a
+/// commented-out entry cannot satisfy the check.
 #[rstest]
 #[case::read_var("std::env::var", "inject an environment reader")]
 #[case::read_var_os("std::env::var_os", "inject an environment reader")]
@@ -162,10 +163,17 @@ fn clippy_prohibits_ambient_environment_access(
     #[case] path: &str,
     #[case] reason: &str,
 ) -> TestResult {
-    let clippy_config = read_repo_file("clippy.toml")?;
-    let entry = format!("{{ path = \"{path}\", reason = \"{reason}\" }}");
+    let clippy_config: toml::Value = toml::from_str(&read_repo_file("clippy.toml")?)?;
+    let entries = clippy_config
+        .get("disallowed-methods")
+        .and_then(toml::Value::as_array)
+        .ok_or("clippy.toml must declare a `disallowed-methods` array")?;
+    let is_prohibited = entries.iter().any(|entry| {
+        entry.get("path").and_then(toml::Value::as_str) == Some(path)
+            && entry.get("reason").and_then(toml::Value::as_str) == Some(reason)
+    });
     check(
-        clippy_config.contains(&entry),
+        is_prohibited,
         format!("clippy.toml must prohibit {path} with the reason `{reason}`"),
     )?;
     Ok(())

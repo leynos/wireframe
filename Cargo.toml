@@ -82,6 +82,7 @@ criterion = "0.8.2"
 cap-std = { version = "4.0.2", features = ["fs_utf8"] }
 camino = "1.2.2"
 serde_json = "1.0.141"
+toml = "1.1.2"
 trybuild = "1"
 
 tokio = { version = "1.47.1", default-features = false, features = [
