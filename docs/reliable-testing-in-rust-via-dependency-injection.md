@@ -188,14 +188,18 @@ mod tests {
 
     #[test]
     fn test_cache_is_not_stale() {
-        let creation_time = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let creation_time = Utc
+            .with_ymd_and_hms(2024, 1, 1, 0, 0, 0)
+            .expect("valid UTC test timestamp");
         let clock = mock_clock(creation_time + Duration::seconds(100));
         assert!(!is_cache_entry_stale(creation_time, &clock));
     }
 
     #[test]
     fn test_cache_is_stale() {
-        let creation_time = Utc.with_ymd_and_hms(2024, 1, 1, 0, 0, 0).unwrap();
+        let creation_time = Utc
+            .with_ymd_and_hms(2024, 1, 1, 0, 0, 0)
+            .expect("valid UTC test timestamp");
         let clock = mock_clock(creation_time + Duration::seconds(301));
         assert!(is_cache_entry_stale(creation_time, &clock));
     }
