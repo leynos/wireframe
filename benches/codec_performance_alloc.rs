@@ -16,7 +16,12 @@ use wireframe::codec::{
     examples::{HotlineAdapter, HotlineFrameCodec},
 };
 use wireframe_testing::{
-    benchmark_alloc_support::{CountingAllocator, count_allocations},
+    benchmark_alloc_support::{
+        INSTRUMENTED_SYSTEM,
+        StatsAlloc,
+        System,
+        count_allocations_or_panic,
+    },
     codec_benchmarks::{
         AllocationBaseline,
         BenchmarkWorkload,
@@ -32,9 +37,10 @@ use wireframe_testing::{
 };
 
 /// Process allocator used by this benchmark so encode/decode baselines cover
-/// the same allocation path as the code under test.
+/// the same allocation path as the code under test. `stats_alloc` supplies the
+/// instrumenting wrapper, so this binary needs no `unsafe` code of its own.
 #[global_allocator]
-static GLOBAL_ALLOCATOR: CountingAllocator = CountingAllocator;
+static GLOBAL_ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 /// Decoder type used by the length-delimited workload, kept as an alias so the
 /// prepared-input enum and its macro-generated constructor share a clear
@@ -183,24 +189,18 @@ fn benchmark_allocations(c: &mut Criterion) {
     let mut group = c.benchmark_group("codec/allocations");
 
     for workload in benchmark_workloads() {
-        let wrap_allocations = match count_allocations(|| {
+        let wrap_allocations = count_allocations_or_panic("allocation wrap baseline", || {
             let _ = measure_encode(workload, VALIDATION_ITERATIONS)?;
             Ok(())
-        }) {
-            Ok(allocations) => allocations,
-            Err(err) => panic!("allocation wrap baseline failed: {err}"),
-        };
+        });
 
         let mut prepared_decode_input = match prepare_decode_input(workload) {
             Ok(prepared_decode_input) => prepared_decode_input,
             Err(err) => panic!("allocation decode baseline setup failed: {err}"),
         };
-        let decode_allocations = match count_allocations(|| {
+        let decode_allocations = count_allocations_or_panic("allocation decode baseline", || {
             run_prepared_decode_iterations(&mut prepared_decode_input, VALIDATION_ITERATIONS)
-        }) {
-            Ok(allocations) => allocations,
-            Err(err) => panic!("allocation decode baseline failed: {err}"),
-        };
+        });
 
         let label = allocation_label(
             workload,

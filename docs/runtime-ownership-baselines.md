@@ -434,6 +434,13 @@ four iterations. They include the async runtime's own allocations, task setup,
 and closure captures — not only the code under test. Compare counts across runs
 of this same binary; do not read them as a per-operation cost.
 
+The instrumentation is `stats_alloc`'s `INSTRUMENTED_SYSTEM`, installed by
+reference as the benchmark binary's `#[global_allocator]`. A count is the sum of
+`allocations` and `reallocations`, so a buffer that grows in place is still
+counted; `stats_alloc` records `alloc` and `alloc_zeroed` in the first field and
+`realloc` in the second. The wrapper owns the only `unsafe` implementation,
+which is why the benchmark binaries need none.
+
 The benchmark ID is the workload's label alone, with no count appended:
 Criterion keys its saved results, `--baseline` comparisons, and change reports
 on that ID, and an allocation count is not stable enough to be an ID — the

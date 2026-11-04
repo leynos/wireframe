@@ -64,7 +64,7 @@ mod scopes;
 
 use criterion::Criterion;
 use tokio::runtime::Runtime;
-use wireframe_testing::benchmark_alloc_support::CountingAllocator;
+use wireframe_testing::benchmark_alloc_support::{INSTRUMENTED_SYSTEM, StatsAlloc, System};
 
 use crate::{
     pool_bracket::{
@@ -80,9 +80,10 @@ use crate::{
     },
 };
 
-/// Process allocator for this benchmark binary.
+/// Process allocator for this benchmark binary. `stats_alloc` supplies the
+/// instrumenting wrapper, so this binary needs no `unsafe` code of its own.
 #[global_allocator]
-static GLOBAL_ALLOCATOR: CountingAllocator = CountingAllocator;
+static GLOBAL_ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 /// Entrypoint for the runtime-ownership allocation baselines.
 fn main() {

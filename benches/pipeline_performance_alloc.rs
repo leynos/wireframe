@@ -10,7 +10,7 @@ use std::{fmt::Write as _, hint::black_box, time::Duration};
 use criterion::{BenchmarkId, Criterion};
 use tokio::runtime::Runtime;
 use wireframe_testing::{
-    benchmark_alloc_support::{CountingAllocator, count_allocations},
+    benchmark_alloc_support::{INSTRUMENTED_SYSTEM, StatsAlloc, System, count_allocations},
     codec_benchmarks::{
         AccessMode,
         BenchmarkWorkload,
@@ -26,9 +26,10 @@ use wireframe_testing::{
 };
 
 /// Process allocator used by this benchmark so the pipeline stages allocate
-/// through the same path as the code under test.
+/// through the same path as the code under test. `stats_alloc` supplies the
+/// instrumenting wrapper, so this binary needs no `unsafe` code of its own.
 #[global_allocator]
-static GLOBAL_ALLOCATOR: CountingAllocator = CountingAllocator;
+static GLOBAL_ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
 /// Both access modes, in the order the matrix reports them.
 const ACCESS_MODES: [AccessMode; 2] = [AccessMode::ReadOnly, AccessMode::Mutating];
@@ -48,7 +49,7 @@ fn benchmark_runtime() -> Runtime {
 /// borrowing and copying it.
 fn with_allocations(mut base: String, allocations: usize) -> String {
     // Writing into a `String` cannot fail, so the result carries no diagnostic.
-    let _ = write!(base, "_allocs_{allocations}");
+    let _write_result = write!(base, "_allocs_{allocations}");
     base
 }
 
@@ -131,7 +132,7 @@ fn benchmark_hook_allocations(c: &mut Criterion) {
     for workload in benchmark_workloads() {
         for mode in ACCESS_MODES {
             let allocations = match count_allocations(|| {
-                let _ = measure_hook_dispatch(workload, mode, VALIDATION_ITERATIONS);
+                let _measurement = measure_hook_dispatch(workload, mode, VALIDATION_ITERATIONS);
                 Ok(())
             }) {
                 Ok(allocations) => allocations,
