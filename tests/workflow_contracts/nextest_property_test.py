@@ -11,10 +11,19 @@ generated shape it rejected.
 
 from __future__ import annotations
 
+import typing as typ
+from pathlib import Path
+
 import pytest
+from cargo_targets import CargoTestTarget
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from nextest_policy import FilterSyntaxError, TargetFilter, parse_target_filter
+from nextest_policy import (
+    FilterSyntaxError,
+    TargetFilter,
+    override_target_violations,
+    parse_target_filter,
+)
 from rust_source_scanning import qualified_test_names
 
 #: A value nextest's exact-``=`` matcher accepts.
@@ -153,4 +162,145 @@ def test_text_that_only_shadows_a_definition_is_not_evidence(
             source = f'const TEXT: &str = "{definition}";'
     assert qualified_test_names(source) == frozenset(), (
         f"{source!r} must not yield a test name"
+    )
+
+
+def _override_filter(package: str, binary: str, function: str) -> str:
+    """Return the exact conjunction an override must state."""
+    return f"package(={package}) & binary(={binary}) & test(={function})"
+
+
+def _trybuild_source(function: str) -> str:
+    """Return a crate-root trybuild driver defining ``function``."""
+    return (
+        "#[test]\n"
+        f"fn {function}() {{\n"
+        "    let cases = trybuild::TestCases::new();\n"
+        '    cases.compile_fail("tests/ui/example.rs");\n'
+        "}\n"
+    )
+
+
+def _target(package: str, binary: str) -> CargoTestTarget:
+    """Return a discovered test target with a unique source path."""
+    return CargoTestTarget(
+        package=package,
+        name=binary,
+        kinds=("test",),
+        src_path=Path("/fixture") / f"{binary}.rs",
+    )
+
+
+def _override_config(*filters: str) -> dict[str, typ.Any]:
+    """Return a nextest configuration whose overrides state ``filters``."""
+    return {
+        "profile": {
+            "default": {"overrides": [{"filter": text} for text in filters]}
+        }
+    }
+
+
+def _accepted_override(
+    package: str, binary: str, function: str
+) -> tuple[list[CargoTestTarget], dict[Path, str], dict[str, typ.Any]]:
+    """Return the smallest override scenario the policy must accept."""
+    target = _target(package, binary)
+    return (
+        [target],
+        {target.src_path: _trybuild_source(function)},
+        _override_config(_override_filter(package, binary, function)),
+    )
+
+
+@PROPERTY_SETTINGS
+@given(package=IDENTIFIER, binary=IDENTIFIER, function=IDENTIFIER)
+def test_an_override_naming_a_crate_root_trybuild_test_is_accepted(
+    package: str, binary: str, function: str
+) -> None:
+    """An exact filter over the only trybuild target must report nothing."""
+    targets, sources, config = _accepted_override(package, binary, function)
+    assert override_target_violations(config, targets, sources.__getitem__) == [], (
+        f"override for {package}/{binary}::{function} must be proved"
+    )
+
+
+#: Single defects the override resolution must report.
+OVERRIDE_DEFECTS = st.sampled_from([
+    "nested",
+    "commented_out",
+    "no_trybuild",
+    "uncovered",
+    "extra_override",
+    "ambiguous",
+])
+
+
+def _defective_override(
+    package: str, binary: str, function: str, defect: str
+) -> tuple[list[CargoTestTarget], dict[Path, str], dict[str, typ.Any], str]:
+    """Return one scenario broken in exactly one way, with its message."""
+    target = _target(package, binary)
+    source = _trybuild_source(function)
+    plain = f"{_test_function(function)}\n"
+    filter_text = _override_filter(package, binary, function)
+    other = _target(package, f"{binary}_extra")
+    if defect == "nested":
+        sources = {target.src_path: f"mod inner {{\n{source}}}\n"}
+        return [target], sources, _override_config(filter_text), (
+            "does not define at its crate root"
+        )
+    if defect == "commented_out":
+        commented = "".join(f"// {line}\n" for line in source.splitlines())
+        return [target], {target.src_path: commented}, _override_config(filter_text), (
+            "does not define at its crate root"
+        )
+    if defect == "no_trybuild":
+        return [target], {target.src_path: plain}, _override_config(filter_text), (
+            "does not drive trybuild::TestCases"
+        )
+    if defect == "uncovered":
+        return [target, other], {
+            target.src_path: source,
+            other.src_path: source,
+        }, _override_config(filter_text), (
+            f"trybuild target {package}/{other.name} has no nextest override"
+        )
+    if defect == "extra_override":
+        return [target, other], {
+            target.src_path: source,
+            other.src_path: plain,
+        }, _override_config(
+            filter_text, _override_filter(package, other.name, function)
+        ), (
+            f"override target {package}/{other.name} is not an uncovered "
+            "trybuild target"
+        )
+    duplicate = CargoTestTarget(
+        package=package,
+        name=binary,
+        kinds=("test",),
+        src_path=Path("/fixture") / f"{binary}_duplicate.rs",
+    )
+    return [target, duplicate], {target.src_path: source}, _override_config(
+        filter_text
+    ), "resolves to 2 discovered test targets"
+
+
+@PROPERTY_SETTINGS
+@given(
+    package=IDENTIFIER,
+    binary=IDENTIFIER,
+    function=IDENTIFIER,
+    defect=OVERRIDE_DEFECTS,
+)
+def test_one_defect_in_the_override_resolution_is_reported(
+    package: str, binary: str, function: str, defect: str
+) -> None:
+    """Each single defect must produce its own diagnostic, not a silent pass."""
+    targets, sources, config, expected = _defective_override(
+        package, binary, function, defect
+    )
+    violations = override_target_violations(config, targets, sources.__getitem__)
+    assert any(expected in violation for violation in violations), (
+        f"{defect!r} must report {expected!r}, got {violations!r}"
     )
