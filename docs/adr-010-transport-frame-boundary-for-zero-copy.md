@@ -119,11 +119,8 @@ The accepted direction is:
   `packet -> bytes -> transport frame` transition. Today the only production
   `FrameCodec::wrap_payload` caller is the codec-driver path in
   `src/app/outbound_encoding.rs`.
-- Protocol hooks remain packet-oriented for actor traffic. The codec driver
-  hosts serialization and transport framing, and applies the existing
-  `before_send` hook to the codec-wrapped frame; it does not add a second
-  transport-frame hook surface. See the
-  [2026-11-03 amendment](#addendum-reconciled-hook-boundary-2026-11-03).
+- Protocol hooks remain packet-oriented. The codec driver hosts serialization
+  and transport framing, not a second transport-frame hook surface.
 - `Vec<u8>` frame bridges are removed from the core runtime once the approved
   codec-driver path is proven. `Packet for Vec<u8>` stays test-only, while the
   public `CorrelatableFrame for Vec<u8>` bridge leaves the core runtime in the
@@ -181,9 +178,10 @@ stage.
 
 ## Known Risks and Limitations
 
-- Protocol hooks stay packet-oriented for actor traffic. `before_send` now
-  also fires for app-router responses routed through `FramePipeline`; see the
-  [2026-11-03 amendment](#addendum-reconciled-hook-boundary-2026-11-03).
+- Protocol hooks stay packet-oriented. The current limitation is narrower:
+  `before_send` fires for actor-driven push and multi-packet frames, but not
+  yet for app-router responses routed through `FramePipeline`. Roadmap item
+  `11.2.1` owns that closure.
 - If the codec driver becomes the only framing boundary, its tests must carry
   more of the performance and correctness burden than they do today.
 - Some example or test harness code may continue to use `Vec<u8>` as a
@@ -210,12 +208,11 @@ inventory manually.
 ## Resolved Decisions
 
 - Which existing protocol hooks should move to the codec-driver boundary, and
-  which should remain packet-oriented? Actor hooks remain packet-oriented and
-  continue to run against `Envelope` before serialization. The codec driver
-  does not gain a new transport-frame-level hook surface; it applies the
-  existing `before_send` hook to the codec-wrapped frame. The app-router
-  response gap is closed by the
-  [2026-11-03 amendment](#addendum-reconciled-hook-boundary-2026-11-03).
+  which should remain packet-oriented? Existing hooks remain packet-oriented
+  and continue to run against `Envelope` before serialization. The codec driver
+  does not gain a new transport-frame-level hook surface. The app-router
+  response `before_send` gap is documented as a limitation and tracked under
+  roadmap item `11.2.1`.
 - Should any remaining `Vec<u8>` bridge live in `test_support`, a feature-gated
   compatibility module, or nowhere at all? No public feature-gated
   actor-boundary compatibility shim is introduced. `Packet for Vec<u8>` stays
@@ -259,9 +256,10 @@ itself.
 
 ## Addendum: reconciled hook boundary (2026-11-03)
 
-This amendment supersedes the deferral wording in the Decision Outcome, Known
-Risks and Limitations, and Resolved Decisions sections above. It records the
-boundary as implemented, and keeps the separate zero-copy work open.
+This amendment supersedes the deferral wording in the Status, Decision Outcome,
+Known Risks and Limitations, Resolved Decisions, and Migration Plan sections
+above. It records the boundary as implemented, and keeps the separate zero-copy
+work open.
 
 The codec driver remains the only component that owns transport frame emission.
 It now also applies the existing `before_send` hook to the serialized,
@@ -274,7 +272,8 @@ streaming traffic keeps its own packet-oriented hook pipeline.
 The zero-copy migration is unaffected and remains unfinished. The serializer
 still materializes `Vec<u8>` before converting to `Bytes`, tracked by roadmap
 item `11.1.2` and issue <https://github.com/leynos/wireframe/issues/538>. The
-actor and codec-driver boundary work in roadmap items `11.2.1`, `11.2.2`, and
-`11.2.3` remains open, including the guard against new non-driver production
-`wrap_payload` callers. This amendment changes hook invocation only; it does
-not claim any of that work.
+hook gap itself is closed by this change, but roadmap item `11.2.1` remains
+open for the rest of the actor and codec-driver boundary. Roadmap items
+`11.2.2` and `11.2.3` also remain open, including the guard against new
+non-driver production `wrap_payload` callers under `11.2.3`. This amendment
+changes hook invocation only; it does not claim any of that work.
