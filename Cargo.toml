@@ -124,9 +124,7 @@ testkit = []
 # This table inherits the existing policy into every package; it is not yet
 # the full Netsuke baseline. `clippy::disallowed_methods`,
 # `clippy::missing_assert_message`, `rust::unsafe_code = "forbid"` and the
-# remaining `unexpected_cfgs` declarations stay with issue #664, because
-# forbidding unsafe code needs the `ManuallyDrop::take` path in
-# `src/client/pool/managed.rs` redesigned first.
+# remaining `unexpected_cfgs` declarations stay with issue #664.
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 

@@ -781,10 +781,9 @@ The shared policy is the inheritance mechanism for every workspace package, not
 the finished Netsuke baseline. Aligning the remaining baseline rules, namely
 `clippy::disallowed_methods`, `clippy::missing_assert_message`,
 `rust::unsafe_code = "forbid"` and further `unexpected_cfgs` declarations, is
-tracked by issue [#664]. Forbidding unsafe code needs the `ManuallyDrop::take`
-path in `src/client/pool/managed.rs` redesigned first, so that work is
-deliberately out of scope here: this change makes the existing policy reach
-every crate and does not claim the baseline itself.
+tracked by issue [#664]. That work is deliberately out of scope here: this
+change makes the existing policy reach every crate and does not claim the
+baseline itself.
 
 [#664]: https://github.com/leynos/wireframe/issues/664
 

@@ -236,7 +236,10 @@ WHITAKER_ROUTE_RE = re.compile(
     r"whitaker-installer"
     r"|cargo\s+(\+\S+\s+)?(install|binstall)[^\n]*(cargo-dylint|dylint-link)"
     r"|cargo\s+(\+\S+\s+)?dylint\b"
-    r"|(?<![\w./-])whitaker(?:-ls)?\b"
+    # A path-qualified binary such as `./target/debug/whitaker` is still a
+    # manual route, so only a word character or hyphen before the name
+    # disqualifies it: `make install-whitaker` must stay out of the scan.
+    r"|(?<![\w-])whitaker(?:-ls)?\b"
     r"|(?<![\w-])(cargo-dylint|dylint-link)\b",
 )
 
@@ -349,6 +352,7 @@ def test_whitaker_is_installed_only_through_the_pinned_make_target() -> None:
         "whitaker --all",
         "whitaker-ls",
         "whitaker-installer",
+        "./target/debug/whitaker --all",
         "cargo dylint --all",
         "cargo install cargo-dylint",
     ],
@@ -358,7 +362,9 @@ def test_the_whitaker_route_contract_rejects_a_manual_invocation(run: str) -> No
 
     The workflow contract is only as strong as its detector. A step added as
     ``whitaker --all`` must be caught, not accepted because only the installer
-    and ``cargo dylint`` spellings were recognized.
+    and ``cargo dylint`` spellings were recognized, and a path-qualified
+    ``./target/debug/whitaker`` must not slip past a lookbehind that rejects a
+    leading slash.
     """
     steps = [("ci.yml", "build-test", {"name": "Lint", "run": run})]
     assert _whitaker_routes(steps) == ["ci.yml:build-test: Lint"]
