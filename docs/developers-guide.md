@@ -146,8 +146,9 @@ The ordering invariant is
 global-timeout < cargo-wait-timeout < coverage job ceiling`.
 `tests/workflow_contracts/nextest_timeout_test.py` proves it,
 `nextest_target_discovery_test.py` proves the override still reaches the target
-it names, and `compile_gate_contract_test.py` pins which execution paths CI
-actually runs.
+it names, `compile_gate_contract_test.py` pins which execution paths CI
+actually runs, and `nextest_property_test.py` drives the filter and scanner
+invariants across generated matchers and Rust block structures.
 
 Three execution paths matter, and the tiers do not all bound the same one:
 
