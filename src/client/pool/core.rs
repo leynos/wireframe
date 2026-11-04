@@ -149,8 +149,8 @@ where
             Err(_) => PoolAcquisitionOutcome::Error,
         };
         crate::metrics::inc_pool_acquisition(PoolAcquisitionMode::PermitRace, outcome);
-        if let Some(race) = race {
-            race.finish(outcome);
+        if let Some(guard) = race {
+            guard.finish(outcome);
         }
         result
     }
@@ -171,8 +171,8 @@ where
                 .map(|permit| (slot_index, permit))
         });
 
-        let (slot_index, permit) = if let Some(selected) = selected {
-            selected
+        let (slot_index, permit) = if let Some(found) = selected {
+            found
         } else {
             *race = Some(PoolPermitRaceGuard::start(&self.shutdown));
             self.acquire_from_blocked_slots(ordered_indices).await?

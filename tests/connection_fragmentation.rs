@@ -76,9 +76,9 @@ async fn connection_actor_fragments_outbound_frames(
     );
     let mut assembled: Option<Vec<u8>> = None;
     for env in out {
-        let payload = env.into_parts().into_payload();
-        let Some((header, frag)) = decode_fragment_payload(&payload)? else {
-            assembled = Some(payload);
+        let frame_payload = env.into_parts().into_payload();
+        let Some((header, frag)) = decode_fragment_payload(&frame_payload)? else {
+            assembled = Some(frame_payload);
             continue;
         };
 
@@ -87,10 +87,10 @@ async fn connection_actor_fragments_outbound_frames(
         }
     }
 
-    let assembled = assembled.ok_or("missing reassembled payload")?;
-    if assembled != payload {
+    let reassembled = assembled.ok_or("missing reassembled payload")?;
+    if reassembled != payload {
         return Err(format!(
-            "reassembled payload mismatch: expected {payload:?}, got {assembled:?}"
+            "reassembled payload mismatch: expected {payload:?}, got {reassembled:?}"
         )
         .into());
     }
@@ -120,8 +120,8 @@ async fn connection_actor_advances_fragment_ids_across_frames(
 
     let mut message_ids = Vec::new();
     for env in out {
-        let payload = env.into_parts().into_payload();
-        let Some((header, _)) = decode_fragment_payload(&payload)? else {
+        let frame_payload = env.into_parts().into_payload();
+        let Some((header, _)) = decode_fragment_payload(&frame_payload)? else {
             return Err("expected every outbound frame to be fragmented".into());
         };
         let message_id = header.message_id().get();

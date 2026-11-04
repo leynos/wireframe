@@ -268,8 +268,8 @@ mod tests {
             RoundTripMessage::decode_with(&serializer, &bytes, &DeserializeContext::empty())
                 .expect("bincode adapter should decode encoded message");
 
-        assert_eq!(decoded, original);
-        assert_eq!(consumed, bytes.len());
+        assert_eq!(decoded, original, "decoded should equal original");
+        assert_eq!(consumed, bytes.len(), "consumed should equal bytes.len()");
     }
 
     #[rstest]
@@ -282,18 +282,33 @@ mod tests {
         bytes.push(99);
         let (decoded, consumed) = RoundTripMessage::from_bytes(&bytes)
             .expect("message helper must allow a following value");
-        assert_eq!(decoded, original);
-        assert_eq!(consumed, encoded_len);
-        assert!(consumed < bytes.len());
+        assert_eq!(decoded, original, "decoded should equal original");
+        assert_eq!(consumed, encoded_len, "consumed should equal encoded_len");
+        assert!(
+            consumed < bytes.len(),
+            "assertion failed: consumed < bytes.len()"
+        );
     }
 
     #[rstest]
     fn deserialize_context_empty_defaults_to_none() {
         let context = DeserializeContext::empty();
-        assert!(context.frame_metadata.is_none());
-        assert!(context.message_id.is_none());
-        assert!(context.correlation_id.is_none());
-        assert!(context.metadata_bytes_consumed.is_none());
+        assert!(
+            context.frame_metadata.is_none(),
+            "assertion failed: context.frame_metadata.is_none()"
+        );
+        assert!(
+            context.message_id.is_none(),
+            "assertion failed: context.message_id.is_none()"
+        );
+        assert!(
+            context.correlation_id.is_none(),
+            "assertion failed: context.correlation_id.is_none()"
+        );
+        assert!(
+            context.metadata_bytes_consumed.is_none(),
+            "assertion failed: context.metadata_bytes_consumed.is_none()"
+        );
     }
 
     #[cfg(feature = "serializer-serde")]
@@ -352,8 +367,12 @@ mod tests {
             )
             .expect("serde bridge should decode encoded payload");
 
-            assert_eq!(decoded.into_inner().id, 9);
-            assert_eq!(consumed, bytes.len());
+            assert_eq!(
+                decoded.into_inner().id,
+                9,
+                "decoded.into_inner().id should equal 9"
+            );
+            assert_eq!(consumed, bytes.len(), "consumed should equal bytes.len()");
         }
     }
 }

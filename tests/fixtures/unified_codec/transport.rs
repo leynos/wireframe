@@ -233,11 +233,12 @@ impl UnifiedCodecWorld {
     ) -> TestResult<Option<Vec<u8>>> {
         let (env, _) = serializer.deserialize::<Envelope>(bytes)?;
         let payload = env.into_parts().into_payload();
+        // `fragment` borrows `payload`, so the unfragmented arm may only move
+        // `payload` once that borrow is out of scope in the other arm.
         match decode_fragment_payload(&payload)? {
-            Some((header, fragment)) => match reassembler.push(header, fragment)? {
-                Some(message) => Ok(Some(message.into_payload())),
-                None => Ok(None),
-            },
+            Some((header, fragment)) => reassembler
+                .push(header, fragment)?
+                .map_or_else(|| Ok(None), |message| Ok(Some(message.into_payload()))),
             None => Ok(Some(payload)),
         }
     }

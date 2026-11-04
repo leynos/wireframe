@@ -10,15 +10,23 @@ fn record_send_result_clears_last_error_after_success() {
     let first_failure = io::Error::other("first failure");
     let first_result = world.record_send_result(Ok(Err(first_failure)));
     let first_error = first_result.expect_err("first send should fail");
-    assert_eq!(first_error.to_string(), "io error: first failure");
+    assert_eq!(
+        first_error.to_string(),
+        "io error: first failure",
+        "first_error.to_string() should equal \"io error: first failure\""
+    );
     assert_eq!(
         world.last_send_error.as_deref(),
-        Some("io error: first failure")
+        Some("io error: first failure"),
+        "world.last_send_error.as_deref() should equal Some(\"io error: first failure\")"
     );
 
     let success_result = world.record_send_result(Ok(Ok(())));
     assert!(success_result.is_ok(), "second send should succeed");
-    assert_eq!(world.last_send_error, None);
+    assert_eq!(
+        world.last_send_error, None,
+        "world.last_send_error should equal None"
+    );
 }
 
 #[test]
@@ -28,10 +36,15 @@ fn record_send_result_stores_outer_error_string() {
 
     let result = world.record_send_result(Err(outer_error.into()));
     let returned_error = result.expect_err("outer error should be returned");
-    assert_eq!(returned_error.to_string(), "io error: outer failure");
+    assert_eq!(
+        returned_error.to_string(),
+        "io error: outer failure",
+        "returned_error.to_string() should equal \"io error: outer failure\""
+    );
     assert_eq!(
         world.last_send_error.as_deref(),
-        Some("io error: outer failure")
+        Some("io error: outer failure"),
+        "world.last_send_error.as_deref() should equal Some(\"io error: outer failure\")"
     );
 }
 
@@ -40,9 +53,14 @@ fn record_send_result_converts_inner_io_error_and_stores_it() {
     let mut world = BudgetCleanupWorld::default();
     let result = world.record_send_result(Ok(Err(io::Error::other("inner io failure"))));
     let returned_error = result.expect_err("inner IO error should be returned");
-    assert_eq!(returned_error.to_string(), "io error: inner io failure");
+    assert_eq!(
+        returned_error.to_string(),
+        "io error: inner io failure",
+        "returned_error.to_string() should equal \"io error: inner io failure\""
+    );
     assert_eq!(
         world.last_send_error.as_deref(),
-        Some("io error: inner io failure")
+        Some("io error: inner io failure"),
+        "world.last_send_error.as_deref() should equal Some(\"io error: inner io failure\")"
     );
 }

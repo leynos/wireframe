@@ -84,11 +84,18 @@ fn single_envelope_frames_require_full_consumption(
     if trailing == 0 {
         let (decoded, consumed) =
             result.expect("complete envelope must decode through every branch");
-        assert_eq!(decoded.payload_bytes(), &[42]);
-        assert_eq!(consumed, bytes.len());
+        assert_eq!(
+            decoded.payload_bytes(),
+            &[42],
+            "decoded.payload_bytes() should equal &[42]"
+        );
+        assert_eq!(consumed, bytes.len(), "consumed should equal bytes.len()");
     } else {
         let error = result.expect_err("trailing bytes must fail through every branch");
-        assert!(error.to_string().contains("trailing bytes after envelope"));
+        assert!(
+            error.to_string().contains("trailing bytes after envelope"),
+            "assertion failed: error.to_string().contains(\"trailing bytes after envelope\")"
+        );
     }
 }
 
@@ -128,20 +135,27 @@ fn oversized_bincode_envelope_counts_one_message_limit_rejection() {
         core::parse_envelope(&BincodeSerializer, &bytes)
     })
     .expect_err("oversized envelope must fail");
-    assert!(matches!(
-        error.downcast_ref::<bincode::error::DecodeError>(),
-        Some(bincode::error::DecodeError::LimitExceeded)
-    ));
+    assert!(
+        matches!(
+            error.downcast_ref::<bincode::error::DecodeError>(),
+            Some(bincode::error::DecodeError::LimitExceeded)
+        ),
+        "assertion failed: matches!( error.downcast_ref::<bincode::error::DecodeError>(), \
+         Some(bincode::error::DecodeError::LimitExceeded) )"
+    );
 
     let metric_samples = snapshotter.snapshot().into_vec();
     let sample = metric_samples
         .iter()
         .find(|sample| is_message_limit_rejection(sample))
         .expect("message limit rejection must be recorded");
-    assert!(matches!(
-        &sample.3,
-        DebugValue::Counter(count) if *count == 1
-    ));
+    assert!(
+        matches!(
+            &sample.3,
+            DebugValue::Counter(count) if *count == 1
+        ),
+        "assertion failed: matches!( &sample.3, DebugValue::Counter(count) if *count == 1 )"
+    );
 }
 
 #[derive(Clone, Debug)]
@@ -238,11 +252,15 @@ fn decode_envelope_tracks_failures_and_logs_correlation_id() {
         &mut failure_tracker,
     )
     .expect_err("expected decode failure to close connection");
-    assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::InvalidData,
+        "err.kind() should equal io::ErrorKind::InvalidData"
+    );
 
     let mut found = false;
     while let Some(record) = log.pop() {
-        let message = record.args().to_string();
+        let message = record.args().to_owned();
         if message.contains("failed to decode message")
             && message.contains("correlation_id=Some(42)")
         {
@@ -268,7 +286,11 @@ async fn unprepared_connection_preserves_stream_errors_and_diagnostics() {
         .handle_unprepared_connection_result(server)
         .await
         .expect_err("invalid frame must fail the connection");
-    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(
+        error.kind(),
+        io::ErrorKind::InvalidData,
+        "error.kind() should equal io::ErrorKind::InvalidData"
+    );
 
     let mut found = false;
     while let Some(record) = log.pop() {

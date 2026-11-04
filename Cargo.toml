@@ -116,16 +116,16 @@ benchmark-counters = []
 test-support = []
 testkit = []
 
-# One lint policy for every workspace package. Members opt in with
-# `[lints] workspace = true`. Cargo rejects a package-local lint table beside
-# that opt-in, so a lint that needs a custom level or `check-cfg` entry belongs
-# in the `[workspace.lints.*]` tables below. The manifest test reports a stray
-# local table with a clearer message than Cargo's.
+# The shared lint policy is the `leynos/netsuke` baseline as a minimum, plus
+# Wireframe's own stricter settings. Netsuke is the reference for the rule set
+# and its category order; a rule added there is expected to appear here too.
+# Deliberate divergences are called out beside the setting they affect.
 #
-# This table inherits the existing policy into every package; it is not yet
-# the full Netsuke baseline. `clippy::disallowed_methods`,
-# `clippy::missing_assert_message`, `rust::unsafe_code = "forbid"` and the
-# remaining `unexpected_cfgs` declarations stay with issue #664.
+# Members opt in with `[lints] workspace = true`. Cargo rejects a package-local
+# lint table beside that opt-in, so a lint that needs a custom level or
+# `check-cfg` entry belongs in the `[workspace.lints.*]` tables below. The
+# manifest test reports a stray local table with a clearer message than
+# Cargo's.
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 
@@ -134,9 +134,12 @@ allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
 blanket_clippy_restriction_lints = "deny"
 cognitive_complexity = "deny"
+# `clippy.toml` lists the prohibited `std::env` APIs. Denying the lint here
+# makes it an error even when a member or CI lane forgets `-D warnings`.
+disallowed_methods = "deny"
 needless_pass_by_value = "deny"
 implicit_hasher = "deny"
-missing_docs_in_private_items = "deny"
+missing_assert_message = "deny"
 
 # 2. debugging leftovers
 dbg_macro = "deny"
@@ -158,16 +161,57 @@ host_endian_bytes = "deny"
 little_endian_bytes = "deny"
 big_endian_bytes = "deny"
 
-# 5. environment boundary
-# `clippy.toml` lists the six prohibited `std::env` APIs. Denying the lint here
-# makes it an error even when a member or CI lane forgets `-D warnings`.
-disallowed_methods = "deny"
+# 5. nursery idiom polish
+let_underscore_must_use = "deny"
+or_fun_call = "deny"
+option_if_let_else = "deny"
+self_named_module_files = "deny"
+shadow_reuse = "deny"
+shadow_same = "deny"
+shadow_unrelated = "deny"
+str_to_string = "deny"
+string_lit_as_bytes = "deny"
+try_err = "deny"
+unneeded_field_pattern = "deny"
+use_self = "deny"
+
+# 6. numerical foot-guns
+float_arithmetic = "deny"
+cast_possible_truncation = "deny"
+cast_possible_wrap = "deny"
+cast_precision_loss = "deny"
+lossy_float_literal = "deny"
+
+# 7. API ergonomics
+missing_const_for_fn = "deny"
+must_use_candidate = "deny"
+unused_async = "deny"
+missing_docs_in_private_items = "deny"
+
+# 8. error handling
+missing_panics_doc = "deny"
+error_impl_error = "deny"
+result_large_err = "deny"
 
 [workspace.lints.rust]
 unknown_lints = "deny"
 renamed_and_removed_lints = "deny"
+# Wireframe has no sanctioned unsafe code. A crate-wide exception is not an
+# option: a site that genuinely needs `unsafe` must be redesigned instead.
+unsafe_code = "forbid"
 missing_docs = "deny"
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)', 'cfg(coverage)'] }
+# Every intentional custom cfg is declared here so `unexpected_cfgs` can stay
+# useful for catching typos. `loom` selects the concurrency models, `coverage`
+# is set by the coverage tooling, `docsrs` is set by docs.rs, `kani` selects
+# bounded model-checking harnesses, and `dylint_lib` names a Dylint library
+# crate. Verus needs no compiler cfg: it verifies a separate source tree.
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(loom)',
+    'cfg(coverage)',
+    'cfg(docsrs)',
+    'cfg(kani)',
+    'cfg(dylint_lib, values(any()))',
+] }
 
 [workspace.lints.rustdoc]
 missing_crate_level_docs = "deny"

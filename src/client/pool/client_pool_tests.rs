@@ -37,11 +37,11 @@ fn test_pool(drop_count: Option<Arc<AtomicUsize>>) -> TestPool {
         core.drop_probe = Some(DropProbe::new(count));
     }
 
-    let core = Arc::new(core);
+    let shared_core = Arc::new(core);
     let churn = Arc::new(PoolTaskChurnCounts::default());
-    let (scheduler, task) = scheduler::start(&core, PoolFairnessPolicy::Fifo, 8, churn);
+    let (scheduler, task) = scheduler::start(&shared_core, PoolFairnessPolicy::Fifo, 8, churn);
     TestPool {
-        core,
+        core: shared_core,
         scheduler,
         task,
     }
@@ -75,11 +75,19 @@ async fn pool_and_handle_drop_keep_lease_slot_alive_until_final_lease_drop() {
     let lease = test_lease(&pool);
 
     drop(pool);
-    assert_eq!(drops.load(Ordering::Acquire), 0);
+    assert_eq!(
+        drops.load(Ordering::Acquire),
+        0,
+        "drops.load(Ordering::Acquire) should equal 0"
+    );
     assert!(lease.slot().is_some(), "lease must still resolve its slot");
 
     drop(handle);
-    assert_eq!(drops.load(Ordering::Acquire), 0);
+    assert_eq!(
+        drops.load(Ordering::Acquire),
+        0,
+        "drops.load(Ordering::Acquire) should equal 0"
+    );
     assert!(lease.slot().is_some(), "lease remains the core's owner");
 
     drop(lease);

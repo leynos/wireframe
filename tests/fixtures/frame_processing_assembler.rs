@@ -57,7 +57,7 @@ impl FrameProcessingAssembler {
 impl MessageAssembler for FrameProcessingAssembler {
     fn parse_frame_header(&self, payload: &[u8]) -> Result<ParsedFrameHeader, std::io::Error> {
         let parsed = wireframe::test_helpers::parse_frame_header(payload)?;
-        let _ = self.processed_tx.send(());
+        let _processed_sent = self.processed_tx.send(());
         Ok(parsed)
     }
 }

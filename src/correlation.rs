@@ -40,13 +40,25 @@ mod tests {
     #[case(Some(27))]
     fn envelope_correlation_round_trip(#[case] initial: Option<u64>) {
         let mut frame = Envelope::new(7, initial, vec![1, 2, 3]);
-        assert_eq!(frame.correlation_id(), initial);
+        assert_eq!(
+            frame.correlation_id(),
+            initial,
+            "frame.correlation_id() should equal initial"
+        );
 
         frame.set_correlation_id(Some(99));
-        assert_eq!(frame.correlation_id(), Some(99));
+        assert_eq!(
+            frame.correlation_id(),
+            Some(99),
+            "frame.correlation_id() should equal Some(99)"
+        );
 
         frame.set_correlation_id(None);
-        assert_eq!(frame.correlation_id(), None);
+        assert_eq!(
+            frame.correlation_id(),
+            None,
+            "frame.correlation_id() should equal None"
+        );
     }
 
     #[rstest]
@@ -56,10 +68,22 @@ mod tests {
     where
         T: CorrelatableFrame,
     {
-        assert_eq!(frame.correlation_id(), None);
+        assert_eq!(
+            frame.correlation_id(),
+            None,
+            "frame.correlation_id() should equal None"
+        );
         frame.set_correlation_id(Some(42));
-        assert_eq!(frame.correlation_id(), None);
+        assert_eq!(
+            frame.correlation_id(),
+            None,
+            "frame.correlation_id() should equal None"
+        );
         frame.set_correlation_id(None);
-        assert_eq!(frame.correlation_id(), None);
+        assert_eq!(
+            frame.correlation_id(),
+            None,
+            "frame.correlation_id() should equal None"
+        );
     }
 }

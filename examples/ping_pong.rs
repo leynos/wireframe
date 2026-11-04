@@ -167,7 +167,7 @@ const DEFAULT_ADDR: &str = "127.0.0.1:7878";
 fn parse_server_addr() -> std::io::Result<SocketAddr> {
     let addr = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| DEFAULT_ADDR.to_string());
+        .unwrap_or_else(|| DEFAULT_ADDR.to_owned());
     addr.parse().map_err(std::io::Error::other)
 }
 
@@ -175,7 +175,7 @@ fn parse_server_addr() -> std::io::Result<SocketAddr> {
 /// The server loop owns listener shutdown, ensuring accepted tasks finish in the
 /// same lifecycle as the example process.
 async fn run() -> std::io::Result<()> {
-    let _ = tracing_subscriber::fmt::try_init();
+    drop(tracing_subscriber::fmt::try_init());
     let app = build_app().map_err(|error| std::io::Error::other(error.to_string()))?;
     let server = WireframeServer::from_app(app)
         .bind(parse_server_addr()?)

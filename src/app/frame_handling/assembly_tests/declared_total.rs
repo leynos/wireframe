@@ -86,13 +86,13 @@ fn inbound_assembly_rejects_continuation_overshooting_declared_total(
             "valid test payload",
         ),
     );
-    let result = ok(
+    let overrun_result = ok(
         process_assembly_frame(&message_assembler, &mut state, &mut deser_failures, overrun),
         "overshooting continuation should be handled",
     );
 
     assert!(
-        result.is_none(),
+        overrun_result.is_none(),
         "an overshooting continuation must not dispatch"
     );
     assert_eq!(

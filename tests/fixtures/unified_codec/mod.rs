@@ -94,12 +94,12 @@ impl UnifiedCodecWorld {
             app = app.fragmentation(Some(config));
         }
 
-        let app = app.route(ROUTE_ID, handler)?;
-        let codec = app.length_codec();
+        let routed_app = app.route(ROUTE_ID, handler)?;
+        let codec = routed_app.length_codec();
         let (client_stream, server_stream) = tokio::io::duplex(256);
         let client = Framed::new(client_stream, codec.clone());
         let server =
-            runtime.spawn(async move { app.handle_connection_result(server_stream).await });
+            runtime.spawn(async move { routed_app.handle_connection_result(server_stream).await });
 
         self.client = Some(client);
         self.server_handle = Some(server);
@@ -154,9 +154,8 @@ impl UnifiedCodecWorld {
             )
             .into());
         }
-        for (i, (observed, expected)) in observed.iter().zip(self.sent_payloads.iter()).enumerate()
-        {
-            if observed != expected {
+        for (i, (actual, expected)) in observed.iter().zip(self.sent_payloads.iter()).enumerate() {
+            if actual != expected {
                 return Err(format!("{label} payload {i} mismatch").into());
             }
         }
@@ -166,11 +165,11 @@ impl UnifiedCodecWorld {
     fn make_handler(sender: &mpsc::UnboundedSender<Vec<u8>>) -> Handler<Envelope> {
         let tx = sender.clone();
         std::sync::Arc::new(move |env: &Envelope| {
-            let tx = tx.clone();
+            let handle = tx.clone();
             let payload = env.clone().into_parts().into_payload();
             Box::pin(async move {
                 assert!(
-                    tx.send(payload).is_ok(),
+                    handle.send(payload).is_ok(),
                     "handler channel send must succeed in tests"
                 );
             })

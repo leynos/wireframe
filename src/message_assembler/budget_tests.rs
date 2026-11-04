@@ -97,7 +97,11 @@ fn dual_budgeted_state() -> MessageAssemblyState {
 
 #[rstest]
 fn total_buffered_bytes_starts_at_zero(#[from(unbounded_state)] state: MessageAssemblyState) {
-    assert_eq!(state.total_buffered_bytes(), 0);
+    assert_eq!(
+        state.total_buffered_bytes(),
+        0,
+        "state.total_buffered_bytes() should equal 0"
+    );
 }
 
 #[rstest]
@@ -105,7 +109,11 @@ fn total_buffered_bytes_tracks_single_assembly(
     #[from(unbounded_state)] mut state: MessageAssemblyState,
 ) {
     submit_first(&mut state, 1, b"hello", false).expect("first frame");
-    assert_eq!(state.total_buffered_bytes(), 5);
+    assert_eq!(
+        state.total_buffered_bytes(),
+        5,
+        "state.total_buffered_bytes() should equal 5"
+    );
 }
 
 #[rstest]
@@ -114,7 +122,11 @@ fn total_buffered_bytes_tracks_multiple_assemblies(
 ) {
     submit_first(&mut state, 1, b"aaa", false).expect("first");
     submit_first(&mut state, 2, b"bbbbb", false).expect("second");
-    assert_eq!(state.total_buffered_bytes(), 8); // 3 + 5
+    assert_eq!(
+        state.total_buffered_bytes(),
+        8,
+        "state.total_buffered_bytes() should equal 8"
+    ); // 3 + 5
 }
 
 #[rstest]
@@ -123,7 +135,11 @@ fn total_buffered_bytes_decreases_after_completion(
 ) {
     submit_first(&mut state, 1, b"aaa", false).expect("first");
     submit_first(&mut state, 2, b"bb", false).expect("second");
-    assert_eq!(state.total_buffered_bytes(), 5);
+    assert_eq!(
+        state.total_buffered_bytes(),
+        5,
+        "state.total_buffered_bytes() should equal 5"
+    );
 
     // Complete key 1
     let cont = continuation_header(1, 1, 2, true);
@@ -131,7 +147,11 @@ fn total_buffered_bytes_decreases_after_completion(
         .accept_continuation_frame(&cont, b"xx")
         .expect("cont")
         .expect("complete");
-    assert_eq!(state.total_buffered_bytes(), 2); // only key 2 remains
+    assert_eq!(
+        state.total_buffered_bytes(),
+        2,
+        "state.total_buffered_bytes() should equal 2"
+    ); // only key 2 remains
 }
 
 #[rstest]
@@ -140,11 +160,19 @@ fn total_buffered_bytes_decreases_after_purge(
 ) {
     let now = Instant::now();
     submit_first_at(&mut state, 1, b"data", now).expect("first");
-    assert_eq!(state.total_buffered_bytes(), 4);
+    assert_eq!(
+        state.total_buffered_bytes(),
+        4,
+        "state.total_buffered_bytes() should equal 4"
+    );
 
     let future = now + Duration::from_secs(31);
     state.purge_expired_at(future);
-    assert_eq!(state.total_buffered_bytes(), 0);
+    assert_eq!(
+        state.total_buffered_bytes(),
+        0,
+        "state.total_buffered_bytes() should equal 0"
+    );
 }
 
 #[rstest]
@@ -154,8 +182,16 @@ fn single_frame_message_not_counted_in_buffered_bytes(
     submit_first(&mut state, 1, b"complete", true)
         .expect("first")
         .expect("complete");
-    assert_eq!(state.total_buffered_bytes(), 0);
-    assert_eq!(state.buffered_count(), 0);
+    assert_eq!(
+        state.total_buffered_bytes(),
+        0,
+        "state.total_buffered_bytes() should equal 0"
+    );
+    assert_eq!(
+        state.buffered_count(),
+        0,
+        "state.buffered_count() should equal 0"
+    );
 }
 
 // =============================================================================

@@ -237,7 +237,10 @@ mod tests {
 
     #[test]
     fn per_operation_reports_none_for_an_empty_batch() {
-        assert!(CopiedBytes::default().per_operation(0).is_none());
+        assert!(
+            CopiedBytes::default().per_operation(0).is_none(),
+            "assertion failed: CopiedBytes::default().per_operation(0).is_none()"
+        );
     }
 
     #[test]
@@ -254,7 +257,8 @@ mod tests {
                 serialized: 24,
                 handoff: 12,
                 framed: 8,
-            }
+            },
+            "per_operation should equal CopiedBytes {{ serialized: 24, handoff: 12, framed: 8, }}"
         );
     }
 
@@ -268,13 +272,21 @@ mod tests {
         spare_capacity.extend_from_slice(&[1, 2, 3, 4]);
         let source = spare_capacity.as_ptr();
         let bytes = bytes_from_vec(spare_capacity);
-        assert_eq!(bytes.as_ptr(), source);
+        assert_eq!(bytes.as_ptr(), source, "bytes.as_ptr() should equal source");
 
         let exact_capacity = vec![1, 2, 3, 4];
-        assert_eq!(exact_capacity.len(), exact_capacity.capacity());
-        let source = exact_capacity.as_ptr();
-        let bytes = bytes_from_vec(exact_capacity);
-        assert_eq!(bytes.as_ptr(), source);
+        assert_eq!(
+            exact_capacity.len(),
+            exact_capacity.capacity(),
+            "exact_capacity.len() should equal exact_capacity.capacity()"
+        );
+        let exact_source = exact_capacity.as_ptr();
+        let exact_bytes = bytes_from_vec(exact_capacity);
+        assert_eq!(
+            exact_bytes.as_ptr(),
+            exact_source,
+            "exact_bytes.as_ptr() should equal exact_source"
+        );
     }
 
     #[cfg(feature = "benchmark-counters")]
@@ -287,6 +299,10 @@ mod tests {
         let before = snapshot().handoff;
         record_handoff(7);
         record_handoff(5);
-        assert_eq!(snapshot().handoff - before, 12);
+        assert_eq!(
+            snapshot().handoff - before,
+            12,
+            "snapshot().handoff - before should equal 12"
+        );
     }
 }

@@ -101,14 +101,14 @@ async fn from_app_serves_concurrent_tcp_connections_from_one_prepared_root() -> 
         .bind_existing_listener(unused_listener()?)?;
     let address = server
         .local_addr()
-        .ok_or_else(|| "server did not report a bound address".to_string())?;
+        .ok_or_else(|| "server did not report a bound address".to_owned())?;
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
     let server_task = tokio::spawn(async move {
         server
             .ready_signal(ready_tx)
             .run_with_shutdown(async {
-                let _ = shutdown_rx.await;
+                drop(shutdown_rx.await);
             })
             .await
     });

@@ -1352,14 +1352,58 @@ The standard Makefile gates cover all supported workspace members and targets:
 
 The shared `[workspace.lints.clippy]`, `[workspace.lints.rust]`, and
 `[workspace.lints.rustdoc]` tables are inherited by each member through
-`[lints] workspace = true`. In particular, Clippy's
-`missing_docs_in_private_items = "deny"` gate covers private implementation
-items in every crate and target, while Rust's `missing_docs = "deny"` continues
-to cover the public surface. Add `//!` module documentation and `///` item
-documentation that explains the relevant contract, invariant, or test purpose.
-If generated or macro-expanded code leaves a genuinely unavoidable gap, use an
-item-scoped `#[expect(clippy::missing_docs_in_private_items, reason = "...")]`
-with the concrete technical limitation; do not add blanket allows.
+`[lints] workspace = true`. The policy takes the `leynos/netsuke` baseline as
+its minimum: every applicable Netsuke rule appears here, in Netsuke's category
+order, and a deliberate divergence is documented beside the setting it affects.
+Wireframe adds no rule that Netsuke lacks today; where the two differ,
+Wireframe is stricter. The standalone `tests/feature_gate` package cannot
+inherit a workspace table, so it carries a copy that must be kept in step.
+
+The rule groups that follow from the baseline are:
+
+- **Hygiene** — `disallowed_methods`, `missing_assert_message`, and the
+  attribute and documentation rules. `missing_assert_message` means every
+  assertion in a test or a debug assertion states the invariant it checks; a
+  bare `assert!(condition)` is rejected even when the condition looks obvious.
+- **Panic-prone operations** — `unwrap_used`, `expect_used`,
+  `indexing_slicing`, `string_slice`, and the integer and panic rules.
+- **Nursery idiom polish** — `or_fun_call`, `option_if_let_else`, the
+  `shadow_*` family, `str_to_string`, `use_self`, and friends.
+- **Numerical foot-guns** — `float_arithmetic` and the cast rules. Prefer
+  checked `try_from` conversions over `as` casts.
+- **API ergonomics** — `missing_const_for_fn`, `must_use_candidate`,
+  `unused_async`, and `missing_docs_in_private_items`.
+- **Error handling** — `missing_panics_doc`, `error_impl_error`, and
+  `result_large_err`.
+
+Clippy's `missing_docs_in_private_items = "deny"` gate covers private
+implementation items in every crate and target, while Rust's
+`missing_docs = "deny"` continues to cover the public surface. Add `//!` module
+documentation and `///` item documentation that explains the relevant contract,
+invariant, or test purpose. If generated or macro-expanded code leaves a
+genuinely unavoidable gap, use an item-scoped
+`#[expect(clippy::missing_docs_in_private_items, reason = "...")]` with the
+concrete technical limitation; do not add blanket allows.
+
+Rust's `unsafe_code = "forbid"` applies to every workspace package and admits
+no crate-wide exception. A site that appears to need `unsafe` — a manual
+`GlobalAlloc`, a layout transmute, a raw pointer hand-off — must be redesigned
+or replaced with a safe wrapper rather than annotated. The allocation
+benchmarks, for example, install `stats_alloc`'s instrumenting system allocator
+by reference; the wrapper owns the only `unsafe` implementation.
+
+The environment-method ban is part of the hygiene group. `clippy.toml` lists
+`std::env::var`, `var_os`, `vars`, `vars_os`, `set_var`, `remove_var`, and
+`set_current_dir` under `disallowed-methods`. Inject a reader through the
+`mockable::Env` trait instead of reading the process environment directly; see
+`examples/packet_enum.rs`. A sanctioned call site carries a reasoned item-scoped
+`#[expect(clippy::disallowed_methods, reason = "...")]`, never an `allow`, so
+the expectation warns once the site is migrated.
+
+Finally, `unexpected_cfgs` declares every intentional custom cfg: `loom`,
+`coverage`, `docsrs`, `kani`, and `dylint_lib`. A new custom cfg must be added
+to the declaration in the same change that introduces it, or the typo-catching
+half of the lint stops working.
 
 Plain root-level commands keep their day-to-day ergonomics because
 `default-members = ["."]` leaves the main `wireframe` package as the only

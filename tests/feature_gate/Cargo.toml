@@ -50,24 +50,32 @@ required-features = []
 # Mirrors the opt-in that adds the accessors to the published library.
 test-support = ["wireframe/test-support"]
 
-[lints.clippy]
 # The lints are copied rather than inherited: `[workspace]` above gives this
 # package no parent table to inherit from, and an unresolved
-# `[lints] workspace = true` fails the manifest.
+# `[lints] workspace = true` fails the manifest. Keep this copy in step with
+# the root `[workspace.lints.*]` tables, which are the `leynos/netsuke`
+# baseline plus Wireframe's stricter settings.
+[lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+
+# 1. hygiene
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
 blanket_clippy_restriction_lints = "deny"
 cognitive_complexity = "deny"
 needless_pass_by_value = "deny"
 implicit_hasher = "deny"
-missing_docs_in_private_items = "deny"
-# `clippy.toml` lists the six prohibited `std::env` APIs; deny the lint so this
+# `clippy.toml` lists the prohibited `std::env` APIs; deny the lint so this
 # standalone package matches the workspace policy.
 disallowed_methods = "deny"
+missing_assert_message = "deny"
+
+# 2. debugging leftovers
 dbg_macro = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
+
+# 3. panic-prone operations
 unwrap_used = "deny"
 expect_used = "deny"
 indexing_slicing = "deny"
@@ -76,3 +84,62 @@ integer_division = "deny"
 integer_division_remainder_used = "deny"
 panic_in_result_fn = "deny"
 unreachable = "deny"
+
+# 4. portability
+host_endian_bytes = "deny"
+little_endian_bytes = "deny"
+big_endian_bytes = "deny"
+
+# 5. nursery idiom polish
+let_underscore_must_use = "deny"
+or_fun_call = "deny"
+option_if_let_else = "deny"
+self_named_module_files = "deny"
+shadow_reuse = "deny"
+shadow_same = "deny"
+shadow_unrelated = "deny"
+str_to_string = "deny"
+string_lit_as_bytes = "deny"
+try_err = "deny"
+unneeded_field_pattern = "deny"
+use_self = "deny"
+
+# 6. numerical foot-guns
+float_arithmetic = "deny"
+cast_possible_truncation = "deny"
+cast_possible_wrap = "deny"
+cast_precision_loss = "deny"
+lossy_float_literal = "deny"
+
+# 7. API ergonomics
+missing_const_for_fn = "deny"
+must_use_candidate = "deny"
+unused_async = "deny"
+missing_docs_in_private_items = "deny"
+
+# 8. error handling
+missing_panics_doc = "deny"
+error_impl_error = "deny"
+result_large_err = "deny"
+
+[lints.rust]
+unknown_lints = "deny"
+renamed_and_removed_lints = "deny"
+unsafe_code = "forbid"
+missing_docs = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(loom)',
+    'cfg(coverage)',
+    'cfg(docsrs)',
+    'cfg(kani)',
+    'cfg(dylint_lib, values(any()))',
+] }
+
+[lints.rustdoc]
+missing_crate_level_docs = "deny"
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+bare_urls = "deny"
+invalid_html_tags = "deny"
+invalid_codeblock_attributes = "deny"
+unescaped_backticks = "deny"

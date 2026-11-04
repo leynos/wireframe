@@ -166,12 +166,18 @@ fn returned_supervisor_error_is_preserved_as_the_abnormal_error_source() {
     let source = error
         .source()
         .expect("returned error source must be retained");
-    assert_eq!(source.to_string(), "accept error: synthetic accept failure");
+    assert_eq!(
+        source.to_string(),
+        "accept error: synthetic accept failure",
+        "source.to_string() should equal \"accept error: synthetic accept failure\""
+    );
     assert_eq!(
         source
             .source()
             .expect("underlying I/O error must remain in the source chain")
             .to_string(),
-        "synthetic accept failure"
+        "synthetic accept failure",
+        "source .source() .expect(\"underlying I/O error must remain in the source chain\") \
+         .to_string() should equal \"synthetic accept failure\""
     );
 }

@@ -36,7 +36,7 @@ async fn shutdown_interrupts_blocked_preparation_before_readiness()
         server
             .ready_signal(ready_tx)
             .run_with_shutdown(async {
-                let _ = shutdown_rx.await;
+                drop(shutdown_rx.await);
             })
             .await
     });
@@ -78,7 +78,10 @@ fn factory_failure_records_a_bounded_startup_metric() {
         })
     });
 
-    assert!(matches!(result, Err(ServerError::FactoryBuild(_))));
+    assert!(
+        matches!(result, Err(ServerError::FactoryBuild(_))),
+        "assertion failed: matches!(result, Err(ServerError::FactoryBuild(_)))"
+    );
     assert_factory_failure_startup_metrics(&snapshotter);
 }
 
@@ -86,36 +89,53 @@ fn factory_failure_records_a_bounded_startup_metric() {
 #[cfg(feature = "metrics")]
 fn assert_factory_failure_startup_metrics(snapshotter: &Snapshotter) {
     let metrics = snapshotter.snapshot().into_vec();
-    assert!(metrics.iter().any(|(key, _, _, value)| {
-        key.key().name() == SERVER_STARTUP_FAILURES
-            && key
-                .key()
-                .labels()
-                .any(|label| label.key() == "stage" && label.value() == "factory_build")
-            && matches!(value, DebugValue::Counter(count) if *count == 1)
-    }));
-    assert!(metrics.iter().any(|(key, _, _, value)| {
-        key.key().name() == SERVER_STARTUP_DURATION
-            && key
-                .key()
-                .labels()
-                .any(|label| label.key() == "outcome" && label.value() == "factory_build")
-            && matches!(value, DebugValue::Histogram(_))
-    }));
+    assert!(
+        metrics.iter().any(|(key, _, _, value)| {
+            key.key().name() == SERVER_STARTUP_FAILURES
+                && key
+                    .key()
+                    .labels()
+                    .any(|label| label.key() == "stage" && label.value() == "factory_build")
+                && matches!(value, DebugValue::Counter(count) if *count == 1)
+        }),
+        "assertion failed: metrics.iter().any(|(key, _, _, value)| {{ key.key().name() == \
+         SERVER_STARTUP_FAILURES && key .key() .labels() .any(|label| label.key() == \"stage\" && \
+         label.value() == \"factory_build\") && matches!(value, DebugValue::Counter(count) if \
+         *count == 1) }})"
+    );
+    assert!(
+        metrics.iter().any(|(key, _, _, value)| {
+            key.key().name() == SERVER_STARTUP_DURATION
+                && key
+                    .key()
+                    .labels()
+                    .any(|label| label.key() == "outcome" && label.value() == "factory_build")
+                && matches!(value, DebugValue::Histogram(_))
+        }),
+        "assertion failed: metrics.iter().any(|(key, _, _, value)| {{ key.key().name() == \
+         SERVER_STARTUP_DURATION && key .key() .labels() .any(|label| label.key() == \"outcome\" \
+         && label.value() == \"factory_build\") && matches!(value, DebugValue::Histogram(_)) }})"
+    );
 }
 
 #[cfg(feature = "metrics")]
 fn assert_startup_duration_outcome(snapshotter: &Snapshotter, expected_outcome: &str) {
     let metrics = snapshotter.snapshot().into_vec();
-    assert!(metrics.iter().any(|(key, _, _, value)| {
-        key.key().name() == SERVER_STARTUP_DURATION
-            && key.key().labels().count() == 1
-            && key
-                .key()
-                .labels()
-                .any(|label| label.key() == "outcome" && label.value() == expected_outcome)
-            && matches!(value, DebugValue::Histogram(_))
-    }));
+    assert!(
+        metrics.iter().any(|(key, _, _, value)| {
+            key.key().name() == SERVER_STARTUP_DURATION
+                && key.key().labels().count() == 1
+                && key
+                    .key()
+                    .labels()
+                    .any(|label| label.key() == "outcome" && label.value() == expected_outcome)
+                && matches!(value, DebugValue::Histogram(_))
+        }),
+        "assertion failed: metrics.iter().any(|(key, _, _, value)| {{ key.key().name() == \
+         SERVER_STARTUP_DURATION && key.key().labels().count() == 1 && key .key() .labels() \
+         .any(|label| label.key() == \"outcome\" && label.value() == expected_outcome) && \
+         matches!(value, DebugValue::Histogram(_)) }})"
+    );
 }
 
 /// Interrupted preparation records a bounded cancelled startup duration.
@@ -134,12 +154,12 @@ fn cancelled_preparation_records_a_bounded_startup_metric() {
             let (shutdown_tx, shutdown_rx) = oneshot::channel();
             tokio::spawn(async move {
                 entered.notified().await;
-                let _ = shutdown_tx.send(());
+                let _shutdown_sent = shutdown_tx.send(());
             });
             prepare_application_or_shutdown(
                 factory,
                 async {
-                    let _ = shutdown_rx.await;
+                    drop(shutdown_rx.await);
                 },
                 Instant::now(),
             )
@@ -147,7 +167,10 @@ fn cancelled_preparation_records_a_bounded_startup_metric() {
         })
     });
 
-    assert!(matches!(result, Ok(None)));
+    assert!(
+        matches!(result, Ok(None)),
+        "assertion failed: matches!(result, Ok(None))"
+    );
     assert_startup_duration_outcome(&snapshotter, "cancelled");
 }
 
@@ -173,7 +196,10 @@ fn preparation_failure_records_a_bounded_startup_metric() {
         ))
     });
 
-    assert!(matches!(result, Err(ServerError::Prepare(_))));
+    assert!(
+        matches!(result, Err(ServerError::Prepare(_))),
+        "assertion failed: matches!(result, Err(ServerError::Prepare(_)))"
+    );
     assert_startup_duration_outcome(&snapshotter, "preparation");
 }
 
@@ -218,4 +244,4 @@ async fn start_default_server_and_stop_when_ready()
 }
 
 #[cfg(feature = "metrics")]
-async fn wait_for_shutdown_signal(shutdown_rx: oneshot::Receiver<()>) { let _ = shutdown_rx.await; }
+async fn wait_for_shutdown_signal(shutdown_rx: oneshot::Receiver<()>) { drop(shutdown_rx.await); }

@@ -51,7 +51,10 @@ fn enqueue_registers_a_handle_the_first_time_it_appears(#[case] policy: PoolFair
         waiter.is_some(),
         "lazy registration must make the request selectable"
     );
-    assert!(!state.has_queued_waiter(42));
+    assert!(
+        !state.has_queued_waiter(42),
+        "assertion failed: !state.has_queued_waiter(42)"
+    );
 }
 
 #[rstest]
@@ -64,8 +67,15 @@ fn deregistering_a_handle_twice_is_harmless(#[case] policy: PoolFairnessPolicy) 
     state.deregister_handle(7);
     state.deregister_handle(7);
 
-    assert_eq!(state.waiter_count(), 0);
-    assert!(state.take_next_waiter(policy).is_none());
+    assert_eq!(
+        state.waiter_count(),
+        0,
+        "state.waiter_count() should equal 0"
+    );
+    assert!(
+        state.take_next_waiter(policy).is_none(),
+        "assertion failed: state.take_next_waiter(policy).is_none()"
+    );
 }
 
 #[rstest]
@@ -85,7 +95,11 @@ fn enqueue_rejects_waiters_above_the_configured_limit(#[case] policy: PoolFairne
         "a waiter beyond the bound must be handed back, not queued"
     );
     drop(receiver);
-    assert_eq!(state.waiter_count(), 2);
+    assert_eq!(
+        state.waiter_count(),
+        2,
+        "state.waiter_count() should equal 2"
+    );
 }
 
 /// Frees admission capacity when a caller cancels before its waiter is served.
@@ -99,7 +113,11 @@ fn enqueue_prunes_cancelled_waiters_before_counting(#[case] policy: PoolFairness
     drop(cancelled);
 
     let _replacement = enqueue_one(&mut state, 1, policy, 2);
-    assert_eq!(state.waiter_count(), 2);
+    assert_eq!(
+        state.waiter_count(),
+        2,
+        "state.waiter_count() should equal 2"
+    );
 }
 
 #[rstest]
@@ -113,8 +131,15 @@ fn prune_removes_every_abandoned_waiter(#[case] policy: PoolFairnessPolicy) {
 
     state.prune_cancelled_waiters();
 
-    assert_eq!(state.waiter_count(), 0);
-    assert!(!state.has_live_waiters());
+    assert_eq!(
+        state.waiter_count(),
+        0,
+        "state.waiter_count() should equal 0"
+    );
+    assert!(
+        !state.has_live_waiters(),
+        "assertion failed: !state.has_live_waiters()"
+    );
 }
 
 #[rstest]
@@ -127,8 +152,14 @@ fn deregister_handle_purges_every_entry_for_that_handle(#[case] policy: PoolFair
 
     state.deregister_handle(1);
 
-    assert!(!state.has_queued_waiter(1));
-    assert!(state.take_next_waiter(policy).is_some());
+    assert!(
+        !state.has_queued_waiter(1),
+        "assertion failed: !state.has_queued_waiter(1)"
+    );
+    assert!(
+        state.take_next_waiter(policy).is_some(),
+        "assertion failed: state.take_next_waiter(policy).is_some()"
+    );
     assert!(
         state.take_next_waiter(policy).is_none(),
         "deregistered handle entries must be removed eagerly"
@@ -151,7 +182,10 @@ fn take_next_waiter_skips_a_caller_that_went_away(#[case] policy: PoolFairnessPo
         !selected.is_closed(),
         "a lease must never be handed to a caller that stopped listening"
     );
-    assert!(state.take_next_waiter(policy).is_none());
+    assert!(
+        state.take_next_waiter(policy).is_none(),
+        "assertion failed: state.take_next_waiter(policy).is_none()"
+    );
 }
 
 #[test]
@@ -167,7 +201,8 @@ fn round_robin_gives_each_handle_a_turn_before_repeating() {
     assert!(
         state
             .take_next_waiter(PoolFairnessPolicy::RoundRobin)
-            .is_none()
+            .is_none(),
+        "assertion failed: state .take_next_waiter(PoolFairnessPolicy::RoundRobin) .is_none()"
     );
 }
 
@@ -176,8 +211,14 @@ fn has_queued_waiter_reports_only_pending_requests() {
     let mut state = TestState::new();
     let _receiver = enqueue_one(&mut state, 3, PoolFairnessPolicy::Fifo, 8);
 
-    assert!(state.has_queued_waiter(3));
-    assert!(!state.has_queued_waiter(4));
+    assert!(
+        state.has_queued_waiter(3),
+        "assertion failed: state.has_queued_waiter(3)"
+    );
+    assert!(
+        !state.has_queued_waiter(4),
+        "assertion failed: !state.has_queued_waiter(4)"
+    );
 }
 
 proptest! {

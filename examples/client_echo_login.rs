@@ -42,7 +42,7 @@ fn server_addr() -> ExampleResult<SocketAddr> { Ok("127.0.0.1:7878".parse()?) }
 /// Supplies the deterministic guest credentials used in the runnable example.
 fn default_login() -> LoginRequest {
     LoginRequest {
-        username: "guest".to_string(),
+        username: "guest".to_owned(),
     }
 }
 

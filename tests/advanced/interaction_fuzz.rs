@@ -136,7 +136,7 @@ proptest! {
 async fn test_boundary_cases(#[case] actions: Vec<Action>) {
     let out = run_actions(&actions).await;
     let expected = expected_from(&actions);
-    assert_eq!(out, expected);
+    assert_eq!(out, expected, "out should equal expected");
 }
 
 #[cfg(feature = "serializer-bincode")]

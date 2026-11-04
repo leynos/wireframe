@@ -64,7 +64,10 @@ async fn send_envelope_auto_generates_correlation_id_when_none() {
 
     // Create envelope without correlation ID.
     let envelope = Envelope::new(42, None, vec![1, 2, 3]);
-    assert!(envelope.correlation_id().is_none());
+    assert!(
+        envelope.correlation_id().is_none(),
+        "assertion failed: envelope.correlation_id().is_none()"
+    );
 
     // send_envelope should auto-generate a correlation ID.
     let correlation_id = client.send_envelope(envelope).await.expect("send envelope");
@@ -132,8 +135,12 @@ async fn receive_envelope_returns_envelope_with_correlation_id() {
         Some(sent_correlation_id),
         "response should have the same correlation ID"
     );
-    assert_eq!(response.id(), 42);
-    assert_eq!(response.into_parts().into_payload(), &[1, 2, 3]);
+    assert_eq!(response.id(), 42, "response.id() should equal 42");
+    assert_eq!(
+        response.into_parts().into_payload(),
+        &[1, 2, 3],
+        "response.into_parts().into_payload() should equal &[1, 2, 3]"
+    );
 
     drop(client);
     server
@@ -305,7 +312,11 @@ async fn round_trip_with_various_payload_sizes(#[case] payload: Vec<u8>) {
         .await
         .expect("call should succeed");
 
-    assert_eq!(response.into_parts().into_payload(), payload.as_slice());
+    assert_eq!(
+        response.into_parts().into_payload(),
+        payload.as_slice(),
+        "response.into_parts().into_payload() should equal payload.as_slice()"
+    );
 
     drop(client);
     server

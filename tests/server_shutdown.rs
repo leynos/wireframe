@@ -85,10 +85,10 @@ async fn concurrent_stops_and_drains_converge_to_one_clean_outcome(
 ) -> TestResult {
     let (addr, shutdown) = spawn_ready_server.await?;
     let drains = join_all((0..8).map(|_| {
-        let shutdown = shutdown.clone();
+        let shutdown_handle = shutdown.clone();
         async move {
-            shutdown.stop();
-            shutdown.drained().await
+            shutdown_handle.stop();
+            shutdown_handle.drained().await
         }
     }))
     .await;
@@ -299,8 +299,8 @@ async fn spawn_ready_server_with_connection() -> TestResult<(SocketAddr, ServerS
 fn setup_notifying_app(setup: Arc<Notify>) -> TestResult<TestApp> {
     TestApp::default()
         .on_connection_setup(move || {
-            let setup = Arc::clone(&setup);
-            async move { setup.notify_one() }
+            let notify = Arc::clone(&setup);
+            async move { notify.notify_one() }
         })
         .map_err(Into::into)
 }

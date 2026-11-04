@@ -225,7 +225,7 @@ async fn shutdown_during_active_multi_packet_send(
     yield_now().await;
     cancel.cancel();
 
-    let _ = tx.send(3).await;
+    let _late_send = tx.send(3).await;
 
     let join_result = timeout(Duration::from_secs(1), join)
         .await

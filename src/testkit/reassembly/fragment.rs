@@ -205,7 +205,7 @@ fn matches_message_size_error(
 }
 
 /// Match expectations that distinguish aggregate admission errors.
-fn matches_aggregate_limit_error(
+const fn matches_aggregate_limit_error(
     err: &ReassemblyError,
     expected: FragmentReassemblyErrorExpectation,
 ) -> bool {

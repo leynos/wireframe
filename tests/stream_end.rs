@@ -43,7 +43,7 @@ fn queues() -> Result<(PushQueues<u8>, PushHandle<u8>), wireframe::push::PushCon
 async fn emits_end_frame(
     queues: Result<(PushQueues<u8>, PushHandle<u8>), wireframe::push::PushConfigError>,
 ) -> TestResult<()> {
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     // fixture injected above
     let stream: FrameStream<u8> = Box::pin(try_stream! {
         yield 1;
@@ -52,7 +52,7 @@ async fn emits_end_frame(
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
     let mut actor = ConnectionActor::with_hooks(
-        ConnectionChannels::new(queues, handle),
+        ConnectionChannels::new(push_queues, handle),
         Some(stream),
         shutdown,
         hooks,
@@ -73,7 +73,7 @@ async fn emits_end_frame(
 async fn multi_packet_emits_end_frame(
     queues: Result<(PushQueues<u8>, PushHandle<u8>), wireframe::push::PushConfigError>,
 ) -> TestResult<()> {
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     let (tx, rx) = mpsc::channel(4);
     tx.send(1)
         .await
@@ -86,7 +86,7 @@ async fn multi_packet_emits_end_frame(
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
     let mut actor = ConnectionActor::with_hooks(
-        ConnectionChannels::new(queues, handle),
+        ConnectionChannels::new(push_queues, handle),
         None,
         shutdown,
         hooks,
@@ -119,7 +119,7 @@ async fn multi_packet_respects_no_terminator(
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }
 
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     let (tx, rx) = mpsc::channel(2);
     tx.send(9)
         .await
@@ -129,7 +129,7 @@ async fn multi_packet_respects_no_terminator(
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(NoTerminator));
     let mut actor = ConnectionActor::with_hooks(
-        ConnectionChannels::new(queues, handle),
+        ConnectionChannels::new(push_queues, handle),
         None,
         shutdown,
         hooks,
@@ -153,14 +153,14 @@ async fn multi_packet_respects_no_terminator(
 async fn multi_packet_empty_channel_emits_end(
     queues: Result<(PushQueues<u8>, PushHandle<u8>), wireframe::push::PushConfigError>,
 ) -> TestResult<()> {
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     let (tx, rx) = mpsc::channel(1);
     drop(tx);
 
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(Terminator));
     let mut actor = ConnectionActor::with_hooks(
-        ConnectionChannels::new(queues, handle),
+        ConnectionChannels::new(push_queues, handle),
         None,
         shutdown,
         hooks,
@@ -193,14 +193,14 @@ async fn multi_packet_empty_channel_no_terminator_emits_nothing(
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }
 
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     let (tx, rx) = mpsc::channel(1);
     drop(tx);
 
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(NoTerminator));
     let mut actor = ConnectionActor::with_hooks(
-        ConnectionChannels::new(queues, handle),
+        ConnectionChannels::new(push_queues, handle),
         None,
         shutdown,
         hooks,
@@ -233,7 +233,7 @@ async fn emits_no_end_frame_when_none(
         fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
     }
 
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     // fixture injected above
     let stream: FrameStream<u8> = Box::pin(try_stream! {
         yield 7;
@@ -243,7 +243,7 @@ async fn emits_no_end_frame_when_none(
     let shutdown = CancellationToken::new();
     let hooks = ProtocolHooks::from_protocol(&Arc::new(NoTerminator));
     let mut actor = ConnectionActor::with_hooks(
-        ConnectionChannels::new(queues, handle),
+        ConnectionChannels::new(push_queues, handle),
         Some(stream),
         shutdown,
         hooks,

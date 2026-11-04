@@ -113,7 +113,7 @@ impl MemoryBudgetHardCapWorld {
         self.runtime.as_ref().ok_or_else(|| {
             self.runtime_error
                 .clone()
-                .unwrap_or_else(|| "runtime unavailable".to_string())
+                .unwrap_or_else(|| "runtime unavailable".to_owned())
                 .into()
         })
     }
@@ -157,10 +157,10 @@ impl MemoryBudgetHardCapWorld {
 
         let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let handler: Handler<Envelope> = std::sync::Arc::new(move |envelope: &Envelope| {
-            let tx = tx.clone();
+            let sender = tx.clone();
             let payload = envelope.payload_bytes().to_vec();
             Box::pin(async move {
-                let _ = tx.send(payload);
+                drop(sender.send(payload));
             })
         });
 
@@ -262,13 +262,13 @@ impl MemoryBudgetHardCapWorld {
 
     /// Assert that the expected payload is eventually observed.
     pub fn assert_payload_received(&mut self, expected: &str) -> TestResult {
-        let expected = expected.as_bytes();
+        let expected_bytes = expected.as_bytes();
         for _ in 0..SPIN_ATTEMPTS {
             self.drain_ready_payloads()?;
             if self
                 .observed_payloads
                 .iter()
-                .any(|payload| payload.as_slice() == expected)
+                .any(|payload| payload.as_slice() == expected_bytes)
             {
                 return Ok(());
             }
@@ -277,7 +277,7 @@ impl MemoryBudgetHardCapWorld {
 
         Err(format!(
             "expected payload {:?} not observed; observed={:?}",
-            expected, self.observed_payloads
+            expected_bytes, self.observed_payloads
         )
         .into())
     }
@@ -358,7 +358,9 @@ mod hard_cap_config_tests {
             .expect("valid input should parse: 200/2048/8/8");
         assert_eq!(
             (c.timeout_ms, c.per_message, c.per_connection, c.in_flight),
-            (200, 2048, 8, 8)
+            (200, 2048, 8, 8),
+            "(c.timeout_ms, c.per_message, c.per_connection, c.in_flight) should equal (200, \
+             2048, 8, 8)"
         );
     }
 
@@ -383,7 +385,7 @@ mod hard_cap_config_tests {
     fn zero_timeout_is_accepted() {
         let c = HardCapConfig::from_str("0/64/100/100")
             .expect("zero timeout should parse: 0/64/100/100");
-        assert_eq!(c.timeout_ms, 0);
+        assert_eq!(c.timeout_ms, 0, "c.timeout_ms should equal 0");
     }
 
     // Zero budgets parse as valid `usize` values. The non-zero constraint is
@@ -392,6 +394,6 @@ mod hard_cap_config_tests {
     fn zero_budget_parses_successfully() {
         let c = HardCapConfig::from_str("10/0/100/100")
             .expect("zero budget should parse: 10/0/100/100");
-        assert_eq!(c.per_message, 0);
+        assert_eq!(c.per_message, 0, "c.per_message should equal 0");
     }
 }

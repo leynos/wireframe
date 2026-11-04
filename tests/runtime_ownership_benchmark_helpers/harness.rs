@@ -134,9 +134,18 @@ where
 #[test]
 fn default_workloads_are_usable_without_configuration() {
     let startup = StartupWorkload::default();
-    assert_eq!(startup.routes, DEFAULT_ROUTES);
-    assert_eq!(startup.middleware_layers, DEFAULT_MIDDLEWARE_LAYERS);
-    assert_eq!(startup.connections, DEFAULT_CONNECTIONS);
+    assert_eq!(
+        startup.routes, DEFAULT_ROUTES,
+        "startup.routes should equal DEFAULT_ROUTES"
+    );
+    assert_eq!(
+        startup.middleware_layers, DEFAULT_MIDDLEWARE_LAYERS,
+        "startup.middleware_layers should equal DEFAULT_MIDDLEWARE_LAYERS"
+    );
+    assert_eq!(
+        startup.connections, DEFAULT_CONNECTIONS,
+        "startup.connections should equal DEFAULT_CONNECTIONS"
+    );
 
     let pool = PoolWorkload::default();
     assert!(
@@ -144,7 +153,11 @@ fn default_workloads_are_usable_without_configuration() {
         "a default pool must have at least one slot"
     );
 
-    assert_eq!(ActorWorkload::default().frames, DEFAULT_FRAME_COUNT);
+    assert_eq!(
+        ActorWorkload::default().frames,
+        DEFAULT_FRAME_COUNT,
+        "ActorWorkload::default().frames should equal DEFAULT_FRAME_COUNT"
+    );
 }
 
 #[rstest]

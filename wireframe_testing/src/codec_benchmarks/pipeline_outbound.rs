@@ -320,24 +320,39 @@ mod tests {
     fn outbound_encode_reports_both_passes() {
         let measurement =
             measure_outbound_encode(small_workload(), 4).expect("outbound measurement");
-        assert_eq!(measurement.serialize_only.operations, 4);
-        assert_eq!(measurement.serialize_and_wrap.operations, 4);
+        assert_eq!(
+            measurement.serialize_only.operations, 4,
+            "measurement.serialize_only.operations should equal 4"
+        );
+        assert_eq!(
+            measurement.serialize_and_wrap.operations, 4,
+            "measurement.serialize_and_wrap.operations should equal 4"
+        );
         // Both passes traverse the payload, so the recorded byte totals are
         // four payloads each. `copied_bytes.rs` asserts the per-seam split.
         assert_eq!(
             measurement.serialize_only.payload_bytes,
-            4 * SMALL_PAYLOAD_BYTES as u64
+            4 * SMALL_PAYLOAD_BYTES as u64,
+            "measurement.serialize_only.payload_bytes should equal 4 * SMALL_PAYLOAD_BYTES as u64"
         );
         assert_eq!(
             measurement.serialize_and_wrap.payload_bytes,
-            4 * SMALL_PAYLOAD_BYTES as u64
+            4 * SMALL_PAYLOAD_BYTES as u64,
+            "measurement.serialize_and_wrap.payload_bytes should equal 4 * SMALL_PAYLOAD_BYTES as \
+             u64"
         );
     }
 
     #[test]
     fn an_empty_batch_reports_zero_work_on_both_passes() {
         let measurement = measure_outbound_encode(small_workload(), 0).expect("empty measurement");
-        assert_eq!(measurement.serialize_only.operations, 0);
-        assert_eq!(measurement.serialize_and_wrap.operations, 0);
+        assert_eq!(
+            measurement.serialize_only.operations, 0,
+            "measurement.serialize_only.operations should equal 0"
+        );
+        assert_eq!(
+            measurement.serialize_and_wrap.operations, 0,
+            "measurement.serialize_and_wrap.operations should equal 0"
+        );
     }
 }

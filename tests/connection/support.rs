@@ -22,10 +22,10 @@ pub(crate) struct HookCounts {
 impl HookCounts {
     /// Snapshot hook counters from shared state.
     pub(crate) fn from_counters(before: &Arc<AtomicUsize>, end: Option<&Arc<AtomicUsize>>) -> Self {
-        let end = end.map_or(0, |counter| counter.load(Ordering::SeqCst));
+        let end_count = end.map_or(0, |counter| counter.load(Ordering::SeqCst));
         Self {
             before: before.load(Ordering::SeqCst),
-            end,
+            end: end_count,
         }
     }
 }
@@ -151,7 +151,11 @@ impl HarnessFactory {
 #[fixture]
 pub(crate) fn hook_counters() -> HookCounters {
     let counters = HookCounters::new();
-    debug_assert_eq!(counters.get_counts(), HookCounts { before: 0, end: 0 });
+    debug_assert_eq!(
+        counters.get_counts(),
+        HookCounts { before: 0, end: 0 },
+        "counters.get_counts() should equal HookCounts {{ before: 0, end: 0 }}"
+    );
     counters
 }
 
@@ -180,7 +184,10 @@ pub(crate) fn assert_multi_packet_processing_result(
     expected_counts: HookCounts,
 ) {
     let snapshot = harness.snapshot();
-    assert!(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done);
+    assert!(
+        snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done,
+        "assertion failed: snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done"
+    );
     assert_frame_processed(
         &harness.out,
         expected_output,
@@ -195,14 +202,14 @@ pub(crate) fn assert_reason_logged(
     expected_reason: &str,
     expected_correlation: Option<u64>,
 ) {
-    let expected_correlation = format!("correlation_id={expected_correlation:?}");
+    let expected_correlation_text = format!("correlation_id={expected_correlation:?}");
     let mut found = false;
     while let Some(record) = logger.pop() {
-        let message = record.args().to_string();
+        let message = record.args().to_owned();
         if !message.contains("multi-packet stream closed") {
             continue;
         }
-        if !message.contains(&expected_correlation) {
+        if !message.contains(&expected_correlation_text) {
             continue;
         }
         assert_eq!(

@@ -333,7 +333,7 @@ async fn panic_in_server_is_mapped_to_io_error_other() -> io::Result<()> {
 }
 
 #[rstest]
-#[case::zero_capacity(0, None, "capacity must be greater than zero".to_string())]
+#[case::zero_capacity(0, None, "capacity must be greater than zero".to_owned())]
 #[case::capacity_exceeds_max(
     MAX_CAPACITY_PLUS_ONE,
     None,
@@ -342,12 +342,12 @@ async fn panic_in_server_is_mapped_to_io_error_other() -> io::Result<()> {
 #[case::writer_chunk_exceeds_capacity(
     8,
     Some((false, 9)),
-    "writer chunk size 9 must not exceed capacity 8".to_string()
+    "writer chunk size 9 must not exceed capacity 8".to_owned()
 )]
 #[case::reader_chunk_exceeds_capacity(
     8,
     Some((true, 9)),
-    "reader chunk size 9 must not exceed capacity 8".to_string()
+    "reader chunk size 9 must not exceed capacity 8".to_owned()
 )]
 #[tokio::test(flavor = "current_thread")]
 async fn invalid_slow_io_config_is_rejected(
@@ -365,11 +365,11 @@ async fn invalid_slow_io_config_is_rejected(
                 "invalid writer pacing chunk size: must be non-zero"
             })
         })?;
-        let pacing = SlowIoPacing::new(chunk, Duration::ZERO);
+        let slow_io_pacing = SlowIoPacing::new(chunk, Duration::ZERO);
         config = if is_reader_pacing {
-            config.with_reader_pacing(pacing)
+            config.with_reader_pacing(slow_io_pacing)
         } else {
-            config.with_writer_pacing(pacing)
+            config.with_writer_pacing(slow_io_pacing)
         };
     }
     let error = drive_with_slow_frames(app, vec![vec![1, 2, 3]], config)

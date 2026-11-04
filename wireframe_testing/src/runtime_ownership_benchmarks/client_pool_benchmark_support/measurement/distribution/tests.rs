@@ -31,14 +31,18 @@ fn latency_of_failures(count: usize) -> ContendedLatency {
 #[test]
 fn an_empty_distribution_reports_no_statistics() {
     let latency = ContendedLatency::default();
-    assert_eq!(latency.successes(), 0);
-    assert_eq!(latency.failure_count(), 0);
-    assert_eq!(latency.samples(), []);
-    assert_eq!(latency.min(), None);
-    assert_eq!(latency.max(), None);
-    assert_eq!(latency.median(), None);
-    assert_eq!(latency.p90(), None);
-    assert_eq!(latency.mean(), None);
+    assert_eq!(latency.successes(), 0, "latency.successes() should equal 0");
+    assert_eq!(
+        latency.failure_count(),
+        0,
+        "latency.failure_count() should equal 0"
+    );
+    assert_eq!(latency.samples(), [], "latency.samples() should equal []");
+    assert_eq!(latency.min(), None, "latency.min() should equal None");
+    assert_eq!(latency.max(), None, "latency.max() should equal None");
+    assert_eq!(latency.median(), None, "latency.median() should equal None");
+    assert_eq!(latency.p90(), None, "latency.p90() should equal None");
+    assert_eq!(latency.mean(), None, "latency.mean() should equal None");
 }
 
 /// Insertion order must not survive into the stored samples.
@@ -54,21 +58,49 @@ fn samples_are_stored_ascending_however_they_arrive() {
         Duration::from_millis(20),
         Duration::from_millis(30),
     ];
-    assert_eq!(latency.samples(), ascending);
+    assert_eq!(
+        latency.samples(),
+        ascending,
+        "latency.samples() should equal ascending"
+    );
 }
 
 #[test]
 fn statistics_describe_the_ascending_sample_set() {
     let latency = latency_of_millis(&[10, 20, 30, 40, 50, 60, 70, 80, 90, 100]);
-    assert_eq!(latency.successes(), 10);
-    assert_eq!(latency.min(), Some(Duration::from_millis(10)));
-    assert_eq!(latency.max(), Some(Duration::from_millis(100)));
+    assert_eq!(
+        latency.successes(),
+        10,
+        "latency.successes() should equal 10"
+    );
+    assert_eq!(
+        latency.min(),
+        Some(Duration::from_millis(10)),
+        "latency.min() should equal Some(Duration::from_millis(10))"
+    );
+    assert_eq!(
+        latency.max(),
+        Some(Duration::from_millis(100)),
+        "latency.max() should equal Some(Duration::from_millis(100))"
+    );
     // Nearest rank on ten samples: the 5th value for the median, the 9th
     // for p90. An interpolating definition would give the same median here
     // and a different p90, which is why the boundary case below matters.
-    assert_eq!(latency.median(), Some(Duration::from_millis(50)));
-    assert_eq!(latency.p90(), Some(Duration::from_millis(90)));
-    assert_eq!(latency.mean(), Some(Duration::from_millis(55)));
+    assert_eq!(
+        latency.median(),
+        Some(Duration::from_millis(50)),
+        "latency.median() should equal Some(Duration::from_millis(50))"
+    );
+    assert_eq!(
+        latency.p90(),
+        Some(Duration::from_millis(90)),
+        "latency.p90() should equal Some(Duration::from_millis(90))"
+    );
+    assert_eq!(
+        latency.mean(),
+        Some(Duration::from_millis(55)),
+        "latency.mean() should equal Some(Duration::from_millis(55))"
+    );
 }
 
 /// Rank is one-based and counted from the fastest sample.
@@ -83,7 +115,8 @@ fn statistics_describe_the_ascending_sample_set() {
 fn median_is_the_nearest_rank_sample(#[case] values: &[u64], #[case] expected: u64) {
     assert_eq!(
         latency_of_millis(values).median(),
-        Some(Duration::from_millis(expected))
+        Some(Duration::from_millis(expected)),
+        "latency_of_millis(values).median() should equal Some(Duration::from_millis(expected))"
     );
 }
 
@@ -98,7 +131,11 @@ fn median_is_the_nearest_rank_sample(#[case] values: &[u64], #[case] expected: u
 fn percentiles_are_observed_samples_not_interpolations() {
     let latency = latency_of_millis(&[10, 20]);
 
-    assert_eq!(latency.mean(), Some(Duration::from_millis(15)));
+    assert_eq!(
+        latency.mean(),
+        Some(Duration::from_millis(15)),
+        "latency.mean() should equal Some(Duration::from_millis(15))"
+    );
     assert_eq!(
         latency.median(),
         Some(Duration::from_millis(10)),
@@ -115,8 +152,16 @@ fn percentiles_are_observed_samples_not_interpolations() {
 fn failures_are_counted_in_full_and_retained_in_bounded_memory() {
     let over_limit = RETAINED_FAILURES + 3;
     let latency = latency_of_failures(over_limit);
-    assert_eq!(latency.failure_count(), over_limit);
-    assert_eq!(latency.failures().len(), RETAINED_FAILURES);
+    assert_eq!(
+        latency.failure_count(),
+        over_limit,
+        "latency.failure_count() should equal over_limit"
+    );
+    assert_eq!(
+        latency.failures().len(),
+        RETAINED_FAILURES,
+        "latency.failures().len() should equal RETAINED_FAILURES"
+    );
     assert_eq!(
         latency.failures().first(),
         Some(&"burst 0 failed".to_owned()),
@@ -148,7 +193,8 @@ fn churn_is_the_sum_of_the_sampled_bursts() {
         PoolTaskChurn {
             scheduler_spawns: 5,
             capacity_waits: 23,
-        }
+        },
+        "latency.churn() should equal PoolTaskChurn {{ scheduler_spawns: 5, capacity_waits: 23, }}"
     );
 }
 
@@ -165,8 +211,20 @@ fn failures_leave_the_statistics_describing_the_successes_alone() {
         latency.push_failure(format!("burst {index} failed"));
     }
 
-    assert_eq!(latency.successes(), 2);
-    assert_eq!(latency.failure_count(), 5);
-    assert_eq!(latency.median(), median_before);
-    assert_eq!(latency.mean(), Some(Duration::from_millis(15)));
+    assert_eq!(latency.successes(), 2, "latency.successes() should equal 2");
+    assert_eq!(
+        latency.failure_count(),
+        5,
+        "latency.failure_count() should equal 5"
+    );
+    assert_eq!(
+        latency.median(),
+        median_before,
+        "latency.median() should equal median_before"
+    );
+    assert_eq!(
+        latency.mean(),
+        Some(Duration::from_millis(15)),
+        "latency.mean() should equal Some(Duration::from_millis(15))"
+    );
 }

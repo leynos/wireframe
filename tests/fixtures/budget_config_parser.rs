@@ -36,7 +36,7 @@ pub fn parse_standard_budget_config(s: &str) -> Result<StandardBudgetConfig, Str
     let per_connection = next_non_empty(&mut values, "per_connection")?;
     let in_flight = next_non_empty(&mut values, "in_flight")?;
     if values.next().is_some() {
-        return Err("unexpected trailing segments".to_string());
+        return Err("unexpected trailing segments".to_owned());
     }
 
     Ok(StandardBudgetConfig {
@@ -82,7 +82,9 @@ mod tests {
                 per_message: 2048,
                 per_connection: 8,
                 in_flight: 8,
-            }
+            },
+            "parsed should equal StandardBudgetConfig {{ timeout_ms: 200, per_message: 2048, \
+             per_connection: 8, in_flight: 8, }}"
         );
     }
 
@@ -90,7 +92,9 @@ mod tests {
     fn parse_standard_budget_config_reports_missing_in_flight_segment() {
         assert_eq!(
             parse_standard_budget_config("10/64/100").expect_err("in_flight should be required"),
-            "missing in_flight"
+            "missing in_flight",
+            "parse_standard_budget_config(\"10/64/100\").expect_err(\"in_flight should be \
+             required\") should equal \"missing in_flight\""
         );
     }
 
@@ -99,7 +103,9 @@ mod tests {
         assert_eq!(
             parse_standard_budget_config("10/64/100/100/extra")
                 .expect_err("unexpected segments should fail"),
-            "unexpected trailing segments"
+            "unexpected trailing segments",
+            "parse_standard_budget_config(\"10/64/100/100/extra\") .expect_err(\"unexpected \
+             segments should fail\") should equal \"unexpected trailing segments\""
         );
     }
 

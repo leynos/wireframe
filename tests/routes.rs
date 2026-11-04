@@ -218,5 +218,5 @@ fn packet_from_parts_round_trips() {
     };
     let parts = env.clone().into_parts();
     let rebuilt = CommonTestEnvelope::from_parts(parts);
-    assert_eq!(rebuilt, env);
+    assert_eq!(rebuilt, env, "rebuilt should equal env");
 }

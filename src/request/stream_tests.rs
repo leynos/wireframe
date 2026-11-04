@@ -19,8 +19,11 @@ async fn request_body_stream_yields_chunks() {
     let stream: RequestBodyStream = Box::pin(futures::stream::iter(chunks));
 
     let collected: Vec<_> = stream.collect().await;
-    assert_eq!(collected.len(), 2);
-    assert!(collected.iter().all(Result::is_ok));
+    assert_eq!(collected.len(), 2, "collected.len() should equal 2");
+    assert!(
+        collected.iter().all(Result::is_ok),
+        "assertion failed: collected.iter().all(Result::is_ok)"
+    );
 }
 
 #[tokio::test]
@@ -31,8 +34,8 @@ async fn async_read_adapter_reads_stream() {
 
     let mut buf = [0u8; 4];
     let n = reader.read(&mut buf).await.expect("read should succeed");
-    assert_eq!(n, 4);
-    assert_eq!(&buf, b"test");
+    assert_eq!(n, 4, "n should equal 4");
+    assert_eq!(&buf, b"test", "&buf should equal b\"test\"");
 }
 
 #[tokio::test]
@@ -49,7 +52,7 @@ async fn reader_consumes_multiple_chunks() {
         .read_to_end(&mut buf)
         .await
         .expect("read_to_end should succeed");
-    assert_eq!(buf, b"hello world");
+    assert_eq!(buf, b"hello world", "buf should equal b\"hello world\"");
 }
 
 #[tokio::test]
@@ -62,7 +65,9 @@ async fn stream_propagates_io_error() {
 
     let results: Vec<_> = stream.collect().await;
     assert!(
-        matches!(results.as_slice(), [Ok(_), Err(error)] if error.kind() == io::ErrorKind::InvalidData)
+        matches!(results.as_slice(), [Ok(_), Err(error)] if error.kind() == io::ErrorKind::InvalidData),
+        "assertion failed: matches!(results.as_slice(), [Ok(_), Err(error)] if error.kind() == \
+         io::ErrorKind::InvalidData)"
     );
 }
 
@@ -80,7 +85,11 @@ async fn reader_surfaces_stream_error() {
         .read(&mut buf)
         .await
         .expect_err("read should fail with BrokenPipe");
-    assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::BrokenPipe,
+        "err.kind() should equal io::ErrorKind::BrokenPipe"
+    );
 }
 
 #[tokio::test]
@@ -96,7 +105,7 @@ async fn body_channel_delivers_chunks() {
     drop(tx);
 
     let chunks: Vec<_> = stream.collect().await;
-    assert_eq!(chunks.len(), 2);
+    assert_eq!(chunks.len(), 2, "chunks.len() should equal 2");
 }
 
 #[tokio::test]

@@ -140,14 +140,14 @@ async fn run_server_connections(
         .bind_existing_listener(unused_listener()?)?;
     let address = server
         .local_addr()
-        .ok_or_else(|| "server did not report a bound address".to_string())?;
+        .ok_or_else(|| "server did not report a bound address".to_owned())?;
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let server_task = tokio::spawn(async move {
         server
             .ready_signal(ready_tx)
             .run_with_shutdown(async {
-                let _ = shutdown_rx.await;
+                drop(shutdown_rx.await);
             })
             .await
     });
@@ -241,9 +241,9 @@ async fn prepared_app_runs_teardown_after_processing_error() -> TestResult<()> {
     let prepared = TestApp::new()?
         .on_connection_setup(|| async {})?
         .on_connection_teardown(move |()| {
-            let teardown_counter = Arc::clone(&teardown_counter);
+            let counter = Arc::clone(&teardown_counter);
             async move {
-                teardown_counter.fetch_add(1, Ordering::SeqCst);
+                counter.fetch_add(1, Ordering::SeqCst);
             }
         })?
         .prepare()
@@ -288,9 +288,9 @@ async fn prepared_app_reuses_services_across_overlapping_connections() -> TestRe
     let barrier = Arc::new(Barrier::new(CONNECTIONS));
     let handler_barrier = Arc::clone(&barrier);
     let handler: Handler<Envelope> = Arc::new(move |_: &Envelope| {
-        let barrier = Arc::clone(&handler_barrier);
+        let connection_barrier = Arc::clone(&handler_barrier);
         Box::pin(async move {
-            barrier.wait().await;
+            connection_barrier.wait().await;
         })
     });
     let prepared = TestApp::new()?

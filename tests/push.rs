@@ -46,7 +46,10 @@ fn small_queues() -> Result<(PushQueues<u8>, PushHandle<u8>), PushConfigError> {
 #[case::too_high(MAX_PUSH_RATE + 1)]
 fn builder_rejects_invalid_rate(#[case] rate: usize) {
     let result = support::builder::<u8>().rate(Some(rate)).build();
-    assert!(matches!(result, Err(PushConfigError::InvalidRate(r)) if r == rate));
+    assert!(
+        matches!(result, Err(PushConfigError::InvalidRate(r)) if r == rate),
+        "assertion failed: matches!(result, Err(PushConfigError::InvalidRate(r)) if r == rate)"
+    );
 }
 
 /// Setting the rate to `None` disables throttling without error.
@@ -87,25 +90,37 @@ async fn disables_throttling_allows_burst_pushes() -> TestResult<()> {
 #[test]
 fn builder_rejects_zero_capacity() {
     let hi = support::builder::<u8>().high_capacity(0).build();
-    assert!(matches!(
-        hi,
-        Err(PushConfigError::InvalidCapacity { high: 0, low: 1 })
-    ));
+    assert!(
+        matches!(
+            hi,
+            Err(PushConfigError::InvalidCapacity { high: 0, low: 1 })
+        ),
+        "assertion failed: matches!( hi, Err(PushConfigError::InvalidCapacity {{ high: 0, low: 1 \
+         }}) )"
+    );
 
     let lo = support::builder::<u8>().low_capacity(0).build();
-    assert!(matches!(
-        lo,
-        Err(PushConfigError::InvalidCapacity { high: 1, low: 0 })
-    ));
+    assert!(
+        matches!(
+            lo,
+            Err(PushConfigError::InvalidCapacity { high: 1, low: 0 })
+        ),
+        "assertion failed: matches!( lo, Err(PushConfigError::InvalidCapacity {{ high: 1, low: 0 \
+         }}) )"
+    );
 
     let both = support::builder::<u8>()
         .high_capacity(0)
         .low_capacity(0)
         .build();
-    assert!(matches!(
-        both,
-        Err(PushConfigError::InvalidCapacity { high: 0, low: 0 })
-    ));
+    assert!(
+        matches!(
+            both,
+            Err(PushConfigError::InvalidCapacity { high: 0, low: 0 })
+        ),
+        "assertion failed: matches!( both, Err(PushConfigError::InvalidCapacity {{ high: 0, low: \
+         0 }}) )"
+    );
 }
 
 /// Frames are delivered to queues matching their push priority.
@@ -168,10 +183,10 @@ async fn push_queues_error_on_closed() -> TestResult<()> {
         format!("expected closed error on high priority push, got {res:?}"),
     )?;
 
-    let res = handle.push_low_priority(24u8).await;
+    let low_res = handle.push_low_priority(24u8).await;
     check(
-        matches!(&res, Err(PushError::Closed)),
-        format!("expected closed error on low priority push, got {res:?}"),
+        matches!(&low_res, Err(PushError::Closed)),
+        format!("expected closed error on low priority push, got {low_res:?}"),
     )?;
     Ok(())
 }

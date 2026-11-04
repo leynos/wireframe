@@ -15,5 +15,5 @@ pub enum RespFrame {
     /// Bulk string prefixed with `$`, nullable via `$-1`.
     BulkString(Option<Vec<u8>>),
     /// Array prefixed with `*`, nullable via `*-1`.
-    Array(Option<Vec<RespFrame>>),
+    Array(Option<Vec<Self>>),
 }

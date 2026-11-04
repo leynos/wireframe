@@ -274,7 +274,11 @@ mod tests {
     #[case::zero([0; 8], 0)]
     #[case::maximum([0xff; 8], u64::MAX)]
     fn little_endian_bytes_decode_exactly(#[case] wire_bytes: [u8; 8], #[case] expected: u64) {
-        assert_eq!(u64_from_le_bytes(wire_bytes), expected);
+        assert_eq!(
+            u64_from_le_bytes(wire_bytes),
+            expected,
+            "u64_from_le_bytes(wire_bytes) should equal expected"
+        );
     }
 
     #[rstest]
@@ -309,6 +313,6 @@ mod tests {
     ) {
         let mut buf = [0u8; 8];
         fill_buf_with_prefix(&mut buf, input, endianness).expect("prefix copy should succeed");
-        assert_eq!(buf, expected);
+        assert_eq!(buf, expected, "buf should equal expected");
     }
 }

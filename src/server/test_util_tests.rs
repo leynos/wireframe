@@ -5,7 +5,11 @@ use super::*;
 #[test]
 fn free_addr_uses_localhost() {
     let addr = free_addr().expect("free_addr should succeed");
-    assert_eq!(addr.ip(), std::net::IpAddr::from(Ipv4Addr::LOCALHOST));
+    assert_eq!(
+        addr.ip(),
+        std::net::IpAddr::from(Ipv4Addr::LOCALHOST),
+        "addr.ip() should equal std::net::IpAddr::from(Ipv4Addr::LOCALHOST)"
+    );
 }
 
 #[test]
@@ -15,11 +19,14 @@ fn listener_addr_matches_local_addr() {
     let local_addr = listener
         .local_addr()
         .expect("listener.local_addr should succeed");
-    assert_eq!(addr, local_addr);
+    assert_eq!(addr, local_addr, "addr should equal local_addr");
 }
 
 #[test]
 fn server_with_preamble_is_unbound() {
     let server = server_with_preamble(factory());
-    assert!(server.local_addr().is_none());
+    assert!(
+        server.local_addr().is_none(),
+        "assertion failed: server.local_addr().is_none()"
+    );
 }

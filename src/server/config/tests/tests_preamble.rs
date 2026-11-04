@@ -30,7 +30,11 @@ fn test_with_preamble_type_conversion(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) {
     let server = WireframeServer::new(factory).with_preamble::<TestPreamble>();
-    assert_eq!(server.worker_count(), default_worker_count());
+    assert_eq!(
+        server.worker_count(),
+        default_worker_count(),
+        "server.worker_count() should equal default_worker_count()"
+    );
 }
 
 #[rstest]
@@ -39,10 +43,18 @@ fn test_preamble_timeout_configuration(
 ) {
     let timeout = Duration::from_millis(25);
     let server = WireframeServer::new(factory.clone()).preamble_timeout(timeout);
-    assert_eq!(server.preamble_timeout, Some(timeout));
+    assert_eq!(
+        server.preamble_timeout,
+        Some(timeout),
+        "server.preamble_timeout should equal Some(timeout)"
+    );
 
     let clamped = WireframeServer::new(factory).preamble_timeout(Duration::ZERO);
-    assert_eq!(clamped.preamble_timeout, Some(Duration::from_millis(1)));
+    assert_eq!(
+        clamped.preamble_timeout,
+        Some(Duration::from_millis(1)),
+        "clamped.preamble_timeout should equal Some(Duration::from_millis(1))"
+    );
 }
 
 #[rstest]
@@ -147,32 +159,36 @@ async fn test_preamble_handler_registration(
     let c = counter.clone();
 
     let server = server_with_preamble(factory);
-    let server = match handler {
+    let configured_server = match handler {
         PreambleHandlerKind::Success => {
             server.on_preamble_decode_success(move |_p: &TestPreamble, _| {
-                let c = c.clone();
+                let handler_counter = c.clone();
                 Box::pin(async move {
-                    c.fetch_add(1, Ordering::SeqCst);
+                    handler_counter.fetch_add(1, Ordering::SeqCst);
                     Ok(())
                 })
             })
         }
         PreambleHandlerKind::Failure => {
             server.on_preamble_decode_failure(move |_err: &DecodeError, _stream| {
-                let c = c.clone();
+                let handler_counter = c.clone();
                 Box::pin(async move {
-                    c.fetch_add(1, Ordering::SeqCst);
+                    handler_counter.fetch_add(1, Ordering::SeqCst);
                     Ok::<(), io::Error>(())
                 })
             })
         }
     };
 
-    assert_eq!(counter.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        0,
+        "counter.load(Ordering::SeqCst) should equal 0"
+    );
     let mut stream = accept_stream(bound_listener?).await?;
     match handler {
         PreambleHandlerKind::Success => {
-            let handler = server
+            let success_handler = configured_server
                 .on_preamble_success
                 .as_ref()
                 .expect("success handler missing");
@@ -180,17 +196,21 @@ async fn test_preamble_handler_registration(
                 id: 0,
                 message: String::new(),
             };
-            handler(&preamble, &mut stream).await?;
+            success_handler(&preamble, &mut stream).await?;
         }
         PreambleHandlerKind::Failure => {
-            let handler = server
+            let failure_handler = configured_server
                 .on_preamble_failure
                 .as_ref()
                 .expect("failure handler missing");
-            handler(&DecodeError::UnexpectedEnd { additional: 0 }, &mut stream).await?;
+            failure_handler(&DecodeError::UnexpectedEnd { additional: 0 }, &mut stream).await?;
         }
     }
-    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "counter.load(Ordering::SeqCst) should equal 1"
+    );
     Ok(())
 }
 
@@ -203,8 +223,8 @@ fn bound_listener() -> io::Result<StdTcpListener> {
 async fn accept_stream(listener: StdTcpListener) -> io::Result<TcpStream> {
     let addr = listener.local_addr()?;
     listener.set_nonblocking(true)?;
-    let listener = TcpListener::from_std(listener)?;
+    let tcp_listener = TcpListener::from_std(listener)?;
     let _client = TcpStream::connect(addr).await?;
-    let (stream, _) = listener.accept().await?;
+    let (stream, _) = tcp_listener.accept().await?;
     Ok(stream)
 }

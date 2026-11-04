@@ -76,7 +76,7 @@ fn drain_records(logger: &mut LoggerHandle) -> Vec<(log::Level, String)> {
 /// reaches the dead-letter hand-off instead of succeeding.
 async fn refusing_dlq(failure: DlqFailure, priority: PushPriority) -> io::Result<RefusingDlq> {
     let (dlq_tx, dlq_rx) = mpsc::channel(1);
-    let dlq_rx = match failure {
+    let dlq_receiver = match failure {
         DlqFailure::Full => {
             dlq_tx
                 .try_send(SecretFrame {
@@ -99,7 +99,7 @@ async fn refusing_dlq(failure: DlqFailure, priority: PushPriority) -> io::Result
     Ok(RefusingDlq {
         _queues: queues,
         handle,
-        _dlq_rx: dlq_rx,
+        _dlq_rx: dlq_receiver,
     })
 }
 

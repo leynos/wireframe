@@ -47,13 +47,13 @@ impl ClientPreambleWorld {
         let (failure_holder, failure_rx) = create_signal_channel::<()>();
 
         let builder = WireframeClient::builder().with_preamble(TestPreamble::new(1));
-        let builder = if let Some(duration) = timeout {
+        let configured_builder = if let Some(duration) = timeout {
             builder.preamble_timeout(duration)
         } else {
             builder
         };
 
-        let result = builder
+        let result = configured_builder
             .on_preamble_success(success_callback)
             .on_preamble_failure(make_failure_signal_callback(failure_holder))
             .connect(addr)
@@ -75,7 +75,7 @@ impl ClientPreambleWorld {
             let (preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
                 .await
                 .map_err(preamble_decode_error)?;
-            let _ = tx.send(preamble);
+            drop(tx.send(preamble));
             tokio::time::sleep(Duration::from_millis(100)).await;
             Ok(())
         })
@@ -148,9 +148,9 @@ impl ClientPreambleWorld {
         let result = WireframeClient::builder()
             .with_preamble(TestPreamble::new(version))
             .on_preamble_success(move |_preamble, _stream| {
-                let holder = holder.clone();
+                let signal_holder = holder.clone();
                 async move {
-                    send_signal(&holder, ());
+                    send_signal(&signal_holder, ());
                     Ok(Vec::new())
                 }
                 .boxed()
@@ -184,12 +184,12 @@ impl ClientPreambleWorld {
         let result = WireframeClient::builder()
             .with_preamble(TestPreamble::new(1))
             .on_preamble_success(move |_preamble, stream| {
-                let holder = holder.clone();
+                let ack_holder = holder.clone();
                 async move {
                     let (ack, leftover) = read_preamble::<_, ServerAck>(stream)
                         .await
                         .map_err(preamble_decode_error)?;
-                    send_signal(&holder, ack);
+                    send_signal(&ack_holder, ack);
                     Ok(leftover)
                 }
                 .boxed()

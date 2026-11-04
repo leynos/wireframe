@@ -121,8 +121,16 @@ fn short_header_errors() {
         .parse_frame_header(&payload)
         .expect_err("expected error");
 
-    assert_eq!(err.kind(), io::ErrorKind::InvalidData);
-    assert_eq!(err.to_string(), "header too short");
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::InvalidData,
+        "err.kind() should equal io::ErrorKind::InvalidData"
+    );
+    assert_eq!(
+        err.to_string(),
+        "header too short",
+        "err.to_string() should equal \"header too short\""
+    );
 }
 
 #[test]
@@ -136,8 +144,16 @@ fn unknown_header_kind_errors() {
         .parse_frame_header(&payload)
         .expect_err("expected error");
 
-    assert_eq!(err.kind(), io::ErrorKind::InvalidData);
-    assert_eq!(err.to_string(), "unknown header kind");
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::InvalidData,
+        "err.kind() should equal io::ErrorKind::InvalidData"
+    );
+    assert_eq!(
+        err.to_string(),
+        "unknown header kind",
+        "err.to_string() should equal \"unknown header kind\""
+    );
 }
 
 #[derive(Clone, Copy)]

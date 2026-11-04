@@ -108,7 +108,11 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(state.is_output_idle(), expected);
+        assert_eq!(
+            state.is_output_idle(),
+            expected,
+            "state.is_output_idle() should equal expected"
+        );
     }
 
     #[rstest]
@@ -130,7 +134,11 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(state.can_install_output(), expected);
+        assert_eq!(
+            state.can_install_output(),
+            expected,
+            "state.can_install_output() should equal expected"
+        );
     }
 
     #[rstest]
@@ -154,6 +162,10 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(state.can_emit_low_priority(), expected);
+        assert_eq!(
+            state.can_emit_low_priority(),
+            expected,
+            "state.can_emit_low_priority() should equal expected"
+        );
     }
 }

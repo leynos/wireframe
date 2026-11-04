@@ -8,25 +8,40 @@ use super::memory_budget_backpressure::BackpressureConfig;
 fn parses_valid_backpressure_config() {
     let config = BackpressureConfig::from_str("1000/10/20/30").expect("valid config should parse");
 
-    assert_eq!(config.timeout_ms, 1000);
-    assert_eq!(config.per_message, 10);
-    assert_eq!(config.per_connection, 20);
-    assert_eq!(config.in_flight, 30);
+    assert_eq!(
+        config.timeout_ms, 1000,
+        "config.timeout_ms should equal 1000"
+    );
+    assert_eq!(config.per_message, 10, "config.per_message should equal 10");
+    assert_eq!(
+        config.per_connection, 20,
+        "config.per_connection should equal 20"
+    );
+    assert_eq!(config.in_flight, 30, "config.in_flight should equal 30");
 }
 
 #[test]
 fn fails_when_missing_fields() {
     let missing_in_flight =
         BackpressureConfig::from_str("1000/10/20").expect_err("missing in_flight should fail");
-    assert_eq!(missing_in_flight, "missing in_flight");
+    assert_eq!(
+        missing_in_flight, "missing in_flight",
+        "missing_in_flight should equal \"missing in_flight\""
+    );
 
     let missing_per_message =
         BackpressureConfig::from_str("1000").expect_err("missing per_message should fail");
-    assert_eq!(missing_per_message, "missing per_message");
+    assert_eq!(
+        missing_per_message, "missing per_message",
+        "missing_per_message should equal \"missing per_message\""
+    );
 
     let missing_timeout =
         BackpressureConfig::from_str("").expect_err("missing timeout_ms should fail");
-    assert_eq!(missing_timeout, "missing timeout_ms");
+    assert_eq!(
+        missing_timeout, "missing timeout_ms",
+        "missing_timeout should equal \"missing timeout_ms\""
+    );
 }
 
 #[test]
@@ -64,5 +79,8 @@ fn fails_with_clear_error_on_non_numeric_segments() {
 fn fails_when_segments_are_present_after_in_flight() {
     let trailing_segments = BackpressureConfig::from_str("1000/10/20/30/40")
         .expect_err("trailing segments should fail");
-    assert_eq!(trailing_segments, "unexpected trailing segments");
+    assert_eq!(
+        trailing_segments, "unexpected trailing segments",
+        "trailing_segments should equal \"unexpected trailing segments\""
+    );
 }

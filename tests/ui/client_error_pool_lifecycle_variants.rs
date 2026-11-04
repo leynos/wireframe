@@ -12,6 +12,6 @@ fn is_recoverable(error: ClientError) -> bool {
 
 fn main() {
     let _ = is_recoverable as fn(ClientError) -> bool;
-    assert!(!ClientError::PoolClosed.should_recycle_connection());
-    assert!(!ClientError::SchedulerFailed.should_recycle_connection());
+    assert!(!ClientError::PoolClosed.should_recycle_connection(), "assertion failed: !ClientError::PoolClosed.should_recycle_connection()");
+    assert!(!ClientError::SchedulerFailed.should_recycle_connection(), "assertion failed: !ClientError::SchedulerFailed.should_recycle_connection()");
 }

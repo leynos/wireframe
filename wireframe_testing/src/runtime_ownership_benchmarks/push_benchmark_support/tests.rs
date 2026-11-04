@@ -109,9 +109,15 @@ async fn a_drained_workload_smaller_than_its_queue_does_not_wait() {
     .await
     .expect("a drained workload must measure");
 
-    assert_eq!(measurement.awaited_capacity_waits, 0);
-    assert_eq!(measurement.capacity_probes, 8);
-    assert_eq!(measurement.drained, 8);
+    assert_eq!(
+        measurement.awaited_capacity_waits, 0,
+        "measurement.awaited_capacity_waits should equal 0"
+    );
+    assert_eq!(
+        measurement.capacity_probes, 8,
+        "measurement.capacity_probes should equal 8"
+    );
+    assert_eq!(measurement.drained, 8, "measurement.drained should equal 8");
 }
 
 #[tokio::test]
@@ -204,10 +210,22 @@ async fn uncontended_sends_are_accepted_and_drained_without_waiting() {
 
     // An awaited send parks while the queue is full rather than failing, so
     // a draining consumer must observe exactly the frames that were sent.
-    assert_eq!(measurement.accepted, 32);
-    assert_eq!(measurement.drained, 32);
-    assert_eq!(measurement.dead_lettered, 0);
-    assert!(!measurement.reported_queue_full);
+    assert_eq!(
+        measurement.accepted, 32,
+        "measurement.accepted should equal 32"
+    );
+    assert_eq!(
+        measurement.drained, 32,
+        "measurement.drained should equal 32"
+    );
+    assert_eq!(
+        measurement.dead_lettered, 0,
+        "measurement.dead_lettered should equal 0"
+    );
+    assert!(
+        !measurement.reported_queue_full,
+        "assertion failed: !measurement.reported_queue_full"
+    );
     // The claim this scenario exists to support: no send waited. The probe
     // count is what stops that claim from being satisfied by measuring nothing.
     assert_eq!(
@@ -239,9 +257,15 @@ async fn backpressure_scenario_forces_awaited_capacity_waits() {
         measurement.awaited_capacity_waits > 0,
         "the awaited path must park when nothing drains the queue"
     );
-    assert_eq!(measurement.accepted, 8);
-    assert_eq!(measurement.drained, 8);
-    assert_eq!(measurement.dead_lettered, 0);
+    assert_eq!(
+        measurement.accepted, 8,
+        "measurement.accepted should equal 8"
+    );
+    assert_eq!(measurement.drained, 8, "measurement.drained should equal 8");
+    assert_eq!(
+        measurement.dead_lettered, 0,
+        "measurement.dead_lettered should equal 0"
+    );
     // Awaited sends never report a full queue: they wait instead. This is the
     // gap the wait counters exist to fill, stated as an assertion.
     assert!(

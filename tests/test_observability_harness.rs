@@ -188,9 +188,9 @@ fn log_at_level_filters_correctly() {
 
     // Re-emit for the negative test since assert_log_at_level drains
     log::info!("another info message for obs test");
-    let result = obs.assert_log_at_level(log::Level::Warn, "another info");
+    let missing_result = obs.assert_log_at_level(log::Level::Warn, "another info");
     assert!(
-        result.is_err(),
+        missing_result.is_err(),
         "should not find info message at Warn level"
     );
 }
@@ -210,9 +210,9 @@ fn assert_codec_error_counter_convenience() {
         result.is_ok(),
         "codec error counter assertion should pass for 3"
     );
-    let result = obs.assert_codec_error_counter("eof", "disconnect", 0);
+    let unrecorded_result = obs.assert_codec_error_counter("eof", "disconnect", 0);
     assert!(
-        result.is_ok(),
+        unrecorded_result.is_ok(),
         "unrecorded codec error counter should pass for 0"
     );
 }

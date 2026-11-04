@@ -73,21 +73,21 @@ where
     B: FnOnce(std::net::SocketAddr) -> Fut,
 {
     let listener = unused_listener()?;
-    let server = server.bind_existing_listener(listener)?;
-    let addr = server
+    let bound_server = server.bind_existing_listener(listener)?;
+    let addr = bound_server
         .local_addr()
         .ok_or_else(|| Box::<dyn Error + Send + Sync>::from("server missing local addr"))?;
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let handle = tokio::spawn(async move {
-        server
+        bound_server
             .run_with_shutdown(async {
-                let _ = shutdown_rx.await;
+                drop(shutdown_rx.await);
             })
             .await
     });
 
     block(addr).await?;
-    let _ = shutdown_tx.send(());
+    let _shutdown_sent = shutdown_tx.send(());
     let run_result = handle.await?;
     run_result?;
     Ok(())
@@ -145,7 +145,7 @@ pub(crate) fn take_sender_io<T>(holder: &Mutex<Option<T>>) -> io::Result<Option<
 /// ```
 pub(crate) fn notify_holder(holder: &Holder) -> io::Result<()> {
     if let Some(tx) = take_sender_io(holder)? {
-        let _ = tx.send(());
+        let _signal_sent = tx.send(());
     }
     Ok(())
 }
@@ -180,10 +180,10 @@ pub(crate) fn success_cb<P>(
 ) -> impl for<'a> Fn(&'a P, &'a mut TcpStream) -> BoxFuture<'a, io::Result<()>> + Send + Sync + 'static
 {
     move |_, _| {
-        let holder = holder.clone();
+        let signal_holder = holder.clone();
         Box::pin(async move {
-            if let Some(tx) = take_sender_io(&holder)? {
-                let _ = tx.send(());
+            if let Some(tx) = take_sender_io(&signal_holder)? {
+                let _signal_sent = tx.send(());
             }
             Ok(())
         })
@@ -204,10 +204,10 @@ pub(crate) fn failure_cb(
 + Sync
 + 'static {
     move |_, _| {
-        let holder = holder.clone();
+        let signal_holder = holder.clone();
         Box::pin(async move {
-            if let Some(tx) = take_sender_io(&holder)? {
-                let _ = tx.send(());
+            if let Some(tx) = take_sender_io(&signal_holder)? {
+                let _signal_sent = tx.send(());
             }
             Ok(())
         })

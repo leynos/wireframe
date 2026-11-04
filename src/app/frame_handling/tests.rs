@@ -285,7 +285,10 @@ async fn response_context_holds_references(harness: TestHarness) {
     };
 
     // Verify fields are accessible (compile-time check)
-    assert!(!ctx.pipeline.has_fragmentation());
+    assert!(
+        !ctx.pipeline.has_fragmentation(),
+        "assertion failed: !ctx.pipeline.has_fragmentation()"
+    );
 }
 
 /// Verify `send_envelope` returns error on send failure.

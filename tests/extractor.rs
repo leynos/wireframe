@@ -39,8 +39,8 @@ fn message_extractor_parses_and_advances(request: MessageRequest) {
 
     let extracted = Message::<TestMsg>::from_message_request(&request, &mut payload)
         .expect("failed to extract TestMsg from payload");
-    assert_eq!(*extracted, msg);
-    assert_eq!(payload.remaining(), 0);
+    assert_eq!(*extracted, msg, "*extracted should equal msg");
+    assert_eq!(payload.remaining(), 0, "payload.remaining() should equal 0");
 }
 
 #[rstest]
@@ -53,7 +53,11 @@ fn connection_info_reports_peer(mut request: MessageRequest, mut empty_payload: 
     request.peer_addr = Some(addr);
     let info = ConnectionInfo::from_message_request(&request, &mut empty_payload)
         .expect("failed to build ConnectionInfo");
-    assert_eq!(info.peer_addr(), Some(addr));
+    assert_eq!(
+        info.peer_addr(),
+        Some(addr),
+        "info.peer_addr() should equal Some(addr)"
+    );
 }
 
 /// Tests that shared state of type `u8` can be successfully extracted from a `MessageRequest`'s
@@ -68,7 +72,7 @@ fn shared_state_extractor(request: MessageRequest, mut empty_payload: Payload<'s
     let state =
         wireframe::extractor::SharedState::<u8>::from_message_request(&request, &mut empty_payload)
             .expect("failed to extract shared state");
-    assert_eq!(*state, 42);
+    assert_eq!(*state, 42, "*state should equal 42");
 }
 
 /// Tests that extracting a missing shared state from a `MessageRequest`
@@ -85,7 +89,10 @@ fn shared_state_missing_error(request: MessageRequest, mut empty_payload: Payloa
     };
     match err {
         wireframe::extractor::ExtractError::MissingState(name) => {
-            assert!(name.contains("u8"));
+            assert!(
+                name.contains("u8"),
+                "assertion failed: name.contains(\"u8\")"
+            );
         }
         _ => panic!("unexpected error"),
     }

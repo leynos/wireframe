@@ -4,15 +4,25 @@ use super::{StartupPath, StartupWorkload, measure_startup};
 
 #[test]
 fn counts_scale_with_the_workload_shape() {
-    assert_eq!(StartupPath::PreparedRoot.expected_factory_calls(16), 1);
+    assert_eq!(
+        StartupPath::PreparedRoot.expected_factory_calls(16),
+        1,
+        "StartupPath::PreparedRoot.expected_factory_calls(16) should equal 1"
+    );
     assert_eq!(
         StartupPath::PerConnectionFactory.expected_factory_calls(16),
-        16
+        16,
+        "StartupPath::PerConnectionFactory.expected_factory_calls(16) should equal 16"
     );
-    assert_eq!(StartupPath::PreparedRoot.expected_transforms(16, 4, 3), 12);
+    assert_eq!(
+        StartupPath::PreparedRoot.expected_transforms(16, 4, 3),
+        12,
+        "StartupPath::PreparedRoot.expected_transforms(16, 4, 3) should equal 12"
+    );
     assert_eq!(
         StartupPath::PerConnectionFactory.expected_transforms(16, 4, 3),
-        192
+        192,
+        "StartupPath::PerConnectionFactory.expected_transforms(16, 4, 3) should equal 192"
     );
 }
 
@@ -48,6 +58,12 @@ async fn prepared_root_transforms_each_route_once_per_layer() {
     .await
     .expect("a valid startup workload must measure");
 
-    assert_eq!(measurement.factory_calls, 1);
-    assert_eq!(measurement.transforms, 6);
+    assert_eq!(
+        measurement.factory_calls, 1,
+        "measurement.factory_calls should equal 1"
+    );
+    assert_eq!(
+        measurement.transforms, 6,
+        "measurement.transforms should equal 6"
+    );
 }

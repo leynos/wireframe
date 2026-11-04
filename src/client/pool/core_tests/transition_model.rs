@@ -268,18 +268,23 @@ async fn first_released_slot_wins_before_later_releases(#[case] slot_count: usiz
             .map(Some)
             .collect::<Vec<_>>();
         let mut acquisition = std::pin::pin!(core.acquire_slot_permit());
-        assert!(futures::poll!(acquisition.as_mut()).is_pending());
+        assert!(
+            futures::poll!(acquisition.as_mut()).is_pending(),
+            "assertion failed: futures::poll!(acquisition.as_mut()).is_pending()"
+        );
         drop(held.get_mut(first).expect("slot permit exists").take());
         let (winner, permit) = tokio::time::timeout(Duration::from_secs(1), acquisition.as_mut())
             .await
             .expect("released slot must wake the race")
             .expect("released slot grants");
-        assert_eq!(winner, first);
+        assert_eq!(winner, first, "winner should equal first");
         assert!(
             core.slot(first)
                 .expect("winner exists")
                 .try_acquire_permit()
-                .is_none()
+                .is_none(),
+            "assertion failed: core.slot(first) .expect(\"winner exists\") .try_acquire_permit() \
+             .is_none()"
         );
         drop(held);
         for index in 0..slot_count {
@@ -288,7 +293,9 @@ async fn first_released_slot_wins_before_later_releases(#[case] slot_count: usiz
                     core.slot(index)
                         .expect("slot exists")
                         .try_acquire_permit()
-                        .is_some()
+                        .is_some(),
+                    "assertion failed: core.slot(index) .expect(\"slot exists\") \
+                     .try_acquire_permit() .is_some()"
                 );
             }
         }

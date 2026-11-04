@@ -50,7 +50,7 @@ impl StreamEndWorld {
     fn finalize_test(&mut self, logger: &mut LoggerHandle) { self.capture_logs(logger); }
 
     async fn run_actor_test(&mut self, mode: ActorMode) -> TestResult {
-        let mut temp = StreamEndWorld::default();
+        let mut temp = Self::default();
         mem::swap(self, &mut temp);
         let mut logger = temp.prepare_test();
 
@@ -118,7 +118,7 @@ impl StreamEndWorld {
 
     fn capture_logs(&mut self, logger: &mut LoggerHandle) {
         while let Some(record) = logger.pop() {
-            self.logs.push((record.level(), record.args().to_string()));
+            self.logs.push((record.level(), record.args().to_owned()));
         }
     }
 
@@ -134,7 +134,7 @@ impl StreamEndWorld {
         mode: &MultiPacketMode,
         correlation_id: u64,
     ) -> TestResult {
-        let mut temp = StreamEndWorld::default();
+        let mut temp = Self::default();
         mem::swap(self, &mut temp);
         let mut logger = temp.prepare_test();
 
@@ -189,7 +189,11 @@ impl StreamEndWorld {
     /// # Panics
     /// Panics if the expected terminator is missing.
     pub fn verify(&self) {
-        assert_eq!(self.frames, vec![1, 2, 0]);
+        assert_eq!(
+            self.frames,
+            vec![1, 2, 0],
+            "self.frames should equal vec![1, 2, 0]"
+        );
     }
 
     /// Verify that a multi-packet terminator frame was appended to the stream.
@@ -197,7 +201,11 @@ impl StreamEndWorld {
     /// # Panics
     /// Panics if the expected terminator is missing.
     pub fn verify_multi(&self) {
-        assert_eq!(self.frames, vec![1, 2, 0]);
+        assert_eq!(
+            self.frames,
+            vec![1, 2, 0],
+            "self.frames should equal vec![1, 2, 0]"
+        );
     }
 
     /// Verify that no terminator frame was emitted.

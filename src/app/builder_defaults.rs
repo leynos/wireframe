@@ -89,15 +89,21 @@ mod tests {
         let budgets = default_memory_budgets(frame_budget);
         assert_eq!(
             frame_budget * DEFAULT_MESSAGE_BUDGET_MULTIPLIER,
-            budgets.bytes_per_message().as_usize()
+            budgets.bytes_per_message().as_usize(),
+            "frame_budget * DEFAULT_MESSAGE_BUDGET_MULTIPLIER should equal \
+             budgets.bytes_per_message().as_usize()"
         );
         assert_eq!(
             frame_budget * DEFAULT_CONNECTION_BUDGET_MULTIPLIER,
-            budgets.bytes_per_connection().as_usize()
+            budgets.bytes_per_connection().as_usize(),
+            "frame_budget * DEFAULT_CONNECTION_BUDGET_MULTIPLIER should equal \
+             budgets.bytes_per_connection().as_usize()"
         );
         assert_eq!(
             frame_budget * DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER,
-            budgets.bytes_in_flight().as_usize()
+            budgets.bytes_in_flight().as_usize(),
+            "frame_budget * DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER should equal \
+             budgets.bytes_in_flight().as_usize()"
         );
     }
 
@@ -106,15 +112,21 @@ mod tests {
         let budgets = default_memory_budgets(10);
         assert_eq!(
             MIN_FRAME_LENGTH * DEFAULT_MESSAGE_BUDGET_MULTIPLIER,
-            budgets.bytes_per_message().as_usize()
+            budgets.bytes_per_message().as_usize(),
+            "MIN_FRAME_LENGTH * DEFAULT_MESSAGE_BUDGET_MULTIPLIER should equal \
+             budgets.bytes_per_message().as_usize()"
         );
         assert_eq!(
             MIN_FRAME_LENGTH * DEFAULT_CONNECTION_BUDGET_MULTIPLIER,
-            budgets.bytes_per_connection().as_usize()
+            budgets.bytes_per_connection().as_usize(),
+            "MIN_FRAME_LENGTH * DEFAULT_CONNECTION_BUDGET_MULTIPLIER should equal \
+             budgets.bytes_per_connection().as_usize()"
         );
         assert_eq!(
             MIN_FRAME_LENGTH * DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER,
-            budgets.bytes_in_flight().as_usize()
+            budgets.bytes_in_flight().as_usize(),
+            "MIN_FRAME_LENGTH * DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER should equal \
+             budgets.bytes_in_flight().as_usize()"
         );
     }
 
@@ -123,15 +135,21 @@ mod tests {
         let budgets = default_memory_budgets(MAX_FRAME_LENGTH + 1);
         assert_eq!(
             MAX_FRAME_LENGTH * DEFAULT_MESSAGE_BUDGET_MULTIPLIER,
-            budgets.bytes_per_message().as_usize()
+            budgets.bytes_per_message().as_usize(),
+            "MAX_FRAME_LENGTH * DEFAULT_MESSAGE_BUDGET_MULTIPLIER should equal \
+             budgets.bytes_per_message().as_usize()"
         );
         assert_eq!(
             MAX_FRAME_LENGTH * DEFAULT_CONNECTION_BUDGET_MULTIPLIER,
-            budgets.bytes_per_connection().as_usize()
+            budgets.bytes_per_connection().as_usize(),
+            "MAX_FRAME_LENGTH * DEFAULT_CONNECTION_BUDGET_MULTIPLIER should equal \
+             budgets.bytes_per_connection().as_usize()"
         );
         assert_eq!(
             MAX_FRAME_LENGTH * DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER,
-            budgets.bytes_in_flight().as_usize()
+            budgets.bytes_in_flight().as_usize(),
+            "MAX_FRAME_LENGTH * DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER should equal \
+             budgets.bytes_in_flight().as_usize()"
         );
     }
 
@@ -157,10 +175,14 @@ mod tests {
         assert_eq!(
             config.max_concurrent_partials,
             NonZeroUsize::new(DEFAULT_MAX_CONCURRENT_PARTIALS),
+            "config.max_concurrent_partials should equal \
+             NonZeroUsize::new(DEFAULT_MAX_CONCURRENT_PARTIALS)"
         );
         assert_eq!(
             config.max_buffered_bytes,
             NonZeroUsize::new(frame_budget * DEFAULT_CONNECTION_BUDGET_MULTIPLIER),
+            "config.max_buffered_bytes should equal NonZeroUsize::new(frame_budget * \
+             DEFAULT_CONNECTION_BUDGET_MULTIPLIER)"
         );
     }
 }

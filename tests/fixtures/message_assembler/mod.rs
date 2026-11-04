@@ -164,10 +164,10 @@ impl MessageAssemblerWorld {
         F: FnOnce(&wireframe::message_assembler::FirstFrameHeader) -> T,
     {
         self.assert_field(field_name, expected, |header| {
-            if let FrameHeader::First(header) = header {
-                Ok(extractor(header))
+            if let FrameHeader::First(first) = header {
+                Ok(extractor(first))
             } else {
-                Err("expected first header".to_string())
+                Err("expected first header".to_owned())
             }
         })
     }
@@ -184,10 +184,10 @@ impl MessageAssemblerWorld {
         F: FnOnce(&wireframe::message_assembler::ContinuationFrameHeader) -> T,
     {
         self.assert_field(field_name, expected, |header| {
-            if let FrameHeader::Continuation(header) = header {
-                Ok(extractor(header))
+            if let FrameHeader::Continuation(continuation) = header {
+                Ok(extractor(continuation))
             } else {
-                Err("expected continuation header".to_string())
+                Err("expected continuation header".to_owned())
             }
         })
     }
@@ -219,8 +219,9 @@ impl MessageAssemblerWorld {
                     u32::try_from(spec.body_len.0).map_err(|_| "body length too large")?;
                 bytes.put_u32(body_len);
                 if let Some(total) = spec.total_len {
-                    let total = u32::try_from(total.0).map_err(|_| "total length too large")?;
-                    bytes.put_u32(total);
+                    let total_bytes =
+                        u32::try_from(total.0).map_err(|_| "total length too large")?;
+                    bytes.put_u32(total_bytes);
                 }
                 Ok(())
             },

@@ -16,7 +16,11 @@ use super::{
 #[test]
 fn length_delimited_codec_clamps_max_frame_length() {
     let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH.saturating_add(1));
-    assert_eq!(codec.max_frame_length(), MAX_FRAME_LENGTH);
+    assert_eq!(
+        codec.max_frame_length(),
+        MAX_FRAME_LENGTH,
+        "codec.max_frame_length() should equal MAX_FRAME_LENGTH"
+    );
 }
 
 #[test]
@@ -40,7 +44,8 @@ fn length_delimited_codec_round_trips_payload() {
 
     assert_eq!(
         LengthDelimitedFrameCodec::frame_payload(&decoded_frame),
-        payload.as_ref()
+        payload.as_ref(),
+        "LengthDelimitedFrameCodec::frame_payload(&decoded_frame) should equal payload.as_ref()"
     );
 }
 
@@ -57,7 +62,11 @@ fn length_delimited_codec_rejects_oversized_payloads() {
         .encode(frame, &mut buf)
         .expect_err("expected encode to fail for oversized frame");
     // The error is converted from CodecError::Framing to io::Error
-    assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::InvalidData,
+        "err.kind() should equal io::ErrorKind::InvalidData"
+    );
 }
 
 #[test]
@@ -66,8 +75,16 @@ fn length_delimited_wrap_payload_reuses_bytes() {
     let payload = Bytes::from(vec![9_u8; 4]);
     let frame = codec.wrap_payload(payload.clone());
 
-    assert_eq!(payload.len(), frame.len());
-    assert_eq!(payload.as_ref().as_ptr(), frame.as_ref().as_ptr());
+    assert_eq!(
+        payload.len(),
+        frame.len(),
+        "payload.len() should equal frame.len()"
+    );
+    assert_eq!(
+        payload.as_ref().as_ptr(),
+        frame.as_ref().as_ptr(),
+        "payload.as_ref().as_ptr() should equal frame.as_ref().as_ptr()"
+    );
 }
 
 #[test]
@@ -127,7 +144,11 @@ fn decode_eof_with_complete_frame_succeeds() {
         .decode_eof(&mut buf)
         .expect("decode should succeed")
         .expect("expected a frame");
-    assert_eq!(result.as_ref(), payload.as_ref());
+    assert_eq!(
+        result.as_ref(),
+        payload.as_ref(),
+        "result.as_ref() should equal payload.as_ref()"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -325,5 +346,6 @@ fn frame_codec_trait_max_frame_length_matches_configuration() {
     assert_eq!(
         <LengthDelimitedFrameCodec as FrameCodec>::max_frame_length(&codec),
         256,
+        "<LengthDelimitedFrameCodec as FrameCodec>::max_frame_length(&codec) should equal 256"
     );
 }

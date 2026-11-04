@@ -11,7 +11,7 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
     message_assembly_state: Result<MessageAssemblyState, &'static str>,
 ) {
     let mut deser_failures = 0_u32;
-    let mut message_assembly_state = Some(load_message_assembly_state(message_assembly_state));
+    let mut assembly_state = Some(load_message_assembly_state(message_assembly_state));
 
     // Key 1: envelope_id=10, correlation_id=100
     let key1_first = Envelope::new(
@@ -36,25 +36,29 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 key1_first,
             ),
             "first key1 should process",
         )
-        .is_none()
+        .is_none(),
+        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
+         &mut deser_failures, key1_first, ), \"first key1 should process\", ) .is_none()"
     );
     assert!(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 key2_first,
             ),
             "first key2 should process",
         )
-        .is_none()
+        .is_none(),
+        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
+         &mut deser_failures, key2_first, ), \"first key2 should process\", ) .is_none()"
     );
 
     // Complete key 2 first (with a different envelope id on the continuation)
@@ -75,7 +79,7 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 key2_last,
             ),
@@ -85,8 +89,16 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
     );
 
     assert_eq!(completed_b.id, 20, "key2 envelope id from first frame");
-    assert_eq!(completed_b.correlation_id, Some(200));
-    assert_eq!(completed_b.payload_bytes(), b"B1B2");
+    assert_eq!(
+        completed_b.correlation_id,
+        Some(200),
+        "completed_b.correlation_id should equal Some(200)"
+    );
+    assert_eq!(
+        completed_b.payload_bytes(),
+        b"B1B2",
+        "completed_b.payload_bytes() should equal b\"B1B2\""
+    );
 
     // Complete key 1
     let key1_last = Envelope::new(
@@ -106,7 +118,7 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 key1_last,
             ),
@@ -116,6 +128,14 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
     );
 
     assert_eq!(completed_a.id, 10, "key1 envelope id from first frame");
-    assert_eq!(completed_a.correlation_id, Some(100));
-    assert_eq!(completed_a.payload_bytes(), b"A1A2");
+    assert_eq!(
+        completed_a.correlation_id,
+        Some(100),
+        "completed_a.correlation_id should equal Some(100)"
+    );
+    assert_eq!(
+        completed_a.payload_bytes(),
+        b"A1A2",
+        "completed_a.payload_bytes() should equal b\"A1A2\""
+    );
 }

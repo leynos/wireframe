@@ -29,14 +29,14 @@ pub(super) fn preparation_factory() -> (
     let barrier = Arc::new(Barrier::new(2));
     let handler: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
     let factory = {
-        let entered = Arc::clone(&entered);
-        let barrier = Arc::clone(&barrier);
+        let shared_entered = Arc::clone(&entered);
+        let shared_barrier = Arc::clone(&barrier);
         move || -> Result<WireframeApp, WireframeError> {
             WireframeApp::new()?
                 .route(1, Arc::clone(&handler))?
                 .wrap(PreparationBarrier {
-                    entered: Arc::clone(&entered),
-                    barrier: Arc::clone(&barrier),
+                    entered: Arc::clone(&shared_entered),
+                    barrier: Arc::clone(&shared_barrier),
                 })
         }
     };

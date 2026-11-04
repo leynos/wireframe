@@ -131,7 +131,11 @@ mod tests {
         let result = RewindStream::poll_read(Pin::as_mut(&mut pinned), &mut cx, &mut read_buf);
 
         match result {
-            Poll::Ready(Err(err)) => assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof),
+            Poll::Ready(Err(err)) => assert_eq!(
+                err.kind(),
+                io::ErrorKind::UnexpectedEof,
+                "err.kind() should equal io::ErrorKind::UnexpectedEof"
+            ),
             other => panic!("expected UnexpectedEof, got {other:?}"),
         }
     }

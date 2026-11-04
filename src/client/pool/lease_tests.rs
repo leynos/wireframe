@@ -56,7 +56,7 @@ async fn checkout_cancellation_keeps_pending_protocol_reservation() -> TestResul
     timeout(GRACE, server.wait_for_delayed_first_response_attempt()).await?;
 
     let response: Pong = timeout(GRACE, lease.receive()).await??;
-    assert_eq!(response, Pong(1));
+    assert_eq!(response, Pong(1), "response should equal Pong(1)");
     assert!(
         lease.pending_response_permit.lock().await.is_none(),
         "consuming the reply must release the reservation"
@@ -99,7 +99,7 @@ async fn idle_timeout_does_not_recycle_while_a_response_is_pending() -> TestResu
     tokio::task::yield_now().await;
 
     let response: Pong = timeout(GRACE, lease.receive()).await??;
-    assert_eq!(response, Pong(7));
+    assert_eq!(response, Pong(7), "response should equal Pong(7)");
     assert_eq!(
         server.connection_count(),
         1,
@@ -132,21 +132,33 @@ async fn cancelling_in_flight_call_reconnects_before_reuse() -> TestResult {
     let join_error = timeout(GRACE, call_task)
         .await?
         .expect_err("cancelled pooled call should stop its task");
-    assert!(join_error.is_cancelled());
+    assert!(
+        join_error.is_cancelled(),
+        "assertion failed: join_error.is_cancelled()"
+    );
 
     server.release_delayed_first_response();
     timeout(GRACE, server.wait_for_delayed_first_response_attempt()).await?;
 
-    let lease = timeout(GRACE, pool.acquire()).await??;
-    let response: Pong = lease.call(&Ping(2)).await?;
-    assert_eq!(response, Pong(2));
+    let reconnected_lease = timeout(GRACE, pool.acquire()).await??;
+    let response: Pong = reconnected_lease.call(&Ping(2)).await?;
+    assert_eq!(response, Pong(2), "response should equal Pong(2)");
 
     assert_eq!(
         preamble_callback_count.load(std::sync::atomic::Ordering::SeqCst),
-        2
+        2,
+        "preamble_callback_count.load(std::sync::atomic::Ordering::SeqCst) should equal 2"
     );
-    assert_eq!(server.preamble_count(), 2);
-    assert_eq!(server.connection_count(), 2);
+    assert_eq!(
+        server.preamble_count(),
+        2,
+        "server.preamble_count() should equal 2"
+    );
+    assert_eq!(
+        server.connection_count(),
+        2,
+        "server.connection_count() should equal 2"
+    );
 
     Ok(())
 }
@@ -175,25 +187,42 @@ async fn dropping_lease_with_unread_split_phase_response_reconnects() -> TestRes
     server.release_delayed_first_response();
     timeout(GRACE, server.wait_for_delayed_first_response_attempt()).await?;
 
-    let lease = timeout(GRACE, pool.acquire()).await??;
-    let response: Pong = lease.call(&Ping(2)).await?;
-    assert_eq!(response, Pong(2));
+    let replacement_lease = timeout(GRACE, pool.acquire()).await??;
+    let response: Pong = replacement_lease.call(&Ping(2)).await?;
+    assert_eq!(response, Pong(2), "response should equal Pong(2)");
 
-    lease.send(&Ping(3)).await?;
-    let split_phase_response: Pong = lease.receive().await?;
-    assert_eq!(split_phase_response, Pong(3));
-    drop(lease);
+    replacement_lease.send(&Ping(3)).await?;
+    let split_phase_response: Pong = replacement_lease.receive().await?;
+    assert_eq!(
+        split_phase_response,
+        Pong(3),
+        "split_phase_response should equal Pong(3)"
+    );
+    drop(replacement_lease);
 
-    let lease = timeout(GRACE, pool.acquire()).await??;
-    let response: Pong = lease.call(&Ping(4)).await?;
-    assert_eq!(response, Pong(4));
+    let final_lease = timeout(GRACE, pool.acquire()).await??;
+    let final_response: Pong = final_lease.call(&Ping(4)).await?;
+    assert_eq!(
+        final_response,
+        Pong(4),
+        "final_response should equal Pong(4)"
+    );
 
     assert_eq!(
         preamble_callback_count.load(std::sync::atomic::Ordering::SeqCst),
-        2
+        2,
+        "preamble_callback_count.load(std::sync::atomic::Ordering::SeqCst) should equal 2"
     );
-    assert_eq!(server.preamble_count(), 2);
-    assert_eq!(server.connection_count(), 2);
+    assert_eq!(
+        server.preamble_count(),
+        2,
+        "server.preamble_count() should equal 2"
+    );
+    assert_eq!(
+        server.connection_count(),
+        2,
+        "server.connection_count() should equal 2"
+    );
 
     Ok(())
 }

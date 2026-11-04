@@ -78,21 +78,35 @@ mod tests {
     #[test]
     fn hook_dispatch_records_no_iterations_for_an_empty_batch() {
         let measurement = measure_hook_dispatch(small_workload(), AccessMode::ReadOnly, 0);
-        assert_eq!(measurement.operations, 0);
-        assert_eq!(measurement.payload_bytes, 0);
+        assert_eq!(
+            measurement.operations, 0,
+            "measurement.operations should equal 0"
+        );
+        assert_eq!(
+            measurement.payload_bytes, 0,
+            "measurement.payload_bytes should equal 0"
+        );
     }
 
     #[test]
     fn a_read_only_hook_leaves_the_buffer_unchanged() {
         let mut bytes = vec![1_u8, 2, 3];
         benchmark_run_before_send_hooks(&[hook_for_mode(AccessMode::ReadOnly)], &mut bytes);
-        assert_eq!(bytes, vec![1_u8, 2, 3]);
+        assert_eq!(
+            bytes,
+            vec![1_u8, 2, 3],
+            "bytes should equal vec![1_u8, 2, 3]"
+        );
     }
 
     #[test]
     fn a_mutating_hook_rewrites_the_first_byte() {
         let mut bytes = vec![1_u8, 2, 3];
         benchmark_run_before_send_hooks(&[hook_for_mode(AccessMode::Mutating)], &mut bytes);
-        assert_eq!(bytes, vec![2_u8, 2, 3]);
+        assert_eq!(
+            bytes,
+            vec![2_u8, 2, 3],
+            "bytes should equal vec![2_u8, 2, 3]"
+        );
     }
 }

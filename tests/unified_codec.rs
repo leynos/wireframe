@@ -77,7 +77,7 @@ fn keep_fragment_helper_facade_reexports_linked() {
     let _ = fragment_helpers::fragment_envelope;
     let _ = fragment_helpers::read_framed_response;
     let _ = fragment_helpers::read_reassembled_response;
-    let _ = core::mem::size_of::<fragment_helpers::FramedResponse>();
+    let _framed_response_size = core::mem::size_of::<fragment_helpers::FramedResponse>();
     let _ = fragment_helpers::TestError::Assertion(String::new());
 }
 
@@ -198,7 +198,7 @@ async fn small_payload_passes_unfragmented(
     let observed = timeout(Duration::from_secs(1), rx.recv())
         .await?
         .ok_or(TestError::Setup("handler payload missing"))?;
-    assert_eq!(observed, payload);
+    assert_eq!(observed, payload, "observed should equal payload");
 
     // Response should be unfragmented
     let response = recv_one(&mut client).await?;
@@ -209,7 +209,10 @@ async fn small_payload_passes_unfragmented(
         decode_fragment_payload(&response_payload)?.is_none(),
         "small payload should not be fragmented"
     );
-    assert_eq!(response_payload, payload);
+    assert_eq!(
+        response_payload, payload,
+        "response_payload should equal payload"
+    );
 
     server.await??;
     Ok(())
@@ -242,14 +245,17 @@ async fn multiple_sequential_requests_through_pipeline() -> TestResult {
         let observed = timeout(Duration::from_secs(1), rx.recv())
             .await?
             .ok_or(TestError::Setup("handler payload missing"))?;
-        assert_eq!(&observed, expected);
+        assert_eq!(&observed, expected, "&observed should equal expected");
     }
 
     // All responses should arrive
     for expected in &payloads {
         let response = recv_one(&mut client).await?;
         let response_payload = response.into_parts().into_payload();
-        assert_eq!(&response_payload, expected);
+        assert_eq!(
+            &response_payload, expected,
+            "&response_payload should equal expected"
+        );
     }
 
     server.await??;
@@ -279,11 +285,14 @@ async fn pipeline_with_no_fragmentation_passes_large_payload() -> TestResult {
     let observed = timeout(Duration::from_secs(1), rx.recv())
         .await?
         .ok_or(TestError::Setup("handler payload missing"))?;
-    assert_eq!(observed, payload);
+    assert_eq!(observed, payload, "observed should equal payload");
 
     let response = recv_one(&mut client).await?;
     let response_payload = response.into_parts().into_payload();
-    assert_eq!(response_payload, payload);
+    assert_eq!(
+        response_payload, payload,
+        "response_payload should equal payload"
+    );
     assert!(
         decode_fragment_payload(&response_payload)?.is_none(),
         "response should not contain fragment headers when fragmentation is disabled"

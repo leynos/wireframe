@@ -135,8 +135,12 @@ mod tests {
     #[case(8)]
     fn new_accepts_valid_width(#[case] bytes: usize) {
         let fmt = LengthFormat::new(bytes, Endianness::Big);
-        assert_eq!(fmt.bytes(), bytes);
-        assert_eq!(fmt.endianness(), Endianness::Big);
+        assert_eq!(fmt.bytes(), bytes, "fmt.bytes() should equal bytes");
+        assert_eq!(
+            fmt.endianness(),
+            Endianness::Big,
+            "fmt.endianness() should equal Endianness::Big"
+        );
     }
 
     #[rstest]
@@ -162,8 +166,12 @@ mod tests {
     fn try_new_accepts_valid_width(#[case] bytes: usize) {
         let fmt =
             LengthFormat::try_new(bytes, Endianness::Little).expect("valid width must succeed");
-        assert_eq!(fmt.bytes(), bytes);
-        assert_eq!(fmt.endianness(), Endianness::Little);
+        assert_eq!(fmt.bytes(), bytes, "fmt.bytes() should equal bytes");
+        assert_eq!(
+            fmt.endianness(),
+            Endianness::Little,
+            "fmt.endianness() should equal Endianness::Little"
+        );
     }
 
     #[rstest]
@@ -172,14 +180,26 @@ mod tests {
     fn try_new_rejects_invalid_width(#[case] bytes: usize) {
         let err =
             LengthFormat::try_new(bytes, Endianness::Big).expect_err("invalid width must error");
-        assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
-        assert_eq!(err.to_string(), "invalid length-prefix width");
+        assert_eq!(
+            err.kind(),
+            std::io::ErrorKind::InvalidInput,
+            "err.kind() should equal std::io::ErrorKind::InvalidInput"
+        );
+        assert_eq!(
+            err.to_string(),
+            "invalid length-prefix width",
+            "err.to_string() should equal \"invalid length-prefix width\""
+        );
     }
 
     #[test]
     fn default_is_u32_be() {
         let d = LengthFormat::default();
-        assert_eq!(d.bytes(), 4);
-        assert_eq!(d.endianness(), Endianness::Big);
+        assert_eq!(d.bytes(), 4, "d.bytes() should equal 4");
+        assert_eq!(
+            d.endianness(),
+            Endianness::Big,
+            "d.endianness() should equal Endianness::Big"
+        );
     }
 }

@@ -130,11 +130,11 @@ fn direct_recipe_targets_have_expected_content(
     let recipe = makefile
         .target_recipe(target)
         .ok_or_else(|| format!("expected `{target}` target in Makefile"))?;
-    let expected_content = expected_content.as_ref();
+    let expected_text = expected_content.as_ref();
 
     ensure(
-        recipe.contains(expected_content),
-        format!("`{target}` should contain `{expected_content}`"),
+        recipe.contains(expected_text),
+        format!("`{target}` should contain `{expected_text}`"),
     )
 }
 
@@ -191,13 +191,13 @@ fn aggregate_targets_declare_expected_prerequisites(
     let prerequisites = makefile
         .target_prerequisites(target)
         .ok_or_else(|| format!("expected `{target}` target in Makefile"))?;
-    let expected_prerequisites = expected_prerequisites
+    let expected_names = expected_prerequisites
         .iter()
         .map(|prerequisite| prerequisite.as_ref().to_owned())
         .collect::<Vec<_>>();
 
     ensure(
-        prerequisites == expected_prerequisites,
+        prerequisites == expected_names,
         format!("`{target}` should have the expected prerequisites"),
     )
 }
@@ -220,14 +220,14 @@ fn stub_targets_skip_and_exit_zero(
     #[case] roadmap_message: RoadmapNote,
 ) -> TestResult {
     let (status, _stdout, stderr) = run_make(target, false)?;
-    let roadmap_message = roadmap_message.as_ref();
+    let roadmap_note = roadmap_message.as_ref();
 
     ensure(
         status.success(),
         format!("`make {target}` should exit zero"),
     )?;
     ensure(
-        stderr == format!("FORMAL-SKIP: {target} not yet implemented — {roadmap_message}\n"),
+        stderr == format!("FORMAL-SKIP: {target} not yet implemented — {roadmap_note}\n"),
         format!("`make {target}` should report its complete formal skip"),
     )
 }
@@ -278,11 +278,11 @@ fn aggregate_targets_dry_run_zero(
     #[case] expected_content: RecipeText,
 ) -> TestResult {
     let output = run_make_dry_run(target)?;
-    let expected_content = expected_content.as_ref();
+    let expected_text = expected_content.as_ref();
 
     ensure(
-        output.contains(expected_content),
-        format!("`make --dry-run {target}` should emit `{expected_content}`"),
+        output.contains(expected_text),
+        format!("`make --dry-run {target}` should emit `{expected_text}`"),
     )
 }
 

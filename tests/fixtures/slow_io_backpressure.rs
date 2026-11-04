@@ -45,16 +45,16 @@ impl FromStr for ReaderDriveConfig {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut parts = s.split('/');
         let Some(payload_len) = parts.next() else {
-            return Err("missing payload_len".to_string());
+            return Err("missing payload_len".to_owned());
         };
         let Some(chunk_size) = parts.next() else {
-            return Err("missing chunk_size".to_string());
+            return Err("missing chunk_size".to_owned());
         };
         let Some(delay_millis) = parts.next() else {
-            return Err("missing delay_millis".to_string());
+            return Err("missing delay_millis".to_owned());
         };
         let Some(capacity) = parts.next() else {
-            return Err("missing capacity".to_string());
+            return Err("missing capacity".to_owned());
         };
         if parts.next().is_some() {
             return Err(format!(
@@ -84,22 +84,22 @@ impl FromStr for CombinedDriveConfig {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut parts = s.split('/');
         let Some(payload_len) = parts.next() else {
-            return Err("missing payload_len".to_string());
+            return Err("missing payload_len".to_owned());
         };
         let Some(writer_chunk_size) = parts.next() else {
-            return Err("missing writer_chunk_size".to_string());
+            return Err("missing writer_chunk_size".to_owned());
         };
         let Some(writer_delay_millis) = parts.next() else {
-            return Err("missing writer_delay_millis".to_string());
+            return Err("missing writer_delay_millis".to_owned());
         };
         let Some(reader_chunk_size) = parts.next() else {
-            return Err("missing reader_chunk_size".to_string());
+            return Err("missing reader_chunk_size".to_owned());
         };
         let Some(reader_delay_millis) = parts.next() else {
-            return Err("missing reader_delay_millis".to_string());
+            return Err("missing reader_delay_millis".to_owned());
         };
         let Some(capacity) = parts.next() else {
-            return Err("missing capacity".to_string());
+            return Err("missing capacity".to_owned());
         };
         if parts.next().is_some() {
             return Err(format!(
@@ -177,7 +177,7 @@ impl SlowIoBackpressureWorld {
     ) -> Result<WireframeApp<BincodeSerializer, (), Envelope, HotlineFrameCodec>, String> {
         let max_frame_length = self
             .max_frame_length
-            .ok_or_else(|| "max frame length not configured".to_string())?;
+            .ok_or_else(|| "max frame length not configured".to_owned())?;
         let codec = HotlineFrameCodec::new(max_frame_length);
         WireframeApp::<BincodeSerializer, (), Envelope>::new()
             .map_err(|e| format!("app init: {e}"))?
@@ -251,9 +251,9 @@ impl SlowIoBackpressureWorld {
         chunk_size: usize,
         delay_millis: u64,
     ) -> TestResult {
-        let chunk_size = NonZeroUsize::new(chunk_size).ok_or("chunk size must be non-zero")?;
+        let chunk = NonZeroUsize::new(chunk_size).ok_or("chunk size must be non-zero")?;
         let config = SlowIoConfig::new().with_writer_pacing(SlowIoPacing::new(
-            chunk_size,
+            chunk,
             Duration::from_millis(delay_millis),
         ));
         self.start_drive(payload_len, config)

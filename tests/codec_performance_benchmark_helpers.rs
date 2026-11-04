@@ -27,7 +27,11 @@ use wireframe_testing::codec_benchmarks::{
 #[case::large(PayloadClass::Large, LARGE_PAYLOAD_BYTES)]
 fn payload_for_class_matches_expected_size(#[case] class: PayloadClass, #[case] expected: usize) {
     let payload = payload_for_class(class);
-    assert_eq!(payload.len(), expected);
+    assert_eq!(
+        payload.len(),
+        expected,
+        "payload.len() should equal expected"
+    );
 }
 
 #[test]
@@ -56,10 +60,10 @@ fn benchmark_workloads_cover_default_and_custom_codecs() {
         payload_class: PayloadClass::Large,
     });
 
-    assert!(has_default_small);
-    assert!(has_default_large);
-    assert!(has_hotline_small);
-    assert!(has_hotline_large);
+    assert!(has_default_small, "assertion failed: has_default_small");
+    assert!(has_default_large, "assertion failed: has_default_large");
+    assert!(has_hotline_small, "assertion failed: has_hotline_small");
+    assert!(has_hotline_large, "assertion failed: has_hotline_large");
 }
 
 #[rstest]
@@ -82,9 +86,18 @@ fn benchmark_workloads_cover_default_and_custom_codecs() {
 fn encode_measurement_reports_requested_iterations(#[case] workload: BenchmarkWorkload) {
     let measurement =
         measure_encode(workload, VALIDATION_ITERATIONS).expect("encode measurement failed");
-    assert_eq!(measurement.operations, VALIDATION_ITERATIONS);
-    assert!(measurement.payload_bytes > 0);
-    assert!(measurement.nanos_per_op().is_some());
+    assert_eq!(
+        measurement.operations, VALIDATION_ITERATIONS,
+        "measurement.operations should equal VALIDATION_ITERATIONS"
+    );
+    assert!(
+        measurement.payload_bytes > 0,
+        "assertion failed: measurement.payload_bytes > 0"
+    );
+    assert!(
+        measurement.nanos_per_op().is_some(),
+        "assertion failed: measurement.nanos_per_op().is_some()"
+    );
 }
 
 #[rstest]
@@ -107,9 +120,18 @@ fn encode_measurement_reports_requested_iterations(#[case] workload: BenchmarkWo
 fn decode_measurement_reports_requested_iterations(#[case] workload: BenchmarkWorkload) {
     let measurement =
         measure_decode(workload, VALIDATION_ITERATIONS).expect("decode measurement failed");
-    assert_eq!(measurement.operations, VALIDATION_ITERATIONS);
-    assert!(measurement.payload_bytes > 0);
-    assert!(measurement.nanos_per_op().is_some());
+    assert_eq!(
+        measurement.operations, VALIDATION_ITERATIONS,
+        "measurement.operations should equal VALIDATION_ITERATIONS"
+    );
+    assert!(
+        measurement.payload_bytes > 0,
+        "assertion failed: measurement.payload_bytes > 0"
+    );
+    assert!(
+        measurement.nanos_per_op().is_some(),
+        "assertion failed: measurement.nanos_per_op().is_some()"
+    );
 }
 
 #[test]
@@ -121,10 +143,23 @@ fn fragmentation_overhead_reports_fragmented_and_unfragmented_results() {
     )
     .expect("fragmentation overhead measurement failed");
 
-    assert_eq!(overhead.unfragmented.operations, VALIDATION_ITERATIONS);
-    assert_eq!(overhead.fragmented.operations, VALIDATION_ITERATIONS);
-    assert!(overhead.fragmented.payload_bytes >= overhead.unfragmented.payload_bytes);
-    assert!(overhead.nanos_ratio().is_some());
+    assert_eq!(
+        overhead.unfragmented.operations, VALIDATION_ITERATIONS,
+        "overhead.unfragmented.operations should equal VALIDATION_ITERATIONS"
+    );
+    assert_eq!(
+        overhead.fragmented.operations, VALIDATION_ITERATIONS,
+        "overhead.fragmented.operations should equal VALIDATION_ITERATIONS"
+    );
+    assert!(
+        overhead.fragmented.payload_bytes >= overhead.unfragmented.payload_bytes,
+        "assertion failed: overhead.fragmented.payload_bytes >= \
+         overhead.unfragmented.payload_bytes"
+    );
+    assert!(
+        overhead.nanos_ratio().is_some(),
+        "assertion failed: overhead.nanos_ratio().is_some()"
+    );
 }
 
 #[test]
@@ -141,6 +176,12 @@ fn allocation_label_includes_wrap_and_decode_counters() {
         },
     );
 
-    assert!(label.contains("wrap_allocs_11"));
-    assert!(label.contains("decode_allocs_7"));
+    assert!(
+        label.contains("wrap_allocs_11"),
+        "assertion failed: label.contains(\"wrap_allocs_11\")"
+    );
+    assert!(
+        label.contains("decode_allocs_7"),
+        "assertion failed: label.contains(\"decode_allocs_7\")"
+    );
 }

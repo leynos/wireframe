@@ -37,8 +37,16 @@ async fn prepare_uses_injected_time_source() {
         .await
         .expect("preparation should succeed");
 
-    assert_eq!(time_source.starts.get(), 1);
-    assert_eq!(time_source.elapsed.get(), 1);
+    assert_eq!(
+        time_source.starts.get(),
+        1,
+        "time_source.starts.get() should equal 1"
+    );
+    assert_eq!(
+        time_source.elapsed.get(),
+        1,
+        "time_source.elapsed.get() should equal 1"
+    );
 }
 
 /// Prepared connection tracing uses the injected monotonic clock exactly twice.

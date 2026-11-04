@@ -87,8 +87,8 @@ impl ClientStreamingWorld {
         let result = collect(&mut client).await;
         self.client = Some(client);
         let items = result?;
-        for result in items {
-            match result {
+        for item_result in items {
+            match item_result {
                 Ok(item) => push(self, item),
                 Err(e) => {
                     self.last_error = Some(e);

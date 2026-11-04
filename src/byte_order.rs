@@ -149,27 +149,66 @@ mod tests {
         #[case] expected_bytes: &[u8],
         #[case] read_back: u64,
     ) {
-        assert_eq!(written, expected_bytes);
-        assert_eq!(read_back, value);
+        assert_eq!(
+            written, expected_bytes,
+            "written should equal expected_bytes"
+        );
+        assert_eq!(read_back, value, "read_back should equal value");
     }
 
     /// Zero encodes to the same-width zero buffer at every supported width.
     #[test]
     fn network_byte_order_boundaries_encode_zero() {
-        assert_eq!(write_network_u16(0), [0; 2]);
-        assert_eq!(write_network_u32(0), [0; 4]);
-        assert_eq!(write_network_u64(0), [0; 8]);
+        assert_eq!(
+            write_network_u16(0),
+            [0; 2],
+            "write_network_u16(0) should equal [0; 2]"
+        );
+        assert_eq!(
+            write_network_u32(0),
+            [0; 4],
+            "write_network_u32(0) should equal [0; 4]"
+        );
+        assert_eq!(
+            write_network_u64(0),
+            [0; 8],
+            "write_network_u64(0) should equal [0; 8]"
+        );
     }
 
     /// The maximum value encodes to and decodes from an all-ones buffer.
     #[test]
     fn network_byte_order_boundaries_round_trip_maximum() {
-        assert_eq!(write_network_u16(u16::MAX), [0xff; 2]);
-        assert_eq!(write_network_u32(u32::MAX), [0xff; 4]);
-        assert_eq!(write_network_u64(u64::MAX), [0xff; 8]);
-        assert_eq!(read_network_u16([0xff; 2]), u16::MAX);
-        assert_eq!(read_network_u32([0xff; 4]), u32::MAX);
-        assert_eq!(read_network_u64([0xff; 8]), u64::MAX);
+        assert_eq!(
+            write_network_u16(u16::MAX),
+            [0xff; 2],
+            "write_network_u16(u16::MAX) should equal [0xff; 2]"
+        );
+        assert_eq!(
+            write_network_u32(u32::MAX),
+            [0xff; 4],
+            "write_network_u32(u32::MAX) should equal [0xff; 4]"
+        );
+        assert_eq!(
+            write_network_u64(u64::MAX),
+            [0xff; 8],
+            "write_network_u64(u64::MAX) should equal [0xff; 8]"
+        );
+        assert_eq!(
+            read_network_u16([0xff; 2]),
+            u16::MAX,
+            "read_network_u16([0xff; 2]) should equal u16::MAX"
+        );
+        assert_eq!(
+            read_network_u32([0xff; 4]),
+            u32::MAX,
+            "read_network_u32([0xff; 4]) should equal u32::MAX"
+        );
+        assert_eq!(
+            read_network_u64([0xff; 8]),
+            u64::MAX,
+            "read_network_u64([0xff; 8]) should equal u64::MAX"
+        );
     }
 
     proptest! {

@@ -105,9 +105,9 @@ const fn response_correlation(response: &mut ServiceResponse) -> Option<u64> {
     response.set_correlation_id(Some(9)).correlation_id()
 }
 
-const _: () = assert!(matches!(RECOVERY_POLICY, RecoveryPolicy::Disconnect));
-const _: () = assert!(IS_CLEAN_CLOSE);
-const _: () = assert!(FRAME_VALUE == 2);
+const _: () = assert!(matches!(RECOVERY_POLICY, RecoveryPolicy::Disconnect), "assertion failed: matches!(RECOVERY_POLICY, RecoveryPolicy::Disconnect)");
+const _: () = assert!(IS_CLEAN_CLOSE, "assertion failed: IS_CLEAN_CLOSE");
+const _: () = assert!(FRAME_VALUE == 2, "assertion failed: FRAME_VALUE == 2");
 const _: &str = ERROR_CATEGORY;
 
 const fn metadata_mut(parts: &mut RequestParts) -> &mut Vec<u8> { parts.metadata_mut() }

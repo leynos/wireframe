@@ -13,8 +13,8 @@ fn given_derived_budget_app(
     derived_memory_budgets_world: &mut DerivedMemoryBudgetsWorld,
     capacity: u64,
 ) -> TestResult {
-    let capacity = usize::try_from(capacity)?;
-    derived_memory_budgets_world.start_app_derived(capacity)
+    let buffer_capacity = usize::try_from(capacity)?;
+    derived_memory_budgets_world.start_app_derived(buffer_capacity)
 }
 
 #[given("a derived-budget app with buffer capacity {capacity:u64} and explicit budgets {config}")]
@@ -23,8 +23,8 @@ fn given_derived_budget_app_explicit(
     capacity: u64,
     config: ExplicitBudgetConfig,
 ) -> TestResult {
-    let capacity = usize::try_from(capacity)?;
-    derived_memory_budgets_world.start_app_explicit(capacity, config)
+    let buffer_capacity = usize::try_from(capacity)?;
+    derived_memory_budgets_world.start_app_explicit(buffer_capacity, config)
 }
 
 #[when(

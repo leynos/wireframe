@@ -82,7 +82,7 @@ impl StreamingRequestWorld {
         self.runtime.as_ref().ok_or_else(|| {
             self.runtime_error
                 .clone()
-                .unwrap_or_else(|| "runtime unavailable".to_string())
+                .unwrap_or_else(|| "runtime unavailable".to_owned())
                 .into()
         })
     }

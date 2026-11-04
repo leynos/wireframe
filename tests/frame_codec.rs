@@ -172,9 +172,17 @@ async fn custom_codec_round_trips_frames() {
     let (response_env, _) = BincodeSerializer
         .deserialize::<Envelope>(&response_frame.payload)
         .expect("deserialize response");
-    assert_eq!(response_env.correlation_id(), Some(7));
+    assert_eq!(
+        response_env.correlation_id(),
+        Some(7),
+        "response_env.correlation_id() should equal Some(7)"
+    );
     let response_payload = response_env.into_parts().into_payload();
-    assert_eq!(response_payload, b"ping".to_vec());
+    assert_eq!(
+        response_payload,
+        b"ping".to_vec(),
+        "response_payload should equal b\"ping\".to_vec()"
+    );
 }
 
 #[tokio::test]
@@ -208,7 +216,10 @@ async fn stateful_codec_advances_tags_per_connection() {
             .await
             .expect("missing response")
             .expect("response frame");
-        assert_eq!(response.tag, expected_tag);
+        assert_eq!(
+            response.tag, expected_tag,
+            "response.tag should equal expected_tag"
+        );
     }
 
     let mut stream = framed.into_inner();

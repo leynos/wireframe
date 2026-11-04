@@ -102,6 +102,6 @@ async fn response_stream_emits_frame_events() {
             .iter()
             .find(|line| line.contains("stream terminated"))
             .map(|_| ())
-            .ok_or_else(|| "'stream terminated' event not found".to_string())
+            .ok_or_else(|| "'stream terminated' event not found".to_owned())
     });
 }

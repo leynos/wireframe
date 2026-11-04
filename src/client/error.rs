@@ -199,16 +199,28 @@ mod tests {
             received: Some(2),
         };
 
-        assert!(io_error.should_recycle_connection());
-        assert!(decode_error.should_recycle_connection());
-        assert!(correlation_error.should_recycle_connection());
+        assert!(
+            io_error.should_recycle_connection(),
+            "assertion failed: io_error.should_recycle_connection()"
+        );
+        assert!(
+            decode_error.should_recycle_connection(),
+            "assertion failed: decode_error.should_recycle_connection()"
+        );
+        assert!(
+            correlation_error.should_recycle_connection(),
+            "assertion failed: correlation_error.should_recycle_connection()"
+        );
     }
 
     #[test]
     fn should_recycle_connection_returns_false_for_serialize_failures() {
         let error = ClientError::Serialize(Box::new(io::Error::other("serialize failure")));
 
-        assert!(!error.should_recycle_connection());
+        assert!(
+            !error.should_recycle_connection(),
+            "assertion failed: !error.should_recycle_connection()"
+        );
     }
 
     #[rstest]
@@ -217,8 +229,15 @@ mod tests {
     fn pool_saturation_does_not_recycle_a_connection(#[case] limit: usize) {
         let error = ClientError::PoolSaturated { limit };
 
-        assert!(matches!(error, ClientError::PoolSaturated { limit: actual } if actual == limit));
-        assert!(!error.should_recycle_connection());
+        assert!(
+            matches!(error, ClientError::PoolSaturated { limit: actual } if actual == limit),
+            "assertion failed: matches!(error, ClientError::PoolSaturated {{ limit: actual }} if \
+             actual == limit)"
+        );
+        assert!(
+            !error.should_recycle_connection(),
+            "assertion failed: !error.should_recycle_connection()"
+        );
     }
 
     #[rstest]
@@ -228,7 +247,11 @@ mod tests {
         #[case] error: ClientError,
         #[case] expected_message: &str,
     ) {
-        assert_eq!(error.to_string(), expected_message);
+        assert_eq!(
+            error.to_string(),
+            expected_message,
+            "error.to_string() should equal expected_message"
+        );
         assert!(
             !error.should_recycle_connection(),
             "a pool lifecycle error must not discard a healthy socket"

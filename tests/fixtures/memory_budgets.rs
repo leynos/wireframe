@@ -48,16 +48,16 @@ impl MemoryBudgetsWorld {
         per_connection: StepBudgetBytes,
         in_flight: StepBudgetBytes,
     ) -> TestResult {
-        let per_message =
+        let message_budget =
             NonZeroUsize::new(per_message.0).ok_or("message budget must be non-zero")?;
-        let per_connection =
+        let connection_budget =
             NonZeroUsize::new(per_connection.0).ok_or("connection budget must be non-zero")?;
-        let in_flight =
+        let in_flight_budget =
             NonZeroUsize::new(in_flight.0).ok_or("in-flight budget must be non-zero")?;
         self.budgets = Some(MemoryBudgets::new(
-            AppBudgetBytes::new(per_message),
-            AppBudgetBytes::new(per_connection),
-            AppBudgetBytes::new(in_flight),
+            AppBudgetBytes::new(message_budget),
+            AppBudgetBytes::new(connection_budget),
+            AppBudgetBytes::new(in_flight_budget),
         ));
         Ok(())
     }

@@ -16,6 +16,14 @@ fn config_accessors_reflect_builder() {
     let configured = SendStreamingConfig::default()
         .with_chunk_size(4096)
         .with_timeout(Duration::from_secs(3));
-    assert_eq!(configured.chunk_size(), Some(4096));
-    assert_eq!(configured.timeout(), Some(Duration::from_secs(3)));
+    assert_eq!(
+        configured.chunk_size(),
+        Some(4096),
+        "configured.chunk_size() should equal Some(4096)"
+    );
+    assert_eq!(
+        configured.timeout(),
+        Some(Duration::from_secs(3)),
+        "configured.timeout() should equal Some(Duration::from_secs(3))"
+    );
 }

@@ -63,10 +63,15 @@ async fn spawn_connection_task_logs_panic(
 
     let handle = tokio::spawn({
         let task_tracker = tracker.clone();
-        let app = Arc::clone(&app);
+        let task_app = Arc::clone(&app);
         async move {
             let (stream, _) = listener.accept().await.expect("accept");
-            spawn_connection_task(stream, app, PreambleHooks::<()>::default(), &task_tracker);
+            spawn_connection_task(
+                stream,
+                task_app,
+                PreambleHooks::<()>::default(),
+                &task_tracker,
+            );
             task_tracker.close();
             task_tracker.wait().await;
         }

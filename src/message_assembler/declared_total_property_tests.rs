@@ -148,10 +148,9 @@ proptest! {
         let key = MessageKey(1);
         let outcome = validation::validate_continuation(key, declared, accumulated, body_len);
 
-        let fits = match accumulated.checked_add(body_len) {
-            Some(attempted) => attempted <= declared,
-            None => false,
-        };
+        let fits = accumulated
+            .checked_add(body_len)
+            .is_some_and(|attempted| attempted <= declared);
         prop_assert_eq!(outcome.is_ok(), fits);
 
         if let Err(MessageAssemblyError::DeclaredTotalExceeded { attempted, .. }) = outcome {

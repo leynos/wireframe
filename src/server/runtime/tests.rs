@@ -65,12 +65,12 @@ async fn test_server_graceful_shutdown_with_ctrl_c_simulation(
     let handle = tokio::spawn(async move {
         server
             .run_with_shutdown(async {
-                let _ = rx.await;
+                drop(rx.await);
             })
             .await
             .expect("server run failed");
     });
-    let _ = tx.send(());
+    let _shutdown_sent = tx.send(());
     handle.await.expect("server join error");
     Ok(())
 }
@@ -90,7 +90,7 @@ async fn test_graceful_shutdown_releases_listener(
         server
             .ready_signal(ready_tx)
             .run_with_shutdown(async {
-                let _ = shutdown_rx.await;
+                drop(shutdown_rx.await);
             })
             .await
     });
@@ -142,7 +142,11 @@ async fn test_multiple_worker_creation(
     )
     .await
     .map_err(|_| "server did not finish in time")??;
-    assert_eq!(call_count.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        call_count.load(Ordering::SeqCst),
+        1,
+        "call_count.load(Ordering::SeqCst) should equal 1"
+    );
     Ok(())
 }
 
@@ -166,9 +170,14 @@ async fn factory_failure_returns_before_readiness(
         .await;
 
     assert!(
-        matches!(result, Err(ServerError::FactoryBuild(error)) if error.to_string() == "application construction failed")
+        matches!(result, Err(ServerError::FactoryBuild(error)) if error.to_string() == "application construction failed"),
+        "assertion failed: matches!(result, Err(ServerError::FactoryBuild(error)) if \
+         error.to_string() == \"application construction failed\")"
     );
-    assert!(ready_rx.await.is_err());
+    assert!(
+        ready_rx.await.is_err(),
+        "assertion failed: ready_rx.await.is_err()"
+    );
     Ok(())
 }
 
@@ -185,7 +194,7 @@ async fn readiness_waits_for_application_preparation(
         server
             .ready_signal(ready_tx)
             .run_with_shutdown(async {
-                let _ = shutdown_rx.await;
+                drop(shutdown_rx.await);
             })
             .await
     });
@@ -196,7 +205,8 @@ async fn readiness_waits_for_application_preparation(
     assert!(
         timeout(Duration::from_millis(20), &mut ready_rx)
             .await
-            .is_err()
+            .is_err(),
+        "assertion failed: timeout(Duration::from_millis(20), &mut ready_rx) .await .is_err()"
     );
 
     barrier.wait().await;
@@ -241,7 +251,7 @@ async fn test_accept_loop_shutdown_signal(
     tracker.close();
 
     let result = timeout(Duration::from_millis(100), tracker.wait()).await;
-    assert!(result.is_ok());
+    assert!(result.is_ok(), "assertion failed: result.is_ok()");
 }
 
 /// Creates a mock listener that fails with exponential backoff tracking.
@@ -250,11 +260,11 @@ fn setup_backoff_mock_listener(
     num_calls: usize,
 ) -> MockAcceptListener {
     let mut listener = MockAcceptListener::new();
-    let call_log = Arc::clone(calls);
+    let shared_call_log = Arc::clone(calls);
     listener
         .expect_accept()
         .returning(move || {
-            let call_log = Arc::clone(&call_log);
+            let call_log = Arc::clone(&shared_call_log);
             Box::pin(async move {
                 call_log
                     .lock()
@@ -281,12 +291,12 @@ fn assert_backoff_intervals(
         .map(|window| {
             let a = window
                 .first()
-                .ok_or_else(|| "window has first element".to_string())?;
+                .ok_or_else(|| "window has first element".to_owned())?;
             let b = window
                 .get(1)
-                .ok_or_else(|| "window has second element".to_string())?;
+                .ok_or_else(|| "window has second element".to_owned())?;
             b.checked_duration_since(*a)
-                .ok_or_else(|| "instants should be monotonically increasing".to_string())
+                .ok_or_else(|| "instants should be monotonically increasing".to_owned())
         })
         .collect::<Result<_, _>>()?;
 
@@ -299,11 +309,12 @@ fn assert_backoff_intervals(
         .into());
     }
 
-    for (interval, expected) in intervals.into_iter().zip(expected.iter()) {
-        if interval != *expected {
-            return Err(
-                format!("interval mismatch: got {interval:?}, expected {expected:?}").into(),
-            );
+    for (interval, expected_delay) in intervals.into_iter().zip(expected.iter()) {
+        if interval != *expected_delay {
+            return Err(format!(
+                "interval mismatch: got {interval:?}, expected {expected_delay:?}"
+            )
+            .into());
         }
     }
 
@@ -340,9 +351,12 @@ async fn test_accept_loop_exponential_backoff_async(
     yield_now().await;
 
     let first_call = {
-        let calls = calls.lock().expect("lock");
-        assert_eq!(calls.len(), 1);
-        calls.first().copied().expect("call record missing")
+        let recorded_calls = calls.lock().expect("lock");
+        assert_eq!(recorded_calls.len(), 1, "calls.len() should equal 1");
+        recorded_calls
+            .first()
+            .copied()
+            .expect("call record missing")
     };
 
     for ms in [5, 10, 20] {
@@ -356,15 +370,18 @@ async fn test_accept_loop_exponential_backoff_async(
     tracker.close();
     tracker.wait().await;
 
-    let calls = calls.lock().expect("lock");
-    assert_eq!(calls.len(), 4);
-    let first = calls.first().copied().expect("at least one call logged");
-    assert_eq!(first, first_call);
+    let recorded_calls = calls.lock().expect("lock");
+    assert_eq!(recorded_calls.len(), 4, "calls.len() should equal 4");
+    let first = recorded_calls
+        .first()
+        .copied()
+        .expect("at least one call logged");
+    assert_eq!(first, first_call, "first should equal first_call");
     let expected = [
         Duration::from_millis(5),
         Duration::from_millis(10),
         Duration::from_millis(20),
     ];
-    assert_backoff_intervals(&calls, &expected)?;
+    assert_backoff_intervals(&recorded_calls, &expected)?;
     Ok(())
 }

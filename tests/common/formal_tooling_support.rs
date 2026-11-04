@@ -16,7 +16,7 @@ pub(crate) struct MakefileContent<'a>(pub(crate) &'a str);
 
 impl MakefileContent<'_> {
     pub(crate) fn has_phony_target(&self, target: impl AsRef<str>) -> bool {
-        let target = target.as_ref();
+        let target_name = target.as_ref();
         let mut declaration = String::new();
 
         for line in self.0.lines() {
@@ -34,7 +34,7 @@ impl MakefileContent<'_> {
                 && declaration
                     .split_whitespace()
                     .filter(|name| *name != "\\")
-                    .any(|candidate| candidate == target)
+                    .any(|candidate| candidate == target_name)
             {
                 return true;
             }
@@ -60,8 +60,8 @@ impl MakefileContent<'_> {
     }
 
     pub(crate) fn target_recipe(&self, target: impl AsRef<str>) -> Option<String> {
-        let target = target.as_ref();
-        let target_prefix = format!("{target}:");
+        let target_name = target.as_ref();
+        let target_prefix = format!("{target_name}:");
         let mut lines = self
             .0
             .lines()
@@ -78,13 +78,13 @@ pub(crate) struct ChecksumsContent<'a>(pub(crate) &'a str);
 
 impl ChecksumsContent<'_> {
     pub(crate) fn contains_archive(&self, archive_name: impl AsRef<str>) -> bool {
-        let archive_name = archive_name.as_ref();
+        let expected_archive = archive_name.as_ref();
         self.0.lines().any(|line| {
             let mut fields = line.split_whitespace();
             let digest = fields.next();
             let archive = fields.next();
             digest.is_some_and(is_sha256_hex)
-                && archive == Some(archive_name)
+                && archive == Some(expected_archive)
                 && fields.next().is_none()
         })
     }
@@ -127,14 +127,14 @@ pub(crate) fn prover_tools_ref_metadata() -> FormalToolingResult<String> {
 pub(crate) fn makefile() -> FormalToolingResult<String> { read_repo_file(MAKEFILE_PATH) }
 
 pub(crate) fn run_make_dry_run(target: impl AsRef<str>) -> FormalToolingResult<String> {
-    let target = target.as_ref();
+    let target_name = target.as_ref();
     let output = Command::new("make")
-        .args(["--dry-run", target])
+        .args(["--dry-run", target_name])
         .current_dir(repo_root()?)
         .output()?;
     if !output.status.success() {
         return Err(format!(
-            "`make --dry-run {target}` failed: {}",
+            "`make --dry-run {target_name}` failed: {}",
             String::from_utf8_lossy(&output.stderr)
         )
         .into());
@@ -162,8 +162,8 @@ pub(crate) fn run_make(
 }
 
 pub(crate) fn is_three_part_numeric_version(version: impl AsRef<str>) -> bool {
-    let version = version.as_ref();
-    let parts: Vec<&str> = version.split('.').collect();
+    let version_text = version.as_ref();
+    let parts: Vec<&str> = version_text.split('.').collect();
     parts.len() == 3
         && parts.iter().all(|part| {
             !part.is_empty() && part.chars().all(|character| character.is_ascii_digit())
@@ -171,8 +171,8 @@ pub(crate) fn is_three_part_numeric_version(version: impl AsRef<str>) -> bool {
 }
 
 pub(crate) fn verus_linux_archive_name(version: impl AsRef<str>) -> String {
-    let version = version.as_ref();
-    format!("verus-{version}-x86-linux.zip")
+    let version_text = version.as_ref();
+    format!("verus-{version_text}-x86-linux.zip")
 }
 
 pub(crate) fn is_sha256_hex(value: &str) -> bool {

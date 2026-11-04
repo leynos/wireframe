@@ -66,20 +66,20 @@ async fn client_round_trips_multiple_message_types_through_sample_server() {
         .expect("connect client");
 
     let login = LoginRequest {
-        username: "guest".to_string(),
+        username: "guest".to_owned(),
     };
     let login_resp: LoginRequest = client.call(&login).await.expect("login round-trip");
-    assert_eq!(login_resp, login);
+    assert_eq!(login_resp, login, "login_resp should equal login");
 
     let ping = Ping(42);
     let ping_resp: Ping = client.call(&ping).await.expect("ping round-trip");
-    assert_eq!(ping_resp, ping);
+    assert_eq!(ping_resp, ping, "ping_resp should equal ping");
 
     let metrics = Metrics {
         values: vec![1, 3, 5, 8],
     };
     let metrics_resp: Metrics = client.call(&metrics).await.expect("metrics round-trip");
-    assert_eq!(metrics_resp, metrics);
+    assert_eq!(metrics_resp, metrics, "metrics_resp should equal metrics");
 
     server.abort();
 }
@@ -99,7 +99,7 @@ async fn client_decodes_echoed_login_acknowledgement(#[case] username: &str) {
         .expect("connect client");
 
     let login = LoginRequest {
-        username: username.to_string(),
+        username: username.to_owned(),
     };
     let request = Envelope::new(
         LOGIN_ROUTE_ID,
@@ -112,8 +112,11 @@ async fn client_decodes_echoed_login_acknowledgement(#[case] username: &str) {
         .expect("login acknowledgement envelope");
     let (ack, _) = LoginAck::from_bytes(response.payload_bytes())
         .expect("decode login acknowledgement payload");
-    assert_eq!(ack.username, username);
-    assert!(response.correlation_id().is_some());
+    assert_eq!(ack.username, username, "ack.username should equal username");
+    assert!(
+        response.correlation_id().is_some(),
+        "assertion failed: response.correlation_id().is_some()"
+    );
 
     server.abort();
 }

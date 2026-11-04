@@ -59,14 +59,25 @@ fn recovery_policy_defaults(
     #[case] expected_policy: RecoveryPolicy,
     #[case] should_disconnect: bool,
 ) {
-    assert_eq!(error.default_recovery_policy(), expected_policy);
-    assert_eq!(error.should_disconnect(), should_disconnect);
+    assert_eq!(
+        error.default_recovery_policy(),
+        expected_policy,
+        "error.default_recovery_policy() should equal expected_policy"
+    );
+    assert_eq!(
+        error.should_disconnect(),
+        should_disconnect,
+        "error.should_disconnect() should equal should_disconnect"
+    );
 }
 
 #[test]
 fn clean_eof_is_detectable() {
     let err = CodecError::Eof(EofError::CleanClose);
-    assert!(err.is_clean_close());
+    assert!(
+        err.is_clean_close(),
+        "assertion failed: err.is_clean_close()"
+    );
 }
 
 #[test]
@@ -75,7 +86,10 @@ fn mid_frame_eof_is_not_clean() {
         bytes_received: 100,
         expected: 200,
     });
-    assert!(!err.is_clean_close());
+    assert!(
+        !err.is_clean_close(),
+        "assertion failed: !err.is_clean_close()"
+    );
 }
 
 #[test]
@@ -84,7 +98,10 @@ fn mid_header_eof_is_not_clean() {
         bytes_received: 2,
         header_size: 4,
     });
-    assert!(!err.is_clean_close());
+    assert!(
+        !err.is_clean_close(),
+        "assertion failed: !err.is_clean_close()"
+    );
 }
 
 /// Parameterized test for `CodecError` to `io::Error` conversion.
@@ -111,7 +128,11 @@ fn codec_error_converts_to_io_error_with_correct_kind(
     #[case] expected_kind: io::ErrorKind,
 ) {
     let io_err: io::Error = error.into();
-    assert_eq!(io_err.kind(), expected_kind);
+    assert_eq!(
+        io_err.kind(),
+        expected_kind,
+        "io_err.kind() should equal expected_kind"
+    );
 }
 
 #[rstest]
@@ -127,7 +148,11 @@ fn codec_error_converts_to_io_error_with_correct_kind(
 fn io_error_from_eof_variants_preserves_eof_error(#[case] variant: EofError) {
     let io_err: io::Error = CodecError::Eof(variant).into();
 
-    assert_eq!(io_err.kind(), io::ErrorKind::UnexpectedEof);
+    assert_eq!(
+        io_err.kind(),
+        io::ErrorKind::UnexpectedEof,
+        "io_err.kind() should equal io::ErrorKind::UnexpectedEof"
+    );
 
     let mut current = io_err
         .get_ref()
@@ -142,8 +167,8 @@ fn io_error_from_eof_variants_preserves_eof_error(#[case] variant: EofError) {
         current = err.source();
     }
 
-    let eof = eof.expect("expected EofError to be preserved");
-    assert_eq!(*eof, variant);
+    let eof_error = eof.expect("expected EofError to be preserved");
+    assert_eq!(*eof_error, variant, "*eof_error should equal variant");
 }
 
 /// Parameterized test for `error_type()` category strings.
@@ -160,7 +185,11 @@ fn io_error_from_eof_variants_preserves_eof_error(#[case] variant: EofError) {
 #[case::io(CodecError::Io(io::Error::other("test")), "io")]
 #[case::eof(CodecError::Eof(EofError::CleanClose), "eof")]
 fn error_type_returns_correct_category(#[case] error: CodecError, #[case] expected_type: &str) {
-    assert_eq!(error.error_type(), expected_type);
+    assert_eq!(
+        error.error_type(),
+        expected_type,
+        "error.error_type() should equal expected_type"
+    );
 }
 
 #[test]
@@ -170,8 +199,14 @@ fn framing_error_display_includes_details() {
         max: 1024,
     };
     let display = err.to_string();
-    assert!(display.contains("2000"));
-    assert!(display.contains("1024"));
+    assert!(
+        display.contains("2000"),
+        "assertion failed: display.contains(\"2000\")"
+    );
+    assert!(
+        display.contains("1024"),
+        "assertion failed: display.contains(\"1024\")"
+    );
 }
 
 #[test]
@@ -181,8 +216,14 @@ fn protocol_error_display_includes_details() {
         actual: 10,
     };
     let display = err.to_string();
-    assert!(display.contains('5'));
-    assert!(display.contains("10"));
+    assert!(
+        display.contains('5'),
+        "assertion failed: display.contains('5')"
+    );
+    assert!(
+        display.contains("10"),
+        "assertion failed: display.contains(\"10\")"
+    );
 }
 
 #[test]
@@ -192,6 +233,12 @@ fn eof_error_display_includes_byte_counts() {
         expected: 200,
     };
     let display = err.to_string();
-    assert!(display.contains("100"));
-    assert!(display.contains("200"));
+    assert!(
+        display.contains("100"),
+        "assertion failed: display.contains(\"100\")"
+    );
+    assert!(
+        display.contains("200"),
+        "assertion failed: display.contains(\"200\")"
+    );
 }

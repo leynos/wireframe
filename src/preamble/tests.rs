@@ -26,8 +26,11 @@ async fn oversized_preamble_container_fails_before_reading_its_body(#[case] decl
         matches!(error, bincode::error::DecodeError::LimitExceeded),
         "{error:?}"
     );
-    assert_eq!(reader.position(), 8);
-    assert!(reader.position() <= MAX_PREAMBLE_LEN as u64);
+    assert_eq!(reader.position(), 8, "reader.position() should equal 8");
+    assert!(
+        reader.position() <= MAX_PREAMBLE_LEN as u64,
+        "assertion failed: reader.position() <= MAX_PREAMBLE_LEN as u64"
+    );
 }
 
 #[tokio::test]
@@ -37,12 +40,20 @@ async fn preamble_read_buffer_never_grows_past_ceiling() {
     let error = read_more(&mut reader, &mut buffer, 1)
         .await
         .expect_err("growth past the preamble cap must fail");
-    assert!(matches!(
-        error,
-        bincode::error::DecodeError::Other(PREAMBLE_TOO_LONG_ERROR)
-    ));
-    assert_eq!(buffer.len(), MAX_PREAMBLE_LEN);
-    assert_eq!(reader.position(), 0);
+    assert!(
+        matches!(
+            error,
+            bincode::error::DecodeError::Other(PREAMBLE_TOO_LONG_ERROR)
+        ),
+        "assertion failed: matches!( error, \
+         bincode::error::DecodeError::Other(PREAMBLE_TOO_LONG_ERROR) )"
+    );
+    assert_eq!(
+        buffer.len(),
+        MAX_PREAMBLE_LEN,
+        "buffer.len() should equal MAX_PREAMBLE_LEN"
+    );
+    assert_eq!(reader.position(), 0, "reader.position() should equal 0");
 }
 
 #[rstest]
@@ -64,13 +75,25 @@ async fn bounded_preamble_preserves_valid_containers_and_following_bytes(#[case]
     let (decoded, leftover) = read_preamble::<_, ContainerPreamble>(&mut reader)
         .await
         .expect("preamble within the budget must decode");
-    assert_eq!(decoded, value);
-    assert_eq!(leftover, [] as [u8; 0]);
-    assert_eq!(reader.position(), encoded_len as u64);
-    assert!(encoded_len <= MAX_PREAMBLE_LEN);
+    assert_eq!(decoded, value, "decoded should equal value");
+    assert_eq!(
+        leftover,
+        [] as [u8; 0],
+        "leftover should equal [] as [u8; 0]"
+    );
+    assert_eq!(
+        reader.position(),
+        encoded_len as u64,
+        "reader.position() should equal encoded_len as u64"
+    );
+    assert!(
+        encoded_len <= MAX_PREAMBLE_LEN,
+        "assertion failed: encoded_len <= MAX_PREAMBLE_LEN"
+    );
     assert_eq!(
         reader.get_ref().get(encoded_len..),
-        Some([9, 10].as_slice())
+        Some([9, 10].as_slice()),
+        "reader.get_ref().get(encoded_len..) should equal Some([9, 10].as_slice())"
     );
 }
 
@@ -80,6 +103,6 @@ async fn preamble_returns_read_ahead_bytes_as_leftovers() {
     let ((), leftover) = read_preamble::<_, ()>(&mut reader)
         .await
         .expect("empty preamble must preserve bytes read ahead");
-    assert_eq!(leftover, [9]);
-    assert_eq!(reader.position(), 1);
+    assert_eq!(leftover, [9], "leftover should equal [9]");
+    assert_eq!(reader.position(), 1, "reader.position() should equal 1");
 }

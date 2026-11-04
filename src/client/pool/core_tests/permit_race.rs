@@ -55,7 +55,11 @@ async fn immediate_probe_rotates_across_slots(
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(selected.as_slice(), expected);
+    assert_eq!(
+        selected.as_slice(),
+        expected,
+        "selected.as_slice() should equal expected"
+    );
 }
 
 #[rstest]
@@ -64,27 +68,36 @@ async fn failed_and_cancelled_acquisitions_each_advance_rotation_once() {
     let core = test_core(2);
     let held = hold_all_permits(&core);
 
-    assert!(core.try_acquire_permit().is_none());
+    assert!(
+        core.try_acquire_permit().is_none(),
+        "assertion failed: core.try_acquire_permit().is_none()"
+    );
     drop(held);
 
     let (after_failed_try, permit) = core
         .try_acquire_permit()
         .expect("the next immediate probe should find free capacity");
-    assert_eq!(after_failed_try, 1);
+    assert_eq!(after_failed_try, 1, "after_failed_try should equal 1");
     drop(permit);
 
-    let held = hold_all_permits(&core);
+    let blocked_hold = hold_all_permits(&core);
     {
         let mut acquisition = std::pin::pin!(core.acquire_slot_permit());
-        assert!(futures::poll!(acquisition.as_mut()).is_pending());
+        assert!(
+            futures::poll!(acquisition.as_mut()).is_pending(),
+            "assertion failed: futures::poll!(acquisition.as_mut()).is_pending()"
+        );
     }
-    drop(held);
+    drop(blocked_hold);
 
-    let (after_cancelled_race, permit) = core
+    let (after_cancelled_race, probe_permit) = core
         .try_acquire_permit()
         .expect("the next immediate probe should find free capacity");
-    assert_eq!(after_cancelled_race, 1);
-    drop(permit);
+    assert_eq!(
+        after_cancelled_race, 1,
+        "after_cancelled_race should equal 1"
+    );
+    drop(probe_permit);
 }
 
 #[rstest]
@@ -92,8 +105,14 @@ async fn failed_and_cancelled_acquisitions_each_advance_rotation_once() {
 async fn empty_core_rejects_both_immediate_and_async_acquisition() {
     let core = test_core(0);
 
-    assert!(core.try_acquire_permit().is_none());
-    assert!(core.acquire_slot_permit().await.is_err());
+    assert!(
+        core.try_acquire_permit().is_none(),
+        "assertion failed: core.try_acquire_permit().is_none()"
+    );
+    assert!(
+        core.acquire_slot_permit().await.is_err(),
+        "assertion failed: core.acquire_slot_permit().await.is_err()"
+    );
 }
 
 #[rstest]
@@ -105,7 +124,10 @@ async fn shutdown_rejects_acquisition_before_waiting_for_slot_capacity() {
 
     let result = tokio::time::timeout(Duration::from_millis(100), core.acquire_slot_permit()).await;
 
-    assert!(matches!(result, Ok(Err(_))));
+    assert!(
+        matches!(result, Ok(Err(_))),
+        "assertion failed: matches!(result, Ok(Err(_)))"
+    );
     drop(held);
     assert_all_slots_are_available(&core);
 }
@@ -123,7 +145,11 @@ async fn async_probe_rotates_across_four_slots(four_slot_core: Arc<TestCore>) {
         selected.push(slot_index);
     }
 
-    assert_eq!(selected, [0, 1, 2, 3, 0]);
+    assert_eq!(
+        selected,
+        [0, 1, 2, 3, 0],
+        "selected should equal [0, 1, 2, 3, 0]"
+    );
 }
 
 #[rstest]
@@ -133,22 +159,26 @@ async fn sync_and_async_probes_share_one_rotation_cursor(four_slot_core: Arc<Tes
         .try_acquire_permit()
         .expect("the first immediate probe should succeed");
     drop(permit);
-    let (second, permit) = four_slot_core
+    let (second, second_permit) = four_slot_core
         .acquire_slot_permit()
         .await
         .expect("the second immediate probe should succeed");
-    drop(permit);
-    let (third, permit) = four_slot_core
+    drop(second_permit);
+    let (third, third_permit) = four_slot_core
         .try_acquire_permit()
         .expect("the third immediate probe should succeed");
-    drop(permit);
-    let (fourth, permit) = four_slot_core
+    drop(third_permit);
+    let (fourth, fourth_permit) = four_slot_core
         .acquire_slot_permit()
         .await
         .expect("the fourth immediate probe should succeed");
 
-    assert_eq!([first, second, third, fourth], [0, 1, 2, 3]);
-    drop(permit);
+    assert_eq!(
+        [first, second, third, fourth],
+        [0, 1, 2, 3],
+        "[first, second, third, fourth] should equal [0, 1, 2, 3]"
+    );
+    drop(fourth_permit);
 }
 
 #[rstest]
@@ -171,7 +201,7 @@ async fn immediate_probe_finds_each_free_slot(
         .await
         .expect("the only free slot should grant its permit");
 
-    assert_eq!(selected, free_index);
+    assert_eq!(selected, free_index, "selected should equal free_index");
     drop(permit);
 }
 
@@ -190,7 +220,10 @@ async fn blocked_race_returns_the_single_slot_released_after_registration(
     let core = test_core(slot_count);
     let mut held = hold_all_permits(&core);
     let mut acquisition = std::pin::pin!(core.acquire_slot_permit());
-    assert!(futures::poll!(acquisition.as_mut()).is_pending());
+    assert!(
+        futures::poll!(acquisition.as_mut()).is_pending(),
+        "assertion failed: futures::poll!(acquisition.as_mut()).is_pending()"
+    );
 
     drop(held.swap_remove(free_index));
     let (selected, permit) = tokio::time::timeout(Duration::from_secs(1), acquisition)
@@ -198,7 +231,7 @@ async fn blocked_race_returns_the_single_slot_released_after_registration(
         .expect("released capacity should wake the blocked race")
         .expect("the released slot should grant exactly one permit");
 
-    assert_eq!(selected, free_index);
+    assert_eq!(selected, free_index, "selected should equal free_index");
     assert!(
         core.slot(selected)
             .expect("the selected slot should exist")
@@ -217,7 +250,10 @@ async fn simultaneous_readiness_returns_one_permit_and_drops_the_loser() {
     let core = test_core(2);
     let held = hold_all_permits(&core);
     let mut acquisition = std::pin::pin!(core.acquire_slot_permit());
-    assert!(futures::poll!(acquisition.as_mut()).is_pending());
+    assert!(
+        futures::poll!(acquisition.as_mut()).is_pending(),
+        "assertion failed: futures::poll!(acquisition.as_mut()).is_pending()"
+    );
 
     drop(held);
     let (winner_index, winner_permit) = tokio::time::timeout(Duration::from_secs(1), acquisition)
@@ -254,7 +290,10 @@ async fn cancelling_a_blocked_race_leaves_every_slot_usable() {
     let held = hold_all_permits(&core);
     {
         let mut acquisition = std::pin::pin!(core.acquire_slot_permit());
-        assert!(futures::poll!(acquisition.as_mut()).is_pending());
+        assert!(
+            futures::poll!(acquisition.as_mut()).is_pending(),
+            "assertion failed: futures::poll!(acquisition.as_mut()).is_pending()"
+        );
     }
 
     drop(held);
@@ -265,7 +304,10 @@ async fn cancelling_a_blocked_race_leaves_every_slot_usable() {
             .expect("a fresh acquisition should complete after cancellation")
             .expect("cancellation must not lose any slot permit");
 
-    assert!(slot_index < core.slots.len());
+    assert!(
+        slot_index < core.slots.len(),
+        "assertion failed: slot_index < core.slots.len()"
+    );
     drop(permit);
 }
 
@@ -283,7 +325,10 @@ async fn blocked_race_preserves_capacity_for_every_ready_set(#[case] slot_count:
             .map(Some)
             .collect::<Vec<_>>();
         let mut acquisition = std::pin::pin!(core.acquire_slot_permit());
-        assert!(futures::poll!(acquisition.as_mut()).is_pending());
+        assert!(
+            futures::poll!(acquisition.as_mut()).is_pending(),
+            "assertion failed: futures::poll!(acquisition.as_mut()).is_pending()"
+        );
 
         for (index, permit) in held.iter_mut().enumerate() {
             if ready & (1 << index) != 0 {
@@ -294,7 +339,11 @@ async fn blocked_race_preserves_capacity_for_every_ready_set(#[case] slot_count:
             .await
             .expect("a ready slot must wake the race")
             .expect("a ready slot must grant a permit");
-        assert_ne!(ready & (1 << winner), 0);
+        assert_ne!(
+            ready & (1 << winner),
+            0,
+            "ready & (1 << winner) should not equal 0"
+        );
 
         for index in 0..slot_count {
             let available = core

@@ -95,7 +95,7 @@ impl TemporaryCargoWrapper {
 }
 
 impl Drop for TemporaryCargoWrapper {
-    fn drop(&mut self) { let _ = self.directory.remove_file(&self.filename); }
+    fn drop(&mut self) { drop(self.directory.remove_file(&self.filename)); }
 }
 
 fn ensure(condition: bool, message: impl Into<String>) -> TestResult {

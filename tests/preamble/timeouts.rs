@@ -73,10 +73,10 @@ fn timeout_success_handler(
 + Sync
 + 'static {
     move |p, stream| {
-        let holder = holder.clone();
+        let signal_holder = holder.clone();
         let clone = p.clone();
         Box::pin(async move {
-            notify_holder(&holder)?;
+            notify_holder(&signal_holder)?;
             stream.write_all(b"OK").await?;
             stream.flush().await?;
             // keep connection open by not shutting down here
@@ -107,7 +107,7 @@ fn timed_out_failure_handler(
 + Sync
 + 'static {
     move |err, stream| {
-        let holder = holder.clone();
+        let failure_signal = holder.clone();
         Box::pin(async move {
             ensure_timed_out_decode_error(err)?;
             if let Some(reply) = reply {
@@ -115,7 +115,7 @@ fn timed_out_failure_handler(
                 stream.flush().await?;
             }
             stream.shutdown().await?;
-            notify_holder(&holder)?;
+            notify_holder(&failure_signal)?;
             Ok::<(), io::Error>(())
         })
     }
@@ -172,7 +172,7 @@ where
             None
         };
         let closed = expect_closed(&mut stream, Duration::from_millis(200)).await?;
-        let _ = result_tx.send((elapsed, closed, reply_bytes));
+        let _reply_result_sent = result_tx.send((elapsed, closed, reply_bytes));
         Ok(())
     })
     .await?;
@@ -270,7 +270,7 @@ async fn default_preamble_timeout_closes_idle_unit_preamble_connection() -> Test
         let read = timeout(beyond_default_timeout(), stream.read(&mut buf)).await;
         let closed = is_connection_closed(read?)?;
         let elapsed = started.elapsed();
-        let _ = result_tx.send((closed, elapsed));
+        let _closed_result_sent = result_tx.send((closed, elapsed));
         Ok(())
     })
     .await?;
@@ -319,7 +319,7 @@ async fn disabled_preamble_timeout_keeps_idle_connection_open() -> TestResult {
         let failure_fired = failure_rx.try_recv().is_ok();
         // Closing here lets the fixture's graceful drain finish.
         drop(stream);
-        let _ = result_tx.send((still_open, failure_fired));
+        let _failure_state_sent = result_tx.send((still_open, failure_fired));
         Ok(())
     })
     .await?;

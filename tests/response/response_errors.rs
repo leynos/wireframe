@@ -28,7 +28,7 @@ impl<'de> bincode::BorrowDecode<'de, ()> for FailingResp {
     fn borrow_decode<D: bincode::de::BorrowDecoder<'de, Context = ()>>(
         _: &mut D,
     ) -> Result<Self, bincode::error::DecodeError> {
-        Ok(FailingResp)
+        Ok(Self)
     }
 }
 
@@ -208,7 +208,11 @@ async fn send_response_returns_encode_error() {
         .await
         .expect_err("send_response should fail when encode errors");
     assert_serialize_error(&err);
-    assert_eq!(err.to_string(), "serialization error: Other(\"fail\")");
+    assert_eq!(
+        err.to_string(),
+        "serialization error: Other(\"fail\")",
+        "err.to_string() should equal \"serialization error: Other(\\\"fail\\\")\""
+    );
 }
 
 #[tokio::test]

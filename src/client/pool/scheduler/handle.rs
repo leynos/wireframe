@@ -39,7 +39,7 @@ pub(crate) enum SchedulerLifecycle {
 
 impl SchedulerLifecycle {
     /// Decode a stored lifecycle, treating unknown values as failure.
-    fn from_raw(raw: u8) -> Self {
+    const fn from_raw(raw: u8) -> Self {
         match raw {
             0 => Self::Running,
             1 => Self::Closed,
@@ -90,7 +90,10 @@ impl SchedulerStatus {
 
     /// Publish an orderly closure without overwriting an earlier failure.
     pub(crate) fn mark_closed(&self) {
-        let _ = self.lifecycle.compare_exchange(
+        // A failed exchange means another observer already recorded a terminal
+        // state; the earlier state wins, so the rejection is intentional. The
+        // previous value is recorded only to make that intent explicit.
+        let _previous_state = self.lifecycle.compare_exchange(
             SchedulerLifecycle::Running as u8,
             SchedulerLifecycle::Closed as u8,
             Ordering::AcqRel,
@@ -116,7 +119,7 @@ impl SchedulerStatus {
     pub(crate) fn churn(&self) -> &PoolTaskChurnCounts { &self.churn }
 
     /// Process-local pool identifier, used for structured failure logging.
-    pub(crate) fn pool_id(&self) -> u64 { self.pool_id }
+    pub(crate) const fn pool_id(&self) -> u64 { self.pool_id }
 }
 
 /// Cloneable handle used by pool owners and logical sessions to reach the task.
@@ -191,9 +194,12 @@ where
     /// Non-blocking and harmless after shutdown: a closed mailbox already
     /// implies the task has no waiter left to clean up.
     pub(crate) fn deregister(&self, handle_id: u64) {
-        let _ = self
-            .sender
-            .send(SchedulerCommand::DeregisterHandle { handle_id });
+        // A closed mailbox already implies the task has no waiter left to
+        // clean up, so the send failure needs no recovery.
+        drop(
+            self.sender
+                .send(SchedulerCommand::DeregisterHandle { handle_id }),
+        );
     }
 
     /// Publish an orderly closure before the mailbox is dropped.
@@ -204,7 +210,5 @@ where
 
     /// Inject a scheduler panic so tests can observe failure propagation.
     #[cfg(test)]
-    pub(crate) fn panic_for_test(&self) {
-        let _ = self.sender.send(SchedulerCommand::PanicForTest);
-    }
+    pub(crate) fn panic_for_test(&self) { drop(self.sender.send(SchedulerCommand::PanicForTest)); }
 }

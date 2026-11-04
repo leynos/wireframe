@@ -9,7 +9,10 @@ fn plain_envelope_is_not_a_stream_terminator() {
     // so a plain data envelope must report `false`. Terminator tests all use
     // types that override the method, leaving the default's false case unguarded.
     let env = Envelope::new(1, None, vec![42]);
-    assert!(!env.is_stream_terminator());
+    assert!(
+        !env.is_stream_terminator(),
+        "assertion failed: !env.is_stream_terminator()"
+    );
 }
 
 #[test]
@@ -17,13 +20,17 @@ fn envelope_from_parts_round_trip() {
     let env = Envelope::new(2, Some(5), vec![1, 2]);
     let parts = env.into_parts();
     let rebuilt = Envelope::from(parts);
-    let parts = rebuilt.into_parts();
-    let id = parts.id();
-    let correlation_id = parts.correlation_id();
-    let payload = parts.into_payload();
-    assert_eq!(id, 2);
-    assert_eq!(correlation_id, Some(5));
-    assert_eq!(payload, vec![1, 2]);
+    let rebuilt_parts = rebuilt.into_parts();
+    let id = rebuilt_parts.id();
+    let correlation_id = rebuilt_parts.correlation_id();
+    let payload = rebuilt_parts.into_payload();
+    assert_eq!(id, 2, "id should equal 2");
+    assert_eq!(
+        correlation_id,
+        Some(5),
+        "correlation_id should equal Some(5)"
+    );
+    assert_eq!(payload, vec![1, 2], "payload should equal vec![1, 2]");
 }
 
 #[rstest::rstest(
@@ -35,5 +42,9 @@ fn envelope_from_parts_round_trip() {
 )]
 fn inherit_variants(start: PacketParts, source: Option<u64>, expected: Option<u64>) {
     let got = start.inherit_correlation(source);
-    assert_eq!(got.correlation_id(), expected);
+    assert_eq!(
+        got.correlation_id(),
+        expected,
+        "got.correlation_id() should equal expected"
+    );
 }

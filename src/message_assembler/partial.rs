@@ -55,7 +55,7 @@ impl PartialAssembly {
     pub(super) const fn body_len(&self) -> usize { self.body.len() }
 
     /// Declared total body length, if the first frame supplied one.
-    pub(super) fn declared_total(&self) -> Option<usize> { self.series.expected_total() }
+    pub(super) const fn declared_total(&self) -> Option<usize> { self.series.expected_total() }
 
     /// Validate continuity and report whether the series is now complete.
     pub(super) fn accept_continuation(

@@ -127,7 +127,7 @@ impl BudgetCleanupWorld {
         self.runtime.as_ref().ok_or_else(|| {
             self.runtime_error
                 .clone()
-                .unwrap_or_else(|| "runtime unavailable".to_string())
+                .unwrap_or_else(|| "runtime unavailable".to_owned())
                 .into()
         })
     }
@@ -172,10 +172,10 @@ impl BudgetCleanupWorld {
         let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let (assembler, processed_rx) = FrameProcessingAssembler::new();
         let handler: Handler<Envelope> = std::sync::Arc::new(move |envelope: &Envelope| {
-            let tx = tx.clone();
+            let sender = tx.clone();
             let payload = envelope.payload_bytes().to_vec();
             Box::pin(async move {
-                let _ = tx.send(payload);
+                drop(sender.send(payload));
             })
         });
 
@@ -261,13 +261,13 @@ impl BudgetCleanupWorld {
 
     /// Assert that the expected payload is eventually observed.
     pub fn assert_payload_received(&mut self, expected: &str) -> TestResult {
-        let expected = expected.as_bytes();
+        let expected_bytes = expected.as_bytes();
         for _ in 0..SPIN_ATTEMPTS {
             self.drain_ready_payloads()?;
             if self
                 .observed_payloads
                 .iter()
-                .any(|payload| payload.as_slice() == expected)
+                .any(|payload| payload.as_slice() == expected_bytes)
             {
                 return Ok(());
             }
@@ -276,7 +276,7 @@ impl BudgetCleanupWorld {
 
         Err(format!(
             "expected payload {:?} not observed; observed={:?}",
-            expected, self.observed_payloads
+            expected_bytes, self.observed_payloads
         )
         .into())
     }

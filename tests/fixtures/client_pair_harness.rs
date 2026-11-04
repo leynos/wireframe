@@ -125,7 +125,7 @@ impl ClientPairHarnessWorld {
 impl Drop for ClientPairHarnessWorld {
     fn drop(&mut self) {
         if let Some(mut pair) = self.pair.take() {
-            let _ = self.runtime.block_on(pair.shutdown());
+            drop(self.runtime.block_on(pair.shutdown()));
         }
     }
 }

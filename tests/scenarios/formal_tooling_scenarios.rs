@@ -28,8 +28,8 @@ fn assert_repository_exposes_formal_execution_targets(
     name = "The repository declares pinned prover tooling"
 )]
 fn repository_declares_pinned_prover_tooling(formal_tooling_world: FormalToolingWorld) {
-    let mut formal_tooling_world = formal_tooling_world;
-    assert_repository_declares_pinned_prover_tooling(&mut formal_tooling_world)
+    let mut world = formal_tooling_world;
+    assert_repository_declares_pinned_prover_tooling(&mut world)
         .expect("formal tooling scenario should pass");
 }
 
@@ -40,7 +40,7 @@ fn repository_declares_pinned_prover_tooling(formal_tooling_world: FormalTooling
 fn repository_exposes_formal_verification_execution_targets(
     formal_tooling_world: FormalToolingWorld,
 ) {
-    let mut formal_tooling_world = formal_tooling_world;
-    assert_repository_exposes_formal_execution_targets(&mut formal_tooling_world)
+    let mut world = formal_tooling_world;
+    assert_repository_exposes_formal_execution_targets(&mut world)
         .expect("formal execution targets scenario should pass");
 }

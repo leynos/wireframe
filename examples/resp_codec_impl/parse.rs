@@ -112,7 +112,7 @@ where
     let Some((text, next)) = parse_text_line(ctx, error_msg)? else {
         return Ok(None);
     };
-    let frame = constructor(text.to_string());
+    let frame = constructor(text.to_owned());
     Ok(Some((frame, next - start)))
 }
 /// Decode a `+` frame without consuming incomplete input.

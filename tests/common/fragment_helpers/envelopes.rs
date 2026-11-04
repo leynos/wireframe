@@ -29,8 +29,8 @@ pub fn fragment_envelope(env: &Envelope, fragmenter: &Fragmenter) -> TestResult<
         .fragment_bytes(payload)?
         .into_iter()
         .map(|fragment| {
-            let (header, payload) = fragment.into_parts();
-            encode_fragment_payload(header, &payload)
+            let (header, fragment_payload) = fragment.into_parts();
+            encode_fragment_payload(header, &fragment_payload)
                 .map(|encoded| Envelope::new(id, correlation, encoded))
                 .map_err(TestError::from)
         })

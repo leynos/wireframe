@@ -56,7 +56,7 @@ fn load_message_assembly_state(
 }
 
 fn require_completed(envelope: Option<Envelope>, context: &str) -> Envelope {
-    some(envelope, context)
+    envelope.expect(context)
 }
 
 fn ok<T, E>(result: Result<T, E>, context: &str) -> T
@@ -69,20 +69,13 @@ where
     }
 }
 
-fn some<T>(value: Option<T>, context: &str) -> T {
-    match value {
-        Some(value) => value,
-        None => panic!("{context}"),
-    }
-}
-
 #[rstest]
 fn inbound_assembly_handles_interleaved_sequences(
     message_assembler: Arc<dyn crate::message_assembler::MessageAssembler>,
     message_assembly_state: Result<MessageAssemblyState, &'static str>,
 ) {
     let mut deser_failures = 0_u32;
-    let mut message_assembly_state = Some(load_message_assembly_state(message_assembly_state));
+    let mut assembly_state = Some(load_message_assembly_state(message_assembly_state));
 
     let key1_first = inbound_envelope(
         9,
@@ -127,32 +120,36 @@ fn inbound_assembly_handles_interleaved_sequences(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 key1_first,
             ),
             "first key1 should process",
         )
-        .is_none()
+        .is_none(),
+        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
+         &mut deser_failures, key1_first, ), \"first key1 should process\", ) .is_none()"
     );
     assert!(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 key2_first,
             ),
             "first key2 should process",
         )
-        .is_none()
+        .is_none(),
+        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
+         &mut deser_failures, key2_first, ), \"first key2 should process\", ) .is_none()"
     );
 
     let completed_a = require_completed(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 key1_last,
             ),
@@ -160,13 +157,17 @@ fn inbound_assembly_handles_interleaved_sequences(
         ),
         "key1 should complete",
     );
-    assert_eq!(completed_a.payload_bytes(), b"A1A2");
+    assert_eq!(
+        completed_a.payload_bytes(),
+        b"A1A2",
+        "completed_a.payload_bytes() should equal b\"A1A2\""
+    );
 
     let completed_b = require_completed(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 key2_last,
             ),
@@ -174,7 +175,11 @@ fn inbound_assembly_handles_interleaved_sequences(
         ),
         "key2 should complete",
     );
-    assert_eq!(completed_b.payload_bytes(), b"B1B2");
+    assert_eq!(
+        completed_b.payload_bytes(),
+        b"B1B2",
+        "completed_b.payload_bytes() should equal b\"B1B2\""
+    );
 
     assert_eq!(deser_failures, 0, "no failures expected");
 }
@@ -185,7 +190,7 @@ fn inbound_assembly_rejects_ordering_violations(
     message_assembly_state: Result<MessageAssemblyState, &'static str>,
 ) {
     let mut deser_failures = 0_u32;
-    let mut message_assembly_state = Some(load_message_assembly_state(message_assembly_state));
+    let mut assembly_state = Some(load_message_assembly_state(message_assembly_state));
 
     let first = inbound_envelope(
         3,
@@ -235,37 +240,44 @@ fn inbound_assembly_rejects_ordering_violations(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 first,
             ),
             "first frame should process",
         )
-        .is_none()
+        .is_none(),
+        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
+         &mut deser_failures, first, ), \"first frame should process\", ) .is_none()"
     );
     assert!(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 cont_seq1,
             ),
             "first continuation should process",
         )
-        .is_none()
+        .is_none(),
+        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
+         &mut deser_failures, cont_seq1, ), \"first continuation should process\", ) .is_none()"
     );
     assert!(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 cont_seq3,
             ),
             "out-of-order continuation should be recoverable",
         )
-        .is_none()
+        .is_none(),
+        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
+         &mut deser_failures, cont_seq3, ), \"out-of-order continuation should be recoverable\", \
+         ) .is_none()"
     );
     assert_eq!(
         deser_failures, 1,
@@ -276,7 +288,7 @@ fn inbound_assembly_rejects_ordering_violations(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 cont_seq2,
             ),
@@ -284,7 +296,11 @@ fn inbound_assembly_rejects_ordering_violations(
         ),
         "message should complete after recovery",
     );
-    assert_eq!(completed.payload_bytes(), b"abcdgh");
+    assert_eq!(
+        completed.payload_bytes(),
+        b"abcdgh",
+        "completed.payload_bytes() should equal b\"abcdgh\""
+    );
 }
 
 #[rstest]
@@ -293,7 +309,7 @@ fn inbound_assembly_timeout_purges_partial_state(
     message_assembly_state: Result<MessageAssemblyState, &'static str>,
 ) {
     let mut deser_failures = 0_u32;
-    let mut message_assembly_state = Some(load_message_assembly_state(message_assembly_state));
+    let mut assembly_state = Some(load_message_assembly_state(message_assembly_state));
 
     let first = inbound_envelope(
         5,
@@ -306,23 +322,24 @@ fn inbound_assembly_timeout_purges_partial_state(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 first,
             ),
             "first frame should process",
         )
-        .is_none()
+        .is_none(),
+        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
+         &mut deser_failures, first, ), \"first frame should process\", ) .is_none()"
     );
 
     // Advance a synthetic clock past the 60-second assembly timeout so the
     // purge is deterministic and independent of real wall-clock scheduling.
     let well_past_timeout = Instant::now() + Duration::from_secs(61);
-    some(
-        message_assembly_state.as_mut(),
-        "assembly state should exist",
-    )
-    .purge_expired_at(well_past_timeout);
+    assembly_state
+        .as_mut()
+        .expect("assembly state should exist")
+        .purge_expired_at(well_past_timeout);
 
     let continuation = inbound_envelope(
         5,
@@ -340,13 +357,16 @@ fn inbound_assembly_timeout_purges_partial_state(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 continuation,
             ),
             "continuation after purge should be recoverable",
         )
-        .is_none()
+        .is_none(),
+        "assertion failed: ok( process_assembly_frame( &message_assembler, &mut assembly_state, \
+         &mut deser_failures, continuation, ), \"continuation after purge should be \
+         recoverable\", ) .is_none()"
     );
     assert_eq!(
         deser_failures, 1,

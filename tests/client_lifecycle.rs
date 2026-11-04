@@ -50,18 +50,18 @@ async fn client_setup_and_teardown_callbacks_run() -> TestResult<()> {
 
     let client = WireframeClient::builder()
         .on_connection_setup(move || {
-            let setup = setup.clone();
+            let setup_for_callback = setup.clone();
             async move {
-                setup.fetch_add(1, Ordering::SeqCst);
+                setup_for_callback.fetch_add(1, Ordering::SeqCst);
                 42u32
             }
         })
         .on_connection_teardown(move |state: u32| {
-            let teardown = teardown.clone();
-            let observed_teardown_state = observed_teardown_state.clone();
+            let teardown_for_callback = teardown.clone();
+            let observed_state_for_callback = observed_teardown_state.clone();
             async move {
-                observed_teardown_state.store(state, Ordering::SeqCst);
-                teardown.fetch_add(1, Ordering::SeqCst);
+                observed_state_for_callback.store(state, Ordering::SeqCst);
+                teardown_for_callback.fetch_add(1, Ordering::SeqCst);
             }
         })
         .connect(addr)
@@ -108,9 +108,9 @@ async fn client_error_hook_invoked_on_disconnect() -> TestResult<()> {
 
     let mut client = WireframeClient::builder()
         .on_error(move |_err| {
-            let count = count.clone();
+            let count_for_callback = count.clone();
             async move {
-                count.fetch_add(1, Ordering::SeqCst);
+                count_for_callback.fetch_add(1, Ordering::SeqCst);
             }
         })
         .connect(addr)
@@ -172,9 +172,9 @@ async fn client_lifecycle_hooks_work_with_preamble() -> TestResult<()> {
     let client = WireframeClient::builder()
         .with_preamble(ClientHello { version: 1 })
         .on_preamble_success(move |_preamble, stream| {
-            let preamble = preamble.clone();
+            let preamble_for_callback = preamble.clone();
             async move {
-                preamble.fetch_add(1, Ordering::SeqCst);
+                preamble_for_callback.fetch_add(1, Ordering::SeqCst);
                 let (ack, leftover) = read_preamble::<_, ServerAck>(stream).await.map_err(|e| {
                     std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string())
                 })?;
@@ -189,16 +189,16 @@ async fn client_lifecycle_hooks_work_with_preamble() -> TestResult<()> {
             .boxed()
         })
         .on_connection_setup(move || {
-            let setup = setup.clone();
+            let setup_for_callback = setup.clone();
             async move {
-                setup.fetch_add(1, Ordering::SeqCst);
+                setup_for_callback.fetch_add(1, Ordering::SeqCst);
                 "session-state"
             }
         })
         .on_connection_teardown(move |_: &str| {
-            let teardown = teardown.clone();
+            let teardown_for_callback = teardown.clone();
             async move {
-                teardown.fetch_add(1, Ordering::SeqCst);
+                teardown_for_callback.fetch_add(1, Ordering::SeqCst);
             }
         })
         .connect(addr)

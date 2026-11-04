@@ -74,8 +74,16 @@ async fn middleware_modifies_request_and_response_preserves_cid(correlation_id: 
     let request = ServiceRequest::new(vec![1, 2, 3], correlation_id);
     let response = wrapped.call(request).await.expect("middleware call failed");
 
-    assert_eq!(response.frame(), &[1, 2, 3, b'!', b'?']);
-    assert_eq!(response.correlation_id(), correlation_id);
+    assert_eq!(
+        response.frame(),
+        &[1, 2, 3, b'!', b'?'],
+        "response.frame() should equal &[1, 2, 3, b'!', b'?']"
+    );
+    assert_eq!(
+        response.correlation_id(),
+        correlation_id,
+        "response.correlation_id() should equal correlation_id"
+    );
 }
 
 #[tokio::test]
@@ -108,20 +116,44 @@ async fn from_fn_clones_captured_state_across_routes() {
         .await
         .expect("second route middleware call should succeed");
 
-    assert_eq!(first_response.frame(), b"X!?");
-    assert_eq!(first_response.correlation_id(), Some(7));
-    assert_eq!(second_response.frame(), b"Y!?");
-    assert_eq!(second_response.correlation_id(), Some(8));
+    assert_eq!(
+        first_response.frame(),
+        b"X!?",
+        "first_response.frame() should equal b\"X!?\""
+    );
+    assert_eq!(
+        first_response.correlation_id(),
+        Some(7),
+        "first_response.correlation_id() should equal Some(7)"
+    );
+    assert_eq!(
+        second_response.frame(),
+        b"Y!?",
+        "second_response.frame() should equal b\"Y!?\""
+    );
+    assert_eq!(
+        second_response.correlation_id(),
+        Some(8),
+        "second_response.correlation_id() should equal Some(8)"
+    );
 }
 
 #[test]
 fn service_request_setter_updates_correlation_id() {
     let mut req = ServiceRequest::new(vec![], None);
-    let _ = req.set_correlation_id(Some(7));
-    assert_eq!(req.correlation_id(), Some(7));
+    let _initial_correlation = req.set_correlation_id(Some(7));
+    assert_eq!(
+        req.correlation_id(),
+        Some(7),
+        "req.correlation_id() should equal Some(7)"
+    );
 
-    let _ = req.set_correlation_id(None);
-    assert_eq!(req.correlation_id(), None);
+    let _cleared_correlation = req.set_correlation_id(None);
+    assert_eq!(
+        req.correlation_id(),
+        None,
+        "req.correlation_id() should equal None"
+    );
 }
 
 /// The `frame` accessor has no production callers, so a mutant returning a
@@ -129,5 +161,9 @@ fn service_request_setter_updates_correlation_id() {
 #[test]
 fn service_request_frame_borrows_original_bytes() {
     let req = ServiceRequest::new(vec![1, 2, 3], None);
-    assert_eq!(req.frame(), &[1, 2, 3]);
+    assert_eq!(
+        req.frame(),
+        &[1, 2, 3],
+        "req.frame() should equal &[1, 2, 3]"
+    );
 }

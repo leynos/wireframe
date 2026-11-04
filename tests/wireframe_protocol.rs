@@ -190,14 +190,14 @@ async fn connection_actor_uses_protocol_from_builder(queues: QueueResult) -> Tes
     let app = TestApp::new()?.with_protocol(protocol);
 
     let hooks = app.protocol_hooks();
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     handle
         .push_high_priority(vec![1])
         .await
         .map_err(|e| std::io::Error::other(format!("push failed: {e}")))?;
     let stream = stream::iter(vec![Ok(vec![2u8])]);
     let mut actor: ConnectionActor<_, ()> = ConnectionActor::with_hooks(
-        ConnectionChannels::new(queues, handle),
+        ConnectionChannels::new(push_queues, handle),
         Some(Box::pin(stream)),
         CancellationToken::new(),
         hooks,

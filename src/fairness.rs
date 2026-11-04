@@ -145,13 +145,15 @@ mod tests {
 
         assert_eq!(
             fairness.should_yield_to_low_priority(),
-            expected_before_reset
+            expected_before_reset,
+            "fairness.should_yield_to_low_priority() should equal expected_before_reset"
         );
 
         fairness.reset();
         assert_eq!(
             fairness.should_yield_to_low_priority(),
-            expected_after_reset
+            expected_after_reset,
+            "fairness.should_yield_to_low_priority() should equal expected_after_reset"
         );
     }
 
@@ -164,9 +166,15 @@ mod tests {
         };
         let mut fairness = FairnessTracker::new(cfg);
         fairness.record_high_priority();
-        assert!(!fairness.should_yield_to_low_priority());
+        assert!(
+            !fairness.should_yield_to_low_priority(),
+            "assertion failed: !fairness.should_yield_to_low_priority()"
+        );
         fairness.record_high_priority();
-        assert!(!fairness.should_yield_to_low_priority());
+        assert!(
+            !fairness.should_yield_to_low_priority(),
+            "assertion failed: !fairness.should_yield_to_low_priority()"
+        );
     }
 
     #[derive(Clone, Debug)]
@@ -204,8 +212,14 @@ mod tests {
         };
         let mut fairness = FairnessTracker::with_clock(cfg, clock.clone());
         fairness.record_high_priority();
-        assert!(!fairness.should_yield_to_low_priority());
+        assert!(
+            !fairness.should_yield_to_low_priority(),
+            "assertion failed: !fairness.should_yield_to_low_priority()"
+        );
         clock.advance(Duration::from_millis(5));
-        assert!(fairness.should_yield_to_low_priority());
+        assert!(
+            fairness.should_yield_to_low_priority(),
+            "assertion failed: fairness.should_yield_to_low_priority()"
+        );
     }
 }

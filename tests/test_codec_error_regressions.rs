@@ -144,10 +144,10 @@ impl DefaultEofCase {
                     Ok(wire) => wire,
                     Err(error) => panic!("default test codec should encode: {error}"),
                 };
-                match full.get(..2) {
-                    Some(prefix) => prefix.to_vec(),
-                    None => panic!("encoded frame should contain at least two header bytes"),
-                }
+                full.get(..2).map_or_else(
+                    || panic!("encoded frame should contain at least two header bytes"),
+                    <[u8]>::to_vec,
+                )
             }
             Self::MidFrame => match truncated_payload_wire(&[1, 2, 3, 4]) {
                 Ok(wire) => wire,
@@ -232,10 +232,26 @@ impl DefaultEofCase {
     }
 )]
 fn taxonomy_cases_emit_expected_recovery_labels(#[case] case: TaxonomyCase) {
-    assert_eq!(case.error.error_type(), case.expected_type);
-    assert_eq!(case.error.default_recovery_policy(), case.expected_policy);
-    assert_eq!(case.error.should_disconnect(), case.expected_disconnect);
-    assert_eq!(case.error.is_clean_close(), case.expected_clean_close);
+    assert_eq!(
+        case.error.error_type(),
+        case.expected_type,
+        "case.error.error_type() should equal case.expected_type"
+    );
+    assert_eq!(
+        case.error.default_recovery_policy(),
+        case.expected_policy,
+        "case.error.default_recovery_policy() should equal case.expected_policy"
+    );
+    assert_eq!(
+        case.error.should_disconnect(),
+        case.expected_disconnect,
+        "case.error.should_disconnect() should equal case.expected_disconnect"
+    );
+    assert_eq!(
+        case.error.is_clean_close(),
+        case.expected_clean_close,
+        "case.error.is_clean_close() should equal case.expected_clean_close"
+    );
 
     let mut obs = ObservabilityHandle::new();
     obs.clear();
@@ -243,11 +259,13 @@ fn taxonomy_cases_emit_expected_recovery_labels(#[case] case: TaxonomyCase) {
 
     assert_eq!(
         obs.codec_error_counter(case.expected_type, case.expected_policy.as_str()),
-        1
+        1,
+        "obs.codec_error_counter(case.expected_type, case.expected_policy.as_str()) should equal 1"
     );
     assert_eq!(
         obs.counter_without_labels(wireframe::metrics::CODEC_ERRORS),
-        1
+        1,
+        "obs.counter_without_labels(wireframe::metrics::CODEC_ERRORS) should equal 1"
     );
 }
 
@@ -276,14 +294,18 @@ fn default_codec_eof_classification_remains_stable(
         Ok(actual) => actual,
         Err(error) => panic!("default codec EOF classification should succeed: {error}"),
     };
-    assert_eq!(actual, expected);
+    assert_eq!(actual, expected, "actual should equal expected");
 
     let error = CodecError::Eof(actual);
     let mut obs = ObservabilityHandle::new();
     obs.clear();
     record_codec_error(&mut obs, &error, error.default_recovery_policy());
 
-    assert_eq!(obs.codec_error_counter("eof", "disconnect"), 1);
+    assert_eq!(
+        obs.codec_error_counter("eof", "disconnect"),
+        1,
+        "obs.codec_error_counter(\"eof\", \"disconnect\") should equal 1"
+    );
 }
 
 #[test]
@@ -295,17 +317,33 @@ fn custom_recovery_hook_changes_observed_policy_label() {
     });
     let ctx = CodecErrorContext::new().with_connection_id(7);
 
-    assert_eq!(error.default_recovery_policy(), RecoveryPolicy::Drop);
+    assert_eq!(
+        error.default_recovery_policy(),
+        RecoveryPolicy::Drop,
+        "error.default_recovery_policy() should equal RecoveryPolicy::Drop"
+    );
 
     let overridden = hook.recovery_policy(&error, &ctx);
-    assert_eq!(overridden, RecoveryPolicy::Disconnect);
+    assert_eq!(
+        overridden,
+        RecoveryPolicy::Disconnect,
+        "overridden should equal RecoveryPolicy::Disconnect"
+    );
 
     let mut obs = ObservabilityHandle::new();
     obs.clear();
     record_codec_error(&mut obs, &error, overridden);
 
-    assert_eq!(obs.codec_error_counter("framing", "disconnect"), 1);
-    assert_eq!(obs.codec_error_counter("framing", "drop"), 0);
+    assert_eq!(
+        obs.codec_error_counter("framing", "disconnect"),
+        1,
+        "obs.codec_error_counter(\"framing\", \"disconnect\") should equal 1"
+    );
+    assert_eq!(
+        obs.codec_error_counter("framing", "drop"),
+        0,
+        "obs.codec_error_counter(\"framing\", \"drop\") should equal 0"
+    );
 }
 
 #[rstest]

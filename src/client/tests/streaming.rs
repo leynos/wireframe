@@ -79,10 +79,22 @@ async fn response_stream_yields_data_frames_in_order(
         received.push(result.expect("data frame should be Ok"));
     }
 
-    assert_eq!(received.len(), 3, "should receive exactly 3 data frames");
-    assert_eq!(received.first().expect("frame 0").payload, vec![10]);
-    assert_eq!(received.get(1).expect("frame 1").payload, vec![20]);
-    assert_eq!(received.get(2).expect("frame 2").payload, vec![30]);
+    assert_eq!(received.len(), 3, "three data frames");
+    assert_eq!(
+        received.first().expect("frame 0").payload,
+        vec![10],
+        "first payload"
+    );
+    assert_eq!(
+        received.get(1).expect("frame 1").payload,
+        vec![20],
+        "second payload"
+    );
+    assert_eq!(
+        received.get(2).expect("frame 2").payload,
+        vec![30],
+        "third payload"
+    );
     Ok(())
 }
 
@@ -107,24 +119,21 @@ async fn response_stream_terminates_on_terminator(
 
     // First item is the data frame.
     let first = stream.next().await.expect("should yield one data frame");
-    assert!(first.is_ok(), "data frame should be Ok");
+    assert!(first.is_ok(), "data frame must be Ok");
 
     // Mid-stream, before the terminator is polled, the stream must report
     // that it has not terminated (guards the `is_terminated` false polarity).
-    assert!(
-        !stream.is_terminated(),
-        "stream should not be terminated mid-stream"
-    );
+    assert!(!stream.is_terminated(), "stream not terminated mid-stream");
 
     // Second poll returns None (terminator consumed).
     let second = stream.next().await;
-    assert!(second.is_none(), "stream should terminate after terminator");
+    assert!(second.is_none(), "terminator must end stream");
 
     // Subsequent polls also return None.
     let third = stream.next().await;
-    assert!(third.is_none(), "stream should remain terminated");
+    assert!(third.is_none(), "stream must stay ended");
 
-    assert!(stream.is_terminated(), "is_terminated should be true");
+    assert!(stream.is_terminated(), "stream must be terminated");
     Ok(())
 }
 
@@ -149,24 +158,18 @@ async fn response_stream_validates_correlation_id(
     let result = stream.next().await;
     match result {
         Some(Err(ClientError::StreamCorrelationMismatch { expected, received })) => {
-            assert_eq!(expected, Some(correlation_id.get()));
-            assert_eq!(received, Some(wrong_cid.get()));
+            assert_eq!(expected, Some(correlation_id.get()), "expected cid");
+            assert_eq!(received, Some(wrong_cid.get()), "received cid");
         }
         other => panic!("expected StreamCorrelationMismatch, got {other:?}"),
     }
 
     // After a correlation mismatch, the stream should be marked terminated
     // and yield no further items.
-    assert!(
-        stream.is_terminated(),
-        "stream should be terminated after correlation mismatch"
-    );
+    assert!(stream.is_terminated(), "stream terminated after mismatch");
 
     let next = stream.next().await;
-    assert!(
-        next.is_none(),
-        "no further items should be yielded after correlation mismatch"
-    );
+    assert!(next.is_none(), "no items after mismatch");
     Ok(())
 }
 
@@ -188,10 +191,7 @@ async fn response_stream_handles_empty_stream(
 
     // Stream should immediately return None (only terminator was sent).
     let first = stream.next().await;
-    assert!(
-        first.is_none(),
-        "empty stream should yield None immediately"
-    );
+    assert!(first.is_none(), "empty stream must yield None");
     Ok(())
 }
 
@@ -217,15 +217,15 @@ async fn response_stream_handles_connection_close(
 
     // Should receive the two data frames.
     let first = stream.next().await.expect("first frame").expect("Ok");
-    assert_eq!(first.payload, vec![10]);
+    assert_eq!(first.payload, vec![10], "first frame payload");
     let second = stream.next().await.expect("second frame").expect("Ok");
-    assert_eq!(second.payload, vec![20]);
+    assert_eq!(second.payload, vec![20], "second frame payload");
 
     // Next poll should return an error (connection closed without terminator).
     let third = stream.next().await;
     assert!(
         matches!(third, Some(Err(ClientError::Wireframe(_)))),
-        "should return a transport error on disconnect, got {third:?}"
+        "transport error on disconnect"
     );
     Ok(())
 }
@@ -249,19 +249,13 @@ async fn response_stream_surfaces_decode_error(
     let first = stream.next().await;
     assert!(
         matches!(first, Some(Err(ClientError::Wireframe(_)))),
-        "expected decode error, got {first:?}"
+        "decode error must surface"
     );
 
     // After a decode failure the stream should be terminated.
-    assert!(
-        stream.is_terminated(),
-        "stream should be terminated after decode error"
-    );
+    assert!(stream.is_terminated(), "terminated after decode error");
     let second = stream.next().await;
-    assert!(
-        second.is_none(),
-        "no further items should be yielded after decode error"
-    );
+    assert!(second.is_none(), "no items after decode error");
     Ok(())
 }
 
@@ -285,7 +279,7 @@ async fn call_streaming_sends_request_and_returns_stream(
         .await
         .expect("call_streaming");
 
-    assert_eq!(stream.correlation_id(), cid.get());
+    assert_eq!(stream.correlation_id(), cid.get(), "stream correlation id");
     verify_single_frame_stream(stream, vec![77]).await
 }
 
@@ -328,10 +322,10 @@ async fn call_streaming_auto_generates_correlation_id()
                 drop(transport.send(Bytes::from(encoded)).await);
 
                 let term = TestStreamEnvelope::terminator(CorrelationId::new(cid));
-                let Ok(encoded) = BincodeSerializer.serialize(&term) else {
+                let Ok(term_bytes) = BincodeSerializer.serialize(&term) else {
                     return;
                 };
-                drop(transport.send(Bytes::from(encoded)).await);
+                drop(transport.send(Bytes::from(term_bytes)).await);
             }
         }),
     );
@@ -351,13 +345,13 @@ async fn call_streaming_auto_generates_correlation_id()
         .expect("call_streaming");
 
     // Verify the auto-generated correlation ID is positive.
-    assert!(stream.correlation_id() > 0, "should auto-generate CID");
+    assert!(stream.correlation_id() > 0, "auto-generated correlation id");
 
     let frame = stream.next().await.expect("data frame").expect("Ok");
-    assert_eq!(frame.payload, vec![42]);
+    assert_eq!(frame.payload, vec![42], "frame payload");
 
     let end = stream.next().await;
-    assert!(end.is_none(), "stream should terminate");
+    assert!(end.is_none(), "stream must end");
     Ok(())
 }
 

@@ -52,8 +52,8 @@ impl ActorHarness {
         let handle_slot = Arc::clone(&shared_handle);
         let duplicate_flag = Arc::clone(&duplicate_handle);
         let hooks = ProtocolHooks {
-            on_connection_setup: Some(Box::new(move |handle, _ctx| {
-                if handle_slot.set(handle).is_err() {
+            on_connection_setup: Some(Box::new(move |setup_handle, _ctx| {
+                if handle_slot.set(setup_handle).is_err() {
                     duplicate_flag.store(true, Ordering::Relaxed);
                 }
             })),
@@ -70,9 +70,9 @@ impl ActorHarness {
             shutdown,
             hooks,
         );
-        let shared_handle =
+        let unwrapped_handle =
             Arc::try_unwrap(shared_handle).map_err(|_| "push handle still shared at teardown")?;
-        let handle = shared_handle
+        let push_handle = unwrapped_handle
             .into_inner()
             .ok_or("connection setup hook did not run")?;
 
@@ -82,7 +82,7 @@ impl ActorHarness {
 
         Ok(Self {
             actor,
-            handle: Some(handle),
+            handle: Some(push_handle),
         })
     }
 

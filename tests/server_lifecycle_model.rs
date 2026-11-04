@@ -122,14 +122,14 @@ async fn graceful_shutdown(requested_workers: usize) -> TestResult {
         .bind_existing_listener(listener)?;
     let addr = server
         .local_addr()
-        .ok_or_else(|| "local address missing".to_string())?;
+        .ok_or_else(|| "local address missing".to_owned())?;
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let handle = tokio::spawn(async move {
         server
             .ready_signal(ready_tx)
             .run_with_shutdown(async {
-                let _ = shutdown_rx.await;
+                drop(shutdown_rx.await);
             })
             .await
     });
@@ -155,7 +155,7 @@ async fn drop_supervisor(requested_workers: usize) -> TestResult {
         .bind_existing_listener(listener)?;
     let addr = server
         .local_addr()
-        .ok_or_else(|| "local address missing".to_string())?;
+        .ok_or_else(|| "local address missing".to_owned())?;
     let (ready_tx, mut ready_rx) = oneshot::channel();
     let mut supervisor = Box::pin(
         server
@@ -186,7 +186,7 @@ async fn abort_supervisor(requested_workers: usize) -> TestResult {
         .bind_existing_listener(listener)?;
     let addr = server
         .local_addr()
-        .ok_or_else(|| "local address missing".to_string())?;
+        .ok_or_else(|| "local address missing".to_owned())?;
     let (ready_tx, ready_rx) = oneshot::channel();
     let handle = tokio::spawn(async move {
         server

@@ -24,7 +24,7 @@ use wireframe_testing::codec_benchmarks::{
 };
 
 /// Builds the workload for one codec and payload class.
-fn workload(codec: CodecUnderTest, payload_class: PayloadClass) -> BenchmarkWorkload {
+const fn workload(codec: CodecUnderTest, payload_class: PayloadClass) -> BenchmarkWorkload {
     BenchmarkWorkload {
         codec,
         payload_class,
@@ -47,12 +47,21 @@ fn outbound_encode_copies_the_payload_once_at_each_seam(
     let measurement = measure_outbound_encode(workload, 1).expect("outbound measurement");
 
     // The serializer materializes the payload into its own vector.
-    assert_eq!(measurement.serialize_only_copies.serialized, payload_len);
+    assert_eq!(
+        measurement.serialize_only_copies.serialized, payload_len,
+        "measurement.serialize_only_copies.serialized should equal payload_len"
+    );
     // The harness serializer sizes its output exactly, like bincode's
     // `encode_to_vec`, so the `Bytes::from` hand-off keeps the allocation.
-    assert_eq!(measurement.serialize_only_copies.handoff, 0);
+    assert_eq!(
+        measurement.serialize_only_copies.handoff, 0,
+        "measurement.serialize_only_copies.handoff should equal 0"
+    );
     // Serialization alone never reaches a codec, so nothing is framed.
-    assert_eq!(measurement.serialize_only_copies.framed, 0);
+    assert_eq!(
+        measurement.serialize_only_copies.framed, 0,
+        "measurement.serialize_only_copies.framed should equal 0"
+    );
     // `wrap_payload` builds a frame without writing into a transport buffer, so
     // the wrapping pass copies no bytes beyond the serializer materialization.
     assert_eq!(
@@ -61,7 +70,9 @@ fn outbound_encode_copies_the_payload_once_at_each_seam(
             serialized: payload_len,
             handoff: 0,
             framed: 0,
-        }
+        },
+        "measurement.serialize_and_wrap_copies should equal CopiedBytes {{ serialized: \
+         payload_len, handoff: 0, framed: 0, }}"
     );
 
     // The transport copy belongs to `Encoder::encode`, which the framing probe
@@ -73,7 +84,8 @@ fn outbound_encode_copies_the_payload_once_at_each_seam(
             serialized: 0,
             handoff: 0,
             framed: payload_len,
-        }
+        },
+        "framed should equal CopiedBytes {{ serialized: 0, handoff: 0, framed: payload_len, }}"
     );
 }
 
@@ -99,7 +111,7 @@ fn outbound_path_copies_the_payload_twice_per_message(
     let framed = measure_framed_copies(workload, 1).expect("framed copy measurement");
     let total = outbound.serialize_and_wrap_copies.total() + framed.total();
 
-    assert_eq!(total, 2 * payload_len);
+    assert_eq!(total, 2 * payload_len, "total should equal 2 * payload_len");
 }
 
 #[test]
@@ -113,13 +125,16 @@ fn successive_measurements_do_not_accumulate_counter_values() {
     // The counters are reset per measurement, so the second run reports the same
     // per-operation copy cost rather than twice it. Timings are deliberately
     // excluded: they vary between runs and are not the property under test.
-    assert_eq!(second.serialize_only_copies, first.serialize_only_copies);
     assert_eq!(
-        second.serialize_and_wrap_copies,
-        first.serialize_and_wrap_copies
+        second.serialize_only_copies, first.serialize_only_copies,
+        "second.serialize_only_copies should equal first.serialize_only_copies"
     );
     assert_eq!(
-        first.serialize_only_copies.serialized,
-        SMALL_PAYLOAD_BYTES as u64
+        second.serialize_and_wrap_copies, first.serialize_and_wrap_copies,
+        "second.serialize_and_wrap_copies should equal first.serialize_and_wrap_copies"
+    );
+    assert_eq!(
+        first.serialize_only_copies.serialized, SMALL_PAYLOAD_BYTES as u64,
+        "first.serialize_only_copies.serialized should equal SMALL_PAYLOAD_BYTES as u64"
     );
 }

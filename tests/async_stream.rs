@@ -35,5 +35,5 @@ async fn async_stream_frames_processed_in_order() {
     let mut actor = ConnectionActor::new(queues, handle, Some(stream), shutdown);
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");
-    assert_eq!(out, vec![0, 1, 2]);
+    assert_eq!(out, vec![0, 1, 2], "out should equal vec![0, 1, 2]");
 }

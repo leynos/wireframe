@@ -49,15 +49,31 @@ const BUFFER_SIZE_USIZE: usize = 256 * 1024;
 #[case(MAX_FRAME_LENGTH + 1, MAX_FRAME_LENGTH)]
 fn codec_config_clamps_max_frame_length(#[case] input: usize, #[case] expected: usize) {
     let config = ClientCodecConfig::default().max_frame_length(input);
-    assert_eq!(config.max_frame_length_value(), expected);
+    assert_eq!(
+        config.max_frame_length_value(),
+        expected,
+        "config.max_frame_length_value() should equal expected"
+    );
 }
 
 #[test]
 fn codec_config_defaults_match_server_buffer_capacity() {
     let config = ClientCodecConfig::default();
-    assert_eq!(config.max_frame_length_value(), DEFAULT_MAX_FRAME_LENGTH);
-    assert_eq!(config.length_format_value().bytes(), 4);
-    assert_eq!(config.length_format_value().endianness(), Endianness::Big);
+    assert_eq!(
+        config.max_frame_length_value(),
+        DEFAULT_MAX_FRAME_LENGTH,
+        "config.max_frame_length_value() should equal DEFAULT_MAX_FRAME_LENGTH"
+    );
+    assert_eq!(
+        config.length_format_value().bytes(),
+        4,
+        "config.length_format_value().bytes() should equal 4"
+    );
+    assert_eq!(
+        config.length_format_value().endianness(),
+        Endianness::Big,
+        "config.length_format_value().endianness() should equal Endianness::Big"
+    );
 }
 
 #[test]
