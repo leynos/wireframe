@@ -41,12 +41,20 @@ pub trait WireframeProtocol: Send + Sync + 'static {
 
     /// Invoked before any frame (push or response) is written to the socket.
     ///
-    /// The hook receives the serialized, codec-wrapped frame before codec
-    /// encoding, after fragmentation and [`FrameCodec::wrap_payload`]. A
-    /// custom encoder may still add its own header or trailer after the hook
-    /// runs, so the hook sees the frame payload rather than the exact bytes
-    /// written to the socket. The hook may enlarge the frame (for example, to
-    /// stamp a trailer). There is no implicit allowance for that growth:
+    /// The frame representation depends on which producer emits it:
+    ///
+    /// - For [`crate::app::WireframeApp`] handler responses, the hook receives the serialized,
+    ///   codec-wrapped frame before codec encoding: the payload is fragmented if configured, then
+    ///   serialized and passed through [`FrameCodec::wrap_payload`] before the hook runs. A custom
+    ///   encoder may still add its own header or trailer after the hook runs, so the hook sees the
+    ///   frame payload rather than the exact bytes written to the socket.
+    /// - For frames emitted by the connection actor, such as server pushes, multi-packet channel
+    ///   frames, and `stream_end_frame` output, the hook receives the frame in its already-built
+    ///   `Self::Frame` form. `ConnectionActor::push_frame` runs the hook on the frame and then
+    ///   appends it to the output; it does not serialize or codec-wrap the frame itself.
+    ///
+    /// In both cases the hook may enlarge the frame (for example, to stamp a
+    /// trailer). There is no implicit allowance for that growth:
     /// implementations **must** leave the frame within the codec's
     /// [`FrameCodec::max_frame_length`]. The default
     /// [`LengthDelimitedFrameCodec`] rejects an oversized frame with
