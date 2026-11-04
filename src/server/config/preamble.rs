@@ -94,8 +94,9 @@ where
     /// call the opt-out to remove the bound.
     ///
     /// The deadline covers the whole read, including the wait for the first
-    /// byte. A unit preamble (`T = ()`) still reads one byte, so a server-first
-    /// protocol whose client waits for a greeting must disable the timeout.
+    /// byte. A unit preamble (`T = ()`) still reads one byte, so a client that
+    /// waits for a server greeting blocks this read until an outer layer sends
+    /// that greeting; the server does not speak first.
     ///
     /// # Examples
     ///
@@ -120,8 +121,14 @@ where
     /// preamble read with [`DEFAULT_PREAMBLE_TIMEOUT`]. This method removes
     /// that bound, so a peer that never sends a preamble keeps its connection
     /// task alive indefinitely and can delay graceful drain. Prefer a longer
-    /// [`preamble_timeout`](Self::preamble_timeout) unless the protocol really
-    /// is server-first.
+    /// [`preamble_timeout`](Self::preamble_timeout) unless the protocol needs
+    /// unbounded waiting.
+    ///
+    /// This method only removes the deadline; it does not make the server speak
+    /// first. `WireframeServer` reads the preamble before it writes anything,
+    /// so a server-first protocol still needs its greeting from an outer layer
+    /// that runs before the preamble read. Opting out restores the previous
+    /// unbounded wait, including its availability risk.
     ///
     /// The last configuration call wins: calling
     /// [`preamble_timeout`](Self::preamble_timeout) afterwards re-enables a

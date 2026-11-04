@@ -15,9 +15,9 @@ All notable changes to this project will be documented in this file.
 - Breaking: `WireframeServer` now bounds the connection preamble read with
   `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) by default, so an unauthenticated
   connection cannot wait indefinitely for its first byte. Call
-  `disable_preamble_timeout()` to restore unbounded waiting for server-first
-  protocols, or `preamble_timeout(Duration)` to choose another deadline.
-  `Duration::ZERO` still clamps to 1 ms. Addresses
+  `preamble_timeout(Duration)` to choose another deadline, or
+  `disable_preamble_timeout()` to restore unbounded waiting when a peer
+  legitimately needs it. `Duration::ZERO` still clamps to 1 ms. Addresses
   [#546](https://github.com/leynos/wireframe/issues/546) (finding
   `csf_b9252731043bde37f2f34d2f`). See
   `docs/v0-3-0-to-v0-4-0-migration-guide.md`.

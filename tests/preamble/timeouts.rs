@@ -132,10 +132,14 @@ async fn expect_closed(stream: &mut TcpStream, limit: Duration) -> TestResult<bo
 ///
 /// The failure callback must observe a timed-out decode error, optionally
 /// reply, and close the connection. `minimum_elapsed` guards the tests that
-/// assert the server waited for its configured deadline before acting.
+/// assert the server waited for its configured deadline before acting, and
+/// `observation_limit` bounds how long that wait may take. A limit shorter
+/// than the default deadline makes the test fail when a shorter override is
+/// ignored.
 async fn assert_timed_out_connection<F>(
     server: WireframeServer<F, HotlinePreamble>,
     minimum_elapsed: Duration,
+    observation_limit: Duration,
     reply: Option<&'static [u8]>,
 ) -> TestResult
 where
@@ -147,11 +151,13 @@ where
         server.on_preamble_decode_failure(timed_out_failure_handler(failure_holder, reply));
 
     with_running_server(server, move |addr| async move {
-        let mut stream = TcpStream::connect(addr).await?;
+        // Start the clock before connecting so the measured interval covers
+        // the whole wait, including the server's accept and timer start.
         let started = Instant::now();
+        let mut stream = TcpStream::connect(addr).await?;
         // The test-side bound outlives the server deadline so paused time
         // auto-advances to the server's timer first.
-        recv_within(beyond_default_timeout(), failure_rx).await?;
+        recv_within(observation_limit, failure_rx).await?;
         let elapsed = started.elapsed();
 
         let reply_bytes = if let Some(expected) = reply {
@@ -233,7 +239,13 @@ async fn preamble_timeout_invokes_failure_handler_and_closes_connection() -> Tes
     let server = WireframeServer::new(factory())
         .with_preamble::<HotlinePreamble>()
         .preamble_timeout(Duration::from_millis(50));
-    assert_timed_out_connection(server, Duration::ZERO, Some(b"ERR")).await
+    assert_timed_out_connection(
+        server,
+        Duration::from_millis(50),
+        Duration::from_secs(5),
+        Some(b"ERR"),
+    )
+    .await
 }
 
 #[tokio::test]
@@ -277,7 +289,13 @@ async fn default_preamble_timeout_closes_idle_unit_preamble_connection() -> Test
 #[tokio::test(start_paused = true)]
 async fn default_preamble_timeout_reports_timed_out_decode_error() -> TestResult {
     let server = WireframeServer::new(factory()).with_preamble::<HotlinePreamble>();
-    assert_timed_out_connection(server, DEFAULT_PREAMBLE_TIMEOUT, None).await
+    assert_timed_out_connection(
+        server,
+        DEFAULT_PREAMBLE_TIMEOUT,
+        beyond_default_timeout(),
+        None,
+    )
+    .await
 }
 
 /// Disabling the deadline keeps an idle connection open indefinitely.

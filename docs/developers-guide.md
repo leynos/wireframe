@@ -368,8 +368,11 @@ preparation boundary.
 A connection task completes the preamble handshake before dispatch to
 `PreparedApp`, and the order is fixed:
 
-1. `read_preamble_with_timeout` reads and decodes the optional preamble,
-   applying `preamble_timeout` when one is configured.
+1. `read_preamble_with_timeout` reads and decodes the optional preamble under
+   `preamble_timeout`. Servers start with `DEFAULT_PREAMBLE_TIMEOUT` (10 s);
+   `WireframeServer::preamble_timeout` replaces that bound and
+   `disable_preamble_timeout` removes it, so the field is `None` and the read
+   carries no timer.
 2. `run_preamble_success` invokes the success callback, if one is registered,
    while the stream is still exclusively borrowed.
 3. `process_stream` rewinds any leftover bytes into a `RewindStream`.

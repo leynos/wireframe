@@ -187,11 +187,13 @@ handling run outside it.
 Most clients send their preamble immediately and need no change. Adjust the
 configuration when:
 
-- A client waits for a server greeting before sending anything (server-first
-  protocols). Call `disable_preamble_timeout()` so the server does not close
-  the connection first.
 - A legitimate handshake exchanges several messages and can exceed 10 seconds.
-  Call `preamble_timeout(Duration)` with a larger, explicit bound.
+  Call `preamble_timeout(Duration)` with a larger, explicit bound, or
+  `disable_preamble_timeout()` when the wait must be unbounded.
+- A client waits for a server greeting before sending anything (server-first
+  protocols). Disabling the deadline does not make the server speak first: the
+  preamble is still read before the server writes, so the greeting must come
+  from an outer layer that runs before the preamble read.
 
 The two setters override each other and the last call wins. `Duration::ZERO`
 still clamps to 1 ms, so use `disable_preamble_timeout()` rather than a zero

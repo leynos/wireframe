@@ -111,12 +111,14 @@ exposed as `wireframe::server::DEFAULT_PREAMBLE_TIMEOUT`, which wraps
 deadline; values below 1 ms are clamped to 1 ms, so `Duration::ZERO` still
 leaves a usable bound. The last configuration call wins.
 
-`disable_preamble_timeout()` removes the deadline entirely. Use it only for
-protocols where the client waits for a server greeting before sending anything,
-because a peer that never sends a preamble otherwise keeps its connection task
-alive indefinitely and delays graceful drain. The deadline covers only the
-preamble read: the success and failure callbacks and application message
-handling run outside it.
+`disable_preamble_timeout()` removes the deadline entirely. Use it only when a
+peer legitimately needs unbounded waiting, because a peer that never sends a
+preamble otherwise keeps its connection task alive indefinitely and delays
+graceful drain. The opt-out does not make the server speak first: the preamble
+is read before the server writes anything, so a server-first protocol still
+needs its greeting from an outer layer that runs before the preamble read. The
+deadline covers only the preamble read: the success and failure callbacks and
+application message handling run outside it.
 
 When decoding fails or times out, an optional failure handler runs before the
 connection is closed. The handler is asynchronous and receives both the error
