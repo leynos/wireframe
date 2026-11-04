@@ -281,9 +281,10 @@ def _defective_override(
         kinds=("test",),
         src_path=Path("/fixture") / f"{binary}_duplicate.rs",
     )
-    return [target, duplicate], {target.src_path: source}, _override_config(
-        filter_text
-    ), "resolves to 2 discovered test targets"
+    return [target, duplicate], {
+        target.src_path: source,
+        duplicate.src_path: source,
+    }, _override_config(filter_text), "resolves to 2 discovered test targets"
 
 
 @PROPERTY_SETTINGS
