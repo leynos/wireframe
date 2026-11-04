@@ -6,7 +6,6 @@ Run these workflow contract tests with ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import re
-import sys
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
@@ -15,7 +14,6 @@ import yaml
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 WORKFLOW_SUFFIXES = frozenset({".yaml", ".yml"})
-INSTALL_WHITAKER_PATH = "actions/install-whitaker"
 SHARED_ACTION_USES_RE = re.compile(
     r"^leynos/shared-actions/\.github/(?P<target>actions/[a-z0-9][a-z0-9-]*|"
     r"workflows/[a-z0-9][a-z0-9-]*\.yml)@(?P<version>[0-9a-f]{40})$"
@@ -77,13 +75,8 @@ def _shared_action_invocations() -> list[tuple[Path, str]]:
     return invocations
 
 
-def _shared_action_versions(
-    *, include_install_whitaker: bool = True
-) -> list[tuple[Path, str]]:
-    """Return validated workflow paths and their shared-action versions.
-
-    ``install-whitaker`` is left out when ``include_install_whitaker`` is false.
-    """
+def _shared_action_versions() -> list[tuple[Path, str]]:
+    """Return validated workflow paths and their shared-action versions."""
     versions = []
     for workflow_path, uses in _shared_action_invocations():
         match = SHARED_ACTION_USES_RE.fullmatch(uses)
@@ -92,8 +85,7 @@ def _shared_action_versions(
             f"pinned to a 40-character lowercase hex commit SHA, "
             f"not {uses!r}"
         )
-        if include_install_whitaker or match["target"] != INSTALL_WHITAKER_PATH:
-            versions.append((workflow_path, match["version"]))
+        versions.append((workflow_path, match["version"]))
     return versions
 
 
@@ -164,58 +156,12 @@ def test_shared_action_invocations_have_expected_shape() -> None:
 def test_shared_action_invocations_use_one_consistent_version() -> None:
     """Every workflow invokes the same shared-actions revision.
 
-    ``install-whitaker`` is the one exception: concordat QG-002 admits only
-    approved revisions of that action, which need not match the latest
-    shared-actions revision Dependabot moves the other actions to. It is pinned
-    to a full commit SHA on its own, as ``ci_workflow_test`` checks.
+    Whitaker is installed by ``make install-whitaker`` rather than a shared
+    action, so no invocation needs an exemption from revision equality.
     """
-    versions = _shared_action_versions(include_install_whitaker=False)
+    versions = _shared_action_versions()
     distinct_versions = {version for _, version in versions}
     assert len(distinct_versions) == 1, (
-        "all leynos/shared-actions invocations except install-whitaker must use one version; found "
+        "all leynos/shared-actions invocations must use one version; found "
         + ", ".join(f"{path.name}@{version}" for path, version in versions)
     )
-
-
-def test_install_whitaker_is_the_only_invocation_left_out_of_the_version_check(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Excluding ``install-whitaker`` drops that action and nothing else."""
-    prefix = "leynos/shared-actions/.github/"
-    monkeypatch.setattr(
-        sys.modules[__name__],
-        "_shared_action_invocations",
-        lambda: [
-            (Path("ci.yml"), f"{prefix}actions/install-whitaker@{'a' * 40}"),
-            (Path("ci.yml"), f"{prefix}actions/install-whitaker-extra@{'c' * 40}"),
-            (Path("ci.yml"), f"{prefix}actions/setup-rust@{'b' * 40}"),
-            (Path("ci.yml"), f"{prefix}workflows/mutation-cargo.yml@{'b' * 40}"),
-        ],
-    )
-
-    assert _shared_action_versions() == [
-        (Path("ci.yml"), "a" * 40),
-        (Path("ci.yml"), "c" * 40),
-        (Path("ci.yml"), "b" * 40),
-        (Path("ci.yml"), "b" * 40),
-    ]
-    assert _shared_action_versions(include_install_whitaker=False) == [
-        (Path("ci.yml"), "c" * 40),
-        (Path("ci.yml"), "b" * 40),
-        (Path("ci.yml"), "b" * 40),
-    ]
-
-
-def test_install_whitaker_exemption_still_validates_the_pin(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A malformed ``install-whitaker`` pin is rejected before it is excluded."""
-    prefix = "leynos/shared-actions/.github/"
-    monkeypatch.setattr(
-        sys.modules[__name__],
-        "_shared_action_invocations",
-        lambda: [(Path("ci.yml"), f"{prefix}actions/install-whitaker@main")],
-    )
-
-    with pytest.raises(AssertionError, match="40-character lowercase hex commit SHA"):
-        _shared_action_versions(include_install_whitaker=False)

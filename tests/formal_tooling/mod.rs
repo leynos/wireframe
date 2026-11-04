@@ -24,6 +24,8 @@ mod formal_tooling_support;
 #[path = "../common/repo_access.rs"]
 mod repo_access;
 
+mod lint_pipeline;
+
 use formal_tooling_support::{
     ChecksumsContent,
     FormalToolingResult as TestResult,
@@ -225,65 +227,10 @@ fn run_verus_target_passes_configured_proof_file() -> TestResult {
 fn workspace_validation_targets_retain_required_cargo_scope() -> TestResult {
     let makefile_str = makefile()?;
     let makefile = MakefileContent(&makefile_str);
-    let test_recipe = makefile
-        .target_recipe("test")
-        .ok_or_else(|| "expected `test` target in Makefile".to_owned())?;
-    let test_doc_recipe = makefile
-        .target_recipe("test-doc")
-        .ok_or_else(|| "expected `test-doc` target in Makefile".to_owned())?;
-    let typecheck_recipe = makefile
-        .target_recipe("typecheck")
-        .ok_or_else(|| "expected `typecheck` target in Makefile".to_owned())?;
-    let lint_recipe = makefile
-        .target_recipe("lint")
-        .ok_or_else(|| "expected `lint` target in Makefile".to_owned())?;
-    let lint_clippy_recipe = makefile
-        .target_recipe("lint-clippy")
-        .ok_or_else(|| "expected `lint-clippy` target in Makefile".to_owned())?;
-    let lint_whitaker_recipe = makefile
-        .target_recipe("lint-whitaker")
-        .ok_or_else(|| "expected `lint-whitaker` target in Makefile".to_owned())?;
-    let lint_gate_recipe = format!("{lint_recipe}\n{lint_clippy_recipe}");
 
-    for (target, recipe) in [
-        ("test", &test_recipe),
-        ("test-doc", &test_doc_recipe),
-        ("typecheck", &typecheck_recipe),
-    ] {
-        ensure(
-            recipe.contains("--workspace"),
-            format!("`{target}` should validate the supported workspace members"),
-        )?;
-    }
-    ensure(
-        test_recipe.contains("--all-targets --all-features"),
-        "`test` should retain all-target and all-feature coverage",
-    )?;
-    ensure(
-        test_doc_recipe.contains("--exclude wireframe_testing --doc --all-features"),
-        "`test-doc` should retain the tracked wireframe_testing doctest exclusion",
-    )?;
-    ensure(
-        typecheck_recipe.contains("--all-targets --all-features"),
-        "`typecheck` should retain all-target and all-feature coverage",
-    )?;
-    ensure(
-        lint_gate_recipe.contains("doc --workspace --no-deps"),
-        "the lint gate should retain workspace rustdoc coverage",
-    )?;
-    ensure(
-        lint_gate_recipe.contains("clippy $(CLIPPY_FLAGS)"),
-        "the lint gate should invoke the configured Clippy policy",
-    )?;
-    ensure(
-        lint_whitaker_recipe.contains("--all --workspace"),
-        "`lint-whitaker` should dylint-check every workspace member",
-    )?;
-    ensure(
-        makefile_str
-            .contains("CLIPPY_FLAGS ?= --workspace --all-targets --all-features -- -D warnings"),
-        "the shared Clippy policy should retain workspace-wide deny-warnings coverage",
-    )
+    lint_pipeline::assert_workspace_validation_scope(&makefile)?;
+    lint_pipeline::assert_lint_aggregate(&makefile)?;
+    lint_pipeline::assert_lint_leaf_flags()
 }
 
 #[rstest]

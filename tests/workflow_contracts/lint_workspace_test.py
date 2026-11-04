@@ -15,6 +15,8 @@ ROOT = Path(__file__).resolve().parents[2]
 MAKEFILE_PATH = ROOT / "Makefile"
 DEV_FAST_ARGUMENT = "--config tools/dev-fast/config.toml"
 LINKER_ARGUMENT = "-Clink-arg=-fuse-ld=mold"
+#: The three lint stages the aggregate must sequence.
+LINT_LEAVES = ("lint-doc", "lint-clippy", "lint-whitaker")
 
 
 def _make_dry_run(target: str) -> list[str]:
@@ -59,21 +61,25 @@ def _whitaker_lines() -> list[str]:
     return lines
 
 
-def test_whitaker_checks_every_workspace_member() -> None:
-    """Whitaker passes ``--workspace`` to the Cargo check it drives.
+def test_whitaker_checks_every_workspace_member_target_and_feature() -> None:
+    """Whitaker forwards the full Cargo selection to the inner ``cargo check``.
 
-    ``whitaker --all`` selects lint libraries, not Cargo packages, so without
-    this argument the three helper crates under ``crates/`` and
-    ``wireframe_testing`` are never dylint-checked.
+    ``whitaker --all`` selects lint libraries, not Cargo packages. The
+    workspace, all-target and all-feature flags must follow the ``--``
+    separator so they reach the ``cargo check`` Whitaker drives; without them
+    the helper crates and non-default targets are never dylint-checked.
     """
     line = _whitaker_lines()[0]
     before_separator, _, after_separator = line.partition(" -- ")
     assert before_separator.split(), f"missing Whitaker command in: {line}"
-    assert "--workspace" in before_separator.split(), (
-        "Whitaker must select every workspace member before the `--` separator, "
-        f"which forwards to `cargo check`: {line}"
+    assert "--all" in before_separator.split(), (
+        f"Whitaker must load every discovered lint library: {line}"
     )
-    assert after_separator, f"missing forwarded Cargo arguments in: {line}"
+    forwarded = after_separator.split()
+    for flag in ("--workspace", "--all-targets", "--all-features"):
+        assert flag in forwarded, (
+            f"Whitaker must forward {flag} to `cargo check`: {line}"
+        )
 
 
 def test_whitaker_stays_isolated_from_development_flags() -> None:
@@ -87,7 +93,7 @@ def test_whitaker_stays_isolated_from_development_flags() -> None:
     )
 
 
-def test_lint_runs_clippy_before_whitaker_even_under_parallel_make() -> None:
+def test_lint_runs_every_leaf_before_whitaker_even_under_parallel_make() -> None:
     """Sequencing is declared, not incidental to prerequisite order.
 
     Prerequisites of one target run concurrently under ``make -j``, so the
@@ -95,10 +101,27 @@ def test_lint_runs_clippy_before_whitaker_even_under_parallel_make() -> None:
     """
     makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
     assert ".NOTPARALLEL: lint" in makefile.splitlines(), (
-        "`lint` must declare .NOTPARALLEL so its halves cannot interleave"
+        "`lint` must declare .NOTPARALLEL so its leaves cannot interleave"
     )
-    assert "lint: lint-clippy lint-whitaker" in makefile, (
-        "`lint` must run the Clippy and Whitaker halves as separate targets"
+    assert "lint: lint-doc lint-clippy lint-whitaker" in makefile, (
+        "`lint` must aggregate the rustdoc, Clippy and Whitaker leaves in order"
+    )
+
+
+def test_lint_leaves_are_phony_and_install_is_separate() -> None:
+    """Each leaf is directly runnable, and installation stays explicit."""
+    makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
+    for leaf in (*LINT_LEAVES, "install-whitaker"):
+        assert any(
+            leaf in line.removeprefix(".PHONY:").split()
+            for line in makefile.splitlines()
+            if line.startswith(".PHONY:")
+        ), f"`{leaf}` must be declared phony"
+    lint_rule = next(
+        line for line in makefile.splitlines() if line.startswith("lint:")
+    )
+    assert "install-whitaker" not in lint_rule.split(), (
+        "`lint` must not install tooling as a prerequisite"
     )
 
 
@@ -120,6 +143,7 @@ def test_a_failing_whitaker_fails_the_aggregate_lint_target() -> None:
             f"WHITAKER={FAILING_GATE}",
             "CARGO=true",
             "CLIPPY_FLAGS=--version",
+            "DOC_FLAGS=",
             "DEV_WARNING_FLAGS=",
             "RUSTDOC_FLAGS=",
             "DEV_FAST=",
