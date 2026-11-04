@@ -110,8 +110,8 @@ fn timed_out_failure_handler(
         let failure_signal = holder.clone();
         Box::pin(async move {
             ensure_timed_out_decode_error(err)?;
-            if let Some(reply) = reply {
-                stream.write_all(reply).await?;
+            if let Some(reply_bytes) = reply {
+                stream.write_all(reply_bytes).await?;
                 stream.flush().await?;
             }
             stream.shutdown().await?;
@@ -147,10 +147,10 @@ where
 {
     let (failure_holder, failure_rx) = channel_holder();
     let (result_tx, result_rx) = oneshot::channel();
-    let server =
+    let server_with_failure_hook =
         server.on_preamble_decode_failure(timed_out_failure_handler(failure_holder, reply));
 
-    with_running_server(server, move |addr| async move {
+    with_running_server(server_with_failure_hook, move |addr| async move {
         // Start the clock before connecting so the measured interval covers
         // the whole wait, including the server's accept and timer start.
         let started = Instant::now();
@@ -204,11 +204,11 @@ where
 {
     let (success_holder, success_rx) = channel_holder();
     let (failure_holder, failure_rx) = channel_holder();
-    let server = server
+    let server_with_hooks = server
         .on_preamble_decode_success(timeout_success_handler(success_holder))
         .on_preamble_decode_failure(failure_cb(failure_holder));
 
-    with_running_server(server, move |addr| async move {
+    with_running_server(server_with_hooks, move |addr| async move {
         let mut stream = TcpStream::connect(addr).await?;
         stream.write_all(PROMPT_PREAMBLE).await?;
 

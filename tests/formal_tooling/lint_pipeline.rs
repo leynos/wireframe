@@ -22,13 +22,13 @@ pub(super) fn assert_workspace_validation_scope(makefile: &MakefileContent<'_>) 
     let test_doc_recipe = recipe("test-doc")?;
     let typecheck_recipe = recipe("typecheck")?;
 
-    for (target, recipe) in [
+    for (target, target_recipe) in [
         ("test", &test_recipe),
         ("test-doc", &test_doc_recipe),
         ("typecheck", &typecheck_recipe),
     ] {
         ensure(
-            recipe.contains("--workspace"),
+            target_recipe.contains("--workspace"),
             format!("`{target}` should validate the supported workspace members"),
         )?;
     }

@@ -143,7 +143,7 @@ where
     ///     .disable_preamble_timeout();
     /// ```
     #[must_use]
-    pub fn disable_preamble_timeout(mut self) -> Self {
+    pub const fn disable_preamble_timeout(mut self) -> Self {
         self.preamble_timeout = None;
         self
     }
