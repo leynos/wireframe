@@ -21,12 +21,16 @@ peer/session-entry class charges both entry count and retained state bytes
 before insertion. Decompression must reserve its own finite expansion budget
 before allocating; wire or compressed-size limits do not substitute for this
 bound. Reserve before allocation or enqueue. Release wire and decoded-byte
-reservations when those bytes are consumed; release logical assembly
-reservations on completion. Abort, timeout, cancellation, and disconnect
-release any remaining reservations. Adapters provide bounded logical keys,
-classify control/data, and report assembly lifecycle. The adapter owns fragment
-identifiers, duplicate policy, rollover, acknowledgements, and timeout
-semantics; core owns accounting, deadlines and fair scheduling.
+reservations when those bytes are consumed, including decompressed bytes when
+their retained output is consumed or discarded; release logical assembly
+reservations on completion and each active-stream reservation when that stream
+closes. RFC 0004 defines release of accepted output and queued work.[^duplex]
+Each reservation is released exactly once, on its normal path or when abort,
+timeout, cancellation, or disconnect releases any remainder. Adapters provide
+bounded logical keys, classify control/data, and report assembly lifecycle. The
+adapter owns fragment identifiers, duplicate policy, rollover,
+acknowledgements, and timeout semantics; core owns accounting, deadlines and
+fair scheduling.
 
 Adapters may select strict FIFO or replacement of stale unsent snapshots.
 Replacement is never implicit. A superseded unsent frame receives a terminal
@@ -85,3 +89,5 @@ ADR 002 remains proposed until a later decision records adoption.
 RFC 0007 replaces any interpretation of `MAX_FRAME_LENGTH` as a universal
 logical-message limit. Reconcile existing assembly and queue docs during
 implementation; do not remove useful APIs solely to preserve compatibility.
+
+[^duplex]: [RFC 0004: Duplex session driver](0004-duplex-session-driver.md).
