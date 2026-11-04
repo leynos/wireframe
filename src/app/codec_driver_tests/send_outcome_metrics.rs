@@ -11,7 +11,7 @@ use metrics_util::{
     CompositeKey,
     debugging::{DebugValue, DebuggingRecorder},
 };
-use tokio::io::{AsyncRead, ReadBuf};
+use tokio::io::{AsyncRead, DuplexStream, ReadBuf};
 
 use super::*;
 use crate::{
@@ -39,6 +39,32 @@ fn outcome_count(samples: &[MetricSample], expected: &str) -> u64 {
         .sum()
 }
 
+/// Flush the buffered envelopes through a fresh in-memory transport.
+///
+/// Returns the flush result, the client half of the duplex stream, and the
+/// framed server half. A caller inspecting the client must keep the server
+/// half alive: dropping it closes the peer, so a "nothing was written" probe
+/// would then observe end-of-stream instead of a pending read.
+async fn flush_in_memory<S>(
+    serializer: &S,
+    codec: &TestCodec,
+    pipeline: &mut FramePipeline<Bytes>,
+) -> (io::Result<()>, DuplexStream, TestFramed)
+where
+    S: Serializer + Send + Sync,
+    Envelope: EncodeWith<S>,
+{
+    let (client, server) = tokio::io::duplex(1024);
+    let mut framed = Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
+    let mut transport = OutboundTransport {
+        serializer,
+        codec,
+        framed: &mut framed,
+    };
+    let result = flush_pipeline_output(&mut transport, pipeline).await;
+    (result, client, framed)
+}
+
 /// A normal flush records exactly one successful send outcome.
 #[test]
 fn successful_send_records_success_outcome() {
@@ -51,16 +77,10 @@ fn successful_send_records_success_outcome() {
             pipeline
                 .process(Envelope::new(1, None, vec![1, 2, 3]))
                 .expect("envelope should process");
-            let FramedPair { mut server, client } = framed_pair();
             let codec = TestCodec::default();
-            let mut transport = OutboundTransport {
-                serializer: &BincodeSerializer,
-                codec: &codec,
-                framed: &mut server,
-            };
-            flush_pipeline_output(&mut transport, &mut pipeline)
-                .await
-                .expect("flush should succeed");
+            let (result, client, _server) =
+                flush_in_memory(&BincodeSerializer, &codec, &mut pipeline).await;
+            result.expect("flush should succeed");
             drop(client);
         });
     });
@@ -85,17 +105,9 @@ fn hook_growth_past_the_limit_records_codec_rejection() {
                 .process(Envelope::new(1, None, vec![1]))
                 .expect("envelope should process");
             let codec = TestCodec::new(MIN_FRAME_LENGTH);
-            let (client, server) = tokio::io::duplex(1024);
-            let mut server =
-                Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
-            let mut transport = OutboundTransport {
-                serializer: &BincodeSerializer,
-                codec: &codec,
-                framed: &mut server,
-            };
-            let error = flush_pipeline_output(&mut transport, &mut pipeline)
-                .await
-                .expect_err("a frame grown past the codec limit must not be sent");
+            let (result, client, _server) =
+                flush_in_memory(&BincodeSerializer, &codec, &mut pipeline).await;
+            let error = result.expect_err("a frame grown past the codec limit must not be sent");
             assert!(
                 error.to_string().contains("frame exceeds max length"),
                 "the failure should name the codec limit, got: {error}"
@@ -183,17 +195,9 @@ fn serialization_failure_records_serialization_failure_outcome() {
                 .process(Envelope::new(1, None, vec![1, 2, 3]))
                 .expect("envelope should process");
             let codec = TestCodec::default();
-            let (mut client, server) = tokio::io::duplex(1024);
-            let mut server =
-                Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
-            let mut transport = OutboundTransport {
-                serializer: &FailingSerializer,
-                codec: &codec,
-                framed: &mut server,
-            };
-            let error = flush_pipeline_output(&mut transport, &mut pipeline)
-                .await
-                .expect_err("a serializer failure must fail the flush");
+            let (result, mut client, _server) =
+                flush_in_memory(&FailingSerializer, &codec, &mut pipeline).await;
+            let error = result.expect_err("a serializer failure must fail the flush");
             assert!(
                 error
                     .to_string()
