@@ -14,8 +14,9 @@ deliberately not used, because producing it would run the very compilation
 this contract exists to bound. Because nextest matches ``test(=name)`` against
 the fully qualified test name, the check computes the module path from inline
 ``mod`` blocks: a test defined only as ``contracts::compile_tests`` does not
-satisfy ``test(=compile_tests)``. Comments and literals are stripped first, so
-a commented-out definition is not evidence either.
+satisfy ``test(=compile_tests)``. Contract runs the scanning in
+``rust_source_scanning``, which also strips comments and literals so a
+commented-out definition is not evidence.
 
 The timeout tier chain lives in ``timeout_policy``; the two modules are split
 by role rather than by size, and both are called from the tests beside them.
@@ -26,6 +27,13 @@ from __future__ import annotations
 import dataclasses
 import re
 import typing as typ
+
+from rust_source_scanning import (
+    defines_test_function,
+    drives_trybuild,
+    is_loom_gated,
+    test_function_note,
+)
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -39,29 +47,6 @@ _FILTER_TERM: typ.Final = re.compile(
     r"^(?P<key>package|binary|test)\(=(?P<value>[A-Za-z0-9_.\-]+)\)$"
 )
 _REQUIRED_FILTER_KEYS: typ.Final = frozenset({"package", "binary", "test"})
-
-#: A trybuild driver, however the path is spaced.
-_TRYBUILD: typ.Final = re.compile(r"trybuild\s*::\s*TestCases")
-
-#: A crate-level Loom gate. Such a target only builds under ``--cfg loom``, so
-#: it is not part of the ordinary nextest run the override bounds.
-_LOOM_GATE: typ.Final = re.compile(r"#!\s*\[\s*cfg\s*\(\s*loom\s*\)\s*\]")
-
-#: The items that change a test's module path or name it. ``mod NAME {``
-#: consumes its opening brace so the module block is counted once.
-_ITEM_TOKEN: typ.Final = re.compile(
-    r"""
-    (?P<module>\bmod\s+(?P<module_name>[A-Za-z_][A-Za-z0-9_]*)\s*\{)
-    | (?P<open>\{)
-    | (?P<close>\})
-    | (?P<test>\#\s*\[\s*test\s*\])
-    | (?P<function>\bfn\s+(?P<function_name>[A-Za-z_][A-Za-z0-9_]*))
-    """,
-    re.VERBOSE,
-)
-
-#: The start of a raw string literal, including its hash fence.
-_RAW_STRING: typ.Final = re.compile(r'r(?P<hashes>#{0,32})"')
 
 
 class FilterSyntaxError(ValueError):
@@ -125,201 +110,6 @@ def parse_target_filter(text: str) -> TargetFilter:
         package=values["package"],
         binary=values["binary"],
         test=values["test"],
-    )
-
-
-def _skip_line_comment(source: str, index: int) -> int:
-    """Return the index of the newline ending a ``//`` comment."""
-    newline = source.find("\n", index + 2)
-    return len(source) if newline == -1 else newline
-
-
-def _skip_block_comment(source: str, index: int) -> int:
-    """Return the index just past a nestable ``/* ... */`` comment."""
-    depth = 1
-    index += 2
-    while index < len(source) and depth:
-        if source.startswith("/*", index):
-            depth += 1
-            index += 2
-        elif source.startswith("*/", index):
-            depth -= 1
-            index += 2
-        else:
-            index += 1
-    return index
-
-
-def _skip_string(source: str, index: int) -> int:
-    """Return the index just past a standard ``"..."`` literal."""
-    index += 1
-    while index < len(source):
-        if source[index] == "\\":
-            index += 2
-        elif source[index] == '"':
-            return index + 1
-        else:
-            index += 1
-    return index
-
-
-def _follows_identifier(source: str, index: int) -> bool:
-    """Return whether the character before ``index`` could end an identifier."""
-    if index == 0:
-        return False
-    previous = source[index - 1]
-    return previous.isalnum() or previous == "_"
-
-
-def _skip_raw_string(source: str, index: int) -> int | None:
-    """Return the index past a raw string, or ``None`` if this is not one."""
-    if _follows_identifier(source, index):
-        return None
-    match = _RAW_STRING.match(source, index)
-    if match is None:
-        return None
-    terminator = '"' + match.group("hashes")
-    end = source.find(terminator, match.end())
-    return len(source) if end == -1 else end + len(terminator)
-
-
-def _skip_char(source: str, index: int) -> int | None:
-    """Return the index past a character literal, or ``None`` for a lifetime."""
-    if index + 1 >= len(source):
-        return None
-    if source[index + 1] == "\\":
-        end = source.find("'", index + 2)
-        return None if end == -1 else end + 1
-    if index + 2 < len(source) and source[index + 2] == "'":
-        return index + 3
-    return None
-
-
-def _char_replacement(source: str, index: int) -> tuple[str, int]:
-    """Return the replacement for a lifetime start or a character literal."""
-    end = _skip_char(source, index)
-    if end is None:
-        return source[index], index + 1
-    return "' '", end
-
-
-def _literal_replacement(source: str, index: int) -> tuple[str, int] | None:
-    """Return the text replacing the comment or literal at ``index``."""
-    if source.startswith("//", index):
-        return " ", _skip_line_comment(source, index)
-    if source.startswith("/*", index):
-        return " ", _skip_block_comment(source, index)
-    if source[index] == '"':
-        return '""', _skip_string(source, index)
-    if source[index] == "'":
-        return _char_replacement(source, index)
-    end = _skip_raw_string(source, index)
-    if end is None:
-        return None
-    return '""', end
-
-
-def _without_comments_and_literals(source: str) -> str:
-    """Return ``source`` with comments and literals replaced by spaces.
-
-    Discovery runs over the result, so a commented-out ``#[test]`` or a string
-    that happens to contain ``trybuild::TestCases`` cannot count as evidence.
-    """
-    pieces: list[str] = []
-    index = 0
-    while index < len(source):
-        replacement = _literal_replacement(source, index)
-        if replacement is None:
-            pieces.append(source[index])
-            index += 1
-        else:
-            text, index = replacement
-            pieces.append(text)
-    return "".join(pieces)
-
-
-def qualified_test_names(source: str) -> frozenset[str]:
-    """Return the module-qualified names of the tests nextest would list.
-
-    Nextest names a test by its module path, so an inline ``mod contracts {
-    #[test] fn compile_tests() }`` is ``contracts::compile_tests``. A
-    ``#[test]`` inside any other block (an ``impl`` or a function body) is
-    not a test nextest runs, so it contributes no name. Comments and literals
-    are stripped first, so a commented-out definition contributes nothing.
-
-    Examples
-    --------
-    >>> sorted(qualified_test_names("#[test]\\nfn a() {}"))
-    ['a']
-    >>> sorted(qualified_test_names("mod m { #[test] fn b() {} }"))
-    ['m::b']
-    """
-    text = _without_comments_and_literals(source)
-    blocks: list[str | None] = []
-    paths: set[str] = set()
-    is_test_pending = False
-    for match in _ITEM_TOKEN.finditer(text):
-        if match.group("module"):
-            blocks.append(match.group("module_name"))
-            is_test_pending = False
-        elif match.group("open"):
-            blocks.append(None)
-            is_test_pending = False
-        elif match.group("close"):
-            if blocks:
-                blocks.pop()
-            is_test_pending = False
-        elif match.group("test"):
-            is_test_pending = True
-        elif match.group("function") and is_test_pending:
-            is_test_pending = False
-            modules = [block for block in blocks if block is not None]
-            if len(modules) == len(blocks):
-                paths.add("::".join([*modules, match.group("function_name")]))
-    return frozenset(paths)
-
-
-def drives_trybuild(source: str) -> bool:
-    """Return whether live code in ``source`` constructs ``trybuild::TestCases``."""
-    return _TRYBUILD.search(_without_comments_and_literals(source)) is not None
-
-
-def is_loom_gated(source: str) -> bool:
-    """Return whether live code in ``source`` carries ``#![cfg(loom)]``."""
-    return _LOOM_GATE.search(_without_comments_and_literals(source)) is not None
-
-
-def defines_test_function(source: str, name: str) -> bool:
-    """Return whether ``source`` defines a crate-root ``#[test] fn name``.
-
-    Nextest matches ``test(=NAME)`` against the fully qualified name, so a
-    definition inside an inline module is ``module::NAME`` and the exact
-    matcher does not select it. Comments and literals are ignored, so a
-    commented-out definition is not evidence.
-
-    Examples
-    --------
-    >>> defines_test_function("#[test]\\nfn compile_tests() {}", "compile_tests")
-    True
-    >>> defines_test_function("mod m { #[test] fn compile_tests() {} }", "compile_tests")
-    False
-    """
-    return name in qualified_test_names(source)
-
-
-def test_function_note(source: str, name: str) -> str:
-    """Explain a definition the filter's exact name does not reach."""
-    qualified = sorted(
-        path
-        for path in qualified_test_names(source)
-        if path.rsplit("::", 1)[-1] == name
-    )
-    if not qualified:
-        return ""
-    return (
-        "; it is defined only as "
-        + ", ".join(qualified)
-        + ", which nextest names by module path"
     )
 
 

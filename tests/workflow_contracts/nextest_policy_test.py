@@ -10,12 +10,11 @@ from __future__ import annotations
 
 import pytest
 
-from nextest_policy import (
-    FilterSyntaxError,
+from nextest_policy import FilterSyntaxError, parse_target_filter
+from rust_source_scanning import (
     defines_test_function,
     drives_trybuild,
     is_loom_gated,
-    parse_target_filter,
     qualified_test_names,
 )
 from timeout_policy import (
@@ -36,7 +35,7 @@ def test_the_canonical_filter_parses() -> None:
         "wireframe",
         "compile_error",
         "compile_tests",
-    )
+    ), "the canonical filter must yield its three exact matcher values"
 
 
 @pytest.mark.parametrize(
@@ -136,7 +135,9 @@ def test_test_function_detection_is_module_aware(
     source: str, expected: bool
 ) -> None:
     """Only a crate-root ``#[test]`` has the name an exact matcher selects."""
-    assert defines_test_function(source, "compile_tests") is expected
+    assert defines_test_function(source, "compile_tests") is expected, (
+        "only a crate-root #[test] may satisfy the exact matcher"
+    )
 
 
 @pytest.mark.parametrize(
@@ -166,7 +167,9 @@ def test_test_function_paths_are_fully_qualified(
     source: str, expected: set[str]
 ) -> None:
     """The module path is established rather than assumed to be the bare name."""
-    assert qualified_test_names(source) == frozenset(expected)
+    assert qualified_test_names(source) == frozenset(expected), (
+        "test names must carry their module path"
+    )
 
 
 @pytest.mark.parametrize(
@@ -190,7 +193,9 @@ def test_test_function_paths_are_fully_qualified(
 )
 def test_trybuild_detection(source: str, expected: bool) -> None:
     """A live trybuild driver is recognized however its path is spaced."""
-    assert drives_trybuild(source) is expected
+    assert drives_trybuild(source) is expected, (
+        "trybuild detection must ignore comments and literals"
+    )
 
 
 @pytest.mark.parametrize(
@@ -204,7 +209,9 @@ def test_trybuild_detection(source: str, expected: bool) -> None:
 )
 def test_loom_gate_detection(source: str, expected: bool) -> None:
     """Only a live crate-level Loom gate excludes a target from the run."""
-    assert is_loom_gated(source) is expected
+    assert is_loom_gated(source) is expected, (
+        "only a live crate-level Loom gate excludes a target"
+    )
 
 
 @pytest.mark.parametrize(
@@ -218,7 +225,7 @@ def test_loom_gate_detection(source: str, expected: bool) -> None:
 )
 def test_durations_are_read_in_seconds(text: str, expected: float) -> None:
     """The reviewed units convert to seconds."""
-    assert parse_duration(text) == expected
+    assert parse_duration(text) == expected, f"{text!r} must convert to seconds"
 
 
 @pytest.mark.parametrize(

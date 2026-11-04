@@ -1,0 +1,172 @@
+"""Prove the override contract rejects the ways an override can go wrong.
+
+The checked-in configuration exercises only the accepted shape, so a validator
+that ignored a missing matcher, a non-exact matcher, or an uncovered trybuild
+target would pass against it either way. Each mutation below breaks exactly one
+property of the accepted configuration and must be rejected.
+"""
+
+from __future__ import annotations
+
+import typing as typ
+from copy import deepcopy
+from pathlib import Path
+
+import pytest
+
+from cargo_targets import CargoTestTarget
+from nextest_contract_support import (
+    TRYSBUILD_SOURCE,
+    assert_no_override_violations,
+    read_source,
+    repository_config,
+    repository_targets,
+)
+from rust_source_scanning import drives_trybuild, is_loom_gated
+
+
+def _non_trybuild_target(targets: typ.Sequence[CargoTestTarget]) -> CargoTestTarget:
+    """Return a discovered target that does not drive trybuild."""
+    return next(
+        target
+        for target in targets
+        if not drives_trybuild(read_source(target.src_path))
+        and not is_loom_gated(read_source(target.src_path))
+    )
+
+
+def _set_filter(
+    config: dict[str, typ.Any], _targets: typ.Sequence[CargoTestTarget], text: str
+) -> None:
+    """Replace the one override's filter with ``text``."""
+    config["profile"]["default"]["overrides"][0]["filter"] = text
+
+
+def _without_binary(
+    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+) -> None:
+    """Drop the binary matcher from the filter."""
+    _set_filter(config, targets, "package(=wireframe) & test(=compile_tests)")
+
+
+def _without_package(
+    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+) -> None:
+    """Drop the package matcher from the filter."""
+    _set_filter(config, targets, "binary(=compile_error) & test(=compile_tests)")
+
+
+def _without_test(
+    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+) -> None:
+    """Drop the test matcher from the filter."""
+    _set_filter(config, targets, "package(=wireframe) & binary(=compile_error)")
+
+
+def _wrong_package(
+    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+) -> None:
+    """Name a package that discovers no such target."""
+    _set_filter(
+        config,
+        targets,
+        "package(=other) & binary(=compile_error) & test(=compile_tests)",
+    )
+
+
+def _non_exact_binary(
+    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+) -> None:
+    """State the binary matcher as a substring rather than an exact match."""
+    _set_filter(
+        config,
+        targets,
+        "package(=wireframe) & binary(compile_error) & test(=compile_tests)",
+    )
+
+
+def _extra_override(
+    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+) -> None:
+    """Append an override for a target that does not drive trybuild."""
+    target = _non_trybuild_target(targets)
+    config["profile"]["default"]["overrides"].append({
+        "filter": (
+            f"package(={target.package}) & binary(={target.name})"
+            " & test(=some_test)"
+        ),
+        "slow-timeout": {
+            "period": "60s",
+            "terminate-after": 8,
+            "grace-period": "5s",
+        },
+    })
+
+
+_OVERRIDE_MUTATIONS: typ.Final = {
+    "no_binary": _without_binary,
+    "no_package": _without_package,
+    "no_test": _without_test,
+    "wrong_package": _wrong_package,
+    "non_exact": _non_exact_binary,
+    "extra_override": _extra_override,
+}
+
+
+def _mutate_override_config(
+    mutation: str,
+    config: dict[str, typ.Any],
+    targets: typ.Sequence[CargoTestTarget],
+) -> None:
+    """Apply one override-config mutation in place."""
+    try:
+        mutate = _OVERRIDE_MUTATIONS[mutation]
+    except KeyError:
+        message = f"unknown override mutation {mutation!r}"
+        raise AssertionError(message) from None
+    mutate(config, targets)
+
+
+def _source_reader_with(
+    extra: dict[Path, str],
+) -> typ.Callable[[Path], str]:
+    """Return a reader that serves ``extra`` before the filesystem."""
+
+    def read(path: Path) -> str:
+        return extra[path] if path in extra else read_source(path)
+
+    return read
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "no_binary",
+        "no_package",
+        "no_test",
+        "wrong_package",
+        "non_exact",
+        "extra_override",
+        "uncovered_trybuild_target",
+    ],
+)
+def test_override_mutations_are_rejected(mutation: str) -> None:
+    """Each mutation alone leaves an override unproved or a target uncovered."""
+    config = deepcopy(repository_config())
+    targets: tuple[CargoTestTarget, ...] = repository_targets()
+    extra_sources: dict[Path, str] = {}
+    if mutation == "uncovered_trybuild_target":
+        synthetic = CargoTestTarget(
+            package="wireframe",
+            name="trybuild_extra",
+            kinds=("test",),
+            src_path=Path("/synthetic/trybuild_extra.rs"),
+        )
+        targets = (*targets, synthetic)
+        extra_sources[synthetic.src_path] = TRYSBUILD_SOURCE
+    else:
+        _mutate_override_config(mutation, config, targets)
+    with pytest.raises(AssertionError):
+        assert_no_override_violations(
+            config, targets, _source_reader_with(extra_sources)
+        )

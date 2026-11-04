@@ -170,7 +170,10 @@ def _watchdog_seconds(raw: object, label: str, violations: list[str]) -> float |
 
 def _invokes_coverage(step: dict[str, typ.Any]) -> bool:
     """Return whether a step invokes the coverage action at its pinned name."""
-    return "uses" in step and coverage_action_name(step) == COVERAGE_ACTION_NAME
+    uses = str(step.get("uses", ""))
+    if uses.partition("@")[0] != COVERAGE_ACTION_NAME:
+        return False
+    return coverage_action_name(step) == COVERAGE_ACTION_NAME
 
 
 def _workflow_invocations(
