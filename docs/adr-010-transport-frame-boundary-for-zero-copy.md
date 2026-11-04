@@ -232,3 +232,48 @@ packets as the same abstraction leads to awkward constraints, especially when
 the default codec frame is `Bytes`. Making the codec driver the explicit
 transport-frame boundary preserves that lesson, supports the zero-copy goal,
 and avoids rebuilding actor semantics around transport-specific frame types.
+
+## Addendum: application response `before_send` (2026-11-02)
+
+The limitation recorded under Known Risks and Limitations is closed.
+`FramePipeline` now owns the per-connection `ProtocolHooks` and
+`ConnectionContext`, so `before_send` runs for application handler responses as
+well as actor-driven frames. The hook runs after serialization and
+`FrameCodec::wrap_payload`, immediately before the transport write. Each
+connection constructs its own `ProtocolHooks` and `ConnectionContext`, so
+per-connection context and callback instances are not shared. State held by a
+shared `WireframeProtocol` implementation is still shared by every connection
+that installs it.
+
+Two boundaries remain as designed. The direct response helpers (`send_response`,
+`send_response_framed`, and `send_response_framed_with_codec`) bypass the
+hook, and actor-owned push and streaming traffic keeps its own hook pipeline.
+Hook output must fit the codec's `max_frame_length`. The pipeline does not
+check this limit. The default `LengthDelimitedFrameCodec` rejects an oversized
+frame, so the send fails and the frame is not written. A custom encoder defines
+its own behaviour for an oversized frame, so it must enforce `max_frame_length`
+itself.
+
+## Addendum: reconciled hook boundary (2026-11-03)
+
+This amendment supersedes the deferral wording in the Status, Decision Outcome,
+Known Risks and Limitations, Resolved Decisions, and Migration Plan sections
+above. It records the boundary as implemented, and keeps the separate zero-copy
+work open.
+
+The codec driver remains the only component that owns transport frame emission.
+It now also applies the existing `before_send` hook to the serialized,
+codec-wrapped frame, immediately before the transport write. The hook therefore
+runs on the frame payload rather than on the exact bytes the socket receives: a
+custom encoder may still add its own header or trailer after the hook returns.
+No new transport-frame hook surface is introduced, and actor-driven push and
+streaming traffic keeps its own packet-oriented hook pipeline.
+
+The zero-copy migration is unaffected and remains unfinished. The serializer
+still materializes `Vec<u8>` before converting to `Bytes`, tracked by roadmap
+item `11.1.2` and issue <https://github.com/leynos/wireframe/issues/538>. The
+hook gap itself is closed by this change, but roadmap item `11.2.1` remains
+open for the rest of the actor and codec-driver boundary. Roadmap items
+`11.2.2` and `11.2.3` also remain open, including the guard against new
+non-driver production `wrap_payload` callers under `11.2.3`. This amendment
+changes hook invocation only; it does not claim any of that work.

@@ -233,7 +233,10 @@ A library consumer can observe success by:
   the frame type constraint can be properly resolved. Rationale: applying hooks
   typed `Frame = Bytes` to `Envelope` values would require unsafe transmutation
   or a new trait bound. Neither is acceptable under current constraints.
-  Date/Author: 2026-02-15 / Codex.
+  Date/Author: 2026-02-15 / Codex. Superseded 2026-11-03: the constraint was
+  resolved in favour of a new trait bound. `FramePipeline<F::Frame>` owns the
+  per-connection `ProtocolHooks` and applies them to the codec-wrapped frame in
+  `send_envelope`, so no transmutation or `Envelope` hook type is needed.
 
 - Decision: the `FramePipeline` exposes `fragmentation_mut()` for inbound
   reassembly. The inbound path (`reassemble_if_needed`) accesses the pipeline's
@@ -246,7 +249,8 @@ A library consumer can observe success by:
 
 ## Outcomes & retrospective
 
-All acceptance criteria met except protocol hook integration, which is deferred.
+All acceptance criteria met. Protocol hook integration was deferred at the time
+of this plan and has since landed; see the update below.
 
 **Delivered:**
 
@@ -259,12 +263,16 @@ All acceptance criteria met except protocol hook integration, which is deferred.
 - Documentation updated in design docs, users guide, and roadmap.
 - All quality gates pass.
 
-**Deferred:**
+**Deferred at the time, since landed (2026-11-03):**
 
-- Protocol hooks (`before_send`) do not fire for app-router responses because
-  `F::Frame` and `Envelope` types may differ. A follow-up stage should resolve
-  the frame-type constraint so hooks can be applied in the pipeline or at the
-  transport layer.
+- Protocol hooks (`before_send`) did not fire for app-router responses because
+  `F::Frame` and `Envelope` types may differ. The frame-type constraint was
+  resolved by applying the hook at the transport layer: `FramePipeline` owns
+  the per-connection `ProtocolHooks` and `ConnectionContext`, and
+  `send_envelope` runs `before_send` on the serialized, codec-wrapped frame
+  immediately before the transport write. Actor-driven push and streaming
+  traffic keeps its own hook pipeline. See
+  [ADR 010](../adr-010-transport-frame-boundary-for-zero-copy.md#addendum-reconciled-hook-boundary-2026-11-03).
 
 **Lessons:**
 
@@ -730,3 +738,19 @@ connection driver that bridges the existing `ConnectionActor` to a `Framed`
 stream, unifying hook invocation, fragmentation, and codec encoding for all
 outbound frame sources. The standalone `ConnectionActor` with its `Vec<F>`
 output is preserved for client code and direct testing.
+
+## Revision note (2026-11-02)
+
+The deferred protocol-hook item recorded in Outcomes & retrospective is now
+delivered under issue #547. `FramePipeline` owns the per-connection
+`ProtocolHooks` and `ConnectionContext`, so `before_send` runs for handler
+responses once the frame is serialized and wrapped by the `FrameCodec`,
+immediately before the transport write. Hook output must fit the codec's
+`max_frame_length`. The pipeline does not check this limit: the default
+`LengthDelimitedFrameCodec` rejects an oversized frame, so the send fails,
+while a custom encoder must enforce `max_frame_length` itself. Actor-owned push
+and streaming traffic keeps its own hook pipeline, and the direct response
+helpers still bypass the hook. The deferral statements in Outcomes &
+retrospective describe the state at the original completion and are superseded
+by this note; see the
+[ADR 010 addendum](../adr-010-transport-frame-boundary-for-zero-copy.md#addendum-application-response-before_send-2026-11-02).

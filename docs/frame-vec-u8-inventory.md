@@ -355,9 +355,10 @@ The current direction is now explicit:
   `Vec<u8>`-centric, with `Vec<u8>` retained only as a compatibility adapter
   while mutable byte-edit hooks still require it.
 - The connection actor stays packet-oriented, while the codec driver owns
-  serialization and transport-frame emission. Protocol hooks remain
-  packet-oriented; the app-router `before_send` gap is tracked separately in
-  [roadmap item `11.2.1`](roadmap.md#112-actor-and-codec-driver-boundary).
+  serialization and transport-frame emission. Actor protocol hooks remain
+  packet-oriented; the app-router path now applies `before_send` to each
+  codec-wrapped frame as recorded in the
+  [ADR 010 addendum](adr-010-transport-frame-boundary-for-zero-copy.md#addendum-application-response-before_send-2026-11-02).
 - `CorrelatableFrame for Vec<u8>` should leave the core surface under the
   breaking-release runtime-boundary work. `Packet for Vec<u8>` remains
   test-only, and no public actor-boundary compatibility shim is added.

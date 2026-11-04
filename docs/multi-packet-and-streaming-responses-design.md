@@ -437,8 +437,10 @@ not hang.
   wire. The pipeline applies fragmentation and outbound metrics uniformly to
   every `Envelope`, regardless of response variant. This ensures that large
   streaming frames are fragmented by the same path that fragments single-frame
-  handler responses. Protocol hook integration for the server path is planned
-  for a follow-up stage.
+  handler responses. The pipeline also owns the per-connection protocol hooks,
+  so `before_send` runs on each codec-wrapped frame immediately before the
+  transport write. Actor-owned push and streaming frames keep their own hook
+  pipeline.
 
 - **Streaming Request Bodies:** [ADR 0002][adr-0002] introduces first-class
   streaming request bodies as the inbound counterpart to streaming responses.

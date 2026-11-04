@@ -459,3 +459,37 @@ let server = WireframeServer::new(build_startup_app).bind(addr)?;
 let app = build_startup_app()?;
 let server = WireframeServer::from_app(app).bind(addr)?;
 ```
+
+## Protocol hooks on application responses
+
+`WireframeApp` handler responses now pass through the protocol's `before_send`
+hook. Previously only actor-driven push and multi-packet frames did so, and
+ordinary request/response traffic bypassed the hook.
+
+The hook runs per connection, after the response is serialized and wrapped by
+the `FrameCodec`, and immediately before the frame is written. It receives the
+serialized, codec-wrapped frame before codec encoding, so a custom encoder may
+still add its own header or trailer after the hook returns:
+
+```text
+serialize -> FrameCodec::wrap_payload -> before_send -> codec encode -> socket
+```
+
+Each connection constructs its own `ProtocolHooks` and `ConnectionContext`, so
+per-connection context and callback instances are not shared. State held by a
+shared `WireframeProtocol` implementation is still shared by every connection
+that installs it. A hook that appends a marker now marks every handler
+response, including every fragment of a fragmented response.
+
+Hook output must fit the codec's `max_frame_length`. The pipeline does not
+check this limit. The default `LengthDelimitedFrameCodec` rejects an oversized
+frame, so the send fails and the frame is not written; a custom encoder defines
+its own behaviour for an oversized frame, so it must enforce `max_frame_length`
+itself.
+
+Only the direct response helpers (`send_response`, `send_response_framed`, and
+`send_response_framed_with_codec`) bypass the hook. Actor-owned push and
+streaming traffic runs its own hook pipeline: `ConnectionActor::push_frame`
+invokes `before_send` on actor frames, so that traffic is not bypassed. See the
+[users' guide](users-guide.md)
+for the user-facing contract.

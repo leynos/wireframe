@@ -9,8 +9,8 @@ use crate::{
 };
 
 /// Attempt to reassemble a potentially fragmented envelope.
-pub(crate) fn reassemble_if_needed(
-    pipeline: &mut FramePipeline,
+pub(crate) fn reassemble_if_needed<T>(
+    pipeline: &mut FramePipeline<T>,
     deser_failures: &mut u32,
     env: Envelope,
     max_deser_failures: u32,

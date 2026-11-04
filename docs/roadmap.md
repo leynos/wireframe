@@ -402,10 +402,10 @@ integration boundaries.
   - [x] Add integration tests covering the unified pipeline (round-trip,
     fragmentation, sequential requests, disabled fragmentation).
   - [x] Add BDD behavioural tests exercising the unified codec path.
-  - [x] Note: protocol hooks (`before_send`) are deferred to a follow-up
-    stage because `F::Frame` and `Envelope` types may differ; see the
-    [streaming responses](multi-packet-and-streaming-responses-design.md)
-    design.
+  - [x] Run protocol hooks (`before_send`) for application responses:
+    `FramePipeline` owns the per-connection hooks and applies them to the
+    codec-wrapped frame immediately before the transport write. Actor-driven
+    push and streaming frames keep their own hook pipeline.
 
 ### 9.4. Property-based codec tests
 

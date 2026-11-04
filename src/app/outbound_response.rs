@@ -29,6 +29,10 @@ where
 {
     /// Serialize `msg` and write it to `stream` using the configured codec.
     ///
+    /// This helper writes directly to the stream and therefore does not run
+    /// the configured [`crate::hooks::WireframeProtocol`] hooks, including
+    /// `before_send`.
+    ///
     /// # Errors
     ///
     /// Returns a [`SendError`] if serialization or writing fails.
@@ -55,6 +59,10 @@ where
     }
 
     /// Serialize `msg` and send it through an existing framed stream.
+    ///
+    /// This helper bypasses the application response pipeline and does not run
+    /// the configured [`crate::hooks::WireframeProtocol`] hooks, including
+    /// `before_send`.
     ///
     /// # Errors
     ///
@@ -90,6 +98,10 @@ where
     }
 
     /// Serialize `msg` and send it through an existing framed stream.
+    ///
+    /// This helper bypasses the application response pipeline and does not run
+    /// the configured [`crate::hooks::WireframeProtocol`] hooks, including
+    /// `before_send`.
     ///
     /// # Errors
     ///

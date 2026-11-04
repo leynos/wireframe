@@ -242,6 +242,7 @@ where
                 on_disconnect: self.on_disconnect.as_ref(),
                 message_assembler: self.message_assembler.as_ref(),
                 fragmentation: self.fragmentation,
+                protocol_hooks: self.protocol_hooks(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
             },

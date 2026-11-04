@@ -20,6 +20,8 @@ use std::time::Duration;
 #[cfg(feature = "metrics")]
 use metrics::{counter, gauge, histogram};
 
+mod app_response_sends;
+
 mod client_pool;
 #[cfg(all(feature = "pool", not(loom)))]
 pub(crate) use client_pool::{
@@ -38,6 +40,8 @@ mod server_startup;
 
 mod server_supervisor;
 
+pub use app_response_sends::APP_RESPONSE_SENDS;
+pub(crate) use app_response_sends::{AppResponseSendOutcome, inc_app_response_send};
 pub use client_pool::{
     POOL_ACQUISITIONS,
     POOL_CONNECTION_DISCARDS,
