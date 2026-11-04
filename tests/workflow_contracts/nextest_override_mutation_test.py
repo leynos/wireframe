@@ -24,8 +24,11 @@ from nextest_contract_support import (
 )
 from rust_source_scanning import drives_trybuild, is_loom_gated
 
+if typ.TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
 
-def _non_trybuild_target(targets: typ.Sequence[CargoTestTarget]) -> CargoTestTarget:
+
+def _non_trybuild_target(targets: Sequence[CargoTestTarget]) -> CargoTestTarget:
     """Return a discovered target that does not drive trybuild."""
     return next(
         target
@@ -36,35 +39,35 @@ def _non_trybuild_target(targets: typ.Sequence[CargoTestTarget]) -> CargoTestTar
 
 
 def _set_filter(
-    config: dict[str, typ.Any], _targets: typ.Sequence[CargoTestTarget], text: str
+    config: dict[str, typ.Any], _targets: Sequence[CargoTestTarget], text: str
 ) -> None:
     """Replace the one override's filter with ``text``."""
     config["profile"]["default"]["overrides"][0]["filter"] = text
 
 
 def _without_binary(
-    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+    config: dict[str, typ.Any], targets: Sequence[CargoTestTarget]
 ) -> None:
     """Drop the binary matcher from the filter."""
     _set_filter(config, targets, "package(=wireframe) & test(=compile_tests)")
 
 
 def _without_package(
-    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+    config: dict[str, typ.Any], targets: Sequence[CargoTestTarget]
 ) -> None:
     """Drop the package matcher from the filter."""
     _set_filter(config, targets, "binary(=compile_error) & test(=compile_tests)")
 
 
 def _without_test(
-    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+    config: dict[str, typ.Any], targets: Sequence[CargoTestTarget]
 ) -> None:
     """Drop the test matcher from the filter."""
     _set_filter(config, targets, "package(=wireframe) & binary(=compile_error)")
 
 
 def _wrong_package(
-    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+    config: dict[str, typ.Any], targets: Sequence[CargoTestTarget]
 ) -> None:
     """Name a package that discovers no such target."""
     _set_filter(
@@ -75,7 +78,7 @@ def _wrong_package(
 
 
 def _non_exact_binary(
-    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+    config: dict[str, typ.Any], targets: Sequence[CargoTestTarget]
 ) -> None:
     """State the binary matcher as a substring rather than an exact match."""
     _set_filter(
@@ -86,7 +89,7 @@ def _non_exact_binary(
 
 
 def _extra_override(
-    config: dict[str, typ.Any], targets: typ.Sequence[CargoTestTarget]
+    config: dict[str, typ.Any], targets: Sequence[CargoTestTarget]
 ) -> None:
     """Append an override for a target that does not drive trybuild."""
     target = _non_trybuild_target(targets)
@@ -116,7 +119,7 @@ _OVERRIDE_MUTATIONS: typ.Final = {
 def _mutate_override_config(
     mutation: str,
     config: dict[str, typ.Any],
-    targets: typ.Sequence[CargoTestTarget],
+    targets: Sequence[CargoTestTarget],
 ) -> None:
     """Apply one override-config mutation in place."""
     try:
@@ -129,7 +132,7 @@ def _mutate_override_config(
 
 def _source_reader_with(
     extra: dict[Path, str],
-) -> typ.Callable[[Path], str]:
+) -> Callable[[Path], str]:
     """Return a reader that serves ``extra`` before the filesystem."""
 
     def read(path: Path) -> str:

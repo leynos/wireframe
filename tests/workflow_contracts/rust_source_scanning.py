@@ -37,6 +37,13 @@ _ITEM_TOKEN: re.Pattern[str] = re.compile(
     re.VERBOSE,
 )
 
+#: An active, whole-line crate-level coverage opt-out. Leading whitespace is
+#: not accepted, so a gate indented inside an inline module does not qualify.
+_COVERAGE_GATE: re.Pattern[str] = re.compile(
+    r"#![ \t]*\[[ \t]*cfg[ \t]*\([ \t]*not[ \t]*\([ \t]*coverage[ \t]*\)[ \t]*\)"
+    r"[ \t]*\]"
+)
+
 #: The start of a raw string literal, including its hash fence.
 _RAW_STRING: re.Pattern[str] = re.compile(r'r(?P<hashes>#{0,32})"')
 
@@ -101,7 +108,10 @@ def _skip_char(source: str, index: int) -> int | None:
     if index + 1 >= len(source):
         return None
     if source[index + 1] == "\\":
-        end = source.find("'", index + 2)
+        # ``'\''`` escapes a quote, so the search starts after the escaped
+        # character; otherwise it matches that quote and leaves the closing
+        # quote to be read as the start of another literal.
+        end = source.find("'", index + 3)
         return None if end == -1 else end + 1
     if index + 2 < len(source) and source[index + 2] == "'":
         return index + 3
@@ -271,6 +281,37 @@ def is_loom_gated(source: str) -> bool:
     return _LOOM_GATE.search(_without_comments_and_literals(source)) is not None
 
 
+def has_coverage_gate(source: str) -> bool:
+    """Return whether live source opens a crate-level coverage opt-out.
+
+    Comments and literals are removed before the search, so an attribute that
+    was merely commented out is not a guard. The attribute must also start its
+    own line, which keeps a gate indented inside an inline module from counting
+    as a crate-level one.
+
+    Parameters
+    ----------
+    source : str
+        Rust source text to scan.
+
+    Returns
+    -------
+    bool
+        ``True`` when ``#![cfg(not(coverage))]`` is active at crate level.
+
+    Examples
+    --------
+    >>> has_coverage_gate("#![cfg(not(coverage))]\\n")
+    True
+    >>> has_coverage_gate("// #![cfg(not(coverage))]\\n")
+    False
+    """
+    return any(
+        _COVERAGE_GATE.match(line)
+        for line in _without_comments_and_literals(source).splitlines()
+    )
+
+
 def defines_test_function(source: str, name: str) -> bool:
     """Return whether ``source`` defines a crate-root ``#[test] fn name``.
 
@@ -301,7 +342,7 @@ def defines_test_function(source: str, name: str) -> bool:
     return name in qualified_test_names(source)
 
 
-def test_function_note(source: str, name: str) -> str:
+def describe_qualified_definitions(source: str, name: str) -> str:
     """Explain a definition the filter's exact name does not reach.
 
     Parameters

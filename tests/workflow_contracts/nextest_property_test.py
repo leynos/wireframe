@@ -61,7 +61,7 @@ def test_any_order_of_exact_matchers_parses_to_the_same_filter(
         "test": expected.test,
     }
     text = separator.join(f"{key}(={values[key]})" for key in order)
-    assert parse_target_filter(text) == expected
+    assert parse_target_filter(text) == expected, f"{text!r} must parse to {expected!r}"
 
 
 @PROPERTY_SETTINGS
@@ -83,7 +83,9 @@ def test_a_filter_missing_any_matcher_is_rejected(
         with pytest.raises(FilterSyntaxError, match="omits"):
             parse_target_filter(text)
     else:
-        assert parse_target_filter(text) == TargetFilter(package, binary, test)
+        assert parse_target_filter(text) == TargetFilter(package, binary, test), (
+            f"{text!r} names all three matchers and must parse"
+        )
 
 
 @PROPERTY_SETTINGS
@@ -110,7 +112,9 @@ def test_a_nested_definition_is_reported_at_its_module_path(
     """Every inline module prefixes the name nextest would list."""
     source = _nest(_test_function(function), modules)
     expected = "::".join([*modules, function])
-    assert qualified_test_names(source) == frozenset({expected})
+    assert qualified_test_names(source) == frozenset({expected}), (
+        f"{source!r} must yield {expected!r}"
+    )
 
 
 @PROPERTY_SETTINGS
@@ -124,7 +128,9 @@ def test_a_definition_outside_a_module_block_is_not_a_test(
 ) -> None:
     """A ``#[test]`` in an ``impl`` or function body is not one nextest runs."""
     source = _nest(f"fn {enclosing}() {{ {_test_function(function)} }}", modules)
-    assert qualified_test_names(source) == frozenset()
+    assert qualified_test_names(source) == frozenset(), (
+        f"{source!r} must not yield a test name"
+    )
 
 
 @PROPERTY_SETTINGS
@@ -145,4 +151,6 @@ def test_text_that_only_shadows_a_definition_is_not_evidence(
             source = f"/* {definition} */"
         case _:
             source = f'const TEXT: &str = "{definition}";'
-    assert qualified_test_names(source) == frozenset()
+    assert qualified_test_names(source) == frozenset(), (
+        f"{source!r} must not yield a test name"
+    )

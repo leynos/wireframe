@@ -157,6 +157,11 @@ def test_test_function_detection_is_module_aware(
             "// #[test]\n// fn commented() {}\n", set(), id="commented-out"
         ),
         pytest.param(
+            "let c = '\\'';'{';\n#[test]\nfn after_escaped_quote() {}",
+            {"after_escaped_quote"},
+            id="escaped-quote-literal",
+        ),
+        pytest.param(
             "impl Harness {\n    #[test]\n    fn method() {}\n}\n",
             set(),
             id="not-a-test-item",

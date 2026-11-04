@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 from runner_placement_reader import REPO_ROOT, workflows
+from rust_source_scanning import has_coverage_gate, is_loom_gated
 
 
 def assert_workflow_contracts_follow_setup(job: dict[str, typ.Any]) -> None:
@@ -205,17 +206,38 @@ def test_coverage_guards_only_compiler_driving_harnesses() -> None:
         path
         for root in (REPO_ROOT / "tests", REPO_ROOT / "wireframe_testing" / "tests")
         for path in root.rglob("*.rs")
-        if "#![cfg(not(coverage))]" in path.read_text()
+        if has_coverage_gate(path.read_text())
     }
     assert_coverage_guard_scope(guarded)
     loom_harness = REPO_ROOT / "wireframe_testing" / "tests" / "loom_api_surface.rs"
-    assert "#![cfg(loom)]" in loom_harness.read_text(), (
+    assert is_loom_gated(loom_harness.read_text()), (
         "the Loom harness must stay gated out of the ordinary test run"
     )
     manifest = tomllib.loads((REPO_ROOT / "Cargo.toml").read_text())
     checks = manifest["workspace"]["lints"]["rust"]["unexpected_cfgs"]["check-cfg"]
     assert "cfg(loom)" in checks and "cfg(coverage)" in checks, (
         "both conditional-compilation flags must be declared to the lints"
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param("//! Harness.\n\n#![cfg(not(coverage))]\n", True, id="active"),
+        pytest.param("// #![cfg(not(coverage))]\n", False, id="line-comment"),
+        pytest.param("/* #![cfg(not(coverage))] */\n", False, id="block-comment"),
+        pytest.param(
+            'const G: &str = "#![cfg(not(coverage))]";', False, id="string"
+        ),
+        pytest.param(
+            "mod m {\n    #![cfg(not(coverage))]\n}\n", False, id="nested"
+        ),
+    ],
+)
+def test_coverage_guard_must_be_active(source: str, expected: bool) -> None:
+    """A shadowed or nested gate cannot exclude a harness from coverage."""
+    assert has_coverage_gate(source) is expected, (
+        "only a live crate-level coverage gate excludes a harness"
     )
 
 

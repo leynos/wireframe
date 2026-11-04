@@ -20,6 +20,9 @@ from cargo_targets import CargoTestTarget, read_test_targets
 from nextest_policy import override_target_violations
 from runner_placement_reader import REPO_ROOT
 
+if typ.TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
 NEXTEST_CONFIG: Path = REPO_ROOT / ".config" / "nextest.toml"
 MANIFEST: Path = REPO_ROOT / "Cargo.toml"
 
@@ -78,8 +81,8 @@ def repository_targets() -> tuple[CargoTestTarget, ...]:
 
 def assert_no_override_violations(
     config: dict[str, typ.Any],
-    targets: typ.Sequence[CargoTestTarget],
-    source_reader: typ.Callable[[Path], str],
+    targets: Sequence[CargoTestTarget],
+    source_reader: Callable[[Path], str],
 ) -> None:
     """Require every override to resolve to an uncovered trybuild target."""
     violations = override_target_violations(config, targets, source_reader)
@@ -89,8 +92,8 @@ def assert_no_override_violations(
 def write_crate(
     root: Path,
     *,
-    package_extra: typ.Sequence[str] = (),
-    test_declarations: typ.Sequence[str] = (),
+    package_extra: Sequence[str] = (),
+    test_declarations: Sequence[str] = (),
     files: dict[str, str],
 ) -> Path:
     """Write a dependency-free fixture crate and return its manifest path."""

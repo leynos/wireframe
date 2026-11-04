@@ -20,6 +20,9 @@ import math
 import re
 import typing as typ
 
+if typ.TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
+
 #: The coverage action this repository invokes, without its version pin.
 COVERAGE_ACTION_NAME: typ.Final = (
     "leynos/shared-actions/.github/actions/generate-coverage"
@@ -178,7 +181,7 @@ def _invokes_coverage(step: dict[str, typ.Any]) -> bool:
 
 def _workflow_invocations(
     workflow_name: str, workflow: dict[str, typ.Any]
-) -> typ.Iterator[tuple[str, str, dict[str, typ.Any], dict[str, typ.Any]]]:
+) -> Iterator[tuple[str, str, dict[str, typ.Any], dict[str, typ.Any]]]:
     """Yield the coverage invocations in one workflow."""
     for job_id, job in (workflow.get("jobs") or {}).items():
         for step in job.get("steps") or []:
@@ -243,7 +246,7 @@ def _override_tier_violations(
 
 
 def _missing_workflow_violations(
-    invocations: typ.Sequence[
+    invocations: Sequence[
         tuple[str, str, dict[str, typ.Any], dict[str, typ.Any]]
     ],
     violations: list[str],
@@ -272,7 +275,7 @@ def _ceiling_violations(
 
 
 def _watchdog_violations(
-    invocations: typ.Sequence[
+    invocations: Sequence[
         tuple[str, str, dict[str, typ.Any], dict[str, typ.Any]]
     ],
     global_timeout: float | None,
@@ -297,7 +300,7 @@ def _watchdog_violations(
 
 
 def _agreement_violations(
-    watchdogs: typ.Sequence[float], violations: list[str]
+    watchdogs: Sequence[float], violations: list[str]
 ) -> None:
     """Require every coverage invocation to state the same watchdog."""
     distinct = set(watchdogs)

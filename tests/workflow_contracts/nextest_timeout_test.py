@@ -103,10 +103,6 @@ def test_repository_timeout_tiers_are_proved_and_ordered() -> None:
     config = nextest_config()
     workflow_documents = workflows()
     assert_no_timeout_violations(config, workflow_documents)
-    override = config["profile"]["default"]["overrides"][0]["slow-timeout"]
-    assert 60 * 1 < 60 * override["terminate-after"] < 10 * 60, (
-        "the override deadline must sit between the default and the ceiling"
-    )
     for workflow_name, job_id in (
         ("ci.yml", "build-test"),
         ("coverage-main.yml", "coverage-upload"),

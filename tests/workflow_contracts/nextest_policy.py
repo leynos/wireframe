@@ -32,10 +32,11 @@ from rust_source_scanning import (
     defines_test_function,
     drives_trybuild,
     is_loom_gated,
-    test_function_note,
+    describe_qualified_definitions,
 )
 
 if typ.TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
     from cargo_targets import CargoTestTarget
@@ -116,7 +117,7 @@ def parse_target_filter(text: str) -> TargetFilter:
 class _SourceCache:
     """Read each target's source at most once while checking overrides."""
 
-    def __init__(self, read_source: typ.Callable[[Path], str]) -> None:
+    def __init__(self, read_source: Callable[[Path], str]) -> None:
         self._read_source = read_source
         self._sources: dict[Path, str] = {}
 
@@ -142,7 +143,7 @@ def _parsed_override(
 
 
 def _matching_targets(
-    targets: typ.Sequence[CargoTestTarget], parsed: TargetFilter
+    targets: Sequence[CargoTestTarget], parsed: TargetFilter
 ) -> list[CargoTestTarget]:
     """Return the discovered targets whose package and binary the filter names."""
     return [
@@ -175,7 +176,7 @@ def _target_source_violations(
         violations.append(
             f"override {resolved.index} names test {parsed.test!r}, which "
             f"{target.src_path} does not define at its crate root"
-            f"{test_function_note(source, parsed.test)}"
+            f"{describe_qualified_definitions(source, parsed.test)}"
         )
     if not drives_trybuild(source):
         violations.append(
@@ -185,8 +186,8 @@ def _target_source_violations(
 
 
 def _override_violations(
-    overrides: typ.Sequence[dict[str, typ.Any]],
-    targets: typ.Sequence[CargoTestTarget],
+    overrides: Sequence[dict[str, typ.Any]],
+    targets: Sequence[CargoTestTarget],
     source_of: _SourceCache,
     violations: list[str],
 ) -> set[tuple[str, str]]:
@@ -213,7 +214,7 @@ def _override_violations(
 
 
 def _expected_override_targets(
-    targets: typ.Sequence[CargoTestTarget], source_of: _SourceCache
+    targets: Sequence[CargoTestTarget], source_of: _SourceCache
 ) -> set[tuple[str, str]]:
     """Return the trybuild-driving targets that are not crate-level Loom-gated."""
     return {
@@ -224,7 +225,7 @@ def _expected_override_targets(
 
 
 def _target_set_violations(
-    targets: typ.Sequence[CargoTestTarget],
+    targets: Sequence[CargoTestTarget],
     source_of: _SourceCache,
     claimed: set[tuple[str, str]],
     violations: list[str],
@@ -244,8 +245,8 @@ def _target_set_violations(
 
 def override_target_violations(
     config: dict[str, typ.Any],
-    targets: typ.Sequence[CargoTestTarget],
-    read_source: typ.Callable[[Path], str],
+    targets: Sequence[CargoTestTarget],
+    read_source: Callable[[Path], str],
 ) -> list[str]:
     """Return every way the overrides fail to name the targets they must.
 

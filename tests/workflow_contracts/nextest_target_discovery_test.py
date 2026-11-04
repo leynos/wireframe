@@ -35,6 +35,9 @@ from nextest_policy import override_target_violations
 from rust_source_scanning import drives_trybuild, is_loom_gated
 from runner_placement_reader import REPO_ROOT
 
+if typ.TYPE_CHECKING:
+    from collections.abc import Sequence
+
 
 def test_repository_override_resolves_to_the_compile_error_target() -> None:
     """The checked-in override names a target Cargo actually discovers."""
@@ -69,8 +72,8 @@ def test_repository_loom_target_is_excluded_by_its_crate_gate() -> None:
 def test_fixture_crate_discovery(
     tmp_path: Path,
     case: str,
-    package_extra: typ.Sequence[str],
-    test_declarations: typ.Sequence[str],
+    package_extra: Sequence[str],
+    test_declarations: Sequence[str],
     files: dict[str, str],
     is_clean: bool,
 ) -> None:
