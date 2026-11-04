@@ -56,14 +56,15 @@ fn total_allocations() -> usize {
 /// Adopt the current allocator total as the baseline for what follows.
 fn record_baseline() { BASELINE_ALLOCATIONS.store(total_allocations(), Ordering::SeqCst); }
 
-/// Fold the current window's delta into the accumulated count.
+/// Fold a window's delta into the accumulated count.
 ///
-/// The baseline advances to the current total in the same step, so calling this
-/// twice without an intervening window adds nothing the second time.
-fn accumulate_current_window() {
-    let current = total_allocations();
-    let baseline = BASELINE_ALLOCATIONS.swap(current, Ordering::SeqCst);
-    let delta = current.saturating_sub(baseline);
+/// `window_total` is the allocator total sampled while the gate was still open,
+/// so allocations that happen after the window closes cannot inflate the count.
+/// The baseline advances to that same total, so folding twice without an
+/// intervening window adds nothing the second time.
+fn accumulate_window_at(window_total: usize) {
+    let baseline = BASELINE_ALLOCATIONS.swap(window_total, Ordering::SeqCst);
+    let delta = window_total.saturating_sub(baseline);
     ACCUMULATED_ALLOCATIONS.fetch_add(delta, Ordering::SeqCst);
 }
 
@@ -125,10 +126,10 @@ pub fn is_allocation_counting_enabled() -> bool {
 
 /// Run `operation` inside an allocation-counting window and return the count.
 ///
-/// Resets the counter, opens the window, runs `operation`, then closes the
-/// window and returns the delta. The window is closed even when `operation`
-/// fails, so a failed measurement cannot leave counting enabled for the rest of
-/// the process.
+/// Opens the window, resets the counter, runs `operation`, then samples the
+/// closing total before closing the window and returns the delta. The window is
+/// closed even when `operation` fails, so a failed measurement cannot leave
+/// counting enabled for the rest of the process.
 ///
 /// # Errors
 ///
@@ -160,15 +161,20 @@ pub fn count_allocations<F>(operation: F) -> Result<usize, String>
 where
     F: FnOnce() -> Result<(), String>,
 {
-    reset_allocation_count();
+    // Open the gate before the baseline is sampled, and sample the closing
+    // total before the gate closes. Anything allocated by another thread
+    // outside that interval then falls on the far side of a boundary and stays
+    // out of the reported delta.
     ALLOCATION_COUNTING_ENABLED.store(true, Ordering::SeqCst);
     fence(Ordering::SeqCst);
+    reset_allocation_count();
 
     let outcome = operation();
 
     fence(Ordering::SeqCst);
+    let window_total = total_allocations();
     ALLOCATION_COUNTING_ENABLED.store(false, Ordering::SeqCst);
-    accumulate_current_window();
+    accumulate_window_at(window_total);
 
     outcome.map(|()| ACCUMULATED_ALLOCATIONS.load(Ordering::SeqCst))
 }
