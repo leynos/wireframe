@@ -17,7 +17,7 @@ import os
 import re
 import subprocess
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -89,42 +89,38 @@ def _preceding_comment_block(lines: list[str], index: int) -> str:
     return " ".join(reversed(collected)).lower()
 
 
-def _assert_dylint_policy(source: str) -> None:
-    """Assert the exclusion policy encoded in ``dylint.toml``."""
-    configuration = tomllib.loads(source)
-    crate_wide: list[str] = []
-    tuning: list[str] = []
-    weak_paths: list[str] = []
+def _iter_config_entries(
+    table: dict[str, object], path: str
+) -> Iterator[tuple[str, str, object]]:
+    """Yield ``(path, key, value)`` for every entry, descending into tables."""
+    for key, value in table.items():
+        yield path, key, value
+        if isinstance(value, dict):
+            yield from _iter_config_entries(value, f"{path}.{key}")
 
-    def walk(table: dict[str, object], path: str) -> None:
-        for key, value in table.items():
-            if key == "excluded_crates":
-                crate_wide.append(f"{path}.{key}")
-            if key in REPOSITORY_WIDE_TUNING_KEYS:
-                tuning.append(f"{path}.{key}")
-            if key == "excluded_paths" and isinstance(value, list):
-                weak_paths.extend(
-                    f"{path}.{key}={entry!r}"
-                    for entry in value
-                    if not MODULE_PATH_RE.fullmatch(str(entry))
-                )
-            if isinstance(value, dict):
-                walk(value, f"{path}.{key}")
 
-    walk(configuration, "dylint")
-    assert not crate_wide, (
-        f"crate-wide exclusions are forbidden; scope excluded_paths instead: {crate_wide}"
-    )
-    assert not tuning, (
-        "repository-wide tuning keys need the ticket owner's approval and are "
-        f"rejected by this contract: {tuning}"
-    )
-    assert not weak_paths, (
-        "exclusions must name a module path such as `wireframe::legacy_io`; "
-        f"these would widen past the diagnostic: {weak_paths}"
-    )
+def _crate_wide_exclusions(entries: list[tuple[str, str, object]]) -> list[str]:
+    return [f"{path}.{key}" for path, key, _ in entries if key == "excluded_crates"]
 
-    lines = source.splitlines()
+
+def _repository_wide_tuning(entries: list[tuple[str, str, object]]) -> list[str]:
+    return [
+        f"{path}.{key}" for path, key, _ in entries if key in REPOSITORY_WIDE_TUNING_KEYS
+    ]
+
+
+def _widened_exclusions(entries: list[tuple[str, str, object]]) -> list[str]:
+    return [
+        f"{path}.{key}={entry!r}"
+        for path, key, value in entries
+        if key == "excluded_paths" and isinstance(value, list)
+        for entry in value
+        if not MODULE_PATH_RE.fullmatch(str(entry))
+    ]
+
+
+def _assert_exclusions_are_justified(lines: list[str]) -> None:
+    """Require evidence above every ``excluded_paths`` key."""
     unjustified = []
     for index, line in enumerate(lines):
         if not EXCLUDED_PATHS_KEY_RE.match(line):
@@ -137,6 +133,28 @@ def _assert_dylint_policy(source: str) -> None:
         "every exclusion needs a comment naming the reproduced diagnostic, the "
         f"external constraint and the issue that removes it: {unjustified}"
     )
+
+
+def _assert_dylint_policy(source: str) -> None:
+    """Assert the exclusion policy encoded in ``dylint.toml``."""
+    entries = list(_iter_config_entries(tomllib.loads(source), "dylint"))
+    crate_wide = _crate_wide_exclusions(entries)
+    tuning = _repository_wide_tuning(entries)
+    widened = _widened_exclusions(entries)
+
+    assert not crate_wide, (
+        f"crate-wide exclusions are forbidden; scope excluded_paths instead: {crate_wide}"
+    )
+    assert not tuning, (
+        "repository-wide tuning keys need the ticket owner's approval and are "
+        f"rejected by this contract: {tuning}"
+    )
+    assert not widened, (
+        "exclusions must name a module path such as `wireframe::legacy_io`; "
+        f"these would widen past the diagnostic: {widened}"
+    )
+
+    _assert_exclusions_are_justified(source.splitlines())
 
 
 def _lint_dry_run(makefile: Path = MAKEFILE_PATH) -> list[str]:
