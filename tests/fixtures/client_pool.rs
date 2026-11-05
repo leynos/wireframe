@@ -99,8 +99,8 @@ impl ClientPoolWorld {
         }
         drop(lease);
 
-        let lease = pool.acquire().await?;
-        let second: Pong = lease.call(&Ping(8)).await?;
+        let second_lease = pool.acquire().await?;
+        let second: Pong = second_lease.call(&Ping(8)).await?;
         if second != Pong(8) {
             return Err(format!("unexpected second response: {second:?}").into());
         }
@@ -184,8 +184,8 @@ impl ClientPoolWorld {
         tokio::time::advance(idle_timeout + idle_timeout).await;
         tokio::task::yield_now().await;
 
-        let lease = pool.acquire().await?;
-        let second: Pong = lease.call(&Ping(2)).await?;
+        let second_lease = pool.acquire().await?;
+        let second: Pong = second_lease.call(&Ping(2)).await?;
         if second != Pong(2) {
             return Err(format!("unexpected second response: {second:?}").into());
         }
@@ -227,9 +227,9 @@ impl ClientPoolWorld {
         )
         .await?;
 
-        let lease = timeout(CANCELLATION_GRACE, pool.acquire()).await??;
+        let reacquired_lease = timeout(CANCELLATION_GRACE, pool.acquire()).await??;
         self.cancelled_call_capacity = CancelledCallCapacity::Released;
-        let response: Pong = lease.call(&Ping(2)).await?;
+        let response: Pong = reacquired_lease.call(&Ping(2)).await?;
         if response != Pong(2) {
             return Err(format!("unexpected response after cancellation: {response:?}").into());
         }

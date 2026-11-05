@@ -57,9 +57,13 @@ fn reassembler_allows_single_fragment_at_max_message_size() {
         .expect("fragment within limit should be accepted");
 
     let assembled = result.expect("single fragment should complete reassembly");
-    assert_eq!(assembled.payload().len(), max_message_size.get());
-    assert_eq!(reassembler.buffered_len(), 0);
-    assert_eq!(reassembler.buffered_bytes(), 0);
+    assert_eq!(
+        assembled.payload().len(),
+        max_message_size.get(),
+        "assembled payload length"
+    );
+    assert_eq!(reassembler.buffered_len(), 0, "buffer must be empty");
+    assert_eq!(reassembler.buffered_bytes(), 0, "no bytes remain buffered");
 }
 
 #[test]
@@ -86,9 +90,13 @@ fn reassembler_allows_multi_fragment_at_max_message_size() {
         .expect("second fragment keeps total at limit");
 
     let assembled = result.expect("fragments should complete reassembly at exact limit");
-    assert_eq!(assembled.payload().len(), max_message_size.get());
-    assert_eq!(reassembler.buffered_len(), 0);
-    assert_eq!(reassembler.buffered_bytes(), 0);
+    assert_eq!(
+        assembled.payload().len(),
+        max_message_size.get(),
+        "assembled payload length"
+    );
+    assert_eq!(reassembler.buffered_len(), 0, "buffer must be empty");
+    assert_eq!(reassembler.buffered_bytes(), 0, "no bytes remain buffered");
 }
 
 #[test]
@@ -107,10 +115,10 @@ fn reassembler_returns_single_fragment_immediately() {
         .expect("reassembly must succeed")
         .expect("single fragment should complete message");
 
-    assert_eq!(complete.message_id(), MessageId::new(1));
-    assert_eq!(complete.payload(), payload.as_slice());
-    assert_eq!(reassembler.buffered_len(), 0);
-    assert_eq!(reassembler.buffered_bytes(), 0);
+    assert_eq!(complete.message_id(), MessageId::new(1), "id preserved");
+    assert_eq!(complete.payload(), payload.as_slice(), "payload preserved");
+    assert_eq!(reassembler.buffered_len(), 0, "buffer must be empty");
+    assert_eq!(reassembler.buffered_bytes(), 0, "no bytes remain buffered");
 }
 
 #[rstest]
@@ -134,8 +142,9 @@ fn reassembler_rejects_nonzero_first_index(#[case] is_last: bool) {
             expected: FragmentIndex::zero(),
             found: FragmentIndex::new(1),
         }),
+        "index mismatch must be reported"
     );
-    assert_eq!(reassembler.buffered_len(), 0);
+    assert_eq!(reassembler.buffered_len(), 0, "buffer must be empty");
 }
 
 #[rstest]
@@ -152,9 +161,9 @@ fn reassembler_accumulates_ordered_fragments(
         .expect("final fragment accepted")
         .expect("message should complete");
 
-    assert_eq!(complete.payload(), &[5, 6, 7, 8, 9]);
-    assert_eq!(reassembler.buffered_len(), 0);
-    assert_eq!(reassembler.buffered_bytes(), 0);
+    assert_eq!(complete.payload(), &[5, 6, 7, 8, 9], "fragments in order");
+    assert_eq!(reassembler.buffered_len(), 0, "buffer must be empty");
+    assert_eq!(reassembler.buffered_bytes(), 0, "no bytes remain buffered");
 }
 
 #[rstest]
@@ -169,12 +178,15 @@ fn reassembler_rejects_out_of_order_and_drops_partial(
     let err = reassembler
         .push(skipped, [3_u8])
         .expect_err("out-of-order fragment must be rejected");
-    assert!(matches!(
-        err,
-        ReassemblyError::Fragment(FragmentError::IndexMismatch { .. })
-    ));
-    assert_eq!(reassembler.buffered_len(), 0);
-    assert_eq!(reassembler.buffered_bytes(), 0);
+    assert!(
+        matches!(
+            err,
+            ReassemblyError::Fragment(FragmentError::IndexMismatch { .. })
+        ),
+        "out-of-order fragment must be rejected"
+    );
+    assert_eq!(reassembler.buffered_len(), 0, "buffer must be empty");
+    assert_eq!(reassembler.buffered_bytes(), 0, "no bytes remain buffered");
 }
 
 #[rstest]
@@ -191,16 +203,17 @@ fn reassembler_suppresses_duplicate_fragment(
         reassembler
             .push(duplicate, [9_u8, 9])
             .expect("duplicate fragment should be suppressed")
-            .is_none()
+            .is_none(),
+        "duplicate must not complete a message"
     );
-    assert_eq!(reassembler.buffered_len(), 1);
-    assert_eq!(reassembler.buffered_bytes(), 2);
+    assert_eq!(reassembler.buffered_len(), 1, "a message remains buffered");
+    assert_eq!(reassembler.buffered_bytes(), 2, "original bytes buffered");
 
     let complete = reassembler
         .push(final_fragment, [3_u8])
         .expect("final fragment should complete message")
         .expect("message should be complete");
-    assert_eq!(complete.payload(), &[1, 2, 3]);
+    assert_eq!(complete.payload(), &[1, 2, 3], "fragments append in order");
 }
 
 #[test]
@@ -218,15 +231,16 @@ fn reassembler_accepts_zero_length_fragments() {
         reassembler
             .push(first, [])
             .expect("empty fragment should be accepted")
-            .is_none()
+            .is_none(),
+        "empty fragment must not complete a message"
     );
 
     let complete = reassembler
         .push(second, [7_u8, 8])
         .expect("final fragment should complete message")
         .expect("message should be complete");
-    assert_eq!(complete.payload(), &[7, 8]);
-    assert_eq!(reassembler.buffered_bytes(), 0);
+    assert_eq!(complete.payload(), &[7, 8], "empty fragment adds no data");
+    assert_eq!(reassembler.buffered_bytes(), 0, "no bytes remain buffered");
 }
 
 #[test]
@@ -244,7 +258,8 @@ fn reassembler_enforces_maximum_payload_size() {
         reassembler
             .push(first, [1_u8, 2, 3])
             .expect("first fragment accepted")
-            .is_none()
+            .is_none(),
+        "first fragment must not complete a message"
     );
 
     let err = reassembler
@@ -256,10 +271,11 @@ fn reassembler_enforces_maximum_payload_size() {
             message_id: MessageId::new(4),
             attempted: 5,
             limit: NonZeroUsize::new(4).expect("non-zero"),
-        }
+        },
+        "oversized message must be rejected"
     );
-    assert_eq!(reassembler.buffered_len(), 0);
-    assert_eq!(reassembler.buffered_bytes(), 0);
+    assert_eq!(reassembler.buffered_len(), 0, "buffer must be empty");
+    assert_eq!(reassembler.buffered_bytes(), 0, "no bytes remain buffered");
 }
 
 #[test]
@@ -277,15 +293,16 @@ fn reassembler_purges_expired_messages() {
         reassembler
             .push_at(header, [0_u8, 1], now)
             .expect("first fragment accepted")
-            .is_none()
+            .is_none(),
+        "first fragment must not complete a message"
     );
-    assert_eq!(reassembler.buffered_len(), 1);
-    assert_eq!(reassembler.buffered_bytes(), 2);
+    assert_eq!(reassembler.buffered_len(), 1, "a message remains buffered");
+    assert_eq!(reassembler.buffered_bytes(), 2, "original bytes buffered");
 
     let evicted = reassembler.purge_expired_at(now + Duration::from_secs(3));
-    assert_eq!(evicted, vec![MessageId::new(5)]);
-    assert_eq!(reassembler.buffered_len(), 0);
-    assert_eq!(reassembler.buffered_bytes(), 0);
+    assert_eq!(evicted, vec![MessageId::new(5)], "expired message purged");
+    assert_eq!(reassembler.buffered_len(), 0, "buffer must be empty");
+    assert_eq!(reassembler.buffered_bytes(), 0, "no bytes remain buffered");
 }
 
 #[derive(Clone, Debug, Encode, BorrowDecode, PartialEq, Eq)]
@@ -314,6 +331,6 @@ fn reassembler_decodes_reconstructed_message() {
 
     let assembled = output.expect("message should complete");
     let decoded: ExampleMessage = assembled.decode().expect("decode message");
-    assert_eq!(decoded, ExampleMessage(11));
-    assert_eq!(reassembler.buffered_bytes(), 0);
+    assert_eq!(decoded, ExampleMessage(11), "decoded message round-trips");
+    assert_eq!(reassembler.buffered_bytes(), 0, "no bytes remain buffered");
 }

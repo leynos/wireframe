@@ -126,7 +126,11 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(multi_packet_terminator_is_single(&model, &state), expected);
+        assert_eq!(
+            multi_packet_terminator_is_single(&model, &state),
+            expected,
+            "multi_packet_terminator_is_single(&model, &state) should equal expected"
+        );
     }
 
     #[rstest]
@@ -145,7 +149,11 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(high_priority_progress(&model, &state), expected);
+        assert_eq!(
+            high_priority_progress(&model, &state),
+            expected,
+            "high_priority_progress(&model, &state) should equal expected"
+        );
     }
 
     #[rstest]
@@ -164,7 +172,11 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(low_priority_progress(&model, &state), expected);
+        assert_eq!(
+            low_priority_progress(&model, &state),
+            expected,
+            "low_priority_progress(&model, &state) should equal expected"
+        );
     }
 
     #[rstest]
@@ -183,7 +195,11 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(response_completion(&model, &state), expected);
+        assert_eq!(
+            response_completion(&model, &state),
+            expected,
+            "response_completion(&model, &state) should equal expected"
+        );
     }
 
     #[rstest]
@@ -202,7 +218,11 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(multi_packet_completion(&model, &state), expected);
+        assert_eq!(
+            multi_packet_completion(&model, &state),
+            expected,
+            "multi_packet_completion(&model, &state) should equal expected"
+        );
     }
 
     #[rstest]
@@ -221,6 +241,10 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(shutdown_races_active_output(&model, &state), expected);
+        assert_eq!(
+            shutdown_races_active_output(&model, &state),
+            expected,
+            "shutdown_races_active_output(&model, &state) should equal expected"
+        );
     }
 }

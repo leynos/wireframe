@@ -9,5 +9,8 @@ use wireframe::serializer::{BincodeSerializer, Serializer};
 
 #[test]
 fn bincode_serializer_does_not_deserialize_after_parse() {
-    assert!(!BincodeSerializer.should_deserialize_after_parse());
+    assert!(
+        !BincodeSerializer.should_deserialize_after_parse(),
+        "assertion failed: !BincodeSerializer.should_deserialize_after_parse()"
+    );
 }

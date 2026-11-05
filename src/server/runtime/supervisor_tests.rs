@@ -19,7 +19,7 @@ async fn panic_cancels_and_drains_tracked_workers_before_resuming() {
     let worker_token = token.clone();
     tracker.spawn(async move {
         worker_token.cancelled().await;
-        let _ = worker_done_tx.send(());
+        let _worker_done_sent = worker_done_tx.send(());
     });
 
     let supervisor_token = token.clone();
@@ -31,10 +31,14 @@ async fn panic_cancels_and_drains_tracked_workers_before_resuming() {
         supervisor
             .await
             .expect_err("supervisor should panic")
-            .is_panic()
+            .is_panic(),
+        "assertion failed: supervisor .await .expect_err(\"supervisor should panic\") .is_panic()"
     );
     worker_done_rx
         .await
         .expect("panic cleanup should drain the tracked worker");
-    assert!(token.is_cancelled());
+    assert!(
+        token.is_cancelled(),
+        "assertion failed: token.is_cancelled()"
+    );
 }

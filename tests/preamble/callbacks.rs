@@ -46,30 +46,30 @@ async fn server_triggers_expected_callback(
 ) -> TestResult {
     let (success_tx, success_rx) = tokio::sync::oneshot::channel::<HotlinePreamble>();
     let (failure_tx, failure_rx) = tokio::sync::oneshot::channel::<()>();
-    let success_tx = Arc::new(std::sync::Mutex::new(Some(success_tx)));
-    let failure_tx = Arc::new(std::sync::Mutex::new(Some(failure_tx)));
+    let success_holder = Arc::new(std::sync::Mutex::new(Some(success_tx)));
+    let failure_holder = Arc::new(std::sync::Mutex::new(Some(failure_tx)));
     let server = server_with_handlers(
         factory,
         {
-            let success_tx = success_tx.clone();
+            let success_holder_for_factory = success_holder.clone();
             move |p, _| {
-                let success_tx = success_tx.clone();
+                let success_holder_for_callback = success_holder_for_factory.clone();
                 let clone = p.clone();
                 Box::pin(async move {
-                    if let Some(tx) = take_sender_io(&success_tx)? {
-                        let _ = tx.send(clone);
+                    if let Some(tx) = take_sender_io(&success_holder_for_callback)? {
+                        drop(tx.send(clone));
                     }
                     Ok::<(), io::Error>(())
                 })
             }
         },
         {
-            let failure_tx = failure_tx.clone();
+            let failure_holder_for_factory = failure_holder.clone();
             move |_, _| {
-                let failure_tx = failure_tx.clone();
+                let failure_holder_for_callback = failure_holder_for_factory.clone();
                 Box::pin(async move {
-                    if let Some(tx) = take_sender_io(&failure_tx)? {
-                        let _ = tx.send(());
+                    if let Some(tx) = take_sender_io(&failure_holder_for_callback)? {
+                        let _signal_sent = tx.send(());
                     }
                     Ok::<(), io::Error>(())
                 })
@@ -85,12 +85,22 @@ async fn server_triggers_expected_callback(
         match expected {
             ExpectedCallback::Success => {
                 let preamble = timeout(Duration::from_secs(2), success_rx).await??;
-                assert_eq!(preamble.magic, HotlinePreamble::MAGIC);
-                assert!(timeout(Duration::from_secs(1), failure_rx).await.is_err());
+                assert_eq!(
+                    preamble.magic,
+                    HotlinePreamble::MAGIC,
+                    "preamble.magic should equal HotlinePreamble::MAGIC"
+                );
+                assert!(
+                    timeout(Duration::from_secs(1), failure_rx).await.is_err(),
+                    "assertion failed: timeout(Duration::from_secs(1), failure_rx).await.is_err()"
+                );
             }
             ExpectedCallback::Failure => {
                 timeout(Duration::from_secs(2), failure_rx).await??;
-                assert!(timeout(Duration::from_secs(1), success_rx).await.is_err());
+                assert!(
+                    timeout(Duration::from_secs(1), success_rx).await.is_err(),
+                    "assertion failed: timeout(Duration::from_secs(1), success_rx).await.is_err()"
+                );
             }
         }
 
@@ -106,17 +116,17 @@ async fn success_handler_runs_without_failure_handler(
     factory: impl Fn() -> WireframeApp + Send + Sync + Clone + 'static,
 ) -> TestResult {
     let (success_tx, success_rx) = tokio::sync::oneshot::channel::<HotlinePreamble>();
-    let success_tx = Arc::new(std::sync::Mutex::new(Some(success_tx)));
+    let success_holder = Arc::new(std::sync::Mutex::new(Some(success_tx)));
     let server = WireframeServer::new(factory)
         .with_preamble::<HotlinePreamble>()
         .on_preamble_decode_success({
-            let success_tx = success_tx.clone();
+            let success_holder_for_factory = success_holder.clone();
             move |p, _| {
-                let success_tx = success_tx.clone();
+                let success_holder_for_callback = success_holder_for_factory.clone();
                 let preamble = p.clone();
                 Box::pin(async move {
-                    if let Some(tx) = take_sender_io(&success_tx)? {
-                        let _ = tx.send(preamble);
+                    if let Some(tx) = take_sender_io(&success_holder_for_callback)? {
+                        drop(tx.send(preamble));
                     }
                     Ok::<(), io::Error>(())
                 })
@@ -129,7 +139,11 @@ async fn success_handler_runs_without_failure_handler(
         stream.write_all(bytes).await?;
         stream.shutdown().await?;
         let preamble = recv_within(Duration::from_secs(1), success_rx).await?;
-        assert_eq!(preamble.magic, HotlinePreamble::MAGIC);
+        assert_eq!(
+            preamble.magic,
+            HotlinePreamble::MAGIC,
+            "preamble.magic should equal HotlinePreamble::MAGIC"
+        );
         Ok(())
     })
     .await?;
@@ -145,10 +159,10 @@ async fn failure_handler_error_is_logged_and_connection_closes(
     let server = WireframeServer::new(factory)
         .with_preamble::<HotlinePreamble>()
         .on_preamble_decode_failure(move |_, _| {
-            let failure_holder = failure_holder.clone();
+            let failure_holder_for_callback = failure_holder.clone();
             Box::pin(async move {
-                if let Some(tx) = take_sender_io(&failure_holder)? {
-                    let _ = tx.send(());
+                if let Some(tx) = take_sender_io(&failure_holder_for_callback)? {
+                    let _signal_sent = tx.send(());
                 }
                 Err::<(), io::Error>(io::Error::other("boom"))
             })
@@ -187,14 +201,14 @@ async fn success_handler_error_closes_connection_without_app_dispatch(
 ) -> TestResult {
     let app_setup_count = Arc::new(AtomicUsize::new(0));
     let app_factory = {
-        let app_setup_count = Arc::clone(&app_setup_count);
+        let app_setup_count_for_factory = Arc::clone(&app_setup_count);
         move || {
-            let app_setup_count = Arc::clone(&app_setup_count);
+            let app_setup_count_for_build = Arc::clone(&app_setup_count_for_factory);
             factory()
                 .on_connection_setup(move || {
-                    let app_setup_count = Arc::clone(&app_setup_count);
+                    let app_setup_count_for_connection = Arc::clone(&app_setup_count_for_build);
                     async move {
-                        app_setup_count.fetch_add(1, Ordering::SeqCst);
+                        app_setup_count_for_connection.fetch_add(1, Ordering::SeqCst);
                     }
                 })
                 .expect("failed to install app dispatch counter")
@@ -217,7 +231,7 @@ async fn success_handler_error_closes_connection_without_app_dispatch(
     );
 
     with_running_server(server, {
-        let app_setup_count = Arc::clone(&app_setup_count);
+        let app_setup_count_for_client = Arc::clone(&app_setup_count);
         move |addr| async move {
             let mut stream = TcpStream::connect(addr).await?;
             stream.write_all(b"TRTPHOTL\x00\x01\x00\x02").await?;
@@ -235,7 +249,7 @@ async fn success_handler_error_closes_connection_without_app_dispatch(
             }
 
             assert_eq!(
-                app_setup_count.load(Ordering::SeqCst),
+                app_setup_count_for_client.load(Ordering::SeqCst),
                 0,
                 "application connection setup ran after preamble success handler failed",
             );

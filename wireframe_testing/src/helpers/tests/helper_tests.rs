@@ -21,7 +21,11 @@ async fn run_app_rejects_zero_capacity() {
     let err = run_app(app, vec![], Some(0))
         .await
         .expect_err("capacity of zero should error");
-    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::InvalidInput,
+        "err.kind() should equal std::io::ErrorKind::InvalidInput"
+    );
 }
 
 #[tokio::test]
@@ -31,7 +35,11 @@ async fn run_app_rejects_excess_capacity() {
     let err = run_app(app, vec![], Some(MAX_CAPACITY + 1))
         .await
         .expect_err("capacity beyond max should error");
-    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::InvalidInput,
+        "err.kind() should equal std::io::ErrorKind::InvalidInput"
+    );
 }
 
 #[tokio::test]
@@ -106,7 +114,11 @@ async fn drive_internal_converts_synchronous_server_panics_to_io_errors() {
     .await;
 
     let error = result.expect_err("synchronous server panic should become an I/O error");
-    assert_eq!(error.kind(), io::ErrorKind::Other);
+    assert_eq!(
+        error.kind(),
+        io::ErrorKind::Other,
+        "error.kind() should equal io::ErrorKind::Other"
+    );
     assert!(
         error.to_string().starts_with("server task failed"),
         "unexpected panic conversion: {error}"

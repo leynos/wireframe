@@ -46,13 +46,13 @@ where
     A: Send + 'static,
     R: Clone + Send + 'static,
 {
-    let counter = counter.clone();
+    let shared_counter = counter.clone();
     move |_| {
-        let counter = counter.clone();
-        let result = result.clone();
+        let call_counter = shared_counter.clone();
+        let value = result.clone();
         Box::pin(async move {
-            counter.fetch_add(1, Ordering::SeqCst);
-            result
+            call_counter.fetch_add(1, Ordering::SeqCst);
+            value
         })
     }
 }

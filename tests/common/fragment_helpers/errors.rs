@@ -48,9 +48,9 @@ pub enum TestError {
 }
 
 impl<T> From<mpsc::error::SendError<T>> for TestError {
-    fn from(err: mpsc::error::SendError<T>) -> Self { TestError::Send(err.to_string()) }
+    fn from(err: mpsc::error::SendError<T>) -> Self { Self::Send(err.to_string()) }
 }
 
 impl From<wireframe::WireframeError> for TestError {
-    fn from(err: wireframe::WireframeError) -> Self { TestError::App(err) }
+    fn from(err: wireframe::WireframeError) -> Self { Self::App(err) }
 }

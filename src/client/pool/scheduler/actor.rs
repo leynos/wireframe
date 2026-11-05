@@ -154,7 +154,7 @@ where
     }
 
     /// Ordering policy applied when selecting the next waiter.
-    fn fairness_policy(&self) -> PoolFairnessPolicy { self.admission.fairness_policy }
+    const fn fairness_policy(&self) -> PoolFairnessPolicy { self.admission.fairness_policy }
 
     /// Serve commands until shutdown, mailbox closure, or an internal fault.
     pub(crate) async fn run(mut self) {
@@ -224,14 +224,17 @@ where
         reply: WaiterSender<S, P, C>,
     ) {
         if !self.status.is_running() {
-            let _ = reply.send(Err(self.status.close_error()));
+            // The caller may already be gone; a failed send has no recovery.
+            drop(reply.send(Err(self.status.close_error())));
             return;
         }
 
         if let WaiterEnqueueResult::Saturated { rejected } =
             self.state.enqueue_waiter(handle_id, reply, self.admission)
         {
-            let _ = rejected.send(Err(ClientError::pool_saturated(self.admission.max_waiters)));
+            // The rejected caller may already be gone; a failed send has no
+            // recovery.
+            drop(rejected.send(Err(ClientError::pool_saturated(self.admission.max_waiters))));
             return;
         }
 
@@ -274,11 +277,11 @@ where
 
     /// Hand one raced permit to the next waiter, or return it to the pool.
     fn on_permit_won(&mut self, core: &Arc<PoolCore<S, P, C>>, permit: SlotPermit) {
-        let (slot_index, permit) = permit;
+        let (slot_index, owned_permit) = permit;
         let Some(waiter) = self.state.take_next_waiter(self.fairness_policy()) else {
             return;
         };
-        Self::deliver(core, waiter, slot_index, permit);
+        Self::deliver(core, waiter, slot_index, owned_permit);
     }
 
     /// Build a lease and send it, releasing it when the caller is gone.
@@ -290,13 +293,15 @@ where
     ) {
         match PooledClientLease::new(Arc::clone(core), slot_index, permit) {
             Some(lease) => {
-                if let Err(Ok(lease)) = waiter.send(Ok(lease)) {
+                if let Err(Ok(returned)) = waiter.send(Ok(lease)) {
                     // The receiver went away between selection and delivery.
-                    drop(lease);
+                    drop(returned);
                 }
             }
             None => {
-                let _ = waiter.send(Err(ClientError::scheduler_failed()));
+                // The caller may already be gone; a failed send has no
+                // recovery.
+                drop(waiter.send(Err(ClientError::scheduler_failed())));
             }
         }
     }
@@ -317,7 +322,8 @@ where
             );
         }
         while let Some(waiter) = self.state.take_next_waiter(self.fairness_policy()) {
-            let _ = waiter.send(Err(self.status.close_error()));
+            // The caller may already be gone; a failed send has no recovery.
+            drop(waiter.send(Err(self.status.close_error())));
         }
         self.receiver.close();
     }
@@ -326,13 +332,16 @@ where
     fn drain_for_shutdown(&mut self) {
         self.status.mark_closed();
         while let Some(waiter) = self.state.take_next_waiter(self.fairness_policy()) {
-            let _ = waiter.send(Err(ClientError::pool_closed()));
+            // The caller may already be gone; a failed send has no recovery.
+            drop(waiter.send(Err(ClientError::pool_closed())));
         }
 
         self.receiver.close();
         while let Ok(command) = self.receiver.try_recv() {
             if let SchedulerCommand::Acquire { reply, .. } = command {
-                let _ = reply.send(Err(ClientError::pool_closed()));
+                // The caller may already be gone; a failed send has no
+                // recovery.
+                drop(reply.send(Err(ClientError::pool_closed())));
             }
         }
     }

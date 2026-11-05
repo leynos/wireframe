@@ -124,7 +124,7 @@ async fn graceful_shutdown() -> TestResult {
         .bind_existing_listener(listener)?;
     let addr = server
         .local_addr()
-        .ok_or_else(|| "local address missing".to_string())?;
+        .ok_or_else(|| "local address missing".to_owned())?;
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
     let span = tracing::Span::current();
@@ -133,7 +133,7 @@ async fn graceful_shutdown() -> TestResult {
             server
                 .ready_signal(ready_tx)
                 .run_with_shutdown(async {
-                    let _ = shutdown_rx.await;
+                    drop(shutdown_rx.await);
                 })
                 .await
         }
@@ -158,7 +158,7 @@ async fn stop_spawned_server() -> TestResult {
         .bind_existing_listener(listener)?;
     let addr = server
         .local_addr()
-        .ok_or_else(|| "local address missing".to_string())?;
+        .ok_or_else(|| "local address missing".to_owned())?;
     let (ready_tx, ready_rx) = oneshot::channel();
     let shutdown = server.ready_signal(ready_tx).spawn().await?;
 
@@ -177,7 +177,7 @@ async fn drop_supervisor() -> TestResult {
         .bind_existing_listener(listener)?;
     let addr = server
         .local_addr()
-        .ok_or_else(|| "local address missing".to_string())?;
+        .ok_or_else(|| "local address missing".to_owned())?;
     let (ready_tx, mut ready_rx) = oneshot::channel();
     let mut supervisor = Box::pin(
         server
@@ -208,7 +208,7 @@ async fn abort_supervisor() -> TestResult {
         .bind_existing_listener(listener)?;
     let addr = server
         .local_addr()
-        .ok_or_else(|| "local address missing".to_string())?;
+        .ok_or_else(|| "local address missing".to_owned())?;
     let (ready_tx, ready_rx) = oneshot::channel();
     let span = tracing::Span::current();
     let handle = tokio::spawn(

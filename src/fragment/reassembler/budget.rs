@@ -53,7 +53,7 @@ impl ReassemblyBudget {
     pub(super) const fn max_message_size(&self) -> NonZeroUsize { self.max_message_size }
 
     /// Reject a newly retained message when the concurrent partial cap is full.
-    pub(super) fn assert_within_partial_limit(
+    pub(super) const fn assert_within_partial_limit(
         &self,
         buffered_partials: usize,
     ) -> Result<(), ReassemblyError> {

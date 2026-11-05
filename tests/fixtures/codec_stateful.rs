@@ -167,7 +167,7 @@ async fn serve_stateful_connections(
         let Ok((stream, _)) = listener.accept().await else {
             return;
         };
-        let _ = app.handle_connection_result(stream).await;
+        drop(app.handle_connection_result(stream).await);
     }
 }
 
@@ -301,8 +301,8 @@ impl CodecStatefulWorld {
             sequences.push(frame.sequence);
         }
 
-        let mut stream = framed.into_inner();
-        stream.shutdown().await?;
+        let mut socket = framed.into_inner();
+        socket.shutdown().await?;
         Ok(sequences)
     }
 

@@ -37,13 +37,13 @@ async fn strict_priority_order(
     queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,
 ) -> TestResult {
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     push_expect!(handle.push_low_priority(2), "push low-priority")?;
     push_expect!(handle.push_high_priority(1), "push high-priority")?;
 
     let stream = stream::iter(vec![Ok(3u8)]);
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
-        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
+        ConnectionActor::new(push_queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
     actor
         .run(&mut out)
@@ -60,7 +60,7 @@ async fn fairness_yields_low_after_burst(
     queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,
 ) -> TestResult {
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     let fairness = FairnessConfig {
         max_high_before_low: 2,
         time_slice: None,
@@ -72,7 +72,7 @@ async fn fairness_yields_low_after_burst(
     push_expect!(handle.push_low_priority(99), "push low-priority")?;
 
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
-        ConnectionActor::new(queues, handle, None, shutdown_token);
+        ConnectionActor::new(push_queues, handle, None, shutdown_token);
     actor.set_fairness(fairness);
     let mut out = Vec::new();
     actor
@@ -170,7 +170,7 @@ async fn processes_all_priorities_in_order(
     queues: TestResult<(PushQueues<u8>, wireframe::push::PushHandle<u8>)>,
     shutdown_token: CancellationToken,
 ) -> TestResult {
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     let fairness = FairnessConfig {
         max_high_before_low: 0,
         time_slice: None,
@@ -180,7 +180,7 @@ async fn processes_all_priorities_in_order(
     let expected = queue_frames(&order, &handle, high_count).await?;
 
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
-        ConnectionActor::new(queues, handle, None, shutdown_token);
+        ConnectionActor::new(push_queues, handle, None, shutdown_token);
     actor.set_fairness(fairness);
     let mut out = Vec::new();
     actor
@@ -203,21 +203,21 @@ async fn fairness_yields_low_with_time_slice(
 ) -> TestResult {
     // Use Tokio's virtual clock so timing-dependent fairness is deterministic.
     time::pause();
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     let fairness = FairnessConfig {
         max_high_before_low: 0,
         time_slice: Some(Duration::from_millis(10)),
     };
 
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
-        ConnectionActor::new(queues, handle.clone(), None, shutdown_token);
+        ConnectionActor::new(push_queues, handle.clone(), None, shutdown_token);
     actor.set_fairness(fairness);
 
     let (tx, rx) = oneshot::channel();
     tokio::spawn(async move {
         let mut out = Vec::new();
-        let _ = actor.run(&mut out).await;
-        let _ = tx.send(out);
+        drop(actor.run(&mut out).await);
+        drop(tx.send(out));
     });
 
     push_expect!(handle.push_high_priority(1), "push high-priority")?;

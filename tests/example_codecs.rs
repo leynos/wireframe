@@ -36,9 +36,19 @@ fn hotline_codec_round_trips_payload_and_correlation() {
         .expect("missing frame");
 
     assert!(buf.is_empty(), "unexpected trailing bytes");
-    assert_eq!(decoded_frame.transaction_id, 42);
-    assert_eq!(decoded_frame.payload, payload);
-    assert_eq!(HotlineFrameCodec::correlation_id(&decoded_frame), Some(42));
+    assert_eq!(
+        decoded_frame.transaction_id, 42,
+        "decoded_frame.transaction_id should equal 42"
+    );
+    assert_eq!(
+        decoded_frame.payload, payload,
+        "decoded_frame.payload should equal payload"
+    );
+    assert_eq!(
+        HotlineFrameCodec::correlation_id(&decoded_frame),
+        Some(42),
+        "HotlineFrameCodec::correlation_id(&decoded_frame) should equal Some(42)"
+    );
 }
 
 #[test]
@@ -54,7 +64,11 @@ fn hotline_codec_rejects_invalid_total_size() {
     let err = decoder
         .decode(&mut buf)
         .expect_err("expected invalid total size error");
-    assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::InvalidData,
+        "err.kind() should equal io::ErrorKind::InvalidData"
+    );
 }
 
 #[test]
@@ -77,9 +91,19 @@ fn mysql_codec_round_trips_payload_and_correlation() {
         .expect("missing frame");
 
     assert!(buf.is_empty(), "unexpected trailing bytes");
-    assert_eq!(decoded_frame.sequence_id, 3);
-    assert_eq!(decoded_frame.payload, payload);
-    assert_eq!(MysqlFrameCodec::correlation_id(&decoded_frame), Some(3));
+    assert_eq!(
+        decoded_frame.sequence_id, 3,
+        "decoded_frame.sequence_id should equal 3"
+    );
+    assert_eq!(
+        decoded_frame.payload, payload,
+        "decoded_frame.payload should equal payload"
+    );
+    assert_eq!(
+        MysqlFrameCodec::correlation_id(&decoded_frame),
+        Some(3),
+        "MysqlFrameCodec::correlation_id(&decoded_frame) should equal Some(3)"
+    );
 }
 
 #[test]
@@ -97,7 +121,11 @@ fn mysql_codec_rejects_oversized_payload() {
             &mut buf,
         )
         .expect_err("expected oversized payload error");
-    assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::InvalidInput,
+        "err.kind() should equal io::ErrorKind::InvalidInput"
+    );
 }
 
 #[tokio::test]
@@ -156,7 +184,15 @@ async fn hotline_codec_round_trips_through_app() {
     let (response_env, _) = BincodeSerializer
         .deserialize::<Envelope>(&response_frame.payload)
         .expect("deserialize response");
-    assert_eq!(response_env.correlation_id(), Some(7));
+    assert_eq!(
+        response_env.correlation_id(),
+        Some(7),
+        "response_env.correlation_id() should equal Some(7)"
+    );
     let response_payload = response_env.into_parts().into_payload();
-    assert_eq!(response_payload, b"ping".to_vec());
+    assert_eq!(
+        response_payload,
+        b"ping".to_vec(),
+        "response_payload should equal b\"ping\".to_vec()"
+    );
 }

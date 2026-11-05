@@ -212,9 +212,15 @@ mod tests {
             .next_state(&ConnectionState::default(), action)
             .expect("enqueue transition should be enabled");
 
-        assert_eq!(next.steps, 1);
-        assert_eq!(next.pending_outputs.high_priority_queued, expected_high);
-        assert_eq!(next.pending_outputs.low_priority_queued, expected_low);
+        assert_eq!(next.steps, 1, "next.steps should equal 1");
+        assert_eq!(
+            next.pending_outputs.high_priority_queued, expected_high,
+            "next.pending_outputs.high_priority_queued should equal expected_high"
+        );
+        assert_eq!(
+            next.pending_outputs.low_priority_queued, expected_low,
+            "next.pending_outputs.low_priority_queued should equal expected_low"
+        );
     }
 
     #[rstest]
@@ -229,8 +235,11 @@ mod tests {
             .next_state(&ConnectionState::default(), action)
             .expect("install transition should be enabled");
 
-        assert_eq!(next.steps, 1);
-        assert_eq!(next.active_output, expected_output);
+        assert_eq!(next.steps, 1, "next.steps should equal 1");
+        assert_eq!(
+            next.active_output, expected_output,
+            "next.active_output should equal expected_output"
+        );
     }
 
     #[rstest]
@@ -248,7 +257,11 @@ mod tests {
     ) {
         let model = PlaceholderConnectionModel::default();
 
-        assert_eq!(model.next_state(&state, action), None);
+        assert_eq!(
+            model.next_state(&state, action),
+            None,
+            "model.next_state(&state, action) should equal None"
+        );
     }
 
     #[rstest]
@@ -262,11 +275,13 @@ mod tests {
 
         assert_eq!(
             model.next_state(&state, ConnectionAction::InstallResponse),
-            None
+            None,
+            "model.next_state(&state, ConnectionAction::InstallResponse) should equal None"
         );
         assert_eq!(
             model.next_state(&state, ConnectionAction::InstallMultiPacket),
-            None
+            None,
+            "model.next_state(&state, ConnectionAction::InstallMultiPacket) should equal None"
         );
     }
 
@@ -281,7 +296,11 @@ mod tests {
         ..Default::default()
     })]
     fn emit_low_priority_requires_queue_and_fairness(#[case] state: ConnectionState) {
-        assert_eq!(PlaceholderConnectionModel::apply_emit_low(&state), None);
+        assert_eq!(
+            PlaceholderConnectionModel::apply_emit_low(&state),
+            None,
+            "PlaceholderConnectionModel::apply_emit_low(&state) should equal None"
+        );
     }
 
     #[rstest]
@@ -290,7 +309,9 @@ mod tests {
 
         assert_eq!(
             model.next_state(&ConnectionState::default(), ConnectionAction::EmitQueued),
-            None
+            None,
+            "model.next_state(&ConnectionState::default(), ConnectionAction::EmitQueued) should \
+             equal None"
         );
     }
 
@@ -300,7 +321,11 @@ mod tests {
     fn active_output_transitions_reject_idle_output(#[case] action: ConnectionAction) {
         let model = PlaceholderConnectionModel::default();
 
-        assert_eq!(model.next_state(&ConnectionState::default(), action), None);
+        assert_eq!(
+            model.next_state(&ConnectionState::default(), action),
+            None,
+            "model.next_state(&ConnectionState::default(), action) should equal None"
+        );
     }
 
     #[rstest]
@@ -314,7 +339,8 @@ mod tests {
 
         assert_eq!(
             PlaceholderConnectionModel::apply_complete_response(&state),
-            None
+            None,
+            "PlaceholderConnectionModel::apply_complete_response(&state) should equal None"
         );
     }
 
@@ -329,7 +355,8 @@ mod tests {
 
         assert_eq!(
             PlaceholderConnectionModel::apply_complete_multi_packet(&state),
-            None
+            None,
+            "PlaceholderConnectionModel::apply_complete_multi_packet(&state) should equal None"
         );
     }
 
@@ -344,6 +371,10 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(model.within_boundary(&state), expected);
+        assert_eq!(
+            model.within_boundary(&state),
+            expected,
+            "model.within_boundary(&state) should equal expected"
+        );
     }
 }

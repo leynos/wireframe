@@ -89,11 +89,11 @@ async fn exercise_prepared_app_property_case(
         .into());
     }
 
-    for route_id in (1..=route_count)
+    for route_index in (1..=route_count)
         .cycle()
         .take(route_count + connection_count)
     {
-        let route_id = u32::try_from(route_id)?;
+        let route_id = u32::try_from(route_index)?;
         let payload = vec![u8::try_from(route_id)?];
         let response =
             drive_prepared_with_frames(&prepared, vec![build_frame(route_id, payload)?]).await?;

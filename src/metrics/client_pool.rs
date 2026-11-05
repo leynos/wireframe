@@ -359,8 +359,8 @@ mod tests {
         ::metrics::with_local_recorder(&recorder, || {
             let guard = PoolPermitRaceGuard::start_with_clock(&shutdown, &clock);
             elapsed.store(7, Ordering::Relaxed);
-            if let Some(outcome) = outcome {
-                guard.finish(outcome);
+            if let Some(finish_outcome) = outcome {
+                guard.finish(finish_outcome);
             } else {
                 drop(guard);
             }

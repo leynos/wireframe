@@ -38,9 +38,16 @@ metrics-util = "0.20"
 futures = "0.3"
 tokio-util = { version = "0.7", features = ["codec"] }
 async-trait = "0.1.89"
+# Instrumenting global allocator used by the allocation benchmark binaries. The
+# wrapper is safe to install: it forwards to the system allocator and counts
+# through atomics, so the benchmarks need no `unsafe` code of their own.
+stats_alloc = "0.1.10"
 
 [dev-dependencies]
 # Serializes the tests that assert on process-global state. `serial_test` is
 # already the repository's convention for this; see `tests/push_policies.rs`.
 serial_test = "4.0.1"
 trybuild = "1"
+# Property coverage for the allocation-window arithmetic, which is pure and
+# therefore cheap to exercise over the full `usize` range.
+proptest = "1.7.0"

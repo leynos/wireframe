@@ -138,7 +138,9 @@ mod tests {
     fn pipeline_label_names_every_dimension() {
         assert_eq!(
             pipeline_label("hook_mutation", small_workload(), AccessMode::Mutating),
-            "hook_mutation_length_delimited_small_mutating"
+            "hook_mutation_length_delimited_small_mutating",
+            "pipeline_label(\"hook_mutation\", small_workload(), AccessMode::Mutating) should \
+             equal \"hook_mutation_length_delimited_small_mutating\""
         );
     }
 }

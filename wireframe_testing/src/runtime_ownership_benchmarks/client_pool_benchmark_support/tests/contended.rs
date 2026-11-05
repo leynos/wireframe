@@ -25,11 +25,20 @@ const CONTENDED_BURST_ATTEMPTS: usize = 8;
 fn fifo_baseline_workloads_cover_each_pool_size_and_can_contend() {
     let workloads = contended_fifo_pool_workloads();
 
-    assert_eq!(workloads.map(|workload| workload.pool_size), [1, 4, 16]);
-    assert_eq!(workloads.map(|workload| workload.contenders), [16, 16, 17]);
+    assert_eq!(
+        workloads.map(|workload| workload.pool_size),
+        [1, 4, 16],
+        "workloads.map(|workload| workload.pool_size) should equal [1, 4, 16]"
+    );
+    assert_eq!(
+        workloads.map(|workload| workload.contenders),
+        [16, 16, 17],
+        "workloads.map(|workload| workload.contenders) should equal [16, 16, 17]"
+    );
     assert_eq!(
         workloads.map(|workload| workload.mode),
-        [AcquisitionMode::ContendedFifo; 3]
+        [AcquisitionMode::ContendedFifo; 3],
+        "workloads.map(|workload| workload.mode) should equal [AcquisitionMode::ContendedFifo; 3]"
     );
     for workload in workloads {
         assert!(
@@ -44,7 +53,11 @@ fn fifo_baseline_workloads_cover_each_pool_size_and_can_contend() {
             "contended_fifo_pool_1_contenders_16_rounds_8",
             "contended_fifo_pool_4_contenders_16_rounds_8",
             "contended_fifo_pool_16_contenders_17_rounds_8",
-        ]
+        ],
+        "workloads.map(PoolWorkload::label) should equal [ \
+         \"contended_fifo_pool_1_contenders_16_rounds_8\", \
+         \"contended_fifo_pool_4_contenders_16_rounds_8\", \
+         \"contended_fifo_pool_16_contenders_17_rounds_8\", ]"
     );
 }
 

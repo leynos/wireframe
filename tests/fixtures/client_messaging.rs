@@ -129,7 +129,7 @@ impl ClientMessagingWorld {
     pub fn set_envelope_with_payload(&mut self, message_id: u32, payload: &str) {
         self.envelope = Some(Envelope::new(message_id, None, payload.as_bytes().to_vec()));
         self.expected_message_id = Some(message_id);
-        self.expected_payload = Some(payload.to_string());
+        self.expected_payload = Some(payload.to_owned());
     }
 
     /// Send the configured envelope and capture the returned correlation ID.

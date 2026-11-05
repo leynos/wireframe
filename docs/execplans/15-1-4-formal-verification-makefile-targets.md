@@ -432,6 +432,14 @@ Stop and escalate (do not improvise) when any threshold is crossed:
 - Decision: do not add `cfg(kani)` to `check-cfg` or otherwise touch
   `Cargo.toml` in 15.1.4. Rationale: there is no `cfg(kani)` code yet; that
   wiring belongs to 15.3.1. Date/Author: 2026-06-22, planning agent.
+- Update: the `cfg(kani)` declaration has since landed in the shared
+  `[workspace.lints.rust]` table under issue #664, which aligned the workspace
+  lint baseline with `leynos/netsuke`. It declares `cfg(kani)` alongside
+  `cfg(loom)`, `cfg(coverage)`, `cfg(docsrs)`, and
+  `cfg(dylint_lib, values(any()))`, so the first harness in 15.3.1 inherits a
+  working `unexpected_cfgs` declaration rather than adding one. This precedes
+  roadmap 15.3.1 and does not change any target recipe. Date/Author:
+  2026-11-03, implementation agent.
 
 ## Outcomes & retrospective
 

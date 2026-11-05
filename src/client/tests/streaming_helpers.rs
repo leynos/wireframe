@@ -50,7 +50,7 @@ async fn typed_response_stream_yields_mapped_items_in_order(
     ];
     let items = collect_typed_items(cid, frames, |frame| Ok(Some(frame.payload))).await?;
 
-    assert_eq!(items, vec![vec![10], vec![20], vec![30]]);
+    assert_eq!(items, vec![vec![10], vec![20], vec![30]], "items in order");
     Ok(())
 }
 
@@ -87,7 +87,7 @@ async fn typed_response_stream_skips_control_frames(
     })
     .await?;
 
-    assert_eq!(items, vec![vec![1], vec![2]]);
+    assert_eq!(items, vec![vec![1], vec![2]], "control frames skipped");
     Ok(())
 }
 
@@ -117,10 +117,7 @@ async fn typed_response_stream_all_control_frames_yields_no_items(
     ];
     let items = collect_typed_items(cid, frames, |_frame| Ok(None)).await?;
 
-    assert!(
-        items.is_empty(),
-        "non-empty protocol stream with all-control mapper should yield empty typed stream"
-    );
+    assert!(items.is_empty(), "all-control stream yields no items");
     Ok(())
 }
 
@@ -159,19 +156,20 @@ async fn typed_response_stream_surfaces_mapper_errors(
             }
         });
 
-    assert_eq!(stream.next().await.transpose()?, Some(vec![1]));
+    assert_eq!(
+        stream.next().await.transpose()?,
+        Some(vec![1]),
+        "first item"
+    );
 
     let error = stream
         .next()
         .await
         .expect("mapper error should be yielded")
         .expect_err("second item should be a mapper error");
-    assert!(
-        matches!(error, ClientError::Wireframe(_)),
-        "expected mapper error to surface as the supplied ClientError"
-    );
+    assert!(matches!(error, ClientError::Wireframe(_)), "mapper error");
 
-    assert!(stream.next().await.is_none());
+    assert!(stream.next().await.is_none(), "stream ends after error");
     Ok(())
 }
 
@@ -220,7 +218,7 @@ async fn typed_response_stream_surfaces_mapper_errors_after_skipped_frames(
     assert_eq!(
         stream.next().await.transpose()?,
         Some(vec![1]),
-        "first data frame after skipped control frame should be yielded"
+        "first item"
     );
 
     let error = stream
@@ -228,12 +226,9 @@ async fn typed_response_stream_surfaces_mapper_errors_after_skipped_frames(
         .await
         .expect("mapper error should be yielded")
         .expect_err("second item should be a mapper error");
-    assert!(
-        matches!(error, ClientError::Wireframe(_)),
-        "expected mapper error to surface as the supplied ClientError"
-    );
+    assert!(matches!(error, ClientError::Wireframe(_)), "mapper error");
 
-    assert!(stream.next().await.is_none());
+    assert!(stream.next().await.is_none(), "stream ends after error");
     Ok(())
 }
 
@@ -260,8 +255,8 @@ async fn typed_response_stream_propagates_correlation_mismatch(
 
     match error {
         ClientError::StreamCorrelationMismatch { expected, received } => {
-            assert_eq!(expected, Some(correlation_id.get()));
-            assert_eq!(received, Some(wrong_cid.get()));
+            assert_eq!(expected, Some(correlation_id.get()), "expected cid");
+            assert_eq!(received, Some(wrong_cid.get()), "received correlation id");
         }
         other => panic!("expected StreamCorrelationMismatch, got {other:?}"),
     }
@@ -294,11 +289,19 @@ async fn typed_response_stream_propagates_disconnects(
         .await?
         .typed_with(|frame| Ok(Some(frame.payload)));
 
-    assert_eq!(stream.next().await.transpose()?, Some(vec![10]));
-    assert_eq!(stream.next().await.transpose()?, Some(vec![20]));
+    assert_eq!(
+        stream.next().await.transpose()?,
+        Some(vec![10]),
+        "first payload"
+    );
+    assert_eq!(
+        stream.next().await.transpose()?,
+        Some(vec![20]),
+        "second payload"
+    );
     assert!(
         matches!(stream.next().await, Some(Err(ClientError::Wireframe(_)))),
-        "disconnect should propagate unchanged"
+        "disconnect must propagate"
     );
     Ok(())
 }
@@ -320,10 +323,7 @@ async fn typed_response_stream_propagates_decode_failures(
         .expect("decode failure should be yielded")
         .expect_err("expected decode failure");
 
-    assert!(
-        matches!(error, ClientError::Wireframe(_)),
-        "decode failure should propagate unchanged"
-    );
+    assert!(matches!(error, ClientError::Wireframe(_)), "decode error");
     Ok(())
 }
 
@@ -340,20 +340,14 @@ async fn typed_response_stream_fuses_after_mapper_error() {
     let first = stream.next().await;
     assert!(
         matches!(first, Some(Err(ClientError::Wireframe(_)))),
-        "first poll should yield the mapper error"
+        "mapper error on first poll"
     );
 
     let second = stream.next().await;
-    assert!(
-        second.is_none(),
-        "stream must be fused: polling after a mapper error should return None"
-    );
+    assert!(second.is_none(), "stream must be fused after error");
 
     let third = stream.next().await;
-    assert!(
-        third.is_none(),
-        "stream must remain fused on subsequent polls"
-    );
+    assert!(third.is_none(), "stream remains fused");
 }
 
 #[rstest]
@@ -373,6 +367,6 @@ async fn typed_response_stream_preserves_empty_streams(
         .next()
         .await;
 
-    assert!(next.is_none(), "empty streams should remain empty");
+    assert!(next.is_none(), "empty stream stays empty");
     Ok(())
 }

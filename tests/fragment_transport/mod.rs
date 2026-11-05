@@ -141,7 +141,7 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
     let response = run_round_trip_test(buffer_capacity, payload, false).await?;
     if decode_fragment_payload(&response.payload)?.is_some() {
         return Err(TestError::Assertion(
-            "small payload should pass through unfragmented".to_string(),
+            "small payload should pass through unfragmented".to_owned(),
         ));
     }
     if response.frame_count != 1 {
@@ -199,7 +199,7 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     .await??;
     if decode_fragment_payload(&response.payload)?.is_some() {
         return Err(TestError::Assertion(
-            "expected no fragmentation when fragmentation is disabled".to_string(),
+            "expected no fragmentation when fragmentation is disabled".to_owned(),
         ));
     }
     if response.frame_count != 1 {
@@ -240,7 +240,7 @@ async fn fragmentation_is_opt_in_by_default() -> TestResult {
     let response_payload = response_env.into_parts().into_payload();
     if decode_fragment_payload(&response_payload)?.is_some() {
         return Err(TestError::Assertion(
-            "default app should keep fragmentation disabled".to_string(),
+            "default app should keep fragmentation disabled".to_owned(),
         ));
     }
 
@@ -278,14 +278,14 @@ async fn duplicate_fragment_is_suppressed_and_reassembles(
     assert_handler_observed(&mut rx, &payload).await?;
     if let Ok(Some(_)) = timeout(Duration::from_millis(200), rx.recv()).await {
         return Err(TestError::Assertion(
-            "duplicate suppression should prevent duplicate handler delivery".to_string(),
+            "duplicate suppression should prevent duplicate handler delivery".to_owned(),
         ));
     }
 
     let response = read_reassembled_response(&mut client, &config).await?;
     if response != payload {
         return Err(TestError::Assertion(
-            "reassembled payload mismatch after duplicate suppression".to_string(),
+            "reassembled payload mismatch after duplicate suppression".to_owned(),
         ));
     }
 
@@ -345,7 +345,7 @@ async fn interleaved_fragment_streams_reassemble_independently(
     expected_payloads.sort();
     if observed_responses != expected_payloads {
         return Err(TestError::Assertion(
-            "interleaved responses were not reassembled correctly".to_string(),
+            "interleaved responses were not reassembled correctly".to_owned(),
         ));
     }
 
@@ -359,7 +359,7 @@ async fn interleaved_fragment_streams_reassemble_independently(
     observed_requests.sort();
     if observed_requests != expected_payloads {
         return Err(TestError::Assertion(
-            "interleaved reassembly delivered unexpected handler payloads".to_string(),
+            "interleaved reassembly delivered unexpected handler payloads".to_owned(),
         ));
     }
 

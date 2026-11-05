@@ -159,8 +159,16 @@ mod tests {
             let frame = RespFrame::Integer(value);
             let mut dst = BytesMut::new();
             encode_frame(&frame, &mut dst)?;
-            assert_eq!(dst.as_ref(), wire.as_bytes());
-            assert_eq!(encoded_len(&frame)?, wire.len());
+            assert_eq!(
+                dst.as_ref(),
+                wire.as_bytes(),
+                "dst.as_ref() should equal wire.as_bytes()"
+            );
+            assert_eq!(
+                encoded_len(&frame)?,
+                wire.len(),
+                "encoded_len(&frame)? should equal wire.len()"
+            );
         }
         Ok(())
     }

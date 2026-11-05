@@ -76,7 +76,7 @@ where
     tokio::io::AsyncWriteExt::shutdown(client.get_mut()).await?;
 
     if let Ok(Some(_)) = timeout(Duration::from_millis(200), rx.recv()).await {
-        return Err(TestError::Assertion(rejection_message.to_string()));
+        return Err(TestError::Assertion(rejection_message.to_owned()));
     }
 
     drop(client);

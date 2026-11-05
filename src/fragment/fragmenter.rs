@@ -314,7 +314,10 @@ mod tests {
             )],
         };
 
-        assert!(empty.is_empty());
-        assert!(!non_empty.is_empty());
+        assert!(empty.is_empty(), "assertion failed: empty.is_empty()");
+        assert!(
+            !non_empty.is_empty(),
+            "assertion failed: !non_empty.is_empty()"
+        );
     }
 }

@@ -67,7 +67,7 @@ async fn client_sends_preamble_to_server() -> TestResult {
             .await
             .expect("read preamble");
         assert!(preamble.is_valid(), "preamble magic should be valid");
-        assert_eq!(preamble.version, 42);
+        assert_eq!(preamble.version, 42, "preamble.version should equal 42");
         // Send acknowledgement.
         write_preamble(&mut stream, &ServerAck { accepted: true })
             .await
@@ -116,11 +116,11 @@ async fn client_success_callback_receives_preamble() -> TestResult {
         .on_preamble_success({
             let holder = preamble_holder.clone();
             move |preamble, _stream| {
-                let holder = holder.clone();
+                let signal_holder = holder.clone();
                 let clone = preamble.clone();
                 async move {
-                    if let Some(tx) = take_sender(&holder) {
-                        let _ = tx.send(clone);
+                    if let Some(tx) = take_sender(&signal_holder) {
+                        drop(tx.send(clone));
                     }
                     Ok(Vec::new())
                 }
@@ -131,7 +131,7 @@ async fn client_success_callback_receives_preamble() -> TestResult {
         .await?;
 
     let received = timeout(Duration::from_secs(1), preamble_rx).await??;
-    assert_eq!(received.version, 123);
+    assert_eq!(received.version, 123, "received.version should equal 123");
 
     server.await?;
     Ok(())
@@ -166,14 +166,14 @@ async fn client_preamble_timeout_triggers_failure() -> TestResult {
         .on_preamble_failure({
             let holder = failure_holder.clone();
             move |err, _stream| {
-                let holder = holder.clone();
+                let signal_holder = holder.clone();
                 async move {
                     assert!(
                         matches!(err, ClientError::PreambleTimeout),
                         "expected PreambleTimeout, got {err:?}",
                     );
-                    if let Some(tx) = take_sender(&holder) {
-                        let _ = tx.send(());
+                    if let Some(tx) = take_sender(&signal_holder) {
+                        let _signal_sent = tx.send(());
                     }
                     Ok(())
                 }
@@ -225,7 +225,7 @@ async fn client_preamble_write_only_no_response() -> TestResult {
         let (preamble, _) = read_preamble::<_, TestPreamble>(&mut stream)
             .await
             .expect("read preamble");
-        assert!(preamble.is_valid());
+        assert!(preamble.is_valid(), "assertion failed: preamble.is_valid()");
         // Don't send any response - just hold connection.
         tokio::time::sleep(Duration::from_millis(100)).await;
     });
@@ -236,11 +236,11 @@ async fn client_preamble_write_only_no_response() -> TestResult {
         .on_preamble_success({
             let holder = success_holder.clone();
             move |_preamble, _stream| {
-                let holder = holder.clone();
+                let signal_holder = holder.clone();
                 async move {
                     // Don't read anything, just signal success.
-                    if let Some(tx) = take_sender(&holder) {
-                        let _ = tx.send(());
+                    if let Some(tx) = take_sender(&signal_holder) {
+                        let _signal_sent = tx.send(());
                     }
                     Ok(Vec::new())
                 }

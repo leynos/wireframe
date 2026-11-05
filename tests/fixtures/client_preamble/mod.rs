@@ -66,7 +66,7 @@ fn create_signal_channel<T>() -> (SenderHolder<T>, oneshot::Receiver<T>) {
 
 fn send_signal<T>(holder: &std::sync::Mutex<Option<oneshot::Sender<T>>>, value: T) {
     if let Some(tx) = holder.lock().ok().and_then(|mut guard| guard.take()) {
-        let _ = tx.send(value);
+        drop(tx.send(value));
     }
 }
 
@@ -86,9 +86,9 @@ fn make_failure_signal_callback(
     &'a mut tokio::net::TcpStream,
 ) -> futures::future::BoxFuture<'a, std::io::Result<()>> {
     move |_err, _stream| {
-        let holder = holder.clone();
+        let signal_holder = holder.clone();
         async move {
-            send_signal(&holder, ());
+            send_signal(&signal_holder, ());
             Ok(())
         }
         .boxed()

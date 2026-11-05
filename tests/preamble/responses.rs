@@ -42,7 +42,7 @@ async fn success_callback_can_write_response() -> TestResult {
         stream.write_all(bytes).await?;
         let mut buf = [0u8; 3];
         timeout(Duration::from_secs(1), stream.read_exact(&mut buf)).await??;
-        let _ = response_tx.send(buf);
+        let _response_sent = response_tx.send(buf);
         Ok(())
     })
     .await?;
@@ -61,11 +61,11 @@ async fn failure_callback_can_write_response() -> TestResult {
     let server = WireframeServer::new(factory)
         .with_preamble::<HotlinePreamble>()
         .on_preamble_decode_failure(move |_, stream| {
-            let failure_holder = failure_holder.clone();
+            let failure_signal = failure_holder.clone();
             Box::pin(async move {
                 stream.write_all(b"ERR").await?;
                 stream.flush().await?;
-                notify_holder(&failure_holder)?;
+                notify_holder(&failure_signal)?;
                 Ok::<(), io::Error>(())
             })
         });
@@ -78,7 +78,7 @@ async fn failure_callback_can_write_response() -> TestResult {
         let read = timeout(Duration::from_secs(1), stream.read_exact(&mut buf)).await;
         let result = read?;
         result?;
-        let _ = response_tx.send(buf);
+        let _response_sent = response_tx.send(buf);
         Ok(())
     })
     .await?;

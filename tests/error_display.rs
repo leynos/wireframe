@@ -21,7 +21,11 @@ use wireframe::{
 #[case(PushError::QueueFull, "push queue full")]
 #[case(PushError::Closed, "push queue closed")]
 fn push_error_messages(#[case] err: PushError, #[case] expected: &str) {
-    assert_eq!(err.to_string(), expected);
+    assert_eq!(
+        err.to_string(),
+        expected,
+        "err.to_string() should equal expected"
+    );
 }
 
 #[derive(Debug)]
@@ -102,31 +106,40 @@ fn source_matches(actual: &ActualSource<'_>, expected: &ExpectedSource) -> bool 
 }
 
 fn assert_source_matches(source: &(dyn Error + 'static), expected: ExpectedSource) {
-    let expected = std::convert::identity(expected);
+    let expected_source = std::convert::identity(expected);
     let actual = match extract_source(source) {
         Ok(actual) => actual,
         Err(error) => panic!("source should be a supported error source: {error:?}"),
     };
 
     assert!(
-        source_matches(&actual, &expected),
-        "source should match expected source\nactual: {actual:?}\nexpected: {expected:?}",
+        source_matches(&actual, &expected_source),
+        "source should match expected source\nactual: {actual:?}\nexpected: {expected_source:?}",
     );
 }
 
 #[test]
 fn wireframe_error_messages() {
     let proto = WireframeError::Protocol(ProtoErr);
-    assert_eq!(proto.to_string(), "protocol error: ProtoErr");
+    assert_eq!(
+        proto.to_string(),
+        "protocol error: ProtoErr",
+        "proto.to_string() should equal \"protocol error: ProtoErr\""
+    );
     let proto_source = proto
         .source()
         .expect("protocol variant must expose its underlying source");
-    assert_eq!(proto_source.to_string(), "boom");
+    assert_eq!(
+        proto_source.to_string(),
+        "boom",
+        "proto_source.to_string() should equal \"boom\""
+    );
 
     let duplicate_route = WireframeError::<ProtoErr>::DuplicateRoute(7);
     assert_eq!(
         duplicate_route.to_string(),
-        "route id 7 was already registered"
+        "route id 7 was already registered",
+        "duplicate_route.to_string() should equal \"route id 7 was already registered\""
     );
     assert!(
         duplicate_route.source().is_none(),
@@ -151,27 +164,41 @@ fn wireframe_error_preserves_client_protocol_source_chain() {
     let decode_source = protocol_source
         .source()
         .expect("client protocol error should expose the decode source");
-    assert_eq!(decode_source.to_string(), "decode failed");
+    assert_eq!(
+        decode_source.to_string(),
+        "decode failed",
+        "decode_source.to_string() should equal \"decode failed\""
+    );
 }
 
 #[test]
 fn wireframe_error_unit_messages() {
     let io = WireframeError::<()>::from_io(io::Error::other("socket closed"));
-    assert_eq!(io.to_string(), "transport error: socket closed");
+    assert_eq!(
+        io.to_string(),
+        "transport error: socket closed",
+        "io.to_string() should equal \"transport error: socket closed\""
+    );
 
     let codec = WireframeError::<()>::from_codec(CodecError::from(FramingError::EmptyFrame));
     assert_eq!(
         codec.to_string(),
-        "codec error: framing error: empty frame not permitted"
+        "codec error: framing error: empty frame not permitted",
+        "codec.to_string() should equal \"codec error: framing error: empty frame not permitted\""
     );
 
     let protocol = WireframeError::<()>::Protocol(());
-    assert_eq!(protocol.to_string(), "protocol error: ()");
+    assert_eq!(
+        protocol.to_string(),
+        "protocol error: ()",
+        "protocol.to_string() should equal \"protocol error: ()\""
+    );
 
     let duplicate_route = WireframeError::<()>::DuplicateRoute(7);
     assert_eq!(
         duplicate_route.to_string(),
-        "route id 7 was already registered"
+        "route id 7 was already registered",
+        "duplicate_route.to_string() should equal \"route id 7 was already registered\""
     );
 }
 
@@ -219,7 +246,11 @@ fn wireframe_error_default_protocol_has_no_source() {
 fn wireframe_error_default_can_be_boxed_as_error() {
     let error: Box<dyn Error> = Box::new(WireframeError::<NoProtocolError>::DuplicateRoute(7));
 
-    assert_eq!(error.to_string(), "route id 7 was already registered");
+    assert_eq!(
+        error.to_string(),
+        "route id 7 was already registered",
+        "error.to_string() should equal \"route id 7 was already registered\""
+    );
 }
 
 #[tokio::test]
@@ -233,7 +264,11 @@ async fn wireframe_error_default_propagates_through_async_result() {
         .await
         .expect_err("async result should propagate WireframeError");
 
-    assert_eq!(error.to_string(), "route id 7 was already registered");
+    assert_eq!(
+        error.to_string(),
+        "route id 7 was already registered",
+        "error.to_string() should equal \"route id 7 was already registered\""
+    );
 }
 
 #[test]
@@ -251,7 +286,9 @@ fn wireframe_error_display_allows_non_static_protocol_type() {
 
     assert_eq!(
         error.to_string(),
-        "protocol error: BorrowedProtocolError(\"borrowed\")"
+        "protocol error: BorrowedProtocolError(\"borrowed\")",
+        "error.to_string() should equal \"protocol error: \
+         BorrowedProtocolError(\\\"borrowed\\\")\""
     );
 }
 
@@ -261,7 +298,8 @@ fn test_error_wireframe_from_preserves_display_prefix() {
 
     assert_eq!(
         error.to_string(),
-        "wireframe error: route id 7 was already registered"
+        "wireframe error: route id 7 was already registered",
+        "error.to_string() should equal \"wireframe error: route id 7 was already registered\""
     );
 }
 
@@ -284,7 +322,11 @@ fn wireframe_error_exposes_sources_for_io_and_codec(
     #[case] display: &str,
     #[case] expected: ExpectedSource,
 ) {
-    assert_eq!(error.to_string(), display);
+    assert_eq!(
+        error.to_string(),
+        display,
+        "error.to_string() should equal display"
+    );
     let source = error.source().expect("variant must expose an error source");
     assert_source_matches(source, expected);
 }

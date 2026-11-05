@@ -194,8 +194,15 @@ mod tests {
             AccessMode::Mutating,
             4,
         ));
-        assert_eq!(measurement.operations, 4);
-        assert_eq!(measurement.payload_bytes, 4 * SMALL_PAYLOAD_BYTES as u64);
+        assert_eq!(
+            measurement.operations, 4,
+            "measurement.operations should equal 4"
+        );
+        assert_eq!(
+            measurement.payload_bytes,
+            4 * SMALL_PAYLOAD_BYTES as u64,
+            "measurement.payload_bytes should equal 4 * SMALL_PAYLOAD_BYTES as u64"
+        );
     }
 
     #[test]
@@ -208,6 +215,9 @@ mod tests {
             AccessMode::ReadOnly,
             0,
         ));
-        assert_eq!(measurement.operations, 0);
+        assert_eq!(
+            measurement.operations, 0,
+            "measurement.operations should equal 0"
+        );
     }
 }

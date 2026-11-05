@@ -267,6 +267,10 @@ mod tests {
             max: 1024,
         });
         let policy = hook.recovery_policy(&error, &CodecErrorContext::new());
-        assert_eq!(policy, RecoveryPolicy::Disconnect);
+        assert_eq!(
+            policy,
+            RecoveryPolicy::Disconnect,
+            "policy should equal RecoveryPolicy::Disconnect"
+        );
     }
 }

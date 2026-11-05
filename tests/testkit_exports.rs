@@ -90,13 +90,13 @@ async fn root_testkit_exports_partial_frame_and_fragment_drivers() -> io::Result
         )));
     }
 
-    let app = build_echo_app(codec.clone())?;
+    let fragment_app = build_echo_app(codec.clone())?;
     let fragmenter = Fragmenter::new(
         NonZeroUsize::new(16).ok_or_else(|| io::Error::other("fragment cap must be non-zero"))?,
     );
-    let payload = serialize_envelope(b"fragment-test")?;
-    let response_payloads = drive_with_fragments(app, &codec, &fragmenter, payload).await?;
-    if response_payloads.is_empty() {
+    let fragment_body = serialize_envelope(b"fragment-test")?;
+    let responses = drive_with_fragments(fragment_app, &codec, &fragmenter, fragment_body).await?;
+    if responses.is_empty() {
         return Err(io::Error::other(
             "expected non-empty response payloads from fragments",
         ));

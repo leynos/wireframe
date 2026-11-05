@@ -43,8 +43,8 @@ const ERROR_CONTEXT: CodecErrorContext = CodecErrorContext {
 
 const HOTLINE_CODEC: HotlineFrameCodec = HotlineFrameCodec::new(1024);
 
-const _: () = assert!(matches!(RECOVERY_POLICY, RecoveryPolicy::Disconnect));
-const _: () = assert!(IS_CLEAN_CLOSE);
+const _: () = assert!(matches!(RECOVERY_POLICY, RecoveryPolicy::Disconnect), "assertion failed: matches!(RECOVERY_POLICY, RecoveryPolicy::Disconnect)");
+const _: () = assert!(IS_CLEAN_CLOSE, "assertion failed: IS_CLEAN_CLOSE");
 
 fn main() {
     let _ = (RECOVERY_CONFIG, ERROR_CONTEXT, HOTLINE_CODEC);

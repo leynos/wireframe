@@ -35,7 +35,7 @@ use super::{FirstFrameHeader, MessageKey, error::MessageAssemblyError};
 /// is smaller than the first frame's body, or
 /// [`MessageAssemblyError::DeclaredTotalMismatch`] when the first frame is also
 /// the final frame and its body does not equal the declaration.
-pub(super) fn validate_first_frame(
+pub(super) const fn validate_first_frame(
     header: &FirstFrameHeader,
     body_len: usize,
 ) -> Result<(), MessageAssemblyError> {
@@ -75,7 +75,7 @@ pub(super) fn validate_first_frame(
 /// Returns [`MessageAssemblyError::DeclaredTotalExceeded`] when the accumulated
 /// body would exceed the declared total, including when the addition would
 /// overflow `usize`.
-pub(super) fn validate_continuation(
+pub(super) const fn validate_continuation(
     key: MessageKey,
     declared: usize,
     accumulated: usize,
@@ -108,7 +108,7 @@ pub(super) fn validate_continuation(
 /// body length differs from the declaration. This catches an under-declared
 /// multi-frame message, whose shorter-than-declared body would otherwise be
 /// dispatched unchanged.
-pub(super) fn validate_completion(
+pub(super) const fn validate_completion(
     key: MessageKey,
     declared: usize,
     actual: usize,

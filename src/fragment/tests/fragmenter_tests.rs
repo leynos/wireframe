@@ -55,9 +55,16 @@ fn fragmenter_splits_payload_into_multiple_frames() {
         .fragment_bytes(payload)
         .expect("fragment payload");
 
-    assert_eq!(batch.len(), 3);
-    assert!(batch.is_fragmented());
-    assert_eq!(batch.message_id(), MessageId::new(0));
+    assert_eq!(batch.len(), 3, "batch.len() should equal 3");
+    assert!(
+        batch.is_fragmented(),
+        "assertion failed: batch.is_fragmented()"
+    );
+    assert_eq!(
+        batch.message_id(),
+        MessageId::new(0),
+        "batch.message_id() should equal MessageId::new(0)"
+    );
 
     check_fragment(&batch, 0, &[0, 1, 2], false).expect("check fragment 0");
     check_fragment(&batch, 1, &[3, 4, 5], false).expect("check fragment 1");
@@ -69,16 +76,26 @@ fn fragmenter_handles_empty_payload() {
     let fragmenter = Fragmenter::new(NonZeroUsize::new(8).expect("non-zero"));
     let batch = fragmenter.fragment_bytes([]).expect("fragment empty");
 
-    assert_eq!(batch.len(), 1);
-    assert!(!batch.is_empty());
-    assert!(!batch.is_fragmented());
+    assert_eq!(batch.len(), 1, "batch.len() should equal 1");
+    assert!(!batch.is_empty(), "assertion failed: !batch.is_empty()");
+    assert!(
+        !batch.is_fragmented(),
+        "assertion failed: !batch.is_fragmented()"
+    );
     let fragment = batch
         .fragments()
         .first()
         .expect("batch should contain at least one fragment");
-    assert_eq!(fragment.payload(), []);
-    assert!(fragment.header().is_last_fragment());
-    assert_eq!(fragment.header().fragment_index(), FragmentIndex::zero());
+    assert_eq!(fragment.payload(), [], "fragment.payload() should equal []");
+    assert!(
+        fragment.header().is_last_fragment(),
+        "assertion failed: fragment.header().is_last_fragment()"
+    );
+    assert_eq!(
+        fragment.header().fragment_index(),
+        FragmentIndex::zero(),
+        "fragment.header().fragment_index() should equal FragmentIndex::zero()"
+    );
 }
 
 #[test]
@@ -89,17 +106,31 @@ fn fragmenter_fragments_messages_and_increments_ids() {
     let batch = fragmenter
         .fragment_message(&DummyMessage(vec![1, 2, 3, 4, 5]))
         .expect("fragment message");
-    assert_eq!(batch.message_id(), MessageId::new(7));
-    assert_eq!(batch.len(), 2);
-    assert!(batch.is_fragmented());
+    assert_eq!(
+        batch.message_id(),
+        MessageId::new(7),
+        "batch.message_id() should equal MessageId::new(7)"
+    );
+    assert_eq!(batch.len(), 2, "batch.len() should equal 2");
+    assert!(
+        batch.is_fragmented(),
+        "assertion failed: batch.is_fragmented()"
+    );
 
     let next_payload = vec![9, 9, 9];
     let next = fragmenter
         .fragment_bytes(next_payload)
         .expect("fragment bytes");
-    assert_eq!(next.message_id(), MessageId::new(8));
-    assert_eq!(next.len(), 1);
-    assert!(!next.is_fragmented());
+    assert_eq!(
+        next.message_id(),
+        MessageId::new(8),
+        "next.message_id() should equal MessageId::new(8)"
+    );
+    assert_eq!(next.len(), 1, "next.len() should equal 1");
+    assert!(
+        !next.is_fragmented(),
+        "assertion failed: !next.is_fragmented()"
+    );
 }
 
 #[test]
@@ -114,7 +145,11 @@ fn fragment_batch_into_iterator_yields_all_fragments() {
         .into_iter()
         .map(|fragment| fragment.payload().to_vec())
         .collect();
-    assert_eq!(payloads, vec![vec![1, 2], vec![3]]);
+    assert_eq!(
+        payloads,
+        vec![vec![1, 2], vec![3]],
+        "payloads should equal vec![vec![1, 2], vec![3]]"
+    );
 }
 
 #[test]
@@ -125,11 +160,19 @@ fn fragmenter_respects_explicit_message_ids() {
     let batch = fragmenter
         .fragment_with_id(MessageId::new(500), payload)
         .expect("fragment with explicit id");
-    assert_eq!(batch.message_id(), MessageId::new(500));
-    assert_eq!(batch.len(), 2);
+    assert_eq!(
+        batch.message_id(),
+        MessageId::new(500),
+        "batch.message_id() should equal MessageId::new(500)"
+    );
+    assert_eq!(batch.len(), 2, "batch.len() should equal 2");
 
     let next = fragmenter.fragment_bytes([1_u8]).expect("next fragment");
-    assert_eq!(next.message_id(), MessageId::new(10));
+    assert_eq!(
+        next.message_id(),
+        MessageId::new(10),
+        "next.message_id() should equal MessageId::new(10)"
+    );
 }
 
 #[test]
@@ -146,9 +189,13 @@ fn fragmenter_returns_error_for_out_of_bounds_slice() {
         .expect_err("invalid slice should produce an error");
     match err {
         FragmentationError::SliceBounds { offset, end, total } => {
-            assert_eq!(offset, payload.len() + 1);
-            assert_eq!(end, payload.len() + 1);
-            assert_eq!(total, payload.len());
+            assert_eq!(
+                offset,
+                payload.len() + 1,
+                "offset should equal payload.len() + 1"
+            );
+            assert_eq!(end, payload.len() + 1, "end should equal payload.len() + 1");
+            assert_eq!(total, payload.len(), "total should equal payload.len()");
         }
         other => panic!("expected SliceBounds, got {other:?}"),
     }
@@ -167,10 +214,10 @@ fn fragmenter_allocates_distinct_ids_under_contention() -> TestResult {
     ));
     let handles: Vec<_> = (0..THREADS)
         .map(|_| {
-            let fragmenter = std::sync::Arc::clone(&fragmenter);
+            let thread_fragmenter = std::sync::Arc::clone(&fragmenter);
             std::thread::spawn(move || {
                 (0..IDS_PER_THREAD)
-                    .map(|_| fragmenter.next_message_id())
+                    .map(|_| thread_fragmenter.next_message_id())
                     .collect::<Vec<_>>()
             })
         })

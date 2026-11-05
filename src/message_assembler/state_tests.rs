@@ -52,18 +52,18 @@ fn state_tracks_single_message_assembly(
     )
     .expect("valid input");
     let result = state.accept_first_frame(input).expect("accept first frame");
-    assert!(result.is_none());
-    assert_eq!(state.buffered_count(), 1);
+    assert!(result.is_none(), "first frame must not complete a message");
+    assert_eq!(state.buffered_count(), 1, "buffered message count");
 
     let cont = continuation_header(1, 1, 5, true);
     let msg = state
         .accept_continuation_frame(&cont, b"world")
         .expect("accept continuation")
         .expect("should complete");
-    assert_eq!(msg.message_key(), MessageKey(1));
-    assert_eq!(msg.metadata(), &[0x01, 0x02]);
-    assert_eq!(msg.body(), b"helloworld");
-    assert_eq!(state.buffered_count(), 0);
+    assert_eq!(msg.message_key(), MessageKey(1), "assembled message key");
+    assert_eq!(msg.metadata(), &[0x01, 0x02], "reassembled metadata");
+    assert_eq!(msg.body(), b"helloworld", "reassembled body");
+    assert_eq!(state.buffered_count(), 0, "buffered message count");
 }
 
 #[rstest]
@@ -88,7 +88,7 @@ fn state_tracks_multiple_interleaved_messages(
         )
         .expect("first frame 2");
 
-    assert_eq!(state.buffered_count(), 2);
+    assert_eq!(state.buffered_count(), 2, "buffered message count");
 
     // Continue message 1
     let cont1 = continuation_header(1, 1, 2, true);
@@ -96,8 +96,8 @@ fn state_tracks_multiple_interleaved_messages(
         .accept_continuation_frame(&cont1, b"A2")
         .expect("continuation 1")
         .expect("message 1 should complete");
-    assert_eq!(msg1.body(), b"A1A2");
-    assert_eq!(state.buffered_count(), 1);
+    assert_eq!(msg1.body(), b"A1A2", "reassembled first message body");
+    assert_eq!(state.buffered_count(), 1, "buffered message count");
 
     // Continue message 2
     let cont2 = continuation_header(2, 1, 2, true);
@@ -105,8 +105,8 @@ fn state_tracks_multiple_interleaved_messages(
         .accept_continuation_frame(&cont2, b"B2")
         .expect("continuation 2")
         .expect("message 2 should complete");
-    assert_eq!(msg2.body(), b"B1B2");
-    assert_eq!(state.buffered_count(), 0);
+    assert_eq!(msg2.body(), b"B1B2", "reassembled second message body");
+    assert_eq!(state.buffered_count(), 0, "buffered message count");
 }
 
 #[rstest]
@@ -117,12 +117,15 @@ fn state_rejects_continuation_without_first_frame(
     let err = state
         .accept_continuation_frame(&cont, b"data")
         .expect_err("should reject");
-    assert!(matches!(
-        err,
-        MessageAssemblyError::Series(MessageSeriesError::MissingFirstFrame {
-            key: MessageKey(99)
-        })
-    ));
+    assert!(
+        matches!(
+            err,
+            MessageAssemblyError::Series(MessageSeriesError::MissingFirstFrame {
+                key: MessageKey(99)
+            })
+        ),
+        "missing first frame must be rejected"
+    );
 }
 
 #[rstest]
@@ -144,10 +147,13 @@ fn state_rejects_duplicate_first_frame(
                 .expect("valid input"),
         )
         .expect_err("should reject duplicate");
-    assert!(matches!(
-        err,
-        MessageAssemblyError::DuplicateFirstFrame { key: MessageKey(1) }
-    ));
+    assert!(
+        matches!(
+            err,
+            MessageAssemblyError::DuplicateFirstFrame { key: MessageKey(1) }
+        ),
+        "duplicate first frame must be rejected"
+    );
 }
 
 /// Parameters for size limit test cases.
@@ -184,14 +190,16 @@ fn state_enforces_size_limit(#[case] params: SizeLimitCase) {
     );
 
     let first_body = vec![0u8; params.first_body_len];
-    let first = match params.total_body_len {
-        Some(total) => first_header_with_total(1, params.first_body_len, total),
-        None => first_header(
-            1,
-            params.first_body_len,
-            params.continuation_body_len.is_none(),
-        ),
-    };
+    let first = params.total_body_len.map_or_else(
+        || {
+            first_header(
+                1,
+                params.first_body_len,
+                params.continuation_body_len.is_none(),
+            )
+        },
+        |total| first_header_with_total(1, params.first_body_len, total),
+    );
     let input = FirstFrameInput::new(&first, EnvelopeRouting::default(), vec![], &first_body)
         .expect("valid input");
 
@@ -201,14 +209,17 @@ fn state_enforces_size_limit(#[case] params: SizeLimitCase) {
             let err = state
                 .accept_first_frame(input)
                 .expect_err("should reject oversized first frame");
-            assert!(matches!(
-                err,
-                MessageAssemblyError::MessageTooLarge {
-                    key: MessageKey(1),
-                    attempted,
-                    ..
-                } if attempted == params.expected_attempted
-            ));
+            assert!(
+                matches!(
+                    err,
+                    MessageAssemblyError::MessageTooLarge {
+                        key: MessageKey(1),
+                        attempted,
+                        ..
+                    } if attempted == params.expected_attempted
+                ),
+                "oversized frame must report attempted length"
+            );
         }
         Some(cont_len) => {
             // First frame succeeds, continuation rejected
@@ -219,18 +230,21 @@ fn state_enforces_size_limit(#[case] params: SizeLimitCase) {
             let err = state
                 .accept_continuation_frame(&cont, &cont_body)
                 .expect_err("should reject oversized continuation");
-            assert!(matches!(
-                err,
-                MessageAssemblyError::MessageTooLarge {
-                    key: MessageKey(1),
-                    attempted,
-                    ..
-                } if attempted == params.expected_attempted
-            ));
+            assert!(
+                matches!(
+                    err,
+                    MessageAssemblyError::MessageTooLarge {
+                        key: MessageKey(1),
+                        attempted,
+                        ..
+                    } if attempted == params.expected_attempted
+                ),
+                "oversized frame must report attempted length"
+            );
         }
     }
 
-    assert_eq!(state.buffered_count(), 0);
+    assert_eq!(state.buffered_count(), 0, "buffered message count");
 }
 
 #[test]
@@ -250,13 +264,13 @@ fn state_purges_expired_assemblies() {
             now,
         )
         .expect("accept first frame");
-    assert_eq!(state.buffered_count(), 1);
+    assert_eq!(state.buffered_count(), 1, "buffered message count");
 
     // Advance time past timeout
     let future = now + Duration::from_secs(31);
     let evicted = state.purge_expired_at(future);
-    assert_eq!(evicted, vec![MessageKey(1)]);
-    assert_eq!(state.buffered_count(), 0);
+    assert_eq!(evicted, vec![MessageKey(1)], "evicted message keys");
+    assert_eq!(state.buffered_count(), 0, "buffered message count");
 }
 
 #[rstest]
@@ -278,11 +292,11 @@ fn state_returns_single_frame_message_immediately(
         )
         .expect("accept first frame")
         .expect("single frame should complete");
-    assert_eq!(msg.message_key(), MessageKey(1));
-    assert_eq!(msg.metadata(), &[0xaa]);
-    assert_eq!(msg.body(), b"hello");
+    assert_eq!(msg.message_key(), MessageKey(1), "single frame message key");
+    assert_eq!(msg.metadata(), &[0xaa], "single frame metadata");
+    assert_eq!(msg.body(), b"hello", "single frame body");
     // Should not buffer single-frame messages
-    assert_eq!(state.buffered_count(), 0);
+    assert_eq!(state.buffered_count(), 0, "single frame not buffered");
 }
 
 #[rstest]
@@ -306,15 +320,11 @@ fn completed_assembly_preserves_first_frame_routing_metadata(
         .expect("accept continuation")
         .expect("message should complete");
 
-    assert_eq!(
-        msg.routing().envelope_id,
-        EnvelopeId(42),
-        "envelope_id should come from first frame"
-    );
+    assert_eq!(msg.routing().envelope_id, EnvelopeId(42), "envelope id");
     assert_eq!(
         msg.routing().correlation_id,
         Some(CorrelationId(99)),
-        "correlation_id should come from first frame"
+        "correlation id from first frame"
     );
 }
 
@@ -353,9 +363,13 @@ fn interleaved_assemblies_preserve_distinct_routing_metadata(
         .expect("continuation 1")
         .expect("message 1 should complete");
 
-    assert_eq!(msg1.routing().envelope_id, EnvelopeId(10));
-    assert_eq!(msg1.routing().correlation_id, Some(CorrelationId(100)));
-    assert_eq!(msg1.body(), b"A1A2");
+    assert_eq!(msg1.routing().envelope_id, EnvelopeId(10), "envelope id");
+    assert_eq!(
+        msg1.routing().correlation_id,
+        Some(CorrelationId(100)),
+        "first message correlation id"
+    );
+    assert_eq!(msg1.body(), b"A1A2", "first message body");
 
     // Complete key 2
     let cont2 = continuation_header(2, 1, 2, true);
@@ -364,9 +378,13 @@ fn interleaved_assemblies_preserve_distinct_routing_metadata(
         .expect("continuation 2")
         .expect("message 2 should complete");
 
-    assert_eq!(msg2.routing().envelope_id, EnvelopeId(20));
-    assert_eq!(msg2.routing().correlation_id, Some(CorrelationId(200)));
-    assert_eq!(msg2.body(), b"B1B2");
+    assert_eq!(msg2.routing().envelope_id, EnvelopeId(20), "envelope id");
+    assert_eq!(
+        msg2.routing().correlation_id,
+        Some(CorrelationId(200)),
+        "second message correlation id"
+    );
+    assert_eq!(msg2.body(), b"B1B2", "second message body");
 }
 
 #[test]
@@ -378,5 +396,5 @@ fn assembled_message_into_body() {
         vec![0x02, 0x03],
     );
     let body = msg.into_body();
-    assert_eq!(body, vec![0x02, 0x03]);
+    assert_eq!(body, vec![0x02, 0x03], "body from assembled message");
 }

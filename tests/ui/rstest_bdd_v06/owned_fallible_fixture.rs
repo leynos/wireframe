@@ -22,7 +22,7 @@ fn given_world(world: &mut World) {
 /// Check that subsequent steps receive the same mutable world.
 #[then("the unwrapped world contains two")]
 fn then_world(world: &World) {
-    assert_eq!(world.value, 2);
+    assert_eq!(world.value, 2, "world.value should equal 2");
 }
 
 /// Accept the explicit fallible parameter and unit-result scenario contract.

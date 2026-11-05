@@ -32,7 +32,7 @@ fn shared_state_extractor_returns_data(
     request.insert_state(5u32);
     let extracted = SharedState::<u32>::from_message_request(&request, &mut empty_payload)
         .expect("failed to extract shared state");
-    assert_eq!(*extracted, 5);
+    assert_eq!(*extracted, 5, "*extracted should equal 5");
 }
 
 #[rstest]
@@ -42,5 +42,8 @@ fn missing_shared_state_returns_error(
 ) {
     let err = SharedState::<u32>::from_message_request(&request, &mut empty_payload)
         .expect_err("missing state error expected");
-    assert!(matches!(err, ExtractError::MissingState(_)));
+    assert!(
+        matches!(err, ExtractError::MissingState(_)),
+        "assertion failed: matches!(err, ExtractError::MissingState(_))"
+    );
 }

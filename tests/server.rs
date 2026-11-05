@@ -183,7 +183,7 @@ async fn server_reaches_readiness_and_accepts_before_shutdown() -> TestResult {
         server
             .ready_signal(ready_tx)
             .run_with_shutdown(async {
-                let _ = shutdown_rx.await;
+                drop(shutdown_rx.await);
             })
             .await
     });
@@ -222,7 +222,7 @@ async fn connection_panic_is_caught(
     .bind_existing_listener(listener)?;
     let addr = server
         .local_addr()
-        .ok_or_else(|| "local address missing".to_string())?;
+        .ok_or_else(|| "local address missing".to_owned())?;
 
     let (ready_tx, ready_rx) = oneshot::channel();
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -232,7 +232,7 @@ async fn connection_panic_is_caught(
             server
                 .ready_signal(ready_tx)
                 .run_with_shutdown(async {
-                    let _ = shutdown_rx.await;
+                    drop(shutdown_rx.await);
                 })
                 .await
         }

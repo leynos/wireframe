@@ -123,7 +123,11 @@ mod tests {
             ctx.is_stamping_enabled(),
             "installing a channel must enable stamping"
         );
-        assert_eq!(ctx.correlation_id(), Some(7));
+        assert_eq!(
+            ctx.correlation_id(),
+            Some(7),
+            "ctx.correlation_id() should equal Some(7)"
+        );
 
         ctx.install(None, Some(9));
         assert!(

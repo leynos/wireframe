@@ -75,12 +75,12 @@ fn codec_error_converts_to_io_error() {
     let io_err: io::Error = err.into();
     assert_eq!(io_err.kind(), io::ErrorKind::InvalidData);
 
-    let err = CodecError::Eof(EofError::MidFrame {
+    let mid_frame_err = CodecError::Eof(EofError::MidFrame {
         bytes_received: 10,
         expected: 20,
     });
-    let io_err: io::Error = err.into();
-    assert_eq!(io_err.kind(), io::ErrorKind::UnexpectedEof);
+    let mid_frame_io_err: io::Error = mid_frame_err.into();
+    assert_eq!(mid_frame_io_err.kind(), io::ErrorKind::UnexpectedEof);
 }
 
 // ============================================================================
@@ -96,7 +96,7 @@ fn context_builder_sets_all_fields() {
 
     assert_eq!(ctx.connection_id, Some(42));
     assert_eq!(ctx.correlation_id, Some(123));
-    assert_eq!(ctx.codec_state, Some("seq=5".to_string()));
+    assert_eq!(ctx.codec_state, Some("seq=5".to_owned()));
 }
 
 #[test]

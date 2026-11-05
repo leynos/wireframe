@@ -41,9 +41,9 @@ async fn malformed_envelopes_never_reach_the_route(
         .route(
             1,
             Arc::new(move |_: &Envelope| {
-                let counter = counter.clone();
+                let call_counter = counter.clone();
                 Box::pin(async move {
-                    counter.fetch_add(1, Ordering::SeqCst);
+                    call_counter.fetch_add(1, Ordering::SeqCst);
                 })
             }),
         )?;
@@ -59,7 +59,15 @@ async fn malformed_envelopes_never_reach_the_route(
         }
     };
     let responses = drive_with_codec_payloads(app, &codec, vec![bytes]).await?;
-    assert_eq!(called.load(Ordering::SeqCst), expected_calls);
-    assert_eq!(responses.len(), expected_calls);
+    assert_eq!(
+        called.load(Ordering::SeqCst),
+        expected_calls,
+        "called.load(Ordering::SeqCst) should equal expected_calls"
+    );
+    assert_eq!(
+        responses.len(),
+        expected_calls,
+        "responses.len() should equal expected_calls"
+    );
     Ok(())
 }

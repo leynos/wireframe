@@ -11,7 +11,7 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
     message_assembly_state: Result<MessageAssemblyState, &'static str>,
 ) {
     let mut deser_failures = 0_u32;
-    let mut message_assembly_state = Some(load_message_assembly_state(message_assembly_state));
+    let mut assembly_state = Some(load_message_assembly_state(message_assembly_state));
 
     // Key 1: envelope_id=10, correlation_id=100
     let key1_first = Envelope::new(
@@ -36,7 +36,7 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 key1_first,
             ),
@@ -48,7 +48,7 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 key2_first,
             ),
@@ -75,7 +75,7 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 key2_last,
             ),
@@ -106,7 +106,7 @@ fn interleaved_assemblies_preserve_first_frame_routing_metadata(
         ok(
             process_assembly_frame(
                 &message_assembler,
-                &mut message_assembly_state,
+                &mut assembly_state,
                 &mut deser_failures,
                 key1_last,
             ),

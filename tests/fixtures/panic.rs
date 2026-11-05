@@ -43,7 +43,7 @@ impl PanicServer {
             if let Err(err) = server
                 .ready_signal(tx_ready)
                 .run_with_shutdown(async {
-                    let _ = rx_shutdown.await;
+                    drop(rx_shutdown.await);
                 })
                 .await
             {
@@ -65,7 +65,7 @@ impl Drop for PanicServer {
         use std::{thread, time::Duration};
 
         if let Some(tx) = self.shutdown.take() {
-            let _ = tx.send(());
+            let _signal_sent = tx.send(());
         }
         let timeout = Duration::from_secs(5);
         let handle = self.handle.abort_handle();

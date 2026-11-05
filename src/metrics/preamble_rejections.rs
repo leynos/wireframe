@@ -81,7 +81,7 @@ mod tests {
         });
 
         let samples = snapshotter.snapshot().into_vec();
-        assert_eq!(samples.len(), 1);
+        assert_eq!(samples.len(), 1, "samples.len() should equal 1");
         assert!(
             samples.iter().any(|(key, _, _, value)| {
                 key.key().name() == PREAMBLE_REJECTIONS

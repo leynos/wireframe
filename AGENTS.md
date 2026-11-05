@@ -209,6 +209,14 @@ project:
 - Use `cap_std` and `cap_std::fs_utf8` / `camino` in place of `std::fs` and
   `std::path` for enhanced cross-platform support and capabilities-oriented
   filesystem access.
+- Inject an environment reader instead of calling `std::env::var`,
+  `std::env::var_os`, `std::env::vars`, `std::env::vars_os`,
+  `std::env::set_var`, `std::env::remove_var`, or `std::env::set_current_dir`
+  directly. The `mockable::Env` trait is the seam; see
+  `examples/packet_enum.rs`. Clippy's `disallowed_methods` gate denies these
+  calls, and a sanctioned site carries a reasoned item-scoped
+  `#[expect(clippy::disallowed_methods, reason = "...")]` rather than an
+  `allow`.
 
 ### Testing
 

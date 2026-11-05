@@ -183,7 +183,7 @@ fn free_async_probe_skips_blocked_race() {
             let core = test_core(4);
             for expected in 0..4 {
                 let (index, permit) = core.acquire_slot_permit().await.expect("free slot grants");
-                assert_eq!(index, expected);
+                assert_eq!(index, expected, "index should equal expected");
                 drop(permit);
             }
         });
@@ -219,17 +219,24 @@ fn blocked_race_records_terminal_outcome_and_duration(
                 .slot(0)
                 .expect("the only slot should exist")
                 .try_acquire_permit();
-            assert!(held.is_some());
+            assert!(held.is_some(), "assertion failed: held.is_some()");
             {
                 let mut acquisition = std::pin::pin!(core.acquire_slot_permit());
-                assert!(futures::poll!(acquisition.as_mut()).is_pending());
+                assert!(
+                    futures::poll!(acquisition.as_mut()).is_pending(),
+                    "assertion failed: futures::poll!(acquisition.as_mut()).is_pending()"
+                );
                 if outcome == "shutdown" {
                     core.shutdown();
                 }
                 if !drop_pending {
                     drop(held.take());
                     let result = acquisition.as_mut().await;
-                    assert_eq!(result.is_ok(), outcome == "granted");
+                    assert_eq!(
+                        result.is_ok(),
+                        outcome == "granted",
+                        "result.is_ok() should equal outcome == \"granted\""
+                    );
                 }
             }
             drop(held);

@@ -84,6 +84,13 @@ command and seeing:
   Likelihood: medium. Mitigation: keep allocation baselines in dedicated runs
   and separate them from primary throughput timing loops.
 
+Allocation instrumentation comes from `stats_alloc`'s `INSTRUMENTED_SYSTEM`,
+installed by reference as the allocation benchmark binary's
+`#[global_allocator]`. Counts remain process-wide deltas across the measurement
+window, and each count is the sum of `allocations` and `reallocations`, so a
+buffer that grows in place is still counted. The wrapper owns the only `unsafe`
+implementation; the benchmark binaries contain none.
+
 - Risk: behavioural tests can become flaky if they execute full benchmark
   loops. Severity: medium. Likelihood: medium. Mitigation: run reduced,
   deterministic sample loops in BDD fixtures and validate structure, not

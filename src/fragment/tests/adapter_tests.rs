@@ -69,8 +69,11 @@ fn assert_fragment_metadata(fragments: &[TestPacket], packet: &TestPacket) {
         "payload beyond fragment cap should produce multiple fragments"
     );
     for fragment in fragments {
-        assert_eq!(fragment.id, packet.id);
-        assert_eq!(fragment.correlation_id, packet.correlation_id);
+        assert_eq!(fragment.id, packet.id, "fragment.id should equal packet.id");
+        assert_eq!(
+            fragment.correlation_id, packet.correlation_id,
+            "fragment.correlation_id should equal packet.correlation_id"
+        );
     }
 }
 
@@ -110,7 +113,7 @@ fn default_fragment_adapter_fragments_and_reassembles_test_packets() {
 
     let reconstructed = reassemble_fragment_sequence(&mut adapter, &fragments)
         .expect("reassemble fragment sequence");
-    assert_eq!(reconstructed.len(), 1);
+    assert_eq!(reconstructed.len(), 1, "reconstructed.len() should equal 1");
     assert_eq!(
         reconstructed.first(),
         Some(&packet),
@@ -131,7 +134,7 @@ fn default_fragment_adapter_passes_through_non_fragment_payloads() {
         .reassemble(packet.clone())
         .expect("non-fragment payload should pass through");
 
-    assert_eq!(result, Some(packet));
+    assert_eq!(result, Some(packet), "result should equal Some(packet)");
 }
 
 #[test]
@@ -151,7 +154,13 @@ fn default_fragment_adapter_exposes_purge_api() {
         adapter
             .reassemble(packet)
             .expect("adapter should accept first fragment")
-            .is_none()
+            .is_none(),
+        "assertion failed: adapter .reassemble(packet) .expect(\"adapter should accept first \
+         fragment\") .is_none()"
     );
-    assert_eq!(adapter.purge_expired(), vec![MessageId::new(81)]);
+    assert_eq!(
+        adapter.purge_expired(),
+        vec![MessageId::new(81)],
+        "adapter.purge_expired() should equal vec![MessageId::new(81)]"
+    );
 }

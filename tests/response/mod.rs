@@ -92,8 +92,11 @@ async fn length_prefixed_decode_requires_complete_header() {
     let app = TestApp::new().expect("failed to create app");
     let mut codec = app.length_codec();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00][..]); // only 3 bytes
-    assert!(codec.decode(&mut buf).expect("decode failed").is_none());
-    assert_eq!(buf.len(), 3); // nothing consumed
+    assert!(
+        codec.decode(&mut buf).expect("decode failed").is_none(),
+        "assertion failed: codec.decode(&mut buf).expect(\"decode failed\").is_none()"
+    );
+    assert_eq!(buf.len(), 3, "buf.len() should equal 3"); // nothing consumed
 }
 
 /// Tests that decoding with a complete length prefix but incomplete frame data returns `None`
@@ -105,10 +108,13 @@ async fn length_prefixed_decode_requires_full_frame() {
     let app = TestApp::new().expect("failed to create app");
     let mut codec = app.length_codec();
     let mut buf = BytesMut::from(&[0x00, 0x00, 0x00, 0x05, 0x01, 0x02][..]);
-    assert!(codec.decode(&mut buf).expect("decode failed").is_none());
+    assert!(
+        codec.decode(&mut buf).expect("decode failed").is_none(),
+        "assertion failed: codec.decode(&mut buf).expect(\"decode failed\").is_none()"
+    );
     // LengthDelimitedCodec consumes the length prefix even if the frame
     // remains incomplete.
-    assert_eq!(buf.len(), 2);
+    assert_eq!(buf.len(), 2, "buf.len() should equal 2");
 }
 
 #[rstest]
@@ -132,12 +138,12 @@ fn custom_length_roundtrip(
     let head = buf
         .get(..prefix.len())
         .expect("encoded buffer shorter than prefix");
-    assert_eq!(head, &prefix[..]);
+    assert_eq!(head, &prefix[..], "head should equal &prefix[..]");
     let decoded = codec
         .decode(&mut buf)
         .expect("decode failed")
         .expect("frame missing");
-    assert_eq!(decoded, frame);
+    assert_eq!(decoded, frame, "decoded should equal frame");
     assert!(buf.is_empty(), "unexpected trailing bytes after decode");
 }
 
@@ -146,7 +152,11 @@ fn custom_length_roundtrip(
 #[case(9, Endianness::Little)]
 fn encode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: Endianness) {
     let err = LengthFormat::try_new(bytes, endian).expect_err("invalid width should error");
-    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::InvalidInput,
+        "err.kind() should equal std::io::ErrorKind::InvalidInput"
+    );
 }
 
 #[rstest]
@@ -154,7 +164,11 @@ fn encode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: En
 #[case(9, Endianness::Big)]
 fn decode_fails_for_invalid_prefix_size(#[case] bytes: usize, #[case] endian: Endianness) {
     let err = LengthFormat::try_new(bytes, endian).expect_err("invalid width should error");
-    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::InvalidInput,
+        "err.kind() should equal std::io::ErrorKind::InvalidInput"
+    );
 }
 
 #[rstest]
@@ -166,7 +180,11 @@ fn encode_fails_for_length_too_large(#[case] fmt: LengthFormat, #[case] len: usi
     let err = fmt
         .write_len(frame.len(), &mut buf)
         .expect_err("expected error");
-    assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::InvalidInput,
+        "err.kind() should equal std::io::ErrorKind::InvalidInput"
+    );
 }
 
 #[tokio::test]
@@ -186,10 +204,14 @@ async fn send_response_framed_with_codec_writes_encoded_frame() {
         .await
         .expect("read framed bytes");
     let decoded_frames = decode_frames(&out).expect("decode response frames");
-    assert_eq!(decoded_frames.len(), 1);
+    assert_eq!(
+        decoded_frames.len(),
+        1,
+        "decoded_frames.len() should equal 1"
+    );
     let frame = decoded_frames.first().expect("response frame missing");
     let (decoded, _) = TestResp::from_bytes(frame).expect("deserialize response");
-    assert_eq!(decoded, TestResp(11));
+    assert_eq!(decoded, TestResp(11), "decoded should equal TestResp(11)");
 }
 
 #[tokio::test]
@@ -296,10 +318,10 @@ async fn process_stream_honours_buffer_capacity() -> TestResult {
     let out = run_app(app, vec![frame], Some(10 * 1024 * 1024)).await?;
 
     let frames = decode_frames_with_max(&out, LARGE_FRAME)?;
-    let frame =
+    let response_frame =
         single_response_frame(&frames, "a single response frame", "response frame missing")?;
     let (resp_env, _) = BincodeSerializer
-        .deserialize::<Envelope>(frame)
+        .deserialize::<Envelope>(response_frame)
         .map_err(|e| format!("deserialize failed: {e}"))?;
     let resp_len = resp_env.into_parts().into_payload().len();
     check_payload_length(resp_len, payload.len(), "response payload length")?;

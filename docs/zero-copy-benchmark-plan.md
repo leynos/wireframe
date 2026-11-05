@@ -70,8 +70,9 @@ so a later reader does not mistake them for zero-copy coverage.
 Every target drives shared helpers in `wireframe_testing::codec_benchmarks`,
 which is the repository's established pattern: the scenario is data, one
 `measure_*` entry point returns a `Result`, and Criterion supplies the
-statistics. A single `CountingAllocator` in that crate serves both allocation
-targets, so the two cannot drift in accounting.
+statistics. A single counting mechanism in that crate — `stats_alloc`'s
+`INSTRUMENTED_SYSTEM`, installed by reference — serves both allocation targets,
+so the two cannot drift in accounting.
 
 ## Measurement matrix
 

@@ -35,14 +35,14 @@ async fn shutdown_signal_precedence(
     >,
     shutdown_token: CancellationToken,
 ) {
-    let (queues, handle) = queues.expect("fixture should build queues");
+    let (push_queues, handle) = queues.expect("fixture should build queues");
     shutdown_token.cancel();
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
-        ConnectionActor::new(queues, handle, None, shutdown_token);
+        ConnectionActor::new(push_queues, handle, None, shutdown_token);
     // drop the handle after actor creation to mimic early disconnection
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");
-    assert_eq!(out, [] as [u8; 0]);
+    assert_eq!(out, [] as [u8; 0], "out should equal [] as [u8; 0]");
 }
 
 #[rstest]
@@ -55,16 +55,16 @@ async fn complete_draining_of_sources(
     >,
     shutdown_token: CancellationToken,
 ) -> TestResult {
-    let (queues, handle) = queues.expect("fixture should build queues");
+    let (push_queues, handle) = queues.expect("fixture should build queues");
     push_expect!(handle.push_high_priority(1), "push high-priority")?;
 
     let stream = stream::iter(vec![Ok(2u8), Ok(3u8)]);
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
-        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
+        ConnectionActor::new(push_queues, handle, Some(Box::pin(stream)), shutdown_token);
     // drop handle after actor setup
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");
-    assert_eq!(out, vec![1, 2, 3]);
+    assert_eq!(out, vec![1, 2, 3], "out should equal vec![1, 2, 3]");
     Ok(())
 }
 
@@ -78,7 +78,7 @@ async fn interleaved_shutdown_during_stream(
     >,
     shutdown_token: CancellationToken,
 ) {
-    let (queues, handle) = queues.expect("fixture should build queues");
+    let (push_queues, handle) = queues.expect("fixture should build queues");
     let token = shutdown_token.clone();
     tokio::spawn(async move {
         sleep(Duration::from_millis(50)).await;
@@ -94,10 +94,13 @@ async fn interleaved_shutdown_during_stream(
         }
     });
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
-        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
+        ConnectionActor::new(push_queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");
-    assert!(!out.is_empty() && out.len() < 5);
+    assert!(
+        !out.is_empty() && out.len() < 5,
+        "assertion failed: !out.is_empty() && out.len() < 5"
+    );
 }
 
 #[rstest]
@@ -112,7 +115,7 @@ async fn push_queue_exhaustion_backpressure() -> TestResult {
     push_expect!(handle.push_high_priority(1), "push high-priority")?;
 
     let blocked = timeout(Duration::from_millis(200), handle.push_high_priority(2)).await;
-    assert!(blocked.is_err());
+    assert!(blocked.is_err(), "assertion failed: blocked.is_err()");
 
     // clean up without exposing internal fields
     queues.close();
@@ -137,7 +140,7 @@ async fn graceful_shutdown_waits_for_tasks() -> TestResult {
         handles.push(handle);
         tracker.spawn(async move {
             let mut out = Vec::new();
-            let _ = actor.run(&mut out).await;
+            drop(actor.run(&mut out).await);
         });
     }
 
@@ -148,6 +151,7 @@ async fn graceful_shutdown_waits_for_tasks() -> TestResult {
         timeout(Duration::from_millis(500), tracker.wait())
             .await
             .is_ok(),
+        "assertion failed: timeout(Duration::from_millis(500), tracker.wait()) .await .is_ok()"
     );
     Ok(())
 }
@@ -161,20 +165,20 @@ async fn connection_count_decrements_on_abort(
         wireframe::push::PushConfigError,
     >,
 ) {
-    let (queues, handle) = queues.expect("fixture should build queues");
+    let (push_queues, handle) = queues.expect("fixture should build queues");
     let token = CancellationToken::new();
     token.cancel();
 
     let before = wireframe::connection::active_connection_count();
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
-        ConnectionActor::new(queues, handle, None, token);
+        ConnectionActor::new(push_queues, handle, None, token);
     let during = wireframe::connection::active_connection_count();
-    assert_eq!(during, before + 1);
+    assert_eq!(during, before + 1, "during should equal before + 1");
 
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");
     let after = wireframe::connection::active_connection_count();
-    assert_eq!(during - after, 1);
+    assert_eq!(during - after, 1, "during - after should equal 1");
 }
 
 #[rstest]
@@ -187,16 +191,16 @@ async fn connection_count_decrements_on_close(
     >,
     shutdown_token: CancellationToken,
 ) {
-    let (queues, handle) = queues.expect("fixture should build queues");
+    let (push_queues, handle) = queues.expect("fixture should build queues");
     let before = wireframe::connection::active_connection_count();
     let stream = stream::iter(vec![Ok(1u8)]);
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
-        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
+        ConnectionActor::new(push_queues, handle, Some(Box::pin(stream)), shutdown_token);
     let during = wireframe::connection::active_connection_count();
-    assert_eq!(during, before + 1);
+    assert_eq!(during, before + 1, "during should equal before + 1");
 
     let mut out = Vec::new();
     actor.run(&mut out).await.expect("actor run failed");
     let after = wireframe::connection::active_connection_count();
-    assert_eq!(during - after, 1);
+    assert_eq!(during - after, 1, "during - after should equal 1");
 }

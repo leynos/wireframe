@@ -142,8 +142,8 @@ fn io_error_from_eof_variants_preserves_eof_error(#[case] variant: EofError) {
         current = err.source();
     }
 
-    let eof = eof.expect("expected EofError to be preserved");
-    assert_eq!(*eof, variant);
+    let eof_error = eof.expect("expected EofError to be preserved");
+    assert_eq!(*eof_error, variant);
 }
 
 /// Parameterized test for `error_type()` category strings.

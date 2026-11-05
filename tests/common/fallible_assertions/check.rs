@@ -17,7 +17,7 @@ pub(super) fn check(condition: bool, message: impl Into<String>) -> Result<(), S
     if condition {
         Ok(())
     } else {
-        let message = message.into();
-        Err(message)
+        let error_message = message.into();
+        Err(error_message)
     }
 }

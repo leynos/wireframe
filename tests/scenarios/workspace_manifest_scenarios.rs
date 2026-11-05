@@ -25,7 +25,7 @@ fn assert_root_manifest_lists_support_crates(
     name = "The root manifest lists support crates without widening defaults"
 )]
 fn root_manifest_lists_support_crates(workspace_manifest_world: WorkspaceManifestWorld) {
-    let mut workspace_manifest_world = workspace_manifest_world;
-    assert_root_manifest_lists_support_crates(&mut workspace_manifest_world)
+    let mut world = workspace_manifest_world;
+    assert_root_manifest_lists_support_crates(&mut world)
         .expect("workspace manifest scenario should pass");
 }

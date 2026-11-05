@@ -107,8 +107,12 @@ fn first_frame_contradicting_declaration_is_rejected(
 
     let err = accept_first(&mut subject, &header, b"hello").expect_err("declaration rejected");
 
-    assert_eq!(err, expected);
-    assert_eq!(subject.buffered_count(), 0);
+    assert_eq!(err, expected, "err should equal expected");
+    assert_eq!(
+        subject.buffered_count(),
+        0,
+        "subject.buffered_count() should equal 0"
+    );
 }
 
 #[rstest]
@@ -121,8 +125,12 @@ fn single_frame_exact_declaration_is_dispatched(
         .expect("exact declaration accepted")
         .expect("single frame completes immediately");
 
-    assert_eq!(msg.body(), b"hello");
-    assert_eq!(subject.buffered_count(), 0);
+    assert_eq!(msg.body(), b"hello", "msg.body() should equal b\"hello\"");
+    assert_eq!(
+        subject.buffered_count(),
+        0,
+        "subject.buffered_count() should equal 0"
+    );
 }
 
 // =============================================================================
@@ -135,7 +143,11 @@ fn continuation_exceeding_declared_total_is_rejected(
 ) {
     let header = first_with_total(1, 5, 8, false);
     accept_first(&mut subject, &header, b"hello").expect("first frame accepted");
-    assert_eq!(subject.buffered_count(), 1);
+    assert_eq!(
+        subject.buffered_count(),
+        1,
+        "subject.buffered_count() should equal 1"
+    );
 
     // 5 + 4 = 9 exceeds the declared 8.
     let frame = Continuation {
@@ -152,7 +164,9 @@ fn continuation_exceeding_declared_total_is_rejected(
             key: MessageKey(1),
             declared: 8,
             attempted: 9,
-        }
+        },
+        "err should equal MessageAssemblyError::DeclaredTotalExceeded {{ key: MessageKey(1), \
+         declared: 8, attempted: 9, }}"
     );
     assert_eq!(
         subject.buffered_count(),
@@ -186,7 +200,9 @@ fn final_frame_short_of_declared_total_is_rejected(
             key: MessageKey(1),
             declared: 10,
             actual: 9,
-        }
+        },
+        "err should equal MessageAssemblyError::DeclaredTotalMismatch {{ key: MessageKey(1), \
+         declared: 10, actual: 9, }}"
     );
     assert_eq!(
         subject.buffered_count(),
@@ -227,8 +243,16 @@ fn completing_frame_dispatches_the_assembled_body(
     .expect("body honours the declaration")
     .expect("message completes");
 
-    assert_eq!(msg.body(), expected.as_bytes());
-    assert_eq!(subject.buffered_count(), 0);
+    assert_eq!(
+        msg.body(),
+        expected.as_bytes(),
+        "msg.body() should equal expected.as_bytes()"
+    );
+    assert_eq!(
+        subject.buffered_count(),
+        0,
+        "subject.buffered_count() should equal 0"
+    );
 }
 
 #[rstest]
@@ -249,8 +273,12 @@ fn non_final_frame_may_exactly_reach_the_declaration(
         },
     )
     .expect("equals the declaration, so accepted");
-    assert!(msg.is_none());
-    assert_eq!(subject.buffered_count(), 1);
+    assert!(msg.is_none(), "assertion failed: msg.is_none()");
+    assert_eq!(
+        subject.buffered_count(),
+        1,
+        "subject.buffered_count() should equal 1"
+    );
 
     // No bytes remain, so the completing frame must be rejected.
     let err = accept_continuation(
@@ -270,9 +298,15 @@ fn non_final_frame_may_exactly_reach_the_declaration(
             key: MessageKey(1),
             declared: 10,
             attempted: 11,
-        }
+        },
+        "err should equal MessageAssemblyError::DeclaredTotalExceeded {{ key: MessageKey(1), \
+         declared: 10, attempted: 11, }}"
     );
-    assert_eq!(subject.buffered_count(), 0);
+    assert_eq!(
+        subject.buffered_count(),
+        0,
+        "subject.buffered_count() should equal 0"
+    );
 }
 
 #[rstest]
@@ -300,9 +334,15 @@ fn declared_total_equal_to_first_frame_body_leaves_no_room(
             key: MessageKey(1),
             declared: 5,
             attempted: 6,
-        }
+        },
+        "err should equal MessageAssemblyError::DeclaredTotalExceeded {{ key: MessageKey(1), \
+         declared: 5, attempted: 6, }}"
     );
-    assert_eq!(subject.buffered_count(), 0);
+    assert_eq!(
+        subject.buffered_count(),
+        0,
+        "subject.buffered_count() should equal 0"
+    );
 }
 
 // =============================================================================
@@ -322,6 +362,8 @@ fn continuation_accumulation_overflow_is_reported_as_exceeded() {
             key: MessageKey(1),
             declared: usize::MAX,
             attempted: usize::MAX,
-        }
+        },
+        "err should equal MessageAssemblyError::DeclaredTotalExceeded {{ key: MessageKey(1), \
+         declared: usize::MAX, attempted: usize::MAX, }}"
     );
 }

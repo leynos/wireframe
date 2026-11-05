@@ -40,8 +40,8 @@ async fn reader_consumes_full_stream() -> TestResult<()> {
     let (tx, stream) = body_channel(4);
 
     tokio::spawn(async move {
-        let _ = tx.send(Ok(Bytes::from_static(b"hello "))).await;
-        let _ = tx.send(Ok(Bytes::from_static(b"world"))).await;
+        drop(tx.send(Ok(Bytes::from_static(b"hello "))).await);
+        drop(tx.send(Ok(Bytes::from_static(b"world"))).await);
         // Sender dropped here, closing the channel
     });
 
@@ -49,7 +49,7 @@ async fn reader_consumes_full_stream() -> TestResult<()> {
     let mut buf = Vec::new();
     reader.read_to_end(&mut buf).await?;
 
-    assert_eq!(buf, b"hello world");
+    assert_eq!(buf, b"hello world", "buf should equal b\"hello world\"");
     Ok(())
 }
 
@@ -58,9 +58,17 @@ fn buffered_fallback_uses_metadata_directly() {
     // When no streaming body is available, handlers use RequestParts directly
     let parts = RequestParts::new(42, Some(1), vec![0x01, 0x02, 0x03]);
 
-    assert_eq!(parts.id(), 42);
-    assert_eq!(parts.correlation_id(), Some(1));
-    assert_eq!(parts.metadata(), &[0x01, 0x02, 0x03]);
+    assert_eq!(parts.id(), 42, "parts.id() should equal 42");
+    assert_eq!(
+        parts.correlation_id(),
+        Some(1),
+        "parts.correlation_id() should equal Some(1)"
+    );
+    assert_eq!(
+        parts.metadata(),
+        &[0x01, 0x02, 0x03],
+        "parts.metadata() should equal &[0x01, 0x02, 0x03]"
+    );
 }
 
 #[rstest]
@@ -69,7 +77,7 @@ async fn streaming_body_extractor_provides_reader() -> TestResult<()> {
     let (tx, stream) = body_channel(4);
 
     tokio::spawn(async move {
-        let _ = tx.send(Ok(Bytes::from_static(b"payload"))).await;
+        drop(tx.send(Ok(Bytes::from_static(b"payload"))).await);
     });
 
     let body = StreamingBody::new(stream);
@@ -77,7 +85,7 @@ async fn streaming_body_extractor_provides_reader() -> TestResult<()> {
 
     let mut buf = Vec::new();
     reader.read_to_end(&mut buf).await?;
-    assert_eq!(buf, b"payload");
+    assert_eq!(buf, b"payload", "buf should equal b\"payload\"");
     Ok(())
 }
 
@@ -87,24 +95,29 @@ async fn streaming_body_extractor_provides_stream() -> TestResult<()> {
     let (tx, stream) = body_channel(4);
 
     tokio::spawn(async move {
-        let _ = tx.send(Ok(Bytes::from_static(b"chunk1"))).await;
-        let _ = tx.send(Ok(Bytes::from_static(b"chunk2"))).await;
+        drop(tx.send(Ok(Bytes::from_static(b"chunk1"))).await);
+        drop(tx.send(Ok(Bytes::from_static(b"chunk2"))).await);
     });
 
     let body = StreamingBody::new(stream);
-    let mut stream: RequestBodyStream = body.into_stream();
+    let mut body_stream: RequestBodyStream = body.into_stream();
 
     let mut chunks = Vec::new();
-    while let Some(result) = stream.next().await {
+    while let Some(result) = body_stream.next().await {
         chunks.push(result?);
     }
 
-    assert_eq!(chunks.len(), 2);
+    assert_eq!(chunks.len(), 2, "chunks.len() should equal 2");
     assert_eq!(
         chunks.first().map(AsRef::as_ref),
-        Some(b"chunk1".as_slice())
+        Some(b"chunk1".as_slice()),
+        "chunks.first().map(AsRef::as_ref) should equal Some(b\"chunk1\".as_slice())"
     );
-    assert_eq!(chunks.get(1).map(AsRef::as_ref), Some(b"chunk2".as_slice()));
+    assert_eq!(
+        chunks.get(1).map(AsRef::as_ref),
+        Some(b"chunk2".as_slice()),
+        "chunks.get(1).map(AsRef::as_ref) should equal Some(b\"chunk2\".as_slice())"
+    );
     Ok(())
 }
 
@@ -114,21 +127,28 @@ async fn stream_error_propagates_to_handler() -> TestResult<()> {
     let (tx, stream) = body_channel(4);
 
     tokio::spawn(async move {
-        let _ = tx.send(Ok(Bytes::from_static(b"ok"))).await;
-        let _ = tx
-            .send(Err(std::io::Error::new(
+        drop(tx.send(Ok(Bytes::from_static(b"ok"))).await);
+        drop(
+            tx.send(Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "corrupt data",
             )))
-            .await;
+            .await,
+        );
     });
 
-    let mut stream: RequestBodyStream = stream;
-    let results: Vec<_> = stream.by_ref().collect().await;
+    let mut body_stream: RequestBodyStream = stream;
+    let results: Vec<_> = body_stream.by_ref().collect().await;
 
-    assert_eq!(results.len(), 2);
-    assert!(results.first().expect("first result").is_ok());
-    assert!(results.get(1).expect("second result").is_err());
+    assert_eq!(results.len(), 2, "results.len() should equal 2");
+    assert!(
+        results.first().expect("first result").is_ok(),
+        "assertion failed: results.first().expect(\"first result\").is_ok()"
+    );
+    assert!(
+        results.get(1).expect("second result").is_err(),
+        "assertion failed: results.get(1).expect(\"second result\").is_err()"
+    );
     Ok(())
 }
 
@@ -138,22 +158,24 @@ async fn reader_surfaces_stream_error() -> TestResult<()> {
     let (tx, stream) = body_channel(4);
 
     tokio::spawn(async move {
-        let _ = tx
-            .send(Err(std::io::Error::new(
+        drop(
+            tx.send(Err(std::io::Error::new(
                 std::io::ErrorKind::BrokenPipe,
                 "connection lost",
             )))
-            .await;
+            .await,
+        );
     });
 
     let mut reader = RequestBodyReader::new(stream);
     let mut buf = [0u8; 16];
     let result = reader.read(&mut buf).await;
 
-    assert!(result.is_err());
+    assert!(result.is_err(), "assertion failed: result.is_err()");
     assert_eq!(
         result.expect_err("should be error").kind(),
-        std::io::ErrorKind::BrokenPipe
+        std::io::ErrorKind::BrokenPipe,
+        "result.expect_err(\"should be error\").kind() should equal std::io::ErrorKind::BrokenPipe"
     );
     Ok(())
 }
@@ -177,7 +199,7 @@ async fn sequential_chunks_delivered_in_order() -> TestResult<()> {
     tokio::spawn(async move {
         for i in 0u8..5 {
             let chunk = Bytes::from(vec![i]);
-            let _ = tx.send(Ok(chunk)).await;
+            drop(tx.send(Ok(chunk)).await);
         }
     });
 
@@ -188,7 +210,11 @@ async fn sequential_chunks_delivered_in_order() -> TestResult<()> {
         .flat_map(|b| b.to_vec())
         .collect();
 
-    assert_eq!(values, vec![0, 1, 2, 3, 4]);
+    assert_eq!(
+        values,
+        vec![0, 1, 2, 3, 4],
+        "values should equal vec![0, 1, 2, 3, 4]"
+    );
     Ok(())
 }
 
@@ -197,5 +223,8 @@ fn streaming_body_debug_format() {
     let (_tx, stream) = body_channel(1);
     let body = StreamingBody::new(stream);
     let debug_str = format!("{body:?}");
-    assert!(debug_str.contains("StreamingBody"));
+    assert!(
+        debug_str.contains("StreamingBody"),
+        "assertion failed: debug_str.contains(\"StreamingBody\")"
+    );
 }

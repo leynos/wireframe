@@ -138,7 +138,7 @@ impl DropSite {
                     drop(managed);
                     // A failed send means the caller stopped waiting, which is
                     // not a worker failure.
-                    let _ = sender.send(());
+                    let _send_result = sender.send(());
                 });
                 DropCompletion::Detached { worker, finished }
             }
@@ -177,7 +177,7 @@ fn client_pool_config() -> ClientPoolConfig {
 async fn run_ping_round_trip(pool: &TestClientPool, ping: u8) -> Result<(), ClientError> {
     let lease = pool.acquire().await?;
     let reply: Pong = lease.call(&Ping(ping)).await?;
-    assert_eq!(reply, Pong(ping));
+    assert_eq!(reply, Pong(ping), "reply should equal Pong(ping)");
     Ok(())
 }
 
@@ -207,10 +207,20 @@ where
     run_ping_round_trip(&pool, params.second_ping).await?;
     assert_eq!(
         preamble_callback_count.load(Ordering::SeqCst),
-        params.expected_preamble_count
+        params.expected_preamble_count,
+        "preamble_callback_count.load(Ordering::SeqCst) should equal \
+         params.expected_preamble_count"
     );
-    assert_eq!(server.preamble_count(), params.expected_preamble_count);
-    assert_eq!(server.connection_count(), params.expected_connection_count);
+    assert_eq!(
+        server.preamble_count(),
+        params.expected_preamble_count,
+        "server.preamble_count() should equal params.expected_preamble_count"
+    );
+    assert_eq!(
+        server.connection_count(),
+        params.expected_connection_count,
+        "server.connection_count() should equal params.expected_connection_count"
+    );
 
     Ok(())
 }
@@ -251,8 +261,8 @@ async fn pool_enforces_per_socket_in_flight_limit(
     assert!(third.is_err(), "third acquire should wait for a permit");
 
     drop(first);
-    let third = timeout(Duration::from_millis(100), pool.acquire()).await?;
-    let _third = third?;
+    let third_attempt = timeout(Duration::from_millis(100), pool.acquire()).await?;
+    let _third = third_attempt?;
     drop(second);
     Ok(())
 }
@@ -300,16 +310,31 @@ async fn protocol_error_marks_connection_broken_and_reconnects(
         .call::<Ping, Pong>(&Ping(1))
         .await
         .expect_err("malformed response should fail decoding");
-    assert!(error.should_recycle_connection());
+    assert!(
+        error.should_recycle_connection(),
+        "assertion failed: error.should_recycle_connection()"
+    );
     drop(lease);
 
-    let lease = pool.acquire().await?;
-    let reply: Pong = lease.call(&Ping(2)).await?;
-    assert_eq!(reply, Pong(2));
+    let reconnected_lease = pool.acquire().await?;
+    let reply: Pong = reconnected_lease.call(&Ping(2)).await?;
+    assert_eq!(reply, Pong(2), "reply should equal Pong(2)");
 
-    assert_eq!(preamble_callback_count.load(Ordering::SeqCst), 2);
-    assert_eq!(server.preamble_count(), 2);
-    assert_eq!(server.connection_count(), 2);
+    assert_eq!(
+        preamble_callback_count.load(Ordering::SeqCst),
+        2,
+        "preamble_callback_count.load(Ordering::SeqCst) should equal 2"
+    );
+    assert_eq!(
+        server.preamble_count(),
+        2,
+        "server.preamble_count() should equal 2"
+    );
+    assert_eq!(
+        server.connection_count(),
+        2,
+        "server.connection_count() should equal 2"
+    );
 
     Ok(())
 }

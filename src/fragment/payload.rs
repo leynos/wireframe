@@ -145,8 +145,8 @@ mod tests {
         let decoded = decode_fragment_payload(&encoded)
             .expect("decode fragment")
             .expect("fragment marker present");
-        assert_eq!(decoded.0, header);
-        assert_eq!(decoded.1, payload);
+        assert_eq!(decoded.0, header, "decoded.0 should equal header");
+        assert_eq!(decoded.1, payload, "decoded.1 should equal payload");
     }
 
     #[test]
@@ -155,7 +155,8 @@ mod tests {
         assert!(
             decode_fragment_payload(&payload)
                 .expect("decode ok")
-                .is_none()
+                .is_none(),
+            "assertion failed: decode_fragment_payload(&payload) .expect(\"decode ok\") .is_none()"
         );
     }
 
@@ -165,7 +166,8 @@ mod tests {
         assert!(
             decode_fragment_payload(&payload)
                 .expect("decode ok")
-                .is_none()
+                .is_none(),
+            "assertion failed: decode_fragment_payload(&payload) .expect(\"decode ok\") .is_none()"
         );
     }
 
@@ -174,7 +176,11 @@ mod tests {
         let header = FragmentHeader::new(MessageId::new(1), FragmentIndex::zero(), true);
         let encoded = encode_to_vec(header, config::standard()).expect("encode header");
         let expected = FRAGMENT_MAGIC.len() + std::mem::size_of::<u16>() + encoded.len();
-        assert_eq!(fragment_overhead().get(), expected);
+        assert_eq!(
+            fragment_overhead().get(),
+            expected,
+            "fragment_overhead().get() should equal expected"
+        );
         assert!(encoded.len() < u16::MAX as usize, "header must fit in u16");
     }
 
@@ -228,7 +234,9 @@ mod tests {
 
         let err = decode_fragment_payload(&payload).expect_err("expected decode failure");
         match err {
-            DecodeError::UnexpectedEnd { additional } => assert_eq!(additional, 4),
+            DecodeError::UnexpectedEnd { additional } => {
+                assert_eq!(additional, 4, "additional should equal 4");
+            }
             other => panic!("expected UnexpectedEnd, got {other:?}"),
         }
     }
@@ -249,7 +257,10 @@ mod tests {
         .expect("mismatched fragment header length should fail to decode");
         match error {
             DecodeError::OtherString(msg) => {
-                assert_eq!(msg, "fragment header length mismatch");
+                assert_eq!(
+                    msg, "fragment header length mismatch",
+                    "msg should equal \"fragment header length mismatch\""
+                );
             }
             other => panic!("expected length mismatch error, got {other:?}"),
         }

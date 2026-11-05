@@ -3,6 +3,7 @@
 use wireframe::{
     connection::ConnectionChannels,
     fragment::{
+        DefaultFragmentAdapter,
         FragmentBatch,
         FragmentFrame,
         FragmentHeader,
@@ -47,6 +48,11 @@ const fn bundle_channels<F>(queues: PushQueues<F>, handle: PushHandle<F>) -> Con
     ConnectionChannels::new(queues, handle)
 }
 
+// The adapter's constructor is an ordinary `fn`, so a const value cannot be
+// built here; taking it by reference still proves the accessor itself is
+// callable during const evaluation.
+const fn buffered_bytes(adapter: &DefaultFragmentAdapter) -> usize { adapter.buffered_bytes() }
+
 fn main() {
     let _ = (
         HEADER_MESSAGE_ID,
@@ -56,6 +62,7 @@ fn main() {
         inspect_message,
         inspect_batch,
         bundle_channels::<u8>,
+        buffered_bytes,
         FRAME,
         PARTS,
         MESSAGE,

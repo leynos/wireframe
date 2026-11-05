@@ -43,6 +43,12 @@ async fn zero_iterations_measures_nothing() {
         .await
         .expect("zero iterations must succeed");
 
-    assert_eq!(measurement.operations, 0);
-    assert_eq!(measurement.frames_emitted, 0);
+    assert_eq!(
+        measurement.operations, 0,
+        "measurement.operations should equal 0"
+    );
+    assert_eq!(
+        measurement.frames_emitted, 0,
+        "measurement.frames_emitted should equal 0"
+    );
 }

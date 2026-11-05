@@ -113,11 +113,21 @@ mod tests {
     fn negative_integer_frame_is_accepted_at_its_exact_size_limit() {
         let frame = RespFrame::Integer(-99);
         let mut dst = BytesMut::new();
-        assert!(RespAdapter::new(6).encode(frame.clone(), &mut dst).is_ok());
-        assert_eq!(dst.as_ref(), b":-99\r\n");
+        assert!(
+            RespAdapter::new(6).encode(frame.clone(), &mut dst).is_ok(),
+            "assertion failed: RespAdapter::new(6).encode(frame.clone(), &mut dst).is_ok()"
+        );
+        assert_eq!(
+            dst.as_ref(),
+            b":-99\r\n",
+            "dst.as_ref() should equal b\":-99\\r\\n\""
+        );
 
         let mut rejected = BytesMut::new();
-        assert!(RespAdapter::new(5).encode(frame, &mut rejected).is_err());
-        assert!(rejected.is_empty());
+        assert!(
+            RespAdapter::new(5).encode(frame, &mut rejected).is_err(),
+            "assertion failed: RespAdapter::new(5).encode(frame, &mut rejected).is_err()"
+        );
+        assert!(rejected.is_empty(), "assertion failed: rejected.is_empty()");
     }
 }

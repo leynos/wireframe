@@ -795,15 +795,10 @@ crate name, a glob, a repository-root path, a scalar instead of a list, a
 linter table without that evidence, and repository-wide tuning keys such as a
 shared threshold or locale.
 
-The shared policy is the inheritance mechanism for every workspace package, not
-the finished Netsuke baseline. Aligning the remaining baseline rules, namely
-`clippy::disallowed_methods`, `clippy::missing_assert_message`,
-`rust::unsafe_code = "forbid"` and further `unexpected_cfgs` declarations, is
-tracked by issue [#664]. That work is deliberately out of scope here: this
-change makes the existing policy reach every crate and does not claim the
-baseline itself.
-
-[#664]: https://github.com/leynos/wireframe/issues/664
+The shared policy is the inheritance mechanism for every workspace package. How
+it relates to the `leynos/netsuke` baseline, and which limits Wireframe
+deliberately tightens, is described under
+[Cargo workspace semantics](#cargo-workspace-semantics).
 
 ### CodeScene coverage baseline
 
@@ -1352,14 +1347,64 @@ The standard Makefile gates cover all supported workspace members and targets:
 
 The shared `[workspace.lints.clippy]`, `[workspace.lints.rust]`, and
 `[workspace.lints.rustdoc]` tables are inherited by each member through
-`[lints] workspace = true`. In particular, Clippy's
-`missing_docs_in_private_items = "deny"` gate covers private implementation
-items in every crate and target, while Rust's `missing_docs = "deny"` continues
-to cover the public surface. Add `//!` module documentation and `///` item
-documentation that explains the relevant contract, invariant, or test purpose.
-If generated or macro-expanded code leaves a genuinely unavoidable gap, use an
-item-scoped `#[expect(clippy::missing_docs_in_private_items, reason = "...")]`
-with the concrete technical limitation; do not add blanket allows.
+`[lints] workspace = true`. The policy takes the `leynos/netsuke` baseline as
+its minimum: every applicable Netsuke rule appears here, in Netsuke's category
+order, and a deliberate divergence is documented beside the setting it affects.
+Wireframe adds no rule that Netsuke lacks today; where the two differ,
+Wireframe is stricter. The standalone `tests/feature_gate` package cannot
+inherit a workspace table, so it carries a copy that must be kept in step.
+
+The rule groups that follow from the baseline are:
+
+- **Hygiene** — `disallowed_methods`, `missing_assert_message`, and the
+  attribute and documentation rules. `missing_assert_message` requires every
+  assertion outside `#[test]` functions and `#[cfg(test)]` modules, including
+  debug assertions, to state the invariant it checks; a bare
+  `assert!(condition)` is rejected there even when the condition looks obvious.
+  The lint exempts test code, so a test may keep the bare form. Add a message
+  where it names the invariant the assertion protects; a generated restatement
+  of the expression adds nothing that the assertion's own failure output does
+  not already show, and it inflates the module enough to trip CodeScene's
+  duplication and method-length gates.
+- **Panic-prone operations** — `unwrap_used`, `expect_used`,
+  `indexing_slicing`, `string_slice`, and the integer and panic rules.
+- **Nursery idiom polish** — `or_fun_call`, `option_if_let_else`, the
+  `shadow_*` family, `str_to_string`, `use_self`, and friends.
+- **Numerical foot-guns** — `float_arithmetic` and the cast rules. Prefer
+  checked `try_from` conversions over `as` casts.
+- **API ergonomics** — `missing_const_for_fn`, `must_use_candidate`,
+  `unused_async`, and `missing_docs_in_private_items`.
+- **Error handling** — `missing_panics_doc`, `error_impl_error`, and
+  `result_large_err`.
+
+Clippy's `missing_docs_in_private_items = "deny"` gate covers private
+implementation items in every crate and target, while Rust's
+`missing_docs = "deny"` continues to cover the public surface. Add `//!` module
+documentation and `///` item documentation that explains the relevant contract,
+invariant, or test purpose. If generated or macro-expanded code leaves a
+genuinely unavoidable gap, use an item-scoped
+`#[expect(clippy::missing_docs_in_private_items, reason = "...")]` with the
+concrete technical limitation; do not add blanket allows.
+
+Rust's `unsafe_code = "forbid"` applies to every workspace package and admits
+no crate-wide exception. A site that appears to need `unsafe` — a manual
+`GlobalAlloc`, a layout transmute, a raw pointer hand-off — must be redesigned
+or replaced with a safe wrapper rather than annotated. The allocation
+benchmarks, for example, install `stats_alloc`'s instrumenting system allocator
+by reference; the wrapper owns the only `unsafe` implementation.
+
+The environment-method ban is part of the hygiene group. `clippy.toml` lists
+`std::env::var`, `var_os`, `vars`, `vars_os`, `set_var`, `remove_var`, and
+`set_current_dir` under `disallowed-methods`. Inject a reader through the
+`mockable::Env` trait instead of reading the process environment directly; see
+`examples/packet_enum.rs`. A sanctioned call site carries a reasoned item-scoped
+`#[expect(clippy::disallowed_methods, reason = "...")]`, never an `allow`, so
+the expectation warns once the site is migrated.
+
+Finally, `unexpected_cfgs` declares every intentional custom cfg: `loom`,
+`coverage`, `docsrs`, `kani`, and `dylint_lib`. A new custom cfg must be added
+to the declaration in the same change that introduces it, or the typo-catching
+half of the lint stops working.
 
 Plain root-level commands keep their day-to-day ergonomics because
 `default-members = ["."]` leaves the main `wireframe` package as the only
@@ -1405,12 +1450,12 @@ address parsing, app construction, handlers, and middleware in the example file.
 for examples, tests, and doctests; applications supply their own tracing
 subscriber and exporter.
 
-Clippy rejects `std::env::var`, `var_os`, `vars`, `vars_os`, `set_var`, and
-`remove_var` through the disallowed-methods list in `clippy.toml`; the
-`disallowed_methods` lint is denied in the workspace lint table. Capture real
-environment values only at an executable composition root, such as an example's
-`run` function, and pass the lookup result into small parsing helpers as an
-explicit value. The seam taxonomy in
+Clippy rejects `std::env::var`, `var_os`, `vars`, `vars_os`, `set_var`,
+`remove_var`, and `set_current_dir` through the disallowed-methods list in
+`clippy.toml`; the `disallowed_methods` lint is denied in the workspace lint
+table. Capture real environment values only at an executable composition root,
+such as an example's `run` function, and pass the lookup result into small
+parsing helpers as an explicit value. The seam taxonomy in
 [Netsuke ADR 008: environment seam taxonomy](https://github.com/leynos/netsuke/blob/main/docs/adrs/adr-0008-environment-seam-taxonomy.md)
 selects the narrowest shape: an explicit value for one variable read by one
 caller, a private closure for a small reusable reader, and `mockable::Env` only

@@ -94,5 +94,5 @@ fn decode_eof_with_empty_buffer_returns_none(#[case] max_frame_length: usize) {
         .decode_eof(&mut wire)
         .expect("decode_eof with empty buffer should not fail");
 
-    assert!(frame.is_none());
+    assert!(frame.is_none(), "assertion failed: frame.is_none()");
 }

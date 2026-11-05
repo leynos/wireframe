@@ -239,7 +239,7 @@ impl BudgetEnforcementWorld {
             let detail = self
                 .last_error
                 .as_ref()
-                .map_or("(no error captured)".to_string(), |e| format!("{e}"));
+                .map_or_else(|| "(no error captured)".to_owned(), |e| format!("{e}"));
             return Err(format!("expected frame to be accepted, got error: {detail}").into());
         }
         Ok(())

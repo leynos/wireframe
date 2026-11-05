@@ -28,6 +28,12 @@ fn shared_harness_runs_placeholder_model_with_explicit_bounds() {
 fn default_verification_bounds_match_exported_constants() {
     let bounds = VerificationBounds::default();
 
-    assert_eq!(bounds.max_depth, DEFAULT_TARGET_MAX_DEPTH);
-    assert_eq!(bounds.max_state_count, DEFAULT_TARGET_STATE_COUNT);
+    assert_eq!(
+        bounds.max_depth, DEFAULT_TARGET_MAX_DEPTH,
+        "bounds.max_depth should equal DEFAULT_TARGET_MAX_DEPTH"
+    );
+    assert_eq!(
+        bounds.max_state_count, DEFAULT_TARGET_STATE_COUNT,
+        "bounds.max_state_count should equal DEFAULT_TARGET_STATE_COUNT"
+    );
 }

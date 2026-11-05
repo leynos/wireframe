@@ -27,7 +27,9 @@ fn bytes_to_u64_ok(
 ) {
     assert_eq!(
         bytes_to_u64(&bytes, size, endianness).expect("failed to convert"),
-        expected
+        expected,
+        "bytes_to_u64(&bytes, size, endianness).expect(\"failed to convert\") should equal \
+         expected"
     );
 }
 
@@ -47,11 +49,13 @@ fn u64_to_bytes_ok(
 ) {
     let mut buf = [0u8; 8];
     let written = u64_to_bytes(value, size, endianness, &mut buf).expect("failed to encode u64");
-    assert_eq!(written, size);
+    assert_eq!(written, size, "written should equal size");
     assert_eq!(
         buf.get(..written)
             .expect("written value must be within buffer bounds"),
-        expected.as_slice()
+        expected.as_slice(),
+        "buf.get(..written) .expect(\"written value must be within buffer bounds\") should equal \
+         expected.as_slice()"
     );
 }
 
@@ -61,13 +65,21 @@ fn u64_to_bytes_ok(
 fn bytes_to_u64_short(#[case] bytes: Vec<u8>, #[case] size: usize, #[case] endianness: Endianness) {
     let err = bytes_to_u64(&bytes, size, endianness)
         .expect_err("short input must fail with UnexpectedEof");
-    assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::UnexpectedEof,
+        "err.kind() should equal io::ErrorKind::UnexpectedEof"
+    );
 }
 
 #[test]
 fn bytes_to_u64_rejects_empty_input() {
     let err = bytes_to_u64(&[], 2, Endianness::Big).expect_err("empty slice must error");
-    assert_eq!(err.kind(), io::ErrorKind::UnexpectedEof);
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::UnexpectedEof,
+        "err.kind() should equal io::ErrorKind::UnexpectedEof"
+    );
 }
 
 #[rstest]
@@ -80,7 +92,11 @@ fn bytes_to_u64_unsupported(
 ) {
     let err = bytes_to_u64(&bytes, size, endianness)
         .expect_err("unsupported size must fail with InvalidInput");
-    assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::InvalidInput,
+        "err.kind() should equal io::ErrorKind::InvalidInput"
+    );
 }
 
 #[rstest]
@@ -88,7 +104,11 @@ fn u64_to_bytes_large() {
     let mut buf = [0u8; 8];
     let err = u64_to_bytes(300, 1, Endianness::Big, &mut buf)
         .expect_err("value 300 must fail for 1-byte width (max 255)");
-    assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::InvalidInput,
+        "err.kind() should equal io::ErrorKind::InvalidInput"
+    );
 }
 
 #[test]
@@ -96,7 +116,11 @@ fn u64_to_bytes_zero_length() {
     let mut buf = [0u8; 8];
     let err = u64_to_bytes(0, 0, Endianness::Big, &mut buf)
         .expect_err("u64_to_bytes must fail if length is zero");
-    assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::InvalidInput,
+        "err.kind() should equal io::ErrorKind::InvalidInput"
+    );
 }
 
 #[test]
@@ -104,7 +128,11 @@ fn u64_to_bytes_rejects_oversized_prefix() {
     let mut buf = [0u8; 8];
     let err = u64_to_bytes(1, 9, Endianness::Big, &mut buf)
         .expect_err("unsupported prefix size must fail");
-    assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::InvalidInput,
+        "err.kind() should equal io::ErrorKind::InvalidInput"
+    );
 }
 
 #[rstest]
@@ -118,7 +146,11 @@ fn u64_to_bytes_unsupported(
     let mut buf = [0u8; 8];
     let err = u64_to_bytes(value, size, endianness, &mut buf)
         .expect_err("unsupported size must fail with InvalidInput");
-    assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    assert_eq!(
+        err.kind(),
+        io::ErrorKind::InvalidInput,
+        "err.kind() should equal io::ErrorKind::InvalidInput"
+    );
 }
 
 #[rstest]
@@ -136,7 +168,9 @@ fn u64_to_bytes_zeroes_remainder(
         buf.get(size..)
             .expect("size must be within buffer bounds")
             .iter()
-            .all(|&b| b == 0)
+            .all(|&b| b == 0),
+        "assertion failed: buf.get(size..) .expect(\"size must be within buffer bounds\") .iter() \
+         .all(|&b| b == 0)"
     );
 }
 
@@ -173,8 +207,8 @@ fn oversized_prefix_cases() -> impl Strategy<Value = (usize, usize, Endianness)>
     } else {
         prop_oneof![Just(1usize), Just(2)].boxed()
     };
-    size.prop_flat_map(|size| {
-        let minimum = match size {
+    size.prop_flat_map(|prefix_width| {
+        let minimum = match prefix_width {
             1 => usize::from(u8::MAX) + 1,
             2 => usize::from(u16::MAX) + 1,
             _ => {
@@ -183,7 +217,11 @@ fn oversized_prefix_cases() -> impl Strategy<Value = (usize, usize, Endianness)>
                     + 1
             }
         };
-        (Just(size), minimum..=usize::MAX, prefix_endianness())
+        (
+            Just(prefix_width),
+            minimum..=usize::MAX,
+            prefix_endianness(),
+        )
     })
 }
 

@@ -168,19 +168,23 @@ mod tests {
     #[rstest]
     fn insert_and_get_multiple_types(empty_store: AppDataStore) {
         empty_store.insert(12u32);
-        empty_store.insert("hello".to_string());
+        empty_store.insert("hello".to_owned());
         empty_store.insert(CustomState {
             label: "alpha",
             value: 7,
         });
 
         let number = empty_store.get::<u32>().expect("u32 should be present");
-        assert_eq!(*number, 12);
+        assert_eq!(*number, 12, "*number should equal 12");
 
         let text = empty_store
             .get::<String>()
             .expect("String should be present");
-        assert_eq!(text.as_str(), "hello");
+        assert_eq!(
+            text.as_str(),
+            "hello",
+            "text.as_str() should equal \"hello\""
+        );
 
         let custom = empty_store
             .get::<CustomState>()
@@ -190,7 +194,8 @@ mod tests {
             CustomState {
                 label: "alpha",
                 value: 7,
-            }
+            },
+            "*custom should equal CustomState {{ label: \"alpha\", value: 7, }}"
         );
     }
 
@@ -200,32 +205,47 @@ mod tests {
         empty_store.insert(20u32);
 
         let number = empty_store.get::<u32>().expect("u32 should be present");
-        assert_eq!(*number, 20);
+        assert_eq!(*number, 20, "*number should equal 20");
     }
 
     #[rstest]
     fn missing_type_returns_none(empty_store: AppDataStore) {
-        assert!(empty_store.get::<u32>().is_none());
+        assert!(
+            empty_store.get::<u32>().is_none(),
+            "assertion failed: empty_store.get::<u32>().is_none()"
+        );
     }
 
     #[rstest]
     fn contains_returns_true_for_present_type(empty_store: AppDataStore) {
-        assert!(!empty_store.contains::<u32>());
+        assert!(
+            !empty_store.contains::<u32>(),
+            "assertion failed: !empty_store.contains::<u32>()"
+        );
         empty_store.insert(42u32);
-        assert!(empty_store.contains::<u32>());
+        assert!(
+            empty_store.contains::<u32>(),
+            "assertion failed: empty_store.contains::<u32>()"
+        );
     }
 
     #[rstest]
     fn remove_returns_and_deletes_value(empty_store: AppDataStore) {
         empty_store.insert(42u32);
         let removed = empty_store.remove::<u32>().expect("u32 should be present");
-        assert_eq!(*removed, 42);
-        assert!(empty_store.get::<u32>().is_none());
+        assert_eq!(*removed, 42, "*removed should equal 42");
+        assert!(
+            empty_store.get::<u32>().is_none(),
+            "assertion failed: empty_store.get::<u32>().is_none()"
+        );
     }
 
     #[rstest]
     fn remove_returns_none_for_absent_type(empty_store: AppDataStore) {
-        assert!(empty_store.remove::<u32>().is_none());
+        assert!(
+            empty_store.remove::<u32>().is_none(),
+            "assertion failed: empty_store.remove::<u32>().is_none()"
+        );
     }
 
     #[test]
@@ -250,7 +270,7 @@ mod tests {
                 let text_barrier = Arc::clone(&barrier);
                 thread::spawn(move || {
                     text_barrier.wait();
-                    text_store.insert("hello".to_string());
+                    text_store.insert("hello".to_owned());
                 })
             },
             {
@@ -271,9 +291,13 @@ mod tests {
         }
 
         let number = store.get::<u32>().expect("u32 should be present");
-        assert_eq!(*number, 42);
+        assert_eq!(*number, 42, "*number should equal 42");
         let text = store.get::<String>().expect("String should be present");
-        assert_eq!(text.as_str(), "hello");
+        assert_eq!(
+            text.as_str(),
+            "hello",
+            "text.as_str() should equal \"hello\""
+        );
         let custom = store
             .get::<CustomState>()
             .expect("CustomState should be present");
@@ -282,7 +306,8 @@ mod tests {
             CustomState {
                 label: "concurrent",
                 value: 99,
-            }
+            },
+            "*custom should equal CustomState {{ label: \"concurrent\", value: 99, }}"
         );
     }
 
@@ -310,6 +335,6 @@ mod tests {
 
         // One of the threads' values must have "won".
         let value = store.get::<u32>().expect("u32 should be present");
-        assert!(*value < upper);
+        assert!(*value < upper, "assertion failed: *value < upper");
     }
 }

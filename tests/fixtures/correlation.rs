@@ -97,18 +97,18 @@ impl CorrelationWorld {
     /// Returns an error if any frame violates the stored correlation
     /// expectation.
     pub fn verify(&self) -> TestResult {
-        let ok = match self.expected {
-            Some(cid) => self.frames.iter().all(|f| f.correlation_id() == Some(cid)),
-            None => self.frames.iter().all(|f| f.correlation_id().is_none()),
-        };
+        let ok = self.expected.map_or_else(
+            || self.frames.iter().all(|f| f.correlation_id().is_none()),
+            |cid| self.frames.iter().all(|f| f.correlation_id() == Some(cid)),
+        );
 
         if ok {
             return Ok(());
         }
 
-        match self.expected {
-            Some(cid) => Err(format!("frames missing expected correlation id {cid}").into()),
-            None => Err("frames unexpectedly carried correlation id".into()),
-        }
+        self.expected.map_or_else(
+            || Err("frames unexpectedly carried correlation id".into()),
+            |cid| Err(format!("frames missing expected correlation id {cid}").into()),
+        )
     }
 }

@@ -217,8 +217,8 @@ fn dlq_error_scenarios(
             expected,
         } = case;
         let (dlq_tx, dlq_rx) = mpsc::channel(1);
-        let mut dlq_rx = Some(dlq_rx);
-        setup(&dlq_tx, &mut dlq_rx)
+        let mut dlq_slot = Some(dlq_rx);
+        setup(&dlq_tx, &mut dlq_slot)
             .map_err(|e| io::Error::other(format!("DLQ setup failed: {e}")))?;
         let (mut queues, handle) = builder
             .unlimited()
@@ -242,7 +242,7 @@ fn dlq_error_scenarios(
             return Err(io::Error::other("unexpected dequeued value").into());
         }
 
-        assertion(&mut dlq_rx)
+        assertion(&mut dlq_slot)
             .await
             .map_err(|e| io::Error::other(format!("DLQ assertion failed: {e}")))?;
 

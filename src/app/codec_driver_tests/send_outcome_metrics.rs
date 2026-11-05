@@ -137,12 +137,12 @@ fn closed_peer_records_transport_failure() {
             let codec = TestCodec::default();
             let (client, server) = tokio::io::duplex(1024);
             drop(client);
-            let mut server =
+            let mut server_framed =
                 Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
             let mut transport = OutboundTransport {
                 serializer: &BincodeSerializer,
                 codec: &codec,
-                framed: &mut server,
+                framed: &mut server_framed,
             };
             flush_pipeline_output(&mut transport, &mut pipeline)
                 .await

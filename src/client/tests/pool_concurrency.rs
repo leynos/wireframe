@@ -42,7 +42,7 @@ async fn pending_response_blocks_another_lease_from_using_the_socket() -> TestRe
     let second_lease = pool.acquire().await?;
     let (second_call_started, second_call_started_rx) = tokio::sync::oneshot::channel();
     let mut second_call = tokio::spawn(async move {
-        let _ = second_call_started.send(());
+        let _call_started_sent = second_call_started.send(());
         second_lease.call::<Ping, Pong>(&Ping(2)).await
     });
     second_call_started_rx.await?;
@@ -57,11 +57,23 @@ async fn pending_response_blocks_another_lease_from_using_the_socket() -> TestRe
     );
 
     let first_response: Pong = first_lease.receive().await?;
-    assert_eq!(first_response, Pong(1));
+    assert_eq!(
+        first_response,
+        Pong(1),
+        "first_response should equal Pong(1)"
+    );
 
     let second_response: Pong = timeout(GRACE, &mut second_call).await???;
-    assert_eq!(second_response, Pong(2));
-    assert_eq!(server.connection_count(), 1);
+    assert_eq!(
+        second_response,
+        Pong(2),
+        "second_response should equal Pong(2)"
+    );
+    assert_eq!(
+        server.connection_count(),
+        1,
+        "server.connection_count() should equal 1"
+    );
 
     drop(first_lease);
     let released_lease = timeout(GRACE, pool.acquire()).await??;

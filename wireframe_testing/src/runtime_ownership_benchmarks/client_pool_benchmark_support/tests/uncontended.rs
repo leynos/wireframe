@@ -12,11 +12,28 @@ async fn zero_iterations_measures_nothing() {
         .await
         .expect("zero iterations must succeed");
 
-    assert_eq!(measurement.acquisitions, 0);
-    assert_eq!(measurement.scheduler_spawns, 0);
-    assert_eq!(measurement.capacity_waits, 0);
-    assert_eq!(measurement.construction, std::time::Duration::ZERO);
-    assert_eq!(measurement.alive_task_delta(), 0);
+    assert_eq!(
+        measurement.acquisitions, 0,
+        "measurement.acquisitions should equal 0"
+    );
+    assert_eq!(
+        measurement.scheduler_spawns, 0,
+        "measurement.scheduler_spawns should equal 0"
+    );
+    assert_eq!(
+        measurement.capacity_waits, 0,
+        "measurement.capacity_waits should equal 0"
+    );
+    assert_eq!(
+        measurement.construction,
+        std::time::Duration::ZERO,
+        "measurement.construction should equal std::time::Duration::ZERO"
+    );
+    assert_eq!(
+        measurement.alive_task_delta(),
+        0,
+        "measurement.alive_task_delta() should equal 0"
+    );
 }
 
 /// Acquisition is mailbox traffic to the pool's existing scheduler task.

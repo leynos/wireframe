@@ -78,7 +78,10 @@ async fn async_acquisition_index_resolves_to_the_slot_that_granted_its_permit(
     let lease = PooledClientLease::new(Arc::clone(&core), slot_index, permit)
         .expect("the returned index should resolve in the core");
 
-    assert_eq!(slot_index, selected_index);
+    assert_eq!(
+        slot_index, selected_index,
+        "slot_index should equal selected_index"
+    );
     assert_eq!(
         std::ptr::from_ref(lease.slot().expect("lease slot should resolve")),
         selected_address,
@@ -339,8 +342,8 @@ impl GeneratedSlotSequence {
 
     fn assert_valid(&self) -> TestCaseResult {
         for (slot_index, lease) in self.leases.iter().enumerate() {
-            if let Some(lease) = lease {
-                self.assert_lease_identity(slot_index, lease)?;
+            if let Some(held_lease) = lease {
+                self.assert_lease_identity(slot_index, held_lease)?;
             }
         }
         if self.is_shutdown {

@@ -47,7 +47,7 @@ async fn before_send_hook_modifies_frames(
     >,
     shutdown_token: CancellationToken,
 ) -> TestResult {
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     push_expect!(handle.push_high_priority(1), "push high-priority")?;
 
     let stream = stream::iter(vec![Ok(2u8)]);
@@ -57,7 +57,7 @@ async fn before_send_hook_modifies_frames(
     };
 
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> = ConnectionActor::with_hooks(
-        ConnectionChannels::new(queues, handle),
+        ConnectionChannels::new(push_queues, handle),
         Some(Box::pin(stream)),
         shutdown_token,
         hooks,
@@ -67,7 +67,7 @@ async fn before_send_hook_modifies_frames(
         .run(&mut out)
         .await
         .map_err(|e| io::Error::other(format!("actor run failed: {e:?}")))?;
-    assert_eq!(out, vec![2, 3]);
+    assert_eq!(out, vec![2, 3], "out should equal vec![2, 3]");
     Ok(())
 }
 
@@ -81,7 +81,7 @@ async fn on_command_end_hook_runs(
     >,
     shutdown_token: CancellationToken,
 ) -> TestResult {
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     let stream = stream::iter(vec![Ok(1u8)]);
 
     let counter = Arc::new(AtomicUsize::new(0));
@@ -94,7 +94,7 @@ async fn on_command_end_hook_runs(
     };
 
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> = ConnectionActor::with_hooks(
-        ConnectionChannels::new(queues, handle),
+        ConnectionChannels::new(push_queues, handle),
         Some(Box::pin(stream)),
         shutdown_token,
         hooks,
@@ -104,7 +104,11 @@ async fn on_command_end_hook_runs(
         .run(&mut out)
         .await
         .map_err(|e| io::Error::other(format!("actor run failed: {e:?}")))?;
-    assert_eq!(counter.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        counter.load(Ordering::SeqCst),
+        1,
+        "counter.load(Ordering::SeqCst) should equal 1"
+    );
     Ok(())
 }
 
@@ -123,7 +127,7 @@ async fn error_propagation_from_stream(
     >,
     shutdown_token: CancellationToken,
 ) -> TestResult {
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     let stream = stream::iter(vec![
         Ok(1u8),
         Ok(2u8),
@@ -140,7 +144,7 @@ async fn error_propagation_from_stream(
         ..ProtocolHooks::<u8, TestError>::default()
     };
     let mut actor: ConnectionActor<_, TestError> = ConnectionActor::with_hooks(
-        ConnectionChannels::new(queues, handle),
+        ConnectionChannels::new(push_queues, handle),
         Some(Box::pin(stream)),
         shutdown_token,
         hooks,
@@ -150,8 +154,12 @@ async fn error_propagation_from_stream(
         .run(&mut out)
         .await
         .map_err(|e| io::Error::other(format!("actor run failed: {e:?}")))?;
-    assert_eq!(called.load(Ordering::SeqCst), 1);
-    assert_eq!(out, vec![1, 2]);
+    assert_eq!(
+        called.load(Ordering::SeqCst),
+        1,
+        "called.load(Ordering::SeqCst) should equal 1"
+    );
+    assert_eq!(out, vec![1, 2], "out should equal vec![1, 2]");
     Ok(())
 }
 
@@ -166,16 +174,16 @@ async fn protocol_error_logs_warning(
     shutdown_token: CancellationToken,
     mut logger: LoggerHandle,
 ) -> TestResult {
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     let stream = stream::iter(vec![Err(WireframeError::Protocol(TestError::Kaboom))]);
     let mut actor: ConnectionActor<_, TestError> =
-        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
+        ConnectionActor::new(push_queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
     actor
         .run(&mut out)
         .await
         .map_err(|e| io::Error::other(format!("actor run failed: {e:?}")))?;
-    assert_eq!(out, [] as [u8; 0]);
+    assert_eq!(out, [] as [u8; 0], "out should equal [] as [u8; 0]");
     let mut found = false;
     while let Some(record) = logger.pop() {
         if record.level() == log::Level::Warn && record.args().contains("protocol error") {
@@ -197,16 +205,19 @@ async fn io_error_terminates_connection(
     >,
     shutdown_token: CancellationToken,
 ) -> TestResult {
-    let (queues, handle) = queues?;
+    let (push_queues, handle) = queues?;
     let stream = stream::iter(vec![
         Ok(1u8),
         Err(WireframeError::Io(std::io::Error::other("fail"))),
     ]);
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> =
-        ConnectionActor::new(queues, handle, Some(Box::pin(stream)), shutdown_token);
+        ConnectionActor::new(push_queues, handle, Some(Box::pin(stream)), shutdown_token);
     let mut out = Vec::new();
     let result = actor.run(&mut out).await;
-    assert!(matches!(result, Err(WireframeError::Io(_))));
-    assert_eq!(out, vec![1]);
+    assert!(
+        matches!(result, Err(WireframeError::Io(_))),
+        "assertion failed: matches!(result, Err(WireframeError::Io(_)))"
+    );
+    assert_eq!(out, vec![1], "out should equal vec![1]");
     Ok(())
 }

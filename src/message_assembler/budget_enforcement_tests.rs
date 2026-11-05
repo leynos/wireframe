@@ -49,7 +49,7 @@ fn assert_budget_exceeded(err: &MessageAssemblyError, dimension: &str, key: u64,
                     ..
                 } if k == &MessageKey(key) && *a == attempted
             ),
-            "expected ConnectionBudgetExceeded(key={key}, attempted={attempted}), got: {err:?}"
+            "connection budget must reject the attempted size"
         ),
         "in_flight" => assert!(
             matches!(
@@ -60,7 +60,7 @@ fn assert_budget_exceeded(err: &MessageAssemblyError, dimension: &str, key: u64,
                     ..
                 } if k == &MessageKey(key) && *a == attempted
             ),
-            "expected InFlightBudgetExceeded(key={key}, attempted={attempted}), got: {err:?}"
+            "in-flight budget must reject the attempted size"
         ),
         _ => panic!("unknown budget dimension: {dimension}"),
     }
@@ -72,11 +72,11 @@ fn assert_budget_exceeded_any(err: &MessageAssemblyError, dimension: &str) {
     match dimension {
         "connection" => assert!(
             matches!(err, MessageAssemblyError::ConnectionBudgetExceeded { .. }),
-            "expected ConnectionBudgetExceeded, got: {err:?}"
+            "connection budget must be exceeded"
         ),
         "in_flight" => assert!(
             matches!(err, MessageAssemblyError::InFlightBudgetExceeded { .. }),
-            "expected InFlightBudgetExceeded, got: {err:?}"
+            "in-flight budget must be exceeded"
         ),
         _ => panic!("unknown budget dimension: {dimension}"),
     }
@@ -93,7 +93,7 @@ fn budget_allows_frames_within_limit(#[case] dimension: &str) {
     let mut state = state_for_dimension(dimension);
     // 10 bytes fits within 20-byte budget
     submit_first(&mut state, 1, &[0u8; 10], false).expect("within budget");
-    assert_eq!(state.total_buffered_bytes(), 10);
+    assert_eq!(state.total_buffered_bytes(), 10, "total buffered bytes");
 }
 
 #[rstest]
@@ -104,7 +104,7 @@ fn budget_rejects_first_frame_exceeding_limit(#[case] dimension: &str) {
     // 21 bytes exceeds 20-byte budget
     let err = submit_first(&mut state, 1, &[0u8; 21], false).expect_err("should reject");
     assert_budget_exceeded(&err, dimension, 1, 21);
-    assert_eq!(state.buffered_count(), 0);
+    assert_eq!(state.buffered_count(), 0, "no message left buffered");
 }
 
 #[rstest]
@@ -122,7 +122,7 @@ fn budget_rejects_continuation_exceeding_limit(#[case] dimension: &str) {
         .expect_err("should reject");
     assert_budget_exceeded_any(&err, dimension);
     // Partial assembly should be freed on budget violation
-    assert_eq!(state.buffered_count(), 0);
+    assert_eq!(state.buffered_count(), 0, "partial assembly freed");
 }
 
 // =============================================================================
@@ -136,21 +136,21 @@ fn connection_budget_frees_partial_on_violation(
     // Start two assemblies: 8 + 8 = 16 (within 20)
     submit_first(&mut state, 1, &[0u8; 8], false).expect("first");
     submit_first(&mut state, 2, &[0u8; 8], false).expect("second");
-    assert_eq!(state.buffered_count(), 2);
+    assert_eq!(state.buffered_count(), 2, "two assemblies buffered");
 
     // Continuation on key 1: 5 bytes would bring total to 21
     let cont = continuation_header(1, 1, 5, false);
     let err = state
         .accept_continuation_frame(&cont, &[0u8; 5])
         .expect_err("should reject");
-    assert!(matches!(
-        err,
-        MessageAssemblyError::ConnectionBudgetExceeded { .. }
-    ));
+    assert!(
+        matches!(err, MessageAssemblyError::ConnectionBudgetExceeded { .. }),
+        "connection budget must be exceeded"
+    );
 
     // Key 1 is freed; key 2 survives
-    assert_eq!(state.buffered_count(), 1);
-    assert_eq!(state.total_buffered_bytes(), 8);
+    assert_eq!(state.buffered_count(), 1, "offending assembly is freed");
+    assert_eq!(state.total_buffered_bytes(), 8, "survivor keeps its bytes");
 }
 
 // =============================================================================
@@ -166,7 +166,7 @@ fn dual_budget_in_flight_triggers_before_connection(
     let err = submit_first(&mut state, 1, &[0u8; 21], false).expect_err("should reject");
     assert!(
         matches!(err, MessageAssemblyError::InFlightBudgetExceeded { .. }),
-        "expected in-flight to trigger first, got: {err:?}"
+        "in-flight budget triggers before connection"
     );
 }
 
@@ -182,7 +182,7 @@ fn dual_budget_connection_triggers_when_in_flight_not_exceeded() {
     let err = submit_first(&mut state, 1, &[0u8; 16], false).expect_err("should reject");
     assert!(
         matches!(err, MessageAssemblyError::ConnectionBudgetExceeded { .. }),
-        "expected connection to trigger first, got: {err:?}"
+        "connection budget triggers first"
     );
 }
 
@@ -196,7 +196,7 @@ fn no_budgets_allows_large_frames(#[from(unbounded_state)] mut state: MessageAss
     // aggregate cap.
     submit_first(&mut state, 1, &[0u8; 500], false).expect("no budget enforcement");
     submit_first(&mut state, 2, &[0u8; 500], false).expect("no budget enforcement");
-    assert_eq!(state.total_buffered_bytes(), 1000);
+    assert_eq!(state.total_buffered_bytes(), 1000, "all frames buffered");
 }
 
 // =============================================================================
@@ -209,19 +209,19 @@ fn budget_violation_does_not_affect_other_assemblies(
 ) {
     // Start key 1 with 10 bytes
     submit_first(&mut state, 1, &[0u8; 10], false).expect("first");
-    assert_eq!(state.buffered_count(), 1);
+    assert_eq!(state.buffered_count(), 1, "other assembly untouched");
 
     // Try key 2 with 11 bytes — total would be 21, exceeding 20-byte
     // budget
     let err = submit_first(&mut state, 2, &[0u8; 11], false).expect_err("should reject");
-    assert!(matches!(
-        err,
-        MessageAssemblyError::ConnectionBudgetExceeded { .. }
-    ));
+    assert!(
+        matches!(err, MessageAssemblyError::ConnectionBudgetExceeded { .. }),
+        "connection budget must be exceeded"
+    );
 
     // Key 1 is still intact
-    assert_eq!(state.buffered_count(), 1);
-    assert_eq!(state.total_buffered_bytes(), 10);
+    assert_eq!(state.buffered_count(), 1, "other assembly untouched");
+    assert_eq!(state.total_buffered_bytes(), 10, "other assembly intact");
 
     // Key 1 can still be completed
     let cont = continuation_header(1, 1, 3, true);
@@ -229,7 +229,11 @@ fn budget_violation_does_not_affect_other_assemblies(
         .accept_continuation_frame(&cont, b"fin")
         .expect("cont")
         .expect("complete");
-    assert_eq!(msg.body(), &[&[0u8; 10][..], b"fin"].concat());
+    assert_eq!(
+        msg.body(),
+        &[&[0u8; 10][..], b"fin"].concat(),
+        "body contains both frames"
+    );
 }
 
 // =============================================================================
@@ -243,23 +247,23 @@ fn headroom_reclaimed_after_purge_allows_new_assembly() {
 
     let now = Instant::now();
     submit_first_at(&mut state, 1, &[0u8; 15], now).expect("first");
-    assert_eq!(state.total_buffered_bytes(), 15);
+    assert_eq!(state.total_buffered_bytes(), 15, "bytes buffered so far");
 
     // A 6-byte frame would exceed budget (15 + 6 = 21 > 20)
     let err = submit_first(&mut state, 2, &[0u8; 6], false).expect_err("over budget");
-    assert!(matches!(
-        err,
-        MessageAssemblyError::ConnectionBudgetExceeded { .. }
-    ));
+    assert!(
+        matches!(err, MessageAssemblyError::ConnectionBudgetExceeded { .. }),
+        "connection budget must be exceeded"
+    );
 
     // Purge key 1 via timeout
     let future = now + Duration::from_secs(31);
     state.purge_expired_at(future);
-    assert_eq!(state.total_buffered_bytes(), 0);
+    assert_eq!(state.total_buffered_bytes(), 0, "purge frees all bytes");
 
     // Now 6 bytes is fine
     submit_first(&mut state, 3, &[0u8; 6], false).expect("within reclaimed budget");
-    assert_eq!(state.total_buffered_bytes(), 6);
+    assert_eq!(state.total_buffered_bytes(), 6, "purged headroom reused");
 }
 
 #[test]
@@ -275,11 +279,11 @@ fn headroom_reclaimed_after_completion_allows_new_frame() {
         .accept_continuation_frame(&cont, b"end")
         .expect("cont")
         .expect("complete");
-    assert_eq!(state.total_buffered_bytes(), 0);
+    assert_eq!(state.total_buffered_bytes(), 0, "completion frees bytes");
 
     // Now we have full headroom again
     submit_first(&mut state, 2, &[0u8; 20], false).expect("within reclaimed budget");
-    assert_eq!(state.total_buffered_bytes(), 20);
+    assert_eq!(state.total_buffered_bytes(), 20, "full headroom restored");
 }
 
 // =============================================================================
@@ -292,17 +296,17 @@ fn single_frame_message_not_subject_to_aggregate_budgets(
 ) {
     // Fill up to the budget edge
     submit_first(&mut state, 1, &[0u8; 19], false).expect("first");
-    assert_eq!(state.total_buffered_bytes(), 19);
+    assert_eq!(state.total_buffered_bytes(), 19, "budget filled to edge");
 
     // A single-frame message should still succeed because it never
     // buffers
     let msg = submit_first(&mut state, 2, b"big-single-frame-payload", true)
         .expect("single frame accepted")
         .expect("should complete immediately");
-    assert_eq!(msg.body(), b"big-single-frame-payload");
+    assert_eq!(msg.body(), b"big-single-frame-payload", "body unchanged");
 
     // Buffered bytes unchanged (single-frame was never buffered)
-    assert_eq!(state.total_buffered_bytes(), 19);
+    assert_eq!(state.total_buffered_bytes(), 19, "single frame unbuffered");
 }
 
 // =============================================================================
@@ -317,8 +321,8 @@ fn connection_budget_accepts_exact_fit(
     #[from(connection_budgeted_state)] mut state: MessageAssemblyState,
 ) {
     submit_first(&mut state, 1, &[0u8; 20], false).expect("exact-fit frame accepted");
-    assert_eq!(state.buffered_count(), 1);
-    assert_eq!(state.total_buffered_bytes(), 20);
+    assert_eq!(state.buffered_count(), 1, "exact-fit frame is buffered");
+    assert_eq!(state.total_buffered_bytes(), 20, "exact fit accepted");
 }
 
 /// A message that reassembles to exactly the per-message size limit must
@@ -334,7 +338,7 @@ fn size_limit_accepts_exact_total() {
         .accept_continuation_frame(&cont, &[0u8; 5])
         .expect("continuation accepted")
         .expect("message completes at exact limit");
-    assert_eq!(msg.body().len(), 10);
+    assert_eq!(msg.body().len(), 10, "body at the size limit");
 }
 
 /// A first frame declaring a total body length equal to the per-message limit
@@ -362,10 +366,10 @@ fn declared_total_at_size_limit_is_accepted() {
 fn wall_clock_purge_evicts_expired_assembly() {
     let mut state = MessageAssemblyState::new(nz!(1024), Duration::ZERO);
     submit_first(&mut state, 7, &[0u8; 5], false).expect("buffered first frame");
-    assert_eq!(state.buffered_count(), 1);
+    assert_eq!(state.buffered_count(), 1, "assembly buffered before purge");
 
     let evicted = state.purge_expired();
-    assert_eq!(evicted, vec![MessageKey(7)]);
-    assert_eq!(state.buffered_count(), 0);
-    assert_eq!(state.total_buffered_bytes(), 0);
+    assert_eq!(evicted, vec![MessageKey(7)], "expired key is evicted");
+    assert_eq!(state.buffered_count(), 0, "purge empties the buffer");
+    assert_eq!(state.total_buffered_bytes(), 0, "purge releases bytes");
 }

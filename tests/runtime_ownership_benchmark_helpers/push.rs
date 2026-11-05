@@ -111,7 +111,10 @@ fn an_oversized_queue_leaves_the_awaited_path_unparked() {
         measurement.awaited_capacity_waits, 0,
         "a queue that holds every frame cannot make a producer wait"
     );
-    assert_eq!(measurement.capacity_probes, 8);
+    assert_eq!(
+        measurement.capacity_probes, 8,
+        "measurement.capacity_probes should equal 8"
+    );
 }
 
 #[rstest]

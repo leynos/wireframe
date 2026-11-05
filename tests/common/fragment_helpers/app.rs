@@ -22,11 +22,11 @@ const APP_DUPLEX_BUFFER_SIZE: usize = 8_192;
 pub fn make_handler(sender: &mpsc::UnboundedSender<Vec<u8>>) -> Handler<Envelope> {
     let tx = sender.clone();
     std::sync::Arc::new(move |env: &Envelope| {
-        let tx = tx.clone();
+        let channel = tx.clone();
         let payload = env.clone().into_parts().into_payload();
         Box::pin(async move {
             assert!(
-                tx.send(payload).is_ok(),
+                channel.send(payload).is_ok(),
                 "handler channel send must succeed in tests"
             );
         })

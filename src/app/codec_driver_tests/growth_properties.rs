@@ -79,20 +79,22 @@ async fn exercise_growth_property_case(delta: i64) -> Result<(), Box<dyn std::er
     let extra = growth_for_delta(base_len, delta)?;
     let codec = TestCodec::new(GROWTH_LIMIT);
     let (client, server) = tokio::io::duplex(1024);
-    let mut server = Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
-    let mut client = Framed::new(client, CombinedCodec::new(codec.decoder(), codec.encoder()));
+    let mut server_framed =
+        Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
+    let mut client_framed =
+        Framed::new(client, CombinedCodec::new(codec.decoder(), codec.encoder()));
 
     let mut pipeline: FramePipeline<Bytes> = FramePipeline::with_hooks(None, growing_hooks(extra));
     pipeline.process(envelope)?;
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut server,
+        framed: &mut server_framed,
     };
     let result = flush_pipeline_output(&mut transport, &mut pipeline).await;
-    drop(server);
+    drop(server_framed);
 
-    let frames = collect_frames(&mut client).await;
+    let frames = collect_frames(&mut client_framed).await;
     let expected_len = base_len
         .checked_add(extra)
         .ok_or("grown frame length overflowed")?;

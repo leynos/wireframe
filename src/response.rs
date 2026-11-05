@@ -219,9 +219,16 @@ mod tests {
         };
 
         sender.send(1).await.expect("send first frame");
-        assert!(matches!(sender.try_send(2), Err(TrySendError::Full(2))));
+        assert!(
+            matches!(sender.try_send(2), Err(TrySendError::Full(2))),
+            "assertion failed: matches!(sender.try_send(2), Err(TrySendError::Full(2)))"
+        );
 
-        assert_eq!(rx.recv().await, Some(1));
+        assert_eq!(
+            rx.recv().await,
+            Some(1),
+            "rx.recv().await should equal Some(1)"
+        );
 
         sender
             .send(3)
@@ -229,8 +236,12 @@ mod tests {
             .expect("send follow-up frame after draining");
         drop(sender);
 
-        assert_eq!(rx.recv().await, Some(3));
-        assert_eq!(rx.recv().await, None);
+        assert_eq!(
+            rx.recv().await,
+            Some(3),
+            "rx.recv().await should equal Some(3)"
+        );
+        assert_eq!(rx.recv().await, None, "rx.recv().await should equal None");
     }
 
     #[rstest]
@@ -241,7 +252,10 @@ mod tests {
         let (sender, response) = single_capacity_channel;
         drop(response);
 
-        assert!(matches!(sender.try_send(7), Err(TrySendError::Closed(7))));
+        assert!(
+            matches!(sender.try_send(7), Err(TrySendError::Closed(7))),
+            "assertion failed: matches!(sender.try_send(7), Err(TrySendError::Closed(7)))"
+        );
     }
 
     #[rstest]
@@ -256,6 +270,6 @@ mod tests {
 
         drop(sender);
 
-        assert_eq!(rx.recv().await, None);
+        assert_eq!(rx.recv().await, None, "rx.recv().await should equal None");
     }
 }

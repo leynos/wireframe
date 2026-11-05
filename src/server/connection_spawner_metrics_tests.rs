@@ -35,18 +35,25 @@ async fn preamble_budget_rejections_are_counted_when_handler_succeeds() {
     });
 
     let metric_samples = snapshotter.snapshot().into_vec();
-    assert!(metric_samples.iter().any(|(key, _, _, value)| {
-        key.key().name() == crate::metrics::DECODE_REJECTIONS
-            && key
-                .key()
-                .labels()
-                .any(|label| label.key() == "path" && label.value() == "preamble")
-            && key
-                .key()
-                .labels()
-                .any(|label| label.key() == "reason" && label.value() == "limit_exceeded")
-            && matches!(value, DebugValue::Counter(count) if *count == 2)
-    }));
+    assert!(
+        metric_samples.iter().any(|(key, _, _, value)| {
+            key.key().name() == crate::metrics::DECODE_REJECTIONS
+                && key
+                    .key()
+                    .labels()
+                    .any(|label| label.key() == "path" && label.value() == "preamble")
+                && key
+                    .key()
+                    .labels()
+                    .any(|label| label.key() == "reason" && label.value() == "limit_exceeded")
+                && matches!(value, DebugValue::Counter(count) if *count == 2)
+        }),
+        "assertion failed: metric_samples.iter().any(|(key, _, _, value)| {{ key.key().name() == \
+         crate::metrics::DECODE_REJECTIONS && key .key() .labels() .any(|label| label.key() == \
+         \"path\" && label.value() == \"preamble\") && key .key() .labels() .any(|label| \
+         label.key() == \"reason\" && label.value() == \"limit_exceeded\") && matches!(value, \
+         DebugValue::Counter(count) if *count == 2) }})"
+    );
     drop(client);
 }
 
@@ -71,13 +78,18 @@ async fn success_handler_errors_are_counted_as_preamble_rejections() {
     assert!(result.is_err(), "a failing success handler must reject");
 
     let metric_samples = snapshotter.snapshot().into_vec();
-    assert!(metric_samples.iter().any(|(key, _, _, value)| {
-        key.key().name() == crate::metrics::PREAMBLE_REJECTIONS
-            && key
-                .key()
-                .labels()
-                .any(|label| label.key() == "reason" && label.value() == "success_handler_error")
-            && matches!(value, DebugValue::Counter(count) if *count == 1)
-    }));
+    assert!(
+        metric_samples.iter().any(|(key, _, _, value)| {
+            key.key().name() == crate::metrics::PREAMBLE_REJECTIONS
+                && key.key().labels().any(|label| {
+                    label.key() == "reason" && label.value() == "success_handler_error"
+                })
+                && matches!(value, DebugValue::Counter(count) if *count == 1)
+        }),
+        "assertion failed: metric_samples.iter().any(|(key, _, _, value)| {{ key.key().name() == \
+         crate::metrics::PREAMBLE_REJECTIONS && key .key() .labels() .any(|label| label.key() == \
+         \"reason\" && label.value() == \"success_handler_error\") && matches!(value, \
+         DebugValue::Counter(count) if *count == 1) }})"
+    );
     drop(client);
 }

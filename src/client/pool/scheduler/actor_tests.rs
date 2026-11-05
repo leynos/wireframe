@@ -132,7 +132,7 @@ fn immediate_capacity_is_granted_without_queueing() {
     let mut reply = harness.acquire(1);
     let lease = take_grant(&mut reply);
 
-    assert_eq!(harness.task.state.waiter_count(), 0);
+    assert_eq!(harness.task.state.waiter_count(), 0, "no waiter remains");
     drop(lease);
 }
 
@@ -142,16 +142,13 @@ fn fifo_grants_queued_waiters_in_arrival_order() {
     harness.hold_only_permit();
     let mut first = harness.acquire(1);
     let mut second = harness.acquire(2);
-    assert_eq!(harness.task.state.waiter_count(), 2);
+    assert_eq!(harness.task.state.waiter_count(), 2, "two waiters queue");
 
     harness.release_permit();
     harness.task.grant_sweep(&harness.core);
 
     let first_lease = take_grant(&mut first);
-    assert!(
-        second.try_recv().is_err(),
-        "the second arrival must wait for the next released permit"
-    );
+    assert!(second.try_recv().is_err(), "second arrival must wait");
 
     drop(first_lease);
     harness.task.grant_sweep(&harness.core);
@@ -177,7 +174,7 @@ fn round_robin_gives_each_handle_one_turn_before_repeating() {
         harness.held = Some(lease);
     }
 
-    assert_eq!(granted, vec![1, 2, 3, 1, 2, 3]);
+    assert_eq!(granted, vec![1, 2, 3, 1, 2, 3], "each handle one turn");
 }
 
 /// Release one permit and return whichever waiter received it.
@@ -204,7 +201,10 @@ fn a_waiter_above_the_admission_bound_is_refused_typed() {
     let mut rejected = harness.acquire(2);
 
     let error = take_refusal(&mut rejected);
-    assert!(matches!(error, ClientError::PoolSaturated { limit: 1 }));
+    assert!(
+        matches!(error, ClientError::PoolSaturated { limit: 1 }),
+        "waiter bound exceeded"
+    );
 }
 
 #[test]
@@ -225,9 +225,9 @@ fn a_deregistered_handle_is_never_granted() {
             abandoned.try_recv(),
             Err(oneshot::error::TryRecvError::Closed)
         ),
-        "a lease must never be delivered to a deregistered handle"
+        "deregistered handle is never granted"
     );
-    assert_eq!(harness.task.state.waiter_count(), 0);
+    assert_eq!(harness.task.state.waiter_count(), 0, "no stranded waiter");
 }
 
 #[test]
@@ -240,9 +240,16 @@ fn a_permit_race_error_fails_the_scheduler_and_refuses_waiters() {
         .task
         .handle_permit_outcome(&harness.core, Some(Err(ClientError::scheduler_failed())));
 
-    assert_eq!(harness.status.lifecycle(), SchedulerLifecycle::Failed);
+    assert_eq!(
+        harness.status.lifecycle(),
+        SchedulerLifecycle::Failed,
+        "scheduler marked failed"
+    );
     let error = take_refusal(&mut queued);
-    assert!(matches!(error, ClientError::SchedulerFailed));
+    assert!(
+        matches!(error, ClientError::SchedulerFailed),
+        "waiter fails"
+    );
 }
 
 #[test]
@@ -261,13 +268,20 @@ fn shutdown_drains_queued_and_buffered_acquisitions() {
 
     harness.task.drain_for_shutdown();
 
-    assert_eq!(harness.status.lifecycle(), SchedulerLifecycle::Closed);
-    assert!(matches!(take_refusal(&mut queued), ClientError::PoolClosed));
-    assert!(matches!(
-        take_refusal(&mut buffered),
-        ClientError::PoolClosed
-    ));
-    assert_eq!(harness.task.state.waiter_count(), 0);
+    assert_eq!(
+        harness.status.lifecycle(),
+        SchedulerLifecycle::Closed,
+        "shutdown closes scheduler"
+    );
+    assert!(
+        matches!(take_refusal(&mut queued), ClientError::PoolClosed),
+        "queued waiter refused"
+    );
+    assert!(
+        matches!(take_refusal(&mut buffered), ClientError::PoolClosed),
+        "buffered acquisition refused at shutdown"
+    );
+    assert_eq!(harness.task.state.waiter_count(), 0, "no waiters survive");
 }
 
 #[test]
@@ -277,11 +291,11 @@ fn an_acquisition_after_closure_is_refused_without_queueing() {
 
     let mut refused = harness.acquire(1);
 
-    assert!(matches!(
-        take_refusal(&mut refused),
-        ClientError::PoolClosed
-    ));
-    assert_eq!(harness.task.state.waiter_count(), 0);
+    assert!(
+        matches!(take_refusal(&mut refused), ClientError::PoolClosed),
+        "refused after closure"
+    );
+    assert_eq!(harness.task.state.waiter_count(), 0, "nothing is queued");
 }
 
 #[test]
@@ -291,100 +305,15 @@ fn capacity_wait_counts_only_requests_that_queued() {
 
     let mut immediate = harness.acquire(1);
     harness.held = Some(take_grant(&mut immediate));
-    assert_eq!(observer.snapshot().capacity_waits, 0);
+    assert_eq!(observer.snapshot().capacity_waits, 0, "no capacity wait");
 
     let _queued = harness.acquire(2);
-    assert_eq!(observer.snapshot().capacity_waits, 1);
+    assert_eq!(observer.snapshot().capacity_waits, 1, "one capacity wait");
 }
 
-/// Count how many times the scheduler-failure counter was recorded.
-///
-/// The counter is deliberately unlabelled, so the name alone identifies it.
+// `actor_tests` is loaded through `#[path]`, which makes child modules resolve
+// beside it rather than in a directory named after it, so the submodule states
+// its own path explicitly.
 #[cfg(all(feature = "metrics", feature = "pool", not(loom)))]
-fn scheduler_failure_count(snapshotter: &metrics_util::debugging::Snapshotter) -> u64 {
-    snapshotter
-        .snapshot()
-        .into_vec()
-        .iter()
-        .filter(|(key, ..)| key.key().name() == crate::metrics::POOL_SCHEDULER_FAILURES)
-        .map(|(_, _, _, value)| match value {
-            metrics_util::debugging::DebugValue::Counter(count) => *count,
-            _ => 0,
-        })
-        .sum()
-}
-
-/// A permit-race failure is the scheduler's other abnormal-termination path,
-/// and it must be observable as well as recorded in the lifecycle.
-#[cfg(all(feature = "metrics", feature = "pool", not(loom)))]
-#[test]
-fn a_permit_race_error_records_the_scheduler_failure_metric() {
-    let recorder = metrics_util::debugging::DebuggingRecorder::new();
-    let snapshotter = recorder.snapshotter();
-    let mut harness = Harness::with_slots(1, PoolFairnessPolicy::Fifo, 8);
-    harness.hold_only_permit();
-    let _queued = harness.acquire(1);
-
-    ::metrics::with_local_recorder(&recorder, || {
-        harness
-            .task
-            .handle_permit_outcome(&harness.core, Some(Err(ClientError::scheduler_failed())));
-    });
-
-    assert_eq!(harness.status.lifecycle(), SchedulerLifecycle::Failed);
-    assert_eq!(scheduler_failure_count(&snapshotter), 1);
-}
-
-/// A task that unwinds publishes its failure through `Drop`, which is the only
-/// place the panic path can record the metric.
-#[cfg(all(feature = "metrics", feature = "pool", not(loom)))]
-#[test]
-fn a_panicking_scheduler_task_records_the_scheduler_failure_metric() {
-    let recorder = metrics_util::debugging::DebuggingRecorder::new();
-    let snapshotter = recorder.snapshotter();
-
-    ::metrics::with_local_recorder(&recorder, || {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("build a current-thread runtime");
-        let (sender, receiver) = mpsc::unbounded_channel();
-        let core = {
-            // A slot's backing pool builds a time interval eagerly, so it needs
-            // the runtime's reactor even though this test drives it to panic.
-            let _guard = runtime.enter();
-            Arc::new(PoolCore::new(
-                vec![test_pool_slot(1, Duration::from_secs(30))].into_boxed_slice(),
-            ))
-        };
-        let status = Arc::new(SchedulerStatus::new(Arc::new(
-            PoolTaskChurnCounts::default(),
-        )));
-        let task = SchedulerTask::new(
-            Arc::clone(&core),
-            Arc::clone(&status),
-            receiver,
-            WaiterAdmission {
-                fairness_policy: PoolFairnessPolicy::Fifo,
-                max_waiters: 8,
-            },
-        );
-        let join = {
-            let _guard = runtime.enter();
-            tokio::spawn(task.run())
-        };
-
-        sender
-            .send(SchedulerCommand::PanicForTest)
-            .expect("the mailbox must accept the panic injection");
-        let joined = runtime.block_on(join);
-
-        assert!(
-            joined.is_err(),
-            "the injected panic must terminate the task"
-        );
-        assert_eq!(status.lifecycle(), SchedulerLifecycle::Failed);
-    });
-
-    assert_eq!(scheduler_failure_count(&snapshotter), 1);
-}
+#[path = "actor_tests/metrics.rs"]
+mod metrics;

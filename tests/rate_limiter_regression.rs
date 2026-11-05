@@ -48,5 +48,5 @@ async fn limiter_does_not_reserve_tokens_for_unpolled_future() {
     // Frames arrive in the expected order: first and third.
     let (_, a) = queues.recv().await.expect("recv failed");
     let (_, b) = queues.recv().await.expect("recv failed");
-    assert_eq!((a, b), (1, 3));
+    assert_eq!((a, b), (1, 3), "(a, b) should equal (1, 3)");
 }

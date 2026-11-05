@@ -32,7 +32,7 @@ pub(crate) async fn send_mismatch_frame<T>(
         Payload::new(vec![99]),
     );
     if let Ok(encoded) = bad.serialize_to_bytes() {
-        let _ = framed.send(encoded).await;
+        drop(framed.send(encoded).await);
     }
 }
 
@@ -71,7 +71,7 @@ pub(crate) async fn send_data_and_terminator<T>(
     send_data_frames(framed, cid, count).await;
     let term = StreamTestEnvelope::terminator(cid);
     if let Ok(encoded) = term.serialize_to_bytes() {
-        let _ = framed.send(encoded).await;
+        drop(framed.send(encoded).await);
     }
 }
 

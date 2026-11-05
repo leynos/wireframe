@@ -46,7 +46,7 @@ fn rotation_visits_each_slot_once_from_a_reduced_seed(
     let start = rotation_start(slot_count, cursor);
     let visited = rotation_indices(slot_count, start).collect::<Vec<_>>();
 
-    assert_eq!(visited, expected);
+    assert_eq!(visited, expected, "visited should equal expected");
 }
 
 /// An empty pool must yield no indices and must not consume a cursor value,
@@ -55,8 +55,15 @@ fn rotation_visits_each_slot_once_from_a_reduced_seed(
 async fn empty_pool_consumes_no_cursor_value() {
     let core = test_core(0);
 
-    assert!(core.try_acquire_permit().is_none());
-    assert_eq!(core.next_slot.load(Ordering::Relaxed), 0);
+    assert!(
+        core.try_acquire_permit().is_none(),
+        "assertion failed: core.try_acquire_permit().is_none()"
+    );
+    assert_eq!(
+        core.next_slot.load(Ordering::Relaxed),
+        0,
+        "core.next_slot.load(Ordering::Relaxed) should equal 0"
+    );
 }
 
 /// Each non-empty attempt must advance the shared cursor exactly once, so
@@ -68,8 +75,12 @@ async fn each_non_empty_attempt_advances_the_cursor_once() {
         .filter_map(|_| core.try_acquire_permit().map(|(slot_index, _)| slot_index))
         .collect::<Vec<_>>();
 
-    assert_eq!(visited, vec![0, 1, 2]);
-    assert_eq!(core.next_slot.load(Ordering::Relaxed), 3);
+    assert_eq!(visited, vec![0, 1, 2], "visited should equal vec![0, 1, 2]");
+    assert_eq!(
+        core.next_slot.load(Ordering::Relaxed),
+        3,
+        "core.next_slot.load(Ordering::Relaxed) should equal 3"
+    );
 }
 
 /// For any non-empty slot count and cursor, the rotation must yield every

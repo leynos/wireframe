@@ -140,7 +140,11 @@ impl MultiPacketWorld {
     /// # Panics
     /// Panics if any messages are present.
     pub fn verify_empty(&self) {
-        assert_eq!(self.messages, [] as [u8; 0]);
+        assert_eq!(
+            self.messages,
+            [] as [u8; 0],
+            "self.messages should equal [] as [u8; 0]"
+        );
     }
 
     /// Verify messages were received in order.
@@ -149,7 +153,11 @@ impl MultiPacketWorld {
     ///
     /// Panics if the messages are not in the expected order.
     pub fn verify(&self) {
-        assert_eq!(self.messages, vec![1, 2, 3]);
+        assert_eq!(
+            self.messages,
+            vec![1, 2, 3],
+            "self.messages should equal vec![1, 2, 3]"
+        );
     }
 
     /// Verify that the channel enforced back-pressure.
@@ -161,6 +169,10 @@ impl MultiPacketWorld {
             self.is_overflow_error,
             "expected overflow error when channel capacity was exceeded",
         );
-        assert_eq!(self.messages, vec![1, 2]);
+        assert_eq!(
+            self.messages,
+            vec![1, 2],
+            "self.messages should equal vec![1, 2]"
+        );
     }
 }

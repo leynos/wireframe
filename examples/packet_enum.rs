@@ -126,7 +126,7 @@ fn parse_server_addr(addr: &Result<String, std::env::VarError>) -> std::io::Resu
 /// [`parse_server_addr`] as a value, keeping the parsing rules free of ambient
 /// state.
 async fn run() -> std::io::Result<()> {
-    let _ = tracing_subscriber::fmt::try_init();
+    drop(tracing_subscriber::fmt::try_init());
     let app = build_app().map_err(|error| std::io::Error::other(error.to_string()))?;
     let server = WireframeServer::from_app(app)
         .bind(parse_server_addr(&DefaultEnv.raw("SERVER_ADDR"))?)
@@ -195,10 +195,16 @@ mod tests {
     fn rejects_malformed_configured_address() -> Result<(), io::Error> {
         let error = parse_server_addr(&Ok("not-an-address".to_string()))
             .expect_err("malformed configured address must fail");
-        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(
+            error.kind(),
+            io::ErrorKind::InvalidInput,
+            "error.kind() should equal io::ErrorKind::InvalidInput"
+        );
         assert_eq!(
             error.to_string(),
-            "SERVER_ADDR must be a valid socket address: invalid socket address syntax"
+            "SERVER_ADDR must be a valid socket address: invalid socket address syntax",
+            "error.to_string() should equal \"SERVER_ADDR must be a valid socket address: invalid \
+             socket address syntax\""
         );
         Ok(())
     }

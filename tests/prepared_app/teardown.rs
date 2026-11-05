@@ -99,20 +99,20 @@ impl LifecycleProbe {
         Ok(LifecycleApp::new()?
             .route(1, handler())?
             .on_connection_setup(move || {
-                let setup_calls = Arc::clone(&setup_calls);
+                let setup_counter = Arc::clone(&setup_calls);
                 async move {
-                    setup_calls.fetch_add(1, Ordering::SeqCst);
+                    setup_counter.fetch_add(1, Ordering::SeqCst);
                     SENTINEL_STATE
                 }
             })?
             .on_connection_teardown(move |state: u32| {
-                let teardown_calls = Arc::clone(&teardown_calls);
-                let teardown_state = Arc::clone(&teardown_state);
-                let events = Arc::clone(&events);
+                let teardown_counter = Arc::clone(&teardown_calls);
+                let state_slot = Arc::clone(&teardown_state);
+                let event_log = Arc::clone(&events);
                 async move {
-                    lock_recover(&events).push(LifecycleEvent::Teardown);
-                    teardown_state.store(state, Ordering::SeqCst);
-                    teardown_calls.fetch_add(1, Ordering::SeqCst);
+                    lock_recover(&event_log).push(LifecycleEvent::Teardown);
+                    state_slot.store(state, Ordering::SeqCst);
+                    teardown_counter.fetch_add(1, Ordering::SeqCst);
                 }
             })?)
     }

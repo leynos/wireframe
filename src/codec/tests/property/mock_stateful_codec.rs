@@ -92,12 +92,15 @@ impl Decoder for MockStatefulAdapter {
         }
 
         let mut frame_bytes = src.split_to(HEADER_LEN + payload_len);
-        let sequence = frame_bytes.get_u16();
+        let frame_sequence = frame_bytes.get_u16();
         let _payload_len = frame_bytes.get_u16();
         let payload = frame_bytes.freeze();
-        self.last_sequence = sequence;
+        self.last_sequence = frame_sequence;
 
-        Ok(Some(MockStatefulFrame { sequence, payload }))
+        Ok(Some(MockStatefulFrame {
+            sequence: frame_sequence,
+            payload,
+        }))
     }
 
     fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {

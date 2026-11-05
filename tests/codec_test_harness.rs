@@ -81,7 +81,11 @@ fn extract_payloads_returns_payload_bytes() {
         },
     ];
     let payloads = extract_payloads::<HotlineFrameCodec>(&frames);
-    assert_eq!(payloads, vec![b"hello".to_vec(), b"world".to_vec()]);
+    assert_eq!(
+        payloads,
+        vec![b"hello".to_vec(), b"world".to_vec()],
+        "payloads should equal vec![b\"hello\".to_vec(), b\"world\".to_vec()]"
+    );
 }
 
 #[tokio::test]

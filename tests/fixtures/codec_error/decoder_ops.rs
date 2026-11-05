@@ -261,7 +261,11 @@ mod tests {
 
         codec_error_world.classify_eof_error(&io_err);
 
-        assert_eq!(codec_error_world.detected_eof, Some(variant));
+        assert_eq!(
+            codec_error_world.detected_eof,
+            Some(variant),
+            "codec_error_world.detected_eof should equal Some(variant)"
+        );
     }
 
     #[rstest]
@@ -274,7 +278,11 @@ mod tests {
 
         codec_error_world.classify_eof_error(&io_err);
 
-        assert_eq!(codec_error_world.detected_eof, Some(expected));
+        assert_eq!(
+            codec_error_world.detected_eof,
+            Some(expected),
+            "codec_error_world.detected_eof should equal Some(expected)"
+        );
     }
 
     #[rstest]
@@ -284,7 +292,11 @@ mod tests {
 
         codec_error_world.classify_eof_error(&io_err);
 
-        assert_eq!(codec_error_world.detected_eof, Some(EofError::CleanClose));
+        assert_eq!(
+            codec_error_world.detected_eof,
+            Some(EofError::CleanClose),
+            "codec_error_world.detected_eof should equal Some(EofError::CleanClose)"
+        );
     }
 
     #[rstest]
@@ -296,8 +308,11 @@ mod tests {
                 bytes_received,
                 header_size,
             } => {
-                assert_eq!(bytes_received, 2);
-                assert_eq!(header_size, LENGTH_HEADER_SIZE);
+                assert_eq!(bytes_received, 2, "bytes_received should equal 2");
+                assert_eq!(
+                    header_size, LENGTH_HEADER_SIZE,
+                    "header_size should equal LENGTH_HEADER_SIZE"
+                );
             }
             other => panic!("expected MidHeader, got {other:?}"),
         }
@@ -320,9 +335,14 @@ mod tests {
                     codec_error_world
                         .buffer
                         .len()
-                        .saturating_sub(LENGTH_HEADER_SIZE)
+                        .saturating_sub(LENGTH_HEADER_SIZE),
+                    "bytes_received should equal codec_error_world .buffer .len() \
+                     .saturating_sub(LENGTH_HEADER_SIZE)"
                 );
-                assert_eq!(expected, expected_usize);
+                assert_eq!(
+                    expected, expected_usize,
+                    "expected should equal expected_usize"
+                );
             }
             other => panic!("expected MidFrame, got {other:?}"),
         }

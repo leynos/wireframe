@@ -35,13 +35,13 @@ async fn serve_one_prepared_tcp_connection(
 ) -> TestResult<()> {
     let (stream, _peer) = timeout(TCP_OPERATION_TIMEOUT, listener.accept())
         .await
-        .map_err(|_| "prepared TCP accept timed out".to_string())??;
+        .map_err(|_| "prepared TCP accept timed out".to_owned())??;
     timeout(
         TCP_OPERATION_TIMEOUT,
         prepared.handle_connection_result(stream),
     )
     .await
-    .map_err(|_| "prepared TCP connection processing timed out".to_string())??;
+    .map_err(|_| "prepared TCP connection processing timed out".to_owned())??;
     Ok(())
 }
 
@@ -49,14 +49,14 @@ async fn serve_one_prepared_tcp_connection(
 async fn exchange_one_tcp_frame(address: SocketAddr, frame: Vec<u8>) -> TestResult<Vec<u8>> {
     let mut client = timeout(TCP_OPERATION_TIMEOUT, TcpStream::connect(address))
         .await
-        .map_err(|_| "prepared TCP client connect timed out".to_string())??;
+        .map_err(|_| "prepared TCP client connect timed out".to_owned())??;
     client.write_all(&frame).await?;
     // Signal end-of-input so the server can finish the request-response cycle.
     client.shutdown().await?;
     let mut response = Vec::new();
     timeout(TCP_OPERATION_TIMEOUT, client.read_to_end(&mut response))
         .await
-        .map_err(|_| "prepared TCP response read timed out".to_string())??;
+        .map_err(|_| "prepared TCP response read timed out".to_owned())??;
     response_payload(&response)
 }
 
@@ -91,7 +91,7 @@ async fn prepared_app_serves_real_tcp_connection_without_retransforming() -> Tes
 
     let joined = timeout(TCP_OPERATION_TIMEOUT, server)
         .await
-        .map_err(|_| "prepared TCP accept task did not finish".to_string())?;
+        .map_err(|_| "prepared TCP accept task did not finish".to_owned())?;
     // Surfaces both a failed join and a failed connection-processing result.
     joined??;
     // Preparation transformed each route once; the connection added none.

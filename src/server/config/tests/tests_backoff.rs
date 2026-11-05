@@ -138,7 +138,10 @@ fn test_accept_exponential_backoff_doubles_and_caps() {
         max,
     ];
 
-    assert_eq!(delays, expected_delays);
+    assert_eq!(
+        delays, expected_delays,
+        "delays should equal expected_delays"
+    );
 }
 
 fn backoff_sequence(initial: Duration, max: Duration, attempts: usize) -> Vec<Duration> {
@@ -158,7 +161,12 @@ fn test_backoff_default_values(factory: impl Fn() -> WireframeApp + Send + Sync 
     let server = WireframeServer::new(factory);
     assert_eq!(
         server.backoff_config.initial_delay,
-        Duration::from_millis(10)
+        Duration::from_millis(10),
+        "server.backoff_config.initial_delay should equal Duration::from_millis(10)"
     );
-    assert_eq!(server.backoff_config.max_delay, Duration::from_secs(1));
+    assert_eq!(
+        server.backoff_config.max_delay,
+        Duration::from_secs(1),
+        "server.backoff_config.max_delay should equal Duration::from_secs(1)"
+    );
 }

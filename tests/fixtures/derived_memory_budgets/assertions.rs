@@ -20,13 +20,13 @@ impl DerivedMemoryBudgetsWorld {
 
     /// Assert that the expected payload is eventually observed.
     pub fn assert_payload_received(&mut self, expected: &str) -> TestResult {
-        let expected = expected.as_bytes();
+        let expected_bytes = expected.as_bytes();
         for _ in 0..SPIN_ATTEMPTS {
             self.drain_ready_payloads()?;
             if self
                 .observed_payloads
                 .iter()
-                .any(|payload| payload.as_slice() == expected)
+                .any(|payload| payload.as_slice() == expected_bytes)
             {
                 return Ok(());
             }
@@ -35,7 +35,7 @@ impl DerivedMemoryBudgetsWorld {
 
         Err(format!(
             "expected payload {:?} not observed; observed={:?}",
-            expected, self.observed_payloads
+            expected_bytes, self.observed_payloads
         )
         .into())
     }

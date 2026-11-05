@@ -46,7 +46,7 @@ impl std::str::FromStr for ExplicitBudgetConfig {
             .filter(|value| !value.is_empty())
             .ok_or("missing in_flight")?;
         if values.next().is_some() {
-            return Err("unexpected trailing segments".to_string());
+            return Err("unexpected trailing segments".to_owned());
         }
         Ok(Self {
             per_message: per_message
@@ -135,7 +135,7 @@ impl DerivedMemoryBudgetsWorld {
         self.runtime.as_ref().ok_or_else(|| {
             self.runtime_error
                 .clone()
-                .unwrap_or_else(|| "runtime unavailable".to_string())
+                .unwrap_or_else(|| "runtime unavailable".to_owned())
                 .into()
         })
     }
@@ -169,10 +169,10 @@ impl DerivedMemoryBudgetsWorld {
     fn build_handler() -> (Handler<Envelope>, mpsc::UnboundedReceiver<Vec<u8>>) {
         let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let handler: Handler<Envelope> = std::sync::Arc::new(move |envelope: &Envelope| {
-            let tx = tx.clone();
+            let sender = tx.clone();
             let payload = envelope.payload_bytes().to_vec();
             Box::pin(async move {
-                let _ = tx.send(payload);
+                drop(sender.send(payload));
             })
         });
         (handler, rx)

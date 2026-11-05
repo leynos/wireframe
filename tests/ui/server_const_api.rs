@@ -12,10 +12,13 @@
 use std::{net::SocketAddr, time::Duration};
 
 use wireframe::{
+    app::Envelope,
     codec::{CodecError, EofError, LengthDelimitedFrameCodec},
     error::WireframeError,
     extractor::ConnectionInfo,
     push::PushQueuesBuilder,
+    serializer::BincodeSerializer,
+    server::{AppFactory, PrebuiltAppFactory, WireframeServer},
     session::ConnectionId,
 };
 
@@ -68,6 +71,17 @@ const fn wrap_io(error: std::io::Error) -> WireframeError {
     WireframeError::from_io(error)
 }
 
+/// The preamble-timeout opt-out stays `const` while consuming the builder.
+///
+/// `WireframeServer` is not const-constructible, so the server arrives as a
+/// parameter and is returned, which is also the shape its builder methods use.
+const fn without_preamble_timeout<F>(server: WireframeServer<F>) -> WireframeServer<F>
+where
+    F: AppFactory<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>,
+{
+    server.disable_preamble_timeout()
+}
+
 fn main() {
     let _ = (
         configure_builder::<Vec<u8>>,
@@ -78,5 +92,8 @@ fn main() {
         CLEAN_CLOSE_ERROR.is_clean_close(),
         is_clean_close(&CLEAN_CLOSE_ERROR),
         wrap_io,
+        without_preamble_timeout::<
+            PrebuiltAppFactory<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>,
+        >,
     );
 }

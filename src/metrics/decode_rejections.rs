@@ -132,7 +132,7 @@ mod tests {
     fn decode_rejections_use_fixed_path_and_reason_labels() {
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
-        let samples = [
+        let base_samples = [
             (
                 DecodeRejectionPath::Message,
                 DecodeRejectionReason::LimitExceeded,
@@ -146,14 +146,17 @@ mod tests {
                 DecodeRejectionReason::TrailingBytes,
             ),
         ];
+        // The serde path only exists when the feature is compiled in. The
+        // extra case is therefore appended conditionally, leaving `samples`
+        // defined in both configurations.
         #[cfg(feature = "serializer-serde")]
-        let samples = samples
-            .into_iter()
-            .chain([(
-                DecodeRejectionPath::Serde,
-                DecodeRejectionReason::LimitExceeded,
-            )])
-            .collect::<Vec<_>>();
+        let serde_case = [(
+            DecodeRejectionPath::Serde,
+            DecodeRejectionReason::LimitExceeded,
+        )];
+        #[cfg(not(feature = "serializer-serde"))]
+        let serde_case = [];
+        let samples: Vec<_> = base_samples.into_iter().chain(serde_case).collect();
 
         ::metrics::with_local_recorder(&recorder, || {
             for &(path, reason) in &samples {
@@ -162,12 +165,18 @@ mod tests {
         });
 
         let metric_samples = snapshotter.snapshot().into_vec();
-        assert_eq!(metric_samples.len(), samples.len());
+        assert_eq!(
+            metric_samples.len(),
+            samples.len(),
+            "metric_samples.len() should equal samples.len()"
+        );
         for &(path, reason) in &samples {
             assert!(
                 metric_samples
                     .iter()
-                    .any(|sample| sample_matches_rejection(sample, path, reason))
+                    .any(|sample| sample_matches_rejection(sample, path, reason)),
+                "assertion failed: metric_samples .iter() .any(|sample| \
+                 sample_matches_rejection(sample, path, reason))"
             );
         }
     }

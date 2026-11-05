@@ -102,7 +102,7 @@ impl MessageAssemblyInboundWorld {
         self.runtime.as_ref().ok_or_else(|| {
             self.runtime_error
                 .clone()
-                .unwrap_or_else(|| "runtime unavailable".to_string())
+                .unwrap_or_else(|| "runtime unavailable".to_owned())
                 .into()
         })
     }
@@ -145,10 +145,10 @@ impl MessageAssemblyInboundWorld {
         let (tx, rx) = mpsc::unbounded_channel::<Vec<u8>>();
         let (assembler, processed_rx) = FrameProcessingAssembler::new();
         let handler: Handler<Envelope> = std::sync::Arc::new(move |env: &Envelope| {
-            let tx = tx.clone();
+            let sender = tx.clone();
             let payload = env.payload_bytes().to_vec();
             Box::pin(async move {
-                let _ = tx.send(payload);
+                drop(sender.send(payload));
             })
         });
 
@@ -184,8 +184,8 @@ impl MessageAssemblyInboundWorld {
     ///
     /// Returns an error if the client is not initialized or the send fails.
     pub fn send_first_frame(&mut self, key: impl Into<MessageKey>, body: &str) -> TestResult {
-        let key = key.into();
-        let payload = test_helpers::first_frame_payload(key, body.as_bytes(), false, None)?;
+        let message_key = key.into();
+        let payload = test_helpers::first_frame_payload(message_key, body.as_bytes(), false, None)?;
         self.send_payload(payload)
     }
 
@@ -273,18 +273,18 @@ impl MessageAssemblyInboundWorld {
     /// Returns an error if the expected payload was not observed.
     pub fn assert_received_payload(&mut self, expected: &str) -> TestResult {
         self.collect_observed_for(Duration::from_millis(PAYLOAD_COLLECT_TIMEOUT_MS))?;
-        let expected = expected.as_bytes();
+        let expected_bytes = expected.as_bytes();
         if self
             .observed_payloads
             .iter()
-            .any(|payload| payload.as_slice() == expected)
+            .any(|payload| payload.as_slice() == expected_bytes)
         {
             return Ok(());
         }
 
         Err(format!(
             "expected payload {:?} not observed; observed={:?}",
-            expected, self.observed_payloads
+            expected_bytes, self.observed_payloads
         )
         .into())
     }

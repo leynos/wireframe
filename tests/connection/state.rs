@@ -11,13 +11,13 @@ async fn poll_queue_reads_frame() {
 
     let value = poll_queue_next(Some(&mut rx)).await;
 
-    assert_eq!(value, Some(42));
+    assert_eq!(value, Some(42), "value should equal Some(42)");
 }
 
 #[tokio::test]
 async fn poll_queue_returns_none_for_absent_receiver() {
     let value = poll_queue_next(None).await;
-    assert!(value.is_none());
+    assert!(value.is_none(), "assertion failed: value.is_none()");
 }
 
 #[tokio::test]
@@ -27,7 +27,7 @@ async fn poll_queue_returns_none_after_close() {
 
     let value = poll_queue_next(Some(&mut rx)).await;
 
-    assert!(value.is_none());
+    assert!(value.is_none(), "assertion failed: value.is_none()");
 }
 
 #[test]
@@ -53,18 +53,29 @@ fn actor_state_reports_shutting_down_after_start_shutdown() {
 )]
 fn actor_state_tracks_sources(has_multi: bool, expected_marks: usize) {
     let mut harness = ActorStateHarness::new(false, has_multi);
-    let snapshot = harness.snapshot();
-    assert!(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done);
+    let initial_snapshot = harness.snapshot();
+    assert!(
+        initial_snapshot.is_active
+            && !initial_snapshot.is_shutting_down
+            && !initial_snapshot.is_done,
+        "assertion failed: snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done"
+    );
 
     for _ in 0..expected_marks.saturating_sub(1) {
         harness.mark_closed();
         let snapshot = harness.snapshot();
-        assert!(snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done);
+        assert!(
+            snapshot.is_active && !snapshot.is_shutting_down && !snapshot.is_done,
+            "assertion failed: snapshot.is_active && !snapshot.is_shutting_down && \
+             !snapshot.is_done"
+        );
     }
 
     harness.mark_closed();
     let final_snapshot = harness.snapshot();
     assert!(
-        !final_snapshot.is_active && !final_snapshot.is_shutting_down && final_snapshot.is_done
+        !final_snapshot.is_active && !final_snapshot.is_shutting_down && final_snapshot.is_done,
+        "assertion failed: !final_snapshot.is_active && !final_snapshot.is_shutting_down && \
+         final_snapshot.is_done"
     );
 }

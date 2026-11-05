@@ -22,7 +22,7 @@ fn context_builder_sets_fields() {
 
     assert_eq!(ctx.connection_id, Some(42));
     assert_eq!(ctx.correlation_id, Some(123));
-    assert_eq!(ctx.codec_state, Some("seq=5".to_string()));
+    assert_eq!(ctx.codec_state, Some("seq=5".to_owned()));
 }
 
 #[test]
@@ -44,15 +44,15 @@ fn default_recovery_policy_delegates_to_error() {
         RecoveryPolicy::Drop
     );
 
-    let err = CodecError::Io(io::Error::other("test"));
+    let io_err = CodecError::Io(io::Error::other("test"));
     assert_eq!(
-        default_hook.recovery_policy(&err, &default_ctx),
+        default_hook.recovery_policy(&io_err, &default_ctx),
         RecoveryPolicy::Disconnect
     );
 
-    let err = CodecError::Eof(EofError::CleanClose);
+    let eof_err = CodecError::Eof(EofError::CleanClose);
     assert_eq!(
-        default_hook.recovery_policy(&err, &default_ctx),
+        default_hook.recovery_policy(&eof_err, &default_ctx),
         RecoveryPolicy::Disconnect
     );
 }

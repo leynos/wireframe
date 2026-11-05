@@ -74,9 +74,9 @@ pub fn handler() -> Handler<Envelope> { Arc::new(|_: &Envelope| Box::pin(async {
 pub fn build_frame(id: u32, payload: Vec<u8>) -> TestResult<Vec<u8>> {
     let serializer = BincodeSerializer;
     let envelope = Envelope::new(id, Some(7), payload);
-    let payload = serializer.serialize(&envelope)?;
+    let encoded = serializer.serialize(&envelope)?;
     let mut codec = TestApp::default().length_codec();
-    Ok(encode_frame(&mut codec, payload)?)
+    Ok(encode_frame(&mut codec, encoded)?)
 }
 
 /// Decode a single response frame and return its envelope payload.

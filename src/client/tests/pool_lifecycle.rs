@@ -57,7 +57,7 @@ where
 async fn run_ping_round_trip(pool: &TestClientPool, ping: u8) -> Result<(), ClientError> {
     let lease = pool.acquire().await?;
     let reply: Pong = lease.call(&Ping(ping)).await?;
-    assert_eq!(reply, Pong(ping));
+    assert_eq!(reply, Pong(ping), "reply should equal Pong(ping)");
     Ok(())
 }
 
@@ -73,7 +73,7 @@ async fn wait_for_serviced_connections(server: &PoolTestServer, expected: usize)
             tokio::task::yield_now().await;
         }
     };
-    let _ = timeout(PROMPT, wait).await;
+    drop(timeout(PROMPT, wait).await);
     server.serviced_connection_count()
 }
 
@@ -96,10 +96,9 @@ async fn wait_for_capacity_waits(observer: &PoolTaskChurnObserver, expected: u64
             tokio::task::yield_now().await;
         }
     };
-    match timeout(PROMPT, wait).await {
-        Ok(waits) => waits,
-        Err(_) => observer.snapshot().capacity_waits,
-    }
+    timeout(PROMPT, wait)
+        .await
+        .unwrap_or_else(|_| observer.snapshot().capacity_waits)
 }
 
 /// Kills the `is_shutdown` mutant: a closed pool must refuse acquisitions even

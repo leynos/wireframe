@@ -37,8 +37,8 @@ impl MessageAssemblerWorld {
     pub fn assert_message_key(&self, expected: MessageKey) -> TestResult {
         self.assert_field("key", &expected.0, |header| {
             Ok(match header {
-                FrameHeader::First(header) => u64::from(header.message_key),
-                FrameHeader::Continuation(header) => u64::from(header.message_key),
+                FrameHeader::First(first) => u64::from(first.message_key),
+                FrameHeader::Continuation(continuation) => u64::from(continuation.message_key),
             })
         })
     }
@@ -60,8 +60,8 @@ impl MessageAssemblerWorld {
     pub fn assert_body_len(&self, expected: BodyLength) -> TestResult {
         self.assert_field("body length", &expected.0, |header| {
             Ok(match header {
-                FrameHeader::First(header) => header.body_len,
-                FrameHeader::Continuation(header) => header.body_len,
+                FrameHeader::First(first) => first.body_len,
+                FrameHeader::Continuation(continuation) => continuation.body_len,
             })
         })
     }
@@ -72,8 +72,8 @@ impl MessageAssemblerWorld {
     ///
     /// Returns an error if no header was parsed or the total length differs.
     pub fn assert_total_len(&self, expected: Option<BodyLength>) -> TestResult {
-        let expected = DebugDisplay(expected);
-        self.assert_first_field("total length", &expected, |header| {
+        let expected_display = DebugDisplay(expected);
+        self.assert_first_field("total length", &expected_display, |header| {
             DebugDisplay(header.total_body_len.map(BodyLength))
         })
     }
@@ -84,9 +84,9 @@ impl MessageAssemblerWorld {
     ///
     /// Returns an error if no header was parsed or the sequence differs.
     pub fn assert_sequence(&self, expected: Option<SequenceNumber>) -> TestResult {
-        let expected = expected.map(|sequence| FrameSequence::from(sequence.0));
-        let expected = DebugDisplay(expected);
-        self.assert_continuation_field("sequence", &expected, |header| {
+        let expected_sequence = expected.map(|sequence| FrameSequence::from(sequence.0));
+        let expected_display = DebugDisplay(expected_sequence);
+        self.assert_continuation_field("sequence", &expected_display, |header| {
             DebugDisplay(header.sequence)
         })
     }
@@ -99,8 +99,8 @@ impl MessageAssemblerWorld {
     pub fn assert_is_last(&self, expected: bool) -> TestResult {
         self.assert_field("is_last", &expected, |header| {
             Ok(match header {
-                FrameHeader::First(header) => header.is_last,
-                FrameHeader::Continuation(header) => header.is_last,
+                FrameHeader::First(first) => first.is_last,
+                FrameHeader::Continuation(continuation) => continuation.is_last,
             })
         })
     }

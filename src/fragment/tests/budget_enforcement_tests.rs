@@ -126,10 +126,15 @@ fn rejected_fragment_preserves_retained_budget(#[case] scenario: RejectionScenar
         .push(scenario.rejected.header(), scenario.rejected.payload)
         .expect_err("fragment budget should reject the push");
 
-    assert_eq!(error, scenario.expected);
+    assert_eq!(
+        error, scenario.expected,
+        "error should equal scenario.expected"
+    );
     assert_eq!(
         (reassembler.buffered_len(), reassembler.buffered_bytes()),
         (scenario.retained_partials, scenario.retained_bytes),
+        "(reassembler.buffered_len(), reassembler.buffered_bytes()) should equal \
+         (scenario.retained_partials, scenario.retained_bytes)"
     );
 }
 
@@ -146,8 +151,16 @@ fn aggregate_byte_cap_accepts_an_append_that_exactly_fills_the_limit() {
         .push(second, [4_u8, 5])
         .expect("aggregate cap should accept an exact-fit append");
 
-    assert_eq!(reassembler.buffered_len(), 1);
-    assert_eq!(reassembler.buffered_bytes(), 5);
+    assert_eq!(
+        reassembler.buffered_len(),
+        1,
+        "reassembler.buffered_len() should equal 1"
+    );
+    assert_eq!(
+        reassembler.buffered_bytes(),
+        5,
+        "reassembler.buffered_bytes() should equal 5"
+    );
 }
 
 #[rstest]
@@ -165,22 +178,52 @@ fn purge_reclaims_count_and_byte_capacity_for_later_messages() {
             .push_at(first, payload, now)
             .expect("partial should fit both caps");
     }
-    assert_eq!(reassembler.buffered_len(), 2);
-    assert_eq!(reassembler.buffered_bytes(), 5);
+    assert_eq!(
+        reassembler.buffered_len(),
+        2,
+        "reassembler.buffered_len() should equal 2"
+    );
+    assert_eq!(
+        reassembler.buffered_bytes(),
+        5,
+        "reassembler.buffered_bytes() should equal 5"
+    );
 
     let evicted = reassembler.purge_expired_at(now + Duration::from_secs(3));
-    assert_eq!(evicted.len(), 2);
-    assert!(evicted.contains(&MessageId::new(76)));
-    assert!(evicted.contains(&MessageId::new(77)));
-    assert_eq!(reassembler.buffered_len(), 0);
-    assert_eq!(reassembler.buffered_bytes(), 0);
+    assert_eq!(evicted.len(), 2, "evicted.len() should equal 2");
+    assert!(
+        evicted.contains(&MessageId::new(76)),
+        "assertion failed: evicted.contains(&MessageId::new(76))"
+    );
+    assert!(
+        evicted.contains(&MessageId::new(77)),
+        "assertion failed: evicted.contains(&MessageId::new(77))"
+    );
+    assert_eq!(
+        reassembler.buffered_len(),
+        0,
+        "reassembler.buffered_len() should equal 0"
+    );
+    assert_eq!(
+        reassembler.buffered_bytes(),
+        0,
+        "reassembler.buffered_bytes() should equal 0"
+    );
 
     let later = FragmentHeader::new(MessageId::new(78), FragmentIndex::zero(), false);
     reassembler
         .push(later, [9_u8; 6])
         .expect("purge should reclaim both caps");
-    assert_eq!(reassembler.buffered_len(), 1);
-    assert_eq!(reassembler.buffered_bytes(), 6);
+    assert_eq!(
+        reassembler.buffered_len(),
+        1,
+        "reassembler.buffered_len() should equal 1"
+    );
+    assert_eq!(
+        reassembler.buffered_bytes(),
+        6,
+        "reassembler.buffered_bytes() should equal 6"
+    );
 }
 
 #[rstest]
@@ -201,13 +244,33 @@ fn completion_reclaims_only_the_completed_message_budget() {
         .expect("completed message should fit the aggregate cap")
         .expect("final fragment should complete the message");
 
-    assert_eq!(complete.payload(), &[1, 2, 5, 6]);
-    assert_eq!(reassembler.buffered_len(), 1);
-    assert_eq!(reassembler.buffered_bytes(), 2);
+    assert_eq!(
+        complete.payload(),
+        &[1, 2, 5, 6],
+        "complete.payload() should equal &[1, 2, 5, 6]"
+    );
+    assert_eq!(
+        reassembler.buffered_len(),
+        1,
+        "reassembler.buffered_len() should equal 1"
+    );
+    assert_eq!(
+        reassembler.buffered_bytes(),
+        2,
+        "reassembler.buffered_bytes() should equal 2"
+    );
     let third = FragmentHeader::new(MessageId::new(81), FragmentIndex::zero(), false);
     reassembler
         .push(third, [7_u8; 4])
         .expect("remaining aggregate headroom should be available");
-    assert_eq!(reassembler.buffered_len(), 2);
-    assert_eq!(reassembler.buffered_bytes(), 6);
+    assert_eq!(
+        reassembler.buffered_len(),
+        2,
+        "reassembler.buffered_len() should equal 2"
+    );
+    assert_eq!(
+        reassembler.buffered_bytes(),
+        6,
+        "reassembler.buffered_bytes() should equal 6"
+    );
 }

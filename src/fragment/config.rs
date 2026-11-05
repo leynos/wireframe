@@ -98,11 +98,15 @@ mod tests {
         #[case] message_limit: usize,
         #[case] expected: usize,
     ) {
-        let message_limit = NonZeroUsize::new(message_limit).expect("non-zero message limit");
+        let non_zero_limit = NonZeroUsize::new(message_limit).expect("non-zero message limit");
         let config =
-            FragmentationConfig::for_frame_budget(1024, message_limit, Duration::from_secs(30))
+            FragmentationConfig::for_frame_budget(1024, non_zero_limit, Duration::from_secs(30))
                 .expect("frame budget supports fragmentation");
 
-        assert_eq!(config.max_buffered_bytes, NonZeroUsize::new(expected));
+        assert_eq!(
+            config.max_buffered_bytes,
+            NonZeroUsize::new(expected),
+            "config.max_buffered_bytes should equal NonZeroUsize::new(expected)"
+        );
     }
 }

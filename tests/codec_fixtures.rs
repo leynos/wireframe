@@ -81,8 +81,15 @@ fn valid_hotline_wire_decodes_successfully() -> io::Result<()> {
 #[test]
 fn valid_hotline_frame_has_correct_metadata() {
     let frame = valid_hotline_frame(b"data", 42);
-    assert_eq!(frame.transaction_id, 42);
-    assert_eq!(frame.payload.as_ref(), b"data");
+    assert_eq!(
+        frame.transaction_id, 42,
+        "frame.transaction_id should equal 42"
+    );
+    assert_eq!(
+        frame.payload.as_ref(),
+        b"data",
+        "frame.payload.as_ref() should equal b\"data\""
+    );
 }
 
 // ── Invalid frame fixtures ──────────────────────────────────────────────
@@ -125,8 +132,12 @@ fn truncated_payload_contains_only_header_and_partial_payload() {
         0xcc, 0xcc, 0xcc, 0xcc,
     ];
 
-    assert_eq!(wire.len(), expected.len());
-    assert_eq!(wire, expected);
+    assert_eq!(
+        wire.len(),
+        expected.len(),
+        "wire.len() should equal expected.len()"
+    );
+    assert_eq!(wire, expected, "wire should equal expected");
 }
 
 /// Verify each frame carries the expected transaction ID.
