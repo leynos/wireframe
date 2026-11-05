@@ -20,12 +20,12 @@ publish = false
 [workspace]
 
 [dependencies]
-# `metrics` is listed because `wireframe` does not currently compile without
-# it: `src/request/mod.rs` uses `tokio_util::io`, which the crate's own
-# `tokio-util` dependency only enables through this feature. `metrics` is a
-# default feature, so leaving it off tests that unrelated defect instead of the
-# gate this package exists to check.
-wireframe = { path = "../../", default-features = false, features = ["metrics", "pool", "serializer-bincode"] }
+# `metrics` is deliberately absent: `src/request/mod.rs` uses
+# `tokio_util::io`, so this consumer fails to compile unless the root manifest
+# declares that feature on `tokio-util` itself rather than inheriting it from a
+# default feature. That is the regression #792 reports, reproduced here without
+# any HTTP/2 dependency in the graph.
+wireframe = { path = "../../", default-features = false, features = ["pool", "serializer-bincode"] }
 # `tokio-util` 0.7.20 implements `Encoder` for both `Bytes` and `&[u8]`.
 # `wireframe`'s own encoder call sites name their item, so they compile under
 # either implementation set. This dependency is therefore left at its plain
