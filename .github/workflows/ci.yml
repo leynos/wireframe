@@ -143,6 +143,10 @@ jobs:
         run: make test-feature-gate
       - name: Pool without metrics compile check
         run: make test-pool-no-metrics
+      # The contract test proves the prohibition is present in every target
+      # root; these probes prove the compiler enforces it.
+      - name: Unsafe-code prohibition probes
+        run: make unsafe-boundary
       # Coverage runs on pull requests only and drives the ratchet gate.
       # Main-branch coverage — the CodeScene upload plus the authoritative
       # ratchet baseline every pull request compares against — is produced
