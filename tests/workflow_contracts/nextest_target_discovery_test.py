@@ -14,17 +14,20 @@ and rejected discovery shape is proved rather than assumed.
 
 from __future__ import annotations
 
+import json
 import subprocess
+import tomllib
 import typing as typ
 from pathlib import Path
 
 import pytest
 
 import cargo_targets
-from cargo_targets import read_test_targets
+from cargo_targets import CargoTestTarget, read_test_targets
 from nextest_contract_support import (
     DISCOVERY_CASES,
     NESTED_MODULE_TEST_SOURCE,
+    NEXTEST_CONFIG,
     assert_no_override_violations,
     read_source,
     repository_config,
@@ -130,3 +133,113 @@ def test_metadata_failure_is_reported(
     monkeypatch.setattr(cargo_targets.subprocess, "run", fail)
     with pytest.raises(cargo_targets.CargoMetadataError, match="boom"):
         read_test_targets(tmp_path / "Cargo.toml")
+
+
+#: A ``cargo metadata`` document whose packages mix library and test targets.
+METADATA_DOCUMENT = json.dumps({
+    "packages": [
+        {
+            "name": "alpha",
+            "targets": [
+                {"name": "alpha", "kind": ["lib"], "src_path": "/repo/src/lib.rs"},
+                {
+                    "name": "second",
+                    "kind": ["test"],
+                    "src_path": "/repo/tests/second.rs",
+                },
+                {
+                    "name": "first",
+                    "kind": ["test", "bench"],
+                    "src_path": "/repo/tests/first.rs",
+                },
+            ],
+        },
+        {
+            "name": "beta",
+            "targets": [
+                {
+                    "name": "other",
+                    "kind": ["lib"],
+                    "src_path": "/repo/beta/src/lib.rs",
+                },
+            ],
+        },
+    ],
+})
+
+
+def _stub_metadata(monkeypatch: pytest.MonkeyPatch, document: str) -> None:
+    """Make ``cargo metadata`` return ``document`` without running Cargo."""
+    def fake_run(
+        *args: object, **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=["cargo", "metadata"], returncode=0, stdout=document, stderr=""
+        )
+
+    monkeypatch.setattr(cargo_targets.subprocess, "run", fake_run)
+
+
+def test_metadata_keeps_test_targets_in_cargo_order(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Only test-kind targets are returned, in Cargo's order and kinds."""
+    _stub_metadata(monkeypatch, METADATA_DOCUMENT)
+    assert read_test_targets(tmp_path / "Cargo.toml") == (
+        CargoTestTarget(
+            package="alpha",
+            name="second",
+            kinds=("test",),
+            src_path=Path("/repo/tests/second.rs"),
+        ),
+        CargoTestTarget(
+            package="alpha",
+            name="first",
+            kinds=("test", "bench"),
+            src_path=Path("/repo/tests/first.rs"),
+        ),
+    ), "library targets must be excluded and test targets kept in order"
+
+
+def test_library_targets_are_not_test_targets(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Without the kind filter a library would be mistaken for a test."""
+    _stub_metadata(
+        monkeypatch,
+        json.dumps({
+            "packages": [
+                {
+                    "name": "alpha",
+                    "targets": [
+                        {
+                            "name": "alpha",
+                            "kind": ["lib"],
+                            "src_path": "/repo/src/lib.rs",
+                        },
+                    ],
+                },
+            ],
+        }),
+    )
+    assert read_test_targets(tmp_path / "Cargo.toml") == (), (
+        "a library target is not a test target"
+    )
+
+
+def test_invalid_metadata_json_is_reported(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A document that is not JSON is reported rather than read as empty."""
+    _stub_metadata(monkeypatch, "{not json")
+    with pytest.raises(cargo_targets.CargoMetadataError, match="did not emit JSON"):
+        read_test_targets(tmp_path / "Cargo.toml")
+
+
+def test_repository_config_readings_are_isolated() -> None:
+    """A caller that mutates its copy cannot corrupt the cached configuration."""
+    first = repository_config()
+    first["profile"]["default"]["overrides"].clear()
+    assert repository_config() == tomllib.loads(NEXTEST_CONFIG.read_text()), (
+        "a later reading must still match the checked-in configuration"
+    )

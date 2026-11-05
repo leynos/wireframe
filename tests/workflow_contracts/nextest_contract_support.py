@@ -9,6 +9,7 @@ test, or a layout in which the checked-in exact matcher selects nothing.
 
 from __future__ import annotations
 
+import copy
 import functools
 import tomllib
 import typing as typ
@@ -67,10 +68,24 @@ def read_source(path: Path) -> str:
 
 
 @functools.cache
-def repository_config() -> dict[str, typ.Any]:
+def _repository_config() -> dict[str, typ.Any]:
     """Load the repository nextest configuration once."""
     with NEXTEST_CONFIG.open("rb") as config_file:
         return tomllib.load(config_file)
+
+
+def repository_config() -> dict[str, typ.Any]:
+    """Return a private copy of the repository nextest configuration.
+
+    Callers mutate the configuration to build rejected shapes, so handing out
+    the cached mapping would let one test corrupt every later reading.
+
+    Returns
+    -------
+    dict[str, typ.Any]
+        A fresh copy of the parsed ``.config/nextest.toml``.
+    """
+    return copy.deepcopy(_repository_config())
 
 
 @functools.cache

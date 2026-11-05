@@ -186,6 +186,26 @@ def _drop_job_ceiling(
     workflows["ci.yml"]["jobs"]["build-test"].pop("timeout-minutes")
 
 
+def _drop_coverage_invocation(
+    _config: dict[str, typ.Any], workflows: dict[str, dict[str, typ.Any]]
+) -> None:
+    """Remove the coverage step from one workflow, keeping the workflow."""
+    job = workflows["ci.yml"]["jobs"]["build-test"]
+    job["steps"] = [
+        step
+        for step in job["steps"]
+        if "generate-coverage" not in str(step.get("uses", ""))
+    ]
+
+
+def _rename_coverage_action(
+    _config: dict[str, typ.Any], workflows: dict[str, dict[str, typ.Any]]
+) -> None:
+    """Point one workflow at a differently named action, keeping the step."""
+    step = _coverage_step("coverage-main.yml", "coverage-upload", workflows)
+    step["uses"] = "leynos/shared-actions/.github/actions/generate-coverage-v2@abc123"
+
+
 _TIMEOUT_MUTATIONS: typ.Final = {
     "no_default_terminate_after": _drop_default_terminate_after,
     "override_terminate_after_10": _lengthen_override_deadline,
@@ -194,6 +214,8 @@ _TIMEOUT_MUTATIONS: typ.Final = {
     "different_watchdogs": _disagree_on_watchdog,
     "watchdog_1800": _widen_watchdog,
     "no_job_ceiling": _drop_job_ceiling,
+    "missing_coverage_invocation": _drop_coverage_invocation,
+    "renamed_coverage_action": _rename_coverage_action,
 }
 
 
@@ -221,6 +243,8 @@ def _mutate_timeout_tiers(
         "different_watchdogs",
         "watchdog_1800",
         "no_job_ceiling",
+        "missing_coverage_invocation",
+        "renamed_coverage_action",
     ],
 )
 def test_timeout_tier_mutations_break_the_chain(mutation: str) -> None:

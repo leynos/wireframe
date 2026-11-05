@@ -3,9 +3,10 @@
 `make test-ui` is the only place CI runs the trybuild and Loom compile-time
 suites, so the recipe itself is part of the contract. Matching the recipe text
 is not enough: an `@echo` of a harness, a harness behind an inactive Make
-conditional, or the Loom `--cfg=loom` flag moved onto the root command all
-leave the text intact while the harness never runs. The checks here read the
-recipe as commands and refuse each of those shapes.
+conditional, a second `test-ui` rule that replaces the first, or the Loom
+`--cfg=loom` flag moved onto the root command all leave the text intact while
+the harness never runs. The checks here read the recipe as commands and refuse
+each of those shapes.
 """
 
 from __future__ import annotations
@@ -28,17 +29,47 @@ _MAKE_CONDITIONAL: re.Pattern[str] = re.compile(
     r"^(?:ifeq|ifneq|ifdef|ifndef|else|endif)\b"
 )
 
+#: A ``test-ui`` rule at the start of a line. GNU Make warns about a duplicate
+#: target and runs the last recipe, so the contract must see every rule.
+_UI_TARGET_RULE: re.Pattern[str] = re.compile(r"^test-ui:", re.MULTILINE)
+
+
+def ui_recipe(makefile: str) -> str:
+    """Return the body of the single ``test-ui`` recipe in ``makefile``.
+
+    Parameters
+    ----------
+    makefile
+        The whole Makefile text.
+
+    Returns
+    -------
+    str
+        Recipe text from the ``test-ui:`` rule up to the next blank line.
+
+    Raises
+    ------
+    AssertionError
+        If the Makefile declares no ``test-ui`` rule, or more than one. GNU
+        Make replaces an earlier recipe with a later one, so reading the first
+        rule would check a recipe the build does not run.
+    """
+    rules = list(_UI_TARGET_RULE.finditer(makefile))
+    assert len(rules) == 1, (
+        f"the Makefile must declare exactly one test-ui rule, found {len(rules)}"
+    )
+    return makefile[rules[0].end() :].split("\n\n", 1)[0]
+
 
 def ui_target_body() -> str:
-    """Return the body of the ``test-ui`` Makefile recipe.
+    """Return the body of the checked-in ``test-ui`` recipe.
 
     Returns
     -------
     str
         Recipe text from ``test-ui:`` up to the next blank line.
     """
-    makefile = (REPO_ROOT / "Makefile").read_text()
-    return makefile.split("\ntest-ui:", 1)[1].split("\n\n", 1)[0]
+    return ui_recipe((REPO_ROOT / "Makefile").read_text())
 
 
 def executable_recipe_lines(target: str) -> list[str]:
@@ -114,6 +145,22 @@ def assert_ui_target_keeps_harnesses(target: str) -> None:
 def test_ui_target_keeps_both_harnesses() -> None:
     """The non-instrumented gate runs root and Loom compile-time suites."""
     assert_ui_target_keeps_harnesses(ui_target_body())
+
+
+@pytest.mark.parametrize(
+    "makefile",
+    [
+        pytest.param("all:\n\t@true\n", id="missing"),
+        pytest.param(
+            "test-ui:\n\t@true\n\ntest-ui:\n\t@echo nothing to run\n",
+            id="duplicate",
+        ),
+    ],
+)
+def test_ui_target_requires_one_unambiguous_rule(makefile: str) -> None:
+    """A missing or repeated ``test-ui`` rule is refused, not guessed at."""
+    with pytest.raises(AssertionError, match="exactly one"):
+        ui_recipe(makefile)
 
 
 @pytest.mark.parametrize(

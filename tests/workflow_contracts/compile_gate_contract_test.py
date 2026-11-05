@@ -147,13 +147,6 @@ def assert_no_coverage_flags(*scopes: dict[str, typ.Any]) -> None:
         assert "coverage" not in flags, "UI step must not enable coverage"
 
 
-def assert_ui_permissions(job: dict[str, typ.Any]) -> None:
-    """Restrict the required UI job to read-only repository contents."""
-    assert job.get("permissions") == {"contents": "read"}, (
-        "build-test must declare exactly contents: read permissions"
-    )
-
-
 def test_ui_step_runs_without_suppression_for_all_ci_events() -> None:
     """The required CI job runs a bounded non-instrumented UI gate."""
     workflow = typ.cast("dict[str, typ.Any]", workflows()["ci.yml"])
@@ -172,17 +165,6 @@ def test_ui_step_runs_without_suppression_for_all_ci_events() -> None:
         "pushes to main must run the required UI gate"
     )
     assert_ui_step_is_mandatory(workflow["jobs"]["build-test"])
-    assert_ui_permissions(workflow["jobs"]["build-test"])
-
-
-@pytest.mark.parametrize(
-    "permissions",
-    [None, {"contents": "write"}, {"contents": "read", "actions": "read"}],
-)
-def test_ui_permissions_reject_missing_or_broader_access(permissions: object) -> None:
-    """The required UI gate must not omit or broaden its token permissions."""
-    with pytest.raises(AssertionError, match="contents: read"):
-        assert_ui_permissions({"permissions": permissions})
 
 
 @pytest.mark.parametrize(

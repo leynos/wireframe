@@ -22,6 +22,7 @@ from nextest_contract_support import (
     repository_config,
     repository_targets,
 )
+from nextest_policy import override_target_violations
 from rust_source_scanning import drives_trybuild, is_loom_gated
 
 if typ.TYPE_CHECKING:
@@ -173,3 +174,19 @@ def test_override_mutations_are_rejected(mutation: str) -> None:
         assert_no_override_violations(
             config, targets, _source_reader_with(extra_sources)
         )
+
+
+def test_non_list_overrides_are_rejected() -> None:
+    """A scalar ``profile.default.overrides`` cannot be iterated as overrides."""
+    config = {"profile": {"default": {"overrides": {"filter": "x"}}}}
+    assert override_target_violations(config, (), read_source) == [
+        "profile.default.overrides is not a list"
+    ], "a non-list overrides value must be reported"
+
+
+def test_non_string_override_filter_is_rejected() -> None:
+    """A filter that is not text is reported rather than parsed."""
+    config = {"profile": {"default": {"overrides": [{"filter": 7}]}}}
+    assert override_target_violations(config, (), read_source) == [
+        "override 0 has no string filter"
+    ], "a non-string filter must be reported"
