@@ -118,6 +118,7 @@ console.[^13]
 
 Here is a complete `Cargo.toml` configuration snippet:
 
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-001 -->
 ```toml
 [package]
 name = "rust-cucumber-guide"
@@ -142,6 +143,7 @@ A well-organized project structure is vital for maintainable BDD tests. The
 standard convention separates the human-readable feature specifications from
 the Rust implementation code.[^18]
 
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-002 -->
 ```plaintext
 .
 ├── Cargo.lock
@@ -183,7 +185,8 @@ conventional to derive `Debug` and `Default`.[^12]
 **Worked Example:** For a simple calculator application, the `World` might look
 like this:
 
-```rust
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-003 -->
+```rust,ignore
 // In a shared location, e.g., tests/cucumber.rs
 use cucumber::World;
 
@@ -214,7 +217,8 @@ a single line that invokes the test runner:
 
 **Worked Example:**
 
-```rust
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-004 -->
+```rust,ignore
 // In tests/cucumber.rs
 
 use cucumber::World;
@@ -288,7 +292,8 @@ robust, and maintainable tests.
 
 **Worked Example:**
 
-```rust
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-005 -->
+```rust,ignore
 // In tests/steps/calculator_steps.rs
 use crate::CalculatorWorld; // Import the World from the test runner
 use cucumber::{given, when, then};
@@ -372,7 +377,8 @@ significant best practice.
 
 **Worked Example (using** `Result`**):**
 
-```rust
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-006 -->
+```rust,ignore
 // In a custom error module
 # // Using the `thiserror` crate for convenience
 pub enum TestError {
@@ -425,6 +431,7 @@ steps.[^11]
 
 **Worked Example:**
 
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-007 -->
 ```gherkin
 # In tests/features/calculator.feature
 Feature: Basic arithmetic
@@ -473,6 +480,7 @@ This makes the
 
 **Worked Example:**
 
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-008 -->
 ```gherkin
 # In tests/features/inventory.feature
 Scenario: Checking stock levels
@@ -485,7 +493,8 @@ Scenario: Checking stock levels
   Then the stock level for "Widgets" should be 80
 ```
 
-```rust
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-009 -->
+```rust,ignore
 // In tests/steps/inventory_steps.rs
 use cucumber::{gherkin::Step, given};
 use crate::InventoryWorld;
@@ -520,6 +529,7 @@ file.[^26]
 
 **Worked Example:**
 
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-010 -->
 ```gherkin
 Feature: User account management
 
@@ -564,7 +574,8 @@ workflow.
 
 **Worked Example (Async Step):**
 
-```rust
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-011 -->
+```rust,ignore
 // In tests/steps/api_steps.rs
 use crate::ApiWorld;
 use cucumber::when;
@@ -596,6 +607,7 @@ isolated, in-process mock server.
 First, the desired behaviour is defined in a Gherkin `.feature` file. This file
 serves as the executable specification for the API.
 
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-012 -->
 ```gherkin
 # In tests/features/kv_store.feature
 Feature: Key-Value Store API
@@ -628,7 +640,8 @@ This means each scenario gets its own, completely isolated mock server instance
 running on a random port. This is the key to enabling fast, reliable, and
 parallelizable integration tests.[^20]
 
-```rust
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-013 -->
+```rust,ignore
 // In tests/cucumber.rs
 use cucumber::World;
 use reqwest::Response;
@@ -679,7 +692,8 @@ execution.[^27]
 The step definitions will use the `server` from the `ApiWorld` to set up mocks
 and the `client` to make requests.
 
-```rust
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-014 -->
+```rust,ignore
 // In tests/steps/api_steps.rs
 use crate::ApiWorld;
 use cucumber::{given, when, then};
@@ -761,6 +775,7 @@ multiple
 
 **Anti-Pattern:**
 
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-015 -->
 ```gherkin
 Scenario: User manages their cart
   Given a user has an item in their cart
@@ -776,6 +791,7 @@ with the discount logic or if the state from the first action was incorrect.
 
 **Best Practice:** Split this into two focused scenarios.
 
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-016 -->
 ```gherkin
 Scenario: Updating item quantity updates cart total
   Given a user has an item in their cart
@@ -822,7 +838,8 @@ composition.
 **Best Practice:** Instead of a monolithic `World`, structure it with smaller,
 focused context structs.
 
-```rust
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-017 -->
+```rust,ignore
 // Less maintainable
 pub struct MonolithicWorld {
     user_id: Option<u32>,
@@ -991,6 +1008,7 @@ update the specification.
 
 **Worked Example (GitHub Actions):**
 
+<!-- tested-example: behavioural-testing-in-rust-with-cucumber-018 -->
 ```YAML
 # .github/workflows/ci.yml
 name: Rust CI

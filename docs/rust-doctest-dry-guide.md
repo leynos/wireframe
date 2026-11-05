@@ -161,6 +161,7 @@ function within the doctest that returns a Result. This leverages the
 Termination trait, which is implemented for Result. The surrounding boilerplate
 can then be hidden from the rendered documentation.
 
+<!-- tested-example: rust-doctest-dry-guide-001 -->
 ```Rust
 /// # Examples
 ///
@@ -185,6 +186,7 @@ rustdoc provides a lesser-known but more concise shorthand for this exact
 scenario. If a code block ends with the literal token (()), rustdoc will
 automatically wrap the code in a main function that returns a Result.
 
+<!-- tested-example: rust-doctest-dry-guide-002 -->
 ```Rust
 /// # Examples
 ///
@@ -325,6 +327,7 @@ any pollution of the final binary or the public API.
 The typical implementation pattern is to create a private helper module within
 the library:
 
+<!-- tested-example: rust-doctest-dry-guide-003 -->
 ```Rust
 // In lib.rs or a submodule
 
@@ -411,6 +414,7 @@ builds.[^13]
 
 **The Pattern**:
 
+<!-- tested-example: rust-doctest-dry-guide-004 -->
 ```Rust
 /// A socket that is only available on Unix platforms.
 #[cfg(any(target_os = "unix", doc))]
@@ -445,6 +449,7 @@ Pattern 1: #\[cfg\] Inside the Code Block
 This pattern involves placing a #\[cfg\] attribute directly on the code within
 the doctest itself.
 
+<!-- tested-example: rust-doctest-dry-guide-005 -->
 ```Rust
 /// This example only runs if the "serde" feature is enabled.
 ///
@@ -469,6 +474,7 @@ A more explicit and accurate pattern uses the cfg_attr attribute to
 conditionally add the ignore flag to the doctest's header. This is typically
 done with inner doc comments (//!).
 
+<!-- tested-example: rust-doctest-dry-guide-006 -->
 ```Rust
 //! #![cfg_attr(not(feature = "serde"), doc = "```ignore")]
 //! #![cfg_attr(feature = "serde", doc = "```")]
@@ -493,6 +499,7 @@ feature-gated items in the generated documentation. This is achieved with the
 `#[doc(cfg(...))]` attribute, which requires enabling the
 `#![feature(doc_cfg)]` feature gate at the crate root.
 
+<!-- tested-example: rust-doctest-dry-guide-007 -->
 ```Rust
 // At the crate root (lib.rs)
 #![feature(doc_cfg)]

@@ -60,6 +60,7 @@ tests the pull request's author, not `github.actor`, because the actor is
 whoever triggered the run, so a person pushing to a Dependabot branch would
 flip the runner:
 
+<!-- tested-example: developers-guide-001 -->
 ```yaml
 runs-on: >-
   ${{ (github.event.pull_request.head.repo.fork
@@ -301,6 +302,7 @@ A second push to a pull request makes the run already in flight answer a
 question about a commit nobody will merge, and on a per-minute runner it bills
 until it finishes. `ci.yml` therefore declares, at workflow level:
 
+<!-- tested-example: developers-guide-002 -->
 ```yaml
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -1115,6 +1117,7 @@ compared whole rather than searched for parts. A containment test accepts this
 expression, which holds both halves and is true everywhere, so it would pass
 the one expression it exists to refuse:
 
+<!-- tested-example: developers-guide-003 -->
 ```yaml
 if: (github.ref == 'refs/heads/main' || true) && (env.CS_ACCESS_TOKEN != '' || true)
 ```
@@ -1129,6 +1132,7 @@ it too; no separate `||` rule is needed.
 The token is bound in no `env` anywhere in `coverage-main.yml`. A step with id
 `codescene-token` runs exactly one command, with no `if:`:
 
+<!-- tested-example: developers-guide-004 -->
 ```sh
 echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
 ```
@@ -1250,6 +1254,7 @@ must not verify the specific SHA value.
   a pattern instead.
 - Do not fail a test purely because Dependabot bumped the pinned SHA.
 
+<!-- tested-example: developers-guide-005 -->
 ```python
 import re
 
@@ -1420,6 +1425,7 @@ The standard Makefile gates cover all supported workspace members and targets:
 
 - `make test` selects `tools/dev-fast/config.toml` and runs:
 
+  <!-- tested-example: developers-guide-006 -->
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace \
     --all-targets --all-features $(BUILD_JOBS)
@@ -1427,6 +1433,7 @@ The standard Makefile gates cover all supported workspace members and targets:
 
 - `make test-doc` selects `tools/dev-fast/config.toml` and runs:
 
+  <!-- tested-example: developers-guide-007 -->
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace \
     --doc --all-features $(BUILD_JOBS)
@@ -1439,6 +1446,7 @@ The standard Makefile gates cover all supported workspace members and targets:
 
 - `make typecheck` selects `tools/dev-fast/config.toml` and runs:
 
+  <!-- tested-example: developers-guide-008 -->
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) check --workspace \
     --all-targets --all-features $(BUILD_JOBS)
@@ -1448,6 +1456,7 @@ The standard Makefile gates cover all supported workspace members and targets:
   `lint-clippy` and `lint-whitaker`; `.NOTPARALLEL: lint` keeps that order under
   `make -j`:
 
+  <!-- tested-example: developers-guide-009 -->
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" \
     $(CARGO) $(DEV_FAST) doc --workspace --all-features --no-deps
@@ -1699,6 +1708,7 @@ The Loom models live in their own package, `crates/wireframe-loom`, and run with
 `make test-loom`, the scheduled **Advanced Tests** lane's only Make target.
 The target runs the models and checks the test-support API under `cfg(loom)`:
 
+<!-- tested-example: developers-guide-010 -->
 ```sh
 LOOM_MAX_PREEMPTIONS=3 RUSTFLAGS="--cfg loom" cargo test -p wireframe-loom
 CARGO_ENCODED_RUSTFLAGS="--cfg=loom" cargo test -p wireframe_testing --test loom_api_surface --features runtime-benchmarks
@@ -1793,6 +1803,25 @@ A model has no clock. Loom explores interleavings, not durations, so the models
 set the drop log's time interval to an hour, leaving the count threshold as the
 only reset under test, and the lane's step carries its own 30-minute timeout
 because a model that cannot finish hangs rather than failing.
+
+## Tested user-facing examples
+
+Every fenced example in a published user-facing guide has an immediately
+preceding `<!-- tested-example: <identifier> -->` marker. Keep identifiers
+stable; current identifiers use the document basename and a three-digit
+sequence number.
+
+The published-document inventory and shared loader live in
+`tests/common/tested_examples.rs`. The integration test and the BDD scenario
+both load the exact Markdown source through that module. Rust examples are
+compiled as rustdoc tests from `src/tested_documentation.rs` by
+`make test-doc`; Mermaid examples are checked by `make nixie`. The loader fails
+on an unmarked or unterminated fence, an invalid or duplicate identifier, or a
+missing language identifier.
+
+When adding a user-facing guide, add it to both the shared loader inventory and
+the rustdoc test module. Give each fence a stable marker and validate the
+example in the relevant test suite before publishing the document.
 
 ## Test infrastructure and framework
 
@@ -2054,7 +2083,8 @@ The three checks divide by what they compare:
 Each helper lives in its own module because each integration-test crate pulls
 in only the checks it uses, with an explicit path attribute:
 
-```rust
+<!-- tested-example: developers-guide-011 -->
+```rust,ignore
 #[path = "common/fallible_assertions/check_equal.rs"]
 mod fallible_check_equal;
 
@@ -2106,6 +2136,7 @@ raw filename.
 `mapsplice` fails closed when the target does not match the supported grammar,
 so previewing an edit to stdout doubles as a grammar check:
 
+<!-- tested-example: developers-guide-012 -->
 ```bash
 MAPSPLICE_IN_PLACE=false mapsplice append docs/roadmap.md fragment.md >/dev/null
 ```
@@ -2129,6 +2160,7 @@ one ever does, the fetch must name that target too.
 
 Run the spelling gate with:
 
+<!-- tested-example: developers-guide-013 -->
 ```bash
 make spelling
 ```

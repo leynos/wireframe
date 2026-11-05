@@ -39,6 +39,7 @@ The workspace's `.rustfmt.toml` uses unstable formatting options. `make fmt` and
 `FMT_TOOLCHAIN` in the Makefile, while every other Cargo invocation stays on
 stable. Install the matching formatter after installing the stable toolchain:
 
+<!-- tested-example: rstest-bdd-users-guide-001 -->
 ```sh
 rustup toolchain install nightly-2026-08-07 --profile minimal --component rustfmt
 ```
@@ -89,6 +90,7 @@ structured or free‑form arguments to steps.
 
 ### Example feature file
 
+<!-- tested-example: rstest-bdd-users-guide-002 -->
 ```gherkin
 Feature: Shopping basket
 
@@ -110,6 +112,7 @@ language's keyword catalogue, enabling teams to collaborate in their native
 language. The `examples/japanese-ledger` crate demonstrates the end-to-end
 workflow for Japanese:
 
+<!-- tested-example: rstest-bdd-users-guide-003 -->
 ```gherkin
 # language: ja
 フィーチャ: 家計簿の残高を管理する
@@ -121,7 +124,8 @@ workflow for Japanese:
 
 Step definitions use the same Unicode phrases:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-004 -->
+```rust,ignore
 use japanese_ledger::HouseholdLedger;
 use rstest_bdd_macros::{given, when, then};
 
@@ -185,7 +189,8 @@ supported.
 `#[from]` selects which fixture key a parameter binds to. It accepts either no
 arguments or exactly one identifier in parentheses:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-005 -->
+```rust,ignore
 #[given("the catalogue is loaded")]
 fn catalogue_loaded(
     // Named: binds the `db_pool` fixture to a differently named parameter.
@@ -210,6 +215,7 @@ Two spellings are rejected when the macro expands.
 The name-value form is invalid, because `from` takes either no arguments or one
 parenthesized identifier and never `= value`:
 
+<!-- tested-example: rstest-bdd-users-guide-006 -->
 ```text
 error: invalid step function signature: #[from] expects an identifier or no arguments
 ```
@@ -220,6 +226,7 @@ More than one `#[from]` on the same parameter is also invalid, including a
 mixture of the bare and named forms, because the second would silently displace
 the first:
 
+<!-- tested-example: rstest-bdd-users-guide-007 -->
 ```text
 error: invalid step function signature: duplicate `#[from]` attribute
 
@@ -261,7 +268,8 @@ exactly as before; mutability is an opt‑in convenience.
 
 #### Simple mutable world
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-008 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd_macros::{given, scenario, then, when};
 
@@ -332,7 +340,8 @@ without consuming the outcome.
 
 #### Slot‑based state (unchanged and still useful)
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-009 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd::{ScenarioState as _, Slot};
 use rstest_bdd_macros::{given, scenario, then, when, ScenarioState};
@@ -359,7 +368,8 @@ fn keeps_value(_cart_state: CartState) {}
 
 #### Mixed approach
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-010 -->
+```rust,ignore
 #[derive(Default, ScenarioState)]
 struct ReportWorld {
     total: usize,
@@ -430,7 +440,8 @@ pattern) to force treating the return value as a payload even when it is
 Returning `()` or `Ok(())` produces no stored value, so fixtures of `()` are
 not overwritten.
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-011 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd_macros::{given, when, then, scenario};
 
@@ -462,6 +473,7 @@ During expansion the macro inserts a compile-time check to ensure the field
 count matches the pattern, producing a trait-bound error if the struct does not
 implement `StepArgs`.
 
+<!-- tested-example: rstest-bdd-users-guide-012 -->
 ```rust,no_run
 use rstest::fixture;
 use rstest_bdd_macros::{given, scenario, then, when, StepArgs};
@@ -512,7 +524,8 @@ declare any placeholders.
 
 Example:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-013 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd_macros::{given, when, then, scenario};
 
@@ -562,7 +575,8 @@ custom initialization, plan to use the future `#[scenario_state(no_default)]`
 flag (or equivalent) to opt out of the generated `Default` and supply bespoke
 logic.
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-014 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd::{ScenarioState, Slot};
 use rstest_bdd_macros::{given, scenario, then, when, ScenarioState};
@@ -622,6 +636,7 @@ Step macros may omit the pattern string or provide a string literal containing
 only whitespace. In either case, the macro derives a pattern from the function
 name by replacing underscores with spaces.
 
+<!-- tested-example: rstest-bdd-users-guide-015 -->
 ```rust,no_run
 use rstest_bdd_macros::given;
 
@@ -671,6 +686,7 @@ order-dependent failures.
 The feature below reflects a common migration request. The second scenario does
 not rely on step side effects from the first scenario; it states its own setup.
 
+<!-- tested-example: rstest-bdd-users-guide-016 -->
 ```gherkin
 Feature: User management
 
@@ -686,7 +702,8 @@ Feature: User management
     Then the update succeeds
 ```
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-017 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd_macros::{given, scenario, then, when};
 use std::sync::OnceLock;
@@ -779,6 +796,7 @@ supports `&mut Fixture` step parameters.
 Use `insert_owned` only when building custom step-execution plumbing outside
 the usual macros and registering a mutable fixture manually:
 
+<!-- tested-example: rstest-bdd-users-guide-018 -->
 ```rust,no_run
 use rstest_bdd::StepContext;
 
@@ -800,6 +818,7 @@ Custom step-execution plumbing can borrow fixtures through `&StepContext`.
 Borrow state is tracked per fixture, so mutable guards for distinct fixtures
 can be held concurrently:
 
+<!-- tested-example: rstest-bdd-users-guide-019 -->
 ```rust,no_run
 use rstest_bdd::{FixtureBorrowError, StepContext};
 
@@ -1014,6 +1033,7 @@ The adapter crate depends on the shared harness contract and on the framework
 it integrates. In a real crate, the framework version should match the
 application, and that configuration should stay out of `rstest-bdd` itself:
 
+<!-- tested-example: rstest-bdd-users-guide-020 -->
 ```toml
 [package]
 name = "rstest-bdd-harness-bevy"
@@ -1035,7 +1055,8 @@ associated `Context` type and run the scenario by passing a concrete context
 value into `request.run(context)`. For a Bevy-like harness, that context would
 normally be a `bevy::ecs::world::World` or a small wrapper around it:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-021 -->
+```rust,ignore
 use bevy::ecs::world::World;
 use bevy::prelude::Resource;
 use rstest_bdd_harness::{HarnessAdapter, HarnessResult, ScenarioRunRequest};
@@ -1080,7 +1101,8 @@ Step definitions request the harness context with the `#[harness_context]`
 marker. The parameter name is adapter-specific; the underlying fixture key is
 fixed:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-022 -->
+```rust,ignore
 use bevy::ecs::world::World;
 use rstest_bdd_macros::{given, then, when};
 
@@ -1118,7 +1140,8 @@ The adapter may also publish an attribute policy. This keeps the framework's
 native test attribute beside the harness crate instead of teaching the macro
 crate about the framework dependency:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-023 -->
+```rust,ignore
 use rstest_bdd_harness::{AttributePolicy, TestAttribute};
 
 pub struct BevyAttributePolicy;
@@ -1146,7 +1169,8 @@ adapter crate.
 The harness and policy can then be used from scenario tests like any other
 macro configuration:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-024 -->
+```rust,ignore
 use rstest_bdd_macros::scenario;
 use rstest_bdd_harness_bevy::{BevyAttributePolicy, BevyHarness};
 
@@ -1160,6 +1184,7 @@ fn bevy_world_scenario() {}
 
 A minimal feature for the example above can stay framework-neutral:
 
+<!-- tested-example: rstest-bdd-users-guide-025 -->
 ```gherkin
 Feature: Bevy world
 
@@ -1194,6 +1219,7 @@ core runtime and macro crates.
 The `rstest-bdd-harness-tokio` crate provides a ready-made Tokio integration.
 It is available as a dev-dependency:
 
+<!-- tested-example: rstest-bdd-users-guide-026 -->
 ```toml
 [dev-dependencies]
 rstest-bdd-harness-tokio = "0.6.0"
@@ -1214,7 +1240,8 @@ internal generated-code interface and downstream code must not call it directly.
 adapter, the macro infers `TokioAttributePolicy` from the canonical harness
 path when `attributes = ...` is omitted:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-027 -->
+```rust,ignore
 # use rstest_bdd_macros::scenario;
 #[scenario(
     path = "tests/features/reminders.feature",
@@ -1233,6 +1260,7 @@ The `rstest-bdd-harness-gpui` crate provides Graphical Processing User
 Interface (GPUI) integration for harness delegation and test attributes. Add it
 as a dev-dependency:
 
+<!-- tested-example: rstest-bdd-users-guide-028 -->
 ```toml
 [dev-dependencies]
 rstest-bdd-harness-gpui = "0.6.0"
@@ -1253,7 +1281,8 @@ boundary. An `Err` fails the test by panicking with the fixed message
 implement `Debug`. Std and Tokio scenarios retain their fallible signatures and
 propagate results through Rust's native `Termination` support.
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-029 -->
+```rust,ignore
 # use rstest_bdd_macros::scenario;
 # fn increment_counter() -> Result<(), std::io::Error> { Ok(()) }
 #[scenario(
@@ -1404,7 +1433,8 @@ the feature file. Each scenario carries `#[serial]` and pulls in the
 `scenario_state_cleanup` fixture so its constructor-side reset runs before any
 step:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-030 -->
+```rust,ignore
 # use rstest::fixture;
 # use rstest_bdd_macros::scenario;
 # use serial_test::serial;
@@ -1479,7 +1509,8 @@ The second snippet shows the `#[given]` that opens a fresh window. It
 defensively re-runs the reset before storing handles and observes the
 `stale_window_count` invariant that the regression suite encodes:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-031 -->
+```rust,ignore
 # use rstest_bdd_macros::given;
 # fn reset_state_before_assignment() {}
 # fn with_state<R>(_: impl FnOnce(&mut ()) -> R) -> R { unimplemented!() }
@@ -1516,7 +1547,8 @@ is appropriate here because a `None` value means an invariant of the playbook
 has been violated, not a legitimate test outcome. This form also passes the
 repository's pedantic lint profile:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-032 -->
+```rust,ignore
 # use rstest_bdd_macros::{then, when};
 # fn current_handles() -> (gpui::Entity<()>, gpui::AnyWindowHandle) { unimplemented!() }
 #[when("the view is updated through a reconstructed visual context")]
@@ -1573,6 +1605,7 @@ constructor. `add_window_view` binds `visual_context` as
 `&mut VisualTestContext`; copy the window handle before storing only the
 durable handles:
 
+<!-- tested-example: rstest-bdd-users-guide-033 -->
 ```rust,ignore
 use gpui::{AppContext as _, VisualContext as _};
 use rstest_bdd_macros::given;
@@ -1609,6 +1642,7 @@ assertions compare the returned values directly rather than unwrapping `Option`
 or `Result`. Unlike the vendored helper, the published helper clones the stored
 entity because published `Entity<T>` is `Clone`, not `Copy`:
 
+<!-- tested-example: rstest-bdd-users-guide-034 -->
 ```rust,ignore
 use gpui::AppContext as _;
 use rstest_bdd_macros::{then, when};
@@ -1702,7 +1736,8 @@ definitions.
 
 Use `let … else { panic!(…) }` with a fresh binding name:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-035 -->
+```rust,ignore
 # fn current_handles() -> Option<gpui::AnyWindowHandle> { unimplemented!() }
 let Some(window) = current_handles() else {
     panic!("scenario should have stored a window handle");
@@ -1748,6 +1783,7 @@ single-file worked example above never needed this.
 
 #### Layout
 
+<!-- tested-example: rstest-bdd-users-guide-036 -->
 ```text
 tests/
   common/
@@ -1765,7 +1801,8 @@ Each binding file includes the shared library and binds a `#[scenario]` with no
 steps of its own. Bind the shared fixture with a module-qualified
 `#[from(...)]` path so its provenance stays visible at the binding site:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-037 -->
+```rust,ignore
 #[path = "common/ledger_steps.rs"]
 mod ledger_steps;
 
@@ -1866,6 +1903,7 @@ cross-process mechanism instead of `#[serial]`. cargo-nextest
 nextest run. This example makes any test whose name contains `stateful_gpui::`
 run one at a time:
 
+<!-- tested-example: rstest-bdd-users-guide-038 -->
 ```toml
 [test-groups]
 stateful-gpui = { max-threads = 1 }
@@ -1882,6 +1920,7 @@ The `serial_test` crate also provides `#[file_serial]`, which uses a file lock
 instead of the in-process mutex. Enable the crate's `file_locks` feature before
 using it:
 
+<!-- tested-example: rstest-bdd-users-guide-039 -->
 ```toml
 [dev-dependencies]
 serial_test = { version = "2", features = ["file_locks"] }
@@ -1890,7 +1929,8 @@ serial_test = { version = "2", features = ["file_locks"] }
 The `file_locks` feature is available in the 2.x `serial_test` line used by
 this example.
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-040 -->
+```rust,ignore
 
 # use serial_test::file_serial;
 #[test]
@@ -1933,7 +1973,8 @@ thread panics with
 skip requests on the thread that executes steps, so the runner can intercept
 the panic payload.
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-041 -->
+```rust,ignore
 # use rstest_bdd as bdd;
 # use rstest_bdd_macros::{given, scenario};
 
@@ -1960,6 +2001,7 @@ fn resilience_test() {
 When `fail_on_skipped` is enabled, apply `@allow_skipped` to the feature or the
 scenario to document that the skip is expected:
 
+<!-- tested-example: rstest-bdd-users-guide-042 -->
 ```gherkin
 @allow_skipped
 Scenario: Behaviour pending external contract
@@ -1969,6 +2011,7 @@ Scenario: Behaviour pending external contract
 To record the step definitions bypassed by a skip, build a `BypassedScenario`
 descriptor and pass the bypassed steps to `record_bypassed_steps`:
 
+<!-- tested-example: rstest-bdd-users-guide-043 -->
 ```rust,no_run
 use rstest_bdd::{record_bypassed_steps, BypassedScenario, StepKeyword};
 
@@ -2000,6 +2043,7 @@ outcome, optionally constraining its message, and
 `message_absent = true` to assert that no message was provided and substring
 matching to confirm that a message contains the expected reason.
 
+<!-- tested-example: rstest-bdd-users-guide-044 -->
 ```rust,no_run
 use rstest_bdd::{assert_scenario_skipped, assert_step_skipped, StepExecution};
 use rstest_bdd::reporting::{ScenarioMetadata, ScenarioRecord, ScenarioStatus, SkippedScenario};
@@ -2037,7 +2081,8 @@ after the feature file and scenario title. Identifiers are sanitized
 occur. The `dir` argument is resolved relative to `CARGO_MANIFEST_DIR` at
 macro-expansion time.
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-045 -->
+```rust,ignore
 use rstest_bdd_macros::{given, then, when, scenarios};
 
 #[given("a precondition")] fn precondition() {}
@@ -2062,7 +2107,8 @@ generated scenario tests. Fixtures are bound via rstest and inserted into the
 step context, making them available to step functions that declare the
 corresponding parameter.
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-046 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd_macros::{given, scenarios};
 
@@ -2095,7 +2141,8 @@ Declare the test function as `async fn` and add
 `#[tokio::test(flavor = "current_thread")]` before the `#[scenario]` attribute.
 The macro detects the async signature and generates an async step executor:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-047 -->
+```rust,ignore
 use rstest_bdd_macros::{given, scenario, then, when};
 use rstest::fixture;
 
@@ -2160,7 +2207,8 @@ predictable. This section summarizes the canonical guidance in
   runtime awaits the fixture once, then passes the result to the synchronous
   step.
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-048 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd_macros::{given, scenarios, when};
 
@@ -2188,7 +2236,7 @@ fn end_stream(stream_end: &StreamEnd) {
 scenarios!(
     "tests/features/streams.feature",
     harness = rstest_bdd_harness_tokio::TokioHarness,
-    fixtures = [stream_end]
+    fixtures = [stream_end: StreamEnd]
 );
 ```
 
@@ -2198,6 +2246,7 @@ scenarios!(
   inside an async scenario because nested runtimes can fail. For async
   scenarios, prefer async steps, async fixtures, or the async test body.
 
+<!-- tested-example: rstest-bdd-users-guide-049 -->
 ```rust,no_run
 use rstest_bdd_macros::when;
 
@@ -2216,6 +2265,7 @@ fn end_stream() {
 The sequence below shows how synchronous scenarios execute async-only steps
 through the Tokio fallback runtime.
 
+<!-- tested-example: rstest-bdd-users-guide-050 -->
 ```mermaid
 sequenceDiagram
     actor Tester
@@ -2261,6 +2311,7 @@ The resulting wrapper can be wired into normal step execution points, including
 that delegate to shared handlers. Existing `StepFn` implementations remain
 reusable without rewriting their business logic.
 
+<!-- tested-example: rstest-bdd-users-guide-051 -->
 ```rust,no_run
 use rstest_bdd::async_step::sync_to_async;
 use rstest_bdd::{StepContext, StepError, StepExecution, StepFuture};
@@ -2287,6 +2338,7 @@ fn async_wrapper<'ctx>(
 For shorter signatures, use the exported aliases: `StepCtx<'ctx, '_>`,
 `StepTextRef<'ctx>`, `StepDoc<'ctx>`, and `StepTable<'ctx>`.
 
+<!-- tested-example: rstest-bdd-users-guide-052 -->
 ```rust,no_run
 use rstest_bdd::async_step::sync_to_async;
 use rstest_bdd::{
@@ -2342,7 +2394,8 @@ Use `HarnessAdapter` with `ScenarioRunRequest<'a, C, T>` and
 `ScenarioRunner<'a, C, T>` to execute one scenario closure inside the harness
 environment. `C` is the harness-specific context type:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-053 -->
+```rust,ignore
 use rstest_bdd_harness::{
     HarnessAdapter, HarnessResult, ScenarioMetadata, ScenarioRunRequest, ScenarioRunner,
 };
@@ -2392,7 +2445,8 @@ particular the path-based first-party policy mapping and the associated
 `AttributePolicy` supplies test attributes that macro expansion should apply.
 The default policy emits only `#[rstest::rstest]`:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-054 -->
+```rust,ignore
 use rstest_bdd_harness::{AttributePolicy, DefaultAttributePolicy};
 
 let attrs = DefaultAttributePolicy::test_attributes();
@@ -2411,7 +2465,8 @@ policy paths fall back to `#[rstest::rstest]`.
 `rstest-bdd-harness` ships the conformance check every adapter policy is
 expected to pass. Supply the attributes the policy should render, in order:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-055 -->
+```rust,ignore
 use rstest_bdd_harness::DefaultAttributePolicy;
 use rstest_bdd_harness::policy_conformance::assert_attribute_policy_conformance;
 
@@ -2456,6 +2511,7 @@ still permitting cross‑crate step sharing.
 
 To enable validation, pin a feature in the project's `dev-dependencies`:
 
+<!-- tested-example: rstest-bdd-users-guide-056 -->
 ```toml
 [dev-dependencies]
 rstest-bdd-macros = { version = "0.6.0", features = ["compile-time-validation"] }
@@ -2463,6 +2519,7 @@ rstest-bdd-macros = { version = "0.6.0", features = ["compile-time-validation"] 
 
 For strict checking use:
 
+<!-- tested-example: rstest-bdd-users-guide-057 -->
 ```toml
 [dev-dependencies]
 rstest-bdd-macros = { version = "0.6.0", features = ["strict-compile-time-validation"] }
@@ -2530,6 +2587,7 @@ each row should be interpreted for a given type. When `T::REQUIRES_HEADER` is
 `true`, the first table row is treated as a header and exposed via the
 `HeaderSpec` helpers.
 
+<!-- tested-example: rstest-bdd-users-guide-058 -->
 ```rust,no_run
 use rstest_bdd::datatable::{
     self, DataTableError, DataTableRow, RowSpec, Rows,
@@ -2602,6 +2660,7 @@ attributes:
 - `#[datatable(parse_with = path::to_fn)]` calls a custom parser that returns a
   `Result<T, E>`.
 
+<!-- tested-example: rstest-bdd-users-guide-059 -->
 ```rust,no_run
 use rstest_bdd::datatable::{self, DataTableError, Rows};
 use rstest_bdd_macros::DataTableRow;
@@ -2648,6 +2707,7 @@ rows before exposing them to the step function:
 - `#[datatable(try_map = path::to_fn)]` performs fallible conversion, returning
   a `DataTableError` on failure.
 
+<!-- tested-example: rstest-bdd-users-guide-060 -->
 ```rust,no_run
 use rstest_bdd::datatable::{DataTableError, Rows};
 use rstest_bdd_macros::{DataTable, DataTableRow};
@@ -2678,6 +2738,7 @@ fn collect_active(rows: Rows<UserRow>) -> Result<Vec<String>, DataTableError> {
 surface context when something goes wrong. Matching on the error value enables
 inspection of the row and column that triggered the failure:
 
+<!-- tested-example: rstest-bdd-users-guide-061 -->
 ```rust,no_run
 # use rstest_bdd::datatable::{DataTableError, Rows};
 # use rstest_bdd_macros::DataTableRow;
@@ -2721,6 +2782,7 @@ When step functions return `Result` values it is common to assert on their
 outcome. The `rstest-bdd` crate exports two helper macros to streamline these
 checks:
 
+<!-- tested-example: rstest-bdd-users-guide-062 -->
 ```rust,no_run
 use rstest_bdd::{assert_step_err, assert_step_ok};
 
@@ -2745,6 +2807,7 @@ Feature files can opt into any Gherkin localization. Add a `# language: <code>`
 directive on the first line of the `.feature` file and keep the remainder of
 the scenario in the target language:
 
+<!-- tested-example: rstest-bdd-users-guide-063 -->
 ```gherkin
 # language: es
 Característica: Control de stock
@@ -2768,6 +2831,7 @@ embedding the provided assets and selecting a language at runtime.
 
 Localization tooling can be added to `Cargo.toml` as follows:
 
+<!-- tested-example: rstest-bdd-users-guide-064 -->
 ```toml
 [dependencies]
 rstest-bdd = "0.6.0"
@@ -2785,7 +2849,8 @@ on the built-in loader and request a different language at runtime:
 [`FluentLanguageLoader`]:
 <https://docs.rs/i18n-embed/latest/i18n_embed/fluent/struct.FluentLanguageLoader.html>
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-065 -->
+```rust,ignore
 # fn scope_locale() -> Result<(), rstest_bdd::localization::LocalizationError> {
 use rstest_bdd::select_localizations;
 use unic_langid::langid;
@@ -2865,6 +2930,7 @@ runtime reporting modules. `rstest_bdd::reporting::json` offers helper
 functions that serialize the collector snapshot into a predictable schema with
 lowercase status labels:
 
+<!-- tested-example: rstest-bdd-users-guide-066 -->
 ```rust,no_run
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut buffer = Vec::new();
@@ -2877,6 +2943,7 @@ The companion `rstest_bdd::reporting::junit` module renders the same snapshot
 as JUnit XML. Each skipped scenario emits a `<skipped>` element with an optional
 `message` attribute so continuous integration (CI) servers surface the reason:
 
+<!-- tested-example: rstest-bdd-users-guide-067 -->
 ```rust,no_run
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut xml = String::new();
@@ -2900,6 +2967,7 @@ Neovim, Zed, Helix, etc.).
 
 Build and install the language server from the workspace:
 
+<!-- tested-example: rstest-bdd-users-guide-068 -->
 ```bash
 cargo install --path crates/rstest-bdd-server
 ```
@@ -2918,6 +2986,7 @@ The server reads configuration from environment variables:
 
 Example:
 
+<!-- tested-example: rstest-bdd-users-guide-069 -->
 ```bash
 RSTEST_BDD_LSP_LOG_LEVEL=debug rstest-bdd-lsp
 ```
@@ -2926,6 +2995,7 @@ RSTEST_BDD_LSP_LOG_LEVEL=debug rstest-bdd-lsp
 
 The server also accepts command-line flags that override environment variables:
 
+<!-- tested-example: rstest-bdd-users-guide-070 -->
 ```bash
 rstest-bdd-lsp --log-level debug --debounce-ms 100 --workspace-root /path/to/project
 ```
@@ -2947,7 +3017,8 @@ paths or during headless or scripted testing scenarios.
 Applications embedding the `rstest-bdd-server` crate can discover Gherkin
 feature files with `discovery::find_feature_files`:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-users-guide-071 -->
+```rust,ignore
 use std::path::Path;
 
 use rstest_bdd_server::discovery::find_feature_files;
@@ -2975,6 +3046,7 @@ custom LSP servers. A minimal example using the
 [LSP-client](https://marketplace.visualstudio.com/items?itemName=ACharLuk.easy-lsp-client)
 extension:
 
+<!-- tested-example: rstest-bdd-users-guide-072 -->
 ```json
 {
   "easylsp.servers": [
@@ -2988,6 +3060,7 @@ extension:
 
 #### Neovim (nvim-lspconfig)
 
+<!-- tested-example: rstest-bdd-users-guide-073 -->
 ```lua
 local lspconfig = require('lspconfig')
 local configs = require('lspconfig.configs')
@@ -3010,6 +3083,7 @@ lspconfig.rstest_bdd.setup({})
 Zed uses its extension system to register language servers. Configure the
 binary via Zed's `settings.json`:
 
+<!-- tested-example: rstest-bdd-users-guide-074 -->
 ```json
 {
   "lsp": {
@@ -3267,7 +3341,6 @@ the consuming crate. It tells Cargo to rerun the build script whenever the
 bound directory changes:
 
 <!-- tested-example: scenarios-build-script -->
-
 ```rust
 fn main() {
     println!("cargo::rerun-if-changed=tests/features");
