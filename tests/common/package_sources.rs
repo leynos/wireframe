@@ -130,7 +130,7 @@ fn package_manifest(package: &str) -> RepoAccessResult<Utf8PathBuf> {
                 .iter()
                 .find(|candidate| candidate.get("name").and_then(Value::as_str) == Some(package))
         })
-        .and_then(|package| package.get("manifest_path"))
+        .and_then(|candidate| candidate.get("manifest_path"))
         .and_then(Value::as_str)
         .ok_or_else(|| format!("cargo metadata does not describe `{package}`"))?;
     Ok(Utf8PathBuf::from(manifest))
@@ -145,8 +145,8 @@ fn read_rust_sources(
     prefix: &Utf8Path,
     sources: &mut Vec<SourceFile>,
 ) -> RepoAccessResult {
-    for entry in dir.entries()? {
-        let entry = entry?;
+    for dir_entry in dir.entries()? {
+        let entry = dir_entry?;
         let name = entry.file_name()?;
         if should_skip(&name) {
             continue;
