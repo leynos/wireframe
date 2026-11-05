@@ -3,6 +3,8 @@
 //! Frames include a small header containing the message ID and flags,
 //! which are used by `WireframeApp` to dispatch handlers.
 
+#![forbid(unsafe_code)]
+
 use std::{io, sync::Arc};
 
 use bytes::BytesMut;

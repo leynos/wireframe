@@ -1,5 +1,6 @@
 //! Tests for shared example codecs.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{io, sync::Arc};
 

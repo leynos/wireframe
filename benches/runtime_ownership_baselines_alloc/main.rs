@@ -57,6 +57,8 @@
 //! window, `probes` proves the counter resolves what the baselines depend on,
 //! and `reporting` writes the counts out.
 
+#![forbid(unsafe_code)]
+
 mod pool_bracket;
 mod probes;
 mod reporting;

@@ -5,6 +5,7 @@
 //! execute under the standard `cargo test` harness with rstest fixtures.
 
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 #[path = "../common/terminator.rs"]
 mod terminator;

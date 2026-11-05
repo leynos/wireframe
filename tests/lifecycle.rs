@@ -2,6 +2,7 @@
 //!
 //! They check setup, teardown, and state propagation through helper utilities.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{
     future::Future,

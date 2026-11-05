@@ -3,6 +3,8 @@
 //! Demonstrates custom packet structs and middleware that maps `Ping` to
 //! `Pong` responses.
 
+#![forbid(unsafe_code)]
+
 use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;

@@ -2,6 +2,7 @@
 //!
 //! They ensure parse callbacks run before deserialization and errors fall back correctly.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::sync::{
     Arc,

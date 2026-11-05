@@ -3,6 +3,7 @@
 //! These tests verify that each fixture category produces wire bytes with the
 //! expected decoding behaviour when used with `HotlineFrameCodec`.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::io;
 
