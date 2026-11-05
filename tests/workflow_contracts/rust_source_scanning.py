@@ -20,15 +20,13 @@ import re
 #: A trybuild driver, however the path is spaced.
 _TRYBUILD: re.Pattern[str] = re.compile(r"trybuild\s*::\s*TestCases")
 
-#: A crate-level Loom gate. Such a target only builds under ``--cfg loom``, so
-#: it is not part of the ordinary nextest run the override bounds.
-_LOOM_GATE: re.Pattern[str] = re.compile(r"#!\s*\[\s*cfg\s*\(\s*loom\s*\)\s*\]")
-
-#: The items that change a test's module path or name it. ``mod NAME {``
-#: consumes its opening brace so the module block is counted once.
+#: Tokens that name a test or change the scope around it. ``mod NAME {``
+#: consumes its opening brace so the module block is counted once. The Loom
+#: gate is a token so it can be attributed to the scope that encloses it.
 _ITEM_TOKEN: re.Pattern[str] = re.compile(
     r"""
-    (?P<module>\bmod\s+(?P<module_name>[A-Za-z_][A-Za-z0-9_]*)\s*\{)
+    (?P<loom_gate>\#\!\s*\[\s*cfg\s*\(\s*loom\s*\)\s*\])
+    | (?P<module>\bmod\s+(?P<module_name>[A-Za-z_][A-Za-z0-9_]*)\s*\{)
     | (?P<open>\{)
     | (?P<close>\})
     | (?P<test>\#\s*\[\s*test\s*\])
@@ -265,7 +263,14 @@ def drives_trybuild(source: str) -> bool:
 
 
 def is_loom_gated(source: str) -> bool:
-    """Return whether live code in ``source`` carries ``#![cfg(loom)]``.
+    """Return whether crate-scope live code carries ``#![cfg(loom)]``.
+
+    An inner attribute applies to the item that encloses it, so a gate inside
+    an inline module gates that module rather than the crate, however it is
+    indented. Tracking brace scope therefore beats matching indentation: a
+    module-nested gate at column zero is not crate-level, and an indented
+    crate-level gate still is. Comments and literals are stripped first, so a
+    commented-out gate contributes nothing.
 
     Parameters
     ----------
@@ -275,10 +280,28 @@ def is_loom_gated(source: str) -> bool:
     Returns
     -------
     bool
-        ``True`` when the crate-level Loom gate is live; an item-level
-        ``#[cfg(loom)]`` does not gate the whole target and reports ``False``.
+        ``True`` only when the gate applies to the crate root.
+
+    Examples
+    --------
+    >>> is_loom_gated("#![cfg(loom)]\\n")
+    True
+    >>> is_loom_gated("mod m {\\n#![cfg(loom)]\\n}\\n")
+    False
     """
-    return _LOOM_GATE.search(_without_comments_and_literals(source)) is not None
+    state = _ScanState()
+    for token in _ITEM_TOKEN.finditer(_without_comments_and_literals(source)):
+        match token.lastgroup:
+            case "loom_gate":
+                if not state.blocks:
+                    return True
+            case "module":
+                _enter_module(state, token)
+            case "open":
+                _enter_block(state)
+            case "close":
+                _leave_block(state)
+    return False
 
 
 def has_coverage_gate(source: str) -> bool:

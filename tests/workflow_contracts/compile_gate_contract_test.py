@@ -31,6 +31,10 @@ def assert_workflow_contracts_follow_setup(job: dict[str, typ.Any]) -> None:
         step for step in steps if step.get("run") == "make test-workflow-contracts"
     ]
     assert len(contract_steps) == 1, "build-test must run the contract suite once"
+    contract = contract_steps[0]
+    assert "if" not in contract and not contract.get("continue-on-error"), (
+        "contract step must run and propagate failures"
+    )
     setup = [
         step
         for step in steps
@@ -61,6 +65,25 @@ def test_workflow_contracts_order_rejects_a_premature_step() -> None:
     )
     job["steps"].remove(contract)
     job["steps"].insert(0, contract)
+    with pytest.raises(AssertionError):
+        assert_workflow_contracts_follow_setup(job)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("if", "false"), ("continue-on-error", True)],
+    ids=["conditional", "suppressed"],
+)
+def test_workflow_contracts_step_rejects_suppression(
+    field: str, value: object
+) -> None:
+    """A skipped or non-blocking contract step no longer gates the build."""
+    job = deepcopy(workflows()["ci.yml"]["jobs"]["build-test"])
+    contract = next(
+        step for step in job["steps"]
+        if step.get("run") == "make test-workflow-contracts"
+    )
+    contract[field] = value
     with pytest.raises(AssertionError):
         assert_workflow_contracts_follow_setup(job)
 
@@ -241,21 +264,76 @@ def test_coverage_guard_must_be_active(source: str, expected: bool) -> None:
     )
 
 
-def test_ui_target_keeps_both_harnesses() -> None:
-    """The non-instrumented gate runs root and Loom compile-time suites."""
+ROOT_HARNESS_COMMAND = "$(CARGO) test --test compile_error"
+LOOM_HARNESS_COMMAND = (
+    'CARGO_ENCODED_RUSTFLAGS="--cfg=loom" $(CARGO) test -p wireframe_testing'
+    " --test loom_api_surface --features runtime-benchmarks"
+)
+
+
+def ui_target_body() -> str:
+    """Return the ``test-ui`` recipe, which ends at the next blank line."""
     makefile = (REPO_ROOT / "Makefile").read_text()
-    target = makefile.split("\ntest-ui:", 1)[1].split("\n\n", 1)[0]
-    assert "test --test compile_error" in target, (
+    return makefile.split("\ntest-ui:", 1)[1].split("\n\n", 1)[0]
+
+
+def executable_recipe_lines(target: str) -> list[str]:
+    """Return the commands a Makefile recipe actually runs.
+
+    Comments and ``echo`` lines document or narrate a command. Counting them
+    would let an edit replace a harness invocation with an announcement of one
+    and still satisfy the contract.
+    """
+    stripped = (line.strip() for line in target.splitlines())
+    commands = [
+        line.removeprefix("@")
+        for line in stripped
+        if line and not line.startswith("#")
+    ]
+    return [command for command in commands if not command.startswith("echo")]
+
+
+def assert_ui_target_keeps_harnesses(target: str) -> None:
+    """Require the ``test-ui`` recipe to execute both compile-time suites."""
+    commands = executable_recipe_lines(target)
+    assert ROOT_HARNESS_COMMAND in commands, (
         "test-ui must run the root compile-error harness"
     )
-    assert 'CARGO_ENCODED_RUSTFLAGS="--cfg=loom"' in target, (
-        "test-ui must build the Loom harness with its gate enabled"
+    assert LOOM_HARNESS_COMMAND in commands, (
+        "test-ui must run the Loom harness with its cfg flag on that command"
     )
-    assert (
-        "test -p wireframe_testing --test loom_api_surface"
-        " --features runtime-benchmarks"
-        in target
-    ), "test-ui must run the Loom compile-time harness"
+
+
+def test_ui_target_keeps_both_harnesses() -> None:
+    """The non-instrumented gate runs root and Loom compile-time suites."""
+    assert_ui_target_keeps_harnesses(ui_target_body())
+
+
+@pytest.mark.parametrize(
+    "mutation", ["echoed-root", "echoed-loom", "loom-flag-moved"]
+)
+def test_ui_target_rejects_ineffective_harness_commands(mutation: str) -> None:
+    """An announced or wrongly gated harness does not satisfy the UI contract."""
+    target = ui_target_body()
+    if mutation == "echoed-root":
+        mutated = target.replace(
+            f"\t{ROOT_HARNESS_COMMAND}",
+            f'\t@echo "{ROOT_HARNESS_COMMAND}"',
+        )
+    elif mutation == "echoed-loom":
+        mutated = target.replace(
+            f"\t{LOOM_HARNESS_COMMAND}",
+            f'\t@echo "{LOOM_HARNESS_COMMAND}"',
+        )
+    else:
+        loom_flag = LOOM_HARNESS_COMMAND.split(" ", 1)[0]
+        mutated = target.replace(
+            f"\t{ROOT_HARNESS_COMMAND}",
+            f"\t{loom_flag} {ROOT_HARNESS_COMMAND}",
+        )
+    assert mutated != target, "the mutation must change the recipe"
+    with pytest.raises(AssertionError):
+        assert_ui_target_keeps_harnesses(mutated)
 
 
 @pytest.mark.parametrize("mutation", ["missing_guard", "unrelated_test"])

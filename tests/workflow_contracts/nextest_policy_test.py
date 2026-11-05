@@ -207,6 +207,10 @@ def test_trybuild_detection(source: str, expected: bool) -> None:
     ("source", "expected"),
     [
         pytest.param("#![cfg(loom)]\n", True, id="crate-gate"),
+        pytest.param("  #![cfg(loom)]\n", True, id="indented-crate-gate"),
+        pytest.param(
+            "mod m {\n#![cfg(loom)]\n}\n", False, id="nested-at-column-zero"
+        ),
         pytest.param("#![cfg(not(coverage))]\n", False, id="coverage-gate"),
         pytest.param("#[cfg(loom)]\n", False, id="item-gate"),
         pytest.param("// #![cfg(loom)]\n", False, id="commented-out"),
