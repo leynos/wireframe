@@ -1,4 +1,4 @@
-.PHONY: help all clean test test-doc test-wireframe-testing test-ui test-feature-gate test-pool-no-metrics bless-ui test-workflow-contracts test-loom doctest-benchmark
+.PHONY: help all clean test test-doc test-wireframe-testing test-ui test-feature-gate test-pool-no-metrics unsafe-boundary bless-ui test-workflow-contracts test-loom doctest-benchmark
 .PHONY: lint-python-docs
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
@@ -156,6 +156,13 @@ test-feature-gate: ## Verify feature-gated APIs are actually absent when disable
 
 test-pool-no-metrics: ## Check the pool builds without metrics
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) check --lib --no-default-features --features pool,serializer-bincode $(BUILD_JOBS)
+
+# The contract test reads sources as text, so it can only show that the
+# prohibition is present. These probes compile deliberate unsafe code and show
+# that it is actually rejected, by both the crate attribute and the manifest
+# table.
+unsafe-boundary: ## Prove the unsafe_code prohibition rejects unsafe Rust
+	./scripts/check-unsafe-boundary.sh
 
 # Developer-only: review every changed snapshot; this target must not run in CI.
 bless-ui: ## Refresh trybuild snapshots for deliberate fixture changes
