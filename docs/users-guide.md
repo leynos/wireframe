@@ -3078,6 +3078,60 @@ warning carrying a stable `stage` (`serialize` or `write`) and a `category`
 that matches the outcome label, so log records and metric series can be
 correlated.
 
+## Benchmark allocation counting
+
+The `wireframe_testing::benchmark_alloc_support` module provides the counting
+mechanism for benchmark binaries in this repository, and for downstream users
+who keep allocation budgets. It re-exports `stats_alloc`'s
+`INSTRUMENTED_SYSTEM` and `StatsAlloc` alongside `std::alloc::System`, so a
+benchmark binary opts in by installing the instrumenting allocator:
+
+```rust
+use std::alloc::System;
+use wireframe_testing::benchmark_alloc_support::{INSTRUMENTED_SYSTEM, StatsAlloc};
+
+#[global_allocator]
+static GLOBAL_ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
+```
+
+Counting only moves once that allocator is installed, because Rust permits one
+`#[global_allocator]` per binary and a library cannot install it for you.
+
+Measure with `count_allocations`, which opens a window, resets the counter,
+runs the closure, samples the closing total, and closes the window before
+returning:
+
+```rust
+use wireframe_testing::benchmark_alloc_support::count_allocations;
+
+let count = count_allocations(|| {
+    let buffer: Vec<u8> = vec![0; 1024];
+    std::hint::black_box(buffer.len());
+    Ok(())
+})?;
+```
+
+The window closes on the error path too, so a failed measurement cannot leave
+counting enabled for the rest of the process. `count_allocations_or_panic`
+wraps the same helper for benchmark binaries that treat a failed measurement as
+fatal.
+
+The recorded value counts both fresh allocations and reallocations: a buffer
+that grows in place is still a buffer that asked the allocator for memory. It
+also includes allocations made by the benchmark harness, the async runtime, and
+anything else running during the window, not only the code under test. Compare
+values across runs of the same binary rather than treating them as absolute
+costs.
+
+`allocation_count` reads the current count without opening a window,
+`reset_allocation_count` clears it, and `is_allocation_counting_enabled`
+reports whether a window is open.
+
+This module replaces the `CountingAllocator` type that earlier releases
+exported. Install `INSTRUMENTED_SYSTEM` as shown above instead; see the
+[v0.3.0 to v0.4.0 migration guide](v0-3-0-to-v0-4-0-migration-guide.md) for the
+change.
+
 ## Mutation testing
 
 Wireframe's test suite is continuously assessed with mutation testing: small

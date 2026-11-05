@@ -795,15 +795,10 @@ crate name, a glob, a repository-root path, a scalar instead of a list, a
 linter table without that evidence, and repository-wide tuning keys such as a
 shared threshold or locale.
 
-The shared policy is the inheritance mechanism for every workspace package, not
-the finished Netsuke baseline. Aligning the remaining baseline rules, namely
-`clippy::disallowed_methods`, `clippy::missing_assert_message`,
-`rust::unsafe_code = "forbid"` and further `unexpected_cfgs` declarations, is
-tracked by issue [#664]. That work is deliberately out of scope here: this
-change makes the existing policy reach every crate and does not claim the
-baseline itself.
-
-[#664]: https://github.com/leynos/wireframe/issues/664
+The shared policy is the inheritance mechanism for every workspace package. How
+it relates to the `leynos/netsuke` baseline, and which limits Wireframe
+deliberately tightens, is described under
+[Cargo workspace semantics](#cargo-workspace-semantics).
 
 ### CodeScene coverage baseline
 
@@ -1455,12 +1450,12 @@ address parsing, app construction, handlers, and middleware in the example file.
 for examples, tests, and doctests; applications supply their own tracing
 subscriber and exporter.
 
-Clippy rejects `std::env::var`, `var_os`, `vars`, `vars_os`, `set_var`, and
-`remove_var` through the disallowed-methods list in `clippy.toml`; the
-`disallowed_methods` lint is denied in the workspace lint table. Capture real
-environment values only at an executable composition root, such as an example's
-`run` function, and pass the lookup result into small parsing helpers as an
-explicit value. The seam taxonomy in
+Clippy rejects `std::env::var`, `var_os`, `vars`, `vars_os`, `set_var`,
+`remove_var`, and `set_current_dir` through the disallowed-methods list in
+`clippy.toml`; the `disallowed_methods` lint is denied in the workspace lint
+table. Capture real environment values only at an executable composition root,
+such as an example's `run` function, and pass the lookup result into small
+parsing helpers as an explicit value. The seam taxonomy in
 [Netsuke ADR 008: environment seam taxonomy](https://github.com/leynos/netsuke/blob/main/docs/adrs/adr-0008-environment-seam-taxonomy.md)
 selects the narrowest shape: an explicit value for one variable read by one
 caller, a private closure for a small reusable reader, and `mockable::Env` only

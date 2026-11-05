@@ -301,6 +301,44 @@ mutable drivers remain available as deprecated compatibility paths; migrate
 tests to the prepared helpers when they need to prove one-time middleware
 transformation or reuse prepared route services.
 
+## Benchmark allocation counting
+
+`wireframe_testing::benchmark_alloc_support::CountingAllocator` has been
+removed. The counting mechanism now comes from `stats_alloc`, which
+`wireframe_testing::benchmark_alloc_support` re-exports as
+`INSTRUMENTED_SYSTEM` and `StatsAlloc`, together with `std::alloc::System`.
+
+Replace the old allocator declaration:
+
+```rust
+// Before
+use wireframe_testing::benchmark_alloc_support::CountingAllocator;
+
+#[global_allocator]
+static GLOBAL_ALLOCATOR: CountingAllocator = CountingAllocator;
+```
+
+with the instrumenting allocator:
+
+```rust
+// After
+use std::alloc::System;
+use wireframe_testing::benchmark_alloc_support::{INSTRUMENTED_SYSTEM, StatsAlloc};
+
+#[global_allocator]
+static GLOBAL_ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
+```
+
+The measurement helpers keep their names: `count_allocations`,
+`allocation_count`, `reset_allocation_count`, and
+`is_allocation_counting_enabled`. `count_allocations_or_panic` is new, and
+closes the window before reporting a failed measurement for benchmark binaries
+that treat one as fatal.
+
+Counting semantics are unchanged: both fresh allocations and reallocations are
+counted, exactly as the removed allocator counted them, so an existing baseline
+stays comparable across the upgrade.
+
 ## Install your own tracing subscriber
 
 `tracing-subscriber` is no longer a runtime dependency of Wireframe; it is a
