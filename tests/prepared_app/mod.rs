@@ -3,6 +3,8 @@
 //! Real-socket scenarios live in `prepared_app/tcp.rs`; the scenarios here
 //! cover startup instrumentation, teardown, and shared-route reuse.
 
+#![forbid(unsafe_code)]
+
 #[path = "../common/mod.rs"]
 mod common;
 

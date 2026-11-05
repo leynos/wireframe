@@ -1,5 +1,6 @@
 //! Tests for push queue policy behaviour.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 mod support;
 

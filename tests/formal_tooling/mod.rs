@@ -4,6 +4,8 @@
 //! `rust-prover-tools` metadata and exposes concise Makefile targets that
 //! delegate to `prover-tools` rather than carrying bespoke installer logic.
 
+#![forbid(unsafe_code)]
+
 use std::{
     env,
     io::Write,

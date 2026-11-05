@@ -5,6 +5,7 @@
 //! Implementing these traits keeps logs clear for operators,
 //! and surfaces causal chains so developers can diagnose issues.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{error::Error, io};
 

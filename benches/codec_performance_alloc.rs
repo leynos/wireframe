@@ -4,6 +4,8 @@
 //! binary. Baseline counts are embedded in benchmark labels as
 //! `wrap_allocs_<n>` and `decode_allocs_<n>`.
 
+#![forbid(unsafe_code)]
+
 use std::hint::black_box;
 
 use bytes::{Bytes, BytesMut};
