@@ -8,7 +8,7 @@ those two nested compiler drivers rather than the runtime suite around them.
 
 The timeout ordering for the nextest policy and the coverage invocation lives
 in `nextest_timeout_test`; this module pins which of those paths CI actually
-executes.
+executes. The `test-ui` recipe itself is pinned in `makefile_recipe_test`.
 """
 
 from __future__ import annotations
@@ -262,78 +262,6 @@ def test_coverage_guard_must_be_active(source: str, expected: bool) -> None:
     assert has_coverage_gate(source) is expected, (
         "only a live crate-level coverage gate excludes a harness"
     )
-
-
-ROOT_HARNESS_COMMAND = "$(CARGO) test --test compile_error"
-LOOM_HARNESS_COMMAND = (
-    'CARGO_ENCODED_RUSTFLAGS="--cfg=loom" $(CARGO) test -p wireframe_testing'
-    " --test loom_api_surface --features runtime-benchmarks"
-)
-
-
-def ui_target_body() -> str:
-    """Return the ``test-ui`` recipe, which ends at the next blank line."""
-    makefile = (REPO_ROOT / "Makefile").read_text()
-    return makefile.split("\ntest-ui:", 1)[1].split("\n\n", 1)[0]
-
-
-def executable_recipe_lines(target: str) -> list[str]:
-    """Return the commands a Makefile recipe actually runs.
-
-    Comments and ``echo`` lines document or narrate a command. Counting them
-    would let an edit replace a harness invocation with an announcement of one
-    and still satisfy the contract.
-    """
-    stripped = (line.strip() for line in target.splitlines())
-    commands = [
-        line.removeprefix("@")
-        for line in stripped
-        if line and not line.startswith("#")
-    ]
-    return [command for command in commands if not command.startswith("echo")]
-
-
-def assert_ui_target_keeps_harnesses(target: str) -> None:
-    """Require the ``test-ui`` recipe to execute both compile-time suites."""
-    commands = executable_recipe_lines(target)
-    assert ROOT_HARNESS_COMMAND in commands, (
-        "test-ui must run the root compile-error harness"
-    )
-    assert LOOM_HARNESS_COMMAND in commands, (
-        "test-ui must run the Loom harness with its cfg flag on that command"
-    )
-
-
-def test_ui_target_keeps_both_harnesses() -> None:
-    """The non-instrumented gate runs root and Loom compile-time suites."""
-    assert_ui_target_keeps_harnesses(ui_target_body())
-
-
-@pytest.mark.parametrize(
-    "mutation", ["echoed-root", "echoed-loom", "loom-flag-moved"]
-)
-def test_ui_target_rejects_ineffective_harness_commands(mutation: str) -> None:
-    """An announced or wrongly gated harness does not satisfy the UI contract."""
-    target = ui_target_body()
-    if mutation == "echoed-root":
-        mutated = target.replace(
-            f"\t{ROOT_HARNESS_COMMAND}",
-            f'\t@echo "{ROOT_HARNESS_COMMAND}"',
-        )
-    elif mutation == "echoed-loom":
-        mutated = target.replace(
-            f"\t{LOOM_HARNESS_COMMAND}",
-            f'\t@echo "{LOOM_HARNESS_COMMAND}"',
-        )
-    else:
-        loom_flag = LOOM_HARNESS_COMMAND.split(" ", 1)[0]
-        mutated = target.replace(
-            f"\t{ROOT_HARNESS_COMMAND}",
-            f"\t{loom_flag} {ROOT_HARNESS_COMMAND}",
-        )
-    assert mutated != target, "the mutation must change the recipe"
-    with pytest.raises(AssertionError):
-        assert_ui_target_keeps_harnesses(mutated)
 
 
 @pytest.mark.parametrize("mutation", ["missing_guard", "unrelated_test"])
