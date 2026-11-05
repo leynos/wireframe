@@ -34,6 +34,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, fence};
 
 pub use stats_alloc::{INSTRUMENTED_SYSTEM, StatsAlloc};
 
+mod window;
+
+use window::WindowState;
+
 /// Allocations observed by measurement windows that have already closed.
 static ACCUMULATED_ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
 /// Allocator total recorded when the current window opened, or at the last
@@ -53,8 +57,14 @@ fn total_allocations() -> usize {
     stats.allocations.saturating_add(stats.reallocations)
 }
 
-/// Adopt the current allocator total as the baseline for what follows.
-fn record_baseline() { BASELINE_ALLOCATIONS.store(total_allocations(), Ordering::SeqCst); }
+/// Read the process-global window state as a value.
+fn snapshot() -> WindowState {
+    WindowState {
+        accumulated: ACCUMULATED_ALLOCATIONS.load(Ordering::SeqCst),
+        baseline: BASELINE_ALLOCATIONS.load(Ordering::SeqCst),
+        is_open: ALLOCATION_COUNTING_ENABLED.load(Ordering::SeqCst),
+    }
+}
 
 /// Fold a window's delta into the accumulated count.
 ///
@@ -64,7 +74,7 @@ fn record_baseline() { BASELINE_ALLOCATIONS.store(total_allocations(), Ordering:
 /// intervening window adds nothing the second time.
 fn accumulate_window_at(window_total: usize) {
     let baseline = BASELINE_ALLOCATIONS.swap(window_total, Ordering::SeqCst);
-    let delta = window_total.saturating_sub(baseline);
+    let delta = WindowState::delta(baseline, window_total);
     ACCUMULATED_ALLOCATIONS.fetch_add(delta, Ordering::SeqCst);
 }
 
@@ -83,8 +93,9 @@ fn accumulate_window_at(window_total: usize) {
 /// assert_eq!(allocation_count(), 0);
 /// ```
 pub fn reset_allocation_count() {
-    ACCUMULATED_ALLOCATIONS.store(0, Ordering::SeqCst);
-    record_baseline();
+    let reset = snapshot().reset_at(total_allocations());
+    ACCUMULATED_ALLOCATIONS.store(reset.accumulated, Ordering::SeqCst);
+    BASELINE_ALLOCATIONS.store(reset.baseline, Ordering::SeqCst);
 }
 
 /// Read the current allocation count.
@@ -100,15 +111,7 @@ pub fn reset_allocation_count() {
 /// let _count = allocation_count();
 /// ```
 #[must_use]
-pub fn allocation_count() -> usize {
-    let accumulated = ACCUMULATED_ALLOCATIONS.load(Ordering::SeqCst);
-    if !ALLOCATION_COUNTING_ENABLED.load(Ordering::SeqCst) {
-        return accumulated;
-    }
-    let baseline = BASELINE_ALLOCATIONS.load(Ordering::SeqCst);
-    let live = total_allocations().saturating_sub(baseline);
-    accumulated.saturating_add(live)
-}
+pub fn allocation_count() -> usize { snapshot().count_at(total_allocations()) }
 
 /// Report whether a measurement window is currently open.
 ///
@@ -167,7 +170,9 @@ where
     // out of the reported delta.
     ALLOCATION_COUNTING_ENABLED.store(true, Ordering::SeqCst);
     fence(Ordering::SeqCst);
-    reset_allocation_count();
+    let opened = WindowState::opened_at(total_allocations());
+    ACCUMULATED_ALLOCATIONS.store(opened.accumulated, Ordering::SeqCst);
+    BASELINE_ALLOCATIONS.store(opened.baseline, Ordering::SeqCst);
 
     let outcome = operation();
 

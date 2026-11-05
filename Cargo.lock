@@ -3640,6 +3640,7 @@ dependencies = [
  "logtest",
  "metrics",
  "metrics-util",
+ "proptest",
  "rstest",
  "serial_test",
  "stats_alloc",

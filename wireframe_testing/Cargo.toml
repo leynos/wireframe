@@ -48,3 +48,6 @@ stats_alloc = "0.1.10"
 # already the repository's convention for this; see `tests/push_policies.rs`.
 serial_test = "4.0.1"
 trybuild = "1"
+# Property coverage for the allocation-window arithmetic, which is pure and
+# therefore cheap to exercise over the full `usize` range.
+proptest = "1.7.0"
