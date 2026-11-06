@@ -6,6 +6,7 @@ rust-version = "1.95"
 description = "Simplify building servers and clients for custom binary protocols."
 license = "ISC"
 repository = "https://github.com/leynos/wireframe"
+homepage = "https://df12.studio/wireframe"
 readme = "README.md"
 keywords = ["async", "networking", "binary-protocol", "protocol", "tokio"]
 categories = ["network-programming", "asynchronous"]

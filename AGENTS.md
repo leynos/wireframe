@@ -54,6 +54,10 @@
 - **Internal interfaces:** Document internally facing interfaces in the
   relevant component architecture document. Document internally facing
   conventions and practices in [developers' guide](docs/developers-guide.md).
+- **Executable examples:** Every fence in `README.md`, `docs/users-guide.md`,
+  and the current migration guide needs a `tested-example` marker and a
+  validator; see the
+  [developers' guide](docs/developers-guide.md#user-facing-documentation-examples).
 - **Style:** All documentation must adhere to the
   [documentation style guide](docs/documentation-style-guide.md).
 
