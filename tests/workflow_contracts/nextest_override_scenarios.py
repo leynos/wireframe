@@ -15,6 +15,7 @@ listed without also being constructible.
 
 from __future__ import annotations
 
+import dataclasses
 import typing as typ
 from pathlib import Path
 
@@ -36,6 +37,15 @@ Scenario = tuple[
 AcceptedScenario = tuple[
     list[CargoTestTarget], dict[Path, str], dict[str, typ.Any]
 ]
+
+
+@dataclasses.dataclass(frozen=True)
+class OverrideNames:
+    """The generated names one override scenario is built from."""
+
+    package: str
+    binary: str
+    function: str
 
 
 def empty_test_source(function: str) -> str:
@@ -91,121 +101,117 @@ def accepted_override(
 
 
 def _rewritten_source(
-    package: str,
-    binary: str,
-    function: str,
+    names: OverrideNames,
     rewrite: Callable[[str], str],
     message: str,
 ) -> Scenario:
     """Return a one-target scenario whose trybuild source is rewritten."""
-    target = test_target(package, binary)
+    target = test_target(names.package, names.binary)
     return (
         [target],
-        {target.src_path: rewrite(trybuild_source(function))},
-        override_config(override_filter(package, binary, function)),
+        {target.src_path: rewrite(trybuild_source(names.function))},
+        override_config(
+            override_filter(names.package, names.binary, names.function)
+        ),
         message,
     )
 
 
-def _nested(package: str, binary: str, function: str) -> Scenario:
+def _nested(names: OverrideNames) -> Scenario:
     """A definition inside an inline module is not at the crate root."""
     return _rewritten_source(
-        package,
-        binary,
-        function,
+        names,
         lambda source: f"mod inner {{\n{source}}}\n",
         "does not define at its crate root",
     )
 
 
-def _commented_out(package: str, binary: str, function: str) -> Scenario:
+def _commented_out(names: OverrideNames) -> Scenario:
     """A commented-out definition is never compiled."""
     return _rewritten_source(
-        package,
-        binary,
-        function,
+        names,
         lambda source: "".join(f"// {line}\n" for line in source.splitlines()),
         "does not define at its crate root",
     )
 
 
-def _no_trybuild(package: str, binary: str, function: str) -> Scenario:
+def _no_trybuild(names: OverrideNames) -> Scenario:
     """A test function that never drives trybuild compiles no cases."""
     return _rewritten_source(
-        package,
-        binary,
-        function,
-        lambda _source: empty_test_source(function),
+        names,
+        lambda _source: empty_test_source(names.function),
         "does not drive trybuild::TestCases",
     )
 
 
-def _cfg_gated(package: str, binary: str, function: str) -> Scenario:
+def _cfg_gated(names: OverrideNames) -> Scenario:
     """A definition a ``cfg`` attribute can remove is not always compiled."""
     return _rewritten_source(
-        package,
-        binary,
-        function,
+        names,
         lambda source: source.replace(
-            f"fn {function}()",
-            f'#[cfg(feature = "never")]\nfn {function}()',
+            f"fn {names.function}()",
+            f'#[cfg(feature = "never")]\nfn {names.function}()',
         ),
         "cfg attribute",
     )
 
 
-def _uncovered(package: str, binary: str, function: str) -> Scenario:
+def _uncovered(names: OverrideNames) -> Scenario:
     """A trybuild target the one override does not name stays uncovered."""
-    target = test_target(package, binary)
-    other = test_target(package, f"{binary}_extra")
-    source = trybuild_source(function)
+    target = test_target(names.package, names.binary)
+    other = test_target(names.package, f"{names.binary}_extra")
+    source = trybuild_source(names.function)
     return (
         [target, other],
         {target.src_path: source, other.src_path: source},
-        override_config(override_filter(package, binary, function)),
-        f"trybuild target {package}/{other.name} has no nextest override",
+        override_config(
+            override_filter(names.package, names.binary, names.function)
+        ),
+        f"trybuild target {names.package}/{other.name} has no nextest override",
     )
 
 
-def _extra_override(package: str, binary: str, function: str) -> Scenario:
+def _extra_override(names: OverrideNames) -> Scenario:
     """An override for a target that is not a trybuild driver proves nothing."""
-    target = test_target(package, binary)
-    other = test_target(package, f"{binary}_extra")
+    target = test_target(names.package, names.binary)
+    other = test_target(names.package, f"{names.binary}_extra")
     return (
         [target, other],
         {
-            target.src_path: trybuild_source(function),
-            other.src_path: empty_test_source(function),
+            target.src_path: trybuild_source(names.function),
+            other.src_path: empty_test_source(names.function),
         },
         override_config(
-            override_filter(package, binary, function),
-            override_filter(package, other.name, function),
+            override_filter(names.package, names.binary, names.function),
+            override_filter(names.package, other.name, names.function),
         ),
-        f"override target {package}/{other.name} is not an uncovered "
+        f"override target {names.package}/{other.name} is not an uncovered "
         "trybuild target",
     )
 
 
-def _ambiguous(package: str, binary: str, function: str) -> Scenario:
+def _ambiguous(names: OverrideNames) -> Scenario:
     """Two discovered targets with the same name make the matcher ambiguous."""
-    target = test_target(package, binary)
+    target = test_target(names.package, names.binary)
     duplicate = CargoTestTarget(
-        package=package,
-        name=binary,
+        package=names.package,
+        name=names.binary,
         kinds=("test",),
-        src_path=Path("/fixture") / f"{binary}_duplicate.rs",
+        src_path=Path("/fixture") / f"{names.binary}_duplicate.rs",
     )
-    source = trybuild_source(function)
+    source = trybuild_source(names.function)
     return (
         [target, duplicate],
         {target.src_path: source, duplicate.src_path: source},
-        override_config(override_filter(package, binary, function)),
+        override_config(
+            override_filter(names.package, names.binary, names.function)
+        ),
         "resolves to 2 discovered test targets",
     )
 
 
 #: One builder per single defect the override resolution must report.
-_DEFECT_BUILDERS: dict[str, Callable[[str, str, str], Scenario]] = {
+_DEFECT_BUILDERS: dict[str, Callable[[OverrideNames], Scenario]] = {
     "nested": _nested,
     "commented_out": _commented_out,
     "no_trybuild": _no_trybuild,
@@ -247,4 +253,4 @@ def defective_override(
     except KeyError:
         message = f"unknown override defect {defect!r}"
         raise AssertionError(message) from None
-    return build(package, binary, function)
+    return build(OverrideNames(package, binary, function))
