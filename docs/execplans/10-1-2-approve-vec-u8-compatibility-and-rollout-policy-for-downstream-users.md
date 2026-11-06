@@ -228,7 +228,7 @@ to implement against. No runtime Rust code changes are authorized by this plan.
 - [x] (2026-06-15) Cleared the repo-wide post-turn gate. The hook runs
       `make markdownlint nixie` across all 104 Markdown files and tripped on
       a pre-existing merman-cli classDiagram baseline failure in
-      `docs/v0-2-0-to-v0-3-0-migration-guide.md`. Fixed the two comma-in-
+      `docs/v0-3-0-migration-guide.md`. Fixed the two comma-in-
       generic class headers and recorded the root cause in
       `Surprises & discoveries`. (Superseded on 2026-06-18; see below.)
 - [x] (2026-06-15) Re-ran the post-turn gate command
@@ -239,7 +239,7 @@ to implement against. No runtime Rust code changes are authorized by this plan.
       diagram fix conflicted with main's commit `9f666a6`
       ("Address code-base audit findings"), which had independently fixed the
       same merman-cli diagrams more comprehensively. Resolved by taking main's
-      version, so `docs/v0-2-0-to-v0-3-0-migration-guide.md` is now identical
+      version, so `docs/v0-3-0-migration-guide.md` is now identical
       to `origin/main` and no longer part of this branch's diff. Re-validated
       and force-pushed with lease.
 
@@ -263,13 +263,13 @@ Use timestamps when ticking items to make rate-of-progress visible.
   net lines to accommodate the ADR 009 rewrite.
 
 - Observation (2026-06-15): `make nixie` initially failed on
-  `docs/v0-2-0-to-v0-3-0-migration-guide.md` with a merman-cli classDiagram
-  `LexError` ("Unexpected character"), reproducing on clean committed `HEAD`,
-  so it was a pre-existing repository baseline rather than a regression from
-  this milestone. The post-turn gate runs nixie repo-wide, so the baseline had
-  to be fixed for the gate to pass. Root cause: merman-cli (the parser nixie
-  uses) cannot lex comma-separated type parameters inside Mermaid generic
-  brackets — `class AppFactory~Serializer, Ctx, E, Codec~` (diagram 1, offset
+  `docs/v0-3-0-migration-guide.md` with a merman-cli classDiagram `LexError`
+  ("Unexpected character"), reproducing on clean committed `HEAD`, so it was a
+  pre-existing repository baseline rather than a regression from this
+  milestone. The post-turn gate runs nixie repo-wide, so the baseline had to be
+  fixed for the gate to pass. Root cause: merman-cli (the parser nixie uses)
+  cannot lex comma-separated type parameters inside Mermaid generic brackets —
+  `class AppFactory~Serializer, Ctx, E, Codec~` (diagram 1, offset
   843) and `class TypedResponseStream~S, Mapper, P, Item~` (diagram 3, offset
   654). Evidence: bisected with minimal `merman-cli` repros; single-param
   `~Codec~` parses, comma forms fail. Fix: render the multi-parameter generic
@@ -428,18 +428,17 @@ Record further unexpected findings with evidence and impact as work proceeds.
   tolerance. Date/Author: 2026-06-04 / Codex.
 
 - Decision: fix the pre-existing merman-cli classDiagram baseline failure in
-  `docs/v0-2-0-to-v0-3-0-migration-guide.md` within this milestone rather than
-  deferring it, and fix it by rendering the multi-parameter generics through a
-  display label (`class Name["Name~A, B~"]`) rather than dropping or renaming
-  the type parameters. Rationale: the post-turn quality gate runs `nixie`
-  repo-wide and blocked the turn, so the baseline had to be cleared for this
-  docs-only change to land; the display-label form keeps the node id used by
-  the relationship arrows and the existing `<<trait>>` / `<<futures::Stream>>`
-  stereotypes intact while preserving the exact generic signature as rendered
-  text, so no diagram meaning is lost. This is a one-file edit outside the
-  `10.1.2` decision surface and does not affect the rollout policy.
-  Date/Author: 2026-06-15 / Codex. Superseded 2026-06-18: see the rebase
-  decision below.
+  `docs/v0-3-0-migration-guide.md` within this milestone rather than deferring
+  it, and fix it by rendering the multi-parameter generics through a display
+  label (`class Name["Name~A, B~"]`) rather than dropping or renaming the type
+  parameters. Rationale: the post-turn quality gate runs `nixie` repo-wide and
+  blocked the turn, so the baseline had to be cleared for this docs-only change
+  to land; the display-label form keeps the node id used by the relationship
+  arrows and the existing `<<trait>>` / `<<futures::Stream>>` stereotypes
+  intact while preserving the exact generic signature as rendered text, so no
+  diagram meaning is lost. This is a one-file edit outside the `10.1.2`
+  decision surface and does not affect the rollout policy. Date/Author:
+  2026-06-15 / Codex. Superseded 2026-06-18: see the rebase decision below.
 
 - Decision: on rebasing onto `origin/main`, resolve the migration-guide
   diagram conflict by adopting main's version wholesale and dropping this

@@ -143,6 +143,10 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
 
 - [v0.4.0 migration guide](v0-4-0-migration-guide.md) Every change to act on
   when moving from v0.3.0 to v0.4.0-alpha1.
+- [v0.3.0 migration guide](v0-3-0-migration-guide.md) Moving from v0.2.0 to
+  v0.3.0.
+- [v0.2.0 migration guide](v0-2-0-migration-guide.md) Moving from v0.1.0 to
+  v0.2.0.
 
 ## Operations and resilience
 

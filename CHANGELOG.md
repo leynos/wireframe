@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
   selects 0.7.20, and the `metadata_routing` example and the tests build with
   it.
 
+- Set the workspace version to `0.4.0-alpha1`, and rename the older migration
+  guides to `docs/v0-2-0-migration-guide.md` and
+  `docs/v0-3-0-migration-guide.md`, matching the v0.4.0 guide.
+
 - Audit the README, users' guide, and migration guide against the code for
   v0.4.0-alpha1, and rewrite them. Rename the migration guide to
   `docs/v0-4-0-migration-guide.md`, matching other df12 projects. Every
@@ -112,8 +116,8 @@ All notable changes to this project will be documented in this file.
   to align the public API spelling with American English.
 - Breaking: Renamed the cargo feature flag `test-helpers` to
   `test-support`. Enable `test-support` to access exported test helper APIs. See
-  `docs/v0-1-0-to-v0-2-0-migration-guide.md` for the required `Cargo.toml`
-  dependency update.
+  `docs/v0-2-0-migration-guide.md` for the required `Cargo.toml` dependency
+  update.
 - Exposed `MAX_PUSH_RATE` for configuring push queue rate limits.
 - Refactored the application module into the `src/app/` directory
   (13 focused files) to keep module sizes under 400 lines; public API exports
