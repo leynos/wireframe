@@ -65,6 +65,7 @@ EXPECTED_PLACEMENT: typ.Final = {
     ("ci.yml", "build-test"): None,
     ("coverage-main.yml", "coverage-upload"): UBICLOUD_LABEL,
     ("advanced-tests.yml", "advanced"): GITHUB_HOSTED_LABEL,
+    ("msrv.yml", "msrv"): GITHUB_HOSTED_LABEL,
     ("delayed-pr-comment.yml", "delay_and_comment"): GITHUB_HOSTED_LABEL,
 }
 
@@ -83,6 +84,7 @@ EXPECTED_CEILING_MINUTES: typ.Final = {
     ("ci.yml", "build-test"): 60,
     ("coverage-main.yml", "coverage-upload"): 20,
     ("advanced-tests.yml", "advanced"): 60,
+    ("msrv.yml", "msrv"): 45,
 }
 
 #: The one lane that must NOT declare a ceiling. Its whole duration is a

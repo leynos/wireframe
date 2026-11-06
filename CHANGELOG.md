@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
   selects 0.7.20, and the `metadata_routing` example and the tests build with
   it.
 
+- Build on the declared minimum Rust version every week, with both the committed
+  lock file and freshly resolved dependencies, and declare the same minimum on
+  `wireframe_testing`.
+
 - Set the workspace version to `0.4.0-alpha1`, and rename the older migration
   guides to `docs/v0-2-0-migration-guide.md` and
   `docs/v0-3-0-migration-guide.md`, matching the v0.4.0 guide.
