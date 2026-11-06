@@ -5,7 +5,7 @@ override policy is only as strong as the defects a test can construct. Each
 builder here breaks one property — an exact matcher, a crate-root definition,
 the trybuild driver, the target coverage, or the target resolution — and states
 the diagnostic that must appear. The property tests pair these builders with
-generated names, so a policy that recognises only the checked-in fixture
+generated names, so a policy that recognizes only the checked-in fixture
 fails.
 
 Every defect lives in one builder registered in ``_DEFECT_BUILDERS``, and
