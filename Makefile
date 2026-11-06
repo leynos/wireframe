@@ -1,4 +1,4 @@
-.PHONY: help all clean test test-doc test-ui test-feature-gate test-pool-no-metrics bless-ui test-workflow-contracts test-loom doctest-benchmark
+.PHONY: help all clean test test-doc test-documentation-contracts test-ui test-feature-gate test-pool-no-metrics bless-ui test-workflow-contracts test-loom doctest-benchmark
 .PHONY: lint-python-docs
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
@@ -138,6 +138,11 @@ test-loom: ## Run Loom models and test-support API checks under --cfg loom
 
 test-doc: ## Run doctests across all features
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace --doc --all-features $(BUILD_JOBS)
+
+# Examples are built first because the suite runs the documented example pair.
+test-documentation-contracts: ## Validate documented examples, commands and links
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) build --examples --all-features $(BUILD_JOBS)
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --test documentation_examples_loader_tests --test documentation_examples_tests --all-features $(BUILD_JOBS)
 
 test-ui: ## Run trybuild compile-time API tests
 	$(CARGO) test --test compile_error

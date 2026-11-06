@@ -353,7 +353,7 @@ names an owner item so the resolution is traceable.
 
 The version row is not pedantry. `Cargo.toml` currently declares `0.3.0`, and
 the repository already carries a
-[v0.3.0 to v0.4.0 migration guide](v0-3-0-to-v0-4-0-migration-guide.md) for the
+[v0.4.0 migration guide](v0-4-0-migration-guide.md) for the
 prepared-application transition. Whether the zero-copy break joins that release
 or follows it changes every `#[deprecated(since = "...")]` string in the helper
 set. The [release plan](zero-copy-release-plan.md) records the determination
@@ -385,4 +385,4 @@ shortest correct fix.
 - [Frame and `Vec<u8>` inventory](frame-vec-u8-inventory.md)
 - [Serializer output migration plan](execplans/issue-538-plan-zero-copy-serializer-output-migration.md)
 - [Zero-copy release plan](zero-copy-release-plan.md)
-- [v0.3.0 to v0.4.0 migration guide](v0-3-0-to-v0-4-0-migration-guide.md)
+- [v0.4.0 migration guide](v0-4-0-migration-guide.md)

@@ -27,7 +27,7 @@ Evidence, observed 2026-11-01:
 | Current crate version is `0.3.0`              | `Cargo.toml`                                              |
 | Latest published release is `v0.3.0`          | `gh release list`, 2026-11-01 (released 2026-04-06)       |
 | The project has not cut `1.0`                 | `git ls-remote --tags`, 2026-11-01: tags stop at `v0.3.0` |
-| A `0.4.0` migration guide is already in tree  | `docs/v0-3-0-to-v0-4-0-migration-guide.md`                |
+| A `0.4.0` migration guide is already in tree  | `docs/v0-4-0-migration-guide.md`                          |
 | Helper removal is `0.N` to `0.N+2` before 1.0 | [ADR 009](adr-009-vec-u8-migration-rollout.md)            |
 
 Under Cargo's semver rules a `0.x` crate may break compatibility in a minor

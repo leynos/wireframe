@@ -1,1025 +1,1088 @@
-# Wireframe library guide
+# Wireframe users' guide
 
-Wireframe is a Rust library for building asynchronous binary protocol servers
-with pluggable routing, middleware, and connection utilities.[^1] The guide
-below walks through the components that exist today and explains how they work
-together when assembling an application.
+This guide is for Rust developers building servers and clients for binary
+protocols with Wireframe v0.4.0-alpha1. It starts from an empty project and
+builds up to custom wire formats, production operation, and testing. You do not
+need to know Tokio deeply to begin, though you will meet `async` code from the
+first example.
 
-## API discovery and imports
+Every Rust example here is compiled, and most are run, by the project's test
+suite, so what you copy is what was tested. If something does not behave as
+described, please [open an issue](https://github.com/leynos/wireframe/issues).
 
-Wireframe uses progressive discovery for public APIs:
+## Find your path
 
-- `wireframe::` root is intentionally small and stable, exposing canonical
-  `Result` and `WireframeError`.
-- `wireframe::<module>::...` is the default path for specialized APIs.
-- `wireframe::prelude::*` is an optional convenience import for common
-  workflows.
+Table 1 suggests where to begin. The sections are ordered to be read from top
+to bottom, and each builds on the last, but you can also dip in.
 
-## Conceptual model and vocabulary
+| You want to…                           | Start with                                                                                      |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| See it work in two minutes             | [Your first server](#your-first-server)                                                         |
+| Understand how the pieces fit          | [How Wireframe thinks](#how-wireframe-thinks)                                                   |
+| Serve typed messages on several routes | [Routes and envelopes](#routes-and-envelopes), then [Middleware](#middleware)                   |
+| Speak a protocol that already exists   | [Custom frame codecs](#custom-frame-codecs), then [Connection preambles](#connection-preambles) |
+| Call a server from Rust                | [The client runtime](#the-client-runtime)                                                       |
+| Send messages larger than a frame      | [Large messages](#large-messages)                                                               |
+| Test without opening sockets           | [Testing your protocol](#testing-your-protocol)                                                 |
+| Go to production                       | [Running servers](#running-servers), then [Observability](#observability)                       |
+| Check whether a feature is ready       | [Building blocks not yet wired into the server](#building-blocks-not-yet-wired-into-the-server) |
+| Fix something that is going wrong      | [Troubleshooting](#troubleshooting)                                                             |
+| Upgrade from v0.3.0                    | The [migration guide](v0-4-0-migration-guide.md)                                                |
 
-Wireframe uses layer-specific terms. Keep these boundaries explicit so
-transport concerns do not leak into routing or domain logic.
+_Table 1: Where to begin, by goal._
 
-| Layer                 | Canonical term | Meaning                                                                                                                   |
-| --------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Transport             | Frame          | The wire unit produced and consumed by `FrameCodec`.                                                                      |
-| Routing envelope      | Envelope       | The routable wrapper that carries `id`, optional `correlation_id`, and payload bytes (`Packet` is the trait abstraction). |
-| Domain payload        | Message        | The typed value encoded into and decoded from payload bytes.                                                              |
-| Transport subdivision | Fragment       | A bounded slice of large payload bytes plus fragmentation metadata.                                                       |
+## Before you begin
 
-Vocabulary rules:
+Wireframe needs Rust 1.95 or newer, and runs on Tokio. Add it to `Cargo.toml`,
+pinning the exact version during the alpha because one alpha may change what
+the last one offered:
 
-- Use `frame` for wire-format codec units only.
-- Use `envelope` for routable wrappers and instances; use `packet` when
-  discussing the `Packet` trait abstraction or `PacketParts`.
-- Use `message` for typed application payloads implementing
-  `wireframe::message::EncodeWith`/`wireframe::message::DecodeWith` (or
-  `wireframe::message::Message` for bincode-compatible types).
-- Use `fragment` only for transport-level split/reassembly units.
+<!-- tested-example: guide-dependencies -->
 
-For invariants and naming rules used across internal modules, see the
-[developers' guide](developers-guide.md).
-
-## Quick start: building an application
-
-A `WireframeApp` collects route handlers and middleware. Each handler is stored
-as an `Arc` pointing to an async function that receives a packet reference and
-returns `()`. For manually accepted streams, consume the builder with
-`prepare().await` after registration to construct immutable middleware chains
-once and obtain a `PreparedApp`. The transition returns
-`Result<PreparedApp, PrepareError>`; a preparation failure therefore produces
-no partially usable runtime.[^2]
-
-```no_run
-use std::sync::Arc;
-use wireframe::app::{Envelope, Handler, WireframeApp};
-
-async fn ping(_env: &Envelope) {}
-
-fn build_app() -> wireframe::Result<WireframeApp> {
-    let handler: Handler<Envelope> = Arc::new(|env: &Envelope| {
-        let _ = env; // inspect payload here
-        Box::pin(ping(env))
-    });
-
-    WireframeApp::new()?
-        .route(1, handler)?
-        .wrap(wireframe::middleware::from_fn(|req, next| async move {
-            let mut response = next.call(req).await?;
-            response.frame_mut().extend_from_slice(b" pong");
-            Ok(response)
-        }))
-}
+```toml
+[dependencies]
+wireframe = "=0.4.0-alpha1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+bincode = "2"
+async-trait = "0.1"
 ```
 
-The snippet below wires the builder into a Tokio runtime, decodes inbound
-payloads, and emits a serialized response. It showcases the typical `main`
-function for a microservice that listens on localhost and responds to a `Ping`
-message with a `Pong` payload.[^2][^10][^15]
+`bincode` lets you derive encodable messages, and `async-trait` is what you
+will write middleware with. Table 2 lists the optional Cargo features.
 
-```rust,no_run
-use std::{net::SocketAddr, sync::Arc};
+| Feature              | Default | Adds                                            |
+| -------------------- | ------- | ----------------------------------------------- |
+| `metrics`            | Yes     | Emits counters through the `metrics` facade.    |
+| `serializer-bincode` | Yes     | The default `BincodeSerializer`.                |
+| `serializer-serde`   | No      | The optional Serde bridge.                      |
+| `pool`               | No      | Client connection pools through `connect_pool`. |
+| `testkit`            | No      | Test drivers in `wireframe::testkit`.           |
 
+_Table 2: Cargo features for applications._
+
+The remaining features (`test-support`, `examples`, `advanced-tests`, and
+`benchmark-counters`) exist for this repository's own tests and benchmarks.
+
+## Your first server
+
+This complete program starts a server on a free local port, sends it a message
+from a client, and prints the reply:
+
+<!-- tested-example: guide-first-server -->
+
+```rust
+use std::{convert::Infallible, error::Error, sync::Arc};
+
+use async_trait::async_trait;
 use wireframe::{
     app::{Envelope, Handler, WireframeApp},
-    middleware,
+    client::WireframeClient,
     message::Message,
-    server::{ServerError, WireframeServer},
+    middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
+    server::WireframeServer,
 };
 
-#[derive(bincode::Encode, bincode::BorrowDecode, Debug)]
-struct Ping {
-    body: String,
+const GREET: u32 = 1;
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct Greeting {
+    name: String,
 }
 
-#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
-struct Pong {
-    body: String,
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct Reply {
+    text: String,
 }
 
-async fn ping(env: &Envelope) {
-    log::info!("received correlation id: {:?}", env.clone().into_parts().correlation_id());
+struct Greeter;
+
+struct GreeterService<S> {
+    inner: S,
 }
 
-fn build_app() -> wireframe::Result<WireframeApp> {
-    let handler: Handler<Envelope> = Arc::new(|env: &Envelope| Box::pin(ping(env)));
+#[async_trait]
+impl<S> Service for GreeterService<S>
+where
+    S: Service<Error = Infallible> + Send + Sync + 'static,
+{
+    type Error = Infallible;
 
-    WireframeApp::new()?
-        .route(1, handler)?
-        .wrap(middleware::from_fn(|req, next| async move {
-            let ping = Ping::from_bytes(req.frame()).map(|(msg, _)| msg).ok();
-            let mut response = next.call(req).await?;
-
-            if let Some(ping) = ping {
-                let payload = Pong {
-                    body: format!("pong {}", ping.body),
-                }
-                .to_bytes()
-                .expect("encode Pong message");
-                response.frame_mut().clear();
-                response.frame_mut().extend_from_slice(&payload);
-            }
-
-            Ok(response)
-        }))
+    async fn call(&self, request: ServiceRequest) -> Result<ServiceResponse, Infallible> {
+        let greeting = Greeting::from_bytes(request.frame()).map(|(greeting, _)| greeting);
+        let mut response = self.inner.call(request).await?;
+        if let Ok(greeting) = greeting {
+            let reply = Reply {
+                text: format!("Hello, {}!", greeting.name),
+            };
+            *response.frame_mut() = reply.to_bytes().expect("a short reply encodes");
+        }
+        Ok(response)
+    }
 }
 
-fn app_factory() -> WireframeApp {
-    build_app().expect("configure Wireframe application")
+#[async_trait]
+impl Transform<HandlerService<Envelope>> for Greeter {
+    type Output = HandlerService<Envelope>;
+
+    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
+        let id = service.id();
+        HandlerService::from_service(id, GreeterService { inner: service })
+    }
 }
 
 #[tokio::main]
-async fn main() -> Result<(), ServerError> {
-    let addr: SocketAddr = "127.0.0.1:4000".parse().expect("valid socket address");
-    let server = WireframeServer::new(app_factory).bind(addr)?;
-    server.run().await
-}
-```
-
-Route identifiers must be unique; the builder returns
-`wireframe::WireframeError::DuplicateRoute` when a handler is registered twice,
-keeping the dispatch table unambiguous.[^2][^5] The crate-level
-`wireframe::Result<T>` alias always resolves to this canonical
-`wireframe::WireframeError` surface, so setup-time and streaming failures share
-one error contract.[^5] New applications default to the bundled bincode
-serializer, a length-delimited codec capped at 1024 bytes per frame, and a 100
-ms read timeout. Clamp the length-delimited limit with `buffer_capacity`
-(length-delimited only), swap codecs with `with_codec`, and override the
-serializer with `with_serializer` when a different encoding strategy is
-required.[^3][^4] Use `memory_budgets(...)` to set explicit per-connection
-buffering caps for inbound assembly paths. Custom protocols implement
-`FrameCodec` to describe their framing rules. Changing frame budgets with
-`buffer_capacity` or swapping codecs with `with_codec` clears fragmentation
-settings, so call `enable_fragmentation()` (or `fragmentation(Some(cfg))`)
-again when transport fragmentation is required.
-
-`WireframeApp::codec`, `fragmentation`, and `memory_budgets` can be called from
-`const fn` code. `Envelope::new` and `PacketParts::new` are also const
-constructors, which lets downstream libraries compose these values in their own
-compile-time helpers.
-
-`WireframeError` defaults to `WireframeError<NoProtocolError>`. The marker
-means an API does not carry protocol-defined error payloads, while still
-allowing the default `wireframe::Result<T>` to implement `std::error::Error`
-and work with `Box<dyn Error>` or other standard error wrappers. When a
-protocol does have its own typed failures, name the parameter explicitly, for
-example `WireframeError<MyProtocolError>`. Code that previously relied on the
-default accepting `WireframeError::Protocol(())` should annotate that case as
-`WireframeError<()>` instead.
-
-The default error type works with standard error wrappers and source-chain
-inspection:
-
-```rust
-use std::error::Error;
-use wireframe::WireframeError;
-
-fn boxed_route_error() -> Box<dyn Error> {
-    Box::new(WireframeError::DuplicateRoute(7))
-}
-
-fn inspect_transport_source(error: &WireframeError) -> Option<&dyn Error> {
-    error.source()
-}
-```
-
-For a manually accepted stream, prepare the application once and then call
-`PreparedApp::handle_connection_result(stream)` (or the logging
-`PreparedApp::handle_connection(stream)` wrapper) for every connection. The
-prepared application reuses its middleware chains, wraps each transport in the
-configured frame codec (length-delimited by default), enforces per-frame read
-timeouts, and writes responses. The deprecated
-`WireframeApp::handle_connection` methods rebuild route chains for
-compatibility and should not be used in new code.
-
-```rust,no_run
-use tokio::io::duplex;
-use wireframe::app::{PreparedApp, WireframeApp};
-
-# async fn example() -> Result<(), Box<dyn std::error::Error>> {
-let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
-let (client, server) = duplex(64);
-drop(client);
-prepared.handle_connection_result(server).await?;
-# Ok(())
-# }
-```
-
-`WireframeServer` evaluates its startup factory once per server run, prepares
-the resulting application once, and shares one immutable prepared root across
-all connections. Use `WireframeServer::from_app(app)` when the application is
-already built. Connection-specific state belongs in lifecycle setup state `C`
-through `on_connection_setup`, not in a rebuilt application graph.
-Serialization helpers `send_response` and `send_response_framed` (or
-`send_response_framed_with_codec` for custom codecs) return typed `SendError`
-variants when encoding or I/O fails, and the connection closes after ten
-consecutive deserialization errors.[^6][^7] Each `SendError` variant's
-`Display` output starts with a fixed prefix: `serialization error:` for
-`Serialize`, `I/O error:` for `Io`, and `codec error:` for `Codec`. Those
-prefixes are stable and form the public diagnostic contract that callers may
-match on; the source error text after them is not part of that contract.
-
-### Custom frame codecs
-
-Custom protocols supply a `FrameCodec` implementation to describe their framing
-rules. The codec owns the Tokio `Decoder` and `Encoder` types, while Wireframe
-uses the trait surface to map frames to payload bytes and correlation data.
-
-A codec implementation must:
-
-- Define a `Frame` type and paired decoder/encoder implementations that return
-  `std::io::Error` on failure.
-- Return only the logical payload bytes from `frame_payload` so metadata parsing
-  and deserialization run against the right buffer.
-- Wrap outbound payloads with `wrap_payload(&self, Bytes)`, adding any protocol
-  headers or metadata required by the wire format.
-- Provide `correlation_id` when the protocol stores it outside the payload;
-  Wireframe only uses this hook when the deserialized envelope is missing a
-  correlation identifier.
-- Report `max_frame_length`, which clamps inbound frames and determines the
-  budget used by `enable_fragmentation`.
-
-Install a custom codec with `with_codec`. The builder disables fragmentation
-when codecs or the length-delimited frame budget change, so explicitly call
-`enable_fragmentation()` (or `fragmentation(Some(cfg))`) afterwards when
-transport fragmentation is required. Wireframe clones the codec per connection,
-so stateful codecs should ensure `Clone` produces an independent state (for
-example, reset sequence counters) when per-connection isolation is required.
-When a framed stream is already available, use
-`send_response_framed_with_codec`, so responses pass through
-`FrameCodec::wrap_payload`.
-
-Assume `MyCodec` implements `FrameCodec`:
-
-```rust,no_run
-use std::sync::Arc;
-
-use wireframe::app::{Envelope, Handler, WireframeApp};
-
-struct MyCodec;
-
-let handler: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
-
-let app = WireframeApp::new()?
-    .with_codec(MyCodec)
-    .route(1, handler)?;
-```
-
-See `examples/hotline_codec.rs` and `examples/mysql_codec.rs` for complete
-implementations.
-
-#### Codec accessor
-
-Retrieve the configured codec from a `WireframeApp` instance:
-
-```rust,no_run
-use wireframe::app::WireframeApp;
-use wireframe::codec::examples::HotlineFrameCodec;
-
-let codec = HotlineFrameCodec::new(4096);
-let app = WireframeApp::new()?.with_codec(codec);
-let codec_ref = app.codec(); // &HotlineFrameCodec
-```
-
-#### Testing custom codecs with `wireframe_testing`
-
-The `wireframe_testing` crate provides codec-aware driver functions that handle
-frame encoding and decoding transparently:
-
-```rust,no_run
-use wireframe::app::WireframeApp;
-use wireframe::codec::examples::HotlineFrameCodec;
-use wireframe_testing::{drive_with_codec_payloads, drive_with_codec_frames};
-
-let codec = HotlineFrameCodec::new(4096);
-let payload: Vec<u8> = vec![0x01, 0x02, 0x03];
-
-// Payload-level: returns decoded response payloads as byte vectors.
-let app = WireframeApp::new()?.with_codec(codec.clone());
-let payloads =
-    drive_with_codec_payloads(app, &codec, vec![payload.clone()]).await?;
-
-// Frame-level: returns decoded codec frames for metadata inspection.
-let app = WireframeApp::new()?.with_codec(codec.clone());
-let frames =
-    drive_with_codec_frames(app, &codec, vec![payload]).await?;
-```
-
-Available codec-aware driver functions:
-
-- `drive_with_codec_payloads` / `drive_with_codec_payloads_with_capacity` —
-  owned app, returns payload bytes.
-- `drive_with_codec_payloads_mut` /
-  `drive_with_codec_payloads_with_capacity_mut` — mutable app reference,
-  returns payload bytes.
-- `drive_with_codec_frames` / `drive_with_codec_frames_with_capacity` — owned
-  app, returns decoded `F::Frame` values.
-
-Supporting helpers for composing custom test patterns:
-
-- `encode_payloads_with_codec` — encode payloads to wire bytes.
-- `decode_frames_with_codec` — decode wire bytes to frames.
-- `extract_payloads` — extract payload bytes from decoded frames.
-
-#### Codec test fixtures
-
-The `wireframe_testing` crate provides fixture functions for generating
-Hotline-framed wire bytes covering common test scenarios — valid frames,
-invalid frames, incomplete (truncated) frames, and frames with correlation
-metadata. These fixtures construct raw bytes directly, so they can represent
-malformed data that the encoder would reject:
-
-```rust,no_run
-use wireframe::codec::examples::HotlineFrameCodec;
-use wireframe_testing::{
-    valid_hotline_wire, oversized_hotline_wire,
-    truncated_hotline_header, correlated_hotline_wire,
-    decode_frames_with_codec,
-};
-
-let codec = HotlineFrameCodec::new(4096);
-
-// Valid frame — decodes cleanly.
-let wire = valid_hotline_wire(b"hello", 7);
-let frames = decode_frames_with_codec(&codec, &wire).unwrap();
-
-// Oversized frame — rejected with "payload too large".
-let wire = oversized_hotline_wire(4096);
-assert!(decode_frames_with_codec(&codec, &wire).is_err());
-
-// Truncated header — rejected with "bytes remaining on stream".
-let wire = truncated_hotline_header();
-assert!(decode_frames_with_codec(&codec, &wire).is_err());
-
-// Correlated frames — all share the same transaction ID.
-let wire = correlated_hotline_wire(42, &[b"a", b"b"]);
-let frames = decode_frames_with_codec(&codec, &wire).unwrap();
-```
-
-Available fixture functions:
-
-- `valid_hotline_wire` / `valid_hotline_frame` — well-formed frames.
-- `oversized_hotline_wire` — payload exceeds `max_frame_length`.
-- `mismatched_total_size_wire` — header with incorrect `total_size`.
-- `truncated_hotline_header` / `truncated_hotline_payload` — incomplete data.
-- `correlated_hotline_wire` — frames sharing a transaction ID.
-- `sequential_hotline_wire` — frames with incrementing transaction IDs.
-
-#### Feeding partial frames and fragments
-
-Real networks rarely deliver a complete codec frame in a single TCP read. The
-main crate now exposes these drivers through `wireframe::testkit` behind the
-opt-in `testkit` feature, while `wireframe_testing` keeps source-compatible
-re-exports for existing callers.
-
-**Chunked-write drivers** encode payloads via a codec, concatenate the wire
-bytes, and write them in configurable chunk sizes (including one byte at a
-time):
-
-```rust,no_run
-use std::num::NonZeroUsize;
-use wireframe::app::WireframeApp;
-use wireframe::codec::examples::HotlineFrameCodec;
-use wireframe::testkit::drive_with_partial_frames;
-
-let codec = HotlineFrameCodec::new(4096);
-let app = WireframeApp::new()?.with_codec(codec.clone());
-let chunk = NonZeroUsize::new(1).expect("non-zero");
-let payloads =
-    drive_with_partial_frames(app, &codec, vec![vec![1, 2, 3]], chunk)
-        .await?;
-```
-
-Available chunked-write driver functions:
-
-- `drive_with_partial_frames` / `drive_with_partial_frames_with_capacity` —
-  owned app, returns payload bytes.
-- `drive_with_partial_frames_mut` — mutable app reference, returns payload
-  bytes.
-- `drive_with_partial_codec_frames` — owned app, returns decoded `F::Frame`
-  values.
-
-**Fragment-feeding drivers** accept a raw payload, fragment it with a
-`Fragmenter`, encode each fragment into a codec frame, and feed the frames
-through the app:
-
-```rust,no_run
-use std::num::NonZeroUsize;
-use wireframe::app::WireframeApp;
-use wireframe::codec::examples::HotlineFrameCodec;
-use wireframe::fragment::Fragmenter;
-use wireframe::testkit::drive_with_fragments;
-
-let codec = HotlineFrameCodec::new(4096);
-let app = WireframeApp::new()?.with_codec(codec.clone());
-let fragmenter = Fragmenter::new(NonZeroUsize::new(20).unwrap());
-let payloads =
-    drive_with_fragments(app, &codec, &fragmenter, vec![0; 100]).await?;
-```
-
-Available fragment-feeding driver functions:
-
-- `drive_with_fragments` / `drive_with_fragments_with_capacity` — owned
-  app, returns payload bytes.
-- `drive_with_fragments_mut` — mutable app reference, returns payload
-  bytes.
-- `drive_with_fragment_frames` — owned app, returns decoded `F::Frame`
-  values.
-- `drive_with_partial_fragments` — fragment AND feed in chunks,
-  exercising both fragmentation and partial-frame buffering simultaneously.
-
-#### Asserting reassembly outcomes
-
-The `wireframe::testkit::reassembly` module provides non-panicking assertion
-helpers for both transport fragment reassembly and protocol message assembly.
-The API is built around lightweight snapshot structs, so the same helper can be
-used from `rstest` tests and `rstest-bdd` step definitions. Existing
-`wireframe_testing::reassembly` imports remain valid as compatibility
-re-exports.
-
-```rust,no_run
-use wireframe::message_assembler::MessageKey;
-use wireframe::testkit::{
-    MessageAssemblySnapshot,
-    TestResult,
-    assert_message_assembly_completed_for_key,
-};
-
-# fn check(snapshot: MessageAssemblySnapshot<'_>) -> TestResult {
-assert_message_assembly_completed_for_key(snapshot, MessageKey(7), b"done")?;
-# Ok(())
-# }
-```
-
-Available message-assembly assertion helpers:
-
-- `assert_message_assembly_incomplete` — verify the latest assembly is still
-  awaiting more frames.
-- `assert_message_assembly_completed` — verify the latest assembly completed
-  with a specific body.
-- `assert_message_assembly_completed_for_key` — verify the most recent
-  completed message for a specific `MessageKey`.
-- `assert_message_assembly_error` — verify structured failures such as
-  sequence mismatch, duplicate first frame, and budget errors.
-- `assert_message_assembly_buffered_count` /
-  `assert_message_assembly_total_buffered_bytes` — verify cleanup and memory
-  accounting side effects.
-- `assert_message_assembly_evicted` — verify timeout-based eviction.
-
-Available fragment-reassembly assertion helpers:
-
-- `assert_fragment_reassembly_absent` — verify no full message has been
-  reconstructed yet.
-- `assert_fragment_reassembly_completed_len` — verify reconstructed payload
-  length.
-- `assert_fragment_reassembly_error` — verify reassembly errors including
-  `MessageTooLarge` (with or without specific message ID), `IndexMismatch`
-  (out-of-order fragments), `MessageMismatch` (fragments from wrong logical
-  message), `SeriesComplete` (duplicate or late fragments after completion), and
-  `IndexOverflow` (fragment index exceeding limits).
-- `assert_fragment_reassembly_buffered_messages` — verify buffered partial
-  message count.
-- `assert_fragment_reassembly_evicted` — verify timeout-based eviction.
-
-#### Test observability
-
-The `wireframe_testing` crate provides an `ObservabilityHandle` that combines
-log capture with metrics recording in a single fixture. This is useful for
-asserting that codec errors, recovery policies, and other instrumentation
-behave correctly under test.
-
-```rust,no_run
-use wireframe_testing::ObservabilityHandle;
-
-let mut obs = ObservabilityHandle::new();
-obs.clear();
-
-// Record metrics via a thread-local recorder.
-metrics::with_local_recorder(obs.recorder(), || {
-    wireframe::metrics::inc_codec_error("framing", "drop");
-});
-
-// Take a snapshot and query the captured counter.
-obs.snapshot();
-assert_eq!(
-    obs.counter(
-        wireframe::metrics::CODEC_ERRORS,
-        &[("error_type", "framing"), ("recovery_policy", "drop")],
-    ),
-    1
-);
-```
-
-The handle serializes access to the global logger via a mutex, so tests using
-it should run serially (`--test-threads=1` for the affected binary). Metrics
-are captured per-thread via `metrics::with_local_recorder`, so metric-emitting
-code must run on the same thread as the handle. For async tests, use
-`#[tokio::test(flavor = "current_thread")]` or
-`tokio::runtime::Runtime::new()?.block_on(...)`.
-
-Available assertion helpers:
-
-- `counter(name, labels)` / `counter_without_labels(name)` — query counter
-  values from the most recent snapshot.
-- `codec_error_counter(error_type, recovery_policy)` — convenience for the
-  `wireframe_codec_errors_total` metric.
-- `assert_counter(name, labels, expected)` — assert a counter matches.
-- `assert_no_metric(name)` — assert no metric with the given name exists.
-- `assert_codec_error_counter(error_type, recovery_policy, expected)` — assert
-  a codec error counter matches.
-- `assert_log_contains(substring)` — assert any captured log contains a
-  substring.
-- `assert_log_at_level(level, substring)` — assert a log at a specific level
-  contains a substring.
-
-#### Simulating slow readers and writers
-
-Back-pressure tests often need more than partial-frame delivery. The
-`wireframe_testing` crate also provides slow-I/O helpers that pace the client
-write side, the client read side, or both directions at once.
-
-Use `SlowIoPacing` to define a chunk size and inter-chunk delay, then apply it
-through `SlowIoConfig`:
-
-Enable the feature in `Cargo.toml` when importing from the main crate:
-
-```toml
-wireframe = { version = "0.3.0", features = ["testkit"] }
-```
-
-```rust,no_run
-use std::{num::NonZeroUsize, time::Duration};
-use wireframe::{
-    app::{Envelope, WireframeApp},
-    codec::examples::HotlineFrameCodec,
-    serializer::{BincodeSerializer, Serializer},
-};
-use wireframe::testkit::{
-    SlowIoConfig, SlowIoPacing, drive_with_slow_codec_payloads,
-};
-
-let codec = HotlineFrameCodec::new(4096);
-let app = WireframeApp::new()?.with_codec(codec.clone());
-let config = SlowIoConfig::new()
-    .with_writer_pacing(SlowIoPacing::new(
-        NonZeroUsize::new(8).expect("non-zero"),
-        Duration::from_millis(5),
-    ))
-    .with_reader_pacing(SlowIoPacing::new(
-        NonZeroUsize::new(32).expect("non-zero"),
-        Duration::from_millis(5),
-    ))
-    .with_capacity(64);
-
-let request = BincodeSerializer.serialize(&Envelope::new(
-    1,
-    Some(7),
-    vec![1, 2, 3],
-))?;
-let payloads = drive_with_slow_codec_payloads(app, &codec, vec![request], config)
-    .await?;
-
-```
-
-Available slow-I/O helper functions:
-
-- `drive_with_slow_frames` — pre-framed bytes, returns raw output bytes.
-- `drive_with_slow_payloads` — default length-delimited payloads, returns raw
-  output bytes.
-- `drive_with_slow_codec_payloads` — codec-aware payloads, returns decoded
-  payload byte vectors.
-- `drive_with_slow_codec_frames` — codec-aware frames, returns decoded
-  `F::Frame` values.
-
-These helpers are designed for deterministic tests under paused Tokio time.
-Small duplex capacities should be used together with reader pacing when the
-app's outbound writes must hit back-pressure quickly.
-
-#### In-process server/client pair harness
-
-The `wireframe_testing::client_pair` module provides a harness for starting a
-real `WireframeServer` and a connected `WireframeClient` inside one test
-process. Unlike the `drive_with_*` helpers, which exercise server-side
-behaviour over in-memory `tokio::io::duplex` streams, the pair harness
-communicates over a real loopback TCP socket so compatibility assertions
-exercise the full client/server network path.
-
-Use the pair harness when a downstream crate needs to verify that its protocol
-implementation works end-to-end through a real Wireframe server. A shared
-`echo_app_factory` provides a ready-made app factory with invocation counting:
-
-```rust,no_run
-use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
-use wireframe_testing::{
-    TestResult,
-    echo_app_factory,
-    spawn_wireframe_pair,
-};
-
-async fn example() -> TestResult<()> {
-    let counter = Arc::new(AtomicUsize::new(0));
-    let mut pair = spawn_wireframe_pair(
-        echo_app_factory(&counter),
-        |builder| builder.max_frame_length(2048),
-    )
-    .await?;
-
-    // pair.client_mut()? returns &mut WireframeClient for
-    // request/response operations. Streaming responses borrow the
-    // client exclusively, keeping that constraint visible.
-    let addr = pair.local_addr();
-
-    pair.shutdown().await?;
+async fn main() -> Result<(), Box<dyn Error>> {
+    let handler: Handler<Envelope> = Arc::new(|_envelope: &Envelope| Box::pin(async {}));
+    let app: WireframeApp = WireframeApp::new()?.route(GREET, handler)?.wrap(Greeter)?;
+
+    let server = WireframeServer::from_app(app).bind("127.0.0.1:0".parse()?)?;
+    let address = server.local_addr().expect("a bound server has an address");
+    let shutdown = server.spawn().await?;
+
+    let mut client = WireframeClient::builder().connect(address).await?;
+    let greeting = Greeting {
+        name: "Wireframe".into(),
+    };
+    let request = Envelope::new(GREET, None, greeting.to_bytes()?);
+    let response: Envelope = client.call_correlated(request).await?;
+    let (reply, _) = Reply::from_bytes(response.payload_bytes())?;
+    println!("{}", reply.text);
+
+    client.close().await;
+    shutdown.stop();
+    shutdown.drained().await?;
     Ok(())
 }
 ```
 
-`spawn_wireframe_pair_default` is a convenience wrapper that connects with
-default client settings when no builder customization is needed. If the client
-connection fails, the server task is torn down automatically so no orphaned
-tasks leak into subsequent tests.
+Save it as `src/main.rs` and `cargo run` it. You should see
+`Hello, Wireframe!`. There is a fair amount going on, so here it is in order:
 
-The harness depends on the `wireframe_testing` dev-dependency crate. It does
-not require the main-crate `testkit` feature unless the test also uses
-`wireframe::testkit` helpers directly.
+1. **Messages.** `Greeting` and `Reply` are ordinary structs. Deriving bincode's
+   traits is enough for Wireframe to provide `to_bytes` and `from_bytes`.
+2. **Route.** `route(GREET, handler)` says that message ID 1 goes to this
+   handler. The ID travels beside the payload, so it is not part of either type.
+3. **Handler.** A handler receives `&Envelope` and returns a boxed future of
+   `()`. It can observe the request, but it does not produce the reply. Ours
+   does nothing.
+4. **Middleware.** `Greeter` wraps the route. It decodes the request, calls the
+   inner service, and replaces the response bytes. This is where replies come
+   from, and it is the part most people find surprising at first.
+5. **Server.** Port 0 asks the operating system for any free port. `spawn` runs
+   the server in the background and returns a handle for shutting it down.
+6. **Client.** `call_correlated` stamps a correlation identifier on the request,
+   sends it, reads the reply, and checks that the identifier came back.
 
-#### Zero-copy payload extraction
+Without `Greeter`, the program would still run: the default response repeats
+the request's payload, so an unwrapped route is an echo. That makes a good
+first experiment, and it is why the `echo` example in `examples/` is so short.
 
-For performance-critical codecs, use `Bytes` instead of `Vec<u8>` for payload
-storage and override `frame_payload_bytes` to avoid allocation:
+Next, [How Wireframe thinks](#how-wireframe-thinks) gives you the vocabulary
+for everything else.
 
-```rust
-use bytes::Bytes;
-use wireframe::codec::FrameCodec;
+## How Wireframe thinks
 
-pub struct MyFrame {
-    pub metadata: u32,
-    pub payload: Bytes,  // Use Bytes, not Vec<u8>
-}
+Wireframe uses a separate word for what you are holding at each layer, and
+these words are used consistently in the API and in this guide. Table 3 defines
+them.
 
-impl FrameCodec for MyCodec {
-    type Frame = MyFrame;
-    // ... other associated types ...
+| Layer                 | Term     | Meaning                                                                               |
+| --------------------- | -------- | ------------------------------------------------------------------------------------- |
+| Transport             | Frame    | The unit on the wire, produced and consumed by a `FrameCodec`.                        |
+| Routing               | Envelope | A wrapper carrying a message ID, an optional correlation ID, and payload bytes.       |
+| Domain                | Message  | The typed value you encode into, and decode from, payload bytes.                      |
+| Transport subdivision | Fragment | A bounded slice of a large payload, plus the metadata needed to put it back together. |
 
-    fn frame_payload(frame: &Self::Frame) -> &[u8] {
-        &frame.payload
-    }
+_Table 3: The four layers and their terms._
 
-    fn frame_payload_bytes(frame: &Self::Frame) -> Bytes {
-        frame.payload.clone()  // Cheap: atomic reference count increment
-    }
+`Packet` is the trait an envelope implements, and `Envelope` is the type
+bundled with Wireframe. You can bring your own.
 
-    fn wrap_payload(&self, payload: Bytes) -> Self::Frame {
-        MyFrame {
-            metadata: 0,
-            payload,  // Store directly, no copy
-        }
-    }
+For screen readers: the following flowchart shows an inbound frame passing
+through decoding, envelope deserialization, reassembly, and routing into
+middleware and the handler, and the reply passing back out through
+serialization and encoding.
 
-    // ... other methods ...
-}
+<!-- tested-example: guide-request-journey -->
+
+```mermaid
+flowchart LR
+    Socket([Socket]) --> Decode[Codec decode]
+    Decode --> Envelope[Deserialize envelope]
+    Envelope --> Reassemble[Reassemble fragments]
+    Reassemble --> Assemble[Assemble message]
+    Assemble --> Route{Route by ID}
+    Route --> Middleware[Middleware]
+    Middleware --> Handler[Handler]
+    Handler --> Middleware
+    Middleware --> Fragment[Fragment]
+    Fragment --> Serialize[Serialize]
+    Serialize --> Wrap[Codec wrap]
+    Wrap --> Hook[before_send]
+    Hook --> Encode[Codec encode]
+    Encode --> Socket
 ```
 
-In the decoder, use `BytesMut::freeze()` instead of `.to_vec()`:
+_Figure 1: One request's journey through a Wireframe connection._
+
+Three facts follow from this, and they explain most of the API:
+
+- **Handlers observe, and middleware answers.** A handler's signature returns
+  `()`, and its future cannot borrow the envelope, so copy out what you need
+  before the `async` block. Every routed request sends exactly one response,
+  even if it is empty.
+- **The order is fixed.** Reassembly happens before routing, so handlers only
+  ever see whole messages. On the way out, fragmentation happens before
+  serialization, so each fragment is its own frame.
+- **An application is immutable once it runs.** You configure a `WireframeApp`
+  builder, and the server prepares it once and shares the result among all
+  connections.
+
+### Where to import things from
+
+The crate root is deliberately small: `Result`, `WireframeError`, and
+`NoProtocolError`. Other items live in a module named for their domain, such as
+`wireframe::app` or `wireframe::client`. For convenience,
+`wireframe::prelude::*` gathers the most common ones.
+
+## Routes and envelopes
+
+### Registering routes
+
+`route` maps a message ID to a handler, and returns an error if the ID is
+already taken, which keeps the dispatch table unambiguous:
+
+<!-- tested-example: guide-routes -->
 
 ```rust
-use bytes::BytesMut;
-use tokio_util::codec::Decoder;
+use std::sync::Arc;
 
-fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-    // ... parse header ...
-    let payload = src.split_to(payload_len).freeze();  // Zero-copy
-    Ok(Some(MyFrame { metadata, payload }))
-}
-```
-
-The default `frame_payload_bytes` implementation copies from the
-`frame_payload()` slice, ensuring backward compatibility for codecs that use
-`Vec<u8>` payloads.
-
-### Codec error handling
-
-The codec layer provides a structured error taxonomy via `CodecError` that
-enables recovery policies, structured logging, and proper EOF handling.
-
-**Error categories:**
-
-- `FramingError` - Wire-level frame boundary issues (oversized frames, invalid
-  length encoding, incomplete headers, checksum mismatches, empty frames).
-- `ProtocolError` - Semantic violations after frame extraction (unknown message
-  types, invalid versions).
-- `io::Error` - Transport layer failures (connection resets, timeouts).
-- `EofError` - End-of-stream conditions with clean/mid-frame/mid-header
-  variants.
-
-**Recovery policies:**
-
-Each error type has a default recovery policy:
-
-| Error Type                     | Default Policy |
-| ------------------------------ | -------------- |
-| `FramingError::OversizedFrame` | Drop           |
-| `FramingError::EmptyFrame`     | Drop           |
-| Other `FramingError`           | Disconnect     |
-| All `ProtocolError`            | Drop           |
-| All `io::Error`                | Disconnect     |
-| `EofError::CleanClose`         | Disconnect     |
-| Other `EofError`               | Disconnect     |
-
-Override recovery policies with a custom `RecoveryPolicyHook`:
-
-```rust
-use wireframe::codec::{
-    CodecError, CodecErrorContext, RecoveryPolicy, RecoveryPolicyHook,
-};
-
-struct StrictRecovery;
-
-impl RecoveryPolicyHook for StrictRecovery {
-    fn recovery_policy(&self, _error: &CodecError, _ctx: &CodecErrorContext) -> RecoveryPolicy {
-        // Disconnect on any codec error
-        RecoveryPolicy::Disconnect
-    }
-}
-```
-
-`CodecErrorContext` provides connection metadata for policy decisions:
-
-```rust
-use wireframe::codec::CodecErrorContext;
-
-let ctx = CodecErrorContext::new()
-    .with_connection_id(42)
-    .with_correlation_id(123)
-    .with_codec_state("seq=5");
-```
-
-**Protocol hooks for EOF:**
-
-The `WireframeProtocol` trait includes an `on_eof` hook for handling EOF
-conditions during frame decoding:
-
-```rust,ignore
 use wireframe::{
-    codec::EofError,
-    hooks::{ConnectionContext, WireframeProtocol},
+    WireframeError,
+    app::{Envelope, Handler, Packet, WireframeApp},
 };
 
-impl WireframeProtocol for MyProtocol {
-    type Frame = Vec<u8>;
-    type ProtocolError = String;
+const LOGIN: u32 = 1;
+const TELEMETRY: u32 = 2;
 
-    fn on_eof(&self, error: &EofError, partial_data: &[u8], _ctx: &mut ConnectionContext) {
-        match error {
-            EofError::CleanClose => tracing::info!("connection closed cleanly"),
-            EofError::MidFrame { bytes_received, expected } => {
-                tracing::warn!(
-                    received = bytes_received,
-                    expected = expected,
-                    partial_len = partial_data.len(),
-                    "connection closed mid-frame"
-                );
-            }
-            EofError::MidHeader { bytes_received, header_size } => {
-                tracing::warn!(
-                    received = bytes_received,
-                    header_size = header_size,
-                    "connection closed mid-header"
-                );
-            }
+fn handler(name: &'static str) -> Handler<Envelope> {
+    Arc::new(move |envelope: &Envelope| {
+        // The returned future is 'static, so copy what it needs out of the borrow.
+        let id = envelope.id();
+        Box::pin(async move { println!("{name} handled message {id}") })
+    })
+}
+
+fn main() -> wireframe::Result<()> {
+    let app: WireframeApp = WireframeApp::new()?
+        .route(LOGIN, handler("login"))?
+        .route(TELEMETRY, handler("telemetry"))?;
+
+    let refused = app.route(LOGIN, handler("impostor"));
+    assert!(matches!(refused, Err(WireframeError::DuplicateRoute(LOGIN))));
+    Ok(())
+}
+```
+
+A frame with no matching route is logged and dropped without a response. A
+frame that fails to decode counts towards a failure limit: a connection closes
+after ten failures with no successfully dispatched message in between.
+
+### Custom envelopes
+
+If your protocol already has a packet format, implement `Packet` (and
+`CorrelatableFrame`, which it requires) on your own type. Name the type in the
+application's parameters, and the rest of the stack carries it through:
+
+<!-- tested-example: guide-custom-envelope -->
+
+```rust
+use std::sync::Arc;
+
+use wireframe::{
+    app::{Handler, Packet, PacketParts, WireframeApp},
+    correlation::CorrelatableFrame,
+    serializer::BincodeSerializer,
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct Stroke {
+    opcode: u16,
+    tag: Option<u64>,
+    payload: Vec<u8>,
+}
+
+impl CorrelatableFrame for Stroke {
+    fn correlation_id(&self) -> Option<u64> { self.tag }
+
+    fn set_correlation_id(&mut self, tag: Option<u64>) { self.tag = tag; }
+}
+
+impl Packet for Stroke {
+    fn id(&self) -> u32 { u32::from(self.opcode) }
+
+    fn into_parts(self) -> PacketParts {
+        PacketParts::new(u32::from(self.opcode), self.tag, self.payload)
+    }
+
+    fn from_parts(parts: PacketParts) -> Self {
+        Self {
+            opcode: u16::try_from(parts.id()).unwrap_or(u16::MAX),
+            tag: parts.correlation_id(),
+            payload: parts.into_payload(),
         }
+    }
+}
+
+type StrokeApp = WireframeApp<BincodeSerializer, (), Stroke>;
+
+fn main() -> wireframe::Result<()> {
+    let draw: Handler<Stroke> = Arc::new(|stroke: &Stroke| {
+        let opcode = stroke.opcode;
+        Box::pin(async move { println!("drawing opcode {opcode}") })
+    });
+    let _app = StrokeApp::new()?.route(107, draw)?;
+    Ok(())
+}
+```
+
+### Correlation identifiers
+
+A correlation identifier ties a response to its request. `None` means the frame
+is not part of an exchange, such as an unsolicited event, so prefer `None` to
+`Some(0)` when there is no identifier. `PacketParts::inherit_correlation` fills
+in a missing identifier from the request and logs a mismatch, which is how a
+reply keeps the right identifier even if middleware forgets about it.
+
+## Middleware
+
+Middleware is how you read typed requests and write typed replies, and it is
+also the place for concerns that span routes, such as counting or
+authentication.
+
+### Writing a `Transform`
+
+`wrap` accepts a `Transform` whose output is a `HandlerService`. Two types do
+the work: the `Transform` runs once when the application is prepared, and wraps
+each route's service in your `Service`, which then runs for every request:
+
+<!-- tested-example: guide-middleware-transform -->
+
+```rust
+use std::{
+    convert::Infallible,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
+
+use async_trait::async_trait;
+use wireframe::{
+    app::{Envelope, Handler, Packet, WireframeApp},
+    middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
+};
+
+/// Counts every request that passes through, on any route.
+struct Tally {
+    tallied: Arc<AtomicUsize>,
+}
+
+struct TallyService<S> {
+    inner: S,
+    tallied: Arc<AtomicUsize>,
+}
+
+#[async_trait]
+impl<S> Service for TallyService<S>
+where
+    S: Service<Error = Infallible> + Send + Sync + 'static,
+{
+    type Error = Infallible;
+
+    async fn call(&self, request: ServiceRequest) -> Result<ServiceResponse, Infallible> {
+        self.tallied.fetch_add(1, Ordering::Relaxed);
+        self.inner.call(request).await
+    }
+}
+
+#[async_trait]
+impl<E: Packet> Transform<HandlerService<E>> for Tally {
+    type Output = HandlerService<E>;
+
+    async fn transform(&self, service: HandlerService<E>) -> Self::Output {
+        let id = service.id();
+        let tallied = Arc::clone(&self.tallied);
+        HandlerService::from_service(
+            id,
+            TallyService {
+                inner: service,
+                tallied,
+            },
+        )
+    }
+}
+
+fn main() -> wireframe::Result<()> {
+    let tallied = Arc::new(AtomicUsize::new(0));
+    let handler: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
+    let _app: WireframeApp = WireframeApp::new()?
+        .route(1, handler)?
+        .wrap(Tally { tallied })?;
+    Ok(())
+}
+```
+
+Each middleware layer wraps the application's routes, and the first `wrap` call
+ends up outermost, so it sees the request first and the response last. To
+reply, call the inner service and then replace `response.frame_mut()`, as
+[the first server](#your-first-server) does. A service can edit the incoming
+bytes through `request.frame_mut()` too. `ServiceRequest` and `ServiceResponse`
+also expose the correlation identifier.
+
+### What `from_fn` is for
+
+`middleware::from_fn` turns an async function into a `Transform`, which is
+handy for composing services of your own and for testing. However, it produces
+a different service type from the `HandlerService` that `wrap` requires, so
+**it cannot be passed to `WireframeApp::wrap`**. For routed middleware, write a
+`Transform` as above.
+
+<!-- tested-example: guide-middleware-from-fn -->
+
+```rust
+use std::convert::Infallible;
+
+use wireframe::{
+    app::Envelope,
+    message::Message,
+    middleware::{HandlerService, Next, ServiceRequest, ServiceResponse, from_fn},
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct Ping(u8);
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct Pong(u8);
+
+async fn decode_and_respond(
+    request: ServiceRequest,
+    next: Next<'_, HandlerService<Envelope>>,
+) -> Result<ServiceResponse, Infallible> {
+    let ping = Ping::from_bytes(request.frame()).map(|(message, _)| message).ok();
+    let mut response = next.call(request).await?;
+
+    if let Some(Ping(value)) = ping {
+        *response.frame_mut() = Pong(value.wrapping_add(1)).to_bytes().expect("encode Pong");
+    }
+    Ok(response)
+}
+
+let _middleware = from_fn(decode_and_respond);
+```
+
+### Versioning a message
+
+Middleware is also a tidy way to retire an old message format without breaking
+its clients. Accept versions N and N-1 on the way in, rewrite the older one so
+that handlers only ever see the current schema, send only version N out, and
+count legacy traffic so that you know when it is safe to remove the adapter:
+
+<!-- tested-example: guide-middleware-versions -->
+
+```rust
+use std::convert::Infallible;
+
+use async_trait::async_trait;
+use wireframe::{
+    app::Envelope,
+    message::Message,
+    middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct PointV1 {
+    id: u64,
+    name: String,
+}
+
+/// Version 2 adds a field, so a version 1 payload is too short to decode as this.
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct PointV2 {
+    id: u64,
+    display_name: String,
+    intensity: u32,
+}
+
+struct UpgradePoints;
+
+struct UpgradeService<S> {
+    inner: S,
+}
+
+#[async_trait]
+impl<S> Service for UpgradeService<S>
+where
+    S: Service<Error = Infallible> + Send + Sync + 'static,
+{
+    type Error = Infallible;
+
+    async fn call(&self, mut request: ServiceRequest) -> Result<ServiceResponse, Infallible> {
+        if PointV2::from_bytes(request.frame()).is_err()
+            && let Ok((v1, _)) = PointV1::from_bytes(request.frame())
+        {
+            let v2 = PointV2 {
+                id: v1.id,
+                display_name: v1.name,
+                intensity: 0,
+            };
+            *request.frame_mut() = v2.to_bytes().expect("encode PointV2");
+        }
+        self.inner.call(request).await
+    }
+}
+
+#[async_trait]
+impl Transform<HandlerService<Envelope>> for UpgradePoints {
+    type Output = HandlerService<Envelope>;
+
+    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
+        let id = service.id();
+        HandlerService::from_service(id, UpgradeService { inner: service })
     }
 }
 ```
 
-**Metrics:**
-
-When the `metrics` feature is enabled, codec errors increment the
-`wireframe_codec_errors_total` counter with `error_type` and `recovery_policy`
-labels:
-
-```text
-wireframe_codec_errors_total{error_type="framing",recovery_policy="drop"} 5
-wireframe_codec_errors_total{error_type="eof",recovery_policy="disconnect"} 2
-```
+Note the order of the checks. Bincode happily decodes a prefix, so trying the
+older format first could misread a newer message.
 
 ## Packets, payloads, and serialization
 
-A [serializer-output migration plan][serializer-output-plan] proposes
-`PayloadBytes` for a future breaking release. It is not implemented: current
-serializer implementations still return `Vec<u8>`. The planned finite
-conversion helpers preserve vector-based encoding algorithms while requiring an
-explicit return-type change. Decode APIs and client hook signatures remain
-unchanged in that migration.
+A serializer converts envelopes to and from bytes. `WireframeApp` uses
+`BincodeSerializer` by default. To use another, install it with
+`.serializer(s)` on the builder, or start from
+`WireframeApp::with_serializer(s)`.
 
-Packets drive routing. Implement the `Packet` trait (or use the bundled
-`Envelope`) to expose a message identifier, optional correlation id, and raw
-payload. `PacketParts` rebuilds packets after middleware has finished editing
-frames, and `inherit_correlation` patches mismatched response identifiers while
-logging the discrepancy.[^8] Serializers plug into the `Serializer` trait;
-`WireframeApp` defaults to `BincodeSerializer` but can run any implementation
-that meets the trait bounds.[^4]
+Message types use the adapter traits `EncodeWith<S>` and `DecodeWith<S>`. Any
+type deriving bincode's traits implements `Message`, which provides `to_bytes`
+and `from_bytes`, and this is usually all you need. For Serde types, enable the
+`serializer-serde` feature, wrap values in `SerdeMessage<T>` (or call
+`into_serde_message()`), and implement `SerdeSerializerBridge` on your
+serializer.
 
-When `FrameMetadata::parse` succeeds, the framework extracts identifiers from
-metadata without deserializing the payload. If parsing fails, it falls back to
-full deserialization.[^9][^6] Serializer integration now uses adapter traits:
-`EncodeWith<S>` for encoding and `DecodeWith<S>` for decoding. Existing bincode
-message types remain compatible through `Message`, which still provides
-`to_bytes` and `from_bytes` helpers.[^10]
+A few details matter if you write your own serializer:
 
-The bundled bincode decoders, including the optional `serializer-serde` bridge,
-apply a fixed `MAX_FRAME_LENGTH` decode limit of 16 MiB. This bounds bincode's
-accounted decoding and allocation work for peer-provided container lengths; it
-is not a runtime frame-size limit. A lower configured frame limit still
-controls accepted frame sizes, while reassembled messages use the same 16 MiB
-decode limit even when their configured reassembly limit is larger. Encoding is
-unchanged. Inbound `Envelope` frames must contain exactly one decoded value;
-trailing bytes are rejected. Metadata prefix parsing may still leave payload
-bytes for full deserialization.
+- Implement `MessageCompatibilitySerializer` if it should accept `Message`
+  payloads.
+- `Serializer` is not object-safe, so `dyn Serializer` is unavailable. If you
+  need runtime polymorphism, wrap concrete serializers in your own adapter.
+- Implement `Serializer::deserialize_with_context` to inspect metadata through
+  `DeserializeContext`.
+- `FrameMetadata::parse` can extract routing information cheaply. After a
+  successful parse the framework still fully deserializes, unless
+  `should_deserialize_after_parse` returns `false`. If parsing fails, it falls
+  back to full deserialization, except when a decode limit was exceeded.
+  `BincodeSerializer::parse` itself performs a full decode.
 
-The allocation limit relies on bincode's resource accounting and is not a
-general allocator quota for every container layout or custom decoder. Protocols
-with additional resource requirements need their own validation before
-processing peer input.
+### Limits on what a peer can make you decode
 
-### Migration from `Message`-only bounds
+The bundled bincode decoders apply a fixed 16 MiB limit (`MAX_FRAME_LENGTH`) to
+peer-provided container lengths. This bounds the work and allocation a declared
+length can cause. It is separate from your configured frame size, which still
+decides which frames are accepted. Reassembled messages use the same 16 MiB
+limit, even if their configured size limit is larger.
 
-If existing code previously relied on `M: Message` for client/server API calls,
-no change is required for bincode-compatible types.
+An inbound `Envelope` frame must contain exactly one value, so trailing bytes
+are a decoding error. The limit relies on bincode's accounting, and is not a
+general allocator quota, so protocols with further resource needs should
+validate peer input themselves.
 
-- Existing `#[derive(bincode::Encode, bincode::BorrowDecode)]` payloads still
-  work in `send`, `receive`, `call`, and `send_response`.
-- Serializer implementations should update method signatures to use
-  `EncodeWith<Self>` and `DecodeWith<Self>` bounds.
-- Custom serializers that rely on legacy `Message`-derived payload encoding
-  should also implement `wireframe::serializer::MessageCompatibilitySerializer`.
-- Metadata-aware serializers can implement
-  `Serializer::deserialize_with_context` to inspect `DeserializeContext`.
-- `Serializer` is not object-safe (`Self: Sized` on serializer entry points), so
-  using `dyn Serializer` directly is unsupported unless concrete wrappers are
-  provided. For migration, keep concrete serializer types in `EncodeWith` /
-  `DecodeWith` bounds, retain
-  `wireframe::serializer::MessageCompatibilitySerializer` for legacy
-  `Message`-based payloads, and use `SerdeMessage` with `SerdeSerializerBridge`
-  for Serde-only payloads. When runtime-polymorphic serializer behaviour is
-  required, wrap concrete serializer implementations in adapter wrappers that
-  expose object-safe APIs and delegate to
-  `Serializer::deserialize_with_context` as needed.
+## Custom frame codecs
 
-Optional Serde bridge support is available behind the feature
-`serializer-serde`. Wrap values with `SerdeMessage<T>` (or
-`into_serde_message()`) and implement `SerdeSerializerBridge` on the serializer
-to reduce per-type adapter boilerplate. This explicit wrapper is required
-because blanket Serde adapters would overlap with the default `T: Message`
-adapter implementations.
+The default codec is a 4-byte big-endian length prefix, with a 1024-byte
+maximum frame. To change the limit, use `buffer_capacity`; to change the
+format, implement `FrameCodec`.
 
-### Fragmentation metadata
+Changing either clears anything derived from the old framing. `buffer_capacity`
+and `with_codec` both clear the fragmentation configuration, and `with_codec`
+also removes hooks installed with `with_protocol`. Call `with_codec` first,
+then configure fragmentation and protocol hooks.
 
-`wireframe::fragment` exposes small, copy-friendly structs to describe the
-transport-level fragmentation state.[^41]
+### Writing a `FrameCodec`
 
-- `MessageId` uniquely identifies the logical message a fragment belongs to.
-- `FragmentIndex` records the fragment's zero-based order.
-- `FragmentHeader` bundles the identifier, index, and a boolean that signals
-  whether the fragment is the last one in the sequence.
-- `FragmentSeries` tracks the next expected fragment index and reports
-  mismatches via structured errors.
+A codec supplies a frame type and a Tokio decoder and encoder. This one uses
+two bytes of length and four bytes of tag:
 
-Protocol implementers can emit a `FragmentHeader` for every physical frame and
-feed the header back into `FragmentSeries` to guarantee ordering before a fully
-reassembled message is surfaced to handlers. Behavioural tests can reuse the
-same types to assert that new codecs obey the transport invariants without
-spinning up a full server.[^42][^43]
+<!-- tested-example: guide-frame-codec -->
 
-The standalone `Fragmenter` helper now slices oversized payloads into capped
-fragments while stamping the shared `MessageId` and sequential `FragmentIndex`.
-Each call returns a `FragmentBatch` that reports whether the message required
-fragmentation and yields individual `FragmentFrame` values for serialization or
-logging. This keeps transport experiments lightweight while the full adapter
-layer evolves. The helper is fallible—`FragmentationError` surfaces encoding
-failures or index overflows—so production code should bubble the error up or
-log it rather than unwrapping.
+```rust
+use std::{io, sync::Arc};
 
-`FragmentBatch::is_empty()` is available alongside `len()` for collection-style
-checks. `Fragmenter` always returns a non-empty batch: an empty input has one
-final fragment with an empty payload. Fragment metadata constructors and
-accessors are `const`, and const function bodies can call the accessors on
-`FragmentFrame`, `FragmentParts`, and `ReassembledMessage`. Those types own
-`Vec<u8>` values, so their accessors cannot generally be evaluated from const
-items. `FragmentBatch` is also produced at runtime, though its accessors are
-const-callable from functions that receive a batch reference.
+use bytes::{Buf, BufMut, Bytes, BytesMut};
+use tokio_util::codec::{Decoder, Encoder};
+use wireframe::{
+    app::{Envelope, Handler, WireframeApp},
+    codec::FrameCodec,
+    serializer::BincodeSerializer,
+};
 
-```no_run
-use std::num::NonZeroUsize;
-use wireframe::fragment::Fragmenter;
+const HEADER_LEN: usize = 6;
 
-let fragmenter = Fragmenter::new(NonZeroUsize::new(512).unwrap());
-let payload = [0_u8; 1400];
-let batch = fragmenter.fragment_bytes(&payload).expect("fragment");
-assert_eq!(batch.len(), 3);
+#[derive(Debug, Clone)]
+struct TaggedFrame {
+    tag: u32,
+    payload: Bytes,
+}
 
-for fragment in batch.fragments() {
-    tracing::info!(
-        msg_id = fragment.header().message_id().get(),
-        index = fragment.header().fragment_index().get(),
-        final = fragment.header().is_last_fragment(),
-        payload_len = fragment.payload().len(),
-    );
+#[derive(Clone)]
+struct TagCodec {
+    max_frame_length: usize,
+}
+
+struct TagDecoder {
+    max_frame_length: usize,
+}
+
+impl Decoder for TagDecoder {
+    type Item = TaggedFrame;
+    type Error = io::Error;
+
+    fn decode(&mut self, src: &mut BytesMut) -> io::Result<Option<TaggedFrame>> {
+        if src.len() < HEADER_LEN {
+            return Ok(None);
+        }
+        let len = usize::from(u16::from_be_bytes([src[0], src[1]]));
+        // Your decoder is what enforces the frame limit.
+        if len > self.max_frame_length {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "frame too large"));
+        }
+        if src.len() < HEADER_LEN + len {
+            src.reserve(HEADER_LEN + len - src.len());
+            return Ok(None);
+        }
+        src.advance(2);
+        let tag = src.get_u32();
+        let payload = src.split_to(len).freeze();
+        Ok(Some(TaggedFrame { tag, payload }))
+    }
+}
+
+struct TagEncoder;
+
+impl Encoder<TaggedFrame> for TagEncoder {
+    type Error = io::Error;
+
+    fn encode(&mut self, frame: TaggedFrame, dst: &mut BytesMut) -> io::Result<()> {
+        let len = u16::try_from(frame.payload.len())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "payload too large"))?;
+        dst.reserve(HEADER_LEN + frame.payload.len());
+        dst.put_u16(len);
+        dst.put_u32(frame.tag);
+        dst.extend_from_slice(&frame.payload);
+        Ok(())
+    }
+}
+
+impl FrameCodec for TagCodec {
+    type Frame = TaggedFrame;
+    type Decoder = TagDecoder;
+    type Encoder = TagEncoder;
+
+    fn decoder(&self) -> TagDecoder {
+        TagDecoder {
+            max_frame_length: self.max_frame_length,
+        }
+    }
+
+    fn encoder(&self) -> TagEncoder { TagEncoder }
+
+    fn frame_payload(frame: &TaggedFrame) -> &[u8] { &frame.payload }
+
+    fn frame_payload_bytes(frame: &TaggedFrame) -> Bytes { frame.payload.clone() }
+
+    fn wrap_payload(&self, payload: Bytes) -> TaggedFrame { TaggedFrame { tag: 0, payload } }
+
+    fn correlation_id(frame: &TaggedFrame) -> Option<u64> { Some(u64::from(frame.tag)) }
+
+    fn max_frame_length(&self) -> usize { self.max_frame_length }
+}
+
+fn main() -> wireframe::Result<()> {
+    let codec = TagCodec {
+        max_frame_length: 4096,
+    };
+    let echo: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
+    let app: WireframeApp<_, _, Envelope, TagCodec> = WireframeApp::<BincodeSerializer>::new()?
+        .with_codec(codec)
+        .route(1, echo)?;
+    assert_eq!(app.codec().max_frame_length(), 4096);
+    Ok(())
 }
 ```
 
-A companion `Reassembler` mirrors the helper on the inbound path. It buffers
-fragments per `MessageId`, rejects out-of-order fragments, and enforces a
-maximum assembled size while exposing `purge_expired` to clear stale partial
-messages after a configurable timeout. When the final fragment arrives, it
-returns a `ReassembledMessage` that can be decoded into the original type.
+When you write a codec, keep these rules in mind:
+
+- `frame_payload` returns only the logical payload, without protocol headers.
+- `wrap_payload` adds any headers the wire format needs.
+- `correlation_id` is for protocols that store it outside the payload. Wireframe
+  uses it only when the deserialized envelope lacks an identifier.
+- `max_frame_length` sizes buffers and derives budgets and fragmentation
+  defaults, but **your decoder must enforce the limit**.
+- Wireframe clones the codec per connection, so make sure `Clone` produces
+  independent state if the codec holds any, such as sequence counters.
+
+See `examples/hotline_codec.rs`, `examples/mysql_codec.rs`, and
+`examples/resp_codec.rs` for real protocols. The Hotline and MySQL codecs are
+also available from `wireframe::codec::examples`.
+
+### Zero-copy payloads
+
+Storing the payload as `Bytes`, as `TaggedFrame` does, and overriding
+`frame_payload_bytes` avoids copying it. The clone only increments a reference
+count. In the decoder, use `BytesMut::split_to(...).freeze()` rather than
+`.to_vec()`. The default `frame_payload_bytes` copies from the `frame_payload`
+slice, so codecs using `Vec<u8>` keep working.
+
+### Codec errors
+
+`CodecError` classifies failures as `Framing`, `Protocol`, `Io`, or `Eof`, the
+last of which distinguishes a clean close from a close in the middle of a frame
+or header. Today **any decoder error closes the connection**. See
+[recovery policies](#codec-recovery-policies) for the classification that is
+available for your own use.
+
+## Connection preambles
+
+Some protocols begin with a handshake before any frames, such as a magic number
+and version. The server reads and decodes a preamble first, then hands anything
+left over to the codec:
+
+<!-- tested-example: guide-server-preamble -->
+
+```rust
+use std::time::Duration;
+
+use futures::FutureExt;
+use tokio::io::AsyncWriteExt;
+use wireframe::{app::WireframeApp, client::WireframeClient, server::WireframeServer};
+
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug, Clone, PartialEq)]
+struct Hello {
+    magic: [u8; 4],
+    version: u16,
+}
+
+const MAGIC: [u8; 4] = *b"WIRE";
+
+fn build_app() -> WireframeApp {
+    WireframeApp::default()
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = WireframeServer::new(build_app)
+        .with_preamble::<Hello>()
+        .preamble_timeout(Duration::from_secs(2))
+        .on_preamble_decode_success(|hello: &Hello, stream| {
+            let accepted = hello.magic == MAGIC;
+            async move {
+                stream.write_all(&[u8::from(accepted)]).await?;
+                if accepted {
+                    Ok(())
+                } else {
+                    // An error here closes the connection, so write first.
+                    Err(std::io::Error::other("unknown protocol"))
+                }
+            }
+            .boxed()
+        })
+        .bind("127.0.0.1:0".parse()?)?;
+    let address = server.local_addr().expect("a bound server has an address");
+    let shutdown = server.spawn().await?;
+
+    let client = WireframeClient::builder()
+        .with_preamble(Hello {
+            magic: MAGIC,
+            version: 3,
+        })
+        .connect(address)
+        .await?;
+    client.close().await;
+
+    shutdown.stop();
+    shutdown.drained().await?;
+    Ok(())
+}
+```
+
+Keep these in mind:
+
+- **Call `with_preamble` first**, because it clears any hooks registered
+  earlier.
+- **A success handler that returns an error closes the connection.** The server
+  writes nothing on your behalf, so send any rejection message before returning.
+- **`on_preamble_decode_failure`** receives decode errors and timeouts, along
+  with the stream, so that you can reply or log before the connection closes.
+- **There is always a deadline.** The read is bounded by
+  `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) by default. `preamble_timeout`
+  replaces that, and `disable_preamble_timeout` removes it. `Duration::ZERO`
+  clamps to 1 ms. The deadline covers only the read.
+- **Even without `with_preamble`**, the server reads a first byte under this
+  deadline before it runs your application. This means the server never speaks
+  first, and a client that waits silently will be disconnected.
+- **Preambles are small.** Decoding is limited to 1 KiB.
+
+The [preamble validator guide](preamble-validator.md) goes further, and
+[Client preamble exchange](#client-preamble-exchange) covers the other end.
+
+## Connection lifecycle and state
+
+### Setup and teardown
+
+`on_connection_setup` runs once per connection and produces state, and
+`on_connection_teardown` receives that state when the stream finishes. Setting
+up changes the application's state type, and it resets any teardown hook, so
+register setup first:
+
+<!-- tested-example: guide-lifecycle-hooks -->
+
+```rust
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+
+use wireframe::{
+    app::{Envelope, WireframeApp},
+    serializer::BincodeSerializer,
+};
+
+struct Link {
+    connected_at: std::time::Instant,
+}
+
+type LinkApp = WireframeApp<BincodeSerializer, Link, Envelope>;
+
+fn build_app(closed: Arc<AtomicUsize>) -> wireframe::Result<LinkApp> {
+    let app: WireframeApp = WireframeApp::new()?;
+    app.on_connection_setup(|| async {
+        Link {
+            connected_at: std::time::Instant::now(),
+        }
+    })?
+    .on_connection_teardown(move |link: Link| {
+        let closed = Arc::clone(&closed);
+        async move {
+            println!("connection lasted {:?}", link.connected_at.elapsed());
+            closed.fetch_add(1, Ordering::Relaxed);
+        }
+    })
+}
+
+fn main() -> wireframe::Result<()> {
+    let _app = build_app(Arc::new(AtomicUsize::new(0)))?;
+    Ok(())
+}
+```
+
+Teardown runs exactly once when both hooks are registered and setup has
+produced state, whether the connection ended cleanly or with a decode,
+protocol, or transport error. It does not run if a hook is absent, or on a task
+panic or cancellation.
+
+### Sharing state with handlers
+
+Setup state reaches teardown, but it is **not passed to handlers or
+middleware**. To share state with a handler, capture it when you build the
+closure, as `Tally` does with its counter. `app_data` stores values for the
+extractor building blocks, which the connection runtime does not read yet; see
+[Extractors](#extractors).
+
+### Writing a response directly
+
+`send_response` writes one encoded message to a stream, using the application's
+serializer and a length-delimited frame. It lives on the `WireframeApp` builder
+rather than on `PreparedApp`, so it is for code that manages its own stream,
+not for handlers:
+
+<!-- tested-example: guide-send-response -->
+
+```rust
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use wireframe::{
+    app::{SendError, WireframeApp},
+    message::Message,
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
+struct Ready {
+    status: u8,
+}
+
+const LENGTH_PREFIX: usize = 4;
+
+#[tokio::main]
+async fn main() -> Result<(), SendError> {
+    let app: WireframeApp = WireframeApp::default();
+    let (mut client, mut server) = io::duplex(64);
+
+    let ready = Ready { status: 1 };
+    app.send_response(&mut server, &ready).await?;
+    server.shutdown().await?;
+
+    let mut buffer = Vec::new();
+    client.read_to_end(&mut buffer).await?;
+    let frame = buffer.get(LENGTH_PREFIX..).expect("a length-prefixed frame");
+    let (decoded, _) = Ready::from_bytes(frame).expect("decode Ready");
+    assert_eq!(decoded, ready);
+    Ok(())
+}
+```
+
+`send_response_framed` writes raw bytes to an existing `Framed` stream, and
+`send_response_framed_with_codec` does so through `FrameCodec::wrap_payload`.
+All three report failures through `SendError`, and all three bypass
+`before_send`. The `Display` output of each variant begins with a stable prefix
+you may match on: `serialization error:`, `I/O error:`, or `codec error:`. The
+text after the prefix is not part of that contract.
+
+### Driving accepted streams yourself
+
+If you accept streams yourself rather than using `WireframeServer`, prepare the
+application once and reuse it. Preparation consumes the builder and builds each
+route's middleware chain a single time, so you must register everything first:
+
+<!-- tested-example: guide-prepared-app -->
+
+```rust
+use tokio::io::duplex;
+use wireframe::app::{PreparedApp, WireframeApp};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
+    let (client, server) = duplex(64);
+    drop(client);
+    prepared.handle_connection_result(server).await?;
+    Ok(())
+}
+```
+
+`handle_connection_result` returns stream and handler I/O errors, and
+`handle_connection` logs them instead. The older
+`WireframeApp::handle_connection` methods are deprecated because they rebuild
+the chains for every connection.
+
+## Large messages
+
+Wireframe has two separate mechanisms, and they are easy to confuse:
+
+- **Fragmentation** is transport-level. Wireframe splits an envelope that will
+  not fit in a frame, using its own `FRAG` format, and rejoins it at the other
+  end. Both ends need to be Wireframe servers or to speak that format.
+- **Message assembly** is protocol-level. Your protocol already defines first
+  and continuation frames, and you teach Wireframe to parse them.
+
+### Fragmentation
+
+Fragmentation is off by default. Turn it on with `enable_fragmentation()`,
+which derives limits from the frame budget, or supply a `FragmentationConfig`:
+
+<!-- tested-example: guide-fragmentation-config -->
+
+```rust
+use std::{num::NonZeroUsize, sync::Arc, time::Duration};
+
+use wireframe::{
+    app::{Envelope, Handler, WireframeApp},
+    fragment::FragmentationConfig,
+};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = FragmentationConfig::for_frame_budget(
+        1024,
+        NonZeroUsize::new(16 * 1024).expect("non-zero"),
+        Duration::from_secs(30),
+    )
+    .expect("the frame budget has room for fragments");
+
+    let handler: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
+    let _app: WireframeApp = WireframeApp::new()?
+        .fragmentation(Some(config))
+        .route(42, handler)?;
+    Ok(())
+}
+```
+
+Payloads larger than `fragment_payload_cap` (the frame budget less some
+overhead) are split into fragments, and handlers only ever see the complete
+message. Four limits protect the reassembling side:
+
+- `max_message_size` caps the reassembled payload. Exceeding it counts as a
+  deserialization failure.
+- `reassembly_timeout` evicts stale partial messages.
+- `max_concurrent_partials` limits incomplete messages per connection.
+- `max_buffered_bytes` caps their total size.
+
+Exceeding either of the last two closes the connection immediately.
+`for_frame_budget` sets them to `min(frame_budget, 64)` partial messages and
+the larger of `frame_budget × 64` and `max_message_size` bytes. Call
+`fragmentation(None)` to disable fragmentation again, for example when a
+gateway handles it upstream. The `WireframeClient` has no fragmentation support
+of its own, so a client talking to a fragmenting server sees `FRAG` payloads.
+
+To work with fragments directly, `Fragmenter` splits and `Reassembler` rejoins:
+
+<!-- tested-example: guide-fragmenter -->
 
 ```rust
 use std::{num::NonZeroUsize, time::Duration};
-use wireframe::fragment::{
-    FragmentHeader,
-    FragmentIndex,
-    MessageId,
-    Reassembler,
-};
 
-let mut reassembler =
-    Reassembler::new(
-        NonZeroUsize::new(512).expect("non-zero capacity"),
-        Duration::from_secs(30),
-        None,
-        None,
-    );
+use wireframe::fragment::{FragmentHeader, FragmentIndex, Fragmenter, MessageId, Reassembler};
 
-let header = FragmentHeader::new(MessageId::new(9), FragmentIndex::zero(), true);
-let complete = reassembler
-    .push(header, [0_u8; 12])
-    .expect("fragments accepted")
-    .expect("single fragment completes the message");
+let fragmenter = Fragmenter::new(NonZeroUsize::new(512).expect("non-zero"));
+let batch = fragmenter.fragment_bytes([7_u8; 1400]).expect("fragment");
+assert_eq!(batch.len(), 3);
+assert!(batch.fragments().last().expect("a fragment").header().is_last_fragment());
 
-// Decode when ready:
-// let message: MyType = complete.decode().expect("decode");
+let limit = NonZeroUsize::new(4096).expect("non-zero");
+let mut reassembler = Reassembler::new(limit, Duration::from_secs(30), None, None);
+let id = MessageId::new(9);
+
+let first = FragmentHeader::new(id, FragmentIndex::zero(), false);
+assert!(reassembler.push(first, [1_u8; 8]).expect("accepted").is_none());
+
+let last = FragmentHeader::new(id, FragmentIndex::new(1), true);
+let whole = reassembler
+    .push(last, [2_u8; 8])
+    .expect("accepted")
+    .expect("the final fragment completes the message");
+assert_eq!(whole.payload().len(), 16);
 ```
 
-### Request parts and streaming bodies
+An empty input produces one final fragment with an empty payload, so a batch is
+never empty. `purge_expired` clears stale partial messages from a standalone
+`Reassembler`.
 
-`wireframe::request` exposes `RequestParts` to separate routing metadata from
-streaming request payloads.[^45]
+### Message assembly
 
-- `RequestParts::id()` returns the message identifier for routing.
-- `RequestParts::correlation_id()` returns the optional correlation identifier.
-- `RequestParts::metadata()` returns protocol-defined header bytes.
+If your protocol has its own multi-frame format, implement `MessageAssembler`
+to parse each frame's header. Once configured, it must parse every inbound
+payload, including single-frame messages, and it runs after any fragment
+reassembly:
 
-This type pairs with `RequestBodyStream` for incremental consumption of large
-request payloads. Handlers can choose between buffered (existing) and streaming
-consumption; the streaming path is opt-in.
+<!-- tested-example: guide-message-assembler -->
 
 ```rust
-use wireframe::request::RequestParts;
-
-let parts = RequestParts::new(42, Some(123), vec![0x01, 0x02]);
-assert_eq!(parts.id(), 42);
-assert_eq!(parts.correlation_id(), Some(123));
-assert_eq!(parts.metadata(), &[0x01, 0x02]);
-```
-
-Unlike `PacketParts` (which carries the raw payload for envelope
-reconstruction), `RequestParts` carries only protocol-defined metadata required
-to interpret the streaming body. The body itself is consumed through a separate
-stream, enabling back-pressure and incremental processing.[^46] When
-`MessageAssembler` is configured, this split happens after any transport
-fragment reassembly, so handlers and protocol extractors see protocol-level
-metadata rather than lower-level fragment state.
-
-### Message assembler hook
-
-Wireframe exposes a protocol-facing `MessageAssembler` hook that parses
-per-frame headers into `FrameHeader::First` and `FrameHeader::Continuation`
-values. It returns a `ParsedFrameHeader` that includes the header length so the
-remaining bytes can be treated as the body chunk.
-
-Register an assembler with `WireframeApp::with_message_assembler`:
-
-```rust,no_run
 use wireframe::{
     app::WireframeApp,
-    message_assembler::{
-        FrameHeader,
-        FirstFrameHeader,
-        MessageAssembler,
-        MessageKey,
-        ParsedFrameHeader,
-    },
+    message_assembler::{FirstFrameHeader, FrameHeader, MessageAssembler, MessageKey, ParsedFrameHeader},
 };
 
 struct DemoAssembler;
 
 impl MessageAssembler for DemoAssembler {
-    fn parse_frame_header(
-        &self,
-        _payload: &[u8],
-    ) -> Result<ParsedFrameHeader, std::io::Error> {
+    fn parse_frame_header(&self, _payload: &[u8]) -> Result<ParsedFrameHeader, std::io::Error> {
         Ok(ParsedFrameHeader::new(
             FrameHeader::First(FirstFrameHeader {
                 message_key: MessageKey(1),
@@ -1033,113 +1096,24 @@ impl MessageAssembler for DemoAssembler {
     }
 }
 
-let _app = WireframeApp::new()
-    .expect("builder")
-    .with_message_assembler(DemoAssembler);
+let app: WireframeApp = WireframeApp::new().expect("builder");
+let _app = app.with_message_assembler(DemoAssembler);
 ```
 
-When configured, this hook now runs on the inbound connection path after
-transport fragmentation reassembly and before handler dispatch. Incomplete
-assemblies remain buffered per message key until completion or timeout eviction.
+Incomplete messages stay buffered per `MessageKey` until they complete or time
+out. When one completes, the handler receives one buffered `Envelope` whose
+payload is the metadata followed by the body, with no marker between the two.
+Parsing and ordering failures count as deserialization failures, towards the
+same limit as other inbound failures.
 
-The assembler's output drives the handler-facing request shape:
+To use the state machine directly, `MessageAssemblyState` handles interleaved
+messages:
 
-- fully assembled messages continue through the buffered request path; and
-- streaming-capable messages surface as `RequestParts` plus
-  `RequestBodyStream` / `StreamingBody`.
-
-Message-assembly parsing and continuity failures are treated as inbound
-deserialization failures and follow the existing failure threshold policy.
-
-`WireframeApp::message_assembler` returns the configured hook as an
-`Option<&Arc<dyn MessageAssembler>>` if direct access is required.
-
-### Per-connection memory budgets
-
-`MemoryBudgets` configures explicit per-connection byte caps for inbound
-buffering and assembly:
-
-- bytes buffered per message;
-- bytes buffered per connection; and
-- bytes buffered across in-flight assemblies.
-
-Configure budgets through the app builder:
-
-```rust,no_run
-use std::num::NonZeroUsize;
-use wireframe::app::{BudgetBytes, MemoryBudgets, WireframeApp};
-
-let budgets = MemoryBudgets::new(
-    BudgetBytes::new(NonZeroUsize::new(16 * 1024).expect("non-zero")),
-    BudgetBytes::new(NonZeroUsize::new(64 * 1024).expect("non-zero")),
-    BudgetBytes::new(NonZeroUsize::new(48 * 1024).expect("non-zero")),
-);
-
-let _app = WireframeApp::new()
-    .expect("builder creation should not fail")
-    .memory_budgets(budgets)
-    .read_timeout_ms(250);
-```
-
-When budgets are configured, the message assembly subsystem enforces them at
-frame acceptance time. Frames that would cause the total buffered bytes to
-exceed the per-connection or in-flight budget are rejected, the offending
-partial assembly is freed, and the failure is surfaced through the existing
-deserialization-failure policy (`InvalidData`). The effective per-message limit
-is the minimum of the fragmentation `max_message_size` and the configured
-`bytes_per_message`. Single-frame messages that complete immediately are never
-counted against aggregate budgets, since they do not buffer.
-
-If `memory_budgets(...)` is not configured explicitly, Wireframe derives the
-same three fields from `buffer_capacity`, so the protection model remains
-active even on the default path.
-
-Retained fragment bytes and message-assembly bytes are combined for read pacing
-and hard-cap decisions, including when message assembly is disabled.
-
-Wireframe provides a three-tier protection model for inbound memory budgets:
-
-1. **Per-frame enforcement** — frames that would cause total buffered bytes to
-   exceed the per-connection or in-flight budget are rejected, the offending
-   partial assembly is freed, and the failure is surfaced through the existing
-   deserialization-failure policy (`InvalidData`).
-2. **Soft-limit read pacing** — when combined buffered bytes reach the
-   soft-pressure threshold (80% of the smaller aggregate cap from
-   `bytes_per_connection` and `bytes_in_flight`), the inbound connection loop
-   briefly pauses socket reads before polling the next frame. This propagates
-   back-pressure to senders while allowing progress on in-flight assemblies.
-3. **Hard-cap connection abort** — if total buffered bytes strictly exceed the
-   aggregate cap (100% of the smaller of `bytes_per_connection` and
-   `bytes_in_flight`), the connection is terminated immediately with
-   `InvalidData`. The combined total can exceed this cap even when each
-   individual assembly layer remains within its own limits.
-
-#### Derived budget defaults
-
-When `memory_budgets(...)` is not called on the builder, Wireframe derives
-sensible defaults automatically from `buffer_capacity` (the codec's
-`max_frame_length()`). The derived values use the same multiplier pattern as
-fragmentation defaults:
-
-| Budget field           | Multiplier          | Default (1024-byte frame) |
-| ---------------------- | ------------------- | ------------------------- |
-| `bytes_per_message`    | `frame_budget × 16` | 16 KiB                    |
-| `bytes_per_connection` | `frame_budget × 64` | 64 KiB                    |
-| `bytes_in_flight`      | `frame_budget × 64` | 64 KiB                    |
-
-All three protection tiers (per-frame enforcement, soft-limit read pacing, and
-hard-cap connection abort) are active with derived defaults. Changing
-`buffer_capacity` adjusts derived budgets proportionally. Calling
-`.memory_budgets(...)` overrides the derived defaults entirely.
-
-#### Message key multiplexing (8.2.3)
-
-The `MessageAssemblyState` type manages multiple concurrent message assemblies
-keyed by `MessageKey`. This enables interleaved frame streams where frames from
-different logical messages arrive on the same connection:
+<!-- tested-example: guide-message-assembly-state -->
 
 ```rust
 use std::{num::NonZeroUsize, time::Duration};
+
 use wireframe::message_assembler::{
     ContinuationFrameHeader,
     EnvelopeId,
@@ -1151,62 +1125,59 @@ use wireframe::message_assembler::{
     MessageKey,
 };
 
-let mut state = MessageAssemblyState::new(
-    NonZeroUsize::new(1_048_576).expect("non-zero size"), // 1 mebibyte (MiB) max message
-    Duration::from_secs(30),                               // 30s timeout for partial assemblies
-);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut state = MessageAssemblyState::new(
+        NonZeroUsize::new(1_048_576).expect("non-zero"),
+        Duration::from_secs(30),
+    );
 
-// First frame for message key=1
-let first1 = FirstFrameHeader {
-    message_key: MessageKey(1),
-    metadata_len: 0,
-    body_len: 5,
-    total_body_len: Some(15),
-    is_last: false,
-};
-let routing1 = EnvelopeRouting { envelope_id: EnvelopeId(1), correlation_id: None };
-let input1 = FirstFrameInput::new(&first1, routing1, vec![], b"hello")
-    .expect("header lengths match");
-state.accept_first_frame(input1)?;
+    // The first frame of message 1.
+    let first_one = FirstFrameHeader {
+        message_key: MessageKey(1),
+        metadata_len: 0,
+        body_len: 5,
+        total_body_len: Some(15),
+        is_last: false,
+    };
+    let routing = EnvelopeRouting {
+        envelope_id: EnvelopeId(1),
+        correlation_id: None,
+    };
+    state.accept_first_frame(FirstFrameInput::new(&first_one, routing, vec![], b"hello")?)?;
 
-// First frame for message key=2 (interleaved)
-let first2 = FirstFrameHeader {
-    message_key: MessageKey(2),
-    metadata_len: 0,
-    body_len: 5,
-    total_body_len: None,
-    is_last: false,
-};
-let routing2 = EnvelopeRouting { envelope_id: EnvelopeId(2), correlation_id: None };
-let input2 = FirstFrameInput::new(&first2, routing2, vec![], b"world")
-    .expect("header lengths match");
-state.accept_first_frame(input2)?;
+    // The first frame of message 2 arrives in between.
+    let first_two = FirstFrameHeader {
+        message_key: MessageKey(2),
+        metadata_len: 0,
+        body_len: 5,
+        total_body_len: None,
+        is_last: false,
+    };
+    let routing = EnvelopeRouting {
+        envelope_id: EnvelopeId(2),
+        correlation_id: None,
+    };
+    state.accept_first_frame(FirstFrameInput::new(&first_two, routing, vec![], b"world")?)?;
 
-// Continuation for key=1 completes its message
-let cont1 = ContinuationFrameHeader {
-    message_key: MessageKey(1),
-    sequence: Some(FrameSequence(1)),
-    body_len: 10,
-    is_last: true,
-};
-let msg1 = state.accept_continuation_frame(&cont1, b" completed")?
-    .expect("message 1 should complete");
-assert_eq!(msg1.body(), b"hello completed");
+    // A continuation completes message 1.
+    let last_one = ContinuationFrameHeader {
+        message_key: MessageKey(1),
+        sequence: Some(FrameSequence(1)),
+        body_len: 10,
+        is_last: true,
+    };
+    let message = state
+        .accept_continuation_frame(&last_one, b" completed")?
+        .expect("message 1 is complete");
+    assert_eq!(message.body(), b"hello completed");
+    Ok(())
+}
 ```
 
-#### Continuity validation (8.2.4)
+`MessageSeries` validates the order of one message's frames when your protocol
+supplies sequence numbers:
 
-The `MessageSeries` type validates frame ordering when protocols supply
-sequence numbers via `ContinuationFrameHeader::sequence`. It detects:
-
-- **Out-of-order frames**: sequence gaps produce
-  `MessageSeriesError::SequenceMismatch`
-- **Duplicate frames**: already-processed sequences produce
-  `MessageSeriesError::DuplicateFrame`
-- **Frames after completion**: produce `MessageSeriesError::SeriesComplete`
-
-For protocols that do not supply sequence numbers, the series accepts frames in
-any order (ordering validation is skipped).
+<!-- tested-example: guide-message-series -->
 
 ```rust
 use wireframe::message_assembler::{
@@ -1219,6 +1190,15 @@ use wireframe::message_assembler::{
     MessageSeriesStatus,
 };
 
+fn continuation(sequence: u32, is_last: bool) -> ContinuationFrameHeader {
+    ContinuationFrameHeader {
+        message_key: MessageKey(1),
+        sequence: Some(FrameSequence(sequence)),
+        body_len: 5,
+        is_last,
+    }
+}
+
 let first = FirstFrameHeader {
     message_key: MessageKey(1),
     metadata_len: 0,
@@ -1228,422 +1208,280 @@ let first = FirstFrameHeader {
 };
 let mut series = MessageSeries::from_first_frame(&first);
 
-// Accept continuation with sequence 1
-let cont1 = ContinuationFrameHeader {
-    message_key: MessageKey(1),
-    sequence: Some(FrameSequence(1)),
-    body_len: 5,
-    is_last: false,
-};
-assert_eq!(series.accept_continuation(&cont1), Ok(MessageSeriesStatus::Incomplete));
-
-// Attempting sequence 3 (gap) fails
-let cont3 = ContinuationFrameHeader {
-    message_key: MessageKey(1),
-    sequence: Some(FrameSequence(3)), // Expected 2
-    body_len: 5,
-    is_last: false,
-};
+assert_eq!(series.accept_continuation(&continuation(1, false)), Ok(MessageSeriesStatus::Incomplete));
 assert!(matches!(
-    series.accept_continuation(&cont3),
+    series.accept_continuation(&continuation(3, false)),
     Err(MessageSeriesError::SequenceMismatch { .. })
 ));
-
-// Accept sequence 2, then try sequence 1 again (duplicate)
-let cont2 = ContinuationFrameHeader {
-    message_key: MessageKey(1),
-    sequence: Some(FrameSequence(2)),
-    body_len: 5,
-    is_last: false,
-};
-assert_eq!(series.accept_continuation(&cont2), Ok(MessageSeriesStatus::Incomplete));
-
-let dup = ContinuationFrameHeader {
-    message_key: MessageKey(1),
-    sequence: Some(FrameSequence(1)), // Already seen
-    body_len: 5,
-    is_last: false,
-};
+assert_eq!(series.accept_continuation(&continuation(2, false)), Ok(MessageSeriesStatus::Incomplete));
 assert!(matches!(
-    series.accept_continuation(&dup),
+    series.accept_continuation(&continuation(1, false)),
     Err(MessageSeriesError::DuplicateFrame { .. })
 ));
-
-// Complete the series, then try to add more (SeriesComplete)
-let final_cont = ContinuationFrameHeader {
-    message_key: MessageKey(1),
-    sequence: Some(FrameSequence(3)),
-    body_len: 5,
-    is_last: true,
-};
-assert_eq!(series.accept_continuation(&final_cont), Ok(MessageSeriesStatus::Complete));
-
-let extra = ContinuationFrameHeader {
-    message_key: MessageKey(1),
-    sequence: Some(FrameSequence(4)),
-    body_len: 5,
-    is_last: false,
-};
+assert_eq!(series.accept_continuation(&continuation(3, true)), Ok(MessageSeriesStatus::Complete));
 assert!(matches!(
-    series.accept_continuation(&extra),
+    series.accept_continuation(&continuation(4, false)),
     Err(MessageSeriesError::SeriesComplete)
 ));
 ```
 
+The first sequenced frame sets the baseline at any value, so a gap before it
+goes undetected. Once a series is tracking sequences, an unsequenced frame is
+rejected with `MissingSequence`. Other errors include `KeyMismatch` and
+`SequenceOverflow`. Protocols that supply no sequence numbers skip these order
+checks.
+
 #### Declared total body length
 
-`FirstFrameHeader::total_body_len` is an authoritative declaration, not a hint.
-When a protocol supplies it, the assembler enforces it at every boundary:
+`FirstFrameHeader::total_body_len` is binding, not a hint. If you set it, the
+assembler enforces it:
 
-- a first frame that carries more body bytes than it declares is rejected with
-  `MessageAssemblyError::DeclaredTotalTooSmall`, because its declaration can
-  never be satisfied;
-- a single-frame message whose body differs from its declaration is rejected
-  with `MessageAssemblyError::DeclaredTotalMismatch`;
-- a continuation that would push the accumulated body past the declaration is
-  rejected with `MessageAssemblyError::DeclaredTotalExceeded` before its bytes
-  are buffered; and
-- the frame that completes the message must bring the accumulated body to
-  exactly the declared total, or `MessageAssemblyError::DeclaredTotalMismatch`
-  is returned.
+- `DeclaredTotalTooSmall`: a first frame carries more body than it declares.
+- `DeclaredTotalExceeded`: a continuation would pass the total, and is rejected
+  before its bytes are buffered.
+- `DeclaredTotalMismatch`: the completed body is not the declared length.
 
-A rejected continuation or a completion mismatch also removes its partial
-assembly, so a mismatched message never remains buffered and is never
-dispatched. A rejected first frame is refused before any assembly exists, so
-there is nothing to remove. Protocols that leave `total_body_len` as `None` opt
-out of the equality requirement and keep the previous behaviour.
-
-The declaration is also used for the size-limit check, so an exact total is the
-cheapest way to fail early on an oversized message. The decision is recorded in
+A rejected continuation or completion also removes its partial assembly, so a
+mismatched message never reaches a handler. An exact total is also the cheapest
+way to reject an oversized message early. Leave it as `None` to opt out. The
+decision is recorded in
 [ADR 015](adr-015-declared-total-body-length-contract.md).
 
-### Streaming request body consumption
+### Per-connection memory budgets
 
-Handlers can opt into streaming request bodies using the `StreamingBody`
-extractor or by accepting a `RequestBodyStream` directly. The framework creates
-a bounded channel and forwards body chunks as they arrive; back-pressure
-propagates automatically when the handler consumes slower than the network
-delivers. Routing and correlation metadata stay available immediately through
-`RequestParts`, so handlers can begin work before the full body is assembled.
+`MemoryBudgets` caps inbound buffering per connection:
 
-```rust,no_run
-use tokio::io::AsyncReadExt;
-use wireframe::request::{RequestBodyReader, RequestBodyStream, RequestParts};
-
-async fn handle_upload(parts: RequestParts, body: RequestBodyStream) {
-    let mut reader = RequestBodyReader::new(body);
-    let mut buf = Vec::new();
-    reader.read_to_end(&mut buf).await.expect("read body");
-
-    log::info!(
-        "received {} bytes for request {}",
-        buf.len(),
-        parts.id()
-    );
-}
-```
-
-The `RequestBodyReader` adapter implements `AsyncRead`, allowing protocol
-crates to reuse existing parsers. For raw stream access, use the
-`RequestBodyStream` directly with `StreamExt` methods:
-
-```rust,no_run
-use bytes::Bytes;
-use futures::StreamExt;
-use wireframe::request::{RequestBodyStream, RequestParts};
-
-async fn handle_stream(parts: RequestParts, mut body: RequestBodyStream) {
-    while let Some(result) = body.next().await {
-        match result {
-            Ok(chunk) => log::debug!("received {} bytes", chunk.len()),
-            Err(e) => log::error!("stream error: {e}"),
-        }
-    }
-}
-```
-
-The `StreamingBody` extractor wraps the stream with convenience methods:
-
-```rust,no_run
-use wireframe::{
-    extractor::StreamingBody,
-    request::RequestParts,
-};
-
-async fn with_extractor(parts: RequestParts, body: StreamingBody) {
-    // Convert to AsyncRead
-    let reader = body.into_reader();
-
-    // Or access the raw stream
-    // let stream = body.into_stream();
-}
-```
-
-Back-pressure is enforced via bounded channels: when the internal buffer fills,
-the framework pauses reading from the socket until the handler drains pending
-chunks. This prevents memory exhaustion under slow consumer conditions. When
-the request arrived through `MessageAssembler`, the same per-connection memory
-budgets continue to govern partial buffered state before chunks reach the
-handler. The `body_channel` helper creates channels with configurable capacity:
+<!-- tested-example: guide-memory-budgets -->
 
 ```rust
-use wireframe::request::body_channel;
+use std::num::NonZeroUsize;
 
-// Create a channel with capacity for 8 chunks
-let (tx, rx) = body_channel(8);
-// tx: connection sends chunks
-// rx: handler consumes via RequestBodyStream
+use wireframe::app::{BudgetBytes, MemoryBudgets, WireframeApp};
+
+let bytes = |count: usize| BudgetBytes::new(NonZeroUsize::new(count).expect("non-zero"));
+let budgets = MemoryBudgets::new(bytes(16 * 1024), bytes(64 * 1024), bytes(48 * 1024));
+
+let _app: WireframeApp = WireframeApp::new()
+    .expect("builder")
+    .memory_budgets(budgets);
 ```
 
-See [ADR 0002][adr-0002-ref] for the complete design rationale.
+The arguments are bytes per message, per connection, and in flight. Without an
+explicit call, Wireframe derives them from `buffer_capacity`, as Table 4 shows.
 
-## Working with requests and middleware
+| Budget                 | Derived value       | With a 1024-byte frame |
+| ---------------------- | ------------------- | ---------------------- |
+| `bytes_per_message`    | `frame_budget × 16` | 16 KiB                 |
+| `bytes_per_connection` | `frame_budget × 64` | 64 KiB                 |
+| `bytes_in_flight`      | `frame_budget × 64` | 64 KiB                 |
 
-Every inbound frame becomes a `ServiceRequest`. Middleware can inspect or
-mutate the byte buffer through `frame` and `frame_mut`, adjust correlation
-identifiers, or wrap the remainder of the pipeline using `Transform`. The
-`Next` continuation calls the inner service, returning a `ServiceResponse`
-containing the frame that will be serialized back to the client.[^11]
+_Table 4: Default memory budgets._
 
-The `middleware::from_fn` helper adapts async functions into middleware
-components, enabling payload decoding, invocation of the inner service, and
-response editing before the response is serialized. `HandlerService` rebuilds a
-packet from the request bytes, invokes the registered handler, and by default
-returns the original payload; replies are crafted in middleware (or custom
-packet types with interior mutability). Decode typed payloads via the `Message`
-helpers, then write the encoded response into
-`ServiceResponse::frame_mut()`.[^10][^12]
+The budgets protect a connection in three stages. The first applies only with a
+`MessageAssembler`, and the others measure whatever fragment and assembly bytes
+are held. A default application buffers neither, so these stages have nothing
+to do.
+
+1. **Per-frame rejection.** A frame that would exceed the connection or
+   in-flight budget is rejected, its partial assembly is freed, and the failure
+   counts as a deserialization failure. The effective per-message limit is the
+   smaller of `max_message_size` and `bytes_per_message`. A single-frame
+   message that completes immediately is not counted, because it never buffers.
+2. **Read pacing.** At 80% of the smaller aggregate cap, the connection pauses
+   briefly before reading the next frame, passing back-pressure to the sender.
+3. **Hard cap.** Above 100% of that cap, the connection closes with
+   `InvalidData`. Fragment and assembly bytes are combined for this, so the
+   total can exceed the cap even if each layer is within its own limit.
+
+## Protocol hooks
+
+`WireframeProtocol` gathers callbacks for a protocol. Install an implementation
+with `with_protocol`, after any `with_codec` call. It must use
+`ProtocolError = ()`, and its frame type must be the codec's frame, which is
+`Bytes` for the default codec:
+
+<!-- tested-example: guide-protocol-hooks -->
 
 ```rust
-use std::convert::Infallible;
-
+use bytes::{Bytes, BytesMut};
 use wireframe::{
-    app::Envelope,
-    message::Message,
-    middleware::{from_fn, HandlerService, Next, ServiceRequest, ServiceResponse},
+    app::WireframeApp,
+    hooks::{ConnectionContext, WireframeProtocol},
 };
 
-#[derive(bincode::Encode, bincode::BorrowDecode)]
-struct Ping(u8);
+struct Stamped;
 
-#[derive(bincode::Encode, bincode::BorrowDecode)]
-struct Pong(u8);
+impl WireframeProtocol for Stamped {
+    type Frame = Bytes;
+    type ProtocolError = ();
 
-async fn decode_and_respond(
-    mut req: ServiceRequest,
-    next: Next<'_, HandlerService<Envelope>>,
-) -> Result<ServiceResponse, Infallible> {
-    let ping = Ping::from_bytes(req.frame()).map(|(msg, _)| msg).ok();
-    let mut response = next.call(req).await?;
-
-    if let Some(Ping(value)) = ping {
-        let bytes = Pong(value + 1)
-            .to_bytes()
-            .expect("encode Pong");
-        response.frame_mut().clear();
-        response.frame_mut().extend_from_slice(&bytes);
+    fn before_send(&self, frame: &mut Bytes, _context: &mut ConnectionContext) {
+        let mut stamped = BytesMut::from(frame.as_ref());
+        stamped.extend_from_slice(b"!");
+        *frame = stamped.freeze();
     }
-
-    Ok(response)
 }
 
-let middleware = from_fn(decode_and_respond);
+let app: WireframeApp = WireframeApp::new().expect("builder");
+let _app = app.with_protocol(Stamped);
 ```
 
-Advanced integrations can adopt the `wireframe::extractor` module, which defines
-`MessageRequest`, `Payload`, and `FromMessageRequest` for building Actix-style
-extractors in custom middleware or services. These types expose shared state,
-peer addresses, and payload cursors for frameworks that want to layer
-additional ergonomics on top of the core primitives.[^13]
+**On a server connection, only `before_send` runs.** It runs on each handler
+response frame, including each fragment, after the codec has wrapped it and
+just before it is encoded. Each connection has its own `ConnectionContext`,
+though state inside your `WireframeProtocol` value is shared by all of them.
+Whatever it writes must still fit `max_frame_length`. The default codec rejects
+an oversized frame, which fails the send and ends the connection, whereas a
+custom codec must enforce the limit itself.
 
-## Connection lifecycle
+The other hooks (`on_connection_setup`, `on_command_end`, `handle_error`,
+`stream_end_frame`, and `on_eof`) belong to `ConnectionActor`, which
+`WireframeServer` does not run. See
+[the connection actor](#the-connection-actor).
 
-`WireframeApp` supports optional setup and teardown callbacks that run once per
-connection. Setup can return arbitrary state retained until teardown executes
-after the stream finishes processing. When a teardown hook is registered and
-setup has produced state, teardown runs exactly once, covering clean completion
-and decode, protocol, or transport errors. It does not run when either hook is
-absent, nor on task panic or cancellation.[^2] Preparation moves those callback
-definitions into the immutable `PreparedApp`; `PreparedApp::handle_connection`
-reuses the prepared middleware chains, enforces read timeouts, and records
-metrics for inbound frames, serialization failures, and handler errors before
-logging warnings.[^6][^7] `PacketParts::inherit_correlation` ensures response
-packets carry the correct correlation identifier even when middleware omits
-it.[^8]
+## Running servers
 
-Immediate responses are available through `send_response` and
-`send_response_framed`, both of which report serialization or I/O problems via
-`SendError`.[^6][^5]
+### Configuring and starting
 
-```rust,no_run
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+`WireframeServer` starts unbound. `bind` or `bind_existing_listener` gives you
+a server that can report its `local_addr` and run. Prefer `from_app` if you
+already have an application. `WireframeServer::new` takes a factory instead,
+which it calls **once per server run**, not once per connection. Either way,
+the application is prepared before the server reports readiness, and failures
+arrive as `ServerError` values:
 
+<!-- tested-example: guide-server-configuration -->
+
+```rust
+use std::time::Duration;
+
+use tokio::sync::oneshot;
 use wireframe::{
-    app::{SendError, WireframeApp},
-    message::Message,
+    app::WireframeApp,
+    server::{BackoffConfig, WireframeServer},
 };
 
-#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
-struct Ready(&'static str);
+fn build_app() -> WireframeApp {
+    WireframeApp::default().read_timeout_ms(250)
+}
 
 #[tokio::main]
-async fn main() -> Result<(), SendError> {
-    let app = WireframeApp::default();
-    let (mut client, mut server) = io::duplex(64);
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let backoff = BackoffConfig {
+        initial_delay: Duration::from_millis(10),
+        max_delay: Duration::from_secs(1),
+    };
+    let (ready_sender, ready) = oneshot::channel();
+    let (stop, stopped) = oneshot::channel::<()>();
 
-    let ready = Ready("ready");
-    app.send_response(&mut server, &ready).await?;
-    server.shutdown().await?;
+    let server = WireframeServer::new(build_app)
+        .workers(4)
+        .accept_backoff(backoff)
+        .ready_signal(ready_sender)
+        .bind("127.0.0.1:0".parse()?)?;
+    assert_eq!(server.worker_count(), 4);
 
-    let mut buffer = Vec::new();
-    client.read_to_end(&mut buffer).await?;
-    let (decoded, _) = Ready::from_bytes(&buffer).expect("decode Ready frame");
-    assert_eq!(decoded, ready);
+    let running = tokio::spawn(server.run_with_shutdown(async {
+        drop(stopped.await);
+    }));
 
+    ready.await?;
+    stop.send(()).expect("the server is waiting for shutdown");
+    running.await??;
     Ok(())
 }
 ```
 
-## Message fragmentation
+Each worker runs an accept loop. The default count follows
+`std::thread::available_parallelism`, which respects CPU quotas, and is never
+below one. Any `accept` failure makes that worker back off exponentially and
+retry, up to `max_delay`. A panic in a connection task is caught, logged, and
+counted, and other connections carry on.
 
-`WireframeApp` keeps transport fragmentation disabled by default. Enable it
-explicitly with `enable_fragmentation()` or provide a bespoke
-`FragmentationConfig` using `fragmentation(Some(cfg))`. When enabled, payloads
-that exceed the frame budget are split into fragments carrying a
-`FragmentHeader` (`message_id`, `fragment_index`, `is_last_fragment`) wrapped
-with the `FRAG` marker. The connection reassembles fragments before invoking
-handlers, so handlers continue to work with complete `Envelope` values.[^6]
+Per-connection state belongs in `on_connection_setup`, because the application
+is shared among all connections.
 
-Layering order is fixed. Outbound processing runs fragmentation → serializer →
-codec wrapping → `before_send`. Inbound processing runs codec decode → fragment
-reassembly → deserialization.
+### Shutting down
 
-Fragmented messages enforce four guards: `max_message_size` caps the total
-reassembled payload, `reassembly_timeout` evicts stale partial messages,
-`max_concurrent_partials` limits incomplete messages per connection, and
-`max_buffered_bytes` caps their aggregate payload bytes. The aggregate caps
-close the connection immediately when exceeded. `for_frame_budget` derives both
-aggregate limits from the frame budget, with the byte cap at least as large as
-`max_message_size`. Customize or disable fragmentation via the builder:
+There are three ways to stop a server:
 
-```rust
-use std::{num::NonZeroUsize, time::Duration};
-use wireframe::{
-    app::WireframeApp,
-    fragment::FragmentationConfig,
-};
+- `run` serves until Ctrl+C.
+- `run_with_shutdown` serves until the future you give it completes. Dropping
+  the returned future also cancels the accept loops and, in time, releases the
+  listener, so keep it alive for as long as the server should run.
+- `spawn` runs in the background and returns a cloneable `ServerShutdown`.
+  `stop()` requests shutdown and is safe to call repeatedly, and
+  `drained().await` waits for it to finish. `ServerError::AbnormalTermination`
+  reports an unexpected supervisor exit. Dropping the last clone also requests
+  shutdown, so keep one if you care about the outcome.
 
-// Assume `handler` is defined elsewhere; any Handler compatible with WireframeApp works.
-let cfg = FragmentationConfig::for_frame_budget(
-    1024,
-    NonZeroUsize::new(16 * 1024).unwrap(),
-    Duration::from_secs(30),
-).expect("frame budget too small for fragments");
+**Shutdown waits for open connections, and it does not tell them to close.**
+There is no drain deadline, so a single idle peer holds up `run`,
+`run_with_shutdown`, and `drained()` until it disconnects. If you need a bound,
+wrap the wait in `tokio::time::timeout`, or have your protocol close quiet
+connections.
 
-let app = WireframeApp::new()?
-    .fragmentation(Some(cfg))
-    .route(42, handler)?;
+### Limits at a glance
+
+Table 5 summarizes the server's defaults.
+
+| Setting                  | Default                 | What it does                                                                             |
+| ------------------------ | ----------------------- | ---------------------------------------------------------------------------------------- |
+| `buffer_capacity`        | 1024 bytes              | The largest frame; a larger one is a decoder error, which closes the connection.         |
+| `read_timeout_ms`        | 100 ms                  | A housekeeping interval: on expiry, stale partial messages are purged.                   |
+| Deserialization failures | 10                      | Closes the connection; a fully dispatched message resets the count.                      |
+| `preamble_timeout`       | 10 seconds              | Bounds the preamble read; on expiry, the failure handler runs and the connection closes. |
+| Decode limit             | 16 MiB                  | Bounds peer-declared container lengths in bundled decoders; fixed.                       |
+| Memory budgets           | 16, 64, 64 × frame size | See [memory budgets](#per-connection-memory-budgets).                                    |
+| Fragmentation            | Off                     | See [fragmentation](#fragmentation).                                                     |
+
+_Table 5: Server limits and their defaults._
+
+**`read_timeout_ms` does not close idle connections**, despite its name. A
+quiet peer stays connected until it disconnects or the process exits. Bound
+idle time at the protocol level, such as with a heartbeat, or in front of the
+server.
+
+There is no built-in Transport Layer Security (TLS), so terminate it upstream.
+
+## Observability
+
+### Logs
+
+Wireframe emits through both `tracing` and `log`. Connection diagnostics, such
+as unrouted messages and rejected frames, go through `log`, while `tracing`
+events are also forwarded to any installed `log` logger. Wireframe does not
+install anything itself, so without a logger or subscriber these messages are
+lost. Install one early in start-up:
+
+<!-- tested-example: guide-tracing-subscriber -->
+
+```rust,no_run
+fn main() {
+    tracing_subscriber::fmt().init();
+    // Start the application here.
+}
 ```
 
-Call `fragmentation(None)` to keep fragmentation disabled after explicit
-configuration (for example, when the transport already supports large frames or
-fragmentation is delegated to an upstream gateway). The `ConnectionActor`
-mirrors the same behaviour for push traffic and streaming responses through
-`enable_fragmentation`, ensuring client-visible frames follow the same format.
+This needs `tracing-subscriber` in your own dependencies. Its default features
+include the bridge that receives `log` records.
 
-On the server side, a unified `FramePipeline` applies fragmentation to every
-outbound handler response `Envelope` before serialization and codec wrapping.
-Its connection-scoped `FragmentationState` adapter owns both the outbound
-fragmenter and the inbound reassembler. Streaming responses and multi-packet
-channels are emitted by the `ConnectionActor`, which keeps its own
-connection-local `Fragmenter` and applies the same fragmentation logic through
-`enable_fragmentation`. The two paths share the wire format rather than one
-fragmentation state.
+### Metrics
 
-## Protocol hooks
+With the default `metrics` feature, Wireframe records through the
+[`metrics`](https://crates.io/crates/metrics) facade, so any recorder your
+application installs receives them. With the feature off, the helpers do
+nothing, so instrumentation can stay in place. Prometheus takes two steps,
+because the exporter is your dependency:
 
-Install a custom protocol with `with_protocol`. `protocol_hooks()` converts the
-stored implementation into `ProtocolHooks`.[^2][^7] `WireframeProtocol` exposes
-callbacks for connection setup, per-frame mutation, command completion,
-protocol errors, and optional end-of-stream frames.[^14]
+<!-- tested-example: guide-prometheus-dependency -->
 
-`before_send` runs on every `WireframeApp` handler response frame. The
-application builds a fresh `ProtocolHooks` value for each connection, and the
-response pipeline calls `before_send` after serialization and codec wrapping,
-immediately before the frame is written to the transport. Every fragment of a
-fragmented response passes through the hook individually, and the same
-connection-local `ConnectionContext` is used for all frames on that connection.
-This gives protocol implementations one place to stamp, encrypt, or observe
-ordinary server responses. The hook may grow the frame, but it receives no
-implicit space for doing so: whatever it writes must keep the frame within the
-codec's `max_frame_length`. The default `LengthDelimitedFrameCodec` rejects a
-frame that exceeds that limit with an oversized-frame error, which fails the
-send and ends the connection. A custom codec defines its own behaviour for an
-oversized frame, so it must enforce `max_frame_length` itself.
+```toml
+[dependencies]
+metrics-exporter-prometheus = "0.18"
+```
 
-The application path does not run the remaining protocol hooks: connection
-setup, command end, stream end, error, and end-of-file callbacks remain the
-responsibility of the `ConnectionActor` for push and streaming traffic. The
-direct response helpers that write frames without the `FramePipeline` also
-bypass `before_send`; use `WireframeApp` routes when a response must traverse
-configured protocol hooks.
-
-## Running servers
-
-`WireframeServer::new` retains source compatibility as a startup factory: it is
-evaluated once for each `run_with_shutdown` invocation, and its prepared
-application root is shared by all workers and connection tasks.
-`WireframeServer::from_app` supplies an already-built application with the same
-preparation path. The worker count defaults to the host CPU total (never below
-one), and the server supports a readiness signal and normalizes accept-loop
-backoff settings through `accept_backoff`.[^15][^16] Servers start in an
-unbound state; call `bind` or `bind_existing_listener` to transition into the
-`Bound` typestate, inspect the bound address, or rebind later.[^17]
-
-`run` awaits Ctrl+C, while `run_with_shutdown` cancels the worker accept loops
-and waits for tracked work when the supplied future resolves.[^18] Dropping the
-`run_with_shutdown` future, including by aborting its `JoinHandle`, also
-cancels the accept loops and eventually releases the listener. This cleanup is
-eventual rather than synchronous: the loops must be scheduled to observe the
-cancellation. In-flight connection tasks are not cancelled and may continue
-until they finish. Each worker runs `accept_loop`, which clones the prepared
-application root, rewinds leftover preamble bytes, and hands the stream to it.
-Transient accept failures trigger exponential backoff capped by the configured
-maximum delay.[^18][^19] Preamble hooks support asynchronous success handlers
-and asynchronous failure callbacks that receive the stream, enabling replies or
-decode-error logging before the application runs. A success handler that
-returns an error fails closed: the error is logged, the connection is closed,
-and `WireframeApp` never receives the stream. Write any rejection response
-before returning the error; the server writes nothing on the handler's behalf.
-The server bounds the read with `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) by
-default; `preamble_timeout` replaces that deadline and
-`disable_preamble_timeout` removes it. The deadline covers only the preamble
-read, and timeouts use the failure callback path.[^20]
-
-For an awaitable lifecycle outside the foreground task, call
-`WireframeServer::spawn().await`. It returns a cloneable `ServerShutdown`:
-`stop()` requests non-blocking, idempotent shutdown. `drained().await` returns
-`Ok(())` only after every accept loop has exited and the listener has been
-released. `ServerError::AbnormalTermination` reports an unexpected supervisor
-exit; it does not by itself prove that the drain completed. Existing in-flight
-connections retain the same graceful-drain policy as `run_with_shutdown`.
-Dropping the final `ServerShutdown` clone also requests shutdown; retain a
-clone and await `drained()` when the terminal outcome matters.
-
-`spawn_connection_task` wraps each accepted stream in `read_preamble` and
-`RewindStream`, records connection panics, and logs failures without crashing
-worker tasks.[^20][^37][^38] `ServerError` surfaces bind, factory-build, and
-application-preparation failures as typed errors so callers can react
-appropriately.[^21]
-
-## Metrics
-
-Wireframe's default `metrics` feature emits instrumentation through the
-`metrics` facade but does not install a global recorder. The Prometheus
-exporter is a development dependency of Wireframe, so applications that want
-Prometheus metrics must add `metrics-exporter-prometheus` as a direct
-dependency and install its recorder once during startup, before Wireframe
-begins emitting metrics:
+<!-- tested-example: guide-prometheus-recorder -->
 
 ```rust,no_run
 use std::time::Duration;
@@ -1653,7 +1491,8 @@ use metrics_exporter_prometheus::PrometheusBuilder;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let prometheus = PrometheusBuilder::new().install_recorder()?;
 
-    // Keep the handle: the upkeep task holds a clone of it.
+    // `install_recorder` does not start the exporter's upkeep task, and without
+    // it histogram storage grows until a scrape renders it.
     let upkeep_handle = prometheus.clone();
     std::thread::spawn(move || {
         loop {
@@ -1662,71 +1501,1428 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Start the application after installing the recorder.
+    // Start the application after installing the recorder, and serve this text
+    // however suits your application.
     let _scrape_output = prometheus.render();
     Ok(())
 }
 ```
 
-Keep the returned handle where the application can expose or render the
-Prometheus output. Applications choose how to serve or otherwise collect it.
+`PrometheusBuilder::build` and `install` start the upkeep task for you, so use
+those if you would rather let the exporter own it. Table 6 lists the server
+metrics. Label values are from fixed sets, so application data never becomes a
+label.
 
-Wireframe depends on the `tracing` facade, which emits events only when the
-application installs a subscriber; it does not ship one. `tracing-subscriber`
-was previously a runtime dependency of Wireframe and is now a development
-dependency, so an application that wants Wireframe's events must add
-`tracing-subscriber` itself and install a subscriber once during start-up,
-before the application begins emitting. Omit it and the instrumentation still
-compiles, but every event is discarded.
+| Metric                                                    | Kind      | Records                                                  |
+| --------------------------------------------------------- | --------- | -------------------------------------------------------- |
+| `wireframe_frames_processed_total`                        | Counter   | Frames, by direction.                                    |
+| `wireframe_errors_total`                                  | Counter   | Errors, by kind.                                         |
+| `wireframe_connection_panics_total`                       | Counter   | Panicking connection tasks.                              |
+| `wireframe_decode_rejections_total`                       | Counter   | Decode limit rejections, by path and reason.             |
+| `wireframe_preamble_rejections_total`                     | Counter   | Rejected preambles.                                      |
+| `wireframe_app_response_sends_total`                      | Counter   | Response send attempts, by `outcome`.                    |
+| `wireframe_application_preparations_total`                | Counter   | Preparation attempts, by `outcome`.                      |
+| `wireframe_application_preparation_duration_seconds`      | Histogram | Preparation time, by `outcome`.                          |
+| `wireframe_prepared_connection_uses_total`                | Counter   | Connections handled by a `PreparedApp`.                  |
+| `wireframe_server_startup_failures_total`                 | Counter   | Failed server starts.                                    |
+| `wireframe_server_startup_duration_seconds`               | Histogram | Server start time.                                       |
+| `wireframe_server_accept_loops_exited_total`              | Counter   | Accept loops that have exited.                           |
+| `wireframe_server_supervisor_cancellations_total`         | Counter   | Supervisor cancellations.                                |
+| `wireframe_server_supervisor_abnormal_terminations_total` | Counter   | Unexpected supervisor exits.                             |
+| `wireframe_connections_active`                            | Gauge     | Live `ConnectionActor` values, **not** accepted sockets. |
+| `wireframe_codec_errors_total`                            | Counter   | Recorded only if your code calls `inc_codec_error`.      |
 
-`install_recorder` returns a `PrometheusHandle` but does **not** start the
-exporter's background upkeep task; only `PrometheusBuilder::build` and
-`PrometheusBuilder::install` spawn it. The task drains histogram buckets and
-other self-maintaining structures, so without it that storage grows for as long
-as no scrape triggers a render. Call `PrometheusHandle::run_upkeep` on a timer
-(for example, every five seconds, matching the exporter's own default
-interval), or serve metrics through `PrometheusBuilder::build`/`install` and
-let the exporter own the task.
+_Table 6: Server metrics._
+
+The `outcome` of `wireframe_app_response_sends_total` is one of `success`,
+`serialization_failure`, `codec_rejected`, or `transport_failure`. A failed
+send also logs a warning with a matching `category`, along with a `stage` of
+`serialize` or `write`, so that logs and metrics can be correlated.
+
+## The client runtime
+
+`WireframeClient` uses the same framing and serialization layers as the server,
+so both ends of a protocol share one definition.
+
+### Connecting and calling
+
+Align the frame limit with the server's `buffer_capacity`, because the two are
+configured separately and a mismatch fails only once a message crosses the
+smaller one:
+
+<!-- tested-example: guide-client-connect -->
+
+```rust,no_run
+use std::time::Duration;
+
+use wireframe::{
+    app::Envelope,
+    client::{ClientCodecConfig, SocketOptions, WireframeClient},
+    correlation::CorrelatableFrame,
+    message::Message,
+};
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct Login {
+    username: String,
+}
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct LoginAck {
+    username: String,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let socket = SocketOptions::default()
+        .nodelay(true)
+        .keepalive(Some(Duration::from_secs(30)));
+
+    let mut client = WireframeClient::builder()
+        .codec_config(ClientCodecConfig::default().max_frame_length(2048))
+        .socket_options(socket)
+        .connect("127.0.0.1:7878".parse()?)
+        .await?;
+
+    let login = Login {
+        username: "guest".to_string(),
+    };
+    let request = Envelope::new(1, None, login.to_bytes()?);
+    let response: Envelope = client.call_correlated(request).await?;
+    let (ack, _) = LoginAck::from_bytes(response.payload_bytes())?;
+    assert_eq!(ack.username, "guest");
+    assert!(response.correlation_id().is_some());
+
+    // Dropping the client without `close` skips the teardown hook.
+    client.close().await;
+    Ok(())
+}
+```
+
+To try it against a real server, run the echo example and its login client from
+a clone of the repository, in two terminals:
+
+<!-- tested-example: guide-run-client-example -->
+
+```bash
+cargo run --example echo --features examples
+cargo run --example client_echo_login --features examples
+```
+
+Table 7 lists what you can configure on the builder.
+
+| Surface            | API                                    | Default                                        | Use when                                             |
+| ------------------ | -------------------------------------- | ---------------------------------------------- | ---------------------------------------------------- |
+| Serializer         | `serializer(...)`                      | `BincodeSerializer`                            | The protocol uses another encoding.                  |
+| Frame codec        | `codec_config(ClientCodecConfig)`      | 4-byte big-endian prefix, 1024-byte frames     | The server's limit differs from the default.         |
+| Socket tuning      | `socket_options(SocketOptions)`        | Operating system defaults                      | You need `TCP_NODELAY` or a keepalive policy.        |
+| Preamble           | `with_preamble(T)`                     | Disabled                                       | The protocol negotiates before framed traffic.       |
+| Preamble timeout   | `preamble_timeout(Duration)`           | Disabled                                       | A stalled handshake should fail fast.                |
+| Setup hook         | `on_connection_setup(...)`             | Disabled                                       | You keep per-connection state.                       |
+| Teardown hook      | `on_connection_teardown(...)`          | Disabled                                       | Closing should flush or release something.           |
+| Error hook         | `on_error(...)`                        | Disabled                                       | Failures should reach your observability.            |
+| Before-send hook   | `before_send(...)`                     | Disabled                                       | You inspect or change bytes before they are written. |
+| After-receive hook | `after_receive(...)`                   | Disabled                                       | You inspect or change bytes after they are read.     |
+| Tracing            | `tracing_config(TracingConfig)`        | INFO connect and close, DEBUG data; timing off | You want other span levels, or per-command timing.   |
+| Pool               | `connect_pool(addr, ClientPoolConfig)` | Disabled; needs the `pool` feature             | You want reusable sockets and bounded fan-out.       |
+
+_Table 7: Client builder configuration._
+
+Call `with_preamble` before `preamble_timeout`, or the timeout is ignored.
+
+For screen readers: the following sequence diagram shows the client lifecycle:
+connect, optional preamble exchange, message exchange, error handling, and
+teardown.
+
+<!-- tested-example: guide-client-lifecycle -->
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Builder as WireframeClientBuilder
+    participant Stream as TcpStream
+    participant Hooks as Client hooks
+    App->>Builder: connect(addr)
+    Builder->>Stream: apply socket options + connect
+    alt preamble configured
+        Builder->>Stream: write/read preamble
+        Builder->>Builder: preamble success/failure callbacks
+    end
+    Builder->>Hooks: on_connection_setup
+    App->>Stream: send / receive / call / call_correlated
+    App->>Hooks: on_error (if operation fails)
+    App->>Builder: close()
+    Builder->>Hooks: on_connection_teardown
+```
+
+_Figure 2: The client connection lifecycle._
+
+### Correlated messages
+
+The client works at two levels. `send`, `receive`, and `call` handle message
+types directly. The envelope-aware methods work with any `Packet`, and generate
+correlation identifiers from a per-client counter, which `next_correlation_id`
+also exposes:
+
+- `send_envelope` sends, generating an identifier if none is set, and returns
+  it.
+- `receive_envelope` reads the next frame as a packet.
+- `call_correlated` does both, and returns `ClientError::CorrelationMismatch`
+  if the identifiers differ.
+
+Use `send_envelope` and `receive_envelope` separately when you want more
+control:
+
+<!-- tested-example: guide-client-correlation -->
+
+```rust,no_run
+use wireframe::{
+    app::Envelope,
+    client::{ClientError, WireframeClient},
+    correlation::CorrelatableFrame,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut client = WireframeClient::builder()
+        .connect("127.0.0.1:7878".parse()?)
+        .await?;
+
+    let correlation_id = client.send_envelope(Envelope::new(1, None, b"payload".to_vec())).await?;
+    let response: Envelope = client.receive_envelope().await?;
+    assert_eq!(response.correlation_id(), Some(correlation_id));
+
+    let outcome: Result<Envelope, ClientError> = client.call_correlated(Envelope::new(1, None, vec![])).await;
+    match outcome {
+        Ok(response) => println!("{} bytes", response.payload_bytes().len()),
+        Err(ClientError::CorrelationMismatch { expected, received }) => {
+            eprintln!("expected {expected:?}, received {received:?}");
+        }
+        Err(other) => eprintln!("request failed: {other}"),
+    }
+    Ok(())
+}
+```
+
+### Client preamble exchange
+
+`with_preamble` sends a preamble immediately after connecting. To read the
+server's answer, use `on_preamble_success`, which must return any bytes it read
+beyond that answer so that they can be replayed to the framing layer:
+
+<!-- tested-example: guide-client-preamble -->
+
+```rust,no_run
+use std::time::Duration;
+
+use futures::FutureExt;
+use wireframe::{client::WireframeClient, preamble::read_preamble};
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct ClientHello {
+    version: u16,
+}
+
+#[derive(bincode::BorrowDecode)]
+struct ServerAck {
+    accepted: bool,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = WireframeClient::builder()
+        .with_preamble(ClientHello { version: 1 })
+        .preamble_timeout(Duration::from_secs(5))
+        .on_preamble_success(|_preamble, stream| {
+            async move {
+                let (ack, leftover) = read_preamble::<_, ServerAck>(stream)
+                    .await
+                    .map_err(std::io::Error::other)?;
+                if !ack.accepted {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionRefused,
+                        "server rejected preamble",
+                    ));
+                }
+                Ok(leftover)
+            }
+            .boxed()
+        })
+        .on_preamble_failure(|error, _stream| {
+            async move {
+                eprintln!("preamble exchange failed: {error}");
+                Ok(())
+            }
+            .boxed()
+        })
+        .connect("127.0.0.1:7878".parse()?)
+        .await?;
+    client.close().await;
+    Ok(())
+}
+```
+
+Failures surface as `ClientError::PreambleTimeout` when the deadline passes,
+`ClientError::PreambleRead` when your callback cannot read or decode the
+answer, and `ClientError::PreambleEncode` when encoding or writing fails.
+`ClientError::PreambleWrite` exists, but the current client never returns it.
+
+### Lifecycle and request hooks
+
+Lifecycle hooks mirror the server's. Setup runs after connecting and any
+preamble, and its state goes to teardown when you call `close()`. Dropping a
+client without calling `close()` skips teardown. Register setup first, because
+it resets the teardown hook.
+
+The error hook sees failures from `send`, `receive`, and `call` operations. It
+does not see failures from connecting or from the preamble, because the client
+does not exist yet, or errors yielded by a `ResponseStream`.
+
+Request hooks run on bytes. They are synchronous, so capture an `Arc` for any
+mutable state, and several of a kind run in the order they were registered:
+
+<!-- tested-example: guide-client-hooks -->
+
+```rust,no_run
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+
+use wireframe::client::WireframeClient;
+
+struct Session {
+    requests: AtomicUsize,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let sent = Arc::new(AtomicUsize::new(0));
+    let received = Arc::new(AtomicUsize::new(0));
+    let (sent_counter, received_counter) = (Arc::clone(&sent), Arc::clone(&received));
+
+    let client = WireframeClient::builder()
+        .on_connection_setup(|| async {
+            Session {
+                requests: AtomicUsize::new(0),
+            }
+        })
+        .on_connection_teardown(|session: Session| async move {
+            println!("session ended after {} requests", session.requests.load(Ordering::SeqCst));
+        })
+        .on_error(|error| {
+            let message = error.to_string();
+            async move { eprintln!("client error: {message}") }
+        })
+        .before_send(move |_bytes: &mut Vec<u8>| {
+            sent_counter.fetch_add(1, Ordering::SeqCst);
+        })
+        .after_receive(move |_bytes: &mut bytes::BytesMut| {
+            received_counter.fetch_add(1, Ordering::SeqCst);
+        })
+        .connect("127.0.0.1:7878".parse()?)
+        .await?;
+
+    client.close().await;
+    Ok(())
+}
+```
+
+Request hooks fire on `send`, `send_envelope`, `call`, `call_correlated`, the
+request in `call_streaming`, `receive`, `receive_envelope`, and
+`ResponseStream` polling. Frames from `send_streaming` bypass `before_send`.
+
+### Tracing the client
+
+The client emits `tracing` spans around connection and message operations:
+`INFO` for `connect` and `close`, and `DEBUG` for `send`, `receive`, `call`, and
+`call_streaming`. `send_streaming` and `receive_streaming` create no spans.
+Without a subscriber these cost next to nothing:
+
+<!-- tested-example: guide-client-tracing -->
+
+```rust,no_run
+use tracing::Level;
+use wireframe::client::{TracingConfig, WireframeClient};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let config = TracingConfig::default()
+        .with_all_levels(Level::TRACE)
+        .with_connect_timing(true)
+        .with_call_timing(true);
+
+    let client = WireframeClient::builder()
+        .tracing_config(config)
+        .connect("127.0.0.1:7878".parse()?)
+        .await?;
+    client.close().await;
+    Ok(())
+}
+```
+
+With timing enabled, an operation emits a `DEBUG` event carrying `elapsed_us`,
+on success and on failure. For `call_streaming`, that time ends when the
+request has been written, not when the stream ends. Streams also emit
+`stream.frames_received` per frame, and `stream.frames_total` when a terminator
+arrives.
+
+### Sending large bodies
+
+`send_streaming` sends a body as many frames, prepending your protocol's header
+to each chunk:
+
+<!-- tested-example: guide-client-send-streaming -->
+
+```rust,no_run
+use std::time::Duration;
+
+use wireframe::client::{SendStreamingConfig, WireframeClient};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut client = WireframeClient::builder()
+        .connect("127.0.0.1:7878".parse()?)
+        .await?;
+
+    let header = [0xCA, 0xFE, 0xBA, 0xBE];
+    let body = vec![0_u8; 4096];
+    let config = SendStreamingConfig::default()
+        .with_chunk_size(512)
+        .with_timeout(Duration::from_secs(5));
+
+    let outcome = client.send_streaming(&header, &body[..], config).await?;
+    println!("sent {} frames", outcome.frames_sent());
+    Ok(())
+}
+```
+
+Without `with_chunk_size`, chunks fill `max_frame_length` less the header, and
+an oversized chunk is clamped to that. A chunk size of zero, or a header at
+least as long as `max_frame_length`, returns `InvalidInput`. `with_timeout`
+bounds the whole operation. On expiry you get
+`ClientError::Wireframe(WireframeError::Io(_))` with kind `TimedOut`, and
+frames already sent remain sent, so assume partial success. The write side is
+then shut down, so do not reuse that connection.
+
+### Reading streamed replies
+
+A server reply can span many frames, ending in a terminator. Teach the client
+to recognize yours by overriding `Packet::is_stream_terminator`. **The bundled
+`Envelope` has no terminator**, so a stream of `Envelope` values only ends when
+the connection does, with an `UnexpectedEof` error.
+
+`call_streaming` sends a request and returns a `ResponseStream`:
+
+<!-- tested-example: guide-client-call-streaming -->
+
+```rust
+use futures::{SinkExt, StreamExt};
+use tokio::net::TcpListener;
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
+use wireframe::{
+    app::{Packet, PacketParts},
+    client::WireframeClient,
+    correlation::CorrelatableFrame,
+    message::Message,
+};
+
+/// An envelope whose message ID 0 means "end of stream".
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct Row {
+    id: u32,
+    correlation_id: Option<u64>,
+    payload: Vec<u8>,
+}
+
+impl CorrelatableFrame for Row {
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+
+    fn set_correlation_id(&mut self, id: Option<u64>) { self.correlation_id = id; }
+}
+
+impl Packet for Row {
+    fn id(&self) -> u32 { self.id }
+
+    fn into_parts(self) -> PacketParts {
+        PacketParts::new(self.id, self.correlation_id, self.payload)
+    }
+
+    fn from_parts(parts: PacketParts) -> Self {
+        Self {
+            id: parts.id(),
+            correlation_id: parts.correlation_id(),
+            payload: parts.into_payload(),
+        }
+    }
+
+    fn is_stream_terminator(&self) -> bool { self.id == 0 }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // A routed Wireframe server sends one reply per request, so this stand-in
+    // speaks the same framing with plain Tokio.
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    tokio::spawn(async move {
+        let (socket, _) = listener.accept().await.expect("a connection");
+        let mut framed = Framed::new(socket, LengthDelimitedCodec::new());
+        let bytes = framed.next().await.expect("a request").expect("a frame");
+        let (request, _) = Row::from_bytes(&bytes).expect("a valid request");
+        for (id, body) in [(1, "first"), (1, "second"), (0, "")] {
+            let row = Row {
+                id,
+                correlation_id: request.correlation_id,
+                payload: body.as_bytes().to_vec(),
+            };
+            let encoded = row.to_bytes().expect("a row encodes");
+            framed.send(encoded.into()).await.expect("the client is listening");
+        }
+    });
+
+    let mut client = WireframeClient::builder().connect(address).await?;
+    let request = Row {
+        id: 1,
+        correlation_id: None,
+        payload: vec![],
+    };
+
+    let mut rows = client.call_streaming::<Row>(request).await?;
+    let mut bodies = Vec::new();
+    while let Some(row) = rows.next().await {
+        bodies.push(String::from_utf8(row?.payload)?);
+    }
+    assert_eq!(bodies, ["first", "second"]);
+    Ok(())
+}
+```
+
+If you have already sent the request with `send_envelope`, `receive_streaming`
+takes its correlation identifier and returns the same kind of stream. The
+stream borrows the client exclusively, so **no other client I/O can happen
+until it is drained or dropped**.
+
+The stream checks the identifier on every data frame, yielding
+`ClientError::StreamCorrelationMismatch` and ending if one differs. The
+terminator is not checked, so any terminator ends the stream cleanly. Transport
+and decode failures arrive as `ClientError::Wireframe`.
+
+For protocols that interleave data with notices,
+`StreamingResponseExt::typed_with` maps each frame to
+`Result<Option<Item>, ClientError>`: `Some` yields an item, `None` skips the
+frame, and an error ends the stream:
+
+<!-- tested-example: guide-client-typed-with -->
+
+```rust,no_run
+use futures::TryStreamExt;
+use wireframe::{
+    app::{Packet, PacketParts},
+    client::{ClientError, StreamingResponseExt, WireframeClient},
+    correlation::CorrelatableFrame,
+};
+
+#[derive(bincode::BorrowDecode, bincode::Encode)]
+struct Frame {
+    id: u32,
+    correlation_id: Option<u64>,
+    payload: Vec<u8>,
+}
+
+impl CorrelatableFrame for Frame {
+    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
+
+    fn set_correlation_id(&mut self, id: Option<u64>) { self.correlation_id = id; }
+}
+
+impl Packet for Frame {
+    fn id(&self) -> u32 { self.id }
+
+    fn into_parts(self) -> PacketParts {
+        PacketParts::new(self.id, self.correlation_id, self.payload)
+    }
+
+    fn from_parts(parts: PacketParts) -> Self {
+        Self {
+            id: parts.id(),
+            correlation_id: parts.correlation_id(),
+            payload: parts.into_payload(),
+        }
+    }
+
+    fn is_stream_terminator(&self) -> bool { self.id == 0 }
+}
+
+struct Row(Vec<u8>);
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut client = WireframeClient::builder()
+        .connect("127.0.0.1:9000".parse()?)
+        .await?;
+    let request = Frame {
+        id: 1,
+        correlation_id: None,
+        payload: vec![],
+    };
+
+    let rows: Vec<Row> = client
+        .call_streaming::<Frame>(request)
+        .await?
+        .typed_with(|frame| match frame.id {
+            1 => Ok(Some(Row(frame.payload))),
+            2 => Ok(None), // A progress notice, which this caller ignores.
+            other => Err(ClientError::from(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unexpected frame id {other}"),
+            ))),
+        })
+        .try_collect()
+        .await?;
+
+    println!("received {} rows", rows.len());
+    Ok(())
+}
+```
+
+Back-pressure comes from TCP flow control: if you read slowly, the receive
+window shrinks and the sender's writes eventually wait. No flow-control
+messages are involved.
+
+### Client pools
+
+Enable the `pool` feature to use `connect_pool`. A pool keeps a bounded set of
+reusable sockets, each **opened on first use**, so `connect_pool` and `acquire`
+can succeed with the server down, and the first operation is what reports it:
+
+<!-- tested-example: guide-client-pool -->
+
+```rust,no_run
+use std::time::Duration;
+
+use wireframe::client::{ClientPoolConfig, PoolFairnessPolicy, PoolHandle, WireframeClient};
+
+#[derive(bincode::Encode, bincode::Decode, Debug, PartialEq)]
+struct Ping(u8);
+
+#[derive(bincode::Encode, bincode::Decode, Debug, PartialEq)]
+struct Pong(u8);
+
+#[tokio::main]
+async fn main() -> Result<(), wireframe::client::ClientError> {
+    let address = "127.0.0.1:7878".parse().expect("a valid address");
+    let pool = WireframeClient::builder()
+        .connect_pool(
+            address,
+            ClientPoolConfig::default()
+                .pool_size(2)
+                .max_in_flight_per_socket(2)
+                .idle_timeout(Duration::from_secs(30))
+                .fairness_policy(PoolFairnessPolicy::RoundRobin),
+        )
+        .await?;
+
+    // A lease suits one piece of work.
+    let lease = pool.acquire().await?;
+    let pong: Pong = lease.call(&Ping(1)).await?;
+    assert_eq!(pong, Pong(1));
+    drop(lease);
+
+    // A handle suits a long-lived session that should take fair turns.
+    let mut session: PoolHandle<_, _, _> = pool.handle();
+    let pong: Pong = session.call(&Ping(2)).await?;
+    assert_eq!(pong, Pong(2));
+
+    pool.close().await;
+    Ok(())
+}
+```
+
+Table 8 lists the settings. The `Fifo` fairness policy serves waiting handles
+in the order they blocked, whereas `RoundRobin`, the default, rotates among
+them.
+
+| Setting                    | Default      | Meaning                                                 |
+| -------------------------- | ------------ | ------------------------------------------------------- |
+| `pool_size`                | 4            | Sockets to maintain.                                    |
+| `max_in_flight_per_socket` | 1            | Callers admitted per socket, not parallel writes on it. |
+| `max_waiters`              | 64           | Acquisitions that may wait; 0 is treated as 1.          |
+| `idle_timeout`             | 600 s        | Replace a socket idle for this long.                    |
+| `fairness_policy`          | `RoundRobin` | How blocked handles take turns.                         |
+
+_Table 8: Client pool settings._
+
+Some behaviour worth knowing:
+
+- **Leases forward requests** rather than exposing a client. Socket I/O stays
+  serialized per connection. `max_in_flight_per_socket` is an admission budget.
+- **Use a lease for split-phase work**, such as `send` followed by `receive`.
+  The slot is reserved until `receive` finishes, and calling `call` on that
+  lease in between fails and discards the socket. `PoolHandle` does not pin a
+  session to one socket, and does not demultiplex responses.
+- **Interrupted work discards the socket**, so a late response cannot reach the
+  next caller. This covers a cancelled operation and a lease dropped before its
+  reply was read. The next operation reconnects.
+- **Preambles and setup hooks run per socket.** Reuse keeps preamble state, and
+  replacing a socket runs them again.
+- **Slots rotate.** Each acquisition starts one slot further round and skips
+  full slots. If all are full, it waits.
+- **Saturation is immediate.** Once `max_waiters` is reached, `acquire` returns
+  `ClientError::PoolSaturated { limit }`. No socket is affected, so retrying
+  later is fine.
+- **Closing** rejects new acquisitions with `ClientError::PoolClosed`, resolves
+  queued ones the same way, and waits for the scheduler task. Existing leases
+  are not revoked, and keep their sockets alive until dropped. If the scheduler
+  died, you get `ClientError::SchedulerFailed`. Neither error means a socket is
+  dirty, and neither is retried automatically.
+
+### Client pool metrics
+
+Table 9 lists the metrics, all with fixed labels, so they never identify slots
+or callers.
+
+| Metric                                               | Kind      | Labels and meaning                                                                            |
+| ---------------------------------------------------- | --------- | --------------------------------------------------------------------------------------------- |
+| `wireframe_pool_acquisitions_total`                  | Counter   | `mode` (`immediate`, `permit_race`), `outcome` (`granted`, `exhausted`, `shutdown`, `error`). |
+| `wireframe_pool_permit_races_started_total`          | Counter   | A blocked race began, because every slot was busy.                                            |
+| `wireframe_pool_permit_races_total`                  | Counter   | `outcome` (`granted`, `shutdown`, `error`, `cancelled`).                                      |
+| `wireframe_pool_permit_race_duration_seconds`        | Histogram | Time spent blocked, by the same `outcome`.                                                    |
+| `wireframe_pool_connection_discards_total`           | Counter   | Sockets discarded, by `reason`. Watch this for socket churn.                                  |
+| `wireframe_pool_scheduler_failures_total`            | Counter   | Abnormal scheduler exits.                                                                     |
+| `wireframe_pool_bookkeeping_poison_recoveries_total` | Counter   | Recoveries from poisoned internal locks.                                                      |
+
+_Table 9: Client pool metrics._
+
+A rising `exhausted` rate means work is arriving faster than permits can serve
+it. Dropping your own `acquire()` future does not end a race, which still
+records `granted`, so `cancelled` appears only when a pool and all its handles
+are dropped without `close()` in the middle of a race. Compare started and
+finished races to find any that stay active.
+
+## Building blocks not yet wired into the server
+
+Wireframe ships several parts ahead of the connection runtime that will use
+them. Each is tested and usable on its own, but **`WireframeServer` does not
+drive any of them**, so adopting one means writing the glue yourself. Table 10
+tells you where each stands.
+
+| Building block           | Works today                                  | Not yet                                        |
+| ------------------------ | -------------------------------------------- | ---------------------------------------------- |
+| `Response` streaming     | Producing frames, through `ConnectionActor`  | Returning a stream from a route handler        |
+| `PushQueues`             | Queueing, priorities, rate limits, and a DLQ | Reaching a `WireframeServer` connection        |
+| `ConnectionActor`        | Collecting frames into a `Vec`               | Writing to a socket                            |
+| `SessionRegistry`        | Tracking handles you insert                  | Being populated automatically                  |
+| Streaming request bodies | A channel you own at both ends               | Delivery to handlers                           |
+| Extractors               | Running against a request you build          | Being invoked for handlers; `app_data` lookups |
+| Recovery policies        | Classifying errors yourself                  | Being consulted when a decoder fails           |
+| `on_eof`                 | Implementing the trait method                | Being called by the connection loop            |
+
+_Table 10: What the building blocks do today. DLQ means dead-letter queue._
+
+The [roadmap](roadmap.md) tracks this work, and issues are welcome if one of
+these is what you need most.
+
+### Streaming responses
+
+`Response` models a single frame, a vector of frames, a stream, a multi-packet
+channel, or an empty reply. `into_stream` turns any of them into a
+`FrameStream`:
+
+<!-- tested-example: guide-response-stream -->
+
+```rust
+use async_stream::try_stream;
+use futures::TryStreamExt;
+use wireframe::response::{FrameStream, Response};
+
+#[derive(Debug, PartialEq)]
+struct Frame(u32);
+
+#[tokio::main]
+async fn main() {
+    let frames: FrameStream<Frame> = Box::pin(try_stream! {
+        for value in 0..3 {
+            yield Frame(value);
+        }
+    });
+    let response = Response::Stream(frames);
+
+    let collected: Vec<Frame> = response.into_stream().try_collect().await.expect("frames");
+    assert_eq!(collected, [Frame(0), Frame(1), Frame(2)]);
+}
+```
+
+`Response::with_channel` returns a sender and a `Response::MultiPacket`. The
+sender waits for room in the channel, which bounds the producer against
+whatever is consuming the response. Dropping the last sender ends it:
+
+<!-- tested-example: guide-response-channel -->
+
+```rust
+use futures::TryStreamExt;
+use wireframe::response::Response;
+
+#[derive(Debug, PartialEq)]
+struct Vertex(u32);
+
+#[tokio::main]
+async fn main() {
+    let (sender, response) = Response::<Vertex>::with_channel(2);
+
+    let producer = tokio::spawn(async move {
+        for value in 1..=5 {
+            if sender.send(Vertex(value)).await.is_err() {
+                return; // The receiver has gone, so stop producing.
+            }
+        }
+    });
+
+    let frames: Vec<Vertex> = response.into_stream().try_collect().await.expect("frames");
+    producer.await.expect("the producer finished");
+    assert_eq!(frames.len(), 5);
+}
+```
+
+`Response`, `FrameStream`, and `ConnectionActor` default their protocol error to
+`NoProtocolError`, so name the parameter only when a stream carries protocol
+failures of its own. `WireframeError` then distinguishes transport failures
+from protocol ones.
+
+### The connection actor
+
+`ConnectionActor` merges push queues and a response stream, fairly, under a
+cancellation token. `run` collects frames into a `Vec` you supply, and it is up
+to you to write them somewhere. So channel capacity bounds a producer against
+the actor's polling, and it reaches the socket only if your write path provides
+that:
+
+<!-- tested-example: guide-connection-actor -->
+
+```rust
+use futures::{StreamExt, stream};
+use tokio_util::sync::CancellationToken;
+use wireframe::{
+    app::{Envelope, Packet},
+    connection::ConnectionActor,
+    push::PushQueues,
+};
+
+#[tokio::main]
+async fn main() {
+    let (queues, handle) = PushQueues::<Envelope>::builder()
+        .high_capacity(8)
+        .low_capacity(8)
+        .build()
+        .expect("valid capacities");
+
+    handle.push_low_priority(Envelope::new(30, None, vec![])).await.expect("queued");
+    handle.push_high_priority(Envelope::new(10, None, vec![])).await.expect("queued");
+
+    let reply = stream::iter(vec![Ok(Envelope::new(20, Some(1), vec![]))]).boxed();
+    let mut actor: ConnectionActor<Envelope, ()> =
+        ConnectionActor::new(queues, handle, Some(reply), CancellationToken::new());
+
+    let mut out = Vec::new();
+    actor.run(&mut out).await.expect("the actor drains");
+    let mut ids: Vec<u32> = out.iter().map(Envelope::id).collect();
+    ids.sort_unstable();
+    assert_eq!(ids, [10, 20, 30]);
+}
+```
+
+Pass a `FairnessConfig` to `set_fairness` to stop sustained high-priority
+traffic from starving low-priority frames, and call `enable_fragmentation` to
+fragment its output, which is the outbound half only. The actor runs the
+protocol hooks that server connections do not:
+
+- `on_connection_setup` receives a `PushHandle` to keep.
+- `before_send` and `on_command_end` run for frames and commands.
+- `stream_end_frame` provides a terminator for a multi-packet response. The
+  default is `None`, and then the client waits until the connection ends. Use
+  `set_multi_packet_with_correlation` to stamp the request's identifier; plain
+  `set_multi_packet` stamps `None`.
+
+The channel can end as `drained`, `disconnected`, or `shutdown`. The first two
+send the terminator through `before_send`. On `shutdown`, the actor logs the
+reason and sends none.
+
+`wireframe_connections_active` and `active_connection_count()` count live
+actors.
+
+### Push queues
+
+`PushQueues` holds outbound frames at two priorities. Capacities default to 1,
+and rate limiting is **on** by default at 100 pushes per second, so configure
+both:
+
+<!-- tested-example: guide-push-queues -->
+
+```rust
+use tokio::sync::mpsc;
+use wireframe::push::PushQueues;
+
+let (dead_letters, _dead_letter_receiver) = mpsc::channel(8);
+let (_queues, _handle) = PushQueues::<u8>::builder()
+    .high_capacity(8)
+    .low_capacity(8)
+    .rate(Some(100))
+    .dlq(Some(dead_letters))
+    .build()
+    .expect("valid configuration");
+
+// `unlimited` removes the rate limit.
+let (_queues, _handle) = PushQueues::<u8>::builder()
+    .high_capacity(8)
+    .low_capacity(8)
+    .unlimited()
+    .build()
+    .expect("valid configuration");
+```
+
+`build` rejects a zero capacity (`PushConfigError::InvalidCapacity`), and a
+rate of zero or above `MAX_PUSH_RATE` (`PushConfigError::InvalidRate`).
+
+`push_high_priority` and `push_low_priority` honour the rate limit, then wait
+for channel capacity. `try_push` skips the limiter and applies a `PushPolicy`,
+optionally warning and forwarding to the dead-letter queue (DLQ).
+**`DropIfFull` without a DLQ loses frames silently.**
+
+If the DLQ is itself full or closed, a throttled `DLQ dropped frames` warning
+reports how many frames were lost since the last report, along with the DLQ's
+state and the frame's priority, policy, and Rust type, but never its contents.
+`dlq_log_every_n` and `dlq_log_interval` set the cadence. Only frames that the
+DLQ accepted reach its receiver, and you must consume them from there to
+inspect them.
+
+`PushQueues::recv` always prefers the high-priority queue, so it can starve the
+low-priority one. Fairness exists only inside `ConnectionActor`. `close`
+releases resources when no actor is running.
+
+### Compile-time queue and session configuration
+
+All of the queue builder's setters except `dlq` are `const fn`, so a chain can
+run inside a `const fn`, although the builder itself is created at run time.
+The frame parameter needs only `Send + 'static`:
+
+<!-- tested-example: guide-const-push-builder -->
+
+```rust
+use std::time::Duration;
+
+use wireframe::push::PushQueuesBuilder;
+
+const fn configure<F: Send + 'static>(builder: PushQueuesBuilder<F>) -> PushQueuesBuilder<F> {
+    builder
+        .high_capacity(8)
+        .low_capacity(4)
+        .rate(Some(64))
+        .dlq_log_interval(Duration::from_secs(5))
+}
+
+let builder = configure(PushQueuesBuilder::<Vec<u8>>::default());
+drop(builder);
+```
+
+`ConnectionId::{new, as_u64}`, `LengthDelimitedFrameCodec::max_frame_length`,
+`ConnectionInfo::peer_addr`, `WireframeError::{from_io, from_codec}`, and
+`WireframeError::is_clean_close` are `const` too. See also
+[Compile-time configuration](#compile-time-configuration).
+
+### Session registry
+
+`SessionRegistry` stores weak references to `PushHandle` values by
+`ConnectionId`, so a background task can find a connection without keeping it
+alive. Dead entries are pruned on lookup and by `active_handles`. `prune`
+removes them without collecting handles. Its `DashMap` holds per-bucket locks
+while it does this, so busy systems may prefer running it from a maintenance
+task:
+
+<!-- tested-example: guide-session-registry -->
+
+```rust
+use wireframe::{
+    push::PushQueues,
+    session::{ConnectionId, SessionRegistry},
+};
+
+let (queues, handle) = PushQueues::<u8>::builder()
+    .high_capacity(1)
+    .low_capacity(1)
+    .build()
+    .expect("valid capacities");
+
+let registry: SessionRegistry<u8> = SessionRegistry::default();
+let id = ConnectionId::new(42);
+registry.insert(id, &handle);
+assert!(registry.get(&id).is_some());
+
+drop((queues, handle));
+assert!(registry.get(&id).is_none(), "a closed connection leaves no handle behind");
+```
+
+`SessionRegistry::default` needs the frame type to implement `Default`, which
+`Envelope` does not.
+
+### Streaming request bodies
+
+`RequestParts` separates routing metadata from a body, and `RequestBodyStream`
+is a stream of chunks. A bounded `body_channel` connects a sender to a reader,
+which `RequestBodyReader` adapts to `AsyncRead`. Today you own both ends, so
+back-pressure applies between your own two parties:
+
+<!-- tested-example: guide-request-body -->
+
+```rust
+use bytes::Bytes;
+use tokio::io::AsyncReadExt;
+use wireframe::request::{RequestBodyReader, RequestParts, body_channel};
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    let parts = RequestParts::new(42, Some(123), vec![0x01, 0x02]);
+    assert_eq!(parts.id(), 42);
+    assert_eq!(parts.correlation_id(), Some(123));
+    assert_eq!(parts.metadata(), &[0x01, 0x02]);
+
+    let (sender, stream) = body_channel(8);
+    tokio::spawn(async move {
+        for chunk in [&b"hello "[..], &b"world"[..]] {
+            if sender.send(Ok(Bytes::from_static(chunk))).await.is_err() {
+                return;
+            }
+        }
+    });
+
+    let mut reader = RequestBodyReader::new(stream);
+    let mut body = Vec::new();
+    reader.read_to_end(&mut body).await?;
+    assert_eq!(body, b"hello world");
+    Ok(())
+}
+```
+
+ADR 002 records the
+[design for streaming requests](adr-002-streaming-requests-and-shared-message-assembly.md).
+
+### Extractors
+
+`wireframe::extractor` defines `MessageRequest`, `Payload`, and
+`FromMessageRequest`, along with `Message<T>`, `SharedState<T>`,
+`ConnectionInfo`, and `StreamingBody`. They resemble Actix Web's extractors,
+but handlers cannot declare them as parameters, and the runtime never builds a
+`MessageRequest`. To use one, build the request yourself:
+
+<!-- tested-example: guide-extractors -->
+
+```rust
+use wireframe::extractor::{ExtractError, FromMessageRequest, MessageRequest, Payload};
+
+struct SessionToken(String);
+
+impl FromMessageRequest for SessionToken {
+    type Error = ExtractError;
+
+    fn from_message_request(
+        _request: &MessageRequest,
+        payload: &mut Payload<'_>,
+    ) -> Result<Self, Self::Error> {
+        let bytes = payload.as_ref();
+        let token = String::from_utf8_lossy(bytes).into_owned();
+        let consumed = bytes.len();
+        payload.advance(consumed);
+        Ok(Self(token))
+    }
+}
+
+let request = MessageRequest::default();
+let mut payload = Payload::new(b"secret");
+let token = SessionToken::from_message_request(&request, &mut payload)
+    .unwrap_or_else(|_| panic!("the token extracts"));
+assert_eq!(token.0, "secret");
+```
+
+### Codec recovery policies
+
+`CodecError::default_recovery_policy` classifies an error as shown in Table 11.
+The connection loop does not use this, and no builder method installs a
+`RecoveryPolicyHook`, so **any decoder error closes the connection today**,
+whatever its classification says.
+
+| Error                          | Classification |
+| ------------------------------ | -------------- |
+| `FramingError::OversizedFrame` | Drop           |
+| `FramingError::EmptyFrame`     | Drop           |
+| Other `FramingError`           | Disconnect     |
+| Any `ProtocolError`            | Drop           |
+| Any I/O error                  | Disconnect     |
+| Any `EofError`                 | Disconnect     |
+
+_Table 11: The classification from `default_recovery_policy`._
+
+`CodecErrorContext` carries connection details for your own decisions. Implement
+`on_eof`, and call it from your own code, to react to end-of-stream conditions:
+
+<!-- tested-example: guide-recovery-hook -->
+
+```rust
+use wireframe::{
+    codec::{CodecError, CodecErrorContext, EofError, RecoveryPolicy, RecoveryPolicyHook},
+    hooks::{ConnectionContext, WireframeProtocol},
+};
+
+struct StrictRecovery;
+
+impl RecoveryPolicyHook for StrictRecovery {
+    fn recovery_policy(&self, _error: &CodecError, _context: &CodecErrorContext) -> RecoveryPolicy {
+        RecoveryPolicy::Disconnect
+    }
+}
+
+struct Logged;
+
+impl WireframeProtocol for Logged {
+    type Frame = bytes::Bytes;
+    type ProtocolError = ();
+
+    fn on_eof(&self, error: &EofError, partial: &[u8], _context: &mut ConnectionContext) {
+        match error {
+            EofError::CleanClose => tracing::info!("connection closed cleanly"),
+            EofError::MidFrame { bytes_received, expected } => {
+                tracing::warn!(bytes_received, expected, partial = partial.len(), "closed mid-frame");
+            }
+            EofError::MidHeader { bytes_received, header_size } => {
+                tracing::warn!(bytes_received, header_size, "closed mid-header");
+            }
+        }
+    }
+}
+
+let context = CodecErrorContext::new()
+    .with_connection_id(42)
+    .with_correlation_id(123)
+    .with_codec_state("seq=5");
+assert_eq!(context.connection_id, Some(42));
+```
+
+The runtime does not record `wireframe_codec_errors_total` either. It moves
+only if your own code calls `wireframe::metrics::inc_codec_error`.
+
+## Testing your protocol
+
+Networks deliver bytes in whatever pieces they like, and your tests should too.
+There are two places to look:
+
+- **`wireframe::testkit`**, behind the `testkit` feature, holds drivers and
+  assertions you can use from the main crate.
+- **The `wireframe_testing` crate** adds codec fixtures, an observability
+  harness, a client and server pair, and allocation counting. It re-exports the
+  testkit, and enables that feature for you.
+
+<!-- tested-example: guide-testing-dependencies -->
+
+```toml
+[dev-dependencies]
+wireframe = { version = "=0.4.0-alpha1", features = ["testkit"] }
+wireframe_testing = "=0.4.0-alpha1"
+```
+
+### Partial frames and slow peers
+
+The chunked drivers encode payloads, then write them in pieces as small as one
+byte:
+
+<!-- tested-example: guide-testing-partial-frames -->
+
+```rust
+use std::{num::NonZeroUsize, sync::Arc};
+
+use wireframe::{
+    app::{Envelope, Handler, WireframeApp},
+    codec::LengthDelimitedFrameCodec,
+    serializer::{BincodeSerializer, Serializer},
+    testkit::drive_with_partial_frames,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let echo: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
+    let app: WireframeApp = WireframeApp::new()?.route(1, echo)?;
+    let request = BincodeSerializer.serialize(&Envelope::new(1, Some(7), b"hi".to_vec()))?;
+
+    let codec = LengthDelimitedFrameCodec::new(1024);
+    let one_byte = NonZeroUsize::new(1).expect("non-zero");
+    let replies = drive_with_partial_frames(app, &codec, vec![request.clone()], one_byte).await?;
+    assert_eq!(replies, [request]);
+    Ok(())
+}
+```
+
+The slow-I/O helpers pace reads and writes separately, and are designed for
+paused Tokio time:
+
+<!-- tested-example: guide-testing-slow-io -->
+
+```rust
+use std::{num::NonZeroUsize, sync::Arc, time::Duration};
+
+use wireframe::{
+    app::{Envelope, Handler, WireframeApp},
+    codec::LengthDelimitedFrameCodec,
+    serializer::{BincodeSerializer, Serializer},
+    testkit::{SlowIoConfig, SlowIoPacing, drive_with_slow_codec_payloads},
+};
+
+#[tokio::main(flavor = "current_thread", start_paused = true)]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let echo: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
+    let app: WireframeApp = WireframeApp::new()?.route(1, echo)?;
+    let request = BincodeSerializer.serialize(&Envelope::new(1, Some(7), b"slow".to_vec()))?;
+
+    let pace = |bytes: usize| {
+        SlowIoPacing::new(NonZeroUsize::new(bytes).expect("non-zero"), Duration::from_millis(5))
+    };
+    let config = SlowIoConfig::new()
+        .with_writer_pacing(pace(8))
+        .with_reader_pacing(pace(32))
+        .with_capacity(64);
+
+    let codec = LengthDelimitedFrameCodec::new(1024);
+    let replies = drive_with_slow_codec_payloads(app, &codec, vec![request.clone()], config).await?;
+    assert_eq!(replies, [request]);
+    Ok(())
+}
+```
+
+Small capacities combined with reader pacing make an application's writes hit
+back-pressure quickly. Table 12 lists the drivers. Many also have a
+`_with_capacity` form, and `_mut` forms that borrow the application.
+
+| Function family                   | From                | Feeds                               | Returns          |
+| --------------------------------- | ------------------- | ----------------------------------- | ---------------- |
+| `drive_with_partial_frames`       | `testkit`           | Payloads, in chunks                 | Payload bytes    |
+| `drive_with_partial_codec_frames` | `testkit`           | Payloads, in chunks                 | Decoded frames   |
+| `drive_with_fragments`            | `testkit`           | A payload, fragmented               | Payload bytes    |
+| `drive_with_fragment_frames`      | `testkit`           | A payload, fragmented               | Decoded frames   |
+| `drive_with_partial_fragments`    | `testkit`           | Fragments, in chunks                | Payload bytes    |
+| `drive_with_slow_frames`          | `testkit`           | Pre-framed bytes, paced             | Raw output bytes |
+| `drive_with_slow_payloads`        | `testkit`           | Default-framed payloads, paced      | Raw output bytes |
+| `drive_with_slow_codec_payloads`  | `testkit`           | Codec payloads, paced               | Payload bytes    |
+| `drive_with_slow_codec_frames`    | `testkit`           | Codec payloads, paced               | Decoded frames   |
+| `drive_with_codec_payloads`       | `wireframe_testing` | Payloads                            | Payload bytes    |
+| `drive_with_codec_frames`         | `wireframe_testing` | Payloads                            | Decoded frames   |
+| `prepare_and_drive_with_frames`   | `wireframe_testing` | Raw frames, prepared once           | Raw output bytes |
+| `drive_prepared_with_frames`      | `wireframe_testing` | Raw frames, reusing a `PreparedApp` | Raw output bytes |
+
+_Table 12: In-memory test drivers._
+
+`encode_payloads_with_codec`, `decode_frames_with_codec`, and
+`extract_payloads` help you compose your own patterns.
+
+### Malformed input
+
+The fixtures in `wireframe_testing` construct raw Hotline-framed bytes
+directly, so they can represent data an encoder would refuse to produce:
+
+<!-- tested-example: guide-testing-fixtures -->
+
+```rust
+use wireframe::codec::examples::HotlineFrameCodec;
+use wireframe_testing::{
+    correlated_hotline_wire,
+    decode_frames_with_codec,
+    oversized_hotline_wire,
+    truncated_hotline_header,
+    valid_hotline_wire,
+};
+
+let codec = HotlineFrameCodec::new(4096);
+
+let wire = valid_hotline_wire(b"hello", 7);
+assert_eq!(decode_frames_with_codec(&codec, &wire).expect("decodes").len(), 1);
+
+let wire = oversized_hotline_wire(4096);
+assert!(decode_frames_with_codec(&codec, &wire).is_err());
+
+let wire = truncated_hotline_header();
+assert!(decode_frames_with_codec(&codec, &wire).is_err());
+
+let wire = correlated_hotline_wire(42, &[b"a", b"b"]);
+assert_eq!(decode_frames_with_codec(&codec, &wire).expect("decodes").len(), 2);
+```
+
+The others are `valid_hotline_frame`, `mismatched_total_size_wire`,
+`truncated_hotline_payload`, and `sequential_hotline_wire`.
+
+### Asserting on reassembly
+
+`wireframe::testkit::reassembly` offers assertions that return a `Result`
+rather than panicking, so the same helper works in `rstest` tests and in
+`rstest-bdd` steps:
+
+<!-- tested-example: guide-testing-reassembly -->
+
+```rust
+use wireframe::{
+    message_assembler::MessageKey,
+    testkit::{MessageAssemblySnapshot, TestResult, assert_message_assembly_completed_for_key},
+};
+
+fn check(snapshot: MessageAssemblySnapshot<'_>) -> TestResult {
+    assert_message_assembly_completed_for_key(snapshot, MessageKey(7), b"done")?;
+    Ok(())
+}
+```
+
+For message assembly, there are `assert_message_assembly_incomplete`,
+`_completed`, `_completed_for_key`, `_error`, `_buffered_count`,
+`_total_buffered_bytes`, and `_evicted`. For fragments, there are
+`assert_fragment_reassembly_absent`, `_completed_len`, `_completed_bytes`,
+`_error`, `_buffered_messages`, and `_evicted`. Existing
+`wireframe_testing::reassembly` imports keep working.
+
+### Logs and metrics
+
+`ObservabilityHandle` captures logs and metrics in one fixture:
+
+<!-- tested-example: guide-testing-observability -->
+
+```rust
+use wireframe_testing::ObservabilityHandle;
+
+let mut observability = ObservabilityHandle::new();
+observability.clear();
+
+metrics::with_local_recorder(observability.recorder(), || {
+    wireframe::metrics::inc_codec_error("framing", "drop");
+});
+
+observability.snapshot();
+assert_eq!(
+    observability.counter(
+        wireframe::metrics::CODEC_ERRORS,
+        &[("error_type", "framing"), ("recovery_policy", "drop")],
+    ),
+    1
+);
+```
+
+Metrics are captured per thread, so the code under test must run on the same
+thread as the handle. In async tests, use
+`#[tokio::test(flavor = "current_thread")]`. This needs `metrics` in your own
+dev-dependencies.
+
+The assertion helpers `assert_counter`, `assert_no_metric`,
+`assert_codec_error_counter`, `assert_histogram_recorded`,
+`assert_log_contains`, and `assert_log_at_level` **return a `Result` without
+panicking**, so propagate them with `?`, or the test asserts nothing. `counter`,
+`counter_without_labels`, and `codec_error_counter` read values from the
+latest snapshot.
+
+### A real client and server
+
+`wireframe_testing::client_pair` starts a real `WireframeServer` and a connected
+`WireframeClient` over a loopback socket, for tests that need the whole
+network path. `echo_app_factory` supplies a ready-made application with route 1
+and invocation counting:
+
+<!-- tested-example: guide-testing-pair -->
+
+```rust
+use std::sync::{Arc, atomic::AtomicUsize};
+
+use wireframe_testing::{TestResult, echo_app_factory, spawn_wireframe_pair};
+
+#[tokio::main]
+async fn main() -> TestResult<()> {
+    let counter = Arc::new(AtomicUsize::new(0));
+    let mut pair = spawn_wireframe_pair(
+        echo_app_factory(&counter),
+        |builder| builder.max_frame_length(2048),
+    )
+    .await?;
+
+    assert!(pair.local_addr().port() > 0);
+
+    pair.shutdown().await?;
+    Ok(())
+}
+```
+
+`pair.client_mut()` gives you the client. `spawn_wireframe_pair_default` uses
+default client settings. If the client cannot connect, the server is torn down,
+so nothing leaks into later tests.
+
+### Counting allocations
+
+`wireframe_testing::benchmark_alloc_support` helps you keep allocation budgets.
+Rust permits one `#[global_allocator]` per binary, and a library cannot install
+it for you, so a benchmark binary opts in:
+
+<!-- tested-example: guide-allocator -->
+
+```rust,no_run
+use std::alloc::System;
+
+use wireframe_testing::benchmark_alloc_support::{INSTRUMENTED_SYSTEM, StatsAlloc, count_allocations};
+
+#[global_allocator]
+static GLOBAL_ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let count = count_allocations(|| {
+        let buffer: Vec<u8> = vec![0; 1024];
+        std::hint::black_box(buffer.len());
+        Ok(())
+    })?;
+    println!("{count} allocations");
+    Ok(())
+}
+```
+
+`count_allocations` opens a window, runs your closure, and closes the window
+even on error. `count_allocations_or_panic` is for binaries that treat a failed
+measurement as fatal. `allocation_count`, `reset_allocation_count`, and
+`is_allocation_counting_enabled` work on the current count.
+
+The value includes reallocations, and everything running in the window, such as
+the runtime and harness. Compare values across runs of the same binary rather
+than treating them as absolute costs.
 
 ## Compile-time configuration
 
-Much of Wireframe's configuration surface is callable in a `const` context, so
-a configuration value can be computed by the compiler and checked in a `static`
-or `const` item rather than assembled at startup. This matters when a value
-must be known before `main` runs — a `static` lookup table, an array length, a
-compile-time assertion — and it turns a large class of configuration mistakes
-into compile errors.
+Much of the configuration can run in a `const` context, so a value can be
+computed by the compiler and checked in a `static` or `const` item. This
+matters when a value must exist before `main` runs, and it turns some
+configuration mistakes into compile errors. It covers:
 
-The `const` surface covers:
-
-- **Codec errors and recovery.** `CodecError::is_clean_close`,
-  `CodecError::error_type`, and `CodecError::default_recovery_policy`;
-  `EofError::is_clean_close`; and the `RecoveryConfig` builder methods
+- **Application builder.** `WireframeApp::codec`, `fragmentation`, and
+  `memory_budgets`, plus `Envelope::new` and `PacketParts::new`.
+- **Codec errors.** `CodecError::is_clean_close`, `error_type`, and
+  `default_recovery_policy`, and the `RecoveryConfig` methods
   `max_consecutive_drops`, `quarantine_duration`, and `log_dropped_frames`.
-  `RecoveryConfig` starts from `RecoveryConfig::default()` — a struct literal
-  works in a `const` item too, because every field is public.
-- **Top-level errors.** `WireframeError::from_io`, `WireframeError::from_codec`,
-  and `WireframeError::is_clean_close`.
-- **Codec error context.** `CodecErrorContext` with `with_connection_id`,
+- **Top-level errors.** `WireframeError::from_io`, `from_codec`, and
+  `is_clean_close`.
+- **Error context.** `CodecErrorContext` with `with_connection_id`,
   `with_peer_address`, and `with_correlation_id`.
 - **Codec parameters.** `HotlineFrameCodec::new` and `MysqlFrameCodec::new`.
-  Their `max_frame_length` accessor is the non-`const` `FrameCodec` trait
-  method, so it stays a runtime read.
+  Their `max_frame_length` is a trait method, and so stays a run-time read.
 - **Message assembly.** `ParsedFrameHeader::new`, `FirstFrameHeader`,
   `FrameHeader`, `MessageKey`, `EnvelopeId`, `CorrelationId`,
   `EnvelopeRouting`, and `AssembledMessage::new`.
-- **Requests and middleware.** `RequestParts::new`, plus its `const` accessors
-  `id`, `correlation_id`, and `metadata_mut` (`metadata` borrows and is not
-  `const`), `FrameContainer`, `FromFn::new`, `Next::new`, and the
-  correlation-id setter and getter on `ServiceRequest` and `ServiceResponse`.
-- **Connection and queue tuning.** The connection builder's `set_fairness` and
-  `enable_fragmentation`, the queue builder's `high_capacity`, `low_capacity`,
-  `rate`, `unlimited`, `dlq_log_interval`, and `dlq_log_every_n`, and
-  `ClientPool` lease identifiers via `slot_id`.
+- **Requests and middleware.** `RequestParts::new`, `id`, `correlation_id`, and
+  `metadata_mut`, as well as `FrameContainer`, `FromFn::new`, `Next::new`, and
+  the correlation accessors on `ServiceRequest` and `ServiceResponse`.
+- **Connection and queue tuning.** `ConnectionActor::set_fairness` and
+  `enable_fragmentation`, and the queue builder setters.
+- **Fragment metadata.** Constructors and accessors. `FragmentFrame`,
+  `FragmentParts`, and `ReassembledMessage` own `Vec<u8>` values, so these can
+  be called in a `const fn`, but generally not from a `const` item.
 
-A representative const context, taken from the committed compile-time fixture,
-builds a recovery policy, an error context, and two codec configurations and
-asserts on them without any runtime call:
+This example builds a recovery policy, an error context, and a codec, then
+asserts on the policy without any run-time call:
+
+<!-- tested-example: guide-const-config -->
 
 ```rust
 use std::{
@@ -1774,148 +2970,16 @@ const _: () = assert!(matches!(RECOVERY_POLICY, RecoveryPolicy::Disconnect));
 const _: () = assert!(IS_CLEAN_CLOSE);
 ```
 
-Two limits are worth knowing. A `const fn` cannot run a destructor, so it
-cannot drop a value whose fields need dropping: `CodecErrorContext` carries
-`codec_state: Option<String>`, which means an owned context cannot be dropped
-inside a `const fn` at all. Any helper whose semantics require cleanup
-therefore stays a runtime call. `CodecErrorContext` and `RecoveryConfig` are
-plain data with builder methods rather than types that implement `Drop`. These
-items are additive: every listed item was already callable at runtime, so code
-written against an earlier release keeps compiling unchanged.
+A `const fn` cannot run a destructor, which sets the main limit.
+`CodecErrorContext` holds an `Option<String>`, and `WireframeError` has a
+destructor, so a `const fn` may borrow or return these, but it can never drop
+one. This is why `from_io` takes its payload by value and returns the result.
 
-## Client runtime
+Client configuration works the same way. Most builder setters and socket
+shorthands are `const`, along with `TracingConfig`'s setters and
+`SendStreamingConfig::with_chunk_size` and `with_timeout`:
 
-`WireframeClient` provides a first-class client runtime that mirrors the
-server's framing and serialization layers, with a builder that configures the
-serializer, codec settings, and socket options before connecting.[^44] Use
-`ClientCodecConfig` to align `max_frame_length` with the server's
-`buffer_capacity`, and apply `SocketOptions` when TCP tuning is required, such
-as `TCP_NODELAY` or buffer size adjustments.
-
-### Client configuration reference
-
-| Surface              | API                                          | Default                                                 | Use when                                                            |
-| -------------------- | -------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------- |
-| Serializer           | `WireframeClient::builder().serializer(...)` | `BincodeSerializer`                                     | Server and client need a non-default serialization contract.        |
-| Frame codec settings | `codec_config(ClientCodecConfig)`            | 4-byte big-endian prefix and 1024-byte max frame length | Server `buffer_capacity` or protocol limits differ from defaults.   |
-| Socket tuning        | `socket_options(SocketOptions)`              | OS defaults                                             | Low-latency tuning (`TCP_NODELAY`) or keepalive policy is required. |
-| Preamble payload     | `with_preamble(T)`                           | Disabled                                                | Protocol negotiation must happen before framed payload traffic.     |
-| Preamble timeout     | `preamble_timeout(Duration)`                 | Disabled unless configured                              | Connection setup should fail fast on stalled preamble exchange.     |
-| Setup hook           | `on_connection_setup(...)`                   | Disabled                                                | Per-connection state is needed for metrics or lifecycle coupling.   |
-| Teardown hook        | `on_connection_teardown(...)`                | Disabled                                                | Close should flush counters or release stateful resources.          |
-| Error hook           | `on_error(...)`                              | Disabled                                                | Transport and decode failures must be routed to observability.      |
-| Before-send hook     | `before_send(...)`                           | Disabled                                                | Inspect or mutate serialized bytes before every outgoing frame.     |
-| After-receive hook   | `after_receive(...)`                         | Disabled                                                | Inspect or mutate raw bytes after every incoming frame is read.     |
-| Tracing config       | `tracing_config(TracingConfig)`              | INFO connect/close, DEBUG data ops, timing off          | Customize tracing span levels and per-command timing.               |
-| Pool connect         | `connect_pool(addr, ClientPoolConfig)`       | Disabled                                                | Warm socket reuse or bounded socket fan-out is required.            |
-| Pool size            | `ClientPoolConfig::pool_size(n)`             | `4`                                                     | More than one warm physical socket should be maintained.            |
-| Per-socket admission | `max_in_flight_per_socket(n)`                | `1`                                                     | More than one caller may queue work against the same warm socket.   |
-| Waiter limit         | `ClientPoolConfig::max_waiters(n)`           | `64`                                                    | Bound acquisitions waiting for a pooled lease.                      |
-| Idle recycle         | `idle_timeout(Duration)`                     | `600s`                                                  | Idle sockets should be replaced before they become stale.           |
-
-```rust
-use std::{net::SocketAddr, time::Duration};
-
-use wireframe::{
-    app::Envelope,
-    client::{ClientCodecConfig, SocketOptions},
-    correlation::CorrelatableFrame,
-    message::Message,
-    WireframeClient,
-};
-
-#[derive(bincode::Encode, bincode::BorrowDecode)]
-struct Login {
-    username: String,
-}
-
-#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
-struct LoginAck {
-    username: String,
-}
-
-let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
-let codec = ClientCodecConfig::default().max_frame_length(2048);
-let socket = SocketOptions::default()
-    .nodelay(true)
-    .keepalive(Some(Duration::from_secs(30)));
-
-let mut client = WireframeClient::builder()
-    .codec_config(codec)
-    .socket_options(socket)
-    .connect(addr)
-    .await?;
-
-let login = Login {
-    username: "guest".to_string(),
-};
-let request = Envelope::new(1, None, login.to_bytes()?);
-let response: Envelope = client.call_correlated(request).await?;
-let (ack, _) = LoginAck::from_bytes(response.payload_bytes())?;
-assert_eq!(ack.username, "guest");
-assert!(response.correlation_id().is_some());
-```
-
-For screen readers: the following sequence diagram shows the client lifecycle
-for connect, optional preamble exchange, message I/O, error handling, and
-teardown.
-
-```mermaid
-sequenceDiagram
-    participant App as Application
-    participant Builder as WireframeClientBuilder
-    participant Stream as TcpStream
-    participant Hooks as Client hooks
-    App->>Builder: connect(addr)
-    Builder->>Stream: apply socket options + connect
-    alt preamble configured
-        Builder->>Stream: write/read preamble
-        Builder->>Builder: preamble success/failure callbacks
-    end
-    Builder->>Hooks: on_connection_setup
-    App->>Stream: send / receive / call / call_correlated
-    App->>Hooks: on_error (if operation fails)
-    App->>Builder: close()
-    Builder->>Hooks: on_connection_teardown
-```
-
-Run the client example against the echo server:
-
-```plaintext
-# terminal 1
-cargo run --example echo --features examples
-
-# terminal 2
-cargo run --example client_echo_login --features examples
-```
-
-### Compile-time client configuration
-
-Most client configuration methods are `const fn`, so configuration can be
-assembled inside a `const fn` and therefore evaluated by the compiler rather
-than at runtime. Types with a const constructor go further:
-`SendStreamingOutcome::new` is `const`, so an outcome value can initialize a
-`const` item directly, and its `frames_sent` getter can be read the same way.
-
-The const surface covers the builder setters `codec_config`, `socket_options`,
-`length_format`, and `tracing_config`; the builder socket shorthands `nodelay`,
-`keepalive`, `send_buffer_size`, `recv_buffer_size`, `reuseaddr`, and
-`reuseport`; `ClientCodecConfig` members such as `length_format`,
-`max_frame_length_value`, and `length_format_value`; the `TracingConfig`
-per-operation level and timing setters plus `with_all_levels` and
-`with_all_timing`; `SendStreamingConfig::with_chunk_size` and `with_timeout`;
-`ClientPoolConfig::fairness_policy`; the read-only getters
-`ClientError::should_recycle_connection`, `ResponseStream::correlation_id`,
-`is_terminated`, and `frame_count`; and
-`SendStreamingOutcome::{new, frames_sent}`. `ClientPoolConfig` requires the
-`pool` feature, which is not enabled by default. Each setter takes `self` by
-value and returns `Self`, so a configuration chain works unchanged in a
-constant context. Setters that clamp their input, such as
-`ClientCodecConfig::max_frame_length`, `ClientPoolConfig::pool_size`, and
-`ClientPoolConfig::idle_timeout`, remain ordinary functions, as does every
-`Default::default` implementation. `reuseport` additionally exists only on Unix
-outside Solaris, illumos, and Cygwin, so guard any call to it with the matching
-`#[cfg(...)]`.
+<!-- tested-example: guide-const-client -->
 
 ```rust
 use std::time::Duration;
@@ -1940,1319 +3004,107 @@ let builder = configure(
     SocketOptions::default(),
     TracingConfig::default().with_connect_timing(true),
 );
-let _ = builder;
+drop(builder);
 ```
 
-Opening a connection is not part of this surface: `connect` and `connect_pool`
-are `async` methods that perform I/O, so only the builder and its configuration
-values are usable in constant contexts, and the chain must be consumed by a
-normal `await`ed `connect`. The public contract is enforced by the trybuild
-fixture in `tests/ui/client_const_api.rs`, which compiles the same calls inside
-`const fn` bodies; run `cargo test --test compile_error` to check it.
+Setters that clamp their input, such as `ClientCodecConfig::max_frame_length`,
+`ClientPoolConfig::pool_size`, and `idle_timeout`, are ordinary functions, as
+is every `Default::default`. `connect` and `connect_pool` perform I/O, so they
+stay at run time. `reuseport` exists only on Unix outside Solaris, illumos, and
+Cygwin. The trybuild fixtures in `tests/ui/` keep these promises honest.
 
-### Client pools
+## Troubleshooting
 
-Use `connect_pool` when one warm socket is too little, but opening a new TCP
-connection for every request is too expensive. `WireframeClientPool` keeps a
-bounded set of warm sockets, preserves preamble state on reuse, recycles idle
-sockets after the configured timeout, and can schedule blocked logical sessions
-fairly through `PoolHandle`.
+### My server does not reply as I expect
 
-```rust,no_run
-use std::{net::SocketAddr, time::Duration};
+- **The reply is my own request.** That is the default: a route with no
+  middleware echoes the request's payload. Write the reply in
+  [middleware](#middleware).
+- **`wrap(from_fn(...))` does not compile.** `wrap` requires a `Transform` that
+  outputs a `HandlerService`, [as described here](#what-from_fn-is-for).
+- **`WireframeApp::new()` needs type annotations.** Annotate the binding, as in
+  `let app: WireframeApp = WireframeApp::new()?;`, so that its default
+  parameters apply.
+- **My handler will not compile because of a lifetime.** The returned future is
+  `'static`, so copy data out of the envelope before the `async` block.
+- **`before_send` stopped running.** `with_codec` removes protocol hooks, so
+  call `with_protocol` afterwards.
+- **Fragmentation stopped working.** `buffer_capacity` and `with_codec` clear
+  it, so configure it afterwards.
+- **A hook such as `on_command_end` never fires.** Only `before_send` runs on
+  server connections, as described in [Protocol hooks](#protocol-hooks).
+- **My client is disconnected before it sends anything.** The server reads
+  first, under the 10-second [preamble deadline](#connection-preambles), even
+  without a preamble.
+- **I see no warnings.** You need a `log` logger or a `tracing` subscriber, as
+  described in [Logs](#logs).
+- **Shutdown hangs.** It waits for open connections, as described in
+  [Shutting down](#shutting-down).
 
-use wireframe::client::{ClientPoolConfig, PoolFairnessPolicy, WireframeClient};
+### My client gets an error
 
-#[derive(bincode::Encode, bincode::Decode)]
-struct Ping(u8);
+- **Small requests work and larger ones fail.** Suspect a frame-budget
+  mismatch. The client usually reports
+  `ClientError::Wireframe(WireframeError::Io(_))`, because the peer closes the
+  connection after rejecting the frame. Align
+  `ClientCodecConfig::max_frame_length` with the server's `buffer_capacity`.
+- **`ClientError::PreambleTimeout`.** The handshake stalled before framed
+  traffic began. Check that the server actually reads or replies during the
+  preamble.
+- **`ClientError::PreambleRead(_)`.** Your success callback could not read or
+  decode the answer, usually because of a schema mismatch. Check too that it
+  returns any leftover bytes it consumed.
+- **`ClientError::PreambleEncode(_)`.** Serializing or writing the preamble
+  failed. Write failures are wrapped in `bincode::EncodeError`, so they appear
+  here too.
+- **The wrong protocol is on that port.** A port expecting TLS, Hypertext
+  Transfer Protocol (HTTP), or something else usually produces
+  `ClientError::Wireframe(WireframeError::Io(_))` after the first request, or a
+  decode error if the reply happens to resemble a frame. Check the host and
+  port, and remember that built-in client TLS is future work.
+- **`CorrelationMismatch` or `StreamCorrelationMismatch`.** The reply did not
+  preserve the request's identifier, so check that the server echoes or stamps
+  it.
+- **My stream never ends.** The bundled `Envelope` has no terminator. See
+  [Reading streamed replies](#reading-streamed-replies).
+- **Other calls are blocked.** A `ResponseStream` borrows the client
+  exclusively until drained or dropped.
+- **`connect_pool` succeeded, then the first call failed.** Pool sockets open
+  on first use.
+- **Transport disconnects.** Treat
+  `ClientError::Wireframe(WireframeError::Io(_))` as a network or peer failure,
+  and apply your own reconnect or retry policy. To match on these:
 
-#[derive(bincode::Encode, bincode::Decode, Debug, PartialEq)]
-struct Pong(u8);
-
-# #[tokio::main]
-# async fn main() -> Result<(), wireframe::client::ClientError> {
-let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
-let pool = WireframeClient::builder()
-    .connect_pool(
-        addr,
-        ClientPoolConfig::default()
-            .pool_size(2)
-            .max_in_flight_per_socket(2)
-            .idle_timeout(Duration::from_secs(30))
-            .fairness_policy(PoolFairnessPolicy::RoundRobin),
-    )
-    .await?;
-
-let lease = pool.acquire().await?;
-let pong: Pong = lease.call(&Ping(1)).await?;
-assert_eq!(pong, Pong(1));
-
-pool.close().await;
-# Ok(())
-# }
-```
-
-Closing the pool rejects new acquisitions and completes acquisitions already
-waiting through a `PoolHandle` with `ClientError::PoolClosed`. A lease acquired
-before close is not revoked: it keeps the pool core and all fixed slot storage
-alive so its work can finish safely. Physical pools in every slot, including
-their warm sockets, remain alive while a lease or `PoolHandle` retains the
-core. Handle `PoolClosed` when an acquisition races with shutdown, then drop
-any lease or handle that outlives close.
-
-Pooled leases forward the common request methods instead of exposing a mutable
-reference to a long-lived `WireframeClient`. That keeps actual socket I/O
-serialized per physical connection while still allowing multiple callers to be
-admitted against the same warm slot. Treat `max_in_flight_per_socket` as an
-admission budget, not as a guarantee of parallel writes on one TCP stream.
-
-`pool.close().await` hands the pool to teardown and awaits the pool's scheduler
-task. New acquisitions made through a `PoolHandle` that outlives the close fail
-with `ClientError::PoolClosed` rather than taking capacity from a pool that is
-going away.
-
-`max_waiters` bounds pending acquisitions separately from active socket
-permits. It defaults to `64`; `max_waiters(0)` is clamped to `1`. Once the
-waiter limit is full, a further `acquire()` returns
-`ClientError::PoolSaturated { limit }` immediately. Cancelled acquisitions do
-not consume queued capacity, and a saturation error does not recycle a socket.
-An acquisition through a handle that outlived the pool reports
-`ClientError::PoolClosed` after an orderly close, or
-`ClientError::SchedulerFailed` if the scheduler task ended abnormally. Neither
-error recycles a socket, and neither is retried automatically.
-
-Create a `PoolHandle` when one logical session needs repeated pooled access and
-that session should participate in the configured fairness policy over time:
-
-```rust,no_run
-# use std::net::SocketAddr;
-use wireframe::client::{ClientPoolConfig, PoolFairnessPolicy, PoolHandle, WireframeClient};
-
-#[derive(bincode::Encode, bincode::Decode)]
-struct Ping(u8);
-
-#[derive(bincode::Encode, bincode::Decode, Debug, PartialEq)]
-struct Pong(u8);
-
-# #[tokio::main]
-# async fn main() -> Result<(), wireframe::client::ClientError> {
-let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
-let pool = WireframeClient::builder()
-    .connect_pool(
-        addr,
-        ClientPoolConfig::default()
-            .pool_size(1)
-            .fairness_policy(PoolFairnessPolicy::RoundRobin),
-    )
-    .await?;
-
-let mut session_a: PoolHandle<_, _, _> = pool.handle();
-let mut session_b = pool.handle();
-
-let pong_a: Pong = session_a.call(&Ping(1)).await?;
-let pong_b: Pong = session_b.call(&Ping(2)).await?;
-
-assert_eq!(pong_a, Pong(1));
-assert_eq!(pong_b, Pong(2));
-# Ok(())
-# }
-```
-
-Use `pool.handle()` instead of repeated `pool.acquire()` when a long-lived
-workflow should receive fair turns relative to other workflows. Fairness
-policies order blocked handles; they do not create a second queue outside the
-pool or bypass its back-pressure. If all permits are busy, the waiting handle
-still blocks until capacity returns.
-
-Continue using `PooledClientLease` for explicit split-phase work such as
-`send()` followed later by `receive()`. `PoolHandle` does not pin a logical
-session to one socket and does not demultiplex arbitrary responses across
-shared handles.
-
-After a split-phase send succeeds, the slot stays reserved for that lease until
-`receive()` consumes the response. Other leases wait instead of reading from
-the same stream. Dropping the lease discards the socket before releasing that
-reservation.
-
-Do not call `call()` or `call_correlated()` on that same lease while a
-split-phase response is pending. The operation returns a disconnection error
-and schedules the socket for discard; the lease's next operation reconnects
-before using it.
-
-Preamble callbacks and setup hooks run per physical socket creation. Warm reuse
-keeps the existing preamble state; idle recycle closes the old socket and
-creates a fresh one, which reruns preamble and setup.
-
-Cancellation before a pooled operation completes discards the socket before it
-returns to the pool. The next operation through a `PooledClientLease` or
-`PoolHandle` reconnects with a fresh socket, avoiding a late response left by
-the cancelled request. This also applies when the receive half of split-phase
-`send()` and `receive()` work is dropped in flight. If a lease is dropped after
-a successful split-phase send but before its response is received, the pool
-discards that socket before another lease can use it. Completed operations
-continue to use the configured recyclable-error policy.
-
-Slot selection is round-robin. Consecutive acquisitions start one slot further
-around the pool, wrapping at the end, and a slot with no free permit is skipped
-in favour of the next one. The starting point therefore spreads load across
-sockets instead of always growing the first one warm, while a busy slot never
-hides capacity that another slot still has. If every slot is saturated, the
-acquisition waits for a permit rather than reusing a slot that is already at its
-`max_in_flight_per_socket` limit.
-
-#### Client pool metrics
-
-When the `metrics` feature is enabled, synchronous attempts and completed
-asynchronous attempts increment `wireframe_pool_acquisitions_total`. An
-asynchronous acquisition cancelled while waiting is excluded. The metric has
-two bounded labels, so pool activity cannot create new time series:
-
-- `mode` records which path made the attempt: `immediate` for the synchronous
-  fast path, or `permit_race` for asynchronous acquisition, including its
-  immediate probe and any subsequent race across slots.
-- `outcome` records the result: `granted`, `exhausted`, `shutdown`, or `error`.
-
-`exhausted` only applies to `immediate`; the asynchronous path either gains a
-permit (`granted`), reports that a slot failed while the pool was live
-(`error`), or is rejected because the pool is shutting down (`shutdown`). The
-pool never adds slot identifiers, caller details, or error strings as labels.
-
-The metric is a counter, so alert on its rate rather than its absolute value: a
-rising `outcome="exhausted"` rate means acquisitions are arriving faster than
-the configured permits can serve them, and a rising `outcome="error"` rate on
-the `permit_race` mode means slots are failing instead of granting capacity.
-
-When the asynchronous probe finds every slot busy,
-`wireframe_pool_permit_races_started_total` counts the start of a blocked race.
-`wireframe_pool_permit_races_total` records one terminal outcome: `granted`,
-`shutdown`, `error`, or `cancelled` when the acquisition is dropped before
-completion. `wireframe_pool_permit_race_duration_seconds` is a histogram of
-blocked-race waits in seconds with those terminal outcome labels. Immediate
-probes that find capacity do not start a blocked-race observation.
-
-Compare the rates of starts and terminal outcomes to investigate races that
-remain active, and graph duration and cancellation rates to understand
-contention. A `shutdown` outcome indicates pool closure; `cancelled` indicates
-an acquisition dropped while the pool was still open. These metrics use fixed
-labels and do not identify slots or callers.
-
-### Client preamble exchange
-
-The client builder supports an optional preamble exchange before framing
-begins. Use `with_preamble` to send a preamble immediately after TCP connect,
-and register callbacks for success or failure scenarios.[^47]
+<!-- tested-example: guide-client-error-mapping -->
 
 ```rust
-use std::{net::SocketAddr, time::Duration};
-
-use futures::FutureExt;
 use wireframe::{
-    preamble::read_preamble,
-    WireframeClient,
-};
-
-#[derive(bincode::Encode, bincode::BorrowDecode)]
-struct ClientHello {
-    version: u16,
-}
-
-#[derive(bincode::BorrowDecode)]
-struct ServerAck {
-    accepted: bool,
-}
-
-let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
-
-let client = WireframeClient::builder()
-    .with_preamble(ClientHello { version: 1 })
-    .preamble_timeout(Duration::from_secs(5))
-    .on_preamble_success(|_preamble, stream| {
-        async move {
-            // Read server acknowledgement
-            let (ack, leftover) = read_preamble::<_, ServerAck>(stream)
-                .await
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
-            if !ack.accepted {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionRefused,
-                    "server rejected preamble",
-                ));
-            }
-            Ok(leftover) // Return any leftover bytes for framing layer
-        }
-        .boxed()
-    })
-    .on_preamble_failure(|err, _stream| {
-        async move {
-            eprintln!("Preamble exchange failed: {err}");
-            Ok(())
-        }
-        .boxed()
-    })
-    .connect(addr)
-    .await?;
-```
-
-The success callback receives the sent preamble and a mutable reference to the
-TCP stream, enabling bidirectional preamble negotiation. Any bytes read beyond
-the server's response must be returned as "leftover" bytes so they can be
-replayed before the framing layer begins. The failure callback runs when the
-preamble exchange fails (timeout, I/O error, or encode error) and can log
-diagnostics or send an error response before the connection closes. In the
-current implementation, callback read failures surface as
-`ClientError::PreambleRead`, timeout expiry surfaces as
-`ClientError::PreambleTimeout`, and write-side failures from
-`write_preamble(...)` are wrapped by `ClientError::PreambleEncode` because the
-helper returns `bincode::EncodeError`.
-
-### Client lifecycle hooks
-
-The client builder supports lifecycle hooks that mirror the server's hook
-system, enabling consistent instrumentation across both client and server.[^48]
-
-- **Setup hook** (`on_connection_setup`): Invoked once after the TCP connection
-  is established and preamble exchange (if configured) succeeds. Returns
-  connection-specific state stored for the connection's lifetime.
-- **Teardown hook** (`on_connection_teardown`): Invoked when `close()` is
-  called. Receives the state produced by the setup hook for cleanup.
-- **Error hook** (`on_error`): Invoked when errors occur during send, receive,
-  or call operations. Receives a reference to the error for logging or metrics.
-
-```rust
-use std::{net::SocketAddr, sync::Arc};
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-use wireframe::client::WireframeClient;
-
-struct SessionState {
-    request_count: AtomicUsize,
-}
-
-let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
-
-let client = WireframeClient::builder()
-    .on_connection_setup(|| async {
-        SessionState {
-            request_count: AtomicUsize::new(0),
-        }
-    })
-    .on_connection_teardown(|state: SessionState| async move {
-        println!(
-            "Session ended after {} requests",
-            state.request_count.load(Ordering::SeqCst)
-        );
-    })
-    .on_error(|err| async move {
-        eprintln!("Client error: {err}");
-    })
-    .connect(addr)
-    .await?;
-
-// Use the client...
-
-client.close().await; // Teardown hook invoked here
-```
-
-The setup hook runs after connection establishment (and preamble exchange if
-configured). The teardown hook only runs if a setup hook was configured and
-successfully produced state. The error hook is independent and can be
-configured without a setup hook.
-
-### Client request hooks
-
-The client builder supports **request hooks** that fire on every outgoing and
-incoming frame, enabling symmetric instrumentation with the server middleware
-stack.[^52]
-
-- **Before-send hook** (`before_send`): Invoked after serialization, before
-  each frame is written to the transport. Receives a `&mut Vec<u8>` of the
-  serialized bytes, allowing inspection or mutation (e.g., prepending an
-  authentication token, incrementing a metrics counter).
-- **After-receive hook** (`after_receive`): Invoked after each frame is read
-  from the transport, before deserialization. Receives a `&mut BytesMut` of the
-  raw frame bytes, allowing inspection or mutation before the deserializer
-  processes them.
-
-Multiple hooks of the same kind may be registered; they execute in registration
-order. Hooks are synchronous `Fn` closures—users who need mutable state should
-capture an `Arc<AtomicUsize>` or `Arc<Mutex<_>>` in the closure.
-
-```rust
-use std::{net::SocketAddr, sync::Arc};
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-use wireframe::client::WireframeClient;
-
-let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
-
-let send_counter = Arc::new(AtomicUsize::new(0));
-let recv_counter = Arc::new(AtomicUsize::new(0));
-let sc = send_counter.clone();
-let rc = recv_counter.clone();
-
-let mut client = WireframeClient::builder()
-    .before_send(move |_bytes: &mut Vec<u8>| {
-        sc.fetch_add(1, Ordering::SeqCst);
-    })
-    .after_receive(move |_bytes: &mut bytes::BytesMut| {
-        rc.fetch_add(1, Ordering::SeqCst);
-    })
-    .connect(addr)
-    .await?;
-```
-
-Request hooks fire on all message paths: `send`, `send_envelope`,
-`receive_envelope`, `call_correlated`, `call_streaming`, and `ResponseStream`
-polling. Clients configured without request hooks behave identically to clients
-that have none registered.
-
-### Outbound streaming sends
-
-The client supports sending large request bodies as multiple frames using
-`send_streaming`. The caller provides a protocol-defined frame header and an
-`AsyncRead` body source; the helper reads chunks, prepends the header to each
-chunk, and emits framed packets over the transport.
-
-```rust,no_run
-use std::net::SocketAddr;
-use wireframe::client::{SendStreamingConfig, WireframeClient};
-
-# #[tokio::main]
-# async fn main() -> Result<(), wireframe::client::ClientError> {
-let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid address");
-let mut client = WireframeClient::builder().connect(addr).await?;
-
-let header = [0xCA, 0xFE, 0xBA, 0xBE];
-let body = vec![0u8; 4096];
-let config = SendStreamingConfig::default()
-    .with_chunk_size(512)
-    .with_timeout(std::time::Duration::from_secs(5));
-
-let outcome = client.send_streaming(&header, &body[..], config).await?;
-println!("sent {} frames", outcome.frames_sent());
-# Ok(())
-# }
-```
-
-`SendStreamingConfig` controls chunking and timeout behaviour:
-
-- `with_chunk_size(usize)` — maximum body bytes per frame. When not set, the
-  chunk size is derived as `max_frame_length - header.len()`.
-- `with_timeout(Duration)` — timeout for the entire operation. If the timeout
-  elapses, `std::io::ErrorKind::TimedOut` is returned and no further frames are
-  emitted. Any frames already sent remain sent; callers must assume the
-  operation may have been partially successful.
-
-`SendStreamingOutcome` reports the number of frames emitted via
-`frames_sent()`. The error hook is invoked on all failure paths, consistent
-with other client send methods.[^53]
-
-### Client tracing
-
-The client emits `tracing` spans around every operation. Span levels and
-per-command timing are configurable via `TracingConfig`, which is passed to the
-builder with `tracing_config()`. When no `tracing` subscriber is installed, all
-instrumentation is zero-cost.
-
-Default span levels: `INFO` for lifecycle operations (`connect`, `close`) and
-`DEBUG` for data operations (`send`, `receive`, `call`, `call_streaming`).
-Per-command timing is disabled by default.
-
-```rust
-use std::net::SocketAddr;
-
-use tracing::Level;
-use wireframe::client::{TracingConfig, WireframeClient};
-
-let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
-
-// Enable timing for connect and call, set all spans to TRACE level.
-let config = TracingConfig::default()
-    .with_all_levels(Level::TRACE)
-    .with_connect_timing(true)
-    .with_call_timing(true);
-
-let mut client = WireframeClient::builder()
-    .tracing_config(config)
-    .connect(addr)
-    .await?;
-```
-
-When timing is enabled for an operation, a `DEBUG`-level event recording
-`elapsed_us` is emitted when the operation completes (on both success and error
-paths). Streaming responses emit per-frame `DEBUG` events with
-`stream.frames_received` and a termination event with `stream.frames_total`.
-
-Clients configured without `tracing_config()` use the default configuration and
-behave identically to the pre-tracing API.
-
-### Client message API with correlation identifiers
-
-The client provides envelope-aware messaging APIs that work with the `Packet`
-trait, supporting automatic correlation ID generation and validation. These
-methods complement the basic `send`, `receive`, and `call` methods that operate
-on raw `Message` types.
-
-**Correlation ID generation**: Each client maintains an atomic counter for
-generating unique correlation IDs. The `next_correlation_id` method returns the
-next ID, which is useful when managing correlation manually.
-
-**Envelope-aware methods**:
-
-- `send_envelope<P: Packet>(envelope: P)` — Sends an envelope, auto-generating
-  a correlation ID if not present. Returns the correlation ID used.
-- `receive_envelope<P: Packet>()` — Receives and deserializes the next frame as
-  the specified packet type.
-- `call_correlated<P: Packet>(request: P)` — Sends a request with auto-
-  generated correlation ID, receives the response, and validates that the
-  response's correlation ID matches the request. Returns
-  `ClientError::CorrelationMismatch` if the IDs differ.
-
-```rust,no_run
-use std::net::SocketAddr;
-
-use wireframe::{
-    app::{Envelope, Packet},
-    client::{ClientError, WireframeClient},
-};
-
-# async fn example() -> Result<(), ClientError> {
-let addr: SocketAddr = "127.0.0.1:7878".parse().expect("valid socket address");
-let mut client = WireframeClient::builder()
-    .connect(addr)
-    .await?;
-
-// Create an envelope without a correlation ID.
-let request = Envelope::new(1, None, vec![1, 2, 3]);
-
-// call_correlated auto-generates a correlation ID, sends the request,
-// receives the response, and validates the correlation ID matches.
-let response: Envelope = client.call_correlated(request).await?;
-
-// The response's correlation ID matches the auto-generated request ID.
-assert!(response.correlation_id().is_some());
-# Ok(())
-# }
-```
-
-For more control over correlation, use `send_envelope` and `receive_envelope`
-separately:
-
-```rust,no_run
-use wireframe::app::{Envelope, Packet};
-# use wireframe::client::{ClientError, WireframeClient};
-# async fn example(client: &mut WireframeClient) -> Result<(), ClientError> {
-
-// Auto-generate correlation ID when sending.
-let envelope = Envelope::new(1, None, b"payload".to_vec());
-let correlation_id = client.send_envelope(envelope).await?;
-
-// Receive the response.
-let response: Envelope = client.receive_envelope().await?;
-
-// Manually verify correlation if needed.
-assert_eq!(response.correlation_id(), Some(correlation_id));
-# Ok(())
-# }
-```
-
-The `CorrelationMismatch` error provides diagnostic information when validation
-fails:
-
-```rust,ignore
-use wireframe::client::ClientError;
-
-match client.call_correlated(request).await {
-    Ok(response) => {
-        // Handle successful response.
-    }
-    Err(ClientError::CorrelationMismatch { expected, received }) => {
-        eprintln!(
-            "Correlation mismatch: expected {:?}, received {:?}",
-            expected, received
-        );
-    }
-    Err(e) => {
-        // Handle other errors.
-    }
-}
-```
-
-### Client request/response error mapping
-
-Client request/response operations (`receive`, `call`, `receive_envelope`, and
-`call_correlated`) map transport and decode failures to `WireframeError`
-variants exposed through `ClientError::Wireframe`:
-
-- Transport failures map to `WireframeError::Io`.
-- Decode failures map to `WireframeError::Protocol` with
-  `ClientProtocolError::Deserialize`.
-
-```rust,ignore
-use wireframe::{
-    ClientError,
-    ClientProtocolError,
     WireframeError,
+    client::{ClientError, ClientProtocolError},
 };
 
-match client.call(&request).await {
-    Ok(response) => {
-        // Handle successful response.
-    }
-    Err(ClientError::Wireframe(WireframeError::Io(err))) => {
-        eprintln!("transport failure: {err}");
-    }
-    Err(ClientError::Wireframe(WireframeError::Protocol(
-        ClientProtocolError::Deserialize(err),
-    ))) => {
-        eprintln!("decode failure: {err}");
-    }
-    Err(other) => {
-        // Handle serialize/preamble/correlation failures.
-        eprintln!("other client error: {other}");
-    }
-}
-```
-
-## Push queues and connection actors
-
-Background work interacts with connections through `PushQueues`. The fluent
-builder configures high- and low-priority capacities, optional rate limits, and
-an optional dead-letter queue with tunable logging cadence for dropped
-frames.[^23] Queue construction validates capacities and rate limits, clamping
-rates to the supported range.[^24] `PushHandle` exposes async
-`push_high_priority` and `push_low_priority` helpers that honour the rate
-limiter before awaiting channel capacity, while `try_push` implements
-policy-controlled drops with optional warnings and dead-letter forwarding.[^26]
-When the dead-letter queue is itself full or closed, the throttled
-`DLQ dropped frames` warning reports, as `dropped`, exactly the number of drops
-since the previous report; concurrent producers never make it count a drop
-twice or lose one, and a producer that finds nothing left to report emits no
-`dropped=0` line. `dlq_log_every_n` and `dlq_log_interval` set how often it
-fires. The warning names the dead-letter state, priority and policy of the
-frame that triggered it, along with its Rust type, but never its contents. Only
-frames the DLQ accepted reach its receiver, so an application must consume from
-that receiver to inspect or log them; a frame refused because the DLQ was full
-or closed is lost, with no copy available. Cloneable handles downgrade to
-`Weak` references for registration in a session registry.[^25]
-
-`PushQueues::recv` prefers high-priority frames but eventually drains the
-low-priority queue; `close` lets tests release resources when no actor is
-running.[^27] The connection actor consumes these queues, an optional streaming
-response, and a cancellation token.
-
-### Compile-time queue and session configuration
-
-The queue builder's setters are `const fn`, so an existing builder can be
-configured by the compiler. `high_capacity`, `low_capacity`, `rate`,
-`unlimited`, `dlq_log_every_n`, and `dlq_log_interval` all take `self` by value
-and return `Self`, which means a chain works unchanged inside a `const fn`. The
-builder itself is created at runtime, because `PushQueuesBuilder::default` and
-`PushQueues::builder` are ordinary functions:
-
-```rust
-use std::time::Duration;
-
-use wireframe::push::PushQueuesBuilder;
-
-const fn configure<F: Send + 'static>(
-    builder: PushQueuesBuilder<F>,
-) -> PushQueuesBuilder<F> {
-    builder
-        .high_capacity(8)
-        .low_capacity(4)
-        .rate(Some(64))
-        .dlq_log_interval(Duration::from_secs(5))
-}
-
-let builder = configure(PushQueuesBuilder::<Vec<u8>>::default());
-let _ = builder;
-```
-
-`unlimited` is the const shorthand for `rate(None)`, so a chain can also remove
-a rate limit that a previous layer installed. The frame parameter is declared
-with only `Send + 'static`, so downstream code stays generic over its own frame
-type and never names `FrameLike`. That trait is crate-visible, and its blanket
-implementation satisfies the bound for every `Send + 'static` type.
-
-The same const treatment covers `ConnectionId::{new, as_u64}`,
-`LengthDelimitedFrameCodec::max_frame_length`, `ConnectionInfo::peer_addr`,
-`WireframeError::{from_io, from_codec}`, and `WireframeError::is_clean_close`. A
-`WireframeError` has a destructor that cannot run in a `const fn`, so a const
-function may borrow an existing error or return a newly built one, but it can
-never drop one. That is why the `from_io` payload arrives as a parameter and
-the result is returned by value.
-
-`tests/ui/server_const_api.rs` compiles these calls inside `const` items and
-`const fn` bodies, so a method that loses `const` fails the build rather than
-silently regressing. The fixture covers the builder setters, both
-`ConnectionId` accessors, `max_frame_length`, `peer_addr`, and the two error
-constructors; anything not listed there has no compile-time guard yet.
-
-`FairnessConfig` and `FairnessTracker` limit consecutive high-priority frames
-and optionally enforce a time slice. Resetting the tracker after low-priority
-work keeps fairness predictable.[^28][^29] `ConnectionActor::run` polls the
-shutdown token, push queues, and response stream using a biased `select!` loop,
-invokes protocol hooks, records metrics for outbound frames, and returns a
-`WireframeError` when the response stream hits an I/O problem.[^30][^33] Active
-connection counts are tracked with a guard that increments on creation and
-decrements on drop; the `active_connection_count()` helper exposes the current
-gauge.[^31] Interleaved high- and low-priority push behaviour is validated by
-the test suite: the shared rate limiter enforces symmetrical throughput caps
-across both queues, and `FairnessConfig` prevents low-priority starvation
-during sustained high-priority bursts.
-
-## Session management
-
-`ConnectionId` wraps a `u64` identifier with helpers for construction,
-formatting, and retrieval. `SessionRegistry` stores weak references to
-`PushHandle` instances keyed by `ConnectionId`, automatically pruning dead
-entries during lookups. Helpers insert and remove handles, bulk-prune stale
-entries, or return live handle/identifier pairs for background tasks that need
-to enumerate active sessions.[^40]
-
-## Streaming responses
-
-The `Response` enum models several reply styles: a single frame, a vector of
-frames, a streamed response, a channel-backed multi-packet response, or an
-empty reply. `into_stream` converts any variant into a boxed `FrameStream`,
-ready to install on a connection actor with `set_response` so streaming output
-can be interleaved with push traffic. `WireframeError` distinguishes transport
-failures from protocol-level errors emitted by streaming responses.[^34][^35]
-[^31]
-
-`Response<F>`, `FrameStream<F>`, and `ConnectionActor<F>` all use
-`NoProtocolError` by default. In ordinary no-protocol applications that means
-streaming code can name the frame type only, while still returning
-`WireframeError<NoProtocolError>` internally. Name the error parameter only
-when the stream or actor carries a protocol-specific failure payload.
-
-When constructing imperative streams, the `async-stream` crate integrates
-smoothly. The example below yields five frames and converts them into a
-`Response::Stream` value:[^36]
-
-```rust
-use async_stream::try_stream;
-use wireframe::response::{FrameStream, Response};
-
-#[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
-struct Frame(u32);
-
-fn stream_response() -> Response<Frame> {
-    let frames: FrameStream<Frame> = Box::pin(try_stream! {
-        for value in 0..5 {
-            yield Frame(value);
+fn describe(error: &ClientError) -> String {
+    match error {
+        ClientError::Wireframe(WireframeError::Io(error)) => format!("transport failure: {error}"),
+        ClientError::Wireframe(WireframeError::Protocol(ClientProtocolError::Deserialize(error))) => {
+            format!("decode failure: {error}")
         }
-    });
-    Response::Stream(frames)
-}
-```
-
-`Response::MultiPacket` exposes a different surface: callers hand ownership of
-the receiving half of a `tokio::sync::mpsc` channel to the connection actor,
-retain the sender, and push frames whenever back-pressure allows. The
-`Response::with_channel` helper constructs the pair and returns the sender
-alongside a `Response::MultiPacket`, making the ergonomic tuple pattern
-documented in ADR 0001 trivial to adopt. The library awaits channel capacity
-before accepting each frame, so producers can rely on the `send().await` future
-to coordinate flow control with the peer.
-
-```rust
-use tokio::spawn;
-use wireframe::response::{Frame, Response};
-
-async fn multi_packet() -> (tokio::sync::mpsc::Sender<Frame>, Response<Frame>) {
-    let (sender, response) = Response::with_channel(16);
-
-    spawn({
-        let mut producer = sender.clone();
-        async move {
-            // Back-pressure: `send` awaits whenever the channel is full.
-            for chunk in [b"alpha".as_slice(), b"beta".as_slice()] {
-                let frame = Frame::from(chunk);
-                if producer.send(frame).await.is_err() {
-                    return; // connection dropped; stop producing
-                }
-            }
-
-            // Dropping the last sender releases the channel and triggers the
-            // terminator. Explicitly drop when the stream should end.
-            drop(producer);
-        }
-    });
-
-    (sender, response)
-}
-```
-
-Multi-packet responders rely on the protocol hook `stream_end_frame` to emit a
-terminator when the producer side of the channel closes naturally. The
-connection actor records why the channel ended (`drained`, `disconnected`, or
-`shutdown`), stamps the stored `correlation_id` on the terminator frame, and
-routes it through the standard `before_send` instrumentation so telemetry and
-higher-level lifecycle hooks observe a consistent end-of-stream signal.
-Dropping all senders closes the channel; the actor logs the termination reason
-and forwards the terminator through the same hooks used for regular frames so
-existing observability continues to work.
-
-## Consuming streaming responses on the client
-
-The client library supports consuming `Response::Stream` and
-`Response::MultiPacket` server responses through the `call_streaming` and
-`receive_streaming` methods on `WireframeClient`. These methods return a
-`ResponseStream` that yields typed data frames until the protocol's
-end-of-stream terminator arrives. `ResponseStream` holds an exclusive mutable
-borrow of `WireframeClient` while it exists, so the client cannot perform other
-I/O operations until the stream is dropped or fully consumed (`None` is
-observed).
-
-For protocols where every frame is meaningful, a manual `StreamExt::next` loop
-remains the clearest option. For multiplexed protocols that interleave data
-frames with notices, progress updates, or other control frames, prefer
-`StreamingResponseExt::typed_with`. It maps each frame into
-`Result<Option<Item>, ClientError>`, yielding `Some(item)` values in order
-while silently skipping `None`.
-
-### Terminator detection with `is_stream_terminator`
-
-Protocol implementations must override `Packet::is_stream_terminator` to teach
-the client how to recognize the server's end-of-stream marker. The default
-implementation returns `false`; protocols override it to match their terminator
-format:
-
-```rust
-use wireframe::app::{Packet, PacketParts};
-use wireframe::correlation::CorrelatableFrame;
-
-#[derive(bincode::BorrowDecode, bincode::Encode)]
-struct MyEnvelope {
-    id: u32,
-    correlation_id: Option<u64>,
-    payload: Vec<u8>,
-}
-
-impl CorrelatableFrame for MyEnvelope {
-    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
-    fn set_correlation_id(&mut self, cid: Option<u64>) {
-        self.correlation_id = cid;
+        other => format!("other client error: {other}"),
     }
 }
-
-// Message is auto-implemented via the blanket impl for Encode + BorrowDecode types.
-
-impl Packet for MyEnvelope {
-    fn id(&self) -> u32 { self.id }
-    fn into_parts(self) -> PacketParts {
-        PacketParts::new(self.id, self.correlation_id, self.payload)
-    }
-    fn from_parts(parts: PacketParts) -> Self {
-        Self {
-            id: parts.id(),
-            correlation_id: parts.correlation_id(),
-            payload: parts.into_payload(),
-        }
-    }
-    // An envelope with id == 0 signals end-of-stream.
-    fn is_stream_terminator(&self) -> bool { self.id == 0 }
-}
 ```
 
-This mirrors the server's `stream_end_frame` hook symmetrically: the server
-*produces* terminators; the client *detects* them.[^49]
-
-### High-level API: `call_streaming`
-
-`call_streaming` sends a request, auto-generates a correlation identifier if
-needed, and returns a `ResponseStream`. The stream yields data frames as
-`Result<P, ClientError>` and terminates with `None` when the terminator
-arrives: because the stream borrows the `WireframeClient` mutably, this call
-also prevents other client I/O until the stream is dropped or drained.
-
-```rust,no_run
-use futures::StreamExt;
-use std::net::SocketAddr;
-use wireframe::{app::Envelope, client::{ClientError, WireframeClient}};
-
-# #[tokio::main]
-# async fn main() -> Result<(), ClientError> {
-let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid address");
-let mut client = WireframeClient::builder().connect(addr).await?;
-
-let request = Envelope::new(1, None, vec![]);
-let mut stream = client.call_streaming::<Envelope>(request).await?;
-
-while let Some(result) = stream.next().await {
-    let frame = result?;
-    println!("received: {:?}", frame);
-}
-// Stream terminated — all data frames consumed.
-# Ok(())
-# }
-```
-
-### Helper-based typed consumption with `typed_with`
-
-`StreamingResponseExt::typed_with` adapts a `ResponseStream` into a stream of
-domain items. This is useful when only some protocol frames should be exposed
-to the caller:
-
-```rust,no_run
-use futures::TryStreamExt;
-use std::net::SocketAddr;
-use wireframe::{
-    app::{Packet, PacketParts},
-    client::{ClientError, StreamingResponseExt, WireframeClient},
-    correlation::CorrelatableFrame,
-};
-
-#[derive(bincode::BorrowDecode, bincode::Encode)]
-struct MyEnvelope {
-    id: u32,
-    correlation_id: Option<u64>,
-    payload: Vec<u8>,
-}
-
-impl CorrelatableFrame for MyEnvelope {
-    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
-    fn set_correlation_id(&mut self, cid: Option<u64>) {
-        self.correlation_id = cid;
-    }
-}
-
-impl Packet for MyEnvelope {
-    fn id(&self) -> u32 { self.id }
-    fn into_parts(self) -> PacketParts {
-        PacketParts::new(self.id, self.correlation_id, self.payload)
-    }
-    fn from_parts(parts: PacketParts) -> Self {
-        Self {
-            id: parts.id(),
-            correlation_id: parts.correlation_id(),
-            payload: parts.into_payload(),
-        }
-    }
-    fn is_stream_terminator(&self) -> bool { self.id == 0 }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct Row(Vec<u8>);
-
-# #[tokio::main]
-# async fn main() -> Result<(), ClientError> {
-let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid address");
-let mut client = WireframeClient::builder().connect(addr).await?;
-
-let request = MyEnvelope {
-    id: 1,
-    correlation_id: None,
-    payload: vec![],
-};
-
-let rows: Vec<Row> = client
-    .call_streaming::<MyEnvelope>(request)
-    .await?
-    .typed_with(|frame| match frame.id {
-        1 => Ok(Some(Row(frame.payload))),
-        2 => Ok(None),
-        other => Err(ClientError::from(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("unexpected frame id {other}"),
-        ))),
-    })
-    .try_collect()
-    .await?;
-
-println!("received {} rows", rows.len());
-# Ok(())
-# }
-```
-
-Because the helper wraps `ResponseStream` rather than replacing it, transport
-failures and correlation mismatches still surface as `ClientError` values from
-the underlying stream. The helper also does not change the exclusive
-`&mut WireframeClient` borrow: while the typed stream is alive, other client
-I/O remains blocked.
-
-### Low-level API: `receive_streaming`
-
-When the caller has already sent a request via `send_envelope`, the
-`receive_streaming` method accepts the known correlation identifier and returns
-a `ResponseStream` without re-sending. As with `call_streaming`, that stream
-holds an exclusive mutable borrow of `WireframeClient` until dropped or fully
-consumed:
-
-```rust,no_run
-use futures::StreamExt;
-use std::net::SocketAddr;
-use wireframe::{app::Envelope, client::{ClientError, WireframeClient}};
-
-# #[tokio::main]
-# async fn main() -> Result<(), ClientError> {
-let addr: SocketAddr = "127.0.0.1:9000".parse().expect("valid address");
-let mut client = WireframeClient::builder().connect(addr).await?;
-
-let request = Envelope::new(1, None, vec![]);
-let cid = client.send_envelope(request).await?;
-let mut stream = client.receive_streaming::<Envelope>(cid);
-
-while let Some(result) = stream.next().await {
-    let frame = result?;
-    println!("received: {:?}", frame);
-}
-# Ok(())
-# }
-```
-
-### Back-pressure
-
-Back-pressure propagates naturally through Transmission Control Protocol (TCP)
-flow control. If the client reads slowly, the client's TCP receive buffer
-fills. As that receive window shrinks, the server's TCP send buffer fills
-because bytes cannot be flushed quickly enough. Once the send buffer is full,
-write operations suspend, and the server stops polling its response stream or
-channel until the client drains data. No explicit flow-control messages are
-required.[^50]
-
-Interleaved high- and low-priority push behaviour is validated against this
-streaming path as part of roadmap item `16.3.2`. The parity suite confirms
-fairness-driven low-priority progress and shared cross-priority rate limiting
-without changing the public `WireframeClient` interface.
-
-### Error handling
-
-`ResponseStream` validates the correlation identifier on every frame. If a
-frame carries a different identifier, the stream yields
-`ClientError::StreamCorrelationMismatch` and terminates. Transport errors and
-decode failures are surfaced through `ClientError::Wireframe`.[^51]
-
-### Client troubleshooting
-
-- Codec length mismatch:
-  if small requests succeed but larger ones fail once payload size crosses a
-  threshold, suspect a frame-budget mismatch between client and server. The
-  client usually reports `ClientError::Wireframe(WireframeError::Io(_))`
-  because the peer closes the connection after rejecting the oversized frame.
-  Check the client `ClientCodecConfig::max_frame_length`, the server
-  `buffer_capacity`, and any server-side frame-limit logs together. The fix is
-  to align both ends to the same maximum frame length.
-- Preamble timeout:
-  `ClientError::PreambleTimeout` means the handshake stalled before framed
-  traffic began. Reduce ambiguity by setting an explicit
-  `preamble_timeout(Duration)` and verify that the server actually reads or
-  replies during the preamble phase.
-- Preamble read or decode failure:
-  `ClientError::PreambleRead(_)` means the success callback could not read or
-  decode the server's acknowledgement bytes. This usually indicates the wrong
-  preamble type, malformed server bytes, or callback logic that reads the
-  response incorrectly. Confirm both sides use the same preamble schema and that
-  `on_preamble_success` returns any leftover bytes it consumed.
-- Preamble encode or write failure:
-  `ClientError::PreambleEncode(_)` means the client failed before handshake
-  completion while serializing or writing the preamble. In the current client
-  flow, `write_preamble(...)` wraps write-side I/O in `bincode::EncodeError`,
-  so there is no separate user-visible `PreambleWrite` branch to match against.
-- TLS or wrong-protocol port mismatch:
-  pointing a plain `WireframeClient` at a port that expects Transport Layer
-  Security (TLS), Hypertext Transfer Protocol (HTTP), or another protocol
-  usually surfaces as `ClientError::Wireframe(WireframeError::Io(_))` after the
-  first request because the bytes returned are not valid Wireframe frames.
-  Verify the host and port, confirm whether a TLS terminator is required, and
-  remember that built-in client TLS configuration is still future work.
-- Correlation mismatch errors:
-  `ClientError::CorrelationMismatch` and
-  `ClientError::StreamCorrelationMismatch` mean the response did not preserve
-  the request correlation identifier. Verify that the server echoes or stamps
-  the expected `correlation_id` for `call_correlated` and streaming responses.
-- Streaming API contention:
-  `ResponseStream` holds `&mut WireframeClient`; do not issue additional client
-  I/O until the stream is drained or dropped.
-- Transport disconnects:
-  treat `ClientError::Wireframe(WireframeError::Io(_))` as a network-level or
-  peer-closure failure and apply a reconnect or retry policy at the call site.
-
-## Versioning and graceful deprecation
-
-Phase out older message versions without breaking clients:
-
-- Accept versions N and N-1 on ingress; rewrite legacy payloads in middleware so
-  downstream handlers see the current schema.[^10][^12]
-- Emit version N on egress so clients observe a single schema.
-- Publish metrics and logs describing legacy usage to support operator
-  dashboards.[^33][^8]
-- Remove adapters once the sunset window ends.
-
-```rust
-use std::sync::Arc;
-use wireframe::{
-    app::{Envelope, Handler, WireframeApp},
-    middleware,
-    message::Message,
-    Result,
-};
-
-#[derive(bincode::Encode, bincode::BorrowDecode)]
-struct MsgV1 {
-    id: u64,
-    name: String,
-}
-
-#[derive(bincode::Encode, bincode::BorrowDecode)]
-struct MsgV2 {
-    id: u64,
-    display_name: String,
-}
-
-impl From<MsgV1> for MsgV2 {
-    fn from(v1: MsgV1) -> Self {
-        Self {
-            id: v1.id,
-            display_name: v1.name,
-        }
-    }
-}
-
-async fn handle_v2(_env: &Envelope) {}
-
-fn build_app() -> Result<WireframeApp> {
-    let handler: Handler<Envelope> = Arc::new(|env: &Envelope| Box::pin(handle_v2(env)));
-
-    WireframeApp::new()?
-        .route(42, handler)?
-        .wrap(middleware::from_fn(|mut req, next| async move {
-            if let Ok((legacy, _)) = MsgV1::from_bytes(req.frame()) {
-                let upgraded = MsgV2::from(legacy);
-                let bytes = upgraded.to_bytes().expect("encode MsgV2");
-                req.frame_mut().clear();
-                req.frame_mut().extend_from_slice(&bytes);
-            }
-
-            let mut response = next.call(req).await?;
-            if let Ok((legacy, _)) = MsgV1::from_bytes(response.frame()) {
-                let upgraded = MsgV2::from(legacy);
-                let bytes = upgraded.to_bytes().expect("encode MsgV2");
-                response.frame_mut().clear();
-                response.frame_mut().extend_from_slice(&bytes);
-            }
-
-            Ok(response)
-        }))
-}
-```
-
-## Metrics and observability
-
-When the optional `metrics` feature is enabled, Wireframe updates the
-`wireframe_connections_active` gauge, frame counters tagged by direction, error
-counters tagged by kind, and a counter for panicking connection tasks. All
-helpers become no-ops when the feature is disabled so instrumentation can stay
-in place.[^33] `PreparedApp::handle_connection`, the connection actor, and the
-panic wrapper call these helpers to maintain consistent telemetry.[^6][^7][^31]
-[^20]
-
-Prepared application lifecycle metrics are also emitted when the `metrics`
-feature is enabled:
-
-- `wireframe_application_preparations_total` counts each preparation attempt.
-  Its bounded `outcome` label is `"success"` when an immutable `PreparedApp` is
-  produced and `"failure"` when preparation returns an error.
-- `wireframe_application_preparation_duration_seconds` records the duration of
-  each preparation attempt, using the same `outcome` label values.
-- `wireframe_prepared_connection_uses_total` counts each connection handled by
-  `PreparedApp::handle_connection_result` or its logging wrapper. It has no
-  labels.
-
-These metrics are emitted around preparation and prepared-application
-connection handling, so repeated connections show reuse of the already-built
-route services without repeating middleware transforms. All three helpers are
-no-ops when the `metrics` feature is disabled.
-
-Outbound application responses also record
-`wireframe_app_response_sends_total`, which counts each frame written by the
-response pipeline after serialization, codec wrapping, and `before_send`. Its
-bounded `outcome` label is `"success"`, `"serialization_failure"`,
-`"codec_rejected"` when the codec refuses the frame (for example after a hook
-grows it past `max_frame_length`), or `"transport_failure"`. The label set is
-fixed, so application data never becomes a metric label. The helper is a no-op
-when the `metrics` feature is disabled. A failed response send also logs a
-warning carrying a stable `stage` (`serialize` or `write`) and a `category`
-that matches the outcome label, so log records and metric series can be
-correlated.
-
-## Benchmark allocation counting
-
-The `wireframe_testing::benchmark_alloc_support` module provides the counting
-mechanism for benchmark binaries in this repository, and for downstream users
-who keep allocation budgets. It re-exports `stats_alloc`'s
-`INSTRUMENTED_SYSTEM` and `StatsAlloc` alongside `std::alloc::System`, so a
-benchmark binary opts in by installing the instrumenting allocator:
-
-```rust
-use std::alloc::System;
-use wireframe_testing::benchmark_alloc_support::{INSTRUMENTED_SYSTEM, StatsAlloc};
-
-#[global_allocator]
-static GLOBAL_ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
-```
-
-Counting only moves once that allocator is installed, because Rust permits one
-`#[global_allocator]` per binary and a library cannot install it for you.
-
-Measure with `count_allocations`, which opens a window, resets the counter,
-runs the closure, samples the closing total, and closes the window before
-returning:
-
-```rust
-use wireframe_testing::benchmark_alloc_support::count_allocations;
-
-let count = count_allocations(|| {
-    let buffer: Vec<u8> = vec![0; 1024];
-    std::hint::black_box(buffer.len());
-    Ok(())
-})?;
-```
-
-The window closes on the error path too, so a failed measurement cannot leave
-counting enabled for the rest of the process. `count_allocations_or_panic`
-wraps the same helper for benchmark binaries that treat a failed measurement as
-fatal.
-
-The recorded value counts both fresh allocations and reallocations: a buffer
-that grows in place is still a buffer that asked the allocator for memory. It
-also includes allocations made by the benchmark harness, the async runtime, and
-anything else running during the window, not only the code under test. Compare
-values across runs of the same binary rather than treating them as absolute
-costs.
-
-`allocation_count` reads the current count without opening a window,
-`reset_allocation_count` clears it, and `is_allocation_counting_enabled`
-reports whether a window is open.
-
-This module replaces the `CountingAllocator` type that earlier releases
-exported. Install `INSTRUMENTED_SYSTEM` as shown above instead; see the
-[v0.3.0 to v0.4.0 migration guide](v0-3-0-to-v0-4-0-migration-guide.md) for the
-change.
-
-## Mutation testing
-
-Wireframe's test suite is continuously assessed with mutation testing: small
-semantic faults (mutants) are injected into the source, and the suite must
-catch each one. Surviving mutants indicate code a test exercises without truly
-asserting on. Runs happen through the shared reusable workflow
-`leynos/shared-actions/.github/workflows/mutation-cargo.yml`, pinned by commit
-SHA, and are informational only — they never gate pull requests, so a red
-mutation run does not block contributions or releases. The design rationale is
-recorded in [ADR-007](adr-007-mutation-testing-with-cargo-mutants.md).
-
-Two run modes exist. Scheduled daily runs mutate only the Rust files changed on
-`main` in the preceding 25 hours and skip in seconds on quiet days. Manual
-dispatch runs (from the repository's Actions tab) mutate everything, fanned out
-across six parallel shards, and post one merged summary.
-
-Mutation runs build with `--all-features`, matching the CI test baseline. This
-matters for coverage fidelity: feature-gated code — for example the serde
-bridge behind the non-default `serializer-serde` feature — is exercised during
-mutation runs rather than being hidden by default-feature builds, so its
-survivors reflect real assertion gaps instead of compiled-out tests.
-
-Three scaffolding paths are excluded from mutation: `src/test_helpers.rs`,
-`src/connection/test_support.rs`, and `src/codec/examples.rs`. These contain
-test support and illustrative codecs rather than shipped behaviour, so
-survivors there would be noise rather than signal. Survivors reported for the
-`wireframe_testing` companion crate are advisory for a related reason: that
-crate's logic is exercised chiefly by the root crate's tests, which do not run
-in its scoped mutation target.
-
-Results land in two places on each run: the workflow's merged job summary shows
-caught/missed/timeout counts per target with a table of surviving mutants, and
-downloadable `mutation-report-*` artefacts contain the raw `mutants.out/`
-directories (one per shard on full dispatch runs) for offline triage.
-
-## Additional utilities
-
-- `read_preamble` decodes up to 1 KiB using bincode, returning the decoded
-  value plus any leftover bytes that must be replayed before normal frame
-  processing.[^37]
-- `RewindStream` replays leftover bytes before delegating reads and writes to
-  the underlying stream, keeping the framing layer transparent.[^38]
-- `panic::format_panic` renders panic payloads for consistent logging across
-  `log` and `tracing` consumers.[^39]
-
-[^1]: Implemented in `src/lib.rs` (lines 2-33).
-[^2]: Implemented in `src/app/builder.rs` (lines 66-209).
-[^3]: Implemented in `src/app/builder.rs` (lines 100-121, 347-360).
-[^4]: Implemented in `src/app/builder.rs` (lines 326-344).
-[^5]: Implemented in `src/error.rs` (lines 1-68).
-[^6]: Implemented in `src/app/inbound_handler/mod.rs` (lines 41-205).
-[^7]: Implemented in `src/app/inbound_handler/mod.rs` (lines 207-289).
-[^8]: Implemented in `src/app/envelope.rs` (lines 11-172).
-[^9]: Implemented in `src/frame/metadata.rs` (lines 1-40).
-[^10]: Implemented in `src/message.rs` (lines 4-41).
-[^11]: Implemented in `src/middleware.rs` (lines 13-206).
-[^12]: Implemented in `src/middleware.rs` (lines 252-347).
-[^13]: Implemented in `src/extractor.rs` (lines 1-236).
-[^14]: Implemented in `src/hooks.rs` (lines 18-175).
-[^15]: Implemented in `src/server/config/mod.rs` (lines 47-152).
-[^16]: Implemented in `src/server/runtime/mod.rs` (lines 46-83).
-[^17]: Implemented in `src/server/config/binding.rs` (lines 68-214).
-[^18]: Implemented in `src/server/runtime/mod.rs` (lines 90-233).
-[^19]: Implemented in `src/server/runtime/mod.rs` (lines 240-333).
-[^20]: Implemented in `src/server/config/preamble.rs` (lines 14-135) and
-    `src/server/connection_spawner.rs` (lines 1-222).
-[^21]: Implemented in `src/server/error.rs` (lines 7-18).
-[^23]: Implemented in `src/push/queues/mod.rs` (lines 41-190).
-[^24]: Implemented in `src/push/queues/errors.rs` (lines 7-28).
-[^25]: Implemented in `src/push/queues/handle.rs` (lines 84-225).
-[^26]: Implemented in `src/push/queues/handle.rs` (lines 198-295).
-[^27]: Implemented in `src/push/queues/mod.rs` (lines 255-318).
-[^28]: Implemented in `src/connection.rs` (lines 69-205).
-[^29]: Implemented in `src/fairness.rs` (lines 1-79).
-[^30]: Implemented in `src/connection.rs` (lines 240-441).
-[^31]: Implemented in `src/connection.rs` (lines 22-46).
-[^33]: Implemented in `src/metrics/mod.rs` (lines 21-111).
-[^34]: Implemented in `src/response.rs` (lines 46-151).
-[^35]: Implemented in `src/response.rs` (lines 156-209).
-[^36]: Demonstrated in `examples/async_stream.rs` (lines 1-23).
-[^37]: Implemented in `src/preamble.rs` (lines 1-128).
-[^38]: Implemented in `src/rewind_stream.rs` (lines 14-76).
-[^39]: Implemented in `src/panic.rs` (lines 1-18).
-[^40]: Implemented in `src/session.rs` (lines 13-255).
-[^41]: Implemented in `src/fragment/mod.rs` and supporting submodules.
-[^42]: Exercised in `tests/features/fragment.feature`.
-[^43]: Step definitions in `tests/steps/fragment_steps.rs`.
-[^44]: Implemented in `src/client/runtime.rs`, `src/client/builder.rs`,
-    `src/client/config.rs`, and `src/client/error.rs`.
-[^45]: Implemented in `src/request.rs`.
-[^46]: See ADR 0002 for design rationale:
-    `docs/adr/0002-streaming-requests-and-shared-message-assembly.md`.
-[^47]: Client preamble support implemented in `src/client/builder.rs`
-    (lines 288-566) and `src/client/mod.rs` (callback types).
-[^48]: Client lifecycle hooks implemented in `src/client/hooks.rs`,
-    `src/client/builder.rs` (lifecycle methods), and `src/client/runtime.rs`
-    (hook invocation). Behaviour-driven development (BDD) tests in
-    `tests/features/client_lifecycle.feature`.
-
-[^49]: Implemented in `src/app/envelope.rs` (`Packet::is_stream_terminator`)
-    and `src/client/response_stream.rs` (terminator detection in
-    `ResponseStream::poll_next`).
-[^50]: See Section 3.1 of the
-    [streaming design](multi-packet-and-streaming-responses-design.md) for
-    back-pressure architecture.
-[^51]: Implemented in `src/client/response_stream.rs` (correlation
-    validation) and `src/client/error.rs`
-    (`ClientError::StreamCorrelationMismatch`). Once terminated, the stream
-    returns `None` per the fused-stream convention.
-
-[^52]: Client request hooks implemented in `src/client/hooks.rs`
-    (`BeforeSendHook`, `AfterReceiveHook`, `RequestHooks`),
-    `src/client/builder/request_hooks.rs` (builder methods), and
-    `src/client/messaging.rs` (hook invocation). BDD tests in
-    `tests/features/client_request_hooks.feature`.
-
-[^53]: Implemented in `src/client/send_streaming.rs`. See
-    [ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md),
-    Section 4, for design rationale.
-
-[adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md
-
-[serializer-output-plan]:
-execplans/issue-538-plan-zero-copy-serializer-output-migration.md
+## Where to go next
+
+- The [API reference](https://docs.rs/wireframe) documents every public type.
+- The `examples/` directory has complete programs, which the
+  [README](../README.md#examples) lists.
+- The [design document](rust-binary-router-library-design.md) explains the
+  architecture and why.
+- The [`wireframe_testing` guide](wireframe-testing-crate.md) goes deeper on
+  test helpers.
+- The
+  [production resilience guide](hardening-wireframe-a-guide-to-production-resilience.md)
+  covers hardening.
+- The [developers' guide](developers-guide.md) is the place to start
+  contributing, and the [roadmap](roadmap.md) shows what is coming.
