@@ -116,6 +116,10 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// The `partial_data` parameter contains any bytes that were received
     /// before EOF. For clean closes, this will be empty.
     ///
+    /// The inbound connection loop does not call this hook yet: a decoder error
+    /// or end of stream simply ends the connection. Only code that invokes
+    /// [`ProtocolHooks::on_eof`] directly reaches it.
+    ///
     /// # Examples
     ///
     /// ```rust,ignore

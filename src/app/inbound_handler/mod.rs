@@ -197,7 +197,7 @@ where
     ///
     /// Returns an [`io::Error`] if stream processing or handler execution fails.
     #[deprecated(
-        since = "0.3.0",
+        since = "0.4.0",
         note = "prepare the app once, then call PreparedApp::handle_connection_result"
     )]
     pub async fn handle_connection_result<W>(&self, stream: W) -> io::Result<()>
@@ -209,7 +209,7 @@ where
 
     /// Handle a connection through the compatibility preparation path.
     #[deprecated(
-        since = "0.3.0",
+        since = "0.4.0",
         note = "prepare the app once, then call PreparedApp::handle_connection"
     )]
     pub async fn handle_connection<W>(&self, stream: W)

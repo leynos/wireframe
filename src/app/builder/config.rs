@@ -21,8 +21,11 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    /// Configure the read timeout in milliseconds.
-    /// Clamped between 1 and 86,400,000 milliseconds (24 h).
+    /// Configure the inbound read wake-up interval in milliseconds.
+    ///
+    /// Clamped between 1 and 86,400,000 milliseconds (24 h). When the interval
+    /// elapses without a frame, the connection purges expired partial messages
+    /// and keeps waiting: this does not close an idle connection.
     #[must_use]
     pub fn read_timeout_ms(mut self, timeout_ms: u64) -> Self {
         self.read_timeout_ms = timeout_ms.clamp(MIN_READ_TIMEOUT_MS, MAX_READ_TIMEOUT_MS);
@@ -40,10 +43,10 @@ where
 
     /// Configure per-connection memory budgets for inbound buffering.
     ///
-    /// These budgets apply across the shared inbound assembly pipeline,
-    /// including protocol-level message assembly and streaming request
-    /// hand-off state. Wireframe uses them for per-frame rejection,
-    /// soft-pressure read pacing, and hard-cap connection aborts.
+    /// These budgets apply across the inbound assembly pipeline. Message
+    /// assembly uses them for per-frame rejection, and retained fragment and
+    /// assembly bytes together drive soft-pressure read pacing and hard-cap
+    /// connection aborts.
     #[must_use]
     pub const fn memory_budgets(mut self, budgets: MemoryBudgets) -> Self {
         self.memory_budgets = Some(budgets);
