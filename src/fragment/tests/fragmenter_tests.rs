@@ -133,6 +133,27 @@ fn fragmenter_fragments_messages_and_increments_ids() {
     );
 }
 
+/// The checked increment behind `try_update` only panics once the counter
+/// truly cannot advance, so the last representable id is still allocatable.
+#[test]
+#[should_panic(expected = "message id counter exhausted at")]
+fn fragmenter_panics_when_message_id_counter_exhausted() {
+    let fragmenter = Fragmenter::with_starting_id(
+        NonZeroUsize::new(4).expect("non-zero"),
+        MessageId::new(u64::MAX - 1),
+    );
+
+    let allocated = fragmenter.next_message_id();
+    assert_eq!(
+        allocated,
+        MessageId::new(u64::MAX - 1),
+        "the first allocation should return the configured starting id"
+    );
+
+    let unexpected = fragmenter.next_message_id();
+    panic!("expected the exhausted counter to panic, got {unexpected:?}");
+}
+
 #[test]
 fn fragment_batch_into_iterator_yields_all_fragments() {
     let fragmenter = Fragmenter::new(NonZeroUsize::new(2).expect("non-zero"));

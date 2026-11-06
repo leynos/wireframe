@@ -162,6 +162,10 @@ pub(crate) enum ServerCancellationReason {
     Dropped,
 }
 
+// Server tracing in `server::runtime::supervisor` and
+// `server::runtime::accept` formats this label even when `metrics` is disabled,
+// so the helper stays available without the feature. Only `cfg(loom)` compiles
+// the server module out, so the block is gated on `not(loom)` alone.
 #[cfg(not(loom))]
 impl ServerCancellationReason {
     /// Return the stable metric and tracing label value for this reason.
