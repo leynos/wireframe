@@ -2,7 +2,12 @@
 //!
 //! [`MessageRequest`] carries connection metadata and shared application
 //! state. Implement [`FromMessageRequest`] for custom extractors to parse
-//! payload bytes or inspect connection info before your handler runs.
+//! payload bytes or inspect connection info.
+//!
+//! The connection runtime does not build a [`MessageRequest`] or invoke
+//! extractors, and a route handler receives only a reference to its envelope.
+//! Application code that wants extractors constructs the request and calls
+//! [`FromMessageRequest::from_message_request`] itself.
 
 mod connection_info;
 mod error;

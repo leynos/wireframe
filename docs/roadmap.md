@@ -273,7 +273,7 @@ and standardized per-connection memory budgets.
   stream of `Result<Bytes, std::io::Error>`.
 - [x] 8.1.3. Add an `AsyncRead` adaptor for `RequestBodyStream` so protocol
   crates can reuse existing parsers.
-- [x] 8.1.4. Integrate streaming request extraction with the handler dispatch
+- [ ] 8.1.4. Integrate streaming request extraction with the handler dispatch
   path.
 - [x] 8.1.5. Write tests for buffered-to-streaming fallback and back-pressure
   propagation.

@@ -189,9 +189,9 @@ where
     ///
     /// The pool's single scheduler task is joined before this returns, so a
     /// caller can rely on the task being gone afterwards. Dropping the sockets
-    /// is still deferred: a lease acquired before close is not revoked, and a
-    /// `PoolHandle` or lease keeps the pool core (and therefore every slot and
-    /// warm socket) alive until it is dropped.
+    /// is still deferred: a lease acquired before close is not revoked, and it
+    /// keeps the pool core (and therefore every slot and warm socket) alive
+    /// until it is dropped.
     ///
     /// # Examples
     ///
