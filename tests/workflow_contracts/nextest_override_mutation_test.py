@@ -145,11 +145,33 @@ def _cfg_gated_test(
     return targets, {target.src_path: gated}
 
 
+#: The override's test compiles nothing while a sibling drives trybuild, so a
+#: check that read trybuild use across the whole file would accept it.
+NO_OP_SELECTED_SOURCE = """\
+#[test]
+fn compile_tests() {}
+
+#[test]
+fn rstest_bdd_v06_contracts() {
+    let _ = trybuild::TestCases::new();
+}
+"""
+
+
+def _no_op_selected_test(
+    targets: Sequence[CargoTestTarget],
+) -> tuple[tuple[CargoTestTarget, ...], dict[Path, str]]:
+    """Empty the selected test's body, keeping a sibling's trybuild driver."""
+    target = next(target for target in targets if target.name == "compile_error")
+    return targets, {target.src_path: NO_OP_SELECTED_SOURCE}
+
+
 #: Mutations that doctor the target list or the source text rather than the
 #: configuration, so the test can hand them different state.
 _SOURCE_MUTATIONS: typ.Final = {
     "uncovered_trybuild_target": _uncovered_trybuild_target,
     "cfg_gated_test": _cfg_gated_test,
+    "no_op_selected_test": _no_op_selected_test,
 }
 
 
@@ -189,6 +211,7 @@ def _source_reader_with(
         "extra_override",
         "uncovered_trybuild_target",
         "cfg_gated_test",
+        "no_op_selected_test",
     ],
 )
 def test_override_mutations_are_rejected(mutation: str) -> None:
@@ -204,6 +227,18 @@ def test_override_mutations_are_rejected(mutation: str) -> None:
         assert_no_override_violations(
             config, targets, _source_reader_with(extra_sources)
         )
+
+
+def test_a_sibling_trybuild_driver_does_not_cover_the_selected_test() -> None:
+    """The override must name the test that compiles, not just any test."""
+    targets, extra_sources = _no_op_selected_test(repository_targets())
+    violations = override_target_violations(
+        repository_config(), targets, _source_reader_with(extra_sources)
+    )
+    assert any(
+        "does not drive trybuild::TestCases" in violation
+        for violation in violations
+    ), f"the empty selected test must be reported, got {violations!r}"
 
 
 def test_non_list_overrides_are_rejected() -> None:

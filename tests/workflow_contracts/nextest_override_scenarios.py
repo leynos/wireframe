@@ -156,6 +156,26 @@ def _cfg_gated(names: OverrideNames) -> Scenario:
     )
 
 
+def _no_op_selected_test(names: OverrideNames) -> Scenario:
+    """The override's test compiles nothing while a sibling drives trybuild.
+
+    Reading trybuild use across the whole file would accept this, yet the
+    override's exact matcher bounds the empty test, so the compilation it was
+    meant to cover still runs under the default deadline.
+    """
+    sibling = (
+        "#[test]\n"
+        "fn sibling() {\n"
+        "    let _ = trybuild::TestCases::new();\n"
+        "}\n"
+    )
+    return _rewritten_source(
+        names,
+        lambda _source: f"{empty_test_source(names.function)}\n{sibling}",
+        "does not drive trybuild::TestCases",
+    )
+
+
 def _uncovered(names: OverrideNames) -> Scenario:
     """A trybuild target the one override does not name stays uncovered."""
     target = test_target(names.package, names.binary)
@@ -215,6 +235,7 @@ _DEFECT_BUILDERS: dict[str, Callable[[OverrideNames], Scenario]] = {
     "nested": _nested,
     "commented_out": _commented_out,
     "no_trybuild": _no_trybuild,
+    "no_op_selected_test": _no_op_selected_test,
     "cfg_gated": _cfg_gated,
     "uncovered": _uncovered,
     "extra_override": _extra_override,

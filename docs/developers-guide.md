@@ -185,8 +185,12 @@ build is a descendant of the watched process, so the watchdog does not give it
 a separate deadline.
 
 The discovery contract reads `cargo metadata` for the target a filter names,
-then checks that target's source for a crate-root `#[test]` function with the
-filter's exact name and for `trybuild::TestCases`. The source check is
+then checks that target's source defines a crate-root `#[test]` function with
+the filter's exact name and that the named test's own body constructs
+`trybuild::TestCases`. Scoping that check to the selected function matters:
+reading trybuild use across the file would accept an override whose test does
+nothing while a sibling test does the compiling, which is the same silent
+fallback to the default deadline in a different disguise. The source check is
 deliberate evidence, not a substitute for nextest's test list: producing that
 list would run the compilation the contract exists to bound. Because nextest
 matches `test(=name)` against the fully qualified test name, the contract

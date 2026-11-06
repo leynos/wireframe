@@ -11,6 +11,10 @@ The scanning here is deliberately small. It handles the layouts a contract file
 can meaningfully inspect — inline ``mod`` blocks, item braces and item
 attributes — and ignores everything else. It is not a Rust parser, and it says
 so: a definition it cannot see is reported as missing rather than assumed.
+
+The token vocabulary and the scope state are public because
+``rust_test_bodies`` walks the same tokens to ask what one test's body does;
+keeping one tokenizer means the two questions cannot drift apart.
 """
 
 from __future__ import annotations
@@ -29,7 +33,7 @@ if typ.TYPE_CHECKING:
 #: coverage gates are tokens so each can be attributed to the scope that
 #: encloses it, and a ``cfg`` attribute is a token so a test it can remove from
 #: the run is recognizable.
-_ITEM_TOKEN: re.Pattern[str] = re.compile(
+ITEM_TOKEN: re.Pattern[str] = re.compile(
     r"""
     (?P<loom_gate>\#\!\s*\[\s*cfg\s*\(\s*loom\s*\)\s*\])
     | (?P<coverage_gate>
@@ -46,7 +50,7 @@ _ITEM_TOKEN: re.Pattern[str] = re.compile(
 )
 
 
-class _ScanState:
+class ScanState:
     """Track open blocks and the attributes pending on the next item."""
 
     def __init__(self) -> None:
@@ -58,7 +62,7 @@ class _ScanState:
         self.is_cfg_pending = False
 
 
-def _enter_module(state: _ScanState, token: re.Match[str]) -> None:
+def enter_module(state: ScanState, token: re.Match[str]) -> None:
     """Record an inline module and clear any pending item attributes."""
     state.blocks.append(token.group("module_name"))
     state.block_cfg.append(state.is_cfg_pending)
@@ -66,7 +70,7 @@ def _enter_module(state: _ScanState, token: re.Match[str]) -> None:
     state.is_cfg_pending = False
 
 
-def _enter_block(state: _ScanState) -> None:
+def enter_block(state: ScanState) -> None:
     """Record a block that is not a module, such as an ``impl`` or ``fn``."""
     state.blocks.append(None)
     state.block_cfg.append(state.is_cfg_pending)
@@ -74,7 +78,7 @@ def _enter_block(state: _ScanState) -> None:
     state.is_cfg_pending = False
 
 
-def _leave_block(state: _ScanState) -> None:
+def leave_block(state: ScanState) -> None:
     """Close the innermost block, if any."""
     if state.blocks:
         state.blocks.pop()
@@ -83,7 +87,7 @@ def _leave_block(state: _ScanState) -> None:
     state.is_cfg_pending = False
 
 
-def _note_function(state: _ScanState, token: re.Match[str]) -> str | None:
+def note_function(state: ScanState, token: re.Match[str]) -> str | None:
     """Return the qualified name of a pending test, or ``None`` for other items."""
     if not state.is_test_pending:
         return None
@@ -113,17 +117,17 @@ def _test_items(source: str) -> Iterator[tuple[str, bool]]:
         The module-qualified name, and ``True`` when a ``cfg`` attribute can
         exclude the test.
     """
-    state = _ScanState()
-    for token in _ITEM_TOKEN.finditer(without_comments_and_literals(source)):
+    state = ScanState()
+    for token in ITEM_TOKEN.finditer(without_comments_and_literals(source)):
         # ``lastgroup`` names the alternative that matched, not its inner
         # capture: a module token reports ``module``, a function ``function``.
         match token.lastgroup:
             case "module":
-                _enter_module(state, token)
+                enter_module(state, token)
             case "open":
-                _enter_block(state)
+                enter_block(state)
             case "close":
-                _leave_block(state)
+                leave_block(state)
             case "semicolon":
                 state.is_cfg_pending = False
             case "cfg_attribute":
@@ -132,7 +136,7 @@ def _test_items(source: str) -> Iterator[tuple[str, bool]]:
                 state.is_test_pending = True
             case "function":
                 is_gated = state.is_cfg_pending or any(state.block_cfg)
-                path = _note_function(state, token)
+                path = note_function(state, token)
                 if path is not None:
                     yield path, is_gated
 
@@ -242,15 +246,15 @@ def has_crate_scope_gate(source: str, gate: CrateGate) -> bool:
     ...     "mod m {\\n#![cfg(not(coverage))]\\n}\\n", CrateGate.COVERAGE)
     False
     """
-    state = _ScanState()
-    for token in _ITEM_TOKEN.finditer(without_comments_and_literals(source)):
+    state = ScanState()
+    for token in ITEM_TOKEN.finditer(without_comments_and_literals(source)):
         match token.lastgroup:
             case "module":
-                _enter_module(state, token)
+                enter_module(state, token)
             case "open":
-                _enter_block(state)
+                enter_block(state)
             case "close":
-                _leave_block(state)
+                leave_block(state)
             case group if group == gate.value and not state.blocks:
                 return True
     return False

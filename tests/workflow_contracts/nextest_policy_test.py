@@ -18,6 +18,7 @@ from rust_source_scanning import (
     has_crate_scope_gate,
     qualified_test_names,
 )
+from rust_test_bodies import drives_trybuild_in_test
 from timeout_policy import (
     DurationSyntaxError,
     coverage_action_name,
@@ -201,6 +202,55 @@ def test_trybuild_detection(source: str, expected: bool) -> None:
     """A live trybuild driver is recognized however its path is spaced."""
     assert drives_trybuild(source) is expected, (
         "trybuild detection must ignore comments and literals"
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param(
+            "#[test]\nfn compile_tests() {\n"
+            "    let t = trybuild::TestCases::new();\n}\n",
+            True,
+            id="own-body",
+        ),
+        pytest.param(
+            "#[test]\nfn other() {}\n#[test]\nfn compile_tests() {\n"
+            "    helper();\n}\nfn helper() {\n"
+            "    let t = trybuild::TestCases::new();\n}\n",
+            False,
+            id="helper-only",
+        ),
+        pytest.param(
+            "#[test]\nfn compile_tests() {}\n#[test]\nfn sibling() {\n"
+            "    let t = trybuild::TestCases::new();\n}\n",
+            False,
+            id="sibling-only",
+        ),
+        pytest.param(
+            "#[test]\nfn compile_tests() {}\n",
+            False,
+            id="empty-body",
+        ),
+        pytest.param(
+            "#[test]\nfn compile_tests() {\n    // trybuild::TestCases\n}\n",
+            False,
+            id="commented-out-in-body",
+        ),
+        pytest.param(
+            "mod m {\n    #[test]\n    fn compile_tests() {\n"
+            "        let t = trybuild::TestCases::new();\n    }\n}\n",
+            False,
+            id="nested-module",
+        ),
+    ],
+)
+def test_trybuild_use_is_scoped_to_the_selected_test(
+    source: str, expected: bool
+) -> None:
+    """Only the override's own test has to drive trybuild."""
+    assert drives_trybuild_in_test(source, "compile_tests") is expected, (
+        "a sibling or helper driver must not stand in for the selected test"
     )
 
 

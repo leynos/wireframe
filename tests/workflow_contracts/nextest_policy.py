@@ -8,15 +8,19 @@ the filter against the targets ``cargo metadata`` reports, so that rot fails a
 contract instead of passing unnoticed.
 
 The test-function check is source-level: it proves a crate-root ``#[test]``
-function with the filter's exact name is written in the target's source, and
-that no ``cfg`` attribute on the test or an enclosing module can remove it
-from the run. It does not prove that nextest's own test list contains it.
+function with the filter's exact name is written in the target's source, that
+no ``cfg`` attribute on the test or an enclosing module can remove it from the
+run, and that the test's own body constructs ``trybuild::TestCases``. That last
+part is scoped to the selected function rather than the file, so a sibling test
+that drives trybuild cannot stand in for the one the override names. It does
+not prove that nextest's own test list contains it.
 Nextest test-list evidence is deliberately not used, because producing it
 would run the very compilation this contract exists to bound. Because nextest
 matches ``test(=name)`` against the fully qualified test name, the check
 computes the module path from inline ``mod`` blocks: a test defined only as
-``contracts::compile_tests`` does not satisfy ``test(=compile_tests)``. The
-scanning lives in ``rust_source_scanning``; the text it reads is cleaned by
+``contracts::compile_tests`` does not satisfy ``test(=compile_tests)``. Item
+scanning lives in ``rust_source_scanning``, the body question in
+``rust_test_bodies``, and the text both read is cleaned by
 ``rust_source_lexing`` first, so a commented-out definition is not evidence.
 
 The timeout tier chain lives in ``timeout_policy``; the two modules are split
@@ -37,6 +41,7 @@ from rust_source_scanning import (
     has_crate_scope_gate,
     is_conditionally_excluded_test,
 )
+from rust_test_bodies import drives_trybuild_in_test
 
 if typ.TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -186,10 +191,10 @@ def _target_source_violations(
             f"override {resolved.index} names test {parsed.test!r}, which a "
             f"cfg attribute in {target.src_path} can exclude from the run"
         )
-    if not drives_trybuild(source):
+    elif not drives_trybuild_in_test(source, parsed.test):
         violations.append(
-            f"override {resolved.index} names {target.src_path}, which does "
-            "not drive trybuild::TestCases"
+            f"override {resolved.index} names test {parsed.test!r}, whose body "
+            f"in {target.src_path} does not drive trybuild::TestCases"
         )
 
 
