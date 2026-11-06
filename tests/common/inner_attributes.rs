@@ -47,6 +47,16 @@ pub(crate) fn header_inner_attributes(source: &str) -> Vec<String> {
     collector.attributes
 }
 
+/// Whether a source file's header carries `attribute` as a standalone entry.
+///
+/// A prohibition nested inside another attribute is part of that attribute and
+/// does not count, because a file in that state does not compile.
+pub(crate) fn has_header_attribute(source: &str, attribute: &str) -> bool {
+    header_inner_attributes(source)
+        .iter()
+        .any(|candidate| candidate == attribute)
+}
+
 /// Report whether a trimmed line may appear in a file header.
 fn is_header_line(line: &str) -> bool {
     line.is_empty() || line.starts_with("//!") || line.starts_with("#![")
@@ -136,5 +146,77 @@ mod attribute_tests {
                 .map(str::to_owned)
                 .collect::<Vec<_>>()
         );
+    }
+}
+
+#[cfg(test)]
+mod attribute_property_tests {
+    //! Properties of the header parser over generated attribute sequences.
+
+    use proptest::prelude::*;
+
+    use super::{has_header_attribute, header_inner_attributes};
+
+    /// The prohibition the contract test looks for.
+    const PROHIBITION: &str = "#![forbid(unsafe_code)]";
+
+    /// A generated inner attribute, optionally spanning several lines.
+    fn attribute() -> impl Strategy<Value = String> {
+        (0usize..3, "[a-z_]{1,8}").prop_map(|(depth, name)| {
+            let mut attribute = format!("#![{name}(");
+            for level in 0..depth {
+                attribute.push_str("\n#![nested");
+                attribute.push_str(&level.to_string());
+                attribute.push('(');
+            }
+            for _ in 0..depth {
+                attribute.push_str("\n)");
+            }
+            attribute.push_str("\n)]");
+            attribute
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn stops_at_the_first_item(
+            attributes in prop::collection::vec(attribute(), 0..4),
+            item in "[a-z_]{1,8}",
+        ) {
+            let mut source = String::new();
+            for generated in &attributes {
+                source.push_str(generated);
+                source.push('\n');
+            }
+            source.push_str(&item);
+            source.push('\n');
+            source.push_str(PROHIBITION);
+            source.push('\n');
+
+            let parsed = header_inner_attributes(&source);
+            prop_assert_eq!(parsed.len(), attributes.len());
+            prop_assert!(parsed.iter().all(|entry| entry.starts_with("#![")));
+            prop_assert!(!has_header_attribute(&source, PROHIBITION));
+        }
+
+        #[test]
+        fn a_nested_prohibition_is_never_a_standalone_entry(depth in 1usize..4) {
+            let mut source = String::from("#![expect(");
+            for level in 0..depth {
+                source.push_str("\n#![nested");
+                source.push_str(&level.to_string());
+                source.push('(');
+            }
+            source.push('\n');
+            source.push_str(PROHIBITION);
+            for _ in 0..=depth {
+                source.push_str("\n)");
+            }
+            source.push('\n');
+
+            let parsed = header_inner_attributes(&source);
+            prop_assert_eq!(parsed.len(), 1);
+            prop_assert!(!has_header_attribute(&source, PROHIBITION));
+        }
     }
 }

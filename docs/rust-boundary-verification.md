@@ -59,21 +59,39 @@ metadata does not describe. It asserts:
   `#![forbid(unsafe_code)]` in its header, meaning before the first item. The
   header is parsed, not searched: a prohibition nested inside a multi-line
   attribute is part of that attribute and does not count, because a file in
-  that state does not compile.
+  that state does not compile. The test fails rather than passes when discovery
+  returns no roots, so a broken metadata query cannot make it vacuous.
+- `target_discovery_includes_the_standalone_package` — discovery reports at
+  least one root from `tests/feature_gate`. A workspace-only metadata run would
+  leave that package unchecked while the target-root contract still passed, so
+  the second query is pinned separately.
 - `unsafe_syntax_is_absent_from_every_package` — no package source contains an
   unsafe construct, an unsafe attribute such as `#[unsafe(no_mangle)]`, a scoped
   `#[expect(unsafe_code, …)]`, or an `#[allow(unsafe_code)]`. Every `.rs` file
   under each package's directory is read, not only the roots Cargo reports, so
   a child module behind a disabled feature cannot hide one, and a dot-prefixed
-  module directory is walked rather than skipped. The standalone package is
-  read by path for the same reason. Constructs are matched after whitespace is
-  collapsed, so a spelling split across a line break is still found, and a lint
-  attribute is matched by its argument list, so
-  `#[allow(dead_code, unsafe_code)]` is found as well as
+  module directory is walked rather than skipped. A directory named `target` is
+  skipped as the Cargo build tree unless it lies under a `src` directory, where
+  a module may legitimately have that name. The standalone package is read by
+  path for the same reason. Comments are stripped before matching, because Rust
+  treats a comment as whitespace: `unsafe/* SAFETY */ fn` is an unsafe function
+  and is reported. The `unsafe` keyword is then matched as a whole word and the
+  token that follows it is classified, so a spelling split across a line break
+  is still found, and an unsafe attribute is found whether its parenthesis is
+  adjacent or separated by whitespace. A lint attribute is matched by its
+  argument list, so `#[allow(dead_code, unsafe_code)]` is found as well as
   `#[allow(unsafe_code)]`. Two test helpers whose purpose is to name the
   constructs are exempt.
 - `workspace_membership_matches_the_reviewed_inventory` — the set of workspace
   packages is exactly the reviewed list.
+
+The helpers behind these checks carry their own tests, so a defect in the
+checker cannot pass as a clean result. The walk and the unsafe-syntax scan run
+together over a fixture tree, which proves the exclusions on real directory
+entries rather than only on the predicate, and the header parser is exercised
+by properties over generated attribute sequences. Discovery is tested through a
+substituted `cargo metadata` boundary, which pins the two queries it issues
+without starting Cargo.
 
 This layer is deliberately textual. It proves that the prohibition is present
 and that unsafe syntax is absent from the files it can read. It does not prove

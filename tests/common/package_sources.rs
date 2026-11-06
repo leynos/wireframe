@@ -9,10 +9,13 @@
 //!
 //! Only directories that cannot hold package source are skipped: the Cargo
 //! build tree, version-control metadata, and the tool caches the repository's
-//! own gates create. Every other directory is walked, including a dot-prefixed
-//! one, because a module can be reached through `#[path = ".internal/x.rs"]`.
-//! The repository root is itself the `wireframe` package's directory, so the
-//! exclusions also keep the walk out of the build tree and the caches.
+//! own gates create. A directory named `target` counts as the build tree only
+//! when it does not lie under a `src` directory, because a module may
+//! legitimately have that name. Every other directory is walked, including a
+//! dot-prefixed one, because a module can be reached through
+//! `#[path = ".internal/x.rs"]`. The repository root is itself the `wireframe`
+//! package's directory, so the exclusions also keep the walk out of the build
+//! tree and the caches.
 
 use std::process::Command;
 
@@ -141,12 +144,11 @@ fn package_manifest(package: &str) -> RepoAccessResult<Utf8PathBuf> {
 
 /// Directories that never hold package source.
 ///
-/// `target` is the Cargo build tree, `.git` is version-control metadata, and
-/// the rest are caches the repository's own gates create. A dot-prefixed
-/// directory that is not listed here is walked, so a module behind
-/// `#[path = ".internal/optional.rs"]` is still read.
+/// `.git` is version-control metadata, and the rest are caches the repository's
+/// own gates create. A dot-prefixed directory that is not listed here is
+/// walked, so a module behind `#[path = ".internal/optional.rs"]` is still
+/// read.
 const NON_SOURCE_DIRECTORIES: &[&str] = &[
-    "target",
     ".git",
     ".uv-cache",
     ".uv-tools",
@@ -154,8 +156,23 @@ const NON_SOURCE_DIRECTORIES: &[&str] = &[
     ".pytest_cache",
 ];
 
+/// The directory name Cargo uses for its build tree.
+const CARGO_BUILD_DIRECTORY: &str = "target";
+
 /// Whether a directory entry lies outside the package's own source.
-fn should_skip(name: &str) -> bool { NON_SOURCE_DIRECTORIES.contains(&name) }
+///
+/// A directory named `target` is the Cargo build tree unless it lies under a
+/// `src` directory, where a module may legitimately have that name. The
+/// repository root is itself the `wireframe` package's directory, so this also
+/// keeps the walk out of the root build tree.
+fn should_skip(name: &str, path: &Utf8Path) -> bool {
+    if name == CARGO_BUILD_DIRECTORY {
+        return !path
+            .components()
+            .any(|component| component.as_str() == "src");
+    }
+    NON_SOURCE_DIRECTORIES.contains(&name)
+}
 
 /// Append every `.rs` file below `dir` to `sources`, with its repository path.
 fn read_rust_sources(
@@ -166,10 +183,10 @@ fn read_rust_sources(
     for dir_entry in dir.entries()? {
         let entry = dir_entry?;
         let name = entry.file_name()?;
-        if should_skip(&name) {
+        let path = prefix.join(&name);
+        if should_skip(&name, &path) {
             continue;
         }
-        let path = prefix.join(&name);
         if entry.file_type()?.is_dir() {
             read_rust_sources(&entry.open_dir()?, &path, sources)?;
         } else if Utf8Path::new(&name).extension() == Some("rs") {
@@ -186,20 +203,160 @@ mod package_source_tests {
     //! The walk must not descend into `target/`, because the repository root is
     //! the `wireframe` package's directory and its build tree holds thousands of
     //! generated `.rs` files. It must descend into a dot-prefixed directory that
-    //! is not a known cache, because a module can live there.
+    //! is not a known cache, because a module can live there, and into a
+    //! `target` directory under `src`, because a module may have that name. The
+    //! fixture test runs the walk and the unsafe-syntax check together, so the
+    //! exclusions are proven on real directory entries rather than only on the
+    //! predicate.
 
+    use std::{
+        env,
+        io,
+        process,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+
+    use camino::{Utf8Path, Utf8PathBuf};
+    use cap_std::{ambient_authority, fs_utf8::Dir};
     use rstest::rstest;
 
-    use super::should_skip;
+    use super::{RepoAccessResult, SourceFile, read_rust_sources, should_skip};
+    use crate::unsafe_syntax::violations_in;
+
+    /// Distinguishes fixture directories created by concurrent test runs.
+    static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    /// A uniquely named directory under the system temporary directory.
+    struct Fixture {
+        parent: Dir,
+        name: Utf8PathBuf,
+    }
+
+    impl Fixture {
+        fn new() -> io::Result<Self> {
+            let temporary = Utf8PathBuf::from_path_buf(env::temp_dir()).map_err(|path| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("temporary directory path is not UTF-8: {}", path.display()),
+                )
+            })?;
+            let parent = Dir::open_ambient_dir(&temporary, ambient_authority())?;
+            let sequence = FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let name = Utf8PathBuf::from(format!(
+                "wireframe-package-sources-{}-{sequence}",
+                process::id()
+            ));
+            parent.create_dir(&name)?;
+            Ok(Self { parent, name })
+        }
+
+        fn open(&self) -> io::Result<Dir> { self.parent.open_dir(&self.name) }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            // A failed cleanup must not turn a passing assertion into a panic.
+            drop(self.parent.remove_dir_all(&self.name));
+        }
+    }
+
+    /// A source text that the unsafe-syntax check must report.
+    ///
+    /// The keyword and the construct are assembled rather than written as one
+    /// literal so this helper's own source does not read as prohibited to the
+    /// scan it exercises; the fixture file still contains the exact spelling.
+    fn unsafe_function(name: &str) -> String { ["unsafe", " fn ", name, "() {}"].concat() }
+
+    /// Build the fixture tree: source, a hidden module, a module named `target`,
+    /// and three directories the walk must skip.
+    fn build_tree(dir: &Dir) -> io::Result<()> {
+        for directory in [
+            "src/.internal",
+            "src/target",
+            "target",
+            ".git",
+            ".uv-cache",
+            "nested/deeper",
+        ] {
+            dir.create_dir_all(directory)?;
+        }
+        dir.write("src/lib.rs", "fn safe() {}\n")?;
+        dir.write("src/.internal/optional.rs", unsafe_function("hidden"))?;
+        dir.write("src/target/mod.rs", "mod target;\n")?;
+        dir.write("target/generated.rs", unsafe_function("generated"))?;
+        dir.write(".git/config.rs", "fn version_control() {}\n")?;
+        dir.write(".uv-cache/cached.rs", "fn cached() {}\n")?;
+        dir.write("nested/deeper/module.rs", "fn nested() {}\n")
+    }
+
+    #[test]
+    fn walks_source_but_skips_build_and_cache_directories() -> RepoAccessResult<()> {
+        let fixture = Fixture::new()?;
+        let dir = fixture.open()?;
+        build_tree(&dir)?;
+
+        let mut sources: Vec<SourceFile> = Vec::new();
+        read_rust_sources(&dir, Utf8Path::new(""), &mut sources)?;
+
+        let mut paths: Vec<String> = sources.iter().map(|(path, _)| path.to_string()).collect();
+        paths.sort();
+        let expected = [
+            "nested/deeper/module.rs",
+            "src/.internal/optional.rs",
+            "src/lib.rs",
+            "src/target/mod.rs",
+        ];
+        if paths != expected {
+            return Err(format!(
+                "the walk must visit nested and hidden source and skip build and caches; expected \
+                 {expected:?}, got {paths:?}"
+            )
+            .into());
+        }
+
+        let violations: Vec<String> = sources
+            .iter()
+            .flat_map(|(path, source)| violations_in(source, path.as_str()))
+            .collect();
+        let hidden_module_reported = violations.iter().any(|violation| {
+            violation.contains("src/.internal/optional.rs contains an unsafe function")
+        });
+        if !hidden_module_reported {
+            return Err(format!(
+                "an unsafe function in a hidden module must be reported: {violations:?}"
+            )
+            .into());
+        }
+        let skipped_directories_are_clean = violations.iter().all(|violation| {
+            !violation.contains("target/")
+                && !violation.contains(".uv-cache/")
+                && !violation.contains(".git/")
+        });
+        if !skipped_directories_are_clean {
+            return Err(format!(
+                "skipped directories must not reach the unsafe-syntax check: {violations:?}"
+            )
+            .into());
+        }
+        Ok(())
+    }
 
     #[rstest]
-    #[case::build_tree("target", true)]
-    #[case::version_control(".git", true)]
-    #[case::tool_cache(".uv-cache", true)]
-    #[case::hidden_module_directory(".internal", false)]
-    #[case::source_directory("src", false)]
-    #[case::source_file("lib.rs", false)]
-    fn skips_only_non_source_directories(#[case] name: &str, #[case] expected: bool) {
-        assert_eq!(should_skip(name), expected);
+    #[case::build_tree("target", "target", true)]
+    #[case::member_build_tree("target", "crates/wireframe-loom/target", true)]
+    #[case::standalone_build_tree("target", "tests/feature_gate/target", true)]
+    #[case::module_named_target("target", "src/target", false)]
+    #[case::nested_module_named_target("target", "src/parser/target", false)]
+    #[case::version_control(".git", ".git", true)]
+    #[case::tool_cache(".uv-cache", ".uv-cache", true)]
+    #[case::hidden_module_directory(".internal", "src/.internal", false)]
+    #[case::source_directory("src", "src", false)]
+    #[case::source_file("lib.rs", "src/lib.rs", false)]
+    fn skips_only_non_source_directories(
+        #[case] name: &str,
+        #[case] path: &str,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(should_skip(name, Utf8Path::new(path)), expected);
     }
 }

@@ -34,7 +34,7 @@ mod unsafe_syntax;
 
 use camino::Utf8Path;
 use cargo_targets::{describe, discover_target_roots, read_target_source};
-use inner_attributes::header_inner_attributes;
+use inner_attributes::has_header_attribute;
 use package_sources::{
     sources_in_package,
     sources_under,
@@ -71,6 +71,7 @@ const EXPECTED_MEMBERS: &[&str] = &[
 /// check that matters for its own source.
 const EXEMPT_PATHS: &[&str] = &[
     "tests/common/unsafe_syntax.rs",
+    "tests/common/unsafe_syntax/tests.rs",
     "tests/workspace_unsafe_boundary.rs",
 ];
 
@@ -197,13 +198,14 @@ fn the_feature_gate_package_stays_standalone() -> TestResult {
 #[test]
 fn every_target_root_forbids_unsafe_code() -> TestResult {
     let repo = repo_root()?;
+    let roots = discover_target_roots()?;
+    if roots.is_empty() {
+        return Err("target discovery returned no roots; this check would pass vacuously".into());
+    }
     let mut violations = Vec::new();
-    for root in discover_target_roots()? {
+    for root in roots {
         let source = read_target_source(&root, &repo)?;
-        if !header_inner_attributes(&source)
-            .iter()
-            .any(|attribute| attribute == PROHIBITION)
-        {
+        if !has_header_attribute(&source, PROHIBITION) {
             violations.push(describe(&root, &repo));
         }
     }
@@ -215,6 +217,30 @@ fn every_target_root_forbids_unsafe_code() -> TestResult {
         "{} target root(s) do not carry `{PROHIBITION}` in their header:\n  {}",
         violations.len(),
         violations.join("\n  ")
+    )
+    .into())
+}
+
+/// Assert discovery reaches the package the workspace metadata omits.
+///
+/// A workspace-only metadata run would leave the standalone package's roots
+/// unchecked while the target-root contract still passed, so the second query
+/// is pinned here rather than left implicit in the combined result.
+#[test]
+fn target_discovery_includes_the_standalone_package() -> TestResult {
+    let packages: Vec<String> = discover_target_roots()?
+        .into_iter()
+        .map(|root| root.package)
+        .collect();
+    if packages
+        .iter()
+        .any(|package| package == FEATURE_GATE_PACKAGE)
+    {
+        return Ok(());
+    }
+    Err(format!(
+        "target discovery reported no {FEATURE_GATE_PACKAGE} root; discovered packages: \
+         {packages:?}"
     )
     .into())
 }
@@ -244,8 +270,14 @@ fn all_package_sources() -> TestResult<Vec<(String, String)>> {
 /// Assert no package contains unsafe syntax or an unsafe-code override.
 #[test]
 fn unsafe_syntax_is_absent_from_every_package() -> TestResult {
+    let sources = all_package_sources()?;
+    if sources.is_empty() {
+        return Err(
+            "package source discovery returned no files; this check would pass vacuously".into(),
+        );
+    }
     let mut violations = Vec::new();
-    for (path, source) in all_package_sources()? {
+    for (path, source) in sources {
         if EXEMPT_PATHS.contains(&path.as_str()) {
             continue;
         }
