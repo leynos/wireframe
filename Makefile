@@ -2,6 +2,7 @@
 .PHONY: lint-python-docs
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
+.PHONY: test-msrv
 # Kept off the build/test line above so that unrelated edits to that long line
 # cannot collide with the lint targets during a stack restack.
 .PHONY: lint-doc lint-clippy lint-whitaker
@@ -153,6 +154,10 @@ test-ui: ## Run trybuild compile-time API tests
 # with its own lock file is the only way to check that direction.
 test-feature-gate: ## Verify feature-gated APIs are actually absent when disabled
 	./scripts/check-feature-gate.sh
+
+# Installs and uses the declared minimum toolchain, not the pinned nightly.
+test-msrv: ## Build the workspace and a fresh consumer on the minimum Rust version
+	./scripts/check-msrv.sh
 
 test-pool-no-metrics: ## Check the pool builds without metrics
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) check --lib --no-default-features --features pool,serializer-bincode $(BUILD_JOBS)
