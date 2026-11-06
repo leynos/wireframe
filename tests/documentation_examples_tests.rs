@@ -17,11 +17,8 @@ use std::collections::BTreeSet;
 
 use documentation_examples::{hidden_rustdoc_line, load_documented_examples};
 
-/// The release these documents describe.
-///
-/// This is separate from `CARGO_PKG_VERSION` because the manifest is bumped by
-/// the release itself, after the documentation has been reviewed.
-const DOCUMENTED_RELEASE: &str = "0.4.0-alpha1";
+/// The release these documents describe, which is the one this tree builds.
+const DOCUMENTED_RELEASE: &str = env!("CARGO_PKG_VERSION");
 
 const CARGO_MANIFEST: &str = include_str!("../Cargo.toml");
 
@@ -238,6 +235,10 @@ fn the_readme_links_the_badge_and_the_home_page_in_the_manifest() {
         .find(|(path, _)| *path == "README.md")
         .expect("README.md is a documented file");
     assert!(readme.contains(&format!("Website: <{homepage}>")));
+    assert!(
+        readme.contains(&format!("Wireframe v{DOCUMENTED_RELEASE}")),
+        "the README should describe the release this tree builds"
+    );
     assert!(readme.contains("https://img.shields.io/crates/v/wireframe"));
     assert!(readme.contains("https://crates.io/crates/wireframe"));
 }
