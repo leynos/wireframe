@@ -358,7 +358,7 @@ The current direction is now explicit:
   serialization and transport-frame emission. Actor protocol hooks remain
   packet-oriented; the app-router path now applies `before_send` to each
   codec-wrapped frame as recorded in the
-  [ADR 010 addendum](adr-010-transport-frame-boundary-for-zero-copy.md#addendum-application-response-before_send-2026-11-02).
+  [ADR 010 addendum](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md#addendum-application-response-before_send-2026-11-02).
 - `CorrelatableFrame for Vec<u8>` should leave the core surface under the
   breaking-release runtime-boundary work. `Packet for Vec<u8>` remains
   test-only, and no public actor-boundary compatibility shim is added.
