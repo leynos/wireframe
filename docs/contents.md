@@ -175,10 +175,10 @@ execplans/issue-538-plan-zero-copy-serializer-output-migration.md
 
 ## Protocol extension RFCs
 
-- [RFC 0003: native message adapter boundary](rfcs/0003-native-message-adapter-boundary.md)
-- [RFC 0004: duplex session driver](rfcs/0004-duplex-session-driver.md)
-- [RFC 0005: negotiated transport entry points](rfcs/0005-negotiated-transport-entry-points.md)
-- [RFC 0006: configurable framing primitives](rfcs/0006-configurable-framing-primitives.md)
-- [RFC 0007: budgets, scheduling, and assembly](rfcs/0007-budgets-scheduling-and-assembly.md)
-- [RFC 0008: external adapter conformance harness](rfcs/0008-external-adapter-conformance-harness.md)
-- [RFC 0009: datagram session transport](rfcs/0009-datagram-session-transport.md)
+- [RFC 0003: native message adapter boundary](rfcs/rfc-0003-native-message-adapter-boundary.md)
+- [RFC 0004: duplex session driver](rfcs/rfc-0004-duplex-session-driver.md)
+- [RFC 0005: negotiated transport entry points](rfcs/rfc-0005-negotiated-transport-entry-points.md)
+- [RFC 0006: configurable framing primitives](rfcs/rfc-0006-configurable-framing-primitives.md)
+- [RFC 0007: budgets, scheduling, and assembly](rfcs/rfc-0007-budgets-scheduling-and-assembly.md)
+- [RFC 0008: external adapter conformance harness](rfcs/rfc-0008-external-adapter-conformance-harness.md)
+- [RFC 0009: datagram session transport](rfcs/rfc-0009-datagram-session-transport.md)
