@@ -950,8 +950,8 @@ Each language has one validator:
   needs a server it does not start, and never `ignore`. Rustdoc's hidden `#`
   lines are rejected, because GitHub shows them verbatim, and a reader copying
   the example would not get what was tested. Write complete programs instead.
-- `toml` fences must parse, pin `wireframe` and `wireframe_testing` to
-  `DOCUMENTED_RELEASE`, and name real features.
+- `toml` fences must parse, pin `wireframe` and `wireframe_testing` to the
+  version in `Cargo.toml`, and name real features.
 - `bash` fences may contain only commands that
   `tests/documentation_examples_tests/shell_commands.rs` recognizes. A
   `cargo run --example` line must match the manifest, and a further test runs
@@ -962,8 +962,8 @@ Each language has one validator:
 To add an example, add its marker, list its identifier in
 `EXPECTED_EXAMPLE_IDS`, and run `make test-doc` and
 `make test-documentation-contracts`. The contracts also check that relative
-links resolve to a file and a heading. Update `DOCUMENTED_RELEASE` when these
-documents move to a new release.
+links resolve to a file and a heading. Bumping the crate version fails these
+contracts until every install line and the README's release statement match it.
 
 Be careful with prose as well: a compiled example does not prove the sentences
 around it. Before describing what the runtime does, confirm that something
