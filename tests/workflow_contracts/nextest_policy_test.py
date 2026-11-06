@@ -13,8 +13,9 @@ import pytest
 from nextest_policy import FilterSyntaxError, parse_target_filter
 from rust_source_lexing import drives_trybuild
 from rust_source_scanning import (
+    CrateGate,
     defines_test_function,
-    is_loom_gated,
+    has_crate_scope_gate,
     qualified_test_names,
 )
 from timeout_policy import (
@@ -218,7 +219,7 @@ def test_trybuild_detection(source: str, expected: bool) -> None:
 )
 def test_loom_gate_detection(source: str, expected: bool) -> None:
     """Only a live crate-level Loom gate excludes a target from the run."""
-    assert is_loom_gated(source) is expected, (
+    assert has_crate_scope_gate(source, CrateGate.LOOM) is expected, (
         "only a live crate-level Loom gate excludes a target"
     )
 

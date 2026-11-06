@@ -24,7 +24,11 @@ from nextest_policy import (
     override_target_violations,
     parse_target_filter,
 )
-from rust_source_scanning import has_coverage_gate, qualified_test_names
+from rust_source_scanning import (
+    CrateGate,
+    has_crate_scope_gate,
+    qualified_test_names,
+)
 
 #: A value nextest's exact-``=`` matcher accepts.
 MATCHER_VALUE = st.from_regex(r"[A-Za-z0-9_.\-]{1,20}", fullmatch=True)
@@ -177,7 +181,7 @@ def test_only_a_crate_scope_coverage_gate_is_active(
 ) -> None:
     """Indentation must not decide scope: nesting alone excludes the gate."""
     source = _nest(f"{indent}{COVERAGE_GATE}", modules)
-    assert has_coverage_gate(source) is (not modules), (
+    assert has_crate_scope_gate(source, CrateGate.COVERAGE) is (not modules), (
         f"{source!r} must be {'active' if not modules else 'nested'}"
     )
 
@@ -201,7 +205,9 @@ def test_a_shadowed_coverage_gate_is_never_active(
             source = f"/* {body} */"
         case _:
             source = f'const GATE: &str = "{gate}";'
-    assert not has_coverage_gate(source), f"{source!r} must not be active"
+    assert not has_crate_scope_gate(source, CrateGate.COVERAGE), (
+        f"{source!r} must not be active"
+    )
 
 
 def _override_filter(package: str, binary: str, function: str) -> str:

@@ -37,7 +37,7 @@ from nextest_contract_support import (
 )
 from nextest_policy import override_target_violations
 from rust_source_lexing import drives_trybuild
-from rust_source_scanning import is_loom_gated
+from rust_source_scanning import CrateGate, has_crate_scope_gate
 from runner_placement_reader import REPO_ROOT
 
 if typ.TYPE_CHECKING:
@@ -67,7 +67,9 @@ def test_repository_loom_target_is_excluded_by_its_crate_gate() -> None:
     )
     source = read_source(loom.src_path)
     assert drives_trybuild(source), "the Loom harness must drive trybuild"
-    assert is_loom_gated(source), "the Loom harness must be gated out of the run"
+    assert has_crate_scope_gate(source, CrateGate.LOOM), (
+        "the Loom harness must be gated out of the run"
+    )
 
 
 @pytest.mark.parametrize(

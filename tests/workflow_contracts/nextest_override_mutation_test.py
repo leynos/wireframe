@@ -24,7 +24,7 @@ from nextest_contract_support import (
 )
 from nextest_policy import override_target_violations
 from rust_source_lexing import drives_trybuild
-from rust_source_scanning import is_loom_gated
+from rust_source_scanning import CrateGate, has_crate_scope_gate
 
 if typ.TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -36,7 +36,7 @@ def _non_trybuild_target(targets: Sequence[CargoTestTarget]) -> CargoTestTarget:
         target
         for target in targets
         if not drives_trybuild(read_source(target.src_path))
-        and not is_loom_gated(read_source(target.src_path))
+        and not has_crate_scope_gate(read_source(target.src_path), CrateGate.LOOM)
     )
 
 

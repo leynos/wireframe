@@ -31,10 +31,11 @@ import typing as typ
 
 from rust_source_lexing import drives_trybuild
 from rust_source_scanning import (
+    CrateGate,
     defines_test_function,
     describe_qualified_definitions,
+    has_crate_scope_gate,
     is_conditionally_excluded_test,
-    is_loom_gated,
 )
 
 if typ.TYPE_CHECKING:
@@ -227,7 +228,8 @@ def _expected_override_targets(
     return {
         (target.package, target.name)
         for target in targets
-        if drives_trybuild(source_of(target)) and not is_loom_gated(source_of(target))
+        if drives_trybuild(source_of(target))
+        and not has_crate_scope_gate(source_of(target), CrateGate.LOOM)
     }
 
 

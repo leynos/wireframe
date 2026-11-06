@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from runner_placement_reader import REPO_ROOT, workflows
-from rust_source_scanning import has_coverage_gate, is_loom_gated
+from rust_source_scanning import CrateGate, has_crate_scope_gate
 
 
 def assert_workflow_contracts_follow_setup(job: dict[str, typ.Any]) -> None:
@@ -211,11 +211,11 @@ def test_coverage_guards_only_compiler_driving_harnesses() -> None:
         path
         for root in (REPO_ROOT / "tests", REPO_ROOT / "wireframe_testing" / "tests")
         for path in root.rglob("*.rs")
-        if has_coverage_gate(path.read_text())
+        if has_crate_scope_gate(path.read_text(), CrateGate.COVERAGE)
     }
     assert_coverage_guard_scope(guarded)
     loom_harness = REPO_ROOT / "wireframe_testing" / "tests" / "loom_api_surface.rs"
-    assert is_loom_gated(loom_harness.read_text()), (
+    assert has_crate_scope_gate(loom_harness.read_text(), CrateGate.LOOM), (
         "the Loom harness must stay gated out of the ordinary test run"
     )
     manifest = tomllib.loads((REPO_ROOT / "Cargo.toml").read_text())
@@ -249,7 +249,7 @@ def test_coverage_guards_only_compiler_driving_harnesses() -> None:
 )
 def test_coverage_guard_must_be_active(source: str, expected: bool) -> None:
     """A shadowed or nested gate cannot exclude a harness from coverage."""
-    assert has_coverage_gate(source) is expected, (
+    assert has_crate_scope_gate(source, CrateGate.COVERAGE) is expected, (
         "only a live crate-level coverage gate excludes a harness"
     )
 

@@ -15,6 +15,7 @@ so: a definition it cannot see is reported as missing rather than assumed.
 
 from __future__ import annotations
 
+import enum
 import re
 import typing as typ
 
@@ -200,8 +201,15 @@ def is_conditionally_excluded_test(source: str, name: str) -> bool:
     )
 
 
-def is_loom_gated(source: str) -> bool:
-    """Return whether crate-scope live code carries ``#![cfg(loom)]``.
+class CrateGate(enum.Enum):
+    """An inner-attribute gate the scanner can recognise at crate scope."""
+
+    LOOM = "loom_gate"
+    COVERAGE = "coverage_gate"
+
+
+def has_crate_scope_gate(source: str, gate: CrateGate) -> bool:
+    """Return whether an inner-attribute gate applies at crate scope.
 
     An inner attribute applies to the item that encloses it, so a gate inside
     an inline module gates that module rather than the crate, however it is
@@ -210,10 +218,16 @@ def is_loom_gated(source: str) -> bool:
     crate-level gate still is. Comments and literals are stripped first, so a
     commented-out gate contributes nothing.
 
+    Both gates ask the same scope question, so one walk answers for either;
+    naming the gate with :class:`CrateGate` keeps each call site explicit
+    without a second copy of the loop.
+
     Parameters
     ----------
     source : str
         Rust source text to scan.
+    gate : CrateGate
+        The gate to look for.
 
     Returns
     -------
@@ -222,65 +236,23 @@ def is_loom_gated(source: str) -> bool:
 
     Examples
     --------
-    >>> is_loom_gated("#![cfg(loom)]\\n")
+    >>> has_crate_scope_gate("#![cfg(loom)]\\n", CrateGate.LOOM)
     True
-    >>> is_loom_gated("mod m {\\n#![cfg(loom)]\\n}\\n")
+    >>> has_crate_scope_gate(
+    ...     "mod m {\\n#![cfg(not(coverage))]\\n}\\n", CrateGate.COVERAGE)
     False
     """
     state = _ScanState()
     for token in _ITEM_TOKEN.finditer(without_comments_and_literals(source)):
-        match token.lastgroup:
-            case "loom_gate":
-                if not state.blocks:
-                    return True
-            case "module":
-                _enter_module(state, token)
-            case "open":
-                _enter_block(state)
-            case "close":
-                _leave_block(state)
-    return False
-
-
-def has_coverage_gate(source: str) -> bool:
-    """Return whether live source carries a crate-level coverage opt-out.
-
-    An inner attribute applies to the item that encloses it, so a gate inside
-    an inline module excludes that module, not the crate, however it is
-    indented. Tracking brace scope therefore beats matching indentation: a
-    module-nested gate at column zero is not crate-level, and an indented
-    crate-level gate still is. Comments and literals are stripped first, so an
-    attribute that was merely commented out is not a guard.
-
-    Parameters
-    ----------
-    source : str
-        Rust source text to scan.
-
-    Returns
-    -------
-    bool
-        ``True`` when ``#![cfg(not(coverage))]`` is active at crate level.
-
-    Examples
-    --------
-    >>> has_coverage_gate("#![cfg(not(coverage))]\\n")
-    True
-    >>> has_coverage_gate("mod m {\\n#![cfg(not(coverage))]\\n}\\n")
-    False
-    """
-    state = _ScanState()
-    for token in _ITEM_TOKEN.finditer(without_comments_and_literals(source)):
-        match token.lastgroup:
-            case "coverage_gate":
-                if not state.blocks:
-                    return True
-            case "module":
-                _enter_module(state, token)
-            case "open":
-                _enter_block(state)
-            case "close":
-                _leave_block(state)
+        if token.lastgroup == gate.value:
+            if not state.blocks:
+                return True
+        elif token.lastgroup == "module":
+            _enter_module(state, token)
+        elif token.lastgroup == "open":
+            _enter_block(state)
+        elif token.lastgroup == "close":
+            _leave_block(state)
     return False
 
 
