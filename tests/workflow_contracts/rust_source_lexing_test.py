@@ -8,6 +8,8 @@ that merely mentions a name, count as evidence that something is compiled.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -40,21 +42,38 @@ ESCAPES = st.integers(min_value=1, max_value=5)
 #: How long a raw string's hash fence is.
 FENCES = st.integers(min_value=1, max_value=6)
 
+
+@dataclass(frozen=True)
+class ShadowShape:
+    """The generated dimensions of a shadowing form.
+
+    The three counts travel together because every shadowing form is built
+    from the same payload and differs only in how it wraps it. Grouping them
+    keeps the builder's signature small and lets one strategy draw a whole
+    shape.
+    """
+
+    depth: int
+    escapes: int
+    fences: int
+
+
+#: A whole generated shape, so the property draws one value rather than three.
+SHAPES = st.builds(
+    ShadowShape,
+    depth=DEPTHS,
+    escapes=ESCAPES,
+    fences=FENCES,
+)
+
 PROPERTY_SETTINGS = settings(max_examples=50, deadline=None)
 
 
-def _shadow(
-    kind: str,
-    payload: str,
-    *,
-    depth: int,
-    escapes: int,
-    fences: int,
-) -> str:
+def _shadow(kind: str, payload: str, shape: ShadowShape) -> str:
     """Return ``payload`` hidden inside the shadowing form ``kind``.
 
     Fixed examples would only pin the shapes written by hand. The nesting
-    depth, the run of escaped quotes and the fence length are parameters so a
+    depth, the run of escaped quotes and the fence length are generated so a
     counter that mishandles one of them is found by generation rather than by
     whichever case an author thought of.
     """
@@ -64,14 +83,14 @@ def _shadow(
         case "block_comment":
             return f"/* {payload} */"
         case "nested_comment":
-            return f"{'/* ' * depth}{payload}{' */' * depth}"
+            return f"{'/* ' * shape.depth}{payload}{' */' * shape.depth}"
         case "string":
             return f'let text = "{payload}";'
         case "escaped_string":
-            escaped = '\\"' * escapes
+            escaped = '\\"' * shape.escapes
             return f'let text = "{escaped} {payload}";'
         case _:
-            fence = "#" * fences
+            fence = "#" * shape.fences
             return f'let text = r{fence}"{payload}"{fence};'
 
 
@@ -107,14 +126,12 @@ def test_a_lifetime_is_not_a_character_literal() -> None:
 
 
 @PROPERTY_SETTINGS
-@given(shadow=SHADOWS, depth=DEPTHS, escapes=ESCAPES, fences=FENCES)
+@given(shadow=SHADOWS, shape=SHAPES)
 def test_a_shadow_between_live_fragments_leaves_both_visible(
-    shadow: str, depth: int, escapes: int, fences: int
+    shadow: str, shape: ShadowShape
 ) -> None:
     """Shadowed tokens are inert; live tokens on either side stay visible."""
-    shadowed = _shadow(
-        shadow, DRIVER, depth=depth, escapes=escapes, fences=fences
-    )
+    shadowed = _shadow(shadow, DRIVER, shape)
     assert not drives_trybuild(shadowed), (
         f"shadowed text must not count as a driver: {shadowed!r}"
     )
