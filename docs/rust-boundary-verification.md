@@ -61,13 +61,17 @@ metadata does not describe. It asserts:
   attribute is part of that attribute and does not count, because a file in
   that state does not compile.
 - `unsafe_syntax_is_absent_from_every_package` — no package source contains an
-  unsafe construct, a scoped `#[expect(unsafe_code, …)]`, or an
-  `#[allow(unsafe_code)]`. Every `.rs` file under each package's directory is
-  read, not only the roots Cargo reports, so a child module behind a disabled
-  feature cannot hide one. The standalone package is read by path for the same
-  reason. Constructs are matched after whitespace is collapsed, so a spelling
-  split across a line break is still found. Two test helpers whose purpose is
-  to name the constructs are exempt.
+  unsafe construct, an unsafe attribute such as `#[unsafe(no_mangle)]`, a scoped
+  `#[expect(unsafe_code, …)]`, or an `#[allow(unsafe_code)]`. Every `.rs` file
+  under each package's directory is read, not only the roots Cargo reports, so
+  a child module behind a disabled feature cannot hide one, and a dot-prefixed
+  module directory is walked rather than skipped. The standalone package is
+  read by path for the same reason. Constructs are matched after whitespace is
+  collapsed, so a spelling split across a line break is still found, and a lint
+  attribute is matched by its argument list, so
+  `#[allow(dead_code, unsafe_code)]` is found as well as
+  `#[allow(unsafe_code)]`. Two test helpers whose purpose is to name the
+  constructs are exempt.
 - `workspace_membership_matches_the_reviewed_inventory` — the set of workspace
   packages is exactly the reviewed list.
 
@@ -126,13 +130,27 @@ This census does not cover `tests/feature_gate`; its manifest copies the same
 Clippy tables and its contract test covers the lint level, but no target runs
 Clippy over it.
 
+## Requirements this document supersedes
+
+Issue #804 also specified a boundary crate, shared use of its allocator by both
+benchmark consumers, and a pinned Miri toolchain with focused tests of the
+allocator's four methods. The change that removed the last unsafe code deleted
+the allocator, so those requirements have no subject: there is no unsafe
+implementation to isolate, no duplicated allocator to share, and no unsafe code
+for Miri to interpret. `stats_alloc` supplies the remaining allocation counting
+and is third-party code, outside the workspace's lint scope. The prohibition is
+what keeps that true; a reintroduced unsafe site fails the build before a Miri
+run could be scheduled.
+
 ## What these checks cannot establish
 
 - **Macro expansion.** The textual scan reads source, not expanded code. A
   dependency macro that expands to unsafe syntax inside a root is invisible to
-  it. `forbid(unsafe_code)` is the backstop: the lint sees the expanded
-  attribute-less tokens attributed to the root. The probes show the lint
-  rejects the constructs they write, not every expansion rule.
+  it, and the root's `forbid(unsafe_code)` does not guarantee rejection: the
+  pinned compiler accepts an unsafe block emitted by a dependency macro in a
+  crate that forbids unsafe code. The prohibition therefore covers workspace
+  source, not everything a build links. The probes show the lint rejects the
+  constructs they write, not every expansion rule.
 - **Toolchain behaviour.** A toolchain that stopped applying crate-level
   `forbid` would leave the textual contract satisfied. The probes are the check
   for that, and a probe whose diagnostic code changes must be investigated
@@ -142,7 +160,7 @@ Clippy over it.
   package the metadata reports and the standalone directory by path, so an
   excluded package elsewhere in the tree would not be scanned. Keeping the tree
   free of such packages is a review obligation.
-- **Unsafe code that does not use the listed spellings.** The scan matches six
+- **Unsafe code that does not use the listed spellings.** The scan matches seven
   literal construct spellings. It is a second line behind the compiler, not a
   parser, and a construct it does not recognize is still rejected by `forbid`.
 
