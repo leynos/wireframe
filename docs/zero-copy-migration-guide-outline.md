@@ -351,8 +351,8 @@ names an owner item so the resolution is traceable.
 | Whether `into_inner` survives on middleware wrappers               | Removing it is a second break beyond the editor change                                | `12.1.2`   |
 | Target release version                                             | Decides every deprecation `since` and removal version string in the guide             | `14.1.1`   |
 
-The version row is not pedantry. `Cargo.toml` currently declares `0.3.0`, and
-the repository already carries a
+The version row is not pedantry. `Cargo.toml` currently declares
+`0.4.0-alpha1`, and the repository already carries a
 [v0.4.0 migration guide](v0-4-0-migration-guide.md) for the
 prepared-application transition. Whether the zero-copy break joins that release
 or follows it changes every `#[deprecated(since = "...")]` string in the helper
