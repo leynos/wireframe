@@ -10,7 +10,8 @@ use crate::{
 
 /// Smallest permitted read timeout, preventing a busy loop on zero duration.
 pub(super) const MIN_READ_TIMEOUT_MS: u64 = 1;
-/// Largest permitted read timeout, limiting how long idle connections linger.
+/// Largest permitted read timeout, bounding how long expired partial messages
+/// can wait for the next purge. Idle connections are not closed by it.
 pub(super) const MAX_READ_TIMEOUT_MS: u64 = 86_400_000;
 /// Default inbound frame/stream read timeout in milliseconds, used by
 /// [`WireframeApp::default`] and `process_stream` for every `framed.next()`

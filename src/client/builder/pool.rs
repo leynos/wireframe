@@ -26,7 +26,9 @@ where
     ///
     /// # Errors
     ///
-    /// Returns [`ClientError`] if the initial pool sockets cannot be created.
+    /// Returns [`ClientError`] if the pool cannot be built. Sockets open lazily
+    /// on first use, so an unreachable server is reported by the first
+    /// operation on a lease rather than here.
     pub async fn connect_pool(
         self,
         addr: SocketAddr,

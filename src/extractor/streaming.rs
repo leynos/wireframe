@@ -5,8 +5,10 @@ use super::{ExtractError, FromMessageRequest, MessageRequest, Payload};
 /// Extractor providing streaming access to the request body.
 ///
 /// Unlike [`Payload`] which borrows buffered bytes, this extractor
-/// takes ownership of a streaming body channel. Handlers opting into
-/// streaming receive chunks incrementally via a [`RequestBodyStream`].
+/// takes ownership of a streaming body channel, yielding chunks
+/// incrementally via a [`RequestBodyStream`]. The connection runtime does not
+/// install that channel: the caller supplies it through
+/// [`MessageRequest::set_body_stream`].
 ///
 /// This type is the inbound counterpart to
 /// [`crate::response::Response::Stream`].

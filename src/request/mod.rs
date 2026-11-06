@@ -1,14 +1,15 @@
-//! Request metadata and streaming body types for handler consumption.
+//! Request metadata and streaming body building blocks.
 //!
-//! These types allow handlers to consume request payloads incrementally
-//! rather than waiting for full reassembly. See ADR 0002 for the design
-//! rationale and composition with transport-level fragmentation.
+//! These types model consuming a request payload incrementally rather than
+//! waiting for full reassembly. See ADR 0002 for the design rationale and
+//! composition with transport-level fragmentation.
 //!
-//! # Streaming request bodies
+//! # Integration status
 //!
-//! Handlers can opt into streaming by accepting a [`RequestBodyStream`]
-//! alongside [`RequestParts`]. The framework provides chunks via a bounded
-//! channel, propagating back-pressure when the handler consumes slowly.
+//! The connection runtime does not deliver streaming bodies yet: a route
+//! handler receives only a reference to its envelope, and the server creates no
+//! body channel. Code wanting this shape owns both ends of [`body_channel`], and
+//! back-pressure applies between those two parties.
 //!
 //! ```
 //! use bytes::Bytes;
