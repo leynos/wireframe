@@ -17,6 +17,7 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use cap_std::{ambient_authority, fs_utf8::Dir};
+use rstest::rstest;
 use serde_json::json;
 
 use super::{
@@ -235,26 +236,14 @@ fn a_content_snapshot_detects_a_rewrite() -> RepoAccessResult {
     Ok(())
 }
 
-#[test]
-fn strips_the_repository_prefix() {
-    let repo = Utf8Path::new("/repo");
+#[rstest]
+#[case::inside_the_repository("/repo/src/lib.rs", "src/lib.rs (lib of wireframe)")]
+#[case::outside_the_repository("/elsewhere/src/lib.rs", "/elsewhere/src/lib.rs (lib of wireframe)")]
+fn describes_a_root_relative_to_the_repository(#[case] src_path: &str, #[case] expected: &str) {
     let root = TargetRoot {
-        src_path: Utf8PathBuf::from("/repo/src/lib.rs"),
+        src_path: Utf8PathBuf::from(src_path),
         kind: "lib".to_owned(),
         package: "wireframe".to_owned(),
     };
-    let described = describe(&root, repo);
-    assert_eq!(described, "src/lib.rs (lib of wireframe)");
-}
-
-#[test]
-fn keeps_a_path_outside_the_repository() {
-    let repo = Utf8Path::new("/repo");
-    let root = TargetRoot {
-        src_path: Utf8PathBuf::from("/elsewhere/src/lib.rs"),
-        kind: "lib".to_owned(),
-        package: "wireframe".to_owned(),
-    };
-    let described = describe(&root, repo);
-    assert_eq!(described, "/elsewhere/src/lib.rs (lib of wireframe)");
+    assert_eq!(describe(&root, Utf8Path::new("/repo")), expected);
 }
