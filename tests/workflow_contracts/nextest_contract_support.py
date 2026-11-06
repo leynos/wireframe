@@ -30,14 +30,16 @@ MANIFEST: Path = REPO_ROOT / "Cargo.toml"
 TRYSBUILD_SOURCE = """\
 #[test]
 fn compile_tests() {
-    let _ = trybuild::TestCases::new();
+    let cases = trybuild::TestCases::new();
+    cases.pass("tests/ui/example.rs");
 }
 """
 
 RENAMED_TEST_SOURCE = """\
 #[test]
 fn not_compile_tests() {
-    let _ = trybuild::TestCases::new();
+    let cases = trybuild::TestCases::new();
+    cases.pass("tests/ui/example.rs");
 }
 """
 
@@ -48,7 +50,8 @@ NESTED_MODULE_TEST_SOURCE = """\
 mod contracts {
     #[test]
     fn compile_tests() {
-        let _ = trybuild::TestCases::new();
+        let cases = trybuild::TestCases::new();
+        cases.pass("tests/ui/example.rs");
     }
 }
 """

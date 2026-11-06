@@ -10,9 +10,11 @@ contract instead of passing unnoticed.
 The test-function check is source-level: it proves a crate-root ``#[test]``
 function with the filter's exact name is written in the target's source, that
 no ``cfg`` attribute on the test or an enclosing module can remove it from the
-run, and that the test's own body constructs ``trybuild::TestCases``. That last
-part is scoped to the selected function rather than the file, so a sibling test
-that drives trybuild cannot stand in for the one the override names. It does
+run, and that the test's own body constructs ``trybuild::TestCases`` and runs
+a fixture through it. That last part is scoped to the selected function rather
+than the file, so a sibling test that drives trybuild cannot stand in for the
+one the override names, and a driver that is merely mentioned or left unused
+compiles nothing. It does
 not prove that nextest's own test list contains it.
 Nextest test-list evidence is deliberately not used, because producing it
 would run the very compilation this contract exists to bound. Because nextest
@@ -41,7 +43,7 @@ from rust_source_scanning import (
     has_crate_scope_gate,
     is_conditionally_excluded_test,
 )
-from rust_test_bodies import drives_trybuild_in_test
+from rust_test_bodies import trybuild_shortfall_in_test
 
 if typ.TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -191,10 +193,11 @@ def _target_source_violations(
             f"override {resolved.index} names test {parsed.test!r}, which a "
             f"cfg attribute in {target.src_path} can exclude from the run"
         )
-    elif not drives_trybuild_in_test(source, parsed.test):
+    elif (shortfall := trybuild_shortfall_in_test(source, parsed.test)) is not None:
         violations.append(
             f"override {resolved.index} names test {parsed.test!r}, whose body "
-            f"in {target.src_path} does not drive trybuild::TestCases"
+            f"in {target.src_path} does not drive trybuild::TestCases: it "
+            f"{shortfall}"
         )
 
 

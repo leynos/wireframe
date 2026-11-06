@@ -153,6 +153,16 @@ fn compile_tests() {}
 
 #[test]
 fn rstest_bdd_v06_contracts() {
+    let cases = trybuild::TestCases::new();
+    cases.pass("tests/ui/example.rs");
+}
+"""
+
+#: The selected test constructs a driver but never runs a fixture through it,
+#: so the compilation the override bounds never happens under that test.
+UNRUN_FIXTURES_SOURCE = """\
+#[test]
+fn compile_tests() {
     let _ = trybuild::TestCases::new();
 }
 """
@@ -166,12 +176,21 @@ def _no_op_selected_test(
     return targets, {target.src_path: NO_OP_SELECTED_SOURCE}
 
 
+def _unrun_fixtures(
+    targets: Sequence[CargoTestTarget],
+) -> tuple[tuple[CargoTestTarget, ...], dict[Path, str]]:
+    """Keep the driver construction and drop every fixture call."""
+    target = next(target for target in targets if target.name == "compile_error")
+    return targets, {target.src_path: UNRUN_FIXTURES_SOURCE}
+
+
 #: Mutations that doctor the target list or the source text rather than the
 #: configuration, so the test can hand them different state.
 _SOURCE_MUTATIONS: typ.Final = {
     "uncovered_trybuild_target": _uncovered_trybuild_target,
     "cfg_gated_test": _cfg_gated_test,
     "no_op_selected_test": _no_op_selected_test,
+    "unrun_fixtures": _unrun_fixtures,
 }
 
 
@@ -212,6 +231,7 @@ def _source_reader_with(
         "uncovered_trybuild_target",
         "cfg_gated_test",
         "no_op_selected_test",
+        "unrun_fixtures",
     ],
 )
 def test_override_mutations_are_rejected(mutation: str) -> None:
@@ -239,6 +259,19 @@ def test_a_sibling_trybuild_driver_does_not_cover_the_selected_test() -> None:
         "does not drive trybuild::TestCases" in violation
         for violation in violations
     ), f"the empty selected test must be reported, got {violations!r}"
+
+
+def test_a_selected_test_that_runs_no_fixture_is_rejected() -> None:
+    """Constructing a driver without running a case compiles nothing."""
+    targets, extra_sources = _unrun_fixtures(repository_targets())
+    violations = override_target_violations(
+        repository_config(), targets, _source_reader_with(extra_sources)
+    )
+    assert any(
+        "does not drive trybuild::TestCases" in violation
+        and "runs no fixture" in violation
+        for violation in violations
+    ), f"a driver with no fixture call must be reported, got {violations!r}"
 
 
 def test_non_list_overrides_are_rejected() -> None:

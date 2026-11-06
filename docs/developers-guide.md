@@ -187,19 +187,34 @@ a separate deadline.
 The discovery contract reads `cargo metadata` for the target a filter names,
 then checks that target's source defines a crate-root `#[test]` function with
 the filter's exact name and that the named test's own body constructs
-`trybuild::TestCases`. Scoping that check to the selected function matters:
-reading trybuild use across the file would accept an override whose test does
-nothing while a sibling test does the compiling, which is the same silent
-fallback to the default deadline in a different disguise. The source check is
-deliberate evidence, not a substitute for nextest's test list: producing that
-list would run the compilation the contract exists to bound. Because nextest
-matches `test(=name)` against the fully qualified test name, the contract
-computes the module path from inline `mod` blocks and rejects a definition that
-exists only as `contracts::compile_tests`; comments and string literals are
-stripped first, so a commented-out definition is not evidence. A target
-renamed, moved to `tests/compile_error/mod.rs` without a declaration, or hidden
-behind `autotests = false` fails the contract rather than silently receiving
-the default allowance.
+`trybuild::TestCases` and runs a fixture through it. Both halves are required.
+A body that only names the type — as an annotation, say — compiles nothing, and
+a driver that is constructed but never asked to run a case compiles nothing
+either; either shape would let an override bound no work while the compilation
+it was meant to cover still runs under the default deadline. Scoping the check
+to the selected function matters for the same reason: reading trybuild use
+across the file would accept an override whose test does nothing while a
+sibling test does the compiling, which is the same silent fallback in a
+different disguise. The source check is deliberate evidence, not a substitute
+for nextest's test list: producing that list would run the compilation the
+contract exists to bound. Because nextest matches `test(=name)` against the
+fully qualified test name, the contract computes the module path from inline
+`mod` blocks and rejects a definition that exists only as
+`contracts::compile_tests`; comments and string literals are stripped first, so
+a commented-out definition is not evidence. A target renamed, moved to
+`tests/compile_error/mod.rs` without a declaration, or hidden behind
+`autotests = false` fails the contract rather than silently receiving the
+default allowance.
+
+The suite shells out to `cargo metadata --no-deps --format-version 1 --offline`
+for the workspace manifest, so `cargo` must be on `PATH` when it runs.
+`--no-deps` stops Cargo resolving external packages and `--offline` stops it
+reaching the network, so no registry cache has to be prepared: the command
+reads the workspace manifests alone. A missing `cargo` is reported as
+`CargoUnavailableError` and an unreadable or malformed manifest as
+`CargoMetadataError`, rather than as a workspace with no test targets, so a
+misconfigured runner fails loudly instead of passing every override check
+vacuously.
 
 Work reduction is out of scope. Issue #691's first option — a trimmed fixture
 crate, or sharing one compilation between the `pass` and `compile_fail` cases —

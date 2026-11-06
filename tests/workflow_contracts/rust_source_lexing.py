@@ -17,8 +17,13 @@ from __future__ import annotations
 
 import re
 
-#: A trybuild driver, however the path is spaced.
-_TRYBUILD: re.Pattern[str] = re.compile(r"trybuild\s*::\s*TestCases")
+#: A trybuild driver being constructed, however the path is spaced.
+_CONSTRUCTS_TRYBUILD: re.Pattern[str] = re.compile(
+    r"trybuild\s*::\s*TestCases\s*::\s*new\s*\("
+)
+
+#: A fixture being run through a driver, however the call is spaced.
+_RUNS_FIXTURE: re.Pattern[str] = re.compile(r"\.\s*(?:pass|compile_fail)\s*\(")
 
 #: The start of a raw string literal, including its hash fence.
 _RAW_STRING: re.Pattern[str] = re.compile(r'r(?P<hashes>#{0,32})"')
@@ -152,8 +157,52 @@ def without_comments_and_literals(source: str) -> str:
     return "".join(pieces)
 
 
+def trybuild_shortfall(source: str) -> str | None:
+    """Return why ``source`` is not a trybuild driver, or ``None`` if it is.
+
+    Naming a type is not compiling anything. A body that only mentions
+    ``trybuild::TestCases`` — as a type annotation, say — constructs no driver,
+    and a driver that is constructed but never asked to run a fixture compiles
+    nothing either. Both shapes would let an override bound no work while the
+    compilation it was meant to cover still runs under the default deadline, so
+    each is reported as its own shortfall rather than as a bare ``False``.
+
+    Parameters
+    ----------
+    source : str
+        Rust source text to scan.
+
+    Returns
+    -------
+    str | None
+        A phrase naming what is missing, or ``None`` when live code both
+        constructs a driver and runs a fixture through it.
+
+    Examples
+    --------
+    >>> trybuild_shortfall(
+    ...     "let t = trybuild::TestCases::new(); t.pass(\\"a.rs\\");") is None
+    True
+    >>> trybuild_shortfall("let t: trybuild::TestCases;")
+    'constructs no trybuild::TestCases'
+    >>> trybuild_shortfall("let t = trybuild::TestCases::new();")
+    'constructs trybuild::TestCases but runs no fixture'
+    """
+    cleaned = without_comments_and_literals(source)
+    if _CONSTRUCTS_TRYBUILD.search(cleaned) is None:
+        return "constructs no trybuild::TestCases"
+    if _RUNS_FIXTURE.search(cleaned) is None:
+        return "constructs trybuild::TestCases but runs no fixture"
+    return None
+
+
 def drives_trybuild(source: str) -> bool:
-    """Return whether live code in ``source`` constructs ``trybuild::TestCases``.
+    """Return whether live code in ``source`` compiles trybuild fixtures.
+
+    Both halves are required: a driver has to be constructed, and a fixture has
+    to be run through it. A type-only reference or an unused driver compiles
+    nothing, so neither counts as evidence that a target does the work an
+    override is meant to bound.
 
     Parameters
     ----------
@@ -163,14 +212,18 @@ def drives_trybuild(source: str) -> bool:
     Returns
     -------
     bool
-        ``True`` when live code constructs ``trybuild::TestCases``; ``False``
-        when it appears only in a comment or a string literal.
+        ``True`` when live code constructs ``trybuild::TestCases`` and runs a
+        fixture; ``False`` when either half is missing, or when both appear
+        only in a comment or a string literal.
 
     Examples
     --------
-    >>> drives_trybuild("let cases = trybuild::TestCases::new();")
+    >>> drives_trybuild(
+    ...     "let t = trybuild::TestCases::new(); t.pass(\\"a.rs\\");")
     True
+    >>> drives_trybuild("let t = trybuild::TestCases::new();")
+    False
     >>> drives_trybuild('// trybuild::TestCases')
     False
     """
-    return _TRYBUILD.search(without_comments_and_literals(source)) is not None
+    return trybuild_shortfall(source) is None

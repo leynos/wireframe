@@ -9,8 +9,45 @@ that merely mentions a name, count as evidence that something is compiled.
 from __future__ import annotations
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from rust_source_lexing import without_comments_and_literals
+from rust_source_lexing import drives_trybuild, without_comments_and_literals
+
+#: A trybuild driver that compiles a case, spelled without quotes so it can be
+#: embedded in every shadowing form below.
+DRIVER = "let cases = trybuild::TestCases::new(); cases.pass(FIXTURE);"
+#: The two halves of that driver, kept apart so a shadow can sit between them.
+CONSTRUCTION = "let cases = trybuild::TestCases::new();"
+FIXTURE_CALL = "cases.pass(FIXTURE);"
+#: Ways text can contain a driver without it ever being compiled.
+SHADOWS = st.sampled_from([
+    "line_comment",
+    "block_comment",
+    "nested_comment",
+    "string",
+    "escaped_string",
+    "raw_string",
+])
+
+PROPERTY_SETTINGS = settings(max_examples=50, deadline=None)
+
+
+def _shadow(kind: str, payload: str) -> str:
+    """Return ``payload`` hidden inside the shadowing form ``kind``."""
+    match kind:
+        case "line_comment":
+            return "\n".join(f"// {line}" for line in payload.splitlines())
+        case "block_comment":
+            return f"/* {payload} */"
+        case "nested_comment":
+            return f"/* outer /* {payload} */ {payload} */"
+        case "string":
+            return f'let text = "{payload}";'
+        case "escaped_string":
+            return f'let text = "escaped \\" {payload}";'
+        case _:
+            return f'let text = r#"{payload}"#;'
 
 
 @pytest.mark.parametrize(
@@ -41,4 +78,19 @@ def test_a_lifetime_is_not_a_character_literal() -> None:
     """A lifetime marker must survive, or the rest of the file is swallowed."""
     assert without_comments_and_literals("&'a str") == "&'a str", (
         "a lifetime is not a character literal"
+    )
+
+
+@PROPERTY_SETTINGS
+@given(shadow=SHADOWS)
+def test_a_shadow_between_live_fragments_leaves_both_visible(shadow: str) -> None:
+    """Shadowed tokens are inert; live tokens on either side stay visible."""
+    shadowed = _shadow(shadow, DRIVER)
+    assert not drives_trybuild(shadowed), (
+        f"shadowed text must not count as a driver: {shadowed!r}"
+    )
+    source = f"{CONSTRUCTION}\n{shadowed}\n{FIXTURE_CALL}\n"
+    assert drives_trybuild(source), (
+        f"live code either side of {shadow!r} must still drive trybuild: "
+        f"{source!r}"
     )

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 
-from rust_source_lexing import drives_trybuild, without_comments_and_literals
+from rust_source_lexing import trybuild_shortfall, without_comments_and_literals
 from rust_source_scanning import (
     ITEM_TOKEN,
     ScanState,
@@ -29,8 +29,13 @@ from rust_source_scanning import (
 
 
 def _brace_depth_delta(token: re.Match[str]) -> int:
-    """Return how much one token changes the enclosing brace depth."""
-    return {"open": 1, "close": -1}.get(token.lastgroup, 0)
+    """Return how much one token changes the enclosing brace depth.
+
+    A ``mod NAME {`` token consumes its own opening brace, so it opens a block
+    just as a bare ``{`` does. Counting only ``open`` would end the body at the
+    module's closing brace and hide everything the test does after it.
+    """
+    return {"open": 1, "module": 1, "close": -1}.get(token.lastgroup, 0)
 
 
 def _closing_brace(cleaned: str, open_index: int) -> int | None:
@@ -109,8 +114,8 @@ def test_function_body(source: str, name: str) -> str | None:
     return None
 
 
-def drives_trybuild_in_test(source: str, name: str) -> bool:
-    """Return whether the named crate-root test's own body drives trybuild.
+def trybuild_shortfall_in_test(source: str, name: str) -> str | None:
+    """Return why the named crate-root test does not drive trybuild.
 
     A sibling test that constructs ``trybuild::TestCases`` does not make the
     override's test compile anything, so the question is scoped to the selected
@@ -127,18 +132,57 @@ def drives_trybuild_in_test(source: str, name: str) -> bool:
 
     Returns
     -------
+    str | None
+        A phrase naming what the body lacks, or ``None`` when it both
+        constructs a trybuild driver and runs a fixture through it.
+
+    Examples
+    --------
+    >>> trybuild_shortfall_in_test(
+    ...     '#[test]\\nfn a() {\\n'
+    ...     '    let t = trybuild::TestCases::new();\\n'
+    ...     '    t.pass("a.rs");\\n}', "a") is None
+    True
+    >>> trybuild_shortfall_in_test(
+    ...     "#[test]\\nfn a() { let t = trybuild::TestCases::new(); }", "a")
+    'constructs trybuild::TestCases but runs no fixture'
+    >>> trybuild_shortfall_in_test(
+    ...     "#[test]\\nfn a() {}\\n#[test]\\nfn b() {"
+    ...     " let t = trybuild::TestCases::new(); t.pass(\\"b.rs\\"); }", "a")
+    'constructs no trybuild::TestCases'
+    """
+    body = test_function_body(source, name)
+    if body is None:
+        return "has no crate-root test body to read"
+    return trybuild_shortfall(body)
+
+
+def drives_trybuild_in_test(source: str, name: str) -> bool:
+    """Return whether the named crate-root test's own body drives trybuild.
+
+    Parameters
+    ----------
+    source : str
+        Rust source text to scan.
+    name : str
+        Bare function name the override's exact matcher states.
+
+    Returns
+    -------
     bool
-        ``True`` only when that test's body constructs ``trybuild::TestCases``.
+        ``True`` only when that test's body constructs ``trybuild::TestCases``
+        and runs a fixture through it.
 
     Examples
     --------
     >>> drives_trybuild_in_test(
-    ...     "#[test]\\nfn a() { trybuild::TestCases::new(); }", "a")
+    ...     '#[test]\\nfn a() {\\n'
+    ...     '    let t = trybuild::TestCases::new();\\n'
+    ...     '    t.pass("a.rs");\\n}', "a")
     True
     >>> drives_trybuild_in_test(
     ...     "#[test]\\nfn a() {}\\n#[test]\\nfn b() {"
-    ...     " trybuild::TestCases::new(); }", "a")
+    ...     " let t = trybuild::TestCases::new(); t.pass(\\"b.rs\\"); }", "a")
     False
     """
-    body = test_function_body(source, name)
-    return body is not None and drives_trybuild(body)
+    return trybuild_shortfall_in_test(source, name) is None

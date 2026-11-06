@@ -166,13 +166,33 @@ def _no_op_selected_test(names: OverrideNames) -> Scenario:
     sibling = (
         "#[test]\n"
         "fn sibling() {\n"
-        "    let _ = trybuild::TestCases::new();\n"
+        "    let cases = trybuild::TestCases::new();\n"
+        '    cases.pass("tests/ui/example.rs");\n'
         "}\n"
     )
     return _rewritten_source(
         names,
         lambda _source: f"{empty_test_source(names.function)}\n{sibling}",
         "does not drive trybuild::TestCases",
+    )
+
+
+def _unrun_fixtures(names: OverrideNames) -> Scenario:
+    """A driver that is constructed but never asked to run a fixture.
+
+    The type is named and the driver exists, so a check that only looked for
+    ``trybuild::TestCases`` would accept it, yet no case is compiled and the
+    override bounds nothing.
+    """
+    return _rewritten_source(
+        names,
+        lambda _source: (
+            "#[test]\n"
+            f"fn {names.function}() {{\n"
+            "    let _ = trybuild::TestCases::new();\n"
+            "}\n"
+        ),
+        "runs no fixture",
     )
 
 
@@ -235,6 +255,7 @@ _DEFECT_BUILDERS: dict[str, Callable[[OverrideNames], Scenario]] = {
     "nested": _nested,
     "commented_out": _commented_out,
     "no_trybuild": _no_trybuild,
+    "unrun_fixtures": _unrun_fixtures,
     "no_op_selected_test": _no_op_selected_test,
     "cfg_gated": _cfg_gated,
     "uncovered": _uncovered,
