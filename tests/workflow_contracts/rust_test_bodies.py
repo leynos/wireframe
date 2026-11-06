@@ -15,6 +15,8 @@ mentioned only in a comment or a string is not evidence.
 
 from __future__ import annotations
 
+import re
+
 from rust_source_lexing import drives_trybuild, without_comments_and_literals
 from rust_source_scanning import (
     ITEM_TOKEN,
@@ -26,17 +28,32 @@ from rust_source_scanning import (
 )
 
 
-def _braced_body(cleaned: str, open_index: int) -> str:
-    """Return the text between the braces that open at ``open_index``."""
+def _brace_depth_delta(token: re.Match[str]) -> int:
+    """Return how much one token changes the enclosing brace depth."""
+    return {"open": 1, "close": -1}.get(token.lastgroup, 0)
+
+
+def _closing_brace(cleaned: str, open_index: int) -> int | None:
+    """Return the index of the brace closing the one at ``open_index``."""
     depth = 0
     for token in ITEM_TOKEN.finditer(cleaned, open_index):
-        if token.lastgroup == "open":
-            depth += 1
-        elif token.lastgroup == "close":
-            depth -= 1
-            if depth == 0:
-                return cleaned[open_index + 1 : token.start()]
-    return cleaned[open_index + 1 :]
+        depth += _brace_depth_delta(token)
+        if depth == 0:
+            return token.start()
+    return None
+
+
+def _braced_body(cleaned: str, open_index: int) -> str:
+    """Return the text between the braces that open at ``open_index``.
+
+    An unterminated body yields the rest of the source rather than raising:
+    the contract reports a missing driver either way, and a partial file is
+    still worth reading rather than crashing the whole gate.
+    """
+    end = _closing_brace(cleaned, open_index)
+    if end is None:
+        return cleaned[open_index + 1 :]
+    return cleaned[open_index + 1 : end]
 
 
 def test_function_body(source: str, name: str) -> str | None:
