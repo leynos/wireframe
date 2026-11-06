@@ -290,9 +290,14 @@ after ten failures with no successfully dispatched message in between.
 
 ### Custom envelopes
 
-If your protocol already has a packet format, implement `Packet` (and
-`CorrelatableFrame`, which it requires) on your own type. Name the type in the
-application's parameters, and the rest of the stack carries it through:
+To give handlers your own type rather than `Envelope`, implement `Packet` (and
+`CorrelatableFrame`, which it requires) on it, and name it in the application's
+parameters.
+
+This changes what handlers see, not what travels on the wire. A connection
+still decodes the serializer's `Envelope`, rebuilds your type from its parts
+for the handler, and sends the reply as an `Envelope`. To change the layout on
+the wire, write a [custom frame codec](#custom-frame-codecs) as well:
 
 <!-- tested-example: guide-custom-envelope -->
 
@@ -1977,7 +1982,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 payload: body.as_bytes().to_vec(),
             };
             let encoded = row.to_bytes().expect("a row encodes");
-            framed.send(encoded.into()).await.expect("the client is listening");
+            framed
+                .send(bytes::Bytes::from(encoded))
+                .await
+                .expect("the client is listening");
         }
     });
 
