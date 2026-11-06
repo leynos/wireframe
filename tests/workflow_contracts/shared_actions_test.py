@@ -111,7 +111,10 @@ def test_shared_action_invocations_explain_unreadable_workflow_directory(
     """
 
     def unreadable_directory_entries(_: Path) -> Iterator[Path]:
+        """Stand in for `Path.iterdir` and return a lazily failing iterator."""
+
         def entries() -> Iterator[Path]:
+            """Raise a permission error on first iteration, like an unreadable directory."""
             raise OSError("access denied")
             yield  # pragma: no cover -- marks this generator as lazy
 
