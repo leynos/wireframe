@@ -202,7 +202,7 @@ def is_conditionally_excluded_test(source: str, name: str) -> bool:
 
 
 class CrateGate(enum.Enum):
-    """An inner-attribute gate the scanner can recognise at crate scope."""
+    """An inner-attribute gate the scanner can recognize at crate scope."""
 
     LOOM = "loom_gate"
     COVERAGE = "coverage_gate"
