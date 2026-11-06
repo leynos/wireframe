@@ -133,8 +133,9 @@ fn fragmenter_fragments_messages_and_increments_ids() {
     );
 }
 
-/// The checked increment behind `try_update` only panics once the counter
-/// truly cannot advance, so the last representable id is still allocatable.
+/// The checked increment behind `try_update` returns the configured
+/// `u64::MAX - 1` and panics only on the next call, when the counter has
+/// reached `u64::MAX` and cannot advance. It never allocates `u64::MAX`.
 #[test]
 #[should_panic(expected = "message id counter exhausted at")]
 fn fragmenter_panics_when_message_id_counter_exhausted() {
