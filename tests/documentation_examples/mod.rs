@@ -98,24 +98,47 @@ pub fn parse_document(
     let mut lines = contents.lines().enumerate();
     let mut examples = Vec::new();
     while let Some((index, line)) = lines.next() {
-        let locate = |message: &str| format!("{source}:{} {message}", index + 1);
-        if line.trim_end() == EMPTY_MARKER {
-            return Err(locate("tested-example identifier must not be empty"));
-        }
-        if let Some(id) = parse_marker(line) {
-            if id.trim().is_empty() {
-                return Err(locate("tested-example identifier must not be empty"));
+        match classify_line(line) {
+            DocumentLine::Prose => {}
+            DocumentLine::Marker(id) => {
+                examples.push(read_marked_example(source, index, id, &mut lines)?);
             }
-            examples.push(read_marked_example(source, index, id, &mut lines)?);
-        } else if FenceOpening::parse(line).is_some() {
-            return Err(locate("fence is missing a tested-example marker"));
-        } else if line != line.trim_start() && FenceOpening::parse(line.trim_start()).is_some() {
-            // Rustdoc still runs an indented fence, but this scanner would not
-            // see it, so it could escape the marker requirement unnoticed.
-            return Err(locate("fence must start at column 0"));
+            DocumentLine::Invalid(problem) => {
+                return Err(format!("{source}:{} {problem}", index + 1));
+            }
         }
     }
     Ok(examples)
+}
+
+/// What one line outside a fence means to the scanner.
+enum DocumentLine<'a> {
+    Prose,
+    Marker(&'a str),
+    Invalid(&'static str),
+}
+
+fn classify_line(line: &str) -> DocumentLine<'_> {
+    const EMPTY_IDENTIFIER: &str = "tested-example identifier must not be empty";
+    if line.trim_end() == EMPTY_MARKER {
+        return DocumentLine::Invalid(EMPTY_IDENTIFIER);
+    }
+    if let Some(id) = parse_marker(line) {
+        return if id.trim().is_empty() {
+            DocumentLine::Invalid(EMPTY_IDENTIFIER)
+        } else {
+            DocumentLine::Marker(id)
+        };
+    }
+    if FenceOpening::parse(line).is_some() {
+        return DocumentLine::Invalid("fence is missing a tested-example marker");
+    }
+    if line != line.trim_start() && FenceOpening::parse(line.trim_start()).is_some() {
+        // Rustdoc still runs an indented fence, but this scanner would not see
+        // it, so it could escape the marker requirement unnoticed.
+        return DocumentLine::Invalid("fence must start at column 0");
+    }
+    DocumentLine::Prose
 }
 
 fn parse_marker(line: &str) -> Option<&str> {
