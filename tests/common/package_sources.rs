@@ -7,9 +7,12 @@
 //! Reading every `.rs` file under the package directory checks the text that
 //! exists rather than the text one feature set happens to compile.
 //!
-//! `target/` and hidden directories are skipped. They hold build artefacts and
-//! version-control data, not package source, and the repository root is itself
-//! the `wireframe` package's directory.
+//! Only directories that cannot hold package source are skipped: the Cargo
+//! build tree, version-control metadata, and the tool caches the repository's
+//! own gates create. Every other directory is walked, including a dot-prefixed
+//! one, because a module can be reached through `#[path = ".internal/x.rs"]`.
+//! The repository root is itself the `wireframe` package's directory, so the
+//! exclusions also keep the walk out of the build tree and the caches.
 
 use std::process::Command;
 
@@ -136,8 +139,23 @@ fn package_manifest(package: &str) -> RepoAccessResult<Utf8PathBuf> {
     Ok(Utf8PathBuf::from(manifest))
 }
 
+/// Directories that never hold package source.
+///
+/// `target` is the Cargo build tree, `.git` is version-control metadata, and
+/// the rest are caches the repository's own gates create. A dot-prefixed
+/// directory that is not listed here is walked, so a module behind
+/// `#[path = ".internal/optional.rs"]` is still read.
+const NON_SOURCE_DIRECTORIES: &[&str] = &[
+    "target",
+    ".git",
+    ".uv-cache",
+    ".uv-tools",
+    ".hypothesis",
+    ".pytest_cache",
+];
+
 /// Whether a directory entry lies outside the package's own source.
-fn should_skip(name: &str) -> bool { name.starts_with('.') || name == "target" }
+fn should_skip(name: &str) -> bool { NON_SOURCE_DIRECTORIES.contains(&name) }
 
 /// Append every `.rs` file below `dir` to `sources`, with its repository path.
 fn read_rust_sources(
@@ -167,7 +185,8 @@ mod package_source_tests {
     //!
     //! The walk must not descend into `target/`, because the repository root is
     //! the `wireframe` package's directory and its build tree holds thousands of
-    //! generated `.rs` files.
+    //! generated `.rs` files. It must descend into a dot-prefixed directory that
+    //! is not a known cache, because a module can live there.
 
     use rstest::rstest;
 
@@ -175,10 +194,12 @@ mod package_source_tests {
 
     #[rstest]
     #[case::build_tree("target", true)]
-    #[case::hidden_directory(".git", true)]
+    #[case::version_control(".git", true)]
+    #[case::tool_cache(".uv-cache", true)]
+    #[case::hidden_module_directory(".internal", false)]
     #[case::source_directory("src", false)]
     #[case::source_file("lib.rs", false)]
-    fn skips_build_and_hidden_entries(#[case] name: &str, #[case] expected: bool) {
+    fn skips_only_non_source_directories(#[case] name: &str, #[case] expected: bool) {
         assert_eq!(should_skip(name), expected);
     }
 }

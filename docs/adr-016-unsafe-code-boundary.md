@@ -144,6 +144,23 @@ Three independent checks keep it from eroding:
 `docs/rust-boundary-verification.md` records the scope and the bounds of each
 layer, including what a textual contract cannot see.
 
+## Superseded requirements
+
+Issue #804 also asked for a boundary crate to hold the allocator's unsafe
+implementation, for both benchmark consumers to use that type, and for a pinned
+Miri toolchain with focused tests of the allocator's four methods. The change
+that removed the last unsafe code deleted the allocator those requirements
+describe, so none of them has a subject left:
+
+- there is no unsafe implementation to move into a boundary crate;
+- there is no duplicated allocator for the benchmarks to share;
+- there is no unsafe code for Miri to interpret, and the third-party
+  `stats_alloc` crate that replaced the allocator is not workspace source.
+
+The prohibition is what keeps that state true. If unsafe code is ever
+reintroduced, it fails the build before a Miri run could be scheduled, and
+admitting it would have to revisit this record.
+
 ## Consequences
 
 ### Positive
@@ -163,8 +180,10 @@ layer, including what a textual contract cannot see.
   kind of duplication that drifts. The contract test compares it with the
   workspace level, so drift fails rather than accumulates.
 - The textual half cannot see unsafe syntax produced by macro expansion from a
-  dependency; `forbid` is the backstop there, and the probes are what show it
-  still works.
+  dependency, and the root's `forbid` does not guarantee rejection of it: the
+  pinned compiler accepts an unsafe block emitted by a dependency macro inside
+  a root that forbids unsafe code. The prohibition therefore covers workspace
+  source, not everything a build links.
 
 ## Rejected shortcuts
 
@@ -184,9 +203,9 @@ layer, including what a textual contract cannot see.
 
 - `cargo metadata --no-deps --format-version 1` lists the reviewed members, and
   every target root it reports carries `#![forbid(unsafe_code)]`.
-- `make unsafe-boundary` rejects every unsafe construct under both the
-  attribute and the manifest table, accepts both safe controls, and reports
-  `E0453` for the expectation probe.
+- `make unsafe-boundary` rejects every unsafe construct under the crate-level
+  attribute, rejects an unsafe block under the manifest table, accepts both
+  safe controls, and reports `E0453` for the expectation probe.
 - `RUSTFLAGS="-D warnings" cargo clippy --workspace --all-targets --all-features`
   reports zero findings with no `#[allow]` anywhere.
 - `make test` passes, so the prohibition compiles in every configuration the
