@@ -222,7 +222,7 @@ All notable changes to this project will be documented in this file.
   hook sees the serialized, codec-wrapped frame before codec encoding and must
   keep it within `FrameCodec::max_frame_length`; the direct `send_response*`
   helpers still bypass it. See the
-  [v0.3-to-v0.4 migration guide](docs/v0-4-0-migration-guide.md#protocol-hooks-on-application-responses).
+  [v0.3-to-v0.4 migration guide](docs/v0-4-0-migration-guide.md#protocol-hooks-see-handler-responses).
   ([#547](https://github.com/leynos/wireframe/issues/547))
 
 - **Breaking:** Add aggregate limits to `FragmentationConfig` and extend
