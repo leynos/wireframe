@@ -2719,6 +2719,12 @@ _Table 12: In-memory test drivers._
 `encode_payloads_with_codec`, `decode_frames_with_codec`, and
 `extract_payloads` help you compose your own patterns.
 
+To keep driving one application across several calls, or to size the in-memory
+duplex stream yourself, use the mutable variants that take `&mut WireframeApp`
+and a capacity. `wireframe_testing::drive_with_frame_with_capacity_mut` feeds
+one frame and `wireframe_testing::drive_with_frames_with_capacity_mut` feeds
+several.
+
 ### Malformed input
 
 The fixtures in `wireframe_testing` construct raw Hotline-framed bytes

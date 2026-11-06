@@ -727,7 +727,7 @@ documentation obligations, delivered under
   builder/template/runtime diagram from this ADR;
 - a versioned migration guide if `WireframeServer::new(factory)` semantics
   change observably, following the existing
-  `docs/v0-2-0-to-v0-3-0-migration-guide.md` pattern;
+  `docs/v0-3-0-migration-guide.md` pattern;
 - the `WireframeAppBuilder` alias decision noted in section 1.
 
 ## Verification

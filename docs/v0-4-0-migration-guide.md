@@ -455,6 +455,10 @@ These need no migration, but you may want them:
   [Running servers](users-guide.md#running-servers).
 - **`benchmark_alloc_support`** in `wireframe_testing` measures allocations. See
   [Counting allocations](users-guide.md#counting-allocations).
+- **`drive_with_frame_with_capacity_mut` and
+  `drive_with_frames_with_capacity_mut`** are now exported from the
+  `wireframe_testing` crate root. See
+  [Testing your protocol](users-guide.md#testing-your-protocol).
 - **More `const fn`s** across configuration. See
   [Compile-time configuration](users-guide.md#compile-time-configuration).
 
