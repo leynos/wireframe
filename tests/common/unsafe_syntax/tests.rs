@@ -34,6 +34,7 @@ use super::violations_in;
     "contains an unsafe function"
 )]
 #[case::adjacent_brace("unsafe{ std::ptr::null::<u8>() };", "contains an unsafe block")]
+#[case::spaced_brace("unsafe { std::ptr::null::<u8>() };", "contains an unsafe block")]
 #[case::unsafe_trait("unsafe trait Marker {}", "contains an unsafe trait")]
 #[case::unsafe_implementation(
     "unsafe impl Marker for Value {}",

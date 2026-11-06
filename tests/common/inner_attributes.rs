@@ -152,6 +152,12 @@ mod attribute_tests {
 #[cfg(test)]
 mod attribute_property_tests {
     //! Properties of the header parser over generated attribute sequences.
+    //!
+    //! The generator only produces inner attributes that could appear in a real
+    //! file: a name followed by a parenthesized argument list, optionally wrapped
+    //! over several lines. The malformed nesting that caused the original defect
+    //! stays in the regression table above, because a parser that only has to
+    //! handle valid syntax would not need to join continuation lines at all.
 
     use proptest::prelude::*;
 
@@ -160,24 +166,55 @@ mod attribute_property_tests {
     /// The prohibition the contract test looks for.
     const PROHIBITION: &str = "#![forbid(unsafe_code)]";
 
-    /// A generated inner attribute, optionally spanning several lines.
+    /// An argument list of `count` generated entries, one per line.
+    fn attribute_body(count: usize) -> String {
+        let mut body = String::new();
+        for index in 0..count {
+            body.push_str("\n    argument");
+            body.push_str(&index.to_string());
+            body.push(',');
+        }
+        body
+    }
+
+    /// A generated inner attribute with between zero and three arguments.
     fn attribute() -> impl Strategy<Value = String> {
-        (0usize..3, "[a-z_]{1,8}").prop_map(|(depth, name)| {
-            let mut attribute = format!("#![{name}(");
-            for level in 0..depth {
-                attribute.push_str("\n#![nested");
-                attribute.push_str(&level.to_string());
-                attribute.push('(');
-            }
-            for _ in 0..depth {
-                attribute.push_str("\n)");
-            }
-            attribute.push_str("\n)]");
-            attribute
+        (0usize..3, "[a-z_]{1,8}")
+            .prop_map(|(arguments, name)| format!("#![{name}({})]", attribute_body(arguments)))
+    }
+
+    /// A generated attribute whose argument list quotes the prohibition.
+    ///
+    /// The text is nested inside the attribute but is data, not an attribute of
+    /// its own, so the parser must not count it as a standalone entry.
+    fn attribute_quoting_the_prohibition() -> impl Strategy<Value = String> {
+        (0usize..3, "[a-z_]{1,8}").prop_map(|(arguments, name)| {
+            format!(
+                "#![{name}({}    reason = \"{PROHIBITION}\"\n)]",
+                attribute_body(arguments)
+            )
         })
     }
 
     proptest! {
+        #[test]
+        fn a_standalone_prohibition_after_the_attributes_counts(
+            attributes in prop::collection::vec(attribute(), 0..4),
+        ) {
+            let mut source = String::new();
+            for generated in &attributes {
+                source.push_str(generated);
+                source.push('\n');
+            }
+            source.push_str(PROHIBITION);
+            source.push('\n');
+
+            let parsed = header_inner_attributes(&source);
+            prop_assert_eq!(parsed.len(), attributes.len() + 1);
+            prop_assert_eq!(parsed.last().map(String::as_str), Some(PROHIBITION));
+            prop_assert!(has_header_attribute(&source, PROHIBITION));
+        }
+
         #[test]
         fn stops_at_the_first_item(
             attributes in prop::collection::vec(attribute(), 0..4),
@@ -200,19 +237,10 @@ mod attribute_property_tests {
         }
 
         #[test]
-        fn a_nested_prohibition_is_never_a_standalone_entry(depth in 1usize..4) {
-            let mut source = String::from("#![expect(");
-            for level in 0..depth {
-                source.push_str("\n#![nested");
-                source.push_str(&level.to_string());
-                source.push('(');
-            }
-            source.push('\n');
-            source.push_str(PROHIBITION);
-            for _ in 0..=depth {
-                source.push_str("\n)");
-            }
-            source.push('\n');
+        fn a_prohibition_quoted_inside_an_attribute_never_counts(
+            attribute in attribute_quoting_the_prohibition(),
+        ) {
+            let source = format!("{attribute}\n");
 
             let parsed = header_inner_attributes(&source);
             prop_assert_eq!(parsed.len(), 1);
