@@ -2220,8 +2220,21 @@ tells you where each stands.
 
 _Table 10: What the building blocks do today. DLQ means dead-letter queue._
 
-The [roadmap](roadmap.md) tracks this work, and issues are welcome if one of
-these is what you need most.
+If one of these is what you need most, say so on its tracking issue:
+
+- [Server connections and streaming responses][issue-874]
+- [Push queues and the session registry][issue-875]
+- [Streaming request bodies][issue-876]
+- [Extractors and `app_data`][issue-877]
+- [Recovery policies][issue-878]
+- [`on_eof` and the other protocol hooks][issue-879]
+
+[issue-874]: https://github.com/leynos/wireframe/issues/874
+[issue-875]: https://github.com/leynos/wireframe/issues/875
+[issue-876]: https://github.com/leynos/wireframe/issues/876
+[issue-877]: https://github.com/leynos/wireframe/issues/877
+[issue-878]: https://github.com/leynos/wireframe/issues/878
+[issue-879]: https://github.com/leynos/wireframe/issues/879
 
 ### Streaming responses
 
