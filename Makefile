@@ -1,4 +1,5 @@
 .PHONY: help all clean test test-doc test-ui test-feature-gate test-pool-no-metrics bless-ui test-workflow-contracts test-loom doctest-benchmark
+.PHONY: lint-python-docs
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
 # Kept off the build/test line above so that unrelated edits to that long line
@@ -193,7 +194,12 @@ target/%/lib$(CRATE).rlib: ## Build library in debug or release
 # `.NOTPARALLEL` and not from the order they are named.
 .NOTPARALLEL: lint
 
-lint: lint-doc lint-clippy lint-whitaker ## Run rustdoc, Clippy and Whitaker with warnings denied
+lint: lint-doc lint-clippy lint-whitaker lint-python-docs ## Run rustdoc, Clippy, Whitaker and the Python docstring check
+
+# The workflow contract tests are the repository's only Python; interrogate holds
+# docstring presence for them. Ruff-style docstring wording is not enforced here.
+lint-python-docs: ## Require a docstring on every workflow contract module, class and function
+	$(PYTHON_NO_BYTECODE_ENV) uv run --with 'interrogate>=1.7,<2' interrogate --fail-under 100 tests/workflow_contracts
 
 lint-doc: ## Build workspace rustdoc for every feature with warnings denied
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) $(DEV_FAST) doc $(DOC_FLAGS)

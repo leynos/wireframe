@@ -33,6 +33,8 @@ from dev_fast_routing_test import (
 
 INSTALL_TARGET = "install-whitaker"
 LINT_LEAVES = ("lint-doc", "lint-clippy", "lint-whitaker")
+# The Rust leaves above run cargo; this one holds docstring presence for the Python tests.
+PYTHON_DOCS_LEAF = "lint-python-docs"
 PIN_NAMES = (
     "WHITAKER_INSTALLER_VERSION",
     "CARGO_DYLINT_VERSION",
@@ -155,15 +157,15 @@ def _assert_whitaker(line: str) -> None:
 
 def _assert_lint_rule(source: str) -> None:
     """Require the aggregate target to sequence every leaf in order."""
-    for leaf in LINT_LEAVES:
+    for leaf in (*LINT_LEAVES, PYTHON_DOCS_LEAF):
         assert any(line.startswith(f"{leaf}:") for line in source.splitlines()), (
             f"the Makefile must declare `{leaf}`"
         )
     lint_rules = [line for line in source.splitlines() if line.startswith("lint:")]
     assert len(lint_rules) == 1, "the Makefile must declare `lint` once"
     prerequisites = lint_rules[0].split("##")[0].split(":", 1)[1].split()
-    assert prerequisites == list(LINT_LEAVES), (
-        "`lint` must aggregate the three leaves in order"
+    assert prerequisites == [*LINT_LEAVES, PYTHON_DOCS_LEAF], (
+        "`lint` must aggregate the Rust leaves in order, then the Python docstring check"
     )
 
 

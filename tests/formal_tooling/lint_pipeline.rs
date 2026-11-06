@@ -60,13 +60,20 @@ pub(super) fn assert_lint_aggregate(makefile: &MakefileContent<'_>) -> TestResul
         .target_prerequisites("lint")
         .ok_or_else(|| "expected `lint` target in Makefile".to_owned())?;
     ensure(
-        lint_prerequisites == ["lint-doc", "lint-clippy", "lint-whitaker"],
-        "`lint` should aggregate the three lint leaves in order",
+        lint_prerequisites
+            == [
+                "lint-doc",
+                "lint-clippy",
+                "lint-whitaker",
+                "lint-python-docs",
+            ],
+        "`lint` should aggregate the Rust lint leaves in order, then the Python docstring check",
     )?;
     for leaf in [
         "lint-doc",
         "lint-clippy",
         "lint-whitaker",
+        "lint-python-docs",
         "install-whitaker",
     ] {
         ensure(
