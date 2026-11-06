@@ -118,6 +118,41 @@ _OVERRIDE_MUTATIONS: typ.Final = {
 }
 
 
+def _uncovered_trybuild_target(
+    targets: Sequence[CargoTestTarget],
+) -> tuple[tuple[CargoTestTarget, ...], dict[Path, str]]:
+    """Add a trybuild-driving target that the one override does not cover."""
+    synthetic = CargoTestTarget(
+        package="wireframe",
+        name="trybuild_extra",
+        kinds=("test",),
+        src_path=Path("/synthetic/trybuild_extra.rs"),
+    )
+    return (*targets, synthetic), {synthetic.src_path: TRYSBUILD_SOURCE}
+
+
+def _cfg_gated_test(
+    targets: Sequence[CargoTestTarget],
+) -> tuple[tuple[CargoTestTarget, ...], dict[Path, str]]:
+    """Gate the checked-in ``compile_tests`` behind a disabled feature."""
+    target = next(target for target in targets if target.name == "compile_error")
+    source = read_source(target.src_path)
+    gated = source.replace(
+        "#[test]\nfn compile_tests()",
+        '#[cfg(feature = "never")]\n#[test]\nfn compile_tests()',
+    )
+    assert gated != source, "the mutation must gate the compile_tests function"
+    return targets, {target.src_path: gated}
+
+
+#: Mutations that doctor the target list or the source text rather than the
+#: configuration, so the test can hand them different state.
+_SOURCE_MUTATIONS: typ.Final = {
+    "uncovered_trybuild_target": _uncovered_trybuild_target,
+    "cfg_gated_test": _cfg_gated_test,
+}
+
+
 def _mutate_override_config(
     mutation: str,
     config: dict[str, typ.Any],
@@ -160,26 +195,10 @@ def test_override_mutations_are_rejected(mutation: str) -> None:
     """Each mutation alone leaves an override unproved or a target uncovered."""
     config = deepcopy(repository_config())
     targets: tuple[CargoTestTarget, ...] = repository_targets()
-    extra_sources: dict[Path, str] = {}
-    if mutation == "uncovered_trybuild_target":
-        synthetic = CargoTestTarget(
-            package="wireframe",
-            name="trybuild_extra",
-            kinds=("test",),
-            src_path=Path("/synthetic/trybuild_extra.rs"),
-        )
-        targets = (*targets, synthetic)
-        extra_sources[synthetic.src_path] = TRYSBUILD_SOURCE
-    elif mutation == "cfg_gated_test":
-        target = next(target for target in targets if target.name == "compile_error")
-        source = read_source(target.src_path)
-        gated = source.replace(
-            "#[test]\nfn compile_tests()",
-            '#[cfg(feature = "never")]\n#[test]\nfn compile_tests()',
-        )
-        assert gated != source, "the mutation must gate the compile_tests function"
-        extra_sources[target.src_path] = gated
+    if mutation in _SOURCE_MUTATIONS:
+        targets, extra_sources = _SOURCE_MUTATIONS[mutation](targets)
     else:
+        extra_sources = {}
         _mutate_override_config(mutation, config, targets)
     with pytest.raises(AssertionError):
         assert_no_override_violations(

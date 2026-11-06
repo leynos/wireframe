@@ -244,15 +244,15 @@ def has_crate_scope_gate(source: str, gate: CrateGate) -> bool:
     """
     state = _ScanState()
     for token in _ITEM_TOKEN.finditer(without_comments_and_literals(source)):
-        if token.lastgroup == gate.value:
-            if not state.blocks:
+        match token.lastgroup:
+            case "module":
+                _enter_module(state, token)
+            case "open":
+                _enter_block(state)
+            case "close":
+                _leave_block(state)
+            case group if group == gate.value and not state.blocks:
                 return True
-        elif token.lastgroup == "module":
-            _enter_module(state, token)
-        elif token.lastgroup == "open":
-            _enter_block(state)
-        elif token.lastgroup == "close":
-            _leave_block(state)
     return False
 
 

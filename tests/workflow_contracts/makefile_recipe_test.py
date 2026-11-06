@@ -38,10 +38,10 @@ def _recipe_body(remainder: str) -> str:
     """Return the tab-indented recipe lines at the start of ``remainder``.
 
     ``remainder`` begins part-way through the target line, so its first line is
-    dropped. GNU Make ends a recipe at the first line that does not begin with a
-    tab, and that line may be another target with no blank line in between.
-    Splitting on a blank line alone would read a later target's commands as this
-    recipe's.
+    dropped. GNU Make ignores blank lines and comment lines inside a recipe, so
+    those do not end it; the recipe ends at the first line that is neither blank,
+    a comment, nor tab-indented. That line may be another target with no blank
+    line in between, whose commands are not part of this recipe.
 
     Parameters
     ----------
@@ -56,9 +56,10 @@ def _recipe_body(remainder: str) -> str:
     lines = remainder.splitlines(keepends=True)[1:]
     body: list[str] = []
     for line in lines:
-        if not line.startswith("\t"):
+        if line.startswith("\t"):
+            body.append(line)
+        elif line.strip() and not line.lstrip().startswith("#"):
             break
-        body.append(line)
     return "".join(body)
 
 
@@ -213,6 +214,24 @@ def test_ui_recipe_stops_at_the_next_target() -> None:
     )
     with pytest.raises(AssertionError):
         assert_ui_target_keeps_harnesses(body)
+
+
+def test_ui_recipe_continues_past_blank_and_comment_lines() -> None:
+    """Make ignores blank and comment lines inside a recipe, so the contract must."""
+    makefile = (
+        "test-ui:\n"
+        f"\t{ROOT_HARNESS_COMMAND}\n"
+        "\n"
+        "# the Loom harness follows the root one\n"
+        f"\t{LOOM_HARNESS_COMMAND}\n"
+        "test-feature-gate:\n"
+        "\t@true\n"
+    )
+    body = ui_recipe(makefile)
+    assert body == f"\t{ROOT_HARNESS_COMMAND}\n\t{LOOM_HARNESS_COMMAND}\n", (
+        "blank and comment lines must not end the recipe"
+    )
+    assert_ui_target_keeps_harnesses(body)
 
 
 @pytest.mark.parametrize(

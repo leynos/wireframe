@@ -22,6 +22,9 @@ from rust_source_lexing import without_comments_and_literals
         pytest.param('let s = "a";', 'let s = "";', id="string"),
         pytest.param('let s = r#"a"#;', 'let s = "";', id="raw-string"),
         pytest.param("'a'", "' '", id="char-literal"),
+        pytest.param("'\\''", "' '", id="escaped-quote-char-literal"),
+        pytest.param('"a\\"b"', '""', id="escaped-quote-string"),
+        pytest.param('r##"a"#b"##', '""', id="hashed-raw-string"),
         pytest.param("x /* unterminated", "x  ", id="unterminated-comment"),
     ],
 )

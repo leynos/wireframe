@@ -149,8 +149,10 @@ global-timeout < cargo-wait-timeout < coverage job ceiling`.
 it names, `compile_gate_contract_test.py` pins which execution paths CI
 actually runs, `nextest_property_test.py` drives the filter, scanner and
 override-resolution invariants across generated matchers, Rust block structures
-and target sets, and `timeout_property_test.py` breaks one link at a time in a
-generated chain that the ordering invariant must accept.
+and target sets, `nextest_override_scenarios.py` builds the single-defect
+override scenarios those properties draw from, and `timeout_property_test.py`
+breaks one link at a time in a generated chain that the ordering invariant must
+accept.
 
 Three execution paths matter, and the tiers do not all bound the same one:
 
