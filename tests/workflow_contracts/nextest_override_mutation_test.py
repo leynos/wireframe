@@ -214,6 +214,7 @@ def _source_reader_with(
     """Return a reader that serves ``extra`` before the filesystem."""
 
     def read(path: Path) -> str:
+        """Serve the injected source when one matches, else read from disk."""
         return extra[path] if path in extra else read_source(path)
 
     return read

@@ -120,6 +120,7 @@ def test_missing_cargo_is_reported(
 ) -> None:
     """Discovery fails loudly when ``cargo`` cannot be executed."""
     def raise_missing(*args: object, **kwargs: object) -> None:
+        """Stand in for ``subprocess.run`` when ``cargo`` is not installed."""
         raise FileNotFoundError("cargo")
 
     monkeypatch.setattr(cargo_targets.subprocess, "run", raise_missing)
@@ -132,6 +133,7 @@ def test_metadata_failure_is_reported(
 ) -> None:
     """A non-zero ``cargo metadata`` exit is reported with its stderr."""
     def fail(*args: object, **kwargs: object) -> None:
+        """Stand in for ``subprocess.run`` when ``cargo metadata`` fails."""
         raise subprocess.CalledProcessError(1, "cargo", stderr="boom")
 
     monkeypatch.setattr(cargo_targets.subprocess, "run", fail)
@@ -177,6 +179,7 @@ def _stub_metadata(monkeypatch: pytest.MonkeyPatch, document: str) -> None:
     def fake_run(
         *args: object, **kwargs: object
     ) -> subprocess.CompletedProcess[str]:
+        """Stand in for ``subprocess.run`` and return the stub document."""
         return subprocess.CompletedProcess(
             args=["cargo", "metadata"], returncode=0, stdout=document, stderr=""
         )

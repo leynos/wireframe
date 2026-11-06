@@ -128,10 +128,12 @@ class _SourceCache:
     """Read each target's source at most once while checking overrides."""
 
     def __init__(self, read_source: Callable[[Path], str]) -> None:
+        """Hold the reader and an empty record of the sources it returned."""
         self._read_source = read_source
         self._sources: dict[Path, str] = {}
 
     def __call__(self, target: CargoTestTarget) -> str:
+        """Return the target's source, reading it only the first time."""
         if target.src_path not in self._sources:
             self._sources[target.src_path] = self._read_source(target.src_path)
         return self._sources[target.src_path]

@@ -54,6 +54,7 @@ class ScanState:
     """Track open blocks and the attributes pending on the next item."""
 
     def __init__(self) -> None:
+        """Start with no open blocks and no attributes pending on an item."""
         self.blocks: list[str | None] = []
         #: Whether each open block is itself behind a ``cfg`` attribute, so a
         #: test nested inside one is conditionally excluded too.
