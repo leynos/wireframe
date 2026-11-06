@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import subprocess
 import tomllib
 from dataclasses import dataclass
@@ -305,7 +306,7 @@ def test_ci_provisions_backend_and_linker_before_lint() -> None:
     assert isinstance(commands, str), "backend and linker provisioning needs run commands"
     required_commands = (
         "rustup component add rustc-codegen-cranelift-preview "
-        "--toolchain nightly-2026-10-30",
+        '--toolchain "$toolchain"',
         "sudo apt-get update",
         "sudo apt-get install -y mold",
         "mold --version",
@@ -314,6 +315,12 @@ def test_ci_provisions_backend_and_linker_before_lint() -> None:
         assert command in commands, (
             f"CI backend/linker provisioning is missing {command!r}"
         )
+    assert "rust-toolchain.toml" in commands, (
+        "CI must read the nightly channel from rust-toolchain.toml"
+    )
+    assert not re.search(r"nightly-\d{4}-\d{2}-\d{2}", commands), (
+        "CI must not restate the dated nightly Dependabot moves"
+    )
     command_positions = [commands.index(command) for command in required_commands]
     assert command_positions == sorted(command_positions), (
         "CI must install Cranelift, then `mold`, and confirm the linker version"
