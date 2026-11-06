@@ -3,6 +3,7 @@
 //! These verify normal encoding as well as error conditions like
 //! write failures and encode errors.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::sync::Arc;
 

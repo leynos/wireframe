@@ -5,6 +5,7 @@
 //! `WireframeApp` handlers on both the prepared and unprepared connection
 //! paths.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::sync::{
     Arc,

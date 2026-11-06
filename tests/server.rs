@@ -10,6 +10,7 @@
 //! through the public API, so it asserts only what a caller can observe: the
 //! server logs the panic and keeps accepting connections afterwards.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::io::{ErrorKind, Result as IoResult};
 

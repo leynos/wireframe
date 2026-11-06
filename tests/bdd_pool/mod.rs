@@ -4,6 +4,7 @@
 //! main BDD harness while still exercising `client_pool.feature`.
 
 #![cfg(all(not(loom), feature = "pool"))]
+#![forbid(unsafe_code)]
 
 mod fixtures;
 mod scenarios;

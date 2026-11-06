@@ -5,6 +5,8 @@
 //! with `allocs_<n>`, so an allocation regression is visible in the benchmark
 //! name even when timing is stable.
 
+#![forbid(unsafe_code)]
+
 use std::{fmt::Write as _, hint::black_box, time::Duration};
 
 use criterion::{BenchmarkId, Criterion};

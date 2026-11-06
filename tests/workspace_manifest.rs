@@ -5,6 +5,8 @@
 //! workspace members, and still keeps the root package as the only default
 //! member.
 
+#![forbid(unsafe_code)]
+
 #[path = "common/workspace_manifest_support.rs"]
 mod workspace_manifest_support;
 

@@ -1409,11 +1409,22 @@ genuinely unavoidable gap, use an item-scoped
 concrete technical limitation; do not add blanket allows.
 
 Rust's `unsafe_code = "forbid"` applies to every workspace package and admits
-no crate-wide exception. A site that appears to need `unsafe` — a manual
-`GlobalAlloc`, a layout transmute, a raw pointer hand-off — must be redesigned
-or replaced with a safe wrapper rather than annotated. The allocation
-benchmarks, for example, install `stats_alloc`'s instrumenting system allocator
-by reference; the wrapper owns the only `unsafe` implementation.
+no exception. A site that appears to need `unsafe` — a manual `GlobalAlloc`, a
+layout transmute, a raw pointer hand-off — must be redesigned or replaced with
+a safe wrapper rather than annotated. The allocation benchmarks, for example,
+install `stats_alloc`'s instrumenting system allocator by reference; the
+wrapper owns the only `unsafe` implementation.
+
+The prohibition is stated twice on purpose. `[workspace.lints.rust]` sets it
+for every member that opts in with `[lints] workspace = true`, and every Cargo
+target root repeats `#![forbid(unsafe_code)]` in its header so the rule travels
+with the file. `forbid` is absolute, so a scoped `#[expect(unsafe_code, …)]`
+inside such a root is a compile error (`E0453`) rather than an escape hatch. A
+new target root must carry the attribute; `tests/workspace_unsafe_boundary.rs`
+fails until it does, and `make unsafe-boundary` compiles deliberate unsafe
+probes to show the lint still rejects them. See
+[unsafe-code boundary verification](rust-boundary-verification.md) for what
+each check establishes.
 
 The environment-method ban is part of the hygiene group. `clippy.toml` lists
 `std::env::var`, `var_os`, `vars`, `vars_os`, `set_var`, `remove_var`, and
