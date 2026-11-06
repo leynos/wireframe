@@ -9,7 +9,7 @@
 //! The documents are embedded with `include_str!` so tests read the shipped
 //! text rather than a copy, and Cargo rebuilds them when a document changes.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, fmt};
 
 /// A documented file's path and its contents, embedded at compile time.
 pub const DOCUMENTS: &[(&str, &str)] = &[
@@ -101,14 +101,28 @@ pub fn parse_document(
         match classify_line(line) {
             DocumentLine::Prose => {}
             DocumentLine::Marker(id) => {
-                examples.push(read_marked_example(source, index, id, &mut lines)?);
+                let marker = SourceLine { source, index };
+                examples.push(read_marked_example(marker, id, &mut lines)?);
             }
             DocumentLine::Invalid(problem) => {
-                return Err(format!("{source}:{} {problem}", index + 1));
+                return Err(format!("{} {problem}", SourceLine { source, index }));
             }
         }
     }
     Ok(examples)
+}
+
+/// A line of a document, displayed as `source:line` for error messages.
+#[derive(Clone, Copy)]
+struct SourceLine {
+    source: &'static str,
+    index: usize,
+}
+
+impl fmt::Display for SourceLine {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}:{}", self.source, self.index + 1)
+    }
 }
 
 /// What one line outside a fence means to the scanner.
@@ -147,29 +161,25 @@ fn parse_marker(line: &str) -> Option<&str> {
 }
 
 fn read_marked_example<'a>(
-    source: &'static str,
-    marker_index: usize,
+    marker: SourceLine,
     id: &str,
     lines: &mut impl Iterator<Item = (usize, &'a str)>,
 ) -> Result<DocumentedExample, String> {
     let (fence_index, fence) = lines
         .find(|(_, line)| !line.is_empty())
-        .ok_or_else(|| format!("{source}:{} marker has no fence", marker_index + 1))?;
-    let opening = FenceOpening::parse(fence).ok_or_else(|| {
-        format!(
-            "{source}:{} expected an opening fence after marker",
-            fence_index + 1
-        )
-    })?;
+        .ok_or_else(|| format!("{marker} marker has no fence"))?;
+    let fence_line = SourceLine {
+        index: fence_index,
+        ..marker
+    };
+    let opening = FenceOpening::parse(fence)
+        .ok_or_else(|| format!("{fence_line} expected an opening fence after marker"))?;
     if opening.info.is_empty() {
-        return Err(format!(
-            "{source}:{} fence should declare a language",
-            fence_index + 1
-        ));
+        return Err(format!("{fence_line} fence should declare a language"));
     }
-    let body = read_fence_body(source, fence_index, opening, lines)?;
+    let body = read_fence_body(fence_line, opening, lines)?;
     Ok(DocumentedExample {
-        source,
+        source: marker.source,
         id: id.to_owned(),
         info: opening.info.to_owned(),
         body,
@@ -210,8 +220,7 @@ impl<'a> FenceOpening<'a> {
 }
 
 fn read_fence_body<'a>(
-    source: &str,
-    fence_index: usize,
+    fence_line: SourceLine,
     opening: FenceOpening<'_>,
     lines: &mut impl Iterator<Item = (usize, &'a str)>,
 ) -> Result<String, String> {
@@ -223,10 +232,7 @@ fn read_fence_body<'a>(
         body.push_str(line);
         body.push('\n');
     }
-    Err(format!(
-        "{source}:{} fence is not terminated",
-        fence_index + 1
-    ))
+    Err(format!("{fence_line} fence is not terminated"))
 }
 
 /// Report the first hidden rustdoc line in a Rust example body, if any.
