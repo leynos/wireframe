@@ -145,7 +145,7 @@ def trybuild_shortfall_in_test(source: str, name: str) -> str | None:
     True
     >>> trybuild_shortfall_in_test(
     ...     "#[test]\\nfn a() { let t = trybuild::TestCases::new(); }", "a")
-    'constructs trybuild::TestCases but runs no fixture'
+    'constructs trybuild::TestCases but runs no fixture through it'
     >>> trybuild_shortfall_in_test(
     ...     "#[test]\\nfn a() {}\\n#[test]\\nfn b() {"
     ...     " let t = trybuild::TestCases::new(); t.pass(\\"b.rs\\"); }", "a")

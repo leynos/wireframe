@@ -196,6 +196,27 @@ def _unrun_fixtures(names: OverrideNames) -> Scenario:
     )
 
 
+def _fixture_on_another_receiver(names: OverrideNames) -> Scenario:
+    """A bound driver beside a different object that runs the fixture.
+
+    The body constructs ``trybuild::TestCases`` and calls ``.pass()``, so a
+    check that looked for the two shapes independently would accept it, yet
+    the driver itself is never asked to compile anything.
+    """
+    return _rewritten_source(
+        names,
+        lambda _source: (
+            "#[test]\n"
+            f"fn {names.function}() {{\n"
+            "    let cases = trybuild::TestCases::new();\n"
+            "    let harness = FixtureHarness::new();\n"
+            '    harness.pass("tests/ui/example.rs");\n'
+            "}\n"
+        ),
+        "runs no fixture",
+    )
+
+
 def _uncovered(names: OverrideNames) -> Scenario:
     """A trybuild target the one override does not name stays uncovered."""
     target = test_target(names.package, names.binary)
@@ -256,6 +277,7 @@ _DEFECT_BUILDERS: dict[str, Callable[[OverrideNames], Scenario]] = {
     "commented_out": _commented_out,
     "no_trybuild": _no_trybuild,
     "unrun_fixtures": _unrun_fixtures,
+    "fixture_on_another_receiver": _fixture_on_another_receiver,
     "no_op_selected_test": _no_op_selected_test,
     "cfg_gated": _cfg_gated,
     "uncovered": _uncovered,

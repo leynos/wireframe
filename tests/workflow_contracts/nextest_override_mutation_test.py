@@ -167,6 +167,17 @@ fn compile_tests() {
 }
 """
 
+#: The selected test binds a driver but runs its fixture through another
+#: object, so the driver itself compiles nothing.
+FIXTURE_ELSEWHERE_SOURCE = """\
+#[test]
+fn compile_tests() {
+    let cases = trybuild::TestCases::new();
+    let harness = FixtureHarness::new();
+    harness.pass("tests/ui/example.rs");
+}
+"""
+
 
 def _no_op_selected_test(
     targets: Sequence[CargoTestTarget],
@@ -184,6 +195,14 @@ def _unrun_fixtures(
     return targets, {target.src_path: UNRUN_FIXTURES_SOURCE}
 
 
+def _fixture_on_another_receiver(
+    targets: Sequence[CargoTestTarget],
+) -> tuple[tuple[CargoTestTarget, ...], dict[Path, str]]:
+    """Bind a driver and run the fixture through a different object."""
+    target = next(target for target in targets if target.name == "compile_error")
+    return targets, {target.src_path: FIXTURE_ELSEWHERE_SOURCE}
+
+
 #: Mutations that doctor the target list or the source text rather than the
 #: configuration, so the test can hand them different state.
 _SOURCE_MUTATIONS: typ.Final = {
@@ -191,6 +210,7 @@ _SOURCE_MUTATIONS: typ.Final = {
     "cfg_gated_test": _cfg_gated_test,
     "no_op_selected_test": _no_op_selected_test,
     "unrun_fixtures": _unrun_fixtures,
+    "fixture_on_another_receiver": _fixture_on_another_receiver,
 }
 
 
@@ -273,6 +293,19 @@ def test_a_selected_test_that_runs_no_fixture_is_rejected() -> None:
         and "runs no fixture" in violation
         for violation in violations
     ), f"a driver with no fixture call must be reported, got {violations!r}"
+
+
+def test_a_fixture_call_on_another_receiver_is_rejected() -> None:
+    """A driver is evidence only when it is the object asked to run a case."""
+    targets, extra_sources = _fixture_on_another_receiver(repository_targets())
+    violations = override_target_violations(
+        repository_config(), targets, _source_reader_with(extra_sources)
+    )
+    assert any(
+        "does not drive trybuild::TestCases" in violation
+        and "runs no fixture through it" in violation
+        for violation in violations
+    ), f"a call on another receiver must be reported, got {violations!r}"
 
 
 def test_non_list_overrides_are_rejected() -> None:

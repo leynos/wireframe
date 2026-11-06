@@ -1,10 +1,11 @@
 """Pin when a Rust source counts as a trybuild driver.
 
 An override bounds a test's deadline only because that test compiles
-trybuild fixtures. Two shapes satisfy the eye but compile nothing: a body
-that merely names ``trybuild::TestCases``, and a driver that is constructed
-but never asked to run a case. Both leave the compilation to run under the
-default deadline while the contract stays green, so each is rejected here.
+trybuild fixtures. Three shapes satisfy the eye but compile nothing: a body
+that merely names ``trybuild::TestCases``, a driver that is constructed but
+never asked to run a case, and a driver whose only fixture call names some
+other object. Each leaves the compilation to run under the default deadline
+while the contract stays green, so each is rejected here.
 
 The file-level question decides which targets need an override at all; the
 scoped question decides whether the override's own test does the work. The
@@ -44,6 +45,16 @@ from rust_test_bodies import drives_trybuild_in_test
         ),
         pytest.param('t.pass("a.rs");', False, id="fixture-only"),
         pytest.param(
+            'let t = trybuild::TestCases::new(); other.pass("a.rs");',
+            False,
+            id="call-on-another-receiver",
+        ),
+        pytest.param(
+            'trybuild::TestCases::new().pass("a.rs");',
+            True,
+            id="chained-construction",
+        ),
+        pytest.param(
             '// let t = trybuild::TestCases::new(); t.pass("a.rs");',
             False,
             id="line-comment",
@@ -61,7 +72,7 @@ from rust_test_bodies import drives_trybuild_in_test
     ],
 )
 def test_trybuild_detection(source: str, expected: bool) -> None:
-    """A driver counts only when it is constructed and runs a fixture."""
+    """A driver counts only when it is constructed and itself runs a fixture."""
     assert drives_trybuild(source) is expected, (
         "trybuild detection must ignore comments and literals"
     )
@@ -132,6 +143,13 @@ def test_trybuild_detection(source: str, expected: bool) -> None:
             "    let t = trybuild::TestCases::new();\n}\n",
             False,
             id="constructs-without-running",
+        ),
+        pytest.param(
+            "#[test]\nfn compile_tests() {\n"
+            "    let t = trybuild::TestCases::new();\n"
+            '    harness.pass("tests/ui/a.rs");\n}\n',
+            False,
+            id="fixture-call-on-another-receiver",
         ),
         pytest.param(
             "#[test]\nfn compile_tests() {\n"

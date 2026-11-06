@@ -22,8 +22,22 @@ _CONSTRUCTS_TRYBUILD: re.Pattern[str] = re.compile(
     r"trybuild\s*::\s*TestCases\s*::\s*new\s*\("
 )
 
-#: A fixture being run through a driver, however the call is spaced.
-_RUNS_FIXTURE: re.Pattern[str] = re.compile(r"\.\s*(?:pass|compile_fail)\s*\(")
+#: The call that asks a driver to compile one fixture.
+_FIXTURE_CALL: str = r"(?:pass|compile_fail)\s*\("
+
+#: A driver bound to a name, so the fixture call can be tied to that name.
+#: An unrelated ``.pass()`` elsewhere in the body is then not evidence that
+#: this driver ran anything.
+_BINDS_TRYBUILD: re.Pattern[str] = re.compile(
+    r"\blet\s+(?:mut\s+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*"
+    r"(?::[^=;]*)?=\s*trybuild\s*::\s*TestCases\s*::\s*new\s*\("
+)
+
+#: A driver constructed and asked to run a fixture in one expression, which
+#: binds no name to tie the call to.
+_CHAINED_RUN: re.Pattern[str] = re.compile(
+    rf"trybuild\s*::\s*TestCases\s*::\s*new\s*\(\s*\)\s*\.\s*{_FIXTURE_CALL}"
+)
 
 #: The start of a raw string literal, including its hash fence.
 _RAW_STRING: re.Pattern[str] = re.compile(r'r(?P<hashes>#{0,32})"')
@@ -157,6 +171,12 @@ def without_comments_and_literals(source: str) -> str:
     return "".join(pieces)
 
 
+def _runs_fixture_through(cleaned: str, name: str) -> bool:
+    """Return whether the binding ``name`` is asked to run a fixture."""
+    pattern = rf"\b{re.escape(name)}\s*\.\s*{_FIXTURE_CALL}"
+    return re.search(pattern, cleaned) is not None
+
+
 def trybuild_shortfall(source: str) -> str | None:
     """Return why ``source`` is not a trybuild driver, or ``None`` if it is.
 
@@ -166,6 +186,12 @@ def trybuild_shortfall(source: str) -> str | None:
     nothing either. Both shapes would let an override bound no work while the
     compilation it was meant to cover still runs under the default deadline, so
     each is reported as its own shortfall rather than as a bare ``False``.
+
+    The fixture call is tied to the driver's own binding. A body that binds a
+    driver and then calls ``.pass()`` on some unrelated harness compiles
+    nothing through the driver, so it is rejected exactly as an unrun driver
+    is. A driver constructed and used in one expression binds no name; that
+    shape is accepted on its chained call.
 
     Parameters
     ----------
@@ -183,16 +209,26 @@ def trybuild_shortfall(source: str) -> str | None:
     >>> trybuild_shortfall(
     ...     "let t = trybuild::TestCases::new(); t.pass(\\"a.rs\\");") is None
     True
+    >>> trybuild_shortfall("trybuild::TestCases::new().pass(\\"a.rs\\");") is None
+    True
     >>> trybuild_shortfall("let t: trybuild::TestCases;")
     'constructs no trybuild::TestCases'
     >>> trybuild_shortfall("let t = trybuild::TestCases::new();")
-    'constructs trybuild::TestCases but runs no fixture'
+    'constructs trybuild::TestCases but runs no fixture through it'
+    >>> trybuild_shortfall(
+    ...     "let t = trybuild::TestCases::new(); other.pass(\\"a.rs\\");")
+    'constructs trybuild::TestCases but runs no fixture through it'
     """
     cleaned = without_comments_and_literals(source)
     if _CONSTRUCTS_TRYBUILD.search(cleaned) is None:
         return "constructs no trybuild::TestCases"
-    if _RUNS_FIXTURE.search(cleaned) is None:
-        return "constructs trybuild::TestCases but runs no fixture"
+    if _CHAINED_RUN.search(cleaned) is not None:
+        return None
+    bindings = _BINDS_TRYBUILD.findall(cleaned)
+    if not bindings:
+        return "constructs trybuild::TestCases but binds it to no name"
+    if not any(_runs_fixture_through(cleaned, name) for name in bindings):
+        return "constructs trybuild::TestCases but runs no fixture through it"
     return None
 
 
@@ -202,7 +238,8 @@ def drives_trybuild(source: str) -> bool:
     Both halves are required: a driver has to be constructed, and a fixture has
     to be run through it. A type-only reference or an unused driver compiles
     nothing, so neither counts as evidence that a target does the work an
-    override is meant to bound.
+    override is meant to bound. The call must name the driver the body bound,
+    so a ``.pass()`` on some other object is not mistaken for one.
 
     Parameters
     ----------
@@ -213,8 +250,9 @@ def drives_trybuild(source: str) -> bool:
     -------
     bool
         ``True`` when live code constructs ``trybuild::TestCases`` and runs a
-        fixture; ``False`` when either half is missing, or when both appear
-        only in a comment or a string literal.
+        fixture through it; ``False`` when either half is missing, when the
+        call is made on something else, or when both appear only in a comment
+        or a string literal.
 
     Examples
     --------
@@ -222,6 +260,8 @@ def drives_trybuild(source: str) -> bool:
     ...     "let t = trybuild::TestCases::new(); t.pass(\\"a.rs\\");")
     True
     >>> drives_trybuild("let t = trybuild::TestCases::new();")
+    False
+    >>> drives_trybuild("let t = trybuild::TestCases::new(); h.pass(\\"a.rs\\");")
     False
     >>> drives_trybuild('// trybuild::TestCases')
     False
