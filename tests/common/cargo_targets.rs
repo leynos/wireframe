@@ -260,43 +260,39 @@ mod cargo_target_tests {
     /// Every file path below `dir`, relative to it, in sorted order.
     fn file_paths(dir: &Dir) -> io::Result<Vec<String>> {
         let mut paths = Vec::new();
-        collect_paths(dir, "", &mut paths)?;
+        collect_paths(dir, Utf8Path::new(""), &mut paths)?;
         paths.sort();
         Ok(paths)
     }
 
-    fn collect_paths(dir: &Dir, prefix: &str, paths: &mut Vec<String>) -> io::Result<()> {
+    /// Collect file paths below `dir` into `paths`, prefixed by `prefix`.
+    fn collect_paths(dir: &Dir, prefix: &Utf8Path, paths: &mut Vec<String>) -> io::Result<()> {
         for entry in dir.entries()? {
             let child = entry?;
-            let name = child.file_name()?;
-            let path = if prefix.is_empty() {
-                name.clone()
-            } else {
-                format!("{prefix}/{name}")
-            };
+            let path = prefix.join(child.file_name()?);
             if child.file_type()?.is_dir() {
                 collect_paths(&child.open_dir()?, &path, paths)?;
             } else {
-                paths.push(path);
+                paths.push(path.into_string());
             }
         }
         Ok(())
     }
 
-    fn root(src_path: &str, kind: &str) -> TargetRoot {
+    fn root(src_path: &Utf8Path, kind: &str) -> TargetRoot {
         TargetRoot {
-            src_path: Utf8PathBuf::from(src_path),
+            src_path: src_path.to_owned(),
             kind: kind.to_owned(),
             package: "wireframe".to_owned(),
         }
     }
 
     /// A metadata document with one package and one target.
-    fn metadata(package: &str, src_path: &str, kind: &str) -> serde_json::Value {
+    fn metadata(package: &str, src_path: &Utf8Path, kind: &str) -> serde_json::Value {
         json!({
             "packages": [{
                 "name": package,
-                "targets": [{ "src_path": src_path, "kind": [kind] }],
+                "targets": [{ "src_path": src_path.as_str(), "kind": [kind] }],
             }],
         })
     }
@@ -311,7 +307,7 @@ mod cargo_target_tests {
             } else {
                 "wireframe"
             };
-            Ok(metadata(package, "/repo/src/lib.rs", "lib"))
+            Ok(metadata(package, Utf8Path::new("/repo/src/lib.rs"), "lib"))
         };
 
         let roots = discover_target_roots_with(&run).expect("fixture metadata should parse");
@@ -374,14 +370,14 @@ mod cargo_target_tests {
     #[test]
     fn strips_the_repository_prefix() {
         let repo = Utf8Path::new("/repo");
-        let described = describe(&root("/repo/src/lib.rs", "lib"), repo);
+        let described = describe(&root(Utf8Path::new("/repo/src/lib.rs"), "lib"), repo);
         assert_eq!(described, "src/lib.rs (lib of wireframe)");
     }
 
     #[test]
     fn keeps_a_path_outside_the_repository() {
         let repo = Utf8Path::new("/repo");
-        let described = describe(&root("/elsewhere/src/lib.rs", "lib"), repo);
+        let described = describe(&root(Utf8Path::new("/elsewhere/src/lib.rs"), "lib"), repo);
         assert_eq!(described, "/elsewhere/src/lib.rs (lib of wireframe)");
     }
 }
