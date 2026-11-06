@@ -1,0 +1,42 @@
+name: MSRV
+
+# Proves that the `rust-version` in Cargo.toml still builds. CI uses the pinned
+# nightly, so nothing else would notice code adopting a newer feature, and a
+# dependency release can break the minimum without any commit here, which is
+# why this runs on a schedule. `scripts/check-msrv.sh` explains the two builds.
+#
+# It also runs when its own definition changes, because a scheduled workflow
+# cannot otherwise show that an edit works until after it has merged.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1" # Mondays, 05:17 UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/msrv.yml
+      - scripts/check-msrv.sh
+
+# A second push to a pull request supersedes the run already in flight. Every
+# other event falls back to its own run id, so scheduled runs never replace one
+# another.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Default the token to no scopes; the job opts in explicitly.
+permissions: {}
+
+jobs:
+  msrv:
+    # Scheduled, so GitHub-hosted, where public-repository minutes are free.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build on the declared minimum Rust version
+        run: make test-msrv
