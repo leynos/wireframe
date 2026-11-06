@@ -18,7 +18,7 @@ use wireframe::response::Response;
 /// let (tx, rx) = mpsc::channel(4);
 /// tx.send(1u8).await.expect("send");
 /// drop(tx);
-/// let frames = collect_multi_packet(Response::MultiPacket(rx)).await;
+/// let frames = collect_multi_packet(Response::<u8>::MultiPacket(rx)).await;
 /// assert_eq!(frames, vec![1]);
 /// # }
 /// ```

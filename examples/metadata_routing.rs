@@ -122,7 +122,7 @@ async fn run() -> io::Result<()> {
     frame.push(0);
     frame.extend_from_slice(&payload);
     let mut bytes = BytesMut::with_capacity(frame.len() + 4); // +4 for the length prefix
-    codec.encode(frame.into(), &mut bytes)?;
+    codec.encode(bytes::Bytes::from(frame), &mut bytes)?;
 
     client.write_all(&bytes).await?;
     client.shutdown().await?;

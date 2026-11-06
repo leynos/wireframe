@@ -137,9 +137,7 @@ test-loom: ## Run Loom models and test-support API checks under --cfg loom
 	CARGO_ENCODED_RUSTFLAGS="--cfg=loom" $(CARGO) test -p wireframe_testing --test loom_api_surface --features runtime-benchmarks $(BUILD_JOBS)
 
 test-doc: ## Run doctests across all features
-	# `wireframe_testing` doctests need generic app types that standalone snippets
-	# cannot infer; issue #578 tracks their repair.
-	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace --exclude wireframe_testing --doc --all-features $(BUILD_JOBS)
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace --doc --all-features $(BUILD_JOBS)
 
 test-ui: ## Run trybuild compile-time API tests
 	$(CARGO) test --test compile_error

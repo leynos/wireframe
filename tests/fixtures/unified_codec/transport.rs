@@ -57,7 +57,7 @@ impl UnifiedCodecWorld {
 
         let client = self.client.as_mut().ok_or("client not started")?;
         Self::send_envelopes(client, &envelopes).await?;
-        client.flush().await?;
+        SinkExt::<bytes::Bytes>::flush(&mut *client).await?;
         client.get_mut().shutdown().await?;
         Ok(())
     }
@@ -160,7 +160,7 @@ impl UnifiedCodecWorld {
         let serializer = BincodeSerializer;
         for env in envelopes {
             let bytes = serializer.serialize(env)?;
-            client.send(bytes.into()).await?;
+            client.send(bytes::Bytes::from(bytes)).await?;
         }
         Ok(())
     }
