@@ -17,6 +17,14 @@ publish = false
 # `[workspace]` is empty on purpose: it stops Cargo from walking up to the
 # repository manifest and inheriting the members and lints above. The package is
 # compiled by `scripts/check-feature-gate.sh`, never by workspace-wide gates.
+#
+# It must also resolve `tokio-util` independently of the root lock, so its
+# `Cargo.lock` is ignored (`.gitignore`) and Dependabot is not pointed at it:
+# pinning the resolution would hide the very regression the gate exists to
+# catch. Hence the two records below.
+#
+# nested-cargo-allow: lock resolves independently of the root lock on purpose; no lock is committed
+# nested-cargo-allow: manifest dependency pins would not change what the gate proves, and no lock is committed
 [workspace]
 
 [dependencies]
