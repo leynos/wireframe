@@ -25,10 +25,10 @@ reservations when those bytes are consumed, including decompressed bytes when
 their retained output is consumed or discarded; release logical assembly
 reservations on completion and each active-stream reservation when that stream
 closes. RFC 0004 defines release of accepted output and queued work.[^duplex]
-Each reservation is released exactly once, on its normal path or when abort,
-timeout, cancellation, or disconnect releases any remainder. Adapters provide
-bounded logical keys, classify control/data, and report assembly lifecycle. The
-adapter owns fragment identifiers, duplicate policy, rollover,
+Each reservation is released exactly once: on its normal path, or when an
+abort, timeout, cancellation, or disconnect releases any remainder. Adapters
+provide bounded logical keys, classify control/data, and report assembly
+lifecycle. The adapter owns fragment identifiers, duplicate policy, rollover,
 acknowledgements, and timeout semantics; core owns accounting, deadlines and
 fair scheduling.
 
