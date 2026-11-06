@@ -20,19 +20,21 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
 DOCTEST_RUN = "make test-doc"
+DOCUMENTATION_CONTRACTS_RUN = "make test-documentation-contracts"
 FAILING_EXIT_STATUS = 101
 
 
-def _doctest_steps() -> list[dict[str, object]]:
-    """Return every ``build-test`` step that runs the doctest target."""
+def _steps_running(run: str) -> list[dict[str, object]]:
+    """Return every ``build-test`` step whose command is ``run``."""
     workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
     steps = workflow["jobs"]["build-test"]["steps"]
-    return [step for step in steps if step.get("run") == DOCTEST_RUN]
+    return [step for step in steps if step.get("run") == run]
 
 
 def _run_recipe_with_failing_cargo(tmp_path: Path) -> tuple[int, list[str]]:
@@ -55,13 +57,27 @@ def _run_recipe_with_failing_cargo(tmp_path: Path) -> tuple[int, list[str]]:
     return completed.returncode, record.read_text(encoding="utf-8").splitlines()
 
 
-def test_build_test_runs_doctests_unconditionally() -> None:
-    """Exactly one step runs doctests, and nothing lets it be skipped or ignored."""
-    steps = _doctest_steps()
-    assert len(steps) == 1, f"build-test must run `{DOCTEST_RUN}` exactly once"
+@pytest.mark.parametrize("run", [DOCTEST_RUN, DOCUMENTATION_CONTRACTS_RUN])
+def test_build_test_runs_documentation_gates_unconditionally(run: str) -> None:
+    """Exactly one step runs each gate, and nothing lets it be skipped or ignored."""
+    steps = _steps_running(run)
+    assert len(steps) == 1, f"build-test must run `{run}` exactly once"
     step = steps[0]
-    assert "if" not in step, "the doctest step must run for every event"
-    assert not step.get("continue-on-error"), "a doctest failure must fail the job"
+    assert "if" not in step, f"`{run}` must run for every event"
+    assert not step.get("continue-on-error"), f"a `{run}` failure must fail the job"
+
+
+def test_documentation_contracts_build_the_examples_they_run() -> None:
+    """The end-to-end contract is feature-gated, so its target must enable it."""
+    dry_run = subprocess.run(
+        ["make", "--no-print-directory", "-n", "test-documentation-contracts"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "build --examples --all-features" in dry_run
+    assert "--test documentation_examples_tests --all-features" in dry_run
 
 
 def test_a_failing_doctest_run_fails_the_make_target(tmp_path: Path) -> None:

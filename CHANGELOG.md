@@ -10,6 +10,18 @@ All notable changes to this project will be documented in this file.
   selects 0.7.20, and the `metadata_routing` example and the tests build with
   it.
 
+- Set the workspace version to `0.4.0-alpha1`, and rename the older migration
+  guides to `docs/v0-2-0-migration-guide.md` and
+  `docs/v0-3-0-migration-guide.md`, matching the v0.4.0 guide.
+
+- Audit the README, users' guide, and migration guide against the code for
+  v0.4.0-alpha1, and rewrite them. Rename the migration guide to
+  `docs/v0-4-0-migration-guide.md`, matching other df12 projects. Every
+  documented Rust example now runs as a doctest, and a new suite validates the
+  other fences and relative links. The guide previously described a
+  `PayloadBytes` serializer API that does not exist, and streaming bodies and
+  extractors as usable from route handlers.
+
 - Correct rustdoc that overstated runtime integration: streaming request
   bodies, extractors and `app_data` are not delivered to route handlers,
   `RecoveryPolicyHook` and `on_eof` are not consulted by the connection loop,
@@ -31,16 +43,16 @@ All notable changes to this project will be documented in this file.
   keep it within `FrameCodec::max_frame_length`; the direct `send_response*`
   helpers still bypass it, and actor-owned traffic keeps its own hook pipeline.
   See the
-  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#protocol-hooks-on-application-responses).
+  [v0.3-to-v0.4 migration guide](docs/v0-4-0-migration-guide.md#protocol-hooks-see-handler-responses).
   ([#547](https://github.com/leynos/wireframe/issues/547))
 
 - **Breaking:** Add aggregate limits to `FragmentationConfig` and extend
   `Reassembler::new` with optional partial-count and buffered-byte caps. Update
   downstream struct literals and constructor calls as described in the
-  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md).
-  Default fragmentation now closes connections exceeding either aggregate cap.
-  Retained fragment bytes also count towards connection memory-budget pacing
-  and hard-cap aborts, even when message assembly is disabled. (#543)
+  [v0.3-to-v0.4 migration guide](docs/v0-4-0-migration-guide.md). Default
+  fragmentation now closes connections exceeding either aggregate cap. Retained
+  fragment bytes also count towards connection memory-budget pacing and
+  hard-cap aborts, even when message assembly is disabled. (#543)
 
 - Breaking: `WireframeServer` now bounds the connection preamble read with
   `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) by default, so an unauthenticated
@@ -49,15 +61,13 @@ All notable changes to this project will be documented in this file.
   `disable_preamble_timeout()` to restore unbounded waiting when a peer
   legitimately needs it. `Duration::ZERO` still clamps to 1 ms. Addresses
   [#546](https://github.com/leynos/wireframe/issues/546) (finding
-  `csf_b9252731043bde37f2f34d2f`). See
-  `docs/v0-3-0-to-v0-4-0-migration-guide.md`.
+  `csf_b9252731043bde37f2f34d2f`). See `docs/v0-4-0-migration-guide.md`.
 
 - Breaking: `WireframeServer::new` now evaluates its `AppFactory` once per
   server run, prepares the result once, and shares that immutable application
   root across connections. Move per-connection state to `on_connection_setup`,
   or use `WireframeServer::from_app(app)` when the application is already
-  built. See `docs/v0-3-0-to-v0-4-0-migration-guide.md` for migration examples.
-  (#642)
+  built. See `docs/v0-4-0-migration-guide.md` for migration examples. (#642)
 
 - Breaking: `MessageAssemblyState` now enforces
   `FirstFrameHeader::total_body_len` as an authoritative declaration. A first
@@ -106,8 +116,8 @@ All notable changes to this project will be documented in this file.
   to align the public API spelling with American English.
 - Breaking: Renamed the cargo feature flag `test-helpers` to
   `test-support`. Enable `test-support` to access exported test helper APIs. See
-  `docs/v0-1-0-to-v0-2-0-migration-guide.md` for the required `Cargo.toml`
-  dependency update.
+  `docs/v0-2-0-migration-guide.md` for the required `Cargo.toml` dependency
+  update.
 - Exposed `MAX_PUSH_RATE` for configuring push queue rate limits.
 - Refactored the application module into the `src/app/` directory
   (13 focused files) to keep module sizes under 400 lines; public API exports

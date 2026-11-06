@@ -92,6 +92,11 @@ jobs:
       - name: Doctests
         timeout-minutes: 30
         run: make test-doc
+      # Runs the documented example pair end to end, which needs the `examples`
+      # feature that the default-features coverage run below does not enable.
+      - name: Documentation contracts
+        timeout-minutes: 30
+        run: make test-documentation-contracts
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
