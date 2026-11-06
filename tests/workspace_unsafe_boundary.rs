@@ -33,7 +33,7 @@ mod repo_access;
 mod unsafe_syntax;
 
 use camino::Utf8Path;
-use cargo_targets::{describe, discover_target_roots, read_target_source};
+use cargo_targets::{TargetRoot, describe, discover_target_roots, read_target_source};
 use inner_attributes::has_header_attribute;
 use package_sources::{
     sources_in_package,
@@ -194,6 +194,15 @@ fn the_feature_gate_package_stays_standalone() -> TestResult {
     Ok(())
 }
 
+/// The described roots whose source lacks the standalone prohibition.
+fn roots_missing_prohibition(roots: &[(TargetRoot, String)], repo: &Utf8Path) -> Vec<String> {
+    roots
+        .iter()
+        .filter(|(_, source)| !has_header_attribute(source, PROHIBITION))
+        .map(|(root, _)| describe(root, repo))
+        .collect()
+}
+
 /// Assert every target root forbids unsafe Rust.
 #[test]
 fn every_target_root_forbids_unsafe_code() -> TestResult {
@@ -202,13 +211,12 @@ fn every_target_root_forbids_unsafe_code() -> TestResult {
     if roots.is_empty() {
         return Err("target discovery returned no roots; this check would pass vacuously".into());
     }
-    let mut violations = Vec::new();
+    let mut checked = Vec::with_capacity(roots.len());
     for root in roots {
         let source = read_target_source(&root, &repo)?;
-        if !has_header_attribute(&source, PROHIBITION) {
-            violations.push(describe(&root, &repo));
-        }
+        checked.push((root, source));
     }
+    let mut violations = roots_missing_prohibition(&checked, &repo);
     if violations.is_empty() {
         return Ok(());
     }
@@ -316,4 +324,67 @@ fn workspace_membership_matches_the_reviewed_inventory() -> TestResult {
          in docs/rust-boundary-verification.md, or remove it."
     )
     .into())
+}
+
+#[cfg(test)]
+mod target_root_contract_tests {
+    //! Discovery and the prohibition check exercised together.
+
+    use camino::Utf8Path;
+    use serde_json::json;
+
+    use super::{
+        PROHIBITION,
+        TestResult,
+        cargo_targets::{TargetRoot, discover_target_roots_with},
+        roots_missing_prohibition,
+    };
+
+    /// A metadata document with one package and one library target.
+    fn metadata(package: &str, src_path: &str) -> serde_json::Value {
+        json!({
+            "packages": [{
+                "name": package,
+                "targets": [{ "src_path": src_path, "kind": ["lib"] }],
+            }],
+        })
+    }
+
+    #[test]
+    fn reports_a_discovered_root_that_lacks_the_prohibition() -> TestResult {
+        let run = |args: &[&str]| {
+            let (package, src_path) = if args.contains(&"--manifest-path") {
+                (
+                    "wireframe-feature-gate",
+                    "/repo/tests/feature_gate/src/lib.rs",
+                )
+            } else {
+                ("wireframe", "/repo/src/lib.rs")
+            };
+            Ok(metadata(package, src_path))
+        };
+        let checked: Vec<(TargetRoot, String)> = discover_target_roots_with(&run)?
+            .into_iter()
+            .map(|root| {
+                let source = if root.package == "wireframe-feature-gate" {
+                    "fn gate() {}\n".to_owned()
+                } else {
+                    format!("{PROHIBITION}\nfn lib() {{}}\n")
+                };
+                (root, source)
+            })
+            .collect();
+
+        let missing = roots_missing_prohibition(&checked, Utf8Path::new("/repo"));
+        let expected =
+            vec!["tests/feature_gate/src/lib.rs (lib of wireframe-feature-gate)".to_owned()];
+        if missing != expected {
+            return Err(format!(
+                "the root without the prohibition must be reported with its package and kind; \
+                 expected {expected:?}, found {missing:?}"
+            )
+            .into());
+        }
+        Ok(())
+    }
 }

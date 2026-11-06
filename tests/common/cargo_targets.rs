@@ -24,7 +24,10 @@ pub(crate) struct TargetRoot {
 }
 
 /// The `cargo metadata` invocation that describes the workspace.
-const WORKSPACE_METADATA: &[&str] = &["metadata", "--no-deps", "--format-version", "1"];
+///
+/// `--locked` makes the query fail rather than rewrite a stale lockfile, so
+/// discovery cannot change the working tree it is inspecting.
+const WORKSPACE_METADATA: &[&str] = &["metadata", "--no-deps", "--format-version", "1", "--locked"];
 
 /// The invocation that additionally describes the standalone gate package.
 const FEATURE_GATE_METADATA: &[&str] = &[
@@ -32,6 +35,7 @@ const FEATURE_GATE_METADATA: &[&str] = &[
     "--no-deps",
     "--format-version",
     "1",
+    "--locked",
     "--manifest-path",
     "tests/feature_gate/Cargo.toml",
 ];
@@ -54,7 +58,9 @@ pub(crate) fn discover_target_roots() -> RepoAccessResult<Vec<TargetRoot>> {
 }
 
 /// Discover target roots through `run`, which must only query metadata.
-fn discover_target_roots_with(run: MetadataRunner<'_>) -> RepoAccessResult<Vec<TargetRoot>> {
+pub(crate) fn discover_target_roots_with(
+    run: MetadataRunner<'_>,
+) -> RepoAccessResult<Vec<TargetRoot>> {
     let mut roots = metadata_targets(&run(WORKSPACE_METADATA)?)?;
     roots.extend(metadata_targets(&run(FEATURE_GATE_METADATA)?)?);
     Ok(roots)
@@ -79,11 +85,19 @@ pub(crate) fn read_target_source(root: &TargetRoot, repo: &Utf8Path) -> RepoAcce
     read_repo_file(relative)
 }
 
-/// Run `cargo metadata` and parse its JSON output.
+/// Run `cargo metadata` in the repository and parse its JSON output.
 fn cargo_metadata(args: &[&str]) -> RepoAccessResult<Value> {
+    run_cargo_metadata(repo_root()?.as_std_path(), args)
+}
+
+/// Run `cargo metadata` in `directory` and parse its JSON output.
+///
+/// The directory is a parameter so a test can point the production runner at an
+/// isolated package and prove the query leaves that package untouched.
+fn run_cargo_metadata(directory: &std::path::Path, args: &[&str]) -> RepoAccessResult<Value> {
     let output = std::process::Command::new("cargo")
         .args(args)
-        .current_dir(repo_root()?)
+        .current_dir(directory)
         .output()?;
     if !output.status.success() {
         return Err(format!(
@@ -156,19 +170,118 @@ mod cargo_target_tests {
     //! absolute path so the message points somewhere useful instead of dropping
     //! a prefix that is not there.
 
-    use std::cell::RefCell;
+    use std::{
+        cell::RefCell,
+        env,
+        io,
+        process::{self, Command},
+        sync::atomic::{AtomicU64, Ordering},
+    };
 
-    use camino::Utf8Path;
+    use camino::{Utf8Path, Utf8PathBuf};
+    use cap_std::{ambient_authority, fs_utf8::Dir};
     use serde_json::json;
 
     use super::{
-        FEATURE_GATE_METADATA,
+        RepoAccessResult,
         TargetRoot,
-        Utf8PathBuf,
         WORKSPACE_METADATA,
         describe,
         discover_target_roots_with,
+        run_cargo_metadata,
     };
+
+    /// Distinguishes scratch directories created by concurrent test runs.
+    static SCRATCH_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    /// A package with no dependencies, so its lockfile needs no network access.
+    const PROBE_MANIFEST: &str = concat!(
+        "[package]\nname = \"metadata-probe\"\nversion = \"0.1.0\"\n",
+        "edition = \"2021\"\n\n[workspace]\n",
+    );
+
+    /// A uniquely named directory under the system temporary directory.
+    struct Scratch {
+        temporary: Utf8PathBuf,
+        parent: Dir,
+        name: Utf8PathBuf,
+    }
+
+    impl Scratch {
+        fn new() -> io::Result<Self> {
+            let temporary = Utf8PathBuf::from_path_buf(env::temp_dir()).map_err(|path| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("temporary directory path is not UTF-8: {}", path.display()),
+                )
+            })?;
+            let parent = Dir::open_ambient_dir(&temporary, ambient_authority())?;
+            let sequence = SCRATCH_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let name = Utf8PathBuf::from(format!(
+                "wireframe-cargo-targets-{}-{sequence}",
+                process::id()
+            ));
+            parent.create_dir(&name)?;
+            Ok(Self {
+                temporary,
+                parent,
+                name,
+            })
+        }
+
+        fn path(&self) -> Utf8PathBuf { self.temporary.join(&self.name) }
+
+        fn open(&self) -> io::Result<Dir> { self.parent.open_dir(&self.name) }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            // A failed cleanup must not turn a passing assertion into a panic.
+            drop(self.parent.remove_dir_all(&self.name));
+        }
+    }
+
+    /// Write the probe package's lockfile so the `--locked` query has one.
+    fn generate_lockfile(root: &Utf8Path) -> RepoAccessResult {
+        let output = Command::new("cargo")
+            .arg("generate-lockfile")
+            .current_dir(root)
+            .output()?;
+        if output.status.success() {
+            return Ok(());
+        }
+        Err(format!(
+            "`cargo generate-lockfile` failed in {root}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into())
+    }
+
+    /// Every file path below `dir`, relative to it, in sorted order.
+    fn file_paths(dir: &Dir) -> io::Result<Vec<String>> {
+        let mut paths = Vec::new();
+        collect_paths(dir, "", &mut paths)?;
+        paths.sort();
+        Ok(paths)
+    }
+
+    fn collect_paths(dir: &Dir, prefix: &str, paths: &mut Vec<String>) -> io::Result<()> {
+        for entry in dir.entries()? {
+            let child = entry?;
+            let name = child.file_name()?;
+            let path = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            if child.file_type()?.is_dir() {
+                collect_paths(&child.open_dir()?, &path, paths)?;
+            } else {
+                paths.push(path);
+            }
+        }
+        Ok(())
+    }
 
     fn root(src_path: &str, kind: &str) -> TargetRoot {
         TargetRoot {
@@ -206,8 +319,11 @@ mod cargo_target_tests {
         assert_eq!(
             *calls.borrow(),
             [
-                WORKSPACE_METADATA.join(" "),
-                FEATURE_GATE_METADATA.join(" "),
+                "metadata --no-deps --format-version 1 --locked",
+                concat!(
+                    "metadata --no-deps --format-version 1 --locked --manifest-path ",
+                    "tests/feature_gate/Cargo.toml",
+                ),
             ],
             "discovery must issue exactly the two read-only metadata queries"
         );
@@ -219,6 +335,40 @@ mod cargo_target_tests {
             ["wireframe", "wireframe-feature-gate"],
             "roots from both metadata documents must be combined"
         );
+    }
+
+    #[test]
+    fn metadata_queries_leave_an_isolated_package_unchanged() -> RepoAccessResult {
+        let scratch = Scratch::new()?;
+        let dir = scratch.open()?;
+        dir.create_dir("src")?;
+        dir.write("Cargo.toml", PROBE_MANIFEST)?;
+        dir.write("src/lib.rs", "pub fn probe() {}\n")?;
+        let root = scratch.path();
+        generate_lockfile(&root)?;
+        let before = file_paths(&dir)?;
+
+        let metadata = run_cargo_metadata(root.as_std_path(), WORKSPACE_METADATA)?;
+
+        let packages = metadata
+            .get("packages")
+            .and_then(serde_json::Value::as_array)
+            .map_or(0, Vec::len);
+        if packages != 1 {
+            return Err(format!(
+                "the probe workspace should describe its one package; found {packages}"
+            )
+            .into());
+        }
+        let after = file_paths(&dir)?;
+        if after != before {
+            return Err(format!(
+                "a metadata query must not add, remove or rewrite files in the package it \
+                 inspects; before {before:?}, after {after:?}"
+            )
+            .into());
+        }
+        Ok(())
     }
 
     #[test]
