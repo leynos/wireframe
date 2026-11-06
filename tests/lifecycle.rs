@@ -177,7 +177,7 @@ async fn helpers_preserve_correlation_id_and_run_callbacks() -> TestResult<()> {
     let bytes = BincodeSerializer.serialize(&env)?;
     let mut frame = BytesMut::with_capacity(bytes.len() + 4);
     let mut codec = new_test_codec(TEST_MAX_FRAME);
-    codec.encode(bytes.into(), &mut frame)?;
+    codec.encode(bytes::Bytes::from(bytes), &mut frame)?;
 
     let out = run_app(app, vec![frame.to_vec()], None).await?;
     check(!out.is_empty(), "expected response frames")?;

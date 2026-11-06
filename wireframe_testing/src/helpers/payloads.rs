@@ -3,7 +3,7 @@
 use std::io;
 
 use bincode::config;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use tokio_util::codec::{Encoder, LengthDelimitedCodec};
 use wireframe::{
     app::{Packet, WireframeApp},
@@ -81,12 +81,14 @@ fn encode_payloads(
         .map(|payload| {
             let header_len = LengthFormat::default().bytes();
             let mut buf = BytesMut::with_capacity(payload.len() + header_len);
-            codec.encode(payload.into(), &mut buf).map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("frame encode failed: {err}"),
-                )
-            })?;
+            codec
+                .encode(Bytes::from(payload), &mut buf)
+                .map_err(|err| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("frame encode failed: {err}"),
+                    )
+                })?;
             Ok(buf.to_vec())
         })
         .collect()
@@ -159,9 +161,9 @@ where
     })?;
     let mut codec = new_test_codec(DEFAULT_CAPACITY);
     let mut prefix_probe = BytesMut::new();
-    codec.encode(Vec::<u8>::new().into(), &mut prefix_probe)?;
+    codec.encode(Bytes::new(), &mut prefix_probe)?;
     let prefix_len = prefix_probe.len();
     let mut framed = BytesMut::with_capacity(bytes.len() + prefix_len);
-    codec.encode(bytes.into(), &mut framed)?;
+    codec.encode(Bytes::from(bytes), &mut framed)?;
     drive::drive_with_frame(app, framed.to_vec()).await
 }

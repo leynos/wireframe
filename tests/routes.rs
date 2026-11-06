@@ -130,7 +130,7 @@ async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
         };
         let env_bytes = BincodeSerializer.serialize(&env)?;
         let mut framed = BytesMut::with_capacity(env_bytes.len() + 4);
-        codec.encode(env_bytes.into(), &mut framed)?;
+        codec.encode(bytes::Bytes::from(env_bytes), &mut framed)?;
         encoded_frames.push(framed.to_vec());
     }
 
@@ -190,7 +190,7 @@ async fn single_frame_propagates_correlation_id(#[case] cid: Option<u64>) -> Tes
 
     let mut frame_buf = BytesMut::with_capacity(env_bytes.len() + 4);
     let mut codec = new_test_codec(TEST_MAX_FRAME);
-    codec.encode(env_bytes.into(), &mut frame_buf)?;
+    codec.encode(bytes::Bytes::from(env_bytes), &mut frame_buf)?;
 
     let out = drive_with_frames(app, vec![frame_buf.to_vec()]).await?;
     let frames = decode_frames(&out)?;
