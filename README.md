@@ -207,8 +207,9 @@ version. Upgrading from v0.3.0? The
 
 A few things are worth knowing before you build on it:
 
-- **One reply per request.** A routed request produces exactly one response
-  frame, and a handler cannot return a stream.
+- **One reply per request.** A routed request produces exactly one response,
+  which is split across frames only by fragmentation, and a handler cannot
+  return a stream.
 - **Some parts ship ahead of the wiring.** Push queues, `ConnectionActor`,
   streaming request bodies, extractors, and codec recovery policies exist and
   are tested, but `WireframeServer` does not drive them yet. The
