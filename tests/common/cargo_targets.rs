@@ -161,6 +161,5 @@ fn relative_path<'a>(root: &'a TargetRoot, repo: &'a Utf8Path) -> &'a Utf8Path {
 }
 
 #[cfg(test)]
-#[cfg(test)]
 #[path = "cargo_targets/tests.rs"]
 mod cargo_target_tests;
