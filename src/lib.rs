@@ -19,6 +19,22 @@
 
 extern crate self as wireframe;
 
+// Compile and run every Rust fence in the user-facing documents as a doctest.
+// `tests/documentation_examples_tests.rs` holds the matching fence contracts.
+#[cfg(doctest)]
+mod documentation_examples {
+    #[doc = include_str!("../README.md")]
+    struct Readme;
+
+    #[doc = include_str!("../docs/v0-4-0-migration-guide.md")]
+    struct MigrationGuide;
+
+    // The guide teaches optional features, so its examples need them enabled.
+    #[cfg(all(feature = "pool", feature = "testkit", feature = "metrics"))]
+    #[doc = include_str!("../docs/users-guide.md")]
+    struct UsersGuide;
+}
+
 pub mod app;
 pub mod app_data_store;
 pub mod benchmark_counters;

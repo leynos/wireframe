@@ -141,8 +141,8 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
 
 ## Migration guides
 
-- [v0.3.0 to v0.4.0 migration guide](v0-3-0-to-v0-4-0-migration-guide.md)
-  Moving from builder connection handling to reusable prepared applications.
+- [v0.4.0 migration guide](v0-4-0-migration-guide.md) Every change to act on
+  when moving from v0.3.0 to v0.4.0-alpha1.
 
 ## Operations and resilience
 
