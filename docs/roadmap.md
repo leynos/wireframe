@@ -855,7 +855,7 @@ document so larger deployments can adopt the library confidently.
   ([§7.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#72-protocol-generic-proof)
   and
   [§7.3](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#73-compatibility-and-compile-time-coverage)).
-- [ ] 17.3.5. Make `wireframe_testing` an explicit quality-gate target. Run
+- [x] 17.3.5. Make `wireframe_testing` an explicit quality-gate target. Run
   `cargo test -p wireframe_testing --all-targets --all-features` and
   `cargo test -p wireframe_testing --doc --all-features` in the Makefile and
   Continuous Integration workflow, repair the examples tracked by issue #578,

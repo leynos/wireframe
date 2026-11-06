@@ -23,7 +23,7 @@ use super::{EMPTY_SERVER_CAPACITY, MAX_CAPACITY, TestSerializer, drive::drive_in
 /// # use wireframe_testing::run_app;
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() -> std::io::Result<()> {
-/// let app = WireframeApp::new().expect("failed to initialize app");
+/// let app: WireframeApp = WireframeApp::new().expect("failed to initialize app");
 /// let out = run_app(app, vec![vec![1]], None).await?;
 /// # let _ = out;
 /// # Ok(())
@@ -78,7 +78,7 @@ where
 /// # use wireframe_testing::run_with_duplex_server;
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() {
-/// let app = WireframeApp::new().expect("failed to initialize app");
+/// let app: WireframeApp = WireframeApp::new().expect("failed to initialize app");
 /// run_with_duplex_server(app).await;
 /// # }
 /// ```

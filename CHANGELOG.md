@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Run doctests in CI. `make test` selects `--all-targets`, which excludes them,
+  so no documented example was being compiled. Repair the `wireframe_testing`
+  doctests, stop excluding that crate from `make test-doc`, restore it as a
+  mutation target, and re-export `drive_with_frame_with_capacity_mut` and
+  `drive_with_frames_with_capacity_mut` from its crate root.
+  ([#578](https://github.com/leynos/wireframe/issues/578))
+
 - **Breaking:** Protocol `before_send` hooks now run for `WireframeApp`
   handler responses, not only actor-driven push and multi-packet frames. The
   hook sees the serialized, codec-wrapped frame before codec encoding and must

@@ -25,7 +25,7 @@ use super::{DEFAULT_CAPACITY, TestSerializer, drive, new_test_codec};
 /// # use wireframe_testing::drive_with_payloads;
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() -> std::io::Result<()> {
-/// let app = WireframeApp::new().expect("failed to initialize app");
+/// let app: WireframeApp = WireframeApp::new().expect("failed to initialize app");
 /// let out = drive_with_payloads(app, vec![vec![1], vec![2]]).await?;
 /// # let _ = out;
 /// # Ok(())
@@ -53,7 +53,7 @@ where
 /// # use wireframe_testing::drive_with_payloads_mut;
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() -> std::io::Result<()> {
-/// let mut app = WireframeApp::new().expect("failed to initialize app");
+/// let mut app: WireframeApp = WireframeApp::new().expect("failed to initialize app");
 /// let out = drive_with_payloads_mut(&mut app, vec![vec![1], vec![2]]).await?;
 /// # let _ = out;
 /// # Ok(())
@@ -136,7 +136,7 @@ where
 /// #[derive(bincode::Encode)]
 /// struct Ping(u8);
 /// # async fn demo() -> std::io::Result<()> {
-/// let app = WireframeApp::new().expect("failed to initialize app");
+/// let app: WireframeApp = WireframeApp::new().expect("failed to initialize app");
 /// let bytes = drive_with_bincode(app, Ping(1)).await?;
 /// # Ok(())
 /// # }

@@ -41,12 +41,12 @@ pub(super) fn assert_workspace_validation_scope(makefile: &MakefileContent<'_>) 
         "`test` should not restrict the workspace it validates",
     )?;
     ensure(
-        test_doc_recipe.contains("--exclude wireframe_testing --doc --all-features"),
-        "`test-doc` should retain the tracked wireframe_testing doctest exclusion",
+        test_doc_recipe.contains("--workspace --doc --all-features"),
+        "`test-doc` should run every workspace member's doctests with all features",
     )?;
     ensure(
-        test_doc_recipe.contains("#578"),
-        "`test-doc` should name issue #578 as the owner of the doctest exclusion",
+        !test_doc_recipe.contains("--exclude"),
+        "`test-doc` should not exclude a workspace member from doctests",
     )?;
     ensure(
         typecheck_recipe.contains("--all-targets --all-features"),
