@@ -23,7 +23,8 @@ from nextest_contract_support import (
     repository_targets,
 )
 from nextest_policy import override_target_violations
-from rust_source_scanning import drives_trybuild, is_loom_gated
+from rust_source_lexing import drives_trybuild
+from rust_source_scanning import is_loom_gated
 
 if typ.TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -152,6 +153,7 @@ def _source_reader_with(
         "non_exact",
         "extra_override",
         "uncovered_trybuild_target",
+        "cfg_gated_test",
     ],
 )
 def test_override_mutations_are_rejected(mutation: str) -> None:
@@ -168,6 +170,15 @@ def test_override_mutations_are_rejected(mutation: str) -> None:
         )
         targets = (*targets, synthetic)
         extra_sources[synthetic.src_path] = TRYSBUILD_SOURCE
+    elif mutation == "cfg_gated_test":
+        target = next(target for target in targets if target.name == "compile_error")
+        source = read_source(target.src_path)
+        gated = source.replace(
+            "#[test]\nfn compile_tests()",
+            '#[cfg(feature = "never")]\n#[test]\nfn compile_tests()',
+        )
+        assert gated != source, "the mutation must gate the compile_tests function"
+        extra_sources[target.src_path] = gated
     else:
         _mutate_override_config(mutation, config, targets)
     with pytest.raises(AssertionError):

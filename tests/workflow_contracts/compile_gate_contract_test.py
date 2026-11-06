@@ -237,6 +237,14 @@ def test_coverage_guards_only_compiler_driving_harnesses() -> None:
         pytest.param(
             "mod m {\n    #![cfg(not(coverage))]\n}\n", False, id="nested"
         ),
+        pytest.param(
+            "mod m {\n#![cfg(not(coverage))]\n}\n",
+            False,
+            id="nested-column-zero",
+        ),
+        pytest.param(
+            "    #![cfg(not(coverage))]\n", True, id="indented-crate-level"
+        ),
     ],
 )
 def test_coverage_guard_must_be_active(source: str, expected: bool) -> None:

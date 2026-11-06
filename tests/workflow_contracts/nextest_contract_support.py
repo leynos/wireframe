@@ -67,11 +67,43 @@ def read_source(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def load_config(path: Path = NEXTEST_CONFIG) -> dict[str, typ.Any]:
+    """Load one nextest configuration, failing loudly when it cannot be read.
+
+    Loading is separate from caching so the failure paths can be exercised
+    without depending on the repository file, and so a caller that needs a
+    different configuration is not served the cached one.
+
+    Parameters
+    ----------
+    path : Path
+        The nextest configuration to read.
+
+    Returns
+    -------
+    dict[str, typ.Any]
+        The parsed configuration.
+
+    Raises
+    ------
+    OSError
+        When the file does not exist or cannot be read.
+    tomllib.TOMLDecodeError
+        When the file is not valid TOML.
+
+    Examples
+    --------
+    >>> sorted(load_config()["profile"])
+    ['default']
+    """
+    with path.open("rb") as config_file:
+        return tomllib.load(config_file)
+
+
 @functools.cache
 def _repository_config() -> dict[str, typ.Any]:
     """Load the repository nextest configuration once."""
-    with NEXTEST_CONFIG.open("rb") as config_file:
-        return tomllib.load(config_file)
+    return load_config()
 
 
 def repository_config() -> dict[str, typ.Any]:

@@ -11,9 +11,9 @@ from __future__ import annotations
 import pytest
 
 from nextest_policy import FilterSyntaxError, parse_target_filter
+from rust_source_lexing import drives_trybuild
 from rust_source_scanning import (
     defines_test_function,
-    drives_trybuild,
     is_loom_gated,
     qualified_test_names,
 )

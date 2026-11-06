@@ -3,10 +3,10 @@
 `make test-ui` is the only place CI runs the trybuild and Loom compile-time
 suites, so the recipe itself is part of the contract. Matching the recipe text
 is not enough: an `@echo` of a harness, a harness behind an inactive Make
-conditional, a second `test-ui` rule that replaces the first, or the Loom
-`--cfg=loom` flag moved onto the root command all leave the text intact while
-the harness never runs. The checks here read the recipe as commands and refuse
-each of those shapes.
+conditional, a second `test-ui` rule that replaces the first, a harness moved
+under a later target, or the Loom `--cfg=loom` flag moved onto the root command
+all leave the text intact while the harness never runs. The checks here read the
+recipe as commands and refuse each of those shapes.
 """
 
 from __future__ import annotations
@@ -34,6 +34,34 @@ _MAKE_CONDITIONAL: re.Pattern[str] = re.compile(
 _UI_TARGET_RULE: re.Pattern[str] = re.compile(r"^test-ui:", re.MULTILINE)
 
 
+def _recipe_body(remainder: str) -> str:
+    """Return the tab-indented recipe lines at the start of ``remainder``.
+
+    ``remainder`` begins part-way through the target line, so its first line is
+    dropped. GNU Make ends a recipe at the first line that does not begin with a
+    tab, and that line may be another target with no blank line in between.
+    Splitting on a blank line alone would read a later target's commands as this
+    recipe's.
+
+    Parameters
+    ----------
+    remainder
+        Makefile text from the end of the ``test-ui:`` matcher onwards.
+
+    Returns
+    -------
+    str
+        The recipe lines, each keeping its leading tab and newline.
+    """
+    lines = remainder.splitlines(keepends=True)[1:]
+    body: list[str] = []
+    for line in lines:
+        if not line.startswith("\t"):
+            break
+        body.append(line)
+    return "".join(body)
+
+
 def ui_recipe(makefile: str) -> str:
     """Return the body of the single ``test-ui`` recipe in ``makefile``.
 
@@ -45,7 +73,8 @@ def ui_recipe(makefile: str) -> str:
     Returns
     -------
     str
-        Recipe text from the ``test-ui:`` rule up to the next blank line.
+        Recipe text from the ``test-ui:`` rule up to the first line that is not
+        a recipe line.
 
     Raises
     ------
@@ -58,7 +87,7 @@ def ui_recipe(makefile: str) -> str:
     assert len(rules) == 1, (
         f"the Makefile must declare exactly one test-ui rule, found {len(rules)}"
     )
-    return makefile[rules[0].end() :].split("\n\n", 1)[0]
+    return _recipe_body(makefile[rules[0].end() :])
 
 
 def ui_target_body() -> str:
@@ -67,7 +96,8 @@ def ui_target_body() -> str:
     Returns
     -------
     str
-        Recipe text from ``test-ui:`` up to the next blank line.
+        Recipe text from ``test-ui:`` up to the first line that is not a recipe
+        line.
     """
     return ui_recipe((REPO_ROOT / "Makefile").read_text())
 
@@ -161,6 +191,28 @@ def test_ui_target_requires_one_unambiguous_rule(makefile: str) -> None:
     """A missing or repeated ``test-ui`` rule is refused, not guessed at."""
     with pytest.raises(AssertionError, match="exactly one"):
         ui_recipe(makefile)
+
+
+#: A ``test-ui`` rule whose harnesses sit under a later target, with no blank
+#: line in between. Make ends the first recipe at the next target, so those
+#: commands never run for ``make test-ui``.
+_HARNESSES_UNDER_LATER_TARGET: str = (
+    "test-ui:\n"
+    "\t@echo announced\n"
+    "test-feature-gate:\n"
+    f"\t{ROOT_HARNESS_COMMAND}\n"
+    f"\t{LOOM_HARNESS_COMMAND}\n"
+)
+
+
+def test_ui_recipe_stops_at_the_next_target() -> None:
+    """A harness moved under a later target is not a ``test-ui`` command."""
+    body = ui_recipe(_HARNESSES_UNDER_LATER_TARGET)
+    assert body == "\t@echo announced\n", (
+        "the recipe must end at the next target, not at the next blank line"
+    )
+    with pytest.raises(AssertionError):
+        assert_ui_target_keeps_harnesses(body)
 
 
 @pytest.mark.parametrize(

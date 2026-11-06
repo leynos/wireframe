@@ -1,0 +1,176 @@
+"""Strip Rust comments and literals so scanning sees only live code.
+
+A contract that reads Rust source as text has to tell code from the text that
+merely looks like it: a commented-out ``#[test]``, a doc comment quoting an
+attribute, or a string literal containing ``trybuild::TestCases`` is not
+evidence that anything is compiled. This module answers that question once for
+every scanner in the suite, by replacing each comment and literal with inert
+text of the same shape.
+
+It is deliberately not a Rust parser. It handles the forms a contract file can
+meaningfully inspect — line comments, nestable block comments, standard
+strings, raw strings and character literals — and leaves everything else
+alone.
+"""
+
+from __future__ import annotations
+
+import re
+
+#: A trybuild driver, however the path is spaced.
+_TRYBUILD: re.Pattern[str] = re.compile(r"trybuild\s*::\s*TestCases")
+
+#: The start of a raw string literal, including its hash fence.
+_RAW_STRING: re.Pattern[str] = re.compile(r'r(?P<hashes>#{0,32})"')
+
+
+def _skip_line_comment(source: str, index: int) -> int:
+    """Return the index of the newline ending a ``//`` comment."""
+    newline = source.find("\n", index + 2)
+    return len(source) if newline == -1 else newline
+
+
+def _skip_block_comment(source: str, index: int) -> int:
+    """Return the index just past a nestable ``/* ... */`` comment."""
+    depth = 1
+    index += 2
+    while index < len(source) and depth:
+        if source.startswith("/*", index):
+            depth += 1
+            index += 2
+        elif source.startswith("*/", index):
+            depth -= 1
+            index += 2
+        else:
+            index += 1
+    return index
+
+
+def _skip_string(source: str, index: int) -> int:
+    """Return the index just past a standard ``"..."`` literal."""
+    index += 1
+    while index < len(source):
+        if source[index] == "\\":
+            index += 2
+        elif source[index] == '"':
+            return index + 1
+        else:
+            index += 1
+    return index
+
+
+def _follows_identifier(source: str, index: int) -> bool:
+    """Return whether the character before ``index`` could end an identifier."""
+    if index == 0:
+        return False
+    previous = source[index - 1]
+    return previous.isalnum() or previous == "_"
+
+
+def _skip_raw_string(source: str, index: int) -> int | None:
+    """Return the index past a raw string, or ``None`` if this is not one."""
+    if _follows_identifier(source, index):
+        return None
+    match = _RAW_STRING.match(source, index)
+    if match is None:
+        return None
+    terminator = '"' + match.group("hashes")
+    end = source.find(terminator, match.end())
+    return len(source) if end == -1 else end + len(terminator)
+
+
+def _skip_char(source: str, index: int) -> int | None:
+    """Return the index past a character literal, or ``None`` for a lifetime."""
+    if index + 1 >= len(source):
+        return None
+    if source[index + 1] == "\\":
+        # ``'\''`` escapes a quote, so the search starts after the escaped
+        # character; otherwise it matches that quote and leaves the closing
+        # quote to be read as the start of another literal.
+        end = source.find("'", index + 3)
+        return None if end == -1 else end + 1
+    if index + 2 < len(source) and source[index + 2] == "'":
+        return index + 3
+    return None
+
+
+def _char_replacement(source: str, index: int) -> tuple[str, int]:
+    """Return the replacement for a lifetime start or a character literal."""
+    end = _skip_char(source, index)
+    if end is None:
+        return source[index], index + 1
+    return "' '", end
+
+
+def _literal_replacement(source: str, index: int) -> tuple[str, int] | None:
+    """Return the text replacing the comment or literal at ``index``."""
+    if source.startswith("//", index):
+        return " ", _skip_line_comment(source, index)
+    if source.startswith("/*", index):
+        return " ", _skip_block_comment(source, index)
+    if source[index] == '"':
+        return '""', _skip_string(source, index)
+    if source[index] == "'":
+        return _char_replacement(source, index)
+    end = _skip_raw_string(source, index)
+    if end is None:
+        return None
+    return '""', end
+
+
+def without_comments_and_literals(source: str) -> str:
+    """Return ``source`` with comments and literals replaced by inert text.
+
+    Scanning runs over the result, so a commented-out ``#[test]`` or a string
+    that happens to contain ``trybuild::TestCases`` cannot count as evidence.
+
+    Parameters
+    ----------
+    source : str
+        Rust source text to clean.
+
+    Returns
+    -------
+    str
+        The same text with every comment and literal blanked out.
+
+    Examples
+    --------
+    >>> without_comments_and_literals("// #[test]\\nfn a() {}")
+    ' \\nfn a() {}'
+    """
+    pieces: list[str] = []
+    index = 0
+    while index < len(source):
+        replacement = _literal_replacement(source, index)
+        if replacement is None:
+            pieces.append(source[index])
+            index += 1
+        else:
+            text, index = replacement
+            pieces.append(text)
+    return "".join(pieces)
+
+
+def drives_trybuild(source: str) -> bool:
+    """Return whether live code in ``source`` constructs ``trybuild::TestCases``.
+
+    Parameters
+    ----------
+    source : str
+        Rust source text to scan.
+
+    Returns
+    -------
+    bool
+        ``True`` when live code constructs ``trybuild::TestCases``; ``False``
+        when it appears only in a comment or a string literal.
+
+    Examples
+    --------
+    >>> drives_trybuild("let cases = trybuild::TestCases::new();")
+    True
+    >>> drives_trybuild('// trybuild::TestCases')
+    False
+    """
+    return _TRYBUILD.search(without_comments_and_literals(source)) is not None

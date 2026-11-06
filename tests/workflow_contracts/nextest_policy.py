@@ -8,15 +8,16 @@ the filter against the targets ``cargo metadata`` reports, so that rot fails a
 contract instead of passing unnoticed.
 
 The test-function check is source-level: it proves a crate-root ``#[test]``
-function with the filter's exact name is written in the target's source, not
-that nextest's own test list contains it. Nextest test-list evidence is
-deliberately not used, because producing it would run the very compilation
-this contract exists to bound. Because nextest matches ``test(=name)`` against
-the fully qualified test name, the check computes the module path from inline
-``mod`` blocks: a test defined only as ``contracts::compile_tests`` does not
-satisfy ``test(=compile_tests)``. Contract runs the scanning in
-``rust_source_scanning``, which also strips comments and literals so a
-commented-out definition is not evidence.
+function with the filter's exact name is written in the target's source, and
+that no ``cfg`` attribute on the test or an enclosing module can remove it
+from the run. It does not prove that nextest's own test list contains it.
+Nextest test-list evidence is deliberately not used, because producing it
+would run the very compilation this contract exists to bound. Because nextest
+matches ``test(=name)`` against the fully qualified test name, the check
+computes the module path from inline ``mod`` blocks: a test defined only as
+``contracts::compile_tests`` does not satisfy ``test(=compile_tests)``. The
+scanning lives in ``rust_source_scanning``; the text it reads is cleaned by
+``rust_source_lexing`` first, so a commented-out definition is not evidence.
 
 The timeout tier chain lives in ``timeout_policy``; the two modules are split
 by role rather than by size, and both are called from the tests beside them.
@@ -28,11 +29,12 @@ import dataclasses
 import re
 import typing as typ
 
+from rust_source_lexing import drives_trybuild
 from rust_source_scanning import (
     defines_test_function,
-    drives_trybuild,
-    is_loom_gated,
     describe_qualified_definitions,
+    is_conditionally_excluded_test,
+    is_loom_gated,
 )
 
 if typ.TYPE_CHECKING:
@@ -177,6 +179,11 @@ def _target_source_violations(
             f"override {resolved.index} names test {parsed.test!r}, which "
             f"{target.src_path} does not define at its crate root"
             f"{describe_qualified_definitions(source, parsed.test)}"
+        )
+    elif is_conditionally_excluded_test(source, parsed.test):
+        violations.append(
+            f"override {resolved.index} names test {parsed.test!r}, which a "
+            f"cfg attribute in {target.src_path} can exclude from the run"
         )
     if not drives_trybuild(source):
         violations.append(

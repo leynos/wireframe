@@ -29,13 +29,15 @@ from nextest_contract_support import (
     NESTED_MODULE_TEST_SOURCE,
     NEXTEST_CONFIG,
     assert_no_override_violations,
+    load_config,
     read_source,
     repository_config,
     repository_targets,
     write_crate,
 )
 from nextest_policy import override_target_violations
-from rust_source_scanning import drives_trybuild, is_loom_gated
+from rust_source_lexing import drives_trybuild
+from rust_source_scanning import is_loom_gated
 from runner_placement_reader import REPO_ROOT
 
 if typ.TYPE_CHECKING:
@@ -234,6 +236,26 @@ def test_invalid_metadata_json_is_reported(
     _stub_metadata(monkeypatch, "{not json")
     with pytest.raises(cargo_targets.CargoMetadataError, match="did not emit JSON"):
         read_test_targets(tmp_path / "Cargo.toml")
+
+
+def test_missing_configuration_is_reported(tmp_path: Path) -> None:
+    """A configuration that is not there fails loudly, not as an empty policy."""
+    with pytest.raises(FileNotFoundError):
+        load_config(tmp_path / "absent.toml")
+
+
+def test_invalid_configuration_toml_is_reported(tmp_path: Path) -> None:
+    """A configuration that is not TOML is reported, not read as defaults."""
+    path = tmp_path / "nextest.toml"
+    path.write_text("[profile.default\n", encoding="utf-8")
+    with pytest.raises(tomllib.TOMLDecodeError):
+        load_config(path)
+
+
+def test_missing_target_source_is_reported() -> None:
+    """A target whose source has gone fails loudly rather than passing."""
+    with pytest.raises(FileNotFoundError):
+        read_source(REPO_ROOT / "tests" / "absent.rs")
 
 
 def test_repository_config_readings_are_isolated() -> None:

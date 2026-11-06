@@ -24,7 +24,7 @@ from nextest_policy import (
     override_target_violations,
     parse_target_filter,
 )
-from rust_source_scanning import qualified_test_names
+from rust_source_scanning import has_coverage_gate, qualified_test_names
 
 #: A value nextest's exact-``=`` matcher accepts.
 MATCHER_VALUE = st.from_regex(r"[A-Za-z0-9_.\-]{1,20}", fullmatch=True)
@@ -40,6 +40,8 @@ MATCHER_KEYS = st.permutations(["package", "binary", "test"])
 SEPARATORS = st.sampled_from([" & ", "&", "  &  "])
 #: Ways text can mention a definition without it being compiled.
 SHADOWS = st.sampled_from(["line_comment", "block_comment", "string"])
+#: Indentation a crate-level item may carry without changing its scope.
+INDENTS = st.sampled_from(["", "    ", "\t"])
 
 PROPERTY_SETTINGS = settings(
     max_examples=25, deadline=None, suppress_health_check=[HealthCheck.too_slow]
@@ -165,6 +167,43 @@ def test_text_that_only_shadows_a_definition_is_not_evidence(
     )
 
 
+COVERAGE_GATE = "#![cfg(not(coverage))]"
+
+
+@PROPERTY_SETTINGS
+@given(modules=st.lists(IDENTIFIER, max_size=3), indent=INDENTS)
+def test_only_a_crate_scope_coverage_gate_is_active(
+    modules: list[str], indent: str
+) -> None:
+    """Indentation must not decide scope: nesting alone excludes the gate."""
+    source = _nest(f"{indent}{COVERAGE_GATE}", modules)
+    assert has_coverage_gate(source) is (not modules), (
+        f"{source!r} must be {'active' if not modules else 'nested'}"
+    )
+
+
+@PROPERTY_SETTINGS
+@given(
+    modules=st.lists(IDENTIFIER, max_size=2),
+    indent=INDENTS,
+    shadow=SHADOWS,
+)
+def test_a_shadowed_coverage_gate_is_never_active(
+    modules: list[str], indent: str, shadow: str
+) -> None:
+    """A gate inside a comment or literal cannot exclude anything."""
+    gate = f"{indent}{COVERAGE_GATE}"
+    body = _nest(gate, modules)
+    match shadow:
+        case "line_comment":
+            source = "\n".join(f"// {line}" for line in body.splitlines())
+        case "block_comment":
+            source = f"/* {body} */"
+        case _:
+            source = f'const GATE: &str = "{gate}";'
+    assert not has_coverage_gate(source), f"{source!r} must not be active"
+
+
 def _override_filter(package: str, binary: str, function: str) -> str:
     """Return the exact conjunction an override must state."""
     return f"package(={package}) & binary(={binary}) & test(={function})"
@@ -232,6 +271,7 @@ OVERRIDE_DEFECTS = st.sampled_from([
     "uncovered",
     "extra_override",
     "ambiguous",
+    "cfg_gated",
 ])
 
 
@@ -257,6 +297,13 @@ def _defective_override(
     if defect == "no_trybuild":
         return [target], {target.src_path: plain}, _override_config(filter_text), (
             "does not drive trybuild::TestCases"
+        )
+    if defect == "cfg_gated":
+        gated = source.replace(
+            f"fn {function}()", f'#[cfg(feature = "never")]\nfn {function}()'
+        )
+        return [target], {target.src_path: gated}, _override_config(filter_text), (
+            "cfg attribute"
         )
     if defect == "uncovered":
         return [target, other], {

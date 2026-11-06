@@ -4,186 +4,82 @@ Nextest names a test by its module path, so ``test(=compile_tests)`` selects a
 crate-root ``#[test] fn compile_tests`` and nothing else. Proving that from
 source means knowing which ``fn`` items are tests, which module each sits in,
 and which of the surrounding text is actually code: a commented-out definition
-or a string literal containing the name is not evidence.
+or a string literal containing the name is not evidence. The text is cleaned
+by ``rust_source_lexing`` before any of this scanning runs.
 
 The scanning here is deliberately small. It handles the layouts a contract file
-can meaningfully inspect — inline ``mod`` blocks, item braces, comments,
-standard strings, raw strings and character literals — and ignores everything
-else. It is not a Rust parser, and it says so: a definition it cannot see is
-reported as missing rather than assumed.
+can meaningfully inspect — inline ``mod`` blocks, item braces and item
+attributes — and ignores everything else. It is not a Rust parser, and it says
+so: a definition it cannot see is reported as missing rather than assumed.
 """
 
 from __future__ import annotations
 
 import re
+import typing as typ
 
-#: A trybuild driver, however the path is spaced.
-_TRYBUILD: re.Pattern[str] = re.compile(r"trybuild\s*::\s*TestCases")
+from rust_source_lexing import without_comments_and_literals
+
+if typ.TYPE_CHECKING:
+    from collections.abc import Iterator
 
 #: Tokens that name a test or change the scope around it. ``mod NAME {``
-#: consumes its opening brace so the module block is counted once. The Loom
-#: gate is a token so it can be attributed to the scope that encloses it.
+#: consumes its opening brace so the module block is counted once. The Loom and
+#: coverage gates are tokens so each can be attributed to the scope that
+#: encloses it, and a ``cfg`` attribute is a token so a test it can remove from
+#: the run is recognizable.
 _ITEM_TOKEN: re.Pattern[str] = re.compile(
     r"""
     (?P<loom_gate>\#\!\s*\[\s*cfg\s*\(\s*loom\s*\)\s*\])
+    | (?P<coverage_gate>
+        \#\!\s*\[\s*cfg\s*\(\s*not\s*\(\s*coverage\s*\)\s*\)\s*\])
+    | (?P<cfg_attribute>\#\s*\[\s*cfg\s*[\(\=])
     | (?P<module>\bmod\s+(?P<module_name>[A-Za-z_][A-Za-z0-9_]*)\s*\{)
     | (?P<open>\{)
     | (?P<close>\})
+    | (?P<semicolon>;)
     | (?P<test>\#\s*\[\s*test\s*\])
     | (?P<function>\bfn\s+(?P<function_name>[A-Za-z_][A-Za-z0-9_]*))
     """,
     re.VERBOSE,
 )
 
-#: An active, whole-line crate-level coverage opt-out. Leading whitespace is
-#: not accepted, so a gate indented inside an inline module does not qualify.
-_COVERAGE_GATE: re.Pattern[str] = re.compile(
-    r"#![ \t]*\[[ \t]*cfg[ \t]*\([ \t]*not[ \t]*\([ \t]*coverage[ \t]*\)[ \t]*\)"
-    r"[ \t]*\]"
-)
-
-#: The start of a raw string literal, including its hash fence.
-_RAW_STRING: re.Pattern[str] = re.compile(r'r(?P<hashes>#{0,32})"')
-
-
-def _skip_line_comment(source: str, index: int) -> int:
-    """Return the index of the newline ending a ``//`` comment."""
-    newline = source.find("\n", index + 2)
-    return len(source) if newline == -1 else newline
-
-
-def _skip_block_comment(source: str, index: int) -> int:
-    """Return the index just past a nestable ``/* ... */`` comment."""
-    depth = 1
-    index += 2
-    while index < len(source) and depth:
-        if source.startswith("/*", index):
-            depth += 1
-            index += 2
-        elif source.startswith("*/", index):
-            depth -= 1
-            index += 2
-        else:
-            index += 1
-    return index
-
-
-def _skip_string(source: str, index: int) -> int:
-    """Return the index just past a standard ``"..."`` literal."""
-    index += 1
-    while index < len(source):
-        if source[index] == "\\":
-            index += 2
-        elif source[index] == '"':
-            return index + 1
-        else:
-            index += 1
-    return index
-
-
-def _follows_identifier(source: str, index: int) -> bool:
-    """Return whether the character before ``index`` could end an identifier."""
-    if index == 0:
-        return False
-    previous = source[index - 1]
-    return previous.isalnum() or previous == "_"
-
-
-def _skip_raw_string(source: str, index: int) -> int | None:
-    """Return the index past a raw string, or ``None`` if this is not one."""
-    if _follows_identifier(source, index):
-        return None
-    match = _RAW_STRING.match(source, index)
-    if match is None:
-        return None
-    terminator = '"' + match.group("hashes")
-    end = source.find(terminator, match.end())
-    return len(source) if end == -1 else end + len(terminator)
-
-
-def _skip_char(source: str, index: int) -> int | None:
-    """Return the index past a character literal, or ``None`` for a lifetime."""
-    if index + 1 >= len(source):
-        return None
-    if source[index + 1] == "\\":
-        # ``'\''`` escapes a quote, so the search starts after the escaped
-        # character; otherwise it matches that quote and leaves the closing
-        # quote to be read as the start of another literal.
-        end = source.find("'", index + 3)
-        return None if end == -1 else end + 1
-    if index + 2 < len(source) and source[index + 2] == "'":
-        return index + 3
-    return None
-
-
-def _char_replacement(source: str, index: int) -> tuple[str, int]:
-    """Return the replacement for a lifetime start or a character literal."""
-    end = _skip_char(source, index)
-    if end is None:
-        return source[index], index + 1
-    return "' '", end
-
-
-def _literal_replacement(source: str, index: int) -> tuple[str, int] | None:
-    """Return the text replacing the comment or literal at ``index``."""
-    if source.startswith("//", index):
-        return " ", _skip_line_comment(source, index)
-    if source.startswith("/*", index):
-        return " ", _skip_block_comment(source, index)
-    if source[index] == '"':
-        return '""', _skip_string(source, index)
-    if source[index] == "'":
-        return _char_replacement(source, index)
-    end = _skip_raw_string(source, index)
-    if end is None:
-        return None
-    return '""', end
-
-
-def _without_comments_and_literals(source: str) -> str:
-    """Return ``source`` with comments and literals replaced by spaces.
-
-    Discovery runs over the result, so a commented-out ``#[test]`` or a string
-    that happens to contain ``trybuild::TestCases`` cannot count as evidence.
-    """
-    pieces: list[str] = []
-    index = 0
-    while index < len(source):
-        replacement = _literal_replacement(source, index)
-        if replacement is None:
-            pieces.append(source[index])
-            index += 1
-        else:
-            text, index = replacement
-            pieces.append(text)
-    return "".join(pieces)
-
 
 class _ScanState:
-    """Track open blocks and a pending ``#[test]`` while items are scanned."""
+    """Track open blocks and the attributes pending on the next item."""
 
     def __init__(self) -> None:
         self.blocks: list[str | None] = []
+        #: Whether each open block is itself behind a ``cfg`` attribute, so a
+        #: test nested inside one is conditionally excluded too.
+        self.block_cfg: list[bool] = []
         self.is_test_pending = False
+        self.is_cfg_pending = False
 
 
 def _enter_module(state: _ScanState, token: re.Match[str]) -> None:
-    """Record an inline module and clear any pending test attribute."""
+    """Record an inline module and clear any pending item attributes."""
     state.blocks.append(token.group("module_name"))
+    state.block_cfg.append(state.is_cfg_pending)
     state.is_test_pending = False
+    state.is_cfg_pending = False
 
 
 def _enter_block(state: _ScanState) -> None:
     """Record a block that is not a module, such as an ``impl`` or ``fn``."""
     state.blocks.append(None)
+    state.block_cfg.append(state.is_cfg_pending)
     state.is_test_pending = False
+    state.is_cfg_pending = False
 
 
 def _leave_block(state: _ScanState) -> None:
     """Close the innermost block, if any."""
     if state.blocks:
         state.blocks.pop()
+        state.block_cfg.pop()
     state.is_test_pending = False
+    state.is_cfg_pending = False
 
 
 def _note_function(state: _ScanState, token: re.Match[str]) -> str | None:
@@ -195,6 +91,49 @@ def _note_function(state: _ScanState, token: re.Match[str]) -> str | None:
     if len(modules) != len(state.blocks):
         return None
     return "::".join([*modules, token.group("function_name")])
+
+
+def _test_items(source: str) -> Iterator[tuple[str, bool]]:
+    """Yield each test's qualified name and whether ``cfg`` can exclude it.
+
+    ``#[test]`` is an item attribute, so a ``cfg`` attribute written in the
+    same attribute block, or on any enclosing module, removes the test from
+    the run. Tracking those two sources keeps the answer tied to scope rather
+    than to whatever text happens to sit nearby.
+
+    Parameters
+    ----------
+    source : str
+        Rust source text to scan.
+
+    Yields
+    ------
+    tuple[str, bool]
+        The module-qualified name, and ``True`` when a ``cfg`` attribute can
+        exclude the test.
+    """
+    state = _ScanState()
+    for token in _ITEM_TOKEN.finditer(without_comments_and_literals(source)):
+        # ``lastgroup`` names the alternative that matched, not its inner
+        # capture: a module token reports ``module``, a function ``function``.
+        match token.lastgroup:
+            case "module":
+                _enter_module(state, token)
+            case "open":
+                _enter_block(state)
+            case "close":
+                _leave_block(state)
+            case "semicolon":
+                state.is_cfg_pending = False
+            case "cfg_attribute":
+                state.is_cfg_pending = True
+            case "test":
+                state.is_test_pending = True
+            case "function":
+                is_gated = state.is_cfg_pending or any(state.block_cfg)
+                path = _note_function(state, token)
+                if path is not None:
+                    yield path, is_gated
 
 
 def qualified_test_names(source: str) -> frozenset[str]:
@@ -223,43 +162,42 @@ def qualified_test_names(source: str) -> frozenset[str]:
     >>> sorted(qualified_test_names("mod m { #[test] fn b() {} }"))
     ['m::b']
     """
-    text = _without_comments_and_literals(source)
-    state = _ScanState()
-    paths: set[str] = set()
-    for token in _ITEM_TOKEN.finditer(text):
-        # ``lastgroup`` names the alternative that matched, not its inner
-        # capture: a module token reports ``module``, a function ``function``.
-        match token.lastgroup:
-            case "module":
-                _enter_module(state, token)
-            case "open":
-                _enter_block(state)
-            case "close":
-                _leave_block(state)
-            case "test":
-                state.is_test_pending = True
-            case "function":
-                path = _note_function(state, token)
-                if path is not None:
-                    paths.add(path)
-    return frozenset(paths)
+    return frozenset(name for name, _ in _test_items(source))
 
 
-def drives_trybuild(source: str) -> bool:
-    """Return whether live code in ``source`` constructs ``trybuild::TestCases``.
+def is_conditionally_excluded_test(source: str, name: str) -> bool:
+    """Return whether a ``cfg`` attribute can keep the named test out of a run.
+
+    An attribute such as ``#[cfg(feature = "x")]`` on the test, or on a module
+    that encloses it, means nextest may list nothing for the override's exact
+    matcher. A ``cfg`` elsewhere in the file, including one on a statement
+    inside another function, is not attributed to this test.
 
     Parameters
     ----------
     source : str
         Rust source text to scan.
+    name : str
+        Bare function name the override's exact matcher states.
 
     Returns
     -------
     bool
-        ``True`` when live code constructs ``trybuild::TestCases``; ``False``
-        when it appears only in a comment or a string literal.
+        ``True`` when a crate-root test of that name sits behind a ``cfg``.
+
+    Examples
+    --------
+    >>> is_conditionally_excluded_test(
+    ...     '#[cfg(feature = "x")]\\n#[test]\\nfn a() {}', "a")
+    True
+    >>> is_conditionally_excluded_test("#[test]\\nfn a() {}", "a")
+    False
     """
-    return _TRYBUILD.search(_without_comments_and_literals(source)) is not None
+    return any(
+        is_gated
+        for qualified, is_gated in _test_items(source)
+        if qualified == name
+    )
 
 
 def is_loom_gated(source: str) -> bool:
@@ -290,7 +228,7 @@ def is_loom_gated(source: str) -> bool:
     False
     """
     state = _ScanState()
-    for token in _ITEM_TOKEN.finditer(_without_comments_and_literals(source)):
+    for token in _ITEM_TOKEN.finditer(without_comments_and_literals(source)):
         match token.lastgroup:
             case "loom_gate":
                 if not state.blocks:
@@ -305,12 +243,14 @@ def is_loom_gated(source: str) -> bool:
 
 
 def has_coverage_gate(source: str) -> bool:
-    """Return whether live source opens a crate-level coverage opt-out.
+    """Return whether live source carries a crate-level coverage opt-out.
 
-    Comments and literals are removed before the search, so an attribute that
-    was merely commented out is not a guard. The attribute must also start its
-    own line, which keeps a gate indented inside an inline module from counting
-    as a crate-level one.
+    An inner attribute applies to the item that encloses it, so a gate inside
+    an inline module excludes that module, not the crate, however it is
+    indented. Tracking brace scope therefore beats matching indentation: a
+    module-nested gate at column zero is not crate-level, and an indented
+    crate-level gate still is. Comments and literals are stripped first, so an
+    attribute that was merely commented out is not a guard.
 
     Parameters
     ----------
@@ -326,13 +266,22 @@ def has_coverage_gate(source: str) -> bool:
     --------
     >>> has_coverage_gate("#![cfg(not(coverage))]\\n")
     True
-    >>> has_coverage_gate("// #![cfg(not(coverage))]\\n")
+    >>> has_coverage_gate("mod m {\\n#![cfg(not(coverage))]\\n}\\n")
     False
     """
-    return any(
-        _COVERAGE_GATE.match(line)
-        for line in _without_comments_and_literals(source).splitlines()
-    )
+    state = _ScanState()
+    for token in _ITEM_TOKEN.finditer(without_comments_and_literals(source)):
+        match token.lastgroup:
+            case "coverage_gate":
+                if not state.blocks:
+                    return True
+            case "module":
+                _enter_module(state, token)
+            case "open":
+                _enter_block(state)
+            case "close":
+                _leave_block(state)
+    return False
 
 
 def defines_test_function(source: str, name: str) -> bool:
