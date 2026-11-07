@@ -80,11 +80,13 @@ pub fn decode_frames_with_max(bytes: &[u8], max_len: usize) -> io::Result<Vec<Ve
 pub fn encode_frame(codec: &mut LengthDelimitedCodec, bytes: Vec<u8>) -> io::Result<Vec<u8>> {
     let header_len = LengthFormat::default().bytes();
     let mut buf = BytesMut::with_capacity(bytes.len() + header_len);
-    codec.encode(bytes.into(), &mut buf).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("encode failed: {error}"),
-        )
-    })?;
+    codec
+        .encode(bytes::Bytes::from(bytes), &mut buf)
+        .map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("encode failed: {error}"),
+            )
+        })?;
     Ok(buf.to_vec())
 }

@@ -133,7 +133,7 @@ fn custom_length_roundtrip(
     let mut codec = builder.new_codec();
     let mut buf = BytesMut::with_capacity(frame.len() + prefix.len());
     codec
-        .encode(frame.clone().into(), &mut buf)
+        .encode(bytes::Bytes::from(frame.clone()), &mut buf)
         .expect("encode failed");
     let head = buf
         .get(..prefix.len())

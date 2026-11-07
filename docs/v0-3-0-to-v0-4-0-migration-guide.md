@@ -301,6 +301,20 @@ mutable drivers remain available as deprecated compatibility paths; migrate
 tests to the prepared helpers when they need to prove one-time middleware
 transformation or reuse prepared route services.
 
+The mutable capacity-aware drivers `drive_with_frame_with_capacity_mut` and
+`drive_with_frames_with_capacity_mut` are re-exported from the
+`wireframe_testing` crate root, matching every other `_mut` driver:
+
+```rust,no_run
+use wireframe_testing::{
+    drive_with_frame_with_capacity_mut,
+    drive_with_frames_with_capacity_mut,
+};
+```
+
+Both borrow the application, so one builder instance can be reused across calls
+while the duplex buffer size is set explicitly.
+
 ## Benchmark allocation counting
 
 `wireframe_testing::benchmark_alloc_support::CountingAllocator` has been

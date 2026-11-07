@@ -26,7 +26,7 @@ pub async fn send_one(
 ) -> SharedTestResult {
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(envelope)?;
-    client.send(bytes.into()).await?;
+    client.send(bytes::Bytes::from(bytes)).await?;
     Ok(())
 }
 

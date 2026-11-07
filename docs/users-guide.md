@@ -428,6 +428,35 @@ Available fragment-feeding driver functions:
 - `drive_with_partial_fragments` — fragment AND feed in chunks,
   exercising both fragmentation and partial-frame buffering simultaneously.
 
+#### Driving raw frames with `wireframe_testing`
+
+The `wireframe_testing` crate re-exports its length-delimited drivers from the
+crate root. Each driver has a plain form that takes an owned `WireframeApp`, a
+`_mut` form that borrows the application so it can be reused across calls, and a
+`_with_capacity` form that sets the duplex buffer size:
+
+```rust,no_run
+use wireframe::app::WireframeApp;
+use wireframe_testing::{
+    drive_with_frame_with_capacity_mut,
+    drive_with_frames_with_capacity_mut,
+};
+
+let mut app: WireframeApp = WireframeApp::new()?;
+
+// One frame through a 256-byte duplex buffer, reusing `app`.
+let one = drive_with_frame_with_capacity_mut(&mut app, vec![1, 2, 3], 256).await?;
+
+// Several frames through a 64-byte buffer, still reusing `app`.
+let many =
+    drive_with_frames_with_capacity_mut(&mut app, vec![vec![1], vec![2]], 64)
+        .await?;
+```
+
+`drive_with_frame_with_capacity_mut` and `drive_with_frames_with_capacity_mut`
+are available from the crate root alongside the other `_mut` drivers, so tests
+do not need the `wireframe_testing::helpers::drive` path.
+
 #### Asserting reassembly outcomes
 
 The `wireframe::testkit::reassembly` module provides non-panicking assertion

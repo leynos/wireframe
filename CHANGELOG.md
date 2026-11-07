@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Make `wireframe_testing` compile against `tokio-util` 0.7.20, whose extra
+  `Encoder` implementations made `.into()` conversions ambiguous. The lock file
+  held 0.7.19, so a fresh install failed while CI passed. The lock file now
+  selects 0.7.20, and the `metadata_routing` example and the tests build with
+  it.
+
+- Run doctests in CI. `make test` selects `--all-targets`, which excludes them,
+  so no documented example was being compiled. Repair the `wireframe_testing`
+  doctests, stop excluding that crate from `make test-doc`, restore it as a
+  mutation target, and re-export `drive_with_frame_with_capacity_mut` and
+  `drive_with_frames_with_capacity_mut` from its crate root.
+  ([#578](https://github.com/leynos/wireframe/issues/578))
+
 - **Breaking:** Protocol `before_send` hooks now run for `WireframeApp`
   handler responses, not only actor-driven push and multi-packet frames. The
   hook sees the serialized, codec-wrapped frame before codec encoding and must

@@ -22,7 +22,7 @@
 //!
 //! # async fn example() -> TestResult<()> {
 //! let mut pair = spawn_wireframe_pair(
-//!     || WireframeApp::default(),
+//!     || -> WireframeApp { WireframeApp::default() },
 //!     |builder| builder.max_frame_length(2048),
 //! )
 //! .await?;
@@ -269,7 +269,7 @@ impl Drop for PendingServer {
 ///
 /// # async fn example() -> TestResult<()> {
 /// let mut pair = spawn_wireframe_pair(
-///     || WireframeApp::default(),
+///     || -> WireframeApp { WireframeApp::default() },
 ///     |builder| builder.max_frame_length(2048),
 /// )
 /// .await?;
@@ -371,7 +371,8 @@ where
 /// use wireframe_testing::{TestResult, client_pair::spawn_wireframe_pair_default};
 ///
 /// # async fn example() -> TestResult<()> {
-/// let mut pair = spawn_wireframe_pair_default(|| WireframeApp::default()).await?;
+/// let mut pair =
+///     spawn_wireframe_pair_default(|| -> WireframeApp { WireframeApp::default() }).await?;
 /// pair.shutdown().await?;
 /// # Ok(())
 /// # }

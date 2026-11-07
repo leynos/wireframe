@@ -148,7 +148,7 @@ async fn fragmented_response_passes_through_pipeline(
     let envelopes = build_envelopes(request, &config, true)?;
 
     send_envelopes(&mut client, &envelopes).await?;
-    client.flush().await?;
+    SinkExt::<bytes::Bytes>::flush(&mut client).await?;
     client.get_mut().shutdown().await?;
 
     // Handler received the reassembled payload

@@ -3,7 +3,7 @@
 use std::io;
 
 use bincode::config;
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use tokio_util::codec::{Encoder, LengthDelimitedCodec};
 use wireframe::{
     app::{Packet, WireframeApp},
@@ -25,7 +25,7 @@ use super::{DEFAULT_CAPACITY, TestSerializer, drive, new_test_codec};
 /// # use wireframe_testing::drive_with_payloads;
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() -> std::io::Result<()> {
-/// let app = WireframeApp::new().expect("failed to initialize app");
+/// let app: WireframeApp = WireframeApp::new().expect("failed to initialize app");
 /// let out = drive_with_payloads(app, vec![vec![1], vec![2]]).await?;
 /// # let _ = out;
 /// # Ok(())
@@ -53,7 +53,7 @@ where
 /// # use wireframe_testing::drive_with_payloads_mut;
 /// # use wireframe::app::WireframeApp;
 /// # async fn demo() -> std::io::Result<()> {
-/// let mut app = WireframeApp::new().expect("failed to initialize app");
+/// let mut app: WireframeApp = WireframeApp::new().expect("failed to initialize app");
 /// let out = drive_with_payloads_mut(&mut app, vec![vec![1], vec![2]]).await?;
 /// # let _ = out;
 /// # Ok(())
@@ -81,12 +81,14 @@ fn encode_payloads(
         .map(|payload| {
             let header_len = LengthFormat::default().bytes();
             let mut buf = BytesMut::with_capacity(payload.len() + header_len);
-            codec.encode(payload.into(), &mut buf).map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("frame encode failed: {err}"),
-                )
-            })?;
+            codec
+                .encode(Bytes::from(payload), &mut buf)
+                .map_err(|err| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("frame encode failed: {err}"),
+                    )
+                })?;
             Ok(buf.to_vec())
         })
         .collect()
@@ -136,7 +138,7 @@ where
 /// #[derive(bincode::Encode)]
 /// struct Ping(u8);
 /// # async fn demo() -> std::io::Result<()> {
-/// let app = WireframeApp::new().expect("failed to initialize app");
+/// let app: WireframeApp = WireframeApp::new().expect("failed to initialize app");
 /// let bytes = drive_with_bincode(app, Ping(1)).await?;
 /// # Ok(())
 /// # }
@@ -159,9 +161,9 @@ where
     })?;
     let mut codec = new_test_codec(DEFAULT_CAPACITY);
     let mut prefix_probe = BytesMut::new();
-    codec.encode(Vec::<u8>::new().into(), &mut prefix_probe)?;
+    codec.encode(Bytes::new(), &mut prefix_probe)?;
     let prefix_len = prefix_probe.len();
     let mut framed = BytesMut::with_capacity(bytes.len() + prefix_len);
-    codec.encode(bytes.into(), &mut framed)?;
+    codec.encode(Bytes::from(bytes), &mut framed)?;
     drive::drive_with_frame(app, framed.to_vec()).await
 }

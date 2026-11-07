@@ -302,8 +302,8 @@ impl DerivedMemoryBudgetsWorld {
 
         let mut client = self.client.take().ok_or("client not initialized")?;
         let send_result = self.block_on(async {
-            client.send(frame.into()).await?;
-            client.flush().await?;
+            client.send(bytes::Bytes::from(frame)).await?;
+            SinkExt::<bytes::Bytes>::flush(&mut client).await?;
             Ok::<(), std::io::Error>(())
         });
         self.client = Some(client);
