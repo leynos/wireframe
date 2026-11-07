@@ -28,22 +28,21 @@ concurrency:
 
 jobs:
   coverage-upload:
-    # A push lane, so Ubicloud rather than GitHub-hosted. There is no fork
-    # arm: `push` carries no pull request, so the guard would be constant
-    # here and a constant guard reads as a decision nobody made.
-    #
-    # Four vCPU, and not measured at two: this lane runs the same runtime
-    # coverage as `ci.yml`; compile-time UI checks run in a separate CI step.
-    # This lane's own 240 s sample was taken on Namespace's shared profile,
-    # which is four vCPU and
-    # 16 GB, and it has not been sampled on two. It runs on merge pushes
-    # with nobody watching, so moving it needs its own measurement.
-    runs-on: ubicloud-standard-4
+    # The Coverage job of the three-way split of trunk coverage: it measures
+    # and uploads, and blocks no one's work (user ruling, 7 November), so it
+    # runs on a GitHub-hosted runner (four vCPU, as the Ubicloud shape it
+    # replaces was). It saves nothing to a cache and runs no ratchet: a hosted
+    # job's cache store is not the one the Ubicloud pull-request lane reads, so
+    # the baseline is handed to `coverage-baseline` below, and
+    # `coverage-warmup` keeps the compiler cache that lane reads warm. It
+    # compiles cold, which is why the ceiling is wider than the warm Ubicloud
+    # run's was. `push` carries no pull request, so there is no fork arm.
+    runs-on: ubuntu-24.04
     # The CodeScene token lives in this environment, whose deployment policy
     # admits `main` alone; the codescene environment contract holds it to
     # this job.
     environment: codescene
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
     env:
@@ -61,15 +60,19 @@ jobs:
       # runner needs the linker before coverage runs. The input installs it
       # and sets no flag; the Cargo configuration does that.
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@3086643fbcea5bc01ed65cf5aec5a3accf081ab4
+        uses: leynos/shared-actions/.github/actions/setup-rust@f84a7def5646a6fc7ba77c1f486906f66a0fed96
         with:
           install-mold: 'true'
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@3086643fbcea5bc01ed65cf5aec5a3accf081ab4
+        uses: leynos/shared-actions/.github/actions/generate-coverage@f84a7def5646a6fc7ba77c1f486906f66a0fed96
         with:
           output-path: lcov.info
           format: lcov
           with-ratchet: 'true'
+          # Measure and hand over; the ratchet and the save belong to
+          # `coverage-baseline`, on the runner whose cache the lane reads.
+          publish-baseline: never
+          baseline-artefact-name: coverage-baseline-handover
           # The same watchdog as `ci.yml`, and for the same reason: it bounds
           # the whole cargo run, sits outside the nextest global-timeout
           # (600 s) and inside this job's 20-minute ceiling.
@@ -99,7 +102,7 @@ jobs:
         # a5765019 is the floor: from it the uploader selects the CodeScene
         # CLI from a committed manifest. Earlier revisions install "latest",
         # which no longer resolves.
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@3086643fbcea5bc01ed65cf5aec5a3accf081ab4
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@f84a7def5646a6fc7ba77c1f486906f66a0fed96
         with:
           format: lcov
           # Stated rather than left to the action's default, because this
@@ -110,3 +113,56 @@ jobs:
           # is gone, so there is no second identity to stay aligned with.
           project-url: https://api.codescene.io/v2/projects/68308
           access-token: ${{ secrets.CS_ACCESS_TOKEN }}
+
+  # Ratchets the figure `coverage-upload` handed over and saves the baseline
+  # the Ubicloud pull-request lane restores. It runs only if the coverage job
+  # passed, so the baseline never advances from a failed run, and it compiles
+  # nothing. It carries no `if`: the action publishes only from a push.
+  coverage-baseline:
+    needs: coverage-upload
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      # This repository commits `.coverage-baseline-v2.rust`, which seeds the
+      # baseline when the restore misses; without a checkout the publisher
+      # would seed from 0 instead.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Publish the ratchet baseline
+        uses: leynos/shared-actions/.github/actions/publish-coverage-baseline@f84a7def5646a6fc7ba77c1f486906f66a0fed96
+        with:
+          artefact-name: coverage-baseline-handover
+          baseline-rust-file: .coverage-baseline-v2.rust
+
+  # Compiles the instrumented tests the pull-request lane builds, without
+  # running them, so that lane's compiler-cache reads hit. It runs on the
+  # lane's own runner shape and depends on nothing: a failing test is no
+  # reason to leave the cache cold.
+  coverage-warmup:
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CARGO_TERM_COLOR: always
+      BUILD_PROFILE: debug
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@f84a7def5646a6fc7ba77c1f486906f66a0fed96
+        with:
+          install-mold: 'true'
+      - name: Compile the instrumented tests
+        uses: leynos/shared-actions/.github/actions/generate-coverage@f84a7def5646a6fc7ba77c1f486906f66a0fed96
+        with:
+          output-path: lcov.info
+          format: lcov
+          build-only: 'true'
+          # The same watchdog as the coverage step and the lane, inside this
+          # job's ceiling.
+          cargo-wait-timeout: '900'

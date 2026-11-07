@@ -125,7 +125,6 @@ from runner_placement_policy import (
     GITHUB_HOSTED_LABEL,
     GITHUB_HOSTED_LABELS,
     HOSTED_GUARD,
-    UBICLOUD_LABEL,
     UBICLOUD_LABEL_PREFIX,
 )
 from runner_placement_reader import (
