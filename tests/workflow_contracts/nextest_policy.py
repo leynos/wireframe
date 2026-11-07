@@ -302,13 +302,15 @@ def override_target_violations(
     Returns
     -------
     list[str]
-        Violations; empty means the overrides are proved to apply.
+        Static violations; empty means no violation was found in the sources.
+        This is a reading of the configuration and the target text, not proof
+        that nextest applies the override when it runs the test.
 
     Raises
     ------
     OSError
         When ``read_source`` cannot read a target source. A source that
-        cannot be read leaves the override unproved, so the failure is
+        cannot be read leaves the override unchecked, so the failure is
         propagated rather than reported as a violation: a violation list
         would let a caller treat an unreadable target as a policy decision.
     """

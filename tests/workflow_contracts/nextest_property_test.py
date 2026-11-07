@@ -216,7 +216,7 @@ def test_an_override_naming_a_crate_root_trybuild_test_is_accepted(
     """An exact filter over the only trybuild target must report nothing."""
     targets, sources, config = accepted_override(package, binary, function)
     assert override_target_violations(config, targets, sources.__getitem__) == [], (
-        f"override for {package}/{binary}::{function} must be proved"
+        f"override for {package}/{binary}::{function} must report no violation"
     )
 
 
