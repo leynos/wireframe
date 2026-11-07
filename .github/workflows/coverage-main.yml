@@ -125,6 +125,12 @@ jobs:
     permissions:
       contents: read
     steps:
+      # This repository commits `.coverage-baseline-v2.rust`, which seeds the
+      # baseline when the restore misses; without a checkout the publisher
+      # would seed from 0 instead.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Publish the ratchet baseline
         uses: leynos/shared-actions/.github/actions/publish-coverage-baseline@f84a7def5646a6fc7ba77c1f486906f66a0fed96
         with:
