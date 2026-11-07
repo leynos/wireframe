@@ -10,6 +10,14 @@ All notable changes to this project will be documented in this file.
   selects 0.7.20, and the `metadata_routing` example and the tests build with
   it.
 
+- Correct rustdoc that overstated runtime integration: streaming request
+  bodies, extractors and `app_data` are not delivered to route handlers,
+  `RecoveryPolicyHook` and `on_eof` are not consulted by the connection loop,
+  the runtime does not emit `wireframe_codec_errors_total`, `read_timeout_ms`
+  does not close idle connections, and pool sockets open on first use. Mark
+  `WireframeApp::handle_connection*` deprecated since 0.4.0, the release that
+  deprecates them, and reopen roadmap item 8.1.4.
+
 - Run doctests in CI. `make test` selects `--all-targets`, which excludes them,
   so no documented example was being compiled. Repair the `wireframe_testing`
   doctests, stop excluding that crate from `make test-doc`, restore it as a
