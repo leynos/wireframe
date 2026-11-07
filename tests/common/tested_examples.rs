@@ -97,6 +97,33 @@ pub struct TestedExample {
     pub start_line: usize,
 }
 
+/// A published Markdown document split into the lines scanned for examples.
+///
+/// Grouping the path with its lines keeps the parser helpers from threading a
+/// bare path and a bare line slice through every call, and gives diagnostics a
+/// single source for the document name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublishedDocument<'a> {
+    path: &'a str,
+    lines: Vec<&'a str>,
+}
+
+impl<'a> PublishedDocument<'a> {
+    /// Split `text` into the lines scanned for tested examples.
+    pub fn new(path: &'a str, text: &'a str) -> Self {
+        Self {
+            path,
+            lines: text.lines().collect(),
+        }
+    }
+
+    fn path(&self) -> &'a str { self.path }
+
+    fn line(&self, index: usize) -> Option<&'a str> { self.lines.get(index).copied() }
+
+    fn lines(&self) -> &[&'a str] { &self.lines }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Fence {
     marker: char,
@@ -115,96 +142,97 @@ struct OpenExample {
 pub fn load_published_examples() -> Result<Vec<TestedExample>, String> {
     let mut identifiers = HashSet::new();
     let mut examples = Vec::new();
-    for (document, source) in USER_DOCUMENTS {
-        examples.extend(parse_document(document, source, &mut identifiers)?);
+    for (path, text) in USER_DOCUMENTS {
+        examples.extend(parse_document(
+            &PublishedDocument::new(path, text),
+            &mut identifiers,
+        )?);
     }
     Ok(examples)
 }
 
 /// Parse one source document while sharing identifiers with prior documents.
 pub fn parse_document(
-    document: &str,
-    source: &str,
+    document: &PublishedDocument<'_>,
     identifiers: &mut HashSet<String>,
 ) -> Result<Vec<TestedExample>, String> {
-    let lines: Vec<&str> = source.lines().collect();
     let mut examples = Vec::new();
     let mut open: Option<OpenExample> = None;
 
-    for (index, line) in lines.iter().enumerate() {
+    for (index, line) in document.lines().iter().copied().enumerate() {
         if let Some(active) = open.as_ref() {
             if is_closing_fence(line, active.fence) {
-                examples.push(finish_example(document, &lines, active, index)?);
+                examples.push(finish_example(document, active, index)?);
                 open = None;
             }
             continue;
         }
 
-        validate_marker_line(document, &lines, index, line)?;
-        open = parse_open_example(document, &lines, index, identifiers)?;
+        validate_marker_line(document, index)?;
+        open = parse_open_example(document, index, identifiers)?;
     }
 
     if let Some(active) = open {
         return Err(format!(
-            "{document}:{}: tested example `{}` has an unterminated fence",
-            active.start_line, active.id
+            "{}:{}: tested example `{}` has an unterminated fence",
+            document.path(),
+            active.start_line,
+            active.id
         ));
     }
 
     Ok(examples)
 }
 
-fn validate_marker_line(
-    document: &str,
-    lines: &[&str],
-    index: usize,
-    line: &str,
-) -> Result<(), String> {
+fn validate_marker_line(document: &PublishedDocument<'_>, index: usize) -> Result<(), String> {
+    let Some(line) = document.line(index) else {
+        return Ok(());
+    };
     if !line.trim_start().starts_with("<!-- tested-example") {
         return Ok(());
     }
+    let path = document.path();
     let line_number = index + 1;
     parse_marker(line)
-        .ok_or_else(|| format!("{document}:{line_number}: malformed tested-example marker"))?;
-    let next_line = lines
-        .get(index + 1)
-        .ok_or_else(|| format!("{document}:{line_number}: tested-example marker has no fence"))?;
+        .ok_or_else(|| format!("{path}:{line_number}: malformed tested-example marker"))?;
+    let next_line = document
+        .line(index + 1)
+        .ok_or_else(|| format!("{path}:{line_number}: tested-example marker has no fence"))?;
     if opening_fence(next_line).is_none() {
         return Err(format!(
-            "{document}:{line_number}: tested-example marker must immediately precede a fence"
+            "{path}:{line_number}: tested-example marker must immediately precede a fence"
         ));
     }
     Ok(())
 }
 
 fn parse_open_example(
-    document: &str,
-    lines: &[&str],
+    document: &PublishedDocument<'_>,
     index: usize,
     identifiers: &mut HashSet<String>,
 ) -> Result<Option<OpenExample>, String> {
-    let Some(line) = lines.get(index).copied() else {
+    let Some(line) = document.line(index) else {
         return Ok(None);
     };
     let Some(fence) = opening_fence(line) else {
         return Ok(None);
     };
+    let path = document.path();
     let line_number = index + 1;
     let marker_line = index
         .checked_sub(1)
-        .and_then(|previous| lines.get(previous));
+        .and_then(|previous| document.line(previous));
     let id = marker_line
-        .copied()
         .and_then(parse_marker)
-        .ok_or_else(|| format!("{document}:{line_number}: fenced example is missing its marker"))?;
+        .ok_or_else(|| format!("{path}:{line_number}: fenced example is missing its marker"))?;
     if !valid_identifier(&id) {
         return Err(format!(
-            "{document}:{line_number}: tested-example identifier `{id}` is invalid"
+            "{path}:{line_number}: tested-example identifier `{id}` is invalid"
         ));
     }
     if !identifiers.insert(id.clone()) {
         return Err(format!(
-            "{document}:{line_number}: duplicate tested-example identifier `{id}`"
+            "{path}:{line_number}: duplicate tested-example identifier `{id}`"
         ));
     }
 
@@ -219,7 +247,7 @@ fn parse_open_example(
         )
     {
         return Err(format!(
-            "{document}:{line_number}: fenced example has no language identifier"
+            "{path}:{line_number}: fenced example has no language identifier"
         ));
     }
     Ok(Some(OpenExample {
@@ -231,20 +259,20 @@ fn parse_open_example(
 }
 
 fn finish_example(
-    document: &str,
-    lines: &[&str],
+    document: &PublishedDocument<'_>,
     active: &OpenExample,
     closing_line: usize,
 ) -> Result<TestedExample, String> {
-    let Some(source) = fence_source(lines, active.start_line, closing_line) else {
+    let Some(source) = fence_source(document, active.start_line, closing_line) else {
         return Err(format!(
-            "{document}:{}: invalid tested-example fence boundaries",
+            "{}:{}: invalid tested-example fence boundaries",
+            document.path(),
             active.start_line
         ));
     };
     Ok(TestedExample {
         id: active.id.clone(),
-        document: document.to_owned(),
+        document: document.path().to_owned(),
         language: active.language.clone(),
         source,
         start_line: active.start_line,
@@ -259,8 +287,12 @@ fn parse_marker(line: &str) -> Option<String> {
     (!body.is_empty()).then(|| body.to_owned())
 }
 
-fn fence_source(lines: &[&str], start_line: usize, closing_line: usize) -> Option<String> {
-    let mut source = lines.get(start_line..closing_line)?.join("\n");
+fn fence_source(
+    document: &PublishedDocument<'_>,
+    start_line: usize,
+    closing_line: usize,
+) -> Option<String> {
+    let mut source = document.lines().get(start_line..closing_line)?.join("\n");
     source.push_str(if start_line < closing_line { "\n" } else { "" });
     Some(source)
 }

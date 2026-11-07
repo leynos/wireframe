@@ -38,7 +38,8 @@ fn published_examples_load_from_the_marked_documents() {
     "identifier `sample one` is invalid"
 )]
 fn malformed_examples_fail_with_a_useful_reason(#[case] source: &str, #[case] expected: &str) {
-    let error = tested_examples::parse_document("fixture.md", source, &mut HashSet::new())
+    let document = tested_examples::PublishedDocument::new("fixture.md", source);
+    let error = tested_examples::parse_document(&document, &mut HashSet::new())
         .expect_err("malformed examples should fail loading");
 
     assert!(error.contains(expected), "unexpected loader error: {error}");
@@ -50,10 +51,16 @@ fn duplicate_identifiers_fail_across_documents() {
     let first = "<!-- tested-example: sample-1 -->\n```rust\nfn main() {}\n```";
     let duplicate = "<!-- tested-example: sample-1 -->\n~~~rust\nfn main() {}\n~~~";
 
-    tested_examples::parse_document("first.md", first, &mut identifiers)
-        .expect("first identifier should be accepted");
-    let error = tested_examples::parse_document("second.md", duplicate, &mut identifiers)
-        .expect_err("duplicate identifiers should fail loading");
+    tested_examples::parse_document(
+        &tested_examples::PublishedDocument::new("first.md", first),
+        &mut identifiers,
+    )
+    .expect("first identifier should be accepted");
+    let error = tested_examples::parse_document(
+        &tested_examples::PublishedDocument::new("second.md", duplicate),
+        &mut identifiers,
+    )
+    .expect_err("duplicate identifiers should fail loading");
 
     assert!(error.contains("duplicate tested-example identifier `sample-1`"));
 }
