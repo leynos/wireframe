@@ -70,7 +70,8 @@ handles network I/O in its server:
   `AsyncReadExt::read_exact` and `AsyncWriteExt::write_all` calls in
   `tokio::time::timeout(...)`. For example, reading a frame header uses:
 
-  ```rust
+  <!-- tested-example: mocking-network-outages-in-rust-001 -->
+  ```rust,ignore
   timeout(timeout_dur, r.read_exact(&mut hdr_buf)).await
       .map_err(|_| TransactionError::Timeout)??;
 
@@ -112,7 +113,8 @@ this by splitting the logic:
    `handle_client(socket, ...)` directly, we first split the socket and then
    call a new generic handler. For example:
 
-   ```rust
+   <!-- tested-example: mocking-network-outages-in-rust-002 -->
+   ```rust,ignore
    let (reader, writer) = tokio::io::split(socket);
    client_handler(reader, writer, peer, pool, shutdown_rx).await;
 
@@ -123,7 +125,8 @@ this by splitting the logic:
 2. **Define** `client_handler` **with trait bounds:** It will take any `Reader`
    and `Writer` that implement the async read/write traits:
 
-   ```rust
+   <!-- tested-example: mocking-network-outages-in-rust-003 -->
+   ```rust,ignore
    async fn client_handler<R, W>(
        mut reader: R,
        mut writer: W,
@@ -153,7 +156,8 @@ the same behaviour while enabling injection of test streams.
 
 *Example – generic handler signature:*
 
-```rust
+<!-- tested-example: mocking-network-outages-in-rust-004 -->
+```rust,ignore
 use tokio::io::{AsyncRead, AsyncWrite};
 
 async fn client_handler<R, W>(
@@ -245,7 +249,8 @@ server will be stuck waiting), and after advancing time past 5 seconds, the
 handshake read future will time out. We also set up a `writer` to capture the
 handshake timeout error reply the server should send.
 
-```rust
+<!-- tested-example: mocking-network-outages-in-rust-005 -->
+```rust,ignore
 use tokio_test::io::Builder;
 use std::io;
 #[rstest]
@@ -287,7 +292,8 @@ it’s an incorrect handshake (e.g., wrong protocol ID). We expect the server to
 detect this and send an error reply with code `HANDSHAKE_ERR_INVALID`, then end
 the connection. Using `Builder`:
 
-```rust
+<!-- tested-example: mocking-network-outages-in-rust-006 -->
+```rust,ignore
 #[rstest]
 #[tokio::test]
 async fn handshake_invalid_protocol() {
@@ -326,6 +332,7 @@ handshake then disconnects), the server’s `reader.read_exact` will return an
 normal early disconnect and returns `Ok` (no reply sent). We can simulate this
 by having the test reader immediately return EOF (without sending any bytes):
 
+<!-- tested-example: mocking-network-outages-in-rust-007 -->
 ```rust
 #[tokio::test]
 async fn handshake_client_disconnect() {
@@ -372,6 +379,7 @@ fragment 2.
 Rather than actually waiting 5 seconds, we can again use `start_paused` and
 advance time. For brevity, we may pseudo-code this test:
 
+<!-- tested-example: mocking-network-outages-in-rust-008 -->
 ```rust
 #[tokio::test(start_paused = true)]
 async fn transaction_read_timeout() {
@@ -426,7 +434,8 @@ RST) would typically surface as an I/O error other than EOF. We can simulate
 this by configuring the test reader to return an error on read. For example,
 using `Builder`’s ability to inject errors:
 
-```rust
+<!-- tested-example: mocking-network-outages-in-rust-009 -->
+```rust,ignore
 use std::io::ErrorKind;
 let test_reader = Builder::new()
     .read(&handshake_bytes)       // send valid handshake
@@ -452,7 +461,8 @@ expect part of a write and then error out on the next write. However, since
 are written or an error occurs. We can force an error on the *first* write call
 to simulate an immediate failure. For example:
 
-```rust
+<!-- tested-example: mocking-network-outages-in-rust-010 -->
+```rust,ignore
 let test_writer = Builder::new()
     .write_error(io::Error::new(ErrorKind::BrokenPipe, "broken pipe"))
     .build();
@@ -466,6 +476,7 @@ cause that write to fail.
 valid request transaction. We set the writer to error on the response write. We
 expect `client_handler` to return an error. For conciseness, here’s a sketch:
 
+<!-- tested-example: mocking-network-outages-in-rust-011 -->
 ```rust
 #[tokio::test]
 async fn response_write_failure() {
@@ -506,6 +517,7 @@ For instance, we might create a single test function
 Each case would configure the test reader/writer and expected outcome
 accordingly:
 
+<!-- tested-example: mocking-network-outages-in-rust-012 -->
 ```rust
 use rstest::rstest;
 enum Scenario { HandshakeTimeout, HandshakeInvalid, ReadTimeout, ConnReset, WriteFail }
@@ -578,7 +590,8 @@ for mocking might be higher-level components:
 
 - **Accept Loop Simulation:** We could define a trait for the listener:
 
-  ```rust
+  <!-- tested-example: mocking-network-outages-in-rust-013 -->
+  ```rust,ignore
   trait AcceptListener {
       async fn accept(&self) -> io::Result<(Box<dyn Stream>, SocketAddr)>;
   }
@@ -598,7 +611,8 @@ for mocking might be higher-level components:
   depend on real database calls or command processing, we could abstract the
   request handling. For example, introduce an interface:
 
-  ```rust
+  <!-- tested-example: mocking-network-outages-in-rust-014 -->
+  ```rust,ignore
   trait RequestHandler {
       async fn handle(&mut self, req: Transaction) -> Result<Transaction>;
   }

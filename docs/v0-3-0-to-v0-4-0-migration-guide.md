@@ -21,6 +21,7 @@ corresponding field to `None` to disable that cap.
 
 For example, add both fields to an existing literal:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-001 -->
 ```rust
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe::fragment::FragmentationConfig;
@@ -38,6 +39,7 @@ let config = FragmentationConfig {
 message-size and timeout arguments. Pass `None, None` to preserve unbounded
 aggregate buffering, or configure caps for standalone reassemblers:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-002 -->
 ```rust
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe::fragment::Reassembler;
@@ -62,6 +64,7 @@ return `ClientError::PoolSaturated { limit }` when the configured waiter bound
 is full. Add a wildcard arm to exhaustive matches and handle saturation at the
 caller boundary. For example:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-003 -->
 ```rust
 use wireframe::client::ClientError;
 
@@ -98,6 +101,7 @@ Third, `ClientError::PoolSaturated { limit }` keeps its existing meaning. The
 pool rejects the acquisition before assigning a slot, so callers can still
 treat it as temporary unavailability and retry once capacity returns.
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-004 -->
 ```rust
 use wireframe::client::{ClientError, ClientPoolConfig, WireframeClient};
 
@@ -144,8 +148,9 @@ path and rejection reason.
 `FirstFrameHeader::total_body_len` is now a protocol commitment. Message
 assembly rejects a first frame that already contradicts its declaration, stops
 a continuation from overshooting it, and requires the completed body to match
-it exactly. See [ADR 015](adr-015-declared-total-body-length-contract.md) for
-the decision.
+it exactly. See
+[ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md) for the
+decision.
 
 Applications that declare a total must supply the exact body length. A protocol
 that declares an approximate size will now see its messages rejected because
@@ -159,6 +164,7 @@ whose totals were only ever advisory.
 `#[non_exhaustive]`, so an exhaustive match written against the previous
 variants fails to compile. Add the new arms:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-005 -->
 ```rust
 use wireframe::message_assembler::MessageAssemblyError;
 
@@ -200,16 +206,19 @@ still clamps to 1 ms, so use `disable_preamble_timeout()` rather than a zero
 duration to remove the deadline. Disabling it restores the previous behaviour,
 including the availability risk it carried.
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-014 -->
 ```rust,no_run
 use std::time::Duration;
 
 use wireframe::{app::WireframeApp, server::WireframeServer};
 
-let slower_handshake = WireframeServer::new(|| WireframeApp::default())
-    .preamble_timeout(Duration::from_secs(30));
+let slower_handshake =
+    WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+        .preamble_timeout(Duration::from_secs(30));
 
-let server_first = WireframeServer::new(|| WireframeApp::default())
-    .disable_preamble_timeout();
+let server_first =
+    WireframeServer::new(|| -> WireframeApp { WireframeApp::default() })
+        .disable_preamble_timeout();
 ```
 
 ## Prepared application transition
@@ -218,14 +227,18 @@ let server_first = WireframeServer::new(|| WireframeApp::default())
 protocol hooks, and connection configuration on the builder, then consume it
 with `prepare().await`:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-006 -->
 ```rust,no_run
 use std::sync::Arc;
 
-use wireframe::app::{Envelope, Handler, WireframeApp};
+use wireframe::{
+    app::{Envelope, Handler, WireframeApp},
+    serializer::BincodeSerializer,
+};
 
 # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 let handler: Handler<Envelope> = Arc::new(|_envelope| Box::pin(async {}));
-let app = WireframeApp::new()?.route(1, handler)?;
+let app = WireframeApp::<BincodeSerializer>::new()?.route(1, handler)?;
 let prepared = app.prepare().await?;
 # let _ = prepared;
 # Ok(())
@@ -249,6 +262,7 @@ Use the prepared connection methods for every accepted stream. Borrowing the
 same `PreparedApp` lets multiple connections share the already-built route
 services:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-007 -->
 ```rust,no_run
 use tokio::io::duplex;
 use wireframe::app::{PreparedApp, WireframeApp};
@@ -278,7 +292,8 @@ Tests that use the `wireframe_testing` companion crate can prepare a builder
 and drive one connection with `prepare_and_drive_with_frames`, or prepare once
 and reuse the result with `drive_prepared_with_frames`:
 
-```rust,no_run
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-008 -->
+```rust,ignore
 use wireframe::app::WireframeApp;
 use wireframe_testing::{drive_prepared_with_frames, prepare_and_drive_with_frames};
 
@@ -310,7 +325,8 @@ removed. The counting mechanism now comes from `stats_alloc`, which
 
 Replace the old allocator declaration:
 
-```rust
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-015 -->
+```rust,ignore
 // Before
 use wireframe_testing::benchmark_alloc_support::CountingAllocator;
 
@@ -320,6 +336,7 @@ static GLOBAL_ALLOCATOR: CountingAllocator = CountingAllocator;
 
 with the instrumenting allocator:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-016 -->
 ```rust
 // After
 use std::alloc::System;
@@ -349,6 +366,7 @@ pulling in a subscriber must now declare one and install it during start-up.
 
 Add the crate to the application's own manifest:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-009 -->
 ```toml
 [dependencies]
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
@@ -356,6 +374,7 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 Then initialize it before any Wireframe work begins:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-010 -->
 ```rust
 fn main() {
     tracing_subscriber::fmt().init();
@@ -376,7 +395,7 @@ wrapper) for read-only hand-offs and an explicit edit-on-demand operation for
 mutation. Middleware and hook editor APIs are not yet finalized; their
 migration is deferred to roadmap items 12.1.2 and 12.2.1. The compatibility
 helper names described below are defined by
-[ADR 009](adr-009-vec-u8-migration-rollout.md).
+[ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md).
 
 ### Middleware
 
@@ -392,7 +411,8 @@ the frame altogether.
 The hook editor API is also deferred to roadmap item 12.2.1. Keep existing
 `Vec<u8>` hook implementations until that API is finalized; client preamble
 leftovers intentionally remain `Vec<u8>` in this release. The compatibility
-policy is defined in [ADR 009](adr-009-vec-u8-migration-rollout.md).
+policy is defined in
+[ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md).
 
 ### Serializers
 
@@ -400,6 +420,7 @@ Serializer output moves from an owned vector to the stable byte wrapper. Use
 `PayloadBytes::from_vec` only at an existing compatibility boundary, and keep
 the zero-copy value through the codec hand-off:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-011 -->
 ```text
 # Before: serialization materializes a Vec<u8> for every outbound message.
 let bytes: Vec<u8> = serializer.serialize(&message)?;
@@ -423,7 +444,8 @@ Codecs should store payloads as `Bytes` when possible and override
 `frame_payload_bytes` to return a cheap clone. The `wrap_payload` argument is
 already `Bytes`, so only the frame type and extraction methods need changing:
 
-```rust
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-012 -->
+```rust,ignore
 // Before: a custom frame owns a Vec<u8> payload.
 struct MyEnvelope {
     payload: Vec<u8>,
@@ -450,8 +472,8 @@ impl FrameCodec for MyCodec {
 Keep `Vec<u8>` conversion at the edge of legacy callers with
 `PayloadBytes::from_vec` or `PayloadBytes::into_vec`; do not add per-codec
 conversion constructors. See
-[ADR 008](adr-008-zero-copy-public-byte-container.md) for the read-only and
-edit-on-demand design, and the
+[ADR 008](adrs/adr-0008-zero-copy-public-byte-container.md) for the read-only
+and edit-on-demand design, and the
 [zero-copy migration roadmap](zero-copy-frame-and-payload-migration-roadmap.md)
 for the staged rollout.
 
@@ -489,7 +511,8 @@ settings through the usual builder methods.
 If a factory previously created a fresh builder for every connection, update
 the construction path as follows:
 
-```rust
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-013 -->
+```rust,ignore
 // One-time startup construction through the factory.
 let server = WireframeServer::new(build_startup_app).bind(addr)?;
 
@@ -509,6 +532,7 @@ the `FrameCodec`, and immediately before the frame is written. It receives the
 serialized, codec-wrapped frame before codec encoding, so a custom encoder may
 still add its own header or trailer after the hook returns:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-017 -->
 ```text
 serialize -> FrameCodec::wrap_payload -> before_send -> codec encode -> socket
 ```

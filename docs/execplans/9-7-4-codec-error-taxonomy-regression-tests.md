@@ -45,7 +45,7 @@ as done only after all quality gates pass.
   consumer-visible behaviour changes, update `docs/users-guide.md`.
 - Record any lasting design choice in the most relevant design document. For
   this work, that is expected to be `docs/wireframe-testing-crate.md`; update
-  `docs/adr-004-pluggable-protocol-codecs.md` only if taxonomy or policy
+  `docs/adrs/adr-0004-pluggable-protocol-codecs.md` only if taxonomy or policy
   semantics themselves need clarification.
 - Do not mark roadmap item 9.7.4 done until the new tests, documentation, and
   validation commands are all green.
@@ -308,9 +308,10 @@ Reuse the repository's established BDD conventions:
 Update the most relevant design document with any design choice that survives
 implementation. The default target is `docs/wireframe-testing-crate.md`,
 because this roadmap item is about how the helper crate should be used for
-codec-error regressions. Update `docs/adr-004-pluggable-protocol-codecs.md`
-only if implementation reveals a semantic clarification about taxonomy,
-recovery defaults, or EOF interpretation that belongs in the codec ADR.
+codec-error regressions. Update
+`docs/adrs/adr-0004-pluggable-protocol-codecs.md` only if implementation
+reveals a semantic clarification about taxonomy, recovery defaults, or EOF
+interpretation that belongs in the codec ADR.
 
 Audit `docs/users-guide.md`. If no public API or consumer-visible behaviour
 changed, record that explicitly in `Outcomes & Retrospective` and leave the
@@ -374,8 +375,8 @@ The likely change set should stay close to this list:
 - `wireframe_testing/src/lib.rs` only if a new helper is re-exported
 - `docs/wireframe-testing-crate.md`
 - `docs/users-guide.md` only if the public interface changes
-- `docs/adr-004-pluggable-protocol-codecs.md` only if codec semantics need a
-  clarified design note
+- `docs/adrs/adr-0004-pluggable-protocol-codecs.md` only if codec semantics
+  need a clarified design note
 - `docs/roadmap.md`
 
 ## Approval gate

@@ -107,6 +107,7 @@ linked when running tests, not when building the main application or library.
 Add the following lines to your `Cargo.toml` under the `[dev-dependencies]`
 section:
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-001 -->
 ```toml
 [dev-dependencies]
 rstest = "0.18" # Or the latest version available on crates.io
@@ -125,6 +126,7 @@ When leveraging Tokio's test utilities—for example `tokio::time::pause` or the
 I/O helpers in `tokio-test`—enable the `test-util` feature via a dev-only
 dependency:
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-002 -->
 ```toml
 [dev-dependencies]
 tokio = { version = "1", default-features = false, features = ["test-util"] }
@@ -140,6 +142,7 @@ attribute.
 
 Consider a simple fixture that provides a numeric value:
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-003 -->
 ```rust
 use rstest::fixture; // Or use rstest::*;
 
@@ -169,6 +172,7 @@ function.
 
 Here’s how to use the `answer_to_life` fixture in a test:
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-004 -->
 ```rust
 use rstest::{fixture, rstest}; // Or use rstest::*;
 
@@ -213,6 +217,7 @@ Here are a few examples illustrating different kinds of fixtures:
 
 - **Fixture returning a primitive data type:**
 
+  <!-- tested-example: rust-testing-with-rstest-fixtures-005 -->
   ```rust
   use rstest::*;
 
@@ -230,6 +235,7 @@ Here are a few examples illustrating different kinds of fixtures:
 
 - **Fixture returning a struct:**
 
+  <!-- tested-example: rust-testing-with-rstest-fixtures-006 -->
   ```rust
   use rstest::*;
 
@@ -256,7 +262,8 @@ Here are a few examples illustrating different kinds of fixtures:
 - **Fixture performing setup and returning a resource (e.g., a mock
   repository):**
 
-  ```rust
+  <!-- tested-example: rust-testing-with-rstest-fixtures-007 -->
+  ```rust,ignore
   use rstest::*;
   use std::collections::HashMap;
 
@@ -338,6 +345,7 @@ values must also be annotated with `#[case]`.
 
 A classic example is testing the Fibonacci sequence:
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-008 -->
 ```rust
 use rstest::rstest;
 
@@ -381,6 +389,7 @@ states.
 Consider testing a state machine's transition logic based on current state and
 an incoming event:
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-009 -->
 ```rust
 use rstest::rstest;
 
@@ -441,6 +450,7 @@ lists.
 For example, a test might use a fixture to obtain a database connection and
 then use `#[case]` arguments to test operations with different user IDs:
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-010 -->
 ```rust
 use rstest::*;
 
@@ -479,6 +489,7 @@ dependency graph, ensuring that prerequisite fixtures are evaluated first. This
 allows for the construction of complex setup logic from smaller, modular, and
 reusable fixture components.
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-011 -->
 ```rust
 use rstest::*;
 
@@ -525,6 +536,7 @@ For fixtures that are expensive to create or represent read-only shared data,
 initialized only a single time, and all tests using it will receive a static
 reference to this shared instance.
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-012 -->
 ```rust
 use rstest::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -580,6 +592,7 @@ fixture. The `#[from(original_fixture_name)]` attribute on an argument allows
 renaming. This is particularly useful when destructuring the result of a
 fixture.
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-013 -->
 ```rust
 use rstest::*;
 
@@ -621,7 +634,8 @@ override these defaults on a per-test basis.
   argument within another fixture) to supply specific values to the parameters
   of the invoked fixture, overriding any defaults.
 
-```rust
+<!-- tested-example: rust-testing-with-rstest-fixtures-014 -->
+```rust,ignore
 use rstest::*;
 
 struct User { name: String, age: u8, role: String }
@@ -682,6 +696,7 @@ can often automatically convert string literals provided in `#[case]` or
 
 An example is converting string literals to `std::net::SocketAddr`:
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-015 -->
 ```rust
 use rstest::*;
 use std::net::SocketAddr;
@@ -718,7 +733,8 @@ Creating an asynchronous fixture is straightforward: simply define the fixture
 function as an `async fn`. `rstest` will recognize it as an async fixture and
 handle its execution accordingly when used in an async test.
 
-```rust
+<!-- tested-example: rust-testing-with-rstest-fixtures-016 -->
+```rust,ignore
 use rstest::*;
 use std::time::Duration;
 
@@ -745,7 +761,8 @@ popular async runtimes like Tokio or Actix. This is typically done by adding
 the runtime's specific test attribute (e.g., `#[tokio::test]` or
 `#[actix_rt::test]`) alongside `#[rstest]`.
 
-```rust
+<!-- tested-example: rust-testing-with-rstest-fixtures-017 -->
+```rust,ignore
 use rstest::*;
 use std::time::Duration;
 
@@ -788,7 +805,8 @@ To improve the ergonomics of working with async fixtures and values in tests,
   (`#[future(awt)]`), tells `rstest` to automatically insert `.await` calls for
   those futures.
 
-```rust
+<!-- tested-example: rust-testing-with-rstest-fixtures-018 -->
+```rust,ignore
 use rstest::*;
 use std::time::Duration;
 
@@ -840,7 +858,8 @@ indefinitely. `rstest` provides a `#[timeout(...)]` attribute to set a maximum
 execution time for async tests. This feature typically relies on the
 `async-timeout` feature of `rstest`, which is enabled by default.
 
-```rust
+<!-- tested-example: rust-testing-with-rstest-fixtures-019 -->
+```rust,ignore
 use rstest::*;
 use std::time::Duration;
 
@@ -886,7 +905,8 @@ its path or handle to the test, and ensure cleanup (often via RAII).
 
 Here's an illustrative example using the `tempfile` crate:
 
-```rust
+<!-- tested-example: rust-testing-with-rstest-fixtures-020 -->
+```rust,ignore
 use rstest::*;
 use tempfile::{tempdir, TempDir}; // Add tempfile = "3" to [dev-dependencies]
 use std::fs::File;
@@ -951,6 +971,7 @@ shows examples with fakes or mocks like `empty_repository` and
 
 A conceptual example using a hypothetical mocking library:
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-021 -->
 ```rust
 use rstest::*;
 use std::sync::Arc;
@@ -1037,7 +1058,8 @@ contents directly as `&str` or `&[u8]` by specifying a mode, e.g.,
 `#[base_dir = "…"]` can specify a base directory for the glob, and
 `#[exclude("regex")]` can filter out paths matching a regular expression.
 
-```rust
+<!-- tested-example: rust-testing-with-rstest-fixtures-022 -->
+```rust,ignore
 use rstest::*;
 use std::path::PathBuf;
 use std::fs;
@@ -1089,7 +1111,8 @@ the definition of reusable test templates.
 - `#[apply(template_name)]`: Used on a test function to apply a previously
   defined template, effectively injecting its attributes.
 
-```rust
+<!-- tested-example: rust-testing-with-rstest-fixtures-023 -->
+```rust,ignore
 // Add to Cargo.toml: rstest_reuse = "0.7" (or latest)
 // In your test module or lib.rs/main.rs for crate-wide visibility if needed:
 // #[cfg(test)]
@@ -1284,6 +1307,7 @@ case runs, making it easier to get consistent log output from tests.
 tests. This makes it trivial to assert on log messages without interfering with
 other tests. Add it under `[dev-dependencies]` using an explicit version range:
 
+<!-- tested-example: rust-testing-with-rstest-fixtures-024 -->
 ```toml
 [dev-dependencies]
 logtest = "^2.0"
@@ -1291,7 +1315,8 @@ logtest = "^2.0"
 
 Start a `Logger` before running the code under test:
 
-```rust
+<!-- tested-example: rust-testing-with-rstest-fixtures-025 -->
+```rust,ignore
 use logtest::Logger;
 
 let mut logger = Logger::start();

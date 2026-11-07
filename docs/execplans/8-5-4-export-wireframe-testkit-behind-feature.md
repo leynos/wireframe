@@ -40,7 +40,7 @@ Success is observable when all of the following are true:
 4. Existing `wireframe_testing` users remain source-compatible for the covered
    helpers.
 5. `docs/users-guide.md`,
-   `docs/adr-002-streaming-requests-and-shared-message-assembly.md`, and
+   `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`, and
    `docs/roadmap.md` reflect the delivered feature.
 
 ## Constraints
@@ -251,7 +251,7 @@ Relevant files today:
 - `wireframe_testing/src/integration_helpers.rs`:
   shared `TestError` and `TestResult` types currently used by the assertion
   helpers.
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md`:
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`:
   source requirement that explicitly says the utilities may be re-exported as
   `wireframe::testkit` behind a feature.
 - `docs/users-guide.md`:
@@ -397,7 +397,7 @@ keep the code healthy. The purpose here is to prove the new export path.
 
 Update these files together so the documented story stays coherent:
 
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md`
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`
   Add an implementation note explaining how `wireframe::testkit` was delivered
   and why the main crate became the source of truth for the 8.5 helpers.
 - `docs/users-guide.md`

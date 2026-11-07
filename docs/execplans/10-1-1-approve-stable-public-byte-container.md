@@ -16,7 +16,7 @@ payload migration: what public byte container should Wireframe expose for
 packets, envelopes, middleware, client hooks, and serializer output?
 
 After this work is approved and implemented, maintainers can see success by
-reading `docs/adr-008-zero-copy-public-byte-container.md` and finding an
+reading `docs/adrs/adr-0008-zero-copy-public-byte-container.md` and finding an
 accepted, concrete decision for the stable read-only byte representation and
 the edit-on-demand mutation model. The decision must make the later
 implementation work predictable: `PacketParts`, `Envelope`, `ServiceRequest`,
@@ -111,7 +111,7 @@ actor and codec-driver boundary. Those are separate roadmap items.
 - [x] (2026-05-20 23:20Z) Renamed the local branch to
   `10-1-1-approve-stable-public-byte-container`.
 - [x] (2026-05-20 23:20Z) Reviewed `docs/roadmap.md`,
-  `docs/adr-008-zero-copy-public-byte-container.md`,
+  `docs/adrs/adr-0008-zero-copy-public-byte-container.md`,
   `docs/frame-vec-u8-inventory.md`, and
   `docs/zero-copy-frame-and-payload-migration-roadmap.md`.
 - [x] (2026-05-20 23:20Z) Checked current external `bytes::Bytes` and
@@ -161,9 +161,10 @@ actor and codec-driver boundary. Those are separate roadmap items.
   set upstream tracking.
 
 - Observation: ADR 008 currently says `Proposed` and leaves three outstanding
-  decisions open. Evidence: `docs/adr-008-zero-copy-public-byte-container.md`.
-  Impact: implementing this plan must resolve those outstanding decisions
-  before marking `10.1.1` done.
+  decisions open. Evidence:
+  `docs/adrs/adr-0008-zero-copy-public-byte-container.md`. Impact: implementing
+  this plan must resolve those outstanding decisions before marking `10.1.1`
+  done.
 
 - Observation: `bytes::Bytes` is documented as cheaply cloneable, sliceable,
   and intended for zero-copy network programming, while `bytes::BytesMut`
@@ -286,10 +287,10 @@ remaining public problem is payload ownership: `PacketParts`, `Envelope`,
 `ServiceRequest`, `ServiceResponse`, `BeforeSendHook`, and
 `Serializer::serialize` still expose owned `Vec<u8>` bytes directly.
 
-`docs/adr-008-zero-copy-public-byte-container.md` currently proposes Option B:
-stable `Bytes`-compatible public storage plus explicit edit-on-demand mutation
-helpers. The plan implementer must turn that proposed direction into an
-accepted decision and resolve the open questions about the editing surface,
+`docs/adrs/adr-0008-zero-copy-public-byte-container.md` currently proposes
+Option B: stable `Bytes`-compatible public storage plus explicit edit-on-demand
+mutation helpers. The plan implementer must turn that proposed direction into
+an accepted decision and resolve the open questions about the editing surface,
 serializer sequencing, and migration constructors enough for later roadmap
 items to proceed.
 
@@ -342,7 +343,7 @@ edit-on-demand mutation.
 
 ### Stage C: accept ADR 008
 
-Edit `docs/adr-008-zero-copy-public-byte-container.md` so it becomes an
+Edit `docs/adrs/adr-0008-zero-copy-public-byte-container.md` so it becomes an
 accepted ADR. The accepted decision must state:
 
 - `bytes::Bytes` or a transparent project wrapper over `bytes::Bytes` is the
@@ -436,7 +437,7 @@ From the repository root:
 
    ```sh
    sed -n '447,473p' docs/roadmap.md
-   sed -n '1,220p' docs/adr-008-zero-copy-public-byte-container.md
+   sed -n '1,220p' docs/adrs/adr-0008-zero-copy-public-byte-container.md
    sed -n '32,232p' docs/frame-vec-u8-inventory.md
    sed -n '1,90p' docs/zero-copy-frame-and-payload-migration-roadmap.md
    ```
@@ -544,9 +545,9 @@ External prior-art checks used while drafting this plan:
 
 Existing Wireframe source documents to keep aligned:
 
-- `docs/adr-008-zero-copy-public-byte-container.md`
-- `docs/adr-009-vec-u8-migration-rollout.md`
-- `docs/adr-010-transport-frame-boundary-for-zero-copy.md`
+- `docs/adrs/adr-0008-zero-copy-public-byte-container.md`
+- `docs/adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md`
+- `docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md`
 - `docs/frame-vec-u8-inventory.md`
 - `docs/zero-copy-frame-and-payload-migration-roadmap.md`
 - `docs/users-guide.md`

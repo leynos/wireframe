@@ -5,12 +5,17 @@ server employs a typestate (from `Unbound` to `Bound`) to ensure that binding
 occurs before runtime: unbound servers do not expose `run` methods. This guide
 focuses on tuning the exponential backoff used when accepting connections fails.
 
+<!-- tested-example: configuration-001 -->
 ```rust,no_run
-use wireframe::{app::WireframeApp, server::WireframeServer};
+use wireframe::{
+    app::WireframeApp,
+    serializer::BincodeSerializer,
+    server::WireframeServer,
+};
 
 # #[tokio::main]
 # async fn main() -> Result<(), wireframe::server::ServerError> {
-let server = WireframeServer::new(|| WireframeApp::default())
+let server = WireframeServer::new(|| WireframeApp::<BincodeSerializer>::default())
     .bind(([127, 0, 0, 1], 0).into())?;
 server.run().await?;
 # Ok(())
@@ -22,6 +27,7 @@ server.run().await?;
 The sequence below details how a server binds to an address, prepares its
 application, and signals readiness before accepting connections.
 
+<!-- tested-example: configuration-002 -->
 ```mermaid
 sequenceDiagram
   autonumber
@@ -88,17 +94,22 @@ so out-of-range values are adjusted rather than preserved:
 
 ### Example
 
+<!-- tested-example: configuration-003 -->
 ```rust
 use std::time::Duration;
 
-use wireframe::{app::WireframeApp, server::{WireframeServer, BackoffConfig}};
+use wireframe::{
+    app::WireframeApp,
+    serializer::BincodeSerializer,
+    server::{BackoffConfig, WireframeServer},
+};
 
 let cfg = BackoffConfig {
     initial_delay: Duration::from_millis(5),
     max_delay: Duration::from_millis(500),
 };
 
-let server = WireframeServer::new(|| WireframeApp::default())
+let server = WireframeServer::new(|| WireframeApp::<BincodeSerializer>::default())
     .accept_backoff(cfg);
 ```
 
@@ -132,14 +143,19 @@ closed: the error is logged and the connection is closed without invoking
 `WireframeApp`, which lets the handler enforce pre-application access controls.
 Submit any rejection response before returning the error.
 
+<!-- tested-example: configuration-004 -->
 ```rust,no_run
 use std::time::Duration;
 
 use futures::FutureExt;
 use tokio::io::AsyncWriteExt;
-use wireframe::{app::WireframeApp, server::WireframeServer};
+use wireframe::{
+    app::WireframeApp,
+    serializer::BincodeSerializer,
+    server::WireframeServer,
+};
 
-let server = WireframeServer::new(|| WireframeApp::default())
+let server = WireframeServer::new(|| WireframeApp::<BincodeSerializer>::default())
     .preamble_timeout(Duration::from_secs(2))
     .on_preamble_decode_failure(|_err, stream| {
         async move {

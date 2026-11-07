@@ -399,4 +399,5 @@ specificity and reusability. By tying buffer sizing and maximum frame length to
 codec configuration, the design keeps transport-level constraints close to the
 framing rules that define them.
 
-[^adr-006]: See [adr-006-test-observability.md](adr-006-test-observability.md).
+[^adr-006]: See
+            [adr-0006-test-observability-harness.md](adr-0006-test-observability-harness.md).

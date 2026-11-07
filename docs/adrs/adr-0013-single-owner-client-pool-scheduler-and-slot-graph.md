@@ -80,7 +80,7 @@ Wireframe's contract of per-logical-handle round-robin fairness across a fixed
 slot set, and none needs a single admission point for bounded waiter counts.
 That fairness contract is not axiomatic: it is recorded in the client design
 document's scheduling model
-([`wireframe-client-design.md`](wireframe-client-design.md)), which makes
+([`wireframe-client-design.md`](../wireframe-client-design.md)), which makes
 `PoolFairnessPolicy::RoundRobin` the default so stable logical sessions take
 turns under repeated contention, and it is exercised by the
 `client_pool_handle` behavioural suite
@@ -703,7 +703,7 @@ The following earlier open questions are now resolved in the text:
 ## References
 
 - Epic [#635](https://github.com/leynos/wireframe/issues/635)
-- [ADR 011: runtime ownership and task-lifetime boundaries](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)
+- [ADR 011: runtime ownership and task-lifetime boundaries](adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
 - [#535](https://github.com/leynos/wireframe/issues/535)
 - [#539](https://github.com/leynos/wireframe/issues/539)
 - [#548](https://github.com/leynos/wireframe/issues/548)

@@ -42,6 +42,7 @@ deterministically without external exporters.
 
 ## Dependencies
 
+<!-- tested-example: wireframe-testing-crate-001 -->
 ```toml
 [dependencies]
 tokio = { version = "1", features = ["macros", "rt", "io-util"] }
@@ -79,6 +80,7 @@ driver is responsible for framing inbound and outbound data using the selected
 `wireframe_testing` retains the `TestSerializer` trait alias to keep bounds
 readable:
 
+<!-- tested-example: wireframe-testing-crate-002 -->
 ```rust,no_run
 use wireframe::app::Envelope;
 use wireframe::frame::FrameMetadata;
@@ -97,7 +99,8 @@ raw frame bytes. Use `drive_with_frames` for pre-framed input (including
 malformed frames) and `drive_with_payloads` to wrap payloads with the default
 length-delimited framing.
 
-```rust,no_run
+<!-- tested-example: wireframe-testing-crate-003 -->
+```rust,ignore
 use std::io;
 use wireframe::app::{Packet, PreparedApp, WireframeApp};
 use wireframe::codec::FrameCodec;
@@ -227,6 +230,7 @@ Roadmap item `8.5.2` extends the in-memory harness with explicit slow reader
 and slow writer simulation. The public surface uses one pacing type plus one
 driver config:
 
+<!-- tested-example: wireframe-testing-crate-004 -->
 ```rust,no_run
 # fn example() -> Result<(), Box<dyn std::error::Error>> {
 use std::{num::NonZeroUsize, time::Duration};
@@ -261,6 +265,7 @@ runtime task that drives slow-I/O helpers, optionally pacing writes into the
 app and reads back out of it through Tokio time delays before returning the
 captured bytes for back-pressure assertions.
 
+<!-- tested-example: wireframe-testing-crate-005 -->
 ```mermaid
 sequenceDiagram
     actor Test as Test
@@ -333,6 +338,7 @@ That design keeps the helpers usable from ordinary integration tests and from
 `rstest-bdd` step definitions, both of which prefer `Result`-returning helper
 functions over panic-only assertions.
 
+<!-- tested-example: wireframe-testing-crate-006 -->
 ```rust,no_run
 use wireframe::message_assembler::{FrameSequence, MessageKey};
 use wireframe_testing::reassembly::{
@@ -374,7 +380,8 @@ align buffer sizing with protocol framing rules.
 The current helpers focus on the default length-delimited framing used by
 Wireframe tests:
 
-```rust,no_run
+<!-- tested-example: wireframe-testing-crate-007 -->
+```rust,ignore
 use tokio_util::codec::LengthDelimitedCodec;
 
 pub fn decode_frames(bytes: &[u8]) -> Vec<Vec<u8>>;
@@ -390,7 +397,8 @@ Most tests still send a single request encoded with bincode. Keep a small
 wrapper that performs `bincode::encode_to_vec` with
 `bincode::config::standard()` and drives the app:
 
-```rust,no_run
+<!-- tested-example: wireframe-testing-crate-008 -->
+```rust,ignore
 use std::io;
 use wireframe::app::{Packet, WireframeApp};
 
@@ -405,7 +413,8 @@ where
     E: Packet;
 ```
 
-```rust,no_run
+<!-- tested-example: wireframe-testing-crate-009 -->
+```rust,ignore
 use wireframe_testing::{decode_frames, drive_with_bincode};
 
 #[derive(bincode::Encode)]
@@ -458,7 +467,8 @@ Key behaviours:
 
 Implemented public API:
 
-```rust,no_run
+<!-- tested-example: wireframe-testing-crate-010 -->
+```rust,ignore
 use log::Level;
 use wireframe_testing::LoggerHandle;
 use wireframe_testing::observability::Labels;
@@ -504,6 +514,7 @@ Both `LoggerHandle` and `ObservabilityHandle` implement `Default`. The
 `default()` method delegates to `new()` in each case, so the two forms are
 equivalent:
 
+<!-- tested-example: wireframe-testing-crate-011 -->
 ```rust,no_run
 use wireframe_testing::{LoggerHandle, observability::ObservabilityHandle};
 
@@ -600,7 +611,8 @@ cannot await indefinitely.
 
 ### Usage
 
-```rust,no_run
+<!-- tested-example: wireframe-testing-crate-012 -->
+```rust,ignore
 use wireframe::app::WireframeApp;
 use wireframe_testing::client_pair::spawn_wireframe_pair;
 use wireframe_testing::TestResult;
@@ -633,6 +645,7 @@ messages that include call-site information in debug builds.
 
 ## Example usage
 
+<!-- tested-example: wireframe-testing-crate-013 -->
 ```rust,no_run
 use std::sync::Arc;
 
@@ -691,7 +704,8 @@ async fn captures_metrics() -> std::io::Result<()> {
 Proposed codec-aware helpers make it easy to build fixtures or inspect raw
 bytes:
 
-```rust,no_run
+<!-- tested-example: wireframe-testing-crate-014 -->
+```rust,ignore
 use std::io;
 use wireframe::codec::FrameCodec;
 

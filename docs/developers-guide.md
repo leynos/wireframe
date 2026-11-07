@@ -11,19 +11,19 @@ The following RFCs are proposals, not descriptions of implemented APIs. The
 [roadmap phase 21](roadmap.md#21-protocol-neutral-adapters-for-the-first-consumers)
 record the consumer evidence, validation profiles, and delivery order.
 
-- [RFC 0003](rfcs/0003-native-message-adapter-boundary.md) proposes native
+- [RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md) proposes native
   frame-to-message adaptation with owned reply context.
-- [RFC 0004](rfcs/0004-duplex-session-driver.md) proposes a duplex session
+- [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md) proposes a duplex session
   driver with explicit lifecycle, cancellation, and bounded output.
-- [RFC 0005](rfcs/0005-negotiated-transport-entry-points.md) proposes generic
-  setup, buffered-byte handoff, and transport transitions.
-- [RFC 0006](rfcs/0006-configurable-framing-primitives.md) proposes bounded,
+- [RFC 0005](rfcs/rfc-0005-negotiated-transport-entry-points.md) proposes
+  generic setup, buffered-byte handoff, and transport transitions.
+- [RFC 0006](rfcs/rfc-0006-configurable-framing-primitives.md) proposes bounded,
   composable framing primitives for external codecs.
-- [RFC 0007](rfcs/0007-budgets-scheduling-and-assembly.md) proposes resource
+- [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md) proposes resource
   accounting, scheduling, and assembly policies.
-- [RFC 0008](rfcs/0008-external-adapter-conformance-harness.md) proposes an
+- [RFC 0008](rfcs/rfc-0008-external-adapter-conformance-harness.md) proposes an
   independent-peer conformance harness and bounded toy servers.
-- [RFC 0009](rfcs/0009-datagram-session-transport.md) proposes a datagram
+- [RFC 0009](rfcs/rfc-0009-datagram-session-transport.md) proposes a datagram
   entry point with packet boundaries and peer metadata.
 
 ## GitHub Actions runner placement
@@ -60,6 +60,7 @@ tests the pull request's author, not `github.actor`, because the actor is
 whoever triggered the run, so a person pushing to a Dependabot branch would
 flip the runner:
 
+<!-- tested-example: developers-guide-001 -->
 ```yaml
 runs-on: >-
   ${{ (github.event.pull_request.head.repo.fork
@@ -204,6 +205,7 @@ A second push to a pull request makes the run already in flight answer a
 question about a commit nobody will merge, and on a per-minute runner it bills
 until it finishes. `ci.yml` therefore declares, at workflow level:
 
+<!-- tested-example: developers-guide-002 -->
 ```yaml
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -301,24 +303,24 @@ refusal, so a reader reverted to `yaml.safe_load` fails them.
 
 ## Public byte-container model
 
-[ADR 008](adr-008-zero-copy-public-byte-container.md) accepts `bytes::Bytes`,
-or a transparent project wrapper over `bytes::Bytes`, as Wireframe's stable
-public byte representation for packet, envelope, serializer, middleware, and
-hook payload hand-offs.
+[ADR 008](adrs/adr-0008-zero-copy-public-byte-container.md) accepts
+`bytes::Bytes`, or a transparent project wrapper over `bytes::Bytes`, as
+Wireframe's stable public byte representation for packet, envelope, serializer,
+middleware, and hook payload hand-offs.
 
 Read-only packet and routing paths should preserve shared byte storage and
 cheap cloning. Middleware and client hook mutation must go through an explicit
 edit-on-demand workflow, copying only when an edit needs unique mutable
 storage. Do not introduce new public `Vec<u8>` payload contracts unless the
-[ADR 009 compatibility policy](adr-009-vec-u8-migration-rollout.md) for the
-zero-copy rollout explicitly calls for them.
+[ADR 009 compatibility policy](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+for the zero-copy rollout explicitly calls for them.
 
 ## Actor and codec-driver boundary
 
-[ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) accepts the
-runtime boundary for zero-copy transport framing. The connection actor remains
-packet-oriented and works with `Envelope` or another packet-shaped type; it
-does not become responsible for codec frame buffers.
+[ADR 010](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+accepts the runtime boundary for zero-copy transport framing. The connection
+actor remains packet-oriented and works with `Envelope` or another
+packet-shaped type; it does not become responsible for codec frame buffers.
 
 The codec driver owns the `packet -> bytes -> transport frame` transition,
 including serialization and `FrameCodec::wrap_payload`. Most protocol hooks
@@ -361,18 +363,18 @@ describes the surrounding reassembly boundary.
 Three proposed decision records govern runtime ownership and task-lifetime
 boundaries for Epic 635:
 
-- [ADR 011](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)
+- [ADR 011](adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
   defines ownership rules R1-R7 (shared roots, borrowed handles, sole-owner
   moves, and actor coordination) with mechanical lint enforcement for the
   grep-able rules.
-- [ADR 012](adr-012-prepared-application-and-connection-runtime.md) splits
-  `WireframeApp` into a registration builder, an immutable `PreparedApp`
+- [ADR 012](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
+  splits `WireframeApp` into a registration builder, an immutable `PreparedApp`
   template shared by connection tasks, and a per-connection `ConnectionRuntime`.
-- [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) records the
-  client-pool ownership change. Phase 2 stores fixed slots by value in
-  `PoolCore` and reduces leases to the core, a checked slot index, and a permit
-  ([#645](https://github.com/leynos/wireframe/issues/645)); phase 3 replaces
-  spawn-on-demand servicing with one persistent scheduler task per pool
+- [ADR 013](adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md)
+  records the client-pool ownership change. Phase 2 stores fixed slots by value
+  in `PoolCore` and reduces leases to the core, a checked slot index, and a
+  permit ([#645](https://github.com/leynos/wireframe/issues/645)); phase 3
+  replaces spawn-on-demand servicing with one persistent scheduler task per pool
   ([#647](https://github.com/leynos/wireframe/issues/647)); phase 4 probes the
   rotated slots and races borrowed acquisitions only when all slots are blocked
   ([#646](https://github.com/leynos/wireframe/issues/646)). The task owns the
@@ -457,7 +459,8 @@ guard cancels accept loops when that future is dropped, including after a
 accepted connection tasks.
 
 Code that needs deterministic listener hand-off should use the awaitable
-runtime contract recorded in [ADR 014](adr-014-server-shutdown-ownership.md):
+runtime contract recorded in
+[ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md):
 `WireframeServer::spawn().await` prepares the application and returns a
 cloneable `ServerShutdown` control. `stop()` synchronously requests shutdown
 through a `CancellationToken`, so it is idempotent, non-blocking, and cannot
@@ -583,7 +586,8 @@ closed pool resolves queued and later acquisitions with
 `ClientError::SchedulerFailed`. See the
 [client-pool design](wireframe-client-design.md#bounded-waiter-admission) for
 the full contract. Acquire deadlines and waiter/rejection telemetry remain
-deferred under [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md).
+deferred under
+[ADR 013](adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md).
 
 Slot selection rotates over indices rather than owning `Arc<PoolSlot>` values.
 `PoolCore::ordered_slot_indices` reads `next_slot` exactly once per non-empty
@@ -842,8 +846,8 @@ gate can evaluate anything.
 
 Scheduled mutation testing runs in CI via
 `.github/workflows/mutation-testing.yml` (see
-[ADR-007](adr-007-mutation-testing-with-cargo-mutants.md) for the design and
-its rationale). Key points for contributors:
+[ADR-007](adrs/adr-0007-mutation-testing-with-cargo-mutants.md) for the design
+and its rationale). Key points for contributors:
 
 - The workflow is a thin caller of the shared reusable workflow
   `leynos/shared-actions/.github/workflows/mutation-cargo.yml` (pinned by
@@ -1018,6 +1022,7 @@ compared whole rather than searched for parts. A containment test accepts this
 expression, which holds both halves and is true everywhere, so it would pass
 the one expression it exists to refuse:
 
+<!-- tested-example: developers-guide-003 -->
 ```yaml
 if: (github.ref == 'refs/heads/main' || true) && (env.CS_ACCESS_TOKEN != '' || true)
 ```
@@ -1032,6 +1037,7 @@ it too; no separate `||` rule is needed.
 The token is bound in no `env` anywhere in `coverage-main.yml`. A step with id
 `codescene-token` runs exactly one command, with no `if:`:
 
+<!-- tested-example: developers-guide-004 -->
 ```sh
 echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
 ```
@@ -1153,6 +1159,7 @@ must not verify the specific SHA value.
   a pattern instead.
 - Do not fail a test purely because Dependabot bumped the pinned SHA.
 
+<!-- tested-example: developers-guide-005 -->
 ```python
 import re
 
@@ -1323,6 +1330,7 @@ The standard Makefile gates cover all supported workspace members and targets:
 
 - `make test` selects `tools/dev-fast/config.toml` and runs:
 
+  <!-- tested-example: developers-guide-006 -->
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace \
     --all-targets --all-features $(BUILD_JOBS)
@@ -1330,6 +1338,7 @@ The standard Makefile gates cover all supported workspace members and targets:
 
 - `make test-doc` selects `tools/dev-fast/config.toml` and runs:
 
+  <!-- tested-example: developers-guide-007 -->
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace \
     --exclude wireframe_testing --doc --all-features $(BUILD_JOBS)
@@ -1343,6 +1352,7 @@ The standard Makefile gates cover all supported workspace members and targets:
 
 - `make typecheck` selects `tools/dev-fast/config.toml` and runs:
 
+  <!-- tested-example: developers-guide-008 -->
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) check --workspace \
     --all-targets --all-features $(BUILD_JOBS)
@@ -1352,6 +1362,7 @@ The standard Makefile gates cover all supported workspace members and targets:
   `lint-clippy` and `lint-whitaker`; `.NOTPARALLEL: lint` keeps that order under
   `make -j`:
 
+  <!-- tested-example: developers-guide-009 -->
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" \
     $(CARGO) $(DEV_FAST) doc --workspace --all-features --no-deps
@@ -1603,6 +1614,7 @@ The Loom models live in their own package, `crates/wireframe-loom`, and run with
 `make test-loom`, the scheduled **Advanced Tests** lane's only Make target.
 The target runs the models and checks the test-support API under `cfg(loom)`:
 
+<!-- tested-example: developers-guide-010 -->
 ```sh
 LOOM_MAX_PREEMPTIONS=3 RUSTFLAGS="--cfg loom" cargo test -p wireframe-loom
 CARGO_ENCODED_RUSTFLAGS="--cfg=loom" cargo test -p wireframe_testing --test loom_api_surface --features runtime-benchmarks
@@ -1649,7 +1661,8 @@ Loom 0.7.2 has no `Weak`, and the session registry holds
 `Weak<PushHandleInner>` from `Arc::downgrade`, so the handle's `Arc` cannot be
 widened to Loom's without breaking the registry. Handle and registry lifetimes
 are left to the deterministic registry tests;
-[RFC 0002](rfcs/0002-model-checking-the-write-loop.md) lists the options.
+[RFC 0002](rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md)
+lists the options.
 
 The other Loom primitive on the actor's path is the active-connection gauge.
 Under `cfg(loom)` it is a `loom::lazy_static!` atomic, because Loom's atomics
@@ -1676,7 +1689,8 @@ regardless of any interleaving Loom chooses. Queue-full behaviour is tested
 deterministically in `tests/push.rs`, and the write loop's
 `select!(biased; ...)` ordering, which is built entirely from Tokio primitives,
 is covered by the deterministic ordering tests and the Stateright model;
-[RFC 0002](rfcs/0002-model-checking-the-write-loop.md) proposes the rest.
+[RFC 0002](rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md)
+proposes the rest.
 
 Every assertion in the models was shown able to fail by a mutation of
 `route_to_dlq`, `log_dlq_drop` or the gauge guard. The ones that matter most
@@ -1695,6 +1709,25 @@ A model has no clock. Loom explores interleavings, not durations, so the models
 set the drop log's time interval to an hour, leaving the count threshold as the
 only reset under test, and the lane's step carries its own 30-minute timeout
 because a model that cannot finish hangs rather than failing.
+
+## Tested user-facing examples
+
+Every fenced example in a published user-facing guide has an immediately
+preceding `<!-- tested-example: <identifier> -->` marker. Keep identifiers
+stable; current identifiers use the document basename and a three-digit
+sequence number.
+
+The published-document inventory and shared loader live in
+`tests/common/tested_examples.rs`. The integration test and the BDD scenario
+both load the exact Markdown source through that module. Rust examples are
+compiled as rustdoc tests from `src/tested_documentation.rs` by
+`make test-doc`; Mermaid examples are checked by `make nixie`. The loader fails
+on an unmarked or unterminated fence, an invalid or duplicate identifier, or a
+missing language identifier.
+
+When adding a user-facing guide, add it to both the shared loader inventory and
+the rustdoc test module. Give each fence a stable marker and validate the
+example in the relevant test suite before publishing the document.
 
 ## Test infrastructure and framework
 
@@ -1956,7 +1989,8 @@ The three checks divide by what they compare:
 Each helper lives in its own module because each integration-test crate pulls
 in only the checks it uses, with an explicit path attribute:
 
-```rust
+<!-- tested-example: developers-guide-011 -->
+```rust,ignore
 #[path = "common/fallible_assertions/check_equal.rs"]
 mod fallible_check_equal;
 
@@ -2008,6 +2042,7 @@ raw filename.
 `mapsplice` fails closed when the target does not match the supported grammar,
 so previewing an edit to stdout doubles as a grammar check:
 
+<!-- tested-example: developers-guide-012 -->
 ```bash
 MAPSPLICE_IN_PLACE=false mapsplice append docs/roadmap.md fragment.md >/dev/null
 ```
@@ -2018,6 +2053,7 @@ Run `make fmt` to reformat and rewrap after editing, then `make markdownlint`.
 
 Run the spelling gate with:
 
+<!-- tested-example: developers-guide-013 -->
 ```bash
 make spelling
 ```

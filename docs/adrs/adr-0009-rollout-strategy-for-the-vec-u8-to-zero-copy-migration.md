@@ -11,7 +11,7 @@ compatibility helpers. The helpers ship in the default build, carry
 removal version, and are removed in the second breaking release after they are
 introduced. This decision closes roadmap item `10.1.2` and the corresponding
 item `1.1.2` in
-[`zero-copy-frame-and-payload-migration-roadmap.md`](zero-copy-frame-and-payload-migration-roadmap.md).
+[`zero-copy-frame-and-payload-migration-roadmap.md`](../zero-copy-frame-and-payload-migration-roadmap.md).
 
 ## Date
 
@@ -20,12 +20,13 @@ Proposed 2026-04-12. Accepted 2026-06-15.
 ## Context and Problem Statement
 
 Epic 284 is a breaking change. The inventory in
-[`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md) shows that downstream
-users are exposed to `Vec<u8>` not only through one public `Frame` alias, but
-through packet construction, middleware wrappers, client hooks, serializer
-output, tests, and documentation. A zero-copy internal implementation is not
-enough; the project also needs a release and compatibility strategy that keeps
-the change reviewable and predictable for downstream users.
+[`frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md) shows that
+downstream users are exposed to `Vec<u8>` not only through one public `Frame`
+alias, but through packet construction, middleware wrappers, client hooks,
+serializer output, tests, and documentation. A zero-copy internal
+implementation is not enough; the project also needs a release and
+compatibility strategy that keeps the change reviewable and predictable for
+downstream users.
 
 The key rollout question is whether the project should:
 
@@ -38,14 +39,14 @@ The key rollout question is whether the project should:
 
 This ADR governs the Epic 284 compatibility and rollout work tracked in:
 
-- [`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md), especially the
+- [`frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md), especially the
   "Generalization paths and conceptual risks", "Resolved direction for epic
   284", and "Coordination notes" sections.
-- [`zero-copy-frame-and-payload-migration-roadmap.md`](zero-copy-frame-and-payload-migration-roadmap.md),
+- [`zero-copy-frame-and-payload-migration-roadmap.md`](../zero-copy-frame-and-payload-migration-roadmap.md),
   which tracks the dedicated migration publish and breaking-release workstream
   that this rollout policy governs, including the Phase 1 decision closure and
   the later publication milestones.
-- [`roadmap.md`](roadmap.md), specifically:
+- [`roadmap.md`](../roadmap.md), specifically:
   - roadmap item `10.1.2`, which approves the compatibility and rollout
     policy;
   - roadmap item `10.2.3`, which publishes the migration-guide outline and
@@ -135,7 +136,7 @@ surface, not one adapter per call site:
   `ServiceResponse::into_inner` (the `&mut Vec<u8>` / owned-`Vec<u8>`
   accessors) are removed outright in the breaking release and replaced by the
   edit-on-demand workflow accepted in
-  [ADR 008](adr-008-zero-copy-public-byte-container.md). Retaining a
+  [ADR 008](adr-0008-zero-copy-public-byte-container.md). Retaining a
   `&mut Vec<u8>` accessor would resurrect the final-copy bottleneck that ADR
   008 set out to eliminate, so it is excluded from the helper set on purpose.
 - **Client request hooks.** `BeforeSendHook` gains one adapter constructor
@@ -145,14 +146,14 @@ surface, not one adapter per call site:
   roadmap item `12.2.1`.
 - **Client preamble leftovers** stay on owned `Vec<u8>` for this breaking
   release, per the resolved direction in
-  [`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md). Roadmap item
+  [`frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md). Roadmap item
   `12.2.2` is the dedicated re-evaluation hook.
 - **Runtime bridges are out of scope for this policy.** The
   `CorrelatableFrame for Vec<u8>` runtime bridge and the test-only
   `Packet for Vec<u8>` bridge are not compatibility helpers under ADR 009.
   Their lifecycle is governed by
-  [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) and roadmap items
-  `11.2.1`, `11.2.2`, and `14.1.3`.
+  [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+  and roadmap items `11.2.1`, `11.2.2`, and `14.1.3`.
 
 ### Visibility and deprecation discipline
 
@@ -381,4 +382,4 @@ implementation. This proposal does not itself update or supersede those
 requirements.
 
 [serializer-output-plan]:
-execplans/issue-538-plan-zero-copy-serializer-output-migration.md
+../execplans/issue-538-plan-zero-copy-serializer-output-migration.md

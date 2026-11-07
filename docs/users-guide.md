@@ -50,7 +50,8 @@ once and obtain a `PreparedApp`. The transition returns
 `Result<PreparedApp, PrepareError>`; a preparation failure therefore produces
 no partially usable runtime.[^2]
 
-```no_run
+<!-- tested-example: users-guide-001 -->
+```rust,ignore
 use std::sync::Arc;
 use wireframe::app::{Envelope, Handler, WireframeApp};
 
@@ -77,7 +78,8 @@ payloads, and emits a serialized response. It showcases the typical `main`
 function for a microservice that listens on localhost and responds to a `Ping`
 message with a `Pong` payload.[^2][^10][^15]
 
-```rust,no_run
+<!-- tested-example: users-guide-002 -->
+```rust,ignore
 use std::{net::SocketAddr, sync::Arc};
 
 use wireframe::{
@@ -170,7 +172,8 @@ default accepting `WireframeError::Protocol(())` should annotate that case as
 The default error type works with standard error wrappers and source-chain
 inspection:
 
-```rust
+<!-- tested-example: users-guide-003 -->
+```rust,ignore
 use std::error::Error;
 use wireframe::WireframeError;
 
@@ -192,6 +195,7 @@ timeouts, and writes responses. The deprecated
 `WireframeApp::handle_connection` methods rebuild route chains for
 compatibility and should not be used in new code.
 
+<!-- tested-example: users-guide-004 -->
 ```rust,no_run
 use tokio::io::duplex;
 use wireframe::app::{PreparedApp, WireframeApp};
@@ -251,7 +255,8 @@ When a framed stream is already available, use
 
 Assume `MyCodec` implements `FrameCodec`:
 
-```rust,no_run
+<!-- tested-example: users-guide-005 -->
+```rust,ignore
 use std::sync::Arc;
 
 use wireframe::app::{Envelope, Handler, WireframeApp};
@@ -272,7 +277,8 @@ implementations.
 
 Retrieve the configured codec from a `WireframeApp` instance:
 
-```rust,no_run
+<!-- tested-example: users-guide-006 -->
+```rust,ignore
 use wireframe::app::WireframeApp;
 use wireframe::codec::examples::HotlineFrameCodec;
 
@@ -286,7 +292,8 @@ let codec_ref = app.codec(); // &HotlineFrameCodec
 The `wireframe_testing` crate provides codec-aware driver functions that handle
 frame encoding and decoding transparently:
 
-```rust,no_run
+<!-- tested-example: users-guide-007 -->
+```rust,ignore
 use wireframe::app::WireframeApp;
 use wireframe::codec::examples::HotlineFrameCodec;
 use wireframe_testing::{drive_with_codec_payloads, drive_with_codec_frames};
@@ -329,6 +336,7 @@ invalid frames, incomplete (truncated) frames, and frames with correlation
 metadata. These fixtures construct raw bytes directly, so they can represent
 malformed data that the encoder would reject:
 
+<!-- tested-example: users-guide-008 -->
 ```rust,no_run
 use wireframe::codec::examples::HotlineFrameCodec;
 use wireframe_testing::{
@@ -376,7 +384,8 @@ re-exports for existing callers.
 bytes, and write them in configurable chunk sizes (including one byte at a
 time):
 
-```rust,no_run
+<!-- tested-example: users-guide-009 -->
+```rust,ignore
 use std::num::NonZeroUsize;
 use wireframe::app::WireframeApp;
 use wireframe::codec::examples::HotlineFrameCodec;
@@ -403,7 +412,8 @@ Available chunked-write driver functions:
 `Fragmenter`, encode each fragment into a codec frame, and feed the frames
 through the app:
 
-```rust,no_run
+<!-- tested-example: users-guide-010 -->
+```rust,ignore
 use std::num::NonZeroUsize;
 use wireframe::app::WireframeApp;
 use wireframe::codec::examples::HotlineFrameCodec;
@@ -437,6 +447,7 @@ used from `rstest` tests and `rstest-bdd` step definitions. Existing
 `wireframe_testing::reassembly` imports remain valid as compatibility
 re-exports.
 
+<!-- tested-example: users-guide-011 -->
 ```rust,no_run
 use wireframe::message_assembler::MessageKey;
 use wireframe::testkit::{
@@ -488,6 +499,7 @@ log capture with metrics recording in a single fixture. This is useful for
 asserting that codec errors, recovery policies, and other instrumentation
 behave correctly under test.
 
+<!-- tested-example: users-guide-012 -->
 ```rust,no_run
 use wireframe_testing::ObservabilityHandle;
 
@@ -543,11 +555,13 @@ through `SlowIoConfig`:
 
 Enable the feature in `Cargo.toml` when importing from the main crate:
 
+<!-- tested-example: users-guide-013 -->
 ```toml
 wireframe = { version = "0.3.0", features = ["testkit"] }
 ```
 
-```rust,no_run
+<!-- tested-example: users-guide-014 -->
+```rust,ignore
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe::{
     app::{Envelope, WireframeApp},
@@ -608,6 +622,7 @@ Use the pair harness when a downstream crate needs to verify that its protocol
 implementation works end-to-end through a real Wireframe server. A shared
 `echo_app_factory` provides a ready-made app factory with invocation counting:
 
+<!-- tested-example: users-guide-015 -->
 ```rust,no_run
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
@@ -649,7 +664,8 @@ not require the main-crate `testkit` feature unless the test also uses
 For performance-critical codecs, use `Bytes` instead of `Vec<u8>` for payload
 storage and override `frame_payload_bytes` to avoid allocation:
 
-```rust
+<!-- tested-example: users-guide-016 -->
+```rust,ignore
 use bytes::Bytes;
 use wireframe::codec::FrameCodec;
 
@@ -683,7 +699,8 @@ impl FrameCodec for MyCodec {
 
 In the decoder, use `BytesMut::freeze()` instead of `.to_vec()`:
 
-```rust
+<!-- tested-example: users-guide-017 -->
+```rust,ignore
 use bytes::BytesMut;
 use tokio_util::codec::Decoder;
 
@@ -729,6 +746,7 @@ Each error type has a default recovery policy:
 
 Override recovery policies with a custom `RecoveryPolicyHook`:
 
+<!-- tested-example: users-guide-018 -->
 ```rust
 use wireframe::codec::{
     CodecError, CodecErrorContext, RecoveryPolicy, RecoveryPolicyHook,
@@ -746,6 +764,7 @@ impl RecoveryPolicyHook for StrictRecovery {
 
 `CodecErrorContext` provides connection metadata for policy decisions:
 
+<!-- tested-example: users-guide-019 -->
 ```rust
 use wireframe::codec::CodecErrorContext;
 
@@ -760,6 +779,7 @@ let ctx = CodecErrorContext::new()
 The `WireframeProtocol` trait includes an `on_eof` hook for handling EOF
 conditions during frame decoding:
 
+<!-- tested-example: users-guide-020 -->
 ```rust,ignore
 use wireframe::{
     codec::EofError,
@@ -799,6 +819,7 @@ When the `metrics` feature is enabled, codec errors increment the
 `wireframe_codec_errors_total` counter with `error_type` and `recovery_policy`
 labels:
 
+<!-- tested-example: users-guide-021 -->
 ```text
 wireframe_codec_errors_total{error_type="framing",recovery_policy="drop"} 5
 wireframe_codec_errors_total{error_type="eof",recovery_policy="disconnect"} 2
@@ -910,7 +931,8 @@ accessors are `const`, and const function bodies can call the accessors on
 items. `FragmentBatch` is also produced at runtime, though its accessors are
 const-callable from functions that receive a batch reference.
 
-```no_run
+<!-- tested-example: users-guide-022 -->
+```rust,no_run
 use std::num::NonZeroUsize;
 use wireframe::fragment::Fragmenter;
 
@@ -935,6 +957,7 @@ maximum assembled size while exposing `purge_expired` to clear stale partial
 messages after a configurable timeout. When the final fragment arrives, it
 returns a `ReassembledMessage` that can be decoded into the original type.
 
+<!-- tested-example: users-guide-023 -->
 ```rust
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe::fragment::{
@@ -975,6 +998,7 @@ This type pairs with `RequestBodyStream` for incremental consumption of large
 request payloads. Handlers can choose between buffered (existing) and streaming
 consumption; the streaming path is opt-in.
 
+<!-- tested-example: users-guide-024 -->
 ```rust
 use wireframe::request::RequestParts;
 
@@ -1001,6 +1025,7 @@ remaining bytes can be treated as the body chunk.
 
 Register an assembler with `WireframeApp::with_message_assembler`:
 
+<!-- tested-example: users-guide-025 -->
 ```rust,no_run
 use wireframe::{
     app::WireframeApp,
@@ -1011,6 +1036,7 @@ use wireframe::{
         MessageKey,
         ParsedFrameHeader,
     },
+    serializer::BincodeSerializer,
 };
 
 struct DemoAssembler;
@@ -1033,7 +1059,7 @@ impl MessageAssembler for DemoAssembler {
     }
 }
 
-let _app = WireframeApp::new()
+let _app = WireframeApp::<BincodeSerializer>::new()
     .expect("builder")
     .with_message_assembler(DemoAssembler);
 ```
@@ -1065,9 +1091,10 @@ buffering and assembly:
 
 Configure budgets through the app builder:
 
+<!-- tested-example: users-guide-026 -->
 ```rust,no_run
 use std::num::NonZeroUsize;
-use wireframe::app::{BudgetBytes, MemoryBudgets, WireframeApp};
+use wireframe::{app::{BudgetBytes, MemoryBudgets, WireframeApp}, serializer::BincodeSerializer};
 
 let budgets = MemoryBudgets::new(
     BudgetBytes::new(NonZeroUsize::new(16 * 1024).expect("non-zero")),
@@ -1075,7 +1102,7 @@ let budgets = MemoryBudgets::new(
     BudgetBytes::new(NonZeroUsize::new(48 * 1024).expect("non-zero")),
 );
 
-let _app = WireframeApp::new()
+let _app = WireframeApp::<BincodeSerializer>::new()
     .expect("builder creation should not fail")
     .memory_budgets(budgets)
     .read_timeout_ms(250);
@@ -1138,7 +1165,8 @@ The `MessageAssemblyState` type manages multiple concurrent message assemblies
 keyed by `MessageKey`. This enables interleaved frame streams where frames from
 different logical messages arrive on the same connection:
 
-```rust
+<!-- tested-example: users-guide-027 -->
+```rust,ignore
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe::message_assembler::{
     ContinuationFrameHeader,
@@ -1208,6 +1236,7 @@ sequence numbers via `ContinuationFrameHeader::sequence`. It detects:
 For protocols that do not supply sequence numbers, the series accepts frames in
 any order (ordering validation is skipped).
 
+<!-- tested-example: users-guide-028 -->
 ```rust
 use wireframe::message_assembler::{
     ContinuationFrameHeader,
@@ -1315,7 +1344,7 @@ out of the equality requirement and keep the previous behaviour.
 
 The declaration is also used for the size-limit check, so an exact total is the
 cheapest way to fail early on an oversized message. The decision is recorded in
-[ADR 015](adr-015-declared-total-body-length-contract.md).
+[ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md).
 
 ### Streaming request body consumption
 
@@ -1326,6 +1355,7 @@ propagates automatically when the handler consumes slower than the network
 delivers. Routing and correlation metadata stay available immediately through
 `RequestParts`, so handlers can begin work before the full body is assembled.
 
+<!-- tested-example: users-guide-029 -->
 ```rust,no_run
 use tokio::io::AsyncReadExt;
 use wireframe::request::{RequestBodyReader, RequestBodyStream, RequestParts};
@@ -1347,6 +1377,7 @@ The `RequestBodyReader` adapter implements `AsyncRead`, allowing protocol
 crates to reuse existing parsers. For raw stream access, use the
 `RequestBodyStream` directly with `StreamExt` methods:
 
+<!-- tested-example: users-guide-030 -->
 ```rust,no_run
 use bytes::Bytes;
 use futures::StreamExt;
@@ -1364,6 +1395,7 @@ async fn handle_stream(parts: RequestParts, mut body: RequestBodyStream) {
 
 The `StreamingBody` extractor wraps the stream with convenience methods:
 
+<!-- tested-example: users-guide-031 -->
 ```rust,no_run
 use wireframe::{
     extractor::StreamingBody,
@@ -1386,6 +1418,7 @@ the request arrived through `MessageAssembler`, the same per-connection memory
 budgets continue to govern partial buffered state before chunks reach the
 handler. The `body_channel` helper creates channels with configurable capacity:
 
+<!-- tested-example: users-guide-032 -->
 ```rust
 use wireframe::request::body_channel;
 
@@ -1414,6 +1447,7 @@ packet types with interior mutability). Decode typed payloads via the `Message`
 helpers, then write the encoded response into
 `ServiceResponse::frame_mut()`.[^10][^12]
 
+<!-- tested-example: users-guide-033 -->
 ```rust
 use std::convert::Infallible;
 
@@ -1475,23 +1509,25 @@ Immediate responses are available through `send_response` and
 `send_response_framed`, both of which report serialization or I/O problems via
 `SendError`.[^6][^5]
 
+<!-- tested-example: users-guide-034 -->
 ```rust,no_run
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 
 use wireframe::{
     app::{SendError, WireframeApp},
     message::Message,
+    serializer::BincodeSerializer,
 };
 
 #[derive(bincode::Encode, bincode::BorrowDecode, Debug, PartialEq)]
-struct Ready(&'static str);
+struct Ready(String);
 
 #[tokio::main]
 async fn main() -> Result<(), SendError> {
-    let app = WireframeApp::default();
+    let app = WireframeApp::<BincodeSerializer>::default();
     let (mut client, mut server) = io::duplex(64);
 
-    let ready = Ready("ready");
+    let ready = Ready("ready".to_owned());
     app.send_response(&mut server, &ready).await?;
     server.shutdown().await?;
 
@@ -1526,7 +1562,8 @@ close the connection immediately when exceeded. `for_frame_budget` derives both
 aggregate limits from the frame budget, with the byte cap at least as large as
 `max_message_size`. Customize or disable fragmentation via the builder:
 
-```rust
+<!-- tested-example: users-guide-035 -->
+```rust,ignore
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe::{
     app::WireframeApp,
@@ -1645,6 +1682,7 @@ Prometheus metrics must add `metrics-exporter-prometheus` as a direct
 dependency and install its recorder once during startup, before Wireframe
 begins emitting metrics:
 
+<!-- tested-example: users-guide-036 -->
 ```rust,no_run
 use std::time::Duration;
 
@@ -1728,6 +1766,7 @@ A representative const context, taken from the committed compile-time fixture,
 builds a recovery policy, an error context, and two codec configurations and
 asserts on them without any runtime call:
 
+<!-- tested-example: users-guide-037 -->
 ```rust
 use std::{
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
@@ -1813,7 +1852,8 @@ as `TCP_NODELAY` or buffer size adjustments.
 | Waiter limit         | `ClientPoolConfig::max_waiters(n)`           | `64`                                                    | Bound acquisitions waiting for a pooled lease.                      |
 | Idle recycle         | `idle_timeout(Duration)`                     | `600s`                                                  | Idle sockets should be replaced before they become stale.           |
 
-```rust
+<!-- tested-example: users-guide-038 -->
+```rust,ignore
 use std::{net::SocketAddr, time::Duration};
 
 use wireframe::{
@@ -1860,6 +1900,7 @@ For screen readers: the following sequence diagram shows the client lifecycle
 for connect, optional preamble exchange, message I/O, error handling, and
 teardown.
 
+<!-- tested-example: users-guide-039 -->
 ```mermaid
 sequenceDiagram
     participant App as Application
@@ -1881,6 +1922,7 @@ sequenceDiagram
 
 Run the client example against the echo server:
 
+<!-- tested-example: users-guide-040 -->
 ```plaintext
 # terminal 1
 cargo run --example echo --features examples
@@ -1917,6 +1959,7 @@ constant context. Setters that clamp their input, such as
 outside Solaris, illumos, and Cygwin, so guard any call to it with the matching
 `#[cfg(...)]`.
 
+<!-- tested-example: users-guide-041 -->
 ```rust
 use std::time::Duration;
 
@@ -1958,6 +2001,7 @@ bounded set of warm sockets, preserves preamble state on reuse, recycles idle
 sockets after the configured timeout, and can schedule blocked logical sessions
 fairly through `PoolHandle`.
 
+<!-- tested-example: users-guide-042 -->
 ```rust,no_run
 use std::{net::SocketAddr, time::Duration};
 
@@ -2024,6 +2068,7 @@ error recycles a socket, and neither is retried automatically.
 Create a `PoolHandle` when one logical session needs repeated pooled access and
 that session should participate in the configured fairness policy over time:
 
+<!-- tested-example: users-guide-043 -->
 ```rust,no_run
 # use std::net::SocketAddr;
 use wireframe::client::{ClientPoolConfig, PoolFairnessPolicy, PoolHandle, WireframeClient};
@@ -2142,7 +2187,8 @@ The client builder supports an optional preamble exchange before framing
 begins. Use `with_preamble` to send a preamble immediately after TCP connect,
 and register callbacks for success or failure scenarios.[^47]
 
-```rust
+<!-- tested-example: users-guide-044 -->
+```rust,ignore
 use std::{net::SocketAddr, time::Duration};
 
 use futures::FutureExt;
@@ -2218,7 +2264,8 @@ system, enabling consistent instrumentation across both client and server.[^48]
 - **Error hook** (`on_error`): Invoked when errors occur during send, receive,
   or call operations. Receives a reference to the error for logging or metrics.
 
-```rust
+<!-- tested-example: users-guide-045 -->
+```rust,ignore
 use std::{net::SocketAddr, sync::Arc};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -2277,7 +2324,8 @@ Multiple hooks of the same kind may be registered; they execute in registration
 order. Hooks are synchronous `Fn` closures—users who need mutable state should
 capture an `Arc<AtomicUsize>` or `Arc<Mutex<_>>` in the closure.
 
-```rust
+<!-- tested-example: users-guide-046 -->
+```rust,ignore
 use std::{net::SocketAddr, sync::Arc};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -2313,6 +2361,7 @@ The client supports sending large request bodies as multiple frames using
 `AsyncRead` body source; the helper reads chunks, prepends the header to each
 chunk, and emits framed packets over the transport.
 
+<!-- tested-example: users-guide-047 -->
 ```rust,no_run
 use std::net::SocketAddr;
 use wireframe::client::{SendStreamingConfig, WireframeClient};
@@ -2358,7 +2407,8 @@ Default span levels: `INFO` for lifecycle operations (`connect`, `close`) and
 `DEBUG` for data operations (`send`, `receive`, `call`, `call_streaming`).
 Per-command timing is disabled by default.
 
-```rust
+<!-- tested-example: users-guide-048 -->
+```rust,ignore
 use std::net::SocketAddr;
 
 use tracing::Level;
@@ -2408,12 +2458,14 @@ next ID, which is useful when managing correlation manually.
   response's correlation ID matches the request. Returns
   `ClientError::CorrelationMismatch` if the IDs differ.
 
+<!-- tested-example: users-guide-049 -->
 ```rust,no_run
 use std::net::SocketAddr;
 
 use wireframe::{
     app::{Envelope, Packet},
     client::{ClientError, WireframeClient},
+    correlation::CorrelatableFrame,
 };
 
 # async fn example() -> Result<(), ClientError> {
@@ -2438,8 +2490,10 @@ assert!(response.correlation_id().is_some());
 For more control over correlation, use `send_envelope` and `receive_envelope`
 separately:
 
+<!-- tested-example: users-guide-050 -->
 ```rust,no_run
 use wireframe::app::{Envelope, Packet};
+use wireframe::correlation::CorrelatableFrame;
 # use wireframe::client::{ClientError, WireframeClient};
 # async fn example(client: &mut WireframeClient) -> Result<(), ClientError> {
 
@@ -2459,6 +2513,7 @@ assert_eq!(response.correlation_id(), Some(correlation_id));
 The `CorrelationMismatch` error provides diagnostic information when validation
 fails:
 
+<!-- tested-example: users-guide-051 -->
 ```rust,ignore
 use wireframe::client::ClientError;
 
@@ -2488,6 +2543,7 @@ variants exposed through `ClientError::Wireframe`:
 - Decode failures map to `WireframeError::Protocol` with
   `ClientProtocolError::Deserialize`.
 
+<!-- tested-example: users-guide-052 -->
 ```rust,ignore
 use wireframe::{
     ClientError,
@@ -2550,6 +2606,7 @@ and return `Self`, which means a chain works unchanged inside a `const fn`. The
 builder itself is created at runtime, because `PushQueuesBuilder::default` and
 `PushQueues::builder` are ordinary functions:
 
+<!-- tested-example: users-guide-053 -->
 ```rust
 use std::time::Duration;
 
@@ -2631,6 +2688,7 @@ When constructing imperative streams, the `async-stream` crate integrates
 smoothly. The example below yields five frames and converts them into a
 `Response::Stream` value:[^36]
 
+<!-- tested-example: users-guide-054 -->
 ```rust
 use async_stream::try_stream;
 use wireframe::response::{FrameStream, Response};
@@ -2657,7 +2715,8 @@ documented in ADR 0001 trivial to adopt. The library awaits channel capacity
 before accepting each frame, so producers can rely on the `send().await` future
 to coordinate flow control with the peer.
 
-```rust
+<!-- tested-example: users-guide-055 -->
+```rust,ignore
 use tokio::spawn;
 use wireframe::response::{Frame, Response};
 
@@ -2720,6 +2779,7 @@ the client how to recognize the server's end-of-stream marker. The default
 implementation returns `false`; protocols override it to match their terminator
 format:
 
+<!-- tested-example: users-guide-056 -->
 ```rust
 use wireframe::app::{Packet, PacketParts};
 use wireframe::correlation::CorrelatableFrame;
@@ -2768,6 +2828,7 @@ needed, and returns a `ResponseStream`. The stream yields data frames as
 arrives: because the stream borrows the `WireframeClient` mutably, this call
 also prevents other client I/O until the stream is dropped or drained.
 
+<!-- tested-example: users-guide-057 -->
 ```rust,no_run
 use futures::StreamExt;
 use std::net::SocketAddr;
@@ -2796,6 +2857,7 @@ while let Some(result) = stream.next().await {
 domain items. This is useful when only some protocol frames should be exposed
 to the caller:
 
+<!-- tested-example: users-guide-058 -->
 ```rust,no_run
 use futures::TryStreamExt;
 use std::net::SocketAddr;
@@ -2881,6 +2943,7 @@ a `ResponseStream` without re-sending. As with `call_streaming`, that stream
 holds an exclusive mutable borrow of `WireframeClient` until dropped or fully
 consumed:
 
+<!-- tested-example: users-guide-059 -->
 ```rust,no_run
 use futures::StreamExt;
 use std::net::SocketAddr;
@@ -2981,7 +3044,8 @@ Phase out older message versions without breaking clients:
   dashboards.[^33][^8]
 - Remove adapters once the sunset window ends.
 
-```rust
+<!-- tested-example: users-guide-060 -->
+```rust,ignore
 use std::sync::Arc;
 use wireframe::{
     app::{Envelope, Handler, WireframeApp},
@@ -3086,6 +3150,7 @@ who keep allocation budgets. It re-exports `stats_alloc`'s
 `INSTRUMENTED_SYSTEM` and `StatsAlloc` alongside `std::alloc::System`, so a
 benchmark binary opts in by installing the instrumenting allocator:
 
+<!-- tested-example: users-guide-061 -->
 ```rust
 use std::alloc::System;
 use wireframe_testing::benchmark_alloc_support::{INSTRUMENTED_SYSTEM, StatsAlloc};
@@ -3101,6 +3166,7 @@ Measure with `count_allocations`, which opens a window, resets the counter,
 runs the closure, samples the closing total, and closes the window before
 returning:
 
+<!-- tested-example: users-guide-062 -->
 ```rust
 use wireframe_testing::benchmark_alloc_support::count_allocations;
 
@@ -3109,6 +3175,8 @@ let count = count_allocations(|| {
     std::hint::black_box(buffer.len());
     Ok(())
 })?;
+std::hint::black_box(count);
+# Ok::<(), String>(())
 ```
 
 The window closes on the error path too, so a failed measurement cannot leave
@@ -3141,7 +3209,7 @@ asserting on. Runs happen through the shared reusable workflow
 `leynos/shared-actions/.github/workflows/mutation-cargo.yml`, pinned by commit
 SHA, and are informational only — they never gate pull requests, so a red
 mutation run does not block contributions or releases. The design rationale is
-recorded in [ADR-007](adr-007-mutation-testing-with-cargo-mutants.md).
+recorded in [ADR-007](adrs/adr-0007-mutation-testing-with-cargo-mutants.md).
 
 Two run modes exist. Scheduled daily runs mutate only the Rust files changed on
 `main` in the preceding 25 hours and skip in seconds on quiet days. Manual
@@ -3223,7 +3291,7 @@ directories (one per shard on full dispatch runs) for offline triage.
     `src/client/config.rs`, and `src/client/error.rs`.
 [^45]: Implemented in `src/request.rs`.
 [^46]: See ADR 0002 for design rationale:
-    `docs/adr/0002-streaming-requests-and-shared-message-assembly.md`.
+    `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`.
 [^47]: Client preamble support implemented in `src/client/builder.rs`
     (lines 288-566) and `src/client/mod.rs` (callback types).
 [^48]: Client lifecycle hooks implemented in `src/client/hooks.rs`,
@@ -3249,10 +3317,10 @@ directories (one per shard on full dispatch runs) for offline triage.
     `tests/features/client_request_hooks.feature`.
 
 [^53]: Implemented in `src/client/send_streaming.rs`. See
-    [ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md),
+    [ADR 0002](adrs/adr-0002-streaming-requests-and-shared-message-assembly.md),
     Section 4, for design rationale.
 
-[adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md
+[adr-0002-ref]: adrs/adr-0002-streaming-requests-and-shared-message-assembly.md
 
 [serializer-output-plan]:
 execplans/issue-538-plan-zero-copy-serializer-output-migration.md

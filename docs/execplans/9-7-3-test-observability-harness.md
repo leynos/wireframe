@@ -46,8 +46,8 @@ observability handle. ADR-006 status is updated to "Accepted" and roadmap item
 9.7.3 is ticked.
 
 This is roadmap item 9.7.3, implementing ADR-006
-(`docs/adr-006-test-observability.md`), and is a prerequisite for item 9.7.4
-(codec error regression tests that will consume the harness).
+(`docs/adrs/adr-0006-test-observability-harness.md`), and is a prerequisite for
+item 9.7.4 (codec error regression tests that will consume the harness).
 
 ## Constraints
 
@@ -221,7 +221,8 @@ tests/
   features/                         # Gherkin feature files
 
 docs/
-  adr-006-test-observability.md     # ADR (status: Accepted)
+  adrs/
+    adr-0006-test-observability-harness.md   # ADR (status: Accepted)
   wireframe-testing-crate.md        # Design doc with proposed ObservabilityHandle API
   roadmap.md                        # line 437: - [x] 9.7.3.
   users-guide.md                    # Testing section at line 224
@@ -461,8 +462,8 @@ Stage E acceptance: `make test` passes with all 4 BDD scenarios green.
 
 ### Stage F: documentation updates
 
-1. Update `docs/adr-006-test-observability.md` — change `Status` from
-   "Proposed." to "Accepted." (line 5).
+1. Update `docs/adrs/adr-0006-test-observability-harness.md` — change `Status`
+   from "Proposed." to "Accepted." (line 5).
 
 2. Update `docs/roadmap.md` — change `- [ ] 9.7.3.` to `- [x] 9.7.3.`
    (line 437).
@@ -628,16 +629,16 @@ pub fn obs_handle() -> ObservabilityHandle;
 
 ### Files to modify
 
-| File                                 | Change                                    |
-| ------------------------------------ | ----------------------------------------- |
-| `wireframe_testing/Cargo.toml`       | Add `metrics = "0.24.3"`                  |
-| `wireframe_testing/src/lib.rs`       | Add `pub mod observability;` + re-exports |
-| `tests/fixtures/mod.rs`              | Add `pub mod test_observability;`         |
-| `tests/steps/mod.rs`                 | Add `mod test_observability_steps;`       |
-| `tests/scenarios/mod.rs`             | Add `mod test_observability_scenarios;`   |
-| `docs/adr-006-test-observability.md` | Status: Proposed -> Accepted              |
-| `docs/roadmap.md`                    | Tick 9.7.3 checkbox                       |
-| `docs/users-guide.md`                | Add test observability section            |
+| File                                               | Change                                    |
+| -------------------------------------------------- | ----------------------------------------- |
+| `wireframe_testing/Cargo.toml`                     | Add `metrics = "0.24.3"`                  |
+| `wireframe_testing/src/lib.rs`                     | Add `pub mod observability;` + re-exports |
+| `tests/fixtures/mod.rs`                            | Add `pub mod test_observability;`         |
+| `tests/steps/mod.rs`                               | Add `mod test_observability_steps;`       |
+| `tests/scenarios/mod.rs`                           | Add `mod test_observability_scenarios;`   |
+| `docs/adrs/adr-0006-test-observability-harness.md` | Status: Proposed -> Accepted              |
+| `docs/roadmap.md`                                  | Tick 9.7.3 checkbox                       |
+| `docs/users-guide.md`                              | Add test observability section            |
 
 Total: 8 new + 8 modified = 16 files (within 18-file tolerance).
 
