@@ -118,6 +118,9 @@ def _run_workflow_step_with_failing_doctest(tmp_path: Path) -> tuple[int, str]:
 
     environment = os.environ.copy()
     environment["CARGO"] = str(_failing_doctest_cargo(tmp_path))
+    # Cargo colours "error:" on a terminal-attached CI runner, which would hide
+    # the marker the assertion looks for.
+    environment["CARGO_TERM_COLOR"] = "never"
     completed = subprocess.run(
         ["bash", "-c", command],
         cwd=REPOSITORY_ROOT,
