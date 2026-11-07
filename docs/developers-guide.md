@@ -144,15 +144,16 @@ s, so the smaller coverage job is the binding one.*
 The ordering invariant is
 `default deadline < override deadline <
 global-timeout < cargo-wait-timeout < coverage job ceiling`.
-`tests/workflow_contracts/nextest_timeout_test.py` proves it,
-`nextest_target_discovery_test.py` proves the override still reaches the target
-it names, `compile_gate_contract_test.py` pins which execution paths CI
-actually runs, `nextest_property_test.py` drives the filter, scanner and
-override-resolution invariants across generated matchers, Rust block structures
-and target sets, `nextest_override_scenarios.py` builds the single-defect
-override scenarios those properties draw from, and `timeout_property_test.py`
-breaks one link at a time in a generated chain that the ordering invariant must
-accept.
+`tests/workflow_contracts/nextest_timeout_test.py` proves it, and
+`nextest_target_discovery_test.py` statically checks that the override still
+names a discovered target. That check reads configuration and source; it does
+not prove that nextest applies the override to a running test.
+`compile_gate_contract_test.py` pins which execution paths CI actually runs,
+`nextest_property_test.py` drives the filter, scanner and override-resolution
+invariants across generated matchers, Rust block structures and target sets,
+`nextest_override_scenarios.py` builds the single-defect override scenarios
+those properties draw from, and `timeout_property_test.py` breaks one link at a
+time in a generated chain that the ordering invariant must accept.
 
 Three execution paths matter, and the tiers do not all bound the same one:
 

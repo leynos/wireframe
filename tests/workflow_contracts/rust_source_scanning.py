@@ -32,12 +32,15 @@ if typ.TYPE_CHECKING:
 #: consumes its opening brace so the module block is counted once. The Loom and
 #: coverage gates are tokens so each can be attributed to the scope that
 #: encloses it, and a ``cfg`` attribute is a token so a test it can remove from
-#: the run is recognizable.
+#: the run is recognizable. The generic inner-``cfg`` token comes after the two
+#: documented gates, so those keep their own names and only an undocumented
+#: crate-root gate is reported as such.
 ITEM_TOKEN: re.Pattern[str] = re.compile(
     r"""
     (?P<loom_gate>\#\!\s*\[\s*cfg\s*\(\s*loom\s*\)\s*\])
     | (?P<coverage_gate>
         \#\!\s*\[\s*cfg\s*\(\s*not\s*\(\s*coverage\s*\)\s*\)\s*\])
+    | (?P<inner_cfg_attribute>\#\!\s*\[\s*cfg\s*[\(\=])
     | (?P<cfg_attribute>\#\s*\[\s*cfg\s*[\(\=])
     | (?P<module>\bmod\s+(?P<module_name>[A-Za-z_][A-Za-z0-9_]*)\s*\{)
     | (?P<open>\{)
@@ -213,6 +216,28 @@ class CrateGate(enum.Enum):
     COVERAGE = "coverage_gate"
 
 
+def _crate_scope_tokens(source: str) -> Iterator[str]:
+    """Yield the name of each item token that applies at crate scope.
+
+    An inner attribute applies to the item that encloses it, so a token inside
+    an inline module or any other block is not crate-level however it is
+    indented. Tracking brace scope therefore beats matching indentation. Each
+    scope question in this module walks the same tokens, so the rule lives here
+    once rather than in a copy per question.
+    """
+    state = ScanState()
+    for token in ITEM_TOKEN.finditer(without_comments_and_literals(source)):
+        match token.lastgroup:
+            case "module":
+                enter_module(state, token)
+            case "open":
+                enter_block(state)
+            case "close":
+                leave_block(state)
+            case group if not state.blocks:
+                yield group
+
+
 def has_crate_scope_gate(source: str, gate: CrateGate) -> bool:
     """Return whether an inner-attribute gate applies at crate scope.
 
@@ -247,18 +272,41 @@ def has_crate_scope_gate(source: str, gate: CrateGate) -> bool:
     ...     "mod m {\\n#![cfg(not(coverage))]\\n}\\n", CrateGate.COVERAGE)
     False
     """
-    state = ScanState()
-    for token in ITEM_TOKEN.finditer(without_comments_and_literals(source)):
-        match token.lastgroup:
-            case "module":
-                enter_module(state, token)
-            case "open":
-                enter_block(state)
-            case "close":
-                leave_block(state)
-            case group if group == gate.value and not state.blocks:
-                return True
-    return False
+    return any(group == gate.value for group in _crate_scope_tokens(source))
+
+
+def has_undocumented_crate_cfg(source: str) -> bool:
+    """Return whether a crate-root inner ``cfg`` other than the gates applies.
+
+    The scanner recognizes two inner gates by name: ``#![cfg(loom)]`` and
+    ``#![cfg(not(coverage))]``. Any other crate-root inner ``cfg`` — a feature
+    gate, say — can leave the target with no tests at all when the condition is
+    false, so an override naming it would match nothing and fall back to the
+    default allowance. Outer ``#[cfg(...)]`` attributes are a different
+    question, answered by :func:`is_conditionally_excluded_test`.
+
+    Parameters
+    ----------
+    source : str
+        Rust source text to scan.
+
+    Returns
+    -------
+    bool
+        ``True`` when a crate-root inner ``cfg`` is neither documented gate.
+
+    Examples
+    --------
+    >>> has_undocumented_crate_cfg('#![cfg(feature = "x")]\\n')
+    True
+    >>> has_undocumented_crate_cfg("#![cfg(not(coverage))]\\n")
+    False
+    >>> has_undocumented_crate_cfg('mod m {\\n#![cfg(feature = "x")]\\n}\\n')
+    False
+    """
+    return any(
+        group == "inner_cfg_attribute" for group in _crate_scope_tokens(source)
+    )
 
 
 def defines_test_function(source: str, name: str) -> bool:

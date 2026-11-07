@@ -15,6 +15,7 @@ from rust_source_scanning import (
     CrateGate,
     defines_test_function,
     has_crate_scope_gate,
+    has_undocumented_crate_cfg,
     qualified_test_names,
 )
 from timeout_policy import (
@@ -194,6 +195,31 @@ def test_loom_gate_detection(source: str, expected: bool) -> None:
     """Only a live crate-level Loom gate excludes a target from the run."""
     assert has_crate_scope_gate(source, CrateGate.LOOM) is expected, (
         "only a live crate-level Loom gate excludes a target"
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        pytest.param('#![cfg(feature = "x")]\n', True, id="feature-gate"),
+        pytest.param("  #![cfg(unix)]\n", True, id="indented-feature-gate"),
+        pytest.param("#![cfg(not(coverage))]\n", False, id="coverage-gate"),
+        pytest.param("#![cfg(loom)]\n", False, id="loom-gate"),
+        pytest.param(
+            "mod m {\n#![cfg(feature = \"x\")]\n}\n",
+            False,
+            id="nested-at-column-zero",
+        ),
+        pytest.param("#[cfg(feature = \"x\")]\n", False, id="item-gate"),
+        pytest.param('// #![cfg(feature = "x")]\n', False, id="commented-out"),
+        pytest.param('const G: &str = "#![cfg(feature = \\"x\\")]";\n', False,
+                     id="string"),
+    ],
+)
+def test_undocumented_crate_cfg_detection(source: str, expected: bool) -> None:
+    """A crate-root gate other than the documented two can empty the target."""
+    assert has_undocumented_crate_cfg(source) is expected, (
+        "only an undocumented crate-root inner cfg gates a target out"
     )
 
 

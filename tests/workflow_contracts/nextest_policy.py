@@ -9,12 +9,12 @@ contract instead of passing unnoticed.
 
 The test-function check is source-level: it proves a crate-root ``#[test]``
 function with the filter's exact name is written in the target's source, that
-no ``cfg`` attribute on the test or an enclosing module can remove it from the
-run, and that the test's own body constructs ``trybuild::TestCases`` and runs
-a fixture through it. That last part is scoped to the selected function rather
-than the file, so a sibling test that drives trybuild cannot stand in for the
-one the override names, and a driver that is merely mentioned or left unused
-compiles nothing. It does
+no ``cfg`` attribute on the test, on an enclosing module, or at the crate root
+can remove it from the run, and that the test's own body constructs
+``trybuild::TestCases`` and runs a fixture through it. That last part is scoped
+to the selected function rather than the file, so a sibling test that drives
+trybuild cannot stand in for the one the override names, and a driver that is
+merely mentioned or left unused compiles nothing. It does
 not prove that nextest's own test list contains it.
 Nextest test-list evidence is deliberately not used, because producing it
 would run the very compilation this contract exists to bound. Because nextest
@@ -41,6 +41,7 @@ from rust_source_scanning import (
     defines_test_function,
     describe_qualified_definitions,
     has_crate_scope_gate,
+    has_undocumented_crate_cfg,
     is_conditionally_excluded_test,
 )
 from rust_test_bodies import trybuild_shortfall_in_test
@@ -189,6 +190,13 @@ def _target_source_violations(
             f"override {resolved.index} names test {parsed.test!r}, which "
             f"{target.src_path} does not define at its crate root"
             f"{describe_qualified_definitions(source, parsed.test)}"
+        )
+    elif has_undocumented_crate_cfg(source):
+        violations.append(
+            f"override {resolved.index} names test {parsed.test!r}, whose "
+            f"target {target.src_path} carries a crate-root cfg attribute "
+            "other than the documented Loom and coverage gates, so a false "
+            "condition can leave it with no tests"
         )
     elif is_conditionally_excluded_test(source, parsed.test):
         violations.append(

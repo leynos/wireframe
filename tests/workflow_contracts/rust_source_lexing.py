@@ -39,8 +39,11 @@ _CHAINED_RUN: re.Pattern[str] = re.compile(
     rf"trybuild\s*::\s*TestCases\s*::\s*new\s*\(\s*\)\s*\.\s*{_FIXTURE_CALL}"
 )
 
-#: The start of a raw string literal, including its hash fence.
-_RAW_STRING: re.Pattern[str] = re.compile(r'r(?P<hashes>#{0,32})"')
+#: The start of a raw string, with any byte or C prefix and its hash fence.
+#: ``br"..."`` and ``cr"..."`` are raw strings too, so reading them as ordinary
+#: strings would let a backslash inside one swallow the closing quote and hide
+#: the code that follows.
+_RAW_STRING: re.Pattern[str] = re.compile(r'[bc]?r(?P<hashes>#{0,32})"')
 
 
 def _skip_line_comment(source: str, index: int) -> int:

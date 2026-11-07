@@ -179,6 +179,21 @@ fn compile_tests() {
 """
 
 
+def _crate_root_cfg(
+    targets: Sequence[CargoTestTarget],
+) -> tuple[tuple[CargoTestTarget, ...], dict[Path, str]]:
+    """Gate the whole target behind a crate-root feature that stays off."""
+    target = next(target for target in targets if target.name == "compile_error")
+    source = read_source(target.src_path)
+    gated = source.replace(
+        "#![cfg(not(coverage))]",
+        '#![cfg(not(coverage))]\n#![cfg(feature = "never")]',
+        1,
+    )
+    assert gated != source, "the mutation must add a crate-root feature gate"
+    return targets, {target.src_path: gated}
+
+
 def _no_op_selected_test(
     targets: Sequence[CargoTestTarget],
 ) -> tuple[tuple[CargoTestTarget, ...], dict[Path, str]]:
@@ -208,9 +223,29 @@ def _fixture_on_another_receiver(
 _SOURCE_MUTATIONS: typ.Final = {
     "uncovered_trybuild_target": _uncovered_trybuild_target,
     "cfg_gated_test": _cfg_gated_test,
+    "crate_root_cfg": _crate_root_cfg,
     "no_op_selected_test": _no_op_selected_test,
     "unrun_fixtures": _unrun_fixtures,
     "fixture_on_another_receiver": _fixture_on_another_receiver,
+}
+
+#: Each mutation and the fragment of the violation that names its own cause.
+#: Several rows also trigger the uncovered-target check, because a filter the
+#: parser refuses claims no target. Matching only "some assertion failed" would
+#: therefore pass even if the property the row breaks were no longer checked, so
+#: the expected cause is pinned rather than the bare fact of a failure.
+_MUTATION_VIOLATIONS: typ.Final = {
+    "no_binary": "filter omits the binary matcher",
+    "no_package": "filter omits the package matcher",
+    "no_test": "filter omits the test matcher",
+    "wrong_package": "resolves to 0 discovered test targets",
+    "non_exact": "is not an exact",
+    "extra_override": "is not an uncovered trybuild target",
+    "uncovered_trybuild_target": "has no nextest override",
+    "cfg_gated_test": "can exclude from the run",
+    "crate_root_cfg": "crate-root cfg attribute",
+    "no_op_selected_test": "does not drive trybuild::TestCases",
+    "unrun_fixtures": "does not drive trybuild::TestCases",
 }
 
 
@@ -241,21 +276,13 @@ def _source_reader_with(
 
 
 @pytest.mark.parametrize(
-    "mutation",
+    ("mutation", "expected"),
     [
-        "no_binary",
-        "no_package",
-        "no_test",
-        "wrong_package",
-        "non_exact",
-        "extra_override",
-        "uncovered_trybuild_target",
-        "cfg_gated_test",
-        "no_op_selected_test",
-        "unrun_fixtures",
+        pytest.param(mutation, expected, id=mutation)
+        for mutation, expected in _MUTATION_VIOLATIONS.items()
     ],
 )
-def test_override_mutations_are_rejected(mutation: str) -> None:
+def test_override_mutations_are_rejected(mutation: str, expected: str) -> None:
     """Each mutation alone leaves an override unproved or a target uncovered."""
     config = deepcopy(repository_config())
     targets: tuple[CargoTestTarget, ...] = repository_targets()
@@ -264,7 +291,7 @@ def test_override_mutations_are_rejected(mutation: str) -> None:
     else:
         extra_sources = {}
         _mutate_override_config(mutation, config, targets)
-    with pytest.raises(AssertionError):
+    with pytest.raises(AssertionError, match=expected):
         assert_no_override_violations(
             config, targets, _source_reader_with(extra_sources)
         )

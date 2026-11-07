@@ -106,6 +106,14 @@ def _shadow(kind: str, payload: str, shape: ShadowShape) -> str:
         pytest.param("'\\''", "' '", id="escaped-quote-char-literal"),
         pytest.param('"a\\"b"', '""', id="escaped-quote-string"),
         pytest.param('r##"a"#b"##', '""', id="hashed-raw-string"),
+        pytest.param('let s = br"a";', 'let s = "";', id="byte-raw-string"),
+        pytest.param(
+            'let s = br#"a"#;', 'let s = "";', id="hashed-byte-raw-string"
+        ),
+        pytest.param('let s = cr"a";', 'let s = "";', id="c-raw-string"),
+        pytest.param(
+            'let s = br#"a"b"#;', 'let s = "";', id="byte-raw-string-with-quote"
+        ),
         pytest.param("x /* unterminated", "x  ", id="unterminated-comment"),
     ],
 )
