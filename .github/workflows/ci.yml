@@ -162,6 +162,11 @@ jobs:
           output-path: lcov.info
           format: lcov
           with-ratchet: 'true'
+          # Stated rather than inherited from the action's 1800 s default. The
+          # watchdog bounds the whole cargo run, so it sits outside the
+          # nextest global-timeout (600 s) and inside this job's 60-minute
+          # ceiling. `nextest_timeout_test.py` proves the ordering.
+          cargo-wait-timeout: '900'
           # A new path starts a new baseline: the cache entry's version hashes
           # this path, so the restore misses the 89.0% measured on the previous
           # toolchain and the committed file sets the baseline.
