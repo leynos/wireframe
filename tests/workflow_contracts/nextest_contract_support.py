@@ -119,6 +119,14 @@ def repository_config() -> dict[str, typ.Any]:
     -------
     dict[str, typ.Any]
         A fresh copy of the parsed ``.config/nextest.toml``.
+
+    Raises
+    ------
+    OSError
+        When the repository configuration cannot be read. The failure is not
+        swallowed into an empty policy, which would prove nothing.
+    tomllib.TOMLDecodeError
+        When the repository configuration is not valid TOML.
     """
     return copy.deepcopy(_repository_config())
 

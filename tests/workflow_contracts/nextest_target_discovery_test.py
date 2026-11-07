@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 import cargo_targets
+import nextest_contract_support
 from cargo_targets import CargoTestTarget, read_test_targets
 from nextest_contract_support import (
     DISCOVERY_CASES,
@@ -270,3 +271,33 @@ def test_repository_config_readings_are_isolated() -> None:
     assert repository_config() == tomllib.loads(NEXTEST_CONFIG.read_text()), (
         "a later reading must still match the checked-in configuration"
     )
+
+
+def test_override_violations_propagate_a_source_failure() -> None:
+    """A source that cannot be read fails loudly instead of passing as proved."""
+    def unreadable(path: Path) -> str:
+        """Stand in for a reader whose target source has gone."""
+        raise FileNotFoundError(path)
+
+    with pytest.raises(FileNotFoundError):
+        override_target_violations(
+            repository_config(), repository_targets(), unreadable
+        )
+
+
+def test_repository_config_propagates_a_load_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A configuration that cannot be loaded fails loudly, not as a stale read."""
+    def unreadable(*args: object, **kwargs: object) -> dict[str, typ.Any]:
+        """Stand in for the loader when the configuration has gone."""
+        raise FileNotFoundError(".config/nextest.toml")
+
+    monkeypatch.setattr(nextest_contract_support, "load_config", unreadable)
+    cache = nextest_contract_support._repository_config
+    cache.cache_clear()
+    try:
+        with pytest.raises(FileNotFoundError):
+            repository_config()
+    finally:
+        cache.cache_clear()

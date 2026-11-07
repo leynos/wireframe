@@ -31,6 +31,7 @@ from rust_source_scanning import (
     has_crate_scope_gate,
     qualified_test_names,
 )
+from rust_test_bodies import trybuild_shortfall_in_test
 
 #: A value nextest's exact-``=`` matcher accepts.
 MATCHER_VALUE = st.from_regex(r"[A-Za-z0-9_.\-]{1,20}", fullmatch=True)
@@ -217,6 +218,55 @@ def test_an_override_naming_a_crate_root_trybuild_test_is_accepted(
     assert override_target_violations(config, targets, sources.__getitem__) == [], (
         f"override for {package}/{binary}::{function} must be proved"
     )
+
+
+#: The driver the selected test must still be seen to contain.
+TRYBUILD_DRIVER = 'let cases = trybuild::TestCases::new();\n    cases.pass("a.rs");\n'
+#: A module declared inside the selected test body, before its driver.
+INLINE_MODULE = "mod helper { pub const MARK: usize = 0; }\n"
+
+
+def _nested_blocks(depth: int) -> str:
+    """Return ``depth`` brace blocks, each enclosing the previous one.
+
+    A ``mod NAME {`` token consumes its own opening brace, so a body that
+    mixes bare blocks with an inline module is the shape that used to end the
+    body early and hide everything the test did after it.
+    """
+    text = ""
+    for _ in range(depth):
+        text = f"{{\n{text}}}\n"
+    return text
+
+
+@PROPERTY_SETTINGS
+@given(
+    depth=st.integers(min_value=0, max_value=4),
+    has_module=st.booleans(),
+    driver_in_selected=st.booleans(),
+)
+def test_the_selected_body_keeps_its_own_driver(
+    depth: int, has_module: bool, driver_in_selected: bool
+) -> None:
+    """Nested blocks cannot truncate the body, and a sibling cannot stand in."""
+    selected = _nested_blocks(depth)
+    if has_module:
+        selected += INLINE_MODULE
+    selected += TRYBUILD_DRIVER if driver_in_selected else ""
+    sibling = "" if driver_in_selected else TRYBUILD_DRIVER
+    source = (
+        f"#[test]\nfn compile_tests() {{\n{selected}}}\n"
+        f"#[test]\nfn sibling() {{\n{sibling}}}\n"
+    )
+    shortfall = trybuild_shortfall_in_test(source, "compile_tests")
+    if driver_in_selected:
+        assert shortfall is None, (
+            f"depth {depth}, inline module {has_module}: {shortfall}"
+        )
+    else:
+        assert shortfall is not None, (
+            "a driver in a sibling test must not satisfy the selected test"
+        )
 
 
 @PROPERTY_SETTINGS

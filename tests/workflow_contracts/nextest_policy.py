@@ -134,7 +134,11 @@ class _SourceCache:
         self._sources: dict[Path, str] = {}
 
     def __call__(self, target: CargoTestTarget) -> str:
-        """Return the target's source, reading it only the first time."""
+        """Return the target's source, reading it only the first time.
+
+        A failed read is not cached and not caught: the caller either gets the
+        source or the reader's error, never a silently empty document.
+        """
         if target.src_path not in self._sources:
             self._sources[target.src_path] = self._read_source(target.src_path)
         return self._sources[target.src_path]
@@ -291,13 +295,22 @@ def override_target_violations(
     targets
         The test targets ``cargo metadata`` discovered.
     read_source
-        Reads one target's source text. Injected so the function stays pure
-        and a test can supply a synthetic target.
+        Reads one target's source text. Injected so the function performs no
+        filesystem access of its own and a test can supply a synthetic
+        target.
 
     Returns
     -------
     list[str]
         Violations; empty means the overrides are proved to apply.
+
+    Raises
+    ------
+    OSError
+        When ``read_source`` cannot read a target source. A source that
+        cannot be read leaves the override unproved, so the failure is
+        propagated rather than reported as a violation: a violation list
+        would let a caller treat an unreadable target as a policy decision.
     """
     default = config.get("profile", {}).get("default", {})
     overrides = default.get("overrides", [])
