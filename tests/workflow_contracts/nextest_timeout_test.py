@@ -201,9 +201,16 @@ def _drop_coverage_invocation(
 def _rename_coverage_action(
     _config: dict[str, typ.Any], workflows: dict[str, dict[str, typ.Any]]
 ) -> None:
-    """Point one workflow at a differently named action, keeping the step."""
-    step = _coverage_step("coverage-main.yml", "coverage-upload", workflows)
-    step["uses"] = "leynos/shared-actions/.github/actions/generate-coverage-v2@abc123"
+    """Point one workflow at a differently named action, keeping the steps.
+
+    Every job of the workflow is renamed, the warm-up's build-only step
+    included: the mutation must leave the workflow with no coverage invocation.
+    """
+    for job_id in ("coverage-upload", "coverage-warmup"):
+        step = _coverage_step("coverage-main.yml", job_id, workflows)
+        step["uses"] = (
+            "leynos/shared-actions/.github/actions/generate-coverage-v2@abc123"
+        )
 
 
 _TIMEOUT_MUTATIONS: typ.Final = {

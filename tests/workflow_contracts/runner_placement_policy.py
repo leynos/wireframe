@@ -36,6 +36,13 @@ UBICLOUD_LABEL: typ.Final = "ubicloud-standard-4"
 CI_UBICLOUD_LABEL: typ.Final = "ubicloud-standard-2"
 GITHUB_HOSTED_LABEL: typ.Final = "ubuntu-latest"
 
+#: The pinned hosted image of ``coverage-upload``, which measures and uploads
+#: on a GitHub-hosted runner since trunk coverage was split three ways (user
+#: ruling, 7 November): its cache store is not the one the Ubicloud
+#: pull-request lane reads, so the baseline is saved by ``coverage-baseline``
+#: and the compiler cache by ``coverage-warmup``, both on ``CI_UBICLOUD_LABEL``.
+COVERAGE_HOSTED_LABEL: typ.Final = "ubuntu-24.04"
+
 #: The one guard the fork fallback may key on. Compared by equality, because a
 #: sibling field such as ``head.repo.private`` yields an expression of exactly
 #: the same shape that selects the wrong runner on every fork pull request.
@@ -63,7 +70,9 @@ FORK_FALLBACK_JOBS: typ.Final = frozenset({
 #: ``test_the_reviewed_tables_are_total`` holds it to the reviewed fallback jobs.
 EXPECTED_PLACEMENT: typ.Final = {
     ("ci.yml", "build-test"): None,
-    ("coverage-main.yml", "coverage-upload"): UBICLOUD_LABEL,
+    ("coverage-main.yml", "coverage-upload"): COVERAGE_HOSTED_LABEL,
+    ("coverage-main.yml", "coverage-baseline"): CI_UBICLOUD_LABEL,
+    ("coverage-main.yml", "coverage-warmup"): CI_UBICLOUD_LABEL,
     ("advanced-tests.yml", "advanced"): GITHUB_HOSTED_LABEL,
     ("delayed-pr-comment.yml", "delay_and_comment"): GITHUB_HOSTED_LABEL,
 }
@@ -81,7 +90,9 @@ EXPECTED_PLACEMENT: typ.Final = {
 #: all.
 EXPECTED_CEILING_MINUTES: typ.Final = {
     ("ci.yml", "build-test"): 60,
-    ("coverage-main.yml", "coverage-upload"): 20,
+    ("coverage-main.yml", "coverage-upload"): 30,
+    ("coverage-main.yml", "coverage-baseline"): 15,
+    ("coverage-main.yml", "coverage-warmup"): 30,
     ("advanced-tests.yml", "advanced"): 60,
 }
 
@@ -101,7 +112,7 @@ DELEGATED_JOBS: typ.Final = {
 
 #: GitHub-hosted labels this repository may use without registering them with
 #: actionlint, which knows them already.
-GITHUB_HOSTED_LABELS: typ.Final = frozenset({GITHUB_HOSTED_LABEL})
+GITHUB_HOSTED_LABELS: typ.Final = frozenset({GITHUB_HOSTED_LABEL, COVERAGE_HOSTED_LABEL})
 
 #: Prohibited runner families. A prohibition reads by substring on purpose: a
 #: renamed or neutered label still leaves its family's text behind.
