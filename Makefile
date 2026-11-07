@@ -126,6 +126,7 @@ test-bdd: ## Run rstest-bdd tests only
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --test bdd --all-features $(BUILD_JOBS)
 
 test: ## Run all tests (bdd + unit/integration)
+	$(CARGO) fetch --locked --target "$${CARGO_BUILD_TARGET:-host-tuple}"
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace --all-targets --all-features $(BUILD_JOBS)
 
 test-workflow-contracts: ## Validate workflow invocation contracts

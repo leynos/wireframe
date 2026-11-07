@@ -18,6 +18,8 @@ pub(crate) fn run_cargo(args: &[&str]) -> WorkspaceManifestResult<String> {
     let output = Command::new("cargo")
         .args(args)
         .current_dir(repo_root()?)
+        // `make test` fetches first; the metadata and package-id queries stay offline.
+        .env("CARGO_NET_OFFLINE", "true")
         .output()?;
     if !output.status.success() {
         return Err(format!(
