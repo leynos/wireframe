@@ -1,4 +1,4 @@
-.PHONY: help all clean test test-doc test-ui test-feature-gate test-pool-no-metrics bless-ui test-workflow-contracts test-loom doctest-benchmark
+.PHONY: help all clean test test-doc test-wireframe-testing test-ui test-feature-gate test-pool-no-metrics bless-ui test-workflow-contracts test-loom doctest-benchmark
 .PHONY: lint-python-docs
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
@@ -127,6 +127,9 @@ test-bdd: ## Run rstest-bdd tests only
 
 test: ## Run all tests (bdd + unit/integration)
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace --all-targets --all-features $(BUILD_JOBS)
+
+test-wireframe-testing: ## Run the wireframe_testing companion crate's tests
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test -p wireframe_testing --all-targets --all-features $(BUILD_JOBS)
 
 test-workflow-contracts: ## Validate workflow invocation contracts
 	$(CV005_CONTRACTS) check --repository .
