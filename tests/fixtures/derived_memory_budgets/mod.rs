@@ -295,6 +295,7 @@ impl DerivedMemoryBudgetsWorld {
         self.send_payload(payload)
     }
 
+    /// Send `payload` to the running server and flush the duplex transport.
     fn send_payload(&mut self, payload: Vec<u8>) -> TestResult {
         let envelope = Envelope::new(ROUTE_ID, CORRELATION_ID, payload);
         let serializer = BincodeSerializer;

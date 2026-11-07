@@ -117,6 +117,7 @@ async fn length_prefixed_decode_requires_full_frame() {
     assert_eq!(buf.len(), 2, "buf.len() should equal 2");
 }
 
+/// A custom length prefix round-trips the supplied frame.
 #[rstest]
 #[case(LengthFormat::u16_be(), vec![1, 2, 3, 4], vec![0x00, 0x04])]
 #[case(LengthFormat::u32_le(), vec![9, 8, 7], vec![3, 0, 0, 0])]

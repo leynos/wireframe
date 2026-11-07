@@ -112,6 +112,7 @@ async fn handler_echoes_with_none_correlation_id() -> TestResult<()> {
     Ok(())
 }
 
+/// Multiple frames are processed in the order they were written.
 #[tokio::test]
 async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
     let app = TestApp::new()?.route(
@@ -169,6 +170,7 @@ async fn multiple_frames_processed_in_sequence() -> TestResult<()> {
     Ok(())
 }
 
+/// A response carries the request's correlation identifier.
 #[rstest]
 #[case(None)]
 #[case(Some(1))]

@@ -129,6 +129,7 @@ async fn handler_response_round_trips_through_pipeline() -> TestResult {
 // Test: fragmentation applies through the unified pipeline
 // ---------------------------------------------------------------------------
 
+/// A fragmented response traverses the unified codec pipeline.
 #[rstest]
 #[tokio::test]
 async fn fragmented_response_passes_through_pipeline(

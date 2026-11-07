@@ -154,6 +154,7 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
     Ok(())
 }
 
+/// Fragmentation can be disabled through the public builder API.
 #[tokio::test]
 async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     let capacity = 1024;
@@ -214,6 +215,7 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     Ok(())
 }
 
+/// Fragmentation stays off unless the builder enables it.
 #[tokio::test]
 async fn fragmentation_is_opt_in_by_default() -> TestResult {
     let capacity = 512;
@@ -249,6 +251,7 @@ async fn fragmentation_is_opt_in_by_default() -> TestResult {
     Ok(())
 }
 
+/// A repeated fragment is dropped and the message still reassembles.
 #[rstest]
 #[tokio::test]
 async fn duplicate_fragment_is_suppressed_and_reassembles(
@@ -293,6 +296,7 @@ async fn duplicate_fragment_is_suppressed_and_reassembles(
     Ok(())
 }
 
+/// Two interleaved fragment streams reassemble without mixing.
 #[rstest]
 #[tokio::test]
 async fn interleaved_fragment_streams_reassemble_independently(

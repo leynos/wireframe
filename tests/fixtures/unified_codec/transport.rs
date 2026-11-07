@@ -153,6 +153,7 @@ impl UnifiedCodecWorld {
         Ok(config)
     }
 
+    /// Serialize each envelope and send it over `client`.
     async fn send_envelopes(
         client: &mut Framed<tokio::io::DuplexStream, LengthDelimitedCodec>,
         envelopes: &[Envelope],

@@ -161,6 +161,7 @@ async fn setup_after_teardown_clears_previous_teardown() -> TestResult<()> {
     Ok(())
 }
 
+/// The drivers preserve the correlation identifier and run lifecycle callbacks.
 #[tokio::test]
 async fn helpers_preserve_correlation_id_and_run_callbacks() -> TestResult<()> {
     let setup = Arc::new(AtomicUsize::new(0));
