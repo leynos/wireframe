@@ -134,21 +134,30 @@ fn fragmenter_fragments_messages_and_increments_ids() {
 }
 
 /// The checked increment behind `try_update` returns the configured
-/// `u64::MAX - 1` and panics only on the next call, when the counter has
-/// reached `u64::MAX` and cannot advance. It never allocates `u64::MAX`.
+/// `u64::MAX - 1`, leaving the counter at `u64::MAX`. It never allocates
+/// `u64::MAX` itself.
 #[test]
-#[should_panic(expected = "message id counter exhausted at")]
-fn fragmenter_panics_when_message_id_counter_exhausted() {
+fn fragmenter_allocates_last_representable_id_before_exhaustion() {
     let fragmenter = Fragmenter::with_starting_id(
         NonZeroUsize::new(4).expect("non-zero"),
         MessageId::new(u64::MAX - 1),
     );
 
-    let allocated = fragmenter.next_message_id();
     assert_eq!(
-        allocated,
+        fragmenter.next_message_id(),
         MessageId::new(u64::MAX - 1),
         "the first allocation should return the configured starting id"
+    );
+}
+
+/// Once the counter holds `u64::MAX`, the checked increment cannot advance and
+/// the next allocation panics rather than wrapping.
+#[test]
+#[should_panic(expected = "message id counter exhausted at")]
+fn fragmenter_panics_when_message_id_counter_exhausted() {
+    let fragmenter = Fragmenter::with_starting_id(
+        NonZeroUsize::new(4).expect("non-zero"),
+        MessageId::new(u64::MAX),
     );
 
     let unexpected = fragmenter.next_message_id();
