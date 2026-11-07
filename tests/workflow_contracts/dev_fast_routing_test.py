@@ -87,8 +87,16 @@ def _make_dry_run(
 
 
 def _cargo_lines(lines: list[str]) -> list[str]:
-    """Return every evaluated Cargo invocation in a Make dry run."""
-    return [line for line in lines if "probe-cargo" in line]
+    """Return every evaluated Cargo invocation in a Make dry run.
+
+    ``cargo fetch`` resolves and downloads dependencies but compiles nothing, so
+    it is no development invocation to route and is left out.
+    """
+    return [
+        line
+        for line in lines
+        if "probe-cargo" in line and "fetch" not in line.split()
+    ]
 
 
 def _assert_lint_cargo_commands(cargo_lines: list[str]) -> None:
