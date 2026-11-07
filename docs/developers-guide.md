@@ -2111,6 +2111,19 @@ MAPSPLICE_IN_PLACE=false mapsplice append docs/roadmap.md fragment.md >/dev/null
 
 Run `make fmt` to reformat and rewrap after editing, then `make markdownlint`.
 
+## Fetching dependencies before tests
+
+Some tests start their own `cargo`. Cargo resolves dependencies while it holds
+the package-cache lock in `$CARGO_HOME`, so a nested `cargo` that resolves cold
+can wait on another build for many minutes, or reach the network in the middle
+of a test. `make test` therefore runs `cargo fetch --locked` first, for the
+effective test target (`CARGO_BUILD_TARGET` when set, otherwise the host), and a
+failed fetch stops the run before any test starts. Nested cargo calls in tests
+then run offline. Prepare a direct `cargo test` or `cargo nextest` run with the
+same fetch first. The estate lint rule `nested-cargo-offline-tests` checks both
+halves. No Cargo configuration file here sets `build.target`; if one ever does,
+the fetch must name that target too.
+
 ## Spelling policy
 
 Run the spelling gate with:
