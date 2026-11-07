@@ -29,6 +29,41 @@ _MAKE_CONDITIONAL: re.Pattern[str] = re.compile(
     r"^(?:ifeq|ifneq|ifdef|ifndef|else|endif)\b"
 )
 
+#: The directives that open and close a conditional block. A whole rule written
+#: inside one is not conditional *in its recipe*: the recipe reads clean while
+#: Make skips the rule entirely, so the enclosing block is checked separately.
+_CONDITIONAL_OPEN: re.Pattern[str] = re.compile(r"^(?:ifeq|ifneq|ifdef|ifndef)\b")
+_CONDITIONAL_CLOSE: re.Pattern[str] = re.compile(r"^endif\b")
+
+
+def conditional_depth(makefile: str, limit: int) -> int:
+    """Return how many Make conditionals enclose the line at ``limit``.
+
+    Only column-zero directives count. A tab-indented line is recipe text that
+    Make hands to the shell, which is why the recipe check reads it instead.
+
+    Parameters
+    ----------
+    makefile
+        The whole Makefile text.
+    limit
+        Character index in ``makefile`` to stop reading at.
+
+    Returns
+    -------
+    int
+        The nesting depth of the enclosing conditional blocks.
+    """
+    depth = 0
+    for line in makefile[:limit].splitlines():
+        if line.startswith("\t"):
+            continue
+        if _CONDITIONAL_OPEN.match(line):
+            depth += 1
+        elif _CONDITIONAL_CLOSE.match(line):
+            depth -= 1
+    return depth
+
 #: A ``test-ui`` rule at the start of a line. GNU Make warns about a duplicate
 #: target and runs the last recipe, so the contract must see every rule.
 _UI_TARGET_RULE: re.Pattern[str] = re.compile(r"^test-ui:", re.MULTILINE)
@@ -80,13 +115,18 @@ def ui_recipe(makefile: str) -> str:
     Raises
     ------
     AssertionError
-        If the Makefile declares no ``test-ui`` rule, or more than one. GNU
-        Make replaces an earlier recipe with a later one, so reading the first
-        rule would check a recipe the build does not run.
+        If the Makefile declares no ``test-ui`` rule, more than one, or a rule
+        that sits inside a Make conditional. GNU Make replaces an earlier
+        recipe with a later one, so reading the first rule would check a recipe
+        the build does not run; a rule inside an inactive conditional never
+        runs at all, however clean its recipe reads.
     """
     rules = list(_UI_TARGET_RULE.finditer(makefile))
     assert len(rules) == 1, (
         f"the Makefile must declare exactly one test-ui rule, found {len(rules)}"
+    )
+    assert conditional_depth(makefile, rules[0].start()) == 0, (
+        "the test-ui rule must not sit inside a Make conditional"
     )
     return _recipe_body(makefile[rules[0].end() :])
 
@@ -278,3 +318,46 @@ def test_ui_target_rejects_conditional_harnesses() -> None:
     assert mutated != target, "the mutation must change the recipe"
     with pytest.raises(AssertionError):
         assert_ui_target_keeps_harnesses(mutated)
+
+
+def test_conditional_depth_counts_only_enclosing_blocks() -> None:
+    """A closed block and a tab-indented directive do not enclose the rule."""
+    makefile = (
+        "ifeq ($(CI),true)\n"
+        "endif\n"
+        "\tifeq (0,1)\n"
+        "test-ui:\n"
+        f"\t{ROOT_HARNESS_COMMAND}\n"
+    )
+    rule = makefile.index("test-ui:")
+    assert conditional_depth(makefile, rule) == 0, (
+        "a closed block and a recipe-text directive must not count"
+    )
+
+
+def test_ui_recipe_rejects_a_rule_inside_a_conditional() -> None:
+    """A rule wrapped in an inactive conditional is refused, however clean its body."""
+    makefile = (
+        "ifeq (0,1)\n"
+        "test-ui:\n"
+        f"\t{ROOT_HARNESS_COMMAND}\n"
+        f"\t{LOOM_HARNESS_COMMAND}\n"
+        "endif\n"
+    )
+    with pytest.raises(AssertionError, match="inside a Make conditional"):
+        ui_recipe(makefile)
+
+
+def test_ui_target_rejects_an_inactive_conditional_around_the_rule() -> None:
+    """The checked-in Makefile is refused once its rule is made conditional."""
+    makefile = (REPO_ROOT / "Makefile").read_text()
+    mutated = makefile.replace(
+        "test-ui: ## Run trybuild compile-time API tests\n",
+        "ifeq (0,1)\ntest-ui: ## Run trybuild compile-time API tests\n",
+    ).replace(
+        f"\t{LOOM_HARNESS_COMMAND}\n\n",
+        f"\t{LOOM_HARNESS_COMMAND}\nendif\n\n",
+    )
+    assert mutated != makefile, "the mutation must wrap the rule"
+    with pytest.raises(AssertionError, match="inside a Make conditional"):
+        ui_recipe(mutated)

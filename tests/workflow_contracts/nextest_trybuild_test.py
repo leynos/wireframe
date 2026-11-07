@@ -1,11 +1,12 @@
 """Pin when a Rust source counts as a trybuild driver.
 
 An override bounds a test's deadline only because that test compiles
-trybuild fixtures. Three shapes satisfy the eye but compile nothing: a body
+trybuild fixtures. Four shapes satisfy the eye but compile nothing: a body
 that merely names ``trybuild::TestCases``, a driver that is constructed but
-never asked to run a case, and a driver whose only fixture call names some
-other object. Each leaves the compilation to run under the default deadline
-while the contract stays green, so each is rejected here.
+never asked to run a case, a driver whose only fixture call names some other
+object, and a driver written inside a nested ``fn`` the test never calls. Each
+leaves the compilation to run under the default deadline while the contract
+stays green, so each is rejected here.
 
 The file-level question decides which targets need an override at all; the
 scoped question decides whether the override's own test does the work. The
@@ -156,6 +157,25 @@ def test_trybuild_detection(source: str, expected: bool) -> None:
             "    // trybuild::TestCases\n}\n",
             False,
             id="commented-out-in-body",
+        ),
+        pytest.param(
+            "#[test]\nfn compile_tests() {\n"
+            "    fn helper() {\n"
+            "        let t = trybuild::TestCases::new();\n"
+            '        t.pass("tests/ui/a.rs");\n'
+            "    }\n}\n",
+            False,
+            id="nested-function-never-called",
+        ),
+        pytest.param(
+            "#[test]\nfn compile_tests() {\n"
+            "    fn helper() {\n"
+            "        let t = trybuild::TestCases::new();\n"
+            '        t.pass("tests/ui/a.rs");\n'
+            "    }\n"
+            "    helper();\n}\n",
+            True,
+            id="nested-function-called",
         ),
         pytest.param(
             "mod m {\n    #[test]\n    fn compile_tests() {\n"

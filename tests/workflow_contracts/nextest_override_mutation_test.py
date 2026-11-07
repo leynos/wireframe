@@ -218,6 +218,28 @@ def _fixture_on_another_receiver(
     return targets, {target.src_path: FIXTURE_ELSEWHERE_SOURCE}
 
 
+#: The selected test declares its driver inside a nested function it never
+#: calls. The item compiles, the driver never runs, and the text still looks
+#: like a trybuild case to any check that reads the body as a whole.
+NESTED_UNCALLED_DRIVER_SOURCE = """\
+#[test]
+fn compile_tests() {
+    fn helper() {
+        let cases = trybuild::TestCases::new();
+        cases.pass("tests/ui/example.rs");
+    }
+}
+"""
+
+
+def _nested_uncalled_driver(
+    targets: Sequence[CargoTestTarget],
+) -> tuple[tuple[CargoTestTarget, ...], dict[Path, str]]:
+    """Confine the driver to a nested function the test never calls."""
+    target = next(target for target in targets if target.name == "compile_error")
+    return targets, {target.src_path: NESTED_UNCALLED_DRIVER_SOURCE}
+
+
 #: Mutations that doctor the target list or the source text rather than the
 #: configuration, so the test can hand them different state.
 _SOURCE_MUTATIONS: typ.Final = {
@@ -227,6 +249,7 @@ _SOURCE_MUTATIONS: typ.Final = {
     "no_op_selected_test": _no_op_selected_test,
     "unrun_fixtures": _unrun_fixtures,
     "fixture_on_another_receiver": _fixture_on_another_receiver,
+    "nested_uncalled_driver": _nested_uncalled_driver,
 }
 
 #: Each mutation and the fragment of the violation that names its own cause.
@@ -246,6 +269,7 @@ _MUTATION_VIOLATIONS: typ.Final = {
     "crate_root_cfg": "crate-root cfg attribute",
     "no_op_selected_test": "does not drive trybuild::TestCases",
     "unrun_fixtures": "does not drive trybuild::TestCases",
+    "nested_uncalled_driver": "does not drive trybuild::TestCases",
 }
 
 

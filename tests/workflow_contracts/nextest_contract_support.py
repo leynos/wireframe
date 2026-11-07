@@ -133,7 +133,25 @@ def repository_config() -> dict[str, typ.Any]:
 
 @functools.cache
 def repository_targets() -> tuple[CargoTestTarget, ...]:
-    """Discover the workspace's test targets once."""
+    """Discover the workspace's test targets once by running ``cargo metadata``.
+
+    This boundary is where the contract stops reading text and asks Cargo, so
+    its failures are stated rather than left to the reader beneath it.
+
+    Returns
+    -------
+    tuple[CargoTestTarget, ...]
+        The test targets Cargo reports for this workspace.
+
+    Raises
+    ------
+    CargoUnavailableError
+        When ``cargo`` cannot be executed. Discovery fails loudly rather than
+        returning an empty tuple, which would read as a workspace with no
+        tests to cover and let every override pass.
+    CargoMetadataError
+        When ``cargo metadata`` exits non-zero or emits no JSON document.
+    """
     return read_test_targets(MANIFEST)
 
 

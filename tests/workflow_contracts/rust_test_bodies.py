@@ -61,6 +61,44 @@ def _braced_body(cleaned: str, open_index: int) -> str:
     return cleaned[open_index + 1 : end]
 
 
+#: A nested ``fn`` item inside a test body. Unlike a block, it runs only when
+#: something calls it, so a driver written inside one may never execute.
+_NESTED_FUNCTION: re.Pattern[str] = re.compile(
+    r"\bfn\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\("
+)
+
+
+def _is_called_outside(body: str, name: str, span: tuple[int, int]) -> bool:
+    """Return whether ``name`` is called anywhere but inside its own definition.
+
+    The definition's own span is removed first, so a recursive call does not
+    count as evidence that the test reaches it.
+    """
+    rest = f"{body[: span[0]]}{body[span[1] :]}"
+    return re.search(rf"\b{re.escape(name)}\s*\(", rest) is not None
+
+
+def _without_uncalled_nested_functions(body: str) -> str:
+    """Blank every nested function definition the test body never calls.
+
+    A nested ``fn`` item is a declaration, not a call: a driver written inside
+    one compiles nothing unless the test invokes it. Blanking the definition
+    keeps the rest of the body's evidence intact, so a test that also drives
+    trybuild directly is still accepted.
+    """
+    for definition in reversed(list(_NESTED_FUNCTION.finditer(body))):
+        open_index = body.find("{", definition.end())
+        if open_index == -1:
+            continue
+        end = _closing_brace(body, open_index)
+        stop = len(body) if end is None else end + 1
+        span = (definition.start(), stop)
+        if _is_called_outside(body, definition["name"], span):
+            continue
+        body = f"{body[: span[0]]}{' ' * (stop - span[0])}{body[stop:]}"
+    return body
+
+
 def test_function_body(source: str, name: str) -> str | None:
     """Return the body of the crate-root ``#[test] fn name``, or ``None``.
 
@@ -121,7 +159,9 @@ def trybuild_shortfall_in_test(source: str, name: str) -> str | None:
     override's test compile anything, so the question is scoped to the selected
     function rather than the file. A driver reached through a helper function
     is not recognized; the contract reports that as missing rather than
-    assuming it, which fails loudly instead of passing silently.
+    assuming it, which fails loudly instead of passing silently. The same holds
+    for a driver written inside a nested ``fn`` the test never calls: the item
+    is declared, not run, so it compiles nothing.
 
     Parameters
     ----------
@@ -154,7 +194,10 @@ def trybuild_shortfall_in_test(source: str, name: str) -> str | None:
     body = test_function_body(source, name)
     if body is None:
         return "has no crate-root test body to read"
-    return trybuild_shortfall(body)
+    shortfall = trybuild_shortfall(_without_uncalled_nested_functions(body))
+    if shortfall is not None and trybuild_shortfall(body) is None:
+        return "declares its trybuild driver in a nested function the test never calls"
+    return shortfall
 
 
 def drives_trybuild_in_test(source: str, name: str) -> bool:

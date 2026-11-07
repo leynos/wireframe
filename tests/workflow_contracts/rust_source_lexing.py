@@ -11,6 +11,16 @@ It is deliberately not a Rust parser. It handles the forms a contract file can
 meaningfully inspect — line comments, nestable block comments, standard
 strings, raw strings and character literals — and leaves everything else
 alone.
+
+The same cleaned text answers the driver question. ``trybuild_shortfall`` and
+its ``drives_trybuild`` predicate decide whether a piece of live code builds a
+``trybuild::TestCases`` and runs a fixture through that same binding. Two
+contracts ask it. ``nextest_policy`` asks it of each target's source to decide
+which targets need an override at all, and ``rust_test_bodies`` asks it of the
+text between one selected test's own braces, so a driver in a sibling test
+cannot stand in for the one an override names. Keeping the predicate here means
+both questions are answered against the same reading of the source rather than
+two scanners that could drift apart.
 """
 
 from __future__ import annotations

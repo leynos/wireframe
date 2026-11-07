@@ -24,7 +24,7 @@ import pytest
 
 import cargo_targets
 import nextest_contract_support
-from cargo_targets import CargoTestTarget, read_test_targets
+from cargo_targets import CargoTestTarget, CargoUnavailableError, read_test_targets
 from nextest_contract_support import (
     DISCOVERY_CASES,
     NESTED_MODULE_TEST_SOURCE,
@@ -289,7 +289,7 @@ def test_repository_config_propagates_a_load_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A configuration that cannot be loaded fails loudly, not as a stale read."""
-    def unreadable(*args: object, **kwargs: object) -> dict[str, typ.Any]:
+    def unreadable() -> dict[str, typ.Any]:
         """Stand in for the loader when the configuration has gone."""
         raise FileNotFoundError(".config/nextest.toml")
 
@@ -299,5 +299,23 @@ def test_repository_config_propagates_a_load_failure(
     try:
         with pytest.raises(FileNotFoundError):
             repository_config()
+    finally:
+        cache.cache_clear()
+
+
+def test_repository_targets_propagates_a_discovery_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cargo failing to describe the workspace escapes, not an empty target set."""
+    def unavailable(manifest: Path) -> tuple[CargoTestTarget, ...]:
+        """Stand in for discovery when Cargo cannot be run."""
+        raise CargoUnavailableError(manifest)
+
+    monkeypatch.setattr(nextest_contract_support, "read_test_targets", unavailable)
+    cache = nextest_contract_support.repository_targets
+    cache.cache_clear()
+    try:
+        with pytest.raises(CargoUnavailableError):
+            repository_targets()
     finally:
         cache.cache_clear()
