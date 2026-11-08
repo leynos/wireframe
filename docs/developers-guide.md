@@ -455,8 +455,8 @@ describes the surrounding reassembly boundary.
 
 ## Runtime ownership model
 
-Three proposed decision records govern runtime ownership and task-lifetime
-boundaries for Epic 635:
+Three decision records govern runtime ownership and task-lifetime boundaries
+for Epic 635:
 
 - [ADR 011](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)
   defines ownership rules R1-R7 (shared roots, borrowed handles, sole-owner
@@ -488,11 +488,50 @@ The server runtime now evaluates its factory once per run, prepares the
 resulting application before spawning accept loops, and signals readiness only
 after those workers have received the shared prepared root. Factory and
 preparation failures are returned as typed `ServerError` variants. The
-connection-local ownership model remains governed by
-[#643](https://github.com/leynos/wireframe/issues/643) and ADR 012. The
 `WireframeServer::from_app` constructor supplies an already-built application;
 callers still initialize tracing, create the Tokio runtime, and configure the
 server explicitly.
+
+### Connection-local runtime
+
+Each accepted connection constructs one crate-private `ConnectionRuntime` from
+the shared `PreparedApp`; the runtime is never shared between tasks and its
+mutable state is not placed behind `Arc<Mutex<_>>`. It has two fields:
+
+- `InboundState` owns the framed stream, frame pipeline, message-assembly
+  instance, decode-failure count, effective budgets, read timeout, and the
+  connection-local codec clone that carries framing state.
+- `ConnectionFinalizer<C>` owns the setup value produced by
+  `on_connection_setup` in exactly one of `NotSetUp`, `Armed(C)`, or
+  `Finalized`.
+
+Peer addresses and connection identifiers are absent from this path: the entry
+points accept a generic `AsyncRead + AsyncWrite` stream, so the runtime owns
+none. Envelope correlation identifiers are per-frame state and stay on the
+decoded envelope.
+
+Both entry points, `process_connection` and
+`process_connection_with_cancellation`, drive the same runtime. `run` wraps
+only the inbound-processing borrow in `AssertUnwindSafe(..).catch_unwind()`,
+keeps the finalizer outside that borrow, awaits finalization, and then returns
+the processing result or re-raises the panic. Teardown therefore runs before a
+handler panic reaches the connection-task supervisor, which remains responsible
+for counting and logging it. No `Drop` implementation performs async teardown.
+
+`take_for_teardown` replaces the finalizer state with `Finalized` before
+returning the setup value, so teardown runs at most once and a teardown panic
+cannot re-trigger it. Setup and teardown panics are not recovered.
+
+Cooperative cancellation takes an `Option<CancellationToken>` and is observed
+only at a read boundary: it is the biased first branch of the `select!` before
+the timed `framed.next()`. Public entry points pass `None`. This is distinct
+from server shutdown and drain, which follow ADR 014.
+
+The accepted gaps are a connection future dropped or aborted while running, a
+setup that panics or never completes, a teardown callback that panics, and
+`panic = "abort"` builds. In each case the runtime cannot await teardown; the
+module rustdoc in `src/app/connection_runtime/mod.rs` restates them at the
+implementation boundary.
 
 `WireframeApp::handle_connection_result` remains a deprecated public
 compatibility entrypoint. It delegates to the private

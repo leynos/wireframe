@@ -6,8 +6,11 @@ Proposed.
 
 The `PreparedApp` transition and server-startup preparation described here are
 implemented by [#641](https://github.com/leynos/wireframe/issues/641) and
-[#642](https://github.com/leynos/wireframe/issues/642). The broader ownership
-decision remains proposed while its sequenced work continues.
+[#642](https://github.com/leynos/wireframe/issues/642). The connection-local
+runtime and centralized lifecycle finalization described in sections 1 and 5
+are implemented by [#643](https://github.com/leynos/wireframe/issues/643). The
+broader ownership decision remains proposed while its remaining sequenced work
+continues.
 
 First proposed on 2026-08-08 in issue
 [#637](https://github.com/leynos/wireframe/issues/637); imported and refined on
@@ -74,6 +77,8 @@ Primary code surfaces:
 - `src/app/builder/lifecycle.rs`;
 - `src/app/builder/protocol.rs`;
 - `src/app/inbound_handler/mod.rs`;
+- `src/app/connection_runtime/`;
+- `src/app/prepared_app.rs`;
 - `src/server/mod.rs`;
 - `src/server/runtime/mod.rs`;
 - `src/server/runtime/accept.rs`;
@@ -89,8 +94,8 @@ Related issues and decisions:
 - [#547](https://github.com/leynos/wireframe/issues/547), normal app
   responses bypass configured protocol hooks;
 - [#549](https://github.com/leynos/wireframe/issues/549), returned
-  stream-processing errors reach a registered teardown hook; panic and
-  cancellation finalization remain open under
+  stream-processing errors reach a registered teardown hook; completed together
+  with panic and cancellation finalization by
   [#643](https://github.com/leynos/wireframe/issues/643);
 - [#598](https://github.com/leynos/wireframe/issues/598), public protocol
   and message-assembler accessors lack direct coverage;
@@ -104,7 +109,7 @@ Implementation of this ADR is sequenced through:
 - [#642](https://github.com/leynos/wireframe/issues/642), preparing the
   application before server readiness (implemented);
 - [#643](https://github.com/leynos/wireframe/issues/643), the
-  connection-local runtime and centralized lifecycle finalization;
+  connection-local runtime and centralized lifecycle finalization (implemented);
 - [#644](https://github.com/leynos/wireframe/issues/644), consolidated
   protocol ownership and hook dispatch;
 - [#648](https://github.com/leynos/wireframe/issues/648), collapse of
@@ -368,32 +373,65 @@ The resulting route map is owned directly by `PreparedApp`; no inner
 
 Once setup succeeds and a teardown hook is registered, teardown must run
 exactly once on every terminal path, including decode, protocol, transport,
-cancellation, and panic-recovery paths where execution can safely continue. The
-returned-error path now keeps the `process_stream` result, awaits teardown when
-a teardown hook is registered and setup produced state, and only then returns
-the error, so decode, protocol, and transport failures no longer skip cleanup.
-That tail sequence is not an unwind or cancellation guard: panic and task
-cancellation still require the runtime-level finalization tracked under
-[#643](https://github.com/leynos/wireframe/issues/643). The returned-error
-behaviour is covered by [#549](https://github.com/leynos/wireframe/issues/549).
+cancellation, and panic-recovery paths where execution can safely continue.
+
+The connection-local runtime implements this with two collaborating values.
+`InboundState` owns the framed stream, pipeline, message assembly, decode
+failure count, effective budgets, and read timeout. `ConnectionFinalizer<C>`
+owns the setup value in one of three states: `NotSetUp`, `Armed(C)`, or
+`Finalized`. Only `arm` from `NotSetUp` records setup output, and
+`take_for_teardown` replaces the state with `Finalized` before returning the
+value. Teardown therefore consumes the setup value at most once even if
+finalization is requested after the state has already been taken, and a
+teardown-callback panic cannot re-trigger it. Finalization is an explicit async
+method; no `Drop` implementation performs I/O or awaits teardown.
+
+`ConnectionRuntime::run` keeps the processing result rather than propagating it
+with `?`, awaits finalization, and only then returns the result or re-raises a
+panic. The processing future is wrapped in
+`AssertUnwindSafe(..).catch_unwind()` around `&mut self.inbound` only, leaving
+the finalizer outside the caught borrow; the assertion is sound because
+cancellation and teardown boundaries rebuild any invariants the borrow checker
+cannot express. Setup and teardown panics are intentionally outside this
+recovery point.
+
+Cooperative cancellation is an `Option<CancellationToken>` observed only at the
+read boundary: it is the biased first branch of the `select!` before the timed
+`framed.next()`. Cancellation therefore ends the connection between frames,
+never mid-decode or mid-write. The public entry points pass `None`; server
+shutdown and drain remain a separate concern governed by
+[ADR 014](adr-014-server-shutdown-ownership.md).
+
+The prepared byte-stream entry points carry no peer address or connection
+identifier, so the runtime owns none; envelope correlation identifiers remain
+per-frame state on the decoded envelope.
+
+The returned-error path, and with it
+[#549](https://github.com/leynos/wireframe/issues/549), is covered by the same
+finalization step.
 
 The guard mechanism must be panic-aware. Teardown callbacks are async, so a
 `Drop`-based guard cannot run them during unwind. The terminal paths are
 classified explicitly, and each classification carries its own test:
 
-- **Handler panic, recovered in-task.** Recovery must happen inside the
-  connection task, before the moved `ConnectionRuntime` becomes inaccessible —
-  for example by catching the unwind at the runtime boundary — because a
-  spawner observing a task join error no longer holds the runtime and cannot
-  run its teardown. Teardown runs exactly once on that path. Any panic not
-  recovered in-task falls into the abandoned-unwind classification below and is
-  an accepted, documented gap.
-- **Teardown-callback panic, isolated.** The guard disarms before invoking
-  teardown, so a panic inside a teardown callback cannot re-trigger the guard,
-  fire teardown twice, or poison later connections.
-- **Abandoned unwind.** Paths where no recovery point exists cannot run an
-  async teardown; the implementation must enumerate them and record each as an
-  accepted, documented gap rather than an implicit omission.
+- **Handler panic, recovered in-task.** Recovery happens inside the connection
+  task, at the `ConnectionRuntime::run` boundary, before the moved runtime
+  becomes inaccessible, because a spawner observing a task join error no longer
+  holds the runtime and cannot run its teardown. The runtime finalizes, then
+  re-raises the panic so the connection-task supervisor still counts and logs
+  it. Teardown runs exactly once on that path. Any panic not recovered in-task
+  falls into the abandoned-unwind classification below and is an accepted,
+  documented gap.
+- **Teardown-callback panic, isolated.** The finalizer transitions to
+  `Finalized` before invoking teardown, so a panic inside a teardown callback
+  cannot re-trigger it, fire teardown twice, or poison later connections. The
+  panic propagates to the supervisor for that connection only.
+- **Abandoned unwind.** The accepted gaps are:
+  - the connection future is dropped or aborted while it is still running, so
+    the runtime never resumes and cannot await teardown;
+  - setup panics or never completes, in which case no setup state was armed and
+    teardown is skipped;
+  - teardown itself panics, which is not retried for that connection.
 - **`panic = "abort"` builds.** An aborting panic terminates the process
   immediately: there is no unwind, no join error, and nothing recoverable, so
   the recovered classification is inapplicable and teardown cannot run. The
@@ -522,9 +560,12 @@ documentation obligations, delivered under
 - Factory/preparation failure prevents acceptance and returns a typed
   server error.
 - When both hooks are registered, setup and teardown run exactly once across
-  clean close and returned-error paths, evidenced by the lifecycle regression
-  tests in `tests/prepared_app/teardown.rs`; panic and cancellation coverage
-  remains with [#643](https://github.com/leynos/wireframe/issues/643).
+  every terminal path: clean close, decode error, protocol error, transport
+  read error, transport write error, handler panic, and cooperative
+  cancellation. The matrix in `tests/prepared_app/lifecycle_matrix.rs` moves a
+  non-`Clone` setup value through each outcome and checks that teardown
+  received that exact value once; setup failure and a setup that never
+  completes run teardown zero times.
 - Protocol `before_send` applies to ordinary responses and actor-driven
   outputs according to ADR 010.
 - Existing handler ordering, codec, fragmentation, message assembly,
@@ -532,20 +573,22 @@ documentation obligations, delivered under
 - Connection-startup benchmarks compare the old and prepared paths.
 - A readiness waiter observes preparation failure promptly; preparation
   failure is distinguishable from bind failure.
-- A handler panic recovered in-task still runs teardown exactly once.
+- A handler panic recovered in-task still runs teardown exactly once. The
+  connection-task supervision test asserts one teardown, one panic metric, one
+  panic log, and a second connection served normally afterwards.
 - A panic inside a teardown callback does not run teardown twice or poison
   later connections.
-- Each abandoned-unwind path enumerated by the implementation is recorded
-  with a test or an explicit accepted-gap note.
+- Each abandoned-unwind path enumerated in section 5 is recorded with a test
+  where reachable, or an explicit accepted-gap note.
+- A `proptest` over arbitrary arm/finalize sequences proves the finalizer
+  invokes teardown at most once and only after setup state is armed.
 - Preparation outcomes and duration are recorded in application-preparation
   metrics.
-- Property-based or bounded-model coverage exercises the lifecycle
-  invariants — preparation runs once, readiness never precedes preparation, and
-  teardown fires exactly once — across generated interleavings of terminal
-  paths (clean close, decode error, transport error, cancellation, and panic),
-  using `proptest`, `loom`, or the bounded checkers described in
+- The finalizer's at-most-once invariant is covered by `proptest`. Broader
+  bounded-model coverage of preparation-once and readiness ordering, using
+  `proptest`, `loom`, or the bounded checkers described in
   [formal-verification-methods-in-wireframe.md](formal-verification-methods-in-wireframe.md),
-  mirroring ADR 013's state-machine verification.
+  remains outstanding, mirroring ADR 013's state-machine verification.
 
 ## Outstanding decisions before acceptance
 
