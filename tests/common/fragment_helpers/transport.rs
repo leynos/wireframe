@@ -23,7 +23,7 @@ pub async fn send_envelopes(
     let serializer = BincodeSerializer;
     for env in envelopes {
         let bytes = serializer.serialize(env)?;
-        client.send(bytes.into()).await?;
+        client.send(bytes::Bytes::from(bytes)).await?;
     }
     Ok(())
 }

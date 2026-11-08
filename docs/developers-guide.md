@@ -886,8 +886,7 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
   package, and the workspace's `default-members` would otherwise leave the
   helper crates unchecked. `lint-doc` builds documentation for every member,
   including `wireframe_testing`. Ordinary workspace tests cover that crate's
-  test targets; issue #578 covers only its doctests, which the separate
-  `test-doc` target excludes until that issue is resolved.
+  test targets, and the separate `test-doc` target covers its doctests.
 - `make test` runs the main automated test suite with warnings treated as
   errors.
 - `make test-pool-no-metrics` checks the `pool,serializer-bincode` feature set
@@ -1012,9 +1011,8 @@ A further test pins the `with:` block itself: `extra-args: "--all-features"`
 `shard-count: 8`, and the `exclude-globs` scaffolding list
 (`src/test_helpers.rs`, `src/test_helpers/**`, `src/connection/test_support.rs`,
 `src/codec/examples.rs`, and `src/**/tests.rs`). It also asserts that
-`extra-crate-dirs` is *absent*, guarding the temporary removal of the
-`wireframe_testing` companion target until its standalone doctests compile
-again (#578); restore that assertion alongside the input when #578 closes.
+`extra-crate-dirs` names `wireframe_testing`, so the companion crate stays
+under mutation now that its doctests compile (#578).
 
 ### Where CodeScene may appear
 
@@ -1429,14 +1427,13 @@ The standard Makefile gates cover all supported workspace members and targets:
 
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace \
-    --exclude wireframe_testing --doc --all-features $(BUILD_JOBS)
+    --doc --all-features $(BUILD_JOBS)
   ```
 
-  The testing helper's standalone doctests require generic application types
-  that snippets cannot infer; [issue #578][issue-578] tracks their repair.
-  Remove the exclusion when that issue is resolved.
-
-  [issue-578]: https://github.com/leynos/wireframe/issues/578
+  CI runs this target as its own step because `make test` selects
+  `--all-targets`, which excludes doctests. A doctest that names `WireframeApp`
+  must annotate its binding, as in `let app: WireframeApp = ...`, because the
+  type's parameters are not inferred from `WireframeApp::new()` alone.
 
 - `make typecheck` selects `tools/dev-fast/config.toml` and runs:
 

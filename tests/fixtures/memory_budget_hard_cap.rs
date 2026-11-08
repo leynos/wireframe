@@ -290,6 +290,7 @@ impl MemoryBudgetHardCapWorld {
         Err(format!("unexpected connection error: {:?}", self.connection_error).into())
     }
 
+    /// Send `payload` to the running server and flush the duplex transport.
     fn send_payload(&mut self, payload: Vec<u8>) -> TestResult {
         let envelope = Envelope::new(ROUTE_ID, CORRELATION_ID, payload);
         let serializer = BincodeSerializer;
@@ -297,8 +298,8 @@ impl MemoryBudgetHardCapWorld {
 
         let mut client = self.client.take().ok_or("client not initialized")?;
         let send_result = self.block_on(async {
-            client.send(frame.into()).await?;
-            client.flush().await?;
+            client.send(bytes::Bytes::from(frame)).await?;
+            SinkExt::<bytes::Bytes>::flush(&mut client).await?;
             Ok::<(), std::io::Error>(())
         });
         self.client = Some(client);

@@ -67,7 +67,8 @@ where
 /// # use wireframe_testing::drive_with_codec_payloads;
 /// # async fn demo() -> std::io::Result<()> {
 /// let codec = HotlineFrameCodec::new(4096);
-/// let app = WireframeApp::new().expect("app").with_codec(codec.clone());
+/// let app: WireframeApp = WireframeApp::new().expect("app");
+/// let app = app.with_codec(codec.clone());
 /// let payloads = drive_with_codec_payloads(app, &codec, vec![vec![1]]).await?;
 /// # Ok(())
 /// # }
@@ -99,7 +100,8 @@ where
 /// # use wireframe_testing::drive_with_codec_payloads_with_capacity;
 /// # async fn demo() -> std::io::Result<()> {
 /// let codec = HotlineFrameCodec::new(4096);
-/// let app = WireframeApp::new().expect("app").with_codec(codec.clone());
+/// let app: WireframeApp = WireframeApp::new().expect("app");
+/// let app = app.with_codec(codec.clone());
 /// let payloads =
 ///     drive_with_codec_payloads_with_capacity(app, &codec, vec![vec![1]], 8192).await?;
 /// # Ok(())
@@ -137,7 +139,8 @@ where
 /// # use wireframe_testing::drive_with_codec_payloads_mut;
 /// # async fn demo() -> std::io::Result<()> {
 /// let codec = HotlineFrameCodec::new(4096);
-/// let mut app = WireframeApp::new().expect("app").with_codec(codec.clone());
+/// let app: WireframeApp = WireframeApp::new().expect("app");
+/// let mut app = app.with_codec(codec.clone());
 /// let payloads = drive_with_codec_payloads_mut(&mut app, &codec, vec![vec![1]]).await?;
 /// # Ok(())
 /// # }
@@ -170,7 +173,8 @@ where
 /// # use wireframe_testing::drive_with_codec_payloads_with_capacity_mut;
 /// # async fn demo() -> std::io::Result<()> {
 /// let codec = HotlineFrameCodec::new(4096);
-/// let mut app = WireframeApp::new().expect("app").with_codec(codec.clone());
+/// let app: WireframeApp = WireframeApp::new().expect("app");
+/// let mut app = app.with_codec(codec.clone());
 /// let payloads =
 ///     drive_with_codec_payloads_with_capacity_mut(&mut app, &codec, vec![vec![1]], 8192).await?;
 /// # Ok(())
@@ -223,7 +227,8 @@ where
 /// # use wireframe_testing::drive_with_codec_frames;
 /// # async fn demo() -> std::io::Result<()> {
 /// let codec = HotlineFrameCodec::new(4096);
-/// let app = WireframeApp::new().expect("app").with_codec(codec.clone());
+/// let app: WireframeApp = WireframeApp::new().expect("app");
+/// let app = app.with_codec(codec.clone());
 /// let frames = drive_with_codec_frames(app, &codec, vec![vec![1]]).await?;
 /// # Ok(())
 /// # }
@@ -256,7 +261,8 @@ where
 /// # use wireframe_testing::drive_with_codec_frames_with_capacity;
 /// # async fn demo() -> std::io::Result<()> {
 /// let codec = HotlineFrameCodec::new(4096);
-/// let app = WireframeApp::new().expect("app").with_codec(codec.clone());
+/// let app: WireframeApp = WireframeApp::new().expect("app");
+/// let app = app.with_codec(codec.clone());
 /// let frames = drive_with_codec_frames_with_capacity(app, &codec, vec![vec![1]], 8192).await?;
 /// # Ok(())
 /// # }

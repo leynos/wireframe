@@ -86,6 +86,17 @@ jobs:
       - name: Validate compile-time APIs
         timeout-minutes: 30
         run: make test-ui
+      # `make test` selects `--all-targets`, which excludes doctests, and
+      # cargo-nextest cannot run them. Without this step no documented example
+      # is compiled by CI, so examples rot unnoticed.
+      - name: Doctests
+        timeout-minutes: 30
+        run: make test-doc
+      # `default-members` omits the companion crate from a bare `cargo test`,
+      # so run its explicit `--all-targets --all-features` gate (#578).
+      - name: Companion crate tests
+        timeout-minutes: 30
+        run: make test-wireframe-testing
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.

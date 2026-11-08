@@ -94,7 +94,7 @@ async fn run_round_trip_test(
     let envelopes = build_envelopes(request, &config, should_fragment)?;
 
     send_envelopes(&mut client, &envelopes).await?;
-    client.flush().await?;
+    SinkExt::<bytes::Bytes>::flush(&mut client).await?;
 
     assert_handler_observed(&mut rx, &payload).await?;
     client.get_mut().shutdown().await?;
@@ -154,6 +154,7 @@ async fn unfragmented_request_and_response_round_trip() -> TestResult {
     Ok(())
 }
 
+/// Fragmentation can be disabled through the public builder API.
 #[tokio::test]
 async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     let capacity = 1024;
@@ -180,7 +181,7 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&request)?;
-    client.send(bytes.into()).await?;
+    client.send(bytes::Bytes::from(bytes)).await?;
 
     let observed = timeout(Duration::from_secs(1), rx.recv())
         .await?
@@ -214,6 +215,7 @@ async fn fragmentation_can_be_disabled_via_public_api() -> TestResult {
     Ok(())
 }
 
+/// Fragmentation stays off unless the builder enables it.
 #[tokio::test]
 async fn fragmentation_is_opt_in_by_default() -> TestResult {
     let capacity = 512;
@@ -229,7 +231,7 @@ async fn fragmentation_is_opt_in_by_default() -> TestResult {
     let request = Envelope::new(ROUTE_ID, CORRELATION, payload.clone());
     let serializer = BincodeSerializer;
     let bytes = serializer.serialize(&request)?;
-    client.send(bytes.into()).await?;
+    client.send(bytes::Bytes::from(bytes)).await?;
     client.get_mut().shutdown().await?;
 
     assert_handler_observed(&mut rx, &payload).await?;
@@ -249,6 +251,7 @@ async fn fragmentation_is_opt_in_by_default() -> TestResult {
     Ok(())
 }
 
+/// A repeated fragment is dropped and the message still reassembles.
 #[rstest]
 #[tokio::test]
 async fn duplicate_fragment_is_suppressed_and_reassembles(
@@ -272,7 +275,7 @@ async fn duplicate_fragment_is_suppressed_and_reassembles(
     fragments.insert(1, duplicate);
 
     send_envelopes(&mut client, &fragments).await?;
-    client.flush().await?;
+    SinkExt::<bytes::Bytes>::flush(&mut client).await?;
     client.get_mut().shutdown().await?;
 
     assert_handler_observed(&mut rx, &payload).await?;
@@ -293,6 +296,7 @@ async fn duplicate_fragment_is_suppressed_and_reassembles(
     Ok(())
 }
 
+/// Two interleaved fragment streams reassemble without mixing.
 #[rstest]
 #[tokio::test]
 async fn interleaved_fragment_streams_reassemble_independently(
@@ -326,7 +330,7 @@ async fn interleaved_fragment_streams_reassemble_independently(
     }
 
     send_envelopes(&mut client, &interleaved).await?;
-    client.flush().await?;
+    SinkExt::<bytes::Bytes>::flush(&mut client).await?;
     client.get_mut().shutdown().await?;
 
     let response_a = timeout(

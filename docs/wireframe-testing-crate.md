@@ -175,9 +175,12 @@ Behavioural details:
 - `prepare_and_drive_with_frames` prepares a builder and drives one connection.
 - `drive_prepared_with_frames` borrows a `PreparedApp`, so tests can reuse the
   same prepared route services across connections.
-- Mutable variants (`drive_with_frames_mut` and `drive_with_payloads_mut`)
-  accept `&mut WireframeApp` and remain available for compatibility coverage;
-  they use the deprecated builder connection path.
+- Mutable variants (`drive_with_frames_mut`, `drive_with_payloads_mut`,
+  `drive_with_frame_with_capacity_mut`, and
+  `drive_with_frames_with_capacity_mut`) accept `&mut WireframeApp` and remain
+  available for compatibility coverage; they use the deprecated builder
+  connection path. The capacity-aware variants are re-exported from the crate
+  root alongside the other drivers.
 - I/O failures, framing errors, and server task panics are all returned as
   `io::Error` values, so tests can assert on error handling.
 

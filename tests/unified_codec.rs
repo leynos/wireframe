@@ -129,6 +129,7 @@ async fn handler_response_round_trips_through_pipeline() -> TestResult {
 // Test: fragmentation applies through the unified pipeline
 // ---------------------------------------------------------------------------
 
+/// A fragmented response traverses the unified codec pipeline.
 #[rstest]
 #[tokio::test]
 async fn fragmented_response_passes_through_pipeline(
@@ -148,7 +149,7 @@ async fn fragmented_response_passes_through_pipeline(
     let envelopes = build_envelopes(request, &config, true)?;
 
     send_envelopes(&mut client, &envelopes).await?;
-    client.flush().await?;
+    SinkExt::<bytes::Bytes>::flush(&mut client).await?;
     client.get_mut().shutdown().await?;
 
     // Handler received the reassembled payload
