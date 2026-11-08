@@ -109,16 +109,15 @@ pub trait WireframeProtocol: Send + Sync + 'static {
 
     /// Called when an EOF condition is detected during frame decoding.
     ///
-    /// This hook is invoked when the connection closes unexpectedly (mid-frame
-    /// or mid-header) or cleanly (at frame boundary). Implementations can use
-    /// this to log diagnostics, update metrics, or perform cleanup.
+    /// An EOF condition is an unexpected close (mid-frame or mid-header) or a
+    /// clean close at a frame boundary. The inbound connection loop does not
+    /// call this hook yet: a decoder error or end of stream simply ends the
+    /// connection, so implementations cannot rely on it for cleanup or
+    /// diagnostics. Only code that invokes [`ProtocolHooks::on_eof`] directly
+    /// reaches it.
     ///
     /// The `partial_data` parameter contains any bytes that were received
     /// before EOF. For clean closes, this will be empty.
-    ///
-    /// The inbound connection loop does not call this hook yet: a decoder error
-    /// or end of stream simply ends the connection. Only code that invokes
-    /// [`ProtocolHooks::on_eof`] directly reaches it.
     ///
     /// # Examples
     ///
