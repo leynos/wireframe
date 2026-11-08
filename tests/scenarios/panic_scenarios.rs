@@ -6,7 +6,7 @@ use wireframe_testing::TestError;
 use crate::fixtures::panic::*;
 
 #[scenario(
-    path = "tests/features/connection_panic.feature",
+    path = "tests/features/panic.feature",
     name = "connection panic does not crash server"
 )]
 fn panic_resilience(panic_world: Result<PanicWorld, TestError>) -> Result<(), TestError> { Ok(()) }
