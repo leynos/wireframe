@@ -410,6 +410,14 @@ The returned-error path, and with it
 [#549](https://github.com/leynos/wireframe/issues/549), is covered by the same
 finalization step.
 
+A read-interval expiry is not a terminal outcome. When the timed
+`framed.next()` wait elapses, the runtime purges expired fragment and assembly
+state and keeps waiting; it does not close an idle connection. This preserves
+the corrected `MAX_READ_TIMEOUT_MS` rustdoc from
+[#870](https://github.com/leynos/wireframe/issues/870). The deprecated
+`WireframeApp::handle_connection*` compatibility entrypoints likewise keep
+`since = "0.4.0"`, the release that deprecates them.
+
 The guard mechanism must be panic-aware. Teardown callbacks are async, so a
 `Drop`-based guard cannot run them during unwind. The terminal paths are
 classified explicitly, and each classification carries its own test:

@@ -1501,10 +1501,10 @@ connection future is dropped or aborted before processing stops, or when
 teardown itself panics; `panic = "abort"` builds cannot recover a handler
 panic.[^2] Preparation moves those callback definitions into the immutable
 `PreparedApp`; `PreparedApp::handle_connection` reuses the prepared middleware
-chains, enforces read timeouts, and records metrics for inbound frames,
-serialization failures, and handler errors before logging warnings.[^6][^7]
-`PacketParts::inherit_correlation` ensures response packets carry the correct
-correlation identifier even when middleware omits it.[^8]
+chains, applies the inbound read wake-up interval, and records metrics for
+inbound frames, serialization failures, and handler errors before logging
+warnings.[^6][^7] `PacketParts::inherit_correlation` ensures response packets
+carry the correct correlation identifier even when middleware omits it.[^8]
 
 Immediate responses are available through `send_response` and
 `send_response_framed`, both of which report serialization or I/O problems via
