@@ -23,6 +23,8 @@ ignore = [
   "\\bstart_with_behavior\\b",
   # Fixed CI and Tokio identifiers keep their external spellings.
   "\\ \\ \\ \\ \\ \\ CARGO_TERM_COLOR:\\ always",
+  # The workflow contract sets Cargo's own colour-control variable.
+  "CARGO_TERM_COLOR\"\\] = \"never\"",
   "\\ reopened,\\ synchronize,\\ labeled,\\ ready_for_review\\]",
   "\\#\\[tokio::test\\(flavor\\ =\\ \"current_thread\",\\ sta",
   "\\#\\[tokio::test\\(flavor\\ =\\ \"current_thread\"\\)\\]",

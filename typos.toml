@@ -38,6 +38,7 @@ extend-ignore-re = [
     "AppFactory<Ser,",
     "Azure\\s+Architecture\\s+Center\\s*\\|\\s*Microsoft\\s+Learn\\b",
     "BackoffConfig::normalised",
+    "CARGO_TERM_COLOR\"\\] = \"never\"",
     "DecodeWith<Ser>",
     "EncodeWith<Ser>",
     "GitHub\\s+Flavored\\s+Markdown\\b(?:\\s\\(GFM\\))?",
