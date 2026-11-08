@@ -310,6 +310,9 @@ pub fn inc_pool_bookkeeping_poison_recoveries() {}
 /// * `error_type` - The category of error: `"framing"`, `"protocol"`, `"io"`, or `"eof"`.
 /// * `recovery_policy` - The recovery action taken: `"drop"`, `"quarantine"`, or `"disconnect"`.
 ///
+/// The connection runtime does not call this helper yet, so this counter moves
+/// only when application code records it.
+///
 /// # Examples
 ///
 /// ```no_run

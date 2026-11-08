@@ -15,6 +15,9 @@ use crate::codec::error::CodecError;
 /// The default implementation ([`DefaultRecoveryPolicy`]) delegates to
 /// [`CodecError::default_recovery_policy`] for all errors.
 ///
+/// No builder API installs this hook yet and the inbound connection loop does
+/// not consult it: any decoder error currently closes the connection.
+///
 /// # Examples
 ///
 /// ```

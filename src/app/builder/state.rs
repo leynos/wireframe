@@ -10,10 +10,13 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    /// Store a shared state value accessible to request extractors.
+    /// Store a shared state value for the application.
     ///
-    /// The value can later be retrieved using [`crate::extractor::SharedState`]. Registering
-    /// another value of the same type overwrites the previous one.
+    /// Registering another value of the same type overwrites the previous one.
+    /// The connection runtime does not pass these values to route handlers or
+    /// middleware: [`crate::extractor::SharedState`] reads from a
+    /// [`crate::extractor::MessageRequest`] that the caller populates, so a
+    /// handler that needs shared state should capture it in its closure.
     #[must_use]
     pub fn app_data<T>(self, state: T) -> Self
     where

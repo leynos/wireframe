@@ -107,11 +107,14 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// this frame if registered.
     fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
 
-    /// Called when an EOF condition is detected during frame decoding.
+    /// Handles an EOF condition when invoked.
     ///
-    /// This hook is invoked when the connection closes unexpectedly (mid-frame
-    /// or mid-header) or cleanly (at frame boundary). Implementations can use
-    /// this to log diagnostics, update metrics, or perform cleanup.
+    /// An EOF condition is an unexpected close (mid-frame or mid-header) or a
+    /// clean close at a frame boundary. The inbound connection loop does not
+    /// call this hook yet: a decoder error or end of stream simply ends the
+    /// connection, so implementations cannot rely on it for cleanup or
+    /// diagnostics. The hook runs only when a caller invokes it, either
+    /// directly on this trait method or through [`ProtocolHooks::on_eof`].
     ///
     /// The `partial_data` parameter contains any bytes that were received
     /// before EOF. For clean closes, this will be empty.
@@ -180,7 +183,7 @@ pub struct ProtocolHooks<F, E> {
     pub handle_error: Option<HandleErrorHook<E>>,
     /// Invoked to construct an end-of-stream frame.
     pub stream_end: Option<StreamEndHook<F>>,
-    /// Invoked when an EOF condition is detected.
+    /// Callback for an EOF condition, run by [`ProtocolHooks::on_eof`].
     pub on_eof: Option<OnEofHook>,
 }
 
