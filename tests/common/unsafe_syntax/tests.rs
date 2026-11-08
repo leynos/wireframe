@@ -23,6 +23,14 @@ use super::violations_in;
     "#[expect(dead_code, unsafe_code)]",
     "carries an `unsafe_code` expectation"
 )]
+#[case::allowance_with_space_before_parenthesis(
+    "#[allow (unsafe_code)]",
+    "uses an `unsafe_code` allowance"
+)]
+#[case::expectation_split_before_parenthesis(
+    "#[expect\n(unsafe_code)]",
+    "carries an `unsafe_code` expectation"
+)]
 #[case::construct("unsafe fn helper() {}", "contains an unsafe function")]
 #[case::construct_split_across_lines("unsafe\nfn helper() {}", "contains an unsafe function")]
 #[case::construct_after_block_comment(
@@ -55,6 +63,14 @@ use super::violations_in;
 )]
 #[case::unsafe_attribute_after_block_comment(
     "#[unsafe/* SAFETY */(no_mangle)]",
+    "contains an unsafe attribute"
+)]
+#[case::unsafe_attribute_after_an_item(
+    "fn first() {}\n#[unsafe(no_mangle)]\npub fn second() {}",
+    "contains an unsafe attribute"
+)]
+#[case::unsafe_attribute_after_a_comment(
+    "fn first() {}\n// declare the symbol\n#[unsafe(no_mangle)]\npub fn second() {}",
     "contains an unsafe attribute"
 )]
 #[case::nested_prohibition("#![expect(#![forbid(unsafe_code)] dead_code)]", "")]

@@ -35,12 +35,7 @@ mod unsafe_syntax;
 use camino::Utf8Path;
 use cargo_targets::{TargetRoot, describe, discover_target_roots, read_target_source};
 use inner_attributes::has_header_attribute;
-use package_sources::{
-    sources_in_package,
-    sources_under,
-    workspace_package_manifests,
-    workspace_package_names,
-};
+use package_sources::{sources_under, workspace_package_manifests, workspace_package_names};
 use repo_access::{read_repo_file, repo_root};
 use unsafe_syntax::violations_in;
 
@@ -264,8 +259,14 @@ fn target_discovery_includes_the_standalone_package() -> TestResult {
 /// hand-copied manifest and probe binary cannot fall outside the scan.
 fn all_package_sources() -> TestResult<Vec<(String, String)>> {
     let mut sources = std::collections::BTreeMap::new();
-    for package in workspace_package_names()? {
-        for (path, source) in sources_in_package(&package)? {
+    // One metadata query names every member's manifest; resolving each
+    // package's directory from that result keeps the walk at one Cargo process
+    // rather than one per package.
+    for (package, manifest) in workspace_package_manifests()? {
+        let directory = manifest.parent().ok_or_else(|| {
+            format!("the manifest for `{package}` ({manifest}) has no parent directory")
+        })?;
+        for (path, source) in sources_under(directory)? {
             sources.insert(path.to_string(), source);
         }
     }

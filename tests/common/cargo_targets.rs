@@ -27,7 +27,8 @@ pub(crate) struct TargetRoot {
 ///
 /// `--locked` makes the query fail rather than rewrite a stale lockfile, so
 /// discovery cannot change the working tree it is inspecting.
-const WORKSPACE_METADATA: &[&str] = &["metadata", "--no-deps", "--format-version", "1", "--locked"];
+pub(crate) const WORKSPACE_METADATA: &[&str] =
+    &["metadata", "--no-deps", "--format-version", "1", "--locked"];
 
 /// The invocation that additionally describes the standalone gate package.
 const FEATURE_GATE_METADATA: &[&str] = &[
@@ -94,7 +95,10 @@ fn cargo_metadata(args: &[&str]) -> RepoAccessResult<Value> {
 ///
 /// The directory is a parameter so a test can point the production runner at an
 /// isolated package and prove the query leaves that package untouched.
-fn run_cargo_metadata(directory: &std::path::Path, args: &[&str]) -> RepoAccessResult<Value> {
+pub(crate) fn run_cargo_metadata(
+    directory: &std::path::Path,
+    args: &[&str],
+) -> RepoAccessResult<Value> {
     let output = std::process::Command::new("cargo")
         .args(args)
         .current_dir(directory)

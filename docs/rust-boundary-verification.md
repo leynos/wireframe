@@ -80,8 +80,10 @@ metadata does not describe. It asserts:
   is still found, and an unsafe attribute is found whether its parenthesis is
   adjacent or separated by whitespace. A lint attribute is matched by its
   argument list, so `#[allow(dead_code, unsafe_code)]` is found as well as
-  `#[allow(unsafe_code)]`. Two test helpers whose purpose is to name the
-  constructs are exempt.
+  `#[allow(unsafe_code)]`. Three files are exempt from the scan: the two test
+  helpers whose purpose is to name the constructs,
+  `tests/common/unsafe_syntax.rs` and `tests/common/unsafe_syntax/tests.rs`, and
+  `tests/workspace_unsafe_boundary.rs`, which contains the scan itself.
 - `workspace_membership_matches_the_reviewed_inventory` — the set of workspace
   packages is exactly the reviewed list.
 

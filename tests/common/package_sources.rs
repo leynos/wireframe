@@ -17,24 +17,17 @@
 //! package's directory, so the exclusions also keep the walk out of the build
 //! tree and the caches.
 
-use std::process::Command;
-
 use camino::{Utf8Path, Utf8PathBuf};
 use cap_std::fs_utf8::Dir;
 use serde_json::Value;
 
-use super::repo_access::{RepoAccessResult, repo_dir, repo_root};
+use super::{
+    cargo_targets::{WORKSPACE_METADATA, run_cargo_metadata},
+    repo_access::{RepoAccessResult, repo_dir, repo_root},
+};
 
 /// A source file's repository-relative path paired with its contents.
 pub(crate) type SourceFile = (Utf8PathBuf, String);
-
-/// Read every `.rs` file in the named Cargo package's directory.
-///
-/// The directory comes from `cargo metadata` rather than a hard-coded path, so
-/// moving the crate cannot silently move it out of the scan.
-pub(crate) fn sources_in_package(package: &str) -> RepoAccessResult<Vec<SourceFile>> {
-    sources_under(package_directory(package)?.as_path())
-}
 
 /// Read every `.rs` file below `crate_root`, relative to the repository root.
 ///
@@ -48,23 +41,6 @@ pub(crate) fn sources_under(crate_root: &Utf8Path) -> RepoAccessResult<Vec<Sourc
     let mut sources = Vec::new();
     read_rust_sources(&dir, crate_root, &mut sources)?;
     Ok(sources)
-}
-
-/// Resolve the directory of a workspace package through `cargo metadata`.
-///
-/// # Errors
-///
-/// Returns an error when `cargo metadata` fails, does not describe the package,
-/// or places it outside the repository.
-pub(crate) fn package_directory(package: &str) -> RepoAccessResult<Utf8PathBuf> {
-    let manifest = package_manifest(package)?;
-    let manifest_dir = manifest
-        .parent()
-        .ok_or_else(|| format!("manifest path {manifest} has no parent directory"))?;
-    let relative = manifest_dir.strip_prefix(repo_root()?).map_err(|_| {
-        format!("the manifest for `{package}` ({manifest}) is outside the repository")
-    })?;
-    Ok(relative.to_path_buf())
 }
 
 /// The names of the packages the workspace metadata describes.
@@ -110,36 +86,12 @@ pub(crate) fn workspace_package_manifests() -> RepoAccessResult<Vec<(String, Utf
 }
 
 /// Run `cargo metadata` for the workspace and parse its JSON output.
+///
+/// The query goes through the shared runner so it carries the same `--locked`
+/// guarantee as target-root discovery: a stale lockfile fails the query rather
+/// than being rewritten under the tree being inspected.
 fn workspace_metadata() -> RepoAccessResult<Value> {
-    let output = Command::new("cargo")
-        .args(["metadata", "--no-deps", "--format-version", "1"])
-        .current_dir(repo_root()?)
-        .output()?;
-    if !output.status.success() {
-        return Err(format!(
-            "`cargo metadata` failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )
-        .into());
-    }
-    Ok(serde_json::from_slice(&output.stdout)?)
-}
-
-/// Resolve the manifest path of a workspace package through `cargo metadata`.
-fn package_manifest(package: &str) -> RepoAccessResult<Utf8PathBuf> {
-    let metadata = workspace_metadata()?;
-    let manifest = metadata
-        .get("packages")
-        .and_then(Value::as_array)
-        .and_then(|packages| {
-            packages
-                .iter()
-                .find(|candidate| candidate.get("name").and_then(Value::as_str) == Some(package))
-        })
-        .and_then(|candidate| candidate.get("manifest_path"))
-        .and_then(Value::as_str)
-        .ok_or_else(|| format!("cargo metadata does not describe `{package}`"))?;
-    Ok(Utf8PathBuf::from(manifest))
+    run_cargo_metadata(repo_root()?.as_std_path(), WORKSPACE_METADATA)
 }
 
 /// Directories that never hold package source.

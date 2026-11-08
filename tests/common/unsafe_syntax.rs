@@ -215,6 +215,11 @@ impl SourceText {
     }
 
     /// Whether the `unsafe` keyword at `start` opens a Rust 2024 unsafe attribute.
+    ///
+    /// Only the three characters before the keyword are inspected, and only the
+    /// attribute prefix is compared, so an attribute that follows another item
+    /// is still recognized: the token before `#[` says nothing about whether
+    /// `#[unsafe(...)]` is an attribute.
     fn is_unsafe_attribute(&self, start: Position) -> bool {
         let significant: Vec<char> = self
             .characters
@@ -225,7 +230,7 @@ impl SourceText {
             .take(3)
             .copied()
             .collect();
-        matches!(significant.as_slice(), ['[', '#'] | ['[', '!', '#'])
+        matches!(significant.as_slice(), ['[', '#', ..] | ['[', '!', '#', ..])
     }
 }
 
@@ -268,14 +273,26 @@ impl LintAttribute {
 struct NormalizedSource(String);
 
 impl NormalizedSource {
-    /// Collapse every run of whitespace in `source` to a single space.
+    /// Collapse every run of whitespace in `source` to a single space, and drop
+    /// any space that would sit between a lint name and its opening parenthesis.
     ///
     /// `check-fmt` only formats workspace members, so a source in the standalone
     /// `tests/feature_gate` package can be committed with `unsafe` and the rest of
     /// a construct on separate lines. Normalizing first means the scan sees the
     /// spelling the compiler would, whether the tokens were split across a line
-    /// break or an attribute list was wrapped by `rustfmt`.
-    fn new(source: &str) -> Self { Self(source.split_whitespace().collect::<Vec<_>>().join(" ")) }
+    /// break or an attribute list was wrapped by `rustfmt`. Rust accepts a space
+    /// between an attribute name and its argument list, so `#[allow (x)]` and
+    /// `#[expect\n(x)]` name the same lints as their unspaced spellings and must
+    /// normalize to the same text.
+    fn new(source: &str) -> Self {
+        Self(
+            source
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .replace(" (", "("),
+        )
+    }
 
     /// Whether any `attribute` in this source lists `unsafe_code`.
     ///
