@@ -15,6 +15,8 @@ use crate::message_assembler::{
     ParsedFrameHeader,
 };
 
+pub mod bad_codec;
+
 pub mod connection_startup;
 
 pub mod frame_codec;
@@ -25,6 +27,7 @@ pub mod frame_codec;
 #[cfg(all(feature = "pool", not(loom)))]
 pub mod pool_client;
 
+pub use bad_codec::{BadCodec, BadDecoder, BadEncoder, BadFrame};
 pub use connection_startup::{
     ConnectionStartupCounts,
     ConnectionStartupInstrumentation,

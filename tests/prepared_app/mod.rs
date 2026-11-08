@@ -6,6 +6,12 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+#[path = "lifecycle_matrix.rs"]
+mod lifecycle_matrix;
+
+#[path = "lifecycle_support.rs"]
+mod lifecycle_support;
+
 #[path = "tcp.rs"]
 mod tcp;
 

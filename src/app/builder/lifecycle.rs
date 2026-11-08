@@ -55,11 +55,16 @@ where
     ///
     /// After registration, once setup has produced state, teardown runs
     /// exactly once after the connection stops processing. This holds for
-    /// clean completion and for stream-processing errors such as malformed
-    /// frames or failed sends. Teardown is skipped when no setup hook produced
-    /// state or no teardown callback is registered, and it does not run on task
-    /// panic or cancellation; those terminal paths are tracked by ADR-012 and
-    /// issue #643.
+    /// clean completion, stream-processing errors such as malformed frames or
+    /// failed sends, a handler panic caught by the connection runtime, and
+    /// cooperative cancellation observed at a read boundary.
+    ///
+    /// Teardown is skipped when setup was absent, failed, or never completed,
+    /// and when the connection future is dropped or aborted before processing
+    /// stops. A panic during setup or teardown is not retried, and builds
+    /// using `panic = "abort"` cannot recover a handler panic. See
+    /// [ADR-012](../../../docs/adr-012-prepared-application-and-connection-runtime.md)
+    /// for the full contract.
     ///
     /// # Errors
     ///

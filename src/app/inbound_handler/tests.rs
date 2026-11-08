@@ -1,6 +1,5 @@
 //! Tests for Wireframe inbound connection handling.
 
-use bytes::{Bytes, BytesMut};
 #[cfg(feature = "metrics")]
 use metrics::{SharedString, Unit};
 #[cfg(feature = "metrics")]
@@ -10,11 +9,14 @@ use metrics_util::{
 };
 use rstest::rstest;
 use tokio::io::AsyncWriteExt;
-use tokio_util::codec::{Decoder, Encoder};
 use wireframe_testing::logger;
 
 use super::*;
-use crate::{app::frame_handling, serializer::BincodeSerializer};
+use crate::{
+    app::{connection_runtime::parse_envelope, frame_handling},
+    serializer::BincodeSerializer,
+    test_helpers::{BadCodec, BadFrame},
+};
 
 /// The three ways metadata parsing can lead to a fully decoded envelope.
 #[derive(Clone, Copy, Debug)]
@@ -80,7 +82,7 @@ fn single_envelope_frames_require_full_consumption(
     let envelope = Envelope::new(1, None, vec![42]);
     let mut bytes = envelope.to_bytes().expect("encode envelope");
     bytes.extend(std::iter::repeat_n(0, trailing));
-    let result = core::parse_envelope(&FrameDecodeSerializer(mode), &bytes);
+    let result = parse_envelope(&FrameDecodeSerializer(mode), &bytes);
     if trailing == 0 {
         let (decoded, consumed) =
             result.expect("complete envelope must decode through every branch");
@@ -131,10 +133,9 @@ fn oversized_bincode_envelope_counts_one_message_limit_rejection() {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
 
-    let error = metrics::with_local_recorder(&recorder, || {
-        core::parse_envelope(&BincodeSerializer, &bytes)
-    })
-    .expect_err("oversized envelope must fail");
+    let error =
+        metrics::with_local_recorder(&recorder, || parse_envelope(&BincodeSerializer, &bytes))
+            .expect_err("oversized envelope must fail");
     assert!(
         matches!(
             error.downcast_ref::<bincode::error::DecodeError>(),
@@ -158,63 +159,6 @@ fn oversized_bincode_envelope_counts_one_message_limit_rejection() {
     );
 }
 
-#[derive(Clone, Debug)]
-struct BadFrame {
-    correlation_id: u64,
-    payload: Vec<u8>,
-}
-
-#[derive(Clone, Debug)]
-struct BadCodec;
-
-#[derive(Clone, Debug)]
-struct BadDecoder;
-
-#[derive(Clone, Debug)]
-struct BadEncoder;
-
-impl Decoder for BadDecoder {
-    type Item = BadFrame;
-    type Error = io::Error;
-
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.is_empty() {
-            Ok(None)
-        } else {
-            Err(io::Error::new(io::ErrorKind::InvalidData, "bad test frame"))
-        }
-    }
-}
-
-impl Encoder<BadFrame> for BadEncoder {
-    type Error = io::Error;
-
-    fn encode(&mut self, _item: BadFrame, _dst: &mut BytesMut) -> Result<(), Self::Error> { Ok(()) }
-}
-
-impl FrameCodec for BadCodec {
-    type Frame = BadFrame;
-    type Decoder = BadDecoder;
-    type Encoder = BadEncoder;
-
-    fn decoder(&self) -> Self::Decoder { BadDecoder }
-
-    fn encoder(&self) -> Self::Encoder { BadEncoder }
-
-    fn frame_payload(frame: &Self::Frame) -> &[u8] { frame.payload.as_slice() }
-
-    fn wrap_payload(&self, payload: Bytes) -> Self::Frame {
-        BadFrame {
-            correlation_id: 0,
-            payload: payload.to_vec(),
-        }
-    }
-
-    fn correlation_id(frame: &Self::Frame) -> Option<u64> { Some(frame.correlation_id) }
-
-    fn max_frame_length(&self) -> usize { 64 }
-}
-
 #[test]
 fn decode_envelope_tracks_failures_and_logs_correlation_id() {
     let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
@@ -233,7 +177,7 @@ fn decode_envelope_tracks_failures_and_logs_correlation_id() {
         let mut failure_tracker =
             frame_handling::DeserFailureTracker::new(&mut deser_failures, MAX_DESER_FAILURES);
         let result = frame_handling::decode_envelope::<BadCodec>(
-            core::parse_envelope(&app.serializer, BadCodec::frame_payload(&frame)),
+            parse_envelope(&app.serializer, BadCodec::frame_payload(&frame)),
             &frame,
             &mut failure_tracker,
         );
@@ -247,7 +191,7 @@ fn decode_envelope_tracks_failures_and_logs_correlation_id() {
     let mut failure_tracker =
         frame_handling::DeserFailureTracker::new(&mut deser_failures, MAX_DESER_FAILURES);
     let err = frame_handling::decode_envelope::<BadCodec>(
-        core::parse_envelope(&app.serializer, BadCodec::frame_payload(&frame)),
+        parse_envelope(&app.serializer, BadCodec::frame_payload(&frame)),
         &frame,
         &mut failure_tracker,
     )

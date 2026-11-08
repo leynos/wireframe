@@ -1,14 +1,14 @@
 //! Inbound connection handling and route preparation utilities.
 
-mod core;
-
 use std::{collections::HashMap, sync::Arc};
 
 use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
+use tokio_util::sync::CancellationToken;
 
 use super::{
     builder::WireframeApp,
+    connection_runtime::{ConnectionRuntime, InboundConfig},
     envelope::{Envelope, Packet},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
     memory_budgets::MemoryBudgets,
@@ -60,13 +60,38 @@ where
 /// Drive a connection using immutable application inputs and prepared routes.
 ///
 /// When a teardown hook is registered and setup produced state, teardown runs
-/// exactly once before this function returns, whether stream processing
-/// completed cleanly or returned an error such as a malformed frame or a
-/// failed send. Panic and cancellation finalization are outside this ordering
-/// and remain tracked by ADR-012 and issue #643.
+/// exactly once after processing stops: whether stream processing completed
+/// cleanly, returned an error such as a malformed frame or a failed send, or
+/// panicked inside a handler. A handler panic is finalized and then re-raised.
+/// Cooperative cancellation is not requested on this path; see
+/// [`process_connection_with_cancellation`].
 pub(crate) async fn process_connection<S, C, E, F, W>(
     stream: W,
     context: ConnectionProcessingContext<'_, S, C, E, F>,
+) -> io::Result<()>
+where
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec,
+    W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    Envelope: DecodeWith<S> + EncodeWith<S>,
+{
+    process_connection_with_cancellation(stream, context, None).await
+}
+
+/// Drive a connection, observing cooperative cancellation at the read
+/// boundary.
+///
+/// The runtime owns the setup state and finalizes it exactly once. Keep the
+/// processing result instead of propagating it with `?`: an early return would
+/// skip finalization and leak per-connection resources on decode, protocol, or
+/// transport errors. A handler panic is finalized and then re-raised so the
+/// connection-task supervisor still observes it.
+pub(crate) async fn process_connection_with_cancellation<S, C, E, F, W>(
+    stream: W,
+    context: ConnectionProcessingContext<'_, S, C, E, F>,
+    cancellation: Option<CancellationToken>,
 ) -> io::Result<()>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
@@ -88,21 +113,10 @@ where
         memory_budgets,
         read_timeout_ms,
     } = context;
-    let connection_state = if let Some(setup) = on_connect {
-        Some(setup().await)
-    } else {
-        None
-    };
 
-    // Keep the processing result instead of propagating it with `?`. When
-    // setup has produced state and a teardown hook is registered, an early
-    // return here would skip teardown and leak per-connection resources on
-    // decode, protocol, or transport errors. Do not add `?` to this await:
-    // teardown must observe every path that can still return a value. Panic
-    // and cancellation are not finalized here; see ADR-012 and issue #643.
-    let processing_result = core::process_stream(
+    let mut runtime = ConnectionRuntime::new(
         stream,
-        core::StreamProcessingContext {
+        InboundConfig {
             routes,
             serializer,
             codec,
@@ -112,12 +126,16 @@ where
             memory_budgets,
             read_timeout_ms,
         },
-    )
-    .await;
+    );
 
-    if let (Some(teardown), Some(state)) = (on_disconnect, connection_state) {
-        teardown(state).await;
+    // Setup runs before any frame is read. A setup panic or a dropped setup
+    // future leaves the finalizer `NotSetUp`, so teardown is never invoked
+    // without state.
+    if let Some(setup) = on_connect {
+        runtime.arm_setup(setup().await);
     }
+
+    let processing_result = runtime.run(cancellation.as_ref(), on_disconnect).await;
 
     if let Err(error) = processing_result {
         warn!(

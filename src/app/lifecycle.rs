@@ -19,11 +19,17 @@ pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>
 ///
 /// When an application registers this callback and a matching
 /// [`ConnectionSetup`] has produced state, teardown runs exactly once after
-/// the connection stops processing. That guarantee covers clean completion and
-/// stream-processing errors, including malformed frames and failed sends.
-/// Teardown does not run when setup was absent or no teardown callback is
-/// registered, and it does not finalize task panic or cancellation; those
-/// paths remain tracked by ADR-012 and issue #643.
+/// the connection stops processing. That guarantee covers clean completion,
+/// stream-processing errors such as malformed frames or failed sends, a
+/// handler panic caught by the connection runtime, and cooperative
+/// cancellation observed at a read boundary.
+///
+/// Teardown does not run when setup was absent, failed, or never completed, nor
+/// when the connection future is dropped or aborted before processing stops.
+/// A panic during setup or teardown is not retried. Builds using
+/// `panic = "abort"` cannot recover a handler panic for finalization. See
+/// [ADR-012](../../docs/adr-012-prepared-application-and-connection-runtime.md)
+/// for the full contract and its accepted gaps.
 ///
 /// # Examples
 ///
