@@ -27,6 +27,8 @@ pub mod frame_codec;
 #[cfg(all(feature = "pool", not(loom)))]
 pub mod pool_client;
 
+pub mod teardown;
+
 pub use bad_codec::{BadCodec, BadDecoder, BadEncoder, BadFrame};
 pub use connection_startup::{
     ConnectionStartupCounts,
@@ -51,6 +53,7 @@ pub use pool_client::{
     build_pooled_client,
     build_preamble_pool,
 };
+pub use teardown::{UnitFuture, counting_teardown};
 
 /// Test-friendly message assembler implementation that shares parsing logic.
 #[derive(Clone, Copy, Debug, Default)]

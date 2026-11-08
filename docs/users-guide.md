@@ -1494,17 +1494,17 @@ additional ergonomics on top of the core primitives.[^13]
 connection. Setup can return arbitrary state retained until teardown executes
 after the stream finishes processing. When a teardown hook is registered and
 setup has produced state, teardown runs exactly once for clean completion,
-decode, protocol, or transport errors, a handler panic caught by the connection
-runtime, and cooperative cancellation observed at a read boundary. It does not
-run when either hook is absent, when setup fails or never completes, when the
-connection future is dropped or aborted before processing stops, or when
-teardown itself panics; `panic = "abort"` builds cannot recover a handler
-panic.[^2] Preparation moves those callback definitions into the immutable
-`PreparedApp`; `PreparedApp::handle_connection` reuses the prepared middleware
-chains, applies the inbound read wake-up interval, and records metrics for
-inbound frames, serialization failures, and handler errors before logging
-warnings.[^6][^7] `PacketParts::inherit_correlation` ensures response packets
-carry the correct correlation identifier even when middleware omits it.[^8]
+decode, protocol, or transport errors, and a handler panic caught by the
+connection runtime. It does not run when either hook is absent, when setup
+fails or never completes, when the connection future is dropped or aborted
+before processing stops, or when teardown itself panics; `panic = "abort"`
+builds cannot recover a handler panic.[^2] Preparation moves those callback
+definitions into the immutable `PreparedApp`; `PreparedApp::handle_connection`
+reuses the prepared middleware chains, applies the inbound read wake-up
+interval, and records metrics for inbound frames, serialization failures, and
+handler errors before logging warnings.[^6][^7]
+`PacketParts::inherit_correlation` ensures response packets carry the correct
+correlation identifier even when middleware omits it.[^8]
 
 Immediate responses are available through `send_response` and
 `send_response_framed`, both of which report serialization or I/O problems via
@@ -3213,7 +3213,8 @@ directories (one per shard on full dispatch runs) for offline triage.
   `log` and `tracing` consumers.[^39]
 
 [^1]: Implemented in `src/lib.rs` (lines 2-33).
-[^2]: Implemented in `src/app/builder.rs` (lines 66-209).
+[^2]: Implemented in `src/app/builder/lifecycle.rs` and
+      `src/app/connection_runtime/mod.rs`.
 [^3]: Implemented in `src/app/builder.rs` (lines 100-121, 347-360).
 [^4]: Implemented in `src/app/builder.rs` (lines 326-344).
 [^5]: Implemented in `src/error.rs` (lines 1-68).

@@ -1,9 +1,7 @@
 //! Unit coverage for connection-local runtime finalization.
 
 use std::{
-    future::Future,
     io,
-    pin::Pin,
     sync::{
         Arc,
         Mutex,
@@ -29,7 +27,7 @@ use crate::{
     },
     codec::FrameCodec,
     serializer::BincodeSerializer,
-    test_helpers::BadCodec,
+    test_helpers::{BadCodec, counting_teardown},
 };
 
 /// Prepared application whose connection state is the unit type.
@@ -233,20 +231,6 @@ async fn finalizer_invokes_teardown_once() {
         vec![5],
         "teardown should receive the armed state exactly once"
     );
-}
-
-/// Boxed future returned by the unit-state teardown callback.
-type UnitFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
-
-/// Build a teardown callback for unit connection state that counts
-/// invocations.
-fn counting_teardown(calls: Arc<AtomicUsize>) -> impl Fn(()) -> UnitFuture + Send + Sync + 'static {
-    move |()| {
-        let counter = Arc::clone(&calls);
-        Box::pin(async move {
-            counter.fetch_add(1, Ordering::SeqCst);
-        })
-    }
 }
 
 /// Build a shared counting callback for driving a finalizer directly.

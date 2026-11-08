@@ -390,10 +390,10 @@ method; no `Drop` implementation performs I/O or awaits teardown.
 with `?`, awaits finalization, and only then returns the result or re-raises a
 panic. The processing future is wrapped in
 `AssertUnwindSafe(..).catch_unwind()` around `&mut self.inbound` only, leaving
-the finalizer outside the caught borrow; the assertion is sound because
-cancellation and teardown boundaries rebuild any invariants the borrow checker
-cannot express. Setup and teardown panics are intentionally outside this
-recovery point.
+the finalizer outside the caught borrow. The assertion is sound because nothing
+observes the inbound state after a panic: `run` finalizes and then re-raises,
+and the runtime is not reused. Setup and teardown panics are intentionally
+outside this recovery point.
 
 Cooperative cancellation is an `Option<CancellationToken>` observed only at the
 read boundary: it is the biased first branch of the `select!` before the timed

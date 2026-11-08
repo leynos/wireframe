@@ -1,8 +1,6 @@
 //! Coverage for connection task spawning and panic recovery behaviour.
 
 use std::{
-    future::Future,
-    pin::Pin,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -30,6 +28,7 @@ use crate::{
     message::Message,
     serializer::BincodeSerializer,
     server::test_util::factory,
+    test_helpers::counting_teardown,
 };
 
 /// Panic payload shapes a connection handler can raise.
@@ -145,19 +144,6 @@ fn panicking_then_healthy_handler(call_count: Arc<AtomicUsize>) -> Handler<Envel
             assert!(calls.fetch_add(1, Ordering::SeqCst) != 0, "handler boom");
         })
     })
-}
-
-/// Boxed future returned by the unit-state teardown callback.
-type UnitFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
-
-/// Build a teardown callback that counts invocations.
-fn counting_teardown(calls: Arc<AtomicUsize>) -> impl Fn(()) -> UnitFuture + Send + Sync + 'static {
-    move |()| {
-        let counter = Arc::clone(&calls);
-        Box::pin(async move {
-            counter.fetch_add(1, Ordering::SeqCst);
-        })
-    }
 }
 
 /// Build a prepared application whose handler panics on its first call.

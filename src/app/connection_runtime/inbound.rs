@@ -181,16 +181,7 @@ where
             );
             frame_handling::apply_memory_pressure(pressure, || self.purge_expired()).await?;
 
-            let read = tokio::select! {
-                biased;
-                () = wait_for_cancellation(cancellation) => InboundRead::Cancelled,
-                result = timeout(self.timeout_dur, self.framed.next()) => match result {
-                    Ok(Some(Ok(frame))) => InboundRead::Frame(frame),
-                    Ok(Some(Err(error))) => return Err(error),
-                    Ok(None) => InboundRead::Closed,
-                    Err(_) => InboundRead::TimedOut,
-                },
-            };
+            let read = self.read_next(cancellation).await?;
 
             match read {
                 InboundRead::Frame(frame) => {
@@ -219,6 +210,31 @@ where
         }
 
         Ok(())
+    }
+
+    /// Wait for the next frame, a read timeout, end of stream, or
+    /// cancellation.
+    ///
+    /// Cancellation is the biased first branch, so it is observed before a
+    /// frame that is already available. A frame that was already read is
+    /// dispatched to completion by the caller.
+    async fn read_next(
+        &mut self,
+        cancellation: Option<&CancellationToken>,
+    ) -> io::Result<InboundRead<F::Frame>>
+    where
+        W: Unpin,
+    {
+        tokio::select! {
+            biased;
+            () = wait_for_cancellation(cancellation) => Ok(InboundRead::Cancelled),
+            result = timeout(self.timeout_dur, self.framed.next()) => match result {
+                Ok(Some(Ok(frame))) => Ok(InboundRead::Frame(frame)),
+                Ok(Some(Err(error))) => Err(error),
+                Ok(None) => Ok(InboundRead::Closed),
+                Err(_) => Ok(InboundRead::TimedOut),
+            },
+        }
     }
 
     /// Remove stale outbound and message-assembly state after an idle

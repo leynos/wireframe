@@ -5,7 +5,6 @@
 //! asserts that teardown received exactly the value setup created.
 
 use std::{
-    future::Future,
     io,
     pin::Pin,
     sync::{
@@ -20,6 +19,7 @@ use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     sync::Notify,
 };
+pub(super) use wireframe::test_helpers::{UnitFuture, counting_teardown};
 use wireframe::{
     app::{Envelope, Handler, WireframeApp},
     serializer::BincodeSerializer,
@@ -270,9 +270,6 @@ pub(super) fn panicking_handler() -> Handler<Envelope> {
     Arc::new(|_: &Envelope| Box::pin(async { panic!("handler boom") }))
 }
 
-/// Boxed future returned by the unit-state lifecycle callbacks.
-pub(super) type UnitFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
-
 /// Setup hook that panics before producing connection state.
 pub(super) fn panicking_setup() -> impl Fn() -> UnitFuture + Send + Sync + 'static {
     || Box::pin(async { panic!("setup boom") })
@@ -284,18 +281,6 @@ pub(super) fn gated_setup(gate: Arc<Notify>) -> impl Fn() -> UnitFuture + Send +
         let pending_gate = Arc::clone(&gate);
         Box::pin(async move {
             pending_gate.notified().await;
-        })
-    }
-}
-
-/// Teardown callback for unit connection state that counts invocations.
-pub(super) fn counting_teardown(
-    calls: Arc<AtomicUsize>,
-) -> impl Fn(()) -> UnitFuture + Send + Sync + 'static {
-    move |()| {
-        let counter = Arc::clone(&calls);
-        Box::pin(async move {
-            counter.fetch_add(1, Ordering::SeqCst);
         })
     }
 }
