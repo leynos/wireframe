@@ -320,6 +320,7 @@ The mutable capacity-aware drivers `drive_with_frame_with_capacity_mut` and
 `drive_with_frames_with_capacity_mut` are re-exported from the
 `wireframe_testing` crate root, matching every other `_mut` driver:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-018 -->
 ```rust,no_run
 use wireframe_testing::{
     drive_with_frame_with_capacity_mut,
