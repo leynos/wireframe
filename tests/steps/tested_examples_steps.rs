@@ -29,9 +29,8 @@ fn then_every_published_example_has_a_stable_identifier_and_source(
 #[given("a document whose example fence carries no language")]
 fn given_a_document_whose_example_fence_carries_no_language(
     tested_examples_world: &mut TestedExamplesWorld,
-) -> TestResult<()> {
+) {
     tested_examples_world.stage_document(UNLANGUAGED_DOCUMENT);
-    Ok(())
 }
 
 #[when("the shared loader validates the staged document")]

@@ -30,7 +30,10 @@ fn parsing_reports_the_example_identity_and_source() {
     let parsed = parse(SAMPLE).expect("the sample document is valid");
 
     assert_eq!(parsed.examples.len(), 1);
-    let example = &parsed.examples[0];
+    let example = parsed
+        .examples
+        .first()
+        .expect("the sample yields one example");
     assert_eq!(example.id, "guide-001");
     assert_eq!(example.document, "guide.md");
     assert_eq!(example.language, "rust");
@@ -145,9 +148,10 @@ proptest! {
 
         let parsed = parse(&source).expect("a well-formed fence parses");
         prop_assert_eq!(parsed.examples.len(), 1);
-        prop_assert_eq!(&parsed.examples[0].id, "sample-001");
-        prop_assert_eq!(&parsed.examples[0].source, &format!("{interior}\n"));
-        prop_assert_eq!(parsed.examples[0].start_line, 2);
+        let example = parsed.examples.first().expect("the fence yields one example");
+        prop_assert_eq!(&example.id, "sample-001");
+        prop_assert_eq!(&example.source, &format!("{interior}\n"));
+        prop_assert_eq!(example.start_line, 2);
         prop_assert_eq!(parsed.identifiers, vec![("sample-001".to_owned(), 1)]);
     }
 

@@ -455,6 +455,8 @@ use wireframe_testing::{
     drive_with_frames_with_capacity_mut,
 };
 
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
 let mut app: WireframeApp = WireframeApp::new()?;
 
 // One frame carrying a three-byte payload, reusing `app`.
@@ -464,6 +466,8 @@ let one = drive_with_frame_with_capacity_mut(&mut app, frame, 256).await?;
 // Two single-byte frames through a 64-byte buffer, still reusing `app`.
 let frames = vec![vec![0, 0, 0, 1, 1], vec![0, 0, 0, 1, 2]];
 let many = drive_with_frames_with_capacity_mut(&mut app, frames, 64).await?;
+# Ok(())
+# }
 ```
 
 `drive_with_frame_with_capacity_mut` and `drive_with_frames_with_capacity_mut`
