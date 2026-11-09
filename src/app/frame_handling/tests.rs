@@ -9,7 +9,10 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::StreamExt;
 use rstest::{fixture, rstest};
 use tokio::io::DuplexStream;
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::{
+    codec::{Decoder, Encoder},
+    sync::CancellationToken,
+};
 
 use super::ResponseContext;
 use crate::{
@@ -19,7 +22,9 @@ use crate::{
         combined_codec::CombinedCodec,
     },
     codec::FrameCodec,
+    connection::{ConnectionActor, ConnectionChannels},
     hooks::{ConnectionContext, ProtocolHooks},
+    push::PushQueues,
     serializer::BincodeSerializer,
 };
 
@@ -276,12 +281,24 @@ async fn response_context_holds_references(harness: TestHarness) {
     } = harness;
     let serializer = BincodeSerializer;
     let mut pipeline: FramePipeline<TestFrame> = FramePipeline::new(None);
+    let (queues, handle) = PushQueues::<Envelope>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .expect("actor queues");
+    let mut actor = ConnectionActor::new_untracked(
+        ConnectionChannels::new(queues, handle),
+        None,
+        CancellationToken::new(),
+        ProtocolHooks::default(),
+    );
 
     let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
         serializer: &serializer,
         framed: &mut framed,
         pipeline: &mut pipeline,
         codec: &codec,
+        actor: &mut actor,
     };
 
     // Verify fields are accessible (compile-time check)

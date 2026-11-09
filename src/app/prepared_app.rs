@@ -47,7 +47,10 @@ pub struct PreparedApp<
     /// Fully transformed route services keyed by protocol message identifier.
     pub(in crate::app) routes: HashMap<u32, HandlerService<E>>,
     /// Serializer retained by every connection driven by this application.
-    pub(in crate::app) serializer: S,
+    ///
+    /// Shared so the connection actor's `'static` protocol hooks can decode
+    /// terminator frames without copying the serializer.
+    pub(in crate::app) serializer: Arc<S>,
     /// Codec template used to configure each connection's framed transport.
     pub(in crate::app) codec: F,
     /// Optional hook that creates per-connection state.
@@ -172,7 +175,7 @@ where
 
 impl<S, C, E, F> PreparedApp<S, C, E, F>
 where
-    S: Serializer + FrameMetadata<Frame = super::Envelope> + Send + Sync,
+    S: Serializer + FrameMetadata<Frame = super::Envelope> + Send + Sync + 'static,
     C: Send + 'static,
     E: Packet,
     F: FrameCodec,
@@ -226,13 +229,14 @@ where
             stream,
             ConnectionProcessingContext {
                 routes: &self.routes,
-                serializer: &self.serializer,
+                serializer: Arc::clone(&self.serializer),
                 codec: &self.codec,
                 on_connect: self.on_connect.as_ref(),
                 on_disconnect: self.on_disconnect.as_ref(),
                 message_assembler: self.message_assembler.as_ref(),
                 fragmentation: self.fragmentation,
                 protocol_hooks: self.protocol_hooks(),
+                protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
             },
