@@ -109,6 +109,34 @@ async fn installs_single_response_with_correlation() {
 }
 
 #[tokio::test]
+async fn preserves_frame_correlation_when_request_has_none() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut actor = test_actor(counting_hooks(Arc::clone(&calls))).expect("actor should build");
+    let mut sink = Vec::new();
+
+    actor
+        .install_response(
+            Response::Single(Envelope::new(5, Some(99), vec![1])),
+            None,
+            &mut sink,
+        )
+        .await
+        .expect("single response should install");
+
+    let frame = sink.first().expect("frame should be present");
+    assert_eq!(
+        frame.correlation_id,
+        Some(99),
+        "a request without a correlation id must not clear the frame's own"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "on_command_end must run once"
+    );
+}
+
+#[tokio::test]
 async fn installs_vec_response_with_one_command_end() {
     let calls = Arc::new(AtomicUsize::new(0));
     let mut actor = test_actor(counting_hooks(Arc::clone(&calls))).expect("actor should build");
