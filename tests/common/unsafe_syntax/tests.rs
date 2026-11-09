@@ -115,3 +115,37 @@ fn reports_prohibited_text(#[case] source: &str, #[case] expected: &str) {
         );
     }
 }
+
+/// Every violation a single file can raise is reported, in a stable order.
+///
+/// The table above matches one fragment at a time, so it cannot show that a
+/// source raising several findings reports all of them, or that the order a
+/// reviewer reads is the order the scan produces. The label is fixed so the
+/// expected text is a snapshot of the whole output rather than a shape.
+#[test]
+fn multi_violation_output_is_stable() {
+    let source = concat!(
+        "#![allow(unsafe_code)]\n",
+        "#[expect(unsafe_code)]\n",
+        "unsafe fn helper() {}\n",
+        "unsafe trait Marker {}\n",
+        "fn block() { unsafe { std::ptr::null::<u8>() }; }\n",
+    );
+
+    assert_eq!(
+        violations_in(source, "tests/feature_gate/src/optional.rs"),
+        [
+            "tests/feature_gate/src/optional.rs uses an `unsafe_code` allowance; the workspace \
+             forbids unsafe code",
+            "tests/feature_gate/src/optional.rs carries an `unsafe_code` expectation; the \
+             workspace forbids unsafe code",
+            "tests/feature_gate/src/optional.rs contains an unsafe block but the workspace \
+             forbids unsafe code",
+            "tests/feature_gate/src/optional.rs contains an unsafe function but the workspace \
+             forbids unsafe code",
+            "tests/feature_gate/src/optional.rs contains an unsafe trait but the workspace \
+             forbids unsafe code",
+        ],
+        "the whole multi-violation output must stay stable"
+    );
+}
