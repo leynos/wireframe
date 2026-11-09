@@ -40,7 +40,9 @@ fn comment_markers() -> impl Strategy<Value = &'static str> {
 ///
 /// The delimiter always has at least one hash and is longer than any run of
 /// hashes that follows a quote in the body, so the body stays literal text
-/// rather than closing the string early.
+/// rather than closing the string early. Closing early can only expose more
+/// text here, never swallow it, so this generator alone cannot show that the
+/// code after a string survives.
 fn raw_string_quoting_markers() -> impl Strategy<Value = String> {
     (
         1usize..4,
@@ -53,6 +55,32 @@ fn raw_string_quoting_markers() -> impl Strategy<Value = String> {
             let partial = format!("\"{partial_hashes}");
             format!(
                 "r{delimiter}\"{body}{partial}\"{delimiter}",
+                body = body.join("")
+            )
+        })
+}
+
+/// A raw string that would hide the following code if it closed early.
+///
+/// The body ends with a quote and a run of hashes shorter than the delimiter,
+/// and the text after that run opens a block comment that is never closed.
+/// Reading the shorter run as the closing delimiter would leave the `/*` as
+/// code, and that comment would swallow everything after the string — including
+/// the unsafe function on the next line. This is what makes the property
+/// discriminate: a scanner that mistakes the run for the delimiter reports
+/// nothing at all, while one that finds the real closing delimiter reports the
+/// function.
+fn raw_string_hiding_a_comment_opener() -> impl Strategy<Value = String> {
+    (
+        1usize..4,
+        prop::collection::vec(comment_markers(), 0..8),
+        0usize..3,
+    )
+        .prop_map(|(hashes, body, shorter_run)| {
+            let delimiter = "#".repeat(hashes);
+            let partial_hashes = "#".repeat(shorter_run.min(hashes - 1));
+            format!(
+                "r{delimiter}\"{body}\"{partial_hashes}/* still string text\"{delimiter}",
                 body = body.join("")
             )
         })
@@ -100,7 +128,12 @@ proptest! {
     }
 
     #[test]
-    fn a_raw_string_never_hides_the_code_after_it(string in raw_string_quoting_markers()) {
+    fn a_raw_string_never_hides_the_code_after_it(
+        string in prop_oneof![
+            raw_string_quoting_markers(),
+            raw_string_hiding_a_comment_opener(),
+        ],
+    ) {
         let source = format!("let note = {string};\n{HIDDEN_CONSTRUCT}\n");
 
         let violations = violations_in(&source, "src/lib.rs");

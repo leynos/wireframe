@@ -217,6 +217,7 @@ fn a_failing_standalone_query_fails_discovery() {
 #[case::missing_packages(json!({}), "`packages`")]
 #[case::packages_not_an_array(json!({"packages": {}}), "`packages`")]
 #[case::package_without_a_name(json!({"packages": [{"targets": []}]}), "name")]
+#[case::package_without_targets(json!({"packages": [{"name": "wireframe"}]}), "`targets`")]
 #[case::package_name_not_a_string(
     json!({"packages": [{"name": 7, "targets": []}]}),
     "name"
