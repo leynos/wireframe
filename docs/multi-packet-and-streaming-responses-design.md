@@ -521,7 +521,9 @@ staying true to the architecture already in production use.
   multi-packet response is driven to completion before the next inbound frame
   is read, so this change does not yet deliver independent input and output;
   [RFC 0004](rfcs/0004-duplex-session-driver.md) and roadmap item 21.2.2 remain
-  open.
+  open. While such a response is idle, a peer disconnect is not observed: the
+  connection ends when the response next writes, when it completes, or when the
+  connection task is cancelled.
 - The `ConnectionActor` owns the channel receiver and polls it via the
   main `select!` loop. Frames pass through `process_frame_common` so protocol
   hooks and metrics observe every packet. When the channel drains, the actor

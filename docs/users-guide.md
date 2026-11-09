@@ -2778,11 +2778,12 @@ connection's frame pipeline before the next inbound frame is read:
 - Every emitted envelope passes through fragmentation, outbound metrics,
   serialization, `wrap_payload`, and `before_send`, in that order, immediately
   before the transport write. The terminator follows the same path.
-- Every data frame for a response is stamped with the request's correlation
-  id; a stream item that supplies a different id is overwritten and logged as a
-  warning. A multi-packet terminator is stamped the same way, while a stream
-  terminator keeps the id produced by `stream_end_frame` (the client matches a
-  terminator before it checks correlation).
+- Every data frame for a response inherits the request's correlation id: a
+  frame with no id adopts it, and a frame that supplies a different id is
+  overwritten and logged as a warning. When the request carries no id, the
+  frame keeps its own. A multi-packet terminator is stamped the same way, while
+  a stream terminator keeps the id produced by `stream_end_frame` (the client
+  matches a terminator before it checks correlation).
 
 Back-pressure is end-to-end. The actor awaits each transport write, so a slow
 peer stops further polling of a `Response::Stream`. `Response::MultiPacket`
@@ -2790,6 +2791,14 @@ adds a bounded channel in front of that: `send().await` resolves only when the
 channel has capacity, and reports an error once the connection has gone away.
 When a write fails, the remaining fragments of that frame are discarded, the
 connection ends with an I/O error, and teardown runs once.
+
+Because a response is driven to completion before the next inbound frame is
+read, an idle `Response::Stream` or `Response::MultiPacket` is not interrupted
+by a peer disconnect: nothing is written, so a closed peer is not observed
+until the response yields a frame. The connection ends when such a write fails,
+when the response completes, or when the connection task is cancelled.
+Independent input and output are tracked by
+[RFC 0004](rfcs/0004-duplex-session-driver.md) and roadmap item 21.2.2.
 
 The protocol callbacks that run for application responses are `before_send`,
 `on_command_end`, `handle_error`, and `stream_end_frame`. Connection setup and

@@ -169,6 +169,11 @@ where
     }
 
     /// Emit a completed response, stamping the request correlation ID.
+    ///
+    /// A frame that already carries an identifier keeps it when the request
+    /// has none, matching [`CorrelatableFrame`] inheritance elsewhere: a
+    /// middleware-provided response id must not be cleared by a request that
+    /// simply never supplied one.
     async fn emit_response_frames<S>(
         &mut self,
         frames: Vec<F>,
@@ -181,7 +186,9 @@ where
         ensure_output_idle(&self.active_output)?;
         let mut out = Vec::with_capacity(frames.len());
         for mut frame in frames {
-            frame.set_correlation_id(correlation_id);
+            if let Some(request_correlation) = correlation_id {
+                frame.set_correlation_id(Some(request_correlation));
+            }
             self.process_frame_with_hooks_and_metrics(frame, &mut out);
         }
         flush_frames(out, sink).await
