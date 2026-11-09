@@ -1,6 +1,20 @@
 //! Shared parser for marked examples in published user-facing documents.
+//!
+//! The parser walks a document once, pairing every `tested-example` marker with
+//! the fence that follows it. Parsing is a query: it reports the identifiers a
+//! document claims instead of writing them into caller-owned state, so a
+//! document that fails validation cannot leave a partial claim behind.
 
 use std::collections::HashSet;
+
+#[path = "tested_examples/parsing.rs"]
+mod parsing;
+
+#[cfg(test)]
+#[path = "tested_examples/tests.rs"]
+mod tests;
+
+use parsing::{Fence, fence_info, fence_source, is_closing_fence, opening_fence, parse_marker};
 
 const USER_DOCUMENTS: &[(&str, &str)] = &[
     ("docs/api.md", include_str!("../../docs/api.md")),
@@ -124,21 +138,33 @@ impl<'a> PublishedDocument<'a> {
     fn lines(&self) -> &[&'a str] { &self.lines }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct Fence {
-    marker: char,
-    length: usize,
+/// A document's examples together with the identifiers it claimed.
+///
+/// Returning the claims instead of writing them into a caller-owned set keeps
+/// parsing a query, so a rejected document leaves no partial identifier behind.
+#[derive(Debug, Default)]
+pub struct ParsedDocument {
+    /// Examples in the order they appear in the document.
+    pub examples: Vec<TestedExample>,
+    /// Identifier and one-based marker line for each claimed example.
+    pub identifiers: Vec<(String, usize)>,
 }
 
+/// An example whose opening fence has been read but not yet closed.
 #[derive(Debug)]
 struct OpenExample {
+    /// The fence that opened the example, used to detect its close.
     fence: Fence,
+    /// Stable identifier written in the preceding marker comment.
     id: String,
+    /// Language named by the first token of the fence info string.
     language: String,
+    /// One-based line containing the opening fence.
     start_line: usize,
 }
 
 /// Repository-relative paths of every document the shared loader scans.
+#[cfg(test)]
 fn document_paths() -> impl Iterator<Item = &'static str> {
     USER_DOCUMENTS.iter().map(|(path, _)| *path)
 }
@@ -148,6 +174,7 @@ fn document_paths() -> impl Iterator<Item = &'static str> {
 /// The list lives in `src/tested_documentation.rs` as `include_str!`
 /// attributes, so reading it at compile time keeps the two inventories
 /// comparable without a second hand-maintained copy.
+#[cfg(test)]
 fn rustdoc_document_paths() -> impl Iterator<Item = &'static str> {
     include_str!("../../src/tested_documentation.rs")
         .lines()
@@ -158,38 +185,52 @@ fn rustdoc_document_paths() -> impl Iterator<Item = &'static str> {
         })
 }
 
-/// Load every marked example from the published user-facing document set.
-pub fn load_published_examples() -> Result<Vec<TestedExample>, String> {
+/// Load examples from an explicit document list, sharing identifiers.
+///
+/// This is the merge boundary: a document's identifiers enter the shared set
+/// only after it parses cleanly, so a later duplicate is rejected without
+/// corrupting the claims made by earlier documents.
+pub fn load_documents(documents: &[(&str, &str)]) -> Result<Vec<TestedExample>, String> {
     let mut identifiers = HashSet::new();
     let mut examples = Vec::new();
-    for (path, text) in USER_DOCUMENTS {
-        examples.extend(parse_document(
-            &PublishedDocument::new(path, text),
-            &mut identifiers,
-        )?);
+    for (path, text) in documents {
+        let parsed = parse_document(&PublishedDocument::new(path, text), &identifiers)?;
+        identifiers.extend(parsed.identifiers.into_iter().map(|(id, _)| id));
+        examples.extend(parsed.examples);
     }
     Ok(examples)
 }
 
-/// Parse one source document while sharing identifiers with prior documents.
+/// Load every marked example from the published user-facing document set.
+pub fn load_published_examples() -> Result<Vec<TestedExample>, String> {
+    load_documents(USER_DOCUMENTS)
+}
+
+/// Parse one document without mutating caller-owned state.
+///
+/// `known` carries the identifiers claimed by earlier documents so a duplicate
+/// is rejected here; the returned identifiers are left for the caller to merge
+/// after a successful parse.
 pub fn parse_document(
     document: &PublishedDocument<'_>,
-    identifiers: &mut HashSet<String>,
-) -> Result<Vec<TestedExample>, String> {
-    let mut examples = Vec::new();
+    known: &HashSet<String>,
+) -> Result<ParsedDocument, String> {
+    let mut parsed = ParsedDocument::default();
     let mut open: Option<OpenExample> = None;
 
     for (index, line) in document.lines().iter().copied().enumerate() {
         if let Some(active) = open.as_ref() {
             if is_closing_fence(line, active.fence) {
-                examples.push(finish_example(document, active, index)?);
+                parsed
+                    .examples
+                    .push(finish_example(document, active, index)?);
                 open = None;
             }
             continue;
         }
 
         validate_marker_line(document, index)?;
-        open = parse_open_example(document, index, identifiers)?;
+        open = parse_open_example(document, index, known, &mut parsed)?;
     }
 
     if let Some(active) = open {
@@ -201,9 +242,14 @@ pub fn parse_document(
         ));
     }
 
-    Ok(examples)
+    Ok(parsed)
 }
 
+/// Reject a marker comment that is malformed or not attached to a fence.
+///
+/// A marker is only meaningful when the very next line opens a fence; reporting
+/// the mismatch here points the author at the marker rather than at a later
+/// "missing its marker" error on the fence itself.
 fn validate_marker_line(document: &PublishedDocument<'_>, index: usize) -> Result<(), String> {
     let Some(line) = document.line(index) else {
         return Ok(());
@@ -226,10 +272,15 @@ fn validate_marker_line(document: &PublishedDocument<'_>, index: usize) -> Resul
     Ok(())
 }
 
+/// Record the example that `index` opens, or return `None` for other lines.
+///
+/// The identifier is validated before it is recorded, so a rejected example
+/// never appears in the returned claims.
 fn parse_open_example(
     document: &PublishedDocument<'_>,
     index: usize,
-    identifiers: &mut HashSet<String>,
+    known: &HashSet<String>,
+    parsed: &mut ParsedDocument,
 ) -> Result<Option<OpenExample>, String> {
     let Some(line) = document.line(index) else {
         return Ok(None);
@@ -250,7 +301,9 @@ fn parse_open_example(
             "{path}:{line_number}: tested-example identifier `{id}` is invalid"
         ));
     }
-    if !identifiers.insert(id.clone()) {
+    let is_duplicate =
+        known.contains(&id) || parsed.identifiers.iter().any(|(seen, _)| *seen == id);
+    if is_duplicate {
         return Err(format!(
             "{path}:{line_number}: duplicate tested-example identifier `{id}`"
         ));
@@ -270,6 +323,9 @@ fn parse_open_example(
             "{path}:{line_number}: fenced example has no language identifier"
         ));
     }
+    // `index` is zero-based for the fence and therefore one-based for the
+    // marker line immediately above it.
+    parsed.identifiers.push((id.clone(), index));
     Ok(Some(OpenExample {
         fence,
         id,
@@ -278,6 +334,7 @@ fn parse_open_example(
     }))
 }
 
+/// Build the example whose closing fence is on `closing_line`.
 fn finish_example(
     document: &PublishedDocument<'_>,
     active: &OpenExample,
@@ -299,24 +356,11 @@ fn finish_example(
     })
 }
 
-fn parse_marker(line: &str) -> Option<String> {
-    let comment = line.trim();
-    let body = comment
-        .strip_prefix("<!-- tested-example: ")?
-        .strip_suffix(" -->")?;
-    (!body.is_empty()).then(|| body.to_owned())
-}
-
-fn fence_source(
-    document: &PublishedDocument<'_>,
-    start_line: usize,
-    closing_line: usize,
-) -> Option<String> {
-    let mut source = document.lines().get(start_line..closing_line)?.join("\n");
-    source.push_str(if start_line < closing_line { "\n" } else { "" });
-    Some(source)
-}
-
+/// Return whether `identifier` follows the marker grammar.
+///
+/// Identifiers appear in test names and diagnostics, so they are restricted to
+/// lower-case ASCII letters, digits, `-` and `_`, and must not start with `-`
+/// or `_`.
 fn valid_identifier(identifier: &str) -> bool {
     identifier.chars().all(|character| {
         character.is_ascii_lowercase()
@@ -327,74 +371,4 @@ fn valid_identifier(identifier: &str) -> bool {
         .chars()
         .next()
         .is_some_and(|first| first.is_ascii_lowercase() || first.is_ascii_digit())
-}
-
-fn opening_fence(line: &str) -> Option<Fence> {
-    let indentation = line
-        .chars()
-        .take_while(|character| *character == ' ')
-        .count();
-    if indentation > 3 {
-        return None;
-    }
-    let remainder = line.get(indentation..)?;
-    let marker = remainder.chars().next()?;
-    if !matches!(marker, '`' | '~') {
-        return None;
-    }
-    let length = remainder
-        .chars()
-        .take_while(|character| *character == marker)
-        .count();
-    (length >= 3).then_some(Fence { marker, length })
-}
-
-fn is_closing_fence(line: &str, fence: Fence) -> bool {
-    let indentation = line
-        .chars()
-        .take_while(|character| *character == ' ')
-        .count();
-    if indentation > 3 {
-        return false;
-    }
-    let Some(remainder) = line.get(indentation..) else {
-        return false;
-    };
-    let length = remainder
-        .chars()
-        .take_while(|character| *character == fence.marker)
-        .count();
-    remainder
-        .get(length..)
-        .is_some_and(|suffix| length >= fence.length && suffix.trim().is_empty())
-}
-
-fn fence_info(line: &str, fence: Fence) -> &str {
-    let indentation = line
-        .chars()
-        .take_while(|character| *character == ' ')
-        .count();
-    let Some(remainder) = line.get(indentation..) else {
-        return "";
-    };
-    let info_start = remainder
-        .chars()
-        .take_while(|character| *character == fence.marker)
-        .count();
-    remainder.get(info_start..).unwrap_or_default().trim()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{document_paths, rustdoc_document_paths};
-
-    #[test]
-    fn loader_inventory_matches_the_rustdoc_module_list() {
-        let mut loader: Vec<_> = document_paths().collect();
-        let mut rustdoc: Vec<_> = rustdoc_document_paths().collect();
-        loader.sort_unstable();
-        rustdoc.sort_unstable();
-
-        assert_eq!(loader, rustdoc, "the two document lists must agree");
-    }
 }

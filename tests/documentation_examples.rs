@@ -21,6 +21,12 @@ fn published_examples_load_from_the_marked_documents() {
             .iter()
             .all(|example| !example.source.trim().is_empty())
     );
+    let identifiers: HashSet<_> = examples.iter().map(|example| example.id.as_str()).collect();
+    assert_eq!(
+        identifiers.len(),
+        examples.len(),
+        "every published example should carry a unique identifier"
+    );
 }
 
 #[rstest]
@@ -39,7 +45,7 @@ fn published_examples_load_from_the_marked_documents() {
 )]
 fn malformed_examples_fail_with_a_useful_reason(#[case] source: &str, #[case] expected: &str) {
     let document = tested_examples::PublishedDocument::new("fixture.md", source);
-    let error = tested_examples::parse_document(&document, &mut HashSet::new())
+    let error = tested_examples::parse_document(&document, &HashSet::new())
         .expect_err("malformed examples should fail loading");
 
     assert!(error.contains(expected), "unexpected loader error: {error}");
@@ -47,20 +53,11 @@ fn malformed_examples_fail_with_a_useful_reason(#[case] source: &str, #[case] ex
 
 #[test]
 fn duplicate_identifiers_fail_across_documents() {
-    let mut identifiers = std::collections::HashSet::new();
     let first = "<!-- tested-example: sample-1 -->\n```rust\nfn main() {}\n```";
     let duplicate = "<!-- tested-example: sample-1 -->\n~~~rust\nfn main() {}\n~~~";
 
-    tested_examples::parse_document(
-        &tested_examples::PublishedDocument::new("first.md", first),
-        &mut identifiers,
-    )
-    .expect("first identifier should be accepted");
-    let error = tested_examples::parse_document(
-        &tested_examples::PublishedDocument::new("second.md", duplicate),
-        &mut identifiers,
-    )
-    .expect_err("duplicate identifiers should fail loading");
+    let error = tested_examples::load_documents(&[("first.md", first), ("second.md", duplicate)])
+        .expect_err("duplicate identifiers should fail loading");
 
     assert!(error.contains("duplicate tested-example identifier `sample-1`"));
 }
