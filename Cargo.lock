@@ -3692,6 +3692,7 @@ dependencies = [
  "serial_test",
  "socket2 0.6.5",
  "static_assertions",
+ "syn 2.0.117",
  "thiserror 2.0.21",
  "tokio",
  "tokio-stream",
