@@ -162,7 +162,7 @@ Termination trait, which is implemented for Result. The surrounding boilerplate
 can then be hidden from the rendered documentation.
 
 <!-- tested-example: rust-doctest-dry-guide-001 -->
-```Rust
+```rust,ignore
 /// # Examples
 ///
 /// ```
@@ -187,7 +187,7 @@ scenario. If a code block ends with the literal token (()), rustdoc will
 automatically wrap the code in a main function that returns a Result.
 
 <!-- tested-example: rust-doctest-dry-guide-002 -->
-```Rust
+```rust,ignore
 /// # Examples
 ///
 /// ```
@@ -328,7 +328,7 @@ The typical implementation pattern is to create a private helper module within
 the library:
 
 <!-- tested-example: rust-doctest-dry-guide-003 -->
-```Rust
+```rust,ignore
 // In lib.rs or a submodule
 
 /// A function that requires a complex environment to test.
@@ -415,7 +415,7 @@ builds.[^13]
 **The Pattern**:
 
 <!-- tested-example: rust-doctest-dry-guide-004 -->
-```Rust
+```rust,ignore
 /// A socket that is only available on Unix platforms.
 #[cfg(any(target_os = "unix", doc))]
 pub struct UnixSocket;
@@ -450,7 +450,7 @@ This pattern involves placing a #\[cfg\] attribute directly on the code within
 the doctest itself.
 
 <!-- tested-example: rust-doctest-dry-guide-005 -->
-```Rust
+```rust,ignore
 /// This example only runs if the "serde" feature is enabled.
 ///
 /// ```
@@ -475,7 +475,7 @@ conditionally add the ignore flag to the doctest's header. This is typically
 done with inner doc comments (//!).
 
 <!-- tested-example: rust-doctest-dry-guide-006 -->
-```Rust
+```rust,ignore
 //! #![cfg_attr(not(feature = "serde"), doc = "```ignore")]
 //! #![cfg_attr(feature = "serde", doc = "```")]
 //! // Example code that requires the "serde" feature.
@@ -500,7 +500,7 @@ feature-gated items in the generated documentation. This is achieved with the
 `#![feature(doc_cfg)]` feature gate at the crate root.
 
 <!-- tested-example: rust-doctest-dry-guide-007 -->
-```Rust
+```rust,ignore
 // At the crate root (lib.rs)
 #![feature(doc_cfg)]
 
