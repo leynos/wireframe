@@ -41,12 +41,12 @@ const FEATURE_GATE_METADATA: &[&str] = &[
     "tests/feature_gate/Cargo.toml",
 ];
 
-/// The process boundary discovery runs through.
+/// The process boundary metadata discovery runs through.
 ///
 /// Substituting it lets a test pin the exact queries discovery issues without
 /// starting Cargo, and keeps the read-only contract visible: discovery may run
 /// metadata queries and nothing else.
-type MetadataRunner<'a> = &'a dyn Fn(&[&str]) -> RepoAccessResult<Value>;
+pub(crate) type MetadataRunner<'a> = &'a dyn Fn(&[&str]) -> RepoAccessResult<Value>;
 
 /// Discover every target root in the workspace and in the standalone gate package.
 ///
@@ -87,7 +87,10 @@ pub(crate) fn read_target_source(root: &TargetRoot, repo: &Utf8Path) -> RepoAcce
 }
 
 /// Run `cargo metadata` in the repository and parse its JSON output.
-fn cargo_metadata(args: &[&str]) -> RepoAccessResult<Value> {
+///
+/// This is the production runner: callers that need a substitute share the
+/// `MetadataRunner` shape rather than re-implementing the query.
+pub(crate) fn cargo_metadata(args: &[&str]) -> RepoAccessResult<Value> {
     run_cargo_metadata(repo_root()?.as_std_path(), args)
 }
 

@@ -22,7 +22,7 @@ use cap_std::fs_utf8::Dir;
 use serde_json::Value;
 
 use super::{
-    cargo_targets::{WORKSPACE_METADATA, run_cargo_metadata},
+    cargo_targets::{MetadataRunner, WORKSPACE_METADATA, cargo_metadata},
     repo_access::{RepoAccessResult, repo_dir, repo_root},
 };
 
@@ -57,7 +57,15 @@ pub(crate) fn workspace_package_names() -> RepoAccessResult<Vec<String>> {
 /// capability directory as the rest of the repository, and so failure messages
 /// name a file the reader can open.
 pub(crate) fn workspace_package_manifests() -> RepoAccessResult<Vec<(String, Utf8PathBuf)>> {
-    let metadata = workspace_metadata()?;
+    workspace_package_manifests_with(&cargo_metadata)
+}
+
+/// The name and repository-relative manifest path of every workspace package,
+/// read through `run`, which must only query metadata.
+pub(crate) fn workspace_package_manifests_with(
+    run: MetadataRunner<'_>,
+) -> RepoAccessResult<Vec<(String, Utf8PathBuf)>> {
+    let metadata = run(WORKSPACE_METADATA)?;
     let repo = repo_root()?;
     let packages = metadata
         .get("packages")
@@ -83,15 +91,6 @@ pub(crate) fn workspace_package_manifests() -> RepoAccessResult<Vec<(String, Utf
             Ok((name.to_owned(), relative))
         })
         .collect()
-}
-
-/// Run `cargo metadata` for the workspace and parse its JSON output.
-///
-/// The query goes through the shared runner so it carries the same `--locked`
-/// guarantee as target-root discovery: a stale lockfile fails the query rather
-/// than being rewritten under the tree being inspected.
-fn workspace_metadata() -> RepoAccessResult<Value> {
-    run_cargo_metadata(repo_root()?.as_std_path(), WORKSPACE_METADATA)
 }
 
 /// Directories that never hold package source.
@@ -162,6 +161,7 @@ mod package_source_tests {
     //! predicate.
 
     use std::{
+        cell::RefCell,
         env,
         io,
         process,
@@ -171,8 +171,17 @@ mod package_source_tests {
     use camino::{Utf8Path, Utf8PathBuf};
     use cap_std::{ambient_authority, fs_utf8::Dir};
     use rstest::rstest;
+    use serde_json::json;
 
-    use super::{RepoAccessResult, SourceFile, read_rust_sources, should_skip};
+    use super::{
+        RepoAccessResult,
+        SourceFile,
+        WORKSPACE_METADATA,
+        read_rust_sources,
+        repo_root,
+        should_skip,
+        workspace_package_manifests_with,
+    };
     use crate::unsafe_syntax::violations_in;
 
     /// Distinguishes fixture directories created by concurrent test runs.
@@ -287,6 +296,48 @@ mod package_source_tests {
         if !skipped_directories_are_clean {
             return Err(format!(
                 "skipped directories must not reach the unsafe-syntax check: {violations:?}"
+            )
+            .into());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn package_manifests_are_read_through_the_metadata_boundary() -> RepoAccessResult<()> {
+        let alpha = repo_root()?.join("crates/alpha/Cargo.toml");
+        let beta = repo_root()?.join("crates/beta/Cargo.toml");
+        let calls = RefCell::new(Vec::new());
+        let run = |args: &[&str]| {
+            calls.borrow_mut().push(args.join(" "));
+            Ok(json!({
+                "packages": [
+                    { "name": "alpha", "manifest_path": alpha.as_str() },
+                    { "name": "beta", "manifest_path": beta.as_str() },
+                ],
+            }))
+        };
+
+        let manifests = workspace_package_manifests_with(&run)?;
+
+        let queries = calls.borrow().clone();
+        if queries != [WORKSPACE_METADATA.join(" ")] {
+            return Err(
+                format!("only the workspace metadata query may run; got {queries:?}").into(),
+            );
+        }
+        let expected = [
+            (
+                "alpha".to_owned(),
+                Utf8PathBuf::from("crates/alpha/Cargo.toml"),
+            ),
+            (
+                "beta".to_owned(),
+                Utf8PathBuf::from("crates/beta/Cargo.toml"),
+            ),
+        ];
+        if manifests != expected {
+            return Err(format!(
+                "manifests must stay repository-relative; expected {expected:?}, got {manifests:?}"
             )
             .into());
         }

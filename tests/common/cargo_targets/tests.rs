@@ -26,6 +26,7 @@ use super::{
     WORKSPACE_METADATA,
     describe,
     discover_target_roots_with,
+    metadata_targets,
     run_cargo_metadata,
 };
 
@@ -170,6 +171,70 @@ fn discovery_queries_the_workspace_and_the_standalone_package() {
             .collect::<Vec<_>>(),
         ["wireframe", "wireframe-feature-gate"],
         "roots from both metadata documents must be combined"
+    );
+}
+
+#[test]
+fn a_failing_workspace_query_fails_discovery() {
+    let run = |args: &[&str]| {
+        if args.contains(&"--manifest-path") {
+            Ok(metadata(
+                "wireframe-feature-gate",
+                Utf8Path::new("/repo/src/lib.rs"),
+            ))
+        } else {
+            Err("the workspace query failed".into())
+        }
+    };
+
+    let error = discover_target_roots_with(&run).expect_err("a failing workspace query must fail");
+
+    assert!(
+        error.to_string().contains("the workspace query failed"),
+        "the failure must name the query that failed: {error}"
+    );
+}
+
+#[test]
+fn a_failing_standalone_query_fails_discovery() {
+    let run = |args: &[&str]| {
+        if args.contains(&"--manifest-path") {
+            Err("the standalone query failed".into())
+        } else {
+            Ok(metadata("wireframe", Utf8Path::new("/repo/src/lib.rs")))
+        }
+    };
+
+    let error = discover_target_roots_with(&run).expect_err("a failing standalone query must fail");
+
+    assert!(
+        error.to_string().contains("the standalone query failed"),
+        "the failure must name the query that failed: {error}"
+    );
+}
+
+#[rstest]
+#[case::missing_packages(json!({}), "`packages`")]
+#[case::packages_not_an_array(json!({"packages": {}}), "`packages`")]
+#[case::package_without_a_name(json!({"packages": [{"targets": []}]}), "name")]
+#[case::package_targets_not_an_array(
+    json!({"packages": [{"name": "wireframe", "targets": {}}]}),
+    "`targets`"
+)]
+#[case::target_without_a_source_path(
+    json!({"packages": [{"name": "wireframe", "targets": [{"kind": ["lib"]}]}]}),
+    "src_path"
+)]
+#[case::target_without_a_kind(
+    json!({"packages": [{"name": "wireframe", "targets": [{"src_path": "/repo/src/lib.rs"}]}]}),
+    "kind"
+)]
+fn malformed_metadata_is_rejected(#[case] document: serde_json::Value, #[case] expected: &str) {
+    let error = metadata_targets(&document).expect_err("malformed metadata must be rejected");
+
+    assert!(
+        error.to_string().contains(expected),
+        "the error must name {expected:?}: {error}"
     );
 }
 
