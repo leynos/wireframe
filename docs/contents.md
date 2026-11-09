@@ -70,6 +70,8 @@ reference when navigating the project's design and architecture material.
   Proposed awaitable server shutdown and supervisor-failure observation.
 - [ADR 015: declared total body length is authoritative][adr-015] Accepted
   contract for enforcing `total_body_len` during message assembly.
+- [ADR 016: remove the unwired route extractors and application data API](adr-016-remove-route-extractors-and-app-data.md)
+  Accepted removal of the extractor module and `app_data` before 1.0.
 
 [adr-015]: adr-015-declared-total-body-length-contract.md
 
