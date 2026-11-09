@@ -15,8 +15,14 @@ use super::{
 
 const SAMPLE: &str = "Prose.\n\n<!-- tested-example: guide-001 -->\n```rust\nfn main() {}\n```\n";
 
+/// Parse `source` as `guide.md` with no identifiers claimed by earlier documents.
 fn parse(source: &str) -> Result<super::ParsedDocument, String> {
     parse_document(&PublishedDocument::new("guide.md", source), &HashSet::new())
+}
+
+/// Build a one-example document that uses `identifier`.
+fn document_with(identifier: &str) -> String {
+    format!("<!-- tested-example: {identifier} -->\n```rust\nfn main() {{}}\n```\n")
 }
 
 #[test]
@@ -31,6 +37,21 @@ fn parsing_reports_the_example_identity_and_source() {
     assert_eq!(example.source, "fn main() {}\n");
     assert_eq!(example.start_line, 4);
     assert_eq!(parsed.identifiers, vec![("guide-001".to_owned(), 3)]);
+}
+
+#[test]
+fn a_successful_parse_leaves_the_callers_identifiers_untouched() {
+    let known = HashSet::from(["earlier-001".to_owned()]);
+
+    let parsed = parse_document(&PublishedDocument::new("guide.md", SAMPLE), &known)
+        .expect("the sample document is valid");
+
+    assert_eq!(parsed.identifiers, vec![("guide-001".to_owned(), 3)]);
+    assert_eq!(
+        known,
+        HashSet::from(["earlier-001".to_owned()]),
+        "the caller merges identifiers only after a successful parse"
+    );
 }
 
 #[test]
@@ -57,10 +78,10 @@ fn published_inventory_yields_examples_for_every_document() {
 
 #[test]
 fn documents_load_in_order_and_share_identifiers() {
-    let first = "<!-- tested-example: first-001 -->\n```rust\nfn main() {}\n```\n";
-    let second = "<!-- tested-example: second-001 -->\n~~~rust\nfn main() {}\n~~~\n";
+    let first = document_with("first-001");
+    let second = document_with("second-001");
 
-    let examples = load_documents(&[("first.md", first), ("second.md", second)])
+    let examples = load_documents(&[("first.md", first.as_str()), ("second.md", second.as_str())])
         .expect("distinct identifiers are accepted");
 
     assert_eq!(
@@ -74,11 +95,14 @@ fn documents_load_in_order_and_share_identifiers() {
 
 #[test]
 fn duplicates_across_documents_are_rejected_by_the_merge_boundary() {
-    let first = "<!-- tested-example: shared-001 -->\n```rust\nfn main() {}\n```\n";
-    let duplicate = "<!-- tested-example: shared-001 -->\n~~~rust\nfn main() {}\n~~~\n";
+    let first = document_with("shared-001");
+    let duplicate = document_with("shared-001");
 
-    let error = load_documents(&[("first.md", first), ("second.md", duplicate)])
-        .expect_err("a duplicate identifier must fail loading");
+    let error = load_documents(&[
+        ("first.md", first.as_str()),
+        ("second.md", duplicate.as_str()),
+    ])
+    .expect_err("a duplicate identifier must fail loading");
 
     assert!(
         error.contains("duplicate tested-example identifier `shared-001`"),
@@ -107,22 +131,38 @@ proptest! {
         body in prop::collection::vec("[A-Za-z0-9 ._/-]{0,30}", 0..5),
         fence_length in 3usize..6,
         indentation in 0usize..4,
+        use_tilde in any::<bool>(),
     ) {
-        let ticks = "`".repeat(fence_length);
+        let marker = if use_tilde { '~' } else { '`' };
+        let fence = marker.to_string().repeat(fence_length);
+        // A shorter run of the same character cannot close the fence, so it must
+        // survive inside the extracted source.
+        let interior = format!("{}\n{}", body.join("\n"), marker.to_string().repeat(fence_length - 1));
         let padding = " ".repeat(indentation);
         let source = format!(
-            "<!-- tested-example: sample-001 -->\n{padding}{ticks}rust\n{}\n{padding}{ticks}\n",
-            body.join("\n"),
+            "<!-- tested-example: sample-001 -->\n{padding}{fence}rust\n{interior}\n{padding}{fence}\n",
         );
-        let expected = if body.is_empty() {
-            String::new()
-        } else {
-            format!("{}\n", body.join("\n"))
-        };
 
         let parsed = parse(&source).expect("a well-formed fence parses");
         prop_assert_eq!(parsed.examples.len(), 1);
-        prop_assert_eq!(&parsed.examples[0].source, &expected);
+        prop_assert_eq!(&parsed.examples[0].id, "sample-001");
+        prop_assert_eq!(&parsed.examples[0].source, &format!("{interior}\n"));
         prop_assert_eq!(parsed.examples[0].start_line, 2);
+        prop_assert_eq!(parsed.identifiers, vec![("sample-001".to_owned(), 1)]);
+    }
+
+    #[test]
+    fn duplicate_identifiers_are_rejected_whatever_their_spelling(
+        first in "[a-z][a-z0-9-]{0,10}",
+        second in "[a-z][a-z0-9-]{0,10}",
+    ) {
+        let first_document = document_with(&first);
+        let second_document = document_with(&second);
+        let result = load_documents(&[
+            ("first.md", first_document.as_str()),
+            ("second.md", second_document.as_str()),
+        ]);
+
+        prop_assert_eq!(result.is_err(), first == second);
     }
 }

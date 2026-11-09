@@ -43,6 +43,15 @@ fn published_examples_load_from_the_marked_documents() {
     "<!-- tested-example: sample one -->\n```rust\nfn main() {}\n```",
     "identifier `sample one` is invalid"
 )]
+#[case(
+    "<!-- tested-example:sample-1 -->\n```rust\nfn main() {}\n```",
+    "malformed tested-example marker"
+)]
+#[case(
+    "<!-- tested-example: sample-1 -->\nprose\n```rust\nfn main() {}\n```",
+    "must immediately precede a fence"
+)]
+#[case("<!-- tested-example: sample-1 -->\n", "marker has no fence")]
 fn malformed_examples_fail_with_a_useful_reason(#[case] source: &str, #[case] expected: &str) {
     let document = tested_examples::PublishedDocument::new("fixture.md", source);
     let error = tested_examples::parse_document(&document, &HashSet::new())
