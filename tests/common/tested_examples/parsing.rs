@@ -1,10 +1,11 @@
-//! Fence mechanics for the shared documentation example loader.
+//! Fence and marker mechanics for the shared documentation example loader.
 //!
 //! The parent module decides which fences are examples and in what order; this
 //! module answers the narrower questions about a single line: does it open or
-//! close a fence, what info string does it carry, and where does its body end.
-//! Keeping those rules here leaves the parent free to walk the document and
-//! keeps both files within the repository's module size limit.
+//! close a fence, what info string does it carry, where does its body end, and
+//! what identifier does a marker comment name. Keeping those rules here leaves
+//! the parent free to walk the document and keeps both files within the
+//! repository's module size limit.
 
 use super::PublishedDocument;
 
@@ -107,4 +108,21 @@ pub(super) fn parse_marker(line: &str) -> Option<String> {
         .strip_prefix("<!-- tested-example: ")?
         .strip_suffix(" -->")?;
     (!body.is_empty()).then(|| body.to_owned())
+}
+
+/// Return whether `identifier` follows the marker grammar.
+///
+/// Identifiers appear in test names and diagnostics, so they are restricted to
+/// lower-case ASCII letters, digits, `-` and `_`, and must not start with `-`
+/// or `_`.
+pub(super) fn valid_identifier(identifier: &str) -> bool {
+    identifier.chars().all(|character| {
+        character.is_ascii_lowercase()
+            || character.is_ascii_digit()
+            || character == '-'
+            || character == '_'
+    }) && identifier
+        .chars()
+        .next()
+        .is_some_and(|first| first.is_ascii_lowercase() || first.is_ascii_digit())
 }

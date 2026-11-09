@@ -14,7 +14,15 @@ mod parsing;
 #[path = "tested_examples/tests.rs"]
 mod tests;
 
-use parsing::{Fence, fence_info, fence_source, is_closing_fence, opening_fence, parse_marker};
+use parsing::{
+    Fence,
+    fence_info,
+    fence_source,
+    is_closing_fence,
+    opening_fence,
+    parse_marker,
+    valid_identifier,
+};
 
 const USER_DOCUMENTS: &[(&str, &str)] = &[
     ("docs/api.md", include_str!("../../docs/api.md")),
@@ -288,12 +296,36 @@ fn parse_open_example(
     let Some(fence) = opening_fence(line) else {
         return Ok(None);
     };
+    let line_number = index + 1;
+    let id = example_identifier(document, index, known, &parsed.identifiers)?;
+    let language = example_language(line, fence, document.path(), line_number)?;
+    // `index` is zero-based for the fence and therefore one-based for the
+    // marker line immediately above it.
+    parsed.identifiers.push((id.clone(), index));
+    Ok(Some(OpenExample {
+        fence,
+        id,
+        language,
+        start_line: line_number,
+    }))
+}
+
+/// Return the identifier that the marker above the fence at `index` names.
+///
+/// The marker, its grammar, and the uniqueness of the identifier are separate
+/// concerns from the fence itself, so a rejected example reports the marker
+/// line rather than the fence that follows it.
+fn example_identifier(
+    document: &PublishedDocument<'_>,
+    index: usize,
+    known: &HashSet<String>,
+    claimed: &[(String, usize)],
+) -> Result<String, String> {
     let path = document.path();
     let line_number = index + 1;
-    let marker_line = index
+    let id = index
         .checked_sub(1)
-        .and_then(|previous| document.line(previous));
-    let id = marker_line
+        .and_then(|previous| document.line(previous))
         .and_then(parse_marker)
         .ok_or_else(|| format!("{path}:{line_number}: fenced example is missing its marker"))?;
     if !valid_identifier(&id) {
@@ -301,14 +333,24 @@ fn parse_open_example(
             "{path}:{line_number}: tested-example identifier `{id}` is invalid"
         ));
     }
-    let is_duplicate =
-        known.contains(&id) || parsed.identifiers.iter().any(|(seen, _)| *seen == id);
-    if is_duplicate {
+    if known.contains(&id) || claimed.iter().any(|(seen, _)| *seen == id) {
         return Err(format!(
             "{path}:{line_number}: duplicate tested-example identifier `{id}`"
         ));
     }
+    Ok(id)
+}
 
+/// Return the language named by the first token of the fence's info string.
+///
+/// A fence whose only info is a Rustdoc attribute names no language, so those
+/// tokens are rejected here instead of being recorded as a language.
+fn example_language(
+    line: &str,
+    fence: Fence,
+    path: &str,
+    line_number: usize,
+) -> Result<String, String> {
     let language = fence_info(line, fence)
         .split(|character: char| character.is_whitespace() || character == ',')
         .next()
@@ -323,15 +365,7 @@ fn parse_open_example(
             "{path}:{line_number}: fenced example has no language identifier"
         ));
     }
-    // `index` is zero-based for the fence and therefore one-based for the
-    // marker line immediately above it.
-    parsed.identifiers.push((id.clone(), index));
-    Ok(Some(OpenExample {
-        fence,
-        id,
-        language: language.to_owned(),
-        start_line: line_number,
-    }))
+    Ok(language.to_owned())
 }
 
 /// Build the example whose closing fence is on `closing_line`.
@@ -354,21 +388,4 @@ fn finish_example(
         source,
         start_line: active.start_line,
     })
-}
-
-/// Return whether `identifier` follows the marker grammar.
-///
-/// Identifiers appear in test names and diagnostics, so they are restricted to
-/// lower-case ASCII letters, digits, `-` and `_`, and must not start with `-`
-/// or `_`.
-fn valid_identifier(identifier: &str) -> bool {
-    identifier.chars().all(|character| {
-        character.is_ascii_lowercase()
-            || character.is_ascii_digit()
-            || character == '-'
-            || character == '_'
-    }) && identifier
-        .chars()
-        .next()
-        .is_some_and(|first| first.is_ascii_lowercase() || first.is_ascii_digit())
 }
