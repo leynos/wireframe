@@ -59,7 +59,7 @@ bb8 = { version = "0.9.1", optional = true }
 [dev-dependencies]
 itoa = "1.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-rstest = "0.27.0"
+rstest = "0.28.0"
 rstest-bdd = "0.6.0"
 rstest-bdd-macros = { version = "0.6.0", features = ["strict-compile-time-validation"] }
 wireframe = { path = ".", features = ["test-support", "pool", "testkit"] }
