@@ -1807,17 +1807,33 @@ because a model that cannot finish hangs rather than failing.
 ## Tested user-facing examples
 
 Every fenced example in a published user-facing guide has an immediately
-preceding `<!-- tested-example: <identifier> -->` marker. Keep identifiers
-stable; current identifiers use the document basename and a three-digit
-sequence number.
+preceding `<!-- tested-example: <identifier> -->` marker. Write exactly one
+space after `tested-example:` and exactly one space before `-->`. An identifier
+uses only lower-case ASCII letters, digits, `-` and `_`, and starts with a
+lower-case letter or digit. Keep identifiers stable; current identifiers use
+the document basename and a three-digit sequence number.
+
+The first token of a fence's info string names the language. The loader rejects
+an empty first token, and it rejects `ignore`, `no_run`, `compile_fail` and
+`should_panic` used alone, because a fence whose only info is a Rustdoc
+attribute names no language. Write `rust,ignore` for an excerpt that must not
+be compiled and `rust,no_run` for one that must compile without running.
 
 The published-document inventory and shared loader live in
-`tests/common/tested_examples.rs`. The integration test and the BDD scenario
-both load the exact Markdown source through that module. Rust examples are
-compiled as rustdoc tests from `src/tested_documentation.rs` by
-`make test-doc`; Mermaid examples are checked by `make nixie`. The loader fails
-on an unmarked or unterminated fence, an invalid or duplicate identifier, or a
+`tests/common/tested_examples.rs`. The integration test and the
+behaviour-driven scenario both load the exact Markdown source through that
+module, and a test keeps the inventory in step with the Rustdoc module list in
+`src/tested_documentation.rs`. Rust examples are compiled as rustdoc tests from
+`src/tested_documentation.rs` by `make test-doc`: a plain `rust` fence runs, a
+`rust,no_run` fence compiles, and a `rust,ignore` fence is rendered but not
+compiled. Mermaid examples are checked by `make nixie`. The loader fails on an
+unmarked or unterminated fence, an invalid or duplicate identifier, or a
 missing language identifier.
+
+Prefer a compiling fence. Mark an excerpt `ignore` only when it depends on a
+crate the workspace does not build, an async runtime a doctest cannot start, or
+context the surrounding prose supplies; issue #881 tracks the remaining
+exemptions.
 
 When adding a user-facing guide, add it to both the shared loader inventory and
 the rustdoc test module. Give each fence a stable marker and validate the

@@ -138,6 +138,26 @@ struct OpenExample {
     start_line: usize,
 }
 
+/// Repository-relative paths of every document the shared loader scans.
+fn document_paths() -> impl Iterator<Item = &'static str> {
+    USER_DOCUMENTS.iter().map(|(path, _)| *path)
+}
+
+/// Repository-relative paths named by the Rustdoc module list.
+///
+/// The list lives in `src/tested_documentation.rs` as `include_str!`
+/// attributes, so reading it at compile time keeps the two inventories
+/// comparable without a second hand-maintained copy.
+fn rustdoc_document_paths() -> impl Iterator<Item = &'static str> {
+    include_str!("../../src/tested_documentation.rs")
+        .lines()
+        .filter_map(|line| {
+            line.trim()
+                .strip_prefix("#[doc = include_str!(\"../")?
+                .strip_suffix("\")]")
+        })
+}
+
 /// Load every marked example from the published user-facing document set.
 pub fn load_published_examples() -> Result<Vec<TestedExample>, String> {
     let mut identifiers = HashSet::new();
@@ -362,4 +382,19 @@ fn fence_info(line: &str, fence: Fence) -> &str {
         .take_while(|character| *character == fence.marker)
         .count();
     remainder.get(info_start..).unwrap_or_default().trim()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{document_paths, rustdoc_document_paths};
+
+    #[test]
+    fn loader_inventory_matches_the_rustdoc_module_list() {
+        let mut loader: Vec<_> = document_paths().collect();
+        let mut rustdoc: Vec<_> = rustdoc_document_paths().collect();
+        loader.sort_unstable();
+        rustdoc.sort_unstable();
+
+        assert_eq!(loader, rustdoc, "the two document lists must agree");
+    }
 }

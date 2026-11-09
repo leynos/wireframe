@@ -263,7 +263,7 @@ Here are a few examples illustrating different kinds of fixtures:
   repository):**
 
   <!-- tested-example: rust-testing-with-rstest-fixtures-007 -->
-  ```rust,ignore
+  ```rust
   use rstest::*;
   use std::collections::HashMap;
 
@@ -274,7 +274,7 @@ Here are a few examples illustrating different kinds of fixtures:
   }
 
   // A mock implementation
-  #
+  #[derive(Default)]
   struct MockRepository {
       data: HashMap<String, String>,
   }
@@ -394,8 +394,10 @@ an incoming event:
 use rstest::rstest;
 
 #
+# #[derive(Debug)]
 enum State { Init, Start, Processing, Terminated }
 #
+# #[derive(Debug)]
 enum Event { Process, Error, Fatal }
 
 impl State {
@@ -413,7 +415,7 @@ impl State {
 
 #[rstest]
 fn test_state_transitions(
-    # initial_state: State,
+    #[values(State::Init, State::Start, State::Processing)] initial_state: State,
     #[values(Event::Process, Event::Error, Event::Fatal)] event: Event
 ) {
     // A production-ready test would include more specific assertions
