@@ -141,6 +141,10 @@ fn metadata_targets(metadata: &Value) -> RepoAccessResult<Vec<TargetRoot>> {
 }
 
 /// Build a target root from one entry of a package's `targets` array.
+///
+/// Every field is checked rather than coerced: a `kind` entry that is not a
+/// string is rejected instead of dropped, because a silently shortened kind
+/// would describe the target wrongly in a failure message.
 fn target_root(target: &Value, package_name: &str) -> RepoAccessResult<TargetRoot> {
     let src_path = target
         .get("src_path")
@@ -152,8 +156,12 @@ fn target_root(target: &Value, package_name: &str) -> RepoAccessResult<TargetRoo
         .ok_or("a metadata target should expose `kind` as an array")?;
     let kind = kinds
         .iter()
-        .filter_map(Value::as_str)
-        .collect::<Vec<_>>()
+        .map(|entry| {
+            entry.as_str().ok_or_else(|| {
+                format!("a metadata target of `{package_name}` should expose `kind` as strings")
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?
         .join(",");
     Ok(TargetRoot {
         src_path: Utf8PathBuf::from(src_path),

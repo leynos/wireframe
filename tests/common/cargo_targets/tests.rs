@@ -217,6 +217,10 @@ fn a_failing_standalone_query_fails_discovery() {
 #[case::missing_packages(json!({}), "`packages`")]
 #[case::packages_not_an_array(json!({"packages": {}}), "`packages`")]
 #[case::package_without_a_name(json!({"packages": [{"targets": []}]}), "name")]
+#[case::package_name_not_a_string(
+    json!({"packages": [{"name": 7, "targets": []}]}),
+    "name"
+)]
 #[case::package_targets_not_an_array(
     json!({"packages": [{"name": "wireframe", "targets": {}}]}),
     "`targets`"
@@ -228,6 +232,24 @@ fn a_failing_standalone_query_fails_discovery() {
 #[case::target_without_a_kind(
     json!({"packages": [{"name": "wireframe", "targets": [{"src_path": "/repo/src/lib.rs"}]}]}),
     "kind"
+)]
+#[case::source_path_not_a_string(
+    json!({"packages": [{"name": "wireframe", "targets": [{"src_path": 1, "kind": ["lib"]}]}]}),
+    "src_path"
+)]
+#[case::kind_not_an_array(
+    json!({"packages": [{
+        "name": "wireframe",
+        "targets": [{"src_path": "/repo/src/lib.rs", "kind": "lib"}],
+    }]}),
+    "`kind`"
+)]
+#[case::kind_entry_not_a_string(
+    json!({"packages": [{
+        "name": "wireframe",
+        "targets": [{"src_path": "/repo/src/lib.rs", "kind": ["lib", 1]}],
+    }]}),
+    "`kind`"
 )]
 fn malformed_metadata_is_rejected(#[case] document: serde_json::Value, #[case] expected: &str) {
     let error = metadata_targets(&document).expect_err("malformed metadata must be rejected");
