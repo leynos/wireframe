@@ -89,7 +89,7 @@ fn record_supervisor_cancellation(reason: ServerCancellationReason) {
     inc_server_supervisor_cancellation(reason);
     tracing::info!(
         event = "server_supervisor_cancellation",
-        reason = %reason,
+        reason = reason.label(),
         "server_supervisor_cancellation",
     );
 }

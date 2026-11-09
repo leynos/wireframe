@@ -234,7 +234,7 @@ fn record_accept_loop_exit(shutdown: &CancellationToken, lifecycle: &SupervisorL
         inc_server_accept_loop_exit(reason);
         tracing::info!(
             event = "server_accept_loop_exited",
-            reason = %reason,
+            reason = reason.label(),
             "server_accept_loop_exited",
         );
     }

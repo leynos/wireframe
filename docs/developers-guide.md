@@ -495,6 +495,13 @@ values `"graceful"` and `"dropped"`; direct future drops and
 corresponding static tracing events are `server_supervisor_cancellation` and
 `server_accept_loop_exited`, each with the same `reason` field.
 
+Tracing records that field as a string: both events pass
+`ServerCancellationReason::label()`, which is available with or without the
+optional `metrics` feature, so subscribers can read it through `record_str`. The
+`ServerCancellationReason::as_str` helper remains gated behind
+`feature = "metrics"` because only the metric counters call it. Builds with the
+feature disabled therefore still emit the same tracing labels.
+
 ## Allowed aliases and prohibited mixing
 
 | Canonical term | Allowed aliases                     | Avoid in the same context                 |

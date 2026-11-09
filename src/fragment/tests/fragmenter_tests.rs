@@ -133,9 +133,19 @@ fn fragmenter_fragments_messages_and_increments_ids() {
     );
 }
 
+/// Extract the message from a caught panic payload.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or_default()
+}
+
 /// The checked increment behind `try_update` returns the configured
-/// `u64::MAX - 1`, leaving the counter at `u64::MAX`. It never allocates
-/// `u64::MAX` itself.
+/// `u64::MAX - 1`, leaving the counter at `u64::MAX`; the following allocation
+/// panics rather than wrapping. The panic check is scoped to the second call so
+/// an early panic cannot satisfy it.
 #[test]
 fn fragmenter_allocates_last_representable_id_before_exhaustion() {
     let fragmenter = Fragmenter::with_starting_id(
@@ -148,20 +158,18 @@ fn fragmenter_allocates_last_representable_id_before_exhaustion() {
         MessageId::new(u64::MAX - 1),
         "the first allocation should return the configured starting id"
     );
-}
 
-/// Once the counter holds `u64::MAX`, the checked increment cannot advance and
-/// the next allocation panics rather than wrapping.
-#[test]
-#[should_panic(expected = "message id counter exhausted at")]
-fn fragmenter_panics_when_message_id_counter_exhausted() {
-    let fragmenter = Fragmenter::with_starting_id(
-        NonZeroUsize::new(4).expect("non-zero"),
-        MessageId::new(u64::MAX),
+    let exhausted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fragmenter.next_message_id()
+    }))
+    .expect_err("the exhausted counter should panic rather than wrap");
+    // Dereference the box so the helper inspects the panic payload rather
+    // than the boxed `dyn Any` itself.
+    let message = panic_message(&*exhausted);
+    assert!(
+        message.contains("message id counter exhausted at"),
+        "unexpected panic message: {message}"
     );
-
-    let unexpected = fragmenter.next_message_id();
-    panic!("expected the exhausted counter to panic, got {unexpected:?}");
 }
 
 #[test]
