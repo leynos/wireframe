@@ -1516,7 +1516,9 @@ with the file. `forbid` is absolute, so a scoped `#[expect(unsafe_code, …)]`
 inside such a root is a compile error (`E0453`) rather than an escape hatch. A
 new target root must carry the attribute; `tests/workspace_unsafe_boundary.rs`
 fails until it does, and `make unsafe-boundary` compiles deliberate unsafe
-probes to show the lint still rejects them. See
+probes to show the lint still rejects them. `make unsafe-boundary` requires the
+pinned toolchain and `jq`, which reads the diagnostic code out of Cargo's JSON
+message stream. See
 [unsafe-code boundary verification](rust-boundary-verification.md) for what
 each check establishes.
 

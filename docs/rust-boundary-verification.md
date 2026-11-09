@@ -107,8 +107,9 @@ two temporary packages outside the repository on the toolchain pinned in
 `rust-toolchain.toml` and compiles one probe per case. Diagnostics are read
 from Cargo's JSON message stream, so each probe must be rejected by the
 `unsafe_code` lint itself rather than by an unrelated failure. The blocking CI
-lane runs `make unsafe-boundary`, so the probes execute on every pull request;
-they need only the existing toolchain pin.
+lane runs `make unsafe-boundary`, so the probes execute on every pull request.
+They need the existing toolchain pin and `jq`, which extracts the diagnostic
+code from Cargo's JSON message stream.
 
 The first package states the prohibition in its source; the second states it in
 its manifest's `[lints.rust]` table, which is the form the workspace table
@@ -180,9 +181,14 @@ run could be scheduled.
   package the metadata reports and the standalone directory by path, so an
   excluded package elsewhere in the tree would not be scanned. Keeping the tree
   free of such packages is a review obligation.
-- **Unsafe code that does not use the listed spellings.** The scan matches seven
-  literal construct spellings. It is a second line behind the compiler, not a
-  parser, and a construct it does not recognize is still rejected by `forbid`.
+- **Unsafe code the scan cannot classify, and code it reads but the compiler
+  does not compile.** The scan classifies the token after the `unsafe` keyword
+  instead of matching a fixed list of complete spellings, so it recognizes
+  blocks, functions, traits, implementations, extern blocks, and attributes,
+  and matches a lint attribute by its argument list. A construct it cannot
+  classify passes the scan, and a module behind a disabled feature is read as
+  text but never compiled, so `forbid` has not rejected it either. The compiler
+  remains the authority for both cases once the code is built.
 
 ## Re-validating after a toolchain bump
 
