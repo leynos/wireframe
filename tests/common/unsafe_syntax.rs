@@ -187,13 +187,21 @@ impl SourceText {
     }
 
     /// The construct the `unsafe` keyword at `start` introduces, if any.
+    ///
+    /// `unsafe(` is called an attribute whatever precedes it. Rust 2024 spells
+    /// an unsafe attribute either as `#[unsafe(...)]` or nested inside another
+    /// attribute, as in `#[cfg_attr(feature = "ffi", unsafe(no_mangle))]`. The
+    /// second form has no `#[` immediately before the keyword, and the
+    /// parenthesis is not an unsafe block, so the token alone has to decide.
     fn construct_after(&self, start: Position) -> Option<&'static str> {
         if self.is_unsafe_attribute(start) {
             return Some("an unsafe attribute");
         }
         let position = self.skip_whitespace(start.advance(UNSAFE_KEYWORD.len()));
-        if self.character_at(position) == Some(&'{') {
-            return Some("an unsafe block");
+        match self.character_at(position) {
+            Some('{') => return Some("an unsafe block"),
+            Some('(') => return Some("an unsafe attribute"),
+            _ => {}
         }
         let keyword: String = self
             .characters
@@ -355,6 +363,10 @@ pub(crate) fn violations_in(source: &str, label: &str) -> Vec<String> {
 
 #[path = "unsafe_syntax/literals.rs"]
 mod literals;
+
+#[cfg(test)]
+#[path = "unsafe_syntax/properties.rs"]
+mod properties;
 
 #[cfg(test)]
 #[path = "unsafe_syntax/tests.rs"]

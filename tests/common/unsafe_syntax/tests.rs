@@ -73,8 +73,21 @@ use super::violations_in;
     "fn first() {}\n// declare the symbol\n#[unsafe(no_mangle)]\npub fn second() {}",
     "contains an unsafe attribute"
 )]
+#[case::unsafe_attribute_inside_cfg_attr(
+    "#[cfg_attr(feature = \"ffi\", unsafe(no_mangle))]",
+    "contains an unsafe attribute"
+)]
 #[case::nested_prohibition("#![expect(#![forbid(unsafe_code)] dead_code)]", "")]
 #[case::comment_only_prose("// unsafe fn helper() {}", "")]
+#[case::nested_block_comment_spelling_a_construct(
+    "/* outer /* unsafe fn hidden() {} */ still a comment */ fn safe() {}",
+    ""
+)]
+#[case::raw_string_alone("let pattern = r\"a/*b\";", "")]
+#[case::code_after_a_raw_string_with_quotes_and_comment_markers(
+    "let sql = r#\"SELECT \"x\" -- /* not a comment */\"#; unsafe fn helper() {}",
+    "contains an unsafe function"
+)]
 #[case::string_containing_comment_markers("let pattern = \"src/**/*.rs\";", "")]
 #[case::identifier_containing_the_keyword("let unsafe_count = 1;", "")]
 #[case::code_after_a_string_that_contains_a_comment_marker(
