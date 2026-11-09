@@ -196,6 +196,31 @@ mod attribute_property_tests {
         })
     }
 
+    /// Wrap `leaf` in `depth` parenthesized groups, each split over lines.
+    ///
+    /// Real attributes nest by more than one level, and rustfmt wraps the
+    /// groups across lines, so the depth a line-by-line parser sees has to be
+    /// derived from the joined text rather than from one line's brackets.
+    fn nested_body(depth: usize, leaf: &str) -> String {
+        let mut body = leaf.to_owned();
+        for _ in 0..depth {
+            body = format!("group(\n        {body}\n    )");
+        }
+        body
+    }
+
+    /// A generated attribute with an argument list nested `depth` levels deep.
+    fn nested_attribute() -> impl Strategy<Value = String> {
+        (1usize..4, "[a-z_]{1,8}")
+            .prop_map(|(depth, name)| format!("#![{name}({})]", nested_body(depth, "argument")))
+    }
+
+    /// A generated attribute nesting the prohibition at any depth.
+    fn attribute_nesting_the_prohibition() -> impl Strategy<Value = String> {
+        (1usize..4, "[a-z_]{1,8}")
+            .prop_map(|(depth, name)| format!("#![{name}({})]", nested_body(depth, PROHIBITION)))
+    }
+
     proptest! {
         #[test]
         fn a_standalone_prohibition_after_the_attributes_counts(
@@ -245,6 +270,39 @@ mod attribute_property_tests {
             let parsed = header_inner_attributes(&source);
             prop_assert_eq!(parsed.len(), 1);
             prop_assert!(!has_header_attribute(&source, PROHIBITION));
+        }
+
+        #[test]
+        fn a_prohibition_nested_at_any_depth_never_counts(
+            attribute in attribute_nesting_the_prohibition(),
+        ) {
+            let source = format!("{attribute}\n");
+
+            let parsed = header_inner_attributes(&source);
+            prop_assert_eq!(parsed.len(), 1, "the nesting must stay one entry");
+            prop_assert!(!has_header_attribute(&source, PROHIBITION));
+        }
+
+        #[test]
+        fn a_standalone_prohibition_after_nested_attributes_counts(
+            attributes in prop::collection::vec(nested_attribute(), 0..4),
+        ) {
+            let mut source = String::new();
+            for generated in &attributes {
+                source.push_str(generated);
+                source.push('\n');
+            }
+            source.push_str(PROHIBITION);
+            source.push('\n');
+
+            let parsed = header_inner_attributes(&source);
+            prop_assert_eq!(
+                parsed.len(),
+                attributes.len() + 1,
+                "each nested attribute must stay one entry and the prohibition its own",
+            );
+            prop_assert_eq!(parsed.last().map(String::as_str), Some(PROHIBITION));
+            prop_assert!(has_header_attribute(&source, PROHIBITION));
         }
     }
 }
