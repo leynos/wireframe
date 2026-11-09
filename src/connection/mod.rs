@@ -9,6 +9,7 @@ mod channels;
 mod counter;
 mod dispatch;
 mod drain;
+mod drive;
 mod event;
 mod frame;
 mod multi_packet;
@@ -16,6 +17,7 @@ mod output;
 mod polling;
 mod response;
 mod shutdown;
+mod sink;
 mod state;
 #[cfg(all(test, not(loom)))]
 mod tests;
@@ -23,15 +25,14 @@ mod tests;
 use std::net::SocketAddr;
 
 pub use channels::ConnectionChannels;
-use counter::ActiveConnection;
+pub(crate) use counter::ActiveConnection;
 #[cfg(loom)]
 pub use counter::LoomConnectionGuard;
 pub use counter::active_connection_count;
-use event::Event;
 use log::info;
 use multi_packet::MultiPacketContext;
-use output::{ActiveOutput, AvailableOutput, EventAvailability};
-use state::ActorState;
+use output::ActiveOutput;
+pub(crate) use sink::FrameSink;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -45,9 +46,22 @@ use crate::{
     fragment::{FragmentationConfig, Fragmenter},
     hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueues},
-    response::{FrameStream, WireframeError},
+    response::FrameStream,
     session::ConnectionId,
 };
+
+/// Construction inputs shared by the tracked and untracked actor
+/// constructors.
+struct ActorInit<F, E> {
+    /// Push queues and the handle that keeps them open.
+    channels: ConnectionChannels<F>,
+    /// Optional response stream installed at construction time.
+    response: Option<FrameStream<F, E>>,
+    /// Cancellation token observed by the actor loop.
+    shutdown: CancellationToken,
+    /// Protocol hooks applied to outbound frames.
+    hooks: ProtocolHooks<F, E>,
+}
 
 /// Error returned when attempting to set an active output source while
 /// another source is already active.
@@ -155,16 +169,57 @@ where
         shutdown: CancellationToken,
         hooks: ProtocolHooks<F, E>,
     ) -> Self {
+        Self::build(
+            ActorInit {
+                channels,
+                response,
+                shutdown,
+                hooks,
+            },
+            Some(ActiveConnection::new()),
+        )
+    }
+
+    /// Create an actor without registering it in the active-connection gauge.
+    ///
+    /// The server creates one untracked actor per accepted connection because
+    /// the accept loop already holds an [`ActiveConnection`] guard for the
+    /// whole connection lifetime. That avoids counting a connection twice.
+    #[must_use]
+    pub(crate) fn new_untracked(
+        channels: ConnectionChannels<F>,
+        response: Option<FrameStream<F, E>>,
+        shutdown: CancellationToken,
+        hooks: ProtocolHooks<F, E>,
+    ) -> Self {
+        Self::build(
+            ActorInit {
+                channels,
+                response,
+                shutdown,
+                hooks,
+            },
+            None,
+        )
+    }
+
+    /// Shared constructor used by the tracked and untracked entry points.
+    fn build(init: ActorInit<F, E>, counter: Option<ActiveConnection>) -> Self {
+        let ActorInit {
+            channels,
+            response,
+            shutdown,
+            hooks,
+        } = init;
         let ConnectionChannels { queues, handle } = channels;
         let ctx = ConnectionContext;
-        let counter = ActiveConnection::new();
         let active_output = response.map_or_else(|| ActiveOutput::None, ActiveOutput::Response);
         let mut actor = Self {
             high_rx: Some(queues.high_priority_rx),
             low_rx: Some(queues.low_priority_rx),
             active_output,
             shutdown,
-            counter: Some(counter),
+            counter,
             hooks,
             ctx,
             fairness: FairnessTracker::new(FairnessConfig::default()),
@@ -279,109 +334,6 @@ where
     /// Get a clone of the shutdown token used by the actor.
     #[must_use]
     pub fn shutdown_token(&self) -> CancellationToken { self.shutdown.clone() }
-
-    /// Drive the actor until all sources are exhausted or shutdown is triggered.
-    ///
-    /// Frames are appended to `out` in the order they are processed.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`WireframeError`] if the response stream yields an I/O error.
-    pub async fn run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>> {
-        // Spans removed in favour of standardized log facade.
-        // If cancellation has already been requested, exit immediately. Nothing
-        // will be drained and any streaming response is abandoned. This mirrors
-        // a hard shutdown and is required for the tests.
-        if self.shutdown.is_cancelled() {
-            info!(
-                "connection aborted before start: id={:?}, peer={:?}",
-                self.connection_id, self.peer_addr
-            );
-            let _ = self.counter.take();
-            return Ok(());
-        }
-
-        let mut state = ActorState::new(
-            self.active_output.is_response(),
-            self.active_output.is_multi_packet(),
-        );
-
-        while !state.is_done() {
-            self.poll_sources(&mut state, out).await?;
-        }
-        info!(
-            "connection closed: id={:?}, peer={:?}",
-            self.connection_id, self.peer_addr
-        );
-        let _ = self.counter.take();
-        Ok(())
-    }
-
-    /// Compute which event sources are currently available for polling.
-    const fn compute_availability(&self, state: &ActorState) -> EventAvailability {
-        EventAvailability {
-            high: self.high_rx.is_some(),
-            low: self.low_rx.is_some(),
-            output: self
-                .active_output
-                .available_output(state.is_shutting_down()),
-        }
-    }
-
-    /// Await the next ready event using biased priority ordering.
-    ///
-    /// Shutdown is observed first, followed by high-priority pushes, then
-    /// low-priority pushes, multi-packet channels, and finally the response
-    /// stream. This mirrors the
-    /// original behaviour and matches the design documentation. The final
-    /// `else` branch prevents `tokio::select!` from panicking if all guards are
-    /// false.
-    ///
-    /// The `strict_priority_order` and `shutdown_signal_precedence` tests
-    /// assert that this ordering is preserved across refactors.
-    async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
-        let avail = self.compute_availability(state);
-        let can_poll_multi_packet = avail.output == AvailableOutput::MultiPacket;
-        let can_poll_response = avail.output == AvailableOutput::Response;
-
-        // Extract mutable references before the select! to satisfy the borrow
-        // checker. Only one of these can be Some due to the ActiveOutput enum
-        // invariant.
-        let (multi_rx, response_stream) = match &mut self.active_output {
-            ActiveOutput::MultiPacket(ctx) => (ctx.channel_mut(), None),
-            ActiveOutput::Response(stream) => (None, Some(stream)),
-            ActiveOutput::None => (None, None),
-        };
-        let shutdown = &self.shutdown;
-        let high_rx = self.high_rx.as_mut();
-        let low_rx = self.low_rx.as_mut();
-
-        tokio::select! {
-            biased;
-
-            () = Self::wait_shutdown(shutdown), if state.is_active() => Event::Shutdown,
-            res = Self::poll_queue(high_rx), if avail.high => Event::High(res),
-            res = Self::poll_queue(low_rx), if avail.low => Event::Low(res),
-            res = Self::poll_queue(multi_rx), if can_poll_multi_packet => Event::MultiPacket(res),
-            res = Self::poll_response(response_stream), if can_poll_response => Event::Response(res),
-            else => Event::Idle,
-        }
-    }
-
-    /// Poll all sources and push available frames into `out`.
-    ///
-    /// This method polls the shutdown token, high- and low-priority queues,
-    /// and the optional response stream. Frames are appended to `out` in the
-    /// order they are processed. `ActorState` is updated based on which sources
-    /// return `None`.
-    async fn poll_sources(
-        &mut self,
-        state: &mut ActorState,
-        out: &mut Vec<F>,
-    ) -> Result<(), WireframeError<E>> {
-        let event = self.next_event(state).await;
-        self.dispatch_event(event, state, out)
-    }
 }
 
 #[cfg(all(not(loom), any(test, feature = "test-support")))]

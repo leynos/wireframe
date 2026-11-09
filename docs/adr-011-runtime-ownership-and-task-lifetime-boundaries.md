@@ -56,7 +56,7 @@ hot cases; the one-time cases are justified on clarity grounds alone:
   `Option<Arc<Fragmenter>>` although it is never shared
   (`src/connection/mod.rs`) — once per connection;
 - `FnService` stores its middleware function as `Arc<F>` despite being its
-  sole owner (`src/middleware.rs`) — once per application build.
+  sole owner (`src/middleware/mod.rs`) — once per application build.
 
 Without an explicit policy, local fixes can remove individual clones while
 later changes recreate the same topology under different names.
@@ -83,7 +83,7 @@ and especially the following runtime surfaces:
 
 - `src/connection/mod.rs` and `src/connection/polling.rs`;
 - `src/push/queues/handle.rs`;
-- `src/middleware.rs`;
+- `src/middleware/mod.rs`;
 - `src/hooks.rs`;
 - `src/server/runtime/mod.rs` and `src/server/connection_spawner.rs`;
 - `src/client/pool/*`.

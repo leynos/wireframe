@@ -136,9 +136,10 @@ this pattern as the canonical way to build `Response::Stream` values.
 records a `Drained` completion, logs an `info!` event that includes the
 connection identifier, peer address, and correlation identifier, and fetches a
 protocol-specific terminator frame via `stream_end_frame`. That frame is
-stamped with the stored `correlation_id`, passed through the standard
-`before_send` hook, and recorded by outbound metrics before being queued for
-transmission.
+stamped with the stored `correlation_id` and emitted like any other response
+frame. On a prepared server connection it is serialized and written through the
+connection's frame pipeline, so `before_send` and outbound metrics observe it,
+and `on_command_end` then runs once for the completed response.
 
 If the channel disconnects unexpectedly the termination reason becomes
 `Disconnected`. The actor emits a `warn!` level log so operators can spot
@@ -439,8 +440,11 @@ not hang.
   streaming frames are fragmented by the same path that fragments single-frame
   handler responses. The pipeline also owns the per-connection protocol hooks,
   so `before_send` runs on each codec-wrapped frame immediately before the
-  transport write. Actor-owned push and streaming frames keep their own hook
-  pipeline.
+  transport write. Handler responses, including `Response::Stream` and
+  `Response::MultiPacket`, are installed on the per-connection connection actor
+  and written through a sink that borrows the same pipeline, so there is one
+  serialization and hook ordering for every application response. The actor
+  receives no fragmenter and no `before_send` hook of its own.
 
 - **Streaming Request Bodies:** [ADR 0002][adr-0002] introduces first-class
   streaming request bodies as the inbound counterpart to streaming responses.
@@ -506,6 +510,18 @@ staying true to the architecture already in production use.
   `select!` loop rather than by a detached task. This keeps a single locus for
   back-pressure, aligns with the production resilience guidance on avoiding
   orphaned tasks, and ensures orderly shutdown propagates to streaming work.
+- Every prepared server connection installs handler responses on its own
+  untracked connection actor, rather than writing them directly.
+  `WireframeApp::route_response` stores the handler's `Response` in a deferred
+  slot on `ServiceResponse`; the inbound loop installs it with the request
+  correlation id and drives the actor through a sink that borrows the
+  connection's `FramePipeline` and `Framed`. The actor therefore receives no
+  fragmenter and no `before_send` hook: the pipeline applies both so that
+  handler, stream, and multi-packet frames share one ordering. A streamed or
+  multi-packet response is driven to completion before the next inbound frame
+  is read, so this change does not yet deliver independent input and output;
+  [RFC 0004](rfcs/0004-duplex-session-driver.md) and roadmap item 21.2.2 remain
+  open.
 - The `ConnectionActor` owns the channel receiver and polls it via the
   main `select!` loop. Frames pass through `process_frame_common` so protocol
   hooks and metrics observe every packet. When the channel drains, the actor

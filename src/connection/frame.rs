@@ -51,7 +51,10 @@ where
         }
     }
 
-    /// Apply protocol hooks and increment metrics before emitting a frame.
+    /// Apply fragmentation and protocol hooks before emitting a frame.
+    ///
+    /// Outbound frame accounting happens in the sink that eventually writes
+    /// the frame, so this method only composes it.
     ///
     /// # Examples
     ///
@@ -81,10 +84,9 @@ where
         }
     }
 
-    /// Push a single frame to output after applying hooks and metrics.
+    /// Push a single frame to the current output buffer after applying hooks.
     pub(super) fn push_frame(&mut self, mut frame: F, out: &mut Vec<F>) {
         self.hooks.before_send(&mut frame, &mut self.ctx);
         out.push(frame);
-        crate::metrics::inc_frames(crate::metrics::Direction::Outbound);
     }
 }

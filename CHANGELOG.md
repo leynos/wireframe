@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Add `WireframeApp::route_response` and `ResponseHandler<E>` so a route can
+  return a whole `Response`: a single frame, a vector, an empty reply, a
+  stream, or a multi-packet channel. Each prepared server connection now owns a
+  private connection actor, so streamed and multi-packet responses are driven
+  to completion through the connection's `FramePipeline` before the next
+  inbound frame is read, and every frame is stamped with the request
+  correlation id. Fragmentation, outbound metrics, serialization, codec
+  wrapping, and `before_send` therefore run in one fixed order for every
+  handler response. The protocol's `on_command_end`, `handle_error`, and
+  `stream_end_frame` callbacks now run on the prepared path;
+  `on_connection_setup` and `on_eof` remain part of the server's connection
+  lifecycle. The active-connection gauge now covers the preamble handshake,
+  application processing, and teardown.
+  ([#874](https://github.com/leynos/wireframe/issues/874))
+
 - Make `wireframe_testing` compile against `tokio-util` 0.7.20, whose extra
   `Encoder` implementations made `.into()` conversions ambiguous. The lock file
   held 0.7.19, so a fresh install failed while CI passed. The lock file now
@@ -29,8 +44,7 @@ All notable changes to this project will be documented in this file.
   handler responses, not only actor-driven push and multi-packet frames. The
   hook sees the serialized, codec-wrapped frame before codec encoding and must
   keep it within `FrameCodec::max_frame_length`; the direct `send_response*`
-  helpers still bypass it, and actor-owned traffic keeps its own hook pipeline.
-  See the
+  helpers still bypass it. See the
   [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#protocol-hooks-on-application-responses).
   ([#547](https://github.com/leynos/wireframe/issues/547))
 

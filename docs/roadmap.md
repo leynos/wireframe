@@ -404,8 +404,11 @@ integration boundaries.
   - [x] Add BDD behavioural tests exercising the unified codec path.
   - [x] Run protocol hooks (`before_send`) for application responses:
     `FramePipeline` owns the per-connection hooks and applies them to the
-    codec-wrapped frame immediately before the transport write. Actor-driven
-    push and streaming frames keep their own hook pipeline.
+    codec-wrapped frame immediately before the transport write.
+  - [x] Drive handler responses, including streamed and multi-packet bodies,
+    through the per-connection connection actor and its `FramePipeline`-backed
+    transport sink, so application frames share one serialization, hook, and
+    write-metrics ordering.
 
 ### 9.4. Property-based codec tests
 

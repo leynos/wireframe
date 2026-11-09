@@ -25,6 +25,7 @@ use super::{
 };
 use crate::{
     codec::{CodecError, FrameCodec},
+    connection::FrameSink,
     fragment::{FragmentationConfig, FragmentationError},
     hooks::{ConnectionContext, ProtocolHooks},
     message::EncodeWith,
@@ -292,6 +293,68 @@ where
         send_envelope(transport, &envelope, pipeline).await?;
     }
     Ok(())
+}
+
+/// Sink that writes actor-produced envelopes through the codec pipeline.
+///
+/// The actor schedules responses; this sink is where they become bytes. Each
+/// envelope is fragmented and counted by the [`FramePipeline`], serialized and
+/// wrapped by the codec, passed through the protocol `before_send` hook, and
+/// then written to the framed stream. Every physical frame is awaited, so a
+/// bounded transport applies back-pressure to the actor before it polls the
+/// next source.
+pub(crate) struct ActorFrameSink<'a, S, W, F>
+where
+    F: FrameCodec,
+{
+    /// Serializer converting an envelope into payload bytes.
+    serializer: &'a S,
+    /// Frame codec wrapping payloads into wire frames.
+    codec: &'a F,
+    /// Framed stream receiving encoded frames.
+    framed: &'a mut Framed<W, ConnectionCodec<F>>,
+    /// Outbound pipeline applying fragmentation, hooks, and metrics.
+    pipeline: &'a mut FramePipeline<F::Frame>,
+}
+
+impl<'a, S, W, F> ActorFrameSink<'a, S, W, F>
+where
+    F: FrameCodec,
+{
+    /// Borrow the transport and pipeline that this sink writes through.
+    pub(crate) const fn new(
+        serializer: &'a S,
+        codec: &'a F,
+        framed: &'a mut Framed<W, ConnectionCodec<F>>,
+        pipeline: &'a mut FramePipeline<F::Frame>,
+    ) -> Self {
+        Self {
+            serializer,
+            codec,
+            framed,
+            pipeline,
+        }
+    }
+}
+
+impl<S, W, F> FrameSink<Envelope> for ActorFrameSink<'_, S, W, F>
+where
+    S: Serializer + Send + Sync,
+    W: AsyncRead + AsyncWrite + Unpin + Send,
+    F: FrameCodec,
+    Envelope: EncodeWith<S>,
+{
+    async fn send_frame(&mut self, envelope: Envelope) -> io::Result<()> {
+        self.pipeline.process(envelope)?;
+        let mut transport = OutboundTransport {
+            serializer: self.serializer,
+            codec: self.codec,
+            framed: &mut *self.framed,
+        };
+        // `flush_pipeline_output` drops any remaining fragments on the
+        // first send failure, which is the required error behaviour.
+        flush_pipeline_output(&mut transport, self.pipeline).await
+    }
 }
 
 #[cfg(test)]

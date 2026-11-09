@@ -21,11 +21,18 @@ loom::lazy_static! {
 
 /// RAII guard incrementing [`ACTIVE_CONNECTIONS`] on creation and
 /// decrementing it on drop.
-pub(super) struct ActiveConnection;
+///
+/// The server creates one guard when a socket is accepted and holds it until
+/// the connection task finishes. A standalone [`ConnectionActor`] creates its
+/// own guard, while the actor integrated into connection processing is
+/// constructed untracked so a connection is never counted twice.
+///
+/// [`ConnectionActor`]: super::ConnectionActor
+pub(crate) struct ActiveConnection;
 
 impl ActiveConnection {
-    /// Register one live actor before it begins polling connection sources.
-    pub(super) fn new() -> Self {
+    /// Register one live connection before its task begins processing.
+    pub(crate) fn new() -> Self {
         ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed);
         crate::metrics::inc_connections();
         Self

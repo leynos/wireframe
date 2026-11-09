@@ -2629,10 +2629,14 @@ invokes protocol hooks, records metrics for outbound frames, and returns a
 `WireframeError` when the response stream hits an I/O problem.[^30][^33] Active
 connection counts are tracked with a guard that increments on creation and
 decrements on drop; the `active_connection_count()` helper exposes the current
-gauge.[^31] Interleaved high- and low-priority push behaviour is validated by
-the test suite: the shared rate limiter enforces symmetrical throughput caps
-across both queues, and `FairnessConfig` prevents low-priority starvation
-during sustained high-priority bursts.
+gauge.[^31] The built-in server creates that guard immediately after `accept()`
+succeeds and moves it into the spawned task, so the gauge covers the preamble
+handshake, application processing, and teardown, and is released when that task
+ends: after a clean close, after a rejected preamble, and after a panic.
+Interleaved high- and low-priority push behaviour is validated by the test
+suite: the shared rate limiter enforces symmetrical throughput caps across both
+queues, and `FairnessConfig` prevents low-priority starvation during sustained
+high-priority bursts.
 
 ## Session management
 
@@ -2726,6 +2730,86 @@ higher-level lifecycle hooks observe a consistent end-of-stream signal.
 Dropping all senders closes the channel; the actor logs the termination reason
 and forwards the terminator through the same hooks used for regular frames so
 existing observability continues to work.
+
+### Response-producing routes
+
+`WireframeApp::route_response` registers a handler that returns a whole
+`Response` instead of raw bytes. The handler type is `ResponseHandler<E>`,
+re-exported from `wireframe::app`. Route identifiers must stay unique across
+`route` and `route_response`; a duplicate is rejected with the same error as
+`route`.
+
+```rust,no_run
+use std::sync::Arc;
+
+use wireframe::app::{Envelope, ResponseHandler, WireframeApp};
+use wireframe::response::{FrameStream, Response};
+
+fn build_app() -> wireframe::Result<WireframeApp> {
+    let handler: ResponseHandler<Envelope> = Arc::new(|_request: &Envelope| {
+        Box::pin(async {
+            let frames: FrameStream<Envelope, ()> = Box::pin(async_stream::try_stream! {
+                for part in [b"alpha".as_slice(), b"beta".as_slice()] {
+                    yield Envelope::new(1, None, part.to_vec());
+                }
+            });
+            Response::Stream(frames)
+        })
+    });
+
+    WireframeApp::new()?.route_response(1, handler)
+}
+```
+
+Every prepared server connection owns a private connection actor. When a
+response route matches an inbound envelope, the body is installed on that actor
+with the request's correlation id, and the actor is driven through the
+connection's frame pipeline before the next inbound frame is read:
+
+- `Response::Single`, `Response::Vec`, and `Response::Empty` complete
+  immediately. `Single` and `Vec` write their frames and then call
+  `on_command_end`; `Empty` writes no frame and no terminator but still calls
+  `on_command_end` once.
+- `Response::Stream` and `Response::MultiPacket` are polled to completion,
+  including the protocol's `stream_end_frame` terminator, before the read half
+  is serviced again. Responses are serial per connection: a long stream delays,
+  but never interleaves with, the next request on that connection. Push queues
+  stay polled while the stream runs.
+- Every emitted envelope passes through fragmentation, outbound metrics,
+  serialization, `wrap_payload`, and `before_send`, in that order, immediately
+  before the transport write. The terminator follows the same path.
+- Every data frame for a response is stamped with the request's correlation
+  id; a stream item that supplies a different id is overwritten and logged as a
+  warning. A multi-packet terminator is stamped the same way, while a stream
+  terminator keeps the id produced by `stream_end_frame` (the client matches a
+  terminator before it checks correlation).
+
+Back-pressure is end-to-end. The actor awaits each transport write, so a slow
+peer stops further polling of a `Response::Stream`. `Response::MultiPacket`
+adds a bounded channel in front of that: `send().await` resolves only when the
+channel has capacity, and reports an error once the connection has gone away.
+When a write fails, the remaining fragments of that frame are discarded, the
+connection ends with an I/O error, and teardown runs once.
+
+The protocol callbacks that run for application responses are `before_send`,
+`on_command_end`, `handle_error`, and `stream_end_frame`. Connection setup and
+end-of-file callbacks remain part of the server's connection lifecycle rather
+than the response actor. Without an installed protocol these callbacks are
+no-ops. A terminator frame that the serializer cannot decode is logged and
+skipped rather than ending the connection.
+
+#### Deferred response bodies and middleware
+
+A response route stores its `Response` in a deferred slot on `ServiceResponse`
+and leaves the ordinary response bytes empty. Middleware therefore observes an
+empty `frame()` for a response route, and editing those bytes does not change
+what the actor writes. The deferred body is taken exactly once: cloning a
+`ServiceResponse` shares the slot, so the first taker consumes it and later
+clones observe none. Equality ignores the deferred body, and `Debug` only
+reports whether one is present. Middleware still mutates request bytes and may
+short-circuit before the handler runs, exactly as it does for a `route`
+handler; a short-circuit returns its own response normally, because no deferred
+body has been installed.
 
 ## Consuming streaming responses on the client
 

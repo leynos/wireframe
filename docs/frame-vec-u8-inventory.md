@@ -57,7 +57,7 @@ codec driver rather than sending transport frames through the actor directly.
 | Category          | Representative surfaces                                         | Primary files                                                                                          |
 | ----------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `frame-bound`     | `CorrelatableFrame for Vec<u8>`, test-only `Packet for Vec<u8>` | `src/correlation.rs`, `src/connection/test_support.rs`                                                 |
-| `payload-bound`   | Packets, middleware, client request hooks, serializer output    | `src/app/envelope.rs`, `src/middleware.rs`, `src/client/hooks.rs`, `src/serializer.rs`                 |
+| `payload-bound`   | Packets, middleware, client request hooks, serializer output    | `src/app/envelope.rs`, `src/middleware/mod.rs`, `src/client/hooks.rs`, `src/serializer.rs`             |
 | `internal-only`   | DLQ sender, response forwarding, preamble replay                | `src/app/builder/core.rs`, `src/app/frame_handling/response.rs`, `src/rewind_stream.rs`                |
 | `docs/tests-only` | Protocol tests, guide examples, design diagrams                 | `tests/wireframe_protocol.rs`, `docs/users-guide.md`, `docs/asynchronous-outbound-messaging-design.md` |
 
@@ -95,7 +95,7 @@ depend on owned payload bytes.
 
 #### Middleware request and response wrappers
 
-- `src/middleware.rs` fixes `ServiceRequest` to
+- `src/middleware/mod.rs` fixes `ServiceRequest` to
   `inner: FrameContainer<Vec<u8>>`.
 - `ServiceRequest::new(frame: Vec<u8>, correlation_id)` and
   `ServiceRequest::frame_mut(&mut self) -> &mut Vec<u8>` expose owned, mutable
@@ -125,11 +125,11 @@ of the request/response pipeline:
    decode an inbound codec frame into an `Envelope`.
 3. `src/app/frame_handling/response.rs` crosses the middleware boundary by
    calling `ServiceRequest::new(env.payload, env.correlation_id)`.
-4. `src/middleware.rs` exposes that payload to middleware as
+4. `src/middleware/mod.rs` exposes that payload to middleware as
    `ServiceRequest`, with `frame()`, `frame_mut()`, `set_correlation_id()`, and
    `into_inner()`.
-5. The terminal bridge in `src/middleware.rs` (`RouteService::call`) converts
-   the request back into a packet with
+5. The terminal bridge in `src/middleware/mod.rs` (`RouteService::call`)
+   converts the request back into a packet with
    `E::from_parts(PacketParts::new(self.id, req.correlation_id(), req.into_inner()))`,
     invokes the registered handler, then returns
    `ServiceResponse::new(payload, correlation_id)`.
@@ -145,7 +145,7 @@ The practical consequence is that middleware currently forms a hard
 
 ##### Middleware integration points affected by a frame-type change
 
-- `src/middleware.rs` is the primary public API surface:
+- `src/middleware/mod.rs` is the primary public API surface:
   `ServiceRequest`, `ServiceResponse`, `Service`, `Transform`, `Next`,
   `from_fn`, `HandlerService::from_service`, and the `frame_mut()` /
   `into_inner()` editing model all currently depend on `Vec<u8>`.

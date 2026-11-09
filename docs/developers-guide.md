@@ -434,9 +434,27 @@ mutation reaches the wire. Hook output must still fit the codec's
 `max_frame_length`. The pipeline does not check this limit: the default
 `LengthDelimitedFrameCodec` rejects an oversized frame, so the send fails and
 ends the connection, while a custom encoder must enforce `max_frame_length`
-itself. Actor-driven push and streaming traffic runs its own hook pipeline, and
-the direct response helpers bypass `before_send`. The
+itself. Only the direct response helpers, which write to a stream the caller
+supplies rather than through the prepared application, bypass `before_send`. The
 [users' guide](users-guide.md) states the user-facing contract.
+
+Every prepared server connection now owns an untracked `ConnectionActor` built
+by `src/app/inbound_handler/actor.rs`. Handler responses — including
+`Response::Stream` and `Response::MultiPacket` installed by `route_response` —
+are installed on that actor, and the actor's transport sink borrows the
+connection's `Framed` and `FramePipeline`. The sink therefore applies
+fragmentation, outbound metrics, serialization, `wrap_payload`, and
+`before_send` in one fixed order before `Framed::send`. The actor itself
+receives no fragmenter and no `before_send` hook, so application frames are
+never serialized or hooked twice.
+
+The actor built for a server connection is adapted from the connection's
+protocol: `on_command_end`, `handle_error`, and the `stream_end_frame`
+terminator are forwarded, while `before_send` stays with the pipeline and
+`on_connection_setup`/`on_eof` stay with the server's own connection lifecycle.
+Without a protocol the actor uses default, no-op hooks. The stream terminator
+is decoded through the serializer into an `Envelope`; a terminator that does
+not decode is logged and omitted rather than closing the connection.
 
 The connection actor stores its outbound producer as one `ActiveOutput` value,
 so a response stream and a multi-packet channel cannot both be active. Its

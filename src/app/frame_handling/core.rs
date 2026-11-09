@@ -7,8 +7,9 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
 use crate::{
-    app::{codec_driver::FramePipeline, combined_codec::ConnectionCodec},
+    app::{Envelope, codec_driver::FramePipeline, combined_codec::ConnectionCodec},
     codec::FrameCodec,
+    connection::ConnectionActor,
     serializer::Serializer,
 };
 
@@ -64,4 +65,6 @@ where
     pub(crate) pipeline: &'a mut FramePipeline<F::Frame>,
     /// Codec that wraps serialized payloads into wire frames.
     pub(crate) codec: &'a F,
+    /// Connection actor that schedules and delivers the response.
+    pub(crate) actor: &'a mut ConnectionActor<Envelope, ()>,
 }

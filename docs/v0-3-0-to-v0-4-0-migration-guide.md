@@ -540,8 +540,10 @@ its own behaviour for an oversized frame, so it must enforce `max_frame_length`
 itself.
 
 Only the direct response helpers (`send_response`, `send_response_framed`, and
-`send_response_framed_with_codec`) bypass the hook. Actor-owned push and
-streaming traffic runs its own hook pipeline: `ConnectionActor::push_frame`
-invokes `before_send` on actor frames, so that traffic is not bypassed. See the
-[users' guide](users-guide.md)
-for the user-facing contract.
+`send_response_framed_with_codec`) bypass the hook. Push traffic submitted
+directly to a `ConnectionActor` runs `before_send` from the actor's own hooks.
+On a prepared server connection, handler responses — including streamed and
+multi-packet bodies — are written through the connection's `FramePipeline`, and
+the actor built for that connection deliberately has no `before_send` hook of
+its own, so the hook runs exactly once per frame. See the
+[users' guide](users-guide.md) for the user-facing contract.

@@ -67,9 +67,12 @@ async fn spawn_connection_task_logs_panic(
         async move {
             let (stream, _) = listener.accept().await.expect("accept");
             spawn_connection_task(
-                stream,
-                task_app,
-                PreambleHooks::<()>::default(),
+                ConnectionTask {
+                    stream,
+                    app: task_app,
+                    hooks: PreambleHooks::<()>::default(),
+                    connection: ActiveConnection::new(),
+                },
                 &task_tracker,
             );
             task_tracker.close();

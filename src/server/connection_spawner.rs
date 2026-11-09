@@ -10,6 +10,7 @@ use tokio_util::task::TaskTracker;
 use crate::{
     app::{Envelope, Packet, PreparedApp},
     codec::FrameCodec,
+    connection::ActiveConnection,
     frame::FrameMetadata,
     message::{DecodeWith, EncodeWith},
     preamble::{Preamble, read_preamble},
@@ -18,11 +19,36 @@ use crate::{
     server::{PreambleFailure, PreambleHandler, runtime::PreambleHooks},
 };
 
+/// Accept-side resources handed to one spawned connection task.
+///
+/// The accept loop builds this value the moment `accept()` succeeds, so the
+/// [`ActiveConnection`] guard is created before the task exists.
+pub(super) struct ConnectionTask<T, Ser, Ctx, E, Codec>
+where
+    Ser: Serializer + Send + Sync,
+    Ctx: Send + 'static,
+    E: Packet,
+    Codec: FrameCodec,
+{
+    /// Accepted socket.
+    pub(super) stream: TcpStream,
+    /// Shared prepared application.
+    pub(super) app: Arc<PreparedApp<Ser, Ctx, E, Codec>>,
+    /// Preamble callbacks configured on the server.
+    pub(super) hooks: PreambleHooks<T>,
+    /// Accept-side guard held for the whole task lifetime.
+    pub(super) connection: ActiveConnection,
+}
+
 /// Spawn a task to process a single TCP connection, logging and discarding any panics.
+///
+/// `task.connection` is the accept-side [`ActiveConnection`] guard. It is moved
+/// into the spawned future and released when that future ends, so the active
+/// connection gauge covers preamble handling, application processing, teardown,
+/// panic unwinding, and cancellation. Cancelling a future that never ran drops
+/// the guard too.
 pub(super) fn spawn_connection_task<T, Ser, Ctx, E, Codec>(
-    stream: TcpStream,
-    app: Arc<PreparedApp<Ser, Ctx, E, Codec>>,
-    hooks: PreambleHooks<T>,
+    task: ConnectionTask<T, Ser, Ctx, E, Codec>,
     tracker: &TaskTracker,
 ) where
     T: Preamble,
@@ -32,6 +58,12 @@ pub(super) fn spawn_connection_task<T, Ser, Ctx, E, Codec>(
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
+    let ConnectionTask {
+        stream,
+        app,
+        hooks,
+        connection,
+    } = task;
     let peer_addr = match stream.peer_addr() {
         Ok(addr) => Some(addr),
         Err(e) => {
@@ -40,6 +72,9 @@ pub(super) fn spawn_connection_task<T, Ser, Ctx, E, Codec>(
         }
     };
     tracker.spawn(async move {
+        // Keep the gauge held for every exit path, including a panic caught by
+        // `catch_unwind` below and cancellation of this future.
+        let _connection = connection;
         let fut = std::panic::AssertUnwindSafe(process_stream(stream, peer_addr, app, hooks))
             .catch_unwind();
 
@@ -197,6 +232,10 @@ async fn run_preamble_failure(
 #[cfg(all(test, feature = "metrics"))]
 #[path = "connection_spawner_metrics_tests.rs"]
 mod metrics_tests;
+
+#[cfg(all(test, feature = "metrics"))]
+#[path = "connection_spawner_active_tests.rs"]
+mod active_tests;
 
 #[cfg(test)]
 #[path = "connection_spawner_tests.rs"]
