@@ -95,7 +95,7 @@ impl TerminatingProtocol {
     /// Build the protocol around a shared observation log.
     ///
     /// The terminator is an id-zero frame carrying a fixed correlation value:
-    /// [`ResponseStream`] recognises a terminator before it validates
+    /// [`ResponseStream`] recognizes a terminator before it validates
     /// correlation, so end-of-stream frames need no per-request stamp. A
     /// multi-packet response still overwrites that value with the request
     /// correlation before the frame reaches the wire.
