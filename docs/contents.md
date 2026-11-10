@@ -70,6 +70,8 @@ reference when navigating the project's design and architecture material.
   Proposed awaitable server shutdown and supervisor-failure observation.
 - [ADR 015: declared total body length is authoritative][adr-015] Accepted
   contract for enforcing `total_body_len` during message assembly.
+- [ADR 016: forbid unsafe code workspace-wide](adr-016-unsafe-code-boundary.md)
+  Proposed workspace lint table, per-root attribute, and enforcement checks.
 
 [adr-015]: adr-015-declared-total-body-length-contract.md
 
@@ -159,6 +161,8 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
   and payload-shaped APIs that still rely on owned byte vectors.
 - [Formal verification methods](formal-verification-methods-in-wireframe.md)
   Recommended use of Kani, Stateright, and Verus in Wireframe.
+- [Unsafe-code boundary verification](rust-boundary-verification.md) What the
+  workspace-wide prohibition checks establish and what they cannot.
 - [Refactoring guide](complexity-antipatterns-and-refactoring-strategies.md)
   Strategies for taming code complexity and refactoring.
 - [Builder pattern conventions](builder-pattern-conventions.md) Guidance for

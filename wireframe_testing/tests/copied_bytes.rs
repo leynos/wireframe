@@ -10,6 +10,7 @@
 //! `#[serial]`.
 
 #![cfg(feature = "pipeline-benchmarks")]
+#![forbid(unsafe_code)]
 
 use rstest::rstest;
 use serial_test::serial;

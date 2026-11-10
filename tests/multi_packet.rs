@@ -1,5 +1,6 @@
 //! Tests for multi-packet responses using channels.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::time::Duration;
 

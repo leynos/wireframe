@@ -1,5 +1,7 @@
 //! Integration tests for the `CodecError` taxonomy and recovery policies.
 
+#![forbid(unsafe_code)]
+
 use std::io;
 
 use wireframe::codec::{

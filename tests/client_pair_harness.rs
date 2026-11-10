@@ -4,6 +4,7 @@
 //! loopback server/client lifecycle and that the resulting [`WireframePair`]
 //! exposes a usable client for request/response assertions.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::sync::{
     Arc,

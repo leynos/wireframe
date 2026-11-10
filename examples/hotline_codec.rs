@@ -5,6 +5,8 @@
 //! identifier. The codec implementation lives in `wireframe::codec::examples`
 //! so tests can exercise it directly.
 
+#![forbid(unsafe_code)]
+
 use std::io;
 
 use wireframe::{
