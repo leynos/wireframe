@@ -13,6 +13,7 @@ mod drive;
 mod event;
 mod frame;
 mod grace;
+mod init;
 mod multi_packet;
 mod output;
 mod polling;
@@ -32,6 +33,7 @@ pub use counter::LoomConnectionGuard;
 pub use counter::active_connection_count;
 pub(crate) use drive::{PEER_CLOSED_RESPONSE_GRACE, ResponseOutcome};
 use grace::{GraceTimer, TokioGraceTimer};
+use init::ActorInit;
 use log::info;
 use multi_packet::MultiPacketContext;
 use output::ActiveOutput;
@@ -52,36 +54,6 @@ use crate::{
     response::FrameStream,
     session::ConnectionId,
 };
-
-/// Construction inputs shared by the tracked and untracked actor
-/// constructors.
-struct ActorInit<F, E> {
-    /// Push queues and the handle that keeps them open.
-    channels: ConnectionChannels<F>,
-    /// Optional response stream installed at construction time.
-    response: Option<FrameStream<F, E>>,
-    /// Cancellation token observed by the actor loop.
-    shutdown: CancellationToken,
-    /// Protocol hooks applied to outbound frames.
-    hooks: ProtocolHooks<F, E>,
-}
-
-impl<F, E> ActorInit<F, E> {
-    /// Bundle the construction inputs both constructors accept.
-    const fn new(
-        channels: ConnectionChannels<F>,
-        response: Option<FrameStream<F, E>>,
-        shutdown: CancellationToken,
-        hooks: ProtocolHooks<F, E>,
-    ) -> Self {
-        Self {
-            channels,
-            response,
-            shutdown,
-            hooks,
-        }
-    }
-}
 
 /// Error returned when attempting to set an active output source while
 /// another source is already active.

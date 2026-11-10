@@ -5,6 +5,8 @@
 //! [`from_fn`] to create middleware from an async function.
 
 mod service_response;
+#[cfg(all(test, not(loom)))]
+mod service_response_tests;
 
 use std::{
     convert::Infallible,

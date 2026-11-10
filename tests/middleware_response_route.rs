@@ -1,0 +1,310 @@
+//! End-to-end middleware behaviour on a response route.
+//!
+//! A response route installs its `Response` in a deferred slot on the
+//! `ServiceResponse` rather than in the frame bytes. These scenarios drive a
+//! prepared app over an in-memory transport to pin what middleware can and
+//! cannot change: the request frame is mutable, the streamed body is not, and
+//! returning a fresh response discards the deferred body.
+#![cfg(not(loom))]
+
+use std::{
+    convert::Infallible,
+    sync::{Arc, Mutex, PoisonError},
+    time::Duration,
+};
+
+use async_trait::async_trait;
+use bytes::{BufMut, Bytes, BytesMut};
+use futures::StreamExt;
+use tokio::{
+    io::{AsyncWriteExt, DuplexStream},
+    time::timeout,
+};
+use tokio_util::codec::Framed;
+use wireframe::{
+    app::{Envelope, Packet, ResponseHandler, WireframeApp},
+    codec::{FrameCodec, LengthDelimitedFrameCodec},
+    middleware::{HandlerService, Next, Service, ServiceRequest, ServiceResponse, Transform},
+    response::Response,
+    serializer::{BincodeSerializer, Serializer},
+};
+use wireframe_testing::{TestError, TestResult};
+
+/// Route identifier used by the response-route scenarios.
+const RESPONSE_ROUTE: u32 = 60;
+/// Correlation identifier stamped on the response-route request.
+const REQUEST_CORRELATION: u64 = 5;
+/// Duplex capacity large enough for one request and its response.
+const DUPLEX_CAPACITY: usize = 64;
+/// Maximum frame length used by the in-memory transport.
+const MAX_FRAME_LENGTH: usize = 2048;
+/// Upper bound for a response that must arrive promptly.
+const RESPONSE_SETTLE: Duration = Duration::from_secs(5);
+
+/// Require `condition`, reporting `message` as the test failure otherwise.
+fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
+    if condition {
+        Ok(())
+    } else {
+        Err(TestError::Msg(message.into()))
+    }
+}
+
+/// How the response-route middleware treats the route it wraps.
+enum MiddlewareMode {
+    /// Forward to the route and edit the response frame.
+    Forward,
+    /// Answer without calling the route handler.
+    ShortCircuit(Vec<u8>),
+    /// Call the route handler, then replace its response with fresh bytes.
+    Replace(Vec<u8>),
+}
+
+/// Middleware that edits a response route's request and response frame.
+struct ResponseRouteMiddleware {
+    /// Bytes the middleware forwarded to the route handler.
+    forwarded: Arc<Mutex<Vec<u8>>>,
+    /// How the middleware treats the wrapped route.
+    mode: MiddlewareMode,
+}
+
+/// Service produced by [`ResponseRouteMiddleware`].
+struct ResponseRouteService<S> {
+    /// Wrapped route service.
+    inner: S,
+    /// Bytes the middleware forwarded to the route handler.
+    forwarded: Arc<Mutex<Vec<u8>>>,
+    /// How the middleware treats the wrapped route.
+    mode: MiddlewareMode,
+}
+
+#[async_trait]
+impl Transform<HandlerService<Envelope>> for ResponseRouteMiddleware {
+    type Output = HandlerService<Envelope>;
+
+    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
+        HandlerService::from_service(
+            service.id(),
+            ResponseRouteService {
+                inner: service,
+                forwarded: Arc::clone(&self.forwarded),
+                mode: match &self.mode {
+                    MiddlewareMode::Forward => MiddlewareMode::Forward,
+                    MiddlewareMode::ShortCircuit(bytes) => {
+                        MiddlewareMode::ShortCircuit(bytes.clone())
+                    }
+                    MiddlewareMode::Replace(bytes) => MiddlewareMode::Replace(bytes.clone()),
+                },
+            },
+        )
+    }
+}
+
+#[async_trait]
+impl<S> Service for ResponseRouteService<S>
+where
+    S: Service<Error = Infallible> + Send + Sync,
+{
+    type Error = Infallible;
+
+    async fn call(&self, mut request: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
+        request.frame_mut().push(b'!');
+        *self
+            .forwarded
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = request.frame().to_vec();
+        let correlation_id = request.correlation_id();
+        if let MiddlewareMode::ShortCircuit(bytes) = &self.mode {
+            return Ok(ServiceResponse::new(bytes.clone(), correlation_id));
+        }
+        let next = Next::new(&self.inner);
+        let mut response = next.call(request).await?;
+        if let MiddlewareMode::Replace(bytes) = &self.mode {
+            return Ok(ServiceResponse::new(bytes.clone(), correlation_id));
+        }
+        response.frame_mut().push(b'?');
+        Ok(response)
+    }
+}
+
+/// Handler that answers with two frames and records the request it saw.
+fn two_frame_handler(seen: Arc<Mutex<Vec<u8>>>) -> ResponseHandler<Envelope> {
+    Arc::new(move |request: &Envelope| {
+        let seen_for_handler = Arc::clone(&seen);
+        Box::pin(async move {
+            *seen_for_handler
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = request.payload_bytes().to_vec();
+            let id = request.id();
+            Response::Vec(vec![
+                Envelope::new(id, None, vec![7]),
+                Envelope::new(id, None, vec![8]),
+            ])
+        })
+    })
+}
+
+/// Write one length-delimited frame to the duplex peer.
+async fn write_frame(stream: &mut DuplexStream, payload: &[u8]) -> TestResult {
+    let length = u32::try_from(payload.len())
+        .map_err(|error| TestError::Msg(format!("frame too long: {error}")))?;
+    let mut framed = BytesMut::with_capacity(4 + payload.len());
+    framed.put_u32(length);
+    framed.extend_from_slice(payload);
+    stream.write_all(&framed).await?;
+    Ok(())
+}
+
+/// Read `count` response frames and return their payloads in order.
+async fn read_payloads<S>(frames: &mut S, count: usize) -> TestResult<Vec<Vec<u8>>>
+where
+    S: futures::Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
+{
+    let mut payloads = Vec::new();
+    for _ in 0..count {
+        let frame = frames
+            .next()
+            .await
+            .transpose()
+            .map_err(|error| TestError::Msg(format!("read response frame: {error}")))?
+            .ok_or("the response ended early")?;
+        let (envelope, consumed) = BincodeSerializer
+            .deserialize::<Envelope>(&frame)
+            .map_err(|error| TestError::Msg(format!("deserialize frame: {error}")))?;
+        ensure(
+            consumed == frame.len(),
+            format!(
+                "trailing bytes after envelope: consumed {consumed} of {}",
+                frame.len()
+            ),
+        )?;
+        payloads.push(envelope.payload_bytes().to_vec());
+    }
+    Ok(payloads)
+}
+
+/// Drive one request through a prepared app and return the response payloads.
+async fn exchange(
+    app: WireframeApp<BincodeSerializer, (), Envelope>,
+    expected_frames: usize,
+) -> TestResult<Vec<Vec<u8>>> {
+    let prepared = app
+        .prepare()
+        .await
+        .map_err(|error| TestError::Msg(format!("prepare app: {error}")))?;
+    let (mut client, server) = tokio::io::duplex(DUPLEX_CAPACITY);
+    let connection = tokio::spawn(async move { prepared.handle_connection_result(server).await });
+
+    let request = Envelope::new(RESPONSE_ROUTE, Some(REQUEST_CORRELATION), vec![1, 2, 3]);
+    let payload = BincodeSerializer
+        .serialize(&request)
+        .map_err(|error| TestError::Msg(format!("serialize request: {error}")))?;
+    write_frame(&mut client, &payload).await?;
+
+    let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH);
+    let mut framed = Framed::new(client, codec.decoder());
+    let payloads = timeout(RESPONSE_SETTLE, read_payloads(&mut framed, expected_frames))
+        .await
+        .map_err(|_| TestError::Msg("the response did not arrive".into()))??;
+
+    drop(framed);
+    connection
+        .await
+        .map_err(|error| TestError::Msg(format!("connection task failed: {error}")))?
+        .map_err(|error| TestError::Msg(format!("connection failed: {error}")))?;
+    Ok(payloads)
+}
+
+/// Middleware edits a response route's request without rewriting its body.
+///
+/// The route's frames travel in the deferred slot, so the byte the middleware
+/// appends to the response frame never reaches the client.
+#[tokio::test]
+async fn middleware_edits_a_response_route_without_rewriting_its_body() -> TestResult {
+    let forwarded = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
+        .route_response(RESPONSE_ROUTE, two_frame_handler(Arc::clone(&seen)))?
+        .wrap(ResponseRouteMiddleware {
+            forwarded: Arc::clone(&forwarded),
+            mode: MiddlewareMode::Forward,
+        })?;
+
+    let payloads = exchange(app, 2).await?;
+
+    ensure(
+        forwarded
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_slice()
+            == [1, 2, 3, b'!'],
+        "the middleware must forward the mutated request",
+    )?;
+    ensure(
+        seen.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_slice()
+            == [1, 2, 3, b'!'],
+        "the handler must observe the mutated request",
+    )?;
+    ensure(
+        payloads == vec![vec![7], vec![8]],
+        format!("the streamed body must reach the client unchanged: {payloads:?}"),
+    )
+}
+
+/// A short-circuiting middleware answers without running the route handler.
+#[tokio::test]
+async fn middleware_short_circuit_replaces_the_response_route_body() -> TestResult {
+    let forwarded = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
+        .route_response(RESPONSE_ROUTE, two_frame_handler(Arc::clone(&seen)))?
+        .wrap(ResponseRouteMiddleware {
+            forwarded: Arc::clone(&forwarded),
+            mode: MiddlewareMode::ShortCircuit(vec![b'S']),
+        })?;
+
+    let payloads = exchange(app, 1).await?;
+
+    ensure(
+        seen.lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty(),
+        "a short circuit must not reach the route handler",
+    )?;
+    ensure(
+        payloads == vec![vec![b'S']],
+        format!("the fresh response must be the only frame: {payloads:?}"),
+    )
+}
+
+/// Replacing the response discards the route's deferred body.
+///
+/// The handler runs and installs its frames, but the middleware returns a
+/// fresh `ServiceResponse`, so the client sees only the fresh bytes.
+#[tokio::test]
+async fn middleware_replacing_the_response_discards_the_deferred_body() -> TestResult {
+    let forwarded = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
+        .route_response(RESPONSE_ROUTE, two_frame_handler(Arc::clone(&seen)))?
+        .wrap(ResponseRouteMiddleware {
+            forwarded: Arc::clone(&forwarded),
+            mode: MiddlewareMode::Replace(vec![b'R']),
+        })?;
+
+    let payloads = exchange(app, 1).await?;
+
+    ensure(
+        !seen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_empty(),
+        "the route handler must have run",
+    )?;
+    ensure(
+        payloads == vec![vec![b'R']],
+        format!("the deferred body must be discarded: {payloads:?}"),
+    )
+}
