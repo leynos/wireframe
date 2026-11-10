@@ -20,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     app::Envelope,
     codec::FrameCodec,
-    connection::{ConnectionActor, ConnectionChannels},
+    connection::{ConnectionActor, ConnectionChannels, PEER_CLOSED_RESPONSE_GRACE},
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     push::{PushHandle, PushQueues},
 };
@@ -86,6 +86,10 @@ where
         hooks,
     );
     actor.set_peer_closed(peer_closed);
+    // The connection boundary owns the idle-grace policy; the actor only needs
+    // a bound, not an opinion about how long a vanished peer may hold a
+    // response open.
+    actor.set_peer_closed_grace(PEER_CLOSED_RESPONSE_GRACE);
     Ok((
         ConnectionResponseActor {
             actor,

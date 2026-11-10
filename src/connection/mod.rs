@@ -22,14 +22,14 @@ mod state;
 #[cfg(all(test, not(loom)))]
 mod tests;
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 pub use channels::ConnectionChannels;
 pub(crate) use counter::ActiveConnection;
 #[cfg(loom)]
 pub use counter::LoomConnectionGuard;
 pub use counter::active_connection_count;
-pub(crate) use drive::ResponseOutcome;
+pub(crate) use drive::{PEER_CLOSED_RESPONSE_GRACE, ResponseOutcome};
 use log::info;
 use multi_packet::MultiPacketContext;
 use output::ActiveOutput;
@@ -146,6 +146,13 @@ pub struct ConnectionActor<F, E = NoProtocolError> {
     response_failed: bool,
     /// Token cancelled when the peer closes its input half.
     peer_closed: CancellationToken,
+    /// Idle grace applied to a response once the peer can no longer be observed.
+    ///
+    /// Production connections keep [`drive::PEER_CLOSED_RESPONSE_GRACE`]; tests
+    /// shorten it so a paused clock can exercise cancellation deterministically.
+    peer_closed_grace: Duration,
+    /// Correlation identifier of the response currently being driven.
+    response_correlation: Option<u64>,
 }
 
 impl<F, E> ConnectionActor<F, E>
@@ -241,6 +248,8 @@ where
             command_end_pending: false,
             response_failed: false,
             peer_closed: CancellationToken::new(),
+            peer_closed_grace: drive::PEER_CLOSED_RESPONSE_GRACE,
+            response_correlation: None,
         };
         // The server builds an untracked actor per connection and owns the
         // connection lifecycle in its accept loop. Logging an opening there
@@ -266,6 +275,15 @@ where
     /// grace, because a peer that has vanished will never read the remaining
     /// frames or send another request.
     pub(crate) fn set_peer_closed(&mut self, token: CancellationToken) { self.peer_closed = token; }
+
+    /// Override the idle grace used once the peer can no longer be observed.
+    ///
+    /// The server keeps [`drive::PEER_CLOSED_RESPONSE_GRACE`]; tests pass a
+    /// short grace and a paused clock to prove that a stalled response is
+    /// cancelled without waiting for the production deadline.
+    pub(crate) const fn set_peer_closed_grace(&mut self, grace: Duration) {
+        self.peer_closed_grace = grace;
+    }
 
     /// Replace the fairness configuration.
     pub const fn set_fairness(&mut self, fairness: FairnessConfig) {

@@ -20,6 +20,7 @@ use super::{
 use crate::{
     app::Packet,
     correlation::CorrelatableFrame,
+    metrics::ResponseCancellationReason,
     push::FrameLike,
     response::{Response, WireframeError},
 };
@@ -31,7 +32,7 @@ use crate::{
 /// being polled. Long enough for a producer that is merely slow to deliver its
 /// next frame, and short enough that a vanished peer cannot pin a connection
 /// open indefinitely.
-const PEER_CLOSED_RESPONSE_GRACE: Duration = Duration::from_secs(30);
+pub(crate) const PEER_CLOSED_RESPONSE_GRACE: Duration = Duration::from_secs(30);
 
 /// How an installed handler response finished.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,6 +129,8 @@ where
     where
         S: FrameSink<F> + Send,
     {
+        // Diagnostics for a stalled response report the request it belonged to.
+        self.response_correlation = correlation_id;
         match response {
             Response::Single(frame) => {
                 self.emit_response_frames(vec![frame], correlation_id, sink)
@@ -187,7 +190,10 @@ where
             );
             let event = self.next_event_watching_peer(&state).await;
             match event {
-                Event::Shutdown => return Ok(ResponseOutcome::Cancelled),
+                Event::Shutdown => {
+                    ResponseCancellationReason::Shutdown.record();
+                    return Ok(ResponseOutcome::Cancelled);
+                }
                 Event::PeerClosed => return self.drive_after_peer_close(sink).await,
                 dispatched => {
                     let mut frames = Vec::new();
@@ -222,17 +228,22 @@ where
                 self.active_output.is_multi_packet(),
             );
             let waited =
-                tokio::time::timeout(PEER_CLOSED_RESPONSE_GRACE, self.next_event(&state)).await;
+                tokio::time::timeout(self.peer_closed_grace, self.next_event(&state)).await;
             let Ok(event) = waited else {
                 warn!(
-                    "the peer could not be observed and the response produced no frames for \
-                     {PEER_CLOSED_RESPONSE_GRACE:?}; cancelling: id={:?}, peer={:?}",
-                    self.connection_id, self.peer_addr
+                    "the peer could not be observed and the response produced no frames for {:?}; \
+                     cancelling: id={:?}, peer={:?}, correlation={:?}",
+                    self.peer_closed_grace,
+                    self.connection_id,
+                    self.peer_addr,
+                    self.response_correlation
                 );
+                ResponseCancellationReason::IdleGraceExpired.record();
                 self.active_output.clear();
                 return Ok(ResponseOutcome::Cancelled);
             };
             if matches!(event, Event::Shutdown) {
+                ResponseCancellationReason::Shutdown.record();
                 return Ok(ResponseOutcome::Cancelled);
             }
             let mut frames = Vec::new();

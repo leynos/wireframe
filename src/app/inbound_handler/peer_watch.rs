@@ -18,6 +18,7 @@
 use std::{future::Future, io, pin::Pin};
 
 use futures::{Stream, StreamExt};
+use log::debug;
 use tokio::time::{Duration, timeout};
 use tokio_util::sync::CancellationToken;
 
@@ -83,11 +84,33 @@ where
         next = reader.next() => match next {
             Some(Ok(frame)) => {
                 *pending_frame = Some(frame);
-                await_unobserved_peer(handling.as_mut(), peer_closed).await
+                await_unobserved_peer(handling.as_mut(), peer_closed, UnobservedCause::BufferedRequest)
+                    .await
             }
             Some(Err(error)) => Err(error),
-            None => await_unobserved_peer(handling.as_mut(), peer_closed).await,
+            None => {
+                await_unobserved_peer(handling.as_mut(), peer_closed, UnobservedCause::HalfClose).await
+            }
         },
+    }
+}
+
+/// Why direct peer observation stopped.
+#[derive(Clone, Copy, Debug)]
+enum UnobservedCause {
+    /// The peer closed its input half.
+    HalfClose,
+    /// An inbound frame was buffered for the next request.
+    BufferedRequest,
+}
+
+impl UnobservedCause {
+    /// Describe the cause for the peer-observation diagnostic.
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::HalfClose => "a half-close",
+            Self::BufferedRequest => "a buffered request",
+        }
     }
 }
 
@@ -104,15 +127,20 @@ where
 /// ```ignore
 /// let handling = drive_response(&mut actor, &mut sink);
 /// tokio::pin!(handling);
-/// await_unobserved_peer(handling.as_mut(), &peer_closed).await?;
+/// await_unobserved_peer(handling.as_mut(), &peer_closed, UnobservedCause::HalfClose).await?;
 /// ```
 async fn await_unobserved_peer<H>(
     handling: Pin<&mut H>,
     peer_closed: &CancellationToken,
+    cause: UnobservedCause,
 ) -> io::Result<()>
 where
     H: Future<Output = io::Result<()>>,
 {
+    debug!(
+        "stopping peer observation after {}; the actor bounds the pending response",
+        cause.as_str()
+    );
     peer_closed.cancel();
     handling.await
 }
