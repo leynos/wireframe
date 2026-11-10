@@ -80,6 +80,22 @@ pub struct PushQueuesBuilder<F> {
     dlq_log_interval: Duration,
 }
 
+// Written by hand so a stored builder can seed per-connection queues without
+// requiring the frame type to be `Clone`. The dead-letter sender is cloneable
+// independently of its payload; every clone shares the same sink.
+impl<F> Clone for PushQueuesBuilder<F> {
+    fn clone(&self) -> Self {
+        Self {
+            high_capacity: self.high_capacity,
+            low_capacity: self.low_capacity,
+            rate: self.rate,
+            dlq: self.dlq.clone(),
+            dlq_log_every_n: self.dlq_log_every_n,
+            dlq_log_interval: self.dlq_log_interval,
+        }
+    }
+}
+
 impl<F: FrameLike> Default for PushQueuesBuilder<F> {
     fn default() -> Self {
         Self {
@@ -150,6 +166,29 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
         self
     }
 
+    /// Validate the stored configuration without allocating its channels.
+    ///
+    /// This lets a stored template be rejected while preparing an application,
+    /// before any connection exists. [`Self::build`] uses the same checks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PushConfigError::InvalidRate`] if the rate is zero or strictly
+    /// greater than [`super::MAX_PUSH_RATE`] and
+    /// [`PushConfigError::InvalidCapacity`] if either queue capacity is zero.
+    pub(crate) const fn validate(&self) -> Result<(), PushConfigError> {
+        if let Some(invalid) = PushQueues::<F>::invalid_rate(self.rate) {
+            return Err(PushConfigError::InvalidRate(invalid));
+        }
+        if self.high_capacity == 0 || self.low_capacity == 0 {
+            return Err(PushConfigError::InvalidCapacity {
+                high: self.high_capacity,
+                low: self.low_capacity,
+            });
+        }
+        Ok(())
+    }
+
     /// Build the configured [`PushQueues`] and associated [`PushHandle`].
     ///
     /// Validation of capacities and rate occurs only during the build step,
@@ -162,6 +201,7 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     /// greater than [`super::MAX_PUSH_RATE`] and
     /// [`PushConfigError::InvalidCapacity`] if either queue capacity is zero.
     pub fn build(self) -> Result<(PushQueues<F>, PushHandle<F>), PushConfigError> {
+        self.validate()?;
         PushQueues::build_with_config(PushQueueConfig {
             high_capacity: self.high_capacity,
             low_capacity: self.low_capacity,

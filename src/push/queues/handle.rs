@@ -44,8 +44,13 @@ pub(crate) struct PushHandleInner<F> {
 }
 
 /// Cloneable handle used by producers to push frames to a connection.
-#[derive(Clone)]
 pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
+
+// Written by hand so cloning a handle does not require the frame type itself to
+// be `Clone`: clones share the same queues and only bump the inner `Arc`.
+impl<F> Clone for PushHandle<F> {
+    fn clone(&self) -> Self { Self(Arc::clone(&self.0)) }
+}
 
 /// Instrumentation helper exposing internal counters when running under loom.
 #[cfg(loom)]

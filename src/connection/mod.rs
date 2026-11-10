@@ -231,7 +231,7 @@ where
             hooks,
         } = init;
         let ConnectionChannels { queues, handle } = channels;
-        let ctx = ConnectionContext;
+        let ctx = ConnectionContext::default();
         let active_output = response.map_or_else(|| ActiveOutput::None, ActiveOutput::Response);
         let mut actor = Self {
             high_rx: Some(queues.high_priority_rx),

@@ -328,3 +328,7 @@ impl<F: FrameLike> PushQueues<F> {
         self.low_priority_rx.close();
     }
 }
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;

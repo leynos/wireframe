@@ -9,14 +9,40 @@ use std::sync::Arc;
 use crate::{
     codec::EofError,
     push::{FrameLike, PushHandle},
+    session::ConnectionId,
 };
 
 /// Per-connection state passed to protocol callbacks.
 ///
-/// This empty struct is intentionally extensible. Future protocol features may
-/// require storing connection-local data without breaking existing APIs.
-#[derive(Default)]
-pub struct ConnectionContext;
+/// The context is intentionally extensible. Future protocol features may
+/// require storing connection-local data without breaking existing APIs, so the
+/// struct is non-exhaustive and obtains the connection identifier from the
+/// server rather than from a public constructor.
+#[derive(Clone, Default)]
+#[non_exhaustive]
+pub struct ConnectionContext {
+    /// Identifier assigned by the server, absent for standalone actors.
+    connection_id: Option<ConnectionId>,
+}
+
+impl ConnectionContext {
+    /// Return the identifier of the connection this context belongs to.
+    ///
+    /// The identifier is present for connections accepted by
+    /// [`crate::server::WireframeServer`] and absent for a
+    /// [`crate::connection::ConnectionActor`] driven directly by an
+    /// application or test.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use wireframe::hooks::ConnectionContext;
+    ///
+    /// assert_eq!(ConnectionContext::default().connection_id(), None);
+    /// ```
+    #[must_use]
+    pub const fn connection_id(&self) -> Option<ConnectionId> { self.connection_id }
+}
 
 /// Trait encapsulating protocol-specific logic and callbacks.
 ///
