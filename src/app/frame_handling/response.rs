@@ -4,6 +4,7 @@ use std::io;
 
 use futures::{Sink, StreamExt};
 use log::warn;
+use tracing::Instrument;
 
 use crate::{
     app::{
@@ -53,7 +54,7 @@ use crate::{
 pub(crate) async fn forward_response<S, E, K, F>(
     env: Envelope,
     service: &HandlerService<E>,
-    ctx: super::ResponseContext<'_, S, K, F>,
+    mut ctx: super::ResponseContext<'_, S, K, F>,
 ) -> io::Result<()>
 where
     S: Serializer + Send + Sync,
@@ -84,18 +85,12 @@ where
     );
 
     let is_streaming = matches!(response, Response::Stream(_) | Response::MultiPacket(_));
-    let outcome = {
-        let mut sink = ActorFrameSink::new(
-            ctx.serializer,
-            ctx.codec,
-            &mut *ctx.sink,
-            &mut *ctx.pipeline,
-        );
-        ctx.actor
-            .install_response(response, correlation_id, &mut sink)
-            .await
-            .map_err(install_error)?
+    let delivery = DeliverySpan {
+        request_id,
+        correlation_id,
+        is_streaming,
     };
+    let outcome = drive_through_actor(&mut ctx, &delivery, response).await?;
 
     let Some(protocol) = ctx.protocol else {
         return Ok(());
@@ -115,6 +110,49 @@ where
         protocol.on_command_end(&mut context);
     }
     Ok(())
+}
+
+/// Bounded identifiers recorded for one response delivery.
+struct DeliverySpan {
+    /// Message identifier the response answers.
+    request_id: u32,
+    /// Correlation identifier stamped on the response, when known.
+    correlation_id: Option<u64>,
+    /// Whether the response is a stream or multi-packet body.
+    is_streaming: bool,
+}
+
+/// Install `response` on the actor and drive it through the connection sink.
+///
+/// The span keeps response delivery identifiable in traces while recording
+/// only bounded identifiers, never payloads or peer data.
+async fn drive_through_actor<S, K, F>(
+    ctx: &mut super::ResponseContext<'_, S, K, F>,
+    delivery: &DeliverySpan,
+    response: Response<Envelope, ()>,
+) -> io::Result<ResponseOutcome>
+where
+    S: Serializer + Send + Sync,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
+    F: FrameCodec,
+    Envelope: EncodeWith<S>,
+{
+    let mut sink = ActorFrameSink::new(
+        ctx.serializer,
+        ctx.codec,
+        &mut *ctx.sink,
+        &mut *ctx.pipeline,
+    );
+    ctx.actor
+        .install_response(response, delivery.correlation_id, &mut sink)
+        .instrument(tracing::debug_span!(
+            "response_delivery",
+            request_id = delivery.request_id,
+            correlation_id = ?delivery.correlation_id,
+            streaming = delivery.is_streaming,
+        ))
+        .await
+        .map_err(install_error)
 }
 
 /// Whether a completed streamed response is owed a protocol terminator.

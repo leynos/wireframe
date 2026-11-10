@@ -36,6 +36,8 @@ mod pool_scheduler;
 
 mod preamble_rejections;
 
+mod response_delivery;
+
 #[cfg(not(loom))]
 mod server_cancellation;
 #[cfg(not(loom))]
@@ -70,6 +72,8 @@ pub use pool_scheduler::POOL_SCHEDULER_FAILURES;
 pub(crate) use pool_scheduler::inc_pool_scheduler_failure;
 pub use preamble_rejections::PREAMBLE_REJECTIONS;
 pub(crate) use preamble_rejections::{PreambleRejectionReason, inc_preamble_rejection};
+pub use response_delivery::RESPONSE_CANCELLATIONS;
+pub(crate) use response_delivery::ResponseCancellationReason;
 pub use server_startup::{SERVER_STARTUP_DURATION, SERVER_STARTUP_FAILURES};
 #[cfg(not(loom))]
 pub(crate) use server_startup::{
