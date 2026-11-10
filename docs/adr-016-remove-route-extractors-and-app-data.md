@@ -132,8 +132,8 @@ Option B is adopted.
 | `wireframe::extractor` module              | No module; import the individual primitives below             |
 | `wireframe::extractor::MessageRequest`     | Build only the metadata a handler needs                       |
 | `wireframe::extractor::Payload`            | Borrow `Packet::payload_bytes` or the packet's `PacketParts`  |
-| `wireframe::extractor::FromMessageRequest` | Decode directly with `message::Message::from_bytes`           |
-| `wireframe::extractor::Message<T>`         | `message::Message::from_bytes` on the packet payload          |
+| `wireframe::extractor::FromMessageRequest` | Use a decoder appropriate to the payload format               |
+| `wireframe::extractor::Message<T>`         | `message::Message::from_bytes` on a bincode payload           |
 | `wireframe::extractor::SharedState<T>`     | Capture an `Arc<T>` in the handler closure                    |
 | `wireframe::extractor::ConnectionInfo`     | No peer address reaches route handlers                        |
 | `wireframe::extractor::StreamingBody`      | `request::RequestBodyReader::new(stream)` on a stream you own |
@@ -142,6 +142,10 @@ Option B is adopted.
 | `WireframeApp::app_data`                   | Capture an `Arc` in the handler closure                       |
 
 _Table 2: Removed symbols and their replacements._
+
+`message::Message::from_bytes` decodes a bincode payload only. A protocol with
+another payload format should decode with its matching serializer, for example
+`Serializer::deserialize` bound to a type implementing `DecodeWith`.
 
 The following types are retained because they are useful without extractor
 dispatch:
