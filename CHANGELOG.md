@@ -13,10 +13,18 @@ All notable changes to this project will be documented in this file.
   correlation id. Fragmentation, outbound metrics, serialization, codec
   wrapping, and `before_send` therefore run in one fixed order for every
   handler response. The protocol's `on_command_end`, `handle_error`, and
-  `stream_end_frame` callbacks now run on the prepared path;
-  `on_connection_setup` and `on_eof` remain part of the server's connection
-  lifecycle. The active-connection gauge now covers the preamble handshake,
-  application processing, and teardown.
+  `stream_end_frame` callbacks now run on the prepared path; `on_command_end`
+  therefore fires once for an ordinary `route` reply, which existing protocols
+  previously did not observe. A completed stream is terminated by the codec
+  frame `stream_end_frame` returns, written unchanged so codec metadata outside
+  the payload survives; the prepared path no longer decodes that frame into an
+  `Envelope` or restamps its correlation identifier. The protocol's
+  `on_connection_setup` and `on_eof` remain uninvoked on this path.
+  **Breaking:** `PreparedApp::handle_connection_result` and the deprecated
+  `WireframeApp::handle_connection*` methods now require `S: 'static` so the
+  connection actor can retain the serializer in its protocol hooks. The
+  active-connection gauge now covers the preamble handshake, application
+  processing, and teardown.
   ([#874](https://github.com/leynos/wireframe/issues/874))
 
 - Make `wireframe_testing` compile against `tokio-util` 0.7.20, whose extra

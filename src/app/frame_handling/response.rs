@@ -2,13 +2,19 @@
 
 use std::io;
 
-use futures::StreamExt;
+use futures::{Sink, StreamExt};
 use log::warn;
-use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    app::{Envelope, Packet, PacketParts, codec_driver::ActorFrameSink},
+    app::{
+        Envelope,
+        Packet,
+        PacketParts,
+        codec_driver::{ActorFrameSink, send_native_frame},
+    },
     codec::FrameCodec,
+    connection::ResponseOutcome,
+    hooks::ConnectionContext,
     message::EncodeWith,
     middleware::{HandlerService, Service, ServiceRequest},
     response::{FrameStream, Response, WireframeError},
@@ -44,15 +50,15 @@ use crate::{
 ///
 /// [`ServiceResponse`]: crate::middleware::ServiceResponse
 /// [`FramePipeline`]: crate::app::codec_driver::FramePipeline
-pub(crate) async fn forward_response<S, E, W, F>(
+pub(crate) async fn forward_response<S, E, K, F>(
     env: Envelope,
     service: &HandlerService<E>,
-    ctx: super::ResponseContext<'_, S, W, F>,
+    ctx: super::ResponseContext<'_, S, K, F>,
 ) -> io::Result<()>
 where
     S: Serializer + Send + Sync,
     E: Packet,
-    W: AsyncRead + AsyncWrite + Send + Unpin,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
     Envelope: EncodeWith<S>,
 {
@@ -77,16 +83,49 @@ where
         |response| inherit_stream_correlation(response, correlation_id),
     );
 
-    let mut sink = ActorFrameSink::new(
-        ctx.serializer,
-        ctx.codec,
-        &mut *ctx.framed,
-        &mut *ctx.pipeline,
-    );
-    ctx.actor
-        .install_response(response, correlation_id, &mut sink)
-        .await
-        .map_err(install_error)
+    let is_streaming = matches!(response, Response::Stream(_) | Response::MultiPacket(_));
+    let outcome = {
+        let mut sink = ActorFrameSink::new(
+            ctx.serializer,
+            ctx.codec,
+            &mut *ctx.sink,
+            &mut *ctx.pipeline,
+        );
+        ctx.actor
+            .install_response(response, correlation_id, &mut sink)
+            .await
+            .map_err(install_error)?
+    };
+
+    let Some(protocol) = ctx.protocol else {
+        return Ok(());
+    };
+    let mut context = ConnectionContext;
+    // The protocol terminator is a complete codec frame. Writing it unchanged
+    // preserves metadata a custom codec adds outside the payload, and running
+    // it through the sink's `before_send` hook matches application frames.
+    if owes_terminator(outcome, is_streaming)
+        && let Some(frame) = protocol.stream_end_frame(&mut context)
+    {
+        send_native_frame::<K, F>(&mut *ctx.sink, &mut *ctx.pipeline, frame).await?;
+    }
+    // A cancelled response belongs to a closing connection: its completion
+    // hook must not run, matching the actor's own shutdown behaviour.
+    if outcome != ResponseOutcome::Cancelled {
+        protocol.on_command_end(&mut context);
+    }
+    Ok(())
+}
+
+/// Whether a completed streamed response is owed a protocol terminator.
+///
+/// Only a stream or multi-packet response that ran to completion ends with a
+/// terminator; a failed or cancelled one must not emit another frame.
+const fn owes_terminator(outcome: ResponseOutcome, is_streaming: bool) -> bool {
+    match outcome {
+        ResponseOutcome::Completed => is_streaming,
+        ResponseOutcome::Failed | ResponseOutcome::Cancelled => false,
+    }
 }
 
 /// Stamp the request correlation identifier onto lazily polled stream items.

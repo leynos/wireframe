@@ -18,14 +18,16 @@ use tokio_util::codec::Framed;
 use super::*;
 use crate::{
     app::combined_codec::CombinedCodec,
-    codec::{LengthDelimitedFrameCodec, MIN_FRAME_LENGTH},
-    serializer::BincodeSerializer,
+    codec::{FrameCodec, LengthDelimitedFrameCodec, MIN_FRAME_LENGTH},
+    serializer::{BincodeSerializer, Serializer},
 };
 
 #[path = "codec_driver_tests/fragmentation_properties.rs"]
 mod fragmentation_properties;
 #[path = "codec_driver_tests/growth_properties.rs"]
 mod growth_properties;
+#[path = "codec_driver_tests/second_fragment_failure.rs"]
+mod second_fragment_failure;
 #[cfg(feature = "metrics")]
 #[path = "codec_driver_tests/send_outcome_metrics.rs"]
 mod send_outcome_metrics;
@@ -167,7 +169,7 @@ async fn before_send_mutates_every_flushed_frame() {
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut server,
+        sink: &mut server,
     };
     flush_pipeline_output(&mut transport, &mut pipeline)
         .await
@@ -214,7 +216,7 @@ async fn before_send_runs_for_each_fragment() {
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut server,
+        sink: &mut server,
     };
     flush_pipeline_output(&mut transport, &mut pipeline)
         .await
@@ -256,7 +258,7 @@ async fn default_hooks_leave_frames_unchanged() {
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut server,
+        sink: &mut server,
     };
     flush_pipeline_output(&mut transport, &mut pipeline)
         .await
@@ -294,7 +296,7 @@ async fn before_send_output_over_the_frame_limit_fails_the_send() {
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut server_framed,
+        sink: &mut server_framed,
     };
 
     let error = flush_pipeline_output(&mut transport, &mut pipeline)

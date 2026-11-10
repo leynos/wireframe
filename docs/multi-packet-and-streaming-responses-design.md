@@ -133,18 +133,32 @@ this pattern as the canonical way to build `Response::Stream` values.
 
 `ConnectionActor` classifies how a multi-packet channel finished using a
 `MultiPacketTerminationReason` helper. When `recv` returns `None`, the actor
-records a `Drained` completion, logs an `info!` event that includes the
-connection identifier, peer address, and correlation identifier, and fetches a
-protocol-specific terminator frame via `stream_end_frame`. That frame is
-stamped with the stored `correlation_id` and emitted like any other response
-frame. On a prepared server connection it is serialized and written through the
-connection's frame pipeline, so `before_send` and outbound metrics observe it,
-and `on_command_end` then runs once for the completed response.
+records a `Drained` completion and logs an `info!` event that includes the
+connection identifier, peer address, and correlation identifier. A caller that
+registers `stream_end_frame` on the actor's hooks receives the terminator as a
+queued frame, and `on_command_end` runs only after that frame has been written.
+
+On a prepared server connection the actor carries no terminator hook. The
+inbound handler calls [`WireframeProtocol::stream_end_frame`] after the
+response has been driven to completion and writes the returned frame directly
+through the connection's frame pipeline. `before_send` and outbound metrics
+observe it, and the frame is written unchanged, so tag, length, or padding
+metadata that a custom codec keeps outside the payload survives. The adapter
+neither decodes nor restamps it, so the terminator carries exactly the
+identifier the protocol encoded. `on_command_end` then runs after that final
+write. Neither hook runs when the connection shuts down or the peer disappears
+before the response completes.
+
+A multi-packet frame whose originating request supplied no correlation
+identifier keeps the identifier its producer set, matching the inheritance rule
+used for single, vector, and streamed responses.
 
 If the channel disconnects unexpectedly the termination reason becomes
 `Disconnected`. The actor emits a `warn!` level log so operators can spot
-broken senders, but it still forwards the terminator frame and calls
-`on_command_end` to ensure higher layers release any per-request resources.
+broken senders, and the response still completes through the same
+write-then-`on_command_end` path so higher layers release per-request resources.
+
+[`WireframeProtocol::stream_end_frame`]: ../src/hooks.rs
 
 Shutdown-driven closure is tracked separately through the `Shutdown` variant.
 The actor logs the closure so observability tools can correlate it with control
@@ -578,10 +592,10 @@ cannot regress or be removed.
   lifecycle hooks. This guarantees downstream clean-up and observability cues
   stay consistent with other stream completions.
 - Integration tests exercise the actor in a client-like configuration. They
-  stream multiple envelopes, assert the terminator inherits the request's
-  `correlation_id`, verify a dropped producer logs a `reason=disconnected`
-  warning, and ensure push-queue traffic interleaves with streamed frames
-  without corrupting correlation identifiers.
+  stream multiple envelopes, assert the terminator the actor queues inherits
+  the request's `correlation_id`, verify a dropped producer logs a
+  `reason=disconnected` warning, and ensure push-queue traffic interleaves with
+  streamed frames without corrupting correlation identifiers.
 
 ## 11. Streaming request bodies
 

@@ -89,7 +89,7 @@ async fn exercise_growth_property_case(delta: i64) -> Result<(), Box<dyn std::er
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut server_framed,
+        sink: &mut server_framed,
     };
     let result = flush_pipeline_output(&mut transport, &mut pipeline).await;
     drop(server_framed);

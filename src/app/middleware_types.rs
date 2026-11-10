@@ -22,8 +22,18 @@ pub type Handler<E> = Arc<dyn Fn(&E) -> Pin<Box<dyn Future<Output = ()> + Send>>
 /// the connection's serializer, codec, and protocol hooks. Handlers may return
 /// [`Response::MultiPacket`] to spawn a producer and stream frames
 /// asynchronously, which is how a route keeps producing after it returns.
-pub type ResponseHandler<E> =
-    Arc<dyn Fn(&E) -> Pin<Box<dyn Future<Output = Response<Envelope, ()>> + Send>> + Send + Sync>;
+///
+/// The returned future may borrow the request for as long as the handler call
+/// lasts, so a handler can read request data after an `await` without copying
+/// it first.
+pub type ResponseHandler<E> = Arc<
+    dyn for<'request> Fn(
+            &'request E,
+        )
+            -> Pin<Box<dyn Future<Output = Response<Envelope, ()>> + Send + 'request>>
+        + Send
+        + Sync,
+>;
 
 /// Registered route kind stored by [`WireframeApp`].
 ///
@@ -44,4 +54,37 @@ pub trait Middleware<E: Packet>:
 impl<E: Packet, T> Middleware<E> for T where
     T: Transform<HandlerService<E>, Output = HandlerService<E>> + Send + Sync
 {
+}
+
+#[cfg(test)]
+mod tests {
+    //! Compile-time and runtime coverage for handler lifetime bounds.
+
+    use super::*;
+
+    /// Echo the request's payload back after yielding once.
+    ///
+    /// The function reads the request after an `await`, so installing it as a
+    /// [`ResponseHandler`] only type-checks because the alias ties the returned
+    /// future's lifetime to the borrowed request.
+    async fn echo_after_yield(request: &Envelope) -> Response<Envelope, ()> {
+        tokio::task::yield_now().await;
+        Response::Single(Envelope::new(request.id, None, request.payload.clone()))
+    }
+
+    /// A response handler may read request data after an `await` without
+    /// copying it first.
+    #[tokio::test]
+    async fn response_handler_may_borrow_the_request() {
+        let handler: ResponseHandler<Envelope> =
+            Arc::new(|request: &Envelope| Box::pin(echo_after_yield(request)));
+        let request = Envelope::new(7, None, vec![1]);
+
+        let response = handler(&request).await;
+
+        assert!(
+            matches!(response, Response::Single(frame) if frame.id == 7),
+            "the handler must see the borrowed request after awaiting"
+        );
+    }
 }

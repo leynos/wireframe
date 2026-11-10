@@ -448,13 +448,22 @@ fragmentation, outbound metrics, serialization, `wrap_payload`, and
 receives no fragmenter and no `before_send` hook, so application frames are
 never serialized or hooked twice.
 
-The actor built for a server connection is adapted from the connection's
-protocol: `on_command_end`, `handle_error`, and the `stream_end_frame`
-terminator are forwarded, while `before_send` stays with the pipeline and
-`on_connection_setup`/`on_eof` stay with the server's own connection lifecycle.
-Without a protocol the actor uses default, no-op hooks. The stream terminator
-is decoded through the serializer into an `Envelope`; a terminator that does
-not decode is logged and omitted rather than closing the connection.
+Only `handle_error` is forwarded from the protocol to that actor: the actor
+registers no completion or terminator hook, and `before_send` stays with the
+pipeline. The prepared path does not invoke the protocol's
+`on_connection_setup` or `on_eof`; those callbacks remain unreached there, and
+the application-level connection setup and teardown callbacks registered on
+`WireframeApp` are separate hooks. Without a protocol the actor uses default,
+no-op hooks.
+
+`forward_response` owns the rest of the command lifecycle. Once the actor
+reports a completed `Stream` or `MultiPacket` response, it calls
+`stream_end_frame`, writes the returned codec frame unchanged through the same
+pipeline (so `before_send` and outbound metrics still observe it), and only
+then calls `on_command_end`. Writing the native frame keeps tag, length, or
+padding metadata a custom codec adds outside the payload, which decoding into an
+`Envelope` and re-wrapping would discard. The adapter neither decodes nor
+restamps the frame, so a correlated terminator must be built by the protocol.
 
 The connection actor stores its outbound producer as one `ActiveOutput` value,
 so a response stream and a multi-packet channel cannot both be active. Its

@@ -2,9 +2,11 @@
 //!
 //! Application responses are installed on an untracked [`ConnectionActor`]
 //! instead of being written directly. The actor owns the biased selection
-//! rules that interleave pushed frames with response streams, so a handler
-//! that returns `Response::Stream` or `Response::MultiPacket` can be driven to
-//! completion while pushes keep flowing.
+//! rules that would interleave pushed frames with response streams, so a
+//! handler that returns `Response::Stream` or `Response::MultiPacket` is
+//! driven to completion through those rules. The internal push queues are
+//! structural for now: the server neither exposes the handle nor installs
+//! server-initiated pushes on this actor.
 //!
 //! The actor deliberately receives no fragmenter and no `before_send` hook.
 //! Fragmentation, codec wrapping, and protocol hooks for application frames
@@ -13,19 +15,14 @@
 
 use std::{io, sync::Arc};
 
-use log::warn;
 use tokio_util::sync::CancellationToken;
 
-use super::core::parse_envelope;
 use crate::{
     app::Envelope,
     codec::FrameCodec,
     connection::{ConnectionActor, ConnectionChannels},
-    frame::FrameMetadata,
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
-    message::DecodeWith,
     push::{PushHandle, PushQueues},
-    serializer::Serializer,
 };
 
 /// Capacity of each internal push queue.
@@ -66,15 +63,13 @@ impl Drop for CancellationGuard {
 ///
 /// Returns the actor and the queue handle that keeps its push receivers open.
 /// Callers must hold the handle for as long as the actor is used.
-pub(super) fn build_connection_actor<S, F>(
+pub(super) fn build_connection_actor<F>(
     protocol: Option<&Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
-    serializer: Arc<S>,
     shutdown: CancellationToken,
+    peer_closed: CancellationToken,
 ) -> io::Result<(ConnectionResponseActor, CancellationGuard)>
 where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     F: FrameCodec,
-    Envelope: DecodeWith<S>,
 {
     let (queues, handle) = PushQueues::<Envelope>::builder()
         .high_capacity(INTERNAL_PUSH_CAPACITY)
@@ -82,14 +77,15 @@ where
         .build()
         .map_err(|error| io::Error::other(format!("failed to build actor queues: {error}")))?;
     let hooks = protocol.map_or_else(ProtocolHooks::default, |registered| {
-        actor_hooks::<S, F>(registered, serializer)
+        actor_hooks::<F>(registered)
     });
-    let actor = ConnectionActor::new_untracked(
+    let mut actor = ConnectionActor::new_untracked(
         ConnectionChannels::new(queues, handle.clone()),
         None,
         shutdown.clone(),
         hooks,
     );
+    actor.set_peer_closed(peer_closed);
     Ok((
         ConnectionResponseActor {
             actor,
@@ -101,59 +97,28 @@ where
 
 /// Adapt a protocol into the hooks the actor needs for response frames.
 ///
-/// Only the response-facing callbacks are forwarded. `before_send` stays unset
-/// because the transport sink runs it after serialization, and setup/EOF are
-/// driven by the server rather than by this actor.
-fn actor_hooks<S, F>(
+/// Only the error callback is forwarded. Terminator emission and completion
+/// run in the inbound handler after the actor has finished driving the
+/// response: the protocol returns a complete codec frame, and writing that
+/// frame unchanged is the only way to preserve metadata a custom codec adds
+/// outside the payload. `before_send` stays unset because the transport sink
+/// runs it after serialization. The protocol's setup and EOF callbacks are not
+/// invoked on the prepared path at all, so they are deliberately absent here.
+fn actor_hooks<F>(
     protocol: &Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>,
-    serializer: Arc<S>,
 ) -> ProtocolHooks<Envelope, ()>
 where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     F: FrameCodec,
-    Envelope: DecodeWith<S>,
 {
-    let command_end = {
-        let command_protocol = Arc::clone(protocol);
-        Box::new(move |ctx: &mut ConnectionContext| command_protocol.on_command_end(ctx))
-    };
     let handle_error = {
         let error_protocol = Arc::clone(protocol);
         Box::new(move |error: (), ctx: &mut ConnectionContext| {
             error_protocol.handle_error(error, ctx);
         })
     };
-    let stream_end = {
-        let terminator_protocol = Arc::clone(protocol);
-        Box::new(move |ctx: &mut ConnectionContext| {
-            let frame = terminator_protocol.stream_end_frame(ctx)?;
-            decode_stream_end::<S, F>(serializer.as_ref(), &frame)
-        })
-    };
 
     ProtocolHooks {
-        on_command_end: Some(command_end),
         handle_error: Some(handle_error),
-        stream_end: Some(stream_end),
         ..ProtocolHooks::default()
-    }
-}
-
-/// Decode a protocol terminator frame into the actor's envelope form.
-///
-/// A frame that cannot be decoded is logged and omitted rather than closing an
-/// otherwise healthy connection.
-fn decode_stream_end<S, F>(serializer: &S, frame: &F::Frame) -> Option<Envelope>
-where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
-    F: FrameCodec,
-    Envelope: DecodeWith<S>,
-{
-    match parse_envelope(serializer, F::frame_payload(frame)) {
-        Ok((envelope, _)) => Some(envelope),
-        Err(error) => {
-            warn!("failed to decode stream-end frame: error={error:?}");
-            None
-        }
     }
 }

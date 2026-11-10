@@ -10,6 +10,11 @@ use crate::response::WireframeError;
 pub(super) enum Event<F, E> {
     /// Cancellation was observed and all sources must begin shutdown.
     Shutdown,
+    /// The peer closed its input half while a response was still in flight.
+    ///
+    /// A peer that only half-closed may still be reading, so the response is
+    /// not truncated immediately; see the bounded idle grace in `drive`.
+    PeerClosed,
     /// Result from polling the urgent push queue.
     High(Option<F>),
     /// Result from polling the best-effort push queue.

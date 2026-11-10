@@ -4,11 +4,15 @@
 //! and the actor-driven response writer. Keeping the construction here leaves
 //! the frame-processing loop focused on dispatch.
 
+use futures::{
+    StreamExt,
+    stream::{SplitSink, SplitStream},
+};
 use log::warn;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
-use super::super::combined_codec::CombinedCodec;
+use super::super::combined_codec::{CombinedCodec, ConnectionCodec};
 use crate::codec::{FrameCodec, MAX_FRAME_LENGTH, clamp_frame_length};
 
 /// Per-connection framing state shared by the inbound reader and response
@@ -21,6 +25,26 @@ where
     pub(super) codec: F,
     /// Framed stream built from the codec's decoder and encoder.
     pub(super) framed: Framed<W, CombinedCodec<F::Decoder, F::Encoder>>,
+}
+
+/// Write half of a framed connection transport.
+pub(super) type TransportSink<W, F> =
+    SplitSink<Framed<W, ConnectionCodec<F>>, <F as FrameCodec>::Frame>;
+
+/// Read half of a framed connection transport.
+pub(super) type TransportStream<W, F> = SplitStream<Framed<W, ConnectionCodec<F>>>;
+
+impl<W, F> ConnectionFraming<W, F>
+where
+    F: FrameCodec,
+    W: AsyncRead + AsyncWrite + Unpin,
+{
+    /// Split the transport into its write sink, read stream, and codec.
+    pub(super) fn split(self) -> (TransportSink<W, F>, TransportStream<W, F>, F) {
+        let Self { codec, framed } = self;
+        let (sink, stream) = framed.split();
+        (sink, stream, codec)
+    }
 }
 
 /// Build per-connection framing state and guard the requested frame length.

@@ -191,7 +191,7 @@ async fn send_envelope_wraps_with_codec(harness: TestHarness) {
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut framed,
+        sink: &mut framed,
     };
     send_envelope(&mut transport, &envelope, &mut pipeline)
         .await
@@ -242,7 +242,7 @@ async fn before_send_observes_codec_wrapped_frame(harness: TestHarness) {
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut framed,
+        sink: &mut framed,
     };
     send_envelope(&mut transport, &envelope, &mut pipeline)
         .await
@@ -295,10 +295,11 @@ async fn response_context_holds_references(harness: TestHarness) {
 
     let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
         serializer: &serializer,
-        framed: &mut framed,
+        sink: &mut framed,
         pipeline: &mut pipeline,
         codec: &codec,
         actor: &mut actor,
+        protocol: None,
     };
 
     // Verify fields are accessible (compile-time check)
@@ -325,7 +326,7 @@ async fn send_envelope_returns_error_on_failure(small_harness: TestHarness) {
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut framed,
+        sink: &mut framed,
     };
     let result = send_envelope(&mut transport, &envelope, &mut pipeline).await;
 

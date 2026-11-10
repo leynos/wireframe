@@ -3,6 +3,7 @@
 mod actor;
 mod core;
 mod framing;
+mod peer_watch;
 
 use std::{collections::HashMap, sync::Arc};
 

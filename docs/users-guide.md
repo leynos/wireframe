@@ -1579,18 +1579,19 @@ let app = WireframeApp::new()?
 
 Call `fragmentation(None)` to keep fragmentation disabled after explicit
 configuration (for example, when the transport already supports large frames or
-fragmentation is delegated to an upstream gateway). The `ConnectionActor`
-mirrors the same behaviour for push traffic and streaming responses through
-`enable_fragmentation`, ensuring client-visible frames follow the same format.
+fragmentation is delegated to an upstream gateway). A `ConnectionActor` used
+for push traffic mirrors the same behaviour through `enable_fragmentation`,
+ensuring client-visible frames follow the same format.
 
 On the server side, a unified `FramePipeline` applies fragmentation to every
 outbound handler response `Envelope` before serialization and codec wrapping.
 Its connection-scoped `FragmentationState` adapter owns both the outbound
 fragmenter and the inbound reassembler. Streaming responses and multi-packet
-channels are emitted by the `ConnectionActor`, which keeps its own
-connection-local `Fragmenter` and applies the same fragmentation logic through
-`enable_fragmentation`. The two paths share the wire format rather than one
-fragmentation state.
+channels are scheduled by the `ConnectionActor`, but their frames are written
+through that same `FramePipeline`, so one prepared connection uses one
+fragmentation state and one wire format. The actor keeps its own
+connection-local `Fragmenter`, configured with `enable_fragmentation`, only for
+the standalone push API.
 
 ## Protocol hooks
 
@@ -1613,11 +1614,19 @@ frame that exceeds that limit with an oversized-frame error, which fails the
 send and ends the connection. A custom codec defines its own behaviour for an
 oversized frame, so it must enforce `max_frame_length` itself.
 
-The application path does not run the remaining protocol hooks: connection
-setup, command end, stream end, error, and end-of-file callbacks remain the
-responsibility of the `ConnectionActor` for push and streaming traffic. The
-direct response helpers that write frames without the `FramePipeline` also
-bypass `before_send`; use `WireframeApp` routes when a response must traverse
+The application path also runs the protocol hooks that surround a response. A
+completed `Stream` or `MultiPacket` response is terminated by the frame
+`stream_end_frame` returns; that frame is a complete codec frame, so it is
+written unchanged after `before_send` has run on it, preserving any metadata a
+custom codec keeps outside the payload. The adapter neither decodes nor
+restamps it, so the terminator carries exactly the bytes the protocol built.
+`on_command_end` runs only after the final frame has been written, and not at
+all when the connection shuts down mid-response. A protocol error reported by a
+response stream is passed to `handle_error`. The connection setup and
+end-of-file callbacks are not invoked on the prepared server path; they remain
+available to callers that drive a `ConnectionActor` directly. The direct
+response helpers that write frames without the `FramePipeline` also bypass
+`before_send`; use `WireframeApp` routes when a response must traverse
 configured protocol hooks.
 
 ## Running servers
@@ -2724,12 +2733,15 @@ async fn multi_packet() -> (tokio::sync::mpsc::Sender<Frame>, Response<Frame>) {
 Multi-packet responders rely on the protocol hook `stream_end_frame` to emit a
 terminator when the producer side of the channel closes naturally. The
 connection actor records why the channel ended (`drained`, `disconnected`, or
-`shutdown`), stamps the stored `correlation_id` on the terminator frame, and
-routes it through the standard `before_send` instrumentation so telemetry and
-higher-level lifecycle hooks observe a consistent end-of-stream signal.
-Dropping all senders closes the channel; the actor logs the termination reason
-and forwards the terminator through the same hooks used for regular frames so
-existing observability continues to work.
+`shutdown`). On a prepared server connection the adapter obtains the terminator
+after the actor has driven the response to completion and writes that frame
+through the standard `before_send` instrumentation, so telemetry and
+higher-level lifecycle hooks observe a consistent end-of-stream signal. The
+frame is written unchanged, so any codec metadata outside the payload survives
+and the adapter does not restamp its correlation identifier. A
+`ConnectionActor` driven directly through `ProtocolHooks` still stamps the
+stored `correlation_id` on the terminator it queues. Dropping all senders
+closes the channel; the actor logs the termination reason.
 
 ### Response-producing routes
 
@@ -2773,8 +2785,11 @@ connection's frame pipeline before the next inbound frame is read:
 - `Response::Stream` and `Response::MultiPacket` are polled to completion,
   including the protocol's `stream_end_frame` terminator, before the read half
   is serviced again. Responses are serial per connection: a long stream delays,
-  but never interleaves with, the next request on that connection. Push queues
-  stay polled while the stream runs.
+  but never interleaves with, the next request on that connection. The actor
+  still polls its internal high- and low-priority push queues while a stream
+  runs, but the server neither exposes those queues nor installs
+  server-initiated pushes on this actor, so that polling is structural for now
+  rather than an interleaving guarantee for out-of-band pushes.
 - Every emitted envelope passes through fragmentation, outbound metrics,
   serialization, `wrap_payload`, and `before_send`, in that order, immediately
   before the transport write. The terminator follows the same path.

@@ -547,3 +547,13 @@ multi-packet bodies — are written through the connection's `FramePipeline`, an
 the actor built for that connection deliberately has no `before_send` hook of
 its own, so the hook runs exactly once per frame. See the
 [users' guide](users-guide.md) for the user-facing contract.
+
+`on_command_end` now fires once for every handler response on a prepared server
+connection, including an ordinary `route` reply that previously only emitted
+bytes. A protocol that releases per-request state in that hook therefore sees
+one call per reply, not only for actor-driven push and multi-packet traffic.
+
+Prepared connections also require `S: 'static` on the serializer.
+`PreparedApp::handle_connection_result` and the deprecated
+`WireframeApp::handle_connection*` methods now carry this bound, so a
+serializer that borrows connection-local data can no longer be used with them.

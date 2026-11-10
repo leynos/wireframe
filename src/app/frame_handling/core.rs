@@ -1,15 +1,15 @@
 //! Core frame handling context types.
 
-use std::io;
+use std::{io, sync::Arc};
 
+use futures::Sink;
 use log::warn;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_util::codec::Framed;
 
 use crate::{
-    app::{Envelope, codec_driver::FramePipeline, combined_codec::ConnectionCodec},
+    app::{Envelope, codec_driver::FramePipeline},
     codec::FrameCodec,
     connection::ConnectionActor,
+    hooks::WireframeProtocol,
     serializer::Serializer,
 };
 
@@ -50,16 +50,16 @@ impl<'a> DeserFailureTracker<'a> {
 }
 
 /// Bundles shared dependencies for response forwarding.
-pub(crate) struct ResponseContext<'a, S, W, F>
+pub(crate) struct ResponseContext<'a, S, K, F>
 where
     S: Serializer + Send + Sync,
-    W: AsyncRead + AsyncWrite + Unpin,
+    K: Sink<F::Frame, Error = io::Error> + Unpin,
     F: FrameCodec,
 {
     /// Serializer used to encode the handler response.
     pub(crate) serializer: &'a S,
-    /// Framed transport receiving encoded response frames.
-    pub(crate) framed: &'a mut Framed<W, ConnectionCodec<F>>,
+    /// Sink receiving encoded response frames.
+    pub(crate) sink: &'a mut K,
     /// Outbound pipeline that applies fragmentation, `before_send`, and
     /// metrics.
     pub(crate) pipeline: &'a mut FramePipeline<F::Frame>,
@@ -67,4 +67,7 @@ where
     pub(crate) codec: &'a F,
     /// Connection actor that schedules and delivers the response.
     pub(crate) actor: &'a mut ConnectionActor<Envelope, ()>,
+    /// Protocol whose terminator and completion hooks follow the response.
+    pub(crate) protocol:
+        Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
 }

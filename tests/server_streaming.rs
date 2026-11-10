@@ -94,11 +94,11 @@ struct TerminatingProtocol {
 impl TerminatingProtocol {
     /// Build the protocol around a shared observation log.
     ///
-    /// The terminator is an id-zero frame carrying a fixed correlation value:
-    /// [`ResponseStream`] recognizes a terminator before it validates
-    /// correlation, so end-of-stream frames need no per-request stamp. A
-    /// multi-packet response still overwrites that value with the request
-    /// correlation before the frame reaches the wire.
+    /// The terminator is an id-zero frame carrying a fixed correlation value.
+    /// The adapter writes the frame the protocol returns unchanged, so this
+    /// value is what reaches the wire; [`ResponseStream`] recognizes a
+    /// terminator before it validates correlation, so clients do not depend on
+    /// a per-request stamp.
     ///
     /// [`ResponseStream`]: wireframe::client::ResponseStream
     const fn new(observations: Arc<Observations>) -> Self { Self { observations } }
@@ -113,11 +113,9 @@ impl WireframeProtocol for TerminatingProtocol {
     }
 
     fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> {
-        let terminator = StreamTestEnvelope::terminator(CorrelationId::new(0));
         // An unencodable terminator is treated as "no terminator"; the test
         // fixture envelope always encodes.
-        let payload = terminator.serialize_to_bytes().ok()?;
-        Some(LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH).wrap_payload(payload))
+        terminator_frame().ok()
     }
 }
 
@@ -227,14 +225,20 @@ fn request_for(route: u32, correlation: Option<CorrelationId>) -> StreamTestEnve
 }
 
 /// Serialize the id-zero terminator this protocol emits.
-///
-/// Multi-packet responses stamp the terminator with the request correlation,
-/// so the expected bytes carry the same identifier.
 fn terminator_bytes(correlation: CorrelationId) -> TestResult<Vec<u8>> {
     StreamTestEnvelope::terminator(correlation)
         .serialize_to_bytes()
         .map(|bytes| bytes.to_vec())
         .map_err(|error| TestError::Msg(format!("serialize terminator: {error}")))
+}
+
+/// Build the exact wire frame the protocol returns as its terminator.
+///
+/// The adapter writes this frame unchanged, so the recorded bytes and the
+/// decoded expectations both derive from this single definition.
+fn terminator_frame() -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
+    let payload = terminator_bytes(CorrelationId::new(0))?;
+    Ok(LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH).wrap_payload(Bytes::from(payload)))
 }
 
 /// Decode a recorded outbound frame into the envelope that produced it.
@@ -291,7 +295,10 @@ async fn spawned_producer_route_streams_correlated_frames() -> TestResult {
         .iter()
         .map(|frame| decode_recorded(frame))
         .collect::<TestResult<Vec<Envelope>>>()?;
-    let terminator = decode_recorded(&terminator_bytes(correlation)?)?;
+    // The adapter writes the protocol's terminator unchanged, so the recorded
+    // frame is byte-for-byte the frame `stream_end_frame` built, correlation 0
+    // included.
+    let terminator = decode_recorded(&terminator_bytes(CorrelationId::new(0))?)?;
     assert_recorded_stream(&recorded, 2, &terminator, correlation);
 
     pair.shutdown().await?;
