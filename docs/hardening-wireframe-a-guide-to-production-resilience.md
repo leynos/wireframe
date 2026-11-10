@@ -339,19 +339,30 @@ provide optional, advanced patterns for error handling and recovery.
 ### 5.1 Typed Errors for Intelligent Recovery
 
 A simple `io::Error` is insufficient to describe all failure modes. `wireframe`
-will use a generic error enum to distinguish between unrecoverable transport
-errors and potentially recoverable protocol errors.
+distinguishes unrecoverable transport errors from potentially recoverable
+protocol errors with the generic `WireframeError<E>` enum, whose `Protocol`
+variant carries the application's protocol-error type.
 
 <!-- tested-example: res-008 -->
 ```rust
-pub enum WireframeError<E> {
-    /// A fatal I/O error occurred. The connection should be terminated.
-    Io(std::io::Error),
-    /// A protocol-specific logical error. The framework may be able to
-    /// format a reply before closing the logical stream.
-    Protocol(E),
+/// The application's protocol error type; `WireframeError` is generic over it.
+#[derive(Debug)]
+struct SqlError {
+    code: u32,
 }
 
+/// Reports whether the protocol can answer before the logical stream closes.
+fn is_recoverable(error: wireframe::WireframeError<SqlError>) -> bool {
+    match error {
+        // A fatal I/O error occurred; the connection should be terminated.
+        wireframe::WireframeError::Io(_) => false,
+        // A protocol-specific logical error; the framework can format a reply
+        // before closing the logical stream.
+        wireframe::WireframeError::Protocol(SqlError { .. }) => true,
+        // A codec or configuration fault is not recoverable at this layer.
+        wireframe::WireframeError::Codec(_) | wireframe::WireframeError::DuplicateRoute(_) => false,
+    }
+}
 ```
 
 When the connection actor receives a `WireframeError::Protocol(e)` from a

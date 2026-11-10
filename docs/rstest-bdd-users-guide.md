@@ -21,6 +21,11 @@ behaviour, the implementation status is noted. Examples and explanations are
 organized by the so‑called *three amigos* of BDD: the business analyst/product
 owner, the developer, and the tester.
 
+Most Rust examples are compiled by the test suite. A few are marked
+`rust,ignore` because the snippet needs surrounding context that the prose
+supplies; issue #881 tracks converting those remaining exemptions into
+compiling fences.
+
 ## Toolchain requirements
 
 `rstest-bdd` targets Rust 1.88 or newer across every crate in the workspace.

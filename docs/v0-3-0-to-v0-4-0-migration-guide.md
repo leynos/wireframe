@@ -405,11 +405,11 @@ subscriber is now the supported arrangement rather than a duplicate.
 ## Migrate byte-handling APIs
 
 The prepared-application transition is independent of the zero-copy byte
-migration. The v0.4 byte-facing APIs use `bytes::Bytes` (or the `PayloadBytes`
-wrapper) for read-only hand-offs and an explicit edit-on-demand operation for
-mutation. Middleware and hook editor APIs are not yet finalized; their
-migration is deferred to roadmap items 12.1.2 and 12.2.1. The compatibility
-helper names described below are defined by
+migration. The planned byte-facing APIs use `bytes::Bytes` or a `PayloadBytes`
+wrapper for read-only hand-offs and an explicit edit-on-demand operation for
+mutation; none of them is available in v0.4. Middleware and hook editor APIs
+are not yet finalized either; their migration is deferred to roadmap items
+12.1.2 and 12.2.1. The compatibility helper names described below are defined by
 [ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md).
 
 ### Middleware
@@ -431,9 +431,11 @@ policy is defined in
 
 ### Serializers
 
-Serializer output moves from an owned vector to the stable byte wrapper. Use
+The following serializer migration is proposed and is not available in v0.4.
+`Serializer::serialize` currently returns `Vec<u8>`. The example shows a
+possible future transition to a stable byte wrapper: use
 `PayloadBytes::from_vec` only at an existing compatibility boundary, and keep
-the zero-copy value through the codec hand-off:
+the zero-copy value through the codec hand-off.
 
 <!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-011 -->
 ```text
@@ -441,17 +443,17 @@ the zero-copy value through the codec hand-off:
 let bytes: Vec<u8> = serializer.serialize(&message)?;
 let frame = codec.wrap_payload(bytes::Bytes::from(bytes));
 
-# After: the serializer returns the stable shared byte representation.
+# Proposed: the serializer returns the stable shared byte representation.
 let bytes: PayloadBytes = serializer.serialize(&message)?;
 let frame = codec.wrap_payload(bytes.into_bytes());
 
-# Compatibility only: an older caller that still requires Vec<u8>.
+# Proposed compatibility option, if implemented.
 let bytes: Vec<u8> = serializer.serialize_to_vec(&message)?;
 ```
 
-`serialize_to_vec` is a temporary compatibility shim where provided; new code
-should consume `PayloadBytes` directly. `PayloadBytes::into_vec` is likewise an
-escape hatch, not the normal transport path.
+`PayloadBytes` is not implemented. Whether a `serialize_to_vec` compatibility
+shim will ship remains undecided; `PayloadBytes::into_vec`, if it is added, is
+an escape hatch rather than the normal transport path.
 
 ### Custom codecs
 

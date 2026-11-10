@@ -2,7 +2,9 @@
 
 Note: This guide is retained for historical context. The project removed
 Cucumber-based tests on 2026-01-25 in favour of rstest-bdd; use
-`docs/rstest-bdd-users-guide.md` for current guidance.
+`docs/rstest-bdd-users-guide.md` for current guidance. Its Rust examples are
+marked `rust,ignore` because the guide describes crates the workspace no longer
+builds; issue #881 tracks the remaining Rust exemptions.
 
 ## Part 1: The Philosophy and Practice of Behaviour-Driven Development (BDD)
 

@@ -7,6 +7,11 @@ Feature: Published documentation examples
     Given the published user-facing examples are loaded
     Then every published example has a stable identifier and source
 
+  Scenario: A well-formed example is accepted by the shared loader
+    Given a document whose example carries a marker and a language
+    When the shared loader validates the staged document
+    Then validation succeeds
+
   Scenario: A malformed example is rejected by the shared loader
     Given a document whose example fence carries no language
     When the shared loader validates the staged document

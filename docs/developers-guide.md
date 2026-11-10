@@ -1835,6 +1835,19 @@ crate the workspace does not build, an async runtime a doctest cannot start, or
 context the surrounding prose supplies; issue #881 tracks the remaining
 exemptions.
 
+The shared style guide states the requirement without exceptions: every fenced
+example in a user-facing document is executable and exercised by the test
+suite. This repository enforces that requirement for Rust fences through the
+shared loader and `make test-doc`, and it records the two supported carve-outs
+rather than leaving them implicit. A non-Rust fence is exercised by the gate
+that understands its language, such as `make nixie` for Mermaid diagrams and
+Markdown lint and spelling for prose. A `rust,ignore` fence is rendered but not
+compiled, so the document names the dependency or context that blocks
+compilation and the exemption is listed under issue #881. The style guide's own
+wording is being revised to state these exemptions and the checks that enforce
+them (see
+[leynos/agent-helper-scripts#258](https://github.com/leynos/agent-helper-scripts/issues/258)).
+
 When adding a user-facing guide, add it to both the shared loader inventory and
 the rustdoc test module. Give each fence a stable marker and validate the
 example in the relevant test suite before publishing the document.

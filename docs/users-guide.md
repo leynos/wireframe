@@ -2753,9 +2753,13 @@ before accepting each frame, so producers can rely on the `send().await` future
 to coordinate flow control with the peer.
 
 <!-- tested-example: users-guide-056 -->
-```rust,ignore
+```rust
 use tokio::spawn;
-use wireframe::response::{Frame, Response};
+use wireframe::response::Response;
+
+/// The application frame type carried by the response channel.
+#[derive(Debug)]
+struct Frame(Vec<u8>);
 
 async fn multi_packet() -> (tokio::sync::mpsc::Sender<Frame>, Response<Frame>) {
     let (sender, response) = Response::with_channel(16);
@@ -2765,7 +2769,7 @@ async fn multi_packet() -> (tokio::sync::mpsc::Sender<Frame>, Response<Frame>) {
         async move {
             // Back-pressure: `send` awaits whenever the channel is full.
             for chunk in [b"alpha".as_slice(), b"beta".as_slice()] {
-                let frame = Frame::from(chunk);
+                let frame = Frame(chunk.to_vec());
                 if producer.send(frame).await.is_err() {
                     return; // connection dropped; stop producing
                 }

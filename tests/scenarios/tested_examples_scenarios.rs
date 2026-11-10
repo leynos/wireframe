@@ -2,15 +2,12 @@
 
 use rstest_bdd_macros::scenario;
 
-use crate::fixtures::tested_examples::{TestedExamplesWorld, tested_examples_world};
-
-/// A document whose fenced example names no language.
-const UNLANGUAGED_DOCUMENT: &str = concat!(
-    "<!-- tested-example: staged-001 -->\n",
-    "```\n",
-    "fn main() {}\n",
-    "```\n",
-);
+use crate::fixtures::tested_examples::{
+    TestedExamplesWorld,
+    UNLANGUAGED_DOCUMENT,
+    VALID_DOCUMENT,
+    tested_examples_world,
+};
 
 #[scenario(
     path = "tests/features/tested_examples.feature",
@@ -24,6 +21,21 @@ fn published_examples_are_addressable(tested_examples_world: TestedExamplesWorld
     world
         .verify_examples_are_addressable()
         .expect("published examples should be addressable");
+}
+
+#[scenario(
+    path = "tests/features/tested_examples.feature",
+    name = "A well-formed example is accepted by the shared loader"
+)]
+fn well_formed_examples_are_accepted(tested_examples_world: TestedExamplesWorld) {
+    let mut world = tested_examples_world;
+    world.stage_document(VALID_DOCUMENT);
+    world
+        .validate_staged_document()
+        .expect("validating a staged document should not itself fail");
+    world
+        .validation_succeeded()
+        .expect("a marked fence with a language should be accepted");
 }
 
 #[scenario(

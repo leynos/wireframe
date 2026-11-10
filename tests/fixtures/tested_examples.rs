@@ -14,6 +14,22 @@ use crate::tested_examples::{
 /// Fallible result returned by documentation-example scenario checks.
 pub type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+/// A document whose marker and fence satisfy every loader rule.
+pub const VALID_DOCUMENT: &str = concat!(
+    "<!-- tested-example: staged-001 -->\n",
+    "```rust\n",
+    "fn main() {}\n",
+    "```\n",
+);
+
+/// A document whose fenced example names no language, so the loader rejects it.
+pub const UNLANGUAGED_DOCUMENT: &str = concat!(
+    "<!-- tested-example: staged-001 -->\n",
+    "```\n",
+    "fn main() {}\n",
+    "```\n",
+);
+
 /// BDD world holding examples extracted from published Markdown documents.
 ///
 /// The world either reports on the published inventory or validates a staged
@@ -81,6 +97,18 @@ impl TestedExamplesWorld {
         let document = PublishedDocument::new("staged.md", source);
         self.validation = Some(parse_document(&document, &HashSet::new()).map(|_| ()));
         Ok(())
+    }
+
+    /// Verify validation accepted the staged document.
+    pub fn validation_succeeded(&self) -> TestResult<()> {
+        match self.validation.as_ref() {
+            Some(Ok(())) => Ok(()),
+            Some(Err(message)) => Err(std::io::Error::other(format!(
+                "validation failed unexpectedly: {message}"
+            ))
+            .into()),
+            None => Err(std::io::Error::other("the document was not validated").into()),
+        }
     }
 
     /// Verify validation rejected the staged document for the stated reason.

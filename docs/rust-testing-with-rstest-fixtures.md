@@ -393,11 +393,10 @@ an incoming event:
 ```rust
 use rstest::rstest;
 
-#
-# #[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 enum State { Init, Start, Processing, Terminated }
-#
-# #[derive(Debug)]
+
+#[derive(Debug, Clone, Copy)]
 enum Event { Process, Error, Fatal }
 
 impl State {

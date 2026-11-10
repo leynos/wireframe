@@ -299,8 +299,8 @@ fn parse_open_example(
     let line_number = index + 1;
     let id = example_identifier(document, index, known, &parsed.identifiers)?;
     let language = example_language(line, fence, document.path(), line_number)?;
-    // `index` is zero-based for the fence and therefore one-based for the
-    // marker line immediately above it.
+    // The zero-based fence index equals the one-based number of the marker
+    // line immediately above it, so `index` is stored unchanged.
     parsed.identifiers.push((id.clone(), index));
     Ok(Some(OpenExample {
         fence,

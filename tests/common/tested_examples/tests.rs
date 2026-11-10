@@ -97,6 +97,42 @@ fn documents_load_in_order_and_share_identifiers() {
 }
 
 #[test]
+fn multiple_examples_load_in_document_and_source_order() {
+    let first = concat!(
+        "Prose.\n\n",
+        "<!-- tested-example: first-001 -->\n```rust\nfn first() {}\n```\n\n",
+        "<!-- tested-example: first-002 -->\n```rust,no_run\nfn second() {}\n```\n",
+    );
+    let second = concat!(
+        "# Second\n\n",
+        "<!-- tested-example: second-001 -->\n```text\nalpha\nbeta\n```\n",
+    );
+
+    let examples = load_documents(&[("first.md", first), ("second.md", second)])
+        .expect("distinct identifiers are accepted");
+
+    let observed: Vec<(&str, &str, &str, &str, usize)> = examples
+        .iter()
+        .map(|example| {
+            (
+                example.id.as_str(),
+                example.document.as_str(),
+                example.language.as_str(),
+                example.source.as_str(),
+                example.start_line,
+            )
+        })
+        .collect();
+    #[rustfmt::skip]
+    let expected = vec![
+        ("first-001", "first.md", "rust", "fn first() {}\n", 4),
+        ("first-002", "first.md", "rust", "fn second() {}\n", 9),
+        ("second-001", "second.md", "text", "alpha\nbeta\n", 4),
+    ];
+    assert_eq!(observed, expected);
+}
+
+#[test]
 fn duplicates_across_documents_are_rejected_by_the_merge_boundary() {
     let first = document_with("shared-001");
     let duplicate = document_with("shared-001");
@@ -168,5 +204,23 @@ proptest! {
         ]);
 
         prop_assert_eq!(result.is_err(), first == second);
+    }
+
+    #[test]
+    fn one_identifier_claimed_by_two_documents_is_rejected(identifier in "[a-z][a-z0-9-]{0,10}") {
+        let first = document_with(&identifier);
+        let second = document_with(&identifier);
+
+        let error = load_documents(&[
+            ("first.md", first.as_str()),
+            ("second.md", second.as_str()),
+        ])
+        .expect_err("an identifier claimed by two documents must fail loading");
+
+        prop_assert!(
+            error.contains(&format!("duplicate tested-example identifier `{identifier}`")),
+            "unexpected loader error: {}",
+            error
+        );
     }
 }
