@@ -56,8 +56,14 @@ where
     /// After registration, once setup has produced state, teardown runs
     /// exactly once after the connection stops processing. This holds for
     /// clean completion, stream-processing errors such as malformed frames or
-    /// failed sends, a handler panic caught by the connection runtime, and
-    /// cooperative cancellation observed at a read boundary.
+    /// failed sends, and a handler panic caught by the connection runtime.
+    /// Setup completes before the connection's framing state is created, and
+    /// the transport is released before teardown runs, so a callback may wait
+    /// for the peer to observe closure.
+    ///
+    /// The crate-private runtime also finalizes on a connection-scoped
+    /// cancellation token observed at a read boundary, but no public entry
+    /// point currently supplies one.
     ///
     /// Teardown is skipped when setup was absent, failed, or never completed,
     /// and when the connection future is dropped or aborted before processing

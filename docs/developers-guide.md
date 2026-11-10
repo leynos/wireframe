@@ -496,14 +496,20 @@ server explicitly.
 
 Each accepted connection constructs one crate-private `ConnectionRuntime` from
 the shared `PreparedApp`; the runtime is never shared between tasks and its
-mutable state is not placed behind `Arc<Mutex<_>>`. It has two fields:
+mutable state is not placed behind `Arc<Mutex<_>>`. Construction stages:
 
-- `InboundState` owns the framed stream, frame pipeline, message-assembly
-  instance, decode-failure count, effective budgets, read timeout, and the
-  connection-local codec clone that carries framing state.
-- `ConnectionFinalizer<C>` owns the setup value produced by
+- the accepted transport and the immutable `InboundConfig` borrowed from the
+  prepared application; and
+- `ConnectionFinalizer<C>`, which owns the setup value produced by
   `on_connection_setup` in exactly one of `NotSetUp`, `Armed(C)`, or
   `Finalized`.
+
+`InboundState` is built inside `run`, after setup has completed. It owns the
+framed stream, frame pipeline, message-assembly instance, decode-failure count,
+effective budgets, read timeout, and the connection-local codec clone that
+carries framing state. Deferring it means a pending setup cannot clone a custom
+codec or reserve the maximum frame buffer, and no codec is initialized before
+setup establishes its state.
 
 Peer addresses and connection identifiers are absent from this path: the entry
 points accept a generic `AsyncRead + AsyncWrite` stream, so the runtime owns
@@ -511,12 +517,17 @@ none. Envelope correlation identifiers are per-frame state and stay on the
 decoded envelope.
 
 Both entry points, `process_connection` and
-`process_connection_with_cancellation`, drive the same runtime. `run` wraps
-only the inbound-processing borrow in `AssertUnwindSafe(..).catch_unwind()`,
-keeps the finalizer outside that borrow, awaits finalization, and then returns
-the processing result or re-raises the panic. Teardown therefore runs before a
-handler panic reaches the connection-task supervisor, which remains responsible
-for counting and logging it. No `Drop` implementation performs async teardown.
+`process_connection_with_cancellation`, drive the same runtime. `run`
+destructures the staged runtime and wraps initialization together with inbound
+processing in `AssertUnwindSafe(..).catch_unwind()`, keeping the finalizer
+outside the caught future. It awaits finalization, and then returns the
+processing result or re-raises the panic, so a panic during initialization is
+finalized like a processing panic. `process` holds `InboundState` as a local,
+so when it returns or unwinds the framed stream is dropped before teardown is
+awaited. Teardown callbacks that wait for the peer to observe closure therefore
+cannot deadlock. Teardown runs before a handler panic reaches the
+connection-task supervisor, which remains responsible for counting and logging
+it. No `Drop` implementation performs async teardown.
 
 `take_for_teardown` replaces the finalizer state with `Finalized` before
 returning the setup value, so teardown runs at most once and a teardown panic
@@ -524,8 +535,14 @@ cannot re-trigger it. Setup and teardown panics are not recovered.
 
 Cooperative cancellation takes an `Option<CancellationToken>` and is observed
 only at a read boundary: it is the biased first branch of the `select!` before
-the timed `framed.next()`. Public entry points pass `None`. This is distinct
-from server shutdown and drain, which follow ADR 014.
+the timed `framed.next()`. No production entry point supplies a token: both
+prepared entry points and the server connection task pass `None`. Server
+shutdown stops acceptance and drains established connections under ADR 014;
+handing the server stop token to a connection would end it outside that
+graceful-drain contract. The cancellation-aware path remains crate-private for
+a caller that already owns a connection-scoped token, and its finalization,
+including delivery of an exact non-`Clone` setup value, is covered by
+`ordering_tests`.
 
 The accepted gaps are a connection future dropped or aborted while running, a
 setup that panics or never completes, a teardown callback that panics, and

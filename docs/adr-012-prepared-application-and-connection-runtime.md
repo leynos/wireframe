@@ -376,31 +376,53 @@ exactly once on every terminal path, including decode, protocol, transport,
 cancellation, and panic-recovery paths where execution can safely continue.
 
 The connection-local runtime implements this with two collaborating values.
-`InboundState` owns the framed stream, pipeline, message assembly, decode
-failure count, effective budgets, and read timeout. `ConnectionFinalizer<C>`
-owns the setup value in one of three states: `NotSetUp`, `Armed(C)`, or
-`Finalized`. Only `arm` from `NotSetUp` records setup output, and
-`take_for_teardown` replaces the state with `Finalized` before returning the
-value. Teardown therefore consumes the setup value at most once even if
-finalization is requested after the state has already been taken, and a
-teardown-callback panic cannot re-trigger it. Finalization is an explicit async
-method; no `Drop` implementation performs I/O or awaits teardown.
+`ConnectionRuntime` stages the accepted transport and the immutable
+`InboundConfig`, and builds `InboundState` only when `run` is driven; that
+state then owns the framed stream, pipeline, message assembly, decode failure
+count, effective budgets, and read timeout. `ConnectionFinalizer<C>` owns the
+setup value in one of three states: `NotSetUp`, `Armed(C)`, or `Finalized`. Only
+`arm` from `NotSetUp` records setup output, and `take_for_teardown` replaces
+the state with `Finalized` before returning the value. Teardown therefore
+consumes the setup value at most once even if finalization is requested after
+the state has already been taken, and a teardown-callback panic cannot
+re-trigger it. Finalization is an explicit async method; no `Drop`
+implementation performs I/O or awaits teardown.
+
+Construction is deliberately staged. `ConnectionRuntime::new` only stores the
+transport and configuration, so it cannot clone the connection codec or reserve
+the maximum frame buffer while a setup hook is still pending, and a custom
+codec is never initialized before setup establishes its state. Setup completes
+first; `run` then builds `InboundState` and drives it.
 
 `ConnectionRuntime::run` keeps the processing result rather than propagating it
 with `?`, awaits finalization, and only then returns the result or re-raises a
-panic. The processing future is wrapped in
-`AssertUnwindSafe(..).catch_unwind()` around `&mut self.inbound` only, leaving
-the finalizer outside the caught borrow. The assertion is sound because nothing
-observes the inbound state after a panic: `run` finalizes and then re-raises,
-and the runtime is not reused. Setup and teardown panics are intentionally
-outside this recovery point.
+panic. Initialization and processing share one future inside
+`AssertUnwindSafe(..).catch_unwind()`, while the finalizer is destructured out
+of the runtime and stays outside the caught future. The assertion is sound
+because handlers never observe `C`, and the inbound state is a local that is
+dropped during unwinding and never reused. A panic during initialization is
+therefore finalized and re-raised like any processing panic. Setup and teardown
+panics remain intentionally outside this recovery point.
+
+Because `InboundState` is a local of the caught future, the framed stream is
+dropped when processing returns or unwinds, before `run` awaits teardown. The
+transport is therefore released before a teardown callback runs, so a callback
+that waits for the peer to observe closure cannot deadlock against a transport
+the runtime still owns. Regression tests pin both orderings in
+`src/app/connection_runtime/ordering_tests.rs`.
 
 Cooperative cancellation is an `Option<CancellationToken>` observed only at the
 read boundary: it is the biased first branch of the `select!` before the timed
 `framed.next()`. Cancellation therefore ends the connection between frames,
-never mid-decode or mid-write. The public entry points pass `None`; server
-shutdown and drain remain a separate concern governed by
-[ADR 014](adr-014-server-shutdown-ownership.md).
+never mid-decode or mid-write, and finalizes through the same path, including
+delivery of an exact non-`Clone` setup value. No production entry point
+supplies a token: the prepared byte-stream and TCP entry points, and the server
+connection task, all pass `None`. Server shutdown stops acceptance and drains
+established connections, as [ADR 014](adr-014-server-shutdown-ownership.md)
+specifies; passing the server stop token to connections would end them outside
+that graceful-drain contract. The cancellation-aware path is therefore
+crate-private, available to a caller that already owns a connection-scoped
+token, and is not part of the public lifecycle promise.
 
 The prepared byte-stream entry points carry no peer address or connection
 identifier, so the runtime owns none; envelope correlation identifiers remain
