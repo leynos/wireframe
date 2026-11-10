@@ -17,7 +17,7 @@ use super::{
     MAX_DESER_FAILURES,
     actor::build_connection_actor,
     framing::prepare_connection_framing,
-    peer_watch::{NextFrame, handle_watching_peer, next_inbound_frame},
+    peer_watch::{NextFrame, PeerObservation, handle_watching_peer, next_inbound_frame},
 };
 use crate::{
     codec::FrameCodec,
@@ -210,12 +210,10 @@ where
     });
     let mut pipeline = FramePipeline::with_hooks(context.fragmentation, context.protocol_hooks);
     let connection_shutdown = CancellationToken::new();
-    let peer_closed = CancellationToken::new();
-    let (mut response_actor, _cancel_on_exit) = build_connection_actor::<F>(
-        context.protocol.as_ref(),
-        connection_shutdown,
-        peer_closed.clone(),
-    )?;
+    // Cancelled only by a clean EOF, which is permanent for the connection.
+    let peer_eof = CancellationToken::new();
+    let (mut response_actor, _cancel_on_exit) =
+        build_connection_actor::<F>(context.protocol.as_ref(), connection_shutdown)?;
     // A frame read while the previous one was still being handled, so the
     // loop never polls the read half twice for one inbound frame.
     let mut pending_frame: Option<F::Frame> = None;
@@ -236,6 +234,12 @@ where
                 }
             };
 
+        // A fresh child token per dispatch: it inherits a permanent EOF, but
+        // cancelling it leaves the connection-wide token untouched, so one
+        // buffered request cannot make every later response run under the idle
+        // grace.
+        let unobserved = peer_eof.child_token();
+        response_actor.actor.set_peer_closed(unobserved.clone());
         let handling = handle_frame(
             &frame,
             FrameHandlingContext {
@@ -251,7 +255,16 @@ where
                 protocol: context.protocol.as_ref(),
             },
         );
-        handle_watching_peer(handling, &mut reader, &peer_closed, &mut pending_frame).await?;
+        handle_watching_peer(
+            handling,
+            &mut reader,
+            PeerObservation {
+                eof: &peer_eof,
+                unobserved: &unobserved,
+            },
+            &mut pending_frame,
+        )
+        .await?;
     }
 
     Ok(())

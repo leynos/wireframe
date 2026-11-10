@@ -63,10 +63,15 @@ impl Drop for CancellationGuard {
 ///
 /// Returns the actor and the queue handle that keeps its push receivers open.
 /// Callers must hold the handle for as long as the actor is used.
+///
+/// The peer-observation token is deliberately not supplied here. The inbound
+/// loop installs a fresh per-dispatch token on every frame, because buffering
+/// a pipelined request makes the peer unobservable only for the response that
+/// is in flight; a connection-wide token would leak that state into later
+/// responses.
 pub(super) fn build_connection_actor<F>(
     protocol: Option<&Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     shutdown: CancellationToken,
-    peer_closed: CancellationToken,
 ) -> io::Result<(ConnectionResponseActor, CancellationGuard)>
 where
     F: FrameCodec,
@@ -85,7 +90,6 @@ where
         shutdown.clone(),
         hooks,
     );
-    actor.set_peer_closed(peer_closed);
     // The connection boundary owns the idle-grace policy; the actor only needs
     // a bound, not an opinion about how long a vanished peer may hold a
     // response open.
