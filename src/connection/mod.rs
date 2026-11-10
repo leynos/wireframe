@@ -12,6 +12,7 @@ mod drain;
 mod drive;
 mod event;
 mod frame;
+mod grace;
 mod multi_packet;
 mod output;
 mod polling;
@@ -22,7 +23,7 @@ mod state;
 #[cfg(all(test, not(loom)))]
 mod tests;
 
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 pub use channels::ConnectionChannels;
 pub(crate) use counter::ActiveConnection;
@@ -30,6 +31,7 @@ pub(crate) use counter::ActiveConnection;
 pub use counter::LoomConnectionGuard;
 pub use counter::active_connection_count;
 pub(crate) use drive::{PEER_CLOSED_RESPONSE_GRACE, ResponseOutcome};
+use grace::{GraceTimer, TokioGraceTimer};
 use log::info;
 use multi_packet::MultiPacketContext;
 use output::ActiveOutput;
@@ -151,6 +153,12 @@ pub struct ConnectionActor<F, E = NoProtocolError> {
     /// Production connections keep [`drive::PEER_CLOSED_RESPONSE_GRACE`]; tests
     /// shorten it so a paused clock can exercise cancellation deterministically.
     peer_closed_grace: Duration,
+    /// Deadline source that enforces [`Self::peer_closed_grace`].
+    ///
+    /// Production uses the ambient Tokio clock. A test installs a manually
+    /// fired deadline, so it proves cancellation happens exactly when the grace
+    /// expires without depending on the wall clock.
+    grace_timer: Arc<dyn GraceTimer>,
     /// Correlation identifier of the response currently being driven.
     response_correlation: Option<u64>,
 }
@@ -249,6 +257,7 @@ where
             response_failed: false,
             peer_closed: CancellationToken::new(),
             peer_closed_grace: drive::PEER_CLOSED_RESPONSE_GRACE,
+            grace_timer: Arc::new(TokioGraceTimer),
             response_correlation: None,
         };
         // The server builds an untracked actor per connection and owns the
@@ -283,6 +292,16 @@ where
     /// cancelled without waiting for the production deadline.
     pub(crate) const fn set_peer_closed_grace(&mut self, grace: Duration) {
         self.peer_closed_grace = grace;
+    }
+
+    /// Replace the deadline source that enforces the idle grace.
+    ///
+    /// Production keeps [`TokioGraceTimer`], which uses the ambient clock. A
+    /// test installs a deadline it fires by hand, so cancellation is proved to
+    /// happen when the grace expires rather than merely eventually.
+    #[cfg(test)]
+    pub(crate) fn set_grace_timer(&mut self, timer: Arc<dyn GraceTimer>) {
+        self.grace_timer = timer;
     }
 
     /// Replace the fairness configuration.
