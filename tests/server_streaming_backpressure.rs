@@ -6,6 +6,9 @@
 //! covers the same path over a real loopback socket.
 #![cfg(not(loom))]
 
+#[path = "common/server_streaming_io.rs"]
+mod streaming_io;
+
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -16,14 +19,10 @@ use std::{
     time::Duration,
 };
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::Bytes;
 use futures::StreamExt;
-use tokio::{
-    io::{AsyncWriteExt, DuplexStream},
-    sync::mpsc,
-    task::JoinHandle,
-    time::{advance, sleep},
-};
+use streaming_io::{ProducerHandles, join_producers, request_bytes, stream_frames, write_frame};
+use tokio::{task::JoinHandle, time::advance};
 use tokio_util::codec::Framed;
 use wireframe::{
     app::{Envelope, Packet, ResponseHandler, WireframeApp},
@@ -55,9 +54,6 @@ const READER_CHUNK_DELAY: Duration = Duration::from_millis(10);
 /// Duplex capacity deliberately smaller than one response frame.
 const DUPLEX_CAPACITY: usize = 8;
 
-/// Spawned producer tasks retained so tests can await them.
-type ProducerHandles = Arc<Mutex<Vec<JoinHandle<()>>>>;
-
 /// Protocol that terminates every response stream with an id-zero frame.
 struct TerminatingProtocol;
 
@@ -72,28 +68,11 @@ impl WireframeProtocol for TerminatingProtocol {
     }
 }
 
-/// Send `frame_count` frames through the response channel, recording whether
-/// each send was accepted.
+/// Delay inserted between paced producer sends.
 ///
 /// The producer is paced so the test can observe the reader holding it back
 /// before the capacity-one channel accepts the next frame.
-async fn produce_frames(
-    sender: mpsc::Sender<Envelope>,
-    results: Arc<Mutex<Vec<bool>>>,
-    frame_count: u8,
-) {
-    for payload in 1..=frame_count {
-        let sent = sender
-            .send(Envelope::new(2, None, vec![payload]))
-            .await
-            .is_ok();
-        results
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(sent);
-        sleep(Duration::from_millis(25)).await;
-    }
-}
+const PRODUCER_PACING: Duration = Duration::from_millis(25);
 
 /// Build a handler that streams `frame_count` frames from a capacity-one
 /// channel.
@@ -110,7 +89,12 @@ fn channel_handler(
         let handles = Arc::clone(&producers);
         Box::pin(async move {
             let (sender, response) = Response::with_channel(1);
-            let producer = tokio::spawn(produce_frames(sender, results, frame_count));
+            let producer = tokio::spawn(stream_frames(
+                sender,
+                results,
+                frame_count,
+                Some(PRODUCER_PACING),
+            ));
             handles
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -149,14 +133,6 @@ fn build_teardown_app(
         })
 }
 
-/// Encode a request envelope as the frame payload the client would send.
-fn request_bytes(route: u32) -> TestResult<Vec<u8>> {
-    let envelope = Envelope::new(route, Some(REQUEST_CORRELATION), Vec::new());
-    BincodeSerializer
-        .serialize(&envelope)
-        .map_err(|error| TestError::Msg(format!("serialize request: {error}")))
-}
-
 /// Decode one outbound frame payload into its envelope.
 fn decode_envelope(bytes: &[u8]) -> TestResult<Envelope> {
     let (envelope, consumed) = BincodeSerializer
@@ -169,34 +145,6 @@ fn decode_envelope(bytes: &[u8]) -> TestResult<Envelope> {
         )));
     }
     Ok(envelope)
-}
-
-/// Write one length-delimited frame to the duplex peer.
-async fn write_frame(stream: &mut DuplexStream, payload: &[u8]) -> TestResult {
-    let length = u32::try_from(payload.len())
-        .map_err(|error| TestError::Msg(format!("frame too long: {error}")))?;
-    // `put_u32` writes the big-endian length the codec expects, without
-    // depending on a platform-sized integer conversion.
-    let mut framed = BytesMut::with_capacity(4 + payload.len());
-    framed.put_u32(length);
-    framed.extend_from_slice(payload);
-    stream.write_all(&framed).await?;
-    Ok(())
-}
-
-/// Await every producer task the handler spawned.
-async fn join_producers(producers: &ProducerHandles) -> TestResult {
-    let handles: Vec<JoinHandle<()>> = producers
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .drain(..)
-        .collect();
-    for handle in handles {
-        handle
-            .await
-            .map_err(|error| TestError::Msg(format!("producer task failed: {error}")))?;
-    }
-    Ok(())
 }
 
 /// Assert the paced reader is still holding the streamed response back.
@@ -279,7 +227,7 @@ async fn capacity_one_channel_streams_under_reader_pressure() -> TestResult {
             READER_CHUNK_DELAY,
         ))
         .validate()?;
-    let request = request_bytes(SLOW_ROUTE)?;
+    let request = request_bytes(SLOW_ROUTE, REQUEST_CORRELATION)?;
 
     let drive = tokio::spawn(async move {
         drive_with_slow_codec_payloads(app, &codec, vec![request], config).await
@@ -321,7 +269,11 @@ async fn disconnecting_peer_stops_the_stream_and_tears_down_once() -> TestResult
     let (mut client, server) = tokio::io::duplex(DUPLEX_CAPACITY);
     let connection = tokio::spawn(async move { prepared.handle_connection_result(server).await });
 
-    write_frame(&mut client, &request_bytes(DROP_ROUTE)?).await?;
+    write_frame(
+        &mut client,
+        &request_bytes(DROP_ROUTE, REQUEST_CORRELATION)?,
+    )
+    .await?;
 
     let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH);
     let mut framed = Framed::new(client, codec.decoder());
