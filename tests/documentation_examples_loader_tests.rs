@@ -1,5 +1,7 @@
 //! Failure contracts for the documented-example fence loader.
 
+#![forbid(unsafe_code)]
+
 // `pub` because this binary uses only part of the shared loader.
 pub mod documentation_examples;
 

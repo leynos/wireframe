@@ -5,6 +5,8 @@
 //! that shell and manifest fences match this repository, and that the links
 //! between the documents resolve.
 
+#![forbid(unsafe_code)]
+
 // `pub` because this binary uses only part of the shared loader.
 pub mod documentation_examples;
 
