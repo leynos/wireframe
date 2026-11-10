@@ -21,6 +21,7 @@ use std::{
     time::Duration,
 };
 
+use bytes::Bytes;
 use futures::StreamExt;
 use streaming_io::{ProducerHandles, join_producers, request_bytes, stream_frames, write_frame};
 use tokio::{
@@ -119,44 +120,23 @@ fn retain_producer(producers: &ProducerHandles, producer: JoinHandle<()>) {
         .push(producer);
 }
 
-/// Handle a request by streaming frames as fast as the channel accepts them.
+/// Handle a request by streaming frames through a response channel.
+///
+/// `pause` holds the producer still before every frame. A pause longer than
+/// the idle grace only stays inside the budget while the peer is still
+/// observable, which is what the post-buffer scenario checks.
 fn producer_handler(
     send_results: Arc<Mutex<Vec<bool>>>,
     producers: ProducerHandles,
     frame_count: u8,
+    pause: Option<Duration>,
 ) -> ResponseHandler<Envelope> {
     Arc::new(move |_request: &Envelope| {
         let results = Arc::clone(&send_results);
         let handles = Arc::clone(&producers);
         Box::pin(async move {
             let (sender, response) = Response::with_channel(1);
-            let producer = tokio::spawn(stream_frames(sender, results, frame_count, None));
-            retain_producer(&handles, producer);
-            response
-        })
-    })
-}
-
-/// Handle a request by streaming frames with a pause longer than the grace.
-///
-/// The pause only stays inside the budget while the peer is still observable,
-/// which is what the post-buffer scenario checks.
-fn paced_handler(
-    send_results: Arc<Mutex<Vec<bool>>>,
-    producers: ProducerHandles,
-    frame_count: u8,
-) -> ResponseHandler<Envelope> {
-    Arc::new(move |_request: &Envelope| {
-        let results = Arc::clone(&send_results);
-        let handles = Arc::clone(&producers);
-        Box::pin(async move {
-            let (sender, response) = Response::with_channel(1);
-            let producer = tokio::spawn(stream_frames(
-                sender,
-                results,
-                frame_count,
-                Some(PACED_SEND_PAUSE),
-            ));
+            let producer = tokio::spawn(stream_frames(sender, results, frame_count, pause));
             retain_producer(&handles, producer);
             response
         })
@@ -343,47 +323,13 @@ async fn buffered_request_does_not_pin_an_idle_stream() -> TestResult {
 /// pause and truncate the stream.
 #[tokio::test(start_paused = true)]
 async fn buffered_request_does_not_disarm_later_observation() -> TestResult {
-    let send_results = Arc::new(Mutex::new(Vec::new()));
-    let producers: ProducerHandles = Arc::new(Mutex::new(Vec::new()));
-    let installed: IdleSender = Arc::new(Mutex::new(None));
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
-        .route_response(IDLE_ROUTE, idle_handler(Arc::clone(&installed)))?
-        .route_response(
-            PACED_ROUTE,
-            paced_handler(
-                Arc::clone(&send_results),
-                Arc::clone(&producers),
-                PACED_FRAME_COUNT,
-            ),
-        )?;
-    let prepared = app
-        .prepare()
-        .await
-        .map_err(|error| TestError::Msg(format!("prepare app: {error}")))?;
-    let (mut client, server) = tokio::io::duplex(DUPLEX_CAPACITY);
-    let connection = tokio::spawn(async move { prepared.handle_connection_result(server).await });
-
-    // Both requests are queued before the first response is installed, so the
-    // second is already readable when the first dispatch stops polling the read
-    // half. Writing it later would race the idle response's completion, and the
-    // frame would then be read by the next dispatch instead of being buffered.
-    write_frame(
-        &mut client,
-        &request_bytes(IDLE_ROUTE, REQUEST_CORRELATION)?,
-    )
-    .await?;
-    write_frame(
-        &mut client,
-        &request_bytes(PACED_ROUTE, REQUEST_CORRELATION)?,
-    )
-    .await?;
-    wait_for_installed_stream(&installed).await?;
-    // Let the connection task re-poll its select with the queued frame before
-    // the idle response is completed. Completing it first would let the
-    // handling future win the biased select, and the frame would then be read
-    // by the next dispatch instead of being buffered behind this one.
-    sleep(STATE_TIMEOUT).await;
-    complete_installed_stream(&installed)?;
+    let PacedConnection {
+        mut client,
+        connection,
+        installed,
+        producers,
+    } = spawn_paced_connection().await?;
+    queue_behind_idle_response(&mut client, &installed).await?;
 
     let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH);
     let mut framed = Framed::new(client, codec.decoder());
@@ -391,26 +337,13 @@ async fn buffered_request_does_not_disarm_later_observation() -> TestResult {
     // the idle grace it would never be produced: the grace expires inside the
     // producer's pause. One deadline covers the whole read because a paused
     // clock advances to the nearest timer.
-    let envelopes = timeout(CONNECTION_SETTLE, async {
-        let mut envelopes = Vec::new();
-        for _ in 0..PACED_FRAME_COUNT {
-            let frame = framed
-                .next()
-                .await
-                .transpose()
-                .map_err(|error| TestError::Msg(format!("read response frame: {error}")))?
-                .ok_or("the response ended early")?;
-            envelopes.push(decode_envelope(&frame)?);
-        }
-        Ok::<_, TestError>(envelopes)
-    })
+    let data = timeout(
+        CONNECTION_SETTLE,
+        read_payloads(&mut framed, PACED_FRAME_COUNT),
+    )
     .await
     .map_err(|_| TestError::Msg("a paced frame never arrived".into()))??;
 
-    let data: Vec<Vec<u8>> = envelopes
-        .iter()
-        .map(|envelope| envelope.payload_bytes().to_vec())
-        .collect();
     ensure(
         data == vec![vec![1_u8], vec![2_u8]],
         format!("both paced frames must be delivered in order: {data:?}"),
@@ -424,8 +357,87 @@ async fn buffered_request_does_not_disarm_later_observation() -> TestResult {
         outcome.is_ok(),
         format!("the connection must not fail: {outcome:?}"),
     )?;
-    join_producers(&producers).await?;
-    Ok(())
+    join_producers(&producers).await
+}
+
+/// A connection wired with an idle route and a paced streaming route.
+struct PacedConnection {
+    /// Client end of the duplex transport.
+    client: DuplexStream,
+    /// Spawned server task driving the prepared connection.
+    connection: JoinHandle<std::io::Result<()>>,
+    /// Slot holding the idle response's pending sender.
+    installed: IdleSender,
+    /// Producer tasks the paced route spawns.
+    producers: ProducerHandles,
+}
+
+/// Build the two-route app used by the post-buffer scenario and spawn it.
+async fn spawn_paced_connection() -> TestResult<PacedConnection> {
+    let send_results = Arc::new(Mutex::new(Vec::new()));
+    let producers: ProducerHandles = Arc::new(Mutex::new(Vec::new()));
+    let installed: IdleSender = Arc::new(Mutex::new(None));
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
+        .route_response(IDLE_ROUTE, idle_handler(Arc::clone(&installed)))?
+        .route_response(
+            PACED_ROUTE,
+            producer_handler(
+                Arc::clone(&send_results),
+                Arc::clone(&producers),
+                PACED_FRAME_COUNT,
+                Some(PACED_SEND_PAUSE),
+            ),
+        )?;
+    let prepared = app
+        .prepare()
+        .await
+        .map_err(|error| TestError::Msg(format!("prepare app: {error}")))?;
+    let (client, server) = tokio::io::duplex(DUPLEX_CAPACITY);
+    let connection = tokio::spawn(async move { prepared.handle_connection_result(server).await });
+    Ok(PacedConnection {
+        client,
+        connection,
+        installed,
+        producers,
+    })
+}
+
+/// Queue both requests and let the second be buffered behind the idle response.
+async fn queue_behind_idle_response(
+    client: &mut DuplexStream,
+    installed: &IdleSender,
+) -> TestResult {
+    // Both requests are queued before the first response is installed, so the
+    // second is already readable when the first dispatch stops polling the read
+    // half. Writing it later would race the idle response's completion, and the
+    // frame would then be read by the next dispatch instead of being buffered.
+    write_frame(client, &request_bytes(IDLE_ROUTE, REQUEST_CORRELATION)?).await?;
+    write_frame(client, &request_bytes(PACED_ROUTE, REQUEST_CORRELATION)?).await?;
+    wait_for_installed_stream(installed).await?;
+    // Let the connection task re-poll its select with the queued frame before
+    // the idle response is completed. Completing it first would let the
+    // handling future win the biased select, and the frame would then be read
+    // by the next dispatch instead of being buffered behind this one.
+    sleep(STATE_TIMEOUT).await;
+    complete_installed_stream(installed)
+}
+
+/// Read `count` response frames and return their payloads in order.
+async fn read_payloads<S>(frames: &mut S, count: u8) -> TestResult<Vec<Vec<u8>>>
+where
+    S: futures::Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
+{
+    let mut payloads = Vec::new();
+    for _ in 0..count {
+        let frame = frames
+            .next()
+            .await
+            .transpose()
+            .map_err(|error| TestError::Msg(format!("read response frame: {error}")))?
+            .ok_or("the response ended early")?;
+        payloads.push(decode_envelope(&frame)?.payload_bytes().to_vec());
+    }
+    Ok(payloads)
 }
 
 /// The producer's third send must stay blocked until the paced reader makes
@@ -440,6 +452,7 @@ async fn producer_send_blocks_until_the_reader_progresses() -> TestResult {
             Arc::clone(&send_results),
             Arc::clone(&producers),
             FRAME_COUNT,
+            None,
         ),
     )?;
     let prepared = app
