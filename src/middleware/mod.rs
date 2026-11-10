@@ -138,8 +138,9 @@ where
 /// Middleware that participates in a response route must mutate the incoming
 /// [`ServiceResponse`] and return it. A response installed by
 /// `WireframeApp::route_response` travels in a deferred slot on that same
-/// value; constructing a fresh [`ServiceResponse`] discards the slot, and the
-/// route then emits no frames.
+/// value; constructing a fresh [`ServiceResponse`] discards the slot, so the
+/// handler's `Response` is dropped and the route emits one frame carrying the
+/// fresh response's bytes instead.
 #[async_trait]
 pub trait Service: Send + Sync {
     /// Error type returned by the service.
