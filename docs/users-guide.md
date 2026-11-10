@@ -2773,6 +2773,11 @@ fn build_app() -> wireframe::Result<WireframeApp> {
 }
 ```
 
+The example builds its stream with `async_stream::try_stream!`. That crate is a
+development dependency of this repository, so add it to your own dependencies
+(`async-stream = "0.3.6"`) before using the pattern; any
+`FrameStream<Envelope, ()>` works, including one built from a channel.
+
 Every prepared server connection owns a private connection actor. When a
 response route matches an inbound envelope, the body is installed on that actor
 with the request's correlation id, and the actor is driven through the
@@ -2799,9 +2804,9 @@ connection's frame pipeline before the next inbound frame is dispatched:
 - Every data frame for a response inherits the request's correlation id: a
   frame with no id adopts it, and a frame that supplies a different id is
   overwritten and logged as a warning. When the request carries no id, the
-  frame keeps its own. A multi-packet terminator is stamped the same way, while
-  a stream terminator keeps the id produced by `stream_end_frame` (the client
-  matches a terminator before it checks correlation).
+  frame keeps its own. Both stream and multi-packet terminators keep the id
+  produced by `stream_end_frame`, because the adapter writes that frame
+  unchanged (the client matches a terminator before it checks correlation).
 
 Back-pressure is end-to-end. The actor awaits each transport write, so a slow
 peer stops further polling of a `Response::Stream`. `Response::MultiPacket`
@@ -2826,8 +2831,8 @@ The protocol callbacks that run for application responses are `before_send`,
 `on_command_end`, `handle_error`, and `stream_end_frame`. Connection setup and
 end-of-file callbacks remain part of the server's connection lifecycle rather
 than the response actor. Without an installed protocol these callbacks are
-no-ops. A terminator frame that the serializer cannot decode is logged and
-skipped rather than ending the connection.
+no-ops. The terminator is written without decoding, so a write failure ends the
+connection like any other failed response write.
 
 #### Deferred response bodies and middleware
 

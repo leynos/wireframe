@@ -557,3 +557,38 @@ Prepared connections also require `S: 'static` on the serializer.
 `PreparedApp::handle_connection_result` and the deprecated
 `WireframeApp::handle_connection*` methods now carry this bound, so a
 serializer that borrows connection-local data can no longer be used with them.
+
+## Response-producing routes and multi-packet correlation
+
+`WireframeApp::route_response` registers a handler that returns a whole
+`Response` rather than raw bytes, so a route can stream or send several frames
+instead of exactly one reply. `ResponseHandler<E>` is re-exported from
+`wireframe::app`, and route identifiers stay unique across `route` and
+`route_response`. The handler receives a borrowed request and may hold that
+borrow across an `await`; it must return a `Response<E>` rather than bytes.
+
+```rust,no_run
+use std::sync::Arc;
+
+use wireframe::app::{Envelope, ResponseHandler};
+use wireframe::response::Response;
+
+fn handler() -> ResponseHandler<Envelope> {
+    Arc::new(|request: &Envelope| {
+        let payload = request.payload_bytes().to_vec();
+        Box::pin(async move { Response::Single(Envelope::new(1, None, payload)) })
+    })
+}
+```
+
+A route registered with `route` is unchanged: its bytes are wrapped in one
+envelope and sent as a single reply.
+
+Correlation behaviour for direct `ConnectionActor` multi-packet traffic has
+also changed. When the request carries no correlation identifier, a frame that
+supplies its own keeps it instead of having `None` written over it. A frame
+that supplies a different identifier than the request is still overwritten and
+logged as a warning. On a prepared server connection the protocol terminator is
+written unchanged, so it keeps the identifier produced by `stream_end_frame`
+for both streamed and multi-packet responses; see the
+[users' guide](users-guide.md#response-producing-routes) for the full contract.

@@ -8,9 +8,14 @@
 //! `before_send` hook, and write the resulting frame to the connection's
 //! frame sink.
 //!
-//! Push messages and multi-packet channel frames are emitted by the
-//! `ConnectionActor`, which runs its own hook pipeline; only application
-//! handler responses pass through this module.
+//! Two paths reach this module. A `ConnectionActor` driven directly through
+//! `ProtocolHooks` emits push messages and multi-packet channel frames from its
+//! own hook pipeline. On a prepared server connection, every handler response —
+//! single, streamed, or multi-packet — is instead installed on the connection's
+//! actor and written through [`ActorFrameSink`], so it shares this module's
+//! pipeline and the connection's `before_send` hook. The actor built for a
+//! prepared connection deliberately has no hook pipeline of its own, so a frame
+//! is never processed twice.
 
 mod outbound;
 
