@@ -84,8 +84,8 @@ app.version_guard(1).route(MessageId::Login, |m: Message<LoginV1>| {
 
 During the optional connection preamble, both sides can exchange the highest
 protocol version they support. The server selects a version and stores it in
-the connection state so extractors and middleware can access it. If no
-compatible version exists, the connection is rejected early.
+the connection state so middleware can access it. If no compatible version
+exists, the connection is rejected early.
 
 ## Future Work
 
