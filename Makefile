@@ -156,7 +156,7 @@ test-feature-gate: ## Verify feature-gated APIs are actually absent when disable
 	./scripts/check-feature-gate.sh
 
 # Installs and uses the declared minimum toolchain, not the pinned nightly.
-test-msrv: ## Build the workspace and a fresh consumer on the minimum Rust version
+test-msrv: ## Check the workspace and a fresh consumer on the minimum Rust version
 	./scripts/check-msrv.sh
 
 test-pool-no-metrics: ## Check the pool builds without metrics

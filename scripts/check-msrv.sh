@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# Prove that the Rust version the manifest declares can still build Wireframe.
+# Prove that the Rust version the manifest declares can still compile Wireframe.
 #
 # The version comes from `rust-version` in Cargo.toml, so there is no second
-# copy to drift. Two builds answer two different questions:
+# copy to drift. Two checks answer two different questions:
 #
 #   1. The workspace, from the committed lock file: does our own code, including
 #      its tests, examples and benches, compile on the minimum?
 #   2. A throwaway consumer, with freshly resolved dependencies: can someone who
-#      adds Wireframe today build it? A lock file cannot show this, because
+#      adds Wireframe today compile it? A lock file cannot show this, because
 #      dependency releases reach users without passing through it.
 #
-# Each is a full build rather than a `cargo check`, because a check would not
-# notice a failure in code generation or linking.
+# Both are `cargo check`, never a build or a test run: the estate's cost rule
+# for an MSRV job (concordat RT-026) is `cargo check --all-targets` on the
+# minimum toolchain, because the pinned nightly already builds and tests
+# everything.
 
 set -euo pipefail
 
@@ -32,15 +34,15 @@ trap 'rm -rf "$work"' EXIT
 echo "==> Installing Rust $msrv"
 rustup toolchain install "$msrv" --profile minimal --no-self-update
 
-echo "==> Building the workspace on Rust $msrv from the lock file"
+echo "==> Checking the workspace on Rust $msrv from the lock file"
 # .cargo/config.toml passes `-Zthreads`, which stable compilers reject. Assigning
 # RUSTFLAGS displaces every configured source, and a blank value clears them.
 (
     cd "$repo_root"
-    RUSTFLAGS=" " cargo "+$msrv" build --locked --workspace --all-targets --all-features
+    RUSTFLAGS=" " cargo "+$msrv" check --locked --workspace --all-targets --all-features
 )
 
-echo "==> Building a consumer on Rust $msrv with fresh dependencies"
+echo "==> Checking a consumer on Rust $msrv with fresh dependencies"
 # Outside the repository, so this sees none of its Cargo configuration, just as
 # a real consumer does not. The stated rust-version makes the resolver choose
 # dependency versions the way it would for a consumer holding the same floor.
@@ -65,7 +67,7 @@ pub use wireframe_testing;
 SOURCE
 (
     cd "$work"
-    cargo "+$msrv" build
+    cargo "+$msrv" check
 )
 
-echo "==> Rust $msrv builds Wireframe"
+echo "==> Rust $msrv compiles Wireframe"

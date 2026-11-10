@@ -1,9 +1,10 @@
-"""Hold the weekly lane to the Rust version the manifests declare.
+"""Hold the MSRV lane to the Rust version the manifests declare.
 
 The lane proves a promise made to users, so it fails quietly if it stops reading
 the promise: a hard-coded toolchain would keep passing after ``rust-version``
 moved, and a published crate with no floor of its own would be left out of what
-the promise covers.
+the promise covers. Concordat RT-026 requires every declared MSRV to be
+exercised by CI, and its cost rule limits the job to ``cargo check``.
 
 Run these contracts with ``make test-workflow-contracts``.
 """
@@ -30,18 +31,29 @@ def _workflow() -> dict[object, object]:
     return yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
 
 
-def test_the_lane_runs_weekly_on_a_github_hosted_runner() -> None:
-    """A weekly schedule on the hosted pool, not the paid pull-request pool."""
+def _triggers() -> dict[str, object]:
+    """Return the workflow's triggers."""
     workflow = _workflow()
     # PyYAML reads the bare key `on` as the boolean true.
-    triggers = workflow.get("on", workflow.get(True))
-    schedules = triggers["schedule"]
+    return workflow.get("on", workflow.get(True))
+
+
+def test_the_lane_runs_on_every_change_to_main() -> None:
+    """Every pull request and push to main is checked, not only some paths."""
+    triggers = _triggers()
+    assert triggers["pull_request"] is None, "pull requests must not be filtered"
+    assert triggers["push"] == {"branches": ["main"]}, "pushes to main must run it"
+
+
+def test_the_lane_runs_weekly_on_a_github_hosted_runner() -> None:
+    """A weekly schedule on the hosted pool, for dependency releases."""
+    schedules = _triggers()["schedule"]
     assert len(schedules) == 1, "the lane must have exactly one schedule"
     minute, hour, day_of_month, month, day_of_week = schedules[0]["cron"].split()
     assert (day_of_month, month) == ("*", "*"), "the schedule must recur every week"
     assert day_of_week.isdigit(), "the schedule must name one day of the week"
     assert minute.isdigit() and hour.isdigit(), "the schedule must run once that day"
-    assert workflow["jobs"]["msrv"]["runs-on"] == "ubuntu-latest"
+    assert _workflow()["jobs"]["msrv"]["runs-on"] == "ubuntu-latest"
 
 
 def test_the_lane_runs_the_make_target_unconditionally() -> None:
@@ -69,8 +81,18 @@ def test_the_script_reads_the_version_from_the_manifest() -> None:
     """No toolchain version is written anywhere but the manifest."""
     script = SCRIPT_PATH.read_text(encoding="utf-8")
     assert 'rust-version *= *"' in script, "the script must read rust-version"
-    assert 'cargo "+$msrv" build --locked --workspace' in script
-    assert 'cargo "+$msrv" build\n' in script, "the consumer must resolve afresh"
+
+
+def test_the_script_checks_without_building_or_testing() -> None:
+    """The cost rule allows ``cargo check`` on the MSRV, never a build or a test."""
+    script = SCRIPT_PATH.read_text(encoding="utf-8")
+    assert (
+        'cargo "+$msrv" check --locked --workspace --all-targets --all-features'
+        in script
+    )
+    assert 'cargo "+$msrv" check\n' in script, "the consumer must resolve afresh"
+    for forbidden in ('"+$msrv" build', '"+$msrv" test', '"+$msrv" nextest'):
+        assert forbidden not in script, f"the MSRV job must not run `{forbidden}`"
 
 
 def test_published_crates_declare_the_same_minimum() -> None:
