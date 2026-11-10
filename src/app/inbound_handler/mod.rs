@@ -88,6 +88,9 @@ where
 /// skip finalization and leak per-connection resources on decode, protocol, or
 /// transport errors. A handler panic is finalized and then re-raised so the
 /// connection-task supervisor still observes it.
+///
+/// Setup completes before the inbound state is built, and the framed
+/// transport is released before teardown is awaited.
 pub(crate) async fn process_connection_with_cancellation<S, C, E, F, W>(
     stream: W,
     context: ConnectionProcessingContext<'_, S, C, E, F>,
@@ -130,7 +133,9 @@ where
 
     // Setup runs before any frame is read. A setup panic or a dropped setup
     // future leaves the finalizer `NotSetUp`, so teardown is never invoked
-    // without state.
+    // without state. `ConnectionRuntime::new` only stages the transport: the
+    // codec clone and frame-buffer reservation happen inside `run`, after
+    // this await, so a pending setup cannot retain connection memory.
     if let Some(setup) = on_connect {
         runtime.arm_setup(setup().await);
     }

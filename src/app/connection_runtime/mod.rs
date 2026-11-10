@@ -20,6 +20,23 @@
 //! cannot run teardown twice, and an error followed by outer task finalization
 //! cannot repeat it either.
 //!
+//! # Ordering
+//!
+//! The runtime stages the raw transport and the immutable inbound
+//! configuration, then builds [`InboundState`] when [`ConnectionRuntime::run`]
+//! is driven. Setup therefore completes before the connection codec is cloned
+//! or the maximum frame buffer is reserved: a setup hook that is still pending
+//! cannot hold up to a frame's worth of buffer per connection, and a custom
+//! codec is not initialized before setup establishes its state. Initialization
+//! happens inside the panic-finalization boundary, so a panic during
+//! initialization still releases the armed setup value.
+//!
+//! Inbound processing owns the framed stream. When processing stops, the
+//! inbound state is dropped before teardown is awaited, which releases the
+//! transport first. A teardown callback that waits for the peer to observe
+//! closure can therefore make progress instead of deadlocking against a
+//! transport this runtime still holds.
+//!
 //! # Cancellation
 //!
 //! Cooperative cancellation is observed only at the read boundary. A frame
@@ -60,6 +77,10 @@ mod finalizer_properties;
 #[path = "tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "ordering_tests.rs"]
+mod ordering_tests;
+
 use std::{io, panic::AssertUnwindSafe, sync::Arc};
 
 // Only the inbound-handler tests decode envelopes directly; production code
@@ -94,8 +115,10 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    /// Everything the inbound reader owns or mutably borrows.
-    inbound: InboundState<'a, S, E, F, W>,
+    /// Transport owned until inbound state is built for processing.
+    stream: W,
+    /// Immutable template configuration borrowed for the connection lifetime.
+    config: InboundConfig<'a, S, E, F>,
     /// Sole owner of the setup state until teardown takes it.
     finalizer: ConnectionFinalizer<C>,
 }
@@ -110,9 +133,15 @@ where
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
     /// Construct a runtime that owes no teardown until setup state is armed.
-    pub(crate) fn new(stream: W, config: InboundConfig<'a, S, E, F>) -> Self {
+    ///
+    /// Construction only stages the transport and configuration. The framed
+    /// inbound state is built later by [`ConnectionRuntime::run`], so calling
+    /// this before awaiting a setup hook cannot clone the codec or reserve the
+    /// frame buffer.
+    pub(crate) const fn new(stream: W, config: InboundConfig<'a, S, E, F>) -> Self {
         Self {
-            inbound: InboundState::new(stream, config),
+            stream,
+            config,
             finalizer: ConnectionFinalizer::not_set_up(),
         }
     }
@@ -125,29 +154,55 @@ where
 
     /// Drive inbound processing, then finalize exactly once.
     ///
+    /// Initialization happens here, inside `catch_unwind`, rather than during
+    /// construction: setup has already completed, and a panic while building
+    /// the inbound state still finalizes the armed setup value. `process`
+    /// consumes the staged transport and drops the framed stream when it
+    /// returns or unwinds, so the transport is released before teardown is
+    /// awaited.
+    ///
     /// Only the inbound processing future is wrapped in `catch_unwind`.
     /// `AssertUnwindSafe` is sound here because handlers never observe `C`,
-    /// and the runtime drops the inbound state without reusing it after a
-    /// panic. Setup and teardown panics are intentionally *not* caught: setup
-    /// has not produced state to release, and teardown has already disarmed
-    /// the finalizer before it runs.
+    /// and the inbound state is dropped during unwinding without being reused
+    /// after a panic. Setup and teardown panics are intentionally *not*
+    /// caught: setup has not produced state to release, and teardown has
+    /// already disarmed the finalizer before it runs.
     ///
     /// A processing panic is re-raised after finalization so the spawner's
     /// existing supervision still observes, counts, and logs it.
     pub(crate) async fn run(
-        &mut self,
+        self,
         cancellation: Option<&CancellationToken>,
         teardown: Option<&Arc<ConnectionTeardown<C>>>,
     ) -> io::Result<()> {
-        let processing_outcome = AssertUnwindSafe(self.inbound.run(cancellation))
+        let Self {
+            stream,
+            config,
+            mut finalizer,
+        } = self;
+        let processing_outcome = AssertUnwindSafe(Self::process(stream, config, cancellation))
             .catch_unwind()
             .await;
 
-        self.finalizer.finalize(teardown).await;
+        finalizer.finalize(teardown).await;
 
         match processing_outcome {
             Ok(result) => result,
             Err(payload) => std::panic::resume_unwind(payload),
         }
+    }
+
+    /// Build the connection-local inbound state and drive it to completion.
+    ///
+    /// The framed stream is a local value. Dropping it before returning, or
+    /// during an unwind, releases the transport before the caller awaits
+    /// teardown.
+    async fn process(
+        stream: W,
+        config: InboundConfig<'a, S, E, F>,
+        cancellation: Option<&CancellationToken>,
+    ) -> io::Result<()> {
+        let mut inbound = InboundState::new(stream, config);
+        inbound.run(cancellation).await
     }
 }

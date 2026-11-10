@@ -77,7 +77,7 @@ where
 }
 
 /// Drive one connection through the cancellation-aware entrypoint.
-async fn drive<C, F, W>(
+pub(super) async fn drive<C, F, W>(
     prepared: &PreparedApp<BincodeSerializer, C, Envelope, F>,
     stream: W,
     cancellation: Option<CancellationToken>,

@@ -297,11 +297,19 @@ fn handler_panic_finalizes_and_supervises_the_next_connection() {
     runtime.block_on(drive_supervision_scenario(app, handler_calls, teardowns));
 
     logs_assert(|lines: &[&str]| {
-        lines
+        let matching = lines
             .iter()
-            .find(|line| line.contains("connection task panicked") && line.contains("handler boom"))
-            .map(|_| ())
-            .ok_or_else(|| "the handler panic was not supervised".to_owned())
+            .filter(|line| {
+                line.contains("connection task panicked") && line.contains("handler boom")
+            })
+            .count();
+        if matching == 1 {
+            Ok(())
+        } else {
+            Err(format!(
+                "expected exactly one supervised handler panic log, found {matching}"
+            ))
+        }
     });
 
     #[cfg(feature = "metrics")]

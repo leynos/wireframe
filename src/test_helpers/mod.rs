@@ -40,7 +40,7 @@ pub use connection_startup::{
     counted_app_factory,
     noop_handler,
 };
-pub use frame_codec::{TestAdapter, TestCodec, TestFrame};
+pub use frame_codec::{CloneCountingCodec, TestAdapter, TestCodec, TestFrame};
 #[cfg(all(feature = "pool", not(loom)))]
 pub use pool_client::{
     ClientHello,

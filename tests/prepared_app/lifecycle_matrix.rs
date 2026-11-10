@@ -25,14 +25,17 @@ use wireframe::{
 use wireframe_testing::TestResult;
 
 use super::{
+    build_frame,
     fallible_check::check,
     fallible_check_equal::check_equal,
     handler,
     lifecycle_support::{
+        DECODE_FAILURE_LIMIT,
         OwnedToken,
         Recorder,
         ScriptedStream,
         TerminalOutcome,
+        assembling_lifecycle_app,
         assert_single_lifecycle,
         counting_teardown,
         gated_setup,
@@ -92,6 +95,38 @@ async fn teardown_runs_once_per_terminal_outcome(
             )?;
         }
     }
+    assert_single_lifecycle(&recorder)
+}
+
+/// A message-assembly failure finalizes exactly once.
+///
+/// Every frame is a valid envelope, but its payload is too short to be an
+/// assembly header. The assembly stage therefore rejects each frame and ends
+/// the connection, which is distinct from the envelope decode-failure row.
+#[tokio::test]
+async fn assembly_failure_runs_teardown_once() -> TestResult<()> {
+    let recorder = Recorder::default();
+    let prepared: LifecyclePrepared =
+        assembling_lifecycle_app(recorder.clone(), Arc::new(AtomicU64::new(0)), handler())?
+            .prepare()
+            .await
+            .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
+
+    let mut input = Vec::new();
+    for _ in 0..DECODE_FAILURE_LIMIT {
+        input.extend_from_slice(&build_frame(1, vec![0xff; 2])?);
+    }
+
+    let result = AssertUnwindSafe(prepared.handle_connection_result(ScriptedStream::new(input)))
+        .catch_unwind()
+        .await;
+
+    check(
+        result
+            .map_err(|_| "assembly failure should not panic")?
+            .is_err(),
+        "the connection should end with an assembly error",
+    )?;
     assert_single_lifecycle(&recorder)
 }
 

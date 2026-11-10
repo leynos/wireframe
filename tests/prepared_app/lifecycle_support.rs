@@ -23,6 +23,7 @@ pub(super) use wireframe::test_helpers::{UnitFuture, counting_teardown};
 use wireframe::{
     app::{Envelope, Handler, WireframeApp},
     serializer::BincodeSerializer,
+    test_helpers::TestAssembler,
 };
 use wireframe_testing::TestResult;
 
@@ -227,10 +228,39 @@ pub(super) fn lifecycle_app(
     next_id: Arc<AtomicU64>,
     handler: Handler<Envelope>,
 ) -> TestResult<LifecycleApp> {
+    build_lifecycle_app(recorder, next_id, handler, false)
+}
+
+/// Build a lifecycle application that also runs message assembly.
+///
+/// With an assembler installed, a decoded envelope payload is treated as an
+/// assembly frame header. This lets the matrix exercise a protocol failure
+/// raised after envelope decoding rather than during it.
+pub(super) fn assembling_lifecycle_app(
+    recorder: Recorder,
+    next_id: Arc<AtomicU64>,
+    handler: Handler<Envelope>,
+) -> TestResult<LifecycleApp> {
+    build_lifecycle_app(recorder, next_id, handler, true)
+}
+
+/// Assemble the lifecycle application, optionally installing the test
+/// assembler.
+fn build_lifecycle_app(
+    recorder: Recorder,
+    next_id: Arc<AtomicU64>,
+    handler: Handler<Envelope>,
+    with_assembler: bool,
+) -> TestResult<LifecycleApp> {
+    let base_app = WireframeApp::<BincodeSerializer, (), Envelope>::new()?.route(1, handler)?;
+    let app = if with_assembler {
+        base_app.with_message_assembler(TestAssembler)
+    } else {
+        base_app
+    };
     let setup_recorder = recorder.clone();
     let teardown_recorder = recorder;
-    Ok(WireframeApp::<BincodeSerializer, (), Envelope>::new()?
-        .route(1, handler)?
+    Ok(app
         .on_connection_setup(move || {
             let owner = setup_recorder.clone();
             let id = next_id.fetch_add(1, Ordering::SeqCst);
