@@ -22,7 +22,6 @@ use super::{
     memory_budgets::MemoryBudgets,
 };
 use crate::{
-    app_data_store::AppDataStore,
     codec::{FrameCodec, LengthDelimitedFrameCodec},
     frame::FrameMetadata,
     hooks::WireframeProtocol,
@@ -51,14 +50,6 @@ pub struct PreparedApp<
     pub(in crate::app) serializer: S,
     /// Codec template used to configure each connection's framed transport.
     pub(in crate::app) codec: F,
-    // FIXME: Issue #643 keeps this template-owned state until the
-    // connection-local runtime consumes it: https://github.com/leynos/wireframe/issues/643.
-    #[expect(
-        dead_code,
-        reason = "FIXME: #643 tracks ConnectionRuntime consuming application data"
-    )]
-    /// Type-erased application state retained for the connection-runtime slice.
-    pub(in crate::app) app_data: AppDataStore,
     /// Optional hook that creates per-connection state.
     pub(in crate::app) on_connect: Option<Arc<ConnectionSetup<C>>>,
     /// Optional hook that releases per-connection state after processing.
@@ -167,7 +158,6 @@ where
             routes,
             serializer: self.serializer,
             codec: self.codec,
-            app_data: self.app_data,
             on_connect: self.on_connect,
             on_disconnect: self.on_disconnect,
             protocol: self.protocol,

@@ -24,6 +24,7 @@ fn compile_tests() {
     t.compile_fail("tests/ui/server_rejects_non_send_factory.rs");
     t.compile_fail("tests/ui/wireframe_result_default_rejects_unit_protocol.rs");
     t.compile_fail("tests/ui/prepared_app_rejects_route.rs");
+    t.compile_fail("tests/ui/removed_extractor_and_app_data.rs");
     t.compile_fail("tests/ui/zero_test_budget.rs");
     t.pass("tests/ui/client_error_wildcard_match.rs");
     t.pass("tests/ui/client_error_pool_lifecycle_variants.rs");
