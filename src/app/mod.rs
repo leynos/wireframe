@@ -25,6 +25,7 @@ mod middleware_types;
 mod outbound_encoding;
 mod outbound_response;
 mod prepared_app;
+mod prepared_push;
 
 pub use builder::WireframeApp;
 pub use envelope::{Envelope, Packet, PacketParts};

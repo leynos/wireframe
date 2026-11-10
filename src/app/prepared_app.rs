@@ -16,7 +16,10 @@ use tracing::Instrument as _;
 
 use super::{
     PrepareError,
-    builder::WireframeApp,
+    builder::{
+        WireframeApp,
+        push::{validate_push_queues, warn_about_legacy_push_dlq},
+    },
     envelope::Packet,
     inbound_handler::{ConnectionProcessingContext, build_route_chains, process_connection},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
@@ -71,6 +74,10 @@ pub struct PreparedApp<
     )]
     /// Optional dead-letter sink for pushes that cannot be delivered.
     pub(in crate::app) push_dlq: Option<mpsc::Sender<Vec<u8>>>,
+    /// Template cloned to build each connection's push queues.
+    pub(in crate::app) push_queues: Option<crate::push::PushQueuesBuilder<F::Frame>>,
+    /// Registry that each connection registers its push handle with.
+    pub(in crate::app) session_registry: Arc<crate::session::SessionRegistry<F::Frame>>,
     /// Optional limits and timeout for transparent frame fragmentation.
     pub(in crate::app) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Maximum interval to wait for the next inbound frame.
@@ -156,6 +163,8 @@ where
 
     /// Build the prepared representation before publishing it to the caller.
     async fn build_prepared(self) -> Result<PreparedApp<S, C, E, F>, PrepareError> {
+        validate_push_queues(self.push_queues.as_ref())?;
+        warn_about_legacy_push_dlq(self.push_dlq.as_ref());
         let routes = build_route_chains(&self.handlers, &self.middleware).await;
 
         Ok(PreparedApp {
@@ -167,12 +176,15 @@ where
             protocol: self.protocol,
             message_assembler: self.message_assembler,
             push_dlq: self.push_dlq,
+            push_queues: self.push_queues,
+            session_registry: self.session_registry,
             fragmentation: self.fragmentation,
             read_timeout_ms: self.read_timeout_ms,
             memory_budgets: self.memory_budgets,
         })
     }
 }
+
 
 impl<S, C, E, F> PreparedApp<S, C, E, F>
 where
@@ -301,6 +313,7 @@ where
     }
 }
 
+
 impl<S, C, E, F> PreparedApp<S, C, E, F>
 where
     S: Serializer + Send + Sync,
@@ -368,6 +381,7 @@ where
         self.message_assembler.as_ref()
     }
 }
+
 
 #[cfg(test)]
 #[path = "prepared_app_tests.rs"]

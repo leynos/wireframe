@@ -1,7 +1,5 @@
 //! General configuration methods for `WireframeApp`.
 
-use tokio::sync::mpsc;
-
 use super::WireframeApp;
 use crate::{
     app::{
@@ -62,28 +60,5 @@ where
     pub fn enable_fragmentation(mut self) -> Self {
         self.fragmentation = default_fragmentation(self.codec.max_frame_length());
         self
-    }
-
-    /// Configure a Dead Letter Queue for dropped push frames.
-    ///
-    /// ```rust,no_run
-    /// use tokio::sync::mpsc;
-    /// use wireframe::app::WireframeApp;
-    ///
-    /// # fn build() -> WireframeApp {
-    /// #     WireframeApp::new().expect("builder creation should not fail")
-    /// # }
-    /// # fn main() {
-    /// let (tx, _rx) = mpsc::channel(16);
-    /// let app = build().with_push_dlq(tx);
-    /// # let _ = app;
-    /// # }
-    /// ```
-    #[must_use]
-    pub fn with_push_dlq(self, dlq: mpsc::Sender<Vec<u8>>) -> Self {
-        Self {
-            push_dlq: Some(dlq),
-            ..self
-        }
     }
 }
