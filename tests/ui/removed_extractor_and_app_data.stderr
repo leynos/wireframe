@@ -1,0 +1,11 @@
+error[E0432]: unresolved import `wireframe::extractor`
+ --> tests/ui/removed_extractor_and_app_data.rs:5:5
+  |
+5 |     extractor::SharedState,
+  |     ^^^^^^^^^ could not find `extractor` in `wireframe`
+
+error[E0599]: no method named `app_data` found for struct `WireframeApp<S, C, E, F>` in the current scope
+ --> tests/ui/removed_extractor_and_app_data.rs:9:37
+  |
+9 |     let _app = WireframeApp::new()?.app_data(5u32);
+  |                                     ^^^^^^^^ method not found in `WireframeApp<_, _, _, _>`
