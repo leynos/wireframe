@@ -6,11 +6,15 @@ Proposed.
 
 The `PreparedApp` transition and server-startup preparation described here are
 implemented by [#641](https://github.com/leynos/wireframe/issues/641) and
-[#642](https://github.com/leynos/wireframe/issues/642). The connection-local
-runtime and centralized lifecycle finalization described in sections 1 and 5
-are implemented by [#643](https://github.com/leynos/wireframe/issues/643). The
-broader ownership decision remains proposed while its remaining sequenced work
-continues.
+[#642](https://github.com/leynos/wireframe/issues/642). [#643](https://github.com/leynos/wireframe/issues/643)
+implements the connection-local inbound runtime — framed codec state, inbound
+pipeline, fragment reassembly, message-assembly state, the deserialization
+failure counter, resolved budgets, the read timeout, and connection setup state
+— together with the centralized lifecycle finalization described in section 5.
+Other ownership listed under `ConnectionRuntime` in section 1, including
+`ConnectionContext`, outbound connection-actor state, peer metadata, and the
+teardown guard, remains sequenced work. The broader ownership decision remains
+proposed while that work continues.
 
 First proposed on 2026-08-08 in issue
 [#637](https://github.com/leynos/wireframe/issues/637); imported and refined on
@@ -590,12 +594,20 @@ documentation obligations, delivered under
 - Factory/preparation failure prevents acceptance and returns a typed
   server error.
 - When both hooks are registered, setup and teardown run exactly once across
-  every terminal path: clean close, decode error, protocol error, transport
-  read error, transport write error, handler panic, and cooperative
-  cancellation. The matrix in `tests/prepared_app/lifecycle_matrix.rs` moves a
-  non-`Clone` setup value through each outcome and checks that teardown
+  the terminal paths the matrix drives: clean close, decode error, protocol
+  error, message-assembly failure, transport read error, transport write error,
+  and handler panic. The matrix in `tests/prepared_app/lifecycle_matrix.rs`
+  moves a non-`Clone` setup value through each outcome and checks that teardown
   received that exact value once; setup failure and a setup that never
   completes run teardown zero times.
+- Cooperative cancellation also finalizes exactly once. The matrix does not
+  drive it, because `PreparedApp::handle_connection_result` supplies no token.
+  `cancellation_finalizes_the_exact_non_clone_setup_value` in
+  `src/app/connection_runtime/ordering_tests.rs` covers cancellation with the
+  exact non-`Clone` setup value, while
+  `cancellation_before_any_frame_runs_teardown_once` and
+  `cancellation_during_pending_read_runs_teardown_once` in
+  `src/app/connection_runtime/tests.rs` cover the two read-boundary positions.
 - Protocol `before_send` applies to ordinary responses and actor-driven
   outputs according to ADR 010.
 - Existing handler ordering, codec, fragmentation, message assembly,

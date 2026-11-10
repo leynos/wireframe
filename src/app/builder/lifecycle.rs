@@ -69,7 +69,7 @@ where
     /// and when the connection future is dropped or aborted before processing
     /// stops. A panic during setup or teardown is not retried, and builds
     /// using `panic = "abort"` cannot recover a handler panic. See
-    /// [ADR-012](../../../docs/adr-012-prepared-application-and-connection-runtime.md)
+    /// [ADR-012](https://github.com/leynos/wireframe/blob/main/docs/adr-012-prepared-application-and-connection-runtime.md)
     /// for the full contract.
     ///
     /// # Errors
