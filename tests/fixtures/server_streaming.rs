@@ -247,9 +247,16 @@ impl WireframeProtocol for TerminatingProtocol {
 
     fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> {
         let envelope = Envelope::new(TERMINATOR_ID.get(), None, Vec::new());
-        // An unencodable terminator is treated as "no terminator"; the fixture
-        // envelope always encodes.
-        let payload = BincodeSerializer.serialize(&envelope).ok()?;
+        // The fixture envelope always encodes. A failure here is a test bug,
+        // not a protocol condition, so report the cause instead of dropping
+        // the terminator and leaving scenarios to fail with a generic message.
+        let payload = match BincodeSerializer.serialize(&envelope) {
+            Ok(payload) => payload,
+            Err(error) => {
+                tracing::warn!(%error, "fixture terminator envelope failed to serialize");
+                return None;
+            }
+        };
         Some(LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH).wrap_payload(Bytes::from(payload)))
     }
 }

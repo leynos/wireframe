@@ -58,7 +58,8 @@ where
                 // Stop polling the response after a protocol error to avoid
                 // double-closing and duplicate `on_command_end` signalling.
                 self.active_output.clear_response();
-                self.hooks.on_command_end(&mut self.ctx);
+                self.response_failed = true;
+                self.defer_command_end();
                 crate::metrics::inc_handler_errors();
             }
             Some(Err(e)) => return Err(e),
@@ -68,7 +69,9 @@ where
                     self.process_frame_with_hooks_and_metrics(frame, out);
                     produced = true;
                 }
-                self.hooks.on_command_end(&mut self.ctx);
+                // The terminator is still buffered, so the completion hook
+                // must wait until the sink has written it.
+                self.defer_command_end();
             }
         }
 

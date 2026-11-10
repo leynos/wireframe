@@ -104,7 +104,7 @@ async fn exercise_fragmented_property_case(
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut server,
+        sink: &mut server,
     };
     flush_pipeline_output(&mut transport, &mut pipeline).await?;
     drop(server);

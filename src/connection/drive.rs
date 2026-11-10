@@ -5,15 +5,16 @@
 //! identical to the historical synchronous driver while letting an integrated
 //! transport apply back-pressure before the next source is polled.
 
-use std::io;
+use std::{io, time::Duration};
 
-use log::info;
+use log::{info, warn};
 
 use super::{
     ConnectionActor,
     FrameSink,
     event::Event,
     output::{ActiveOutput, AvailableOutput, EventAvailability},
+    polling::EventSources,
     state::ActorState,
 };
 use crate::{
@@ -22,6 +23,24 @@ use crate::{
     push::FrameLike,
     response::{Response, WireframeError},
 };
+
+/// Idle grace granted to a response after the peer closes its input half.
+///
+/// Long enough for a producer that is merely slow to deliver its next frame,
+/// and short enough that a vanished peer cannot pin a connection open
+/// indefinitely.
+const PEER_CLOSED_RESPONSE_GRACE: Duration = Duration::from_secs(30);
+
+/// How an installed handler response finished.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResponseOutcome {
+    /// The response completed, so its protocol terminator may be emitted.
+    Completed,
+    /// The response stream reported a protocol error.
+    Failed,
+    /// The connection shut down or the peer disappeared before completion.
+    Cancelled,
+}
 
 impl<F, E> ConnectionActor<F, E>
 where
@@ -76,6 +95,7 @@ where
             let mut frames = Vec::new();
             self.dispatch_event(event, &mut state, &mut frames)?;
             flush_frames(frames, sink).await?;
+            self.run_deferred_command_end();
         }
         info!(
             "connection closed: id={:?}, peer={:?}",
@@ -102,7 +122,7 @@ where
         response: Response<F, E>,
         correlation_id: Option<u64>,
         sink: &mut S,
-    ) -> Result<(), WireframeError<E>>
+    ) -> Result<ResponseOutcome, WireframeError<E>>
     where
         S: FrameSink<F> + Send,
     {
@@ -111,28 +131,32 @@ where
                 self.emit_response_frames(vec![frame], correlation_id, sink)
                     .await?;
                 self.hooks.on_command_end(&mut self.ctx);
+                Ok(ResponseOutcome::Completed)
             }
             Response::Vec(frames) => {
                 self.emit_response_frames(frames, correlation_id, sink)
                     .await?;
                 self.hooks.on_command_end(&mut self.ctx);
+                Ok(ResponseOutcome::Completed)
             }
             Response::Empty => {
                 ensure_output_idle(&self.active_output)?;
                 self.hooks.on_command_end(&mut self.ctx);
+                Ok(ResponseOutcome::Completed)
             }
             Response::Stream(stream) => {
+                self.response_failed = false;
                 self.set_response(Some(stream))
                     .map_err(output_state_error)?;
-                self.drive_response(sink).await?;
+                self.drive_response(sink).await
             }
             Response::MultiPacket(receiver) => {
+                self.response_failed = false;
                 self.set_multi_packet_with_correlation(Some(receiver), correlation_id)
                     .map_err(output_state_error)?;
-                self.drive_response(sink).await?;
+                self.drive_response(sink).await
             }
         }
-        Ok(())
     }
 
     /// Drive the active response output until it completes.
@@ -147,7 +171,10 @@ where
     /// # Errors
     ///
     /// Returns a [`WireframeError`] from the response stream or the sink.
-    pub(crate) async fn drive_response<S>(&mut self, sink: &mut S) -> Result<(), WireframeError<E>>
+    pub(crate) async fn drive_response<S>(
+        &mut self,
+        sink: &mut S,
+    ) -> Result<ResponseOutcome, WireframeError<E>>
     where
         S: FrameSink<F> + Send,
     {
@@ -156,16 +183,87 @@ where
                 self.active_output.is_response(),
                 self.active_output.is_multi_packet(),
             );
-            let event = self.next_event(&state).await;
-            if matches!(event, Event::Shutdown) {
-                return Ok(());
+            let event = self.next_event_watching_peer(&state).await;
+            match event {
+                Event::Shutdown => return Ok(ResponseOutcome::Cancelled),
+                Event::PeerClosed => return self.drive_after_peer_close(sink).await,
+                dispatched => {
+                    let mut frames = Vec::new();
+                    self.dispatch_event(dispatched, &mut state, &mut frames)?;
+                    flush_frames(frames, sink).await?;
+                    self.run_deferred_command_end();
+                }
             }
+        }
+        Ok(self.finish_outcome())
+    }
 
+    /// Continue a response after the peer closed its input half.
+    ///
+    /// A peer may close only its sending half and keep reading, so EOF must not
+    /// truncate a healthy stream. It may equally have vanished, and an idle
+    /// producer would then keep the connection, its gauge guard, and the server
+    /// drain pending forever. Bounding the wait for each event lets progress
+    /// complete the response while guaranteeing teardown after a stall.
+    async fn drive_after_peer_close<S>(
+        &mut self,
+        sink: &mut S,
+    ) -> Result<ResponseOutcome, WireframeError<E>>
+    where
+        S: FrameSink<F> + Send,
+    {
+        while self.active_output.is_response() || self.active_output.is_multi_packet() {
+            let mut state = ActorState::new(
+                self.active_output.is_response(),
+                self.active_output.is_multi_packet(),
+            );
+            let waited =
+                tokio::time::timeout(PEER_CLOSED_RESPONSE_GRACE, self.next_event(&state)).await;
+            let Ok(event) = waited else {
+                warn!(
+                    "peer closed input and the response produced no frames for \
+                     {PEER_CLOSED_RESPONSE_GRACE:?}; cancelling: id={:?}, peer={:?}",
+                    self.connection_id, self.peer_addr
+                );
+                self.active_output.clear();
+                return Ok(ResponseOutcome::Cancelled);
+            };
+            if matches!(event, Event::Shutdown) {
+                return Ok(ResponseOutcome::Cancelled);
+            }
             let mut frames = Vec::new();
             self.dispatch_event(event, &mut state, &mut frames)?;
             flush_frames(frames, sink).await?;
+            self.run_deferred_command_end();
         }
-        Ok(())
+        Ok(self.finish_outcome())
+    }
+
+    /// Map the response loop's terminal flags to an outcome.
+    const fn finish_outcome(&self) -> ResponseOutcome {
+        if self.response_failed {
+            ResponseOutcome::Failed
+        } else {
+            ResponseOutcome::Completed
+        }
+    }
+
+    /// Record that the protocol's completion hook belongs after the final
+    /// write.
+    ///
+    /// Streamed responses announce completion while the terminator frame is
+    /// still buffered. Deferring the hook until
+    /// [`run_deferred_command_end`](Self::run_deferred_command_end) runs keeps
+    /// `on_command_end` after a successful write, matching the ordering of
+    /// single-frame responses, and suppresses it entirely when the write
+    /// fails.
+    pub(super) const fn defer_command_end(&mut self) { self.command_end_pending = true; }
+
+    /// Run a deferred completion hook once the final frame has been written.
+    pub(super) fn run_deferred_command_end(&mut self) {
+        if std::mem::take(&mut self.command_end_pending) {
+            self.hooks.on_command_end(&mut self.ctx);
+        }
     }
 
     /// Emit a completed response, stamping the request correlation ID.
@@ -215,30 +313,44 @@ where
     /// The `strict_priority_order` and `shutdown_signal_precedence` tests
     /// assert that this ordering is preserved across refactors.
     pub(super) async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
+        self.next_event_inner(state, false).await
+    }
+
+    /// Await the next event while also observing the peer's half-close.
+    async fn next_event_watching_peer(&mut self, state: &ActorState) -> Event<F, E> {
+        self.next_event_inner(state, true).await
+    }
+
+    /// Whether peer-close observation applies to the current actor state.
+    const fn should_watch_peer(watch_peer: bool, state: &ActorState) -> bool {
+        watch_peer && state.is_active()
+    }
+
+    /// Shared select loop for both observation modes.
+    async fn next_event_inner(&mut self, state: &ActorState, watch_peer: bool) -> Event<F, E> {
         let avail = self.compute_availability(state);
         let can_poll_multi_packet = avail.output == AvailableOutput::MultiPacket;
         let can_poll_response = avail.output == AvailableOutput::Response;
-
-        // Extract mutable references before the select! to satisfy the borrow
-        // checker. Only one of these can be Some due to the ActiveOutput enum
-        // invariant.
-        let (multi_rx, response_stream) = match &mut self.active_output {
-            ActiveOutput::MultiPacket(ctx) => (ctx.channel_mut(), None),
-            ActiveOutput::Response(stream) => (None, Some(stream)),
-            ActiveOutput::None => (None, None),
-        };
-        let shutdown = &self.shutdown;
-        let high_rx = self.high_rx.as_mut();
-        let low_rx = self.low_rx.as_mut();
+        let EventSources {
+            high,
+            low,
+            multi_packet,
+            response,
+            shutdown,
+            peer_closed,
+        } = self.event_sources();
 
         tokio::select! {
             biased;
 
             () = Self::wait_shutdown(shutdown), if state.is_active() => Event::Shutdown,
-            res = Self::poll_queue(high_rx), if avail.high => Event::High(res),
-            res = Self::poll_queue(low_rx), if avail.low => Event::Low(res),
-            res = Self::poll_queue(multi_rx), if can_poll_multi_packet => Event::MultiPacket(res),
-            res = Self::poll_response(response_stream), if can_poll_response => Event::Response(res),
+            () = Self::wait_peer_closed(peer_closed), if Self::should_watch_peer(watch_peer, state) => {
+                Event::PeerClosed
+            }
+            res = Self::poll_queue(high), if avail.high => Event::High(res),
+            res = Self::poll_queue(low), if avail.low => Event::Low(res),
+            res = Self::poll_queue(multi_packet), if can_poll_multi_packet => Event::MultiPacket(res),
+            res = Self::poll_response(response), if can_poll_response => Event::Response(res),
             else => Event::Idle,
         }
     }

@@ -149,6 +149,7 @@ impl ActorHarness {
                 state: &mut self.state,
             },
         );
+        self.run_deferred_command_end();
     }
 
     /// Handle closure of the multi-packet receiver.
@@ -158,25 +159,42 @@ impl ActorHarness {
             &mut self.state,
             &mut self.out,
         );
+        self.run_deferred_command_end();
     }
 
+    /// Run the completion hook deferred until the buffered frames are written.
+    ///
+    /// Production runs this immediately after the sink accepts a batch. The
+    /// harness writes into `out` synchronously, so it applies the same boundary
+    /// here; hook-count assertions then match the real driver.
+    fn run_deferred_command_end(&mut self) { self.actor.run_deferred_command_end(); }
+
     /// Trigger shutdown handling on the underlying actor.
-    pub fn start_shutdown(&mut self) { self.actor.start_shutdown(&mut self.state); }
+    pub fn start_shutdown(&mut self) {
+        self.actor.start_shutdown(&mut self.state);
+        self.run_deferred_command_end();
+    }
 
     /// Attempt a low-priority opportunistic drain.
     pub fn try_drain_low(&mut self) -> bool {
         let state = &mut self.state;
         let out = &mut self.out;
-        self.actor
-            .try_opportunistic_drain(QueueKind::Low, DrainContext { out, state })
+        let drained = self
+            .actor
+            .try_opportunistic_drain(QueueKind::Low, DrainContext { out, state });
+        self.run_deferred_command_end();
+        drained
     }
 
     /// Attempt a multi-packet opportunistic drain.
     pub fn try_drain_multi(&mut self) -> bool {
         let state = &mut self.state;
         let out = &mut self.out;
-        self.actor
-            .try_opportunistic_drain(QueueKind::Multi, DrainContext { out, state })
+        let drained = self
+            .actor
+            .try_opportunistic_drain(QueueKind::Multi, DrainContext { out, state });
+        self.run_deferred_command_end();
+        drained
     }
 
     /// Access the underlying actor mutably.

@@ -29,6 +29,7 @@ pub(crate) use counter::ActiveConnection;
 #[cfg(loom)]
 pub use counter::LoomConnectionGuard;
 pub use counter::active_connection_count;
+pub(crate) use drive::ResponseOutcome;
 use log::info;
 use multi_packet::MultiPacketContext;
 use output::ActiveOutput;
@@ -61,6 +62,23 @@ struct ActorInit<F, E> {
     shutdown: CancellationToken,
     /// Protocol hooks applied to outbound frames.
     hooks: ProtocolHooks<F, E>,
+}
+
+impl<F, E> ActorInit<F, E> {
+    /// Bundle the construction inputs both constructors accept.
+    const fn new(
+        channels: ConnectionChannels<F>,
+        response: Option<FrameStream<F, E>>,
+        shutdown: CancellationToken,
+        hooks: ProtocolHooks<F, E>,
+    ) -> Self {
+        Self {
+            channels,
+            response,
+            shutdown,
+            hooks,
+        }
+    }
 }
 
 /// Error returned when attempting to set an active output source while
@@ -122,6 +140,12 @@ pub struct ConnectionActor<F, E = NoProtocolError> {
     connection_id: Option<ConnectionId>,
     /// Peer address retained for diagnostics when the socket exposes it.
     peer_addr: Option<SocketAddr>,
+    /// Whether a completion hook is waiting for the final frame to be written.
+    command_end_pending: bool,
+    /// Whether the response currently being driven reported a protocol error.
+    response_failed: bool,
+    /// Token cancelled when the peer closes its input half.
+    peer_closed: CancellationToken,
 }
 
 impl<F, E> ConnectionActor<F, E>
@@ -169,14 +193,10 @@ where
         shutdown: CancellationToken,
         hooks: ProtocolHooks<F, E>,
     ) -> Self {
+        let connection = ActiveConnection::new();
         Self::build(
-            ActorInit {
-                channels,
-                response,
-                shutdown,
-                hooks,
-            },
-            Some(ActiveConnection::new()),
+            ActorInit::new(channels, response, shutdown, hooks),
+            Some(connection),
         )
     }
 
@@ -192,15 +212,7 @@ where
         shutdown: CancellationToken,
         hooks: ProtocolHooks<F, E>,
     ) -> Self {
-        Self::build(
-            ActorInit {
-                channels,
-                response,
-                shutdown,
-                hooks,
-            },
-            None,
-        )
+        Self::build(ActorInit::new(channels, response, shutdown, hooks), None)
     }
 
     /// Shared constructor used by the tracked and untracked entry points.
@@ -226,16 +238,34 @@ where
             fragmenter: None,
             connection_id: None,
             peer_addr: None,
+            command_end_pending: false,
+            response_failed: false,
+            peer_closed: CancellationToken::new(),
         };
-        info!(
-            "connection opened: wireframe_active_connections={}, id={:?}, peer={:?}",
-            counter::current_count(),
-            actor.connection_id,
-            actor.peer_addr
-        );
+        // The server builds an untracked actor per connection and owns the
+        // connection lifecycle in its accept loop. Logging an opening there
+        // would be unbalanced because `install_response`/`drive_response`
+        // never log a close, and the active-connection count would not include
+        // that connection.
+        if actor.counter.is_some() {
+            info!(
+                "connection opened: wireframe_active_connections={}, id={:?}, peer={:?}",
+                counter::current_count(),
+                actor.connection_id,
+                actor.peer_addr
+            );
+        }
         actor.hooks.on_connection_setup(handle, &mut actor.ctx);
         actor
     }
+
+    /// Share the token that reports the peer closing its input half.
+    ///
+    /// The inbound loop cancels the token once its read half reports EOF. A
+    /// response that is still streaming is then driven under a bounded idle
+    /// grace, because a peer that has vanished will never read the remaining
+    /// frames or send another request.
+    pub(crate) fn set_peer_closed(&mut self, token: CancellationToken) { self.peer_closed = token; }
 
     /// Replace the fairness configuration.
     pub const fn set_fairness(&mut self, fairness: FairnessConfig) {

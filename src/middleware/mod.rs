@@ -134,6 +134,12 @@ where
 }
 
 /// Trait representing an asynchronous service.
+///
+/// Middleware that participates in a response route must mutate the incoming
+/// [`ServiceResponse`] and return it. A response installed by
+/// `WireframeApp::route_response` travels in a deferred slot on that same
+/// value; constructing a fresh [`ServiceResponse`] discards the slot, and the
+/// route then emits no frames.
 #[async_trait]
 pub trait Service: Send + Sync {
     /// Error type returned by the service.

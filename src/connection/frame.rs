@@ -21,6 +21,11 @@ where
     }
 
     /// Apply correlation stamping to a multi-packet frame.
+    ///
+    /// Stamping only replaces the frame's identifier when the originating
+    /// request supplied one. A request without a correlation identifier
+    /// leaves the producer's own identifier untouched, matching the
+    /// inheritance rule applied to every other response shape.
     pub(super) fn apply_multi_packet_correlation(&mut self, frame: &mut F) {
         let Some(ctx) = self.active_output.multi_packet_mut() else {
             // No channel is active, so there is nothing to stamp.
@@ -31,24 +36,20 @@ where
             return;
         }
 
-        let correlation_id = ctx.correlation_id();
-        frame.set_correlation_id(correlation_id);
+        // A request that supplied no correlation identifier must not clear an
+        // identifier produced by the producer, matching the inheritance rule
+        // used for single, vector, and streamed responses.
+        let Some(correlation_id) = ctx.correlation_id() else {
+            return;
+        };
+        frame.set_correlation_id(Some(correlation_id));
 
-        if let Some(expected) = correlation_id {
-            debug_assert!(
-                CorrelatableFrame::correlation_id(frame) == Some(expected)
-                    || CorrelatableFrame::correlation_id(frame).is_none(),
-                "multi-packet frame correlation mismatch: expected={:?}, got={:?}",
-                Some(expected),
-                CorrelatableFrame::correlation_id(frame),
-            );
-        } else {
-            debug_assert!(
-                CorrelatableFrame::correlation_id(frame).is_none(),
-                "multi-packet frame correlation unexpectedly present: got={:?}",
-                CorrelatableFrame::correlation_id(frame),
-            );
-        }
+        debug_assert!(
+            CorrelatableFrame::correlation_id(frame) == Some(correlation_id)
+                || CorrelatableFrame::correlation_id(frame).is_none(),
+            "multi-packet frame correlation mismatch: expected={correlation_id:?}, got={:?}",
+            CorrelatableFrame::correlation_id(frame),
+        );
     }
 
     /// Apply fragmentation and protocol hooks before emitting a frame.

@@ -2,25 +2,22 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use futures::StreamExt;
+use futures::Sink;
 use log::{debug, warn};
-use tokio::{
-    io::{self, AsyncRead, AsyncWrite},
-    time::{Duration, timeout},
-};
-use tokio_util::{codec::Framed, sync::CancellationToken};
+use tokio::io::{self, AsyncRead, AsyncWrite};
+use tokio_util::sync::CancellationToken;
 
 use super::{
     super::{
         codec_driver::FramePipeline,
-        combined_codec::ConnectionCodec,
         envelope::{Envelope, Packet},
         frame_handling,
         memory_budgets::MemoryBudgets,
     },
     MAX_DESER_FAILURES,
     actor::build_connection_actor,
-    framing::{ConnectionFraming, prepare_connection_framing},
+    framing::prepare_connection_framing,
+    peer_watch::{NextFrame, handle_watching_peer, next_inbound_frame},
 };
 use crate::{
     codec::FrameCodec,
@@ -34,15 +31,15 @@ use crate::{
 };
 
 /// Per-frame processing state bundled for `handle_frame`.
-struct FrameHandlingContext<'a, S, E, W, F>
+struct FrameHandlingContext<'a, S, E, K, F>
 where
     S: Serializer + Send + Sync,
     E: Packet,
-    W: AsyncRead + AsyncWrite + Unpin,
+    K: Sink<F::Frame, Error = io::Error> + Unpin,
     F: FrameCodec,
 {
-    /// Framed transport used to write responses during frame handling.
-    framed: &'a mut Framed<W, ConnectionCodec<F>>,
+    /// Sink used to write responses during frame handling.
+    sink: &'a mut K,
     /// Connection-wide malformed-frame counter shared with all stages.
     deser_failures: &'a mut u32,
     /// Immutable middleware chains used to dispatch decoded envelopes.
@@ -60,6 +57,8 @@ where
     message_assembly: &'a mut Option<MessageAssemblyState>,
     /// Actor that schedules and delivers handler responses.
     actor: &'a mut ConnectionActor<Envelope, ()>,
+    /// Protocol whose terminator and completion hooks follow a response.
+    protocol: Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
 }
 
 /// Immutable stream-wide configuration shared by all inbound frames.
@@ -196,87 +195,82 @@ where
     W: AsyncRead + AsyncWrite + Send + Unpin,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    let StreamProcessingContext {
-        routes,
-        serializer,
-        codec,
-        message_assembler,
-        fragmentation,
-        protocol_hooks,
-        protocol,
-        memory_budgets,
-        read_timeout_ms,
-    } = context;
-    let ConnectionFraming {
-        codec: connection_codec,
-        mut framed,
-    } = prepare_connection_framing(stream, codec);
+    let (mut sink, mut reader, connection_codec) =
+        prepare_connection_framing(stream, context.codec).split();
     let requested_frame_length = connection_codec.max_frame_length();
     let effective_budgets =
-        frame_handling::resolve_effective_budgets(memory_budgets, requested_frame_length);
+        frame_handling::resolve_effective_budgets(context.memory_budgets, requested_frame_length);
     let mut deser_failures = 0u32;
-    let mut message_assembly = message_assembler.map(|_| {
+    let mut message_assembly = context.message_assembler.map(|_| {
         frame_handling::new_message_assembly_state(
-            fragmentation,
+            context.fragmentation,
             requested_frame_length,
             Some(effective_budgets),
         )
     });
-    let mut pipeline = FramePipeline::with_hooks(fragmentation, protocol_hooks);
+    let mut pipeline = FramePipeline::with_hooks(context.fragmentation, context.protocol_hooks);
     let connection_shutdown = CancellationToken::new();
-    let (mut response_actor, _cancel_on_exit) = build_connection_actor::<S, F>(
-        protocol.as_ref(),
-        Arc::clone(&serializer),
+    let peer_closed = CancellationToken::new();
+    let (mut response_actor, _cancel_on_exit) = build_connection_actor::<F>(
+        context.protocol.as_ref(),
         connection_shutdown,
+        peer_closed.clone(),
     )?;
+    // A frame read while the previous one was still being handled, so the
+    // loop never polls the read half twice for one inbound frame.
+    let mut pending_frame: Option<F::Frame> = None;
 
     loop {
         relieve_memory_pressure(&mut pipeline, &mut message_assembly, effective_budgets).await?;
 
-        match timeout(Duration::from_millis(read_timeout_ms), framed.next()).await {
-            Ok(Some(Ok(frame))) => {
-                handle_frame(
-                    &frame,
-                    FrameHandlingContext {
-                        framed: &mut framed,
-                        deser_failures: &mut deser_failures,
-                        routes,
-                        serializer: serializer.as_ref(),
-                        codec: &connection_codec,
-                        message_assembler,
-                        message_assembly: &mut message_assembly,
-                        pipeline: &mut pipeline,
-                        actor: &mut response_actor.actor,
-                    },
-                )
-                .await?;
-            }
-            Ok(Some(Err(error))) => return Err(error),
-            Ok(None) => break,
-            Err(_) => {
-                debug!("read timeout elapsed; continuing to wait for next frame");
-                purge_expired(&mut pipeline, &mut message_assembly);
-            }
-        }
+        let frame =
+            match next_inbound_frame(&mut pending_frame, &mut reader, context.read_timeout_ms)
+                .await?
+            {
+                NextFrame::Ready(frame) => frame,
+                NextFrame::Closed => break,
+                NextFrame::TimedOut => {
+                    debug!("read timeout elapsed; continuing to wait for next frame");
+                    purge_expired(&mut pipeline, &mut message_assembly);
+                    continue;
+                }
+            };
+
+        let handling = handle_frame(
+            &frame,
+            FrameHandlingContext {
+                sink: &mut sink,
+                deser_failures: &mut deser_failures,
+                routes: context.routes,
+                serializer: context.serializer.as_ref(),
+                codec: &connection_codec,
+                message_assembler: context.message_assembler,
+                message_assembly: &mut message_assembly,
+                pipeline: &mut pipeline,
+                actor: &mut response_actor.actor,
+                protocol: context.protocol.as_ref(),
+            },
+        );
+        handle_watching_peer(handling, &mut reader, &peer_closed, &mut pending_frame).await?;
     }
 
     Ok(())
 }
 
 /// Decode one frame, apply reassembly, and dispatch the resulting envelope.
-async fn handle_frame<S, E, F, W>(
+async fn handle_frame<S, E, K, F>(
     frame: &F::Frame,
-    context: FrameHandlingContext<'_, S, E, W, F>,
+    context: FrameHandlingContext<'_, S, E, K, F>,
 ) -> io::Result<()>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     E: Packet,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Send + Unpin,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
     let FrameHandlingContext {
-        framed,
+        sink,
         deser_failures,
         routes,
         serializer,
@@ -285,6 +279,7 @@ where
         message_assembly,
         pipeline,
         actor,
+        protocol,
     } = context;
 
     crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
@@ -306,12 +301,13 @@ where
         frame_handling::forward_response(
             envelope,
             service,
-            frame_handling::ResponseContext::<S, W, F> {
+            frame_handling::ResponseContext::<S, K, F> {
                 serializer,
-                framed,
+                sink,
                 pipeline,
                 codec,
                 actor,
+                protocol,
             },
         )
         .await?;

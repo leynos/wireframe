@@ -101,24 +101,41 @@ fn no_preamble_hooks() -> PreambleHooks<TestPreamble> {
     }
 }
 
+/// Spawn a default application's connection task and return the peer end.
+async fn spawn_default_connection(tracker: &TaskTracker) -> std::io::Result<TcpStream> {
+    let (client, stream) = connected_pair().await?;
+    let app = prepared_default_app().await?;
+    spawn_connection_task(
+        ConnectionTask {
+            stream,
+            app,
+            hooks: no_preamble_hooks(),
+            connection: ActiveConnection::new(),
+        },
+        tracker,
+    );
+    Ok(client)
+}
+
+/// Close the peer and wait for the connection task to finish.
+async fn close_peer(mut client: TcpStream, tracker: &TaskTracker) -> std::io::Result<()> {
+    client.shutdown().await?;
+    drop(client);
+    tracker.close();
+    tracker.wait().await;
+    Ok(())
+}
+
 /// The gauge covers a connection that is still waiting for its preamble.
 #[test]
 fn gauge_covers_a_pending_preamble() {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
     with_current_thread_recorder(&recorder, async move {
-        let (mut client, stream) = connected_pair().await.expect("connect test pair");
-        let app = prepared_default_app().await.expect("prepare default app");
         let tracker = TaskTracker::new();
-        spawn_connection_task(
-            ConnectionTask {
-                stream,
-                app,
-                hooks: no_preamble_hooks(),
-                connection: ActiveConnection::new(),
-            },
-            &tracker,
-        );
+        let client = spawn_default_connection(&tracker)
+            .await
+            .expect("spawn pending connection");
 
         tokio::task::yield_now().await;
         assert_eq!(
@@ -128,10 +145,9 @@ fn gauge_covers_a_pending_preamble() {
         );
 
         // Close the peer so the pending read fails and the task finishes.
-        client.shutdown().await.expect("shut down the test client");
-        drop(client);
-        tracker.close();
-        tracker.wait().await;
+        close_peer(client, &tracker)
+            .await
+            .expect("close the test peer");
 
         assert_eq!(
             read_active_gauge(&snapshotter),
@@ -148,27 +164,18 @@ fn gauge_released_after_preamble_rejection() {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
     with_current_thread_recorder(&recorder, async move {
-        let (mut client, stream) = connected_pair().await.expect("connect test pair");
-        let app = prepared_default_app().await.expect("prepare default app");
         let tracker = TaskTracker::new();
-        spawn_connection_task(
-            ConnectionTask {
-                stream,
-                app,
-                hooks: no_preamble_hooks(),
-                connection: ActiveConnection::new(),
-            },
-            &tracker,
-        );
+        let mut client = spawn_default_connection(&tracker)
+            .await
+            .expect("spawn rejected connection");
 
         client
             .write_all(&OVERSIZED_PREAMBLE)
             .await
             .expect("write oversized preamble");
-        client.shutdown().await.expect("shut down client");
-        drop(client);
-        tracker.close();
-        tracker.wait().await;
+        close_peer(client, &tracker)
+            .await
+            .expect("close the test peer");
 
         assert_eq!(
             read_active_gauge(&snapshotter),
@@ -185,18 +192,10 @@ fn gauge_released_after_normal_close() {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
     with_current_thread_recorder(&recorder, async move {
-        let (mut client, stream) = connected_pair().await.expect("connect test pair");
-        let app = prepared_default_app().await.expect("prepare default app");
         let tracker = TaskTracker::new();
-        spawn_connection_task(
-            ConnectionTask {
-                stream,
-                app,
-                hooks: no_preamble_hooks(),
-                connection: ActiveConnection::new(),
-            },
-            &tracker,
-        );
+        let mut client = spawn_default_connection(&tracker)
+            .await
+            .expect("spawn handshaken connection");
 
         write_preamble(
             &mut client,
@@ -214,9 +213,9 @@ fn gauge_released_after_normal_close() {
             "the handshaken connection must stay counted while it reads frames"
         );
 
-        drop(client);
-        tracker.close();
-        tracker.wait().await;
+        close_peer(client, &tracker)
+            .await
+            .expect("close the test peer");
 
         assert_eq!(
             read_active_gauge(&snapshotter),
