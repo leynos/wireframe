@@ -169,10 +169,23 @@ async fn join_producers(producers: &ProducerHandles) -> TestResult {
     Ok(())
 }
 
-/// A peer that disconnects while its stream is still idle must release the
-/// connection instead of waiting forever for a producer that never yields.
-#[tokio::test(start_paused = true)]
-async fn idle_stream_is_cancelled_when_the_peer_disconnects() -> TestResult {
+/// A prepared idle-stream connection under test.
+struct IdleConnection {
+    /// Client end of the duplex transport.
+    client: DuplexStream,
+    /// Spawned server task driving the prepared connection.
+    connection: JoinHandle<std::io::Result<()>>,
+    /// Number of teardown hook invocations.
+    teardowns: Arc<AtomicUsize>,
+    /// Slot holding the pending stream's sender.
+    installed: IdleSender,
+}
+
+/// Build an idle-stream app, prepare it, and spawn its connection.
+///
+/// Both idle-stream scenarios need the same app wiring, so it lives here
+/// rather than being repeated in each test.
+async fn spawn_idle_connection() -> TestResult<IdleConnection> {
     let teardowns = Arc::new(AtomicUsize::new(0));
     let installed: IdleSender = Arc::new(Mutex::new(None));
     let teardown_counter = Arc::clone(&teardowns);
@@ -190,8 +203,26 @@ async fn idle_stream_is_cancelled_when_the_peer_disconnects() -> TestResult {
         .await
         .map_err(|error| TestError::Msg(format!("prepare app: {error}")))?;
 
-    let (mut client, server) = tokio::io::duplex(DUPLEX_CAPACITY);
+    let (client, server) = tokio::io::duplex(DUPLEX_CAPACITY);
     let connection = tokio::spawn(async move { prepared.handle_connection_result(server).await });
+    Ok(IdleConnection {
+        client,
+        connection,
+        teardowns,
+        installed,
+    })
+}
+
+/// A peer that disconnects while its stream is still idle must release the
+/// connection instead of waiting forever for a producer that never yields.
+#[tokio::test(start_paused = true)]
+async fn idle_stream_is_cancelled_when_the_peer_disconnects() -> TestResult {
+    let IdleConnection {
+        mut client,
+        connection,
+        teardowns,
+        installed,
+    } = spawn_idle_connection().await?;
 
     write_frame(&mut client, &request_bytes(IDLE_ROUTE)?).await?;
     wait_for_installed_stream(&installed).await?;
@@ -223,25 +254,12 @@ async fn idle_stream_is_cancelled_when_the_peer_disconnects() -> TestResult {
 /// stay pending forever.
 #[tokio::test(start_paused = true)]
 async fn buffered_request_does_not_pin_an_idle_stream() -> TestResult {
-    let teardowns = Arc::new(AtomicUsize::new(0));
-    let installed: IdleSender = Arc::new(Mutex::new(None));
-    let teardown_counter = Arc::clone(&teardowns);
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
-        .route_response(IDLE_ROUTE, idle_handler(Arc::clone(&installed)))?
-        .on_connection_setup(|| async {})?
-        .on_connection_teardown(move |()| {
-            let counter = Arc::clone(&teardown_counter);
-            async move {
-                counter.fetch_add(1, Ordering::SeqCst);
-            }
-        })?;
-    let prepared = app
-        .prepare()
-        .await
-        .map_err(|error| TestError::Msg(format!("prepare app: {error}")))?;
-
-    let (mut client, server) = tokio::io::duplex(DUPLEX_CAPACITY);
-    let connection = tokio::spawn(async move { prepared.handle_connection_result(server).await });
+    let IdleConnection {
+        mut client,
+        connection,
+        teardowns,
+        installed,
+    } = spawn_idle_connection().await?;
 
     write_frame(&mut client, &request_bytes(IDLE_ROUTE)?).await?;
     wait_for_installed_stream(&installed).await?;
