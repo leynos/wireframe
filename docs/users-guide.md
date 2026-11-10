@@ -2744,7 +2744,9 @@ To keep driving one application across several calls, or to size the in-memory
 duplex stream yourself, use the mutable variants that take `&mut WireframeApp`
 and a capacity. `wireframe_testing::drive_with_frame_with_capacity_mut` feeds
 one frame and `wireframe_testing::drive_with_frames_with_capacity_mut` feeds
-several.
+several. Like the other raw-frame drivers, they write your bytes verbatim, so
+each frame must already carry the codec's length prefix: four big-endian bytes
+for the default `LengthDelimitedFrameCodec`.
 
 ### Malformed input
 
