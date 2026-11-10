@@ -27,6 +27,15 @@ combined with a layered architecture and high-level abstractions, seeks to
 provide developers with a more declarative and less error-prone environment for
 building robust network services.
 
+> **Implementation status (2026-11-09).** The extractor and application-data
+> design described in sections 4.5, 5.1–5.3, 5.6, and 7 was not implemented as
+> a dispatch mechanism.
+> [ADR 016](adr-016-remove-route-extractors-and-app-data.md)
+> removes the `wireframe::extractor` module and `WireframeApp::app_data` before
+> 1.0. Route handlers receive only a reference to their envelope; shared state
+> reaches a handler through a captured `Arc`. The sections below are retained as
+> a historical design record.
+
 ## 2. Methodology
 
 The design of the "wireframe" library is predicated on a multi-faceted approach:
@@ -875,6 +884,11 @@ extractors (similar to how Actix Web extractors handle HTTP-specific parsing
 logic associated with each message type.
 
 ### 5.3. Data extraction and type safety
+
+> **Superseded by [ADR 016](adr-016-remove-route-extractors-and-app-data.md).**
+> The extractor trait and the built-in extractors below were removed before
+> 1.0. Handlers receive only `&E`; decode the envelope payload directly or in a
+> helper, and capture shared state in the handler closure.
 
 Inspired by Actix Web's extractors 22, "wireframe" will provide a type-safe
 mechanism for accessing data from incoming messages and connection context

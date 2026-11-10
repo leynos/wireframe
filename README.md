@@ -6,7 +6,7 @@ https://deepwiki.com/leynos/wireframe)
 **Wireframe** is an experimental Rust library that simplifies building servers
 and clients for custom binary protocols. The design borrows heavily from
 [Actix Web](https://actix.rs/) to provide a familiar, declarative API for
-routing, extractors, and middleware.
+routing and middleware.
 
 ## Motivation
 
@@ -20,7 +20,7 @@ reduce this boilerplate through layered abstractions:
 - Call `with_preamble::<T>()` before registering success or failure callbacks
 - **Serialization engine** using `bincode` or a `wire-rs` wrapper
 - **Routing engine** that dispatches messages by ID
-- **Handler invocation** with extractor support
+- **Handler invocation** with access to the routed envelope
 - **Middleware chain** for request/response processing
 - **[Connection lifecycle hooks](#connection-lifecycle)** for per-connection
   setup and teardown
@@ -34,11 +34,44 @@ Applications are configured using a builder pattern similar to Actix Web. A
 connections and runs the Tokio event loop:
 
 ```rust
-WireframeServer::new(|| {
-    WireframeApp::new()
-        .app_data(state.clone())
-        .route(MessageType::Login, handle_login)
-        .wrap(MyLoggingMiddleware::default())
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+
+use wireframe::{
+    app::{Envelope, Handler, WireframeApp},
+    message::Message,
+    serializer::BincodeSerializer,
+    server::WireframeServer,
+};
+
+const LOGIN: u32 = 1;
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct LoginRequest {
+    username: String,
+}
+
+let attempts = Arc::new(AtomicU64::new(0));
+let handler: Handler<Envelope> = {
+    let attempts = Arc::clone(&attempts);
+    Arc::new(move |envelope: &Envelope| {
+        let payload = envelope.payload_bytes().to_vec();
+        let attempts = Arc::clone(&attempts);
+        Box::pin(async move {
+            if let Ok((login, _)) = LoginRequest::from_bytes(&payload) {
+                attempts.fetch_add(1, Ordering::Relaxed);
+                tracing::info!(user = %login.username, "login attempt");
+            }
+        })
+    })
+};
+
+WireframeServer::new(move || {
+    WireframeApp::new()?
+        .serializer(BincodeSerializer)
+        .route(LOGIN, Arc::clone(&handler))
 })
 .bind("127.0.0.1:7878")?
 .run()
@@ -48,42 +81,45 @@ WireframeServer::new(|| {
 By default, the number of worker tasks equals the number of CPU cores. If the
 CPU count cannot be determined, the server falls back to a single worker.
 
-The builder supports methods like `route`, `app_data`, and `wrap` for
-middleware configuration. `app_data` stores any `Send + Sync` value keyed by
-type; registering another value of the same type overwrites the previous one.
-Handlers retrieve these values using the `SharedState<T>` extractor[^3].
-
-Handlers are asynchronous functions whose parameters implement extractor traits
-and may return responses implementing the `Responder` trait. This pattern
-mirrors Actix Web handlers and keeps protocol logic concise[^4].
+`Handler<E>` is a shared closure that receives the routed envelope and returns
+a boxed future. There is no type-based parameter resolution step: a route
+handler receives only `&E`, and the application echoes the envelope after the
+handler completes. Shared state reaches a handler by capturing an `Arc` in the
+closure, as the example does, so ownership and lifetime stay explicit[^3].
 
 ## Example
 
-The design document includes a simple echo server that demonstrates routing
-based on a message ID and the use of a length‑delimited codec:
+A minimal echo server routes one message ID and lets the application return the
+envelope unchanged:
 
 ```rust
-async fn handle_echo(req: Message<EchoRequest>) -> WireframeResult<EchoResponse> {
-    Ok(EchoResponse {
-        original_payload: req.payload.clone(),
-        echoed_at: time_now(),
-    })
-}
+use std::sync::Arc;
 
-WireframeServer::new(|| {
-    WireframeApp::new()
+use wireframe::{
+    app::{Envelope, Handler, WireframeApp},
+    serializer::BincodeSerializer,
+    server::WireframeServer,
+};
+
+let handler: Handler<Envelope> = Arc::new(|_: &Envelope| {
+    Box::pin(async {
+        tracing::info!("echo request received");
+        // `WireframeApp` echoes the envelope after the handler completes.
+    })
+});
+
+WireframeServer::new(move || {
+    WireframeApp::new()?
         .serializer(BincodeSerializer)
-        .route(MyMessageType::Echo, handle_echo)
+        .route(1, Arc::clone(&handler))
 })
 .bind("127.0.0.1:8000")?
 .run()
 .await
 ```
 
-This example showcases how derive macros and the framing abstraction simplify a
-binary protocol server. See the <!-- markdownlint-disable-next-line MD013 -->
-[full example](docs/rust-binary-router-library-design.md#5-6-illustrative-api-usage-examples)
-in the design document for further details.
+This mirrors [`examples/echo.rs`](examples/echo.rs), which shows the complete
+runnable server and its shutdown handling.
 
 ## Custom envelopes
 
@@ -136,11 +172,11 @@ This allows integration with existing packet formats without modifying
 
 Handlers can return types implementing the `Responder` trait. These values are
 encoded using the application's configured serializer and framed by a
-length‑delimited codec[^5].
+length‑delimited codec[^4].
 
 Frames are length prefixed using `tokio_util::codec::LengthDelimitedCodec`. The
 prefix length and byte order are configurable and default to a 4‑byte
-big‑endian header[^6].
+big‑endian header[^5].
 
 ```rust
 let app = WireframeApp::new()?;
@@ -260,46 +296,27 @@ fn on_connection_setup(&self, handle: PushHandle<MyFrame>, _ctx: &mut Connection
 }
 ```
 
-## Custom extractors
+## Decoding requests
 
-Extractors are types that implement `FromMessageRequest`. When a handler lists
-an extractor as a parameter, `wireframe` automatically constructs it using the
-incoming \[`MessageRequest`\] and remaining \[`Payload`\]. Built‑in extractors
-like `Message<T>`, `SharedState<T>` and `ConnectionInfo` decode the payload,
-access app state or expose peer information.
-
-Custom extractors let you centralize parsing and validation logic that would
-otherwise be duplicated across handlers. A session token parser, for example,
-can verify the token before any route-specific code executes Design Guide: Data
-Extraction and Type Safety[^7].
+Handlers own request decoding. Use `message::Message::from_bytes` for a bincode
+payload, or call the matching serializer when a protocol uses another format.
+Validation that would otherwise repeat across handlers belongs in a plain
+helper function:
 
 ```rust
-use wireframe::extractor::{ConnectionInfo, FromMessageRequest, MessageRequest, Payload};
+use wireframe::{app::Envelope, message::Message};
 
-pub struct SessionToken(String);
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct SessionToken(String);
 
-impl FromMessageRequest for SessionToken {
-    type Error = std::convert::Infallible;
-
-    fn from_message_request(
-        _req: &MessageRequest,
-        payload: &mut Payload<'_>,
-    ) -> Result<Self, Self::Error> {
-        let len = payload.as_ref()[0] as usize;
-        let token = std::str::from_utf8(&payload.as_ref()[1..=len]).unwrap().to_string();
-        payload.advance(1 + len);
-        Ok(Self(token))
-    }
+fn parse_token(envelope: &Envelope) -> Option<SessionToken> {
+    let (token, _) = SessionToken::from_bytes(envelope.payload_bytes()).ok()?;
+    (!token.0.is_empty()).then_some(token)
 }
 ```
 
-Custom extractors integrate seamlessly with other parameters:
-
-```rust
-async fn handle_ping(token: SessionToken, info: ConnectionInfo) {
-    println!("{} from {:?}", token.0, info.peer_addr());
-}
-```
+The envelope remains borrowed for the whole handler call, so a decode helper
+can read the payload without copying it unless the decoded type owns its data.
 
 ## Middleware
 
@@ -360,8 +377,8 @@ production use.
 ## Roadmap
 
 Development priorities are tracked in [docs/roadmap.md](docs/roadmap.md). Key
-tasks include building the Actix‑inspired API, implementing middleware and
-extractor traits, and providing example applications[^8].
+tasks include building the Actix‑inspired API, implementing middleware, and
+providing example applications[^6].
 
 ## Licence
 
@@ -369,10 +386,8 @@ Wireframe is distributed under the terms of the ISC licence. See
 [LICENSE](LICENSE) for details.
 
 [^1]: <docs/preamble-validator.md>
-[^2]: <docs/rust-binary-router-library-design.md#L292-L344>
-[^3]: <docs/rust-binary-router-library-design.md#L622-L710>
-[^4]: <docs/rust-binary-router-library-design.md#L682-L710>
-[^5]: <docs/rust-binary-router-library-design.md#L724-L730>
-[^6]: <docs/rust-binary-router-library-design.md#L1082-L1123>
-[^7]: <docs/rust-binary-router-library-design.md#53-data-extraction-and-type-safety>
-[^8]: <docs/roadmap.md#L1-L24>
+[^2]: <docs/rust-binary-router-library-design.md#42-high-level-architecture>
+[^3]: <docs/rust-binary-router-library-design.md#52-handler-functions>
+[^4]: <docs/rust-binary-router-library-design.md#44-message-serialization-and-deserialization>
+[^5]: <docs/rust-binary-router-library-design.md#43-frame-definition-and-processing>
+[^6]: <docs/roadmap.md>

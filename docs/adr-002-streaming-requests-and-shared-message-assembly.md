@@ -507,9 +507,19 @@ downstream protocol crates a first-party import path.
   to write behavioural tests for fragmentation and streaming without
   re-building bespoke harnesses.
 
+## Addendum (2026-11-09)
+
+The handler-facing streaming shapes in §1 were never wired into dispatch.
+[ADR 016](adr-016-remove-route-extractors-and-app-data.md) removes
+`StreamingBody` and the extractor module: route handlers receive only `&E`, and
+the server creates no body channel. `RequestParts`, `RequestBodyStream`, and
+`RequestBodyReader` remain as caller-owned primitives, and `body_channel` lets
+a producer and consumer pair them explicitly. The decision to provide those
+primitives stands; the claim that handlers opt into them does not.
+
 [^streaming]:
     See `docs/multi-packet-and-streaming-responses-design.md` and
-    [ADR 0001](0001-multi-packet-streaming-response-api.md).
+    [ADR 0001](adr-001-multi-packet-streaming-response-api.md).
 
 [^fragmentation]:
     See `docs/generic-message-fragmentation-and-re-assembly-design.md`.
