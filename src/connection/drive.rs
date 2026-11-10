@@ -24,11 +24,13 @@ use crate::{
     response::{Response, WireframeError},
 };
 
-/// Idle grace granted to a response after the peer closes its input half.
+/// Idle grace granted to a response once the peer can no longer be observed.
 ///
-/// Long enough for a producer that is merely slow to deliver its next frame,
-/// and short enough that a vanished peer cannot pin a connection open
-/// indefinitely.
+/// The peer is unobservable after it closes its input half, and after an
+/// inbound frame is buffered for the next request so that the read half stops
+/// being polled. Long enough for a producer that is merely slow to deliver its
+/// next frame, and short enough that a vanished peer cannot pin a connection
+/// open indefinitely.
 const PEER_CLOSED_RESPONSE_GRACE: Duration = Duration::from_secs(30);
 
 /// How an installed handler response finished.
@@ -198,13 +200,15 @@ where
         Ok(self.finish_outcome())
     }
 
-    /// Continue a response after the peer closed its input half.
+    /// Continue a response once the peer can no longer be observed.
     ///
     /// A peer may close only its sending half and keep reading, so EOF must not
-    /// truncate a healthy stream. It may equally have vanished, and an idle
-    /// producer would then keep the connection, its gauge guard, and the server
-    /// drain pending forever. Bounding the wait for each event lets progress
-    /// complete the response while guaranteeing teardown after a stall.
+    /// truncate a healthy stream. The inbound loop also stops observing the
+    /// peer when it buffers a frame for the next request. In either case the
+    /// peer may equally have vanished, and an idle producer would then keep the
+    /// connection, its gauge guard, and the server drain pending forever.
+    /// Bounding the wait for each event lets progress complete the response
+    /// while guaranteeing teardown after a stall.
     async fn drive_after_peer_close<S>(
         &mut self,
         sink: &mut S,
@@ -221,7 +225,7 @@ where
                 tokio::time::timeout(PEER_CLOSED_RESPONSE_GRACE, self.next_event(&state)).await;
             let Ok(event) = waited else {
                 warn!(
-                    "peer closed input and the response produced no frames for \
+                    "the peer could not be observed and the response produced no frames for \
                      {PEER_CLOSED_RESPONSE_GRACE:?}; cancelling: id={:?}, peer={:?}",
                     self.connection_id, self.peer_addr
                 );

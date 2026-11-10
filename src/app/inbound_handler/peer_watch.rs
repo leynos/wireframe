@@ -11,8 +11,11 @@
 //! - A clean EOF means the peer half-closed its write side. It may still be reading, so the
 //!   response is allowed to finish; the shared token lets the actor bound how long it waits for a
 //!   producer that never yields again.
+//! - Once an inbound frame is buffered, the read half is no longer polled, so a later disconnect
+//!   cannot be observed directly. The peer is then signalled as unobservable, and the actor bounds
+//!   each idle wait instead of waiting forever for a producer that never yields again.
 
-use std::io;
+use std::{future::Future, io, pin::Pin};
 
 use futures::{Stream, StreamExt};
 use tokio::time::{Duration, timeout};
@@ -68,6 +71,8 @@ where
     R: Stream<Item = io::Result<F>> + Unpin,
 {
     tokio::pin!(handling);
+    // A buffered frame means the read half is no longer polled; the token was
+    // cancelled when it was buffered, so the actor already bounds idle waits.
     if pending_frame.is_some() || peer_closed.is_cancelled() {
         return handling.await;
     }
@@ -78,13 +83,112 @@ where
         next = reader.next() => match next {
             Some(Ok(frame)) => {
                 *pending_frame = Some(frame);
-                handling.await
+                await_unobserved_peer(handling.as_mut(), peer_closed).await
             }
             Some(Err(error)) => Err(error),
-            None => {
-                peer_closed.cancel();
-                handling.await
-            }
+            None => await_unobserved_peer(handling.as_mut(), peer_closed).await,
         },
+    }
+}
+
+/// Stop observing the peer's read half and await the response.
+///
+/// Both a clean EOF and a buffered inbound frame end direct observation: the
+/// read half is either at its end or deliberately not polled again. Cancelling
+/// `peer_closed` hands the wait to the actor's bounded drain, which still
+/// delivers frames from a producer that is merely slow, but releases the
+/// connection once a producer stops yielding.
+///
+/// # Examples
+///
+/// ```ignore
+/// let handling = drive_response(&mut actor, &mut sink);
+/// tokio::pin!(handling);
+/// await_unobserved_peer(handling.as_mut(), &peer_closed).await?;
+/// ```
+async fn await_unobserved_peer<H>(
+    handling: Pin<&mut H>,
+    peer_closed: &CancellationToken,
+) -> io::Result<()>
+where
+    H: Future<Output = io::Result<()>>,
+{
+    peer_closed.cancel();
+    handling.await
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for peer observation while a response is driven.
+
+    use futures::stream;
+
+    use super::*;
+
+    /// Require `condition`, reporting `message` as the test failure otherwise.
+    ///
+    /// These tests return `io::Result` so that a failed expectation is a
+    /// returned error rather than a panic inside a `Result`-returning function.
+    fn ensure(condition: bool, message: &str) -> io::Result<()> {
+        if condition {
+            Ok(())
+        } else {
+            Err(io::Error::other(message.to_owned()))
+        }
+    }
+
+    /// A buffered frame stops the read half being polled, so the actor must be
+    /// told to bound the response instead of waiting for a peer that cannot be
+    /// observed.
+    #[tokio::test(start_paused = true)]
+    async fn buffered_frame_signals_an_unobserved_peer() -> io::Result<()> {
+        let peer_closed = CancellationToken::new();
+        let watcher = peer_closed.clone();
+        let handling = async move {
+            watcher.cancelled().await;
+            Ok(())
+        };
+        let mut reader = stream::iter([Ok(1_u8)]);
+        let mut pending = None;
+
+        let waited = timeout(
+            Duration::from_secs(120),
+            handle_watching_peer(handling, &mut reader, &peer_closed, &mut pending),
+        )
+        .await
+        .map_err(|_| io::Error::other("a buffered frame pinned the response wait"))?;
+        waited?;
+
+        ensure(pending == Some(1), "the pipelined frame stays buffered")?;
+        ensure(
+            peer_closed.is_cancelled(),
+            "the peer is marked unobservable",
+        )?;
+        Ok(())
+    }
+
+    /// A clean EOF also stops observation so the response wait is bounded.
+    #[tokio::test(start_paused = true)]
+    async fn clean_eof_signals_an_unobserved_peer() -> io::Result<()> {
+        let peer_closed = CancellationToken::new();
+        let watcher = peer_closed.clone();
+        let handling = async move {
+            watcher.cancelled().await;
+            Ok(())
+        };
+        let mut reader = stream::iter([]);
+        let mut pending: Option<u8> = None;
+
+        let waited = timeout(
+            Duration::from_secs(120),
+            handle_watching_peer(handling, &mut reader, &peer_closed, &mut pending),
+        )
+        .await
+        .map_err(|_| io::Error::other("EOF pinned the response wait"))?;
+        waited?;
+
+        ensure(pending.is_none(), "EOF buffers no frame")?;
+        ensure(peer_closed.is_cancelled(), "the peer is marked closed")?;
+        Ok(())
     }
 }

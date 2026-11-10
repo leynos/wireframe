@@ -19,8 +19,11 @@ All notable changes to this project will be documented in this file.
   frame `stream_end_frame` returns, written unchanged so codec metadata outside
   the payload survives; the prepared path no longer decodes that frame into an
   `Envelope` or restamps its correlation identifier. The protocol's
-  `on_connection_setup` and `on_eof` remain uninvoked on this path.
-  **Breaking:** `PreparedApp::handle_connection_result` and the deprecated
+  `on_connection_setup` and `on_eof` remain uninvoked on this path. A peer that
+  disconnects while a streamed response is idle no longer pins the connection:
+  the read half is watched during the response, and the response is bounded
+  when a buffered request stops that observation. **Breaking:**
+  `PreparedApp::handle_connection_result` and the deprecated
   `WireframeApp::handle_connection*` methods now require `S: 'static` so the
   connection actor can retain the serializer in its protocol hooks. The
   active-connection gauge now covers the preamble handshake, application

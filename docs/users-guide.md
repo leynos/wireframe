@@ -2776,20 +2776,23 @@ fn build_app() -> wireframe::Result<WireframeApp> {
 Every prepared server connection owns a private connection actor. When a
 response route matches an inbound envelope, the body is installed on that actor
 with the request's correlation id, and the actor is driven through the
-connection's frame pipeline before the next inbound frame is read:
+connection's frame pipeline before the next inbound frame is dispatched:
 
 - `Response::Single`, `Response::Vec`, and `Response::Empty` complete
   immediately. `Single` and `Vec` write their frames and then call
   `on_command_end`; `Empty` writes no frame and no terminator but still calls
   `on_command_end` once.
 - `Response::Stream` and `Response::MultiPacket` are polled to completion,
-  including the protocol's `stream_end_frame` terminator, before the read half
-  is serviced again. Responses are serial per connection: a long stream delays,
-  but never interleaves with, the next request on that connection. The actor
-  still polls its internal high- and low-priority push queues while a stream
-  runs, but the server neither exposes those queues nor installs
-  server-initiated pushes on this actor, so that polling is structural for now
-  rather than an interleaving guarantee for out-of-band pushes.
+  including the protocol's `stream_end_frame` terminator, before a further
+  inbound frame is dispatched. While such a response runs, the read half is
+  still polled for exactly one pending frame, so the connection never reads
+  ahead arbitrarily and a pipelined request is served next. Responses are
+  serial per connection: a long stream delays, but never interleaves with, the
+  next request on that connection. The actor still polls its internal high- and
+  low-priority push queues while a stream runs, but the server neither exposes
+  those queues nor installs server-initiated pushes on this actor, so that
+  polling is structural for now rather than an interleaving guarantee for
+  out-of-band pushes.
 - Every emitted envelope passes through fragmentation, outbound metrics,
   serialization, `wrap_payload`, and `before_send`, in that order, immediately
   before the transport write. The terminator follows the same path.
@@ -2807,13 +2810,17 @@ channel has capacity, and reports an error once the connection has gone away.
 When a write fails, the remaining fragments of that frame are discarded, the
 connection ends with an I/O error, and teardown runs once.
 
-Because a response is driven to completion before the next inbound frame is
-read, an idle `Response::Stream` or `Response::MultiPacket` is not interrupted
-by a peer disconnect: nothing is written, so a closed peer is not observed
-until the response yields a frame. The connection ends when such a write fails,
-when the response completes, or when the connection task is cancelled.
-Independent input and output are tracked by
-[RFC 0004](rfcs/0004-duplex-session-driver.md) and roadmap item 21.2.2.
+A peer disconnect during an idle `Response::Stream` or `Response::MultiPacket`
+does not pin the connection. While no further request is pending, the read half
+is polled alongside the response: a read error fails the connection, and a
+clean close of the peer's sending half lets the response finish, but each idle
+wait is then bounded by a 30-second grace so that a producer which never yields
+cannot keep the connection task, its gauge guard, teardown, and the server
+drain open. A request read during that window is buffered, which stops the read
+half being polled; the pending response is then bounded by the same grace, so a
+disconnect that arrives afterwards still releases the connection. Independent
+input and output are tracked by [RFC 0004](rfcs/0004-duplex-session-driver.md)
+and roadmap item 21.2.2.
 
 The protocol callbacks that run for application responses are `before_send`,
 `on_command_end`, `handle_error`, and `stream_end_frame`. Connection setup and

@@ -21,7 +21,7 @@ use tokio::{
     io::{AsyncWriteExt, DuplexStream},
     sync::mpsc,
     task::JoinHandle,
-    time::sleep,
+    time::{sleep, timeout},
 };
 use wireframe::{
     app::{Envelope, ResponseHandler, WireframeApp},
@@ -42,6 +42,11 @@ const DUPLEX_CAPACITY: usize = 8;
 const FRAME_COUNT: u8 = 3;
 /// Time allowed for the transport to apply back-pressure.
 const BACKPRESSURE_SETTLE: Duration = Duration::from_millis(150);
+/// Upper bound for a connection that must release after a peer leaves.
+///
+/// Comfortably longer than the half-close grace so the assertion fails on a
+/// pinned connection rather than a slow one.
+const CONNECTION_SETTLE: Duration = Duration::from_secs(120);
 
 /// Spawned producer tasks retained so tests can await them.
 type ProducerHandles = Arc<Mutex<Vec<JoinHandle<()>>>>;
@@ -206,6 +211,59 @@ async fn idle_stream_is_cancelled_when_the_peer_disconnects() -> TestResult {
     ensure(
         teardowns.load(Ordering::SeqCst) == 1,
         "teardown runs once after an idle-stream disconnect",
+    )?;
+    Ok(())
+}
+
+/// A pipelined request must not hide a later disconnect from an idle stream.
+///
+/// The read half stops being polled once the second request is buffered, so a
+/// peer that leaves afterwards is not seen by the reader. The response wait is
+/// still bounded, so the connection task, its gauge guard, and teardown cannot
+/// stay pending forever.
+#[tokio::test(start_paused = true)]
+async fn buffered_request_does_not_pin_an_idle_stream() -> TestResult {
+    let teardowns = Arc::new(AtomicUsize::new(0));
+    let installed: IdleSender = Arc::new(Mutex::new(None));
+    let teardown_counter = Arc::clone(&teardowns);
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
+        .route_response(IDLE_ROUTE, idle_handler(Arc::clone(&installed)))?
+        .on_connection_setup(|| async {})?
+        .on_connection_teardown(move |()| {
+            let counter = Arc::clone(&teardown_counter);
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        })?;
+    let prepared = app
+        .prepare()
+        .await
+        .map_err(|error| TestError::Msg(format!("prepare app: {error}")))?;
+
+    let (mut client, server) = tokio::io::duplex(DUPLEX_CAPACITY);
+    let connection = tokio::spawn(async move { prepared.handle_connection_result(server).await });
+
+    write_frame(&mut client, &request_bytes(IDLE_ROUTE)?).await?;
+    wait_for_installed_stream(&installed).await?;
+
+    // The second request is read while the first response is still idle. The
+    // write completes only once the server has drained the duplex buffer, so
+    // the request is buffered with the read half no longer polled.
+    write_frame(&mut client, &request_bytes(IDLE_ROUTE)?).await?;
+    drop(client);
+
+    let outcome = timeout(CONNECTION_SETTLE, connection)
+        .await
+        .map_err(|_| TestError::Msg("a buffered request pinned the idle stream".into()))?
+        .map_err(|error| TestError::Msg(format!("connection task failed: {error}")))?;
+
+    ensure(
+        outcome.is_ok(),
+        format!("a cancelled idle stream is not an I/O failure: {outcome:?}"),
+    )?;
+    ensure(
+        teardowns.load(Ordering::SeqCst) == 1,
+        "teardown runs once after a disconnect behind a buffered request",
     )?;
     Ok(())
 }
