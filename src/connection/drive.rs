@@ -5,9 +5,9 @@
 //! identical to the historical synchronous driver while letting an integrated
 //! transport apply back-pressure before the next source is polled.
 
-use std::{io, time::Duration};
+use std::{io, sync::Arc, time::Duration};
 
-use log::{info, warn};
+use log::info;
 
 use super::{
     ConnectionActor,
@@ -214,7 +214,9 @@ where
     /// peer may equally have vanished, and an idle producer would then keep the
     /// connection, its gauge guard, and the server drain pending forever.
     /// Bounding the wait for each event lets progress complete the response
-    /// while guaranteeing teardown after a stall.
+    /// while guaranteeing teardown after a stall. The bound comes from the
+    /// actor's [`GraceTimer`](super::grace::GraceTimer), so production uses the
+    /// ambient clock and a test can fire the deadline by hand.
     async fn drive_after_peer_close<S>(
         &mut self,
         sink: &mut S,
@@ -227,20 +229,16 @@ where
                 self.active_output.is_response(),
                 self.active_output.is_multi_packet(),
             );
-            let waited =
-                tokio::time::timeout(self.peer_closed_grace, self.next_event(&state)).await;
-            let Ok(event) = waited else {
-                warn!(
-                    "the peer could not be observed and the response produced no frames for {:?}; \
-                     cancelling: id={:?}, peer={:?}, correlation={:?}",
-                    self.peer_closed_grace,
-                    self.connection_id,
-                    self.peer_addr,
-                    self.response_correlation
-                );
-                ResponseCancellationReason::IdleGraceExpired.record();
-                self.active_output.clear();
-                return Ok(ResponseOutcome::Cancelled);
+            let timer = Arc::clone(&self.grace_timer);
+            let grace = timer.elapse(self.peer_closed_grace);
+            tokio::pin!(grace);
+            let event = tokio::select! {
+                biased;
+                event = self.next_event(&state) => event,
+                () = grace.as_mut() => {
+                    self.cancel_stalled_response();
+                    return Ok(ResponseOutcome::Cancelled);
+                }
             };
             if matches!(event, Event::Shutdown) {
                 ResponseCancellationReason::Shutdown.record();

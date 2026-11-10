@@ -18,6 +18,7 @@ use super::{
     ConnectionChannels,
     ResponseOutcome,
     event::Event,
+    grace::{GraceFuture, GraceTimer},
     state::ActorState,
 };
 use crate::{
@@ -269,6 +270,56 @@ async fn a_stalled_response_is_cancelled_after_the_idle_grace() {
     .await
     .expect("the idle grace must bound the wait")
     .expect("a cancelled response is not an error");
+
+    assert_eq!(outcome, ResponseOutcome::Cancelled);
+    assert!(sink.is_empty(), "a cancelled response writes no frames");
+}
+
+/// Deadline a test fires by hand instead of waiting for a clock.
+struct ManualGraceTimer {
+    /// Cancelled when the test decides the grace has elapsed.
+    fired: CancellationToken,
+}
+
+impl GraceTimer for ManualGraceTimer {
+    fn elapse(&self, _grace: Duration) -> GraceFuture {
+        let fired = self.fired.clone();
+        Box::pin(async move { fired.cancelled().await })
+    }
+}
+
+/// The idle grace comes from the injected deadline source.
+///
+/// Firing the deadline proves cancellation waits for the grace and then
+/// happens immediately, without depending on the wall clock.
+#[tokio::test]
+async fn a_stalled_response_is_cancelled_when_the_injected_grace_fires() {
+    let fired = CancellationToken::new();
+    let mut actor = test_actor(ProtocolHooks::default()).expect("actor should build");
+    actor.set_grace_timer(Arc::new(ManualGraceTimer {
+        fired: fired.clone(),
+    }));
+    let peer_closed = CancellationToken::new();
+    actor.set_peer_closed(peer_closed.clone());
+    let stalled: FrameStream<Envelope, ()> = Box::pin(futures::stream::pending::<
+        Result<Envelope, WireframeError<()>>,
+    >());
+    let mut sink = Vec::new();
+
+    peer_closed.cancel();
+    let outcome = {
+        // The pinned future borrows the sink, so it is scoped to release that
+        // borrow before the sink is inspected.
+        let mut driving =
+            std::pin::pin!(actor.install_response(Response::Stream(stalled), Some(7), &mut sink));
+        assert!(
+            futures::poll!(driving.as_mut()).is_pending(),
+            "an unfired grace must not cancel the response"
+        );
+
+        fired.cancel();
+        driving.await.expect("a cancelled response is not an error")
+    };
 
     assert_eq!(outcome, ResponseOutcome::Cancelled);
     assert!(sink.is_empty(), "a cancelled response writes no frames");
