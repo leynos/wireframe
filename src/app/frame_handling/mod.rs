@@ -31,6 +31,8 @@ mod assembly_tests;
 #[cfg(all(test, not(loom)))]
 mod backpressure_tests;
 #[cfg(all(test, not(loom)))]
+mod completion_tests;
+#[cfg(all(test, not(loom)))]
 mod terminator_tests;
 #[cfg(all(test, not(loom)))]
 mod tests;
