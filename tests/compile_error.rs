@@ -26,6 +26,9 @@ fn compile_tests() {
     t.compile_fail("tests/ui/wireframe_result_default_rejects_unit_protocol.rs");
     t.compile_fail("tests/ui/prepared_app_rejects_route.rs");
     t.compile_fail("tests/ui/prepared_app_rejects_route_response.rs");
+    t.pass("tests/ui/codec_without_default_serializer.rs");
+    t.compile_fail("tests/ui/prepared_app_rejects_borrowed_serializer.rs");
+    t.pass("tests/ui/response_handler_borrows_request.rs");
     t.compile_fail("tests/ui/zero_test_budget.rs");
     t.pass("tests/ui/client_error_wildcard_match.rs");
     t.pass("tests/ui/client_error_pool_lifecycle_variants.rs");
