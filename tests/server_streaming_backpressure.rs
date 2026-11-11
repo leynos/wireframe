@@ -5,6 +5,7 @@
 //! moment the peer disconnects. They complement `server_streaming.rs`, which
 //! covers the same path over a real loopback socket.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 #[path = "common/server_streaming_io.rs"]
 mod streaming_io;

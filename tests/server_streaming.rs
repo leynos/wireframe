@@ -8,6 +8,7 @@
 //! [`WireframeServer`]: wireframe::server::WireframeServer
 //! [`WireframeClient`]: wireframe::client::WireframeClient
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 #[path = "fixtures/client_streaming/types.rs"]
 mod stream_types;

@@ -7,6 +7,7 @@
 //! transport is applying back-pressure, and a buffered request must not stop a
 //! later response from being observed.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 #[path = "common/server_streaming_io.rs"]
 mod streaming_io;

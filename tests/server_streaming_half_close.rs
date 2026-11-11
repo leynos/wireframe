@@ -6,6 +6,7 @@
 //! without a terminator, so the connection must then stop rather than serve the
 //! request buffered behind it.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 #[path = "common/server_streaming_io.rs"]
 mod streaming_io;
