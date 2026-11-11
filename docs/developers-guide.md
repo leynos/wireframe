@@ -480,6 +480,68 @@ so a terminal first fragment follows the same index rule as a partial one. The
 [fragment design](generic-message-fragmentation-and-re-assembly-design.md)
 describes the surrounding reassembly boundary.
 
+### Deferred handler responses
+
+A handler registered with `WireframeApp::route_response` returns a
+`Response<Envelope, ()>` instead of mutating the request envelope. The route
+service keeps that response in a deferred slot on `ServiceResponse`: an
+`Arc<Mutex<Option<Response>>>` that starts filled and can be taken exactly
+once. The response frame itself carries no bytes, so middleware sees the
+request frame it expects without a serialized body appearing beside it.
+
+Every clone of the `ServiceResponse` shares the slot, and `take_deferred`
+empties it for all of them. The connection's response forwarder is the single
+consumer, so a clone taken earlier observes an empty slot rather than replaying
+the body. `PartialEq` and `Debug` ignore the slot, which keeps comparisons and
+logs independent of whether the body was already taken; `Debug` reports only
+its presence.
+
+Middleware must return the `ServiceResponse` it received to preserve the
+deferred body. Mutating `frame_mut()` edits the response frame and leaves the
+deferred frames untouched. Returning a fresh `ServiceResponse` — for example
+after a short circuit — discards the slot, and the route then emits one frame
+carrying the new response's bytes. Middleware that wraps a response route
+returns `HandlerService::from_service(id, wrapper)` so the wrapper is
+type-erased back into the route chain, and `from_fn` middleware must forward
+the value returned by `Next::call` for the same reason.
+
+### Peer observation and the idle grace
+
+A handler may stream for an unbounded time, so waiting for its response before
+reading the next inbound frame would hide a peer that has already gone away.
+`src/app/inbound_handler/peer_watch.rs` polls the read half while one frame is
+handled and tracks peer state with two tokens:
+
+- `peer_eof` is connection-wide and is cancelled only by a clean EOF. That
+  state is permanent: the read half has ended, so no later response can be
+  observed either.
+- `unobserved` is per dispatch. The connection loop installs a fresh child of
+  `peer_eof` on the actor before each frame, so cancelling it bounds one
+  response without affecting the next.
+
+At most one inbound frame is buffered while a response is driven. Buffering
+stops the read half being polled, so a later disconnect cannot be observed
+directly; both a clean EOF and a buffered request therefore cancel only
+`unobserved`, and the actor bounds the pending response instead of waiting for
+a peer that will never read it. A read error is different: it fails the
+connection and leaves both tokens untouched. A debug diagnostic names the
+cause, so a bounded wait can be attributed to a half-close or to a buffered
+request.
+
+The actor applies `PEER_CLOSED_RESPONSE_GRACE` — 30 seconds in production — to
+each wait once the per-dispatch signal is cancelled. The deadline is renewed
+for every event the response produces rather than applied once to the whole
+response, so a half-close does not truncate a response that keeps making
+progress; only a producer that produces no frame for a whole grace is
+cancelled. Cancellation clears the active output and returns
+`ResponseOutcome::Cancelled`, which releases the response's connection task,
+its active-connection gauge guard, and its teardown path. The actor increments
+`wireframe_response_cancellations_total` with the bounded label
+`reason="idle_grace_expired"` and logs the connection id, peer address, and
+request correlation, so a truncated response can be traced to the request that
+caused it. The deadline source is injectable (`GraceTimer`), so tests fire it
+by hand instead of waiting on the clock.
+
 ## Runtime ownership model
 
 Three proposed decision records govern runtime ownership and task-lifetime
@@ -2009,6 +2071,24 @@ consumer's empty `[workspace]` table and its absence from the root members,
 because joining the workspace would let Cargo unify the root dev-dependency's
 `wireframe/test-support` into the consumer and turn the expected compile
 failure into a pass.
+
+#### Serializer and response-handler bounds
+
+Three fixtures pin the type-level contracts around response streaming:
+
+| Fixture                                                | Contract it pins                                                   |
+| ------------------------------------------------------ | ------------------------------------------------------------------ |
+| `tests/ui/codec_without_default_serializer.rs`         | `with_codec` needs no `S: Default` once a serializer is installed  |
+| `tests/ui/prepared_app_rejects_borrowed_serializer.rs` | `handle_connection_result` requires `S: 'static`                   |
+| `tests/ui/response_handler_borrows_request.rs`         | a response-handler future may borrow its request across an `await` |
+
+The first fixture prepares nothing; it only builds an application, so a
+regression that reintroduces the redundant `Default` bound fails to type check.
+The second prepares successfully and fails at the connection boundary, which
+pins that the `'static` requirement belongs to the connection and not to
+preparation. The third passes, because the response handler's higher-ranked
+lifetime lets a handler read request data after an asynchronous step instead of
+copying it up front.
 
 ### Feature files and step definitions
 
