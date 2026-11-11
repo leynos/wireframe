@@ -11,21 +11,24 @@ use std::{
 };
 
 use tokio::{
-    io::{AsyncRead, AsyncWrite, AsyncWriteExt, duplex},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, duplex},
+    sync::Notify,
     time::{sleep, timeout},
 };
-use tokio_util::sync::CancellationToken;
+use tokio_util::{codec::LengthDelimitedCodec, sync::CancellationToken};
 
 use super::finalizer::ConnectionFinalizer;
 use crate::{
     app::{
         Envelope,
+        Handler,
         PreparedApp,
         WireframeApp,
         inbound_handler::{ConnectionProcessingContext, process_connection_with_cancellation},
         lifecycle::ConnectionTeardown,
     },
     codec::FrameCodec,
+    message::Message,
     serializer::BincodeSerializer,
     test_helpers::{BadCodec, counting_teardown},
 };
@@ -139,6 +142,88 @@ async fn cancellation_during_pending_read_runs_teardown_once() {
         calls.load(Ordering::SeqCst),
         1,
         "pending-read cancellation should finalize exactly once"
+    );
+}
+
+/// Encode one valid request frame for the default length-delimited codec.
+fn request_frame(route: u32) -> Vec<u8> {
+    let envelope = Envelope::new(route, Some(7), vec![b'X']);
+    let encoded = envelope.to_bytes().expect("encode envelope");
+    let mut codec = LengthDelimitedCodec::builder().new_codec();
+    wireframe_testing::encode_frame(&mut codec, encoded).expect("encode frame")
+}
+
+/// Cancellation during dispatch lets the in-flight response finish first.
+///
+/// The handler is gated so the test can cancel while it is running. The
+/// runtime observes cancellation only at the next read boundary, so the
+/// response must still be written and teardown must wait for dispatch.
+#[tokio::test]
+async fn cancellation_during_dispatch_completes_the_response_before_teardown() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let started = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let handler_started = Arc::clone(&started);
+    let handler_release = Arc::clone(&release);
+    let handler: Handler<Envelope> = Arc::new(move |_: &Envelope| {
+        let started_gate = Arc::clone(&handler_started);
+        let release_gate = Arc::clone(&handler_release);
+        Box::pin(async move {
+            started_gate.notify_one();
+            release_gate.notified().await;
+        })
+    });
+    let prepared = WireframeApp::<BincodeSerializer, (), Envelope>::new()
+        .expect("build application")
+        .route(1, handler)
+        .expect("register route")
+        .on_connection_setup(|| async {})
+        .expect("register setup hook")
+        .on_connection_teardown(counting_teardown(Arc::clone(&calls)))
+        .expect("register teardown hook")
+        .prepare()
+        .await
+        .expect("prepare application");
+
+    let token = CancellationToken::new();
+    let canceller = token.clone();
+    let (mut client, server) = duplex(64);
+    let connection = tokio::spawn(async move { drive(&prepared, server, Some(token)).await });
+
+    client
+        .write_all(&request_frame(1))
+        .await
+        .expect("write request frame");
+    timeout(Duration::from_secs(5), started.notified())
+        .await
+        .expect("handler should start");
+    canceller.cancel();
+    sleep(Duration::from_millis(20)).await;
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        0,
+        "teardown must wait for the in-flight dispatch"
+    );
+
+    release.notify_one();
+    let mut response = Vec::new();
+    client
+        .read_to_end(&mut response)
+        .await
+        .expect("read response");
+    connection
+        .await
+        .expect("join connection task")
+        .expect("connection should finish");
+
+    assert!(
+        !response.is_empty(),
+        "the in-flight response should be written before cancellation is observed"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "teardown should run once after dispatch completes"
     );
 }
 

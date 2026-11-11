@@ -106,11 +106,16 @@ async fn teardown_runs_once_per_terminal_outcome(
 #[tokio::test]
 async fn assembly_failure_runs_teardown_once() -> TestResult<()> {
     let recorder = Recorder::default();
-    let prepared: LifecyclePrepared =
-        assembling_lifecycle_app(recorder.clone(), Arc::new(AtomicU64::new(0)), handler())?
-            .prepare()
-            .await
-            .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
+    let rejected = Arc::new(AtomicUsize::new(0));
+    let prepared: LifecyclePrepared = assembling_lifecycle_app(
+        recorder.clone(),
+        Arc::new(AtomicU64::new(0)),
+        handler(),
+        Arc::clone(&rejected),
+    )?
+    .prepare()
+    .await
+    .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
 
     let mut input = Vec::new();
     for _ in 0..DECODE_FAILURE_LIMIT {
@@ -126,6 +131,11 @@ async fn assembly_failure_runs_teardown_once() -> TestResult<()> {
             .map_err(|_| "assembly failure should not panic")?
             .is_err(),
         "the connection should end with an assembly error",
+    )?;
+    check_equal(
+        &rejected.load(Ordering::SeqCst),
+        &DECODE_FAILURE_LIMIT,
+        "assembly should reject every malformed header before closing",
     )?;
     assert_single_lifecycle(&recorder)
 }

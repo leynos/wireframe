@@ -22,6 +22,7 @@ use tokio::{
 pub(super) use wireframe::test_helpers::{UnitFuture, counting_teardown};
 use wireframe::{
     app::{Envelope, Handler, WireframeApp},
+    message_assembler::{MessageAssembler, ParsedFrameHeader},
     serializer::BincodeSerializer,
     test_helpers::TestAssembler,
 };
@@ -228,20 +229,43 @@ pub(super) fn lifecycle_app(
     next_id: Arc<AtomicU64>,
     handler: Handler<Envelope>,
 ) -> TestResult<LifecycleApp> {
-    build_lifecycle_app(recorder, next_id, handler, false)
+    build_lifecycle_app(recorder, next_id, handler, None)
+}
+
+/// Test assembler that counts the frame headers it rejects.
+pub(super) struct RejectingAssembler {
+    /// Number of headers the shared test assembler refused.
+    rejected: Arc<AtomicUsize>,
+}
+
+impl RejectingAssembler {
+    /// Wrap the shared test assembler and count rejected headers.
+    pub(super) const fn new(rejected: Arc<AtomicUsize>) -> Self { Self { rejected } }
+}
+
+impl MessageAssembler for RejectingAssembler {
+    fn parse_frame_header(&self, payload: &[u8]) -> io::Result<ParsedFrameHeader> {
+        let result = TestAssembler.parse_frame_header(payload);
+        if result.is_err() {
+            self.rejected.fetch_add(1, Ordering::SeqCst);
+        }
+        result
+    }
 }
 
 /// Build a lifecycle application that also runs message assembly.
 ///
 /// With an assembler installed, a decoded envelope payload is treated as an
 /// assembly frame header. This lets the matrix exercise a protocol failure
-/// raised after envelope decoding rather than during it.
+/// raised after envelope decoding rather than during it. `rejected` counts
+/// headers the assembler refused, proving the failure came from assembly.
 pub(super) fn assembling_lifecycle_app(
     recorder: Recorder,
     next_id: Arc<AtomicU64>,
     handler: Handler<Envelope>,
+    rejected: Arc<AtomicUsize>,
 ) -> TestResult<LifecycleApp> {
-    build_lifecycle_app(recorder, next_id, handler, true)
+    build_lifecycle_app(recorder, next_id, handler, Some(rejected))
 }
 
 /// Assemble the lifecycle application, optionally installing the test
@@ -250,13 +274,12 @@ fn build_lifecycle_app(
     recorder: Recorder,
     next_id: Arc<AtomicU64>,
     handler: Handler<Envelope>,
-    with_assembler: bool,
+    rejected: Option<Arc<AtomicUsize>>,
 ) -> TestResult<LifecycleApp> {
     let base_app = WireframeApp::<BincodeSerializer, (), Envelope>::new()?.route(1, handler)?;
-    let app = if with_assembler {
-        base_app.with_message_assembler(TestAssembler)
-    } else {
-        base_app
+    let app = match rejected {
+        Some(counter) => base_app.with_message_assembler(RejectingAssembler::new(counter)),
+        None => base_app,
     };
     let setup_recorder = recorder.clone();
     let teardown_recorder = recorder;

@@ -272,6 +272,24 @@ I/O errors. `PreparedApp::handle_connection` is the logging convenience wrapper
 when the caller does not need to inspect that result. The prepared application
 is immutable and has no route-registration surface.
 
+## Connection lifecycle finalization
+
+When a setup hook produces state and a teardown hook is registered, teardown
+now runs exactly once for every terminal outcome that resumes inside the
+connection task: clean end of stream, decode and protocol errors, transport
+read and write errors, and a handler panic. Previously a stream-processing
+error skipped teardown.
+
+A handler panic is finalized before it is re-raised to the connection-task
+supervisor, so supervision still observes and logs it. This recovery requires
+unwinding; builds compiled with `panic = "abort"` cannot run teardown after a
+handler panic.
+
+A teardown callback that panics is invoked once, may not complete, and is not
+retried. Teardown is not invoked when setup was absent, failed, or never
+completed, nor when the connection future is dropped or aborted before
+processing stops.
+
 ## Update test drivers
 
 Tests that use the `wireframe_testing` companion crate can prepare a builder

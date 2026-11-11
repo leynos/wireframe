@@ -5,6 +5,7 @@
 //! finalization tests in `tests.rs`.
 
 use std::{
+    panic::AssertUnwindSafe,
     sync::{
         Arc,
         Mutex,
@@ -13,6 +14,8 @@ use std::{
     time::Duration,
 };
 
+use bytes::Bytes;
+use futures::FutureExt;
 use tokio::{
     io::{AsyncReadExt, duplex},
     net::{TcpListener, TcpStream},
@@ -24,7 +27,7 @@ use tokio_util::sync::CancellationToken;
 use super::tests::drive;
 use crate::{
     app::{Envelope, PreparedApp, WireframeApp},
-    codec::LengthDelimitedFrameCodec,
+    codec::{FrameCodec, LengthDelimitedFrameCodec},
     serializer::BincodeSerializer,
     test_helpers::CloneCountingCodec,
 };
@@ -261,6 +264,83 @@ async fn pending_setup_defers_codec_cloning_until_it_completes() {
 struct ConnectionState {
     /// Identity recorded when teardown receives the value.
     id: u32,
+}
+
+/// Codec whose decoder construction panics.
+///
+/// Inbound initialization clones the codec and then builds its decoder. A
+/// panic at that point must still release the armed setup value.
+#[derive(Clone)]
+struct PanickingDecoderCodec {
+    /// Codec supplying the encoder and frame metadata.
+    inner: LengthDelimitedFrameCodec,
+}
+
+impl FrameCodec for PanickingDecoderCodec {
+    type Frame = <LengthDelimitedFrameCodec as FrameCodec>::Frame;
+    type Decoder = <LengthDelimitedFrameCodec as FrameCodec>::Decoder;
+    type Encoder = <LengthDelimitedFrameCodec as FrameCodec>::Encoder;
+
+    fn decoder(&self) -> Self::Decoder { panic!("codec initialization boom") }
+
+    fn encoder(&self) -> Self::Encoder { self.inner.encoder() }
+
+    fn frame_payload(frame: &Self::Frame) -> &[u8] {
+        LengthDelimitedFrameCodec::frame_payload(frame)
+    }
+
+    fn frame_payload_bytes(frame: &Self::Frame) -> Bytes {
+        LengthDelimitedFrameCodec::frame_payload_bytes(frame)
+    }
+
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame { self.inner.wrap_payload(payload) }
+
+    fn correlation_id(frame: &Self::Frame) -> Option<u64> {
+        LengthDelimitedFrameCodec::correlation_id(frame)
+    }
+
+    fn max_frame_length(&self) -> usize { self.inner.max_frame_length() }
+}
+
+/// A panic while building inbound state still finalizes the setup value.
+#[tokio::test]
+async fn codec_initialization_panic_finalizes_the_setup_value() {
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let teardown_observed = Arc::clone(&observed);
+
+    let prepared = WireframeApp::<BincodeSerializer, ConnectionState, Envelope>::new()
+        .expect("build application")
+        .with_codec(PanickingDecoderCodec {
+            inner: LengthDelimitedFrameCodec::default(),
+        })
+        .on_connection_setup(|| async { ConnectionState { id: 11 } })
+        .expect("register setup hook")
+        .on_connection_teardown(move |state: ConnectionState| {
+            let receipt_log = Arc::clone(&teardown_observed);
+            async move {
+                receipt_log.lock().expect("receipt log").push(state.id);
+            }
+        })
+        .expect("register teardown hook")
+        .prepare()
+        .await
+        .expect("prepare application");
+
+    let (client, server) = duplex(64);
+    let panic = AssertUnwindSafe(drive(&prepared, server, None))
+        .catch_unwind()
+        .await;
+    drop(client);
+
+    assert!(
+        panic.is_err(),
+        "the codec initialization panic should propagate"
+    );
+    assert_eq!(
+        *observed.lock().expect("receipt log"),
+        vec![11],
+        "teardown should receive the exact setup value before the panic propagates"
+    );
 }
 
 /// Cooperative cancellation must finalize the exact non-`Clone` setup value.
