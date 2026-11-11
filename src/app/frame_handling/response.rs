@@ -24,15 +24,15 @@ use crate::{
 
 /// Whether the connection loop may dispatch another inbound frame.
 ///
-/// A cancelled response leaves its stream without a terminator, so a client
-/// cannot tell where that stream ended. Emitting another response afterwards
-/// would be read as part of the truncated stream, so the connection stops
-/// instead of continuing with the buffered request.
+/// A failed or cancelled response leaves its stream without a terminator, so a
+/// client cannot tell where that stream ended. Emitting another response
+/// afterwards would be read as part of the truncated stream, so the connection
+/// stops instead of continuing with the buffered request.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Dispatch {
     /// The response finished; the next inbound frame may be served.
     Continue,
-    /// The response was cancelled; the connection must stop writing.
+    /// The response failed or was cancelled; the connection must stop writing.
     Stop,
 }
 
@@ -180,12 +180,16 @@ where
 
 /// Whether the connection can serve another frame after `outcome`.
 ///
-/// A failed response stream ends the connection through the I/O error it
-/// returned; a cancelled one does not, so it must stop dispatch explicitly.
+/// Only a completed response ends with a terminator. A failed stream reports a
+/// protocol error, which the actor records without returning an I/O error, and
+/// a cancelled one is abandoned; neither writes a terminator, so a client
+/// cannot tell where that stream ended. Serving the buffered request would
+/// make its response read as part of the truncated stream, so both stop
+/// dispatch.
 const fn dispatch_after(outcome: ResponseOutcome) -> Dispatch {
     match outcome {
-        ResponseOutcome::Completed | ResponseOutcome::Failed => Dispatch::Continue,
-        ResponseOutcome::Cancelled => Dispatch::Stop,
+        ResponseOutcome::Completed => Dispatch::Continue,
+        ResponseOutcome::Failed | ResponseOutcome::Cancelled => Dispatch::Stop,
     }
 }
 

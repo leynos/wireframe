@@ -274,6 +274,7 @@ where
                     app: Arc::clone(handles.app),
                     hooks: handles.preamble.clone(),
                     connection: ActiveConnection::new(),
+                    shutdown: handles.shutdown.clone(),
                 };
                 spawn_connection_task(task, handles.tracker);
                 handles.backoff.initial_delay

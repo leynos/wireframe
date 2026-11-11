@@ -14,7 +14,7 @@ use tokio::{
     io::AsyncWriteExt,
     net::{TcpListener, TcpStream},
 };
-use tokio_util::task::TaskTracker;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use super::{ConnectionTask, PreambleHooks, spawn_connection_task};
 use crate::{
@@ -111,6 +111,7 @@ async fn spawn_default_connection(tracker: &TaskTracker) -> std::io::Result<TcpS
             app,
             hooks: no_preamble_hooks(),
             connection: ActiveConnection::new(),
+            shutdown: CancellationToken::new(),
         },
         tracker,
     );
@@ -248,6 +249,7 @@ fn gauge_released_when_connection_task_panics() {
                 app,
                 hooks: PreambleHooks::<()>::default(),
                 connection: ActiveConnection::new(),
+                shutdown: CancellationToken::new(),
             },
             &tracker,
         );

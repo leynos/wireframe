@@ -17,6 +17,7 @@ mod init;
 mod multi_packet;
 mod observation;
 mod output;
+mod peer_close;
 mod polling;
 mod response;
 mod shutdown;
@@ -24,6 +25,7 @@ mod sink;
 mod state;
 #[cfg(all(test, not(loom)))]
 mod tests;
+mod writes;
 
 use std::{
     net::SocketAddr,

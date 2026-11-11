@@ -3,8 +3,9 @@
 //! These helpers serialize handler responses, wrap them with the connection's
 //! [`FrameCodec`], run the protocol `before_send` hook, and write each frame to
 //! the transport sink. They also write protocol-supplied frames such as stream
-//! terminators, which are complete codec frames and must reach the wire
-//! unchanged.
+//! terminators. Those are already complete codec frames, so they bypass
+//! decoding and re-wrapping, but the mutable `before_send` hook still runs on
+//! them before transmission.
 
 use futures::{Sink, SinkExt};
 use log::warn;

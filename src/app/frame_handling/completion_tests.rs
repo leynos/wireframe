@@ -228,6 +228,33 @@ async fn completion_hook_is_suppressed_when_the_terminator_write_fails() {
     );
 }
 
+/// A stream that reports a protocol error stops dispatch without a terminator.
+///
+/// The failed stream ends without a terminator, so a client cannot tell where
+/// it ended. Serving the request buffered behind it would make that response
+/// read as part of the failed stream.
+#[tokio::test]
+async fn protocol_error_stops_dispatch_without_a_terminator() {
+    let failed: FrameStream<Envelope, ()> = Box::pin(futures::stream::iter(vec![
+        Ok(Envelope::new(7, Some(3), vec![1])),
+        Err(WireframeError::Protocol(())),
+    ]));
+    let (log, outcome) = forward(Response::Stream(failed), false, false)
+        .await
+        .expect("the actor should build");
+    assert_eq!(
+        outcome.expect("a protocol error is not a transport error"),
+        Dispatch::Stop,
+        "a failed stream must stop the loop before it serves another frame"
+    );
+
+    assert_eq!(
+        events(&log),
+        vec!["send", "command_end"],
+        "exactly one frame is written and no terminator follows the failure"
+    );
+}
+
 /// A cancelled response suppresses the completion hook.
 #[tokio::test]
 async fn completion_hook_is_suppressed_when_the_response_is_cancelled() {

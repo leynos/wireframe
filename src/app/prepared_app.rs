@@ -11,6 +11,7 @@ use tokio::{
     io::{self, AsyncRead, AsyncWrite},
     sync::mpsc,
 };
+use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
 use super::{
@@ -219,11 +220,44 @@ where
             .await
     }
 
+    /// Handle an accepted connection, stopping it when `shutdown` is cancelled.
+    ///
+    /// The server passes its worker shutdown token here so a connection whose
+    /// peer stopped reading cannot pin a graceful drain: its pending write is
+    /// abandoned, which closes the connection. Callers outside the server keep
+    /// using [`Self::handle_connection_result`], whose token is never
+    /// cancelled.
+    pub(crate) async fn handle_connection_with_shutdown<W>(
+        &self,
+        stream: W,
+        shutdown: CancellationToken,
+    ) -> io::Result<()>
+    where
+        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    {
+        self.handle_connection_inner(stream, &StdMonotonicClock, &shutdown)
+            .await
+    }
+
     /// Handle a connection with an injectable monotonic clock.
     async fn handle_connection_with_clock<W>(
         &self,
         stream: W,
         clock: &dyn MonotonicClock,
+    ) -> io::Result<()>
+    where
+        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    {
+        self.handle_connection_inner(stream, clock, &CancellationToken::new())
+            .await
+    }
+
+    /// Handle a connection with an injectable clock and shutdown signal.
+    async fn handle_connection_inner<W>(
+        &self,
+        stream: W,
+        clock: &dyn MonotonicClock,
+        shutdown: &CancellationToken,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
@@ -249,6 +283,7 @@ where
                 protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
+                shutdown,
             },
         )
         .instrument(span.clone())

@@ -5,7 +5,7 @@
 //! identical to the historical synchronous driver while letting an integrated
 //! transport apply back-pressure before the next source is polled.
 
-use std::{io, sync::Arc, time::Duration};
+use std::{io, time::Duration};
 
 use log::info;
 
@@ -16,6 +16,7 @@ use super::{
     output::{ActiveOutput, AvailableOutput, EventAvailability},
     polling::EventSources,
     state::ActorState,
+    writes::{WriteOutcome, flush_frames},
 };
 use crate::{
     app::Packet,
@@ -97,7 +98,14 @@ where
             let event = self.next_event(&state).await;
             let mut frames = Vec::new();
             self.dispatch_event(event, &mut state, &mut frames)?;
-            flush_frames(frames, sink).await?;
+            if self.flush_or_cancel(frames, sink).await? == WriteOutcome::Cancelled {
+                info!(
+                    "connection aborted during write: id={:?}, peer={:?}",
+                    self.connection_id, self.peer_addr
+                );
+                let _ = self.counter.take();
+                return Ok(());
+            }
             self.run_deferred_command_end();
         }
         info!(
@@ -189,71 +197,22 @@ where
                 self.active_output.is_multi_packet(),
             );
             let event = self.next_event_watching_peer(&state).await;
-            match event {
-                Event::Shutdown => {
-                    ResponseCancellationReason::Shutdown.record();
-                    return Ok(ResponseOutcome::Cancelled);
-                }
-                Event::PeerClosed => return self.drive_after_peer_close(sink).await,
-                dispatched => {
-                    let mut frames = Vec::new();
-                    self.dispatch_event(dispatched, &mut state, &mut frames)?;
-                    flush_frames(frames, sink).await?;
-                    self.run_deferred_command_end();
-                }
-            }
-        }
-        Ok(self.finish_outcome())
-    }
-
-    /// Continue a response once the peer can no longer be observed.
-    ///
-    /// A peer may close only its sending half and keep reading, so EOF must not
-    /// truncate a healthy stream. The inbound loop also stops observing the
-    /// peer when it buffers a frame for the next request. In either case the
-    /// peer may equally have vanished, and an idle producer would then keep the
-    /// connection, its gauge guard, and the server drain pending forever.
-    /// Bounding the wait for each event lets progress complete the response
-    /// while guaranteeing teardown after a stall. The bound comes from the
-    /// actor's [`GraceTimer`](super::grace::GraceTimer), so production uses the
-    /// ambient clock and a test can fire the deadline by hand.
-    async fn drive_after_peer_close<S>(
-        &mut self,
-        sink: &mut S,
-    ) -> Result<ResponseOutcome, WireframeError<E>>
-    where
-        S: FrameSink<F> + Send,
-    {
-        while self.active_output.is_response() || self.active_output.is_multi_packet() {
-            let mut state = ActorState::new(
-                self.active_output.is_response(),
-                self.active_output.is_multi_packet(),
-            );
-            let timer = Arc::clone(&self.grace_timer);
-            let grace = timer.elapse(self.peer_closed_grace);
-            tokio::pin!(grace);
-            let event = tokio::select! {
-                biased;
-                event = self.next_event(&state) => event,
-                () = grace.as_mut() => {
-                    self.cancel_stalled_response();
-                    return Ok(ResponseOutcome::Cancelled);
-                }
-            };
             if matches!(event, Event::Shutdown) {
                 ResponseCancellationReason::Shutdown.record();
                 return Ok(ResponseOutcome::Cancelled);
             }
-            let mut frames = Vec::new();
-            self.dispatch_event(event, &mut state, &mut frames)?;
-            flush_frames(frames, sink).await?;
-            self.run_deferred_command_end();
+            if matches!(event, Event::PeerClosed) {
+                return self.drive_after_peer_close(sink).await;
+            }
+            if let Some(outcome) = self.dispatch_and_write(event, &mut state, sink).await? {
+                return Ok(outcome);
+            }
         }
         Ok(self.finish_outcome())
     }
 
     /// Map the response loop's terminal flags to an outcome.
-    const fn finish_outcome(&self) -> ResponseOutcome {
+    pub(super) const fn finish_outcome(&self) -> ResponseOutcome {
         if self.response_failed {
             ResponseOutcome::Failed
         } else {
@@ -383,15 +342,4 @@ fn ensure_output_idle<F, E>(output: &ActiveOutput<F, E>) -> Result<(), Wireframe
 /// Translate the public state error into the actor's I/O error channel.
 fn output_state_error<E>(error: super::ConnectionStateError) -> WireframeError<E> {
     WireframeError::Io(io::Error::new(io::ErrorKind::InvalidInput, error))
-}
-
-/// Write buffered frames through the sink in emission order.
-async fn flush_frames<F, E, S>(frames: Vec<F>, sink: &mut S) -> Result<(), WireframeError<E>>
-where
-    S: FrameSink<F> + Send,
-{
-    for frame in frames {
-        sink.send_frame(frame).await.map_err(WireframeError::Io)?;
-    }
-    Ok(())
 }

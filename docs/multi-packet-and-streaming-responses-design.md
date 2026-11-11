@@ -448,9 +448,9 @@ not hang.
 
 - **Unified Codec Pipeline (server path):** On the server side, handler
   responses — including `Response::Stream` and `Response::MultiPacket` — pass
-  through the `FramePipeline` (`src/app/codec_driver.rs`) before reaching the
-  wire. The pipeline applies fragmentation and outbound metrics uniformly to
-  every `Envelope`, regardless of response variant. This ensures that large
+  through the `FramePipeline` (`src/app/codec_driver/mod.rs`) before reaching
+  the wire. The pipeline applies fragmentation and outbound metrics uniformly
+  to every `Envelope`, regardless of response variant. This ensures that large
   streaming frames are fragmented by the same path that fragments single-frame
   handler responses. The pipeline also owns the per-connection protocol hooks,
   so `before_send` runs on each codec-wrapped frame immediately before the
@@ -539,10 +539,14 @@ staying true to the architecture already in production use.
   the read half for one frame, so a peer that leaves during an idle stream is
   noticed: a read error fails the connection, and a clean half-close lets the
   actor finish the response while bounding each idle wait to a 30-second idle
-  grace. Once a request frame is buffered, the read half is no longer polled,
-  so a later disconnect cannot be observed directly; the same grace then bounds
-  the pending response, which keeps the connection task, its gauge guard,
-  teardown, and the server drain from staying pending indefinitely.
+  grace. The same grace also bounds a write the peer never accepts, and server
+  shutdown releases such a write immediately. A write that is ready still
+  proceeds, so a cancellation observed mid-drain does not abandon frames the
+  sink has already accepted. Either way the pending response cannot keep the
+  connection task, its gauge guard, teardown, and the server drain pending
+  indefinitely. Once a request frame is buffered, the read half is no longer
+  polled, so a later disconnect cannot be observed directly; the grace then
+  bounds the response itself.
 - The `ConnectionActor` owns the channel receiver and polls it via the
   main `select!` loop. Frames pass through `process_frame_common` so protocol
   hooks and metrics observe every packet. When the channel drains, the actor

@@ -135,7 +135,7 @@ of the request/response pipeline:
    `ServiceResponse::new(payload, correlation_id)`.
 6. `src/app/frame_handling/response.rs` crosses back out of middleware by
    rebuilding `PacketParts` and `Envelope` from `resp.into_inner()`.
-7. `src/app/codec_driver.rs` serializes that envelope to bytes via
+7. `src/app/codec_driver/mod.rs` serializes that envelope to bytes via
    `Serializer::serialize`, converts the `Vec<u8>` into `Bytes`, and finally
    hands it to `FrameCodec::wrap_payload`.
 
