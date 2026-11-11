@@ -137,10 +137,10 @@ where
     let result = write_response(ctx, &delivery, response)
         .instrument(span.clone())
         .await;
-    match &result {
-        Ok(outcome) => span.record("outcome", tracing::field::debug(outcome)),
-        Err(_) => span.record("outcome", "transport_error"),
-    };
+    result.as_ref().map_or_else(
+        |_| span.record("outcome", "transport_error"),
+        |outcome| span.record("outcome", tracing::field::debug(outcome)),
+    );
     result
 }
 

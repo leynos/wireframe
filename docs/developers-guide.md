@@ -540,10 +540,10 @@ for every event the response produces rather than applied once to the whole
 response, so a half-close does not truncate a response that keeps making
 progress; only a producer that produces no frame for a whole grace is
 cancelled. Cancellation clears the active output and returns
-`ResponseOutcome::Cancelled`; the inbound loop then stops dispatching and closes
-the connection, so the request buffered behind the truncated stream is not
-served. That close releases the connection task, its active-connection gauge
-guard, and its teardown path. The actor increments
+`ResponseOutcome::Cancelled`; the inbound loop then stops dispatching and
+closes the connection, so the request buffered behind the truncated stream is
+not served. That close releases the connection task, its active-connection
+gauge guard, and its teardown path. The actor increments
 `wireframe_response_cancellations_total` with the bounded label
 `reason="idle_grace_expired"` and logs the cause, the connection id, the peer
 address, and the request correlation, so a truncated response can be traced to

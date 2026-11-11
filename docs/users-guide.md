@@ -2829,9 +2829,9 @@ half being polled; the pending response is then bounded by the same grace, so a
 disconnect that arrives afterwards still releases the connection. If the grace
 expires, the response is cancelled without a terminator and the connection
 closes, so the buffered request is not served: a later response would otherwise
-be read as part of the truncated stream. Independent
-input and output are tracked by [RFC 0004](rfcs/0004-duplex-session-driver.md)
-and roadmap item 21.2.2.
+be read as part of the truncated stream. Independent input and output are
+tracked by [RFC 0004](rfcs/0004-duplex-session-driver.md) and roadmap item
+21.2.2.
 
 The protocol callbacks that run for application responses are `before_send`,
 `on_command_end`, `handle_error`, and `stream_end_frame`. Connection setup and
