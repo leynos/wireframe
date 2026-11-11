@@ -16,6 +16,7 @@ use std::{
 use async_trait::async_trait;
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::StreamExt;
+use rstest::rstest;
 use tokio::{
     io::{AsyncWriteExt, DuplexStream},
     time::timeout,
@@ -277,40 +278,31 @@ async fn middleware_edits_a_response_route_without_rewriting_its_body() -> TestR
     )
 }
 
-/// A short-circuiting middleware answers without running the route handler.
-#[tokio::test]
-async fn middleware_short_circuit_replaces_the_response_route_body() -> TestResult {
-    let observation = observe_route(MiddlewareMode::ShortCircuit(vec![b'S']), 1).await?;
-
-    ensure(
-        observation.seen.is_empty(),
-        "a short circuit must not reach the route handler",
-    )?;
-    ensure(
-        observation.payloads == vec![vec![b'S']],
-        format!(
-            "the fresh response must be the only frame: {:?}",
-            observation.payloads
-        ),
-    )
-}
-
-/// Replacing the response discards the route's deferred body.
+/// A fresh middleware response hides the route's deferred body.
 ///
-/// The handler runs and installs its frames, but the middleware returns a
-/// fresh `ServiceResponse`, so the client sees only the fresh bytes.
+/// A short circuit answers without running the route handler; a replacement
+/// runs the handler and then discards the frames it installed. Either way the
+/// client receives only the middleware's own bytes.
+#[rstest]
+#[case::short_circuit(MiddlewareMode::ShortCircuit(vec![b'S']), b'S', false)]
+#[case::replacement(MiddlewareMode::Replace(vec![b'R']), b'R', true)]
 #[tokio::test]
-async fn middleware_replacing_the_response_discards_the_deferred_body() -> TestResult {
-    let observation = observe_route(MiddlewareMode::Replace(vec![b'R']), 1).await?;
+async fn middleware_fresh_response_hides_the_deferred_body(
+    #[case] mode: MiddlewareMode,
+    #[case] replacement: u8,
+    #[case] is_handler_reached: bool,
+) -> TestResult {
+    let observation = observe_route(mode, 1).await?;
+    let was_handler_reached = !observation.seen.is_empty();
 
     ensure(
-        !observation.seen.is_empty(),
-        "the route handler must have run",
+        was_handler_reached == is_handler_reached,
+        "the route handler must run only when the middleware forwards to it",
     )?;
     ensure(
-        observation.payloads == vec![vec![b'R']],
+        observation.payloads == vec![vec![replacement]],
         format!(
-            "the deferred body must be discarded: {:?}",
+            "only the middleware's bytes must reach the client: {:?}",
             observation.payloads
         ),
     )
