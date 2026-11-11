@@ -33,6 +33,10 @@ pub(crate) enum ResponseCancellationReason {
 
 impl ResponseCancellationReason {
     /// Return the stable label for this reason.
+    ///
+    /// Only the metrics-enabled recorder reads the label, so a build without
+    /// the feature would otherwise see this method as dead code.
+    #[cfg(feature = "metrics")]
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::IdleGraceExpired => "idle_grace_expired",
