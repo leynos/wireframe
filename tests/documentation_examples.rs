@@ -1,5 +1,7 @@
 //! Integration coverage for marked examples in published user-facing guides.
 
+#![forbid(unsafe_code)]
+
 #[path = "common/repo_access.rs"]
 mod repo_access;
 #[path = "common/tested_examples.rs"]
