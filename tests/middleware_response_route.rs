@@ -215,67 +215,83 @@ async fn exchange(
     Ok(payloads)
 }
 
+/// What one response-route exchange observed.
+struct RouteObservation {
+    /// Payloads the client received, in order.
+    payloads: Vec<Vec<u8>>,
+    /// Request frame the middleware forwarded to the route handler.
+    forwarded: Vec<u8>,
+    /// Request payload the route handler saw.
+    seen: Vec<u8>,
+}
+
+/// Drive the two-frame route through `mode` and report what was observed.
+async fn observe_route(
+    mode: MiddlewareMode,
+    expected_frames: usize,
+) -> TestResult<RouteObservation> {
+    let forwarded = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
+        .route_response(RESPONSE_ROUTE, two_frame_handler(Arc::clone(&seen)))?
+        .wrap(ResponseRouteMiddleware {
+            forwarded: Arc::clone(&forwarded),
+            mode,
+        })?;
+
+    let payloads = exchange(app, expected_frames).await?;
+    let forwarded_request = forwarded
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    let handler_request = seen.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    Ok(RouteObservation {
+        payloads,
+        forwarded: forwarded_request,
+        seen: handler_request,
+    })
+}
+
 /// Middleware edits a response route's request without rewriting its body.
 ///
 /// The route's frames travel in the deferred slot, so the byte the middleware
 /// appends to the response frame never reaches the client.
 #[tokio::test]
 async fn middleware_edits_a_response_route_without_rewriting_its_body() -> TestResult {
-    let forwarded = Arc::new(Mutex::new(Vec::new()));
-    let seen = Arc::new(Mutex::new(Vec::new()));
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
-        .route_response(RESPONSE_ROUTE, two_frame_handler(Arc::clone(&seen)))?
-        .wrap(ResponseRouteMiddleware {
-            forwarded: Arc::clone(&forwarded),
-            mode: MiddlewareMode::Forward,
-        })?;
-
-    let payloads = exchange(app, 2).await?;
+    let observation = observe_route(MiddlewareMode::Forward, 2).await?;
 
     ensure(
-        forwarded
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_slice()
-            == [1, 2, 3, b'!'],
+        observation.forwarded == [1, 2, 3, b'!'],
         "the middleware must forward the mutated request",
     )?;
     ensure(
-        seen.lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_slice()
-            == [1, 2, 3, b'!'],
+        observation.seen == [1, 2, 3, b'!'],
         "the handler must observe the mutated request",
     )?;
     ensure(
-        payloads == vec![vec![7], vec![8]],
-        format!("the streamed body must reach the client unchanged: {payloads:?}"),
+        observation.payloads == vec![vec![7], vec![8]],
+        format!(
+            "the streamed body must reach the client unchanged: {:?}",
+            observation.payloads
+        ),
     )
 }
 
 /// A short-circuiting middleware answers without running the route handler.
 #[tokio::test]
 async fn middleware_short_circuit_replaces_the_response_route_body() -> TestResult {
-    let forwarded = Arc::new(Mutex::new(Vec::new()));
-    let seen = Arc::new(Mutex::new(Vec::new()));
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
-        .route_response(RESPONSE_ROUTE, two_frame_handler(Arc::clone(&seen)))?
-        .wrap(ResponseRouteMiddleware {
-            forwarded: Arc::clone(&forwarded),
-            mode: MiddlewareMode::ShortCircuit(vec![b'S']),
-        })?;
-
-    let payloads = exchange(app, 1).await?;
+    let observation = observe_route(MiddlewareMode::ShortCircuit(vec![b'S']), 1).await?;
 
     ensure(
-        seen.lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_empty(),
+        observation.seen.is_empty(),
         "a short circuit must not reach the route handler",
     )?;
     ensure(
-        payloads == vec![vec![b'S']],
-        format!("the fresh response must be the only frame: {payloads:?}"),
+        observation.payloads == vec![vec![b'S']],
+        format!(
+            "the fresh response must be the only frame: {:?}",
+            observation.payloads
+        ),
     )
 }
 
@@ -285,26 +301,17 @@ async fn middleware_short_circuit_replaces_the_response_route_body() -> TestResu
 /// fresh `ServiceResponse`, so the client sees only the fresh bytes.
 #[tokio::test]
 async fn middleware_replacing_the_response_discards_the_deferred_body() -> TestResult {
-    let forwarded = Arc::new(Mutex::new(Vec::new()));
-    let seen = Arc::new(Mutex::new(Vec::new()));
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
-        .route_response(RESPONSE_ROUTE, two_frame_handler(Arc::clone(&seen)))?
-        .wrap(ResponseRouteMiddleware {
-            forwarded: Arc::clone(&forwarded),
-            mode: MiddlewareMode::Replace(vec![b'R']),
-        })?;
-
-    let payloads = exchange(app, 1).await?;
+    let observation = observe_route(MiddlewareMode::Replace(vec![b'R']), 1).await?;
 
     ensure(
-        !seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_empty(),
+        !observation.seen.is_empty(),
         "the route handler must have run",
     )?;
     ensure(
-        payloads == vec![vec![b'R']],
-        format!("the deferred body must be discarded: {payloads:?}"),
+        observation.payloads == vec![vec![b'R']],
+        format!(
+            "the deferred body must be discarded: {:?}",
+            observation.payloads
+        ),
     )
 }
