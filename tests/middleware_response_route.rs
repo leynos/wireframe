@@ -6,6 +6,7 @@
 //! cannot change: the request frame is mutable, the streamed body is not, and
 //! returning a fresh response discards the deferred body.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{
     convert::Infallible,
