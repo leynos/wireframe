@@ -13,3 +13,7 @@ pub mod public_api;
 /// Compiles only when the `test-support` feature is enabled.
 #[cfg(feature = "test-support")]
 pub mod support_accessors;
+
+/// Verifies the cancellation trace events record `reason` as a string.
+#[cfg(test)]
+mod cancellation_reason_field_type;

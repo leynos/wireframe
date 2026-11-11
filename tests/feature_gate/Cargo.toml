@@ -41,6 +41,23 @@ wireframe = { path = "../../", default-features = false, features = ["pool", "se
 # independently of the root lock.
 tokio-util = "0.7.19"
 
+[dev-dependencies]
+# The metrics-disabled runtime assertion needs a Tokio runtime and a
+# subscriber that can see how each field was recorded. These are test-only, so
+# the package's `[dependencies]` remain exactly the configuration under test.
+tokio = { version = "1.47.1", default-features = false, features = [
+    "macros",
+    "net",
+    "rt",
+    "sync",
+    "time",
+] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.18", default-features = false, features = [
+    "registry",
+    "std",
+] }
+
 [lib]
 name = "wireframe_feature_gate"
 path = "src/lib.rs"

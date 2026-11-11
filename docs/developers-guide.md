@@ -500,7 +500,9 @@ Tracing records that field as a string: both events pass
 optional `metrics` feature, so subscribers can read it through `record_str`. The
 `ServerCancellationReason::as_str` helper remains gated behind
 `feature = "metrics"` because only the metric counters call it. Builds with the
-feature disabled therefore still emit the same tracing labels.
+feature disabled therefore still emit the same tracing labels, and
+`make test-feature-gate` asserts that contract in an isolated metrics-disabled
+build.
 
 ## Allowed aliases and prohibited mixing
 
@@ -1847,6 +1849,11 @@ unrelated reason is reported as a broken probe rather than a passing gate. That
 control build selects neither `metrics` nor any HTTP/2 dependency, so it also
 fails unless the root manifest declares `tokio-util`'s `io` feature directly
 for request streaming ([#792](https://github.com/leynos/wireframe/issues/792)).
+The consumer also runs a metrics-disabled server and asserts, through a custom
+subscriber, that both cancellation events record `reason` through `record_str`.
+The workspace suite cannot make that check: its `wireframe_testing` dependency
+unifies `metrics` on for every root-package test, so only this isolated build
+observes the disabled configuration.
 
 Because the consumer is its own workspace, no workspace-wide target reaches it,
 so a green `make test` or `make test-ui` says nothing about whether the gate
