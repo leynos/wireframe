@@ -22,6 +22,20 @@ use crate::{
     serializer::Serializer,
 };
 
+/// Whether the connection loop may dispatch another inbound frame.
+///
+/// A cancelled response leaves its stream without a terminator, so a client
+/// cannot tell where that stream ended. Emitting another response afterwards
+/// would be read as part of the truncated stream, so the connection stops
+/// instead of continuing with the buffered request.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Dispatch {
+    /// The response finished; the next inbound frame may be served.
+    Continue,
+    /// The response was cancelled; the connection must stop writing.
+    Stop,
+}
+
 /// Forward a handler response through the connection actor to the transport.
 ///
 /// `forward_response` accepts an [`Envelope`], builds a [`ServiceRequest`], and
@@ -43,6 +57,10 @@ use crate::{
 /// deferred body, so its bytes are wrapped in one [`Envelope`] and installed as
 /// `Response::Single`, which is exactly one reply without a stream terminator.
 ///
+/// A cancelled response is the last thing written on its connection: its
+/// stream has no terminator, so the returned [`Dispatch::Stop`] tells the
+/// inbound loop not to serve the request buffered behind it.
+///
 /// Responses pass through the [`FramePipeline`] inside the actor sink, which
 /// applies fragmentation, outbound metrics, serialization, codec wrapping, and
 /// the protocol `before_send` hook in that order. The pipeline owns
@@ -55,7 +73,7 @@ pub(crate) async fn forward_response<S, E, K, F>(
     env: Envelope,
     service: &HandlerService<E>,
     mut ctx: super::ResponseContext<'_, S, K, F>,
-) -> io::Result<()>
+) -> io::Result<Dispatch>
 where
     S: Serializer + Send + Sync,
     E: Packet,
@@ -71,7 +89,7 @@ where
         Err(e) => {
             warn!("handler error: id={request_id}, correlation_id={correlation_id:?}, error={e:?}");
             crate::metrics::inc_handler_errors();
-            return Ok(());
+            return Ok(Dispatch::Continue);
         }
     };
 
@@ -84,22 +102,70 @@ where
         |response| inherit_stream_correlation(response, correlation_id),
     );
 
-    let is_streaming = matches!(response, Response::Stream(_) | Response::MultiPacket(_));
     let delivery = DeliverySpan {
         request_id,
         correlation_id,
-        is_streaming,
+        is_streaming: matches!(response, Response::Stream(_) | Response::MultiPacket(_)),
     };
-    let outcome = drive_through_actor(&mut ctx, &delivery, response).await?;
+    let outcome = deliver(&mut ctx, delivery, response).await?;
+    Ok(dispatch_after(outcome))
+}
+
+/// Drive one response to its terminator, completion hook, and final outcome.
+///
+/// The `response_delivery` span covers the whole exchange, so the terminator
+/// write and the completion hook it precedes belong to the same span as the
+/// frames they follow.
+async fn deliver<S, K, F>(
+    ctx: &mut super::ResponseContext<'_, S, K, F>,
+    delivery: DeliverySpan,
+    response: Response<Envelope, ()>,
+) -> io::Result<ResponseOutcome>
+where
+    S: Serializer + Send + Sync,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
+    F: FrameCodec,
+    Envelope: EncodeWith<S>,
+{
+    let span = tracing::debug_span!(
+        "response_delivery",
+        request_id = delivery.request_id,
+        correlation_id = ?delivery.correlation_id,
+        streaming = delivery.is_streaming,
+        outcome = tracing::field::Empty,
+    );
+    let result = write_response(ctx, &delivery, response)
+        .instrument(span.clone())
+        .await;
+    match &result {
+        Ok(outcome) => span.record("outcome", tracing::field::debug(outcome)),
+        Err(_) => span.record("outcome", "transport_error"),
+    };
+    result
+}
+
+/// Write `response`, then the protocol terminator and completion hook it owes.
+async fn write_response<S, K, F>(
+    ctx: &mut super::ResponseContext<'_, S, K, F>,
+    delivery: &DeliverySpan,
+    response: Response<Envelope, ()>,
+) -> io::Result<ResponseOutcome>
+where
+    S: Serializer + Send + Sync,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
+    F: FrameCodec,
+    Envelope: EncodeWith<S>,
+{
+    let outcome = drive_through_actor(ctx, delivery, response).await?;
 
     let Some(protocol) = ctx.protocol else {
-        return Ok(());
+        return Ok(outcome);
     };
     let mut context = ConnectionContext;
     // The protocol terminator is a complete codec frame. Writing it unchanged
     // preserves metadata a custom codec adds outside the payload, and running
     // it through the sink's `before_send` hook matches application frames.
-    if owes_terminator(outcome, is_streaming)
+    if owes_terminator(outcome, delivery.is_streaming)
         && let Some(frame) = protocol.stream_end_frame(&mut context)
     {
         send_native_frame::<K, F>(&mut *ctx.sink, &mut *ctx.pipeline, frame).await?;
@@ -109,7 +175,18 @@ where
     if outcome != ResponseOutcome::Cancelled {
         protocol.on_command_end(&mut context);
     }
-    Ok(())
+    Ok(outcome)
+}
+
+/// Whether the connection can serve another frame after `outcome`.
+///
+/// A failed response stream ends the connection through the I/O error it
+/// returned; a cancelled one does not, so it must stop dispatch explicitly.
+const fn dispatch_after(outcome: ResponseOutcome) -> Dispatch {
+    match outcome {
+        ResponseOutcome::Completed | ResponseOutcome::Failed => Dispatch::Continue,
+        ResponseOutcome::Cancelled => Dispatch::Stop,
+    }
 }
 
 /// Bounded identifiers recorded for one response delivery.
@@ -123,9 +200,6 @@ struct DeliverySpan {
 }
 
 /// Install `response` on the actor and drive it through the connection sink.
-///
-/// The span keeps response delivery identifiable in traces while recording
-/// only bounded identifiers, never payloads or peer data.
 async fn drive_through_actor<S, K, F>(
     ctx: &mut super::ResponseContext<'_, S, K, F>,
     delivery: &DeliverySpan,
@@ -145,12 +219,6 @@ where
     );
     ctx.actor
         .install_response(response, delivery.correlation_id, &mut sink)
-        .instrument(tracing::debug_span!(
-            "response_delivery",
-            request_id = delivery.request_id,
-            correlation_id = ?delivery.correlation_id,
-            streaming = delivery.is_streaming,
-        ))
         .await
         .map_err(install_error)
 }

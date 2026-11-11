@@ -21,13 +21,22 @@
 //! - Once an inbound frame is buffered, the read half is no longer polled, so a later disconnect
 //!   cannot be observed directly. Only that response is signalled as unobservable, and the actor
 //!   bounds each idle wait rather than waiting forever for a producer that never yields again.
+//! - If that bound expires, the response is cancelled without a terminator. The loop then stops
+//!   dispatching: the buffered request is dropped, because a later response would be read as part
+//!   of a stream the client still considers open.
 
-use std::{future::Future, io, pin::Pin};
+use std::{future::Future, io, pin::Pin, sync::OnceLock};
 
 use futures::{Stream, StreamExt};
 use log::debug;
 use tokio::time::{Duration, timeout};
 use tokio_util::sync::CancellationToken;
+
+use super::super::{
+    codec_driver::FramePipeline,
+    frame_handling::{self, Dispatch},
+};
+use crate::{connection::UnobservedCause, message_assembler::MessageAssemblyState};
 
 /// Outcome of waiting for the next inbound frame.
 pub(super) enum NextFrame<F> {
@@ -62,6 +71,47 @@ where
     }
 }
 
+/// State purged when a read timeout expires without a frame.
+pub(super) struct ExpiryState<'a, T> {
+    /// Fragmentation pipeline whose expired buffers are dropped.
+    pub(super) pipeline: &'a mut FramePipeline<T>,
+    /// Message assembly state whose expired assemblies are dropped.
+    pub(super) message_assembly: &'a mut Option<MessageAssemblyState>,
+}
+
+/// Wait for the next inbound frame, purging expired state on a read timeout.
+///
+/// Returns `None` once the peer has closed, which ends the connection.
+pub(super) async fn await_inbound_frame<T, R>(
+    pending_frame: &mut Option<T>,
+    reader: &mut R,
+    read_timeout_ms: u64,
+    expiry: &mut ExpiryState<'_, T>,
+) -> io::Result<Option<T>>
+where
+    R: Stream<Item = io::Result<T>> + Unpin,
+{
+    loop {
+        match next_inbound_frame(pending_frame, reader, read_timeout_ms).await? {
+            NextFrame::Ready(frame) => return Ok(Some(frame)),
+            NextFrame::Closed => return Ok(None),
+            NextFrame::TimedOut => {
+                debug!("read timeout elapsed; continuing to wait for next frame");
+                purge_expired(expiry.pipeline, expiry.message_assembly);
+            }
+        }
+    }
+}
+
+/// Drop expired fragmentation buffers and message assemblies.
+pub(super) fn purge_expired<T>(
+    pipeline: &mut FramePipeline<T>,
+    message_assembly: &mut Option<MessageAssemblyState>,
+) {
+    pipeline.purge_expired();
+    frame_handling::purge_expired_assemblies(message_assembly);
+}
+
 /// The two peer-state tokens one dispatch observes.
 ///
 /// They are kept together because their lifetimes differ: `eof` outlives the
@@ -71,6 +121,23 @@ pub(super) struct PeerObservation<'a> {
     pub(super) eof: &'a CancellationToken,
     /// Per-dispatch token the actor watches for this response.
     pub(super) unobserved: &'a CancellationToken,
+    /// Records why direct observation stopped, for the cancellation warning.
+    pub(super) cause: &'a OnceLock<UnobservedCause>,
+}
+
+impl<'a> PeerObservation<'a> {
+    /// Bundle the tokens and cause cell one dispatch observes.
+    pub(super) const fn new(
+        eof: &'a CancellationToken,
+        unobserved: &'a CancellationToken,
+        cause: &'a OnceLock<UnobservedCause>,
+    ) -> Self {
+        Self {
+            eof,
+            unobserved,
+            cause,
+        }
+    }
 }
 
 /// Await `handling` while watching the reader for a peer disconnect.
@@ -84,12 +151,16 @@ pub(super) async fn handle_watching_peer<H, R, F>(
     reader: &mut R,
     observation: PeerObservation<'_>,
     pending_frame: &mut Option<F>,
-) -> io::Result<()>
+) -> io::Result<Dispatch>
 where
-    H: Future<Output = io::Result<()>>,
+    H: Future<Output = io::Result<Dispatch>>,
     R: Stream<Item = io::Result<F>> + Unpin,
 {
-    let PeerObservation { eof, unobserved } = observation;
+    let PeerObservation {
+        eof,
+        unobserved,
+        cause,
+    } = observation;
     tokio::pin!(handling);
     // A buffered frame means the read half is no longer polled, and a previous
     // EOF means it never will be again. Either way the actor already bounds
@@ -104,34 +175,26 @@ where
         next = reader.next() => match next {
             Some(Ok(frame)) => {
                 *pending_frame = Some(frame);
-                await_unobserved_peer(handling.as_mut(), unobserved, UnobservedCause::BufferedRequest)
-                    .await
+                await_unobserved_peer(
+                    handling.as_mut(),
+                    unobserved,
+                    cause,
+                    UnobservedCause::BufferedRequest,
+                )
+                .await
             }
             Some(Err(error)) => Err(error),
             None => {
                 eof.cancel();
-                await_unobserved_peer(handling.as_mut(), unobserved, UnobservedCause::HalfClose).await
+                await_unobserved_peer(
+                    handling.as_mut(),
+                    unobserved,
+                    cause,
+                    UnobservedCause::HalfClose,
+                )
+                .await
             }
         },
-    }
-}
-
-/// Why direct peer observation stopped.
-#[derive(Clone, Copy, Debug)]
-enum UnobservedCause {
-    /// The peer closed its input half.
-    HalfClose,
-    /// An inbound frame was buffered for the next request.
-    BufferedRequest,
-}
-
-impl UnobservedCause {
-    /// Describe the cause for the peer-observation diagnostic.
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::HalfClose => "a half-close",
-            Self::BufferedRequest => "a buffered request",
-        }
     }
 }
 
@@ -154,15 +217,19 @@ impl UnobservedCause {
 async fn await_unobserved_peer<H>(
     handling: Pin<&mut H>,
     unobserved: &CancellationToken,
+    cause_cell: &OnceLock<UnobservedCause>,
     cause: UnobservedCause,
-) -> io::Result<()>
+) -> io::Result<Dispatch>
 where
-    H: Future<Output = io::Result<()>>,
+    H: Future<Output = io::Result<Dispatch>>,
 {
     debug!(
         "stopping peer observation after {}; the actor bounds the pending response",
         cause.as_str()
     );
+    // Recorded before the token is cancelled: the actor reads it when the
+    // grace expires and names the cause in its cancellation warning.
+    cause_cell.set(cause).ok();
     unobserved.cancel();
     handling.await
 }
@@ -195,10 +262,11 @@ mod tests {
     async fn buffered_frame_signals_an_unobserved_peer() -> io::Result<()> {
         let peer_eof = CancellationToken::new();
         let unobserved = peer_eof.child_token();
+        let cause = OnceLock::new();
         let watcher = unobserved.clone();
         let handling = async move {
             watcher.cancelled().await;
-            Ok(())
+            Ok(Dispatch::Continue)
         };
         let mut reader = stream::iter([Ok(1_u8)]);
         let mut pending = None;
@@ -211,6 +279,7 @@ mod tests {
                 PeerObservation {
                     eof: &peer_eof,
                     unobserved: &unobserved,
+                    cause: &cause,
                 },
                 &mut pending,
             ),
@@ -220,6 +289,10 @@ mod tests {
         waited?;
 
         ensure(pending == Some(1), "the pipelined frame stays buffered")?;
+        ensure(
+            cause.get() == Some(&UnobservedCause::BufferedRequest),
+            "the cancellation warning must name the buffered request",
+        )?;
         ensure(
             unobserved.is_cancelled(),
             "the peer is unobservable for this response",
@@ -241,10 +314,11 @@ mod tests {
     async fn clean_eof_signals_an_unobserved_peer() -> io::Result<()> {
         let peer_eof = CancellationToken::new();
         let unobserved = peer_eof.child_token();
+        let cause = OnceLock::new();
         let watcher = unobserved.clone();
         let handling = async move {
             watcher.cancelled().await;
-            Ok(())
+            Ok(Dispatch::Continue)
         };
         let mut reader = stream::iter([]);
         let mut pending: Option<u8> = None;
@@ -257,6 +331,7 @@ mod tests {
                 PeerObservation {
                     eof: &peer_eof,
                     unobserved: &unobserved,
+                    cause: &cause,
                 },
                 &mut pending,
             ),
@@ -266,6 +341,10 @@ mod tests {
         waited?;
 
         ensure(pending.is_none(), "EOF buffers no frame")?;
+        ensure(
+            cause.get() == Some(&UnobservedCause::HalfClose),
+            "the cancellation warning must name the half-close",
+        )?;
         ensure(unobserved.is_cancelled(), "the response is bounded")?;
         ensure(peer_eof.is_cancelled(), "the peer is marked closed")?;
         ensure(
@@ -281,7 +360,8 @@ mod tests {
     async fn read_error_fails_the_connection() -> io::Result<()> {
         let peer_eof = CancellationToken::new();
         let unobserved = peer_eof.child_token();
-        let handling = std::future::pending::<io::Result<()>>();
+        let cause = OnceLock::new();
+        let handling = std::future::pending::<io::Result<Dispatch>>();
         let mut reader = stream::iter([Err(io::Error::other("peer read failed"))]);
         let mut pending: Option<u8> = None;
 
@@ -291,6 +371,7 @@ mod tests {
             PeerObservation {
                 eof: &peer_eof,
                 unobserved: &unobserved,
+                cause: &cause,
             },
             &mut pending,
         )
@@ -300,6 +381,10 @@ mod tests {
         ensure(
             error.to_string().contains("peer read failed"),
             "the read error must be propagated",
+        )?;
+        ensure(
+            cause.get().is_none(),
+            "a read error is not a peer-observation cause",
         )?;
         ensure(
             !unobserved.is_cancelled(),

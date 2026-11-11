@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use futures::Sink;
-use log::{debug, warn};
+use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 
@@ -11,13 +11,19 @@ use super::{
     super::{
         codec_driver::FramePipeline,
         envelope::{Envelope, Packet},
-        frame_handling,
+        frame_handling::{self, Dispatch},
         memory_budgets::MemoryBudgets,
     },
     MAX_DESER_FAILURES,
-    actor::build_connection_actor,
+    actor::{build_connection_actor, observe_peer},
     framing::prepare_connection_framing,
-    peer_watch::{NextFrame, PeerObservation, handle_watching_peer, next_inbound_frame},
+    peer_watch::{
+        ExpiryState,
+        PeerObservation,
+        await_inbound_frame,
+        handle_watching_peer,
+        purge_expired,
+    },
 };
 use crate::{
     codec::FrameCodec,
@@ -101,15 +107,6 @@ where
     message_assembly: &'a mut Option<MessageAssemblyState>,
     /// Failure counter used to enforce the malformed-input limit.
     deser_failures: &'a mut u32,
-}
-
-/// Remove stale outbound and message-assembly state after an idle interval.
-fn purge_expired<T>(
-    pipeline: &mut FramePipeline<T>,
-    message_assembly: &mut Option<MessageAssemblyState>,
-) {
-    pipeline.purge_expired();
-    frame_handling::purge_expired_assemblies(message_assembly);
 }
 
 /// Apply memory pressure before reading the next inbound frame.
@@ -221,50 +218,48 @@ where
     loop {
         relieve_memory_pressure(&mut pipeline, &mut message_assembly, effective_budgets).await?;
 
-        let frame =
-            match next_inbound_frame(&mut pending_frame, &mut reader, context.read_timeout_ms)
-                .await?
-            {
-                NextFrame::Ready(frame) => frame,
-                NextFrame::Closed => break,
-                NextFrame::TimedOut => {
-                    debug!("read timeout elapsed; continuing to wait for next frame");
-                    purge_expired(&mut pipeline, &mut message_assembly);
-                    continue;
-                }
-            };
-
-        // A fresh child token per dispatch: it inherits a permanent EOF, but
-        // cancelling it leaves the connection-wide token untouched, so one
-        // buffered request cannot make every later response run under the idle
-        // grace.
-        let unobserved = peer_eof.child_token();
-        response_actor.actor.set_peer_closed(unobserved.clone());
-        let handling = handle_frame(
-            &frame,
-            FrameHandlingContext {
-                sink: &mut sink,
-                deser_failures: &mut deser_failures,
-                routes: context.routes,
-                serializer: context.serializer.as_ref(),
-                codec: &connection_codec,
-                message_assembler: context.message_assembler,
-                message_assembly: &mut message_assembly,
-                pipeline: &mut pipeline,
-                actor: &mut response_actor.actor,
-                protocol: context.protocol.as_ref(),
-            },
-        );
-        handle_watching_peer(
-            handling,
+        let Some(frame) = await_inbound_frame(
+            &mut pending_frame,
             &mut reader,
-            PeerObservation {
-                eof: &peer_eof,
-                unobserved: &unobserved,
+            context.read_timeout_ms,
+            &mut ExpiryState {
+                pipeline: &mut pipeline,
+                message_assembly: &mut message_assembly,
             },
+        )
+        .await?
+        else {
+            break;
+        };
+
+        let (unobserved, cause) = observe_peer(&mut response_actor.actor, &peer_eof);
+        let dispatch = handle_watching_peer(
+            handle_frame(
+                &frame,
+                FrameHandlingContext {
+                    sink: &mut sink,
+                    deser_failures: &mut deser_failures,
+                    routes: context.routes,
+                    serializer: context.serializer.as_ref(),
+                    codec: &connection_codec,
+                    message_assembler: context.message_assembler,
+                    message_assembly: &mut message_assembly,
+                    pipeline: &mut pipeline,
+                    actor: &mut response_actor.actor,
+                    protocol: context.protocol.as_ref(),
+                },
+            ),
+            &mut reader,
+            PeerObservation::new(&peer_eof, &unobserved, &cause),
             &mut pending_frame,
         )
         .await?;
+        // A cancelled response left its stream without a terminator, so any
+        // further response would be read as part of it. Drop the buffered
+        // request and close the connection instead.
+        if dispatch == Dispatch::Stop {
+            break;
+        }
     }
 
     Ok(())
@@ -274,7 +269,7 @@ where
 async fn handle_frame<S, E, K, F>(
     frame: &F::Frame,
     context: FrameHandlingContext<'_, S, E, K, F>,
-) -> io::Result<()>
+) -> io::Result<Dispatch>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     E: Packet,
@@ -307,7 +302,7 @@ where
         },
     )?
     else {
-        return Ok(());
+        return Ok(Dispatch::Continue);
     };
 
     if let Some(service) = routes.get(&envelope.id) {
@@ -323,15 +318,14 @@ where
                 protocol,
             },
         )
-        .await?;
+        .await
     } else {
         warn!(
             "no handler for message id: id={}, correlation_id={:?}",
             envelope.id, envelope.correlation_id
         );
+        Ok(Dispatch::Continue)
     }
-
-    Ok(())
 }
 
 /// Build a dispatchable envelope through decode, reassembly, and assembly.

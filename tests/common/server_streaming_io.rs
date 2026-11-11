@@ -13,7 +13,7 @@ use std::{
 
 use bytes::{BufMut, BytesMut};
 use tokio::{
-    io::{AsyncWriteExt, DuplexStream},
+    io::{AsyncWrite, AsyncWriteExt},
     sync::mpsc,
     task::JoinHandle,
 };
@@ -41,7 +41,10 @@ pub(crate) fn request_bytes(route: u32, correlation: u64) -> TestResult<Vec<u8>>
 ///
 /// `put_u32` writes the big-endian length the codec expects, without depending
 /// on a platform-sized integer conversion.
-pub(crate) async fn write_frame(stream: &mut DuplexStream, payload: &[u8]) -> TestResult {
+pub(crate) async fn write_frame<W>(stream: &mut W, payload: &[u8]) -> TestResult
+where
+    W: AsyncWrite + Unpin,
+{
     let length = u32::try_from(payload.len())
         .map_err(|error| TestError::Msg(format!("frame too long: {error}")))?;
     let mut framed = BytesMut::with_capacity(4 + payload.len());

@@ -13,14 +13,22 @@
 //! all happen in the transport sink owned by the caller, which keeps a single
 //! ordering for serialization, hooks, and write metrics.
 
-use std::{io, sync::Arc};
+use std::{
+    io,
+    sync::{Arc, OnceLock},
+};
 
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     app::Envelope,
     codec::FrameCodec,
-    connection::{ConnectionActor, ConnectionChannels, PEER_CLOSED_RESPONSE_GRACE},
+    connection::{
+        ConnectionActor,
+        ConnectionChannels,
+        PEER_CLOSED_RESPONSE_GRACE,
+        UnobservedCause,
+    },
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     push::{PushHandle, PushQueues},
 };
@@ -101,6 +109,23 @@ where
         },
         CancellationGuard::new(shutdown),
     ))
+}
+
+/// Install the per-dispatch peer signal and return the token and cause cell.
+///
+/// A fresh child token per dispatch inherits a permanent EOF, but cancelling it
+/// leaves the connection-wide token untouched, so one buffered request cannot
+/// make every later response run under the idle grace. The cause cell is filled
+/// when the loop stops polling the read half, so the actor's cancellation
+/// warning can name the cause.
+pub(super) fn observe_peer(
+    actor: &mut ConnectionActor<Envelope, ()>,
+    peer_eof: &CancellationToken,
+) -> (CancellationToken, Arc<OnceLock<UnobservedCause>>) {
+    let unobserved = peer_eof.child_token();
+    let cause = Arc::new(OnceLock::new());
+    actor.set_peer_observation(unobserved.clone(), Arc::clone(&cause));
+    (unobserved, cause)
 }
 
 /// Adapt a protocol into the hooks the actor needs for response frames.
