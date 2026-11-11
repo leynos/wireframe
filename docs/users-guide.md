@@ -1622,12 +1622,13 @@ custom codec keeps outside the payload. The adapter neither decodes nor
 restamps it, so the terminator carries exactly the bytes the protocol built.
 `on_command_end` runs only after the final frame has been written, and not at
 all when the connection shuts down mid-response. A protocol error reported by a
-response stream is passed to `handle_error`. The connection setup and
-end-of-file callbacks are not invoked on the prepared server path; they remain
-available to callers that drive a `ConnectionActor` directly. The direct
-response helpers that write frames without the `FramePipeline` also bypass
-`before_send`; use `WireframeApp` routes when a response must traverse
-configured protocol hooks.
+response stream is passed to `handle_error`, and the connection then closes
+without a terminator, so a request buffered behind the failed stream is not
+served. The connection setup and end-of-file callbacks are not invoked on the
+prepared server path; they remain available to callers that drive a
+`ConnectionActor` directly. The direct response helpers that write frames
+without the `FramePipeline` also bypass `before_send`; use `WireframeApp`
+routes when a response must traverse configured protocol hooks.
 
 ## Running servers
 
@@ -2754,8 +2755,26 @@ re-exported from `wireframe::app`. Route identifiers must stay unique across
 ```rust,no_run
 use std::sync::Arc;
 
+use bytes::Bytes;
 use wireframe::app::{Envelope, ResponseHandler, WireframeApp};
+use wireframe::codec::{FrameCodec, LengthDelimitedFrameCodec};
+use wireframe::hooks::{ConnectionContext, WireframeProtocol};
 use wireframe::response::{FrameStream, Response};
+use wireframe::serializer::{BincodeSerializer, Serializer};
+
+/// Marks the end of a response stream with an id-zero envelope.
+struct TerminatingProtocol;
+
+impl WireframeProtocol for TerminatingProtocol {
+    type Frame = Bytes;
+    type ProtocolError = ();
+
+    fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> {
+        let envelope = Envelope::new(0, None, Vec::new());
+        let payload = BincodeSerializer.serialize(&envelope).ok()?;
+        Some(LengthDelimitedFrameCodec::new(2048).wrap_payload(Bytes::from(payload)))
+    }
+}
 
 fn build_app() -> wireframe::Result<WireframeApp> {
     let handler: ResponseHandler<Envelope> = Arc::new(|_request: &Envelope| {
@@ -2769,14 +2788,23 @@ fn build_app() -> wireframe::Result<WireframeApp> {
         })
     });
 
-    WireframeApp::new()?.route_response(1, handler)
+    WireframeApp::new()?
+        .route_response(1, handler)?
+        .with_protocol(TerminatingProtocol)
 }
 ```
 
 The example builds its stream with `async_stream::try_stream!`. That crate is a
-development dependency of this repository, so add it to your own dependencies
-(`async-stream = "0.3.6"`) before using the pattern; any
-`FrameStream<Envelope, ()>` works, including one built from a channel.
+development dependency of this repository, so applications using the pattern
+must declare it (`async-stream = "0.3.6"`); any `FrameStream<Envelope, ()>`
+works, including one built from a channel.
+
+`with_protocol` supplies the stream terminator. A stream ends on the wire only
+when the installed protocol's `stream_end_frame` returns a frame; without such
+a protocol the default returns none, the handler's frames stop arriving, and a
+`call_streaming` client keeps waiting for a marker that never comes. The
+terminator must already be a complete codec frame, because the adapter writes
+it without decoding or wrapping it again.
 
 Every prepared server connection owns a private connection actor. When a
 response route matches an inbound envelope, the body is installed on that actor
@@ -2834,11 +2862,14 @@ tracked by [RFC 0004](rfcs/0004-duplex-session-driver.md) and roadmap item
 21.2.2.
 
 The protocol callbacks that run for application responses are `before_send`,
-`on_command_end`, `handle_error`, and `stream_end_frame`. Connection setup and
-end-of-file callbacks remain part of the server's connection lifecycle rather
-than the response actor. Without an installed protocol these callbacks are
-no-ops. The terminator is written without decoding, so a write failure ends the
-connection like any other failed response write.
+`on_command_end`, `handle_error`, and `stream_end_frame`. A prepared connection
+does not invoke the protocol's connection-setup or end-of-file callbacks at
+all, so initialization or cleanup that must run belongs in the application's
+`on_connection_setup` and `on_connection_teardown` hooks instead. Those hooks
+are separate from the protocol and run once per connection, with teardown
+running only when setup produced state. Without an installed protocol the
+response callbacks are no-ops. The terminator is written without decoding, so a
+write failure ends the connection like any other failed response write.
 
 #### Deferred response bodies and middleware
 
@@ -2851,7 +2882,10 @@ clones observe none. Equality ignores the deferred body, and `Debug` only
 reports whether one is present. Middleware still mutates request bytes and may
 short-circuit before the handler runs, exactly as it does for a `route`
 handler; a short-circuit returns its own response normally, because no deferred
-body has been installed.
+body has been installed. A fresh `ServiceResponse` built after the handler has
+run replaces the deferred body rather than merging with it: only the
+middleware's own bytes reach the client, and the frames the handler installed
+are discarded.
 
 ## Consuming streaming responses on the client
 

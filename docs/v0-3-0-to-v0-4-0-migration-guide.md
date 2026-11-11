@@ -548,10 +548,14 @@ the actor built for that connection deliberately has no `before_send` hook of
 its own, so the hook runs exactly once per frame. See the
 [users' guide](users-guide.md) for the user-facing contract.
 
-`on_command_end` now fires once for every handler response on a prepared server
-connection, including an ordinary `route` reply that previously only emitted
-bytes. A protocol that releases per-request state in that hook therefore sees
-one call per reply, not only for actor-driven push and multi-packet traffic.
+`on_command_end` now fires once for every completed handler response on a
+prepared server connection, including an ordinary `route` reply that previously
+only emitted bytes. A protocol that releases per-request state in that hook
+therefore sees one call per completed reply, not only for actor-driven push and
+multi-packet traffic. The hook is not a guaranteed cleanup point: a response
+cancelled by the peer-close grace skips it, and a terminator write that fails
+returns before it, so per-request state that must always be released needs a
+separate fallback.
 
 Prepared connections also require `S: 'static` on the serializer.
 `PreparedApp::handle_connection_result` and the deprecated
@@ -564,8 +568,9 @@ serializer that borrows connection-local data can no longer be used with them.
 `Response` rather than raw bytes, so a route can stream or send several frames
 instead of exactly one reply. `ResponseHandler<E>` is re-exported from
 `wireframe::app`, and route identifiers stay unique across `route` and
-`route_response`. The handler receives a borrowed request and may hold that
-borrow across an `await`; it must return a `Response<E>` rather than bytes.
+`route_response`. `E` is the request type: the handler receives a borrowed
+request of that type and may hold the borrow across an `await`, and it must
+return `Response<Envelope, ()>` rather than bytes.
 
 ```rust,no_run
 use std::sync::Arc;
