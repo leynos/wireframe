@@ -1,5 +1,7 @@
 //! Integration coverage for marked examples in published user-facing guides.
 
+#[path = "common/repo_access.rs"]
+mod repo_access;
 #[path = "common/tested_examples.rs"]
 mod tested_examples;
 
@@ -26,6 +28,33 @@ fn published_examples_load_from_the_marked_documents() {
         identifiers.len(),
         examples.len(),
         "every published example should carry a unique identifier"
+    );
+}
+
+/// The gate is applied to the shipped file, not only to in-memory samples.
+///
+/// The test reads `docs/users-guide.md` from disk, removes one marker from that
+/// real source, and requires the merge entrypoint used by the published
+/// inventory to reject it with the document path and a useful reason. The
+/// positive half of the boundary is
+/// `published_examples_load_from_the_marked_documents`.
+#[test]
+fn the_gate_rejects_a_malformed_copy_of_a_shipped_document() {
+    const MARKER: &str = "<!-- tested-example: users-guide-001 -->\n";
+    let source = repo_access::read_repo_file("docs/users-guide.md")
+        .expect("the shipped guide should be readable from the repository root");
+    assert!(
+        source.contains(MARKER),
+        "the shipped guide should carry {MARKER}"
+    );
+    let mutated = source.replacen(MARKER, "", 1);
+
+    let error = tested_examples::load_documents(&[("docs/users-guide.md", mutated.as_str())])
+        .expect_err("a shipped document that lost its marker must fail the gate");
+
+    assert!(
+        error.contains("docs/users-guide.md:") && error.contains("missing its marker"),
+        "unexpected gate diagnostic: {error}"
     );
 }
 
