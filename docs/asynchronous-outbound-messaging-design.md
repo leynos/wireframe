@@ -864,7 +864,7 @@ features of the 1.0 release.
   completely unaware of fragmentation.
 
 - **Unified Codec Pipeline:** On the server side, the `FramePipeline`
-  (`src/app/codec_driver.rs`) applies outbound fragmentation and metrics to
+  (`src/app/codec_driver/mod.rs`) applies outbound fragmentation and metrics to
   every handler-response `Envelope` before it reaches the wire. Push,
   streaming, and multi-packet frames are emitted by the `ConnectionActor`,
   which applies the same fragmentation logic through `enable_fragmentation`.

@@ -61,6 +61,8 @@ const STALLED_SEND_PAUSE: Duration = Duration::from_secs(60);
 const STATE_TIMEOUT: Duration = Duration::from_secs(5);
 /// Upper bound for a connection that must make progress or release.
 const CONNECTION_SETTLE: Duration = Duration::from_secs(120);
+/// Paused time that stays below the thirty-second idle grace.
+const GRACE_BEFORE_DEADLINE: Duration = Duration::from_secs(25);
 
 /// Require `condition`, reporting `message` as the test failure otherwise.
 fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
@@ -188,6 +190,17 @@ where
     Ok(payloads)
 }
 
+/// Let the connection task reach its next await point without advancing time.
+///
+/// The paused clock only distinguishes "before" and "after" the grace when the
+/// actor is already waiting on it, so the boundary tests settle the scheduler
+/// first. Yielding never advances paused time, so this cannot cross a deadline.
+async fn settle() {
+    for _ in 0..16 {
+        tokio::task::yield_now().await;
+    }
+}
+
 /// Await the connection task, rejecting a transport failure.
 async fn finish(connection: JoinHandle<std::io::Result<()>>) -> TestResult {
     let outcome = connection
@@ -241,6 +254,83 @@ async fn half_close_still_delivers_a_progressing_stream() -> TestResult {
     join_producers(&producers).await
 }
 
+/// Wait *up to* `bound` for the next frame and require that none arrives.
+///
+/// The clock is paused, so an idle runtime advances virtual time only to the
+/// next deadline. A bounded wait therefore ends at `bound` without reaching the
+/// longer idle grace, which is what pins "still active immediately before the
+/// deadline". A frame or end-of-file before it fails the check.
+async fn ensure_no_frame_before<S>(frames: &mut S, bound: Duration, message: &str) -> TestResult
+where
+    S: futures::Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
+{
+    ensure(timeout(bound, frames.next()).await.is_err(), message)
+}
+
+/// Await end-of-file, letting the paused clock advance past the idle grace.
+async fn expect_stream_end<S>(frames: &mut S) -> TestResult
+where
+    S: futures::Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
+{
+    let next = timeout(CONNECTION_SETTLE, frames.next())
+        .await
+        .map_err(|_| TestError::Msg("the cancelled connection stayed open".into()))?;
+    ensure(
+        next.is_none(),
+        format!("no response may follow a cancelled stream: {next:?}"),
+    )
+}
+
+/// A half-closed peer keeps a stalled response active until the grace expires.
+///
+/// The peer stops sending but keeps reading, so the response is not truncated
+/// on EOF. It is bounded instead: still active immediately before the idle
+/// grace, and cancelled once the deadline passes.
+#[tokio::test(start_paused = true)]
+async fn a_half_closed_peer_keeps_a_stalled_response_until_the_grace_expires() -> TestResult {
+    let Scenario {
+        client,
+        connection,
+        teardowns,
+        producers,
+    } = spawn_scenario().await?;
+
+    let (reader, mut writer) = tokio::io::split(client);
+    write_frame(
+        &mut writer,
+        &request_bytes(STALLED_ROUTE, REQUEST_CORRELATION)?,
+    )
+    .await?;
+    writer.shutdown().await?;
+
+    let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH);
+    let mut framed = Framed::new(reader, codec.decoder());
+    let first = timeout(STATE_TIMEOUT, read_payloads(&mut framed, 1))
+        .await
+        .map_err(|_| TestError::Msg("the stalled stream produced no first frame".into()))??;
+    ensure(
+        first == vec![vec![1]],
+        format!("the first stalled frame must be delivered: {first:?}"),
+    )?;
+
+    // Let the actor observe the half-close and start its idle grace.
+    settle().await;
+    ensure_no_frame_before(
+        &mut framed,
+        GRACE_BEFORE_DEADLINE,
+        "a stalled response must stay active until the idle grace expires",
+    )
+    .await?;
+    expect_stream_end(&mut framed).await?;
+
+    finish(connection).await?;
+    ensure(
+        teardowns.load(Ordering::SeqCst) == 1,
+        "teardown runs once after the grace cancels the response",
+    )?;
+    join_producers(&producers).await
+}
+
 /// A cancelled response must end the connection before the buffered request.
 ///
 /// The idle grace expires while a second request waits behind the stalled
@@ -282,13 +372,16 @@ async fn a_cancelled_stream_ends_the_connection_before_the_buffered_request() ->
     )
     .await?;
 
-    let next = timeout(CONNECTION_SETTLE, framed.next())
-        .await
-        .map_err(|_| TestError::Msg("the cancelled connection stayed open".into()))?;
-    ensure(
-        next.is_none(),
-        format!("no response may follow a cancelled stream: {next:?}"),
-    )?;
+    // Let the actor buffer the fast request and start its idle grace, then
+    // check both sides of the deadline.
+    settle().await;
+    ensure_no_frame_before(
+        &mut framed,
+        GRACE_BEFORE_DEADLINE,
+        "a buffered request must not cancel the response before the grace expires",
+    )
+    .await?;
+    expect_stream_end(&mut framed).await?;
 
     finish(connection).await?;
     ensure(

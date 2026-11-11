@@ -6,7 +6,9 @@
 //! [`send_envelope`] and [`flush_pipeline_output`] helpers then serialize,
 //! wrap via [`FrameCodec::wrap_payload`], run the configured protocol
 //! `before_send` hook, and write the resulting frame to the connection's
-//! frame sink.
+//! frame sink. Protocol-supplied frames such as stream terminators skip
+//! serialization and wrapping because they are already complete codec frames,
+//! but they still pass through the same `before_send` hook.
 //!
 //! Two paths reach this module. A `ConnectionActor` driven directly through
 //! `ProtocolHooks` emits push messages and multi-packet channel frames from its

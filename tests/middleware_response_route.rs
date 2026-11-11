@@ -202,12 +202,23 @@ async fn exchange(
         .serialize(&request)
         .map_err(|error| TestError::Msg(format!("serialize request: {error}")))?;
     write_frame(&mut client, &payload).await?;
+    // Half-close once the request is sent. The server then reaches end-of-file
+    // after answering, so reading on can prove that no frame follows the
+    // expected ones: a deferred body that still wrote after a replacement
+    // response would appear here.
+    client.shutdown().await?;
 
     let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH);
     let mut framed = Framed::new(client, codec.decoder());
     let payloads = timeout(RESPONSE_SETTLE, read_payloads(&mut framed, expected_frames))
         .await
         .map_err(|_| TestError::Msg("the response did not arrive".into()))??;
+    let extra = timeout(RESPONSE_SETTLE, framed.next())
+        .await
+        .map_err(|_| TestError::Msg("the connection did not end after the response".into()))?
+        .transpose()
+        .map_err(|error| TestError::Msg(format!("read trailing frame: {error}")))?;
+    ensure(extra.is_none(), "no frame may follow the expected response")?;
 
     drop(framed);
     connection

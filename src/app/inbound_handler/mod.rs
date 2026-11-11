@@ -9,6 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
+use tokio_util::sync::CancellationToken;
 
 use super::{
     Route,
@@ -61,6 +62,8 @@ where
     pub(crate) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
     pub(crate) read_timeout_ms: u64,
+    /// Server shutdown signal; cancelling it stops this connection.
+    pub(crate) shutdown: &'a CancellationToken,
 }
 
 /// Drive a connection using immutable application inputs and prepared routes.
@@ -94,6 +97,7 @@ where
         protocol,
         memory_budgets,
         read_timeout_ms,
+        shutdown,
     } = context;
     let connection_state = if let Some(setup) = on_connect {
         Some(setup().await)
@@ -119,6 +123,7 @@ where
             protocol,
             memory_budgets,
             read_timeout_ms,
+            shutdown,
         },
     )
     .await;
@@ -181,6 +186,9 @@ where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
         let routes = build_route_chains(&self.handlers, &self.middleware).await;
+        // This compatibility path has no server shutdown signal, so its
+        // connection token is never cancelled from outside.
+        let shutdown = CancellationToken::new();
         process_connection(
             stream,
             ConnectionProcessingContext {
@@ -195,6 +203,7 @@ where
                 protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
+                shutdown: &shutdown,
             },
         )
         .await

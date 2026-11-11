@@ -92,6 +92,8 @@ where
     pub(super) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
     pub(super) read_timeout_ms: u64,
+    /// Server shutdown signal; cancelling it stops this connection.
+    pub(super) shutdown: &'a CancellationToken,
 }
 
 /// State needed to turn a raw frame into a dispatchable envelope.
@@ -206,7 +208,9 @@ where
         )
     });
     let mut pipeline = FramePipeline::with_hooks(context.fragmentation, context.protocol_hooks);
-    let connection_shutdown = CancellationToken::new();
+    // A child token so the guard below cancels only this connection, while a
+    // server shutdown still reaches it through the parent.
+    let connection_shutdown = context.shutdown.child_token();
     // Cancelled only by a clean EOF, which is permanent for the connection.
     let peer_eof = CancellationToken::new();
     let (mut response_actor, _cancel_on_exit) =

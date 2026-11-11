@@ -5,7 +5,7 @@ use std::{io, net::SocketAddr, sync::Arc, time::Duration};
 use futures::FutureExt;
 use log::{error, warn};
 use tokio::{net::TcpStream, time::timeout};
-use tokio_util::task::TaskTracker;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{
     app::{Envelope, Packet, PreparedApp},
@@ -38,6 +38,8 @@ where
     pub(super) hooks: PreambleHooks<T>,
     /// Accept-side guard held for the whole task lifetime.
     pub(super) connection: ActiveConnection,
+    /// Worker shutdown signal; cancelling it stops this connection.
+    pub(super) shutdown: CancellationToken,
 }
 
 /// Spawn a task to process a single TCP connection, logging and discarding any panics.
@@ -58,25 +60,18 @@ pub(super) fn spawn_connection_task<T, Ser, Ctx, E, Codec>(
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
-    let ConnectionTask {
-        stream,
-        app,
-        hooks,
-        connection,
-    } = task;
-    let peer_addr = match stream.peer_addr() {
-        Ok(addr) => Some(addr),
-        Err(e) => {
-            warn!("Failed to retrieve peer address: error={e}");
-            None
-        }
-    };
     tracker.spawn(async move {
-        // Keep the gauge held for every exit path, including a panic caught by
-        // `catch_unwind` below and cancellation of this future.
-        let _connection = connection;
-        let fut = std::panic::AssertUnwindSafe(process_stream(stream, peer_addr, app, hooks))
-            .catch_unwind();
+        let peer_addr = match task.stream.peer_addr() {
+            Ok(addr) => Some(addr),
+            Err(e) => {
+                warn!("Failed to retrieve peer address: error={e}");
+                None
+            }
+        };
+        // `process_stream` keeps the gauge held for every exit path, including
+        // a panic caught by `catch_unwind` here and cancellation of this
+        // future.
+        let fut = std::panic::AssertUnwindSafe(process_stream(task, peer_addr)).catch_unwind();
 
         if let Err(panic) = fut.await {
             crate::metrics::inc_connection_panics();
@@ -89,11 +84,13 @@ pub(super) fn spawn_connection_task<T, Ser, Ctx, E, Codec>(
 }
 
 /// Complete the preamble handshake before handing bytes to the application.
+///
+/// The accept-side [`ActiveConnection`] guard travels with the task, so the
+/// gauge covers preamble handling, application processing, teardown, panic
+/// unwinding, and cancellation.
 async fn process_stream<T, Ser, Ctx, E, Codec>(
-    mut stream: TcpStream,
+    task: ConnectionTask<T, Ser, Ctx, E, Codec>,
     peer_addr: Option<SocketAddr>,
-    app: Arc<PreparedApp<Ser, Ctx, E, Codec>>,
-    hooks: PreambleHooks<T>,
 ) where
     T: Preamble,
     Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
@@ -102,6 +99,14 @@ async fn process_stream<T, Ser, Ctx, E, Codec>(
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
+    let ConnectionTask {
+        mut stream,
+        app,
+        hooks,
+        connection,
+        shutdown,
+    } = task;
+    let _connection = connection;
     let PreambleHooks {
         on_success,
         on_failure,
@@ -124,13 +129,14 @@ async fn process_stream<T, Ser, Ctx, E, Codec>(
         return;
     }
     let rewind_stream = RewindStream::new(leftover, stream);
-    handle_app_connection(&app, rewind_stream).await;
+    handle_app_connection(&app, rewind_stream, shutdown).await;
 }
 
 /// Run the shared prepared application on the already-handshaken stream.
 async fn handle_app_connection<Ser, Ctx, E, Codec>(
     app: &PreparedApp<Ser, Ctx, E, Codec>,
     stream: RewindStream<TcpStream>,
+    shutdown: CancellationToken,
 ) where
     Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     Ctx: Send + 'static,
@@ -138,7 +144,7 @@ async fn handle_app_connection<Ser, Ctx, E, Codec>(
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
-    if let Err(error) = app.handle_connection_result(stream).await {
+    if let Err(error) = app.handle_connection_with_shutdown(stream, shutdown).await {
         warn!("connection task error: {error:?}");
     }
 }
