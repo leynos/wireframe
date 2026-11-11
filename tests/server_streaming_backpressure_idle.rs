@@ -90,6 +90,20 @@ async fn wait_until(limit: Duration, condition: impl Fn() -> bool, message: &str
     Ok(())
 }
 
+/// Number of producer sends recorded so far.
+fn send_count(results: &Arc<Mutex<Vec<bool>>>) -> usize {
+    results.lock().unwrap_or_else(PoisonError::into_inner).len()
+}
+
+/// Wait until the producer has recorded at least `count` sends.
+async fn wait_for_sends(
+    results: &Arc<Mutex<Vec<bool>>>,
+    count: usize,
+    message: &str,
+) -> TestResult {
+    wait_until(STATE_TIMEOUT, || send_count(results) >= count, message).await
+}
+
 /// Require `condition`, reporting `message` as the test failure otherwise.
 fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
     if condition {
@@ -470,15 +484,9 @@ async fn producer_send_blocks_until_the_reader_progresses() -> TestResult {
     .await?;
     // Wait for the two accepted sends rather than assuming a fixed sleep is
     // long enough on a loaded runner.
-    wait_until(
-        STATE_TIMEOUT,
-        || {
-            send_results
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .len()
-                >= 2
-        },
+    wait_for_sends(
+        &send_results,
+        2,
         "the first two producer sends never completed",
     )
     .await?;
@@ -500,8 +508,21 @@ async fn producer_send_blocks_until_the_reader_progresses() -> TestResult {
         "the connection must stay pending while the reader has not progressed",
     )?;
 
-    // Dropping the unread peer releases the blocked write and the producer.
-    drop(client);
+    // Reading one frame frees transport capacity, so the blocked write — and
+    // the producer waiting on it — must make progress. This distinguishes real
+    // back-pressure from a send that merely stays pending.
+    let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH);
+    let mut framed = Framed::new(client, codec.decoder());
+    read_payloads(&mut framed, 1).await?;
+    wait_for_sends(
+        &send_results,
+        3,
+        "reading a frame must release the blocked producer send",
+    )
+    .await?;
+
+    // The remaining frames and the blocked send drain once the peer reads on.
+    drop(framed);
     connection
         .await
         .map_err(|error| TestError::Msg(format!("connection task failed: {error}")))

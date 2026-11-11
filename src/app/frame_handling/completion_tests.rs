@@ -18,7 +18,7 @@ use bytes::Bytes;
 use futures::{Sink, StreamExt};
 use tokio_util::sync::CancellationToken;
 
-use super::ResponseContext;
+use super::{Dispatch, ResponseContext};
 use crate::{
     app::{Envelope, codec_driver::FramePipeline},
     codec::LengthDelimitedFrameCodec,
@@ -139,13 +139,13 @@ fn build_actor() -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>)
 ///
 /// # Errors
 ///
-/// Returns the push-queue configuration failure. The transport outcome is
+/// Returns the push-queue configuration failure. The dispatch decision is
 /// returned alongside the log so a failing scenario can still inspect it.
 async fn forward(
     response: Response<Envelope, ()>,
     fail_sink: bool,
     cancel_peer: bool,
-) -> Result<(EventLog, io::Result<()>), PushConfigError> {
+) -> Result<(EventLog, io::Result<Dispatch>), PushConfigError> {
     let log: EventLog = Arc::new(Mutex::new(Vec::new()));
     let (mut actor, _handle) = build_actor()?;
     if cancel_peer {
@@ -196,7 +196,11 @@ async fn completion_hook_runs_once_after_the_terminator_write() {
     let (log, outcome) = forward(Response::Stream(stream), false, false)
         .await
         .expect("the actor should build");
-    outcome.expect("a completed response is not an error");
+    assert_eq!(
+        outcome.expect("a completed response is not an error"),
+        Dispatch::Continue,
+        "a completed response lets the loop dispatch the next frame"
+    );
 
     assert_eq!(
         events(&log),
@@ -233,7 +237,11 @@ async fn completion_hook_is_suppressed_when_the_response_is_cancelled() {
     let (log, outcome) = forward(Response::Stream(stalled), false, true)
         .await
         .expect("the actor should build");
-    outcome.expect("a cancelled response is not an error");
+    assert_eq!(
+        outcome.expect("a cancelled response is not an error"),
+        Dispatch::Stop,
+        "a cancelled stream must stop the loop before it serves another frame"
+    );
 
     assert!(
         events(&log).is_empty(),

@@ -2798,9 +2798,12 @@ connection's frame pipeline before the next inbound frame is dispatched:
   those queues nor installs server-initiated pushes on this actor, so that
   polling is structural for now rather than an interleaving guarantee for
   out-of-band pushes.
-- Every emitted envelope passes through fragmentation, outbound metrics,
+- Every application envelope passes through fragmentation, outbound metrics,
   serialization, `wrap_payload`, and `before_send`, in that order, immediately
-  before the transport write. The terminator follows the same path.
+  before the transport write. A protocol terminator is already a complete codec
+  frame, so it is written unchanged: it skips fragmentation, serialization, and
+  `wrap_payload`, but still passes through `before_send` and the outbound frame
+  and response-send metrics.
 - Every data frame for a response inherits the request's correlation id: a
   frame with no id adopts it, and a frame that supplies a different id is
   overwritten and logged as a warning. When the request carries no id, the
@@ -2823,7 +2826,10 @@ wait is then bounded by a 30-second grace so that a producer which never yields
 cannot keep the connection task, its gauge guard, teardown, and the server
 drain open. A request read during that window is buffered, which stops the read
 half being polled; the pending response is then bounded by the same grace, so a
-disconnect that arrives afterwards still releases the connection. Independent
+disconnect that arrives afterwards still releases the connection. If the grace
+expires, the response is cancelled without a terminator and the connection
+closes, so the buffered request is not served: a later response would otherwise
+be read as part of the truncated stream. Independent
 input and output are tracked by [RFC 0004](rfcs/0004-duplex-session-driver.md)
 and roadmap item 21.2.2.
 

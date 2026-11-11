@@ -24,7 +24,7 @@ pub(crate) use backpressure::{
 };
 pub(crate) use decode::decode_envelope;
 pub(crate) use reassembly::reassemble_if_needed;
-pub(crate) use response::forward_response;
+pub(crate) use response::{Dispatch, forward_response};
 
 #[cfg(all(test, not(loom)))]
 mod assembly_tests;

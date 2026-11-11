@@ -505,6 +505,11 @@ returns `HandlerService::from_service(id, wrapper)` so the wrapper is
 type-erased back into the route chain, and `from_fn` middleware must forward
 the value returned by `Next::call` for the same reason.
 
+Delivery runs inside a `response_delivery` debug span that records the request
+id, the correlation id, and whether the body streamed. The span stays open
+through the terminator write and the completion hook, and records the final
+`ResponseOutcome` or `transport_error`, so one trace covers the whole exchange.
+
 ### Peer observation and the idle grace
 
 A handler may stream for an unbounded time, so waiting for its response before
@@ -521,12 +526,13 @@ handled and tracks peer state with two tokens:
 
 At most one inbound frame is buffered while a response is driven. Buffering
 stops the read half being polled, so a later disconnect cannot be observed
-directly; both a clean EOF and a buffered request therefore cancel only
-`unobserved`, and the actor bounds the pending response instead of waiting for
-a peer that will never read it. A read error is different: it fails the
-connection and leaves both tokens untouched. A debug diagnostic names the
-cause, so a bounded wait can be attributed to a half-close or to a buffered
-request.
+directly. A clean EOF cancels the connection-wide `peer_eof`, and the
+per-dispatch `unobserved` child with it; a buffered request cancels only
+`unobserved`, leaving `peer_eof` live for the next dispatch. Either way the
+actor bounds the pending response instead of waiting for a peer that will never
+read it. A read error is different: it fails the connection and leaves both
+tokens untouched. The loop records the cause in a cell the actor reads, so the
+cancellation warning itself names a half-close or a buffered request.
 
 The actor applies `PEER_CLOSED_RESPONSE_GRACE` — 30 seconds in production — to
 each wait once the per-dispatch signal is cancelled. The deadline is renewed
@@ -534,13 +540,17 @@ for every event the response produces rather than applied once to the whole
 response, so a half-close does not truncate a response that keeps making
 progress; only a producer that produces no frame for a whole grace is
 cancelled. Cancellation clears the active output and returns
-`ResponseOutcome::Cancelled`, which releases the response's connection task,
-its active-connection gauge guard, and its teardown path. The actor increments
+`ResponseOutcome::Cancelled`; the inbound loop then stops dispatching and closes
+the connection, so the request buffered behind the truncated stream is not
+served. That close releases the connection task, its active-connection gauge
+guard, and its teardown path. The actor increments
 `wireframe_response_cancellations_total` with the bounded label
-`reason="idle_grace_expired"` and logs the connection id, peer address, and
-request correlation, so a truncated response can be traced to the request that
-caused it. The deadline source is injectable (`GraceTimer`), so tests fire it
-by hand instead of waiting on the clock.
+`reason="idle_grace_expired"` and logs the cause, the connection id, the peer
+address, and the request correlation, so a truncated response can be traced to
+the request that caused it. Prepared connections do not currently populate the
+connection id or peer address, so those fields read as `None` there. The
+deadline source is injectable (`GraceTimer`), so tests fire it by hand instead
+of waiting on the clock.
 
 ## Runtime ownership model
 

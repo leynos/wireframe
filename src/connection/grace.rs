@@ -10,7 +10,7 @@ use std::{future::Future, pin::Pin, time::Duration};
 
 use log::warn;
 
-use super::ConnectionActor;
+use super::{ConnectionActor, UnobservedCause};
 use crate::{
     app::Packet,
     correlation::CorrelatableFrame,
@@ -53,11 +53,23 @@ where
     /// later offers is dropped with the connection.
     pub(super) fn cancel_stalled_response(&mut self) {
         warn!(
-            "the peer could not be observed and the response produced no frames for {:?}; \
+            "the peer could not be observed ({}) and the response produced no frames for {:?}; \
              cancelling: id={:?}, peer={:?}, correlation={:?}",
-            self.peer_closed_grace, self.connection_id, self.peer_addr, self.response_correlation
+            self.unobserved_cause_label(),
+            self.peer_closed_grace,
+            self.connection_id,
+            self.peer_addr,
+            self.response_correlation
         );
         ResponseCancellationReason::IdleGraceExpired.record();
         self.active_output.clear();
+    }
+
+    /// Name why direct peer observation stopped, when the loop recorded it.
+    fn unobserved_cause_label(&self) -> &'static str {
+        self.unobserved_cause
+            .as_ref()
+            .and_then(|cause| cause.get().copied())
+            .map_or("cause unknown", UnobservedCause::as_str)
     }
 }

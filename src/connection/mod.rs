@@ -15,6 +15,7 @@ mod frame;
 mod grace;
 mod init;
 mod multi_packet;
+mod observation;
 mod output;
 mod polling;
 mod response;
@@ -24,7 +25,11 @@ mod state;
 #[cfg(all(test, not(loom)))]
 mod tests;
 
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 pub use channels::ConnectionChannels;
 pub(crate) use counter::ActiveConnection;
@@ -36,6 +41,7 @@ use grace::{GraceTimer, TokioGraceTimer};
 use init::ActorInit;
 use log::info;
 use multi_packet::MultiPacketContext;
+pub(crate) use observation::UnobservedCause;
 use output::ActiveOutput;
 pub(crate) use sink::FrameSink;
 use thiserror::Error;
@@ -133,6 +139,11 @@ pub struct ConnectionActor<F, E = NoProtocolError> {
     grace_timer: Arc<dyn GraceTimer>,
     /// Correlation identifier of the response currently being driven.
     response_correlation: Option<u64>,
+    /// Why direct peer observation stopped for the current dispatch.
+    ///
+    /// The inbound loop fills this before cancelling [`Self::peer_closed`], so
+    /// the cancellation warning can name the cause.
+    unobserved_cause: Option<Arc<OnceLock<UnobservedCause>>>,
 }
 
 impl<F, E> ConnectionActor<F, E>
@@ -231,6 +242,7 @@ where
             peer_closed_grace: drive::PEER_CLOSED_RESPONSE_GRACE,
             grace_timer: Arc::new(TokioGraceTimer),
             response_correlation: None,
+            unobserved_cause: None,
         };
         // The server builds an untracked actor per connection and owns the
         // connection lifecycle in its accept loop. Logging an opening there
@@ -248,14 +260,6 @@ where
         actor.hooks.on_connection_setup(handle, &mut actor.ctx);
         actor
     }
-
-    /// Share the token that reports the peer closing its input half.
-    ///
-    /// The inbound loop cancels the token once its read half reports EOF. A
-    /// response that is still streaming is then driven under a bounded idle
-    /// grace, because a peer that has vanished will never read the remaining
-    /// frames or send another request.
-    pub(crate) fn set_peer_closed(&mut self, token: CancellationToken) { self.peer_closed = token; }
 
     /// Override the idle grace used once the peer can no longer be observed.
     ///
