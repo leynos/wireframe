@@ -1,6 +1,7 @@
 //! Unit tests for connection actor scheduling and response installation.
 
 mod completion;
+mod vec_delivery;
 
 use std::sync::{
     Arc,
