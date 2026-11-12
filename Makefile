@@ -100,6 +100,9 @@ PROVER_TOOLS_REF_FILE ?= tools/rust-prover-tools/REF
 PROVER_TOOLS_REF ?= $(shell awk '/^ref:/ { print $$2 }' $(PROVER_TOOLS_REF_FILE))
 PROVER_TOOLS_SOURCE ?= git+https://github.com/leynos/rust-prover-tools.git@$(PROVER_TOOLS_REF)
 PROVER_TOOLS ?= uv tool run --python 3.14 --from "$(PROVER_TOOLS_SOURCE)" prover-tools
+# The tool's prebuilt Kani route covers Linux x86_64 only; any other host asks
+# for the compile fallback.
+KANI_INSTALL_FLAGS ?= $(if $(and $(filter Linux,$(shell uname -s)),$(filter x86_64,$(shell uname -m))),,--compile)
 VERUS_PROOF_FILE ?= verus/wireframe_proofs.rs
 VERIFICATION_CRATE ?= wireframe-verification
 # The Loom models live in their own package so a `--cfg loom` build never
@@ -253,7 +256,7 @@ nixie: ## Validate Mermaid diagrams
 	$(NIXIE) --no-sandbox
 
 install-kani: ## Install the pinned Kani verifier
-	$(PROVER_TOOLS) kani install --repo-root .
+	$(PROVER_TOOLS) kani install --repo-root . $(KANI_INSTALL_FLAGS)
 
 check-kani-version: ## Check the installed Kani verifier version
 	$(PROVER_TOOLS) kani check-version --repo-root .
