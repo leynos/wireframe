@@ -415,16 +415,16 @@ builds.[^13]
 **The Pattern**:
 
 <!-- tested-example: rust-doctest-dry-guide-004 -->
-```rust,ignore
+```rust
 /// A socket that is only available on Unix platforms.
-#[cfg(any(target_os = "unix", doc))]
+#[cfg(any(target_family = "unix", doc))]
 pub struct UnixSocket;
 ```
 
-This `any` directive ensures the struct is compiled either when the target OS is
-`unix` OR when `rustdoc` is running. This correctly makes the item visible in
-the generated HTML. However, it is crucial to understand that this **does not**
-make the doctest for `UnixSocket` pass on non-Unix platforms.
+This `any` directive ensures the struct is compiled either when the target
+family is `unix` OR when `rustdoc` is running. This correctly makes the item
+visible in the generated HTML. However, it is crucial to understand that this
+**does not** make the doctest for `UnixSocket` pass on non-Unix platforms.
 
 This distinction highlights the "cfg duality." The `#[cfg(doc)]` attribute
 controls the *table of contents* of the documentation; it determines which

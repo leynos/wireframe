@@ -2755,13 +2755,9 @@ to coordinate flow control with the peer.
 <!-- tested-example: users-guide-056 -->
 ```rust
 use tokio::spawn;
-use wireframe::response::Response;
+use wireframe::{app::Envelope, response::Response};
 
-/// The application frame type carried by the response channel.
-#[derive(Debug)]
-struct Frame(Vec<u8>);
-
-async fn multi_packet() -> (tokio::sync::mpsc::Sender<Frame>, Response<Frame>) {
+async fn multi_packet() -> (tokio::sync::mpsc::Sender<Envelope>, Response<Envelope>) {
     let (sender, response) = Response::with_channel(16);
 
     spawn({
@@ -2769,7 +2765,7 @@ async fn multi_packet() -> (tokio::sync::mpsc::Sender<Frame>, Response<Frame>) {
         async move {
             // Back-pressure: `send` awaits whenever the channel is full.
             for chunk in [b"alpha".as_slice(), b"beta".as_slice()] {
-                let frame = Frame(chunk.to_vec());
+                let frame = Envelope::new(1, None, chunk.to_vec());
                 if producer.send(frame).await.is_err() {
                     return; // connection dropped; stop producing
                 }
@@ -2784,6 +2780,10 @@ async fn multi_packet() -> (tokio::sync::mpsc::Sender<Frame>, Response<Frame>) {
     (sender, response)
 }
 ```
+
+The channel carries the same frame type the connection actor sends, so a custom
+`Packet` implementation can stand in for `Envelope` once it satisfies the
+actor's `Packet` and `CorrelatableFrame` bounds.
 
 Multi-packet responders rely on the protocol hook `stream_end_frame` to emit a
 terminator when the producer side of the channel closes naturally. The

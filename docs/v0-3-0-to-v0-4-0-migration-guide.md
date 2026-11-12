@@ -405,11 +405,12 @@ subscriber is now the supported arrangement rather than a duplicate.
 ## Migrate byte-handling APIs
 
 The prepared-application transition is independent of the zero-copy byte
-migration. The planned byte-facing APIs use `bytes::Bytes` or a `PayloadBytes`
-wrapper for read-only hand-offs and an explicit edit-on-demand operation for
-mutation; none of them is available in v0.4. Middleware and hook editor APIs
-are not yet finalized either; their migration is deferred to roadmap items
-12.1.2 and 12.2.1. The compatibility helper names described below are defined by
+migration. Codecs already receive payloads as `bytes::Bytes`; what is still
+planned is a `PayloadBytes` wrapper for read-only hand-offs and an explicit
+edit-on-demand operation for mutation. Neither planned API is available in
+v0.4. Middleware and hook editor APIs are not yet finalized either; their
+migration is deferred to roadmap items 12.1.2 and 12.2.1. The compatibility
+helper names described below are defined by
 [ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md).
 
 ### Middleware

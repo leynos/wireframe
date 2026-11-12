@@ -98,6 +98,55 @@ pub(super) fn fence_source(
     Some(source)
 }
 
+/// Return the content of `line` once its block-quote markers are removed.
+///
+/// CommonMark allows a block quote to contain fenced code, but the loader only
+/// scans top-level blocks. Reporting the container here lets the parent reject
+/// such a fence with a remedy instead of skipping it without comment.
+pub(super) fn block_quote_content(line: &str) -> Option<&str> {
+    let indentation = line
+        .chars()
+        .take_while(|character| *character == ' ')
+        .count();
+    if indentation > 3 {
+        return None;
+    }
+    let mut content = line.get(indentation..)?;
+    if !content.starts_with('>') {
+        return None;
+    }
+    while let Some(remainder) = content.strip_prefix('>') {
+        content = remainder.strip_prefix(' ').unwrap_or(remainder);
+    }
+    Some(content)
+}
+
+/// Reject an example that a block quote would hide from the document walk.
+///
+/// The walk only understands top-level blocks, so a fence or marker inside a
+/// block quote would be skipped and never validated. Failing loudly keeps the
+/// inventory complete and tells the author how to recover.
+pub(super) fn reject_block_quote_example(
+    document: &PublishedDocument<'_>,
+    index: usize,
+) -> Result<(), String> {
+    let Some(content) = document.line(index).and_then(block_quote_content) else {
+        return Ok(());
+    };
+    let is_marker = content.trim_start().starts_with("<!-- tested-example");
+    if !is_marker && opening_fence(content).is_none() {
+        return Ok(());
+    }
+    Err(format!(
+        concat!(
+            "{}:{}: tested examples inside a block quote are not scanned; ",
+            "move the fence out of the quote"
+        ),
+        document.path(),
+        index + 1
+    ))
+}
+
 /// Return the identifier from a `<!-- tested-example: id -->` comment.
 ///
 /// The surrounding spacing is part of the grammar: a marker with extra spaces or

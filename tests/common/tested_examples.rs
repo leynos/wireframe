@@ -21,6 +21,7 @@ use parsing::{
     is_closing_fence,
     opening_fence,
     parse_marker,
+    reject_block_quote_example,
     valid_identifier,
 };
 
@@ -237,6 +238,7 @@ pub fn parse_document(
             continue;
         }
 
+        reject_block_quote_example(document, index)?;
         validate_marker_line(document, index)?;
         open = parse_open_example(document, index, known, &mut parsed)?;
     }

@@ -164,6 +164,58 @@ fn a_rejected_document_reports_no_claims() {
     assert!(known.is_empty(), "the caller's identifier set is untouched");
 }
 
+#[test]
+fn a_fence_inside_a_block_quote_is_rejected() {
+    let source = "Prose.\n\n> ```rust\n> fn quoted() {}\n> ```\n";
+
+    let error = parse(source).expect_err("a quoted fence must fail the scan");
+
+    assert!(
+        error.contains("inside a block quote are not scanned"),
+        "unexpected loader error: {error}"
+    );
+}
+
+#[test]
+fn a_marker_inside_a_block_quote_is_rejected() {
+    let source = concat!(
+        "Prose.\n\n",
+        "> <!-- tested-example: guide-001 -->\n",
+        "> ```rust\n> fn quoted() {}\n> ```\n",
+    );
+
+    let error = parse(source).expect_err("a quoted marker must fail the scan");
+
+    assert!(
+        error.contains("inside a block quote are not scanned"),
+        "unexpected loader error: {error}"
+    );
+}
+
+#[test]
+fn quoted_markdown_inside_an_example_is_extracted_verbatim() {
+    // A top-level fence may show block-quoted Markdown; only a quote that
+    // contains the example itself is rejected.
+    let source = concat!(
+        "<!-- tested-example: guide-001 -->\n",
+        "```markdown\n",
+        "> ```text\n> example\n> ```\n",
+        "```\n",
+    );
+
+    let parsed = parse(source).expect("a quoted body inside an example is allowed");
+
+    assert_eq!(parsed.examples.len(), 1);
+    assert_eq!(
+        parsed
+            .examples
+            .first()
+            .expect("the fence yields one example")
+            .source,
+        "> ```text\n> example\n> ```\n"
+    );
+}
+
 proptest! {
     #[test]
     fn marked_fences_round_trip_their_source(
@@ -219,6 +271,19 @@ proptest! {
 
         prop_assert!(
             error.contains(&format!("duplicate tested-example identifier `{identifier}`")),
+            "unexpected loader error: {}",
+            error
+        );
+    }
+
+    #[test]
+    fn quoted_fences_are_rejected_at_any_quote_depth(depth in 1usize..5) {
+        let quote = "> ".repeat(depth);
+        let source = format!("Prose.\n\n{quote}```rust\n{quote}fn main() {{}}\n{quote}```\n");
+
+        let error = parse(&source).expect_err("a quoted fence must fail the scan");
+        prop_assert!(
+            error.contains("inside a block quote are not scanned"),
             "unexpected loader error: {}",
             error
         );

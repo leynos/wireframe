@@ -347,7 +347,7 @@ integration boundaries.
   codecs.
   - [x] Update the trait to accept `&self` and a `Bytes` payload to reduce
     copies, then document the change in
-    `adrs/adr-0004-pluggable-protocol-codecs.md`.
+    `docs/adrs/adr-0004-pluggable-protocol-codecs.md`.
   - [x] Update `LengthDelimitedFrameCodec` and any adaptors to use the new
     payload type.
   - [x] Reuse a per-connection encoder, so sequence counters can advance

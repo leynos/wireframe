@@ -1827,8 +1827,10 @@ module, and a test keeps the inventory in step with the Rustdoc module list in
 `src/tested_documentation.rs` by `make test-doc`: a plain `rust` fence runs, a
 `rust,no_run` fence compiles, and a `rust,ignore` fence is rendered but not
 compiled. Mermaid examples are checked by `make nixie`. The loader fails on an
-unmarked or unterminated fence, an invalid or duplicate identifier, or a
-missing language identifier.
+unmarked or unterminated fence, an invalid or duplicate identifier, a missing
+language identifier, or a fence or marker inside a block quote. The scan covers
+only top-level blocks, so a quoted example is rejected rather than skipped;
+move it out of the quote.
 
 Prefer a compiling fence. Mark an excerpt `ignore` only when it depends on a
 crate the workspace does not build, an async runtime a doctest cannot start, or

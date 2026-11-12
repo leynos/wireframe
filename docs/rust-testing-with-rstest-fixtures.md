@@ -181,9 +181,19 @@ pub fn answer_to_life() -> u32 {
     42
 }
 
+fn check_answer(answer_to_life: u32) {
+    assert_eq!(answer_to_life, 42);
+}
+
 #[rstest]
 fn test_with_fixture(answer_to_life: u32) {
-    assert_eq!(answer_to_life, 42);
+    check_answer(answer_to_life);
+}
+
+// A doctest runs `main`, and `#[test]` functions exist only under `cargo test`,
+// so exercise the same assertion here; otherwise this example never runs.
+fn main() {
+    check_answer(answer_to_life());
 }
 ```
 
