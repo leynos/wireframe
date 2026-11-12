@@ -7,12 +7,12 @@ Feature: Published documentation examples
     Given the published user-facing examples are loaded
     Then every published example has a stable identifier and source
 
-  Scenario: A well-formed example is accepted by the shared loader
-    Given a document whose example carries a marker and a language
-    When the shared loader validates the staged document
+  Scenario: The shipped documentation passes the loader gate
+    Given the shipped documentation is read from disk
+    When the shared loader validates the shipped documentation
     Then validation succeeds
 
-  Scenario: A malformed example is rejected by the shared loader
-    Given a document whose example fence carries no language
-    When the shared loader validates the staged document
-    Then validation fails and names the fence line
+  Scenario: A shipped document that loses a marker fails the loader gate
+    Given a shipped guide has lost one example marker
+    When the shared loader validates the shipped documentation
+    Then validation fails and names the document and the missing marker

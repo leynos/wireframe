@@ -1,13 +1,12 @@
 //! Scenario tests for marked examples in published Markdown documents.
+//!
+//! Each scenario exercises the shared loader over the shipped documents read
+//! from disk: one acceptance run over the untouched inventory, and one
+//! rejection run after a real guide loses a marker.
 
 use rstest_bdd_macros::scenario;
 
-use crate::fixtures::tested_examples::{
-    TestedExamplesWorld,
-    UNLANGUAGED_DOCUMENT,
-    VALID_DOCUMENT,
-    tested_examples_world,
-};
+use crate::fixtures::tested_examples::{TestedExamplesWorld, tested_examples_world};
 
 #[scenario(
     path = "tests/features/tested_examples.feature",
@@ -25,30 +24,36 @@ fn published_examples_are_addressable(tested_examples_world: TestedExamplesWorld
 
 #[scenario(
     path = "tests/features/tested_examples.feature",
-    name = "A well-formed example is accepted by the shared loader"
+    name = "The shipped documentation passes the loader gate"
 )]
-fn well_formed_examples_are_accepted(tested_examples_world: TestedExamplesWorld) {
+fn shipped_documentation_passes_the_loader_gate(tested_examples_world: TestedExamplesWorld) {
     let mut world = tested_examples_world;
-    world.stage_document(VALID_DOCUMENT);
     world
-        .validate_staged_document()
-        .expect("validating a staged document should not itself fail");
+        .prepare_shipped_documents()
+        .expect("the shipped documentation should be readable from disk");
+    world
+        .validate_prepared_documents()
+        .expect("validating the prepared documents should not itself fail");
     world
         .validation_succeeded()
-        .expect("a marked fence with a language should be accepted");
+        .expect("the shipped documentation should pass the loader gate");
 }
 
 #[scenario(
     path = "tests/features/tested_examples.feature",
-    name = "A malformed example is rejected by the shared loader"
+    name = "A shipped document that loses a marker fails the loader gate"
 )]
-fn malformed_examples_are_rejected(tested_examples_world: TestedExamplesWorld) {
+fn shipped_document_missing_a_marker_fails_the_loader_gate(
+    tested_examples_world: TestedExamplesWorld,
+) {
     let mut world = tested_examples_world;
-    world.stage_document(UNLANGUAGED_DOCUMENT);
     world
-        .validate_staged_document()
-        .expect("validating a staged document should not itself fail");
+        .prepare_shipped_documents_missing_marker()
+        .expect("the shipped documentation should be readable from disk");
     world
-        .validation_failed_with("staged.md:2: fenced example has no language identifier")
-        .expect("a fence without a language should be rejected");
+        .validate_prepared_documents()
+        .expect("validating the prepared documents should not itself fail");
+    world
+        .validation_failed_with_all(&["docs/users-guide.md:", "missing its marker"])
+        .expect("a guide without one marker should fail the loader gate");
 }

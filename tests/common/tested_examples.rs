@@ -173,7 +173,7 @@ struct OpenExample {
 
 /// Repository-relative paths of every document the shared loader scans.
 #[cfg(test)]
-fn document_paths() -> impl Iterator<Item = &'static str> {
+pub(crate) fn document_paths() -> impl Iterator<Item = &'static str> {
     USER_DOCUMENTS.iter().map(|(path, _)| *path)
 }
 
