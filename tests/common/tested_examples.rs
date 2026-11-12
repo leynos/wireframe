@@ -16,6 +16,7 @@ mod tests;
 
 use parsing::{
     Fence,
+    SourceLine,
     fence_info,
     fence_source,
     is_closing_fence,
@@ -229,7 +230,7 @@ pub fn parse_document(
 
     for (index, line) in document.lines().iter().copied().enumerate() {
         if let Some(active) = open.as_ref() {
-            if is_closing_fence(line, active.fence) {
+            if is_closing_fence(SourceLine::new(line), active.fence) {
                 parsed
                     .examples
                     .push(finish_example(document, active, index)?);
@@ -269,12 +270,12 @@ fn validate_marker_line(document: &PublishedDocument<'_>, index: usize) -> Resul
     }
     let path = document.path();
     let line_number = index + 1;
-    parse_marker(line)
+    parse_marker(SourceLine::new(line))
         .ok_or_else(|| format!("{path}:{line_number}: malformed tested-example marker"))?;
     let next_line = document
         .line(index + 1)
         .ok_or_else(|| format!("{path}:{line_number}: tested-example marker has no fence"))?;
-    if opening_fence(next_line).is_none() {
+    if opening_fence(SourceLine::new(next_line)).is_none() {
         return Err(format!(
             "{path}:{line_number}: tested-example marker must immediately precede a fence"
         ));
@@ -295,12 +296,12 @@ fn parse_open_example(
     let Some(line) = document.line(index) else {
         return Ok(None);
     };
-    let Some(fence) = opening_fence(line) else {
+    let Some(fence) = opening_fence(SourceLine::new(line)) else {
         return Ok(None);
     };
     let line_number = index + 1;
     let id = example_identifier(document, index, known, &parsed.identifiers)?;
-    let language = example_language(line, fence, document.path(), line_number)?;
+    let language = example_language(SourceLine::new(line), fence, document.path(), line_number)?;
     // The zero-based fence index equals the one-based number of the marker
     // line immediately above it, so `index` is stored unchanged.
     parsed.identifiers.push((id.clone(), index));
@@ -328,6 +329,7 @@ fn example_identifier(
     let id = index
         .checked_sub(1)
         .and_then(|previous| document.line(previous))
+        .map(SourceLine::new)
         .and_then(parse_marker)
         .ok_or_else(|| format!("{path}:{line_number}: fenced example is missing its marker"))?;
     if !valid_identifier(&id) {
@@ -348,7 +350,7 @@ fn example_identifier(
 /// A fence whose only info is a Rustdoc attribute names no language, so those
 /// tokens are rejected here instead of being recorded as a language.
 fn example_language(
-    line: &str,
+    line: SourceLine<'_>,
     fence: Fence,
     path: &str,
     line_number: usize,

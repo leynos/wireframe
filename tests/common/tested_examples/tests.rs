@@ -3,6 +3,7 @@
 use std::collections::HashSet;
 
 use proptest::prelude::*;
+use rstest::rstest;
 
 use super::{
     PublishedDocument,
@@ -164,27 +165,15 @@ fn a_rejected_document_reports_no_claims() {
     assert!(known.is_empty(), "the caller's identifier set is untouched");
 }
 
-#[test]
-fn a_fence_inside_a_block_quote_is_rejected() {
-    let source = "Prose.\n\n> ```rust\n> fn quoted() {}\n> ```\n";
-
-    let error = parse(source).expect_err("a quoted fence must fail the scan");
-
-    assert!(
-        error.contains("inside a block quote are not scanned"),
-        "unexpected loader error: {error}"
-    );
-}
-
-#[test]
-fn a_marker_inside_a_block_quote_is_rejected() {
-    let source = concat!(
-        "Prose.\n\n",
-        "> <!-- tested-example: guide-001 -->\n",
-        "> ```rust\n> fn quoted() {}\n> ```\n",
-    );
-
-    let error = parse(source).expect_err("a quoted marker must fail the scan");
+#[rstest]
+#[case::fence("Prose.\n\n> ```rust\n> fn quoted() {}\n> ```\n")]
+#[case::marker(concat!(
+    "Prose.\n\n",
+    "> <!-- tested-example: guide-001 -->\n",
+    "> ```rust\n> fn quoted() {}\n> ```\n",
+))]
+fn block_quoted_examples_are_rejected(#[case] source: &str) {
+    let error = parse(source).expect_err("a quoted example must fail the scan");
 
     assert!(
         error.contains("inside a block quote are not scanned"),
