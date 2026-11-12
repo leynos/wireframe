@@ -1855,6 +1855,15 @@ The workspace suite cannot make that check: its `wireframe_testing` dependency
 unifies `metrics` on for every root-package test, so only this isolated build
 observes the disabled configuration.
 
+One gated item has no trybuild fixture, and this is the documented exception.
+`ServerCancellationReason::as_str` is crate-private, so no downstream fixture
+can name it, and its `metrics` gate is observable only inside the crate.
+`make test-pool-no-metrics` compiles the library with `--no-default-features`,
+which proves the gated helper's absence does not break the crate, and the
+feature-gate consumer's runtime assertion proves the tracing contract that
+replaced it. That pair is the alternative gate for this item; a trybuild
+fixture cannot reach a crate-private helper.
+
 Because the consumer is its own workspace, no workspace-wide target reaches it,
 so a green `make test` or `make test-ui` says nothing about whether the gate
 ran. CI runs it as its own `Feature-gate compile checks` step in the
