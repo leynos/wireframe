@@ -26,7 +26,7 @@ jobs:
     permissions:
       contents: read
       id-token: write # OIDC workflow-source resolution
-    uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@0eabb6bc07148981de5da395e30cd78d83f5c7c2
+    uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@203eedc136c14c28041e92c06a929383807b3a3f
     with:
       # Mutate the companion crate too; `make test-doc` keeps the doctests in
       # its unmutated baseline compiling (#578).
