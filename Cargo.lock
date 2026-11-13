@@ -3656,7 +3656,7 @@ dependencies = [
 
 [[package]]
 name = "wireframe"
-version = "0.3.0"
+version = "0.4.0-alpha1"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3725,7 +3725,7 @@ dependencies = [
 
 [[package]]
 name = "wireframe_testing"
-version = "0.3.0"
+version = "0.4.0-alpha1"
 dependencies = [
  "async-trait",
  "bincode",

@@ -23,7 +23,7 @@ optional convenience prelude. Test-only helpers become private to tests (or to
   into module-specific detail.
 - Test-only modules and helpers must not be publicly reachable in normal builds.
 - Backwards compatibility is not required for this work.
-- `docs/v0-1-0-to-v0-2-0-migration-guide.md` must be updated with all breaking
+- `docs/v0-2-0-migration-guide.md` must be updated with all breaking
   API surface changes introduced by this plan.
 
 ## Tolerances (exception triggers)
@@ -143,7 +143,7 @@ Likely touched files:
 - module `mod.rs` files across `src/`
 - `src/connection/mod.rs`
 - `docs/users-guide.md`
-- `docs/v0-1-0-to-v0-2-0-migration-guide.md`
+- `docs/v0-2-0-migration-guide.md`
 
 ## Plan of work
 
@@ -196,7 +196,7 @@ Acceptance criteria:
 - Progressive discovery path exists and is documented (`root` -> `module` ->
   optional `prelude`).
 - Test-only modules are inaccessible in non-test builds.
-- `docs/v0-1-0-to-v0-2-0-migration-guide.md` is updated for all breaking
+- `docs/v0-2-0-migration-guide.md` is updated for all breaking
   import/path changes.
 - `make check-fmt`, `make lint`, and `make test` pass.
 - `make fmt`, `make markdownlint`, and `make nixie` pass for doc changes.
