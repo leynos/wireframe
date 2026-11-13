@@ -10,6 +10,11 @@ All notable changes to this project will be documented in this file.
   selects 0.7.20, and the `metadata_routing` example and the tests build with
   it.
 
+- Check the declared minimum Rust version on every pull request, every push to
+  `main` and every week, with both the committed lock file and freshly resolved
+  dependencies, as concordat RT-026 requires, and declare the same minimum on
+  `wireframe_testing`.
+
 - Correct rustdoc that overstated runtime integration: streaming request
   bodies, extractors and `app_data` are not delivered to route handlers,
   `RecoveryPolicyHook` and `on_eof` are not consulted by the connection loop,

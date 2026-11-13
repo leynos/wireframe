@@ -2,6 +2,7 @@
 name = "wireframe_testing"
 version = "0.3.0"
 edition = "2024"
+rust-version = "1.95"
 description = "Helper utilities for exercising Wireframe applications in tests"
 license = "ISC"
 repository = "https://github.com/leynos/wireframe"

@@ -1276,6 +1276,28 @@ Rust 1.88, and existing `AtomicU64::try_update` calls require Rust 1.95. This
 floor applies to the root package's test targets as well as its library. The
 pinned nightly remains the standard repository gate toolchain.
 
+The **MSRV** workflow proves that floor on a GitHub-hosted runner, as concordat
+rule RT-026 requires of every declared minimum. It runs on every pull request
+and push to `main`, so a change that raises the floor fails before it merges,
+and every Monday, through `make test-msrv` and `scripts/check-msrv.sh`. It
+reads the version from `Cargo.toml`, then checks the workspace from the lock
+file and a throwaway consumer with freshly resolved dependencies, so it also
+catches a dependency release that breaks the minimum. Both steps are
+`cargo check`: the estate's cost rule for an MSRV job is a check on the minimum
+toolchain, never a build or a second test run, because the pinned nightly
+already builds and tests everything. Plain `cargo +1.95` fails inside this
+repository, because `.cargo/config.toml` passes the nightly-only `-Zthreads`;
+the script assigns `RUSTFLAGS` to displace it. When raising the floor, change
+`rust-version` in both `Cargo.toml` and `wireframe_testing/Cargo.toml`, and any
+statement of the minimum in the README and the guides.
+
+The shared `msrv-check` action in `leynos/shared-actions` does the same
+workspace check, and RT-026 recognizes it. It has not merged yet
+([shared-actions#622](https://github.com/leynos/shared-actions/pull/622)), and
+a commit from an unmerged branch is not a stable pin, so the script stands in
+for it. Once the action lands, its step can replace the workspace check; the
+fresh-dependency consumer check has no counterpart there and stays.
+
 The Makefile keeps the development configuration in
 `tools/dev-fast/config.toml`, outside Cargo's automatic configuration paths.
 Standard debug Make targets select it explicitly: `build`, `test`, `test-bdd`,
