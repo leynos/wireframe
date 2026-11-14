@@ -171,18 +171,24 @@ This allows integration with existing packet formats without modifying
 ## Response serialization and framing
 
 A route handler returns `()`, and the application echoes the routed envelope.
-To send a different reply, use `send_response` or `send_response_framed`; both
-encode the value with the application's configured serializer and report
-serialization or I/O failures as `SendError`[^4].
+To send a different reply, call `send_response` or `send_response_framed`. Both
+are methods on `WireframeApp` and need a writer that the caller owns and
+implements `AsyncWrite + Unpin`. A `Handler<E>` receives only `&E`, so a
+handler cannot call them itself; the code that owns the connection makes the
+call. Each helper encodes the value with the application's configured
+serializer and reports serialization or I/O failures as `SendError`[^4].
 
 ```rust
-use wireframe::app::WireframeApp;
+use tokio::net::TcpStream;
+use wireframe::app::{SendError, WireframeApp};
 
 #[derive(bincode::Encode, bincode::BorrowDecode)]
 struct Ready(u8);
 
-let app = WireframeApp::new()?;
-app.send_response(&mut server, &Ready(1)).await?;
+// `server` is the caller-owned writer, for example an accepted connection.
+async fn announce(app: &WireframeApp, server: &mut TcpStream) -> Result<(), SendError> {
+    app.send_response(server, &Ready(1)).await
+}
 ```
 
 Frames are length prefixed using `tokio_util::codec::LengthDelimitedCodec`. The
