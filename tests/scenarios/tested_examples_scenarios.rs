@@ -2,7 +2,11 @@
 //!
 //! Each scenario exercises the shared loader over the shipped documents read
 //! from disk: one acceptance run over the untouched inventory, and one
-//! rejection run after a real guide loses a marker.
+//! rejection run after a real guide loses a marker. Every scenario here covers
+//! the **loader gate**, the marker-and-fence check that `make test` runs. None
+//! of them covers the **rustdoc gate**, `make test-doc`; that gate is proved
+//! end to end by `the_rustdoc_gate_runs_shipped_documents` in
+//! `tests/workflow_contracts/tested_documentation_doctest_test.py`.
 
 use rstest_bdd_macros::scenario;
 

@@ -487,9 +487,11 @@ impl FrameCodec for MyCodec {
 }
 ```
 
-Keep `Vec<u8>` conversion at the edge of legacy callers with
-`PayloadBytes::from_vec` or `PayloadBytes::into_vec`; do not add per-codec
-conversion constructors. See
+Keep `Vec<u8>` conversion at the edge of legacy callers; do not add per-codec
+conversion constructors. The `PayloadBytes::from_vec` and
+`PayloadBytes::into_vec` helpers named by
+[ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+are proposed and are not available in v0.4. See
 [ADR 008](adrs/adr-0008-zero-copy-public-byte-container.md) for the read-only
 and edit-on-demand design, and the
 [zero-copy migration roadmap](zero-copy-frame-and-payload-migration-roadmap.md)

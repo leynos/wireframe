@@ -423,8 +423,10 @@ pub struct UnixSocket;
 
 This `any` directive ensures the struct is compiled either when the target
 family is `unix` OR when `rustdoc` is running. This correctly makes the item
-visible in the generated HTML. However, it is crucial to understand that this
-**does not** make the doctest for `UnixSocket` pass on non-Unix platforms.
+visible in the generated HTML. It does **not** make a doctest that *uses*
+`UnixSocket` pass on a non-Unix platform. The snippet above only declares the
+struct, so it compiles on every host; the failure appears in a doctest that
+names the type, such as the hypothetical one described next.
 
 This distinction highlights the "cfg duality." The `#[cfg(doc)]` attribute
 controls the *table of contents* of the documentation; it determines which
@@ -433,8 +435,8 @@ happens in a separate, later stage. In that stage, the `doc` cfg is *not*
 passed to the compiler.[^13] The compiler only sees the host
 
 `cfg` (e.g., `target_os = "windows"`), so the `UnixSocket` type is not
-available, and the test fails to compile. `#[cfg(doc)]` affects what is
-documented, not what is testable.
+available, and a doctest that references it fails to compile. `#[cfg(doc)]`
+affects what is documented, not what is testable.
 
 ### 5.2 Executing Doctests Conditionally: Feature Flags
 

@@ -5,6 +5,12 @@
 //! document whose markers no longer pair with its fences. The malformed case
 //! mutates a real guide read from disk, so the scenario covers the file input
 //! and the merge boundary rather than a test-only parser helper.
+//!
+//! Both prepared-document scenarios exercise the **loader gate**. The
+//! **rustdoc gate**, `make test-doc`, is proved end to end by
+//! `the_rustdoc_gate_runs_shipped_documents` in
+//! `tests/workflow_contracts/tested_documentation_doctest_test.py`, which runs
+//! it against a temporary copy of the published inputs.
 
 use std::collections::HashSet;
 

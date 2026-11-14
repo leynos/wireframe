@@ -83,12 +83,54 @@ fn the_gate_rejects_a_malformed_copy_of_a_shipped_document() {
     "must immediately precede a fence"
 )]
 #[case("<!-- tested-example: sample-1 -->\n", "marker has no fence")]
+#[case(
+    "<!-- tested-example: sample-1 -->\n```ignore\nfn main() {}\n```",
+    "no language identifier"
+)]
+#[case(
+    "<!-- tested-example: sample-1 -->\n```no_run\nfn main() {}\n```",
+    "no language identifier"
+)]
+#[case(
+    "<!-- tested-example: sample-1 -->\n```compile_fail\nfn main() {}\n```",
+    "no language identifier"
+)]
+#[case(
+    "<!-- tested-example: sample-1 -->\n```should_panic\nfn main() {}\n```",
+    "no language identifier"
+)]
 fn malformed_examples_fail_with_a_useful_reason(#[case] source: &str, #[case] expected: &str) {
     let document = tested_examples::PublishedDocument::new("fixture.md", source);
     let error = tested_examples::parse_document(&document, &HashSet::new())
         .expect_err("malformed examples should fail loading");
 
     assert!(error.contains(expected), "unexpected loader error: {error}");
+}
+
+/// A Rustdoc attribute in the info string must not hide the language.
+///
+/// The negative cases above reject a fence whose *only* info token is a
+/// Rustdoc attribute. This control proves the rule is about the missing
+/// language rather than about the attribute itself: `rust,ignore` names a
+/// language, so the loader accepts it and records `rust`.
+#[test]
+fn a_rust_fence_with_an_attribute_keeps_its_language() {
+    let document = tested_examples::PublishedDocument::new(
+        "fixture.md",
+        "<!-- tested-example: sample-1 -->\n```rust,ignore\nfn main() {}\n```",
+    );
+
+    let parsed = tested_examples::parse_document(&document, &HashSet::new())
+        .expect("a fence with a language and an attribute should load");
+
+    assert_eq!(
+        parsed
+            .examples
+            .first()
+            .map(|example| example.language.as_str()),
+        Some("rust"),
+        "the loader should record the language, not the attribute"
+    );
 }
 
 #[test]
