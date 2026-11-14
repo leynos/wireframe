@@ -208,11 +208,11 @@ stream.
 - [x] 6.3.1. Provide a helper (for example `Response::with_channel`) that
   returns a bounded channel sender alongside a `Response::MultiPacket` so
   handlers can opt into streaming ergonomically (see
-  [ADR 0001](adr-001-multi-packet-streaming-response-api.md)).
+  [ADR 0001](adrs/adr-0001-multi-packet-streaming-response-api.md)).
 - [x] 6.3.2. Update the multi-packet design documentation and user guide with
   tuple return examples that explain initial-frame handling, back-pressure, and
   graceful termination (see
-  [ADR 0001](adr-001-multi-packet-streaming-response-api.md)).
+  [ADR 0001](adrs/adr-0001-multi-packet-streaming-response-api.md)).
 - [x] 6.3.3. Add an example handler (or test fixture) demonstrating spawning a
   background task that pushes frames through the returned sender while the
   connection actor manages delivery.
@@ -261,9 +261,9 @@ into a single frame, making the process transparent to the application logic.
 ## 8. Streaming requests and shared message assembly
 
 This phase implements the decisions from
-[ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md), adding
-first-class streaming request bodies, a generic message assembly abstraction,
-and standardized per-connection memory budgets.
+[ADR 0002](adrs/adr-0002-streaming-requests-and-shared-message-assembly.md),
+adding first-class streaming request bodies, a generic message assembly
+abstraction, and standardized per-connection memory budgets.
 
 ### 8.1. Streaming request bodies
 
@@ -347,7 +347,7 @@ integration boundaries.
   codecs.
   - [x] Update the trait to accept `&self` and a `Bytes` payload to reduce
     copies, then document the change in
-    `adr-004-pluggable-protocol-codecs.md`.
+    `docs/adrs/adr-0004-pluggable-protocol-codecs.md`.
   - [x] Update `LengthDelimitedFrameCodec` and any adaptors to use the new
     payload type.
   - [x] Reuse a per-connection encoder, so sequence counters can advance
@@ -420,7 +420,7 @@ integration boundaries.
 - [x] 9.5.1. Decouple message encoding from `bincode`-specific traits to
   support alternative serializers (see the
   [binary router library design](rust-binary-router-library-design.md) and
-  [ADR 0005](adr-005-serializer-abstraction.md)).
+  [ADR 0005](adrs/adr-0005-serializer-abstraction-beyond-bincode.md)).
   - [x] Introduce a serializer-agnostic message trait or adaptor layer for
     `Message` types.
   - [x] Provide optional wire-rs or Serde bridges to reduce manual boilerplate.
@@ -445,7 +445,8 @@ integration boundaries.
   invalid frames, including oversized payloads and correlation metadata.
 - [x] 9.7.3. Introduce a test observability harness in `wireframe_testing` that
   captures logs and metrics per test run for asserting codec failures and
-  recovery policies (see [ADR 0006](adr-006-test-observability.md)).
+  recovery policies (see
+  [ADR 0006](adrs/adr-0006-test-observability-harness.md)).
 - [x] 9.7.4. Add regression tests backed by `wireframe_testing` for the
       `CodecError`
   taxonomy and recovery policy behaviours defined in 9.1.2. Requires 9.1.2.
@@ -460,13 +461,13 @@ starts. See `docs/frame-vec-u8-inventory.md` and ADRs 008 through 010.
 
 - [x] 10.1.1. Approve the stable public byte-container and edit-on-demand model
   for `PacketParts`, `Envelope`, middleware, client hooks, and serializer
-  output. See `docs/adr-008-zero-copy-public-byte-container.md`.
+  output. See `docs/adrs/adr-0008-zero-copy-public-byte-container.md`.
 - [x] 10.1.2. Approve the compatibility and rollout policy for downstream
   users, including which `Vec<u8>` helpers survive the breaking release. See
-  `docs/adr-009-vec-u8-migration-rollout.md`.
+  `docs/adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md`.
 - [x] 10.1.3. Approve the actor and codec-driver boundary so `Vec<u8>` bridges
   leave the core runtime deliberately rather than incidentally. See
-  `docs/adr-010-transport-frame-boundary-for-zero-copy.md`.
+  `docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md`.
 
 ### 10.2. Baselines and migration planning
 
@@ -669,7 +670,8 @@ cited section names the specific question it answers.
   inputs. Requires 15.1.1. See §"Is `total_body_len` authoritative or
   advisory?". Success criteria: an ADR records the decision, runtime code
   enforces the chosen semantics, and tests verify both conforming and violating
-  inputs. See [ADR 015](adr-015-declared-total-body-length-contract.md); issue
+  inputs. See
+  [ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md); issue
   [#544](https://github.com/leynos/wireframe/issues/544) added conformance and
   violation coverage.
 - [ ] 15.2.3. Publish named fairness and priority guarantees for
@@ -734,7 +736,7 @@ cited section names the specific question it answers.
   [§"What Verus should prove in Wireframe"](formal-verification-methods-in-wireframe.md#what-verus-should-prove-in-wireframe).
   Requires 15.2.2. Success criteria: runtime assertions or checks enforce the
   contract, and existing tests confirm the enforcement. See
-  [ADR 015](adr-015-declared-total-body-length-contract.md).
+  [ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md).
 - [ ] 15.5.2. Add proof-only modules under `verus/` for declared-total and
   buffered-byte accounting invariants. See
   [formal verification guide §Proof style recommendation](formal-verification-methods-in-wireframe.md#proof-style-recommendation)
@@ -830,15 +832,15 @@ document so larger deployments can adopt the library confidently.
   concurrent-handle invariants with `proptest` alongside the example-based
   `rstest` cases. See RFC 0001 for the lifecycle harness and
   `RunningWireframeServer` requirements
-  ([§5.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#52-running-server-handle)
+  ([§5.2](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#52-running-server-handle)
   and
-  [§5.3](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#53-lifecycle-guarantees)
+  [§5.3](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#53-lifecycle-guarantees)
   and
-  [§5.5](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#55-existing-pair-compatibility))
+  [§5.5](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#55-existing-pair-compatibility))
   and for the `rstest` and `proptest` requirements
-  ([§7.1](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#71-lifecycle-integration-tests)
+  ([§7.1](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#71-lifecycle-integration-tests)
   and
-  [§7.5](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#75-property-based-invariant-coverage)).
+  [§7.5](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#75-property-based-invariant-coverage)).
   The source-compatibility wrapper clause applies to the existing harness
   audience; it does not constrain the separate pre-1.0 native-protocol API
   redesign in phase 21.
@@ -850,18 +852,18 @@ document so larger deployments can adopt the library confidently.
   helpers' inferred types and rejects misconfigured lifecycle calls. Requires
   17.3.3. See RFC 0001 for the caller-supplied connector and connection-failure
   cleanup
-  ([§5.4](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#54-caller-supplied-client-connector))
+  ([§5.4](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#54-caller-supplied-client-connector))
   and for protocol-generic and `trybuild` verification
-  ([§7.2](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#72-protocol-generic-proof)
+  ([§7.2](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#72-protocol-generic-proof)
   and
-  [§7.3](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#73-compatibility-and-compile-time-coverage)).
+  [§7.3](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#73-compatibility-and-compile-time-coverage)).
 - [x] 17.3.5. Make `wireframe_testing` an explicit quality-gate target. Run
   `cargo test -p wireframe_testing --all-targets --all-features` and
   `cargo test -p wireframe_testing --doc --all-features` in the Makefile and
   Continuous Integration workflow, repair the examples tracked by issue #578,
   and prevent the companion crate from drifting behind the root package. This
   item must complete before publishing the lifecycle extension. See RFC 0001
-  [§7.4](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md#74-companion-crate-quality-gates).
+  [§7.4](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md#74-companion-crate-quality-gates).
 
 ### 17.4. Docs and adoption
 
@@ -934,7 +936,7 @@ parallel runtime.
   immutable `PreparedApp`, building route middleware chains once and providing
   prepared connection drivers. See issue
   [#641](https://github.com/leynos/wireframe/issues/641) and
-  [ADR 012](adr-012-prepared-application-and-connection-runtime.md).
+  [ADR 012](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md).
 - [x] 20.1.2. Prepare the application factory once before server readiness and
   share the immutable prepared root with accept loops and connection tasks. See
   issue [#642](https://github.com/leynos/wireframe/issues/642).
@@ -951,7 +953,7 @@ sole purpose. Each slice delivers a named toy server with independent wire
 fixtures. Existing protocol libraries may be test-only oracles when licensed;
 production code uses Wireframe primitives. Pre-1.0 APIs may be replaced. See the
 [gap survey](wire-protocol-gap-analysis-survey.md) and
-[RFC 0003](rfcs/0003-native-message-adapter-boundary.md)–[RFC 0009](rfcs/0009-datagram-session-transport.md).
+[RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md)–[RFC 0009](rfcs/rfc-0009-datagram-session-transport.md).
 
 ### 21.1. Prove the native adapter with mxd and Modbus
 
@@ -963,13 +965,13 @@ the shared connection-local lifecycle from 20.1.3 and test harness work from
 
 - [ ] 21.1.1. Implement native frame metadata and reply context for a Hotline
   toy server and a Modbus TCP toy server. See
-  [RFC 0003](rfcs/0003-native-message-adapter-boundary.md).
+  [RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md).
   - Preserve Hotline's native header fields without a compulsory Envelope.
   - Preserve Modbus transaction and unit identifiers.
   - Success: both server adapters use the same public API and pass independent
     fixtures. No server is called delivered until it is runnable.
 - [ ] 21.1.2. Implement configurable length framing required by both toy
-  servers. See [RFC 0006](rfcs/0006-configurable-framing-primitives.md).
+  servers. See [RFC 0006](rfcs/rfc-0006-configurable-framing-primitives.md).
   - Cover partial reads, coalesced frames, checked lengths, EOF, and bounded
     allocation.
   - Requires 21.1.1.
@@ -977,7 +979,7 @@ the shared connection-local lifecycle from 20.1.3 and test harness work from
     production dependencies contain no protocol parser.
 - [ ] 21.1.3. Extend the test harness for raw peers and deterministic split
   reads, writes, and time. See
-  [RFC 0008](rfcs/0008-external-adapter-conformance-harness.md).
+  [RFC 0008](rfcs/rfc-0008-external-adapter-conformance-harness.md).
   - Requires 21.1.1.
   - Success: raw peer fixtures can exercise the production public entry point.
 
@@ -989,19 +991,19 @@ while bounding native message assembly. It consolidates work already named by
 it with consumers.
 
 - [ ] 21.2.1. Implement channel-aware budgets and bounded assembly for Hotline
-  and Modbus. See [RFC 0007](rfcs/0007-budgets-scheduling-and-assembly.md).
+  and Modbus. See [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
   - Requires 21.1.2 and 21.1.3.
   - Success: oversized and incomplete messages stay within configured memory
     and time limits; one channel cannot starve another.
 - [ ] 21.2.2. Implement the connection-local duplex driver for Hotline and
-  Modbus. See [RFC 0004](rfcs/0004-duplex-session-driver.md).
+  Modbus. See [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md).
   - Requires 21.2.1 and 20.1.3.
   - Success: a stalled handler cannot block control reads or an unrelated
     connection; cancellation and close reclaim tasks and queued output.
 - [ ] 21.2.3. Validate mxd's migration against its pinned Hotline fixtures and
   deliver standalone Hotline and Modbus toy servers. See
-  [RFC 0003](rfcs/0003-native-message-adapter-boundary.md), [RFC 0004](rfcs/0004-duplex-session-driver.md),
-  and [RFC 0007](rfcs/0007-budgets-scheduling-and-assembly.md).
+  [RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md), [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md),
+  and [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
   - Requires 21.2.1 and 21.2.2.
   - Success: mxd-specific codec and assembly are not production dependencies
     of Wireframe; its existing push and broadcast behaviour remains validated.
@@ -1013,49 +1015,49 @@ ordered multi-message replies for established database protocols.
 
 - [ ] 21.3.1. Implement negotiated byte-stream setup, upgrade barriers, and
   buffered-byte hand-off as a generic transport entry point. See
-  [RFC 0005](rfcs/0005-negotiated-transport-entry-points.md).
+  [RFC 0005](rfcs/rfc-0005-negotiated-transport-entry-points.md).
   - Requires 21.2.2.
   - Success: server-first and client-first toy handshakes preserve coalesced
     application bytes and have bounded deadlines.
 - [ ] 21.3.2. Implement a Kafka toy broker for a pinned API-version subset.
   Cover version-aware replies, ordered pipelining, and no-response produce. See
-  [RFC 0003](rfcs/0003-native-message-adapter-boundary.md), [RFC 0004](rfcs/0004-duplex-session-driver.md),
-  and [RFC 0005](rfcs/0005-negotiated-transport-entry-points.md).
+  [RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md), [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md),
+  and [RFC 0005](rfcs/rfc-0005-negotiated-transport-entry-points.md).
   - Requires 21.2.2 and 21.3.1.
   - Success: independent clients validate wire versions, order, and no reply.
 - [ ] 21.3.3. Implement a PostgreSQL protocol 3.x toy server with startup,
   Sync recovery, COPY, and cancellation. See
-  [RFC 0005](rfcs/0005-negotiated-transport-entry-points.md) and
-  [RFC 0007](rfcs/0007-budgets-scheduling-and-assembly.md).
+  [RFC 0005](rfcs/rfc-0005-negotiated-transport-entry-points.md) and
+  [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
   - Requires 21.2.2 and 21.3.1.
   - Success: pinned clients verify phase changes, cross-connection cancel, and
     bounded result streaming.
 - [ ] 21.3.4. Implement separate classic MySQL and MariaDB toy servers.
   Cover greeting, TLS transition, sequence progression, continuation packets,
   no-response commands, and result streams. See
-  [RFC 0005](rfcs/0005-negotiated-transport-entry-points.md) and
-  [RFC 0007](rfcs/0007-budgets-scheduling-and-assembly.md).
+  [RFC 0005](rfcs/rfc-0005-negotiated-transport-entry-points.md) and
+  [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
   - Requires 21.2.2 and 21.3.1.
   - Success: each pinned client profile validates independently; protocol
     libraries are test-only and licence-reviewed.
 
 - [ ] 21.3.5. Implement an OSCAR FLAP/SNAC toy server with login negotiation,
   sequence validation, and server-originated messages. See
-  [RFC 0003](rfcs/0003-native-message-adapter-boundary.md) and
-  [RFC 0004](rfcs/0004-duplex-session-driver.md).
+  [RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md) and
+  [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md).
   - Requires 21.2.2 and 21.3.1.
   - Success: an independent client validates login, native routes, and push.
 - [ ] 21.3.6. Implement an AMQP 0-9-1 toy server with channel multiplexing,
   heartbeat, content assembly, and consumer prefetch. See
-  [RFC 0005](rfcs/0005-negotiated-transport-entry-points.md) and
-  [RFC 0007](rfcs/0007-budgets-scheduling-and-assembly.md).
+  [RFC 0005](rfcs/rfc-0005-negotiated-transport-entry-points.md) and
+  [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
   - Requires 21.2.2 and 21.3.1.
   - Success: a licensed independent peer validates flow control and control
     progress. Keep the AMQP 1.0 server in 21.3.7 as a separate profile.
 - [ ] 21.3.7. Implement an AMQP 1.0 toy server with session/link flow control
   and settlement. See
-  [RFC 0005](rfcs/0005-negotiated-transport-entry-points.md) and
-  [RFC 0007](rfcs/0007-budgets-scheduling-and-assembly.md).
+  [RFC 0005](rfcs/rfc-0005-negotiated-transport-entry-points.md) and
+  [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
   - Requires 21.2.2 and 21.3.1.
   - Success: an independent peer validates transfer and credit boundaries.
 
@@ -1066,28 +1068,28 @@ the shared session API.
 
 - [ ] 21.4.1. Implement an IEC 60870-5-104 toy server with timed control,
   acknowledgements, and spontaneous updates. See
-  [RFC 0004](rfcs/0004-duplex-session-driver.md) and
-  [RFC 0007](rfcs/0007-budgets-scheduling-and-assembly.md).
+  [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md) and
+  [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
   - Requires 21.2.1 and 21.2.2.
   - Success: independent fixtures verify idle deadlines, sequence windows,
     and bounded unsolicited output.
 - [ ] 21.4.2. Implement a DNP3 TCP toy server pinned to IEEE Std 1815-2010,
   with link checksums, segmentation, and unsolicited responses. See
-  [RFC 0006](rfcs/0006-configurable-framing-primitives.md) and
-  [RFC 0007](rfcs/0007-budgets-scheduling-and-assembly.md).
+  [RFC 0006](rfcs/rfc-0006-configurable-framing-primitives.md) and
+  [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
   - Requires 21.2.1 and 21.2.2.
   - Success: licensed independent fixtures validate checksum and resource
     failure cases.
 - [ ] 21.4.3. Implement RTSP 1.0 and 2.0 toy servers for TCP interleaving,
   streamed media records, and control progress. See
-  [RFC 0004](rfcs/0004-duplex-session-driver.md) and
-  [RFC 0005](rfcs/0005-negotiated-transport-entry-points.md).
+  [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md) and
+  [RFC 0005](rfcs/rfc-0005-negotiated-transport-entry-points.md).
   - Requires 21.2.1 and 21.2.2.
   - Success: both profiles pass independent text/binary interleaving fixtures.
 - [ ] 21.4.4. Implement an OpenRA toy server for the pinned network profile,
   covering server-first handshake, framed orders, pings, and bounded fan-out.
-  See [RFC 0004](rfcs/0004-duplex-session-driver.md) and
-  [RFC 0007](rfcs/0007-budgets-scheduling-and-assembly.md).
+  See [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md) and
+  [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
   - Requires 21.2.1 and 21.2.2.
   - Success: an independent client validates relay ordering and slow-peer
     isolation.
@@ -1099,20 +1101,20 @@ Quake 3; it also verifies native WebSocket control semantics.
 
 - [ ] 21.5.1. Implement a native WebSocket RFC 6455 toy server with HTTP
   upgrade, masking, continuation, control progress, close, and limits. See
-  [RFC 0005](rfcs/0005-negotiated-transport-entry-points.md) and
-  [RFC 0006](rfcs/0006-configurable-framing-primitives.md).
+  [RFC 0005](rfcs/rfc-0005-negotiated-transport-entry-points.md) and
+  [RFC 0006](rfcs/rfc-0006-configurable-framing-primitives.md).
   - Requires 21.2.1 and 21.2.2.
   - Success: raw-wire fixtures cover protocol behaviour; parser-library
     bridging is a lower-priority comparison.
 - [ ] 21.5.2. Implement source-address metadata, datagram boundaries, bounded
   queues, expiry, and send errors as a generic datagram transport. See
-  [RFC 0009](rfcs/0009-datagram-session-transport.md).
+  [RFC 0009](rfcs/rfc-0009-datagram-session-transport.md).
   - Requires 21.2.2.
   - Success: a connectionless toy peer uses the API without Quake-specific
     state.
 - [ ] 21.5.3. Implement a Quake 3 UDP toy server for a pinned connectionless
   and connected subset, including qport, fragmentation, loss, reordering, and
-  peer expiry. See [RFC 0009](rfcs/0009-datagram-session-transport.md).
+  peer expiry. See [RFC 0009](rfcs/rfc-0009-datagram-session-transport.md).
   - Requires 21.5.2.
   - Success: fixtures preserve datagram boundaries and test bounded peer state.
 
@@ -1123,7 +1125,7 @@ and sessions. OpenRA fan-out is validated in 21.4.4.
 
 - [ ] 21.6.1. Implement a generic adapter for pre-parsed frame stream/sink
   libraries, using `tokio-tungstenite` only as a test peer. See
-  [RFC 0005](rfcs/0005-negotiated-transport-entry-points.md).
+  [RFC 0005](rfcs/rfc-0005-negotiated-transport-entry-points.md).
   - Requires 21.5.1.
   - Success: frame kinds and close events remain intact, and production code
     depends on no protocol parser.
@@ -1133,7 +1135,7 @@ and sessions. OpenRA fan-out is validated in 21.4.4.
 - [ ] 21.7.1. Publish an evidence matrix for every scoped protocol and profile,
   linking runnable toy, independent oracle, licence, malformed corpus, bounds,
   and verified behaviour. See
-  [RFC 0008](rfcs/0008-external-adapter-conformance-harness.md).
+  [RFC 0008](rfcs/rfc-0008-external-adapter-conformance-harness.md).
   - Requires steps 21.1-21.6.
   - Include Hotline, Modbus, OSCAR, WebSocket, RTSP 1.0/2.0, AMQP 0-9-1/1.0,
     Kafka, MySQL, MariaDB, PostgreSQL, IEC 104, DNP3 IEEE Std 1815-2010,

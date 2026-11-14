@@ -30,6 +30,7 @@ Server and protocol type overview for v0.3.0: unified error surface,
 WireframeApp configuration, server factory traits, message assembler types, and
 serializer trait bounds.
 
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-001 -->
 ```mermaid
 classDiagram
     class WireframeError~E~ {
@@ -182,6 +183,7 @@ Three features are new. One is removed.
   the [v0.1.0 → v0.2.0 migration guide](v0-1-0-to-v0-2-0-migration-guide.md);
   the deprecated alias is now gone).
 
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-002 -->
 ```toml
 # Before
 [dependencies]
@@ -209,7 +211,8 @@ error types are gone.
 - `wireframe::Result<T>` now resolves to `wireframe::error::Result<T>` and is
   re-exported at the crate root.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-003 -->
+```rust,ignore
 // Before
 use wireframe::app::error::WireframeError as AppError;
 use wireframe::response::WireframeError as StreamError;
@@ -273,6 +276,7 @@ list now takes effect.
 high-frequency types. It is intentionally small; prefer direct module imports
 for specialized APIs.
 
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-004 -->
 ```rust
 // Convenience import
 use wireframe::prelude::*;
@@ -295,7 +299,8 @@ are gone.
 - `PacketParts::payload(self)` → `PacketParts::into_payload(self)`
 - `FragmentParts::payload(self)` → `FragmentParts::into_payload(self)`
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-005 -->
+```rust,ignore
 // Before
 let packet_payload = packet_parts.payload();
 let fragment_payload = fragment_parts.payload();
@@ -313,6 +318,7 @@ suffix. The old spelling is gone.
 - Old name: `BackoffConfig::normalised`
 - New name: `BackoffConfig::normalized`
 
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-006 -->
 ```rust
 use std::time::Duration;
 
@@ -338,7 +344,8 @@ Custom serializer implementations must implement `EncodeWith<S>` and
 `DecodeWith<S>` for their message types rather than relying on
 `bincode::Encode` bounds directly.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-007 -->
+```rust,ignore
 // Before – custom serializer impl relied on bincode bounds directly
 impl<M: bincode::Encode> EncodeHelper<M> for MySerializer { ... }
 
@@ -362,7 +369,8 @@ implementing `bincode::Encode`.
 `WireframeApp::new()` now returns `Result<Self>` for forward compatibility. The
 call currently always succeeds, but the return type must be handled.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-008 -->
+```rust,ignore
 // Before
 let app = WireframeApp::new();
 
@@ -386,7 +394,8 @@ Factories returning `WireframeApp` directly continue to work without change.
 The new `Result<WireframeApp, _>` return path enables factories to surface
 initialization errors without panicking.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-009 -->
+```rust,ignore
 use wireframe::server::WireframeServer;
 
 // Infallible factory – closure returning WireframeApp; unchanged from v0.2.0
@@ -421,7 +430,8 @@ Two new builder methods on `WireframeApp`:
   replacing the previous manual `fragmentation(Some(config))` call for common
   cases.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-010 -->
+```rust,ignore
 use std::num::NonZeroUsize;
 
 use wireframe::app::{BudgetBytes, MemoryBudgets, WireframeApp};
@@ -444,7 +454,8 @@ cap enforcement are both active by default.
 `wireframe::app_data_store::AppDataStore` is now a standalone module rather
 than an embedded type. Import paths must be updated.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-011 -->
+```rust,ignore
 // Before – AppDataStore was embedded in the app module
 use wireframe::app::AppDataStore;
 
@@ -467,7 +478,8 @@ field.
 
 `FrameCodec` gains one new method with a default implementation:
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-012 -->
+```rust,ignore
 fn frame_payload_bytes(frame: &Self::Frame) -> Bytes {
     Bytes::copy_from_slice(Self::frame_payload(frame))
 }
@@ -483,7 +495,8 @@ override the method to avoid that allocation.
 No existing codec implementation is required to change. The method is purely
 additive.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-013 -->
+```rust,ignore
 // Override in a custom codec when Frame wraps Bytes directly.
 impl FrameCodec for MyCodec {
     type Frame = Bytes;
@@ -504,6 +517,7 @@ Testing infrastructure overview: the wireframe::testkit module (drive helpers,
 slow-IO simulation, assembly assertions) and the wireframe_testing companion
 crate (WireframePair, ObservabilityHandle, HotlineFixtures).
 
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-014 -->
 ```mermaid
 classDiagram
     class TestkitModule {
@@ -650,6 +664,7 @@ Capabilities include:
 - `TestSerializer` – a minimal serializer for use in tests.
 - `TestResult` and `TestError` – ergonomic result types for test functions.
 
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-015 -->
 ```toml
 [dev-dependencies]
 wireframe = { version = "0.3.0", features = ["testkit"] }
@@ -669,13 +684,14 @@ starts a real `WireframeServer` bound to a loopback TCP listener and connects a
 real loopback socket, keeping compatibility assertions honest while remaining
 fast and deterministic.
 
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-016 -->
 ```rust
-use wireframe::app::WireframeApp;
+use wireframe::{app::WireframeApp, serializer::BincodeSerializer};
 use wireframe_testing::{TestResult, client_pair::spawn_wireframe_pair};
 
 async fn example() -> TestResult<()> {
     let mut pair = spawn_wireframe_pair(
-        || WireframeApp::default(),
+        || WireframeApp::<BincodeSerializer>::default(),
         |builder| builder.max_frame_length(2048),
     )
     .await?;
@@ -700,6 +716,7 @@ signal and waits up to 100 milliseconds for the server task before aborting it.
 `wireframe_testing::observability` provides `ObservabilityHandle`, a unified
 guard that combines log capture with metrics recording.
 
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-017 -->
 ```rust
 use wireframe_testing::ObservabilityHandle;
 
@@ -773,6 +790,7 @@ Client API type overview: WireframeClientBuilder construction paths,
 WireframeClient streaming methods, ResponseStream and TypedResponseStream
 iteration, outbound streaming types, and TracingConfig with hook closures.
 
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-018 -->
 ```mermaid
 classDiagram
     class WireframeClient {
@@ -895,7 +913,7 @@ yielding a `SendStreamingOutcome`.*
 > responses. Server-side multi-packet response production – where handlers
 > return a `(mpsc::Sender, Response)` tuple and use helpers such as
 > `Response::with_channel` – is a distinct concern governed by
-> [ADR 0001](adr-001-multi-packet-streaming-response-api.md).
+> [ADR 0001](adrs/adr-0001-multi-packet-streaming-response-api.md).
 
 `WireframeClient` gains two new call methods for multi-frame responses:
 
@@ -912,7 +930,8 @@ yielding a `SendStreamingOutcome`.*
 for the duration of the stream, preventing concurrent sends. The terminator
 frame is consumed internally, and the stream returns `None` once it arrives.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-019 -->
+```rust,ignore
 use std::net::SocketAddr;
 
 use futures::StreamExt;
@@ -937,6 +956,7 @@ Sequence diagram showing the call_streaming lifecycle: sending the request,
 iterating frames via try_next until the server sends a terminator, then
 releasing the exclusive client borrow when the stream is dropped.
 
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-020 -->
 ```mermaid
 sequenceDiagram
     actor User
@@ -974,7 +994,8 @@ provides `typed_with(mapper)`, which produces a
 `TypedResponseStream<S, Mapper, P, Item>` that translates raw frames into
 domain values and skips control frames where the mapper returns `Ok(None)`.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-021 -->
+```rust,ignore
 use wireframe::client::StreamingResponseExt;
 
 let typed_stream = raw_stream.typed_with(|frame| {
@@ -994,7 +1015,8 @@ protocol-framed chunks, reading from any `AsyncRead` source.
 `SendStreamingConfig` controls chunk sizing and timeout. When chunk size is not
 set, it is derived from `max_frame_length - frame_header.len()`.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-022 -->
+```rust,ignore
 use std::time::Duration;
 
 use wireframe::client::SendStreamingConfig;
@@ -1018,7 +1040,8 @@ sockets with per-socket in-flight admission control.
 Build a pool from `WireframeClientBuilder::connect_pool`. The pool manages
 socket lifecycle, idle eviction, and fair waiter scheduling.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-023 -->
+```rust,ignore
 use wireframe::client::{
     ClientPoolConfig, PoolFairnessPolicy, WireframeClientBuilder,
 };
@@ -1045,6 +1068,7 @@ Connection pool type hierarchy: WireframeClientBuilder creates a
 WireframeClientPool via ClientPoolConfig, vending PoolHandle instances that
 yield PooledClientLease objects delegating to WireframeClient.
 
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-024 -->
 ```mermaid
 classDiagram
     class WireframeClientBuilder {
@@ -1114,6 +1138,7 @@ Sequence diagram showing the connection pool usage flow: building the pool,
 acquiring a PoolHandle, checking out a PooledClientLease, making a request, and
 returning the socket to the pool on drop.
 
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-025 -->
 ```mermaid
 sequenceDiagram
     actor User
@@ -1170,7 +1195,8 @@ fire on every request or response frame, independent of connection lifecycle.
 
 Multiple hooks may be registered; they execute in registration order.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-026 -->
+```rust,ignore
 use wireframe::client::WireframeClientBuilder;
 
 let client = WireframeClientBuilder::new()
@@ -1193,7 +1219,8 @@ The default configuration emits `INFO` spans for lifecycle operations
 (`connect`, `close`) and `DEBUG` spans for data operations (`send`, `receive`,
 `call`, `call_streaming`). Timing is disabled by default.
 
-```rust
+<!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-027 -->
+```rust,ignore
 use tracing::Level;
 use wireframe::client::{TracingConfig, WireframeClientBuilder};
 

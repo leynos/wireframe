@@ -40,7 +40,8 @@ integration, and behavioural tests.
 - [x] (2026-01-07) Add Behaviour-Driven Development (BDD) behavioural tests for
   codec error scenarios.
 - [ ] Update `docs/users-guide.md` with error handling documentation.
-- [ ] Update `docs/adr-004-pluggable-protocol-codecs.md` with design decisions.
+- [ ] Update `docs/adrs/adr-0004-pluggable-protocol-codecs.md` with design
+      decisions.
 - [ ] Mark roadmap entry 9.1.2 as done.
 - [x] (2026-01-07) Run formatting, lint, and test gates.
 
@@ -116,7 +117,7 @@ Documentation to update:
 
 - `docs/roadmap.md` - Mark 9.1.2 done
 - `docs/users-guide.md` - Public interface documentation
-- `docs/adr-004-pluggable-protocol-codecs.md` - Design decisions
+- `docs/adrs/adr-0004-pluggable-protocol-codecs.md` - Design decisions
 
 ## Plan of Work
 
@@ -240,7 +241,7 @@ Update documentation:
    - Document `RecoveryPolicyHook` for custom error handling
    - Update custom codec section with error handling guidance
 
-2. `docs/adr-004-pluggable-protocol-codecs.md`:
+2. `docs/adrs/adr-0004-pluggable-protocol-codecs.md`:
    - Document the `CodecError` taxonomy design decision
    - Document recovery policy rationale
    - Document EOF handling design
@@ -322,7 +323,7 @@ Update documentation:
 15. Update `docs/users-guide.md`:
     - Add codec error handling section
 
-16. Update `docs/adr-004-pluggable-protocol-codecs.md`:
+16. Update `docs/adrs/adr-0004-pluggable-protocol-codecs.md`:
     - Document error taxonomy design
 
 17. Update `docs/roadmap.md`:
@@ -431,25 +432,25 @@ Record key evidence here once available:
 
 ## Files to Modify
 
-| File                                        | Change                           |
-| ------------------------------------------- | -------------------------------- |
-| `src/codec/error.rs`                        | New: CodecError taxonomy         |
-| `src/codec/recovery.rs`                     | New: Recovery policy types       |
-| `src/codec.rs`                              | Modify: Re-export error types    |
-| `src/app/error.rs`                          | Modify: Add Codec variant        |
-| `src/response.rs`                           | Modify: Add Codec variant        |
-| `src/app/inbound_handler.rs`                | Modify: Integrate error handling |
-| `src/hooks.rs`                              | Modify: Add on_eof hook          |
-| `src/metrics.rs`                            | Modify: Add codec error metrics  |
-| `src/lib.rs`                                | Modify: Re-export types          |
-| `tests/codec_error.rs`                      | New: Integration tests           |
-| `tests/features/codec_error.feature`        | New: BDD tests                   |
-| `tests/steps/codec_error_steps.rs`          | New: Step definitions            |
-| `tests/worlds/codec_error/`                 | New: World type                  |
-| `tests/cucumber.rs`                         | Modify: Register world           |
-| `docs/users-guide.md`                       | Modify: Error handling docs      |
-| `docs/adr-004-pluggable-protocol-codecs.md` | Modify: Design decisions         |
-| `docs/roadmap.md`                           | Modify: Mark 9.1.2 done          |
+| File                                              | Change                           |
+| ------------------------------------------------- | -------------------------------- |
+| `src/codec/error.rs`                              | New: CodecError taxonomy         |
+| `src/codec/recovery.rs`                           | New: Recovery policy types       |
+| `src/codec.rs`                                    | Modify: Re-export error types    |
+| `src/app/error.rs`                                | Modify: Add Codec variant        |
+| `src/response.rs`                                 | Modify: Add Codec variant        |
+| `src/app/inbound_handler.rs`                      | Modify: Integrate error handling |
+| `src/hooks.rs`                                    | Modify: Add on_eof hook          |
+| `src/metrics.rs`                                  | Modify: Add codec error metrics  |
+| `src/lib.rs`                                      | Modify: Re-export types          |
+| `tests/codec_error.rs`                            | New: Integration tests           |
+| `tests/features/codec_error.feature`              | New: BDD tests                   |
+| `tests/steps/codec_error_steps.rs`                | New: Step definitions            |
+| `tests/worlds/codec_error/`                       | New: World type                  |
+| `tests/cucumber.rs`                               | Modify: Register world           |
+| `docs/users-guide.md`                             | Modify: Error handling docs      |
+| `docs/adrs/adr-0004-pluggable-protocol-codecs.md` | Modify: Design decisions         |
+| `docs/roadmap.md`                                 | Modify: Mark 9.1.2 done          |
 
 ## Revision note (required when editing an ExecPlan)
 

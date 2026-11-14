@@ -453,8 +453,8 @@ The write loop's own ordering, `shutdown > high > low > stream`, is outside
 `strict_priority_order` and `shutdown_signal_precedence` tests, by the
 Stateright connection model in `crates/wireframe-verification`, and by the
 interaction fuzzing below.
-[RFC 0002](rfcs/0002-model-checking-the-write-loop.md) proposes how to close
-the remaining gap.
+[RFC 0002](rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md)
+proposes how to close the remaining gap.
 
 ### 4.3 Interaction Fuzzing with `proptest`
 

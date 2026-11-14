@@ -123,11 +123,12 @@ enforce their own declared-length limits. Explicit memory budgets and native
 logical-message limits need separate consideration. No native datagram entry
 point was found: the prepared runtime requires a byte stream.
 
-The older [codec ADR](adr-004-pluggable-protocol-codecs.md) records limitations
-and subsequent resolutions. Its historical notes must not be read as a current
-claim that serializers, error types or fragment adapters are absent. Likewise,
-comments mentioning hooks in the outbound pipeline are not proof of hook
-execution: the inspected `FramePipeline::process` fragments and counts frames.
+The older [codec ADR](adrs/adr-0004-pluggable-protocol-codecs.md) records
+limitations and subsequent resolutions. Its historical notes must not be read
+as a current claim that serializers, error types or fragment adapters are
+absent. Likewise, comments mentioning hooks in the outbound pipeline are not
+proof of hook execution: the inspected `FramePipeline::process` fragments and
+counts frames.
 
 ## Protocol findings
 
@@ -443,8 +444,8 @@ _Table 2: Additional requirements without protocol-specific core APIs._
 ## Recommended extension RFCs
 
 These proposals map directly to
-[RFC 0003](rfcs/0003-native-message-adapter-boundary.md) through
-[RFC 0009](rfcs/0009-datagram-session-transport.md). Existing APIs and wire
+[RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md) through
+[RFC 0009](rfcs/rfc-0009-datagram-session-transport.md). Existing APIs and wire
 formats may be replaced. Production dependencies must remain protocol-neutral;
 protocol implementations may be used in test code only when licences permit.
 
@@ -526,7 +527,8 @@ Acceptance: a native external WebSocket toy server passes raw-wire fixtures; a
 upgrade and PostgreSQL-style startup/tagged-message transitions use the same
 setup contract. Setup rejection, timeout and shutdown leave no detached task.
 Coordinate with existing
-[RFC 0001](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md) for testing.
+[RFC 0001](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md) for
+testing.
 
 ### D. Configurable framing primitives with bounded composition
 
@@ -652,8 +654,9 @@ Reject any proposal whose second adapter requires a protocol-specific method on
 the core driver.
 
 The existing
-[transport-boundary ADR](adr-010-transport-frame-boundary-for-zero-copy.md) and
-[runtime ownership ADR](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)
+[transport-boundary ADR](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+and
+[runtime ownership ADR](adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
 are historical design inputs, not requirements to retain earlier public
 contracts. Supersede them explicitly where the protocol-first design differs.
 These recommendations make no borrow-checker-dependent API promise; the pinned

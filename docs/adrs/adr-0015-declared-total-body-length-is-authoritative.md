@@ -31,7 +31,7 @@ interpretation (CWE-130).
 
 The formal verification guide frames the choice between an authoritative
 declaration and an advisory hint in its section on
-[whether `total_body_len` is authoritative or advisory](formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory).
+[whether `total_body_len` is authoritative or advisory](../formal-verification-methods-in-wireframe.md#2-is-total_body_len-authoritative-or-advisory).
 
 ## Decision drivers
 
@@ -184,5 +184,5 @@ buffered length and the declaration are read together.
 ## References
 
 - [Issue #544](https://github.com/leynos/wireframe/issues/544)
-- [ADR 002: streaming requests and shared message assembly](adr-002-streaming-requests-and-shared-message-assembly.md)
-- [Formal verification methods in Wireframe](formal-verification-methods-in-wireframe.md)
+- [ADR 002: streaming requests and shared message assembly](adr-0002-streaming-requests-and-shared-message-assembly.md)
+- [Formal verification methods in Wireframe](../formal-verification-methods-in-wireframe.md)

@@ -358,7 +358,7 @@ The current direction is now explicit:
   serialization and transport-frame emission. Actor protocol hooks remain
   packet-oriented; the app-router path now applies `before_send` to each
   codec-wrapped frame as recorded in the
-  [ADR 010 addendum](adr-010-transport-frame-boundary-for-zero-copy.md#addendum-application-response-before_send-2026-11-02).
+  [ADR 010 addendum](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md#addendum-application-response-before_send-2026-11-02).
 - `CorrelatableFrame for Vec<u8>` should leave the core surface under the
   breaking-release runtime-boundary work. `Packet for Vec<u8>` remains
   test-only, and no public actor-boundary compatibility shim is added.
@@ -376,18 +376,18 @@ implementation work, benchmark planning, and release preparation.
 
 The design choices are captured in three Architecture Decision Records (ADRs):
 
-- [ADR 008](adr-008-zero-copy-public-byte-container.md) (accepted) accepts
+- [ADR 008](adrs/adr-0008-zero-copy-public-byte-container.md) (accepted) accepts
   `bytes::Bytes`, or a transparent project wrapper over `bytes::Bytes`, as the
   stable public byte representation. It also accepts an explicit edit-on-demand
   workflow for middleware and client hooks.
-- [ADR 009](adr-009-vec-u8-migration-rollout.md) (accepted) covers the
-  compatibility and release rollout strategy, including the finite `Vec<u8>`
-  helper set, default-build deprecation discipline, and the event-based removal
-  trigger.
-- [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) (accepted)
-  keeps the connection actor packet-oriented, makes the codec driver the owner
-  of transport-frame emission, keeps protocol hooks at the packet stage, and
-  sequences public `CorrelatableFrame for Vec<u8>` removal with the
+- [ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+  (accepted) covers the compatibility and release rollout strategy, including
+  the finite `Vec<u8>` helper set, default-build deprecation discipline, and
+  the event-based removal trigger.
+- [ADR 010](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+  (accepted) keeps the connection actor packet-oriented, makes the codec driver
+  the owner of transport-frame emission, keeps protocol hooks at the packet
+  stage, and sequences public `CorrelatableFrame for Vec<u8>` removal with the
   breaking-release runtime-boundary work.
 
 If epic 284 is updated outside the repository, the local source-of-truth links
@@ -397,13 +397,13 @@ to add are:
 Inventory: docs/frame-vec-u8-inventory.md
 Roadmap: docs/zero-copy-frame-and-payload-migration-roadmap.md
 ADRs:
-- docs/adr-008-zero-copy-public-byte-container.md
-- docs/adr-009-vec-u8-migration-rollout.md
-- docs/adr-010-transport-frame-boundary-for-zero-copy.md
+- docs/adrs/adr-0008-zero-copy-public-byte-container.md
+- docs/adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md
+- docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md
 ```
 
 [^adr-004]: See
-            [Architecture Decision Record (ADR) 004](adr-004-pluggable-protocol-codecs.md)
+            [Architecture Decision Record (ADR) 004](adrs/adr-0004-pluggable-protocol-codecs.md)
     for the generic codec decision and the current `Bytes` default frame type.
 [^issue-286]: Middleware follow-up requested by
     [@leynos](https://github.com/leynos), with context from

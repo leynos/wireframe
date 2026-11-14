@@ -27,53 +27,53 @@ reference when navigating the project's design and architecture material.
 
 ## Requests for comments
 
-- [RFC 0001: protocol-agnostic test harness lifecycle](rfcs/0001-protocol-agnostic-test-harness-lifecycle.md)
+- [RFC 0001: protocol-agnostic test harness lifecycle](rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md)
   Proposed server lifecycle and custom-client connector layers for
   `wireframe_testing`.
 - [RFC 0002: model-checking the write loop][rfc-0002] Proposed verification of
   the connection actor's scheduling decision, beyond what Loom can schedule.
 
-[rfc-0002]: rfcs/0002-model-checking-the-write-loop.md
+[rfc-0002]: rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md
 
 ## Architectural decision records
 
-- [ADR 001: multi-packet streaming response API](adr-001-multi-packet-streaming-response-api.md)
+- [ADR 001: multi-packet streaming response API](adrs/adr-0001-multi-packet-streaming-response-api.md)
   Accepted response API for multi-packet and streaming replies.
-- [ADR 002: streaming requests and shared message assembly](adr-002-streaming-requests-and-shared-message-assembly.md)
+- [ADR 002: streaming requests and shared message assembly](adrs/adr-0002-streaming-requests-and-shared-message-assembly.md)
   Decision for request streaming and shared assembly behaviour.
-- [ADR 003: replace Cucumber with rstest-bdd](adr-003-replace-cucumber-with-rstest-bdd.md)
+- [ADR 003: replace Cucumber with rstest-bdd](adrs/adr-0003-replace-cucumber-with-rstest-bdd-for-behavioural-tests.md)
   Decision to use Rust-native behaviour-driven development (BDD) tests.
-- [ADR 004: pluggable protocol codecs](adr-004-pluggable-protocol-codecs.md)
+- [ADR 004: pluggable protocol codecs](adrs/adr-0004-pluggable-protocol-codecs.md)
   Decision for protocol codec extension points.
-- [ADR 005: serializer abstraction](adr-005-serializer-abstraction.md)
+- [ADR 005: serializer abstraction](adrs/adr-0005-serializer-abstraction-beyond-bincode.md)
   Decision for serializer boundaries and responsibilities.
-- [ADR 006: test observability](adr-006-test-observability.md)
+- [ADR 006: test observability](adrs/adr-0006-test-observability-harness.md)
   Decision for test metrics, logs, and assertion support.
-- [ADR 007: mutation testing with cargo-mutants](adr-007-mutation-testing-with-cargo-mutants.md)
+- [ADR 007: mutation testing with cargo-mutants](adrs/adr-0007-mutation-testing-with-cargo-mutants.md)
   Decision for mutation testing expectations.
-- [ADR 008: zero-copy public byte container](adr-008-zero-copy-public-byte-container.md)
+- [ADR 008: zero-copy public byte container](adrs/adr-0008-zero-copy-public-byte-container.md)
   Accepted public byte-container model for the zero-copy payload migration.
-- [ADR 009: owned-byte migration rollout](adr-009-vec-u8-migration-rollout.md)
+- [ADR 009: owned-byte migration rollout](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
   Rollout policy for owned-byte compatibility during migration.
-- [ADR 010: transport frame boundary for zero-copy](adr-010-transport-frame-boundary-for-zero-copy.md)
+- [ADR 010: transport frame boundary for zero-copy](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
   Accepted actor and codec-driver boundary for zero-copy transport framing.
-- [ADR 011: runtime ownership and task-lifetime boundaries](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)
+- [ADR 011: runtime ownership and task-lifetime boundaries](adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
   Proposed policy for aligning `Arc`, spawning, and borrowing with real runtime
   lifetimes.
-- [ADR 012: prepared application templates and connection-local runtimes](adr-012-prepared-application-and-connection-runtime.md)
+- [ADR 012: prepared application templates and connection-local runtimes](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
   Proposed separation of the application builder, prepared template, and
   connection runtime.
-- [ADR 013: single-owner client-pool scheduler and slot graph](adr-013-client-pool-scheduler-and-slot-ownership.md)
+- [ADR 013: single-owner client-pool scheduler and slot graph](adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md)
   Proposed persistent scheduler actor and index-based slot ownership for the
   client pool.
-- [ADR 014: server shutdown ownership and terminal observation](adr-014-server-shutdown-ownership.md)
+- [ADR 014: server shutdown ownership and terminal observation](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md)
   Proposed awaitable server shutdown and supervisor-failure observation.
 - [ADR 015: declared total body length is authoritative][adr-015] Accepted
   contract for enforcing `total_body_len` during message assembly.
 - [ADR 016: forbid unsafe code workspace-wide](adr-016-unsafe-code-boundary.md)
   Proposed workspace lint table, per-root attribute, and enforcement checks.
 
-[adr-015]: adr-015-declared-total-body-length-contract.md
+[adr-015]: adrs/adr-0015-declared-total-body-length-is-authoritative.md
 
 ## Execution plans
 
@@ -179,10 +179,10 @@ execplans/issue-538-plan-zero-copy-serializer-output-migration.md
 
 ## Protocol extension RFCs
 
-- [RFC 0003: native message adapter boundary](rfcs/0003-native-message-adapter-boundary.md)
-- [RFC 0004: duplex session driver](rfcs/0004-duplex-session-driver.md)
-- [RFC 0005: negotiated transport entry points](rfcs/0005-negotiated-transport-entry-points.md)
-- [RFC 0006: configurable framing primitives](rfcs/0006-configurable-framing-primitives.md)
-- [RFC 0007: budgets, scheduling, and assembly](rfcs/0007-budgets-scheduling-and-assembly.md)
-- [RFC 0008: external adapter conformance harness](rfcs/0008-external-adapter-conformance-harness.md)
-- [RFC 0009: datagram session transport](rfcs/0009-datagram-session-transport.md)
+- [RFC 0003: native message adapter boundary](rfcs/rfc-0003-native-message-adapter-boundary.md)
+- [RFC 0004: duplex session driver](rfcs/rfc-0004-duplex-session-driver.md)
+- [RFC 0005: negotiated transport entry points](rfcs/rfc-0005-negotiated-transport-entry-points.md)
+- [RFC 0006: configurable framing primitives](rfcs/rfc-0006-configurable-framing-primitives.md)
+- [RFC 0007: budgets, scheduling, and assembly](rfcs/rfc-0007-budgets-scheduling-and-assembly.md)
+- [RFC 0008: external adapter conformance harness](rfcs/rfc-0008-external-adapter-conformance-harness.md)
+- [RFC 0009: datagram session transport](rfcs/rfc-0009-datagram-session-transport.md)

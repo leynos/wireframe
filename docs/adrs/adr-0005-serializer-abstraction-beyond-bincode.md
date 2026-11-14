@@ -206,4 +206,4 @@ feature coverage are required before roadmap item 11.1.2 can be completed. The
 ADR 009 amendment must be accepted before implementation.
 
 [serializer-output-plan]:
-execplans/issue-538-plan-zero-copy-serializer-output-migration.md
+../execplans/issue-538-plan-zero-copy-serializer-output-migration.md
