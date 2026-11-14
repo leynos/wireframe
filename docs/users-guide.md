@@ -1521,8 +1521,8 @@ packets carry the correct correlation identifier even when middleware omits
 it.[^8]
 
 Immediate responses are available through `send_response` and
-`send_response_framed`, both of which report serialization or I/O problems via
-`SendError`.[^6][^5]
+`send_response_framed` for code that owns the connection stream; both report
+serialization or I/O problems via `SendError`.[^6][^5]
 
 <!-- tested-example: users-guide-035 -->
 ```rust,no_run

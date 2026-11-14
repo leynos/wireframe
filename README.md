@@ -170,13 +170,19 @@ This allows integration with existing packet formats without modifying
 
 ## Response serialization and framing
 
-A route handler returns `()`, and the application echoes the routed envelope.
-To send a different reply, call `send_response` or `send_response_framed`. Both
-are methods on `WireframeApp` and need a writer that the caller owns and
-implements `AsyncWrite + Unpin`. A `Handler<E>` receives only `&E`, so a
-handler cannot call them itself; the code that owns the connection makes the
-call. Each helper encodes the value with the application's configured
-serializer and reports serialization or I/O failures as `SendError`[^4].
+A route handler returns `()`, and the application echoes the routed envelope as
+the reply on a `WireframeServer` connection.
+
+The direct helpers `send_response` and `send_response_framed` are methods on
+`WireframeApp` for code that drives the connection stream itself, such as a
+test harness or a custom accept loop. Each takes a writer that the caller owns
+and that implements `AsyncWrite + Unpin`. A `WireframeServer` connection moves
+its stream into the frame loop, so route handlers cannot reach that writer, and
+a `Handler<E>` receives only `&E`. A handler on a server-managed connection
+therefore cannot send a correlated custom reply today; server-initiated frames
+travel through the push queues described below. Each helper encodes the value
+with the application's configured serializer and reports serialization or I/O
+failures as `SendError`[^4].
 
 ```rust
 use tokio::net::TcpStream;
@@ -185,7 +191,7 @@ use wireframe::app::{SendError, WireframeApp};
 #[derive(bincode::Encode, bincode::BorrowDecode)]
 struct Ready(u8);
 
-// `server` is the caller-owned writer, for example an accepted connection.
+// `server` is a stream the caller drives, not one handed to WireframeServer.
 async fn announce(app: &WireframeApp, server: &mut TcpStream) -> Result<(), SendError> {
     app.send_response(server, &Ready(1)).await
 }
@@ -328,8 +334,10 @@ fn parse_token(envelope: &Envelope) -> Option<SessionToken> {
 }
 ```
 
-The envelope remains borrowed for the whole handler call, so a decode helper
-can read the payload without copying it unless the decoded type owns its data.
+The envelope borrow lasts only while the handler closure runs. `Handler<E>`
+returns a `'static` future, so the async block cannot hold a borrow of the
+envelope: decode synchronously, as `parse_token` does, and move owned data into
+the future.
 
 ## Middleware
 
