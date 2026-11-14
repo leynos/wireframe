@@ -274,6 +274,67 @@ are not reported as supervisor crashes.
 - Automatic restart after `AbnormalTermination` remains out of scope, matching
   ADR 013 section 10.
 
+## Addendum: 2026-11-14 — bounded drain for an unreadable peer
+
+Issue [#874](https://github.com/leynos/wireframe/issues/874) moved server
+connections onto `ConnectionActor` so handlers can stream responses. That
+change makes the _Rejected shortcuts_ bullet "Do not pass the stop token into
+connection tasks: that would change graceful drain, which is out of scope" too
+broad, and it refines the _Verification_ bullet about a connection draining
+across `stop()`. Both are superseded to the extent below; the rest of each
+section stands.
+
+### Superseded: the rejection of the stop token in connection tasks
+
+Connections now receive the stop token, but **only as a bound on a write that
+cannot make progress**. The distinction the original bullet protects is
+preserved:
+
+- A connection keeps running across `stop()` and still drains a response whose
+  peer is reading. Its writes complete normally and its completion hook runs.
+- Only a write that is still pending when the connection stops is abandoned.
+  That write could otherwise block forever on a peer that stopped reading, so
+  the drain would never resolve.
+- A peer that becomes unobservable mid-write is treated separately: the write
+  keeps its idle grace first, and is abandoned only if the whole grace passes
+  without the sink accepting it.
+
+Graceful drain therefore still drains; it no longer waits indefinitely for a
+peer that will never read. The bounded writes are
+`ConnectionActor::flush_or_cancel` (stream, multi-packet, and immediate
+`Single`/`Vec` responses) and the prepared path's terminator write in
+`src/app/frame_handling/response.rs`.
+
+### Refined: what "continues to drain" must demonstrate
+
+The verification bullet stays, with its limit made explicit: a connection in
+flight across `stop()` must drain a **readable** peer's response. A peer that
+has stopped reading is expected to be abandoned once the write is pending at
+shutdown time, or once its idle grace expires. Verification must cover both
+halves, because only the second one is visible without a stalled sink.
+
+### Mechanism: shutdown bounds writes, it does not preempt the drive
+
+The drain contract needs a mechanism rather than an intention, so the actor
+carries an explicit policy, `abandon_response_on_shutdown`:
+
+- The direct actor API keeps the default, where a cancelled shutdown token ends
+  the response drive before another frame is written. `ConnectionActor::run`
+  and its `shutdown_signal_precedence` and `interleaved_shutdown_during_stream`
+  tests define that contract.
+- A prepared server connection clears it in `build_connection_actor`. `stop()`
+  then bounds every write, through `ConnectionActor::flush_or_cancel` for
+  buffered frames and `write_frame_bounded` for the protocol terminator,
+  without terminating the drive.
+
+The peer's idle grace is the second half of the bound: a write that is pending
+when the peer can no longer be observed keeps one grace to complete before it
+is abandoned. Both halves are exercised by
+`tests/server_shutdown_streaming.rs`, which stops the server mid-response and
+requires every frame, the terminator, and the completion hook to arrive, and by
+the unit tables for a drained versus abandoned stream and for an abandoned
+terminator.
+
 ## References
 
 - [ADR 011: runtime ownership and task-lifetime boundaries](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)

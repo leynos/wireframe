@@ -133,17 +133,41 @@ this pattern as the canonical way to build `Response::Stream` values.
 
 `ConnectionActor` classifies how a multi-packet channel finished using a
 `MultiPacketTerminationReason` helper. When `recv` returns `None`, the actor
-records a `Drained` completion, logs an `info!` event that includes the
-connection identifier, peer address, and correlation identifier, and fetches a
-protocol-specific terminator frame via `stream_end_frame`. That frame is
-stamped with the stored `correlation_id`, passed through the standard
-`before_send` hook, and recorded by outbound metrics before being queued for
-transmission.
+records a `Drained` completion and logs an `info!` event that includes the
+connection identifier, peer address, and correlation identifier. A caller that
+registers `stream_end_frame` on the actor's hooks receives the terminator as a
+queued frame, and `on_command_end` runs only after that frame has been written.
+
+On a prepared server connection the actor carries no terminator hook. The
+inbound handler calls [`WireframeProtocol::stream_end_frame`] after the
+response has been driven to completion and writes the returned frame directly
+through the connection's frame pipeline. `before_send` and outbound metrics
+observe it, and the frame is written unchanged, so tag, length, or padding
+metadata that a custom codec keeps outside the payload survives. The adapter
+neither decodes nor restamps it, so the terminator carries exactly the
+identifier the protocol encoded. `on_command_end` then runs after that final
+write. Neither hook runs when the connection shuts down or the peer disappears
+before the response completes.
+
+The terminator write is bounded for the same reason the response frames are. A
+peer that stopped reading can block the last frame as readily as any other, so
+it is written under the same bound as every buffered frame: a write that is
+ready proceeds, one that stalls is abandoned when the connection shuts down,
+and one pending after the peer can no longer be observed is abandoned only once
+the idle grace passes without the sink accepting it. An abandoned terminator
+reports `Cancelled`, which also suppresses `on_command_end`. The connection is
+closing, so a half-written response must not report completion.
+
+A multi-packet frame whose originating request supplied no correlation
+identifier keeps the identifier its producer set, matching the inheritance rule
+used for single, vector, and streamed responses.
 
 If the channel disconnects unexpectedly the termination reason becomes
 `Disconnected`. The actor emits a `warn!` level log so operators can spot
-broken senders, but it still forwards the terminator frame and calls
-`on_command_end` to ensure higher layers release any per-request resources.
+broken senders, and the response still completes through the same
+write-then-`on_command_end` path so higher layers release per-request resources.
+
+[`WireframeProtocol::stream_end_frame`]: ../src/hooks.rs
 
 Shutdown-driven closure is tracked separately through the `Shutdown` variant.
 The actor logs the closure so observability tools can correlate it with control
@@ -408,9 +432,28 @@ If the stream yields an `Err(WireframeError<E>)`, the connection actor will:
 ### 6.3 Cancellation Safety & `Drop` Semantics
 
 The design is inherently cancellation-safe. The `select!` macro in the
-connection actor will drop the `FrameStream` future if another branch (e.g., a
-shutdown signal) completes first. Because `StreamExt::next()` is
-cancellation-safe, no frames will be lost; the stream will simply be dropped.
+connection actor will drop the `FrameStream` future if another branch completes
+first. Because `StreamExt::next()` is cancellation-safe, no frames will be
+lost; the stream will simply be dropped.
+
+Losing observation of the peer is not itself such a branch. A clean half-close,
+and a buffered next request, both cancel only the per-dispatch observation
+token; the inbound loop then keeps awaiting the same response, because the peer
+may still be reading it. The actor switches to its bounded drain instead: each
+wait for the next frame and each write are bounded separately by the idle
+grace, so frames still arrive while the response makes progress and the stream
+is dropped only once a wait or a write exceeds the grace. A vanished peer is
+therefore still released, but not before the interval that a valid half-close
+needs.
+
+A shutdown signal is likewise not such a branch on a prepared server
+connection: that connection keeps driving a response its peer is still reading,
+because ADR-014 requires it to drain across `stop()`. It enters the same
+bounded drain, so shutdown bounds the response wait as well as the writes, and
+a producer that yields nothing after the stop is cancelled at the grace rather
+than pinning the connection. The direct actor API keeps the original
+precedence, where a cancelled shutdown token ends the drive before another
+frame is written.
 
 Similarly, if a handler panics or returns early, the `Stream` object it created
 is simply dropped. The connection actor will see the stream end as if it had
@@ -433,14 +476,17 @@ not hang.
 
 - **Unified Codec Pipeline (server path):** On the server side, handler
   responses — including `Response::Stream` and `Response::MultiPacket` — pass
-  through the `FramePipeline` (`src/app/codec_driver.rs`) before reaching the
-  wire. The pipeline applies fragmentation and outbound metrics uniformly to
-  every `Envelope`, regardless of response variant. This ensures that large
+  through the `FramePipeline` (`src/app/codec_driver/mod.rs`) before reaching
+  the wire. The pipeline applies fragmentation and outbound metrics uniformly
+  to every `Envelope`, regardless of response variant. This ensures that large
   streaming frames are fragmented by the same path that fragments single-frame
   handler responses. The pipeline also owns the per-connection protocol hooks,
   so `before_send` runs on each codec-wrapped frame immediately before the
-  transport write. Actor-owned push and streaming frames keep their own hook
-  pipeline.
+  transport write. Handler responses, including `Response::Stream` and
+  `Response::MultiPacket`, are installed on the per-connection connection actor
+  and written through a sink that borrows the same pipeline, so there is one
+  serialization and hook ordering for every application response. The actor
+  receives no fragmenter and no `before_send` hook of its own.
 
 - **Streaming Request Bodies:** [ADR 0002][adr-0002] introduces first-class
   streaming request bodies as the inbound counterpart to streaming responses.
@@ -506,6 +552,37 @@ staying true to the architecture already in production use.
   `select!` loop rather than by a detached task. This keeps a single locus for
   back-pressure, aligns with the production resilience guidance on avoiding
   orphaned tasks, and ensures orderly shutdown propagates to streaming work.
+- Every prepared server connection installs handler responses on its own
+  untracked connection actor, rather than writing them directly.
+  `WireframeApp::route_response` stores the handler's `Response` in a deferred
+  slot on `ServiceResponse`; the inbound loop installs it with the request
+  correlation id and drives the actor through a sink that borrows the
+  connection's `FramePipeline` and `Framed`. The actor therefore receives no
+  fragmenter and no `before_send` hook: the pipeline applies both so that
+  handler, stream, and multi-packet frames share one ordering. A streamed or
+  multi-packet response is driven to completion before the next inbound frame
+  is dispatched, so this change does not yet deliver independent input and
+  output; [RFC 0004](rfcs/0004-duplex-session-driver.md) and roadmap item
+  21.2.2 remain open. While such a response runs, the inbound loop still polls
+  the read half for one frame, so a peer that leaves during an idle stream is
+  noticed: a read error fails the connection, and a clean half-close lets the
+  actor finish the response while bounding each idle wait to a 30-second idle
+  grace. The same grace also bounds a write the peer never accepts, and server
+  shutdown releases such a write immediately without preempting a response that
+  is still making progress, so a readable peer's response still drains. That
+  bound covers every write the prepared path performs, including `Single` and
+  `Vec` responses and the protocol terminator: one frame is enough to block on
+  a peer that stopped reading. A write that is ready still proceeds, so a
+  cancellation observed mid-drain does not abandon frames the sink has already
+  accepted. Once a request frame is buffered, the read half is no longer
+  polled, so a later disconnect cannot be observed directly; the grace then
+  bounds the response itself. A shutdown request takes the same route. Instead
+  of awaiting the next frame without a deadline, the actor switches to a
+  bounded drain in which every wait and every write is bounded separately by
+  the grace, so a producer that yields nothing after the stop is cancelled at
+  the grace rather than pinning the connection. Either way the pending response
+  cannot keep the connection task, its gauge guard, teardown, and the server
+  drain pending indefinitely.
 - The `ConnectionActor` owns the channel receiver and polls it via the
   main `select!` loop. Frames pass through `process_frame_common` so protocol
   hooks and metrics observe every packet. When the channel drains, the actor
@@ -560,10 +637,10 @@ cannot regress or be removed.
   lifecycle hooks. This guarantees downstream clean-up and observability cues
   stay consistent with other stream completions.
 - Integration tests exercise the actor in a client-like configuration. They
-  stream multiple envelopes, assert the terminator inherits the request's
-  `correlation_id`, verify a dropped producer logs a `reason=disconnected`
-  warning, and ensure push-queue traffic interleaves with streamed frames
-  without corrupting correlation identifiers.
+  stream multiple envelopes, assert the terminator the actor queues inherits
+  the request's `correlation_id`, verify a dropped producer logs a
+  `reason=disconnected` warning, and ensure push-queue traffic interleaves with
+  streamed frames without corrupting correlation identifiers.
 
 ## 11. Streaming request bodies
 

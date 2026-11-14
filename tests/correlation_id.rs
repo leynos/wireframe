@@ -95,7 +95,7 @@ async fn run_multi_packet_channel(
 
 #[rstest]
 #[case::stamps_request(Some(7), vec![None, Some(99)], vec![Some(7), Some(7)])]
-#[case::clears_when_absent(None, vec![None, Some(13)], vec![None, None])]
+#[case::preserves_when_absent(None, vec![None, Some(13)], vec![None, Some(13)])]
 #[case::preserves_matching(Some(17), vec![Some(17), Some(17)], vec![Some(17), Some(17)])]
 #[tokio::test]
 async fn multi_packet_frames_apply_expected_correlation(
@@ -118,16 +118,19 @@ async fn multi_packet_frames_apply_expected_correlation(
 }
 
 #[rstest]
-#[case::terminator_stamped(Some(11), Some(11))]
-#[case::terminator_cleared(None, None)]
+#[case::request_stamped(Some(11), None, Some(11))]
+#[case::request_overrides_terminator(Some(11), Some(31), Some(11))]
+#[case::terminator_preserved(None, Some(31), Some(31))]
+#[case::both_absent(None, None, None)]
 #[tokio::test]
-async fn multi_packet_terminator_applies_correlation(
+async fn multi_packet_terminator_applies_expected_correlation(
     #[case] request: Option<u64>,
+    #[case] terminator_correlation: Option<u64>,
     #[case] expected: Option<u64>,
 ) -> TestResult {
     let hooks = ProtocolHooks {
-        stream_end: Some(Box::new(|_ctx: &mut ConnectionContext| {
-            Some(Envelope::new(255, None, vec![]))
+        stream_end: Some(Box::new(move |_ctx: &mut ConnectionContext| {
+            Some(Envelope::new(255, terminator_correlation, vec![]))
         })),
         ..ProtocolHooks::default()
     };

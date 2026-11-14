@@ -16,7 +16,10 @@ use wireframe::{
 };
 pub use wireframe_testing::TestResult;
 
-use self::types::{MessageId, Payload};
+// The server-streaming fixture imports these two types by path, so the
+// explicit binding must be visible across the test crate; the glob re-export
+// below only carries the public items.
+pub(crate) use self::types::{MessageId, Payload};
 pub use self::{modes::*, types::*};
 
 type _StreamingServerModeReexportAnchor = StreamingServerMode;

@@ -540,8 +540,60 @@ its own behaviour for an oversized frame, so it must enforce `max_frame_length`
 itself.
 
 Only the direct response helpers (`send_response`, `send_response_framed`, and
-`send_response_framed_with_codec`) bypass the hook. Actor-owned push and
-streaming traffic runs its own hook pipeline: `ConnectionActor::push_frame`
-invokes `before_send` on actor frames, so that traffic is not bypassed. See the
-[users' guide](users-guide.md)
-for the user-facing contract.
+`send_response_framed_with_codec`) bypass the hook. Push traffic submitted
+directly to a `ConnectionActor` runs `before_send` from the actor's own hooks.
+On a prepared server connection, handler responses — including streamed and
+multi-packet bodies — are written through the connection's `FramePipeline`, and
+the actor built for that connection deliberately has no `before_send` hook of
+its own, so the hook runs exactly once per frame. See the
+[users' guide](users-guide.md) for the user-facing contract.
+
+`on_command_end` now fires once for every completed handler response on a
+prepared server connection, including an ordinary `route` reply that previously
+only emitted bytes. A protocol that releases per-request state in that hook
+therefore sees one call per completed reply, not only for actor-driven push and
+multi-packet traffic. The hook is not a guaranteed cleanup point: a response
+cancelled by the peer-close grace skips it, and a terminator write that fails
+returns before it, so per-request state that must always be released needs a
+separate fallback.
+
+Prepared connections also require `S: 'static` on the serializer.
+`PreparedApp::handle_connection_result` and the deprecated
+`WireframeApp::handle_connection*` methods now carry this bound, so a
+serializer that borrows connection-local data can no longer be used with them.
+
+## Response-producing routes and multi-packet correlation
+
+`WireframeApp::route_response` registers a handler that returns a whole
+`Response` rather than raw bytes, so a route can stream or send several frames
+instead of exactly one reply. `ResponseHandler<E>` is re-exported from
+`wireframe::app`, and route identifiers stay unique across `route` and
+`route_response`. `E` is the request type: the handler receives a borrowed
+request of that type and may hold the borrow across an `await`, and it must
+return `Response<Envelope, ()>` rather than bytes.
+
+```rust,no_run
+use std::sync::Arc;
+
+use wireframe::app::{Envelope, ResponseHandler};
+use wireframe::response::Response;
+
+fn handler() -> ResponseHandler<Envelope> {
+    Arc::new(|request: &Envelope| {
+        let payload = request.payload_bytes().to_vec();
+        Box::pin(async move { Response::Single(Envelope::new(1, None, payload)) })
+    })
+}
+```
+
+A route registered with `route` is unchanged: its bytes are wrapped in one
+envelope and sent as a single reply.
+
+Correlation behaviour for direct `ConnectionActor` multi-packet traffic has
+also changed. When the request carries no correlation identifier, a frame that
+supplies its own keeps it instead of having `None` written over it. A frame
+that supplies a different identifier than the request is still overwritten and
+logged as a warning. On a prepared server connection the protocol terminator is
+written unchanged, so it keeps the identifier produced by `stream_end_frame`
+for both streamed and multi-packet responses; see the
+[users' guide](users-guide.md#response-producing-routes) for the full contract.

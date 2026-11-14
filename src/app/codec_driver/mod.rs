@@ -5,31 +5,32 @@
 //! to every [`Envelope`] produced by an application handler. The
 //! [`send_envelope`] and [`flush_pipeline_output`] helpers then serialize,
 //! wrap via [`FrameCodec::wrap_payload`], run the configured protocol
-//! `before_send` hook, and write the resulting frame to the underlying
-//! [`Framed`] stream.
+//! `before_send` hook, and write the resulting frame to the connection's
+//! frame sink. Protocol-supplied frames such as stream terminators skip
+//! serialization and wrapping because they are already complete codec frames,
+//! but they still pass through the same `before_send` hook.
 //!
-//! Push messages and multi-packet channel frames are emitted by the
-//! `ConnectionActor`, which runs its own hook pipeline; only application
-//! handler responses pass through this module.
+//! Two paths reach this module. A `ConnectionActor` driven directly through
+//! `ProtocolHooks` emits push messages and multi-packet channel frames from its
+//! own hook pipeline. On a prepared server connection, every handler response —
+//! single, streamed, or multi-packet — is instead installed on the connection's
+//! actor and written through [`ActorFrameSink`], so it shares this module's
+//! pipeline and the connection's `before_send` hook. The actor built for a
+//! prepared connection deliberately has no hook pipeline of its own, so a frame
+//! is never processed twice.
 
-use futures::SinkExt;
+mod outbound;
+
 use log::warn;
-use tokio::io::{self, AsyncRead, AsyncWrite};
-use tokio_util::codec::Framed;
+pub(crate) use outbound::{ActorFrameSink, send_native_frame};
+#[cfg(test)]
+pub(super) use outbound::{OutboundTransport, flush_pipeline_output, send_envelope};
+use tokio::io;
 
-use super::{
-    combined_codec::ConnectionCodec,
-    envelope::Envelope,
-    fragmentation_state::FragmentationState,
-    outbound_encoding::encode_message_frame,
-};
+use super::{envelope::Envelope, fragmentation_state::FragmentationState};
 use crate::{
-    codec::{CodecError, FrameCodec},
     fragment::{FragmentationConfig, FragmentationError},
     hooks::{ConnectionContext, ProtocolHooks},
-    message::EncodeWith,
-    metrics::{AppResponseSendOutcome, inc_app_response_send},
-    serializer::Serializer,
 };
 
 /// Outbound frame processing pipeline mirroring the connection actor's
@@ -102,7 +103,9 @@ impl<T> FramePipeline<T> {
     }
 
     /// Run the configured `before_send` hook for one outbound frame.
-    fn before_send(&mut self, frame: &mut T) { self.hooks.before_send(frame, &mut self.context); }
+    pub(crate) fn before_send_frame(&mut self, frame: &mut T) {
+        self.hooks.before_send(frame, &mut self.context);
+    }
 
     /// Process an envelope through the pipeline: fragment → metrics.
     ///
@@ -174,126 +177,6 @@ impl<T> FramePipeline<T> {
     }
 }
 
-/// Outbound transport parameters shared by the frame-sending helpers.
-///
-/// The serializer, codec, and framed stream always travel together, so
-/// grouping them keeps the send helpers within the argument limits the
-/// project lints enforce.
-pub(super) struct OutboundTransport<'a, S, W, F>
-where
-    F: FrameCodec,
-{
-    /// Serializer converting an envelope into payload bytes.
-    pub(crate) serializer: &'a S,
-    /// Frame codec wrapping payloads into wire frames.
-    pub(crate) codec: &'a F,
-    /// Framed stream receiving encoded frames.
-    pub(crate) framed: &'a mut Framed<W, ConnectionCodec<F>>,
-}
-
-/// Serialize an [`Envelope`], run the `before_send` hook, and write the
-/// resulting frame through the codec to the framed stream.
-///
-/// The hook ordering matches the connection actor: the frame is serialized
-/// and wrapped by the codec first, so protocol implementations receive the
-/// exact frame that will be written, and any mutation they apply reaches the
-/// wire.
-///
-/// # Errors
-///
-/// Returns an [`io::Error`] if serialization or sending fails.
-pub(super) async fn send_envelope<S, W, F>(
-    transport: &mut OutboundTransport<'_, S, W, F>,
-    envelope: &Envelope,
-    pipeline: &mut FramePipeline<F::Frame>,
-) -> io::Result<()>
-where
-    S: Serializer + Send + Sync,
-    W: AsyncRead + AsyncWrite + Unpin,
-    F: FrameCodec,
-    Envelope: EncodeWith<S>,
-{
-    let mut encoded = encode_message_frame(transport.serializer, transport.codec, envelope)
-        .map_err(|e| {
-            let id = envelope.id;
-            let correlation_id = envelope.correlation_id;
-            warn!(
-                "failed to serialize outbound envelope: stage=serialize, \
-                 category=serialization_failure, id={id}, correlation_id={correlation_id:?}, \
-                 error={e:?}"
-            );
-            crate::metrics::inc_handler_errors();
-            inc_app_response_send(AppResponseSendOutcome::SerializationFailure);
-            io::Error::other(e)
-        })?;
-    pipeline.before_send(&mut encoded.frame);
-    match transport.framed.send(encoded.frame).await {
-        Ok(()) => {
-            inc_app_response_send(AppResponseSendOutcome::Success);
-            Ok(())
-        }
-        Err(error) => {
-            let id = envelope.id;
-            let correlation_id = envelope.correlation_id;
-            let outcome = classify_send_error(&error);
-            warn!(
-                "failed to send outbound frame: stage=write, category={}, id={id}, \
-                 correlation_id={correlation_id:?}, error={error:?}",
-                outcome.as_str()
-            );
-            crate::metrics::inc_handler_errors();
-            inc_app_response_send(outcome);
-            Err(io::Error::other(error))
-        }
-    }
-}
-
-/// Classify an outbound write failure for the bounded send-outcome metric.
-///
-/// The default [`FrameCodec`] reports an oversized hook result as a
-/// [`CodecError`] wrapped inside the I/O error, which separates a codec
-/// rejection from a transport failure. A custom encoder that reports the same
-/// condition as a plain [`io::Error`] is counted as a transport failure; the
-/// counter stays bounded either way.
-fn classify_send_error(error: &io::Error) -> AppResponseSendOutcome {
-    let is_codec_rejection = error
-        .get_ref()
-        .and_then(|inner| inner.downcast_ref::<CodecError>())
-        .is_some_and(|codec_error| matches!(codec_error, CodecError::Framing(_)));
-    if is_codec_rejection {
-        AppResponseSendOutcome::CodecRejected
-    } else {
-        AppResponseSendOutcome::TransportFailure
-    }
-}
-
-/// Flush a batch of pipeline-produced [`Envelope`] values through the codec
-/// to the framed stream.
-///
-/// Each envelope is serialized, wrapped, passed through the pipeline's
-/// `before_send` hook, and written individually. On the first I/O failure the
-/// remaining envelopes are discarded and the error is returned.
-///
-/// # Errors
-///
-/// Returns an [`io::Error`] if any envelope fails to serialize or send.
-pub(super) async fn flush_pipeline_output<S, W, F>(
-    transport: &mut OutboundTransport<'_, S, W, F>,
-    pipeline: &mut FramePipeline<F::Frame>,
-) -> io::Result<()>
-where
-    S: Serializer + Send + Sync,
-    W: AsyncRead + AsyncWrite + Unpin,
-    F: FrameCodec,
-    Envelope: EncodeWith<S>,
-{
-    let mut envelopes = pipeline.drain_output();
-    for envelope in envelopes.drain(..) {
-        send_envelope(transport, &envelope, pipeline).await?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
-#[path = "codec_driver_tests.rs"]
+#[path = "../codec_driver_tests.rs"]
 mod tests;

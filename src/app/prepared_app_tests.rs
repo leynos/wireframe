@@ -62,7 +62,7 @@ async fn prepared_connection_uses_injected_monotonic_clock() {
     drop(client);
 
     prepared
-        .handle_connection_with_clock(server, &clock)
+        .handle_connection_inner(server, &clock, &CancellationToken::new())
         .await
         .expect("clean EOF should complete");
 }

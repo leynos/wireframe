@@ -39,6 +39,7 @@ mod partial_frame_feeding_steps;
 mod request_parts_steps;
 mod result_alias_dispatch_steps;
 mod serializer_boundaries_steps;
+mod server_streaming_steps;
 mod slow_io_backpressure_steps;
 mod stream_end_steps;
 mod streaming_request_steps;

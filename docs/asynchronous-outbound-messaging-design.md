@@ -864,10 +864,14 @@ features of the 1.0 release.
   completely unaware of fragmentation.
 
 - **Unified Codec Pipeline:** On the server side, the `FramePipeline`
-  (`src/app/codec_driver.rs`) applies outbound fragmentation and metrics to
-  every handler-response `Envelope` before it reaches the wire. Push,
-  streaming, and multi-packet frames are emitted by the `ConnectionActor`,
-  which applies the same fragmentation logic through `enable_fragmentation`.
+  (`src/app/codec_driver/mod.rs`) applies outbound fragmentation,
+  serialization, and metrics to every handler-response frame before it reaches
+  the wire. Prepared streaming and multi-packet responses use that pipeline
+  rather than a fragmenter of their own: each handler response is installed on
+  a per-connection `ConnectionActor` whose sink borrows the connection's
+  `FramePipeline`, so the actor is constructed without a fragmenter and push,
+  streaming, and multi-packet frames share one codec ordering with `Single` and
+  `Vec` responses.
 
   The application pipeline order is: fragmentation → serialize →
   `FrameCodec::wrap_payload` → `before_send` → transport write. The pipeline
@@ -876,10 +880,19 @@ features of the 1.0 release.
   connection-local state across every response. The hook is not given any
   reserved headroom: a mutation that pushes the frame past the codec's
   `max_frame_length` is rejected by the encoder, fails the send, and ends the
-  connection. Only `before_send` is shared with the actor path; connection
-  setup, command end, stream end, error, and end-of-file hooks remain
-  actor-only. The direct response helpers that bypass the pipeline also bypass
-  `before_send`.
+  connection.
+
+  The other hooks also run on the prepared path, but not all inside the actor's
+  frame loop. `handle_error` is forwarded to the actor, which invokes it when a
+  driven response reports a protocol error. Terminator emission and
+  `on_command_end` run in the inbound handler once the actor has finished
+  driving the response: `stream_end_frame`'s frame is written unchanged,
+  because the protocol returns a complete codec frame, and the completion hook
+  runs only after that final write. The actor receives no terminator or
+  completion hook of its own, so one response is terminated and completed
+  exactly once. Protocol setup and end-of-file callbacks are not invoked on the
+  prepared path at all. The direct response helpers that bypass the pipeline
+  also bypass `before_send`.
 
 ```rust,ignore
 // Codec stack with explicit frame-size limits and fragmentation.

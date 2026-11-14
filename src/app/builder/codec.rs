@@ -23,11 +23,8 @@ where
     /// change across codecs. Fragmentation is disabled so callers can
     /// reconfigure explicitly for the new frame budget.
     #[must_use]
-    pub fn with_codec<F2: FrameCodec>(mut self, codec: F2) -> WireframeApp<S, C, E, F2>
-    where
-        S: Default,
-    {
-        let serializer = std::mem::take(&mut self.serializer);
+    pub fn with_codec<F2: FrameCodec>(mut self, codec: F2) -> WireframeApp<S, C, E, F2> {
+        let serializer = std::sync::Arc::clone(&self.serializer);
         let message_assembler = self.message_assembler.take();
         let memory_budgets = self.memory_budgets.take();
         self.rebuild_with_params(RebuildParams {
@@ -53,7 +50,7 @@ where
         let message_assembler = self.message_assembler.take();
         let memory_budgets = self.memory_budgets.take();
         self.rebuild_with_params(RebuildParams {
-            serializer,
+            serializer: std::sync::Arc::new(serializer),
             codec,
             protocol,
             fragmentation,
