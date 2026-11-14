@@ -1,4 +1,4 @@
-# Architectural decision record (ADR) 016: remove the unwired route extractors and application data API
+# Architectural decision record (ADR) 017: remove the unwired route extractors and application data API
 
 ## Status
 

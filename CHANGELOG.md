@@ -9,7 +9,7 @@ All notable changes to this project will be documented in this file.
   handlers could never receive `SharedState<T>`, `Message<T>`,
   `ConnectionInfo`, or `StreamingBody`. Capture an `Arc` in the handler closure
   for shared state and decode envelopes directly; see
-  [ADR 016](docs/adr-016-remove-route-extractors-and-app-data.md) and the
+  [ADR 017](docs/adr-017-remove-route-extractors-and-app-data.md) and the
   [migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#removed-extractors-and-app_data).
   ([#877](https://github.com/leynos/wireframe/issues/877))
 

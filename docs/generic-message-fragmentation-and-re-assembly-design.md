@@ -436,7 +436,7 @@ When both layers are enabled, Wireframe applies them in the following order:
 4. Route and invoke handlers.
 
 Streaming request bodies are caller-owned primitives rather than an assembler
-output; see [ADR 016](adr-016-remove-route-extractors-and-app-data.md).
+output; see [ADR 017](adr-017-remove-route-extractors-and-app-data.md).
 
 In operational terms, each layer owns a distinct hand-off:
 
