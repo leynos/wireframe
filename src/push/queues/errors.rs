@@ -14,6 +14,14 @@ pub enum PushError {
     /// The receiving end of the queue has been dropped.
     #[error("push queue closed")]
     Closed,
+    /// The frame's payload exceeds the connection codec's frame limit.
+    #[error("push frame of {size} bytes exceeds the {max}-byte frame limit")]
+    FrameTooLarge {
+        /// Encoded payload size of the rejected frame.
+        size: usize,
+        /// Largest payload the connection codec will encode.
+        max: usize,
+    },
 }
 
 /// Errors returned when creating push queues.

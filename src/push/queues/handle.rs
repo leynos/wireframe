@@ -2,7 +2,6 @@
 
 use std::{
     future::{Future, poll_fn},
-    task::Poll,
     time::Duration,
 };
 
@@ -10,14 +9,17 @@ use leaky_bucket::RateLimiter;
 use log::{debug, warn};
 use tokio::{sync::mpsc, time::sleep};
 
+#[cfg(loom)]
+use super::probe::PushHandleProbe;
 use super::{
     FrameLike,
+    FrameLimit,
     PushError,
     PushPolicy,
     PushPriority,
     dlq::DeadLetterState,
     sync::{Arc, Weak},
-    waits::{PushWaitCounters, PushWaitCounts},
+    waits::{PushWaitCounters, PushWaitCounts, record_first_pending},
 };
 
 /// Shared state for [`PushHandle`].
@@ -41,6 +43,8 @@ pub(crate) struct PushHandleInner<F> {
     pub(crate) dead_letter: DeadLetterState<F>,
     /// What this handle's awaited pushes had to wait for, across both lanes.
     pub(crate) waits: PushWaitCounts,
+    /// Optional payload-size budget checked before a frame is queued.
+    pub(crate) max_frame_len: Option<FrameLimit<F>>,
 }
 
 /// Cloneable handle used by producers to push frames to a connection.
@@ -50,24 +54,6 @@ pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
 // be `Clone`: clones share the same queues and only bump the inner `Arc`.
 impl<F> Clone for PushHandle<F> {
     fn clone(&self) -> Self { Self(Arc::clone(&self.0)) }
-}
-
-/// Instrumentation helper exposing internal counters when running under loom.
-#[cfg(loom)]
-pub struct PushHandleProbe<F> {
-    /// The handle's shared state, read without taking part in any push.
-    inner: Arc<PushHandleInner<F>>,
-}
-
-#[cfg(loom)]
-impl<F> PushHandleProbe<F> {
-    /// Return the number of frames dropped into the DLQ since the last log flush.
-    #[must_use]
-    pub fn dlq_drop_count(&self) -> usize { self.inner.dead_letter.pending_count() }
-
-    /// Return the total number of drops the throttled diagnostic has reported.
-    #[must_use]
-    pub fn dlq_reported_count(&self) -> usize { self.inner.dead_letter.reported_count() }
 }
 
 impl<F: FrameLike> PushHandle<F> {
@@ -80,11 +66,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// without altering the production API.
     #[cfg(loom)]
     #[must_use]
-    pub fn probe(&self) -> PushHandleProbe<F> {
-        PushHandleProbe {
-            inner: self.0.clone(),
-        }
-    }
+    pub fn probe(&self) -> PushHandleProbe<F> { PushHandleProbe::new(self.0.clone()) }
 
     /// Internal helper to push a frame with the requested priority.
     ///
@@ -96,6 +78,7 @@ impl<F: FrameLike> PushHandle<F> {
     /// pushes and cause hangs. Instead, we perform a non-blocking check in a
     /// short sleep loop so no capacity or tokens are held while parked.
     async fn push_with_priority(&self, frame: F, priority: PushPriority) -> Result<(), PushError> {
+        self.check_frame_len(&frame)?;
         let tx = match priority {
             PushPriority::High => &self.0.high_prio_tx,
             PushPriority::Low => &self.0.low_prio_tx,
@@ -151,7 +134,9 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// # Errors
     ///
-    /// Returns [`PushError::Closed`] if the receiving end has been dropped.
+    /// Returns [`PushError::Closed`] if the receiving end has been dropped, and
+    /// [`PushError::FrameTooLarge`] if the connection's codec cannot encode
+    /// the frame.
     ///
     /// # Examples
     ///
@@ -183,7 +168,9 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// # Errors
     ///
-    /// Returns [`PushError::Closed`] if the receiving end has been dropped.
+    /// Returns [`PushError::Closed`] if the receiving end has been dropped, and
+    /// [`PushError::FrameTooLarge`] if the connection's codec cannot encode
+    /// the frame.
     ///
     /// # Examples
     ///
@@ -279,26 +266,11 @@ impl<F: FrameLike> PushHandle<F> {
         let mut is_wait_recorded = false;
         poll_fn(|cx| {
             let polled = send.as_mut().poll(cx);
-            Self::record_first_pending(&polled, &mut is_wait_recorded, &self.0.waits);
+            record_first_pending(&polled, &mut is_wait_recorded, &self.0.waits);
             polled
         })
         .await
         .map_err(|_| PushError::Closed)
-    }
-
-    /// Count one capacity wait the first time a send poll reports `Pending`.
-    ///
-    /// Split out of the `poll_fn` closure so the closure stays a poll and a
-    /// call, keeping it under the repository's nesting ceiling.
-    fn record_first_pending(
-        polled: &Poll<Result<(), mpsc::error::SendError<F>>>,
-        is_wait_recorded: &mut bool,
-        waits: &PushWaitCounts,
-    ) {
-        if polled.is_pending() && !*is_wait_recorded {
-            *is_wait_recorded = true;
-            waits.record_capacity_wait();
-        }
     }
 
     /// Poll permits without registering a parked waiter that could starve pushes.
@@ -359,6 +331,7 @@ impl<F: FrameLike> PushHandle<F> {
     where
         F: std::fmt::Debug,
     {
+        self.check_frame_len(&frame)?;
         let tx = match priority {
             PushPriority::High => &self.0.high_prio_tx,
             PushPriority::Low => &self.0.low_prio_tx,
@@ -381,6 +354,22 @@ impl<F: FrameLike> PushHandle<F> {
             },
             Err(mpsc::error::TrySendError::Closed(_)) => Err(PushError::Closed),
         }
+    }
+
+    /// Reject a frame the connection's codec could not encode.
+    ///
+    /// Checking at enqueue keeps an unencodable push from being reported as
+    /// accepted and then ending the connection in the encoder. A handle built
+    /// without a limit accepts every frame, because only the application knows
+    /// which codec will write them.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PushError::FrameTooLarge`] when the payload exceeds the limit.
+    fn check_frame_len(&self, frame: &F) -> Result<(), PushError> {
+        self.0
+            .max_frame_len
+            .map_or(Ok(()), |limit| limit.check(frame))
     }
 
     /// Downgrade to a `Weak` reference for storage in a registry.

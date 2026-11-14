@@ -9,7 +9,7 @@ use super::super::WireframeApp;
 use crate::{
     app::{PrepareError, PreparedApp},
     codec::LengthDelimitedFrameCodec,
-    push::{PushQueues, PushQueuesBuilder},
+    push::{PushError, PushQueues, PushQueuesBuilder},
     session::{ConnectionId, SessionRegistry},
 };
 
@@ -104,6 +104,34 @@ async fn prepared_app_retains_session_registry() -> Result<(), Box<dyn std::erro
 
     if !Arc::ptr_eq(&prepared.session_registry(), &registry) {
         return Err("preparation should preserve the supplied registry".into());
+    }
+    Ok(())
+}
+
+/// The template handed to each connection rejects a push the codec cannot
+/// encode, and accepts one at the limit.
+#[tokio::test]
+async fn prepared_push_template_enforces_the_codec_limit() -> Result<(), Box<dyn std::error::Error>>
+{
+    let builder: WireframeApp = WireframeApp::new()?;
+    let prepared: PreparedApp = builder
+        .with_codec(LengthDelimitedFrameCodec::new(64))
+        .prepare()
+        .await?;
+    let (_queues, handle) = prepared.push_queues().build()?;
+
+    let oversized = handle
+        .push_high_priority(Bytes::from_static(&[0; 65]))
+        .await;
+    if oversized != Err(PushError::FrameTooLarge { size: 65, max: 64 }) {
+        return Err("the connection template must carry the codec limit".into());
+    }
+    if handle
+        .push_high_priority(Bytes::from_static(&[0; 64]))
+        .await
+        .is_err()
+    {
+        return Err("a frame at the codec limit must be accepted".into());
     }
     Ok(())
 }

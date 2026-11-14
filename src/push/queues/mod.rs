@@ -15,7 +15,10 @@ use tokio::sync::{Semaphore, mpsc};
 mod builder;
 mod dlq;
 mod errors;
+mod frame_limit;
 mod handle;
+#[cfg(loom)]
+mod probe;
 mod sync;
 mod waits;
 
@@ -35,6 +38,8 @@ pub(crate) use waits::PushWaitCounts;
 pub trait FrameLike: Send + 'static {}
 
 impl<T> FrameLike for T where T: Send + 'static {}
+
+pub(crate) use frame_limit::FrameLimit;
 
 // Default maximum pushes per second when no custom rate is specified.
 // This is an internal implementation detail and may change.
@@ -161,6 +166,7 @@ impl<F: FrameLike> PushQueues<F> {
     /// Validate configuration, allocate channels, and pair them with a handle.
     pub(super) fn build_with_config(
         config: PushQueueConfig<F>,
+        max_frame_len: Option<FrameLimit<F>>,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
         let PushQueueConfig {
             high_capacity,
@@ -194,6 +200,7 @@ impl<F: FrameLike> PushQueues<F> {
             limiter,
             dead_letter: DeadLetterState::new(dlq, dlq_log_every_n, dlq_log_interval),
             waits: PushWaitCounts::default(),
+            max_frame_len,
         };
         Ok((
             Self {
@@ -282,7 +289,10 @@ impl<F: FrameLike> PushQueues<F> {
         rate: Option<usize>,
         dlq: Option<mpsc::Sender<F>>,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
-        Self::build_with_config(PushQueueConfig::new(high_capacity, low_capacity, rate, dlq))
+        Self::build_with_config(
+            PushQueueConfig::new(high_capacity, low_capacity, rate, dlq),
+            None,
+        )
     }
 
     /// Receive the next frame, preferring high priority frames when available.

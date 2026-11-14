@@ -19,7 +19,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     Route,
-    builder::WireframeApp,
+    builder::{WireframeApp, push::with_codec_frame_limit},
     connection_runtime::{ConnectionRuntime, InboundConfig},
     envelope::{Envelope, Packet},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
@@ -224,7 +224,10 @@ where
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
                 shutdown: &shutdown,
-                push_queues: self.push_queues.clone().unwrap_or_default(),
+                push_queues: with_codec_frame_limit(
+                    self.push_queues.clone().unwrap_or_default(),
+                    &self.codec,
+                ),
                 session_registry: Arc::clone(&self.session_registry),
             },
         )

@@ -7,6 +7,7 @@ use tokio::sync::mpsc;
 use super::{
     DEFAULT_PUSH_RATE,
     FrameLike,
+    FrameLimit,
     PushConfigError,
     PushHandle,
     PushQueueConfig,
@@ -78,6 +79,8 @@ pub struct PushQueuesBuilder<F> {
     dlq_log_every_n: usize,
     /// Minimum interval between drop diagnostics.
     dlq_log_interval: Duration,
+    /// Optional payload-size limit applied before a frame is queued.
+    max_frame_len: Option<FrameLimit<F>>,
 }
 
 // Written by hand so a stored builder can seed per-connection queues without
@@ -92,6 +95,7 @@ impl<F> Clone for PushQueuesBuilder<F> {
             dlq: self.dlq.clone(),
             dlq_log_every_n: self.dlq_log_every_n,
             dlq_log_interval: self.dlq_log_interval,
+            max_frame_len: self.max_frame_len,
         }
     }
 }
@@ -108,6 +112,7 @@ impl<F: FrameLike> Default for PushQueuesBuilder<F> {
             // verbosity.
             dlq_log_every_n: 1,
             dlq_log_interval: Duration::from_secs(10),
+            max_frame_len: None,
         }
     }
 }
@@ -159,6 +164,32 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
         self
     }
 
+    /// Reject pushes whose encoded payload exceeds `max` bytes.
+    ///
+    /// `payload_len` reports how many payload bytes a frame encodes to. It is
+    /// supplied by the codec rather than assumed, because a codec's frame type
+    /// need not expose its own payload length. The check runs before a frame is
+    /// queued, so a push the connection cannot encode is reported to its
+    /// producer instead of failing the connection when the encoder sees it.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use wireframe::push::PushQueues;
+    ///
+    /// # fn main() {
+    /// let (_queues, _handle) = PushQueues::<Vec<u8>>::builder()
+    ///     .max_frame_len(64, |frame: &Vec<u8>| frame.len())
+    ///     .build()
+    ///     .expect("failed to build PushQueues");
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn max_frame_len(mut self, max: usize, payload_len: fn(&F) -> usize) -> Self {
+        self.max_frame_len = Some(FrameLimit { max, payload_len });
+        self
+    }
+
     /// Minimum interval between DLQ drop log entries.
     #[must_use]
     pub const fn dlq_log_interval(mut self, interval: Duration) -> Self {
@@ -203,13 +234,14 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     /// greater than [`tokio::sync::Semaphore::MAX_PERMITS`].
     pub fn build(self) -> Result<(PushQueues<F>, PushHandle<F>), PushConfigError> {
         self.validate()?;
-        PushQueues::build_with_config(PushQueueConfig {
+        let config = PushQueueConfig {
             high_capacity: self.high_capacity,
             low_capacity: self.low_capacity,
             rate: self.rate,
             dlq: self.dlq,
             dlq_log_every_n: self.dlq_log_every_n,
             dlq_log_interval: self.dlq_log_interval,
-        })
+        };
+        PushQueues::build_with_config(config, self.max_frame_len)
     }
 }

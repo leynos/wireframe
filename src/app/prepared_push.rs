@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use super::{Packet, PreparedApp};
+use super::{Packet, PreparedApp, builder::push::with_codec_frame_limit};
 use crate::{
     codec::FrameCodec,
     push::PushQueuesBuilder,
@@ -43,7 +43,10 @@ where
     /// Return the push-queue template used for each new connection.
     ///
     /// A prepared application always yields a template: when the builder stored
-    /// none, the default queue configuration is returned.
+    /// none, the default queue configuration is returned. The template is
+    /// bounded by the application codec's frame limit, so a connection's push
+    /// handle rejects a frame its codec could not encode instead of letting
+    /// the encoder fail and end the connection.
     ///
     /// # Examples
     ///
@@ -59,6 +62,6 @@ where
     /// ```
     #[must_use]
     pub fn push_queues(&self) -> PushQueuesBuilder<F::Frame> {
-        self.push_queues.clone().unwrap_or_default()
+        with_codec_frame_limit(self.push_queues.clone().unwrap_or_default(), &self.codec)
     }
 }

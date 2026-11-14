@@ -2737,7 +2737,10 @@ interleave with a streaming or multi-packet response rather than waiting for it
 to finish. High-priority pushes are written ahead of low-priority ones, the
 queue rate limit applies across both lanes, and a frame a full queue refuses
 follows the configured `PushPolicy` and reaches the dead-letter queue when one
-is set.
+is set. A frame whose encoded payload exceeds the connection codec's frame
+limit is refused with `PushError::FrameTooLarge` before it is queued, so an
+unencodable push is reported to its producer instead of failing the connection
+when the encoder sees it.
 
 Two kinds of end of connection behave differently:
 
@@ -2840,10 +2843,13 @@ to enumerate active sessions.[^40]
 
 The registry also allocates connection identifiers through
 `next_connection_id`: the first is `1`, later ones increase monotonically, and
-a value freed by a closed connection is never reused, so a stale identifier can
-never address a new session. Server connections call it themselves, then
-register their handle before their protocol setup callback runs and deregister
-when the connection task ends. See
+a value the registry allocated is never reused after a closed connection frees
+it, so an identifier obtained that way cannot address a new session. The
+guarantee covers allocated identifiers only: `insert` accepts any identifier,
+and one inserted by hand can later be allocated to a server connection, so
+pushes addressed to it reach that connection. Server connections call
+`next_connection_id` themselves, then register their handle before their
+protocol setup callback runs and deregister when the connection task ends. See
 [Server connections and push queues](#server-connections-and-push-queues) for
 the application-side configuration.
 

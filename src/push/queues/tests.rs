@@ -3,7 +3,7 @@
 use tokio::sync::mpsc;
 
 use super::{PushConfigError, PushQueues, PushQueuesBuilder};
-use crate::push::{PushPolicy, PushPriority};
+use crate::push::{PushError, PushPolicy, PushPriority};
 
 /// Frame type that deliberately does not implement `Clone`.
 struct NotClone;
@@ -94,4 +94,39 @@ fn validate_rejects_out_of_range_rate() {
         matches!(builder.validate(), Err(PushConfigError::InvalidRate(0))),
         "zero rate must be rejected before channels are allocated"
     );
+}
+
+/// A frame the connection codec cannot encode is refused before it is queued.
+///
+/// A deferred push reaches the encoder unchanged, so accepting it here would
+/// report success and then fail the connection when the encoder rejected the
+/// frame. Both the awaited and the non-blocking push paths must report it to
+/// the producer instead.
+#[tokio::test]
+async fn oversized_push_is_rejected_before_queueing() {
+    let (mut queues, handle) = PushQueues::<Vec<u8>>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .unlimited()
+        .max_frame_len(4, |frame: &Vec<u8>| frame.len())
+        .build()
+        .expect("queue builds");
+
+    assert_eq!(
+        handle.push_high_priority(vec![0; 5]).await,
+        Err(PushError::FrameTooLarge { size: 5, max: 4 }),
+        "an oversized awaited push must be reported"
+    );
+    assert_eq!(
+        handle.try_push(vec![0; 5], PushPriority::High, PushPolicy::DropIfFull),
+        Err(PushError::FrameTooLarge { size: 5, max: 4 }),
+        "an oversized push must not be dropped silently"
+    );
+
+    handle
+        .push_high_priority(vec![0; 4])
+        .await
+        .expect("a frame at the limit fits");
+    let (_, frame) = queues.recv().await.expect("the accepted push is queued");
+    assert_eq!(frame.len(), 4, "only the frame within the limit is queued");
 }
