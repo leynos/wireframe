@@ -938,7 +938,7 @@ parallel runtime.
 - [x] 20.1.2. Prepare the application factory once before server readiness and
   share the immutable prepared root with accept loops and connection tasks. See
   issue [#642](https://github.com/leynos/wireframe/issues/642).
-- [ ] 20.1.3. Extract connection-local runtime ownership and lifecycle
+- [x] 20.1.3. Extract connection-local runtime ownership and lifecycle
   finalization. See issue
   [#643](https://github.com/leynos/wireframe/issues/643).
 

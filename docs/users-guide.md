@@ -1493,15 +1493,22 @@ additional ergonomics on top of the core primitives.[^13]
 `WireframeApp` supports optional setup and teardown callbacks that run once per
 connection. Setup can return arbitrary state retained until teardown executes
 after the stream finishes processing. When a teardown hook is registered and
-setup has produced state, teardown runs exactly once, covering clean completion
-and decode, protocol, or transport errors. It does not run when either hook is
-absent, nor on task panic or cancellation.[^2] Preparation moves those callback
-definitions into the immutable `PreparedApp`; `PreparedApp::handle_connection`
-reuses the prepared middleware chains, enforces read timeouts, and records
-metrics for inbound frames, serialization failures, and handler errors before
-logging warnings.[^6][^7] `PacketParts::inherit_correlation` ensures response
-packets carry the correct correlation identifier even when middleware omits
-it.[^8]
+setup has produced state, teardown runs exactly once for clean completion,
+decode, protocol, or transport errors, and a handler panic caught by the
+connection runtime. Setup completes before the connection's framing state is
+created, and the transport is released before teardown runs, so a teardown
+callback that waits for the peer to observe closure can complete. It does not
+run when either hook is absent, when setup fails or never completes, or when
+the connection future is dropped or aborted before processing stops. Dropping
+the connection future while teardown is awaiting interrupts the callback before
+it completes. A teardown callback that panics is invoked once, may not
+complete, and is not retried; `panic = "abort"` builds cannot recover a handler
+panic.[^2] Preparation moves those callback definitions into the immutable
+`PreparedApp`; `PreparedApp::handle_connection` reuses the prepared middleware
+chains, applies the inbound read wake-up interval, and records metrics for
+inbound frames, serialization failures, and handler errors before logging
+warnings.[^6][^7] `PacketParts::inherit_correlation` ensures response packets
+carry the correct correlation identifier even when middleware omits it.[^8]
 
 Immediate responses are available through `send_response` and
 `send_response_framed`, both of which report serialization or I/O problems via
@@ -3210,12 +3217,14 @@ directories (one per shard on full dispatch runs) for offline triage.
   `log` and `tracing` consumers.[^39]
 
 [^1]: Implemented in `src/lib.rs` (lines 2-33).
-[^2]: Implemented in `src/app/builder.rs` (lines 66-209).
+[^2]: Implemented in `src/app/builder/lifecycle.rs` and
+      `src/app/connection_runtime/mod.rs`.
 [^3]: Implemented in `src/app/builder.rs` (lines 100-121, 347-360).
 [^4]: Implemented in `src/app/builder.rs` (lines 326-344).
 [^5]: Implemented in `src/error.rs` (lines 1-68).
-[^6]: Implemented in `src/app/inbound_handler/mod.rs` (lines 41-205).
-[^7]: Implemented in `src/app/inbound_handler/mod.rs` (lines 207-289).
+[^6]: Implemented in `src/app/prepared_app.rs` and
+      `src/app/inbound_handler/mod.rs` (lines 1-247).
+[^7]: Implemented in `src/app/connection_runtime/inbound.rs`.
 [^8]: Implemented in `src/app/envelope.rs` (lines 11-172).
 [^9]: Implemented in `src/frame/metadata.rs` (lines 1-40).
 [^10]: Implemented in `src/message.rs` (lines 4-41).

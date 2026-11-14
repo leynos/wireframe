@@ -135,3 +135,52 @@ impl FrameCodec for TestCodec {
 
     fn max_frame_length(&self) -> usize { self.max_frame_length }
 }
+
+/// Codec wrapper that counts how often it is cloned.
+///
+/// Each connection clones the prepared codec once so framing state stays
+/// isolated. Tests wrap a codec with this type and share the clone counter to
+/// prove the clone happens only after connection setup completes.
+#[derive(Debug)]
+pub struct CloneCountingCodec<F> {
+    /// Codec receiving the delegated calls.
+    inner: F,
+    /// Number of times this wrapper has been cloned.
+    clones: Arc<AtomicUsize>,
+}
+
+impl<F> CloneCountingCodec<F> {
+    /// Wrap `inner`, counting every clone into `clones`.
+    #[must_use]
+    pub const fn new(inner: F, clones: Arc<AtomicUsize>) -> Self { Self { inner, clones } }
+}
+
+impl<F: Clone> Clone for CloneCountingCodec<F> {
+    fn clone(&self) -> Self {
+        self.clones.fetch_add(1, Ordering::SeqCst);
+        Self {
+            inner: self.inner.clone(),
+            clones: Arc::clone(&self.clones),
+        }
+    }
+}
+
+impl<F: FrameCodec> FrameCodec for CloneCountingCodec<F> {
+    type Frame = F::Frame;
+    type Decoder = F::Decoder;
+    type Encoder = F::Encoder;
+
+    fn decoder(&self) -> Self::Decoder { self.inner.decoder() }
+
+    fn encoder(&self) -> Self::Encoder { self.inner.encoder() }
+
+    fn frame_payload(frame: &Self::Frame) -> &[u8] { F::frame_payload(frame) }
+
+    fn frame_payload_bytes(frame: &Self::Frame) -> Bytes { F::frame_payload_bytes(frame) }
+
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame { self.inner.wrap_payload(payload) }
+
+    fn correlation_id(frame: &Self::Frame) -> Option<u64> { F::correlation_id(frame) }
+
+    fn max_frame_length(&self) -> usize { self.inner.max_frame_length() }
+}
