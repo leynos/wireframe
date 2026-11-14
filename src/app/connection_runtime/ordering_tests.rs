@@ -26,7 +26,7 @@ use tokio_util::sync::CancellationToken;
 use super::tests::{PanickingDecoderCodec, drive};
 use crate::{
     app::{Envelope, PreparedApp, WireframeApp},
-    codec::LengthDelimitedFrameCodec,
+    codec::{FrameCodec, LengthDelimitedFrameCodec},
     serializer::BincodeSerializer,
     test_helpers::CloneCountingCodec,
 };
@@ -265,24 +265,38 @@ struct ConnectionState {
     id: u32,
 }
 
-/// A panic while building inbound state still finalizes the setup value.
-#[tokio::test]
-async fn codec_initialization_panic_finalizes_the_setup_value() {
-    let observed = Arc::new(Mutex::new(Vec::new()));
-    let teardown_observed = Arc::clone(&observed);
-
-    let prepared = WireframeApp::<BincodeSerializer, ConnectionState, Envelope>::new()
+/// Build an app whose setup produces a non-`Clone` state for teardown to log.
+///
+/// Teardown records the identity it was handed, so a lost or duplicated
+/// hand-off is observable. The codec is a parameter because one caller also
+/// exercises a panic during inbound initialization.
+fn non_clone_state_app<F>(
+    id: u32,
+    observed: Arc<Mutex<Vec<u32>>>,
+    codec: F,
+) -> WireframeApp<BincodeSerializer, ConnectionState, Envelope, F>
+where
+    F: FrameCodec,
+{
+    WireframeApp::<BincodeSerializer, ConnectionState, Envelope>::new()
         .expect("build application")
-        .with_codec(PanickingDecoderCodec::new())
-        .on_connection_setup(|| async { ConnectionState { id: 11 } })
+        .with_codec(codec)
+        .on_connection_setup(move || async move { ConnectionState { id } })
         .expect("register setup hook")
         .on_connection_teardown(move |state: ConnectionState| {
-            let receipt_log = Arc::clone(&teardown_observed);
+            let receipt_log = Arc::clone(&observed);
             async move {
                 receipt_log.lock().expect("receipt log").push(state.id);
             }
         })
         .expect("register teardown hook")
+}
+
+/// A panic while building inbound state still finalizes the setup value.
+#[tokio::test]
+async fn codec_initialization_panic_finalizes_the_setup_value() {
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let prepared = non_clone_state_app(11, Arc::clone(&observed), PanickingDecoderCodec::new())
         .prepare()
         .await
         .expect("prepare application");
@@ -308,22 +322,14 @@ async fn codec_initialization_panic_finalizes_the_setup_value() {
 #[tokio::test]
 async fn cancellation_finalizes_the_exact_non_clone_setup_value() {
     let observed = Arc::new(Mutex::new(Vec::new()));
-    let teardown_observed = Arc::clone(&observed);
-
-    let prepared = WireframeApp::<BincodeSerializer, ConnectionState, Envelope>::new()
-        .expect("build application")
-        .on_connection_setup(|| async { ConnectionState { id: 7 } })
-        .expect("register setup hook")
-        .on_connection_teardown(move |state: ConnectionState| {
-            let receipt_log = Arc::clone(&teardown_observed);
-            async move {
-                receipt_log.lock().expect("receipt log").push(state.id);
-            }
-        })
-        .expect("register teardown hook")
-        .prepare()
-        .await
-        .expect("prepare application");
+    let prepared = non_clone_state_app(
+        7,
+        Arc::clone(&observed),
+        LengthDelimitedFrameCodec::default(),
+    )
+    .prepare()
+    .await
+    .expect("prepare application");
 
     let token = CancellationToken::new();
     token.cancel();
