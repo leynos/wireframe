@@ -27,12 +27,13 @@ use support::{
 use tokio::{
     io::AsyncWriteExt,
     net::TcpStream,
-    sync::mpsc,
+    sync::{Notify, mpsc},
     time::{Instant, timeout},
 };
 use wireframe::{
-    app::WireframeApp,
+    app::{Envelope, Handler, WireframeApp},
     push::{PushError, PushQueues},
+    serializer::{BincodeSerializer, Serializer},
     session::{ConnectionId, SessionRegistry},
 };
 use wireframe_testing::TestResult;
@@ -193,6 +194,85 @@ async fn pushes_are_rejected_after_the_connection_closes() -> TestResult<()> {
         }
     }
 
+    stop(&shutdown).await
+}
+
+/// Write one length-delimited request envelope after the preamble is unblocked.
+///
+/// [`unblock_preamble`] has already written the leading zero byte, which the
+/// default `()` preamble leaves buffered as the first byte of the application's
+/// four-byte length prefix. This helper writes the rest of that prefix and then
+/// the encoded envelope, so the route receives a well-formed frame.
+async fn write_request(stream: &mut TcpStream, route_id: u32) -> TestResult<()> {
+    let envelope = Envelope::new(route_id, Some(1), Vec::new());
+    let payload = BincodeSerializer.serialize(&envelope)?;
+    let prefix = u32::try_from(payload.len())?.to_be_bytes();
+    let (leading, remainder) = prefix
+        .split_first()
+        .ok_or("a four-byte length prefix is never empty")?;
+    if *leading != 0 {
+        return Err("request payload exceeds the preamble-primed length prefix".into());
+    }
+    stream.write_all(remainder).await?;
+    stream.write_all(&payload).await?;
+    Ok(())
+}
+
+/// Frames still queued when the peer half-closes are delivered before exit.
+///
+/// The route handler holds the connection loop inside dispatch, so both pushes
+/// are still sitting in their lanes when the client's write half closes. A
+/// clean end-of-stream must drain those lanes, high priority before low, rather
+/// than discard frames a producer was told had been accepted.
+#[tokio::test]
+async fn queued_pushes_are_drained_after_a_clean_peer_close() -> TestResult<()> {
+    let protocol = PushTestProtocol::new();
+    let started = Arc::new(Notify::new());
+    let gate = Arc::new(Notify::new());
+    let handler_started = Arc::clone(&started);
+    let handler_gate = Arc::clone(&gate);
+    let handler: Handler<Envelope> = Arc::new(move |_request: &Envelope| {
+        let started = Arc::clone(&handler_started);
+        let gate = Arc::clone(&handler_gate);
+        Box::pin(async move {
+            started.notify_one();
+            gate.notified().await;
+        })
+    });
+    let app = WireframeApp::default()
+        .route(1, handler)?
+        .with_protocol(protocol.clone());
+    let (addr, shutdown) = spawn_server(app).await?;
+    let mut client = TcpStream::connect(addr).await?;
+    unblock_preamble(&mut client).await?;
+    let (_, handle) = only_connection(&protocol).await?;
+
+    write_request(&mut client, 1).await?;
+    timeout(EVENT_TIMEOUT, started.notified())
+        .await
+        .map_err(|_| "the route handler did not start")?;
+
+    handle
+        .push_high_priority(Bytes::from_static(b"drained-high"))
+        .await
+        .map_err(|error| format!("high-priority push should be accepted: {error:?}"))?;
+    handle
+        .push_low_priority(Bytes::from_static(b"drained-low"))
+        .await
+        .map_err(|error| format!("low-priority push should be accepted: {error:?}"))?;
+
+    client.shutdown().await?;
+    gate.notify_one();
+
+    // The handler's own response is written first; the drained pushes follow.
+    timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
+    let high = timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
+    let low = timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
+    if high != b"drained-high" || low != b"drained-low" {
+        return Err(format!("drain should deliver high then low: {high:?}, {low:?}").into());
+    }
+
+    drop(client);
     stop(&shutdown).await
 }
 
