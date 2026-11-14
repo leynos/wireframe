@@ -4,9 +4,11 @@
 //! handler that fills a lane while it runs could otherwise wait for itself.
 //! These helpers poll the queues alongside the handler and write each frame
 //! they take under the same shutdown and idle-grace bounds the actor applies to
-//! its own output.
+//! its own output. A push write can block on a peer that stopped reading while
+//! still connected, so the handler keeps being polled during that write rather
+//! than waiting for the transport.
 
-use std::{future::Future, io};
+use std::{future::Future, io, pin::Pin, time::Duration};
 
 use futures::Sink;
 use log::warn;
@@ -16,7 +18,7 @@ use super::ResponseContext;
 use crate::{
     app::codec_driver::ActorFrameSink,
     codec::FrameCodec,
-    connection::{PushSink, write_before_bound},
+    connection::PushSink,
     serializer::Serializer,
 };
 
@@ -45,40 +47,131 @@ where
 {
     let shutdown = ctx.actor.shutdown_token();
     let unobserved = ctx.actor.unobserved_token();
+    let bounds = PushWriteBounds {
+        shutdown: &shutdown,
+        unobserved: &unobserved,
+        grace: ctx.actor.peer_closed_grace(),
+    };
     let mut lanes_open = ctx.actor.has_open_push_lanes();
-    tokio::pin!(call);
+    let mut handler = HandlerRun {
+        call: std::pin::pin!(call),
+        finished: None,
+    };
     loop {
-        tokio::select! {
+        let frames = tokio::select! {
             biased;
-            response = &mut call => return Ok(Some(response)),
-            received = ctx.actor.next_pushes(), if lanes_open => match received {
-                Some(frames) => {
-                    // Each write is outside the actor's own bounds, so each is
-                    // bounded the same way: a ready write wins, a blocked one
-                    // is cut short by the stop token, and the idle grace
-                    // bounds it once the peer can no longer be observed. A
-                    // peer that half-closed and stopped reading would
-                    // otherwise pin the connection and its server drain.
-                    //
-                    // The deadline is rebuilt per frame so the grace measures
-                    // idleness rather than the batch's total duration: a batch
-                    // the peer keeps accepting must not be abandoned merely
-                    // for taking longer than one grace.
-                    let grace = ctx.actor.peer_closed_grace();
-                    for frame in frames {
-                        let deadline = grace_after_observation(&unobserved, grace);
-                        let bound =
-                            write_before_bound(write_push(ctx, frame), &shutdown, deadline).await?;
-                        if !bound.is_finished() {
-                            if bound.is_grace_expired() {
-                                warn!("abandoning a push write: the peer stopped reading");
-                            }
-                            return Ok(None);
-                        }
-                    }
-                }
-                None => lanes_open = false,
+            response = handler.poll_while_running() => return Ok(Some(response)),
+            received = ctx.actor.next_pushes(), if lanes_open => {
+                let Some(frames) = received else {
+                    lanes_open = false;
+                    continue;
+                };
+                frames
             },
+        };
+        for frame in frames {
+            if write_push_watching(ctx, frame, &mut handler, &bounds).await? == PushWrite::Abandoned
+            {
+                return Ok(None);
+            }
+        }
+        // A response produced during a write is returned only once the frames
+        // already taken from the lane are written, so no queued push is lost.
+        if let Some(response) = handler.finished.take() {
+            return Ok(Some(response));
+        }
+    }
+}
+
+/// The handler future plus a response it produced during a push write.
+///
+/// A push write can block on a peer that stopped reading while the peer is
+/// still observed, so the handler keeps being polled during the write. Once it
+/// completes, its response is stored here and the future is never polled
+/// again, because polling a completed future is not allowed.
+struct HandlerRun<'a, Fut: Future> {
+    /// Handler future, polled until it completes.
+    call: Pin<&'a mut Fut>,
+    /// Response captured when the handler finished during a push write.
+    finished: Option<Fut::Output>,
+}
+
+impl<Fut: Future> HandlerRun<'_, Fut> {
+    /// Resolve with the handler's response unless it already finished.
+    ///
+    /// The future stays pending once the response is stored, so this can stay
+    /// one arm of a `select!` without polling the completed handler again.
+    async fn poll_while_running(&mut self) -> Fut::Output {
+        if self.finished.is_some() {
+            return std::future::pending().await;
+        }
+        self.call.as_mut().await
+    }
+}
+
+/// Bounds applied to a push write made while a handler runs.
+struct PushWriteBounds<'a> {
+    /// Token cancelled when the server must stop.
+    shutdown: &'a CancellationToken,
+    /// Token cancelled once the peer can no longer be observed.
+    unobserved: &'a CancellationToken,
+    /// How long an unobservable peer may take to accept one frame.
+    grace: Duration,
+}
+
+/// Whether a push write let the connection keep serving its peer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PushWrite {
+    /// The frame reached the transport.
+    Written,
+    /// The push was abandoned; the connection must stop.
+    Abandoned,
+}
+
+/// Write one drained push frame while continuing to poll the handler.
+///
+/// A peer that is still observed can stop reading without closing, and the
+/// transport write then waits for its receive window. Awaiting that write alone
+/// would stop polling the handler until the server stops, so a handler timeout
+/// or recovery path could not run. The write is therefore raced against the
+/// handler: a response it produces first is stored, and the write still runs to
+/// completion or to one of its bounds, because dropping an unfinished frame
+/// write and reusing the transport would truncate the frame stream.
+async fn write_push_watching<S, K, F, Fut>(
+    ctx: &mut ResponseContext<'_, S, K, F>,
+    frame: F::Frame,
+    handler: &mut HandlerRun<'_, Fut>,
+    bounds: &PushWriteBounds<'_>,
+) -> io::Result<PushWrite>
+where
+    S: Serializer + Send + Sync,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
+    F: FrameCodec,
+    Fut: Future,
+{
+    let writing = write_push(ctx, frame);
+    tokio::pin!(writing);
+    let deadline = grace_after_observation(bounds.unobserved, bounds.grace);
+    tokio::pin!(deadline);
+    loop {
+        let response = tokio::select! {
+            biased;
+            // A ready write is preferred, matching the actor's own rule: output
+            // the transport would take must not be discarded for a bound that
+            // has already fired.
+            result = &mut writing => {
+                result?;
+                return Ok(PushWrite::Written);
+            }
+            response = handler.poll_while_running() => Some(response),
+            () = bounds.shutdown.cancelled() => return Ok(PushWrite::Abandoned),
+            () = &mut deadline => {
+                warn!("abandoning a push write: the peer stopped reading");
+                return Ok(PushWrite::Abandoned);
+            }
+        };
+        if let Some(pending) = response {
+            handler.finished = Some(pending);
         }
     }
 }
@@ -91,10 +184,7 @@ where
 /// still watching deserves the time it takes to accept the frame. The timer is
 /// therefore built only after the token is cancelled: a deadline created
 /// earlier would already be part-way through its interval, or past it.
-pub(super) async fn grace_after_observation(
-    unobserved: &CancellationToken,
-    grace: std::time::Duration,
-) {
+pub(super) async fn grace_after_observation(unobserved: &CancellationToken, grace: Duration) {
     unobserved.cancelled().await;
     tokio::time::sleep(grace).await;
 }
