@@ -222,17 +222,25 @@ where
     loop {
         relieve_memory_pressure(&mut pipeline, &mut message_assembly, effective_budgets).await?;
 
-        let Some(frame) = await_inbound_frame(
-            &mut pending_frame,
-            &mut reader,
-            context.read_timeout_ms,
-            &mut ExpiryState {
-                pipeline: &mut pipeline,
-                message_assembly: &mut message_assembly,
-            },
-        )
-        .await?
-        else {
+        let mut expiry = ExpiryState {
+            pipeline: &mut pipeline,
+            message_assembly: &mut message_assembly,
+        };
+        let read = tokio::select! {
+            biased;
+            // A read timeout only retries the read, so a shutdown that is not
+            // observed here would wait for a peer that keeps its socket open
+            // without sending anything. That would pin this task, its gauge
+            // guard and the server drain.
+            () = context.shutdown.cancelled() => break,
+            frame = await_inbound_frame(
+                &mut pending_frame,
+                &mut reader,
+                context.read_timeout_ms,
+                &mut expiry,
+            ) => frame?,
+        };
+        let Some(frame) = read else {
             break;
         };
 
