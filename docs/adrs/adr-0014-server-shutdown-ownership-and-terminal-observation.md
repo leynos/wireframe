@@ -344,6 +344,36 @@ stops the server mid-response and requires every frame, the terminator, and the
 completion hook to arrive, and by the unit tables for a drained versus
 abandoned stream and for an abandoned terminator.
 
+## Addendum: connection tasks observe the worker stop token (2026-11-14)
+
+The sentence in section 2 that says connection tasks are tracked without
+receiving the cancellation token, and the rejected shortcut "Do not pass the
+stop token into connection tasks", describe the runtime before issue
+[#874](https://github.com/leynos/wireframe/issues/874). That change gave the
+prepared connection path a bound for a peer that stops reading: the accept loop
+now hands each accepted connection a clone of the worker shutdown token, and
+the connection loop derives a child token from it so its own exit guard cancels
+only that connection.
+
+This amendment supersedes both statements. A cancelled worker token now reaches
+every accepted connection:
+
+- a connection blocked writing to a peer that stopped reading abandons the
+  pending write instead of pinning its task;
+- a frame still waiting in a connection's push queues at that moment is
+  dropped rather than flushed;
+- `drained()` still proves every connection task has returned, because the
+  tracker drain is unchanged.
+
+The trade-off is deliberate. A server stop is bounded even when a peer stops
+reading, and losing queued pushes is acceptable where the alternative is a
+connection that never ends. Issue
+[#875](https://github.com/leynos/wireframe/issues/875) adds the push path this
+bound applies to, and the users' guide documents the resulting shutdown
+behaviour.
+
+The rest of this ADR is unchanged.
+
 ## References
 
 - [ADR 011: runtime ownership and task-lifetime boundaries](adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)

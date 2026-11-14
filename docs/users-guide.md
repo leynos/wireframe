@@ -2742,7 +2742,9 @@ Two kinds of end of connection behave differently:
   what is still buffered: a write already in progress is abandoned rather than
   awaited, so the server drain never blocks on a peer that has stopped reading.
   A frame that was queued but not yet written at that point is not guaranteed
-  to arrive.
+  to arrive. This bound is why accepted connections observe the server stop
+  token; [ADR 014](adr-014-server-shutdown-ownership.md) records the decision
+  and its addendum.
 
 `WireframeApp::with_push_dlq` is deprecated since 0.4.0. Its sink receives
 serialized payloads, is no longer consulted when connection queues are built,
