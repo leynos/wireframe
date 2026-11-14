@@ -1881,6 +1881,55 @@ inbound assembly helpers await the signal with a timeout. The signal marks
 header parsing only; it does not mean the complete message has reached its
 handler.
 
+#### BDD family naming and registration
+
+A behaviour family shares one stem across three locations under `tests/`:
+
+- `tests/features/<stem>.feature` holds the Gherkin scenarios.
+- `tests/scenarios/<stem>_scenarios.rs` binds each scenario title and imports
+  that family's world fixture.
+- The fixture is either `tests/fixtures/<stem>.rs` or a directory with
+  `tests/fixtures/<stem>/mod.rs`. Both layouts are equivalent.
+
+Each family is registered in exactly one harness. Most families register in the
+main harness, whose `tests/bdd/mod.rs` declares `tests/scenarios/mod.rs` and
+`tests/fixtures/mod.rs`; those registries declare the family as
+`mod <stem>_scenarios;` and `pub mod <stem>;` respectively. Pool families
+register in `tests/bdd_pool/`, whose `scenarios.rs` and `fixtures.rs` declare
+the family's files with harness-relative `#[path]` attributes. A family must
+not be registered in both harnesses, and a scenario module must be registered
+in the same harness as its fixture module.
+
+Scenario bindings take literal `path` and `name` arguments:
+
+```rust
+#[scenario(
+    path = "tests/features/correlation.feature",
+    name = "Streamed frames reuse the request correlation id"
+)]
+```
+
+The `path` must name the family's own feature file, and every `Scenario:` or
+`Scenario Outline:` title in that file needs exactly one binding whose `name`
+matches the trimmed title. The check rejects duplicate bindings, bindings for
+titles the feature does not contain, and titles without a binding. Scenario
+modules import their world as `use crate::fixtures::<stem>::*;` or a grouped
+explicit import such as `use crate::fixtures::<stem>::{World, world};`.
+
+Fixture registry declarations for a family are public (`pub mod <stem>;`).
+Modules under `tests/fixtures/` that support a family without defining its
+world stay private (`mod <support>;`), and a private module needs no feature of
+its own. A public fixture module without a matching feature, and a scenario
+module without a matching feature, are reported as orphans.
+
+`tests/bdd_wiring.rs` enforces these rules, and `make test` runs it.
+`make test-bdd` does not run the check. The check deliberately does not enforce
+step modules, step-text resolution, `#[cfg]` placement, fixture function or
+world names, scenario function names, or parameterless scenarios. Step modules
+keep the same-stem convention (`tests/steps/<stem>_steps.rs`), and the
+`rstest-bdd` strict compile-time validation already rejects a bound scenario
+whose steps are missing, so the wiring check adds no duplicate step inspection.
+
 ### Non-zero test values
 
 [`tests/support/non_zero.rs`](../tests/support/non_zero.rs) defines the shared
