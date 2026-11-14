@@ -1,6 +1,6 @@
 //! Response forwarding helpers for frame handling.
 
-use std::{future::Future, io};
+use std::io;
 
 use futures::{Sink, StreamExt};
 use log::warn;
@@ -15,7 +15,7 @@ use crate::{
         codec_driver::{ActorFrameSink, send_native_frame},
     },
     codec::FrameCodec,
-    connection::{PushSink, ResponseOutcome, WriteOutcome},
+    connection::{ResponseOutcome, WriteOutcome},
     message::EncodeWith,
     middleware::{HandlerService, Service, ServiceRequest},
     response::{FrameStream, Response, WireframeError},
@@ -116,7 +116,6 @@ where
     let outcome = deliver(&mut ctx, delivery, response).await?;
     Ok(dispatch_after(outcome))
 }
-
 
 /// Drive one response to its terminator, completion hook, and final outcome.
 ///

@@ -16,7 +16,7 @@ use super::ResponseContext;
 use crate::{
     app::codec_driver::ActorFrameSink,
     codec::FrameCodec,
-    connection::{WriteBound, write_before_bound},
+    connection::{PushSink, WriteBound, write_before_bound},
     serializer::Serializer,
 };
 

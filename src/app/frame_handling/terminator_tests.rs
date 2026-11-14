@@ -30,28 +30,12 @@ use super::ResponseContext;
 use crate::{
     app::{Envelope, codec_driver::FramePipeline},
     codec::FrameCodec,
+    connection::{ConnectionActor, ConnectionChannels, UntrackedActorInit},
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse},
     push::{PushConfigError, PushHandle, PushQueues},
     response::{FrameStream, Response},
     serializer::BincodeSerializer,
-    connection::{ConnectionActor, ConnectionChannels, UntrackedActorInit},
-};
-
-
-//! Protocol-terminator preservation through the response path.
-//!
-//! A protocol terminator is a complete codec frame. This module proves the
-//! inbound path sends the frame returned by
-//! [`WireframeProtocol::stream_end_frame`] straight to the sink, so metadata a
-//! custom codec keeps outside the payload survives. Decoding the terminator
-//! into an [`Envelope`] and re-wrapping it would reset that metadata.
-//!
-//! The frame is not byte-for-byte unmodified: the connection-level
-//! `before_send` hook still observes it and may rewrite it, exactly as it does
-//! for application frames. The second scenario below pins that ordering.
-};
-};
 };
 
 /// Marker the test's `before_send` hook appends to the terminator payload.

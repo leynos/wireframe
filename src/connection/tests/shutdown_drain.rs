@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use super::test_actor_with_shutdown;
 use crate::{
     app::Envelope,
-    connection::{FrameSink, ResponseOutcome},
+    connection::{FrameSink, PushSink, ResponseOutcome},
     hooks::ProtocolHooks,
     response::{FrameStream, Response},
 };
@@ -37,6 +37,17 @@ impl FrameSink<Envelope> for RecordingSink {
         }
         if let Some(shutdown) = self.shutdown.take() {
             shutdown.cancel();
+        }
+        std::future::ready(Ok(()))
+    }
+}
+
+impl PushSink<Envelope> for RecordingSink {
+    fn send_push(&mut self, frame: Envelope) -> impl Future<Output = io::Result<()>> + Send {
+        // No push is queued in these scenarios, so recording one here would
+        // surface as an unexpected frame in `accepted`.
+        if let Some(byte) = frame.payload_bytes().first() {
+            self.accepted.push(*byte);
         }
         std::future::ready(Ok(()))
     }

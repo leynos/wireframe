@@ -129,6 +129,10 @@ where
         push_queues,
         context,
     } = init;
+
+    let (queues, handle) = push_queues.clone().build().map_err(|error| {
+        io::Error::other(format!("failed to build connection push queues: {error}"))
+    })?;
     // Published before setup so the callback can address this connection, and
     // before the actor starts so a push queued during setup is never dropped.
     registry.insert(connection_id, &handle);
@@ -138,17 +142,9 @@ where
     if let Some(setup_protocol) = protocol {
         setup_protocol.on_connection_setup(handle.clone(), &mut connection_context);
     }
-    let mut response_actor = ConnectionResponseActor {
-        actor,
-        _push_handle: handle,
-        _registry: registry_guard,
-    };
-    let (queues, handle) = push_queues.clone().build().map_err(|error| {
-        io::Error::other(format!("failed to build connection push queues: {error}"))
-    })?;
 
     let hooks = protocol.map_or_else(ProtocolHooks::default, actor_hooks::<F>);
-    let actor = ConnectionActor::new_untracked(UntrackedActorInit {
+    let mut actor = ConnectionActor::new_untracked(UntrackedActorInit {
         channels: ConnectionChannels::new(queues, handle.clone()),
         response: None,
         shutdown: shutdown.clone(),
@@ -158,14 +154,17 @@ where
     // The connection boundary owns the idle-grace policy; the actor only needs
     // a bound, not an opinion about how long a vanished peer may hold a
     // response open.
-    response_actor
-        .actor
-        .set_peer_closed_grace(PEER_CLOSED_RESPONSE_GRACE);
+    actor.set_peer_closed_grace(PEER_CLOSED_RESPONSE_GRACE);
     // ADR-014 keeps a connection draining a readable peer across `stop()`, so
     // shutdown must not abandon the response drive here. The stop token still
     // bounds every write, which is what prevents a peer that stopped reading
     // from pinning the drain.
     actor.set_abandon_response_on_shutdown(false);
+    let response_actor = ConnectionResponseActor {
+        actor,
+        _push_handle: handle,
+        _registry: registry_guard,
+    };
     Ok((response_actor, CancellationGuard::new(shutdown)))
 }
 
