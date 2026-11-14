@@ -1,4 +1,9 @@
 //! Streaming response handling for the connection actor.
+//!
+//! A streamed frame and its protocol terminator inherit the request's
+//! correlation identifier, exactly as single, vector, and multi-packet
+//! responses do, so a client matching replies by identifier sees one rule for
+//! every response shape.
 
 use log::warn;
 
@@ -47,7 +52,8 @@ where
     ) -> Result<bool, WireframeError<E>> {
         let mut produced = false;
         match res {
-            Some(Ok(frame)) => {
+            Some(Ok(mut frame)) => {
+                self.stamp_response_correlation(&mut frame);
                 self.process_frame_with_hooks_and_metrics(frame, out);
                 produced = true;
             }
@@ -65,7 +71,8 @@ where
             Some(Err(e)) => return Err(e),
             None => {
                 state.mark_closed();
-                if let Some(frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+                if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+                    self.stamp_response_correlation(&mut frame);
                     self.process_frame_with_hooks_and_metrics(frame, out);
                     produced = true;
                 }
@@ -76,5 +83,26 @@ where
         }
 
         Ok(produced)
+    }
+
+    /// Stamp the active response's request correlation onto a frame.
+    ///
+    /// Single, vector, and multi-packet responses already inherit the request's
+    /// identifier, so a streamed frame and its terminator follow the same rule
+    /// rather than going out uncorrelated. A request that supplied no
+    /// identifier leaves the frame's own identifier untouched, so a producer
+    /// that stamps its own frames is not overridden by an absent request id.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let mut frame = Envelope::new(route, None, payload);
+    /// actor.stamp_response_correlation(&mut frame);
+    /// ```
+    fn stamp_response_correlation(&self, frame: &mut F) {
+        let Some(correlation_id) = self.response_correlation else {
+            return;
+        };
+        frame.set_correlation_id(Some(correlation_id));
     }
 }
