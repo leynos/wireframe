@@ -1616,19 +1616,20 @@ oversized frame, so it must enforce `max_frame_length` itself.
 
 The application path also runs the protocol hooks that surround a response. A
 completed `Stream` or `MultiPacket` response is terminated by the frame
-`stream_end_frame` returns; that frame is a complete codec frame, so it is
-written unchanged after `before_send` has run on it, preserving any metadata a
-custom codec keeps outside the payload. The adapter neither decodes nor
-restamps it, so the terminator carries exactly the bytes the protocol built.
-`on_command_end` runs only after the final frame has been written, and not at
-all when the connection shuts down mid-response. A protocol error reported by a
-response stream is passed to `handle_error`, and the connection then closes
-without a terminator, so a request buffered behind the failed stream is not
-served. The connection setup and end-of-file callbacks are not invoked on the
-prepared server path; they remain available to callers that drive a
-`ConnectionActor` directly. The direct response helpers that write frames
-without the `FramePipeline` also bypass `before_send`; use `WireframeApp`
-routes when a response must traverse configured protocol hooks.
+`stream_end_frame` returns; that frame is a complete codec frame, so the
+adapter neither decodes nor restamps it. Any metadata a custom codec keeps
+outside the payload therefore survives. `before_send` still runs on the
+terminator like any other frame, so a hook that modifies frames changes the
+bytes that reach the wire; the adapter itself does not. `on_command_end` runs
+only after the final frame has been written, and not at all when the response
+is cancelled before its terminator. A protocol error reported by a response
+stream is passed to `handle_error`, and the connection then closes without a
+terminator, so a request buffered behind the failed stream is not served. The
+connection setup and end-of-file callbacks are not invoked on the prepared
+server path; they remain available to callers that drive a `ConnectionActor`
+directly. The direct response helpers that write frames without the
+`FramePipeline` also bypass `before_send`; use `WireframeApp` routes when a
+response must traverse configured protocol hooks.
 
 ## Running servers
 

@@ -433,13 +433,27 @@ If the stream yields an `Err(WireframeError<E>)`, the connection actor will:
 
 The design is inherently cancellation-safe. The `select!` macro in the
 connection actor will drop the `FrameStream` future if another branch completes
-first, such as the peer becoming unobservable. Because `StreamExt::next()` is
-cancellation-safe, no frames will be lost; the stream will simply be dropped. A
-shutdown signal is not such a branch on a prepared server connection: that
-connection keeps driving a response its peer is still reading, because ADR-014
-requires it to drain across `stop()`. Shutdown bounds its writes instead. The
-direct actor API keeps the original precedence, where a cancelled shutdown
-token ends the drive before another frame is written.
+first. Because `StreamExt::next()` is cancellation-safe, no frames will be
+lost; the stream will simply be dropped.
+
+Losing observation of the peer is not itself such a branch. A clean half-close,
+and a buffered next request, both cancel only the per-dispatch observation
+token; the inbound loop then keeps awaiting the same response, because the peer
+may still be reading it. The actor switches to its bounded drain instead: each
+wait for the next frame and each write are bounded separately by the idle
+grace, so frames still arrive while the response makes progress and the stream
+is dropped only once a wait or a write exceeds the grace. A vanished peer is
+therefore still released, but not before the interval that a valid half-close
+needs.
+
+A shutdown signal is likewise not such a branch on a prepared server
+connection: that connection keeps driving a response its peer is still reading,
+because ADR-014 requires it to drain across `stop()`. It enters the same
+bounded drain, so shutdown bounds the response wait as well as the writes, and
+a producer that yields nothing after the stop is cancelled at the grace rather
+than pinning the connection. The direct actor API keeps the original
+precedence, where a cancelled shutdown token ends the drive before another
+frame is written.
 
 Similarly, if a handler panics or returns early, the `Stream` object it created
 is simply dropped. The connection actor will see the stream end as if it had
@@ -560,11 +574,15 @@ staying true to the architecture already in production use.
   `Vec` responses and the protocol terminator: one frame is enough to block on
   a peer that stopped reading. A write that is ready still proceeds, so a
   cancellation observed mid-drain does not abandon frames the sink has already
-  accepted. Either way the pending response cannot keep the connection task,
-  its gauge guard, teardown, and the server drain pending indefinitely. Once a
-  request frame is buffered, the read half is no longer polled, so a later
-  disconnect cannot be observed directly; the grace then bounds the response
-  itself.
+  accepted. Once a request frame is buffered, the read half is no longer
+  polled, so a later disconnect cannot be observed directly; the grace then
+  bounds the response itself. A shutdown request takes the same route. Instead
+  of awaiting the next frame without a deadline, the actor switches to a
+  bounded drain in which every wait and every write is bounded separately by
+  the grace, so a producer that yields nothing after the stop is cancelled at
+  the grace rather than pinning the connection. Either way the pending response
+  cannot keep the connection task, its gauge guard, teardown, and the server
+  drain pending indefinitely.
 - The `ConnectionActor` owns the channel receiver and polls it via the
   main `select!` loop. Frames pass through `process_frame_common` so protocol
   hooks and metrics observe every packet. When the channel drains, the actor
