@@ -2,6 +2,7 @@
 
 use std::{
     io,
+    panic::AssertUnwindSafe,
     sync::{
         Arc,
         Mutex,
@@ -10,9 +11,10 @@ use std::{
     time::Duration,
 };
 
+use bytes::Bytes;
+use futures::FutureExt;
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, duplex},
-    sync::Notify,
+    io::{AsyncRead, AsyncWrite, AsyncWriteExt, duplex},
     time::{sleep, timeout},
 };
 use tokio_util::{codec::LengthDelimitedCodec, sync::CancellationToken};
@@ -21,14 +23,12 @@ use super::finalizer::{ConnectionFinalizer, FinalizationOutcome};
 use crate::{
     app::{
         Envelope,
-        Handler,
-        Packet,
         PreparedApp,
         WireframeApp,
         inbound_handler::{ConnectionProcessingContext, process_connection_with_cancellation},
         lifecycle::ConnectionTeardown,
     },
-    codec::FrameCodec,
+    codec::{FrameCodec, LengthDelimitedFrameCodec},
     message::Message,
     serializer::BincodeSerializer,
     test_helpers::{BadCodec, counting_teardown},
@@ -154,99 +154,51 @@ pub(super) fn request_frame(route: u32) -> Vec<u8> {
     wireframe_testing::encode_frame(&mut codec, encoded).expect("encode frame")
 }
 
-/// Cancellation during dispatch lets the in-flight response finish first.
+/// Codec whose decoder construction panics.
 ///
-/// The handler is gated so the test can cancel while it is running. The
-/// runtime observes cancellation only at the next read boundary, so the
-/// response must still be written and teardown must wait for dispatch.
-#[tokio::test]
-async fn cancellation_during_dispatch_completes_the_response_before_teardown() {
-    let calls = Arc::new(AtomicUsize::new(0));
-    let started = Arc::new(Notify::new());
-    let release = Arc::new(Notify::new());
-    let handler_started = Arc::clone(&started);
-    let handler_release = Arc::clone(&release);
-    let handler: Handler<Envelope> = Arc::new(move |_: &Envelope| {
-        let started_gate = Arc::clone(&handler_started);
-        let release_gate = Arc::clone(&handler_release);
-        Box::pin(async move {
-            started_gate.notify_one();
-            release_gate.notified().await;
-        })
-    });
-    let prepared = WireframeApp::<BincodeSerializer, (), Envelope>::new()
-        .expect("build application")
-        .route(1, handler)
-        .expect("register route")
-        .on_connection_setup(|| async {})
-        .expect("register setup hook")
-        .on_connection_teardown(counting_teardown(Arc::clone(&calls)))
-        .expect("register teardown hook")
-        .prepare()
-        .await
-        .expect("prepare application");
-
-    let token = CancellationToken::new();
-    let canceller = token.clone();
-    let (mut client, server) = duplex(64);
-    let connection = tokio::spawn(async move { drive(&prepared, server, Some(token)).await });
-
-    client
-        .write_all(&request_frame(1))
-        .await
-        .expect("write request frame");
-    timeout(Duration::from_secs(5), started.notified())
-        .await
-        .expect("handler should start");
-    canceller.cancel();
-    sleep(Duration::from_millis(20)).await;
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        0,
-        "teardown must wait for the in-flight dispatch"
-    );
-
-    release.notify_one();
-    let mut response = Vec::new();
-    client
-        .read_to_end(&mut response)
-        .await
-        .expect("read response");
-    connection
-        .await
-        .expect("join connection task")
-        .expect("connection should finish");
-
-    assert_single_response(&response);
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        1,
-        "teardown should run once after dispatch completes"
-    );
+/// Inbound initialization clones the codec and then builds its decoder. A
+/// panic at that point happens inside the processing boundary but outside any
+/// route handler, so it exercises the non-handler branch of panic
+/// classification.
+#[derive(Clone)]
+pub(super) struct PanickingDecoderCodec {
+    /// Codec supplying the encoder and frame metadata.
+    inner: LengthDelimitedFrameCodec,
 }
 
-/// Assert the response is one complete frame answering the request route.
-fn assert_single_response(response: &[u8]) {
-    let frames = wireframe_testing::decode_frames(response).expect("decode response frames");
-    assert_eq!(
-        frames.len(),
-        1,
-        "the in-flight response should be exactly one complete frame"
-    );
-    let frame = frames
-        .first()
-        .expect("the response should be exactly one frame");
-    let (envelope, consumed) = Envelope::from_bytes(frame).expect("decode response envelope");
-    assert_eq!(
-        consumed,
-        frame.len(),
-        "the response frame should be fully consumed"
-    );
-    assert_eq!(
-        envelope.id(),
-        1,
-        "the response should answer the request route"
-    );
+impl PanickingDecoderCodec {
+    /// Wrap a default length-delimited codec.
+    pub(super) fn new() -> Self {
+        Self {
+            inner: LengthDelimitedFrameCodec::default(),
+        }
+    }
+}
+
+impl FrameCodec for PanickingDecoderCodec {
+    type Frame = <LengthDelimitedFrameCodec as FrameCodec>::Frame;
+    type Decoder = <LengthDelimitedFrameCodec as FrameCodec>::Decoder;
+    type Encoder = <LengthDelimitedFrameCodec as FrameCodec>::Encoder;
+
+    fn decoder(&self) -> Self::Decoder { panic!("codec initialization boom") }
+
+    fn encoder(&self) -> Self::Encoder { self.inner.encoder() }
+
+    fn frame_payload(frame: &Self::Frame) -> &[u8] {
+        LengthDelimitedFrameCodec::frame_payload(frame)
+    }
+
+    fn frame_payload_bytes(frame: &Self::Frame) -> Bytes {
+        LengthDelimitedFrameCodec::frame_payload_bytes(frame)
+    }
+
+    fn wrap_payload(&self, payload: Bytes) -> Self::Frame { self.inner.wrap_payload(payload) }
+
+    fn correlation_id(frame: &Self::Frame) -> Option<u64> {
+        LengthDelimitedFrameCodec::correlation_id(frame)
+    }
+
+    fn max_frame_length(&self) -> usize { self.inner.max_frame_length() }
 }
 
 /// A decoder rejection runs teardown exactly once before returning the error.
@@ -343,6 +295,49 @@ async fn finalizer_invokes_teardown_once() {
         *states.lock().expect("state log mutex"),
         vec![5],
         "teardown should receive the armed state exactly once"
+    );
+}
+
+/// A teardown callback that panics before returning its future is not retried.
+///
+/// The callback is called by the runtime, not by this test, so its panic
+/// happens while the guarded block is polled. That keeps it inside the same
+/// boundary as a panic during the awaited teardown: the state was already
+/// taken, so the failure is reported once and never re-run.
+#[tokio::test]
+async fn teardown_callback_construction_panic_is_not_retried() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let teardown_calls = Arc::clone(&calls);
+    let teardown: Arc<ConnectionTeardown<u32>> = Arc::new(move |_state: u32| {
+        teardown_calls.fetch_add(1, Ordering::SeqCst);
+        panic!("teardown construction boom")
+    });
+    let mut finalizer = ConnectionFinalizer::not_set_up();
+    finalizer.arm(3);
+
+    let panic_payload =
+        AssertUnwindSafe(finalizer.finalize(Some(&teardown), FinalizationOutcome::Clean))
+            .catch_unwind()
+            .await
+            .expect_err("the construction panic should propagate");
+    assert_eq!(
+        panic_payload.downcast_ref::<&str>().copied(),
+        Some("teardown construction boom"),
+        "the callback's own panic should be re-raised unchanged"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "teardown should be attempted exactly once"
+    );
+
+    finalizer
+        .finalize(Some(&teardown), FinalizationOutcome::Clean)
+        .await;
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "a panicked teardown must not be retried"
     );
 }
 

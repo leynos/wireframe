@@ -22,7 +22,7 @@ use tokio::{
 };
 use tracing_test::traced_test;
 
-use super::tests::{drive, request_frame};
+use super::tests::{PanickingDecoderCodec, drive, request_frame};
 use crate::{
     app::{Envelope, Handler, WireframeApp},
     serializer::BincodeSerializer,
@@ -88,7 +88,7 @@ where
 
 #[traced_test]
 #[test]
-fn handler_panic_is_logged_before_pending_teardown_completes() {
+fn processing_panic_is_logged_before_pending_teardown_completes() {
     let probe = TeardownProbe {
         entered: Arc::new(Notify::new()),
         release: Arc::new(Notify::new()),
@@ -150,6 +150,85 @@ fn handler_panic_is_logged_before_pending_teardown_completes() {
             1,
             "teardown should run exactly once"
         );
+    });
+}
+
+/// Build an app whose codec panics while the decoder is constructed.
+///
+/// The panic happens inside the processing boundary but before any route
+/// handler runs, so it exercises the non-handler branch of classification.
+fn codec_panic_app(
+    calls: Arc<AtomicUsize>,
+) -> WireframeApp<BincodeSerializer, (), Envelope, PanickingDecoderCodec> {
+    WireframeApp::<BincodeSerializer, (), Envelope>::new()
+        .expect("build application")
+        .with_codec(PanickingDecoderCodec::new())
+        .on_connection_setup(|| async {})
+        .expect("register setup hook")
+        .on_connection_teardown(move |()| {
+            let counter = Arc::clone(&calls);
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        })
+        .expect("register teardown hook")
+}
+
+/// A panic outside a route handler is still labelled as a processing panic.
+///
+/// The label names the processing boundary rather than the handler, so a
+/// diagnostic never claims a handler panicked when the panic came from codec
+/// initialization.
+#[traced_test]
+#[test]
+fn non_handler_panic_is_labelled_processing_panic() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let runtime = Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("build current-thread runtime");
+    let prepared = runtime
+        .block_on(codec_panic_app(Arc::clone(&calls)).prepare())
+        .expect("prepare application");
+
+    let panic = runtime
+        .block_on(async {
+            let (client, server) = duplex(64);
+            let result = AssertUnwindSafe(drive(&prepared, server, None))
+                .catch_unwind()
+                .await;
+            drop(client);
+            result
+        })
+        .expect_err("the codec panic should propagate");
+
+    assert_eq!(
+        panic.downcast_ref::<&str>().copied(),
+        Some("codec initialization boom"),
+        "the codec panic should be re-raised unchanged"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "teardown should run exactly once"
+    );
+    logs_assert(|lines: &[&str]| {
+        let started: Vec<&str> = lines
+            .iter()
+            .filter(|line| line.contains("connection teardown started"))
+            .copied()
+            .collect();
+        match started.as_slice() {
+            [line] if line.contains("processing_panic") => Ok(()),
+            [line] => Err(format!(
+                "teardown should name the processing outcome: {line}"
+            )),
+            [] => Err("teardown should log its start".to_owned()),
+            _ => Err(format!(
+                "teardown should start once, but started {} times",
+                started.len()
+            )),
+        }
     });
 }
 

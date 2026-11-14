@@ -6,6 +6,7 @@ use futures::FutureExt;
 use log::{error, warn};
 use tokio::{net::TcpStream, time::timeout};
 use tokio_util::task::TaskTracker;
+use tracing::Instrument;
 
 use crate::{
     app::{Envelope, Packet, PreparedApp},
@@ -39,18 +40,24 @@ pub(super) fn spawn_connection_task<T, Ser, Ctx, E, Codec>(
             None
         }
     };
-    tracker.spawn(async move {
-        let fut = std::panic::AssertUnwindSafe(process_stream(stream, peer_addr, app, hooks))
-            .catch_unwind();
+    // The span carries the peer identity for every event the runtime emits,
+    // including the teardown diagnostics that run after processing stops.
+    let connection_span = tracing::info_span!("connection", peer_addr = ?peer_addr);
+    tracker.spawn(
+        async move {
+            let fut = std::panic::AssertUnwindSafe(process_stream(stream, peer_addr, app, hooks))
+                .catch_unwind();
 
-        if let Err(panic) = fut.await {
-            crate::metrics::inc_connection_panics();
-            let panic_msg = crate::panic::format_panic(&panic);
-            // Emit via both `log` and `tracing` for tests that capture either.
-            error!("connection task panicked: panic={panic_msg}, peer_addr={peer_addr:?}");
-            tracing::error!(panic = %panic_msg, ?peer_addr, "connection task panicked");
+            if let Err(panic) = fut.await {
+                crate::metrics::inc_connection_panics();
+                let panic_msg = crate::panic::format_panic(&panic);
+                // Emit via both `log` and `tracing` for tests that capture either.
+                error!("connection task panicked: panic={panic_msg}, peer_addr={peer_addr:?}");
+                tracing::error!(panic = %panic_msg, ?peer_addr, "connection task panicked");
+            }
         }
-    });
+        .instrument(connection_span),
+    );
 }
 
 /// Complete the preamble handshake before handing bytes to the application.

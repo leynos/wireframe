@@ -14,7 +14,6 @@ use std::{
     time::Duration,
 };
 
-use bytes::Bytes;
 use futures::FutureExt;
 use tokio::{
     io::{AsyncReadExt, duplex},
@@ -24,10 +23,10 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::tests::drive;
+use super::tests::{PanickingDecoderCodec, drive};
 use crate::{
     app::{Envelope, PreparedApp, WireframeApp},
-    codec::{FrameCodec, LengthDelimitedFrameCodec},
+    codec::LengthDelimitedFrameCodec,
     serializer::BincodeSerializer,
     test_helpers::CloneCountingCodec,
 };
@@ -266,42 +265,6 @@ struct ConnectionState {
     id: u32,
 }
 
-/// Codec whose decoder construction panics.
-///
-/// Inbound initialization clones the codec and then builds its decoder. A
-/// panic at that point must still release the armed setup value.
-#[derive(Clone)]
-struct PanickingDecoderCodec {
-    /// Codec supplying the encoder and frame metadata.
-    inner: LengthDelimitedFrameCodec,
-}
-
-impl FrameCodec for PanickingDecoderCodec {
-    type Frame = <LengthDelimitedFrameCodec as FrameCodec>::Frame;
-    type Decoder = <LengthDelimitedFrameCodec as FrameCodec>::Decoder;
-    type Encoder = <LengthDelimitedFrameCodec as FrameCodec>::Encoder;
-
-    fn decoder(&self) -> Self::Decoder { panic!("codec initialization boom") }
-
-    fn encoder(&self) -> Self::Encoder { self.inner.encoder() }
-
-    fn frame_payload(frame: &Self::Frame) -> &[u8] {
-        LengthDelimitedFrameCodec::frame_payload(frame)
-    }
-
-    fn frame_payload_bytes(frame: &Self::Frame) -> Bytes {
-        LengthDelimitedFrameCodec::frame_payload_bytes(frame)
-    }
-
-    fn wrap_payload(&self, payload: Bytes) -> Self::Frame { self.inner.wrap_payload(payload) }
-
-    fn correlation_id(frame: &Self::Frame) -> Option<u64> {
-        LengthDelimitedFrameCodec::correlation_id(frame)
-    }
-
-    fn max_frame_length(&self) -> usize { self.inner.max_frame_length() }
-}
-
 /// A panic while building inbound state still finalizes the setup value.
 #[tokio::test]
 async fn codec_initialization_panic_finalizes_the_setup_value() {
@@ -310,9 +273,7 @@ async fn codec_initialization_panic_finalizes_the_setup_value() {
 
     let prepared = WireframeApp::<BincodeSerializer, ConnectionState, Envelope>::new()
         .expect("build application")
-        .with_codec(PanickingDecoderCodec {
-            inner: LengthDelimitedFrameCodec::default(),
-        })
+        .with_codec(PanickingDecoderCodec::new())
         .on_connection_setup(|| async { ConnectionState { id: 11 } })
         .expect("register setup hook")
         .on_connection_teardown(move |state: ConnectionState| {

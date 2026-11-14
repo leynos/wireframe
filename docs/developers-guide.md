@@ -533,6 +533,14 @@ it. No `Drop` implementation performs async teardown.
 returning the setup value, so teardown runs at most once and a teardown panic
 cannot re-trigger it. Setup and teardown panics are not recovered.
 
+Teardown invocation has its own panic boundary: the callback call and the
+future it returns are both polled inside `AssertUnwindSafe(..)`, so a callback
+that panics before returning its future is reported and re-raised in the same
+way as one that panics while awaiting. `spawn_connection_task` instruments the
+whole connection task with a `connection` span carrying `peer_addr`, so the
+processing-panic and teardown diagnostics stay attributable to a peer after the
+transport has been released.
+
 Cooperative cancellation takes an `Option<CancellationToken>` and is observed
 only at a read boundary: it is the biased first branch of the `select!` before
 the timed `framed.next()`. No production entry point supplies a token: both

@@ -21,7 +21,11 @@ pub(super) enum FinalizationOutcome {
     /// Processing returned an error, such as a decode or transport failure.
     ReturnedError,
     /// Processing panicked and the runtime is finalizing before re-raising.
-    HandlerPanic,
+    ///
+    /// Not every panic in this category comes from a route handler: building
+    /// the connection codec's decoder happens inside the same processing
+    /// boundary, so the label names the boundary rather than the caller.
+    ProcessingPanic,
 }
 
 impl FinalizationOutcome {
@@ -30,7 +34,7 @@ impl FinalizationOutcome {
         match self {
             Self::Clean => "clean",
             Self::ReturnedError => "returned_error",
-            Self::HandlerPanic => "handler_panic",
+            Self::ProcessingPanic => "processing_panic",
         }
     }
 }
@@ -117,13 +121,21 @@ impl<C> ConnectionFinalizer<C> {
 /// panicking teardown never reports success. The panic is re-raised rather
 /// than swallowed, which keeps supervision's existing accounting intact and
 /// guarantees the callback is not retried.
+///
+/// The callback call itself runs inside the async block handed to
+/// `catch_unwind`. A teardown closure that panics before it returns its future
+/// panics while the block is polled, not while the future is built, so it is
+/// covered by the same boundary as a panic during the awaited teardown.
 async fn run_teardown<C>(
     callback: &Arc<ConnectionTeardown<C>>,
     state: C,
     outcome: FinalizationOutcome,
 ) {
     log_teardown_started(outcome);
-    if let Err(payload) = AssertUnwindSafe(callback(state)).catch_unwind().await {
+    if let Err(payload) = AssertUnwindSafe(async move { callback(state).await })
+        .catch_unwind()
+        .await
+    {
         log_teardown_panicked(outcome);
         resume_unwind(payload);
     }

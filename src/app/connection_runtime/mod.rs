@@ -85,6 +85,10 @@ mod ordering_tests;
 #[path = "diagnostics_tests.rs"]
 mod diagnostics_tests;
 
+#[cfg(test)]
+#[path = "dispatch_tests.rs"]
+mod dispatch_tests;
+
 use std::{io, panic::AssertUnwindSafe, sync::Arc};
 
 // Only the inbound-handler tests decode envelopes directly; production code
@@ -233,7 +237,7 @@ fn classify_processing_outcome(
                 operation = "process_connection",
                 "connection processing panicked; finalizing before re-raise"
             );
-            FinalizationOutcome::HandlerPanic
+            FinalizationOutcome::ProcessingPanic
         }
     }
 }
