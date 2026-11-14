@@ -1,5 +1,7 @@
 //! Integration tests for `wireframe_testing::reassembly`.
 
+#![forbid(unsafe_code)]
+
 use rstest::rstest;
 use wireframe::{
     fragment::{MessageId, ReassembledMessage},

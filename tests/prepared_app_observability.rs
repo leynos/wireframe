@@ -1,5 +1,6 @@
 //! Observability coverage for prepared application transitions.
 #![cfg(feature = "metrics")]
+#![forbid(unsafe_code)]
 
 use metrics::with_local_recorder;
 use tokio::runtime::Builder;

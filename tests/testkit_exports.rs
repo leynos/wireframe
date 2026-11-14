@@ -1,5 +1,6 @@
 //! Integration tests for the `wireframe::testkit` root export.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{io, num::NonZeroUsize, sync::Arc, time::Duration};
 

@@ -1,0 +1,205 @@
+# Unsafe-code boundary verification
+
+This document records what the workspace's `unsafe_code` prohibition
+establishes, how each check works, and what it does not establish. The decision
+itself is [ADR 016](adr-016-unsafe-code-boundary.md); this page is the evidence
+contract.
+
+## The boundary in one paragraph
+
+`[workspace.lints.rust]` sets `unsafe_code = "forbid"`, and every member opts
+in with `[lints] workspace = true`. Every Cargo target root — `lib`, `bin`,
+`test`, `bench` and `example`, in every member and in the standalone
+`tests/feature_gate` package — carries `#![forbid(unsafe_code)]` in its header.
+The standalone package cannot inherit the workspace table, so it hand-copies
+the same level into its own `[lints.rust]`. No package contains unsafe code.
+
+The duplication is deliberate rather than accidental. Cargo applies a workspace
+lint table only to a package that opts in, and a target root is bound only by
+the package it belongs to, so a root that is added or moved has to state the
+rule itself. `forbid` is absolute: a scoped `#[expect(unsafe_code, …)]` inside
+such a root is a compile error (`E0453`), which means the workspace's usual
+escape hatch for a lint cannot reopen this one.
+
+## Inventory
+
+| Package                  | Role                               | Lint posture                       |
+| ------------------------ | ---------------------------------- | ---------------------------------- |
+| `wireframe`              | Published library and binaries     | `#![forbid(unsafe_code)]` per root |
+| `wireframe_testing`      | Shared test fixtures and helpers   | `#![forbid(unsafe_code)]` per root |
+| `wireframe-loom`         | Loom model targets                 | `#![forbid(unsafe_code)]` per root |
+| `wireframe-verification` | Stateright verification support    | `#![forbid(unsafe_code)]` per root |
+| `tests/feature_gate`     | Standalone feature-absence package | `#![forbid(unsafe_code)]` per root |
+
+_Table 1: The packages and their lint posture._
+
+Adding or removing a workspace member is an inventory decision. The contract
+test fails until the change is recorded here and in the test's
+`EXPECTED_MEMBERS` table.
+
+## Layer 1: the textual contract
+
+`tests/workspace_unsafe_boundary.rs` discovers target roots from
+`cargo metadata --no-deps --format-version 1`, run once for the workspace and
+once against `tests/feature_gate/Cargo.toml`, so it sees automatic and
+explicitly configured targets alike, including the package the workspace
+metadata does not describe. It asserts:
+
+- `workspace_manifest_forbids_unsafe_code` — the workspace lint table declares
+  `unsafe_code = "forbid"`.
+- `workspace_members_inherit_the_lint_tables` — every member sets
+  `[lints] workspace = true` and declares no package-local lint table, which
+  Cargo rejects beside the opt-in.
+- `the_feature_gate_package_declares_the_prohibition` — the standalone package's
+  hand-copied `[lints.rust]` table still matches the workspace level.
+- `the_feature_gate_package_stays_standalone` — the package has not silently
+  joined the workspace, which would remove the standalone compile that
+  `make test-feature-gate` depends on.
+- `every_target_root_forbids_unsafe_code` — each root carries
+  `#![forbid(unsafe_code)]` in its header, meaning before the first item. The
+  header is parsed, not searched: a prohibition nested inside a multi-line
+  attribute is part of that attribute and does not count, because a file in
+  that state does not compile. The test fails rather than passes when discovery
+  returns no roots, so a broken metadata query cannot make it vacuous.
+- `target_discovery_includes_the_standalone_package` — discovery reports at
+  least one root from `tests/feature_gate`. A workspace-only metadata run would
+  leave that package unchecked while the target-root contract still passed, so
+  the second query is pinned separately.
+- `unsafe_syntax_is_absent_from_every_package` — no package source contains an
+  unsafe construct, an unsafe attribute such as `#[unsafe(no_mangle)]`, a scoped
+  `#[expect(unsafe_code, …)]`, or an `#[allow(unsafe_code)]`. Every `.rs` file
+  under each package's directory is read, not only the roots Cargo reports, so
+  a child module behind a disabled feature cannot hide one, and a dot-prefixed
+  module directory is walked rather than skipped. A directory named `target` is
+  skipped as the Cargo build tree unless it lies under a `src` directory, where
+  a module may legitimately have that name. The standalone package is read by
+  path for the same reason. Comments are stripped before matching, because Rust
+  treats a comment as whitespace: `unsafe/* SAFETY */ fn` is an unsafe function
+  and is reported. The `unsafe` keyword is then matched as a whole word and the
+  token that follows it is classified, so a spelling split across a line break
+  is still found, and an unsafe attribute is found whether its parenthesis is
+  adjacent or separated by whitespace. A lint attribute is matched by its
+  argument list, so `#[allow(dead_code, unsafe_code)]` is found as well as
+  `#[allow(unsafe_code)]`. Three files are exempt from the scan: the two test
+  helpers whose purpose is to name the constructs,
+  `tests/common/unsafe_syntax.rs` and `tests/common/unsafe_syntax/tests.rs`, and
+  `tests/workspace_unsafe_boundary.rs`, which contains the scan itself.
+- `workspace_membership_matches_the_reviewed_inventory` — the set of workspace
+  packages is exactly the reviewed list.
+
+The helpers behind these checks carry their own tests, so a defect in the
+checker cannot pass as a clean result. The walk and the unsafe-syntax scan run
+together over a fixture tree, which proves the exclusions on real directory
+entries rather than only on the predicate, and the header parser is exercised
+by properties over generated attribute sequences. Discovery is tested through a
+substituted `cargo metadata` boundary, which pins the two queries it issues
+without starting Cargo.
+
+This layer is deliberately textual. It proves that the prohibition is present
+and that unsafe syntax is absent from the files it can read. It does not prove
+that the attribute has any effect, and it cannot see unsafe syntax produced by
+a macro invocation from a dependency.
+
+## Layer 2: negative compiler probes
+
+`make unsafe-boundary` runs `scripts/check-unsafe-boundary.sh`, which builds
+two temporary packages outside the repository on the toolchain pinned in
+`rust-toolchain.toml` and compiles one probe per case. Diagnostics are read
+from Cargo's JSON message stream, so each probe must be rejected by the
+`unsafe_code` lint itself rather than by an unrelated failure. The blocking CI
+lane runs `make unsafe-boundary`, so the probes execute on every pull request.
+They need the existing toolchain pin and `jq`, which extracts the diagnostic
+code from Cargo's JSON message stream.
+
+The first package states the prohibition in its source; the second states it in
+its manifest's `[lints.rust]` table, which is the form the workspace table
+takes for a package that never writes the attribute.
+
+| Probe                                     | Required outcome             |
+| ----------------------------------------- | ---------------------------- |
+| Safe code under a crate-level `forbid`    | Compiles (control)           |
+| Unsafe block                              | Rejected, code `unsafe_code` |
+| Unsafe function                           | Rejected, code `unsafe_code` |
+| Unsafe trait declaration                  | Rejected, code `unsafe_code` |
+| Unsafe trait implementation               | Rejected, code `unsafe_code` |
+| Unsafe extern block                       | Rejected, code `unsafe_code` |
+| `#[expect]` under `forbid`                | Rejected, code `E0453`       |
+| Safe code under a manifest-level table    | Compiles (control)           |
+| Unsafe block under a manifest-level table | Rejected, code `unsafe_code` |
+
+_Table 2: The probes and the outcome each must produce._
+
+The two safe controls are what make the probes meaningful: they prove that each
+probe package is otherwise compilable, so a rejection is attributable to the
+unsafe construct rather than to a typo or a missing dependency. The `E0453`
+probe records the property the whole design leans on — that a scoped
+expectation cannot reopen a `forbid`.
+
+## Layer 3: the lint census
+
+The boundary is only useful if nothing reintroduces unsafe code under a lint
+allowance. The census is:
+
+```sh
+RUSTFLAGS="-D warnings" cargo clippy --workspace --all-targets --all-features
+```
+
+A clean run reports zero findings. `allow_attributes = "deny"` in
+`[workspace.lints.clippy]` (`Cargo.toml`) means any `#[allow]` is itself a
+finding, so a workspace with no `#[allow]` is enforced rather than asserted.
+This census does not cover `tests/feature_gate`; its manifest copies the same
+Clippy tables and its contract test covers the lint level, but no target runs
+Clippy over it.
+
+## Requirements this document supersedes
+
+Issue #804 also specified a boundary crate, shared use of its allocator by both
+benchmark consumers, and a pinned Miri toolchain with focused tests of the
+allocator's four methods. The change that removed the last unsafe code deleted
+the allocator, so those requirements have no subject: there is no unsafe
+implementation to isolate, no duplicated allocator to share, and no unsafe code
+for Miri to interpret. `stats_alloc` supplies the remaining allocation counting
+and is third-party code, outside the workspace's lint scope. The prohibition is
+what keeps that true; a reintroduced unsafe site fails the build before a Miri
+run could be scheduled.
+
+## What these checks cannot establish
+
+- **Macro expansion.** The textual scan reads source, not expanded code. A
+  dependency macro that expands to unsafe syntax inside a root is invisible to
+  it, and the root's `forbid(unsafe_code)` does not guarantee rejection: the
+  pinned compiler accepts an unsafe block emitted by a dependency macro in a
+  crate that forbids unsafe code. The prohibition therefore covers workspace
+  source, not everything a build links. The probes show the lint rejects the
+  constructs they write, not every expansion rule.
+- **Toolchain behaviour.** A toolchain that stopped applying crate-level
+  `forbid` would leave the textual contract satisfied. The probes are the check
+  for that, and a probe whose diagnostic code changes must be investigated
+  before the expectation is adjusted.
+- **A new package.** Cargo's `exclude` can remove a directory from the
+  workspace without changing the member list. The contract test reads every
+  package the metadata reports and the standalone directory by path, so an
+  excluded package elsewhere in the tree would not be scanned. Keeping the tree
+  free of such packages is a review obligation.
+- **Unsafe code the scan cannot classify, and code it reads but the compiler
+  does not compile.** The scan classifies the token after the `unsafe` keyword
+  instead of matching a fixed list of complete spellings, so it recognizes
+  blocks, functions, traits, implementations, extern blocks, and attributes,
+  and matches a lint attribute by its argument list. A construct it cannot
+  classify passes the scan, and a module behind a disabled feature is read as
+  text but never compiled, so `forbid` has not rejected it either. The compiler
+  remains the authority for both cases once the code is built.
+
+## Re-validating after a toolchain bump
+
+1. Run `make unsafe-boundary`. If a probe's diagnostic code changes, decide
+   whether the prohibition still holds before adjusting the expectation.
+2. Run `make test`, so the prohibition compiles in every target the workspace
+   builds.
+3. Re-run the lint census.
+
+## References
+
+- [ADR 016: forbid unsafe code workspace-wide](adr-016-unsafe-code-boundary.md)
+- [The `unsafe_code` lint](https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html#unsafe-code)
+- [Cargo: lint configuration](https://doc.rust-lang.org/cargo/reference/manifest.html#the-lints-section)

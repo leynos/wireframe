@@ -55,6 +55,8 @@
 //! integration runs these benchmarks; regression handling is by ratio and
 //! manual review, as recorded in `docs/runtime-ownership-baselines.md`.
 
+#![forbid(unsafe_code)]
+
 mod driver;
 mod observe;
 mod scenarios;

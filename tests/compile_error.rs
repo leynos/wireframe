@@ -1,6 +1,7 @@
 //! Compile-time trait-bound and public-default tests.
 
 #![cfg(not(coverage))]
+#![forbid(unsafe_code)]
 
 use std::{error::Error, io, process::Command};
 

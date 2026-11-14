@@ -1,5 +1,7 @@
 //! Property coverage for one-time prepared-application reuse.
 
+#![forbid(unsafe_code)]
+
 mod common;
 
 use std::sync::{

@@ -15,6 +15,8 @@
 //! Use `WireframeError<E>` explicitly when a protocol supplies its own error
 //! type.
 
+#![forbid(unsafe_code)]
+
 extern crate self as wireframe;
 
 pub mod app;

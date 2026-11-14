@@ -18,6 +18,8 @@
 //! # }
 //! ```
 
+#![forbid(unsafe_code)]
+
 pub mod benchmark_alloc_support;
 // Loom removes client/server APIs, so keep network-backed support out too.
 #[cfg(not(loom))]

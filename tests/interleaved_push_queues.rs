@@ -9,6 +9,7 @@
 //! 2. Fairness thresholds cause low-priority frames to be interleaved.
 //! 3. No frames are lost under concurrent interleaved traffic.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{future::Future, pin::Pin};
 

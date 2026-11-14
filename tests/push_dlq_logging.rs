@@ -5,6 +5,7 @@
 //! whose derived `Debug` would print it verbatim and assert that no captured
 //! log record ever contains that marker.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 mod support;
 

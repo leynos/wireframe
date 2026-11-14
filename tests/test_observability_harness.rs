@@ -6,6 +6,7 @@
 //! The global logger mutex means these tests must run serially. The test
 //! binary is configured accordingly in `Cargo.toml`.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use wireframe_testing::ObservabilityHandle;
 
