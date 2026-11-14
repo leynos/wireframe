@@ -760,6 +760,14 @@ connection inserts its handle before its setup callback runs and removes it
 when the connection task ends, so an application that shares a registry no
 longer inserts or removes entries itself.
 
+If an application does keep inserting entries by hand, as earlier releases
+required, those identifiers must not overlap the ones the registry allocates.
+`insert` replaces any existing entry for the same identifier, and
+`next_connection_id` does not skip identifiers already present, so a manual
+entry whose identifier a server connection later receives is replaced by that
+connection's handle: pushes addressed to the old identifier then reach the
+server connection instead.
+
 A clean peer close drains frames still queued, high priority first; server
 shutdown closes the lanes immediately and later pushes fail with
 `PushError::Closed`. See the

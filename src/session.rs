@@ -168,6 +168,14 @@ impl<F: FrameLike> SessionRegistry<F> {
 
     /// Insert a handle for a newly established connection.
     ///
+    /// An existing entry for the same identifier is replaced. A server
+    /// connection inserts its own handle under an identifier from
+    /// [`next_connection_id`](Self::next_connection_id), which does not skip
+    /// identifiers already present, so an application that still inserts
+    /// entries manually must not reuse identifiers the registry allocates:
+    /// its entry would be replaced and pushes to that identifier would reach
+    /// the server connection instead.
+    ///
     /// # Examples
     ///
     /// ```rust
