@@ -30,11 +30,15 @@ fn terminating_hooks() -> ProtocolHooks<Envelope, ()> {
 }
 
 /// Drive a one-frame stream and return the frames that reached the sink.
+///
+/// Errors are flattened to their display text because the actor build and the
+/// response drive fail with unrelated types. This is a test helper, so the
+/// message only has to reach the failing assertion.
 async fn drive_stream(
     request_correlation: Option<u64>,
     frame_correlation: Option<u64>,
-) -> Vec<Envelope> {
-    let mut actor = test_actor(terminating_hooks()).expect("actor should build");
+) -> Result<Vec<Envelope>, String> {
+    let mut actor = test_actor(terminating_hooks()).map_err(|error| error.to_string())?;
     let stream: FrameStream<Envelope, ()> = Box::pin(futures::stream::iter(vec![Ok(
         Envelope::new(ROUTE, frame_correlation, vec![1]),
     )]));
@@ -43,9 +47,9 @@ async fn drive_stream(
     actor
         .install_response(Response::Stream(stream), request_correlation, &mut sink)
         .await
-        .expect("the stream should drive to completion");
+        .map_err(|error| error.to_string())?;
 
-    sink
+    Ok(sink)
 }
 
 /// A streamed frame and its terminator inherit the request identifier, while a
@@ -61,11 +65,17 @@ async fn streamed_frames_inherit_the_request_correlation(
     #[case] frame_correlation: Option<u64>,
     #[case] expected_frame: Option<u64>,
     #[case] expected_terminator: Option<u64>,
-) {
-    let frames = drive_stream(request_correlation, frame_correlation).await;
+) -> Result<(), String> {
+    let frames = drive_stream(request_correlation, frame_correlation).await?;
 
-    assert_eq!(frames.len(), 2, "the stream and its terminator must be written");
-    let frame = frames.first().expect("the streamed frame should be present");
+    assert_eq!(
+        frames.len(),
+        2,
+        "the stream and its terminator must be written"
+    );
+    let frame = frames
+        .first()
+        .expect("the streamed frame should be present");
     assert_eq!(
         frame.correlation_id, expected_frame,
         "the streamed frame must carry the expected identifier"
@@ -80,4 +90,5 @@ async fn streamed_frames_inherit_the_request_correlation(
         terminator.id, TERMINATOR_ROUTE,
         "the terminator identity must be preserved"
     );
+    Ok(())
 }

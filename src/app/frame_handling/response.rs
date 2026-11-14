@@ -254,7 +254,9 @@ where
     Envelope: EncodeWith<S>,
 {
     let writing = send_native_frame::<K, F>(&mut *ctx.sink, &mut *ctx.pipeline, frame);
-    let outcome = ctx.actor.write_frame_bounded(writing).await?;
+    // A terminator is one physical frame written straight to the transport, so
+    // it has no finer progress to report than the write itself completing.
+    let outcome = ctx.actor.write_frame_bounded(writing, None).await?;
     Ok(outcome == WriteOutcome::Written)
 }
 
