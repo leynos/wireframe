@@ -2740,7 +2740,10 @@ follows the configured `PushPolicy` and reaches the dead-letter queue when one
 is set. A frame whose encoded payload exceeds the connection codec's frame
 limit is refused with `PushError::FrameTooLarge` before it is queued, so an
 unencodable push is reported to its producer instead of failing the connection
-when the encoder sees it.
+when the encoder sees it. That check measures the frame as queued: a
+`before_send` hook that enlarges it past the codec's `max_frame_length` is not
+re-checked afterwards, and the default codec then fails the connection when it
+encodes the frame.
 
 Two kinds of end of connection behave differently:
 

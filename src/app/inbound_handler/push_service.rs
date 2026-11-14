@@ -237,11 +237,16 @@ where
 /// Deliver frames still queued when the peer closed its write half.
 ///
 /// A peer that closed its write half but stopped reading applies
-/// back-pressure that can hold a send pending forever. Each write is therefore
-/// bounded by the connection's shutdown token and by the same grace that
-/// bounds a response whose peer can no longer be observed; either bound
-/// abandons the remaining frames instead of pinning the connection task and
-/// its registry entry.
+/// back-pressure that can hold a send pending forever. Collecting the lanes is
+/// therefore raced against the connection's shutdown token, and each write is
+/// bounded by that token and by the same grace that bounds a response whose
+/// peer can no longer be observed. Any of these bounds abandons the remaining
+/// frames instead of pinning the connection task and its registry entry.
+///
+/// The collection needs the token as well: a closed lane only reports itself
+/// exhausted once the buffer is empty and every permit taken before the close
+/// has been released, so a producer that never releases one would otherwise
+/// keep this await pending without ever reaching a write.
 ///
 /// The grace restarts for every frame, so it measures idleness rather than the
 /// time the whole drain has taken. A lane can still hold per-frame
@@ -261,7 +266,13 @@ where
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
 {
-    let frames = actor.take_pending_pushes().await;
+    // Abandon the collection once shutdown wins: frames still inside it are
+    // part of the drain this stop is allowed to cut short.
+    let frames = tokio::select! {
+        biased;
+        () = shutdown.cancelled() => return Ok(()),
+        frames = actor.take_pending_pushes() => frames,
+    };
     for frame in frames {
         let write = transport.write(frame);
         tokio::pin!(write);

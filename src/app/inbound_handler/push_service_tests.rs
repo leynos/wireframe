@@ -244,3 +244,41 @@ async fn a_closed_batch_renews_the_grace_for_every_frame() {
         "a closed peer accepting each frame within the grace must receive the whole batch"
     );
 }
+
+/// A stop during an end-of-stream drain abandons the frames still queued.
+///
+/// The collection is raced against the shutdown token, so a stop that has
+/// already fired ends the drain before any frame is collected or written
+/// rather than waiting for every lane to report itself exhausted.
+#[tokio::test]
+async fn a_cancelled_shutdown_abandons_the_queued_frames() {
+    let shutdown = CancellationToken::new();
+    let (mut actor, handle) = build_actor(&shutdown).expect("actor should build");
+    for payload in paced_payloads() {
+        handle
+            .push_high_priority(payload)
+            .await
+            .expect("the lane has room for every payload");
+    }
+    shutdown.cancel();
+
+    let serializer = BincodeSerializer;
+    let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH);
+    let mut pipeline = FramePipeline::<Bytes>::new(None);
+    let (mut sink, accepted) = PacedSink::new();
+    let mut transport = PushTransport {
+        serializer: &serializer,
+        codec: &codec,
+        sink: &mut sink,
+        pipeline: &mut pipeline,
+    };
+
+    drain_queued(&mut transport, &mut actor, &shutdown)
+        .await
+        .expect("an abandoned drain must not fail");
+
+    assert!(
+        accepted_frames(&accepted).is_empty(),
+        "a cancelled drain must write none of the queued frames"
+    );
+}

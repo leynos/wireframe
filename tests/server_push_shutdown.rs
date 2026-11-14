@@ -136,9 +136,12 @@ async fn write_request(stream: &mut TcpStream, route_id: u32) -> TestResult<()> 
 /// The route handler holds the connection loop inside dispatch, so both pushes
 /// are still sitting in their lanes when the client's write half closes. A
 /// clean end-of-stream must drain those lanes, high priority before low, rather
-/// than discard frames a producer was told had been accepted.
+/// than discard frames a producer was told had been accepted. The connection
+/// then ends on that half-close: its registry entry goes while the client's
+/// read half is still open, so the exit is not merely socket cleanup.
 #[tokio::test]
 async fn queued_pushes_are_drained_after_a_clean_peer_close() -> TestResult<()> {
+    let registry = Arc::new(SessionRegistry::<Bytes>::new());
     let protocol = PushTestProtocol::new();
     let started = Arc::new(Notify::new());
     let gate = Arc::new(Notify::new());
@@ -154,7 +157,8 @@ async fn queued_pushes_are_drained_after_a_clean_peer_close() -> TestResult<()> 
     });
     let app = WireframeApp::default()
         .route(1, handler)?
-        .with_protocol(protocol.clone());
+        .with_protocol(protocol.clone())
+        .with_session_registry(Arc::clone(&registry));
     let (addr, shutdown) = spawn_server(app).await?;
     let mut client = TcpStream::connect(addr).await?;
     unblock_preamble(&mut client).await?;
@@ -183,6 +187,22 @@ async fn queued_pushes_are_drained_after_a_clean_peer_close() -> TestResult<()> 
     let low = timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
     if high != b"drained-high" || low != b"drained-low" {
         return Err(format!("drain should deliver high then low: {high:?}, {low:?}").into());
+    }
+
+    // The read half stays open, so the entry disappearing now proves the
+    // connection ended on the half-close rather than when the socket dropped.
+    wait_until_registry_empty(&registry).await?;
+    let pushed = timeout(
+        EVENT_TIMEOUT,
+        handle.push_high_priority(Bytes::from_static(b"late")),
+    )
+    .await
+    .map_err(|_| "a push after the drain should not hang")?;
+    match pushed {
+        Err(PushError::Closed) => {}
+        other => {
+            return Err(format!("a drained connection should reject pushes: {other:?}").into());
+        }
     }
 
     drop(client);
