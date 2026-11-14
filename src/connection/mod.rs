@@ -17,6 +17,7 @@ mod init;
 mod interruption;
 mod multi_packet;
 mod observation;
+mod observation_loop;
 mod output;
 mod peer_close;
 mod polling;

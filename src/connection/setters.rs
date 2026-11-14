@@ -170,6 +170,17 @@ where
         self.peer_closed_grace = grace;
     }
 
+    /// Choose whether a shutdown signal abandons a response being driven.
+    ///
+    /// The default keeps the direct actor contract, where a cancelled shutdown
+    /// token stops the drive before the next frame is written. A server
+    /// connection disables it so that ADR-014's graceful drain still delivers a
+    /// response to a peer that is reading; shutdown then bounds only the writes
+    /// that cannot make progress.
+    pub(crate) const fn set_abandon_response_on_shutdown(&mut self, abandon: bool) {
+        self.abandon_response_on_shutdown = abandon;
+    }
+
     /// Replace the deadline source that enforces the idle grace.
     ///
     /// Production keeps the ambient Tokio clock. A test installs a deadline it
