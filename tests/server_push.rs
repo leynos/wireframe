@@ -56,11 +56,14 @@ async fn setup_handle_delivers_push_over_tcp() -> TestResult<()> {
     stop(&shutdown).await
 }
 
+/// The low-priority frame is queued first, so only priority ordering can put
+/// the urgent frame ahead of it; a FIFO drain would deliver them the other way
+/// round.
 #[tokio::test]
 async fn high_priority_pushes_precede_low_priority_pushes() -> TestResult<()> {
     let protocol = PushTestProtocol::with_preloaded(vec![
-        (Bytes::from_static(b"urgent"), PushPriority::High),
         (Bytes::from_static(b"best-effort"), PushPriority::Low),
+        (Bytes::from_static(b"urgent"), PushPriority::High),
     ]);
     let (addr, shutdown) =
         spawn_server(WireframeApp::default().with_protocol(protocol.clone())).await?;

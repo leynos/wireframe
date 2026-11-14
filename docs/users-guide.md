@@ -2667,7 +2667,7 @@ use tokio::sync::mpsc;
 use wireframe::{app::WireframeApp, push::PushQueues};
 
 let (dlq_tx, _dlq_rx) = mpsc::channel(16);
-let app = WireframeApp::new()?.with_push_queues(
+let app: WireframeApp = WireframeApp::new()?.with_push_queues(
     PushQueues::<Bytes>::builder()
         .high_capacity(8)
         .low_capacity(8)
@@ -2708,7 +2708,7 @@ use bytes::Bytes;
 use wireframe::{app::WireframeApp, session::SessionRegistry};
 
 let registry = Arc::new(SessionRegistry::<Bytes>::new());
-let app = WireframeApp::new()?.with_session_registry(Arc::clone(&registry));
+let app: WireframeApp = WireframeApp::new()?.with_session_registry(Arc::clone(&registry));
 
 // Later, from any task holding the same registry:
 // for (id, handle) in registry.active_handles() {
