@@ -16,14 +16,9 @@ use super::{
     },
     MAX_DESER_FAILURES,
     actor::{build_connection_actor, observe_peer},
+    frames::InboundFrames,
     framing::prepare_connection_framing,
-    peer_watch::{
-        ExpiryState,
-        PeerObservation,
-        await_inbound_frame,
-        handle_watching_peer,
-        purge_expired,
-    },
+    peer_watch::{PeerObservation, handle_watching_peer},
 };
 use crate::{
     codec::FrameCodec,
@@ -111,26 +106,6 @@ where
     deser_failures: &'a mut u32,
 }
 
-/// Apply memory pressure before reading the next inbound frame.
-///
-/// The read pauses for the configured interval while soft limits are exceeded,
-/// and expired outbound and assembly state is purged on every pass.
-async fn relieve_memory_pressure<T>(
-    pipeline: &mut FramePipeline<T>,
-    message_assembly: &mut Option<MessageAssemblyState>,
-    budgets: MemoryBudgets,
-) -> io::Result<()> {
-    let pressure = frame_handling::evaluate_memory_pressure(
-        message_assembly.as_ref(),
-        Some(budgets),
-        pipeline.fragmentation_buffered_bytes(),
-    );
-    frame_handling::apply_memory_pressure(pressure, || {
-        purge_expired(pipeline, message_assembly);
-    })
-    .await
-}
-
 /// Detect a bincode budget failure so fallback decoding does not repeat the work.
 fn is_bincode_limit_exceeded(error: &(dyn std::error::Error + 'static)) -> bool {
     error
@@ -200,14 +175,19 @@ where
     let effective_budgets =
         frame_handling::resolve_effective_budgets(context.memory_budgets, requested_frame_length);
     let mut deser_failures = 0u32;
-    let mut message_assembly = context.message_assembler.map(|_| {
-        frame_handling::new_message_assembly_state(
-            context.fragmentation,
-            requested_frame_length,
-            Some(effective_budgets),
-        )
-    });
-    let mut pipeline = FramePipeline::with_hooks(context.fragmentation, context.protocol_hooks);
+    let mut inbound = InboundFrames {
+        // A frame read while the previous one was still being handled, so the
+        // loop never polls the read half twice for one inbound frame.
+        pending: None,
+        pipeline: FramePipeline::with_hooks(context.fragmentation, context.protocol_hooks),
+        message_assembly: context.message_assembler.map(|_| {
+            frame_handling::new_message_assembly_state(
+                context.fragmentation,
+                requested_frame_length,
+                Some(effective_budgets),
+            )
+        }),
+    };
     // A child token so the guard below cancels only this connection, while a
     // server shutdown still reaches it through the parent.
     let connection_shutdown = context.shutdown.child_token();
@@ -215,32 +195,14 @@ where
     let peer_eof = CancellationToken::new();
     let (mut response_actor, _cancel_on_exit) =
         build_connection_actor::<F>(context.protocol.as_ref(), connection_shutdown)?;
-    // A frame read while the previous one was still being handled, so the
-    // loop never polls the read half twice for one inbound frame.
-    let mut pending_frame: Option<F::Frame> = None;
 
     loop {
-        relieve_memory_pressure(&mut pipeline, &mut message_assembly, effective_budgets).await?;
+        inbound.relieve_pressure(effective_budgets).await?;
 
-        let mut expiry = ExpiryState {
-            pipeline: &mut pipeline,
-            message_assembly: &mut message_assembly,
-        };
-        let read = tokio::select! {
-            biased;
-            // A read timeout only retries the read, so a shutdown that is not
-            // observed here would wait for a peer that keeps its socket open
-            // without sending anything. That would pin this task, its gauge
-            // guard and the server drain.
-            () = context.shutdown.cancelled() => break,
-            frame = await_inbound_frame(
-                &mut pending_frame,
-                &mut reader,
-                context.read_timeout_ms,
-                &mut expiry,
-            ) => frame?,
-        };
-        let Some(frame) = read else {
+        let Some(frame) = inbound
+            .next(&mut reader, context.read_timeout_ms, context.shutdown)
+            .await?
+        else {
             break;
         };
 
@@ -255,15 +217,15 @@ where
                     serializer: context.serializer.as_ref(),
                     codec: &connection_codec,
                     message_assembler: context.message_assembler,
-                    message_assembly: &mut message_assembly,
-                    pipeline: &mut pipeline,
+                    message_assembly: &mut inbound.message_assembly,
+                    pipeline: &mut inbound.pipeline,
                     actor: &mut response_actor.actor,
                     protocol: context.protocol.as_ref(),
                 },
             ),
             &mut reader,
             PeerObservation::new(&peer_eof, &unobserved, &cause),
-            &mut pending_frame,
+            &mut inbound.pending,
         )
         .await?;
         // A cancelled response left its stream without a terminator, so any

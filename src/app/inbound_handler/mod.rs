@@ -2,6 +2,7 @@
 
 mod actor;
 mod core;
+mod frames;
 mod framing;
 mod peer_watch;
 
