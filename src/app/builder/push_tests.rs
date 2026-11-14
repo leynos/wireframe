@@ -3,12 +3,13 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
+use rstest::rstest;
 
 use super::super::WireframeApp;
 use crate::{
     app::{PrepareError, PreparedApp},
     codec::LengthDelimitedFrameCodec,
-    push::PushQueues,
+    push::{PushQueues, PushQueuesBuilder},
     session::{ConnectionId, SessionRegistry},
 };
 
@@ -63,11 +64,13 @@ fn with_codec_resets_push_configuration() {
     );
 }
 
-/// A zero-capacity template is rejected while preparing, before any
-/// connection can fail on it.
+/// A template that cannot back a Tokio channel is rejected while preparing,
+/// before any connection can fail on it.
+#[rstest]
+#[case::zero_capacity(PushQueues::<Bytes>::builder().high_capacity(0))]
+#[case::oversize_capacity(PushQueues::<Bytes>::builder().high_capacity(usize::MAX))]
 #[tokio::test]
-async fn prepare_rejects_invalid_push_template() {
-    let template = PushQueues::<Bytes>::builder().high_capacity(0);
+async fn prepare_rejects_invalid_push_template(#[case] template: PushQueuesBuilder<Bytes>) {
     let app: WireframeApp = WireframeApp::new()
         .expect("builder should initialize")
         .with_push_queues(template);
@@ -77,23 +80,6 @@ async fn prepare_rejects_invalid_push_template() {
     assert!(
         matches!(result, Err(PrepareError::InvalidPushConfig { .. })),
         "preparation should reject an unusable template"
-    );
-}
-
-/// A capacity no Tokio channel can back is rejected while preparing, so it
-/// cannot panic once per accepted connection instead.
-#[tokio::test]
-async fn prepare_rejects_oversize_push_capacity() {
-    let template = PushQueues::<Bytes>::builder().high_capacity(usize::MAX);
-    let app: WireframeApp = WireframeApp::new()
-        .expect("builder should initialize")
-        .with_push_queues(template);
-
-    let result = app.prepare().await;
-
-    assert!(
-        matches!(result, Err(PrepareError::InvalidPushConfig { .. })),
-        "preparation should reject a capacity above the channel limit"
     );
 }
 

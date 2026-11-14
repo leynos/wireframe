@@ -58,29 +58,118 @@ where
         finished: None,
     };
     loop {
-        let frames = tokio::select! {
-            biased;
-            response = handler.poll_while_running() => return Ok(Some(response)),
-            received = ctx.actor.next_pushes(), if lanes_open => {
-                let Some(frames) = received else {
-                    lanes_open = false;
-                    continue;
-                };
-                frames
-            },
-        };
-        for frame in frames {
-            if write_push_watching(ctx, frame, &mut handler, &bounds).await? == PushWrite::Abandoned
-            {
-                return Ok(None);
-            }
-        }
-        // A response produced during a write is returned only once the frames
-        // already taken from the lane are written, so no queued push is lost.
-        if let Some(response) = handler.finished.take() {
-            return Ok(Some(response));
+        match run_step(ctx, &mut handler, &mut lanes_open, &bounds).await? {
+            LoopStep::Response(response) => return Ok(Some(response)),
+            LoopStep::Abandoned => return Ok(None),
+            LoopStep::Continue => {}
         }
     }
+}
+
+/// What the handler/push loop must do after one pass.
+enum LoopStep<Resp> {
+    /// The handler finished, so its response ends the run.
+    Response(Resp),
+    /// A push write was abandoned, so the connection must stop.
+    Abandoned,
+    /// Keep draining the lanes and polling the handler.
+    Continue,
+}
+
+/// Run one pass: wait for lanes or the handler, then write what arrived.
+async fn run_step<Resp, S, K, F>(
+    ctx: &mut ResponseContext<'_, S, K, F>,
+    handler: &mut HandlerRun<'_, impl Future<Output = Resp>>,
+    lanes_open: &mut bool,
+    bounds: &PushWriteBounds<'_>,
+) -> io::Result<LoopStep<Resp>>
+where
+    S: Serializer + Send + Sync,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
+    F: FrameCodec,
+{
+    let frames = match wait_for_batch(ctx, handler, lanes_open).await {
+        LaneBatch::Response(response) => return Ok(LoopStep::Response(response)),
+        LaneBatch::Frames(frames) => frames,
+    };
+    if write_batch(ctx, frames, handler, bounds).await? == PushWrite::Abandoned {
+        return Ok(LoopStep::Abandoned);
+    }
+    Ok(finished_step(handler))
+}
+
+/// Report a response the handler produced while a push write was pending.
+///
+/// The response is taken only once the frames already drawn from the lane are
+/// written, so a queued push is never lost behind a finishing handler.
+fn finished_step<Resp>(handler: &mut HandlerRun<'_, impl Future<Output = Resp>>) -> LoopStep<Resp> {
+    handler
+        .finished
+        .take()
+        .map_or_else(|| LoopStep::Continue, LoopStep::Response)
+}
+
+/// Either the next batch of queued pushes, or the handler's response.
+enum LaneBatch<T, Resp> {
+    /// Frames taken from a lane, in write order.
+    Frames(Vec<T>),
+    /// The handler finished before any lane produced output.
+    Response(Resp),
+}
+
+/// Wait for queued pushes, falling back to awaiting the handler.
+///
+/// A lane that closes is dropped from the set. Once every lane is closed the
+/// handler is the only thing left that can end the run, so it is awaited
+/// directly rather than raced against queues that will never produce again.
+async fn wait_for_batch<Resp, S, K, F>(
+    ctx: &mut ResponseContext<'_, S, K, F>,
+    handler: &mut HandlerRun<'_, impl Future<Output = Resp>>,
+    lanes_open: &mut bool,
+) -> LaneBatch<F::Frame, Resp>
+where
+    S: Serializer + Send + Sync,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
+    F: FrameCodec,
+{
+    loop {
+        if !*lanes_open {
+            return LaneBatch::Response(handler.poll_while_running().await);
+        }
+        tokio::select! {
+            biased;
+            response = handler.poll_while_running() => return LaneBatch::Response(response),
+            received = ctx.actor.next_pushes() => {
+                if let Some(frames) = received {
+                    return LaneBatch::Frames(frames);
+                }
+                *lanes_open = false;
+            }
+        }
+    }
+}
+
+/// Write one batch of pushed frames while the handler keeps being polled.
+///
+/// Returns as soon as a write is abandoned, because the connection stops and
+/// the remaining frames in the batch can no longer be delivered.
+async fn write_batch<Resp, S, K, F>(
+    ctx: &mut ResponseContext<'_, S, K, F>,
+    frames: Vec<F::Frame>,
+    handler: &mut HandlerRun<'_, impl Future<Output = Resp>>,
+    bounds: &PushWriteBounds<'_>,
+) -> io::Result<PushWrite>
+where
+    S: Serializer + Send + Sync,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
+    F: FrameCodec,
+{
+    for frame in frames {
+        if write_push_watching(ctx, frame, handler, bounds).await? == PushWrite::Abandoned {
+            return Ok(PushWrite::Abandoned);
+        }
+    }
+    Ok(PushWrite::Written)
 }
 
 /// The handler future plus a response it produced during a push write.

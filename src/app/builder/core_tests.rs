@@ -13,6 +13,17 @@ use crate::{
 
 type TestApp = WireframeApp<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>;
 
+/// Fail the test unless `condition` holds, naming what was expected.
+///
+/// These cases return `Result` so fixture errors propagate with `?`; this helper
+/// keeps that style without repeating the error conversion in every case.
+fn check(condition: bool, message: &str) -> Result<(), Box<dyn Error>> {
+    if condition {
+        return Ok(());
+    }
+    Err(io::Error::other(message).into())
+}
+
 #[fixture]
 fn app_builder() -> Result<TestApp, Box<dyn Error>> {
     let app = TestApp::new()
@@ -57,104 +68,66 @@ fn memory_budgets() -> Result<MemoryBudgets, Box<dyn Error>> {
 fn builder_defaults_fragmentation_to_disabled(
     app_builder: Result<TestApp, Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
-    let app = app_builder?;
-    if app.fragmentation.is_some() {
-        return Err(io::Error::other("fragmentation should be disabled by default").into());
-    }
-    Ok(())
+    check(
+        app_builder?.fragmentation.is_none(),
+        "fragmentation should be disabled by default",
+    )
 }
 
 #[rstest]
 fn builder_defaults_memory_budgets_to_disabled(
     app_builder: Result<TestApp, Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
-    let app = app_builder?;
-    if app.memory_budgets.is_some() {
-        return Err(io::Error::other("memory budgets should be disabled by default").into());
-    }
-    Ok(())
+    check(
+        app_builder?.memory_budgets.is_none(),
+        "memory budgets should be disabled by default",
+    )
 }
 
 #[rstest]
-fn enable_fragmentation_requires_explicit_opt_in(
+fn fragmentation_survives_only_until_the_builder_is_reconfigured(
     app_builder: Result<TestApp, Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
-    let app = app_builder?.enable_fragmentation();
-    if app.fragmentation.is_none() {
-        return Err(io::Error::other("enable_fragmentation should configure fragmentation").into());
-    }
-    Ok(())
+    let fragmented = app_builder?.enable_fragmentation();
+    check(
+        fragmented.fragmentation.is_some(),
+        "enable_fragmentation should configure fragmentation",
+    )?;
+
+    let recoded = fragmented.with_codec(LengthDelimitedFrameCodec::new(2048));
+    check(
+        recoded.fragmentation.is_none(),
+        "with_codec should clear fragmentation configuration",
+    )?;
+
+    let resized = recoded.enable_fragmentation().buffer_capacity(2048);
+    check(
+        resized.fragmentation.is_none(),
+        "buffer_capacity should clear fragmentation configuration",
+    )
 }
 
 #[rstest]
-fn with_codec_clears_fragmentation_to_require_reconfiguration(
-    app_builder: Result<TestApp, Box<dyn Error>>,
-) -> Result<(), Box<dyn Error>> {
-    let app = app_builder?
-        .enable_fragmentation()
-        .with_codec(LengthDelimitedFrameCodec::new(2048));
-    if app.fragmentation.is_some() {
-        return Err(io::Error::other("with_codec should clear fragmentation configuration").into());
-    }
-    Ok(())
-}
-
-#[rstest]
-fn buffer_capacity_clears_fragmentation_to_require_reconfiguration(
-    app_builder: Result<TestApp, Box<dyn Error>>,
-) -> Result<(), Box<dyn Error>> {
-    let app = app_builder?.enable_fragmentation().buffer_capacity(2048);
-    if app.fragmentation.is_some() {
-        return Err(
-            io::Error::other("buffer_capacity should clear fragmentation configuration").into(),
-        );
-    }
-    Ok(())
-}
-
-#[rstest]
-fn memory_budgets_builder_stores_configuration(
+fn memory_budgets_survive_every_reconfiguration(
     app_builder: Result<TestApp, Box<dyn Error>>,
     memory_budgets: Result<MemoryBudgets, Box<dyn Error>>,
 ) -> Result<(), Box<dyn Error>> {
-    let configured_budgets = memory_budgets?;
-    let app = app_builder?.memory_budgets(configured_budgets);
-    if app.memory_budgets != Some(configured_budgets) {
-        return Err(io::Error::other("memory_budgets should store the configured value").into());
-    }
-    Ok(())
-}
+    let configured = memory_budgets?;
+    let stored = app_builder?.memory_budgets(configured);
+    check(
+        stored.memory_budgets == Some(configured),
+        "memory_budgets should store the configured value",
+    )?;
 
-#[rstest]
-fn with_codec_preserves_memory_budgets(
-    app_builder: Result<TestApp, Box<dyn Error>>,
-    memory_budgets: Result<MemoryBudgets, Box<dyn Error>>,
-) -> Result<(), Box<dyn Error>> {
-    let configured_budgets = memory_budgets?;
-    let app = app_builder?
-        .memory_budgets(configured_budgets)
-        .with_codec(LengthDelimitedFrameCodec::new(4096));
-    if app.memory_budgets != Some(configured_budgets) {
-        return Err(
-            io::Error::other("with_codec should preserve configured memory budgets").into(),
-        );
-    }
-    Ok(())
-}
+    let recoded = stored.with_codec(LengthDelimitedFrameCodec::new(4096));
+    check(
+        recoded.memory_budgets == Some(configured),
+        "with_codec should preserve configured memory budgets",
+    )?;
 
-#[rstest]
-fn serializer_preserves_memory_budgets(
-    app_builder: Result<TestApp, Box<dyn Error>>,
-    memory_budgets: Result<MemoryBudgets, Box<dyn Error>>,
-) -> Result<(), Box<dyn Error>> {
-    let configured_budgets = memory_budgets?;
-    let app = app_builder?
-        .memory_budgets(configured_budgets)
-        .serializer(BincodeSerializer);
-    if app.memory_budgets != Some(configured_budgets) {
-        return Err(
-            io::Error::other("serializer should preserve configured memory budgets").into(),
-        );
-    }
-    Ok(())
+    let reserialized = recoded.serializer(BincodeSerializer);
+    check(
+        reserialized.memory_budgets == Some(configured),
+        "serializer should preserve configured memory budgets",
+    )
 }
