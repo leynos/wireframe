@@ -170,13 +170,12 @@ where
         inbound.pipeline.set_context(connection_context.clone());
         let (response_actor, cancel_on_exit) = build_connection_actor(ConnectionActorInit {
             protocol: protocol.as_ref(),
-            shutdown: connection_shutdown.clone(),
+            shutdown: connection_shutdown,
             connection_id,
             registry: &session_registry,
             push_queues: &push_queues,
             context: connection_context,
         })?;
-        let idle_timeout = Duration::from_millis(read_timeout_ms);
         Ok(Self {
             sink,
             reader,
@@ -214,9 +213,6 @@ where
     /// waiting on it.
     async fn step(&mut self) -> io::Result<bool> {
         self.inbound.relieve_pressure(self.budgets).await?;
-        // The push arm is polled first and a ready lane wins every biased pass,
-        // so shutdown is also observed here; otherwise a busy push stream could
-        // keep a cancelled server alive behind it.
         let step: StreamStep<F> = tokio::select! {
             biased;
             () = self.shutdown.cancelled() => return Ok(false),
@@ -247,15 +243,9 @@ where
             // A failed or cancelled response leaves its stream without a
             // terminator, so a later response would be read as part of the
             // truncated stream. Stop instead.
-            StreamStep::Frame(frame) => {
-                self.restart_idle_deadline();
-                Ok(self.dispatch(frame).await? == Dispatch::Continue)
-            }
+            StreamStep::Frame(frame) => Ok(self.dispatch(frame).await? == Dispatch::Continue),
         }
     }
-
-    /// Start the idle interval again after the reader made progress.
-    fn restart_idle_deadline(&mut self) { self.idle_deadline = Instant::now() + self.idle_timeout; }
 
     /// Decode, reassemble, and dispatch one inbound frame while watching the
     /// peer for a disconnect.
@@ -290,7 +280,10 @@ where
     /// A write to a peer that stopped reading can stay pending indefinitely,
     /// so it is raced against the shutdown token. Reporting `false` abandons
     /// the batch and ends the connection, matching the actor's own behaviour
-    /// when a response write outlives a shutdown.
+    /// when a response write outlives a shutdown. The write is polled first:
+    /// a frame the transport accepts without blocking is still delivered to a
+    /// connection that is draining after a stop, and only a write that would
+    /// block is abandoned.
     async fn write_pushes(&mut self, frames: Vec<F::Frame>) -> io::Result<bool> {
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
@@ -300,8 +293,8 @@ where
         };
         tokio::select! {
             biased;
-            () = self.shutdown.cancelled() => Ok(false),
             result = transport.write(frames) => result.map(|()| true),
+            () = self.shutdown.cancelled() => Ok(false),
         }
     }
 

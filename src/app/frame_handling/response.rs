@@ -84,12 +84,12 @@ where
     let request_id = env.id;
     let correlation_id = env.correlation_id;
     let request = ServiceRequest::new(env.payload, correlation_id);
-    let Some(resp) = run_handler_with_pushes(&mut ctx, service.call(request)).await? else {
+    let Some(handled) = run_handler_with_pushes(&mut ctx, service.call(request)).await? else {
         // Shutdown abandoned the handler while one of its pushes blocked. No
         // response was delivered, so the connection stops here.
         return Ok(Dispatch::Stop);
     };
-    let resp = match resp {
+    let resp = match handled {
         Ok(resp) => resp,
         Err(e) => {
             warn!("handler error: id={request_id}, correlation_id={correlation_id:?}, error={e:?}");
@@ -149,8 +149,11 @@ where
                 Some(frames) => {
                     tokio::select! {
                         biased;
-                        () = shutdown.cancelled() => return Ok(None),
+                        // A ready write is preferred, so a stop does not
+                        // abandon a push batch the transport can still take.
+                        // Only a write that would block is cut short.
                         written = write_push_batch(ctx, frames) => written?,
+                        () = shutdown.cancelled() => return Ok(None),
                     }
                 }
                 None => lanes_open = false,

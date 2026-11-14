@@ -2744,8 +2744,10 @@ Two kinds of end of connection behave differently:
   connection was busy are delivered rather than discarded.
 - On server shutdown the lanes are closed immediately, and a push attempted
   after that fails with `PushError::Closed`. Shutdown does not wait to flush
-  what is still buffered: a write already in progress is abandoned rather than
+  what is still buffered: a write that would block is abandoned rather than
   awaited, so the server drain never blocks on a peer that has stopped reading.
+  A write the transport still accepts completes, and only then is the stop
+  observed.
   A frame that was queued but not yet written at that point is not guaranteed
   to arrive. This bound is why accepted connections observe the server stop
   token; [ADR 014](adr-014-server-shutdown-ownership.md) records the decision
