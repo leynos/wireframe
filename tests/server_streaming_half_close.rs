@@ -61,12 +61,23 @@ const STALLED_SEND_PAUSE: Duration = Duration::from_secs(60);
 const STATE_TIMEOUT: Duration = Duration::from_secs(5);
 /// Upper bound for a connection that must make progress or release.
 const CONNECTION_SETTLE: Duration = Duration::from_secs(120);
-/// Paused time that stays below the thirty-second idle grace.
-const GRACE_BEFORE_DEADLINE: Duration = Duration::from_secs(25);
 /// The production idle grace, restated because the constant is crate-private.
 ///
 /// Keep in step with `PEER_CLOSED_RESPONSE_GRACE` in `src/connection/drive.rs`.
 const IDLE_GRACE: Duration = Duration::from_secs(30);
+/// Slack allowed on either side of the idle grace.
+///
+/// The clock is paused, so the deadline is exact and this only absorbs
+/// scheduling at the same virtual instant. It deliberately stays far below the
+/// grace itself, so a longer deadline cannot satisfy the upper bound.
+const GRACE_TOLERANCE: Duration = Duration::from_millis(1);
+/// Latest instant at which the response must still be alive.
+///
+/// Stated as a literal rather than subtracting [`GRACE_TOLERANCE`] from
+/// [`IDLE_GRACE`], because an unchecked `Duration` subtraction would panic.
+/// Keep the pair one tolerance apart, so "alive before" and "ended by the
+/// deadline" meet without leaving a gap a longer grace could hide in.
+const GRACE_BEFORE_DEADLINE: Duration = Duration::from_millis(29_999);
 
 /// Require `condition`, reporting `message` as the test failure otherwise.
 fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
@@ -271,11 +282,12 @@ where
     ensure(timeout(bound, frames.next()).await.is_err(), message)
 }
 
-/// Require the response to outlast the idle grace and to end once it expires.
+/// Require the response to survive the idle grace and to end as it expires.
 ///
 /// The clock is paused, so each wait advances virtual time only as far as the
-/// next deadline. Measuring the whole window therefore pins both sides of the
-/// bound: no cancellation before the grace, and none deferred past it.
+/// next deadline. Checking immediately before the deadline and then measuring
+/// the whole window pins both sides tightly: a *shorter* grace fails the first
+/// check, and a *longer* one fails the upper bound.
 ///
 /// # Errors
 ///
@@ -294,7 +306,7 @@ where
         format!("the response must stay active for the whole idle grace: ended after {elapsed:?}"),
     )?;
     ensure(
-        elapsed < IDLE_GRACE + STATE_TIMEOUT,
+        elapsed <= IDLE_GRACE + GRACE_TOLERANCE,
         format!("the response must end at the idle grace, not later: ended after {elapsed:?}"),
     )
 }
