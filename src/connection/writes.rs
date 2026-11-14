@@ -59,11 +59,12 @@ impl WriteBound {
 
 /// Await `write`, abandoning it if it cannot finish within its bounds.
 ///
-/// The app layer drives writes the actor does not own — a push batch written
-/// while the inbound loop waits, and a push batch written while a handler runs.
-/// Both face the same back-pressure, and both need the same bounds the actor
-/// applies to its own output: the server stop token, and the idle grace once
-/// the peer can no longer be observed.
+/// The app layer drives writes the actor does not own — one pushed frame
+/// written while the inbound loop waits, and another written while a handler
+/// runs. Both face the same back-pressure, and both need the same bounds the
+/// actor applies to its own output: the server stop token, and the idle grace
+/// once the peer can no longer be observed. Callers rebuild the deadline for
+/// each frame so the grace measures idleness rather than a batch's duration.
 ///
 /// A ready write is preferred, for the same reason
 /// [`ConnectionActor::flush_or_cancel`] prefers it: a cancellation observed
@@ -82,8 +83,8 @@ impl WriteBound {
 /// # Examples
 ///
 /// ```ignore
-/// let bound = write_before_bound(write_push_batch(ctx, frames), &shutdown, grace).await?;
-/// if bound != WriteBound::Finished {
+/// let bound = write_before_bound(write_push(ctx, frame), &shutdown, grace).await?;
+/// if !bound.is_finished() {
 ///     return Ok(None);
 /// }
 /// ```

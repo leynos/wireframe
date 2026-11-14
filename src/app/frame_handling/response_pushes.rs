@@ -2,9 +2,9 @@
 //!
 //! The connection loop is the only consumer of a connection's push queues, so a
 //! handler that fills a lane while it runs could otherwise wait for itself.
-//! These helpers poll the queues alongside the handler and write each batch
-//! under the same shutdown and idle-grace bounds the actor applies to its own
-//! output.
+//! These helpers poll the queues alongside the handler and write each frame
+//! they take under the same shutdown and idle-grace bounds the actor applies to
+//! its own output.
 
 use std::{future::Future, io};
 
@@ -30,9 +30,10 @@ use crate::{
 /// pushes in memory and no frame is held longer than the handler run.
 ///
 /// Returns `None` when a server shutdown or an unobservable peer abandons the
-/// handler while one of its push batches is blocked. The tokens and the grace
-/// deadline are taken once per response rather than per select pass, because
-/// the actor keeps the only other copy.
+/// handler while one of its push frames is blocked. The tokens are taken once
+/// per response rather than per select pass, because the actor keeps the only
+/// other copy; the grace deadline is rebuilt per frame so it measures idleness
+/// rather than the time the whole batch has taken.
 pub(super) async fn run_handler_with_pushes<Resp, S, K, F>(
     ctx: &mut ResponseContext<'_, S, K, F>,
     call: impl Future<Output = Resp>,
@@ -52,24 +53,29 @@ where
             response = &mut call => return Ok(Some(response)),
             received = ctx.actor.next_pushes(), if lanes_open => match received {
                 Some(frames) => {
-                    // This write is outside the actor's own bounds, so it is
+                    // Each write is outside the actor's own bounds, so each is
                     // bounded the same way: a ready write wins, a blocked one
                     // is cut short by the stop token, and the idle grace
                     // bounds it once the peer can no longer be observed. A
                     // peer that half-closed and stopped reading would
                     // otherwise pin the connection and its server drain.
+                    //
+                    // The deadline is rebuilt per frame so the grace measures
+                    // idleness rather than the batch's total duration: a batch
+                    // the peer keeps accepting must not be abandoned merely
+                    // for taking longer than one grace.
                     let grace = ctx.actor.peer_closed_grace();
-                    let deadline = grace_after_observation(&unobserved, grace);
-                    let bound =
-                        write_before_bound(write_push_batch(ctx, frames), &shutdown, deadline)
-                            .await?;
-                    if bound.is_finished() {
-                        continue;
+                    for frame in frames {
+                        let deadline = grace_after_observation(&unobserved, grace);
+                        let bound =
+                            write_before_bound(write_push(ctx, frame), &shutdown, deadline).await?;
+                        if !bound.is_finished() {
+                            if bound.is_grace_expired() {
+                                warn!("abandoning a push write: the peer stopped reading");
+                            }
+                            return Ok(None);
+                        }
                     }
-                    if bound.is_grace_expired() {
-                        warn!("abandoning a push write: the peer stopped reading");
-                    }
-                    return Ok(None);
                 }
                 None => lanes_open = false,
             },
@@ -93,13 +99,13 @@ pub(super) async fn grace_after_observation(
     tokio::time::sleep(grace).await;
 }
 
-/// Write one drained push batch through the connection's transport sink.
+/// Write one drained push frame through the connection's transport sink.
 ///
 /// A push is already encoded for the wire, so the sink applies only the
 /// `before_send` hook and the transport write.
-async fn write_push_batch<S, K, F>(
+async fn write_push<S, K, F>(
     ctx: &mut ResponseContext<'_, S, K, F>,
-    frames: Vec<F::Frame>,
+    frame: F::Frame,
 ) -> io::Result<()>
 where
     S: Serializer + Send + Sync,
@@ -112,8 +118,5 @@ where
         &mut *ctx.sink,
         &mut *ctx.pipeline,
     );
-    for frame in frames {
-        sink.send_push(frame).await?;
-    }
-    Ok(())
+    sink.send_push(frame).await
 }

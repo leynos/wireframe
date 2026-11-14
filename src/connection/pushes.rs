@@ -13,11 +13,9 @@
 //!
 //! [`Envelope`]: crate::app::Envelope
 
-use std::io;
-
 use tokio::sync::mpsc;
 
-use super::{ConnectionActor, PushSink, state::ActorState};
+use super::{ConnectionActor, state::ActorState};
 use crate::{app::Packet, correlation::CorrelatableFrame, push::FrameLike};
 
 /// Priority lane a push frame was taken from.
@@ -103,23 +101,21 @@ where
         }
     }
 
-    /// Emit every frame still queued when the peer stopped writing.
+    /// Take every frame still queued when the peer stopped writing.
     ///
     /// The connection loop calls this after a clean end-of-stream so frames
-    /// accepted before the close are still delivered. Frames are written in
-    /// priority order, high before low. Both lanes close before the first
-    /// frame is taken, so a producer that pushes while the drain runs sees a
-    /// closed channel rather than a queue that is never polled again. Either
-    /// way a push attempted after this returns is rejected with
-    /// [`crate::push::PushError::Closed`].
+    /// accepted before the close are still delivered. Frames are returned in
+    /// priority order, high before low, and the caller writes them. Both lanes
+    /// close before the first frame is taken, so a producer that pushes while
+    /// the drain runs sees a closed channel rather than a queue that is never
+    /// polled again. Either way a push attempted after this returns is rejected
+    /// with [`crate::push::PushError::Closed`].
     ///
-    /// # Errors
-    ///
-    /// Returns the sink's I/O error when a push cannot be written.
-    pub(crate) async fn drain_pending_pushes<S>(&mut self, sink: &mut S) -> io::Result<()>
-    where
-        S: PushSink<P> + Send,
-    {
+    /// Returning the frames rather than writing them lets the caller bound each
+    /// write by its own idle grace: a closed lane can hold a slow producer's
+    /// per-frame reservations, and one deadline for the whole drain would
+    /// abandon frames the peer was still accepting.
+    pub(crate) async fn take_pending_pushes(&mut self) -> Vec<P> {
         // Take both lanes before reading them. A frame pushed while the drain
         // runs is then rejected by the now-closed channel instead of being
         // accepted into a lane the actor has already stopped polling, which
@@ -138,10 +134,7 @@ where
         for receiver in lanes.iter_mut().flatten() {
             self.drain_receiver(receiver, &mut pushes).await;
         }
-        for frame in pushes {
-            sink.send_push(frame).await?;
-        }
-        Ok(())
+        pushes
     }
 
     /// Compose one push frame according to the actor's configured routing.

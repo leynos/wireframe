@@ -10,8 +10,7 @@
 //! always served first, and after each push batch the read gets one
 //! non-blocking attempt, so an inbound frame waits behind at most one batch.
 
-use futures::{Sink, Stream, StreamExt};
-use log::warn;
+use futures::{Sink, Stream};
 use tokio::io;
 use tokio_util::sync::CancellationToken;
 
@@ -21,12 +20,17 @@ use super::{
         envelope::Envelope,
     },
     frames::{InboundFrames, NextFrame},
+    push_write::{finish_write, write_frame},
 };
 use crate::{
     codec::FrameCodec,
-    connection::{ConnectionActor, PEER_CLOSED_RESPONSE_GRACE, PushSink, write_before_bound},
+    connection::{ConnectionActor, PushSink},
     serializer::Serializer,
 };
+
+#[cfg(test)]
+#[path = "push_service_tests.rs"]
+mod tests;
 
 /// Outcome of waiting for the next unit of work on a connection.
 pub(super) enum StreamStep<F: FrameCodec> {
@@ -140,35 +144,16 @@ where
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
 {
-    /// Write queued push frames in the order the actor produced them.
+    /// Write one queued push frame.
+    ///
+    /// Taking one frame per call lets the caller bound each write by its own
+    /// idle grace instead of one deadline for a whole batch.
     ///
     /// # Errors
     ///
-    /// Returns the first transport error; remaining frames are dropped and the
-    /// connection ends.
-    pub(super) async fn write(&mut self, frames: Vec<F::Frame>) -> io::Result<()> {
-        let mut sink = self.frame_sink();
-        for frame in frames {
-            sink.send_push(frame).await?;
-        }
-        Ok(())
-    }
-
-    /// Deliver frames already queued when the client closed its write half.
-    ///
-    /// The actor closes both push lanes afterwards, so a push attempted after
-    /// the drain is rejected by the queue rather than silently accepted and
-    /// never written.
-    ///
-    /// # Errors
-    ///
-    /// Returns the first transport error raised while draining.
-    pub(super) async fn drain(
-        &mut self,
-        actor: &mut ConnectionActor<Envelope, (), F::Frame>,
-    ) -> io::Result<()> {
-        let mut sink = self.frame_sink();
-        actor.drain_pending_pushes(&mut sink).await
+    /// Returns the transport error raised by the write.
+    pub(super) async fn write(&mut self, frame: F::Frame) -> io::Result<()> {
+        self.frame_sink().send_push(frame).await
     }
 
     /// Borrow the push-writing sink for the duration of one call.
@@ -226,7 +211,7 @@ where
 pub(super) async fn deliver_pushes<S, K, F, R>(
     transport: &mut PushTransport<'_, S, K, F>,
     actor: &mut ConnectionActor<Envelope, (), F::Frame>,
-    batch: PushBatch<'_, F, R>,
+    mut batch: PushBatch<'_, F, R>,
 ) -> io::Result<bool>
 where
     S: Serializer + Send + Sync,
@@ -234,69 +219,34 @@ where
     F: FrameCodec,
     R: Stream<Item = io::Result<F::Frame>> + Unpin,
 {
-    let PushBatch {
-        frames,
-        reader,
-        pending_frame,
-        peer_eof,
-        shutdown,
-    } = batch;
-    // The write borrows the transport, and the drain below needs it again, so
-    // the whole observation phase is scoped to release that borrow.
-    let (bound, peer_closed) = {
-        let write = transport.write(frames);
-        tokio::pin!(write);
-        let mut peer_closed = peer_eof.is_cancelled();
-        // The rule `handle_watching_peer` applies: a buffered frame or an
-        // earlier EOF means the read half is not polled, so the write is
-        // bounded by the grace from its first poll instead.
-        if pending_frame.is_none() && !peer_closed {
-            tokio::select! {
-                biased;
-                // A ready write is preferred: a frame the transport accepts
-                // without blocking is still delivered, and only a write that
-                // would block is abandoned.
-                result = &mut write => return result.map(|()| true),
-                () = shutdown.cancelled() => return Ok(false),
-                next = reader.next() => match next {
-                    Some(Ok(frame)) => *pending_frame = Some(frame),
-                    Some(Err(error)) => return Err(error),
-                    None => {
-                        peer_eof.cancel();
-                        peer_closed = true;
-                    }
-                },
-            }
+    let mut peer_closed = batch.peer_eof.is_cancelled();
+    for frame in std::mem::take(&mut batch.frames) {
+        let written = write_frame(transport, frame, &mut batch, peer_closed).await?;
+        peer_closed = written.peer_closed();
+        if !written.may_continue() {
+            return Ok(false);
         }
-        let bound = write_before_bound(
-            &mut write,
-            shutdown,
-            tokio::time::sleep(PEER_CLOSED_RESPONSE_GRACE),
-        )
-        .await?;
-        (bound, peer_closed)
-    };
-    if !bound.is_finished() {
-        if bound.is_grace_expired() {
-            warn!("abandoning a push write: the peer stopped reading");
-        }
-        return Ok(false);
     }
     if !peer_closed {
         return Ok(true);
     }
-    drain_queued(transport, actor, shutdown).await?;
+    drain_queued(transport, actor, batch.shutdown).await?;
     Ok(false)
 }
 
 /// Deliver frames still queued when the peer closed its write half.
 ///
 /// A peer that closed its write half but stopped reading applies
-/// back-pressure that can hold a send pending forever. The drain is therefore
+/// back-pressure that can hold a send pending forever. Each write is therefore
 /// bounded by the connection's shutdown token and by the same grace that
 /// bounds a response whose peer can no longer be observed; either bound
 /// abandons the remaining frames instead of pinning the connection task and
 /// its registry entry.
+///
+/// The grace restarts for every frame, so it measures idleness rather than the
+/// time the whole drain has taken. A lane can still hold per-frame
+/// reservations from a slow producer, and one deadline for the drain would
+/// abandon frames the peer was accepting within the grace.
 ///
 /// # Errors
 ///
@@ -311,14 +261,13 @@ where
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
 {
-    let drain = transport.drain(actor);
-    tokio::select! {
-        biased;
-        result = drain => result,
-        () = shutdown.cancelled() => Ok(()),
-        () = tokio::time::sleep(PEER_CLOSED_RESPONSE_GRACE) => {
-            warn!("abandoning queued pushes: the peer stopped reading");
-            Ok(())
+    let frames = actor.take_pending_pushes().await;
+    for frame in frames {
+        let write = transport.write(frame);
+        tokio::pin!(write);
+        if !finish_write(write.as_mut(), shutdown).await? {
+            return Ok(());
         }
     }
+    Ok(())
 }

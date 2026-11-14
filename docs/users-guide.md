@@ -3065,11 +3065,14 @@ registry entry is published and before its push path starts, so setup receives
 that connection's `PushHandle` and can address any live connection through the
 registry. The end-of-file callback is not invoked on this path, so cleanup that
 must run belongs in the application's `on_connection_teardown` hook instead.
-The application-level setup and teardown hooks are separate from the protocol
-and run once per connection, with teardown running only when setup produced
-state. Without an installed protocol the response callbacks are no-ops. The
-terminator is written without decoding, so a write failure ends the connection
-like any other failed response write.
+Teardown is not guaranteed, though: a connection task that is cancelled or
+panics may never reach it, so a resource that must be released on those paths
+needs runtime-level finalization, such as a `Drop` guard or a value the task
+owns and releases when it ends. The application-level setup and teardown hooks
+are separate from the protocol and run once per connection, with teardown
+running only when setup produced state. Without an installed protocol the
+response callbacks are no-ops. The terminator is written without decoding, so a
+write failure ends the connection like any other failed response write.
 
 #### Deferred response bodies and middleware
 
