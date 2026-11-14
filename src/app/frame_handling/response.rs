@@ -6,6 +6,7 @@ use futures::{Sink, StreamExt};
 use log::warn;
 use tracing::Instrument;
 
+use super::response_pushes::run_handler_with_pushes;
 use crate::{
     app::{
         Envelope,
@@ -116,76 +117,6 @@ where
     Ok(dispatch_after(outcome))
 }
 
-/// Run the handler while the connection's push queues keep being drained.
-///
-/// The connection loop is the only consumer of the connection's push queues, so
-/// a handler that awaits a push into a full lane would otherwise wait for
-/// itself: the loop cannot poll the lanes again until this call returns. Polling
-/// them alongside the handler hands the lane capacity back, and each batch is
-/// written before the next select, so a slow handler cannot accumulate queued
-/// pushes in memory and no frame is held longer than the handler run.
-///
-/// Returns `None` when a server shutdown abandons the handler while one of its
-/// push batches is blocked on a peer that stopped reading. The token is taken
-/// once per response rather than per select pass, because the actor keeps the
-/// only other copy.
-async fn run_handler_with_pushes<Resp, S, K, F>(
-    ctx: &mut super::ResponseContext<'_, S, K, F>,
-    call: impl Future<Output = Resp>,
-) -> io::Result<Option<Resp>>
-where
-    S: Serializer + Send + Sync,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    F: FrameCodec,
-{
-    let shutdown = ctx.actor.shutdown_token();
-    let mut lanes_open = ctx.actor.has_open_push_lanes();
-    tokio::pin!(call);
-    loop {
-        tokio::select! {
-            biased;
-            response = &mut call => return Ok(Some(response)),
-            received = ctx.actor.next_pushes(), if lanes_open => match received {
-                Some(frames) => {
-                    tokio::select! {
-                        biased;
-                        // A ready write is preferred, so a stop does not
-                        // abandon a push batch the transport can still take.
-                        // Only a write that would block is cut short.
-                        written = write_push_batch(ctx, frames) => written?,
-                        () = shutdown.cancelled() => return Ok(None),
-                    }
-                }
-                None => lanes_open = false,
-            },
-        }
-    }
-}
-
-/// Write one drained push batch through the connection's transport sink.
-///
-/// A push is already encoded for the wire, so the sink applies only the
-/// `before_send` hook and the transport write.
-async fn write_push_batch<S, K, F>(
-    ctx: &mut super::ResponseContext<'_, S, K, F>,
-    frames: Vec<F::Frame>,
-) -> io::Result<()>
-where
-    S: Serializer + Send + Sync,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    F: FrameCodec,
-{
-    let mut sink = ActorFrameSink::new(
-        ctx.serializer,
-        ctx.codec,
-        &mut *ctx.sink,
-        &mut *ctx.pipeline,
-    );
-    for frame in frames {
-        sink.send_push(frame).await?;
-    }
-    Ok(())
-}
 
 /// Drive one response to its terminator, completion hook, and final outcome.
 ///
@@ -385,4 +316,3 @@ fn install_error(failure: WireframeError<()>) -> io::Error {
         other => io::Error::other(format!("failed to install handler response: {other:?}")),
     }
 }
-// weave: run 'weave explain src/app/frame_handling/response.rs' for per-hunk detail, 'weave check' to verify your resolution

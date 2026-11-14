@@ -2,7 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use log::{debug, warn};
+use log::debug;
 use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 
@@ -24,11 +24,18 @@ use super::{
     frames::InboundFrames,
     framing::{TransportSink, TransportStream, prepare_connection_framing},
     peer_watch::{PeerObservation, handle_watching_peer},
-    push_service::{PushTransport, StreamStep, StreamWait, next_stream_step},
+    push_service::{
+        PushBatch,
+        PushTransport,
+        StreamStep,
+        StreamWait,
+        deliver_pushes,
+        drain_queued,
+        next_stream_step,
+    },
 };
 use crate::{
     codec::FrameCodec,
-    connection::PEER_CLOSED_RESPONSE_GRACE,
     frame::FrameMetadata,
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     message::{DecodeWith, EncodeWith},
@@ -278,12 +285,10 @@ where
     /// Write queued push frames through the connection's transport sink.
     ///
     /// A write to a peer that stopped reading can stay pending indefinitely,
-    /// so it is raced against the shutdown token. Reporting `false` abandons
-    /// the batch and ends the connection, matching the actor's own behaviour
-    /// when a response write outlives a shutdown. The write is polled first:
-    /// a frame the transport accepts without blocking is still delivered to a
-    /// connection that is draining after a stop, and only a write that would
-    /// block is abandoned.
+    /// so it is bounded by the shutdown token and, once the peer can no longer
+    /// be observed, by the idle grace. The read half keeps being polled while
+    /// the write runs, because this is the last place that can notice a peer
+    /// which half-closed and then stopped reading.
     async fn write_pushes(&mut self, frames: Vec<F::Frame>) -> io::Result<bool> {
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
@@ -291,21 +296,17 @@ where
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,
         };
-        tokio::select! {
-            biased;
-            result = transport.write(frames) => result.map(|()| true),
-            () = self.shutdown.cancelled() => Ok(false),
-        }
+        let batch = PushBatch {
+            frames,
+            reader: &mut self.reader,
+            pending_frame: &mut self.inbound.pending,
+            peer_eof: &self.peer_eof,
+            shutdown: &self.shutdown,
+        };
+        deliver_pushes(&mut transport, &mut self.response_actor.actor, batch).await
     }
 
     /// Deliver frames still queued when the peer stopped writing.
-    ///
-    /// A peer that closed its write half but stopped reading applies
-    /// back-pressure that can hold a send pending forever. The drain is
-    /// therefore bounded by the connection's shutdown token and by the same
-    /// grace that bounds a response whose peer can no longer be observed;
-    /// either bound abandons the remaining frames instead of pinning the
-    /// connection task and its registry entry.
     async fn drain_pushes(&mut self) -> io::Result<()> {
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
@@ -313,16 +314,12 @@ where
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,
         };
-        let drain = transport.drain(&mut self.response_actor.actor);
-        tokio::select! {
-            biased;
-            result = drain => result,
-            () = self.shutdown.cancelled() => Ok(()),
-            () = tokio::time::sleep(PEER_CLOSED_RESPONSE_GRACE) => {
-                warn!("abandoning queued pushes: the peer stopped reading");
-                Ok(())
-            }
-        }
+        drain_queued(
+            &mut transport,
+            &mut self.response_actor.actor,
+            &self.shutdown,
+        )
+        .await
     }
 }
 

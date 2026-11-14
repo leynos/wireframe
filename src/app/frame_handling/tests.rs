@@ -8,13 +8,16 @@ use std::sync::{
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::StreamExt;
 use rstest::{fixture, rstest};
-use tokio::io::DuplexStream;
+use tokio::{
+    io::DuplexStream,
+    time::{Duration, Instant, timeout},
+};
 use tokio_util::{
     codec::{Decoder, Encoder},
     sync::CancellationToken,
 };
 
-use super::ResponseContext;
+use super::{ResponseContext, response_pushes::grace_after_observation};
 use crate::{
     app::{
         Envelope,
@@ -334,5 +337,32 @@ async fn send_envelope_returns_error_on_failure(small_harness: TestHarness) {
     assert!(
         result.is_err(),
         "expected send to fail for oversized payload"
+    );
+}
+
+/// The idle grace starts only once the peer stops being observable.
+///
+/// A peer that half-closes but keeps reading deserves the time it takes to
+/// accept a frame, so the grace must not run during observation. Starting it
+/// when the deadline is created would abandon a healthy write one gratuitous
+/// grace after the push began.
+#[tokio::test(start_paused = true)]
+async fn the_push_grace_starts_when_observation_ends() {
+    let unobserved = CancellationToken::new();
+    let started = Instant::now();
+    let wait = grace_after_observation(&unobserved, Duration::from_secs(5));
+    tokio::pin!(wait);
+
+    assert!(
+        timeout(Duration::from_secs(60), &mut wait).await.is_err(),
+        "a watched peer must not spend the grace"
+    );
+    unobserved.cancel();
+    (&mut wait).await;
+
+    assert_eq!(
+        started.elapsed(),
+        Duration::from_secs(65),
+        "the grace must run from the moment observation ended"
     );
 }

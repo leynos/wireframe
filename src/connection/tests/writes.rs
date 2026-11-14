@@ -7,6 +7,7 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 
 use tokio_util::sync::CancellationToken;
@@ -14,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 use super::{counting_hooks, grace::ManualGraceTimer, test_actor, test_actor_with_shutdown};
 use crate::{
     app::Envelope,
-    connection::{FrameSink, PushSink, ResponseOutcome},
+    connection::{FrameSink, PushSink, ResponseOutcome, WriteBound, write_before_bound},
     hooks::ProtocolHooks,
     response::{FrameStream, Response},
 };
@@ -118,6 +119,114 @@ async fn the_grace_abandons_a_write_the_peer_never_accepts(#[case] close_peer_be
     };
 
     assert_eq!(outcome, ResponseOutcome::Cancelled);
+}
+
+/// A ready write is preferred over a bound that has already fired.
+///
+/// A cancellation observed while the transport still accepts frames must not
+/// discard output the peer can receive; only a write that would block is
+/// abandoned.
+#[tokio::test]
+async fn a_ready_write_wins_over_an_expired_bound() {
+    let shutdown = CancellationToken::new();
+    shutdown.cancel();
+
+    let bound = write_before_bound(async { Ok(()) }, &shutdown, std::future::pending::<()>())
+        .await
+        .expect("a ready write is not an error");
+
+    assert_eq!(
+        bound,
+        WriteBound::Finished,
+        "a write the transport accepts must not be abandoned"
+    );
+}
+
+/// A blocked write is abandoned once the server stops.
+#[tokio::test]
+async fn a_blocked_write_is_abandoned_by_shutdown() {
+    let shutdown = CancellationToken::new();
+    shutdown.cancel();
+
+    let bound = write_before_bound(
+        std::future::pending::<io::Result<()>>(),
+        &shutdown,
+        std::future::pending::<()>(),
+    )
+    .await
+    .expect("abandoning a write is not an error");
+
+    assert_eq!(
+        bound,
+        WriteBound::Stopped,
+        "shutdown must abandon a write that cannot complete"
+    );
+}
+
+/// The idle grace abandons a blocked write when the interval elapses.
+///
+/// The clock is paused so the assertion proves the write ends at the deadline
+/// rather than merely eventually.
+#[tokio::test(start_paused = true)]
+async fn a_blocked_write_is_abandoned_by_the_grace() {
+    let shutdown = CancellationToken::new();
+    let started = tokio::time::Instant::now();
+
+    let bound = write_before_bound(
+        std::future::pending::<io::Result<()>>(),
+        &shutdown,
+        tokio::time::sleep(Duration::from_secs(30)),
+    )
+    .await
+    .expect("abandoning a write is not an error");
+
+    assert_eq!(
+        bound,
+        WriteBound::GraceExpired,
+        "the grace must abandon a write the peer never accepts"
+    );
+    assert_eq!(
+        started.elapsed(),
+        Duration::from_secs(30),
+        "the write must be abandoned exactly when the grace expires"
+    );
+}
+
+/// A write that is still pending and inside both bounds keeps waiting.
+#[tokio::test(start_paused = true)]
+async fn a_pending_write_waits_while_no_bound_fires() {
+    let shutdown = CancellationToken::new();
+    let waiting = write_before_bound(
+        std::future::pending::<io::Result<()>>(),
+        &shutdown,
+        tokio::time::sleep(Duration::from_secs(5)),
+    );
+    tokio::pin!(waiting);
+
+    assert!(
+        futures::poll!(waiting.as_mut()).is_pending(),
+        "neither bound has fired, so the write must keep waiting"
+    );
+}
+
+/// A transport failure is reported rather than mistaken for abandonment.
+#[tokio::test]
+async fn a_transport_error_is_reported() {
+    let shutdown = CancellationToken::new();
+
+    let error = write_before_bound(
+        async { Err(io::Error::other("broken pipe")) },
+        &shutdown,
+        std::future::pending::<()>(),
+    )
+    .await
+    .expect_err("the transport error must be reported");
+
+    assert_eq!(
+        error.kind(),
+        io::ErrorKind::Other,
+        "the transport's own error must reach the caller"
+    );
 }
 
 /// A single-frame response write must also be abandonable.

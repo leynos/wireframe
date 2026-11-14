@@ -1,9 +1,11 @@
-//! Mutators that install the actor's output sources and runtime policy.
+//! Accessors and mutators for the actor's output sources and runtime policy.
 //!
 //! These setters are generic over the push frame type so the server can drive
 //! an actor whose queued frames differ from its response frames. They live
 //! beside the actor definition rather than inside it to keep each module
-//! focused and within the project's file-size budget.
+//! focused and within the project's file-size budget. The accessors beside them
+//! expose the same policy to the app layer's own writes, so a push batch
+//! written by the inbound loop is bounded exactly like the actor's output.
 
 #[cfg(test)]
 use std::sync::Arc;
@@ -116,6 +118,24 @@ impl<F, E, P> ConnectionActor<F, E, P> {
     /// Get a clone of the shutdown token used by the actor.
     #[must_use]
     pub fn shutdown_token(&self) -> CancellationToken { self.shutdown.clone() }
+
+    /// Token cancelled when the inbound loop stops observing the peer.
+    ///
+    /// The loop cancels it per dispatch once it can no longer poll the read
+    /// half. A write the loop owns can then apply the same bound the actor
+    /// applies to its own waits instead of waiting on a peer nobody watches.
+    #[must_use]
+    pub(crate) fn unobserved_token(&self) -> CancellationToken { self.peer_closed.clone() }
+
+    /// Idle grace that bounds output once the peer can no longer be observed.
+    ///
+    /// A caller that owns its own write takes the interval from here so one
+    /// grace policy governs the whole connection. It must start the deadline
+    /// when observation ends, not when the write starts, so this exposes the
+    /// duration rather than a ready-made deadline; tests shorten it through
+    /// [`Self::set_peer_closed_grace`].
+    #[must_use]
+    pub(crate) const fn peer_closed_grace(&self) -> Duration { self.peer_closed_grace }
 }
 
 impl<F, E, P> ConnectionActor<F, E, P>

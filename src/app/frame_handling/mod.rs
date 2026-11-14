@@ -8,6 +8,7 @@ mod core;
 mod decode;
 mod reassembly;
 mod response;
+mod response_pushes;
 
 pub(crate) use core::{DeserFailureTracker, ResponseContext};
 

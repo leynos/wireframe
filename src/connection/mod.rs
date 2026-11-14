@@ -51,7 +51,7 @@ pub(crate) use sink::{FrameSink, ProgressSignal, PushSink};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-pub(crate) use writes::WriteOutcome;
+pub(crate) use writes::{WriteBound, WriteOutcome, write_before_bound};
 
 pub use crate::fairness::FairnessConfig;
 use crate::{

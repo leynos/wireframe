@@ -6,7 +6,7 @@
 //! preferring writes that can still complete so that a cancellation observed
 //! mid-drain does not discard output the sink would have accepted.
 
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, io, pin::Pin, sync::Arc, time::Duration};
 
 use tokio_util::sync::CancellationToken;
 
@@ -29,6 +29,66 @@ use crate::{
     push::FrameLike,
     response::WireframeError,
 };
+
+/// How a write ended when it was raced against its bounds.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum WriteBound {
+    /// The write completed; its own result reports success or failure.
+    Finished,
+    /// The server stopped while the write was still pending.
+    Stopped,
+    /// The peer stayed unobservable for a whole grace interval.
+    GraceExpired,
+}
+
+/// Await `write`, abandoning it if it cannot finish within its bounds.
+///
+/// The app layer drives writes the actor does not own — a push batch written
+/// while the inbound loop waits, and a push batch written while a handler runs.
+/// Both face the same back-pressure, and both need the same bounds the actor
+/// applies to its own output: the server stop token, and the idle grace once
+/// the peer can no longer be observed.
+///
+/// A ready write is preferred, for the same reason
+/// [`ConnectionActor::flush_or_cancel`] prefers it: a cancellation observed
+/// while the transport is still accepting frames must not discard output it
+/// would have taken. Only a write that would block is raced against `shutdown`
+/// and `grace`.
+///
+/// `grace` is a deadline the caller has already started or is about to start,
+/// because when it begins depends on when the peer stopped being observable,
+/// not on this call.
+///
+/// # Errors
+///
+/// Returns the transport error reported by `write`.
+///
+/// # Examples
+///
+/// ```ignore
+/// let bound = write_before_bound(write_push_batch(ctx, frames), &shutdown, grace).await?;
+/// if bound != WriteBound::Finished {
+///     return Ok(None);
+/// }
+/// ```
+pub(crate) async fn write_before_bound<W, G>(
+    write: W,
+    shutdown: &CancellationToken,
+    grace: G,
+) -> io::Result<WriteBound>
+where
+    W: Future<Output = io::Result<()>>,
+    G: Future<Output = ()>,
+{
+    tokio::pin!(write);
+    tokio::pin!(grace);
+    tokio::select! {
+        biased;
+        result = &mut write => result.map(|()| WriteBound::Finished),
+        () = shutdown.cancelled() => Ok(WriteBound::Stopped),
+        () = &mut grace => Ok(WriteBound::GraceExpired),
+    }
+}
 
 /// Whether a bounded write finished before the connection was cancelled.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

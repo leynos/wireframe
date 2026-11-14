@@ -386,4 +386,3 @@ async fn completion_hook_is_suppressed_when_the_response_is_cancelled() {
         "a cancelled response writes no terminator and runs no hook"
     );
 }
-// weave: run 'weave explain src/app/frame_handling/completion_tests/mod.rs' for per-hunk detail, 'weave check' to verify your resolution
