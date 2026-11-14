@@ -8,59 +8,36 @@
 #![cfg(not(loom))]
 #![forbid(unsafe_code)]
 
+#[path = "common/server_streaming_scenario.rs"]
+mod scenario;
 #[path = "common/server_streaming_io.rs"]
 mod streaming_io;
 
-use std::{
-    sync::{
-        Arc,
-        Mutex,
-        PoisonError,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
-};
+use std::{sync::atomic::Ordering, time::Duration};
 
 use bytes::Bytes;
 use futures::StreamExt;
-use streaming_io::{ProducerHandles, join_producers, request_bytes, stream_frames, write_frame};
-use tokio::{
-    io::{AsyncWriteExt, DuplexStream},
-    task::JoinHandle,
-    time::timeout,
+use scenario::{
+    CONNECTION_SETTLE,
+    FAST_ROUTE,
+    MAX_FRAME_LENGTH,
+    PACED_FRAME_COUNT,
+    PACED_ROUTE,
+    REQUEST_CORRELATION,
+    STALLED_ROUTE,
+    STATE_TIMEOUT,
+    Scenario,
+    ensure,
+    finish,
+    read_payloads,
+    spawn_scenario,
 };
+use streaming_io::{join_producers, request_bytes, write_frame};
+use tokio::{io::AsyncWriteExt, time::timeout};
 use tokio_util::codec::Framed;
-use wireframe::{
-    app::{Envelope, ResponseHandler, WireframeApp},
-    codec::{FrameCodec, LengthDelimitedFrameCodec},
-    response::Response,
-    serializer::{BincodeSerializer, Serializer},
-};
+use wireframe::codec::{FrameCodec, LengthDelimitedFrameCodec};
 use wireframe_testing::{TestError, TestResult};
 
-/// Route whose producer paces each frame below the idle grace.
-const PACED_ROUTE: u32 = 50;
-/// Route whose producer stalls beyond the idle grace.
-const STALLED_ROUTE: u32 = 51;
-/// Route that answers immediately, so a delivered reply is observable.
-const FAST_ROUTE: u32 = 52;
-/// Correlation identifier stamped on every request in this module.
-const REQUEST_CORRELATION: u64 = 21;
-/// Duplex capacity deliberately smaller than one response frame.
-const DUPLEX_CAPACITY: usize = 8;
-/// Maximum frame length used by the in-memory transport.
-const MAX_FRAME_LENGTH: usize = 2048;
-/// Frames the paced producer sends, each after a sub-grace pause.
-const PACED_FRAME_COUNT: u8 = 3;
-/// Pause between paced sends: below the 30-second idle grace, but long enough
-/// that the whole response outlasts one grace interval.
-const PACED_SEND_PAUSE: Duration = Duration::from_secs(20);
-/// Pause that exceeds the idle grace, so the response is cancelled.
-const STALLED_SEND_PAUSE: Duration = Duration::from_secs(60);
-/// Upper bound for a bounded state change on a loaded runner.
-const STATE_TIMEOUT: Duration = Duration::from_secs(5);
-/// Upper bound for a connection that must make progress or release.
-const CONNECTION_SETTLE: Duration = Duration::from_secs(120);
 /// The production idle grace, restated because the constant is crate-private.
 ///
 /// Keep in step with `PEER_CLOSED_RESPONSE_GRACE` in `src/connection/drive.rs`.
@@ -78,154 +55,6 @@ const GRACE_TOLERANCE: Duration = Duration::from_millis(1);
 /// Keep the pair one tolerance apart, so "alive before" and "ended by the
 /// deadline" meet without leaving a gap a longer grace could hide in.
 const GRACE_BEFORE_DEADLINE: Duration = Duration::from_millis(29_999);
-
-/// Require `condition`, reporting `message` as the test failure otherwise.
-fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
-    if condition {
-        Ok(())
-    } else {
-        Err(TestError::Msg(message.into()))
-    }
-}
-
-/// Retain a spawned producer so the test can await it before asserting.
-fn retain_producer(producers: &ProducerHandles, producer: JoinHandle<()>) {
-    producers
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .push(producer);
-}
-
-/// Handle a request by streaming frames through a response channel.
-fn producer_handler(
-    producers: ProducerHandles,
-    frame_count: u8,
-    pause: Duration,
-) -> ResponseHandler<Envelope> {
-    Arc::new(move |_request: &Envelope| {
-        let results = Arc::new(Mutex::new(Vec::new()));
-        let handles = Arc::clone(&producers);
-        Box::pin(async move {
-            let (sender, response) = Response::with_channel(1);
-            let producer = tokio::spawn(stream_frames(sender, results, frame_count, Some(pause)));
-            retain_producer(&handles, producer);
-            response
-        })
-    })
-}
-
-/// Handle a request with an immediately available single-frame response.
-fn fast_handler() -> ResponseHandler<Envelope> {
-    Arc::new(|_request: &Envelope| {
-        Box::pin(async { Response::Single(Envelope::new(FAST_ROUTE, None, vec![b'F'])) })
-    })
-}
-
-/// A prepared connection under test.
-struct Scenario {
-    /// Client end of the duplex transport.
-    client: DuplexStream,
-    /// Spawned server task driving the prepared connection.
-    connection: JoinHandle<std::io::Result<()>>,
-    /// Producer tasks the handlers spawn.
-    producers: ProducerHandles,
-    /// Number of teardown hook invocations.
-    teardowns: Arc<AtomicUsize>,
-}
-
-/// Build the three-route app and spawn its prepared connection.
-async fn spawn_scenario() -> TestResult<Scenario> {
-    let producers: ProducerHandles = Arc::new(Mutex::new(Vec::new()));
-    let teardowns = Arc::new(AtomicUsize::new(0));
-    let teardown_counter = Arc::clone(&teardowns);
-    let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
-        .route_response(
-            PACED_ROUTE,
-            producer_handler(Arc::clone(&producers), PACED_FRAME_COUNT, PACED_SEND_PAUSE),
-        )?
-        .route_response(
-            STALLED_ROUTE,
-            producer_handler(Arc::clone(&producers), 1, STALLED_SEND_PAUSE),
-        )?
-        .route_response(FAST_ROUTE, fast_handler())?
-        // Teardown only runs for connections whose setup produced state, so
-        // register a setup hook even though these scenarios need no state.
-        .on_connection_setup(|| async {})?
-        .on_connection_teardown(move |()| {
-            let counter = Arc::clone(&teardown_counter);
-            async move {
-                counter.fetch_add(1, Ordering::SeqCst);
-            }
-        })?;
-    let prepared = app
-        .prepare()
-        .await
-        .map_err(|error| TestError::Msg(format!("prepare app: {error}")))?;
-
-    let (client, server) = tokio::io::duplex(DUPLEX_CAPACITY);
-    let connection = tokio::spawn(async move { prepared.handle_connection_result(server).await });
-    Ok(Scenario {
-        client,
-        connection,
-        producers,
-        teardowns,
-    })
-}
-
-/// Decode one outbound frame payload into its envelope.
-fn decode_envelope(bytes: &[u8]) -> TestResult<Envelope> {
-    let (envelope, consumed) = BincodeSerializer
-        .deserialize::<Envelope>(bytes)
-        .map_err(|error| TestError::Msg(format!("deserialize frame: {error}")))?;
-    ensure(
-        consumed == bytes.len(),
-        format!(
-            "trailing bytes after envelope: consumed {consumed} of {}",
-            bytes.len()
-        ),
-    )?;
-    Ok(envelope)
-}
-
-/// Read `count` response frames and return their payloads in order.
-async fn read_payloads<S>(frames: &mut S, count: u8) -> TestResult<Vec<Vec<u8>>>
-where
-    S: futures::Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
-{
-    let mut payloads = Vec::new();
-    for _ in 0..count {
-        let frame = frames
-            .next()
-            .await
-            .transpose()
-            .map_err(|error| TestError::Msg(format!("read response frame: {error}")))?
-            .ok_or("the response ended early")?;
-        payloads.push(decode_envelope(&frame)?.payload_bytes().to_vec());
-    }
-    Ok(payloads)
-}
-
-/// Let the connection task reach its next await point without advancing time.
-///
-/// The paused clock only distinguishes "before" and "after" the grace when the
-/// actor is already waiting on it, so the boundary tests settle the scheduler
-/// first. Yielding never advances paused time, so this cannot cross a deadline.
-async fn settle() {
-    for _ in 0..16 {
-        tokio::task::yield_now().await;
-    }
-}
-
-/// Await the connection task, rejecting a transport failure.
-async fn finish(connection: JoinHandle<std::io::Result<()>>) -> TestResult {
-    let outcome = connection
-        .await
-        .map_err(|error| TestError::Msg(format!("connection task failed: {error}")))?;
-    ensure(
-        outcome.is_ok(),
-        format!("the connection must not fail: {outcome:?}"),
-    )
-}
 
 /// A half-close must not truncate a response that keeps making progress.
 ///
@@ -284,10 +113,13 @@ where
 
 /// Require the response to survive the idle grace and to end as it expires.
 ///
-/// The clock is paused, so each wait advances virtual time only as far as the
-/// next deadline. Checking immediately before the deadline and then measuring
-/// the whole window pins both sides tightly: a *shorter* grace fails the first
-/// check, and a *longer* one fails the upper bound.
+/// The window opens at an instant at which the actor has already armed its
+/// deadline: the paused clock advances only when no task is ready, so the
+/// connection task observes the closed write half, or the buffered request,
+/// and arms the grace before this window can move. Checking immediately before
+/// the deadline and then measuring the whole window therefore pins both sides
+/// tightly: a *shorter* grace fails the first check, and a *later* deadline —
+/// including a grace anchored after the window opened — fails the upper bound.
 ///
 /// # Errors
 ///
@@ -357,8 +189,6 @@ async fn a_half_closed_peer_keeps_a_stalled_response_until_the_grace_expires() -
         format!("the first stalled frame must be delivered: {first:?}"),
     )?;
 
-    // Let the actor observe the half-close and start its idle grace.
-    settle().await;
     ensure_cancelled_at_the_grace(
         &mut framed,
         "a stalled response must stay active until the idle grace expires",
@@ -414,9 +244,9 @@ async fn a_cancelled_stream_ends_the_connection_before_the_buffered_request() ->
     )
     .await?;
 
-    // Let the actor buffer the fast request and start its idle grace, then
-    // check both sides of the deadline.
-    settle().await;
+    // The buffered request is what stops the countdown from being anchored in
+    // the future: the connection task reads it and arms the grace before the
+    // paused clock can advance past this point.
     ensure_cancelled_at_the_grace(
         &mut framed,
         "a buffered request must not cancel the response before the grace expires",

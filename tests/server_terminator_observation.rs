@@ -52,6 +52,8 @@ const DUPLEX_CAPACITY: usize = 4096;
 const BLOCKED_CAPACITY: usize = 1;
 /// Upper bound for a frame that must already be in flight.
 const FRAME_TIMEOUT: Duration = Duration::from_secs(20);
+/// Upper bound for the connection task to finish once its frames are written.
+const CONNECTION_SETTLE: Duration = Duration::from_secs(120);
 /// Pause between streamed frames, so a pipelined request is read first.
 const FRAME_PAUSE: Duration = Duration::from_millis(50);
 /// Payload of the protocol terminator frame.
@@ -210,11 +212,25 @@ where
     Ok(payloads)
 }
 
-/// Await the connection task, rejecting a transport failure.
-async fn finish(connection: JoinHandle<io::Result<()>>) -> TestResult {
-    let outcome = connection
-        .await
-        .map_err(|error| TestError::Msg(format!("connection task failed: {error}")))?;
+/// Await the connection task, rejecting a transport failure or a stalled join.
+///
+/// Frame reads are bounded individually, but the final join is not: a
+/// connection that delivers every frame and then stalls in cleanup would hang
+/// the test. An expired join aborts the task and awaits its termination, so a
+/// cleanup regression fails within a bounded interval and leaves nothing
+/// running behind it.
+async fn finish(mut connection: JoinHandle<io::Result<()>>) -> TestResult {
+    let Ok(joined) = timeout(CONNECTION_SETTLE, &mut connection).await else {
+        connection.abort();
+        // Await the aborted task so it is provably gone before the test fails;
+        // its cancellation result is the expected one and carries no diagnosis.
+        drop(connection.await);
+        return Err(TestError::Msg(format!(
+            "connection cleanup did not finish within {CONNECTION_SETTLE:?}"
+        )));
+    };
+    let outcome =
+        joined.map_err(|error| TestError::Msg(format!("connection task failed: {error}")))?;
     ensure(
         outcome.is_ok(),
         format!("the connection must not fail: {outcome:?}"),

@@ -21,7 +21,7 @@ use futures::StreamExt;
 use tokio::{
     io::AsyncWriteExt,
     net::TcpStream,
-    sync::oneshot,
+    sync::{Notify, oneshot},
     time::{Instant, timeout},
 };
 use tokio_util::codec::Framed;
@@ -44,13 +44,10 @@ use wireframe_testing::{
 /// Application type shared by the request builder and the server under test.
 type TestApp = WireframeApp<BincodeSerializer, (), Envelope>;
 
-/// Route whose producer paces each frame so a stop lands mid-response.
+/// Route whose producer holds the response open so a stop lands mid-response.
 const STREAM_ROUTE: u32 = 60;
-/// Frames the paced producer sends.
+/// Frames the gated producer sends.
 const FRAME_COUNT: u8 = 3;
-/// Pause before each frame: long enough that the whole response outlasts the
-/// client observing the first frame, far below the thirty-second idle grace.
-const FRAME_PAUSE: Duration = Duration::from_millis(50);
 /// Maximum frame length used by the in-memory transport.
 const MAX_FRAME_LENGTH: usize = 2048;
 /// Payload of the protocol terminator frame.
@@ -90,13 +87,21 @@ impl WireframeProtocol for TerminatingProtocol {
     }
 }
 
-/// Handle a request by streaming numbered frames with a pause between them.
-fn paced_handler() -> ResponseHandler<Envelope> {
-    Arc::new(|_request: &Envelope| {
-        Box::pin(async {
+/// Handle a request by streaming numbered frames, holding after the first.
+///
+/// The gate is what makes the shutdown deterministic. A wall-clock pause only
+/// hopes that the stop request lands while the response is still active; a
+/// producer parked on this gate proves it, because every frame after the first
+/// is withheld until the test releases it.
+fn gated_handler(gate: Arc<Notify>) -> ResponseHandler<Envelope> {
+    Arc::new(move |_request: &Envelope| {
+        let held = Arc::clone(&gate);
+        Box::pin(async move {
             let stream: FrameStream<Envelope, ()> = Box::pin(async_stream::try_stream! {
-                for payload in 1..=FRAME_COUNT {
-                    tokio::time::sleep(FRAME_PAUSE).await;
+                yield Envelope::new(STREAM_ROUTE, None, vec![1]);
+                // Held until the test has issued its stop request.
+                held.notified().await;
+                for payload in 2..=FRAME_COUNT {
                     yield Envelope::new(STREAM_ROUTE, None, vec![payload]);
                 }
             });
@@ -156,8 +161,9 @@ async fn await_completion(completions: &AtomicUsize) -> TestResult {
 #[tokio::test]
 async fn stop_drains_a_stream_the_peer_is_still_reading() -> TestResult {
     let completions = Arc::new(AtomicUsize::new(0));
+    let gate = Arc::new(Notify::new());
     let app = TestApp::default()
-        .route_response(STREAM_ROUTE, paced_handler())?
+        .route_response(STREAM_ROUTE, gated_handler(Arc::clone(&gate)))?
         .with_protocol(TerminatingProtocol {
             completions: Arc::clone(&completions),
         });
@@ -181,9 +187,12 @@ async fn stop_drains_a_stream_the_peer_is_still_reading() -> TestResult {
         "the first frame must arrive before the stop request",
     )?;
 
-    // The server is now draining, with two frames and the terminator still to
-    // come. A drain that abandoned the response would end the stream here.
+    // The producer is parked on the gate, so the response is provably still
+    // active. Issuing the stop before releasing the gate guarantees it lands
+    // mid-response; a drain that abandoned the response would end the stream
+    // here instead of delivering the frames below.
     shutdown.stop();
+    gate.notify_one();
 
     for expected in 2..=FRAME_COUNT {
         let payload = decode_payload(&next_frame(&mut frames).await?)?;
