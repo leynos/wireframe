@@ -32,6 +32,7 @@ use tokio::{
 };
 use wireframe::{
     app::{Envelope, Handler, WireframeApp},
+    byte_order::write_network_u32,
     push::{PushError, PushQueues},
     serializer::{BincodeSerializer, Serializer},
     session::{ConnectionId, SessionRegistry},
@@ -206,7 +207,7 @@ async fn pushes_are_rejected_after_the_connection_closes() -> TestResult<()> {
 async fn write_request(stream: &mut TcpStream, route_id: u32) -> TestResult<()> {
     let envelope = Envelope::new(route_id, Some(1), Vec::new());
     let payload = BincodeSerializer.serialize(&envelope)?;
-    let prefix = u32::try_from(payload.len())?.to_be_bytes();
+    let prefix = write_network_u32(u32::try_from(payload.len())?);
     let (leading, remainder) = prefix
         .split_first()
         .ok_or("a four-byte length prefix is never empty")?;
@@ -232,11 +233,11 @@ async fn queued_pushes_are_drained_after_a_clean_peer_close() -> TestResult<()> 
     let handler_started = Arc::clone(&started);
     let handler_gate = Arc::clone(&gate);
     let handler: Handler<Envelope> = Arc::new(move |_request: &Envelope| {
-        let started = Arc::clone(&handler_started);
-        let gate = Arc::clone(&handler_gate);
+        let route_started = Arc::clone(&handler_started);
+        let route_gate = Arc::clone(&handler_gate);
         Box::pin(async move {
-            started.notify_one();
-            gate.notified().await;
+            route_started.notify_one();
+            route_gate.notified().await;
         })
     });
     let app = WireframeApp::default()

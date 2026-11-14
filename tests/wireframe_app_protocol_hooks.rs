@@ -4,13 +4,14 @@
 //! `with_protocol` observes, and can mutate, every response frame produced by
 //! `WireframeApp` handlers on both the prepared and unprepared connection
 //! paths.
+#![cfg(not(loom))]
+#![forbid(unsafe_code)]
+#![recursion_limit = "256"]
+
 // The prepared-app drive future nests deeply enough that the pinned nightly
 // used for the dylint gate overflows the default query-depth limit while
 // computing the layout of the async test bodies below. The compiler
 // recommends a higher limit for this crate.
-#![recursion_limit = "256"]
-#![cfg(not(loom))]
-#![forbid(unsafe_code)]
 
 use std::sync::{
     Arc,

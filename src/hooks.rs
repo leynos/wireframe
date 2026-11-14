@@ -77,7 +77,7 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// after the handle is published to the application's
     /// [`SessionRegistry`][crate::session::SessionRegistry] and before the
     /// actor starts, so frames queued here are delivered. The context carries
-    /// the server-allocated [`ConnectionId`][crate::session::ConnectionId].
+    /// the server-allocated [`ConnectionId`].
     /// Code that drives a [`ConnectionActor`][crate::connection::ConnectionActor]
     /// directly invokes the callback itself.
     fn on_connection_setup(&self, _handle: PushHandle<Self::Frame>, _ctx: &mut ConnectionContext) {}

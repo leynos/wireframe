@@ -1,12 +1,13 @@
 //! Integration tests for slow reader and writer simulation helpers in
 //! `wireframe_testing`.
+#![cfg(not(loom))]
+#![forbid(unsafe_code)]
+#![recursion_limit = "256"]
+
 // The connection pipeline's future nests deeply enough that the pinned nightly
 // used for the dylint gate overflows the default query-depth limit while
 // computing the layout of the async test bodies below. The compiler recommends
 // a higher limit for this crate.
-#![recursion_limit = "256"]
-#![cfg(not(loom))]
-#![forbid(unsafe_code)]
 
 use std::{io, num::NonZeroUsize, sync::Arc, time::Duration};
 
