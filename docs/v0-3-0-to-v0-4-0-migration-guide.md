@@ -66,7 +66,9 @@ let handler: Handler<Envelope> = {
     })
 };
 
-let app = WireframeApp::new()?.route(1, handler);
+// Annotate the binding so the remaining type parameters take their defaults,
+// and propagate the error that `route` returns.
+let app: WireframeApp = WireframeApp::new()?.route(1, handler)?;
 ```
 
 ### Request decoding
