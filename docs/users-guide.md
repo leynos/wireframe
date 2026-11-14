@@ -2712,7 +2712,12 @@ let app = WireframeApp::new()?.with_session_registry(Arc::clone(&registry));
 
 // Later, from any task holding the same registry:
 // for (id, handle) in registry.active_handles() {
-//     handle.push_low_priority(Bytes::from_static(b"tick"));
+//     let pushed = handle
+//         .push_low_priority(Bytes::from_static(b"tick"))
+//         .await;
+//     if let Err(error) = pushed {
+//         log::warn!("push failed for connection {id}: {error}");
+//     }
 // }
 ```
 
