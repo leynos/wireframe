@@ -6,6 +6,12 @@
 //! covers the same path over a real loopback socket.
 #![cfg(not(loom))]
 #![forbid(unsafe_code)]
+#![recursion_limit = "256"]
+
+// The connection pipeline's future nests deeply enough that the pinned nightly
+// used for the dylint gate overflows the default query-depth limit while
+// computing the layout of the async test bodies. The compiler recommends a
+// higher limit for this crate.
 
 #[path = "common/server_streaming_io.rs"]
 mod streaming_io;

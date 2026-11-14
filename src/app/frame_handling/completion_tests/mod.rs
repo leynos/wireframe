@@ -143,14 +143,14 @@ impl Service for StreamService {
     }
 }
 
+/// Actor fixture paired with the push handle that keeps its queues open.
+type ActorFixture = (ConnectionActor<Envelope, (), Bytes>, PushHandle<Bytes>);
+
 /// Build an untracked actor whose push queues stay open for the test.
 ///
 /// # Errors
 ///
 /// Returns [`PushConfigError`] if the queue capacities are rejected.
-/// Actor fixture paired with the push handle that keeps its queues open.
-type ActorFixture = (ConnectionActor<Envelope, (), Bytes>, PushHandle<Bytes>);
-
 fn build_actor() -> Result<ActorFixture, PushConfigError> {
     build_actor_with(CancellationToken::new())
 }
@@ -160,9 +160,7 @@ fn build_actor() -> Result<ActorFixture, PushConfigError> {
 /// # Errors
 ///
 /// Returns [`PushConfigError`] if the queue capacities are rejected.
-fn build_actor_with(
-    shutdown: CancellationToken,
-) -> Result<(ConnectionActor<Envelope, (), Bytes>, PushHandle<Bytes>), PushConfigError> {
+fn build_actor_with(shutdown: CancellationToken) -> Result<ActorFixture, PushConfigError> {
     let (queues, handle) = PushQueues::<Bytes>::builder()
         .high_capacity(1)
         .low_capacity(1)
