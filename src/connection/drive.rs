@@ -16,7 +16,7 @@ use super::{
     output::{ActiveOutput, AvailableOutput, EventAvailability},
     polling::EventSources,
     state::ActorState,
-    writes::{WriteOutcome, flush_frames},
+    writes::WriteOutcome,
 };
 use crate::{
     app::Packet,
@@ -119,7 +119,9 @@ where
     /// Install a handler response and drive it to completion.
     ///
     /// `Single`, `Vec`, and `Empty` responses complete immediately: they are
-    /// emitted without a stream terminator and `on_command_end` runs once.
+    /// emitted without a stream terminator and `on_command_end` runs once. A
+    /// write abandoned by shutdown or by the peer's idle grace reports
+    /// [`ResponseOutcome::Cancelled`] and skips the hook.
     /// `Stream` and `MultiPacket` reuse the existing setters, so the usual
     /// mutual-exclusion rules apply, and are then driven by
     /// [`drive_response`](Self::drive_response).
@@ -141,16 +143,16 @@ where
         self.response_correlation = correlation_id;
         match response {
             Response::Single(frame) => {
-                self.emit_response_frames(vec![frame], correlation_id, sink)
+                let outcome = self
+                    .emit_response_frames(vec![frame], correlation_id, sink)
                     .await?;
-                self.hooks.on_command_end(&mut self.ctx);
-                Ok(ResponseOutcome::Completed)
+                Ok(self.finish_immediate_response(outcome))
             }
             Response::Vec(frames) => {
-                self.emit_response_frames(frames, correlation_id, sink)
+                let outcome = self
+                    .emit_response_frames(frames, correlation_id, sink)
                     .await?;
-                self.hooks.on_command_end(&mut self.ctx);
-                Ok(ResponseOutcome::Completed)
+                Ok(self.finish_immediate_response(outcome))
             }
             Response::Empty => {
                 ensure_output_idle(&self.active_output)?;
@@ -244,12 +246,16 @@ where
     /// has none, matching [`CorrelatableFrame`] inheritance elsewhere: a
     /// middleware-provided response id must not be cleared by a request that
     /// simply never supplied one.
+    ///
+    /// The write is bounded like any other. A single frame is enough to make a
+    /// peer that stopped reading block the connection, and a graceful drain
+    /// must not wait for it.
     async fn emit_response_frames<S>(
         &mut self,
         frames: Vec<F>,
         correlation_id: Option<u64>,
         sink: &mut S,
-    ) -> Result<(), WireframeError<E>>
+    ) -> Result<WriteOutcome, WireframeError<E>>
     where
         S: FrameSink<F> + Send,
     {
@@ -261,7 +267,20 @@ where
             }
             self.process_frame_with_hooks_and_metrics(frame, &mut out);
         }
-        flush_frames(out, sink).await
+        self.flush_or_cancel(out, sink).await
+    }
+
+    /// Finish an immediately emitted response.
+    ///
+    /// The completion hook belongs after a successful write. A cancelled write
+    /// leaves a closing connection, so it is reported without the hook, the
+    /// same way a cancelled stream is.
+    fn finish_immediate_response(&mut self, outcome: WriteOutcome) -> ResponseOutcome {
+        if outcome == WriteOutcome::Cancelled {
+            return ResponseOutcome::Cancelled;
+        }
+        self.hooks.on_command_end(&mut self.ctx);
+        ResponseOutcome::Completed
     }
 
     /// Compute which event sources are currently available for polling.

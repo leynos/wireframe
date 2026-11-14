@@ -94,6 +94,34 @@ impl Sink<Bytes> for RecordingSink {
     }
 }
 
+/// Sink that never accepts a write, modelling a peer that stopped reading.
+struct StalledSink {
+    /// Shared log, retained so the test can assert nothing was written.
+    log: EventLog,
+}
+
+impl Sink<Bytes> for StalledSink {
+    type Error = io::Error;
+
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        record(&self.log, "poll_ready");
+        Poll::Pending
+    }
+
+    fn start_send(self: Pin<&mut Self>, _item: Bytes) -> Result<(), Self::Error> {
+        record(&self.log, "send");
+        Ok(())
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
 /// Service that hands the prepared path a pre-built response.
 struct StreamService {
     /// Deferred slot the response is installed in.
@@ -119,6 +147,17 @@ impl Service for StreamService {
 ///
 /// Returns [`PushConfigError`] if the queue capacities are rejected.
 fn build_actor() -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>), PushConfigError> {
+    build_actor_with(CancellationToken::new())
+}
+
+/// Build an actor whose shutdown token the test controls.
+///
+/// # Errors
+///
+/// Returns [`PushConfigError`] if the queue capacities are rejected.
+fn build_actor_with(
+    shutdown: CancellationToken,
+) -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>), PushConfigError> {
     let (queues, handle) = PushQueues::<Envelope>::builder()
         .high_capacity(1)
         .low_capacity(1)
@@ -126,7 +165,7 @@ fn build_actor() -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>)
     let actor = ConnectionActor::new_untracked(
         ConnectionChannels::new(queues, handle.clone()),
         None,
-        CancellationToken::new(),
+        shutdown,
         ProtocolHooks::default(),
     );
     Ok((actor, handle))
@@ -154,12 +193,26 @@ async fn forward(
         actor.set_peer_closed(peer_closed);
         actor.set_peer_closed_grace(Duration::ZERO);
     }
-    let codec = LengthDelimitedFrameCodec::new(1024);
-    let serializer = BincodeSerializer;
     let mut sink = RecordingSink {
         log: Arc::clone(&log),
         fail: fail_sink,
     };
+    let outcome = run_forward(&mut sink, &mut actor, response, &log).await;
+    Ok((log, outcome))
+}
+
+/// Run one response through the prepared path with an already built actor.
+async fn run_forward<K>(
+    sink: &mut K,
+    actor: &mut ConnectionActor<Envelope, ()>,
+    response: Response<Envelope, ()>,
+    log: &EventLog,
+) -> io::Result<Dispatch>
+where
+    K: Sink<Bytes, Error = io::Error> + Unpin + Send,
+{
+    let codec = LengthDelimitedFrameCodec::new(1024);
+    let serializer = BincodeSerializer;
     let mut pipeline: FramePipeline<Bytes> =
         FramePipeline::with_hooks(None, ProtocolHooks::default());
     let service = HandlerService::<Envelope>::from_service(
@@ -170,23 +223,22 @@ async fn forward(
     );
     let protocol: Arc<dyn WireframeProtocol<Frame = Bytes, ProtocolError = ()>> =
         Arc::new(RecordingProtocol {
-            log: Arc::clone(&log),
+            log: Arc::clone(log),
         });
 
-    let outcome = super::forward_response(
+    super::forward_response(
         Envelope::new(7, Some(3), Vec::new()),
         &service,
         ResponseContext {
             serializer: &serializer,
-            sink: &mut sink,
+            sink,
             pipeline: &mut pipeline,
             codec: &codec,
-            actor: &mut actor,
+            actor,
             protocol: Some(&protocol),
         },
     )
-    .await;
-    Ok((log, outcome))
+    .await
 }
 
 /// A completed stream runs the completion hook once, after the terminator.
@@ -252,6 +304,59 @@ async fn protocol_error_stops_dispatch_without_a_terminator() {
         events(&log),
         vec!["send", "command_end"],
         "exactly one frame is written and no terminator follows the failure"
+    );
+}
+
+/// A terminator the peer never accepts is abandoned on shutdown.
+///
+/// The terminator is the last frame the prepared path writes. A peer that
+/// stopped reading applies back-pressure that can hold that write open
+/// indefinitely, which would pin a graceful server drain after the response
+/// itself completed. The shutdown token must therefore bound it, and the
+/// abandoned terminator must suppress the completion hook.
+#[tokio::test]
+async fn shutdown_abandons_a_terminator_the_peer_never_accepts() {
+    let log: EventLog = Arc::new(Mutex::new(Vec::new()));
+    let shutdown = CancellationToken::new();
+    let (mut actor, _handle) = build_actor_with(shutdown.clone()).expect("the actor should build");
+    let mut sink = StalledSink {
+        log: Arc::clone(&log),
+    };
+
+    // An empty stream writes only the protocol terminator, so a pending drive
+    // proves the terminator itself is what stalled.
+    let stream: FrameStream<Envelope, ()> = futures::stream::empty().boxed();
+    let outcome = {
+        let mut driving = std::pin::pin!(run_forward(
+            &mut sink,
+            &mut actor,
+            Response::Stream(stream),
+            &log
+        ));
+        assert!(
+            futures::poll!(driving.as_mut()).is_pending(),
+            "the terminator write must stall before shutdown is requested"
+        );
+
+        shutdown.cancel();
+        driving
+            .await
+            .expect("an abandoned terminator is not a transport error")
+    };
+
+    assert_eq!(
+        outcome,
+        Dispatch::Stop,
+        "a cancelled terminator must stop the loop before it serves another frame"
+    );
+    let observed = events(&log);
+    assert!(
+        !observed.contains(&"send"),
+        "the abandoned terminator must never reach the sink: {observed:?}"
+    );
+    assert!(
+        !observed.contains(&"command_end"),
+        "a cancelled terminator must not run the completion hook: {observed:?}"
     );
 }
 
