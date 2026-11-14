@@ -46,6 +46,19 @@ pub(crate) enum ResponseOutcome {
     Cancelled,
 }
 
+/// How an event ends a response's unbounded wait.
+///
+/// A response is driven first without a deadline, because a producer is allowed
+/// to take as long as it needs while the connection is healthy. Only these two
+/// events end that wait, and each continues the response differently.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ResponseInterruption {
+    /// Abandon the response without a terminator, because shutdown preempts it.
+    Abandon,
+    /// Continue under the bounded drain, which renews the idle grace per event.
+    Bounded,
+}
+
 impl<F, E> ConnectionActor<F, E>
 where
     F: FrameLike + CorrelatableFrame + Packet,
@@ -198,13 +211,16 @@ where
                 self.active_output.is_response(),
                 self.active_output.is_multi_packet(),
             );
-            let event = self.next_event_while_draining(&state, true).await;
-            if matches!(event, Event::Shutdown) {
-                ResponseCancellationReason::Shutdown.record();
-                return Ok(ResponseOutcome::Cancelled);
-            }
-            if matches!(event, Event::PeerClosed) {
-                return self.drive_after_peer_close(sink).await;
+            let event = self.next_event_while_draining(&state).await;
+            match self.response_interruption(&event) {
+                Some(ResponseInterruption::Abandon) => {
+                    ResponseCancellationReason::Shutdown.record();
+                    return Ok(ResponseOutcome::Cancelled);
+                }
+                Some(ResponseInterruption::Bounded) => {
+                    return self.drive_bounded_drain(sink).await;
+                }
+                None => {}
             }
             if let Some(outcome) = self.dispatch_and_write(event, &mut state, sink).await? {
                 return Ok(outcome);
@@ -314,24 +330,6 @@ where
         .await
     }
 
-    /// Await the next event for a prepared connection while it drains.
-    ///
-    /// The prepared connection keeps driving a response whose peer is reading
-    /// even after `stop()`, so that ADR-014's graceful drain still delivers it
-    /// and runs its completion hook. Its writes remain bounded, which is what
-    /// stops a peer that no longer reads from pinning the drain.
-    pub(super) async fn next_event_while_draining(
-        &mut self,
-        state: &ActorState,
-        watch_peer: bool,
-    ) -> Event<F, E> {
-        let watch = EventWatch {
-            peer: watch_peer,
-            shutdown: self.abandon_response_on_shutdown,
-        };
-        self.next_event_inner(state, watch).await
-    }
-
     /// Choose whether a shutdown signal abandons a response being driven.
     ///
     /// The default keeps the direct actor contract, where a cancelled shutdown
@@ -349,7 +347,11 @@ where
     }
 
     /// Shared select loop for every observation mode.
-    async fn next_event_inner(&mut self, state: &ActorState, watch: EventWatch) -> Event<F, E> {
+    pub(super) async fn next_event_inner(
+        &mut self,
+        state: &ActorState,
+        watch: EventWatch,
+    ) -> Event<F, E> {
         let avail = self.compute_availability(state);
         let can_poll_multi_packet = avail.output == AvailableOutput::MultiPacket;
         let can_poll_response = avail.output == AvailableOutput::Response;

@@ -7,6 +7,13 @@
 //! decoding and re-wrapping, but the mutable `before_send` hook still runs on
 //! them before transmission.
 
+use std::{
+    marker::PhantomData,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
+
 use futures::{Sink, SinkExt};
 use log::warn;
 use tokio::io;
@@ -15,7 +22,7 @@ use super::FramePipeline;
 use crate::{
     app::{Envelope, outbound_encoding::encode_message_frame},
     codec::{CodecError, FrameCodec},
-    connection::FrameSink,
+    connection::{FrameSink, ProgressSignal},
     message::EncodeWith,
     metrics::{AppResponseSendOutcome, Direction, inc_app_response_send, inc_frames},
     serializer::Serializer,
@@ -206,6 +213,8 @@ where
     sink: &'a mut K,
     /// Outbound pipeline applying fragmentation, hooks, and metrics.
     pipeline: &'a mut FramePipeline<F::Frame>,
+    /// Progress signal renewed by each accepted physical write.
+    progress: Arc<ProgressSignal>,
 }
 
 impl<'a, S, K, F> ActorFrameSink<'a, S, K, F>
@@ -213,7 +222,7 @@ where
     F: FrameCodec,
 {
     /// Borrow the transport and pipeline that this sink writes through.
-    pub(crate) const fn new(
+    pub(crate) fn new(
         serializer: &'a S,
         codec: &'a F,
         sink: &'a mut K,
@@ -224,6 +233,7 @@ where
             codec,
             sink,
             pipeline,
+            progress: Arc::new(ProgressSignal::default()),
         }
     }
 }
@@ -240,10 +250,63 @@ where
         let mut transport = OutboundTransport {
             serializer: self.serializer,
             codec: self.codec,
-            sink: &mut *self.sink,
+            sink: &mut ProgressSink::<K, F::Frame> {
+                inner: &mut *self.sink,
+                progress: &self.progress,
+                frame: PhantomData,
+            },
         };
         // `flush_pipeline_output` drops any remaining fragments on the
         // first send failure, which is the required error behaviour.
         flush_pipeline_output(&mut transport, self.pipeline).await
+    }
+
+    fn progress(&self) -> Option<Arc<ProgressSignal>> { Some(Arc::clone(&self.progress)) }
+}
+
+/// Transport sink that reports each completed physical write.
+///
+/// One composed frame can reach the transport as several physical writes
+/// because the pipeline fragments it and adds a terminator. The connection
+/// actor hands the sink one future for all of them, so without this signal the
+/// actor's idle grace would bound the whole frame rather than each write, and a
+/// peer that accepts every fragment but slowly would lose the rest of its
+/// response once the total transfer outlived one grace.
+struct ProgressSink<'a, K, F> {
+    /// Transport receiving the physical writes.
+    inner: &'a mut K,
+    /// Signal raised after each write the transport accepted.
+    progress: &'a ProgressSignal,
+    /// Frame type, which appears only in the `Sink` implementation.
+    frame: PhantomData<fn(F)>,
+}
+
+impl<K, F> Sink<F> for ProgressSink<'_, K, F>
+where
+    K: Sink<F, Error = io::Error> + Unpin,
+{
+    type Error = io::Error;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut *self.get_mut().inner).poll_ready(cx)
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: F) -> io::Result<()> {
+        Pin::new(&mut *self.get_mut().inner).start_send(item)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let polled = Pin::new(&mut *this.inner).poll_flush(cx);
+        // `SinkExt::send` flushes after every frame, so a ready flush is the
+        // point at which one physical write reached the transport.
+        if matches!(polled, Poll::Ready(Ok(()))) {
+            this.progress.report();
+        }
+        polled
+    }
+
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut *self.get_mut().inner).poll_close(cx)
     }
 }

@@ -13,9 +13,11 @@ use tokio_util::sync::CancellationToken;
 use super::{
     ConnectionActor,
     FrameSink,
+    ProgressSignal,
     drive::ResponseOutcome,
     event::Event,
     grace::GraceTimer,
+    sink::next_progress,
     state::ActorState,
 };
 use crate::{
@@ -39,7 +41,7 @@ pub(crate) enum WriteOutcome {
 ///
 /// Grouped so the write helper takes one bound rather than each token and
 /// deadline separately, which keeps its signature readable as bounds change.
-struct WriteBounds<'a> {
+pub(super) struct WriteBounds<'a> {
     /// Token cancelled when the connection must stop.
     shutdown: &'a CancellationToken,
     /// Token cancelled once the peer can no longer be observed.
@@ -52,7 +54,7 @@ struct WriteBounds<'a> {
 
 /// Why a bounded write stopped.
 #[derive(Clone, Copy, Debug)]
-enum WriteLimit {
+pub(super) enum WriteLimit {
     /// The frames reached the sink.
     Written,
     /// The connection shut down while the write was pending.
@@ -108,6 +110,13 @@ where
     /// its input half and then accepts nothing for a whole grace is treated as
     /// gone.
     ///
+    /// Each frame is bounded separately so that accepting one renews the idle
+    /// grace for the next. Bounding the whole batch instead would abandon a
+    /// peer that is still reading whenever the batch takes longer than one
+    /// grace to write, even though no individual write stalled. A sink that
+    /// splits one frame into several physical writes renews the grace per
+    /// physical write through its [`FrameSink::progress`] signal.
+    ///
     /// # Errors
     ///
     /// Returns a [`WireframeError`] if the sink fails.
@@ -119,7 +128,17 @@ where
     where
         S: FrameSink<F> + Send,
     {
-        self.write_frame_bounded(flush_frames(frames, sink)).await
+        for frame in frames {
+            let progress = sink.progress();
+            let outcome = self
+                .write_frame_bounded(sink.send_frame(frame), progress.as_deref())
+                .await
+                .map_err(WireframeError::Io)?;
+            if outcome == WriteOutcome::Cancelled {
+                return Ok(WriteOutcome::Cancelled);
+            }
+        }
+        Ok(WriteOutcome::Written)
     }
 
     /// Await one write under this connection's write bounds.
@@ -137,19 +156,20 @@ where
     pub(crate) async fn write_frame_bounded<Err, Fut>(
         &mut self,
         writing: Fut,
+        progress: Option<&ProgressSignal>,
     ) -> Result<WriteOutcome, Err>
     where
         Fut: Future<Output = Result<(), Err>>,
     {
         let limit = {
             let bounds = self.write_bounds();
-            write_bounded(writing, &bounds).await?
+            write_bounded(writing, &bounds, progress).await?
         };
         Ok(self.record_write_limit(limit))
     }
 
     /// Report and record why a bounded write stopped.
-    fn record_write_limit(&mut self, limit: WriteLimit) -> WriteOutcome {
+    pub(super) fn record_write_limit(&mut self, limit: WriteLimit) -> WriteOutcome {
         match limit {
             WriteLimit::Written => WriteOutcome::Written,
             WriteLimit::Shutdown => {
@@ -164,7 +184,7 @@ where
     }
 
     /// Snapshot the bounds that apply to one buffered write.
-    fn write_bounds(&self) -> WriteBounds<'_> {
+    pub(super) fn write_bounds(&self) -> WriteBounds<'_> {
         WriteBounds {
             shutdown: &self.shutdown,
             peer_closed: &self.peer_closed,
@@ -172,20 +192,6 @@ where
             grace: self.peer_closed_grace,
         }
     }
-}
-
-/// Write buffered frames through the sink in emission order.
-pub(super) async fn flush_frames<F, E, S>(
-    frames: Vec<F>,
-    sink: &mut S,
-) -> Result<(), WireframeError<E>>
-where
-    S: FrameSink<F> + Send,
-{
-    for frame in frames {
-        sink.send_frame(frame).await.map_err(WireframeError::Io)?;
-    }
-    Ok(())
 }
 
 /// Await one write unless the connection ends or the peer's grace expires
@@ -197,6 +203,7 @@ where
 async fn write_bounded<Err>(
     writing: impl Future<Output = Result<(), Err>>,
     bounds: &WriteBounds<'_>,
+    progress: Option<&ProgressSignal>,
 ) -> Result<WriteLimit, Err> {
     tokio::pin!(writing);
     tokio::select! {
@@ -210,7 +217,7 @@ async fn write_bounded<Err>(
         }
         () = bounds.shutdown.cancelled() => Ok(WriteLimit::Shutdown),
         () = bounds.peer_closed.cancelled() => {
-            write_within_grace(writing.as_mut(), bounds).await
+            write_within_grace(writing.as_mut(), bounds, progress).await
         }
     }
 }
@@ -218,19 +225,27 @@ async fn write_bounded<Err>(
 /// Finish a write that was pending when peer observation ended.
 ///
 /// The write keeps its chance to complete, because a half-close alone does not
-/// mean the peer stopped reading. Only a write that stays pending for the whole
-/// idle grace, or a connection that shuts down, abandons it.
-async fn write_within_grace<Err>(
+/// mean the peer stopped reading. Each accepted physical write renews the
+/// deadline, so a peer that keeps reading is never abandoned merely because the
+/// whole frame takes longer than one grace. Only a write that accepts nothing
+/// for a whole idle grace, or a connection that shuts down, abandons it.
+pub(super) async fn write_within_grace<Err>(
     mut writing: Pin<&mut impl Future<Output = Result<(), Err>>>,
     bounds: &WriteBounds<'_>,
+    progress: Option<&ProgressSignal>,
 ) -> Result<WriteLimit, Err> {
-    tokio::select! {
-        biased;
-        result = &mut writing => {
-            result?;
-            Ok(WriteLimit::Written)
+    loop {
+        tokio::select! {
+            biased;
+            result = &mut writing => {
+                result?;
+                return Ok(WriteLimit::Written);
+            }
+            () = bounds.shutdown.cancelled() => return Ok(WriteLimit::Shutdown),
+            () = next_progress(progress) => {
+                // Progress renews the grace: re-arm and keep waiting.
+            }
+            () = bounds.timer.elapse(bounds.grace) => return Ok(WriteLimit::Grace),
         }
-        () = bounds.shutdown.cancelled() => Ok(WriteLimit::Shutdown),
-        () = bounds.timer.elapse(bounds.grace) => Ok(WriteLimit::Grace),
     }
 }
