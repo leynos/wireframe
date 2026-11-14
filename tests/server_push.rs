@@ -167,6 +167,45 @@ async fn concurrent_connections_receive_distinct_ids() -> TestResult<()> {
     stop(&shutdown).await
 }
 
+/// Server shutdown ends an idle connection and rejects further pushes.
+///
+/// The client stays connected and sends nothing, so neither the reader nor a
+/// push lane can end the connection: only the connection loop observing the
+/// server stop token can. The bounded drain in [`stop`] fails the test if that
+/// observation is missing.
+#[tokio::test]
+async fn shutdown_ends_idle_connections() -> TestResult<()> {
+    let registry = Arc::new(SessionRegistry::<Bytes>::new());
+    let protocol = PushTestProtocol::new();
+    let app = WireframeApp::default()
+        .with_protocol(protocol.clone())
+        .with_session_registry(Arc::clone(&registry));
+    let (addr, shutdown) = spawn_server(app).await?;
+    let mut client = TcpStream::connect(addr).await?;
+    unblock_preamble(&mut client).await?;
+    let (connection_id, handle) = only_connection(&protocol).await?;
+
+    stop(&shutdown).await?;
+    wait_until_registry_empty(&registry).await?;
+    if registry.get(&connection_id).is_some() {
+        return Err("shutdown should deregister the idle connection".into());
+    }
+
+    let pushed = timeout(
+        EVENT_TIMEOUT,
+        handle.push_high_priority(Bytes::from_static(b"late")),
+    )
+    .await
+    .map_err(|_| "a push after shutdown should not hang")?;
+    match pushed {
+        Err(PushError::Closed) => {}
+        other => return Err(format!("shutdown should close the push lanes: {other:?}").into()),
+    }
+
+    drop(client);
+    Ok(())
+}
+
 #[tokio::test]
 async fn pushes_are_rejected_after_the_connection_closes() -> TestResult<()> {
     let registry = Arc::new(SessionRegistry::<Bytes>::new());
@@ -355,10 +394,15 @@ async fn rate_limited_push_is_delayed_but_delivered() -> TestResult<()> {
         return Err(format!("unexpected first payload: {first:?}").into());
     }
 
-    handle
-        .push_low_priority(Bytes::from_static(b"second"))
-        .await
-        .map_err(|error| format!("second push should be accepted: {error:?}"))?;
+    // Bounded, so a limiter that never replenishes fails the test instead of
+    // leaving the push pending past the frame read below.
+    timeout(
+        EVENT_TIMEOUT,
+        handle.push_low_priority(Bytes::from_static(b"second")),
+    )
+    .await
+    .map_err(|_| "the rate limiter should replenish a token")?
+    .map_err(|error| format!("second push should be accepted: {error:?}"))?;
     let waited = started.elapsed();
     if waited < RATE_LIMIT_LOWER_BOUND {
         return Err(
