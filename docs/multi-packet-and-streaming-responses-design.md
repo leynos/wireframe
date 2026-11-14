@@ -579,15 +579,20 @@ staying true to the architecture already in production use.
   `Vec` responses and the protocol terminator: one frame is enough to block on
   a peer that stopped reading. A write that is ready still proceeds, so a
   cancellation observed mid-drain does not abandon frames the sink has already
-  accepted. Once a request frame is buffered, the read half is no longer
-  polled, so a later disconnect cannot be observed directly; the grace then
-  bounds the response itself. A shutdown request takes the same route. Instead
-  of awaiting the next frame without a deadline, the actor switches to a
-  bounded drain in which every wait and every write is bounded separately by
-  the grace, so a producer that yields nothing after the stop is cancelled at
-  the grace rather than pinning the connection. Either way the pending response
-  cannot keep the connection task, its gauge guard, teardown, and the server
-  drain pending indefinitely.
+  accepted. The grace bounds a wait rather than the response's whole
+  lifetime: a response that keeps producing, and whose peer keeps accepting,
+  renews the grace and is allowed to finish. Only a stall — no event within
+  one grace, or a write the peer never accepts — ends the response. Once a
+  request frame is buffered, the read half is no longer polled, so a later
+  disconnect cannot be observed directly; the grace then bounds each wait of
+  that response rather than proving the peer is gone. A shutdown request
+  takes the same route. Instead of awaiting the next frame without a
+  deadline, the actor switches to a bounded drain in which every wait and
+  every write is bounded separately by the grace, so a producer that yields
+  nothing after the stop is cancelled at the grace rather than pinning the
+  connection. Either way the pending response cannot keep the connection
+  task, its gauge guard, teardown, and the server drain pending
+  indefinitely.
 - The `ConnectionActor` owns the channel receiver and polls it via the
   main `select!` loop. Frames pass through `process_frame_common` so protocol
   hooks and metrics observe every packet. When the channel drains, the actor

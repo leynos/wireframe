@@ -53,7 +53,9 @@ All notable changes to this project will be documented in this file.
   prepared path no longer decodes that frame into an `Envelope` or restamps its
   correlation identifier. The frame is not byte-preserved: `before_send` still
   runs, and a hook that rewrites frames rewrites the terminator too. The
-  protocol's `on_connection_setup` and `on_eof` remain uninvoked on this path.
+  protocol's `on_eof` remains uninvoked on this path; `on_connection_setup`
+  is now invoked there with the connection's `PushHandle`, as described
+  above.
   A peer that disconnects while a streamed response is idle no longer pins the
   connection: the read half is watched during the response, and the response is
   bounded when a buffered request stops that observation. **Breaking:**

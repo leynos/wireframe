@@ -3060,13 +3060,16 @@ tracked by [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md) and roadmap item
 
 The protocol callbacks that run for application responses are `before_send`,
 `on_command_end`, `handle_error`, and `stream_end_frame`. A prepared connection
-does not invoke the protocol's connection-setup or end-of-file callbacks at
-all, so initialization or cleanup that must run belongs in the application's
-`on_connection_setup` and `on_connection_teardown` hooks instead. Those hooks
-are separate from the protocol and run once per connection, with teardown
-running only when setup produced state. Without an installed protocol the
-response callbacks are no-ops. The terminator is written without decoding, so a
-write failure ends the connection like any other failed response write.
+also invokes the protocol's `on_connection_setup` once, after its session
+registry entry is published and before its push path starts, so setup receives
+that connection's `PushHandle` and can address any live connection through the
+registry. The end-of-file callback is not invoked on this path, so cleanup that
+must run belongs in the application's `on_connection_teardown` hook instead.
+The application-level setup and teardown hooks are separate from the protocol
+and run once per connection, with teardown running only when setup produced
+state. Without an installed protocol the response callbacks are no-ops. The
+terminator is written without decoding, so a write failure ends the connection
+like any other failed response write.
 
 #### Deferred response bodies and middleware
 

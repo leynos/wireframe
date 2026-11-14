@@ -458,11 +458,12 @@ never serialized or hooked twice.
 
 Only `handle_error` is forwarded from the protocol to that actor: the actor
 registers no completion or terminator hook, and `before_send` stays with the
-pipeline. The prepared path does not invoke the protocol's
-`on_connection_setup` or `on_eof`; those callbacks remain unreached there, and
-the application-level connection setup and teardown callbacks registered on
-`WireframeApp` are separate hooks. Without a protocol the actor uses default,
-no-op hooks.
+pipeline. The prepared path invokes `on_connection_setup` once, with the
+connection's `PushHandle`, after the registry entry is published and before the
+actor starts, so setup can address its own connection or any other live one. The
+`on_eof` callback remains unreached there. The application-level connection
+setup and teardown callbacks registered on `WireframeApp` are separate hooks.
+Without a protocol the actor uses default, no-op hooks.
 
 `forward_response` owns the rest of the command lifecycle. Once the actor
 reports a completed `Stream` or `MultiPacket` response, it calls
