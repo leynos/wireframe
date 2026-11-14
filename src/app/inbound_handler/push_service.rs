@@ -24,13 +24,7 @@ use super::{
 };
 use crate::{
     codec::FrameCodec,
-    connection::{
-        ConnectionActor,
-        PEER_CLOSED_RESPONSE_GRACE,
-        PushSink,
-        WriteBound,
-        write_before_bound,
-    },
+    connection::{ConnectionActor, PEER_CLOSED_RESPONSE_GRACE, PushSink, write_before_bound},
     serializer::Serializer,
 };
 
@@ -282,13 +276,11 @@ where
         .await?;
         (bound, peer_closed)
     };
-    match bound {
-        WriteBound::Finished => {}
-        WriteBound::Stopped => return Ok(false),
-        WriteBound::GraceExpired => {
+    if !bound.is_finished() {
+        if bound.is_grace_expired() {
             warn!("abandoning a push write: the peer stopped reading");
-            return Ok(false);
         }
+        return Ok(false);
     }
     if !peer_closed {
         return Ok(true);

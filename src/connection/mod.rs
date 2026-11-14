@@ -51,7 +51,12 @@ pub(crate) use sink::{FrameSink, ProgressSignal, PushSink};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-pub(crate) use writes::{WriteBound, WriteOutcome, write_before_bound};
+// `WriteBound` is only named outside `writes` by its own unit tests: production
+// callers ask the outcome's predicates instead, so the re-export follows the
+// test module's gate rather than warning as unused in a library build.
+#[cfg(all(test, not(loom)))]
+pub(crate) use writes::WriteBound;
+pub(crate) use writes::{WriteOutcome, write_before_bound};
 
 pub use crate::fairness::FairnessConfig;
 use crate::{

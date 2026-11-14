@@ -41,6 +41,22 @@ pub(crate) enum WriteBound {
     GraceExpired,
 }
 
+impl WriteBound {
+    /// Whether the write reached the transport.
+    ///
+    /// Every caller treats both remaining outcomes as "abandon the write", so
+    /// they ask this rather than matching all three variants themselves.
+    #[must_use]
+    pub(crate) const fn is_finished(self) -> bool { matches!(self, Self::Finished) }
+
+    /// Whether the idle grace, rather than a shutdown, abandoned the write.
+    ///
+    /// Only this outcome means the peer stopped reading, which is what the
+    /// callers warn about.
+    #[must_use]
+    pub(crate) const fn is_grace_expired(self) -> bool { matches!(self, Self::GraceExpired) }
+}
+
 /// Await `write`, abandoning it if it cannot finish within its bounds.
 ///
 /// The app layer drives writes the actor does not own — a push batch written

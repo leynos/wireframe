@@ -16,7 +16,7 @@ use super::ResponseContext;
 use crate::{
     app::codec_driver::ActorFrameSink,
     codec::FrameCodec,
-    connection::{PushSink, WriteBound, write_before_bound},
+    connection::{PushSink, write_before_bound},
     serializer::Serializer,
 };
 
@@ -63,14 +63,13 @@ where
                     let bound =
                         write_before_bound(write_push_batch(ctx, frames), &shutdown, deadline)
                             .await?;
-                    match bound {
-                        WriteBound::Finished => {}
-                        WriteBound::Stopped => return Ok(None),
-                        WriteBound::GraceExpired => {
-                            warn!("abandoning a push write: the peer stopped reading");
-                            return Ok(None);
-                        }
+                    if bound.is_finished() {
+                        continue;
                     }
+                    if bound.is_grace_expired() {
+                        warn!("abandoning a push write: the peer stopped reading");
+                    }
+                    return Ok(None);
                 }
                 None => lanes_open = false,
             },
