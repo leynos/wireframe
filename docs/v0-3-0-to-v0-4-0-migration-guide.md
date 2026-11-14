@@ -281,7 +281,10 @@ read and write errors, and a handler panic. Previously a stream-processing
 error skipped teardown.
 
 A handler panic is finalized before it is re-raised to the connection-task
-supervisor, so supervision still observes and logs it. This recovery requires
+supervisor, so supervision still observes and logs it. The re-raise happens
+only after teardown completes successfully: a teardown panic replaces the
+handler panic observed by supervision, and supervision does not observe the
+handler panic at all if teardown never completes. This recovery requires
 unwinding; builds compiled with `panic = "abort"` cannot run teardown after a
 handler panic.
 

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use futures::executor::block_on;
 use proptest::prelude::*;
 
-use super::finalizer::ConnectionFinalizer;
+use super::finalizer::{ConnectionFinalizer, FinalizationOutcome};
 use crate::app::lifecycle::ConnectionTeardown;
 
 /// One operation applied to a finalizer in a generated sequence.
@@ -90,7 +90,9 @@ proptest! {
         for op in ops {
             match op {
                 FinalizerOp::Arm(value) => finalizer.arm(value),
-                FinalizerOp::Finalize => block_on(finalizer.finalize(Some(&teardown))),
+                FinalizerOp::Finalize => {
+                    block_on(finalizer.finalize(Some(&teardown), FinalizationOutcome::Clean));
+                }
             }
             if let Some(taken) = model.apply(op) {
                 expected.push(taken);

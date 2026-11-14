@@ -3,9 +3,11 @@
 mod common;
 
 use std::{
+    net::SocketAddr,
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        Mutex,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -27,9 +29,9 @@ use tokio::{
     time::timeout,
 };
 use wireframe::{
-    app::{Envelope, Handler},
+    app::{Envelope, Handler, WireframeApp},
+    serializer::BincodeSerializer,
     server::WireframeServer,
-    test_helpers::counting_teardown,
 };
 use wireframe_testing::{
     TestResult,
@@ -172,18 +174,71 @@ async fn wait_for_teardown(teardowns: &AtomicUsize, expected: usize) -> TestResu
     Ok(())
 }
 
+/// Build the app used by the panic-and-recover scenario.
+///
+/// Each connection receives a fresh setup ID, and teardown records the exact
+/// value it was handed, so a lost or duplicated receipt is observable.
+fn receipt_tracking_app(
+    handler_calls: Arc<AtomicUsize>,
+    next_setup_id: Arc<AtomicU64>,
+    receipts: Arc<Mutex<Vec<u64>>>,
+    teardowns: Arc<AtomicUsize>,
+) -> TestResult<WireframeApp<BincodeSerializer, u64, Envelope>> {
+    Ok(WireframeApp::<BincodeSerializer, u64, Envelope>::new()?
+        .route(1, panicking_then_healthy_handler(handler_calls))?
+        .on_connection_setup(move || {
+            let id = next_setup_id.fetch_add(1, Ordering::SeqCst);
+            async move { id }
+        })?
+        .on_connection_teardown(move |id: u64| {
+            let logged_receipts = Arc::clone(&receipts);
+            let counter = Arc::clone(&teardowns);
+            async move {
+                logged_receipts.lock().expect("receipt log").push(id);
+                counter.fetch_add(1, Ordering::SeqCst);
+            }
+        })?)
+}
+
+/// Send `frame` and confirm the server closes the connection without replying.
+///
+/// A connection reset or broken pipe is an acceptable close: the important
+/// observation is that the peer sees the transport end rather than hanging.
+async fn send_frame_expecting_closure(address: SocketAddr, frame: &[u8]) -> TestResult<()> {
+    let mut client = TcpStream::connect(address).await?;
+    client.write_all(frame).await?;
+    let mut closed = Vec::new();
+    let read = timeout(Duration::from_secs(5), client.read_to_end(&mut closed))
+        .await
+        .expect("the server should close the panicking connection");
+    match read {
+        Ok(_) => Ok(()),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+            ) =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+
 /// A handler panic over TCP finalizes once and the server serves the next peer.
 #[tokio::test]
 async fn handler_panic_over_tcp_finalizes_and_serves_the_next_connection() -> TestResult<()> {
     let handler_calls = Arc::new(AtomicUsize::new(0));
     let teardowns = Arc::new(AtomicUsize::new(0));
-    let app = TestApp::new()?
-        .route(
-            1,
-            panicking_then_healthy_handler(Arc::clone(&handler_calls)),
-        )?
-        .on_connection_setup(|| async {})?
-        .on_connection_teardown(counting_teardown(Arc::clone(&teardowns)))?;
+    let next_setup_id = Arc::new(AtomicU64::new(1));
+    let receipts = Arc::new(Mutex::new(Vec::new()));
+
+    let app = receipt_tracking_app(
+        Arc::clone(&handler_calls),
+        next_setup_id,
+        Arc::clone(&receipts),
+        Arc::clone(&teardowns),
+    )?;
     let server = WireframeServer::from_app(app)
         .workers(1)
         .bind_existing_listener(unused_listener()?)?;
@@ -203,18 +258,7 @@ async fn handler_panic_over_tcp_finalizes_and_serves_the_next_connection() -> Te
     wait_for_server_readiness(ready_rx).await?;
 
     let frame = build_frame(1, vec![b'X'])?;
-    let mut panicking_client = TcpStream::connect(address).await?;
-    panicking_client.write_all(&frame).await?;
-    let mut closed = Vec::new();
-    match panicking_client.read_to_end(&mut closed).await {
-        Ok(_) => {}
-        Err(error)
-            if matches!(
-                error.kind(),
-                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
-            ) => {}
-        Err(error) => return Err(error.into()),
-    }
+    send_frame_expecting_closure(address, &frame).await?;
     wait_for_teardown(&teardowns, 1).await?;
 
     let healthy = exchange_frame(address, frame).await?;
@@ -238,6 +282,13 @@ async fn handler_panic_over_tcp_finalizes_and_serves_the_next_connection() -> Te
         &handler_calls.load(Ordering::SeqCst),
         &2usize,
         "both connections should reach the handler",
+    )?;
+    let mut received = receipts.lock().expect("receipt log").clone();
+    received.sort_unstable();
+    check_equal(
+        &received,
+        &vec![1_u64, 2],
+        "each connection should receive exactly one teardown receipt",
     )?;
     wait_for_listener_release(address).await
 }

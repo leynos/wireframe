@@ -17,11 +17,12 @@ use tokio::{
 };
 use tokio_util::{codec::LengthDelimitedCodec, sync::CancellationToken};
 
-use super::finalizer::ConnectionFinalizer;
+use super::finalizer::{ConnectionFinalizer, FinalizationOutcome};
 use crate::{
     app::{
         Envelope,
         Handler,
+        Packet,
         PreparedApp,
         WireframeApp,
         inbound_handler::{ConnectionProcessingContext, process_connection_with_cancellation},
@@ -146,7 +147,7 @@ async fn cancellation_during_pending_read_runs_teardown_once() {
 }
 
 /// Encode one valid request frame for the default length-delimited codec.
-fn request_frame(route: u32) -> Vec<u8> {
+pub(super) fn request_frame(route: u32) -> Vec<u8> {
     let envelope = Envelope::new(route, Some(7), vec![b'X']);
     let encoded = envelope.to_bytes().expect("encode envelope");
     let mut codec = LengthDelimitedCodec::builder().new_codec();
@@ -216,14 +217,35 @@ async fn cancellation_during_dispatch_completes_the_response_before_teardown() {
         .expect("join connection task")
         .expect("connection should finish");
 
-    assert!(
-        !response.is_empty(),
-        "the in-flight response should be written before cancellation is observed"
-    );
+    assert_single_response(&response);
     assert_eq!(
         calls.load(Ordering::SeqCst),
         1,
         "teardown should run once after dispatch completes"
+    );
+}
+
+/// Assert the response is one complete frame answering the request route.
+fn assert_single_response(response: &[u8]) {
+    let frames = wireframe_testing::decode_frames(response).expect("decode response frames");
+    assert_eq!(
+        frames.len(),
+        1,
+        "the in-flight response should be exactly one complete frame"
+    );
+    let frame = frames
+        .first()
+        .expect("the response should be exactly one frame");
+    let (envelope, consumed) = Envelope::from_bytes(frame).expect("decode response envelope");
+    assert_eq!(
+        consumed,
+        frame.len(),
+        "the response frame should be fully consumed"
+    );
+    assert_eq!(
+        envelope.id(),
+        1,
+        "the response should answer the request route"
     );
 }
 
@@ -295,7 +317,9 @@ async fn finalizer_skips_teardown_without_setup_state() {
     let teardown = shared_counting_teardown(Arc::clone(&calls));
     let mut finalizer = ConnectionFinalizer::<u32>::not_set_up();
 
-    finalizer.finalize(Some(&teardown)).await;
+    finalizer
+        .finalize(Some(&teardown), FinalizationOutcome::Clean)
+        .await;
 
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
@@ -308,8 +332,12 @@ async fn finalizer_invokes_teardown_once() {
     let mut finalizer = ConnectionFinalizer::not_set_up();
     finalizer.arm(5);
 
-    finalizer.finalize(Some(&teardown)).await;
-    finalizer.finalize(Some(&teardown)).await;
+    finalizer
+        .finalize(Some(&teardown), FinalizationOutcome::Clean)
+        .await;
+    finalizer
+        .finalize(Some(&teardown), FinalizationOutcome::Clean)
+        .await;
 
     assert_eq!(
         *states.lock().expect("state log mutex"),

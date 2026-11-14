@@ -1499,15 +1499,16 @@ connection runtime. Setup completes before the connection's framing state is
 created, and the transport is released before teardown runs, so a teardown
 callback that waits for the peer to observe closure can complete. It does not
 run when either hook is absent, when setup fails or never completes, or when
-the connection future is dropped or aborted before processing stops. A teardown
-callback that panics is invoked once, may not complete, and is not retried;
-`panic = "abort"` builds cannot recover a handler panic.[^2] Preparation moves
-those callback definitions into the immutable `PreparedApp`;
-`PreparedApp::handle_connection` reuses the prepared middleware chains, applies
-the inbound read wake-up interval, and records metrics for inbound frames,
-serialization failures, and handler errors before logging warnings.[^6][^7]
-`PacketParts::inherit_correlation` ensures response packets carry the correct
-correlation identifier even when middleware omits it.[^8]
+the connection future is dropped or aborted before processing stops. Dropping
+the connection future while teardown is awaiting interrupts the callback before
+it completes. A teardown callback that panics is invoked once, may not
+complete, and is not retried; `panic = "abort"` builds cannot recover a handler
+panic.[^2] Preparation moves those callback definitions into the immutable
+`PreparedApp`; `PreparedApp::handle_connection` reuses the prepared middleware
+chains, applies the inbound read wake-up interval, and records metrics for
+inbound frames, serialization failures, and handler errors before logging
+warnings.[^6][^7] `PacketParts::inherit_correlation` ensures response packets
+carry the correct correlation identifier even when middleware omits it.[^8]
 
 Immediate responses are available through `send_response` and
 `send_response_framed`, both of which report serialization or I/O problems via

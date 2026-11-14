@@ -81,17 +81,22 @@ mod tests;
 #[path = "ordering_tests.rs"]
 mod ordering_tests;
 
+#[cfg(test)]
+#[path = "diagnostics_tests.rs"]
+mod diagnostics_tests;
+
 use std::{io, panic::AssertUnwindSafe, sync::Arc};
 
 // Only the inbound-handler tests decode envelopes directly; production code
 // reaches the same function through `build_dispatchable_envelope`.
 #[cfg(test)]
 pub(crate) use decode::parse_envelope;
-use finalizer::ConnectionFinalizer;
+use finalizer::{ConnectionFinalizer, FinalizationOutcome};
 use futures::FutureExt;
 pub(crate) use inbound::{InboundConfig, InboundState};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
+use tracing::error;
 
 use crate::{
     app::{
@@ -103,6 +108,12 @@ use crate::{
     message::{DecodeWith, EncodeWith},
     serializer::Serializer,
 };
+
+/// Panic payload recovered by [`futures::FutureExt::catch_unwind`].
+///
+/// Naming it keeps the finalization helpers readable and makes it obvious that
+/// the runtime forwards the payload rather than inspecting it.
+type PanicPayload = Box<dyn std::any::Any + Send>;
 
 /// Mutable state and at-most-once finalization for one accepted connection.
 ///
@@ -168,8 +179,10 @@ where
     /// caught: setup has not produced state to release, and teardown has
     /// already disarmed the finalizer before it runs.
     ///
-    /// A processing panic is re-raised after finalization so the spawner's
-    /// existing supervision still observes, counts, and logs it.
+    /// A processing panic is logged as a bounded diagnostic *before* teardown
+    /// is awaited, then re-raised after finalization so the spawner's existing
+    /// supervision still observes, counts, and logs it with its payload. The
+    /// metric stays in supervision, so the panic is counted exactly once.
     pub(crate) async fn run(
         self,
         cancellation: Option<&CancellationToken>,
@@ -183,13 +196,9 @@ where
         let processing_outcome = AssertUnwindSafe(Self::process(stream, config, cancellation))
             .catch_unwind()
             .await;
-
-        finalizer.finalize(teardown).await;
-
-        match processing_outcome {
-            Ok(result) => result,
-            Err(payload) => std::panic::resume_unwind(payload),
-        }
+        let outcome = classify_processing_outcome(&processing_outcome);
+        finalizer.finalize(teardown, outcome).await;
+        resolve_processing_outcome(processing_outcome)
     }
 
     /// Build the connection-local inbound state and drive it to completion.
@@ -204,5 +213,38 @@ where
     ) -> io::Result<()> {
         let mut inbound = InboundState::new(stream, config);
         inbound.run(cancellation).await
+    }
+}
+
+/// Classify a processing result and record a recovered handler panic.
+///
+/// The diagnostic is emitted here, before teardown is awaited, so it exists
+/// even when a teardown callback never completes. It carries no panic payload:
+/// supervision logs the payload after the re-raise.
+fn classify_processing_outcome(
+    processing: &Result<io::Result<()>, PanicPayload>,
+) -> FinalizationOutcome {
+    match processing {
+        Ok(Ok(())) => FinalizationOutcome::Clean,
+        Ok(Err(_)) => FinalizationOutcome::ReturnedError,
+        Err(_) => {
+            error!(
+                stage = "connection_runtime",
+                operation = "process_connection",
+                "connection processing panicked; finalizing before re-raise"
+            );
+            FinalizationOutcome::HandlerPanic
+        }
+    }
+}
+
+/// Return the processing result, re-raising a recovered panic.
+///
+/// Finalization has already run by the time this is called, so the payload is
+/// re-raised purely for supervision's existing logging and metric path.
+fn resolve_processing_outcome(processing: Result<io::Result<()>, PanicPayload>) -> io::Result<()> {
+    match processing {
+        Ok(result) => result,
+        Err(payload) => std::panic::resume_unwind(payload),
     }
 }

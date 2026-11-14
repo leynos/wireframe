@@ -1,8 +1,39 @@
 //! At-most-once connection finalization state.
 
-use std::sync::Arc;
+use std::{
+    panic::{AssertUnwindSafe, resume_unwind},
+    sync::Arc,
+};
+
+use futures::FutureExt;
+use tracing::{debug, error};
 
 use crate::app::lifecycle::ConnectionTeardown;
+
+/// Why the connection stopped processing, as reported to teardown diagnostics.
+///
+/// The category is a bounded, static label. It never carries the panic payload,
+/// the setup state, or peer data, so it is safe to log on every connection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum FinalizationOutcome {
+    /// Processing reached a clean end of stream.
+    Clean,
+    /// Processing returned an error, such as a decode or transport failure.
+    ReturnedError,
+    /// Processing panicked and the runtime is finalizing before re-raising.
+    HandlerPanic,
+}
+
+impl FinalizationOutcome {
+    /// Stable label used in structured diagnostics.
+    pub(super) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Clean => "clean",
+            Self::ReturnedError => "returned_error",
+            Self::HandlerPanic => "handler_panic",
+        }
+    }
+}
 
 /// Tracks whether setup produced state that still owes a teardown callback.
 ///
@@ -61,12 +92,70 @@ impl<C> ConnectionFinalizer<C> {
     /// `None` means either setup never produced state or teardown already
     /// ran. A missing teardown callback still takes and drops the state, which
     /// releases connection resources without invoking user code.
-    pub(super) async fn finalize(&mut self, teardown: Option<&Arc<ConnectionTeardown<C>>>) {
+    ///
+    /// Start and completion are logged with the [`FinalizationOutcome`]
+    /// category. A teardown panic is logged as a bounded failure and then
+    /// re-raised, so supervision still observes it and it is never retried.
+    pub(super) async fn finalize(
+        &mut self,
+        teardown: Option<&Arc<ConnectionTeardown<C>>>,
+        outcome: FinalizationOutcome,
+    ) {
         let Some(state) = self.take_for_teardown() else {
             return;
         };
-        if let Some(callback) = teardown {
-            callback(state).await;
-        }
+        let Some(callback) = teardown else {
+            return;
+        };
+        run_teardown(callback, state, outcome).await;
     }
+}
+
+/// Invoke a teardown callback once and report how it ended.
+///
+/// The completion event is emitted only when the callback returns, so a
+/// panicking teardown never reports success. The panic is re-raised rather
+/// than swallowed, which keeps supervision's existing accounting intact and
+/// guarantees the callback is not retried.
+async fn run_teardown<C>(
+    callback: &Arc<ConnectionTeardown<C>>,
+    state: C,
+    outcome: FinalizationOutcome,
+) {
+    log_teardown_started(outcome);
+    if let Err(payload) = AssertUnwindSafe(callback(state)).catch_unwind().await {
+        log_teardown_panicked(outcome);
+        resume_unwind(payload);
+    }
+    log_teardown_completed(outcome);
+}
+
+/// Report that the teardown callback is about to run.
+fn log_teardown_started(outcome: FinalizationOutcome) {
+    debug!(
+        stage = "connection_runtime",
+        operation = "teardown",
+        outcome = outcome.as_str(),
+        "connection teardown started"
+    );
+}
+
+/// Report that the teardown callback returned normally.
+fn log_teardown_completed(outcome: FinalizationOutcome) {
+    debug!(
+        stage = "connection_runtime",
+        operation = "teardown",
+        outcome = outcome.as_str(),
+        "connection teardown completed"
+    );
+}
+
+/// Report that the teardown callback panicked.
+fn log_teardown_panicked(outcome: FinalizationOutcome) {
+    error!(
+        stage = "connection_runtime",
+        operation = "teardown",
+        outcome = outcome.as_str(),
+        "connection teardown panicked; the panic is not retried"
+    );
 }
