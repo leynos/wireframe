@@ -41,7 +41,9 @@ where
 /// A server connection writes queued pushes straight to the transport, so a
 /// frame the codec cannot encode would fail after the producer had been told
 /// the push succeeded, ending the connection. The codec's limit is applied to
-/// the template so the connection's handle rejects such a push at enqueue.
+/// the template as a ceiling, so a template that already limits frames more
+/// tightly keeps its own bound and the connection's handle rejects such a push
+/// at enqueue.
 pub(in crate::app) fn with_codec_frame_limit<C>(
     template: PushQueuesBuilder<C::Frame>,
     codec: &C,
@@ -49,7 +51,7 @@ pub(in crate::app) fn with_codec_frame_limit<C>(
 where
     C: FrameCodec,
 {
-    template.max_frame_len(codec.max_frame_length(), payload_len::<C>)
+    template.capped_by_codec(codec.max_frame_length(), payload_len::<C>)
 }
 
 /// Report the payload size a codec would encode for `frame`.

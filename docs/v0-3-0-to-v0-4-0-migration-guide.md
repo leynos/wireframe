@@ -768,7 +768,9 @@ entry whose identifier a server connection later receives is replaced by that
 connection's handle: pushes addressed to the old identifier then reach the
 server connection instead.
 
-A clean peer close drains frames still queued, high priority first; server
+A clean peer close attempts to drain frames still queued, high priority first,
+though a write that fails or is abandoned drops the frames behind it; server
 shutdown closes the lanes immediately and later pushes fail with
 `PushError::Closed`. See the
-[users' guide](users-guide.md#server-connections-and-push-queues).
+[users' guide](users-guide.md#server-connections-and-push-queues) and
+[ADR 014](adr-014-server-shutdown-ownership.md).

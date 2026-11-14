@@ -135,3 +135,29 @@ async fn prepared_push_template_enforces_the_codec_limit() -> Result<(), Box<dyn
     }
     Ok(())
 }
+
+/// A template limit stricter than the codec's survives preparation.
+///
+/// Applying the codec ceiling must never widen a bound the application chose,
+/// because the connection handle is the only place that bound is enforced.
+#[tokio::test]
+async fn prepared_push_template_keeps_a_stricter_limit() -> Result<(), Box<dyn std::error::Error>> {
+    let template = PushQueues::<Bytes>::builder()
+        .high_capacity(1)
+        .max_frame_len(64, |frame: &Bytes| frame.len());
+    let builder: WireframeApp = WireframeApp::new()?;
+    let prepared: PreparedApp = builder
+        .with_codec(LengthDelimitedFrameCodec::new(2048))
+        .with_push_queues(template)
+        .prepare()
+        .await?;
+    let (_queues, handle) = prepared.push_queues().build()?;
+
+    let oversized = handle
+        .push_high_priority(Bytes::from_static(&[0; 65]))
+        .await;
+    if oversized != Err(PushError::FrameTooLarge { size: 65, max: 64 }) {
+        return Err("the stricter template limit must survive the codec ceiling".into());
+    }
+    Ok(())
+}
