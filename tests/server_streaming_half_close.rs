@@ -63,6 +63,10 @@ const STATE_TIMEOUT: Duration = Duration::from_secs(5);
 const CONNECTION_SETTLE: Duration = Duration::from_secs(120);
 /// Paused time that stays below the thirty-second idle grace.
 const GRACE_BEFORE_DEADLINE: Duration = Duration::from_secs(25);
+/// The production idle grace, restated because the constant is crate-private.
+///
+/// Keep in step with `PEER_CLOSED_RESPONSE_GRACE` in `src/connection/drive.rs`.
+const IDLE_GRACE: Duration = Duration::from_secs(30);
 
 /// Require `condition`, reporting `message` as the test failure otherwise.
 fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
@@ -267,6 +271,34 @@ where
     ensure(timeout(bound, frames.next()).await.is_err(), message)
 }
 
+/// Require the response to outlast the idle grace and to end once it expires.
+///
+/// The clock is paused, so each wait advances virtual time only as far as the
+/// next deadline. Measuring the whole window therefore pins both sides of the
+/// bound: no cancellation before the grace, and none deferred past it.
+///
+/// # Errors
+///
+/// Returns the transport failure reported by the frame reader.
+async fn ensure_cancelled_at_the_grace<S>(frames: &mut S, message: &str) -> TestResult
+where
+    S: futures::Stream<Item = Result<Bytes, std::io::Error>> + Unpin,
+{
+    let window_start = tokio::time::Instant::now();
+    ensure_no_frame_before(frames, GRACE_BEFORE_DEADLINE, message).await?;
+    expect_stream_end(frames).await?;
+
+    let elapsed = window_start.elapsed();
+    ensure(
+        elapsed >= IDLE_GRACE,
+        format!("the response must stay active for the whole idle grace: ended after {elapsed:?}"),
+    )?;
+    ensure(
+        elapsed < IDLE_GRACE + STATE_TIMEOUT,
+        format!("the response must end at the idle grace, not later: ended after {elapsed:?}"),
+    )
+}
+
 /// Await end-of-file, letting the paused clock advance past the idle grace.
 async fn expect_stream_end<S>(frames: &mut S) -> TestResult
 where
@@ -315,13 +347,11 @@ async fn a_half_closed_peer_keeps_a_stalled_response_until_the_grace_expires() -
 
     // Let the actor observe the half-close and start its idle grace.
     settle().await;
-    ensure_no_frame_before(
+    ensure_cancelled_at_the_grace(
         &mut framed,
-        GRACE_BEFORE_DEADLINE,
         "a stalled response must stay active until the idle grace expires",
     )
     .await?;
-    expect_stream_end(&mut framed).await?;
 
     finish(connection).await?;
     ensure(
@@ -375,13 +405,11 @@ async fn a_cancelled_stream_ends_the_connection_before_the_buffered_request() ->
     // Let the actor buffer the fast request and start its idle grace, then
     // check both sides of the deadline.
     settle().await;
-    ensure_no_frame_before(
+    ensure_cancelled_at_the_grace(
         &mut framed,
-        GRACE_BEFORE_DEADLINE,
         "a buffered request must not cancel the response before the grace expires",
     )
     .await?;
-    expect_stream_end(&mut framed).await?;
 
     finish(connection).await?;
     ensure(
