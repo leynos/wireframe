@@ -149,6 +149,13 @@ identifier the protocol encoded. `on_command_end` then runs after that final
 write. Neither hook runs when the connection shuts down or the peer disappears
 before the response completes.
 
+The terminator write is bounded for the same reason the response frames are. A
+peer that stopped reading can block the last frame as readily as any other, so
+the write races the connection's shutdown token: if shutdown wins, the
+terminator is abandoned and the response reports `Cancelled`, which also
+suppresses `on_command_end`. The connection is closing, so a half-written
+response must not report completion.
+
 A multi-packet frame whose originating request supplied no correlation
 identifier keeps the identifier its producer set, matching the inheritance rule
 used for single, vector, and streamed responses.
@@ -540,13 +547,15 @@ staying true to the architecture already in production use.
   noticed: a read error fails the connection, and a clean half-close lets the
   actor finish the response while bounding each idle wait to a 30-second idle
   grace. The same grace also bounds a write the peer never accepts, and server
-  shutdown releases such a write immediately. A write that is ready still
-  proceeds, so a cancellation observed mid-drain does not abandon frames the
-  sink has already accepted. Either way the pending response cannot keep the
-  connection task, its gauge guard, teardown, and the server drain pending
-  indefinitely. Once a request frame is buffered, the read half is no longer
-  polled, so a later disconnect cannot be observed directly; the grace then
-  bounds the response itself.
+  shutdown releases such a write immediately. That bound covers every write the
+  prepared path performs, including `Single` and `Vec` responses and the
+  protocol terminator: one frame is enough to block on a peer that stopped
+  reading. A write that is ready still proceeds, so a cancellation observed
+  mid-drain does not abandon frames the sink has already accepted. Either way
+  the pending response cannot keep the connection task, its gauge guard,
+  teardown, and the server drain pending indefinitely. Once a request frame is
+  buffered, the read half is no longer polled, so a later disconnect cannot be
+  observed directly; the grace then bounds the response itself.
 - The `ConnectionActor` owns the channel receiver and polls it via the
   main `select!` loop. Frames pass through `process_frame_common` so protocol
   hooks and metrics observe every packet. When the channel drains, the actor

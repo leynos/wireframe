@@ -162,13 +162,20 @@ where
         return Ok(outcome);
     };
     let mut context = ConnectionContext;
-    // The protocol terminator is a complete codec frame. Writing it unchanged
-    // preserves metadata a custom codec adds outside the payload, and running
-    // it through the sink's `before_send` hook matches application frames.
-    if owes_terminator(outcome, delivery.is_streaming)
-        && let Some(frame) = protocol.stream_end_frame(&mut context)
-    {
-        send_native_frame::<K, F>(&mut *ctx.sink, &mut *ctx.pipeline, frame).await?;
+    if owes_terminator(outcome, delivery.is_streaming) {
+        // The protocol terminator is a complete codec frame. Writing it
+        // unchanged preserves metadata a custom codec adds outside the payload,
+        // and running it through the sink's `before_send` hook matches
+        // application frames.
+        let abandoned = match protocol.stream_end_frame(&mut context) {
+            Some(frame) => !write_terminator::<S, K, F>(ctx, frame).await?,
+            None => false,
+        };
+        if abandoned {
+            // Shutdown abandoned the terminator, so the connection is closing
+            // and the completion hook must not run for a half-written response.
+            return Ok(ResponseOutcome::Cancelled);
+        }
     }
     // A cancelled response belongs to a closing connection: its completion
     // hook must not run, matching the actor's own shutdown behaviour.
@@ -225,6 +232,36 @@ where
         .install_response(response, delivery.correlation_id, &mut sink)
         .await
         .map_err(install_error)
+}
+
+/// Write the protocol terminator unless the connection shuts down first.
+///
+/// Returns `true` when the frame reached the sink. The terminator follows a
+/// response the peer was reading, but the peer may stop reading before this
+/// last frame, and an unbounded write would then pin a graceful drain after the
+/// response itself completed. Race the write against shutdown so the drain can
+/// finish; a shutdown that wins abandons the terminator.
+async fn write_terminator<S, K, F>(
+    ctx: &mut super::ResponseContext<'_, S, K, F>,
+    frame: F::Frame,
+) -> io::Result<bool>
+where
+    S: Serializer + Send + Sync,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
+    F: FrameCodec,
+    Envelope: EncodeWith<S>,
+{
+    let shutdown = ctx.actor.shutdown_token();
+    let writing = send_native_frame::<K, F>(&mut *ctx.sink, &mut *ctx.pipeline, frame);
+    tokio::pin!(writing);
+    tokio::select! {
+        biased;
+        result = &mut writing => {
+            result?;
+            Ok(true)
+        }
+        () = shutdown.cancelled() => Ok(false),
+    }
 }
 
 /// Whether a completed streamed response is owed a protocol terminator.

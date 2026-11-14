@@ -6,9 +6,18 @@
 //! preferring writes that can still complete so that a cancellation observed
 //! mid-drain does not discard output the sink would have accepted.
 
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+
 use tokio_util::sync::CancellationToken;
 
-use super::{ConnectionActor, FrameSink, drive::ResponseOutcome, event::Event, state::ActorState};
+use super::{
+    ConnectionActor,
+    FrameSink,
+    drive::ResponseOutcome,
+    event::Event,
+    grace::GraceTimer,
+    state::ActorState,
+};
 use crate::{
     app::Packet,
     correlation::CorrelatableFrame,
@@ -24,6 +33,31 @@ pub(super) enum WriteOutcome {
     Written,
     /// Shutdown was requested while the write was still pending.
     Cancelled,
+}
+
+/// Cancellation bounds applied to a buffered write.
+///
+/// Grouped so the write helper takes one bound rather than each token and
+/// deadline separately, which keeps its signature readable as bounds change.
+struct WriteBounds<'a> {
+    /// Token cancelled when the connection must stop.
+    shutdown: &'a CancellationToken,
+    /// Token cancelled once the peer can no longer be observed.
+    peer_closed: &'a CancellationToken,
+    /// Deadline source used to bound a write after peer observation ends.
+    timer: Arc<dyn GraceTimer>,
+    /// How long such a write may stay pending before it is abandoned.
+    grace: Duration,
+}
+
+/// Why a bounded write stopped.
+enum WriteLimit {
+    /// The frames reached the sink.
+    Written,
+    /// The connection shut down while the write was pending.
+    Shutdown,
+    /// The peer became unobservable and did not accept the write in time.
+    Grace,
 }
 
 impl<F, E> ConnectionActor<F, E>
@@ -51,14 +85,14 @@ where
         let mut frames = Vec::new();
         self.dispatch_event(event, state, &mut frames)?;
         if self.flush_or_cancel(frames, sink).await? == WriteOutcome::Cancelled {
-            ResponseCancellationReason::Shutdown.record();
             return Ok(Some(ResponseOutcome::Cancelled));
         }
         self.run_deferred_command_end();
         Ok(None)
     }
 
-    /// Write buffered frames, abandoning them if shutdown is requested.
+    /// Write buffered frames, abandoning them if the connection can no longer
+    /// deliver them.
     ///
     /// A peer that stops reading applies back-pressure that can hold a write
     /// pending indefinitely, so a graceful server drain would wait for a peer
@@ -66,6 +100,16 @@ where
     /// shutdown token lets the connection end instead. Abandoning a write can
     /// leave a partial frame on the wire, which is acceptable only because the
     /// connection is closing.
+    ///
+    /// A peer that becomes unobservable mid-write is a separate case: the write
+    /// may still succeed, so it is granted the same idle grace the observation
+    /// loop uses rather than being abandoned at once. Only a peer that closes
+    /// its input half and then accepts nothing for a whole grace is treated as
+    /// gone.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`WireframeError`] if the sink fails.
     pub(super) async fn flush_or_cancel<S>(
         &mut self,
         frames: Vec<F>,
@@ -74,7 +118,28 @@ where
     where
         S: FrameSink<F> + Send,
     {
-        write_or_cancel(frames, sink, &self.shutdown).await
+        let limit = flush_bounded(frames, sink, &self.write_bounds()).await?;
+        Ok(match limit {
+            WriteLimit::Written => WriteOutcome::Written,
+            WriteLimit::Shutdown => {
+                ResponseCancellationReason::Shutdown.record();
+                WriteOutcome::Cancelled
+            }
+            WriteLimit::Grace => {
+                self.cancel_stalled_response();
+                WriteOutcome::Cancelled
+            }
+        })
+    }
+
+    /// Snapshot the bounds that apply to one buffered write.
+    fn write_bounds(&self) -> WriteBounds<'_> {
+        WriteBounds {
+            shutdown: &self.shutdown,
+            peer_closed: &self.peer_closed,
+            timer: Arc::clone(&self.grace_timer),
+            grace: self.peer_closed_grace,
+        }
     }
 }
 
@@ -92,24 +157,54 @@ where
     Ok(())
 }
 
-/// Write buffered frames unless `shutdown` is cancelled first.
+/// Write frames unless the connection ends or the peer's grace expires first.
 ///
-/// See [`ConnectionActor::flush_or_cancel`] for why a pending write must be
-/// abandonable.
-async fn write_or_cancel<F, E, S>(
+/// The grace is armed only once the peer becomes unobservable, so a write that
+/// began while the peer was still being read is bounded from the moment that
+/// observation ends rather than from the start of the write.
+async fn flush_bounded<F, E, S>(
     frames: Vec<F>,
     sink: &mut S,
-    shutdown: &CancellationToken,
-) -> Result<WriteOutcome, WireframeError<E>>
+    bounds: &WriteBounds<'_>,
+) -> Result<WriteLimit, WireframeError<E>>
 where
     S: FrameSink<F> + Send,
 {
-    tokio::select! {
+    let writing = flush_frames(frames, sink);
+    tokio::pin!(writing);
+    let limit = tokio::select! {
         biased;
         // A ready write is preferred so that a cancellation observed while
         // frames are still being accepted does not abandon queued output. Only
-        // a write that would block is raced against shutdown.
-        result = flush_frames(frames, sink) => result.map(|()| WriteOutcome::Written),
-        () = shutdown.cancelled() => Ok(WriteOutcome::Cancelled),
+        // a write that would block is raced against the bounds.
+        result = &mut writing => {
+            result?;
+            WriteLimit::Written
+        }
+        () = bounds.shutdown.cancelled() => WriteLimit::Shutdown,
+        () = bounds.peer_closed.cancelled() => {
+            write_within_grace(writing.as_mut(), bounds).await?
+        }
+    };
+    Ok(limit)
+}
+
+/// Finish a write that was pending when peer observation ended.
+///
+/// The write keeps its chance to complete, because a half-close alone does not
+/// mean the peer stopped reading. Only a write that stays pending for the whole
+/// idle grace, or a connection that shuts down, abandons it.
+async fn write_within_grace<E>(
+    mut writing: Pin<&mut impl Future<Output = Result<(), WireframeError<E>>>>,
+    bounds: &WriteBounds<'_>,
+) -> Result<WriteLimit, WireframeError<E>> {
+    tokio::select! {
+        biased;
+        result = &mut writing => {
+            result?;
+            Ok(WriteLimit::Written)
+        }
+        () = bounds.shutdown.cancelled() => Ok(WriteLimit::Shutdown),
+        () = bounds.timer.elapse(bounds.grace) => Ok(WriteLimit::Grace),
     }
 }
