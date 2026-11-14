@@ -15,6 +15,7 @@
 
 use std::sync::{
     Arc,
+    Mutex,
     atomic::{AtomicUsize, Ordering},
 };
 
@@ -25,6 +26,7 @@ use wireframe::{
     app::{Envelope, Handler},
     hooks::{ConnectionContext, WireframeProtocol},
     serializer::{BincodeSerializer, Serializer},
+    session::ConnectionId,
 };
 use wireframe_testing::{
     TestResult,
@@ -57,6 +59,53 @@ impl WireframeProtocol for ResponseMarkerProtocol {
         *frame = Bytes::from(bytes);
         self.calls.fetch_add(1, Ordering::SeqCst);
     }
+}
+
+/// Connection identifiers observed by each response hook.
+///
+/// The recorder is shared with the test so the assertions can compare the
+/// identifier from `before_send` with the one from `on_command_end`.
+#[derive(Default)]
+struct ConnectionRecorder {
+    /// Identifiers seen by `before_send`, in call order.
+    sent: Mutex<Vec<Option<ConnectionId>>>,
+    /// Identifiers seen by `on_command_end`, in call order.
+    ended: Mutex<Vec<Option<ConnectionId>>>,
+}
+
+impl ConnectionRecorder {
+    /// Record the identifier observed by `before_send`.
+    fn record_sent(&self, ctx: &ConnectionContext) {
+        self.sent
+            .lock()
+            .expect("connection recorder poisoned")
+            .push(ctx.connection_id());
+    }
+
+    /// Record the identifier observed by `on_command_end`.
+    fn record_ended(&self, ctx: &ConnectionContext) {
+        self.ended
+            .lock()
+            .expect("connection recorder poisoned")
+            .push(ctx.connection_id());
+    }
+}
+
+/// Protocol that records the context each response hook receives.
+struct ContextRecordingProtocol {
+    /// Shared recorder the test reads back.
+    recorder: Arc<ConnectionRecorder>,
+}
+
+impl WireframeProtocol for ContextRecordingProtocol {
+    type Frame = Bytes;
+    type ProtocolError = ();
+
+    fn before_send(&self, _frame: &mut Self::Frame, ctx: &mut ConnectionContext) {
+        self.recorder.record_sent(ctx);
+    }
+
+    fn on_command_end(&self, ctx: &mut ConnectionContext) { self.recorder.record_ended(ctx); }
 }
 
 /// Handler that accepts an envelope and returns an empty response payload.
@@ -189,5 +238,37 @@ async fn responses_without_a_protocol_are_not_marked() -> TestResult<()> {
         "no protocol marker should be appended without a protocol"
     );
     assert_eq!(envelope.payload_bytes(), []);
+    Ok(())
+}
+
+/// Completion hooks observe the same connection as the sending hook.
+///
+/// The pipeline owns the connection context, so a hook that runs outside the
+/// codec driver must still see the identifier assigned at connection setup
+/// rather than a freshly built empty context.
+#[rstest]
+#[tokio::test]
+async fn completion_hooks_observe_the_connection_context() -> TestResult<()> {
+    let recorder = Arc::new(ConnectionRecorder::default());
+    let app =
+        ResponseApp::new()?
+            .route(1, echo_handler())?
+            .with_protocol(ContextRecordingProtocol {
+                recorder: Arc::clone(&recorder),
+            });
+
+    let _ = prepare_and_drive_with_frames(app, vec![request_frame(1)?]).await?;
+
+    let sent = recorder.sent.lock().expect("connection recorder poisoned");
+    let ended = recorder.ended.lock().expect("connection recorder poisoned");
+    assert!(!sent.is_empty(), "before_send should observe the response");
+    assert_eq!(
+        *sent, *ended,
+        "on_command_end must observe the same connection as before_send"
+    );
+    assert!(
+        sent.iter().all(Option::is_some),
+        "a prepared connection should have an identifier: {sent:?}"
+    );
     Ok(())
 }

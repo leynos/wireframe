@@ -15,7 +15,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     sync::oneshot,
-    time::{Instant, sleep},
+    time::{Instant, sleep, timeout},
 };
 use wireframe::{
     app::WireframeApp,
@@ -163,9 +163,14 @@ pub async fn only_connection(
 }
 
 /// Stop the server and wait for its accept loops to drain.
+///
+/// The wait is bounded so a connection task that fails to finish turns into a
+/// test failure instead of a hung suite.
 pub async fn stop(shutdown: &ServerShutdown) -> TestResult<()> {
     shutdown.stop();
-    shutdown.drained().await?;
+    timeout(EVENT_TIMEOUT, shutdown.drained())
+        .await
+        .map_err(|_| "the server did not finish draining after a stop request")??;
     Ok(())
 }
 

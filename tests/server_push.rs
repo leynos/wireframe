@@ -41,10 +41,11 @@ use wireframe_testing::TestResult;
 
 /// Delay a one-push-per-second limit must impose before the next push runs.
 ///
-/// The limiter refills once per second, so the second push waits a full
-/// second. Half of that is a bound the test can assert without depending on
-/// timer granularity.
-const RATE_LIMIT_LOWER_BOUND: Duration = Duration::from_millis(500);
+/// The clock starts before the connection is accepted, so the limiter is
+/// necessarily built afterwards and its one-second refill deadline falls later
+/// than `start + 1s`. Ten percent of that is left as slack for the timer wheel;
+/// a limiter refilling at twice the configured rate would still be caught.
+const RATE_LIMIT_LOWER_BOUND: Duration = Duration::from_millis(900);
 
 #[tokio::test]
 async fn setup_handle_delivers_push_over_tcp() -> TestResult<()> {
@@ -334,15 +335,17 @@ async fn rate_limited_push_is_delayed_but_delivered() -> TestResult<()> {
         .with_protocol(protocol.clone())
         .with_push_queues(template);
     let (addr, shutdown) = spawn_server(app).await?;
+    // Timed from before the connection exists: the connection's limiter is
+    // built during setup, so its refill deadline is a full second after a
+    // moment that is itself after `started`. The first push then spends the
+    // only initial token, and the second push cannot resolve before that
+    // deadline. An unlimited queue would deliver both immediately, and one
+    // refilling twice per second would resolve at half the bound.
+    let started = Instant::now();
     let mut client = TcpStream::connect(addr).await?;
     unblock_preamble(&mut client).await?;
     let (_, handle) = only_connection(&protocol).await?;
 
-    // Timed from before the first push, because that call spends the only
-    // token in the one-second window. The second call therefore cannot return
-    // until a full refill has elapsed, which gives the assertion a lower bound
-    // no unlimited queue could reach.
-    let started = Instant::now();
     handle
         .push_low_priority(Bytes::from_static(b"first"))
         .await
