@@ -170,17 +170,24 @@ This allows integration with existing packet formats without modifying
 
 ## Response serialization and framing
 
-Handlers can return types implementing the `Responder` trait. These values are
-encoded using the application's configured serializer and framed by a
-length‑delimited codec[^4].
+A route handler returns `()`, and the application echoes the routed envelope.
+To send a different reply, use `send_response` or `send_response_framed`; both
+encode the value with the application's configured serializer and report
+serialization or I/O failures as `SendError`[^4].
+
+```rust
+use wireframe::app::WireframeApp;
+
+#[derive(bincode::Encode, bincode::BorrowDecode)]
+struct Ready(u8);
+
+let app = WireframeApp::new()?;
+app.send_response(&mut server, &Ready(1)).await?;
+```
 
 Frames are length prefixed using `tokio_util::codec::LengthDelimitedCodec`. The
 prefix length and byte order are configurable and default to a 4‑byte
 big‑endian header[^5].
-
-```rust
-let app = WireframeApp::new()?;
-```
 
 ## Push Queues
 
