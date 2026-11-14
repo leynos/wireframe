@@ -77,8 +77,8 @@ pub type RequestBodyStream = Pin<Box<dyn Stream<Item = Result<Bytes, io::Error>>
 /// - **Throughput smoothing**: A small buffer absorbs transient processing delays in consumers,
 ///   preventing socket stalls on bursty workloads.
 ///
-/// - **Back-pressure responsiveness**: The buffer is small enough that back-pressure engages
-///   promptly when consumers fall behind, protecting the server from memory exhaustion.
+/// - **Back-pressure responsiveness**: A slow consumer makes the producer wait promptly once the
+///   buffer fills; the channel does not pace socket reads.
 ///
 /// - **Power-of-two alignment**: Matches common allocator bucket sizes, avoiding internal
 ///   fragmentation in the channel implementation.

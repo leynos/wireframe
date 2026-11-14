@@ -445,8 +445,7 @@ In operational terms, each layer owns a distinct hand-off:
 - `MessageAssembler::parse_frame_header` classifies that packet as either the
   first frame or a continuation frame for one logical message;
 - Wireframe strips the parsed protocol header, tracks assembly state by
-  message key, and decides whether the body should stay buffered or become a
-  stream; and
+  message key, and accumulates the assembled body for dispatch; and
 - handlers observe only the buffered, protocol-facing payload; the streaming
   primitives remain caller-owned, and no `StreamingBody` extractor exists.
 
@@ -466,7 +465,7 @@ sequenceDiagram
     Frag-->>Transport: buffer and await more fragments
   else transport fragment series complete
     Frag->>Asm: complete packet payload
-    Asm-->>Handler: RequestParts + buffered/streaming body
+    Asm-->>Handler: assembled buffered body
   end
 ```
 
