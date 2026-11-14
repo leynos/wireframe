@@ -170,7 +170,7 @@ where
         inbound.pipeline.set_context(connection_context.clone());
         let (response_actor, cancel_on_exit) = build_connection_actor(ConnectionActorInit {
             protocol: protocol.as_ref(),
-            shutdown: connection_shutdown,
+            shutdown: connection_shutdown.clone(),
             connection_id,
             registry: &session_registry,
             push_queues: &push_queues,
@@ -206,25 +206,34 @@ where
     }
 
     /// Perform one unit of inbound work, reporting whether to continue.
+    ///
+    /// The wait is raced against the connection's shutdown token. The read
+    /// observes shutdown itself, but the push arm is polled first and a ready
+    /// lane wins every biased pass, so without this arm a busy push stream
+    /// would hide the stop from the connection task and the server drain
+    /// waiting on it.
     async fn step(&mut self) -> io::Result<bool> {
         self.inbound.relieve_pressure(self.budgets).await?;
-        let step: StreamStep<F> = next_stream_step(
-            &mut self.response_actor.actor,
-            StreamWait {
-                inbound: &mut self.inbound,
-                reader: &mut self.reader,
-                read_timeout_ms: self.read_timeout_ms,
-                shutdown: &self.shutdown,
-                read_first: self.serve_read_first,
-            },
-        )
-        .await?;
+        // The push arm is polled first and a ready lane wins every biased pass,
+        // so shutdown is also observed here; otherwise a busy push stream could
+        // keep a cancelled server alive behind it.
+        let step: StreamStep<F> = tokio::select! {
+            biased;
+            () = self.shutdown.cancelled() => return Ok(false),
+            step = next_stream_step(
+                &mut self.response_actor.actor,
+                StreamWait {
+                    inbound: &mut self.inbound,
+                    reader: &mut self.reader,
+                    read_timeout_ms: self.read_timeout_ms,
+                    shutdown: &self.shutdown,
+                    read_first: self.serve_read_first,
+                },
+            ) => step?,
+        };
         self.serve_read_first = matches!(&step, StreamStep::Pushes(_));
         match step {
-            StreamStep::Pushes(frames) => {
-                self.write_pushes(frames).await?;
-                Ok(true)
-            }
+            StreamStep::Pushes(frames) => self.write_pushes(frames).await,
             StreamStep::Idle => {
                 debug!("push lanes closed; continuing to wait for the next frame");
                 Ok(true)
@@ -277,14 +286,23 @@ where
     }
 
     /// Write queued push frames through the connection's transport sink.
-    async fn write_pushes(&mut self, frames: Vec<F::Frame>) -> io::Result<()> {
+    ///
+    /// A write to a peer that stopped reading can stay pending indefinitely,
+    /// so it is raced against the shutdown token. Reporting `false` abandons
+    /// the batch and ends the connection, matching the actor's own behaviour
+    /// when a response write outlives a shutdown.
+    async fn write_pushes(&mut self, frames: Vec<F::Frame>) -> io::Result<bool> {
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,
         };
-        transport.write(frames).await
+        tokio::select! {
+            biased;
+            () = self.shutdown.cancelled() => Ok(false),
+            result = transport.write(frames) => result.map(|()| true),
+        }
     }
 
     /// Deliver frames still queued when the peer stopped writing.
@@ -296,7 +314,6 @@ where
     /// either bound abandons the remaining frames instead of pinning the
     /// connection task and its registry entry.
     async fn drain_pushes(&mut self) -> io::Result<()> {
-        let shutdown = self.response_actor.actor.shutdown_token();
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,
@@ -307,7 +324,7 @@ where
         tokio::select! {
             biased;
             result = drain => result,
-            () = shutdown.cancelled() => Ok(()),
+            () = self.shutdown.cancelled() => Ok(()),
             () = tokio::time::sleep(PEER_CLOSED_RESPONSE_GRACE) => {
                 warn!("abandoning queued pushes: the peer stopped reading");
                 Ok(())

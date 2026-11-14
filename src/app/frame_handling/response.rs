@@ -84,7 +84,12 @@ where
     let request_id = env.id;
     let correlation_id = env.correlation_id;
     let request = ServiceRequest::new(env.payload, correlation_id);
-    let resp = match run_handler_with_pushes(&mut ctx, service.call(request)).await? {
+    let Some(resp) = run_handler_with_pushes(&mut ctx, service.call(request)).await? else {
+        // Shutdown abandoned the handler while one of its pushes blocked. No
+        // response was delivered, so the connection stops here.
+        return Ok(Dispatch::Stop);
+    };
+    let resp = match resp {
         Ok(resp) => resp,
         Err(e) => {
             warn!("handler error: id={request_id}, correlation_id={correlation_id:?}, error={e:?}");
@@ -119,23 +124,35 @@ where
 /// them alongside the handler hands the lane capacity back, and each batch is
 /// written before the next select, so a slow handler cannot accumulate queued
 /// pushes in memory and no frame is held longer than the handler run.
+///
+/// Returns `None` when a server shutdown abandons the handler while one of its
+/// push batches is blocked on a peer that stopped reading. The token is taken
+/// once per response rather than per select pass, because the actor keeps the
+/// only other copy.
 async fn run_handler_with_pushes<Resp, S, K, F>(
     ctx: &mut super::ResponseContext<'_, S, K, F>,
     call: impl Future<Output = Resp>,
-) -> io::Result<Resp>
+) -> io::Result<Option<Resp>>
 where
     S: Serializer + Send + Sync,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
 {
+    let shutdown = ctx.actor.shutdown_token();
     let mut lanes_open = ctx.actor.has_open_push_lanes();
     tokio::pin!(call);
     loop {
         tokio::select! {
             biased;
-            response = &mut call => return Ok(response),
+            response = &mut call => return Ok(Some(response)),
             received = ctx.actor.next_pushes(), if lanes_open => match received {
-                Some(frames) => write_push_batch(ctx, frames).await?,
+                Some(frames) => {
+                    tokio::select! {
+                        biased;
+                        () = shutdown.cancelled() => return Ok(None),
+                        written = write_push_batch(ctx, frames) => written?,
+                    }
+                }
                 None => lanes_open = false,
             },
         }
