@@ -216,7 +216,7 @@ where
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
-        self.handle_connection_with_clock(stream, &StdMonotonicClock)
+        self.handle_connection_with_shutdown(stream, CancellationToken::new())
             .await
     }
 
@@ -236,19 +236,6 @@ where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
         self.handle_connection_inner(stream, &StdMonotonicClock, &shutdown)
-            .await
-    }
-
-    /// Handle a connection with an injectable monotonic clock.
-    async fn handle_connection_with_clock<W>(
-        &self,
-        stream: W,
-        clock: &dyn MonotonicClock,
-    ) -> io::Result<()>
-    where
-        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-    {
-        self.handle_connection_inner(stream, clock, &CancellationToken::new())
             .await
     }
 
