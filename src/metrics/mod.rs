@@ -36,6 +36,11 @@ mod pool_scheduler;
 
 mod preamble_rejections;
 
+#[cfg(not(loom))]
+mod server_cancellation;
+#[cfg(not(loom))]
+pub(crate) use server_cancellation::ServerCancellationReason;
+
 mod server_startup;
 
 mod server_supervisor;
@@ -151,27 +156,6 @@ pub const SERVER_SUPERVISOR_CANCELLATIONS: &str = "wireframe_server_supervisor_c
 /// wireframe_server_accept_loops_exited_total{reason="dropped"} 2
 /// ```
 pub const SERVER_ACCEPT_LOOPS_EXITED: &str = "wireframe_server_accept_loops_exited_total";
-
-/// Bounded reasons for server-supervisor cancellation metrics.
-#[cfg(not(loom))]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ServerCancellationReason {
-    /// Cancellation followed completion of the graceful-shutdown future.
-    Graceful,
-    /// Cancellation followed the server-supervisor future being dropped.
-    Dropped,
-}
-
-#[cfg(not(loom))]
-impl ServerCancellationReason {
-    /// Return the stable metric and tracing label value for this reason.
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Graceful => "graceful",
-            Self::Dropped => "dropped",
-        }
-    }
-}
 
 /// Bounded outcomes for application preparation metrics.
 #[derive(Clone, Copy)]

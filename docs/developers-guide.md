@@ -592,6 +592,15 @@ values `"graceful"` and `"dropped"`; direct future drops and
 corresponding static tracing events are `server_supervisor_cancellation` and
 `server_accept_loop_exited`, each with the same `reason` field.
 
+Tracing records that field as a string: both events pass
+`ServerCancellationReason::label()`, which is available with or without the
+optional `metrics` feature, so subscribers can read it through `record_str`. The
+`ServerCancellationReason::as_str` helper remains gated behind
+`feature = "metrics"` because only the metric counters call it. Builds with the
+feature disabled therefore still emit the same tracing labels, and
+`make test-feature-gate` asserts that contract in an isolated metrics-disabled
+build.
+
 ## Allowed aliases and prohibited mixing
 
 | Canonical term | Allowed aliases                     | Avoid in the same context                 |
@@ -1947,6 +1956,20 @@ unrelated reason is reported as a broken probe rather than a passing gate. That
 control build selects neither `metrics` nor any HTTP/2 dependency, so it also
 fails unless the root manifest declares `tokio-util`'s `io` feature directly
 for request streaming ([#792](https://github.com/leynos/wireframe/issues/792)).
+The consumer also runs a metrics-disabled server and asserts, through a custom
+subscriber, that both cancellation events record `reason` through `record_str`.
+The workspace suite cannot make that check: its `wireframe_testing` dependency
+unifies `metrics` on for every root-package test, so only this isolated build
+observes the disabled configuration.
+
+One gated item has no trybuild fixture, and this is the documented exception.
+`ServerCancellationReason::as_str` is crate-private, so no downstream fixture
+can name it, and its `metrics` gate is observable only inside the crate.
+`make test-pool-no-metrics` compiles the library with `--no-default-features`,
+which proves the gated helper's absence does not break the crate, and the
+feature-gate consumer's runtime assertion proves the tracing contract that
+replaced it. That pair is the alternative gate for this item; a trybuild
+fixture cannot reach a crate-private helper.
 
 Because the consumer is its own workspace, no workspace-wide target reaches it,
 so a green `make test` or `make test-ui` says nothing about whether the gate

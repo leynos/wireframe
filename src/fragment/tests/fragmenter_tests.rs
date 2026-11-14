@@ -133,6 +133,45 @@ fn fragmenter_fragments_messages_and_increments_ids() {
     );
 }
 
+/// Extract the message from a caught panic payload.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or_default()
+}
+
+/// The checked increment behind `try_update` returns the configured
+/// `u64::MAX - 1`, leaving the counter at `u64::MAX`; the following allocation
+/// panics rather than wrapping. The panic check is scoped to the second call so
+/// an early panic cannot satisfy it.
+#[test]
+fn fragmenter_allocates_last_representable_id_before_exhaustion() {
+    let fragmenter = Fragmenter::with_starting_id(
+        NonZeroUsize::new(4).expect("non-zero"),
+        MessageId::new(u64::MAX - 1),
+    );
+
+    assert_eq!(
+        fragmenter.next_message_id(),
+        MessageId::new(u64::MAX - 1),
+        "the first allocation should return the configured starting id"
+    );
+
+    let exhausted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        fragmenter.next_message_id()
+    }))
+    .expect_err("the exhausted counter should panic rather than wrap");
+    // Dereference the box so the helper inspects the panic payload rather
+    // than the boxed `dyn Any` itself.
+    let message = panic_message(&*exhausted);
+    assert!(
+        message.contains("message id counter exhausted at"),
+        "unexpected panic message: {message}"
+    );
+}
+
 #[test]
 fn fragment_batch_into_iterator_yields_all_fragments() {
     let fragmenter = Fragmenter::new(NonZeroUsize::new(2).expect("non-zero"));
