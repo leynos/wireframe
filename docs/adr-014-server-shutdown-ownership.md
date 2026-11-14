@@ -313,6 +313,28 @@ has stopped reading is expected to be abandoned once the write is pending at
 shutdown time, or once its idle grace expires. Verification must cover both
 halves, because only the second one is visible without a stalled sink.
 
+### Mechanism: shutdown bounds writes, it does not preempt the drive
+
+The drain contract needs a mechanism rather than an intention, so the actor
+carries an explicit policy, `abandon_response_on_shutdown`:
+
+- The direct actor API keeps the default, where a cancelled shutdown token ends
+  the response drive before another frame is written. `ConnectionActor::run`
+  and its `shutdown_signal_precedence` and `interleaved_shutdown_during_stream`
+  tests define that contract.
+- A prepared server connection clears it in `build_connection_actor`. `stop()`
+  then bounds every write, through `ConnectionActor::flush_or_cancel` for
+  buffered frames and `write_frame_bounded` for the protocol terminator,
+  without terminating the drive.
+
+The peer's idle grace is the second half of the bound: a write that is pending
+when the peer can no longer be observed keeps one grace to complete before it
+is abandoned. Both halves are exercised by
+`tests/server_shutdown_streaming.rs`, which stops the server mid-response and
+requires every frame, the terminator, and the completion hook to arrive, and by
+the unit tables for a drained versus abandoned stream and for an abandoned
+terminator.
+
 ## References
 
 - [ADR 011: runtime ownership and task-lifetime boundaries](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)

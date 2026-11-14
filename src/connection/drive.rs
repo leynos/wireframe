@@ -12,7 +12,7 @@ use log::info;
 use super::{
     ConnectionActor,
     FrameSink,
-    event::Event,
+    event::{Event, EventWatch},
     output::{ActiveOutput, AvailableOutput, EventAvailability},
     polling::EventSources,
     state::ActorState,
@@ -198,7 +198,7 @@ where
                 self.active_output.is_response(),
                 self.active_output.is_multi_packet(),
             );
-            let event = self.next_event_watching_peer(&state).await;
+            let event = self.next_event_while_draining(&state, true).await;
             if matches!(event, Event::Shutdown) {
                 ResponseCancellationReason::Shutdown.record();
                 return Ok(ResponseOutcome::Cancelled);
@@ -304,21 +304,52 @@ where
     /// The `strict_priority_order` and `shutdown_signal_precedence` tests
     /// assert that this ordering is preserved across refactors.
     pub(super) async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
-        self.next_event_inner(state, false).await
+        self.next_event_inner(
+            state,
+            EventWatch {
+                peer: false,
+                shutdown: true,
+            },
+        )
+        .await
     }
 
-    /// Await the next event while also observing the peer's half-close.
-    async fn next_event_watching_peer(&mut self, state: &ActorState) -> Event<F, E> {
-        self.next_event_inner(state, true).await
+    /// Await the next event for a prepared connection while it drains.
+    ///
+    /// The prepared connection keeps driving a response whose peer is reading
+    /// even after `stop()`, so that ADR-014's graceful drain still delivers it
+    /// and runs its completion hook. Its writes remain bounded, which is what
+    /// stops a peer that no longer reads from pinning the drain.
+    pub(super) async fn next_event_while_draining(
+        &mut self,
+        state: &ActorState,
+        watch_peer: bool,
+    ) -> Event<F, E> {
+        let watch = EventWatch {
+            peer: watch_peer,
+            shutdown: self.abandon_response_on_shutdown,
+        };
+        self.next_event_inner(state, watch).await
+    }
+
+    /// Choose whether a shutdown signal abandons a response being driven.
+    ///
+    /// The default keeps the direct actor contract, where a cancelled shutdown
+    /// token stops the drive before the next frame is written. A server
+    /// connection disables it so that ADR-014's graceful drain still delivers a
+    /// response to a peer that is reading; shutdown then bounds only the writes
+    /// that cannot make progress.
+    pub(crate) const fn set_abandon_response_on_shutdown(&mut self, abandon: bool) {
+        self.abandon_response_on_shutdown = abandon;
     }
 
     /// Whether peer-close observation applies to the current actor state.
-    const fn should_watch_peer(watch_peer: bool, state: &ActorState) -> bool {
-        watch_peer && state.is_active()
+    const fn should_watch_peer(watch: EventWatch, state: &ActorState) -> bool {
+        watch.peer && state.is_active()
     }
 
-    /// Shared select loop for both observation modes.
-    async fn next_event_inner(&mut self, state: &ActorState, watch_peer: bool) -> Event<F, E> {
+    /// Shared select loop for every observation mode.
+    async fn next_event_inner(&mut self, state: &ActorState, watch: EventWatch) -> Event<F, E> {
         let avail = self.compute_availability(state);
         let can_poll_multi_packet = avail.output == AvailableOutput::MultiPacket;
         let can_poll_response = avail.output == AvailableOutput::Response;
@@ -334,8 +365,10 @@ where
         tokio::select! {
             biased;
 
-            () = Self::wait_shutdown(shutdown), if state.is_active() => Event::Shutdown,
-            () = Self::wait_peer_closed(peer_closed), if Self::should_watch_peer(watch_peer, state) => {
+            () = Self::wait_shutdown(shutdown), if watch.shutdown && state.is_active() => {
+                Event::Shutdown
+            }
+            () = Self::wait_peer_closed(peer_closed), if Self::should_watch_peer(watch, state) => {
                 Event::PeerClosed
             }
             res = Self::poll_queue(high), if avail.high => Event::High(res),

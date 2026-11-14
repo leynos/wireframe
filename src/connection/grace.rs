@@ -48,13 +48,15 @@ where
 {
     /// Abandon the active response because the idle grace expired.
     ///
-    /// The response is cleared rather than drained: a producer that has not
-    /// yielded for a whole grace interval is treated as gone, and any frame it
-    /// later offers is dropped with the connection.
+    /// The response is cleared rather than drained: a peer that has neither
+    /// accepted a frame nor been observed for a whole grace interval is treated
+    /// as gone, and any frame it later offers is dropped with the connection.
+    /// The same applies to the protocol terminator, which is written under this
+    /// bound.
     pub(super) fn cancel_stalled_response(&mut self) {
         warn!(
-            "the peer could not be observed ({}) and the response produced no frames for {:?}; \
-             cancelling: id={:?}, peer={:?}, correlation={:?}",
+            "the peer could not be observed ({}) and accepted no frame for {:?}; cancelling: \
+             id={:?}, peer={:?}, correlation={:?}",
             self.unobserved_cause_label(),
             self.peer_closed_grace,
             self.connection_id,

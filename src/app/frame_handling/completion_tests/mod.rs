@@ -30,6 +30,8 @@ use crate::{
     serializer::BincodeSerializer,
 };
 
+mod terminator_grace;
+
 /// Ordered record of the writes and hooks observed by one scenario.
 type EventLog = Arc<Mutex<Vec<&'static str>>>;
 

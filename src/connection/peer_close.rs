@@ -58,7 +58,9 @@ where
             let mut grace = timer.elapse(self.peer_closed_grace);
             let event = tokio::select! {
                 biased;
-                event = self.next_event(&state) => event,
+                // The peer's half-close is already known, so only the drain
+                // policy decides whether shutdown still preempts the wait.
+                event = self.next_event_while_draining(&state, false) => event,
                 () = grace.as_mut() => {
                     self.cancel_stalled_response();
                     return Ok(ResponseOutcome::Cancelled);

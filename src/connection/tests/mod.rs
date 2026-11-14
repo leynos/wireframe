@@ -2,6 +2,7 @@
 
 mod completion;
 mod grace;
+mod shutdown_drain;
 mod vec_delivery;
 mod writes;
 
@@ -27,6 +28,14 @@ use crate::{
 fn test_actor(
     hooks: ProtocolHooks<Envelope, ()>,
 ) -> Result<ConnectionActor<Envelope, ()>, crate::push::PushConfigError> {
+    test_actor_with_shutdown(CancellationToken::new(), hooks)
+}
+
+/// Build an actor whose shutdown token the test controls.
+fn test_actor_with_shutdown(
+    shutdown: CancellationToken,
+    hooks: ProtocolHooks<Envelope, ()>,
+) -> Result<ConnectionActor<Envelope, ()>, crate::push::PushConfigError> {
     let (queues, handle) = PushQueues::<Envelope>::builder()
         .high_capacity(1)
         .low_capacity(1)
@@ -34,7 +43,7 @@ fn test_actor(
     Ok(ConnectionActor::new_untracked(
         ConnectionChannels::new(queues, handle),
         None,
-        CancellationToken::new(),
+        shutdown,
         hooks,
     ))
 }

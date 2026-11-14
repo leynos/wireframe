@@ -151,10 +151,12 @@ before the response completes.
 
 The terminator write is bounded for the same reason the response frames are. A
 peer that stopped reading can block the last frame as readily as any other, so
-the write races the connection's shutdown token: if shutdown wins, the
-terminator is abandoned and the response reports `Cancelled`, which also
-suppresses `on_command_end`. The connection is closing, so a half-written
-response must not report completion.
+it is written under the same bound as every buffered frame: a write that is
+ready proceeds, one that stalls is abandoned when the connection shuts down,
+and one pending after the peer can no longer be observed is abandoned only once
+the idle grace passes without the sink accepting it. An abandoned terminator
+reports `Cancelled`, which also suppresses `on_command_end`. The connection is
+closing, so a half-written response must not report completion.
 
 A multi-packet frame whose originating request supplied no correlation
 identifier keeps the identifier its producer set, matching the inheritance rule
@@ -430,9 +432,14 @@ If the stream yields an `Err(WireframeError<E>)`, the connection actor will:
 ### 6.3 Cancellation Safety & `Drop` Semantics
 
 The design is inherently cancellation-safe. The `select!` macro in the
-connection actor will drop the `FrameStream` future if another branch (e.g., a
-shutdown signal) completes first. Because `StreamExt::next()` is
-cancellation-safe, no frames will be lost; the stream will simply be dropped.
+connection actor will drop the `FrameStream` future if another branch completes
+first, such as the peer becoming unobservable. Because `StreamExt::next()` is
+cancellation-safe, no frames will be lost; the stream will simply be dropped. A
+shutdown signal is not such a branch on a prepared server connection: that
+connection keeps driving a response its peer is still reading, because ADR-014
+requires it to drain across `stop()`. Shutdown bounds its writes instead. The
+direct actor API keeps the original precedence, where a cancelled shutdown
+token ends the drive before another frame is written.
 
 Similarly, if a handler panics or returns early, the `Stream` object it created
 is simply dropped. The connection actor will see the stream end as if it had
@@ -547,15 +554,17 @@ staying true to the architecture already in production use.
   noticed: a read error fails the connection, and a clean half-close lets the
   actor finish the response while bounding each idle wait to a 30-second idle
   grace. The same grace also bounds a write the peer never accepts, and server
-  shutdown releases such a write immediately. That bound covers every write the
-  prepared path performs, including `Single` and `Vec` responses and the
-  protocol terminator: one frame is enough to block on a peer that stopped
-  reading. A write that is ready still proceeds, so a cancellation observed
-  mid-drain does not abandon frames the sink has already accepted. Either way
-  the pending response cannot keep the connection task, its gauge guard,
-  teardown, and the server drain pending indefinitely. Once a request frame is
-  buffered, the read half is no longer polled, so a later disconnect cannot be
-  observed directly; the grace then bounds the response itself.
+  shutdown releases such a write immediately without preempting a response that
+  is still making progress, so a readable peer's response still drains. That
+  bound covers every write the prepared path performs, including `Single` and
+  `Vec` responses and the protocol terminator: one frame is enough to block on
+  a peer that stopped reading. A write that is ready still proceeds, so a
+  cancellation observed mid-drain does not abandon frames the sink has already
+  accepted. Either way the pending response cannot keep the connection task,
+  its gauge guard, teardown, and the server drain pending indefinitely. Once a
+  request frame is buffered, the read half is no longer polled, so a later
+  disconnect cannot be observed directly; the grace then bounds the response
+  itself.
 - The `ConnectionActor` owns the channel receiver and polls it via the
   main `select!` loop. Frames pass through `process_frame_common` so protocol
   hooks and metrics observe every packet. When the channel drains, the actor

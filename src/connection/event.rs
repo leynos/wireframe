@@ -31,3 +31,17 @@ pub(super) enum Event<F, E> {
     /// No source was eligible; this is a defensive select-loop fallback.
     Idle,
 }
+
+/// Which lifecycle signals one event wait observes.
+///
+/// The standalone driver always observes shutdown and never the peer. The
+/// prepared connection observes the peer, and follows the actor's
+/// `abandon_response_on_shutdown` policy for shutdown, so the two modes differ
+/// in both flags and are grouped rather than passed separately.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct EventWatch {
+    /// Whether a peer half-close wakes the wait.
+    pub(super) peer: bool,
+    /// Whether a cancelled shutdown token ends the wait.
+    pub(super) shutdown: bool,
+}
