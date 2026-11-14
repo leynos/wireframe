@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use leaky_bucket::RateLimiter;
 use static_assertions::const_assert;
-use tokio::sync::mpsc;
+use tokio::sync::{Semaphore, mpsc};
 
 mod builder;
 mod dlq;
@@ -134,6 +134,30 @@ impl<F: FrameLike> PushQueues<F> {
         }
     }
 
+    /// Returns the capacity pair if either bound cannot back a queue.
+    ///
+    /// A Tokio channel is backed by a semaphore, so a capacity above
+    /// [`Semaphore::MAX_PERMITS`] panics inside `mpsc::channel` instead of
+    /// failing the build. Checking both bounds here keeps a configuration
+    /// mistake at the configuration boundary rather than turning it into a
+    /// panic in every connection that clones the template.
+    const fn invalid_capacity(high: usize, low: usize) -> Option<(usize, usize)> {
+        if Self::is_backable_capacity(high) && Self::is_backable_capacity(low) {
+            None
+        } else {
+            Some((high, low))
+        }
+    }
+
+    /// Whether `capacity` is within the range a Tokio channel accepts.
+    ///
+    /// Zero cannot form a queue, and a capacity above
+    /// [`Semaphore::MAX_PERMITS`] panics in `mpsc::channel` because the channel
+    /// is a semaphore underneath.
+    const fn is_backable_capacity(capacity: usize) -> bool {
+        capacity > 0 && capacity <= Semaphore::MAX_PERMITS
+    }
+
     /// Validate configuration, allocate channels, and pair them with a handle.
     pub(super) fn build_with_config(
         config: PushQueueConfig<F>,
@@ -151,11 +175,8 @@ impl<F: FrameLike> PushQueues<F> {
             // be used. The bounds prevent runaway resource consumption.
             return Err(PushConfigError::InvalidRate(invalid));
         }
-        if high_capacity == 0 || low_capacity == 0 {
-            return Err(PushConfigError::InvalidCapacity {
-                high: high_capacity,
-                low: low_capacity,
-            });
+        if let Some((high, low)) = Self::invalid_capacity(high_capacity, low_capacity) {
+            return Err(PushConfigError::InvalidCapacity { high, low });
         }
         let (high_tx, high_rx) = mpsc::channel(high_capacity);
         let (low_tx, low_rx) = mpsc::channel(low_capacity);
@@ -207,7 +228,8 @@ impl<F: FrameLike> PushQueues<F> {
     /// # Errors
     ///
     /// Returns [`PushConfigError::InvalidCapacity`] if either queue capacity is
-    /// zero or [`PushConfigError::InvalidRate`] if the default rate is invalid.
+    /// zero or exceeds [`Semaphore::MAX_PERMITS`], or
+    /// [`PushConfigError::InvalidRate`] if the default rate is invalid.
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
     pub fn bounded(
         high_capacity: usize,
@@ -221,7 +243,7 @@ impl<F: FrameLike> PushQueues<F> {
     /// # Errors
     ///
     /// Returns [`PushConfigError::InvalidCapacity`] if either queue capacity is
-    /// zero.
+    /// zero or exceeds [`Semaphore::MAX_PERMITS`].
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
     pub fn bounded_no_rate_limit(
         high_capacity: usize,
@@ -236,7 +258,7 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or greater
     /// than [`MAX_PUSH_RATE`] and [`PushConfigError::InvalidCapacity`] if either
-    /// queue capacity is zero.
+    /// queue capacity is zero or exceeds [`Semaphore::MAX_PERMITS`].
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
     pub fn bounded_with_rate(
         high_capacity: usize,
@@ -252,7 +274,7 @@ impl<F: FrameLike> PushQueues<F> {
     ///
     /// Returns [`PushConfigError::InvalidRate`] if `rate` is zero or greater
     /// than [`MAX_PUSH_RATE`] and [`PushConfigError::InvalidCapacity`] if either
-    /// queue capacity is zero.
+    /// queue capacity is zero or exceeds [`Semaphore::MAX_PERMITS`].
     #[deprecated(since = "0.1.0", note = "Use `PushQueues::builder` instead")]
     pub fn bounded_with_rate_dlq(
         high_capacity: usize,

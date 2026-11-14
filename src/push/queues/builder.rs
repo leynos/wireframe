@@ -175,16 +175,16 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     ///
     /// Returns [`PushConfigError::InvalidRate`] if the rate is zero or strictly
     /// greater than [`super::MAX_PUSH_RATE`] and
-    /// [`PushConfigError::InvalidCapacity`] if either queue capacity is zero.
+    /// [`PushConfigError::InvalidCapacity`] if either queue capacity is zero or
+    /// greater than [`tokio::sync::Semaphore::MAX_PERMITS`].
     pub(crate) const fn validate(&self) -> Result<(), PushConfigError> {
         if let Some(invalid) = PushQueues::<F>::invalid_rate(self.rate) {
             return Err(PushConfigError::InvalidRate(invalid));
         }
-        if self.high_capacity == 0 || self.low_capacity == 0 {
-            return Err(PushConfigError::InvalidCapacity {
-                high: self.high_capacity,
-                low: self.low_capacity,
-            });
+        if let Some((high, low)) =
+            PushQueues::<F>::invalid_capacity(self.high_capacity, self.low_capacity)
+        {
+            return Err(PushConfigError::InvalidCapacity { high, low });
         }
         Ok(())
     }
@@ -199,7 +199,8 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     ///
     /// Returns [`PushConfigError::InvalidRate`] if the rate is zero or strictly
     /// greater than [`super::MAX_PUSH_RATE`] and
-    /// [`PushConfigError::InvalidCapacity`] if either queue capacity is zero.
+    /// [`PushConfigError::InvalidCapacity`] if either queue capacity is zero or
+    /// greater than [`tokio::sync::Semaphore::MAX_PERMITS`].
     pub fn build(self) -> Result<(PushQueues<F>, PushHandle<F>), PushConfigError> {
         self.validate()?;
         PushQueues::build_with_config(PushQueueConfig {

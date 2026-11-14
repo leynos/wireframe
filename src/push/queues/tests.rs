@@ -62,6 +62,30 @@ fn validate_rejects_zero_capacity() {
     );
 }
 
+/// A Tokio channel is backed by a semaphore, so a capacity above its limit
+/// panics when the channel is allocated. Configuration must report it instead.
+#[test]
+fn validate_rejects_capacity_above_the_channel_limit() {
+    let high_builder = PushQueuesBuilder::<u8>::default().high_capacity(usize::MAX);
+
+    assert!(
+        matches!(
+            high_builder.validate(),
+            Err(PushConfigError::InvalidCapacity { high, .. }) if high == usize::MAX
+        ),
+        "a capacity above `Semaphore::MAX_PERMITS` must be rejected"
+    );
+
+    let low_builder = PushQueuesBuilder::<u8>::default().low_capacity(usize::MAX);
+    assert!(
+        matches!(
+            low_builder.build(),
+            Err(PushConfigError::InvalidCapacity { low, .. }) if low == usize::MAX
+        ),
+        "building must report the bound rather than panic in `mpsc::channel`"
+    );
+}
+
 #[test]
 fn validate_rejects_out_of_range_rate() {
     let builder = PushQueuesBuilder::<u8>::default().rate(Some(0));

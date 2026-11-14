@@ -23,8 +23,11 @@ pub enum PushConfigError {
     /// The provided rate was zero or exceeded [`crate::push::queues::MAX_PUSH_RATE`].
     #[error("invalid rate {0}; must be between 1 and {max}", max = MAX_PUSH_RATE)]
     InvalidRate(usize),
-    /// The provided capacities were zero.
-    #[error("invalid capacities; high={high}, low={low}; each must be >= 1")]
+    /// The provided capacities were zero or exceeded the channel limit.
+    #[error(
+        "invalid capacities; high={high}, low={low}; each must be between 1 and {max}",
+        max = tokio::sync::Semaphore::MAX_PERMITS
+    )]
     InvalidCapacity {
         /// Capacity configured for the high-priority queue.
         high: usize,

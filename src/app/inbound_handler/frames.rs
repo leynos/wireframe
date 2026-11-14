@@ -8,7 +8,7 @@
 //! That would pin the connection task, its gauge guard, and the server drain
 //! for as long as the peer stayed connected.
 
-use std::{io, time::Duration};
+use std::{io, task::Poll, time::Duration};
 
 use futures::{Stream, StreamExt};
 use log::debug;
@@ -45,8 +45,11 @@ where
 
 /// Poll the buffered frame or the reader, giving up after `bound`.
 ///
-/// A zero bound makes this a single non-blocking poll, which lets a caller that
-/// competes with an always-ready source give the reader one chance per pass.
+/// A zero bound is a single non-blocking poll rather than a timer: Tokio
+/// rounds a timer deadline up to its next tick, so `timeout(Duration::ZERO,
+/// ..)` would hold an always-ready competitor — the push lanes — for up to a
+/// tick on every pass. Polling once costs no time at all, which is what a
+/// caller that owes the push lanes an attempt after each batch needs.
 async fn poll_frame<R, F>(
     pending_frame: &mut Option<F>,
     reader: &mut R,
@@ -57,6 +60,14 @@ where
 {
     if let Some(frame) = pending_frame.take() {
         return Ok(NextFrame::Ready(frame));
+    }
+    if bound.is_zero() {
+        return Ok(match futures::poll!(reader.next()) {
+            Poll::Ready(Some(Ok(frame))) => NextFrame::Ready(frame),
+            Poll::Ready(Some(Err(error))) => return Err(error),
+            Poll::Ready(None) => NextFrame::Closed,
+            Poll::Pending => NextFrame::TimedOut,
+        });
     }
     match timeout(bound, reader.next()).await {
         Ok(Some(Ok(frame))) => Ok(NextFrame::Ready(frame)),
@@ -180,5 +191,59 @@ impl<T> InboundFrames<T> {
             () = shutdown.cancelled() => Ok(None),
             frame = await_inbound_frame(&mut self.pending, reader, read_timeout_ms, &mut expiry) => frame,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for the non-blocking read attempt.
+
+    use futures::stream;
+    use tokio::time::{Duration, Instant};
+
+    use super::*;
+
+    /// The post-batch read probe must not wait for a timer tick.
+    ///
+    /// A pending reader reported as silence at once, because the push lanes
+    /// are polled again immediately rather than after up to a millisecond.
+    #[tokio::test(start_paused = true)]
+    async fn the_read_probe_spends_no_time_on_a_pending_reader() -> io::Result<()> {
+        let mut reader = stream::pending::<io::Result<u8>>();
+        let mut pending: Option<u8> = None;
+        let started = Instant::now();
+
+        let next = poll_frame(&mut pending, &mut reader, Duration::ZERO).await?;
+
+        if !matches!(next, NextFrame::TimedOut) {
+            return Err(io::Error::other("a pending read reports silence"));
+        }
+        if started.elapsed() != Duration::ZERO {
+            return Err(io::Error::other(
+                "the probe must poll the reader once rather than arm a timer",
+            ));
+        }
+        Ok(())
+    }
+
+    /// A ready frame still wins over the push lanes, and a buffered frame is
+    /// taken first without polling the reader again.
+    #[tokio::test]
+    async fn the_read_probe_returns_a_ready_frame() -> io::Result<()> {
+        let mut reader = stream::iter([Ok(1_u8)]);
+        let mut pending = Some(2_u8);
+
+        let next = poll_frame(&mut pending, &mut reader, Duration::ZERO).await?;
+
+        if !matches!(next, NextFrame::Ready(2)) {
+            return Err(io::Error::other(
+                "a buffered frame must be served before the reader is polled",
+            ));
+        }
+        let ready = poll_frame(&mut pending, &mut reader, Duration::ZERO).await?;
+        if !matches!(ready, NextFrame::Ready(1)) {
+            return Err(io::Error::other("the ready reader frame must be returned"));
+        }
+        Ok(())
     }
 }

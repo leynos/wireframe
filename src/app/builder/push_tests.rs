@@ -80,6 +80,23 @@ async fn prepare_rejects_invalid_push_template() {
     );
 }
 
+/// A capacity no Tokio channel can back is rejected while preparing, so it
+/// cannot panic once per accepted connection instead.
+#[tokio::test]
+async fn prepare_rejects_oversize_push_capacity() {
+    let template = PushQueues::<Bytes>::builder().high_capacity(usize::MAX);
+    let app: WireframeApp = WireframeApp::new()
+        .expect("builder should initialize")
+        .with_push_queues(template);
+
+    let result = app.prepare().await;
+
+    assert!(
+        matches!(result, Err(PrepareError::InvalidPushConfig { .. })),
+        "preparation should reject a capacity above the channel limit"
+    );
+}
+
 /// A prepared application always offers a usable template, defaulting to the
 /// standard queue configuration.
 #[tokio::test]
