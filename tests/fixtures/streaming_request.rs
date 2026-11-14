@@ -6,10 +6,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use rstest::fixture;
 use tokio::{io::AsyncReadExt, sync::mpsc};
-use wireframe::{
-    extractor::StreamingBody,
-    request::{RequestBodyReader, RequestBodyStream, body_channel},
-};
+use wireframe::request::{RequestBodyReader, RequestBodyStream, body_channel};
 pub use wireframe_testing::TestResult;
 
 /// Runtime-backed world for streaming request body behaviour.
@@ -168,7 +165,7 @@ impl StreamingRequestWorld {
         Ok(())
     }
 
-    /// Read the request body through `StreamingBody` and `RequestBodyReader`.
+    /// Read the request body through `RequestBodyReader`.
     ///
     /// # Errors
     ///
@@ -176,8 +173,7 @@ impl StreamingRequestWorld {
     pub fn drain_with_reader(&mut self) -> TestResult {
         self.sender = None;
         let stream = self.stream.take().ok_or("request body stream missing")?;
-        let body = StreamingBody::new(stream);
-        let mut reader: RequestBodyReader = body.into_reader();
+        let mut reader: RequestBodyReader = RequestBodyReader::new(stream);
         let mut buffer = Vec::new();
         self.block_on(async { reader.read_to_end(&mut buffer).await })??;
         self.collected_chunks = usize::from(!buffer.is_empty());

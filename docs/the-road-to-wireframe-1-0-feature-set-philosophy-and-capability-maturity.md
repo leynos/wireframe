@@ -92,18 +92,18 @@ See `examples/async_stream.rs` for a runnable demonstration of this pattern.
 #### Streaming request bodies
 
 [ADR 0002][adr-0002] extends the streaming model to inbound requests, providing
-symmetry with response streaming. Handlers MAY receive `RequestParts` plus
-`RequestBodyStream` rather than a fully reassembled `Vec<u8>`, enabling
-incremental processing of large inbound payloads. The default remains buffered
-request handling to preserve existing ergonomics for small messages and simple
-protocols.
+symmetry with response streaming. `RequestParts` plus `RequestBodyStream`
+enable incremental processing of large inbound payloads. Route handlers do not
+receive those shapes: dispatch stays buffered, and a caller that needs an
+incremental body owns both ends of the stream.
 
 This is now a concrete part of the public API rather than a future sketch.
 `RequestParts` separates routing metadata from the body, while
 `RequestBodyStream` yields body chunks as a pinned boxed stream. Protocol
-crates can adapt that stream to `AsyncRead` through `RequestBodyReader`, and
-extractor-based handlers can use `StreamingBody` for the same underlying
-capability.
+crates can adapt that stream to `AsyncRead` through `RequestBodyReader` and
+pair it with a producer through `body_channel`. The server does not deliver
+these shapes to route handlers; ADR 017 records that limitation and removes the
+`StreamingBody` extractor that was never wired to dispatch.
 
 Completion of a streaming response is signalled by a protocol-defined
 terminator frame. The new `stream_end_frame` hook allows implementations to
@@ -237,8 +237,8 @@ This capability has moved from design intent to implemented maturity:
   `WireframeApp::with_message_assembler(...)`;
 - the inbound runtime path applies the assembler after transport reassembly and
   before handler dispatch; and
-- handlers receive either a buffered request or a streaming request body based
-  on the assembler's framing outcome.
+- handlers receive the assembled buffered request; the runtime creates no
+  streaming body for dispatch.
 
 ## III. Capability Maturity: From Functional to Production-Grade
 
@@ -487,4 +487,4 @@ a deep commitment to the principles of resilience, observability, and developer
 ergonomics, `wireframe` will provide the Rust community with a best-in-class
 tool for tackling the challenges of modern network programming.
 
-[adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md
+[adr-0002]: adr-002-streaming-requests-and-shared-message-assembly.md

@@ -442,12 +442,13 @@ not hang.
   transport write. Actor-owned push and streaming frames keep their own hook
   pipeline.
 
-- **Streaming Request Bodies:** [ADR 0002][adr-0002] introduces first-class
-  streaming request bodies as the inbound counterpart to streaming responses.
-  Handlers MAY receive `RequestParts` plus `RequestBodyStream` rather than a
-  fully reassembled `Vec<u8>`, enabling incremental processing of large inbound
-  payloads. This symmetry allows protocols to apply the same back-pressure and
-  memory budget semantics in both directions.
+- **Streaming Request Bodies:** [ADR
+  0002](adr-002-streaming-requests-and-shared-message-assembly.md) introduces
+  `RequestParts` and `RequestBodyStream` as the inbound counterpart to
+  streaming responses, enabling incremental processing of large inbound
+  payloads. The runtime does not deliver these to route handlers; ADR 017
+  records that limitation and removes the extractor wrapper that was never
+  wired to dispatch.
 
 - **MessageAssembler:** Protocol-level multi-frame message assembly integrates
   with streaming request bodies. The `MessageAssembler` abstraction allows
@@ -567,100 +568,103 @@ cannot regress or be removed.
 
 ## 11. Streaming request bodies
 
-[ADR 0002][adr-0002] extends Wireframe's streaming model to inbound requests,
-providing symmetry with the outbound streaming capabilities documented above.
+[ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md) extends
+Wireframe's streaming model to inbound requests, providing symmetry with the
+outbound streaming capabilities documented above.
 
 ### 11.1 Handler-facing shapes
 
-Handlers that opt into streaming request bodies receive two components:
+[ADR 017](adr-017-remove-route-extractors-and-app-data.md) removes the
+extractor wrapper and records that the connection runtime does not deliver
+streaming bodies. The primitives remain for callers that own both ends:
 
 - `RequestParts` carries the routing and correlation metadata needed to
   dispatch the request before the body is fully received.
-- `RequestBodyStream` yields body chunks incrementally, allowing handlers to
+- `RequestBodyStream` yields body chunks incrementally, letting a consumer
   process large payloads without buffering the entire message in memory.
 
-In the current API, `RequestParts` exposes `id()`, `correlation_id()`, and
-`metadata()`. `RequestBodyStream` is a pinned boxed stream of
+`RequestParts` exposes `id()`, `correlation_id()`, and `metadata()`.
+`RequestBodyStream` is a pinned boxed stream of
 `Result<Bytes, std::io::Error>`, and `RequestBodyReader` adapts that stream to
-`AsyncRead` for parser reuse. Handlers can also use the `StreamingBody`
-extractor when they prefer an extractor-based signature over taking the stream
-type directly.
+`AsyncRead` for parser reuse. The server creates no body channel, so a caller
+pairs the stream with its producer through `body_channel`.
 
 The key design point is that routing metadata becomes available before the body
-is complete. A handler can inspect `RequestParts` immediately, then decide
+is complete. A consumer can inspect `RequestParts` immediately, then decide
 whether to consume the body lazily, stream it into a parser, or stop early.
 
 ### 11.2 Opt-in semantics
 
-The default remains "buffered request" to preserve Wireframe's existing
-transparent assembly ergonomics for small messages and simple protocols.
-Handlers opt into streaming by declaring a compatible signature such as:
+The primitives are opt-in at the call site rather than in a handler signature.
+Route dispatch continues to use buffered requests; a consumer that wants
+incremental processing constructs the pair itself:
 
-- `async fn handle(parts: RequestParts, body: RequestBodyStream)`;
-- `async fn handle(parts: RequestParts, body: StreamingBody)`; or
-- a handler that converts `StreamingBody` into `RequestBodyReader` for
-  `AsyncRead`-based parsing.
+```rust
+use wireframe::request::{RequestBodyReader, body_channel};
 
-If a handler does not opt in, Wireframe preserves the buffered request path.
-This keeps the small-message path ergonomic and means protocol crates can adopt
-streaming only where large inbound bodies justify the extra complexity.
+let (tx, rx) = body_channel(16);
+let mut reader = RequestBodyReader::new(rx);
+```
+
+If a caller does not construct the pair, Wireframe preserves the buffered
+request path. This keeps the small-message path ergonomic and means protocol
+crates can adopt streaming only where large inbound bodies justify the extra
+complexity.
 
 ### 11.3 Symmetry with response streaming
 
 Streaming request bodies mirror `Response::Stream`:
 
-| Direction           | Type                | Back-pressure mechanism                               |
-| ------------------- | ------------------- | ----------------------------------------------------- |
-| Outbound (response) | `Response::Stream`  | Socket write suspension propagates to stream producer |
-| Inbound (request)   | `RequestBodyStream` | Socket read suspension propagates to body consumer    |
+| Direction           | Type                | Back-pressure mechanism                                |
+| ------------------- | ------------------- | ------------------------------------------------------ |
+| Outbound (response) | `Response::Stream`  | Socket write suspension propagates to stream producer  |
+| Inbound (request)   | `RequestBodyStream` | Channel capacity applies back-pressure to the producer |
 
-Both directions apply the same per-connection memory budgets and back-pressure
-semantics, ensuring consistent resource accounting across the duplex channel.
+Outbound streaming uses the same per-connection memory budgets as other
+responses. Inbound streaming is caller-owned: Wireframe does not pause socket
+reads on a consumer's behalf because it does not create the channel.
 
 The symmetry is conceptual, not identical in shape:
 
 - outbound streaming emits protocol frames chosen by the handler; and
-- inbound streaming emits request-body chunks after Wireframe has already
-  separated protocol metadata into `RequestParts`.
+- inbound streaming emits request-body chunks only where a caller has paired a
+  producer with `RequestBodyStream`.
 
-That separation is what lets request handlers start work before the full body
-arrives without exposing lower transport concerns.
+That separation lets a consumer work from protocol metadata immediately without
+exposing lower transport concerns.
 
 ### 11.4 Composition with MessageAssembler
 
 When a protocol uses the `MessageAssembler` abstraction for multi-frame message
-assembly, the assembler produces either:
-
-- a buffered request body (the default), or
-- a `RequestBodyStream` that the handler consumes incrementally.
-
-The assembler handles protocol-specific continuity rules (ordering, missing
-frames, duplicate frames) while Wireframe provides shared buffering machinery
-and limit enforcement.
+assembly, the assembler produces a buffered request body. It handles
+protocol-specific continuity rules (ordering, missing frames, duplicate frames)
+while Wireframe provides shared buffering machinery and limit enforcement.
 
 The inbound ordering is fixed:
 
 1. transport framing decodes one packet;
 2. optional transport fragmentation reassembles that packet if required;
 3. `MessageAssembler` maps protocol packets into one logical request; and
-4. the handler receives either a buffered body or `RequestParts` plus a
-   streaming body.
+4. route dispatch receives the buffered body.
 
 This means a protocol-specific assembler never needs to understand transport
 fragments. It only sees complete protocol packets.
 
-Per-connection memory budgets apply to the shared inbound assembly pipeline.
-That includes buffered request assembly and any streaming-request state that
-has not yet been consumed by the handler. Wireframe enforces:
+Per-connection memory budgets apply to the shared inbound assembly pipeline,
+including buffered request assembly. Wireframe enforces:
 
 - per-frame rejection when a new chunk would exceed the configured caps;
 - soft-pressure read pacing at 80% of the smaller aggregate budget; and
 - hard-cap abort with `InvalidData` if total buffered bytes strictly exceed the
   aggregate cap.
 
-See [ADR 0002][adr-0002] for the complete specification.
+A caller-owned `RequestBodyStream` is outside that accounting; the caller
+chooses its channel capacity.
 
-[adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md
+See [ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md) for
+the complete specification and
+[ADR 017](adr-017-remove-route-extractors-and-app-data.md) for the removal of
+handler-delivered streaming bodies.
 
 ## 12. Client-side streaming consumption
 

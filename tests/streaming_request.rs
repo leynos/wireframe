@@ -11,10 +11,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use rstest::rstest;
 use tokio::io::AsyncReadExt;
-use wireframe::{
-    extractor::StreamingBody,
-    request::{RequestBodyReader, RequestBodyStream, RequestParts, body_channel},
-};
+use wireframe::request::{RequestBodyReader, RequestBodyStream, RequestParts, body_channel};
 use wireframe_testing::TestResult;
 
 #[rstest]
@@ -56,7 +53,7 @@ async fn reader_consumes_full_stream() -> TestResult<()> {
 
 #[rstest]
 fn buffered_fallback_uses_metadata_directly() {
-    // When no streaming body is available, handlers use RequestParts directly
+    // Without a streaming body, consumers work from RequestParts directly
     let parts = RequestParts::new(42, Some(1), vec![0x01, 0x02, 0x03]);
 
     assert_eq!(parts.id(), 42, "parts.id() should equal 42");
@@ -70,56 +67,6 @@ fn buffered_fallback_uses_metadata_directly() {
         &[0x01, 0x02, 0x03],
         "parts.metadata() should equal &[0x01, 0x02, 0x03]"
     );
-}
-
-#[rstest]
-#[tokio::test]
-async fn streaming_body_extractor_provides_reader() -> TestResult<()> {
-    let (tx, stream) = body_channel(4);
-
-    tokio::spawn(async move {
-        drop(tx.send(Ok(Bytes::from_static(b"payload"))).await);
-    });
-
-    let body = StreamingBody::new(stream);
-    let mut reader = body.into_reader();
-
-    let mut buf = Vec::new();
-    reader.read_to_end(&mut buf).await?;
-    assert_eq!(buf, b"payload", "buf should equal b\"payload\"");
-    Ok(())
-}
-
-#[rstest]
-#[tokio::test]
-async fn streaming_body_extractor_provides_stream() -> TestResult<()> {
-    let (tx, stream) = body_channel(4);
-
-    tokio::spawn(async move {
-        drop(tx.send(Ok(Bytes::from_static(b"chunk1"))).await);
-        drop(tx.send(Ok(Bytes::from_static(b"chunk2"))).await);
-    });
-
-    let body = StreamingBody::new(stream);
-    let mut body_stream: RequestBodyStream = body.into_stream();
-
-    let mut chunks = Vec::new();
-    while let Some(result) = body_stream.next().await {
-        chunks.push(result?);
-    }
-
-    assert_eq!(chunks.len(), 2, "chunks.len() should equal 2");
-    assert_eq!(
-        chunks.first().map(AsRef::as_ref),
-        Some(b"chunk1".as_slice()),
-        "chunks.first().map(AsRef::as_ref) should equal Some(b\"chunk1\".as_slice())"
-    );
-    assert_eq!(
-        chunks.get(1).map(AsRef::as_ref),
-        Some(b"chunk2".as_slice()),
-        "chunks.get(1).map(AsRef::as_ref) should equal Some(b\"chunk2\".as_slice())"
-    );
-    Ok(())
 }
 
 #[rstest]
@@ -217,15 +164,4 @@ async fn sequential_chunks_delivered_in_order() -> TestResult<()> {
         "values should equal vec![0, 1, 2, 3, 4]"
     );
     Ok(())
-}
-
-#[rstest]
-fn streaming_body_debug_format() {
-    let (_tx, stream) = body_channel(1);
-    let body = StreamingBody::new(stream);
-    let debug_str = format!("{body:?}");
-    assert!(
-        debug_str.contains("StreamingBody"),
-        "assertion failed: debug_str.contains(\"StreamingBody\")"
-    );
 }

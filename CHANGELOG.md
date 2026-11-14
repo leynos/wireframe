@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Breaking:** Remove the `wireframe::extractor` module, `AppDataStore`, and
+  `WireframeApp::app_data`. No dispatch path invoked the extractor traits, so
+  handlers could never receive `SharedState<T>`, `Message<T>`,
+  `ConnectionInfo`, or `StreamingBody`. Capture an `Arc` in the handler closure
+  for shared state and decode envelopes directly; see
+  [ADR 017](docs/adr-017-remove-route-extractors-and-app-data.md) and the
+  [migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#removed-extractors-and-app_data).
+  ([#877](https://github.com/leynos/wireframe/issues/877))
+
 - Make `wireframe_testing` compile against `tokio-util` 0.7.20, whose extra
   `Encoder` implementations made `.into()` conversions ambiguous. The lock file
   held 0.7.19, so a fresh install failed while CI passed. The lock file now
@@ -94,8 +103,6 @@ All notable changes to this project will be documented in this file.
   `src/server/connection_spawner.rs` to clarify directionality and eliminate
   naming ambiguity with the public `src/connection/` module. No public API
   changes.
-- Deprecated `SharedState::new` (since 0.2.0); construct via `inner.into()`
-  instead.
 - Breaking: Marked `ServerError` as `#[non_exhaustive]`. Downstream consumers
   must add a wildcard arm when matching it.
 - **Breaking:** Mark `ClientError` as `#[non_exhaustive]` and add the typed

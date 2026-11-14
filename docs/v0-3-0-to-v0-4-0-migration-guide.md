@@ -5,6 +5,85 @@ drive accepted streams directly. It explains how to move route and middleware
 setup out of connection handling while retaining the existing server factory
 workflow.
 
+## Removed: extractors and `app_data`
+
+[ADR 017](adr-017-remove-route-extractors-and-app-data.md) removes the
+extractor module and the application-data store before 1.0. The module was
+public, but no dispatch path invoked it: route handlers received only their
+envelope, so `FromMessageRequest` implementations never ran and values stored by
+`WireframeApp::app_data` were never readable through `SharedState<T>`.
+
+Route handlers keep the `Handler<E>` shape:
+
+```rust
+use std::sync::Arc;
+
+use wireframe::app::{Envelope, Handler};
+
+let handler: Handler<Envelope> = Arc::new(|envelope: &Envelope| {
+    // Decode or inspect the envelope here.
+    let _ = envelope.payload_bytes();
+    Box::pin(async {})
+});
+```
+
+Replace each removed item as follows:
+
+| Removed symbol                             | Replacement                                          |
+| ------------------------------------------ | ---------------------------------------------------- |
+| `wireframe::extractor::FromMessageRequest` | Decode in the handler or a helper function           |
+| `wireframe::extractor::MessageRequest`     | Use the envelope fields the handler actually needs   |
+| `wireframe::extractor::Payload`            | Borrow `Envelope::payload_bytes`                     |
+| `wireframe::extractor::Message<T>`         | `T::from_bytes` on a bincode payload                 |
+| `wireframe::extractor::SharedState<T>`     | Capture an `Arc<T>` in the handler closure           |
+| `wireframe::extractor::ConnectionInfo`     | No peer address reaches route handlers               |
+| `wireframe::extractor::StreamingBody`      | `RequestBodyReader::new(stream)` on a stream you own |
+| `wireframe::extractor::ExtractError`       | Define a protocol- or application-specific error     |
+| `wireframe::app_data_store::AppDataStore`  | Capture an `Arc` in the handler closure              |
+| `WireframeApp::app_data`                   | Capture an `Arc` in the handler closure              |
+
+### Shared state
+
+Capture shared state in the handler closure instead of registering it on the
+application:
+
+```rust
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+
+use wireframe::app::{Envelope, Handler, WireframeApp};
+
+let counter = Arc::new(AtomicU64::new(0));
+let handler: Handler<Envelope> = {
+    let counter = Arc::clone(&counter);
+    Arc::new(move |_: &Envelope| {
+        let counter = Arc::clone(&counter);
+        Box::pin(async move {
+            counter.fetch_add(1, Ordering::Relaxed);
+        })
+    })
+};
+
+// Annotate the binding so the remaining type parameters take their defaults,
+// and propagate the error that `route` returns.
+let app: WireframeApp = WireframeApp::new()?.route(1, handler)?;
+```
+
+### Request decoding
+
+`message::Message::from_bytes` decodes a bincode payload only. A protocol with
+another payload format should call its serializer's decoder instead, binding
+the target type through `DecodeWith`.
+
+### Inbound streaming
+
+`RequestParts`, `RequestBodyStream`, and `RequestBodyReader` remain available,
+but the connection runtime does not create a body channel. Code that wants an
+incremental body owns both ends of `body_channel` and wraps the receiving end
+with `RequestBodyReader::new`.
+
 ## Fragment reassembly limits
 
 `FragmentationConfig` now requires `max_concurrent_partials` and

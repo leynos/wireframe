@@ -8,17 +8,18 @@
 //!
 //! The connection runtime does not deliver streaming bodies yet: a route
 //! handler receives only a reference to its envelope, and the server creates no
-//! body channel. Code wanting this shape owns both ends of [`body_channel`], and
-//! back-pressure applies between those two parties.
+//! body channel. Code wanting this shape owns both ends of [`body_channel`].
+//! Wrap the stream with [`RequestBodyReader::new`] for an [`AsyncRead`] parser.
 //!
 //! ```
-//! use bytes::Bytes;
-//! use wireframe::request::{RequestBodyStream, RequestParts};
-//!
-//! async fn handle_upload(parts: RequestParts, body: RequestBodyStream) {
-//!     // Process metadata immediately
-//!     let id = parts.id();
-//!     // Consume body chunks incrementally via StreamExt or AsyncRead adapter
+//! use tokio::io::AsyncReadExt;
+//! use wireframe::request::{RequestBodyReader, RequestBodyStream, RequestParts};
+//! async fn read_upload(parts: RequestParts, body: RequestBodyStream) -> std::io::Result<Vec<u8>> {
+//!     let _ = parts.id();
+//!     let mut reader = RequestBodyReader::new(body);
+//!     let mut buf = Vec::new();
+//!     reader.read_to_end(&mut buf).await?;
+//!     Ok(buf)
 //! }
 //! ```
 
@@ -35,9 +36,9 @@ use tokio_util::io::StreamReader;
 
 /// Streaming request body.
 ///
-/// Handlers can consume this stream incrementally rather than waiting for
-/// full body reassembly. Each item yields either a chunk of bytes or an
-/// I/O error.
+/// A consumer that owns the receiving end can process chunks incrementally
+/// rather than waiting for full body reassembly. Each item yields either a
+/// chunk of bytes or an I/O error.
 ///
 /// This type is symmetric with [`crate::response::FrameStream`] for streaming
 /// responses.
@@ -63,7 +64,7 @@ pub type RequestBodyStream = Pin<Box<dyn Stream<Item = Result<Bytes, io::Error>>
 
 /// Default capacity for streaming request body channels.
 ///
-/// This value balances memory usage against throughput; handlers consuming
+/// This value balances memory usage against throughput; a consumer reading
 /// slowly will cause back-pressure after this many chunks buffer.
 ///
 /// # Rationale
@@ -73,11 +74,11 @@ pub type RequestBodyStream = Pin<Box<dyn Stream<Item = Result<Bytes, io::Error>>
 /// - **Memory efficiency**: With typical chunk sizes of 4–16 KiB, 16 buffered chunks consume at
 ///   most ~256 KiB per connection, which is acceptable for most server deployments.
 ///
-/// - **Throughput smoothing**: A small buffer absorbs transient processing delays in handlers,
+/// - **Throughput smoothing**: A small buffer absorbs transient processing delays in consumers,
 ///   preventing socket stalls on bursty workloads.
 ///
-/// - **Back-pressure responsiveness**: The buffer is small enough that back-pressure engages
-///   promptly when handlers fall behind, protecting the server from memory exhaustion.
+/// - **Back-pressure responsiveness**: A slow consumer makes the producer wait promptly once the
+///   buffer fills; the channel does not pace socket reads.
 ///
 /// - **Power-of-two alignment**: Matches common allocator bucket sizes, avoiding internal
 ///   fragmentation in the channel implementation.
@@ -88,10 +89,9 @@ pub const DEFAULT_BODY_CHANNEL_CAPACITY: usize = 16;
 
 /// Create a bounded channel for streaming request bodies.
 ///
-/// Returns a sender (for the connection to push chunks) and a
-/// [`RequestBodyStream`] (for the handler to consume). Back-pressure
-/// propagates when the channel fills: senders await capacity before
-/// buffering additional chunks.
+/// Returns a sender for the producer that owns the write side and a
+/// [`RequestBodyStream`] for the consumer. Back-pressure propagates when the
+/// channel fills: senders await capacity before buffering additional chunks.
 ///
 /// # Arguments
 ///
@@ -109,8 +109,8 @@ pub const DEFAULT_BODY_CHANNEL_CAPACITY: usize = 16;
 /// use wireframe::request::body_channel;
 ///
 /// let (tx, rx) = body_channel(8);
-/// // tx: send chunks from connection
-/// // rx: consume in handler
+/// // tx: send chunks from the producer
+/// // rx: consume the stream
 /// ```
 pub fn body_channel(
     capacity: usize,
@@ -192,7 +192,7 @@ impl AsyncRead for RequestBodyReader {
 /// Request metadata extracted outwith the request body.
 ///
 /// `RequestParts` separates routing and protocol metadata from the request
-/// payload, enabling handlers to begin processing before the full body
+/// payload, enabling a consumer to begin processing before the full body
 /// arrives. This struct is the counterpart to streaming response types
 /// ([`crate::response::Response::Stream`]) for the inbound direction.
 ///
@@ -200,8 +200,8 @@ impl AsyncRead for RequestBodyReader {
 ///
 /// - [`crate::app::PacketParts`] carries the raw `payload` for packet routing and envelope
 ///   reconstruction.
-/// - `RequestParts` carries protocol-defined `metadata` bytes (for example headers) that handlers
-///   need to interpret the body, but excludes the body itself.
+/// - `RequestParts` carries protocol-defined `metadata` bytes (for example headers) that a consumer
+///   needs to interpret the body, but excludes the body itself.
 ///
 /// # Examples
 ///

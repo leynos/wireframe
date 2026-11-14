@@ -1,12 +1,12 @@
 @streaming_request
 Feature: Streaming request body consumption
-  Streaming request bodies let handlers consume inbound payloads
+  Streaming request bodies let consumers read inbound payloads
   incrementally while preserving back-pressure and error propagation.
 
-  Scenario: StreamingBody exposes an AsyncRead adapter
+  Scenario: RequestBodyReader exposes an AsyncRead adapter
     Given a streaming request body channel with capacity 4
     When body chunks "hello " and "world" are sent
-    And the streaming body is read through the AsyncRead adapter
+    And the request body stream is read through the AsyncRead adapter
     Then the collected body is "hello world"
 
   Scenario: Bounded request body channels apply back-pressure

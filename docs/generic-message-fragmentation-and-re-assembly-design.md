@@ -431,10 +431,12 @@ When both layers are enabled, Wireframe applies them in the following order:
    codec).
 2. Apply transport reassembly if the packet is a fragment; yield a complete
    packet payload once the fragment series is complete.
-3. Apply `MessageAssembler` to complete packets to produce either:
-   - one buffered request body, or
-   - a streaming request body that the handler consumes incrementally.
+3. Apply `MessageAssembler` to complete packets to produce one buffered
+   request body.
 4. Route and invoke handlers.
+
+Streaming request bodies are caller-owned primitives rather than an assembler
+output; see [ADR 017](adr-017-remove-route-extractors-and-app-data.md).
 
 In operational terms, each layer owns a distinct hand-off:
 
@@ -443,12 +445,9 @@ In operational terms, each layer owns a distinct hand-off:
 - `MessageAssembler::parse_frame_header` classifies that packet as either the
   first frame or a continuation frame for one logical message;
 - Wireframe strips the parsed protocol header, tracks assembly state by
-  message key, and decides whether the body should stay buffered or become a
-  stream; and
-- handlers observe only the protocol-facing request shape:
-  - a buffered payload via the existing request path, or
-  - `RequestParts` plus `RequestBodyStream` / `StreamingBody` for incremental
-    consumption.
+  message key, and accumulates the assembled body for dispatch; and
+- handlers observe only the buffered, protocol-facing payload; the streaming
+  primitives remain caller-owned, and no `StreamingBody` extractor exists.
 
 For screen readers: the following sequence diagram shows the decode → fragment
 reassembly → message assembly → handler pipeline.
@@ -466,7 +465,7 @@ sequenceDiagram
     Frag-->>Transport: buffer and await more fragments
   else transport fragment series complete
     Frag->>Asm: complete packet payload
-    Asm-->>Handler: RequestParts + buffered/streaming body
+    Asm-->>Handler: assembled buffered body
   end
 ```
 

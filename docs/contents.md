@@ -72,6 +72,8 @@ reference when navigating the project's design and architecture material.
   contract for enforcing `total_body_len` during message assembly.
 - [ADR 016: forbid unsafe code workspace-wide](adr-016-unsafe-code-boundary.md)
   Proposed workspace lint table, per-root attribute, and enforcement checks.
+- [ADR 017: remove the unwired route extractors and application data API](adr-017-remove-route-extractors-and-app-data.md)
+  Accepted removal of the extractor module and `app_data` before 1.0.
 
 [adr-015]: adr-015-declared-total-body-length-contract.md
 

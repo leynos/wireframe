@@ -1004,8 +1004,9 @@ streaming request payloads.[^45]
 - `RequestParts::metadata()` returns protocol-defined header bytes.
 
 This type pairs with `RequestBodyStream` for incremental consumption of large
-request payloads. Handlers can choose between buffered (existing) and streaming
-consumption; the streaming path is opt-in.
+request payloads. The connection runtime does not create or deliver a body
+stream: a route handler receives only a reference to its envelope, so code
+wanting this shape owns both ends of `body_channel`.
 
 ```rust
 use wireframe::request::RequestParts;
@@ -1020,9 +1021,9 @@ Unlike `PacketParts` (which carries the raw payload for envelope
 reconstruction), `RequestParts` carries only protocol-defined metadata required
 to interpret the streaming body. The body itself is consumed through a separate
 stream, enabling back-pressure and incremental processing.[^46] When
-`MessageAssembler` is configured, this split happens after any transport
-fragment reassembly, so handlers and protocol extractors see protocol-level
-metadata rather than lower-level fragment state.
+`MessageAssembler` is configured, assembly completes after any transport
+fragment reassembly, so callers that build this request shape work from
+protocol-level metadata rather than lower-level fragment state.
 
 ### Message assembler hook
 
@@ -1074,11 +1075,10 @@ When configured, this hook now runs on the inbound connection path after
 transport fragmentation reassembly and before handler dispatch. Incomplete
 assemblies remain buffered per message key until completion or timeout eviction.
 
-The assembler's output drives the handler-facing request shape:
-
-- fully assembled messages continue through the buffered request path; and
-- streaming-capable messages surface as `RequestParts` plus
-  `RequestBodyStream` / `StreamingBody`.
+The assembler's output drives the handler-facing request shape. Every assembled
+message continues through the buffered request path. The runtime creates no
+streaming body, so assembled results never surface as `RequestParts` plus a
+body stream at handler dispatch.
 
 Message-assembly parsing and continuity failures are treated as inbound
 deserialization failures and follow the existing failure threshold policy.
@@ -1351,18 +1351,18 @@ cheapest way to fail early on an oversized message. The decision is recorded in
 
 ### Streaming request body consumption
 
-Handlers can opt into streaming request bodies using the `StreamingBody`
-extractor or by accepting a `RequestBodyStream` directly. The framework creates
-a bounded channel and forwards body chunks as they arrive; back-pressure
-propagates automatically when the handler consumes slower than the network
-delivers. Routing and correlation metadata stay available immediately through
-`RequestParts`, so handlers can begin work before the full body is assembled.
+`wireframe::request` provides the building blocks for consuming a request body
+incrementally: `RequestParts` carries routing metadata, and `RequestBodyStream`
+yields body chunks. The connection runtime does not create a body channel or
+hand these values to a route handler; a handler receives only its envelope.
+Code that owns the producer can pair both ends with `body_channel` and adapt
+the receiving end with `RequestBodyReader` when a parser wants `AsyncRead`.
 
 ```rust,no_run
 use tokio::io::AsyncReadExt;
 use wireframe::request::{RequestBodyReader, RequestBodyStream, RequestParts};
 
-async fn handle_upload(parts: RequestParts, body: RequestBodyStream) {
+async fn read_upload(parts: RequestParts, body: RequestBodyStream) {
     let mut reader = RequestBodyReader::new(body);
     let mut buf = Vec::new();
     reader.read_to_end(&mut buf).await.expect("read body");
@@ -1375,16 +1375,17 @@ async fn handle_upload(parts: RequestParts, body: RequestBodyStream) {
 }
 ```
 
-The `RequestBodyReader` adapter implements `AsyncRead`, allowing protocol
-crates to reuse existing parsers. For raw stream access, use the
-`RequestBodyStream` directly with `StreamExt` methods:
+`RequestBodyReader` implements `AsyncRead`, allowing protocol crates to reuse
+existing parsers. For raw stream access, use `RequestBodyStream` directly with
+`StreamExt` methods:
 
 ```rust,no_run
 use bytes::Bytes;
 use futures::StreamExt;
 use wireframe::request::{RequestBodyStream, RequestParts};
 
-async fn handle_stream(parts: RequestParts, mut body: RequestBodyStream) {
+async fn read_chunks(parts: RequestParts, mut body: RequestBodyStream) {
+    let _ = parts.id();
     while let Some(result) = body.next().await {
         match result {
             Ok(chunk) => log::debug!("received {} bytes", chunk.len()),
@@ -1394,40 +1395,24 @@ async fn handle_stream(parts: RequestParts, mut body: RequestBodyStream) {
 }
 ```
 
-The `StreamingBody` extractor wraps the stream with convenience methods:
-
-```rust,no_run
-use wireframe::{
-    extractor::StreamingBody,
-    request::RequestParts,
-};
-
-async fn with_extractor(parts: RequestParts, body: StreamingBody) {
-    // Convert to AsyncRead
-    let reader = body.into_reader();
-
-    // Or access the raw stream
-    // let stream = body.into_stream();
-}
-```
-
-Back-pressure is enforced via bounded channels: when the internal buffer fills,
-the framework pauses reading from the socket until the handler drains pending
-chunks. This prevents memory exhaustion under slow consumer conditions. When
-the request arrived through `MessageAssembler`, the same per-connection memory
-budgets continue to govern partial buffered state before chunks reach the
-handler. The `body_channel` helper creates channels with configurable capacity:
+Back-pressure is enforced by the bounded channel that producer and consumer
+share: when the channel fills, the sender awaits capacity until the consumer
+drains pending chunks. The framework cannot pause socket reads on a handler's
+behalf because it owns neither end. The `body_channel` helper creates channels
+with configurable capacity:
 
 ```rust
 use wireframe::request::body_channel;
 
-// Create a channel with capacity for 8 chunks
+// Capacity for 8 chunks.
 let (tx, rx) = body_channel(8);
-// tx: connection sends chunks
-// rx: handler consumes via RequestBodyStream
+// tx: producer sends chunks
+// rx: consumer reads the stream
 ```
 
-See [ADR 0002][adr-0002-ref] for the complete design rationale.
+See [ADR 0002][adr-0002-ref] for the original design rationale and
+[ADR 017](adr-017-remove-route-extractors-and-app-data.md) for the decision to
+remove the extractor wrapper that was never wired to dispatch.
 
 ## Working with requests and middleware
 
@@ -1482,12 +1467,6 @@ async fn decode_and_respond(
 let middleware = from_fn(decode_and_respond);
 ```
 
-Advanced integrations can adopt the `wireframe::extractor` module, which defines
-`MessageRequest`, `Payload`, and `FromMessageRequest` for building Actix-style
-extractors in custom middleware or services. These types expose shared state,
-peer addresses, and payload cursors for frameworks that want to layer
-additional ergonomics on top of the core primitives.[^13]
-
 ## Connection lifecycle
 
 `WireframeApp` supports optional setup and teardown callbacks that run once per
@@ -1504,8 +1483,8 @@ packets carry the correct correlation identifier even when middleware omits
 it.[^8]
 
 Immediate responses are available through `send_response` and
-`send_response_framed`, both of which report serialization or I/O problems via
-`SendError`.[^6][^5]
+`send_response_framed` for code that owns the connection stream; both report
+serialization or I/O problems via `SendError`.[^6][^5]
 
 ```rust,no_run
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
@@ -2608,7 +2587,7 @@ type and never names `FrameLike`. That trait is crate-visible, and its blanket
 implementation satisfies the bound for every `Send + 'static` type.
 
 The same const treatment covers `ConnectionId::{new, as_u64}`,
-`LengthDelimitedFrameCodec::max_frame_length`, `ConnectionInfo::peer_addr`,
+`LengthDelimitedFrameCodec::max_frame_length`,
 `WireframeError::{from_io, from_codec}`, and `WireframeError::is_clean_close`. A
 `WireframeError` has a destructor that cannot run in a `const fn`, so a const
 function may borrow an existing error or return a newly built one, but it can
@@ -2618,8 +2597,8 @@ the result is returned by value.
 `tests/ui/server_const_api.rs` compiles these calls inside `const` items and
 `const fn` bodies, so a method that loses `const` fails the build rather than
 silently regressing. The fixture covers the builder setters, both
-`ConnectionId` accessors, `max_frame_length`, `peer_addr`, and the two error
-constructors; anything not listed there has no compile-time guard yet.
+`ConnectionId` accessors, `max_frame_length`, and the two error constructors;
+anything not listed there has no compile-time guard yet.
 
 `FairnessConfig` and `FairnessTracker` limit consecutive high-priority frames
 and optionally enforce a time slice. Resetting the tracker after low-priority
@@ -3221,7 +3200,6 @@ directories (one per shard on full dispatch runs) for offline triage.
 [^10]: Implemented in `src/message.rs` (lines 4-41).
 [^11]: Implemented in `src/middleware.rs` (lines 13-206).
 [^12]: Implemented in `src/middleware.rs` (lines 252-347).
-[^13]: Implemented in `src/extractor.rs` (lines 1-236).
 [^14]: Implemented in `src/hooks.rs` (lines 18-175).
 [^15]: Implemented in `src/server/config/mod.rs` (lines 47-152).
 [^16]: Implemented in `src/server/runtime/mod.rs` (lines 46-83).
@@ -3253,9 +3231,9 @@ directories (one per shard on full dispatch runs) for offline triage.
 [^43]: Step definitions in `tests/steps/fragment_steps.rs`.
 [^44]: Implemented in `src/client/runtime.rs`, `src/client/builder.rs`,
     `src/client/config.rs`, and `src/client/error.rs`.
-[^45]: Implemented in `src/request.rs`.
+[^45]: Implemented in `src/request/mod.rs`.
 [^46]: See ADR 0002 for design rationale:
-    `docs/adr/0002-streaming-requests-and-shared-message-assembly.md`.
+    `docs/adr-002-streaming-requests-and-shared-message-assembly.md`.
 [^47]: Client preamble support implemented in `src/client/builder.rs`
     (lines 288-566) and `src/client/mod.rs` (callback types).
 [^48]: Client lifecycle hooks implemented in `src/client/hooks.rs`,
@@ -3284,7 +3262,7 @@ directories (one per shard on full dispatch runs) for offline triage.
     [ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md),
     Section 4, for design rationale.
 
-[adr-0002-ref]: adr/0002-streaming-requests-and-shared-message-assembly.md
+[adr-0002-ref]: adr-002-streaming-requests-and-shared-message-assembly.md
 
 [serializer-output-plan]:
 execplans/issue-538-plan-zero-copy-serializer-output-migration.md
