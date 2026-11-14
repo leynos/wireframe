@@ -1,5 +1,10 @@
 //! Integration tests for the codec-aware test harness drivers in
 //! `wireframe_testing`.
+// The connection pipeline's future nests deeply enough that the pinned nightly
+// used for the dylint gate overflows the default query-depth limit while
+// computing the layout of the async test bodies below. The compiler recommends
+// a higher limit for this crate.
+#![recursion_limit = "256"]
 #![cfg(not(loom))]
 #![forbid(unsafe_code)]
 
