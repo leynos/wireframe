@@ -83,21 +83,44 @@ async fn a_stalled_response_is_cancelled_after_the_idle_grace() {
     assert!(sink.is_empty(), "a cancelled response writes no frames");
 }
 
-/// A half-close must not truncate a response that keeps making progress.
+/// Why peer observation ended before a progressing response completed.
+///
+/// Both causes put the actor into its bounded drain, and both must let a
+/// response that keeps making progress finish.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ObservationEnd {
+    /// The peer closed only its sending half, so it may still be reading.
+    HalfClose,
+    /// A server stop arrived, which must not abandon a response being read.
+    Stop,
+}
+
+/// A response that keeps making progress still completes once observation ends.
 ///
 /// The producer pauses for less than the grace before each frame, but the
 /// whole response takes longer than one grace interval. Delivery therefore
-/// proves the deadline is renewed per event rather than applied once to the
-/// response, which is what keeps a valid half-close working.
+/// proves the bounded drain renews its deadline per event rather than applying
+/// one deadline to the response, which is what keeps a valid half-close working
+/// and lets a stopped server finish writing what its peer is still reading.
+#[rstest::rstest]
+#[case::half_close(ObservationEnd::HalfClose)]
+#[case::stop(ObservationEnd::Stop)]
 #[tokio::test(start_paused = true)]
-async fn a_response_that_progresses_after_a_half_close_is_delivered() {
+async fn a_response_that_progresses_after_observation_ends_is_delivered(
+    #[case] end: ObservationEnd,
+) {
     const GRACE: Duration = Duration::from_secs(5);
     const PACING: Duration = Duration::from_secs(2);
     const FRAMES: u32 = 3;
 
-    let mut actor = test_actor(ProtocolHooks::default()).expect("actor should build");
-    actor.set_peer_closed_grace(GRACE);
+    let shutdown = CancellationToken::new();
     let peer_closed = CancellationToken::new();
+    let mut actor = test_actor_with_shutdown(shutdown.clone(), ProtocolHooks::default())
+        .expect("actor should build");
+    // A stop preempts the response only for a connection that opts into that;
+    // a server connection drains instead, which is the policy under test.
+    actor.set_abandon_response_on_shutdown(false);
+    actor.set_peer_closed_grace(GRACE);
     actor.set_peer_closed(peer_closed.clone());
     let stream: FrameStream<Envelope, ()> =
         Box::pin(futures::stream::unfold(0u32, |index| async move {
@@ -110,7 +133,10 @@ async fn a_response_that_progresses_after_a_half_close_is_delivered() {
         }));
     let mut sink = Vec::new();
 
-    peer_closed.cancel();
+    match end {
+        ObservationEnd::HalfClose => peer_closed.cancel(),
+        ObservationEnd::Stop => shutdown.cancel(),
+    }
     let outcome = timeout(
         Duration::from_secs(60),
         actor.install_response(Response::Stream(stream), Some(7), &mut sink),
@@ -289,50 +315,6 @@ async fn a_silent_producer_is_released_after_a_stop() {
 
     assert_eq!(outcome, ResponseOutcome::Cancelled);
     assert!(sink.is_empty(), "a cancelled response writes no frames");
-}
-
-/// A response still making progress after a stop is still delivered.
-///
-/// The whole response takes longer than one grace, so completion proves the
-/// bounded drain renews its deadline per event. Applying one deadline to the
-/// whole response would truncate output the peer is still able to read.
-#[tokio::test(start_paused = true)]
-async fn a_response_that_progresses_after_a_stop_is_delivered() {
-    const GRACE: Duration = Duration::from_secs(5);
-    const PACING: Duration = Duration::from_secs(4);
-    const FRAMES: u32 = 3;
-
-    let shutdown = CancellationToken::new();
-    let mut actor = test_actor_with_shutdown(shutdown.clone(), ProtocolHooks::default())
-        .expect("actor should build");
-    actor.set_abandon_response_on_shutdown(false);
-    actor.set_peer_closed_grace(GRACE);
-    let stream: FrameStream<Envelope, ()> =
-        Box::pin(futures::stream::unfold(0u32, |index| async move {
-            if index == FRAMES {
-                return None;
-            }
-            tokio::time::sleep(PACING).await;
-            Some((Ok(Envelope::new(index, None, Vec::new())), index + 1))
-        }));
-    let mut sink = Vec::new();
-
-    shutdown.cancel();
-    let outcome = timeout(
-        Duration::from_secs(60),
-        actor.install_response(Response::Stream(stream), Some(7), &mut sink),
-    )
-    .await
-    .expect("progress within each grace must complete the response")
-    .expect("a progressing response is not an error");
-
-    assert_eq!(outcome, ResponseOutcome::Completed);
-    let ids: Vec<u32> = sink.iter().map(|frame| frame.id).collect();
-    assert_eq!(
-        ids,
-        (0..FRAMES).collect::<Vec<_>>(),
-        "every frame produced within the grace must be written"
-    );
 }
 
 /// Deadline a test fires by hand instead of waiting for a clock.
