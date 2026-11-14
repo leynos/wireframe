@@ -3,9 +3,12 @@
 //! The inbound loop must not wait for the next client frame before it can
 //! deliver a server push, and a busy push stream must not starve inbound
 //! traffic. Both sources are therefore polled in one biased `tokio::select!`:
-//! pushes win ties, matching the connection actor's own priority ordering, and
-//! the read arm keeps its own deadline so a saturated push lane cannot defer
-//! the read indefinitely.
+//! pushes win ties, matching the connection actor's own priority ordering.
+//!
+//! Bias alone would starve the client, because a continuously ready push lane
+//! wins every pass. Two rules bound that: a frame buffered during dispatch is
+//! always served first, and after each push batch the read gets one
+//! non-blocking attempt, so an inbound frame waits behind at most one batch.
 
 use futures::{Sink, Stream};
 use tokio::io;
@@ -16,7 +19,7 @@ use super::{
         codec_driver::{ActorFrameSink, FramePipeline},
         envelope::Envelope,
     },
-    frames::InboundFrames,
+    frames::{InboundFrames, NextFrame},
 };
 use crate::{
     codec::FrameCodec,
@@ -30,35 +33,72 @@ pub(super) enum StreamStep<F: FrameCodec> {
     Pushes(Vec<F::Frame>),
     /// One inbound frame read from the client.
     Frame(F::Frame),
-    /// Every push lane closed and drained, so only the read remains.
+    /// Every push lane closed, so only the inbound read remains.
     Idle,
     /// The client closed its write half at a frame boundary, or the server
     /// stopped serving this connection.
     Closed,
 }
 
+/// Connection state one wait needs beyond the actor.
+///
+/// Grouped because the wait needs the buffered frame, the reader, and the
+/// shutdown token together, and a positional list of that length is easy to
+/// pass in the wrong order.
+pub(super) struct StreamWait<'a, F, R>
+where
+    F: FrameCodec,
+{
+    /// Buffered inbound frame and the state its read timeout purges.
+    pub(super) inbound: &'a mut InboundFrames<F::Frame>,
+    /// Read half of the connection's framed transport.
+    pub(super) reader: &'a mut R,
+    /// Maximum interval to wait for the next inbound frame.
+    pub(super) read_timeout_ms: u64,
+    /// Token whose cancellation stops the read.
+    pub(super) shutdown: &'a CancellationToken,
+    /// Whether the inbound read gets one non-blocking attempt before pushes.
+    pub(super) read_first: bool,
+}
+
 /// Wait for queued pushes or the next inbound frame, whichever happens first.
 ///
 /// Push lanes are only polled while they are open; once the last handle is
-/// dropped the select degenerates to a plain timed read instead of spinning on
-/// a permanently ready `None`. The read arm is entered without the push arm
-/// being ready, so its own read timeout and shutdown observation still apply on
-/// every pass.
+/// dropped the select degenerates to a plain read instead of spinning on a
+/// permanently ready `None`.
+///
+/// The read is tried before the push lanes when a frame is buffered or when the
+/// previous wait was served from the queues. Without that, a continuously ready
+/// push lane would win every biased pass and an inbound frame could wait
+/// indefinitely behind pushes.
 ///
 /// # Errors
 ///
 /// Returns the transport error reported by the reader.
 pub(super) async fn next_stream_step<F, R>(
     actor: &mut ConnectionActor<Envelope, (), F::Frame>,
-    inbound: &mut InboundFrames<F::Frame>,
-    reader: &mut R,
-    read_timeout_ms: u64,
-    shutdown: &CancellationToken,
+    wait: StreamWait<'_, F, R>,
 ) -> io::Result<StreamStep<F>>
 where
     F: FrameCodec,
     R: Stream<Item = io::Result<F::Frame>> + Unpin,
 {
+    let StreamWait {
+        inbound,
+        reader,
+        read_timeout_ms,
+        shutdown,
+        read_first,
+    } = wait;
+    let should_try_read = read_first || inbound.pending.is_some();
+    if should_try_read {
+        match inbound.try_next(reader).await? {
+            NextFrame::Ready(frame) => return Ok(StreamStep::Frame(frame)),
+            NextFrame::Closed => return Ok(StreamStep::Closed),
+            NextFrame::TimedOut => {}
+        }
+    }
+
     let push_lanes_open = actor.has_open_push_lanes();
     tokio::select! {
         biased;

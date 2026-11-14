@@ -6,6 +6,7 @@
 //! client, the registry entry's lifetime, and the rejection of pushes once the
 //! connection has ended.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 #[path = "common/server_push_support.rs"]
 mod support;
@@ -16,7 +17,6 @@ use bytes::Bytes;
 use support::{
     EVENT_TIMEOUT,
     PushTestProtocol,
-    expect_no_frame,
     only_connection,
     read_frame,
     spawn_server,
@@ -24,13 +24,25 @@ use support::{
     unblock_preamble,
     wait_until_registry_empty,
 };
-use tokio::{io::AsyncWriteExt, net::TcpStream, sync::mpsc, time::timeout};
+use tokio::{
+    io::AsyncWriteExt,
+    net::TcpStream,
+    sync::mpsc,
+    time::{Instant, timeout},
+};
 use wireframe::{
     app::WireframeApp,
     push::{PushError, PushQueues},
     session::{ConnectionId, SessionRegistry},
 };
 use wireframe_testing::TestResult;
+
+/// Delay a one-push-per-second limit must impose before the next push runs.
+///
+/// The limiter refills once per second, so the second push waits a full
+/// second. Half of that is a bound the test can assert without depending on
+/// timer granularity.
+const RATE_LIMIT_LOWER_BOUND: Duration = Duration::from_millis(500);
 
 #[tokio::test]
 async fn setup_handle_delivers_push_over_tcp() -> TestResult<()> {
@@ -245,6 +257,11 @@ async fn rate_limited_push_is_delayed_but_delivered() -> TestResult<()> {
     unblock_preamble(&mut client).await?;
     let (_, handle) = only_connection(&protocol).await?;
 
+    // Timed from before the first push, because that call spends the only
+    // token in the one-second window. The second call therefore cannot return
+    // until a full refill has elapsed, which gives the assertion a lower bound
+    // no unlimited queue could reach.
+    let started = Instant::now();
     handle
         .push_low_priority(Bytes::from_static(b"first"))
         .await
@@ -254,20 +271,21 @@ async fn rate_limited_push_is_delayed_but_delivered() -> TestResult<()> {
         return Err(format!("unexpected first payload: {first:?}").into());
     }
 
-    // The single token for this window is spent, so the next low-priority push
-    // must wait for the refill instead of queueing immediately.
-    let pending = tokio::spawn(async move {
-        handle
-            .push_low_priority(Bytes::from_static(b"second"))
-            .await
-    });
-    expect_no_frame(&mut client, Duration::from_millis(200)).await?;
+    handle
+        .push_low_priority(Bytes::from_static(b"second"))
+        .await
+        .map_err(|error| format!("second push should be accepted: {error:?}"))?;
+    let waited = started.elapsed();
+    if waited < RATE_LIMIT_LOWER_BOUND {
+        return Err(
+            format!("the rate limiter should delay the second push: waited {waited:?}").into(),
+        );
+    }
 
     let second = timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
     if second != b"second" {
         return Err(format!("unexpected second payload: {second:?}").into());
     }
-    pending.await??;
 
     drop(client);
     stop(&shutdown).await

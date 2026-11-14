@@ -109,7 +109,7 @@ where
     /// use wireframe::{app::WireframeApp, session::SessionRegistry};
     ///
     /// let registry = Arc::new(SessionRegistry::<Bytes>::new());
-    /// let app = WireframeApp::new()
+    /// let app: WireframeApp = WireframeApp::new()
     ///     .expect("builder creation should not fail")
     ///     .with_session_registry(Arc::clone(&registry));
     /// # let _ = app;
@@ -131,7 +131,7 @@ where
     /// use wireframe::{app::WireframeApp, session::SessionRegistry};
     ///
     /// let registry = Arc::new(SessionRegistry::<Bytes>::new());
-    /// let app = WireframeApp::new()
+    /// let app: WireframeApp = WireframeApp::new()
     ///     .expect("builder creation should not fail")
     ///     .with_session_registry(Arc::clone(&registry));
     /// assert!(Arc::ptr_eq(&app.session_registry(), &registry));

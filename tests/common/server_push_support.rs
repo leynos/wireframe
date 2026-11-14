@@ -15,7 +15,7 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     sync::oneshot,
-    time::{Instant, sleep, timeout},
+    time::{Instant, sleep},
 };
 use wireframe::{
     app::WireframeApp,
@@ -177,14 +177,6 @@ pub async fn wait_until_registry_empty(registry: &SessionRegistry<Bytes>) -> Tes
             return Err("closed connections were not deregistered".into());
         }
         sleep(Duration::from_millis(10)).await;
-    }
-    Ok(())
-}
-
-/// Read a frame, failing the test if the server stays silent for `window`.
-pub async fn expect_no_frame(stream: &mut TcpStream, window: Duration) -> TestResult<()> {
-    if timeout(window, read_frame(stream)).await.is_ok() {
-        return Err("a frame arrived earlier than the rate limiter allows".into());
     }
     Ok(())
 }

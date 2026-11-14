@@ -203,13 +203,13 @@ impl Sink<TaggedFrame> for RecordingSink {
 /// # Errors
 ///
 /// Returns [`PushConfigError`] if the queue capacities are rejected.
-fn build_actor() -> Result<
-    (
-        ConnectionActor<Envelope, (), TaggedFrame>,
-        PushHandle<TaggedFrame>,
-    ),
-    PushConfigError,
-> {
+/// Actor fixture paired with the push handle that keeps its queues open.
+type ActorFixture = (
+    ConnectionActor<Envelope, (), TaggedFrame>,
+    PushHandle<TaggedFrame>,
+);
+
+fn build_actor() -> Result<ActorFixture, PushConfigError> {
     let (queues, handle) = PushQueues::<TaggedFrame>::builder()
         .high_capacity(1)
         .low_capacity(1)

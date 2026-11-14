@@ -1,9 +1,12 @@
 //! Shared frame and stream processing for prepared application routes.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use log::debug;
-use tokio::io::{self, AsyncRead, AsyncWrite};
+use tokio::{
+    io::{self, AsyncRead, AsyncWrite},
+    time::Instant,
+};
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -24,7 +27,7 @@ use super::{
     frames::InboundFrames,
     framing::{TransportSink, TransportStream, prepare_connection_framing},
     peer_watch::{PeerObservation, handle_watching_peer},
-    push_service::{PushTransport, StreamStep, next_stream_step},
+    push_service::{PushTransport, StreamStep, StreamWait, next_stream_step},
 };
 use crate::{
     codec::FrameCodec,
@@ -103,6 +106,11 @@ where
     read_timeout_ms: u64,
     /// Token whose cancellation stops this connection's inbound read.
     shutdown: CancellationToken,
+    /// Whether the next wait should poll the inbound read before the queues.
+    ///
+    /// Set after a push batch so a continuously ready push lane cannot win
+    /// every biased pass and starve the client's frames.
+    serve_read_first: bool,
     /// Actor that owns outbound ordering for this connection.
     response_actor: ConnectionResponseActor<F>,
     /// Cancelled only by a clean EOF, which is permanent for the connection.
@@ -170,6 +178,7 @@ where
             push_queues: &push_queues,
             context: connection_context,
         })?;
+        let idle_timeout = Duration::from_millis(read_timeout_ms);
         Ok(Self {
             sink,
             reader,
@@ -183,6 +192,7 @@ where
             budgets,
             read_timeout_ms,
             shutdown: read_shutdown,
+            serve_read_first: false,
             response_actor,
             peer_eof,
             _cancel_on_exit: cancel_on_exit,
@@ -202,12 +212,16 @@ where
         self.inbound.relieve_pressure(self.budgets).await?;
         let step: StreamStep<F> = next_stream_step(
             &mut self.response_actor.actor,
-            &mut self.inbound,
-            &mut self.reader,
-            self.read_timeout_ms,
-            &self.shutdown,
+            StreamWait {
+                inbound: &mut self.inbound,
+                reader: &mut self.reader,
+                read_timeout_ms: self.read_timeout_ms,
+                shutdown: &self.shutdown,
+                read_first: self.serve_read_first,
+            },
         )
         .await?;
+        self.serve_read_first = matches!(&step, StreamStep::Pushes(_));
         match step {
             StreamStep::Pushes(frames) => {
                 self.write_pushes(frames).await?;
@@ -226,9 +240,15 @@ where
             // A failed or cancelled response leaves its stream without a
             // terminator, so a later response would be read as part of the
             // truncated stream. Stop instead.
-            StreamStep::Frame(frame) => Ok(self.dispatch(frame).await? == Dispatch::Continue),
+            StreamStep::Frame(frame) => {
+                self.restart_idle_deadline();
+                Ok(self.dispatch(frame).await? == Dispatch::Continue)
+            }
         }
     }
+
+    /// Start the idle interval again after the reader made progress.
+    fn restart_idle_deadline(&mut self) { self.idle_deadline = Instant::now() + self.idle_timeout; }
 
     /// Decode, reassemble, and dispatch one inbound frame while watching the
     /// peer for a disconnect.

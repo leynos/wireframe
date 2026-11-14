@@ -148,8 +148,10 @@ impl Service for StreamService {
 /// # Errors
 ///
 /// Returns [`PushConfigError`] if the queue capacities are rejected.
-fn build_actor()
--> Result<(ConnectionActor<Envelope, (), Bytes>, PushHandle<Bytes>), PushConfigError> {
+/// Actor fixture paired with the push handle that keeps its queues open.
+type ActorFixture = (ConnectionActor<Envelope, (), Bytes>, PushHandle<Bytes>);
+
+fn build_actor() -> Result<ActorFixture, PushConfigError> {
     build_actor_with(CancellationToken::new())
 }
 

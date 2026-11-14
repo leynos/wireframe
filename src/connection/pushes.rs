@@ -15,7 +15,7 @@
 
 use std::io;
 
-use tokio::sync::mpsc::{self, error::TryRecvError};
+use tokio::sync::mpsc;
 
 use super::{ConnectionActor, PushSink, state::ActorState};
 use crate::{app::Packet, correlation::CorrelatableFrame, push::FrameLike};
@@ -107,10 +107,11 @@ where
     ///
     /// The connection loop calls this after a clean end-of-stream so frames
     /// accepted before the close are still delivered. Frames are written in
-    /// priority order, high before low. Once this returns both lanes are
-    /// closed: anything queued afterwards is rejected by the push handle with
-    /// a closed-channel error, which surfaces to the producer as
-    /// [`crate::push::PushError`].
+    /// priority order, high before low. Both lanes close before the first
+    /// frame is taken, so a producer that pushes while the drain runs sees a
+    /// closed channel rather than a queue that is never polled again. Either
+    /// way a push attempted after this returns is rejected with
+    /// [`crate::push::PushError::Closed`].
     ///
     /// # Errors
     ///
@@ -119,12 +120,15 @@ where
     where
         S: PushSink<P> + Send,
     {
+        // Take both lanes before reading them. A frame pushed while the drain
+        // runs is then rejected by the now-closed channel instead of being
+        // accepted into a lane the actor has already stopped polling, which
+        // would silently lose it.
+        let mut lanes = [self.high_rx.take(), self.low_rx.take()];
         let mut pushes = Vec::new();
-        for kind in [PushKind::High, PushKind::Low] {
-            self.drain_lane(kind, &mut pushes);
+        for receiver in lanes.iter_mut().flatten() {
+            self.drain_receiver(receiver, &mut pushes);
         }
-        self.high_rx = None;
-        self.low_rx = None;
         for frame in pushes {
             sink.send_push(frame).await?;
         }
@@ -157,17 +161,13 @@ where
         }
     }
 
-    /// Move every buffered frame from one lane into `pushes`.
-    fn drain_lane(&mut self, kind: PushKind, pushes: &mut Vec<P>) {
-        loop {
-            let received = match kind {
-                PushKind::High => self.high_rx.as_mut().map(mpsc::Receiver::try_recv),
-                PushKind::Low => self.low_rx.as_mut().map(mpsc::Receiver::try_recv),
-            };
-            match received {
-                Some(Ok(frame)) => self.compose_push(frame, pushes),
-                Some(Err(TryRecvError::Empty | TryRecvError::Disconnected)) | None => break,
-            }
+    /// Move every buffered frame from one owned lane into `pushes`.
+    ///
+    /// Frames buffered before the sender closed are still returned by
+    /// `try_recv`, so only an empty or disconnected lane ends the drain.
+    fn drain_receiver(&mut self, receiver: &mut mpsc::Receiver<P>, pushes: &mut Vec<P>) {
+        while let Ok(frame) = receiver.try_recv() {
+            self.compose_push(frame, pushes);
         }
     }
 }

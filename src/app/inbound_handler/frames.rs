@@ -40,10 +40,25 @@ pub(super) async fn next_inbound_frame<R, F>(
 where
     R: Stream<Item = io::Result<F>> + Unpin,
 {
+    poll_frame(pending_frame, reader, Duration::from_millis(read_timeout_ms)).await
+}
+
+/// Poll the buffered frame or the reader, giving up after `bound`.
+///
+/// A zero bound makes this a single non-blocking poll, which lets a caller that
+/// competes with an always-ready source give the reader one chance per pass.
+async fn poll_frame<R, F>(
+    pending_frame: &mut Option<F>,
+    reader: &mut R,
+    bound: Duration,
+) -> io::Result<NextFrame<F>>
+where
+    R: Stream<Item = io::Result<F>> + Unpin,
+{
     if let Some(frame) = pending_frame.take() {
         return Ok(NextFrame::Ready(frame));
     }
-    match timeout(Duration::from_millis(read_timeout_ms), reader.next()).await {
+    match timeout(bound, reader.next()).await {
         Ok(Some(Ok(frame))) => Ok(NextFrame::Ready(frame)),
         Ok(Some(Err(error))) => Err(error),
         Ok(None) => Ok(NextFrame::Closed),
@@ -123,6 +138,19 @@ impl<T> InboundFrames<T> {
             purge_expired(&mut self.pipeline, &mut self.message_assembly);
         })
         .await
+    }
+
+    /// Poll once for a frame the buffered slot or the reader already holds.
+    ///
+    /// The connection loop polls pushes and the reader in one biased select, so
+    /// an always-ready push lane wins every pass. This gives the reader one
+    /// non-blocking chance per pass, which bounds how long an inbound frame can
+    /// wait behind a push stream.
+    pub(super) async fn try_next<R>(&mut self, reader: &mut R) -> io::Result<NextFrame<T>>
+    where
+        R: Stream<Item = io::Result<T>> + Unpin,
+    {
+        poll_frame(&mut self.pending, reader, Duration::ZERO).await
     }
 
     /// Read the next frame, or `None` once reading must stop.
