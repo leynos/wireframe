@@ -115,6 +115,13 @@ impl<T> FramePipeline<T> {
         self.context = context;
     }
 
+    /// Copy the per-connection context used for protocol hooks.
+    ///
+    /// Completion hooks that run outside the pipeline need the same context as
+    /// `before_send`, so a protocol observes one connection identity across all
+    /// of its callbacks for the connection's lifetime.
+    pub(crate) fn context(&self) -> ConnectionContext { self.context.clone() }
+
     /// Process an envelope through the pipeline: fragment → metrics.
     ///
     /// Processed envelopes are buffered internally. Call

@@ -1,12 +1,9 @@
 //! Shared frame and stream processing for prepared application routes.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
-use log::debug;
-use tokio::{
-    io::{self, AsyncRead, AsyncWrite},
-    time::Instant,
-};
+use log::{debug, warn};
+use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -31,6 +28,7 @@ use super::{
 };
 use crate::{
     codec::FrameCodec,
+    connection::PEER_CLOSED_RESPONSE_GRACE,
     frame::FrameMetadata,
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     message::{DecodeWith, EncodeWith},
@@ -280,23 +278,40 @@ where
 
     /// Write queued push frames through the connection's transport sink.
     async fn write_pushes(&mut self, frames: Vec<F::Frame>) -> io::Result<()> {
-        let mut transport = self.push_transport();
-        transport.write(frames).await
-    }
-
-    /// Deliver frames still queued when the peer stopped writing.
-    async fn drain_pushes(&mut self) -> io::Result<()> {
-        let mut transport = self.push_transport();
-        transport.drain(&mut self.response_actor.actor).await
-    }
-
-    /// Borrow the transport resources push writes need for one call.
-    fn push_transport(&mut self) -> PushTransport<'_, S, TransportSink<W, F>, F> {
-        PushTransport {
+        let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,
+        };
+        transport.write(frames).await
+    }
+
+    /// Deliver frames still queued when the peer stopped writing.
+    ///
+    /// A peer that closed its write half but stopped reading applies
+    /// back-pressure that can hold a send pending forever. The drain is
+    /// therefore bounded by the connection's shutdown token and by the same
+    /// grace that bounds a response whose peer can no longer be observed;
+    /// either bound abandons the remaining frames instead of pinning the
+    /// connection task and its registry entry.
+    async fn drain_pushes(&mut self) -> io::Result<()> {
+        let shutdown = self.response_actor.actor.shutdown_token();
+        let mut transport = PushTransport {
+            serializer: self.serializer.as_ref(),
+            codec: &self.codec,
+            sink: &mut self.sink,
+            pipeline: &mut self.inbound.pipeline,
+        };
+        let drain = transport.drain(&mut self.response_actor.actor);
+        tokio::select! {
+            biased;
+            result = drain => result,
+            () = shutdown.cancelled() => Ok(()),
+            () = tokio::time::sleep(PEER_CLOSED_RESPONSE_GRACE) => {
+                warn!("abandoning queued pushes: the peer stopped reading");
+                Ok(())
+            }
         }
     }
 }

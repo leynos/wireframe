@@ -127,6 +127,11 @@ where
         let mut lanes = [self.high_rx.take(), self.low_rx.take()];
         let mut pushes = Vec::new();
         for receiver in lanes.iter_mut().flatten() {
+            // Taking a lane out of the actor does not close it: the receiver is
+            // still alive in `lanes`, so a concurrent push would be accepted
+            // into a lane this drain has already read and then be discarded
+            // when `lanes` drops. Closing first makes that push fail.
+            receiver.close();
             self.drain_receiver(receiver, &mut pushes);
         }
         for frame in pushes {
