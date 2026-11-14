@@ -732,3 +732,35 @@ written without decoding or re-wrapping, so the adapter does not replace the
 identifier produced by `stream_end_frame` for either streamed or multi-packet
 responses (`before_send` can still rewrite the frame); see the
 [users' guide](users-guide.md#response-producing-routes) for the full contract.
+
+## Push queues on server connections
+
+Server connections now have a push path, so code that drove a `ConnectionActor`
+by hand only to push frames can configure the application instead.
+`WireframeApp::with_push_queues` takes a `PushQueuesBuilder` template that is
+cloned once per accepted connection, and
+`WireframeProtocol::on_connection_setup` receives that connection's
+`PushHandle` on the prepared server path. An invalid capacity or rate is
+reported when the application is prepared, so check that result rather than
+expecting a per-connection failure.
+
+`ConnectionContext` is no longer a unit struct. It is `#[non_exhaustive]`,
+built by the server, and exposes `connection_id()`. Replace `ConnectionContext`
+literals with `ConnectionContext::default()`, and read the connection's
+identifier from the context rather than allocating one.
+
+`WireframeApp::with_push_dlq` is deprecated since 0.4.0. Its sink receives
+serialized payloads, is not wired to connection queues, and only warns when
+configured. Pass a `dlq` sender to `PushQueues::builder()` inside
+`with_push_queues` instead, so dropped frames arrive as codec frames.
+
+`SessionRegistry` now allocates connection identifiers with
+`next_connection_id`, whose values start at `1` and are never reused. A server
+connection inserts its handle before its setup callback runs and removes it
+when the connection task ends, so an application that shares a registry no
+longer inserts or removes entries itself.
+
+A clean peer close drains frames still queued, high priority first; server
+shutdown closes the lanes immediately and later pushes fail with
+`PushError::Closed`. See the
+[users' guide](users-guide.md#server-connections-and-push-queues).

@@ -29,10 +29,18 @@ protocols.
 
 ### Implementation status
 
-An initial connection actor with its biased write loop is implemented in
-`src/connection.rs`. The remaining sections explain the rationale behind this
-design and possible refinements. See
-[Section 3](#3-core-architecture-the-connection-actor) for details.
+The connection actor with its biased write loop lives in `src/connection/`. A
+`WireframeServer` connection now has a complete push path: the application
+stores a `PushQueuesBuilder` template, each accepted connection builds its own
+queues from it, the handle reaches `WireframeProtocol::on_connection_setup`,
+and the connection registers with the shared `SessionRegistry` before setup
+runs and deregisters when its task ends. Pushed frames are written over the
+same transport as handler responses, subject to priority, fairness, rate
+limiting, and the dead-letter queue. The remainder of this document explains
+the rationale behind the design and possible refinements; see
+[Section 3](#3-core-architecture-the-connection-actor) for details, and the
+[users' guide](users-guide.md#server-connections-and-push-queues) for the
+application-facing behaviour.
 
 ## 2. Design goals & requirements
 
@@ -572,6 +580,14 @@ so pruning while collecting may contend more than the previous post-collection
 `remove_if` sweep. Maintenance tasks may instead invoke `prune()` to avoid this
 contention.
 
+The registry also owns identifier allocation. `next_connection_id` hands out
+`1` first and then increases monotonically, so an identifier freed by a closed
+connection is never reused. A server connection allocates its identifier,
+inserts its handle, and only then runs the protocol setup callback; a guard
+removes the entry when the connection task ends, whether that is a clean close,
+an I/O error, a panic, or cancellation. Sharing the registry with application
+code is what makes `SessionRegistry::get` useful after setup.
+
 The diagram below summarizes the data structures and how they interact when
 storing session handles. `SessionRegistry` maps `ConnectionId`s to weak
 references of `PushHandleInner<F>` so closed connections do not stay alive.
@@ -708,9 +724,11 @@ classDiagram
     WireframeProtocol <|.. ProtocolHooks : implemented by
 ```
 
-`ConnectionContext` is intentionally empty today. It offers a stable extension
-point for per-connection data without breaking existing protocol
-implementations.
+`ConnectionContext` is the extension point for per-connection data. It is
+`#[non_exhaustive]` and today carries the server-allocated `ConnectionId`,
+available through `connection_id()`; a standalone actor's context reports
+`None`. The identifier lets every protocol callback correlate its work with the
+connection's registry entry.
 
 ## 5. Error handling & resilience
 

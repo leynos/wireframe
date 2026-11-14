@@ -13,6 +13,26 @@ All notable changes to this project will be documented in this file.
   [migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#removed-extractors-and-app_data).
   ([#877](https://github.com/leynos/wireframe/issues/877))
 
+- Give server connections a push path. `WireframeApp::with_push_queues` stores a
+  `PushQueuesBuilder` template that each accepted connection clones, so every
+  connection gets independent capacity, rate-limiter state, and dead-letter
+  routing, and the template is validated during preparation.
+  `WireframeProtocol::on_connection_setup` receives the connection's
+  `PushHandle`, and `ConnectionContext` now carries the server-allocated
+  `ConnectionId`. `WireframeApp::with_session_registry` shares a
+  `SessionRegistry` that each connection joins before setup and leaves when its
+  task ends; `SessionRegistry::next_connection_id` allocates identifiers from
+  `1` and never reuses one. Pushed frames reach the client over the same
+  transport as handler responses, subject to priority, fairness, rate limiting,
+  and the dead-letter queue, and interleave with streamed responses. A clean
+  peer close drains queued frames; shutdown closes the lanes and later pushes
+  fail with `PushError::Closed`. `PushHandle` and `PushQueuesBuilder` gain
+  `Clone` implementations that do not require `F: Clone`. **Breaking:**
+  `ConnectionContext` is `#[non_exhaustive]` and no longer a unit struct, and
+  `WireframeApp::with_push_dlq` is deprecated since 0.4.0 in favour of a `dlq`
+  sender on the queue template.
+  ([#875](https://github.com/leynos/wireframe/issues/875))
+
 - Add `WireframeApp::route_response` and `ResponseHandler<E>` so a route can
   return a whole `Response`: a single frame, a vector, an empty reply, a
   stream, or a multi-packet channel. Each prepared server connection now owns a

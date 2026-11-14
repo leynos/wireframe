@@ -72,6 +72,14 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// Called once when a new connection is established. The provided
     /// [`PushHandle`] may be stored by the implementation to enable
     /// asynchronous server pushes.
+    ///
+    /// On a prepared server connection this runs once per accepted connection,
+    /// after the handle is published to the application's
+    /// [`SessionRegistry`][crate::session::SessionRegistry] and before the
+    /// actor starts, so frames queued here are delivered. The context carries
+    /// the server-allocated [`ConnectionId`][crate::session::ConnectionId].
+    /// Code that drives a [`ConnectionActor`][crate::connection::ConnectionActor]
+    /// directly invokes the callback itself.
     fn on_connection_setup(&self, _handle: PushHandle<Self::Frame>, _ctx: &mut ConnectionContext) {}
 
     /// Invoked before application-response and connection-actor frames are
