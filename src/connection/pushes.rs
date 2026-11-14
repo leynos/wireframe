@@ -132,7 +132,7 @@ where
             // into a lane this drain has already read and then be discarded
             // when `lanes` drops. Closing first makes that push fail.
             receiver.close();
-            self.drain_receiver(receiver, &mut pushes);
+            self.drain_receiver(receiver, &mut pushes).await;
         }
         for frame in pushes {
             sink.send_push(frame).await?;
@@ -166,12 +166,16 @@ where
         }
     }
 
-    /// Move every buffered frame from one owned lane into `pushes`.
+    /// Move every buffered frame from one closed lane into `pushes`.
     ///
-    /// Frames buffered before the sender closed are still returned by
-    /// `try_recv`, so only an empty or disconnected lane ends the drain.
-    fn drain_receiver(&mut self, receiver: &mut mpsc::Receiver<P>, pushes: &mut Vec<P>) {
-        while let Ok(frame) = receiver.try_recv() {
+    /// The lane was closed before this call, so `recv` yields `None` once the
+    /// buffer is empty and every permit taken before the close has been
+    /// released. Reading until then matters: `try_recv` reports `Empty` while
+    /// a producer still holds a reservation, and a frame that producer then
+    /// sends would be lost when the receiver drops even though the producer
+    /// was told it was accepted.
+    async fn drain_receiver(&mut self, receiver: &mut mpsc::Receiver<P>, pushes: &mut Vec<P>) {
+        while let Some(frame) = receiver.recv().await {
             self.compose_push(frame, pushes);
         }
     }
