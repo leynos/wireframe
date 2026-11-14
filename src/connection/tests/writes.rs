@@ -11,12 +11,11 @@ use std::{
 
 use tokio_util::sync::CancellationToken;
 
-use super::{counting_hooks, grace::ManualGraceTimer, test_actor};
+use super::{counting_hooks, grace::ManualGraceTimer, test_actor, test_actor_with_shutdown};
 use crate::{
     app::Envelope,
-    connection::{ConnectionActor, ConnectionChannels, FrameSink, ResponseOutcome},
+    connection::{FrameSink, ResponseOutcome},
     hooks::ProtocolHooks,
-    push::{PushConfigError, PushQueues},
     response::{FrameStream, Response},
 };
 
@@ -27,23 +26,6 @@ impl FrameSink<Envelope> for StalledSink {
     fn send_frame(&mut self, _frame: Envelope) -> impl Future<Output = io::Result<()>> + Send {
         std::future::pending()
     }
-}
-
-/// Build an actor whose shutdown token the test controls.
-fn test_actor_with_shutdown(
-    shutdown: CancellationToken,
-    hooks: ProtocolHooks<Envelope, ()>,
-) -> Result<ConnectionActor<Envelope, ()>, PushConfigError> {
-    let (queues, handle) = PushQueues::<Envelope>::builder()
-        .high_capacity(1)
-        .low_capacity(1)
-        .build()?;
-    Ok(ConnectionActor::new_untracked(
-        ConnectionChannels::new(queues, handle),
-        None,
-        shutdown,
-        hooks,
-    ))
 }
 
 /// A response with one frame ready to write.

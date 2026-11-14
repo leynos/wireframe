@@ -26,9 +26,9 @@ use crate::{
     response::WireframeError,
 };
 
-/// Whether a buffered write finished before the connection was cancelled.
+/// Whether a bounded write finished before the connection was cancelled.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum WriteOutcome {
+pub(crate) enum WriteOutcome {
     /// Every buffered frame reached the sink.
     Written,
     /// Shutdown was requested while the write was still pending.
@@ -51,6 +51,7 @@ struct WriteBounds<'a> {
 }
 
 /// Why a bounded write stopped.
+#[derive(Clone, Copy, Debug)]
 enum WriteLimit {
     /// The frames reached the sink.
     Written,
@@ -118,8 +119,38 @@ where
     where
         S: FrameSink<F> + Send,
     {
-        let limit = flush_bounded(frames, sink, &self.write_bounds()).await?;
-        Ok(match limit {
+        self.write_frame_bounded(flush_frames(frames, sink)).await
+    }
+
+    /// Await one write under this connection's write bounds.
+    ///
+    /// The prepared connection writes its protocol terminator outside the
+    /// actor's buffered path, but that last frame can block on a peer that
+    /// stopped reading just as readily as any other. Sharing this bound keeps
+    /// one policy for every write the prepared path performs: a ready write
+    /// wins, and a stalled one is abandoned at shutdown or once the peer's idle
+    /// grace expires.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error the write itself reports.
+    pub(crate) async fn write_frame_bounded<Err, Fut>(
+        &mut self,
+        writing: Fut,
+    ) -> Result<WriteOutcome, Err>
+    where
+        Fut: Future<Output = Result<(), Err>>,
+    {
+        let limit = {
+            let bounds = self.write_bounds();
+            write_bounded(writing, &bounds).await?
+        };
+        Ok(self.record_write_limit(limit))
+    }
+
+    /// Report and record why a bounded write stopped.
+    fn record_write_limit(&mut self, limit: WriteLimit) -> WriteOutcome {
+        match limit {
             WriteLimit::Written => WriteOutcome::Written,
             WriteLimit::Shutdown => {
                 ResponseCancellationReason::Shutdown.record();
@@ -129,7 +160,7 @@ where
                 self.cancel_stalled_response();
                 WriteOutcome::Cancelled
             }
-        })
+        }
     }
 
     /// Snapshot the bounds that apply to one buffered write.
@@ -157,36 +188,31 @@ where
     Ok(())
 }
 
-/// Write frames unless the connection ends or the peer's grace expires first.
+/// Await one write unless the connection ends or the peer's grace expires
+/// first.
 ///
 /// The grace is armed only once the peer becomes unobservable, so a write that
 /// began while the peer was still being read is bounded from the moment that
 /// observation ends rather than from the start of the write.
-async fn flush_bounded<F, E, S>(
-    frames: Vec<F>,
-    sink: &mut S,
+async fn write_bounded<Err>(
+    writing: impl Future<Output = Result<(), Err>>,
     bounds: &WriteBounds<'_>,
-) -> Result<WriteLimit, WireframeError<E>>
-where
-    S: FrameSink<F> + Send,
-{
-    let writing = flush_frames(frames, sink);
+) -> Result<WriteLimit, Err> {
     tokio::pin!(writing);
-    let limit = tokio::select! {
+    tokio::select! {
         biased;
         // A ready write is preferred so that a cancellation observed while
         // frames are still being accepted does not abandon queued output. Only
         // a write that would block is raced against the bounds.
         result = &mut writing => {
             result?;
-            WriteLimit::Written
+            Ok(WriteLimit::Written)
         }
-        () = bounds.shutdown.cancelled() => WriteLimit::Shutdown,
+        () = bounds.shutdown.cancelled() => Ok(WriteLimit::Shutdown),
         () = bounds.peer_closed.cancelled() => {
-            write_within_grace(writing.as_mut(), bounds).await?
+            write_within_grace(writing.as_mut(), bounds).await
         }
-    };
-    Ok(limit)
+    }
 }
 
 /// Finish a write that was pending when peer observation ended.
@@ -194,10 +220,10 @@ where
 /// The write keeps its chance to complete, because a half-close alone does not
 /// mean the peer stopped reading. Only a write that stays pending for the whole
 /// idle grace, or a connection that shuts down, abandons it.
-async fn write_within_grace<E>(
-    mut writing: Pin<&mut impl Future<Output = Result<(), WireframeError<E>>>>,
+async fn write_within_grace<Err>(
+    mut writing: Pin<&mut impl Future<Output = Result<(), Err>>>,
     bounds: &WriteBounds<'_>,
-) -> Result<WriteLimit, WireframeError<E>> {
+) -> Result<WriteLimit, Err> {
     tokio::select! {
         biased;
         result = &mut writing => {

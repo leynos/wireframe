@@ -14,7 +14,7 @@ use crate::{
         codec_driver::{ActorFrameSink, send_native_frame},
     },
     codec::FrameCodec,
-    connection::ResponseOutcome,
+    connection::{ResponseOutcome, WriteOutcome},
     hooks::ConnectionContext,
     message::EncodeWith,
     middleware::{HandlerService, Service, ServiceRequest},
@@ -234,13 +234,15 @@ where
         .map_err(install_error)
 }
 
-/// Write the protocol terminator unless the connection shuts down first.
+/// Write the protocol terminator under the actor's write bounds.
 ///
 /// Returns `true` when the frame reached the sink. The terminator follows a
 /// response the peer was reading, but the peer may stop reading before this
 /// last frame, and an unbounded write would then pin a graceful drain after the
-/// response itself completed. Race the write against shutdown so the drain can
-/// finish; a shutdown that wins abandons the terminator.
+/// response itself completed. The frame is therefore written through the same
+/// bound as every buffered frame: a stalled write is abandoned at shutdown or
+/// once the peer's idle grace expires, and an abandoned terminator suppresses
+/// the completion hook.
 async fn write_terminator<S, K, F>(
     ctx: &mut super::ResponseContext<'_, S, K, F>,
     frame: F::Frame,
@@ -251,17 +253,9 @@ where
     F: FrameCodec,
     Envelope: EncodeWith<S>,
 {
-    let shutdown = ctx.actor.shutdown_token();
     let writing = send_native_frame::<K, F>(&mut *ctx.sink, &mut *ctx.pipeline, frame);
-    tokio::pin!(writing);
-    tokio::select! {
-        biased;
-        result = &mut writing => {
-            result?;
-            Ok(true)
-        }
-        () = shutdown.cancelled() => Ok(false),
-    }
+    let outcome = ctx.actor.write_frame_bounded(writing).await?;
+    Ok(outcome == WriteOutcome::Written)
 }
 
 /// Whether a completed streamed response is owed a protocol terminator.

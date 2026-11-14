@@ -49,6 +49,7 @@ pub(crate) use sink::FrameSink;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+pub(crate) use writes::WriteOutcome;
 
 pub use crate::fairness::FairnessConfig;
 use crate::{
@@ -126,6 +127,11 @@ pub struct ConnectionActor<F, E = NoProtocolError> {
     command_end_pending: bool,
     /// Whether the response currently being driven reported a protocol error.
     response_failed: bool,
+    /// Whether a shutdown signal abandons a response still being driven.
+    ///
+    /// The direct actor API keeps shutdown precedence; a server connection opts
+    /// out so ADR-014's drain delivers a response its peer is still reading.
+    abandon_response_on_shutdown: bool,
     /// Token cancelled when the peer closes its input half.
     peer_closed: CancellationToken,
     /// Idle grace applied to a response once the peer can no longer be observed.
@@ -240,6 +246,7 @@ where
             peer_addr: None,
             command_end_pending: false,
             response_failed: false,
+            abandon_response_on_shutdown: true,
             peer_closed: CancellationToken::new(),
             peer_closed_grace: drive::PEER_CLOSED_RESPONSE_GRACE,
             grace_timer: Arc::new(TokioGraceTimer),

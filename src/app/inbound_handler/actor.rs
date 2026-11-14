@@ -102,6 +102,11 @@ where
     // a bound, not an opinion about how long a vanished peer may hold a
     // response open.
     actor.set_peer_closed_grace(PEER_CLOSED_RESPONSE_GRACE);
+    // ADR-014 keeps a connection draining a readable peer across `stop()`, so
+    // shutdown must not abandon the response drive here. The stop token still
+    // bounds every write, which is what prevents a peer that stopped reading
+    // from pinning the drain.
+    actor.set_abandon_response_on_shutdown(false);
     Ok((
         ConnectionResponseActor {
             actor,
