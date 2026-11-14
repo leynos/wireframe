@@ -39,7 +39,7 @@ the request and response lifecycle.
   functions (`src/app/`).
 - [x] 1.3.2. Support handler functions with flexible, type-safe extractors
   (`src/extractor.rs`). Superseded by
-  [ADR 016](adr-016-remove-route-extractors-and-app-data.md): the module was
+  [ADR 017](adr-017-remove-route-extractors-and-app-data.md): the module was
   removed before 1.0, and handlers receive only the routed packet.
 
 ### 1.4. Error handling
@@ -111,7 +111,7 @@ lifecycle control.
   (`tests/session_registry.rs`).
 - [x] 4.1.3. Provide `State` and `Data` extractors for accessing shared and
   session-specific data. Superseded by
-  [ADR 016](adr-016-remove-route-extractors-and-app-data.md): extractors were
+  [ADR 017](adr-017-remove-route-extractors-and-app-data.md): extractors were
   removed, and callers pass shared state through a captured `Arc` instead.
 
 ### 4.2. Lifecycle hooks
@@ -946,7 +946,7 @@ parallel runtime.
   finalization. See issue
   [#643](https://github.com/leynos/wireframe/issues/643). Application-data
   consumption is no longer part of this item because
-  [ADR 016](adr-016-remove-route-extractors-and-app-data.md) removed `app_data`
+  [ADR 017](adr-017-remove-route-extractors-and-app-data.md) removed `app_data`
   from the prepared application.
 
 ## 21. Protocol-neutral adapters for the first consumers

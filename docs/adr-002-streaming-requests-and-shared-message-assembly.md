@@ -510,7 +510,7 @@ downstream protocol crates a first-party import path.
 ## Addendum (2026-11-09)
 
 The handler-facing streaming shapes in §1 were never wired into dispatch.
-[ADR 016](adr-016-remove-route-extractors-and-app-data.md) removes
+[ADR 017](adr-017-remove-route-extractors-and-app-data.md) removes
 `StreamingBody` and the extractor module: route handlers receive only `&E`, and
 the server creates no body channel. `RequestParts`, `RequestBodyStream`, and
 `RequestBodyReader` remain as caller-owned primitives, and `body_channel` lets

@@ -1411,7 +1411,7 @@ let (tx, rx) = body_channel(8);
 ```
 
 See [ADR 0002][adr-0002-ref] for the original design rationale and
-[ADR 016](adr-016-remove-route-extractors-and-app-data.md) for the decision to
+[ADR 017](adr-017-remove-route-extractors-and-app-data.md) for the decision to
 remove the extractor wrapper that was never wired to dispatch.
 
 ## Working with requests and middleware

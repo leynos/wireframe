@@ -446,7 +446,7 @@ not hang.
   0002](adr-002-streaming-requests-and-shared-message-assembly.md) introduces
   `RequestParts` and `RequestBodyStream` as the inbound counterpart to
   streaming responses, enabling incremental processing of large inbound
-  payloads. The runtime does not deliver these to route handlers; ADR 016
+  payloads. The runtime does not deliver these to route handlers; ADR 017
   records that limitation and removes the extractor wrapper that was never
   wired to dispatch.
 
@@ -574,7 +574,7 @@ outbound streaming capabilities documented above.
 
 ### 11.1 Handler-facing shapes
 
-[ADR 016](adr-016-remove-route-extractors-and-app-data.md) removes the
+[ADR 017](adr-017-remove-route-extractors-and-app-data.md) removes the
 extractor wrapper and records that the connection runtime does not deliver
 streaming bodies. The primitives remain for callers that own both ends:
 
@@ -663,7 +663,7 @@ chooses its channel capacity.
 
 See [ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md) for
 the complete specification and
-[ADR 016](adr-016-remove-route-extractors-and-app-data.md) for the removal of
+[ADR 017](adr-017-remove-route-extractors-and-app-data.md) for the removal of
 handler-delivered streaming bodies.
 
 ## 12. Client-side streaming consumption

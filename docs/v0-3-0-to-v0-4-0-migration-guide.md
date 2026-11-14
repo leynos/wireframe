@@ -7,7 +7,7 @@ workflow.
 
 ## Removed: extractors and `app_data`
 
-[ADR 016](adr-016-remove-route-extractors-and-app-data.md) removes the
+[ADR 017](adr-017-remove-route-extractors-and-app-data.md) removes the
 extractor module and the application-data store before 1.0. The module was
 public, but no dispatch path invoked it: route handlers received only their
 envelope, so `FromMessageRequest` implementations never ran and values stored by
