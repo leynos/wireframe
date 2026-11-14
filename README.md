@@ -398,9 +398,9 @@ providing example applications[^6].
 Wireframe is distributed under the terms of the ISC licence. See
 [LICENSE](LICENSE) for details.
 
-[^1]: <docs/preamble-validator.md>
-[^2]: <docs/rust-binary-router-library-design.md#42-high-level-architecture>
-[^3]: <docs/rust-binary-router-library-design.md#52-handler-functions>
-[^4]: <docs/rust-binary-router-library-design.md#44-message-serialization-and-deserialization>
-[^5]: <docs/rust-binary-router-library-design.md#43-frame-definition-and-processing>
-[^6]: <docs/roadmap.md>
+[^1]: [docs/preamble-validator.md](docs/preamble-validator.md)
+[^2]: [design §4.2](docs/rust-binary-router-library-design.md#42-high-level-architecture)
+[^3]: [design §5.2](docs/rust-binary-router-library-design.md#52-handler-functions)
+[^4]: [design §4.4](docs/rust-binary-router-library-design.md#44-message-serialization-and-deserialization)
+[^5]: [design §4.3](docs/rust-binary-router-library-design.md#43-frame-definition-and-processing)
+[^6]: [docs/roadmap.md](docs/roadmap.md)
