@@ -41,10 +41,11 @@ impl GraceTimer for TokioGraceTimer {
     fn elapse(&self, grace: Duration) -> GraceFuture { Box::pin(tokio::time::sleep(grace)) }
 }
 
-impl<F, E> ConnectionActor<F, E>
+impl<F, E, P> ConnectionActor<F, E, P>
 where
     F: FrameLike + CorrelatableFrame + Packet,
     E: std::fmt::Debug,
+    P: FrameLike,
 {
     /// Abandon the active response because the idle grace expired.
     ///

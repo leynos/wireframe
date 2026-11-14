@@ -26,6 +26,15 @@ pub struct ConnectionContext {
 }
 
 impl ConnectionContext {
+    /// Build a context carrying an already allocated connection identifier.
+    ///
+    /// The server allocates the identifier and hands it to the connection
+    /// actor and outbound pipeline, so protocol callbacks can correlate their
+    /// work with registry entries.
+    pub(crate) const fn with_connection_id(connection_id: Option<ConnectionId>) -> Self {
+        Self { connection_id }
+    }
+
     /// Return the identifier of the connection this context belongs to.
     ///
     /// The identifier is present for connections accepted by

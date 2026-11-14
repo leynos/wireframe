@@ -4,9 +4,11 @@ mod actor;
 // The connection-local runtime drives the same frame loop from outside this
 // module, so the processing entry point is crate-visible.
 pub(crate) mod core;
+mod dispatch;
 mod frames;
 mod framing;
 mod peer_watch;
+mod push_service;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -30,7 +32,9 @@ use crate::{
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
+    push::PushQueuesBuilder,
     serializer::Serializer,
+    session::SessionRegistry,
 };
 
 /// Maximum consecutive deserialization failures before closing a connection.
@@ -68,6 +72,10 @@ where
     pub(crate) read_timeout_ms: u64,
     /// Server shutdown signal; cancelling it stops this connection.
     pub(crate) shutdown: &'a CancellationToken,
+    /// Template cloned to build each connection's push queues.
+    pub(crate) push_queues: PushQueuesBuilder<F::Frame>,
+    /// Registry that each connection registers its push handle with.
+    pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
 }
 
 /// Drive a connection using immutable application inputs and prepared routes.
@@ -107,6 +115,8 @@ where
         memory_budgets,
         read_timeout_ms,
         shutdown,
+        push_queues,
+        session_registry,
     } = context;
 
     let mut runtime = ConnectionRuntime::new(
@@ -122,6 +132,8 @@ where
             memory_budgets,
             read_timeout_ms,
             shutdown,
+            push_queues,
+            session_registry,
         },
     );
 
@@ -211,6 +223,8 @@ where
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
                 shutdown: &shutdown,
+                push_queues: self.push_queues.clone().unwrap_or_default(),
+                session_registry: Arc::clone(&self.session_registry),
             },
         )
         .await

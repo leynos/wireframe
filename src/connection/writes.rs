@@ -14,6 +14,8 @@ use super::{
     ConnectionActor,
     FrameSink,
     ProgressSignal,
+    PushSink,
+    drain::ActorStep,
     drive::ResponseOutcome,
     event::Event,
     grace::GraceTimer,
@@ -63,10 +65,11 @@ pub(super) enum WriteLimit {
     Grace,
 }
 
-impl<F, E> ConnectionActor<F, E>
+impl<F, E, P> ConnectionActor<F, E, P>
 where
     F: FrameLike + CorrelatableFrame + Packet,
     E: std::fmt::Debug,
+    P: FrameLike,
 {
     /// Dispatch one event and write its frames.
     ///
@@ -78,24 +81,30 @@ where
     /// Returns a [`WireframeError`] from the event dispatch or the sink.
     pub(super) async fn dispatch_and_write<S>(
         &mut self,
-        event: Event<F, E>,
+        event: Event<F, E, P>,
         state: &mut ActorState,
         sink: &mut S,
     ) -> Result<Option<ResponseOutcome>, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         let mut frames = Vec::new();
-        self.dispatch_event(event, state, &mut frames)?;
-        if self.flush_or_cancel(frames, sink).await? == WriteOutcome::Cancelled {
+        let mut pushes = Vec::new();
+        let mut step = ActorStep {
+            state,
+            out: &mut frames,
+            pushes: &mut pushes,
+        };
+        self.dispatch_event(event, &mut step)?;
+        if self.flush_or_cancel(pushes, frames, sink).await? == WriteOutcome::Cancelled {
             return Ok(Some(ResponseOutcome::Cancelled));
         }
         self.run_deferred_command_end();
         Ok(None)
     }
 
-    /// Write buffered frames, abandoning them if the connection can no longer
-    /// deliver them.
+    /// Write buffered output, abandoning it if the connection can no longer
+    /// deliver it.
     ///
     /// A peer that stops reading applies back-pressure that can hold a write
     /// pending indefinitely, so a graceful server drain would wait for a peer
@@ -122,23 +131,16 @@ where
     /// Returns a [`WireframeError`] if the sink fails.
     pub(super) async fn flush_or_cancel<S>(
         &mut self,
+        pushes: Vec<P>,
         frames: Vec<F>,
         sink: &mut S,
     ) -> Result<WriteOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
-        for frame in frames {
-            let progress = sink.progress();
-            let outcome = self
-                .write_frame_bounded(sink.send_frame(frame), progress.as_deref())
-                .await
-                .map_err(WireframeError::Io)?;
-            if outcome == WriteOutcome::Cancelled {
-                return Ok(WriteOutcome::Cancelled);
-            }
-        }
-        Ok(WriteOutcome::Written)
+        let progress = sink.progress();
+        self.write_frame_bounded(flush_out(pushes, frames, sink), progress.as_deref())
+            .await
     }
 
     /// Await one write under this connection's write bounds.
@@ -192,6 +194,50 @@ where
             grace: self.peer_closed_grace,
         }
     }
+}
+
+/// Write buffered output through the sink in emission order.
+///
+/// Queued pushes are written first because the actor produces them before any
+/// response frames from the same event.
+pub(super) async fn flush_out<F, P, E, S>(
+    pushes: Vec<P>,
+    frames: Vec<F>,
+    sink: &mut S,
+) -> Result<(), WireframeError<E>>
+where
+    S: FrameSink<F> + PushSink<P> + Send,
+{
+    flush_pushes(pushes, sink).await?;
+    flush_frames(frames, sink).await
+}
+
+/// Write buffered push frames through the sink in emission order.
+pub(super) async fn flush_pushes<P, E, S>(
+    pushes: Vec<P>,
+    sink: &mut S,
+) -> Result<(), WireframeError<E>>
+where
+    S: PushSink<P> + Send,
+{
+    for frame in pushes {
+        sink.send_push(frame).await.map_err(WireframeError::Io)?;
+    }
+    Ok(())
+}
+
+/// Write buffered frames through the sink in emission order.
+pub(super) async fn flush_frames<F, E, S>(
+    frames: Vec<F>,
+    sink: &mut S,
+) -> Result<(), WireframeError<E>>
+where
+    S: FrameSink<F> + Send,
+{
+    for frame in frames {
+        sink.send_frame(frame).await.map_err(WireframeError::Io)?;
+    }
+    Ok(())
 }
 
 /// Await one write unless the connection ends or the peer's grace expires

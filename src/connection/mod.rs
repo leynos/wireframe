@@ -20,7 +20,9 @@ mod observation;
 mod output;
 mod peer_close;
 mod polling;
+mod pushes;
 mod response;
+mod setters;
 mod shutdown;
 mod sink;
 mod state;
@@ -31,7 +33,6 @@ mod writes;
 use std::{
     net::SocketAddr,
     sync::{Arc, OnceLock},
-    time::Duration,
 };
 
 pub use channels::ConnectionChannels;
@@ -42,11 +43,11 @@ pub use counter::active_connection_count;
 pub(crate) use drive::{PEER_CLOSED_RESPONSE_GRACE, ResponseOutcome};
 use grace::{GraceTimer, TokioGraceTimer};
 use init::ActorInit;
+pub(crate) use init::UntrackedActorInit;
 use log::info;
-use multi_packet::MultiPacketContext;
 pub(crate) use observation::UnobservedCause;
 use output::ActiveOutput;
-pub(crate) use sink::{FrameSink, ProgressSignal};
+pub(crate) use sink::{FrameSink, ProgressSignal, PushSink};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -58,7 +59,7 @@ use crate::{
     app::Packet,
     correlation::CorrelatableFrame,
     fairness::FairnessTracker,
-    fragment::{FragmentationConfig, Fragmenter},
+    fragment::Fragmenter,
     hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueues},
     response::FrameStream,
@@ -81,6 +82,12 @@ pub enum ConnectionStateError {
 
 /// Actor driving outbound frame delivery for a connection.
 ///
+/// `F` is the frame type of handler responses and streamed or multi-packet
+/// output. `P` is the frame type taken from the push queues; it defaults to `F`
+/// so a standalone actor treats queued frames exactly like responses. The
+/// server selects a distinct `P` because pushes arrive already encoded for the
+/// wire while responses are serialized from application envelopes.
+///
 /// # Examples
 ///
 /// ```no_run
@@ -96,11 +103,11 @@ pub enum ConnectionStateError {
 /// let mut actor: ConnectionActor<_> = ConnectionActor::new(queues, handle, None, shutdown);
 /// # drop(actor);
 /// ```
-pub struct ConnectionActor<F, E = NoProtocolError> {
+pub struct ConnectionActor<F, E = NoProtocolError, P = F> {
     /// Receiver for urgent frames, polled before all other data sources.
-    high_rx: Option<mpsc::Receiver<F>>,
+    high_rx: Option<mpsc::Receiver<P>>,
     /// Receiver for best-effort frames, serviced subject to fairness limits.
-    low_rx: Option<mpsc::Receiver<F>>,
+    low_rx: Option<mpsc::Receiver<P>>,
     /// Active output source: either a streaming response or a multi-packet channel.
     ///
     /// At most one output source can be active at a time. The multi-packet channel
@@ -120,6 +127,12 @@ pub struct ConnectionActor<F, E = NoProtocolError> {
     fairness: FairnessTracker,
     /// Optional fragmenter applied immediately before outbound emission.
     fragmenter: Option<Fragmenter>,
+    /// Composition applied to frames taken from the push queues.
+    ///
+    /// A standalone actor composes pushes like response frames. A server-owned
+    /// actor defers composition to its transport sink, which runs the
+    /// `before_send` hook on the already-encoded frame.
+    composer: pushes::PushComposer<F, E, P>,
     /// Identifier used to correlate actor diagnostics with connection setup.
     connection_id: Option<ConnectionId>,
     /// Peer address retained for diagnostics when the socket exposes it.
@@ -139,7 +152,7 @@ pub struct ConnectionActor<F, E = NoProtocolError> {
     ///
     /// Production connections keep [`drive::PEER_CLOSED_RESPONSE_GRACE`]; tests
     /// shorten it so a paused clock can exercise cancellation deterministically.
-    peer_closed_grace: Duration,
+    peer_closed_grace: std::time::Duration,
     /// Deadline source that enforces [`Self::peer_closed_grace`].
     ///
     /// Production uses the ambient Tokio clock. A test installs a manually
@@ -200,40 +213,77 @@ where
         shutdown: CancellationToken,
         hooks: ProtocolHooks<F, E>,
     ) -> Self {
-        let connection = ActiveConnection::new();
-        Self::build(
-            ActorInit::new(channels, response, shutdown, hooks),
-            Some(connection),
-        )
+        // The handle is cloned for setup only: retaining a second strong handle
+        // would keep the queues open and hide lane closure from the actor.
+        let handle = channels.handle.clone();
+        let mut actor = Self::build(
+            ActorInit {
+                channels,
+                response,
+                shutdown,
+                hooks,
+                ctx: ConnectionContext::default(),
+                composer: pushes::PushComposer::Inline(Self::compose_inline_push),
+            },
+            Some(ActiveConnection::new()),
+        );
+        actor.run_connection_setup(handle);
+        actor
     }
 
+    /// Run the protocol setup callback with this actor's push handle.
+    fn run_connection_setup(&mut self, handle: PushHandle<F>) {
+        self.hooks.on_connection_setup(handle, &mut self.ctx);
+    }
+
+    /// Compose a queued frame exactly like a response frame.
+    fn compose_inline_push(actor: &mut Self, frame: F, pushes: &mut Vec<F>) {
+        actor.process_frame_with_hooks_and_metrics(frame, pushes);
+    }
+}
+
+impl<F, E, P> ConnectionActor<F, E, P>
+where
+    F: FrameLike + CorrelatableFrame + Packet,
+    E: std::fmt::Debug,
+    P: FrameLike,
+{
     /// Create an actor without registering it in the active-connection gauge.
     ///
     /// The server creates one untracked actor per accepted connection because
     /// the accept loop already holds an [`ActiveConnection`] guard for the
-    /// whole connection lifetime. That avoids counting a connection twice.
+    /// whole connection lifetime. That avoids counting a connection twice. The
+    /// server has already published the push handle and run the protocol setup
+    /// callback, so the actor must not repeat either.
     #[must_use]
-    pub(crate) fn new_untracked(
-        channels: ConnectionChannels<F>,
-        response: Option<FrameStream<F, E>>,
-        shutdown: CancellationToken,
-        hooks: ProtocolHooks<F, E>,
-    ) -> Self {
-        Self::build(ActorInit::new(channels, response, shutdown, hooks), None)
+    pub(crate) fn new_untracked(init: UntrackedActorInit<F, E, P>) -> Self {
+        Self::build(
+            ActorInit {
+                channels: init.channels,
+                response: init.response,
+                shutdown: init.shutdown,
+                hooks: init.hooks,
+                ctx: init.ctx,
+                composer: pushes::PushComposer::Deferred,
+            },
+            None,
+        )
     }
 
     /// Shared constructor used by the tracked and untracked entry points.
-    fn build(init: ActorInit<F, E>, counter: Option<ActiveConnection>) -> Self {
+    fn build(init: ActorInit<F, E, P>, counter: Option<ActiveConnection>) -> Self {
         let ActorInit {
             channels,
             response,
             shutdown,
             hooks,
+            ctx,
+            composer,
         } = init;
-        let ConnectionChannels { queues, handle } = channels;
-        let ctx = ConnectionContext::default();
+        let ConnectionChannels { queues, .. } = channels;
+        let connection_id = ctx.connection_id();
         let active_output = response.map_or_else(|| ActiveOutput::None, ActiveOutput::Response);
-        let mut actor = Self {
+        let actor = Self {
             high_rx: Some(queues.high_priority_rx),
             low_rx: Some(queues.low_priority_rx),
             active_output,
@@ -243,22 +293,20 @@ where
             ctx,
             fairness: FairnessTracker::new(FairnessConfig::default()),
             fragmenter: None,
-            connection_id: None,
+            composer,
+            connection_id,
             peer_addr: None,
             command_end_pending: false,
             response_failed: false,
             abandon_response_on_shutdown: true,
             peer_closed: CancellationToken::new(),
-            peer_closed_grace: drive::PEER_CLOSED_RESPONSE_GRACE,
+            peer_closed_grace: PEER_CLOSED_RESPONSE_GRACE,
             grace_timer: Arc::new(TokioGraceTimer),
             response_correlation: None,
             unobserved_cause: None,
         };
-        // The server builds an untracked actor per connection and owns the
-        // connection lifecycle in its accept loop. Logging an opening there
-        // would be unbalanced because `install_response`/`drive_response`
-        // never log a close, and the active-connection count would not include
-        // that connection.
+        // The server owns the connection lifecycle in its accept loop, so only
+        // a tracked actor logs an opening that the gauge count accounts for.
         if actor.counter.is_some() {
             info!(
                 "connection opened: wireframe_active_connections={}, id={:?}, peer={:?}",
@@ -267,126 +315,8 @@ where
                 actor.peer_addr
             );
         }
-        actor.hooks.on_connection_setup(handle, &mut actor.ctx);
         actor
     }
-
-    /// Override the idle grace used once the peer can no longer be observed.
-    ///
-    /// The server keeps [`drive::PEER_CLOSED_RESPONSE_GRACE`]; tests pass a
-    /// short grace and a paused clock to prove that a stalled response is
-    /// cancelled without waiting for the production deadline.
-    pub(crate) const fn set_peer_closed_grace(&mut self, grace: Duration) {
-        self.peer_closed_grace = grace;
-    }
-
-    /// Replace the deadline source that enforces the idle grace.
-    ///
-    /// Production keeps [`TokioGraceTimer`], which uses the ambient clock. A
-    /// test installs a deadline it fires by hand, so cancellation is proved to
-    /// happen when the grace expires rather than merely eventually.
-    #[cfg(test)]
-    pub(crate) fn set_grace_timer(&mut self, timer: Arc<dyn GraceTimer>) {
-        self.grace_timer = timer;
-    }
-
-    /// Replace the fairness configuration.
-    pub const fn set_fairness(&mut self, fairness: FairnessConfig) {
-        self.fairness.set_config(fairness);
-    }
-
-    /// Enable transparent fragmentation for outbound frames.
-    ///
-    /// When configured, frames that exceed `fragment_payload_cap` are split
-    /// into multiple fragments carrying a standard fragment header inside the
-    /// payload. Callers continue to enqueue complete frames; fragmentation
-    /// occurs just before hooks and metrics are applied.
-    pub const fn enable_fragmentation(&mut self, config: FragmentationConfig)
-    where
-        F: Packet,
-    {
-        self.fragmenter = Some(Fragmenter::new(config.fragment_payload_cap));
-    }
-
-    /// Set or replace the current streaming response.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConnectionStateError::MultiPacketActive`] if a multi-packet
-    /// channel is currently active.
-    pub fn set_response(
-        &mut self,
-        stream: Option<FrameStream<F, E>>,
-    ) -> Result<(), ConnectionStateError> {
-        if self.active_output.is_multi_packet() {
-            return Err(ConnectionStateError::MultiPacketActive);
-        }
-        self.active_output = stream.map_or_else(|| ActiveOutput::None, ActiveOutput::Response);
-        Ok(())
-    }
-
-    /// Set or replace the current multi-packet response channel.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConnectionStateError::ResponseActive`] if a response stream is
-    /// currently active.
-    pub fn set_multi_packet(
-        &mut self,
-        channel: Option<mpsc::Receiver<F>>,
-    ) -> Result<(), ConnectionStateError> {
-        self.set_multi_packet_with_correlation(channel, None)
-    }
-
-    /// Set or replace the current multi-packet response channel and stamp correlation identifiers.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ConnectionStateError::ResponseActive`] if a response stream is
-    /// currently active.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use tokio::sync::mpsc;
-    /// # use tokio_util::sync::CancellationToken;
-    /// # use wireframe::{connection::ConnectionActor, push::PushQueues};
-    /// # let (queues, handle) = PushQueues::<u8>::builder()
-    /// #     .high_capacity(1)
-    /// #     .low_capacity(1)
-    /// #     .build()
-    /// #     .expect("failed to build PushQueues");
-    /// # let shutdown = CancellationToken::new();
-    /// # let mut actor: ConnectionActor<u8> = ConnectionActor::new(queues, handle, None, shutdown);
-    /// # let (_tx, rx) = mpsc::channel(4);
-    /// actor.set_multi_packet_with_correlation(Some(rx), Some(7))?;
-    /// # Ok::<(), wireframe::connection::ConnectionStateError>(())
-    /// ```
-    pub fn set_multi_packet_with_correlation(
-        &mut self,
-        channel: Option<mpsc::Receiver<F>>,
-        correlation_id: Option<u64>,
-    ) -> Result<(), ConnectionStateError> {
-        if self.active_output.is_response() {
-            return Err(ConnectionStateError::ResponseActive);
-        }
-        self.active_output = channel.map_or_else(
-            || ActiveOutput::None,
-            |rx| {
-                let mut ctx = MultiPacketContext::new();
-                ctx.install(Some(rx), correlation_id);
-                ActiveOutput::MultiPacket(ctx)
-            },
-        );
-        Ok(())
-    }
-
-    /// Replace the low-priority queue used for tests.
-    pub fn set_low_queue(&mut self, queue: Option<mpsc::Receiver<F>>) { self.low_rx = queue; }
-
-    /// Get a clone of the shutdown token used by the actor.
-    #[must_use]
-    pub fn shutdown_token(&self) -> CancellationToken { self.shutdown.clone() }
 }
 
 #[cfg(all(not(loom), any(test, feature = "test-support")))]

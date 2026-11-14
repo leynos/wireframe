@@ -185,7 +185,6 @@ where
     }
 }
 
-
 impl<S, C, E, F> PreparedApp<S, C, E, F>
 where
     S: Serializer + FrameMetadata<Frame = super::Envelope> + Send + Sync + 'static,
@@ -272,6 +271,8 @@ where
                 protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
+                push_queues: self.push_queues(),
+                session_registry: Arc::clone(&self.session_registry),
                 shutdown,
             },
         )
@@ -312,7 +313,6 @@ where
         }
     }
 }
-
 
 impl<S, C, E, F> PreparedApp<S, C, E, F>
 where
@@ -381,7 +381,6 @@ where
         self.message_assembler.as_ref()
     }
 }
-
 
 #[cfg(test)]
 #[path = "prepared_app_tests.rs"]

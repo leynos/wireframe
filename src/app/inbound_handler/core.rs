@@ -2,8 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use futures::Sink;
-use log::warn;
+use log::debug;
 use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 
@@ -14,53 +13,30 @@ use super::{
         frame_handling::{self, Dispatch},
         memory_budgets::MemoryBudgets,
     },
-    MAX_DESER_FAILURES,
-    actor::{build_connection_actor, observe_peer},
+    actor::{
+        CancellationGuard,
+        ConnectionActorInit,
+        ConnectionResponseActor,
+        build_connection_actor,
+        observe_peer,
+    },
+    dispatch::{FrameHandlingContext, handle_frame},
     frames::InboundFrames,
-    framing::prepare_connection_framing,
+    framing::{TransportSink, TransportStream, prepare_connection_framing},
     peer_watch::{PeerObservation, handle_watching_peer},
+    push_service::{PushTransport, StreamStep, next_stream_step},
 };
 use crate::{
     codec::FrameCodec,
-    connection::ConnectionActor,
     frame::FrameMetadata,
-    hooks::{ProtocolHooks, WireframeProtocol},
-    message::{DecodeWith, DeserializeContext, EncodeWith},
-    message_assembler::{MessageAssembler, MessageAssemblyState},
+    hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
+    message::{DecodeWith, EncodeWith},
+    message_assembler::MessageAssembler,
     middleware::HandlerService,
+    push::PushQueuesBuilder,
     serializer::Serializer,
+    session::SessionRegistry,
 };
-
-/// Per-frame processing state bundled for `handle_frame`.
-struct FrameHandlingContext<'a, S, E, K, F>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    K: Sink<F::Frame, Error = io::Error> + Unpin,
-    F: FrameCodec,
-{
-    /// Sink used to write responses during frame handling.
-    sink: &'a mut K,
-    /// Connection-wide malformed-frame counter shared with all stages.
-    deser_failures: &'a mut u32,
-    /// Immutable middleware chains used to dispatch decoded envelopes.
-    routes: &'a HashMap<u32, HandlerService<E>>,
-    /// Serializer used to decode envelopes and encode responses.
-    serializer: &'a S,
-    /// Codec configuration used by the response path.
-    codec: &'a F,
-    /// Optional assembly strategy for multi-frame protocol messages.
-    message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
-    /// Outbound processing state for fragmenting, hooking, and counting
-    /// responses.
-    pipeline: &'a mut FramePipeline<F::Frame>,
-    /// Connection-local state for assembling multi-frame messages.
-    message_assembly: &'a mut Option<MessageAssemblyState>,
-    /// Actor that schedules and delivers handler responses.
-    actor: &'a mut ConnectionActor<Envelope, ()>,
-    /// Protocol whose terminator and completion hooks follow a response.
-    protocol: Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
-}
 
 /// Immutable stream-wide configuration shared by all inbound frames.
 pub(crate) struct StreamProcessingContext<'a, S, E, F>
@@ -89,72 +65,220 @@ where
     pub(crate) read_timeout_ms: u64,
     /// Server shutdown signal; cancelling it stops this connection.
     pub(crate) shutdown: &'a CancellationToken,
+    /// Template cloned to build this connection's push queues.
+    pub(super) push_queues: PushQueuesBuilder<F::Frame>,
+    /// Registry this connection publishes its push handle to.
+    pub(super) session_registry: Arc<SessionRegistry<F::Frame>>,
 }
 
-/// State needed to turn a raw frame into a dispatchable envelope.
-struct DispatchBuildContext<'a, F>
+/// Per-connection state driven by the inbound read loop.
+struct ConnectionLoop<'a, S, E, F, W>
 where
+    S: Serializer,
+    E: Packet,
     F: FrameCodec,
+    W: AsyncRead + AsyncWrite + Unpin,
 {
-    /// Raw frame borrowed while decoding its envelope metadata and payload.
-    frame: &'a F::Frame,
-    /// Pipeline needed to reassemble fragmented input and emit responses.
-    pipeline: &'a mut FramePipeline<F::Frame>,
-    /// Mutable assembly state retained across inbound frames.
-    message_assembly: &'a mut Option<MessageAssemblyState>,
-    /// Failure counter used to enforce the malformed-input limit.
-    deser_failures: &'a mut u32,
+    /// Write half of the connection's framed transport.
+    sink: TransportSink<W, F>,
+    /// Read half of the connection's framed transport.
+    reader: TransportStream<W, F>,
+    /// Per-connection codec clone retaining framing state.
+    codec: F,
+    /// Buffered inbound frame and the state a read timeout purges.
+    inbound: InboundFrames<F::Frame>,
+    /// Consecutive deserialization failures seen on this connection.
+    deser_failures: u32,
+    /// Serializer shared with the actor and the transport sink.
+    serializer: Arc<S>,
+    /// Middleware chains applied to decoded envelopes.
+    routes: &'a HashMap<u32, HandlerService<E>>,
+    /// Optional assembler consulted while handling frames.
+    message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    /// Protocol whose response and terminator hooks follow each response.
+    protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
+    /// Byte budgets enforced while reading.
+    budgets: MemoryBudgets,
+    /// Maximum interval to wait for the next inbound frame.
+    read_timeout_ms: u64,
+    /// Token whose cancellation stops this connection's inbound read.
+    shutdown: CancellationToken,
+    /// Actor that owns outbound ordering for this connection.
+    response_actor: ConnectionResponseActor<F>,
+    /// Cancelled only by a clean EOF, which is permanent for the connection.
+    peer_eof: CancellationToken,
+    /// Cancels the connection token when this state is dropped.
+    _cancel_on_exit: CancellationGuard,
 }
 
-/// Detect a bincode budget failure so fallback decoding does not repeat the work.
-fn is_bincode_limit_exceeded(error: &(dyn std::error::Error + 'static)) -> bool {
-    error
-        .downcast_ref::<bincode::error::DecodeError>()
-        .is_some_and(|decode_error| {
-            matches!(decode_error, bincode::error::DecodeError::LimitExceeded)
-        })
-}
-
-/// Decode exactly one envelope, using metadata to select full deserialization.
-pub(super) fn parse_envelope<S>(
-    serializer: &S,
-    payload: &[u8],
-) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>>
+impl<'a, S, E, F, W> ConnectionLoop<'a, S, E, F, W>
 where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
-    Envelope: DecodeWith<S>,
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    E: Packet,
+    F: FrameCodec,
+    W: AsyncRead + AsyncWrite + Send + Unpin,
+    Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    let (envelope, consumed) = match serializer.parse(payload) {
-        Ok((parsed_envelope, metadata_bytes_consumed)) => {
-            if serializer.should_deserialize_after_parse() {
-                let context = DeserializeContext {
-                    frame_metadata: payload.get(..metadata_bytes_consumed),
-                    message_id: Some(parsed_envelope.id),
-                    correlation_id: parsed_envelope.correlation_id,
-                    metadata_bytes_consumed: Some(metadata_bytes_consumed),
-                };
-                serializer.deserialize_with_context::<Envelope>(payload, &context)
-            } else {
-                Ok((parsed_envelope, metadata_bytes_consumed))
-            }
-        }
-        Err(error) if is_bincode_limit_exceeded(&error) => {
-            Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
-        }
-        Err(_) => serializer.deserialize::<Envelope>(payload),
-    }?;
-    if consumed != payload.len() {
-        crate::metrics::inc_decode_rejection(
-            crate::metrics::DecodeRejectionPath::Envelope,
-            crate::metrics::DecodeRejectionReason::TrailingBytes,
-        );
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "trailing bytes after envelope: frame must contain exactly one value",
-        )
-        .into());
+    /// Prepare framing, assembly, budgets, and the output actor for `stream`.
+    fn new(stream: W, context: StreamProcessingContext<'a, S, E, F>) -> io::Result<Self> {
+        let StreamProcessingContext {
+            routes,
+            serializer,
+            codec,
+            message_assembler,
+            fragmentation,
+            protocol_hooks,
+            protocol,
+            memory_budgets,
+            read_timeout_ms,
+            shutdown,
+            push_queues,
+            session_registry,
+        } = context;
+        let (sink, reader, connection_codec) = prepare_connection_framing(stream, codec).split();
+        let requested_frame_length = connection_codec.max_frame_length();
+        let budgets =
+            frame_handling::resolve_effective_budgets(memory_budgets, requested_frame_length);
+        let mut inbound = InboundFrames {
+            // A frame read while the previous one was still being handled, so
+            // the loop never polls the read half twice for one inbound frame.
+            pending: None,
+            pipeline: FramePipeline::with_hooks(fragmentation, protocol_hooks),
+            message_assembly: message_assembler.map(|_| {
+                frame_handling::new_message_assembly_state(
+                    fragmentation,
+                    requested_frame_length,
+                    Some(budgets),
+                )
+            }),
+        };
+        // A child token so the guard below cancels only this connection, while
+        // a server shutdown still reaches it through the parent.
+        let connection_shutdown = shutdown.child_token();
+        let read_shutdown = connection_shutdown.clone();
+        let peer_eof = CancellationToken::new();
+        let connection_id = session_registry.next_connection_id();
+        let connection_context = ConnectionContext::with_connection_id(Some(connection_id));
+        // The sink-owned pipeline runs `before_send` too, so it must know
+        // which connection the callback is running for.
+        inbound.pipeline.set_context(connection_context.clone());
+        let (response_actor, cancel_on_exit) = build_connection_actor(ConnectionActorInit {
+            protocol: protocol.as_ref(),
+            shutdown: connection_shutdown,
+            connection_id,
+            registry: &session_registry,
+            push_queues: &push_queues,
+            context: connection_context,
+        })?;
+        Ok(Self {
+            sink,
+            reader,
+            codec: connection_codec,
+            inbound,
+            deser_failures: 0,
+            serializer,
+            routes,
+            message_assembler,
+            protocol,
+            budgets,
+            read_timeout_ms,
+            shutdown: read_shutdown,
+            response_actor,
+            peer_eof,
+            _cancel_on_exit: cancel_on_exit,
+        })
     }
-    Ok((envelope, consumed))
+
+    /// Read and process frames until the stream closes or an I/O error occurs.
+    async fn run(mut self) -> io::Result<()> {
+        // Each iteration performs one unit of work, so the loop body is empty;
+        // `step` reports whether the connection may continue.
+        while self.step().await? {}
+        Ok(())
+    }
+
+    /// Perform one unit of inbound work, reporting whether to continue.
+    async fn step(&mut self) -> io::Result<bool> {
+        self.inbound.relieve_pressure(self.budgets).await?;
+        let step: StreamStep<F> = next_stream_step(
+            &mut self.response_actor.actor,
+            &mut self.inbound,
+            &mut self.reader,
+            self.read_timeout_ms,
+            &self.shutdown,
+        )
+        .await?;
+        match step {
+            StreamStep::Pushes(frames) => {
+                self.write_pushes(frames).await?;
+                Ok(true)
+            }
+            StreamStep::Idle => {
+                debug!("push lanes closed; continuing to wait for the next frame");
+                Ok(true)
+            }
+            StreamStep::Closed => {
+                // Frames already queued are still delivered; anything pushed
+                // afterwards is rejected because the actor closes both lanes.
+                self.drain_pushes().await?;
+                Ok(false)
+            }
+            // A failed or cancelled response leaves its stream without a
+            // terminator, so a later response would be read as part of the
+            // truncated stream. Stop instead.
+            StreamStep::Frame(frame) => Ok(self.dispatch(frame).await? == Dispatch::Continue),
+        }
+    }
+
+    /// Decode, reassemble, and dispatch one inbound frame while watching the
+    /// peer for a disconnect.
+    async fn dispatch(&mut self, frame: F::Frame) -> io::Result<Dispatch> {
+        let (unobserved, cause) = observe_peer(&mut self.response_actor.actor, &self.peer_eof);
+        let handling = handle_frame(
+            &frame,
+            FrameHandlingContext {
+                sink: &mut self.sink,
+                deser_failures: &mut self.deser_failures,
+                routes: self.routes,
+                serializer: self.serializer.as_ref(),
+                codec: &self.codec,
+                message_assembler: self.message_assembler,
+                message_assembly: &mut self.inbound.message_assembly,
+                pipeline: &mut self.inbound.pipeline,
+                actor: &mut self.response_actor.actor,
+                protocol: self.protocol.as_ref(),
+            },
+        );
+        handle_watching_peer(
+            handling,
+            &mut self.reader,
+            PeerObservation::new(&self.peer_eof, &unobserved, &cause),
+            &mut self.inbound.pending,
+        )
+        .await
+    }
+
+    /// Write queued push frames through the connection's transport sink.
+    async fn write_pushes(&mut self, frames: Vec<F::Frame>) -> io::Result<()> {
+        let mut transport = self.push_transport();
+        transport.write(frames).await
+    }
+
+    /// Deliver frames still queued when the peer stopped writing.
+    async fn drain_pushes(&mut self) -> io::Result<()> {
+        let mut transport = self.push_transport();
+        transport.drain(&mut self.response_actor.actor).await
+    }
+
+    /// Borrow the transport resources push writes need for one call.
+    fn push_transport(&mut self) -> PushTransport<'_, S, TransportSink<W, F>, F> {
+        PushTransport {
+            serializer: self.serializer.as_ref(),
+            codec: &self.codec,
+            sink: &mut self.sink,
+            pipeline: &mut self.inbound.pipeline,
+        }
+    }
 }
 
 /// Read and process frames until the stream closes or an I/O error occurs.
@@ -169,187 +293,5 @@ where
     W: AsyncRead + AsyncWrite + Send + Unpin,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    let (mut sink, mut reader, connection_codec) =
-        prepare_connection_framing(stream, context.codec).split();
-    let requested_frame_length = connection_codec.max_frame_length();
-    let effective_budgets =
-        frame_handling::resolve_effective_budgets(context.memory_budgets, requested_frame_length);
-    let mut deser_failures = 0u32;
-    let mut inbound = InboundFrames {
-        // A frame read while the previous one was still being handled, so the
-        // loop never polls the read half twice for one inbound frame.
-        pending: None,
-        pipeline: FramePipeline::with_hooks(context.fragmentation, context.protocol_hooks),
-        message_assembly: context.message_assembler.map(|_| {
-            frame_handling::new_message_assembly_state(
-                context.fragmentation,
-                requested_frame_length,
-                Some(effective_budgets),
-            )
-        }),
-    };
-    // A child token so the guard below cancels only this connection, while a
-    // server shutdown still reaches it through the parent.
-    let connection_shutdown = context.shutdown.child_token();
-    // Cancelled only by a clean EOF, which is permanent for the connection.
-    let peer_eof = CancellationToken::new();
-    let (mut response_actor, _cancel_on_exit) =
-        build_connection_actor::<F>(context.protocol.as_ref(), connection_shutdown)?;
-
-    loop {
-        inbound.relieve_pressure(effective_budgets).await?;
-
-        let Some(frame) = inbound
-            .next(&mut reader, context.read_timeout_ms, context.shutdown)
-            .await?
-        else {
-            break;
-        };
-
-        let (unobserved, cause) = observe_peer(&mut response_actor.actor, &peer_eof);
-        let dispatch = handle_watching_peer(
-            handle_frame(
-                &frame,
-                FrameHandlingContext {
-                    sink: &mut sink,
-                    deser_failures: &mut deser_failures,
-                    routes: context.routes,
-                    serializer: context.serializer.as_ref(),
-                    codec: &connection_codec,
-                    message_assembler: context.message_assembler,
-                    message_assembly: &mut inbound.message_assembly,
-                    pipeline: &mut inbound.pipeline,
-                    actor: &mut response_actor.actor,
-                    protocol: context.protocol.as_ref(),
-                },
-            ),
-            &mut reader,
-            PeerObservation::new(&peer_eof, &unobserved, &cause),
-            &mut inbound.pending,
-        )
-        .await?;
-        // A cancelled response left its stream without a terminator, so any
-        // further response would be read as part of it. Drop the buffered
-        // request and close the connection instead.
-        if dispatch == Dispatch::Stop {
-            break;
-        }
-    }
-
-    Ok(())
-}
-
-/// Decode one frame, apply reassembly, and dispatch the resulting envelope.
-async fn handle_frame<S, E, K, F>(
-    frame: &F::Frame,
-    context: FrameHandlingContext<'_, S, E, K, F>,
-) -> io::Result<Dispatch>
-where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
-    E: Packet,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    F: FrameCodec,
-    Envelope: DecodeWith<S> + EncodeWith<S>,
-{
-    let FrameHandlingContext {
-        sink,
-        deser_failures,
-        routes,
-        serializer,
-        codec,
-        message_assembler,
-        message_assembly,
-        pipeline,
-        actor,
-        protocol,
-    } = context;
-
-    crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
-    let Some(envelope) = build_dispatchable_envelope(
-        serializer,
-        message_assembler,
-        DispatchBuildContext::<F> {
-            frame,
-            pipeline,
-            message_assembly,
-            deser_failures,
-        },
-    )?
-    else {
-        return Ok(Dispatch::Continue);
-    };
-
-    if let Some(service) = routes.get(&envelope.id) {
-        frame_handling::forward_response(
-            envelope,
-            service,
-            frame_handling::ResponseContext::<S, K, F> {
-                serializer,
-                sink,
-                pipeline,
-                codec,
-                actor,
-                protocol,
-            },
-        )
-        .await
-    } else {
-        warn!(
-            "no handler for message id: id={}, correlation_id={:?}",
-            envelope.id, envelope.correlation_id
-        );
-        Ok(Dispatch::Continue)
-    }
-}
-
-/// Build a dispatchable envelope through decode, reassembly, and assembly.
-fn build_dispatchable_envelope<S, F>(
-    serializer: &S,
-    message_assembler: Option<&Arc<dyn MessageAssembler>>,
-    context: DispatchBuildContext<'_, F>,
-) -> io::Result<Option<Envelope>>
-where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
-    F: FrameCodec,
-    Envelope: DecodeWith<S>,
-{
-    let DispatchBuildContext {
-        frame,
-        pipeline,
-        message_assembly,
-        deser_failures,
-    } = context;
-    let mut failure_tracker =
-        frame_handling::DeserFailureTracker::new(deser_failures, MAX_DESER_FAILURES);
-    let Some(envelope) = frame_handling::decode_envelope::<F>(
-        parse_envelope(serializer, F::frame_payload(frame)),
-        frame,
-        &mut failure_tracker,
-    )?
-    else {
-        return Ok(None);
-    };
-    let Some(reassembled_envelope) = frame_handling::reassemble_if_needed(
-        pipeline,
-        deser_failures,
-        envelope,
-        MAX_DESER_FAILURES,
-    )?
-    else {
-        return Ok(None);
-    };
-    let Some(assembled_envelope) = frame_handling::assemble_if_needed(
-        frame_handling::AssemblyRuntime::new(message_assembler, message_assembly),
-        deser_failures,
-        reassembled_envelope,
-        MAX_DESER_FAILURES,
-    )?
-    else {
-        return Ok(None);
-    };
-
-    // Reset only after the entire pipeline succeeds, so assembly failures
-    // accumulate towards the close threshold.
-    *deser_failures = 0;
-    Ok(Some(assembled_envelope))
+    ConnectionLoop::new(stream, context)?.run().await
 }

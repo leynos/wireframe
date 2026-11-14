@@ -5,10 +5,11 @@ use log::info;
 use super::{ConnectionActor, multi_packet::MultiPacketTerminationReason, state::ActorState};
 use crate::{app::Packet, correlation::CorrelatableFrame, push::FrameLike};
 
-impl<F, E> ConnectionActor<F, E>
+impl<F, E, P> ConnectionActor<F, E, P>
 where
     F: FrameLike + CorrelatableFrame + Packet,
     E: std::fmt::Debug,
+    P: FrameLike,
 {
     /// Begin shutdown once cancellation has been observed.
     pub(super) fn process_shutdown(&mut self, state: &mut ActorState) {

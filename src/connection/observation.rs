@@ -31,7 +31,7 @@ impl UnobservedCause {
     }
 }
 
-impl<F, E> ConnectionActor<F, E> {
+impl<F, E, P> ConnectionActor<F, E, P> {
     /// Mark the peer closed without recording why observation stopped.
     ///
     /// Tests that only need the bounded idle grace use this; the inbound loop

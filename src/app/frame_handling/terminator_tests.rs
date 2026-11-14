@@ -30,18 +30,36 @@ use super::ResponseContext;
 use crate::{
     app::{Envelope, codec_driver::FramePipeline},
     codec::FrameCodec,
-    connection::{ConnectionActor, ConnectionChannels},
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse},
     push::{PushConfigError, PushHandle, PushQueues},
     response::{FrameStream, Response},
     serializer::BincodeSerializer,
+    connection::{ConnectionActor, ConnectionChannels, UntrackedActorInit},
+};
+
+
+//! Protocol-terminator preservation through the response path.
+//!
+//! A protocol terminator is a complete codec frame. This module proves the
+//! inbound path sends the frame returned by
+//! [`WireframeProtocol::stream_end_frame`] straight to the sink, so metadata a
+//! custom codec keeps outside the payload survives. Decoding the terminator
+//! into an [`Envelope`] and re-wrapping it would reset that metadata.
+//!
+//! The frame is not byte-for-byte unmodified: the connection-level
+//! `before_send` hook still observes it and may rewrite it, exactly as it does
+//! for application frames. The second scenario below pins that ordering.
+};
+};
 };
 
 /// Marker the test's `before_send` hook appends to the terminator payload.
 const MARKER: u8 = 0x5a;
+
 /// Tag the protocol assigns to its terminator, distinct from codec wrapping.
 const TERMINATOR_TAG: u8 = 0xab;
+
 /// Tag [`TaggedCodec::wrap_payload`] assigns to application frames.
 const WRAPPED_TAG: u8 = 0x01;
 
@@ -185,17 +203,24 @@ impl Sink<TaggedFrame> for RecordingSink {
 /// # Errors
 ///
 /// Returns [`PushConfigError`] if the queue capacities are rejected.
-fn build_actor() -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>), PushConfigError> {
-    let (queues, handle) = PushQueues::<Envelope>::builder()
+fn build_actor() -> Result<
+    (
+        ConnectionActor<Envelope, (), TaggedFrame>,
+        PushHandle<TaggedFrame>,
+    ),
+    PushConfigError,
+> {
+    let (queues, handle) = PushQueues::<TaggedFrame>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()?;
-    let actor = ConnectionActor::new_untracked(
-        ConnectionChannels::new(queues, handle.clone()),
-        None,
-        CancellationToken::new(),
-        ProtocolHooks::default(),
-    );
+    let actor = ConnectionActor::new_untracked(UntrackedActorInit {
+        channels: ConnectionChannels::new(queues, handle.clone()),
+        response: None,
+        shutdown: CancellationToken::new(),
+        hooks: ProtocolHooks::default(),
+        ctx: ConnectionContext::default(),
+    });
     Ok((actor, handle))
 }
 

@@ -162,7 +162,7 @@ where
     let Some(protocol) = ctx.protocol else {
         return Ok(outcome);
     };
-    let mut context = ConnectionContext;
+    let mut context = ConnectionContext::default();
     if owes_terminator(outcome, delivery.is_streaming) {
         // The protocol terminator is a complete codec frame. Writing it
         // unchanged preserves metadata a custom codec adds outside the payload,

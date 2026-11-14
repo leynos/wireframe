@@ -9,10 +9,11 @@ use crate::{
     push::FrameLike,
 };
 
-impl<F, E> ConnectionActor<F, E>
+impl<F, E, P> ConnectionActor<F, E, P>
 where
     F: FrameLike + CorrelatableFrame + Packet,
     E: std::fmt::Debug,
+    P: FrameLike,
 {
     /// Emit a multi-packet frame with correlation stamping applied.
     pub(super) fn emit_multi_packet_frame(&mut self, mut frame: F, out: &mut Vec<F>) {

@@ -22,7 +22,7 @@ use crate::{
         combined_codec::CombinedCodec,
     },
     codec::FrameCodec,
-    connection::{ConnectionActor, ConnectionChannels},
+    connection::{ConnectionActor, ConnectionChannels, UntrackedActorInit},
     hooks::{ConnectionContext, ProtocolHooks},
     push::PushQueues,
     serializer::BincodeSerializer,
@@ -281,17 +281,18 @@ async fn response_context_holds_references(harness: TestHarness) {
     } = harness;
     let serializer = BincodeSerializer;
     let mut pipeline: FramePipeline<TestFrame> = FramePipeline::new(None);
-    let (queues, handle) = PushQueues::<Envelope>::builder()
+    let (queues, handle) = PushQueues::<TestFrame>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()
         .expect("actor queues");
-    let mut actor = ConnectionActor::new_untracked(
-        ConnectionChannels::new(queues, handle),
-        None,
-        CancellationToken::new(),
-        ProtocolHooks::default(),
-    );
+    let mut actor = ConnectionActor::<Envelope, (), TestFrame>::new_untracked(UntrackedActorInit {
+        channels: ConnectionChannels::new(queues, handle),
+        response: None,
+        shutdown: CancellationToken::new(),
+        hooks: ProtocolHooks::default(),
+        ctx: ConnectionContext::default(),
+    });
 
     let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
         serializer: &serializer,

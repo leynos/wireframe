@@ -16,6 +16,8 @@ use std::sync::Arc;
 use super::{
     ConnectionActor,
     FrameSink,
+    PushSink,
+    drain::ActorStep,
     drive::ResponseOutcome,
     event::{Event, EventWatch},
     state::ActorState,
@@ -29,10 +31,33 @@ use crate::{
     response::WireframeError,
 };
 
-impl<F, E> ConnectionActor<F, E>
+/// Output produced by one loop iteration, split by frame kind.
+///
+/// Responses are application frames the sink serializes; pushes arrive already
+/// encoded for the wire. Keeping them apart lets the actor flush pushes first
+/// without conflating the two frame types.
+struct PendingOutput<F, P> {
+    /// Response frames produced by the event.
+    frames: Vec<F>,
+    /// Push frames produced by the event.
+    pushes: Vec<P>,
+}
+
+impl<F, P> PendingOutput<F, P> {
+    /// Start an empty batch for one loop iteration.
+    const fn new() -> Self {
+        Self {
+            frames: Vec::new(),
+            pushes: Vec::new(),
+        }
+    }
+}
+
+impl<F, E, P> ConnectionActor<F, E, P>
 where
     F: FrameLike + CorrelatableFrame + Packet,
     E: std::fmt::Debug,
+    P: FrameLike,
 {
     /// Continue a response under the idle grace.
     ///
@@ -53,7 +78,7 @@ where
         sink: &mut S,
     ) -> Result<ResponseOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         while self.active_output.is_response() || self.active_output.is_multi_packet() {
             let mut state = ActorState::new(
@@ -77,9 +102,14 @@ where
                 ResponseCancellationReason::Shutdown.record();
                 return Ok(ResponseOutcome::Cancelled);
             }
-            let mut frames = Vec::new();
-            self.dispatch_event(event, &mut state, &mut frames)?;
-            if self.write_after_peer_close(frames, sink).await? == WriteOutcome::Cancelled {
+            let mut output = PendingOutput::new();
+            let mut step = ActorStep {
+                state: &mut state,
+                out: &mut output.frames,
+                pushes: &mut output.pushes,
+            };
+            self.dispatch_event(event, &mut step)?;
+            if self.write_after_peer_close(output, sink).await? == WriteOutcome::Cancelled {
                 return Ok(ResponseOutcome::Cancelled);
             }
             self.run_deferred_command_end();
@@ -100,7 +130,10 @@ where
     /// observing it, a producer that yields nothing would keep this wait
     /// pending past `stop()` and hold the connection, its gauge and the server
     /// drain open for as long as the peer stays connected.
-    pub(super) async fn next_event_while_draining(&mut self, state: &ActorState) -> Event<F, E> {
+    pub(super) async fn next_event_while_draining(
+        &mut self,
+        state: &ActorState,
+    ) -> Event<F, E, P> {
         let watch = EventWatch {
             peer: true,
             shutdown: true,
@@ -114,7 +147,10 @@ where
     /// observed only when it must abandon the response. Watching a cancelled
     /// token unconditionally would make the biased select return immediately on
     /// every iteration and spin the loop.
-    pub(super) async fn next_event_in_bounded_drain(&mut self, state: &ActorState) -> Event<F, E> {
+    pub(super) async fn next_event_in_bounded_drain(
+        &mut self,
+        state: &ActorState,
+    ) -> Event<F, E, P> {
         let watch = EventWatch {
             peer: false,
             shutdown: self.abandon_response_on_shutdown,
@@ -122,7 +158,7 @@ where
         self.next_event_inner(state, watch).await
     }
 
-    /// Write one event's frames, bounded by the idle grace and by shutdown.
+    /// Write one event's output, bounded by the idle grace and by shutdown.
     ///
     /// A peer that stopped reading applies back-pressure that can hold a send
     /// pending forever, so bounding only the wait for the next event would still
@@ -131,19 +167,34 @@ where
     /// is progress, so a peer that keeps reading must not be abandoned merely
     /// because writing the whole batch takes longer than one grace.
     ///
+    /// Queued pushes are written before the response frames produced with them,
+    /// matching the actor's own priority ordering.
+    ///
     /// # Errors
     ///
     /// Returns a [`WireframeError`] if the sink fails.
     async fn write_after_peer_close<S>(
         &mut self,
-        frames: Vec<F>,
+        output: PendingOutput<F, P>,
         sink: &mut S,
     ) -> Result<WriteOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
+        let PendingOutput { frames, pushes } = output;
+        let progress = sink.progress();
+        for push in pushes {
+            let outcome = self
+                .write_one_after_peer_close(progress.clone(), sink.send_push(push))
+                .await?;
+            if outcome == WriteOutcome::Cancelled {
+                return Ok(WriteOutcome::Cancelled);
+            }
+        }
         for frame in frames {
-            let outcome = self.write_one_after_peer_close(frame, sink).await?;
+            let outcome = self
+                .write_one_after_peer_close(progress.clone(), sink.send_frame(frame))
+                .await?;
             if outcome == WriteOutcome::Cancelled {
                 return Ok(WriteOutcome::Cancelled);
             }
@@ -160,18 +211,17 @@ where
     /// # Errors
     ///
     /// Returns a [`WireframeError`] if the sink fails.
-    async fn write_one_after_peer_close<S>(
+    async fn write_one_after_peer_close<Writing>(
         &mut self,
-        frame: F,
-        sink: &mut S,
+        progress: Option<Arc<super::ProgressSignal>>,
+        writing: Writing,
     ) -> Result<WriteOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        Writing: std::future::Future<Output = std::io::Result<()>>,
     {
         let limit = {
-            let progress = sink.progress();
             let bounds = self.write_bounds();
-            let mut writing = std::pin::pin!(sink.send_frame(frame));
+            let mut writing = std::pin::pin!(writing);
             writes::write_within_grace(writing.as_mut(), &bounds, progress.as_deref())
                 .await
                 .map_err(WireframeError::Io)?

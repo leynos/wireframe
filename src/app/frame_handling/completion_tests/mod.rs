@@ -22,7 +22,7 @@ use super::{Dispatch, ResponseContext};
 use crate::{
     app::{Envelope, codec_driver::FramePipeline},
     codec::LengthDelimitedFrameCodec,
-    connection::{ConnectionActor, ConnectionChannels},
+    connection::{ConnectionActor, ConnectionChannels, UntrackedActorInit},
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse},
     push::{PushConfigError, PushHandle, PushQueues},
@@ -148,7 +148,8 @@ impl Service for StreamService {
 /// # Errors
 ///
 /// Returns [`PushConfigError`] if the queue capacities are rejected.
-fn build_actor() -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>), PushConfigError> {
+fn build_actor()
+-> Result<(ConnectionActor<Envelope, (), Bytes>, PushHandle<Bytes>), PushConfigError> {
     build_actor_with(CancellationToken::new())
 }
 
@@ -159,17 +160,18 @@ fn build_actor() -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>)
 /// Returns [`PushConfigError`] if the queue capacities are rejected.
 fn build_actor_with(
     shutdown: CancellationToken,
-) -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>), PushConfigError> {
-    let (queues, handle) = PushQueues::<Envelope>::builder()
+) -> Result<(ConnectionActor<Envelope, (), Bytes>, PushHandle<Bytes>), PushConfigError> {
+    let (queues, handle) = PushQueues::<Bytes>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()?;
-    let actor = ConnectionActor::new_untracked(
-        ConnectionChannels::new(queues, handle.clone()),
-        None,
+    let actor = ConnectionActor::new_untracked(UntrackedActorInit {
+        channels: ConnectionChannels::new(queues, handle.clone()),
+        response: None,
         shutdown,
-        ProtocolHooks::default(),
-    );
+        hooks: ProtocolHooks::default(),
+        ctx: ConnectionContext::default(),
+    });
     Ok((actor, handle))
 }
 
@@ -206,7 +208,7 @@ async fn forward(
 /// Run one response through the prepared path with an already built actor.
 async fn run_forward<K>(
     sink: &mut K,
-    actor: &mut ConnectionActor<Envelope, ()>,
+    actor: &mut ConnectionActor<Envelope, (), Bytes>,
     response: Response<Envelope, ()>,
     log: &EventLog,
 ) -> io::Result<Dispatch>
@@ -382,3 +384,4 @@ async fn completion_hook_is_suppressed_when_the_response_is_cancelled() {
         "a cancelled response writes no terminator and runs no hook"
     );
 }
+// weave: run 'weave explain src/app/frame_handling/completion_tests/mod.rs' for per-hunk detail, 'weave check' to verify your resolution

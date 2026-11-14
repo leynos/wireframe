@@ -14,7 +14,7 @@ use tokio_util::sync::CancellationToken;
 use super::{counting_hooks, grace::ManualGraceTimer, test_actor, test_actor_with_shutdown};
 use crate::{
     app::Envelope,
-    connection::{FrameSink, ResponseOutcome},
+    connection::{FrameSink, PushSink, ResponseOutcome},
     hooks::ProtocolHooks,
     response::{FrameStream, Response},
 };
@@ -24,6 +24,12 @@ struct StalledSink;
 
 impl FrameSink<Envelope> for StalledSink {
     fn send_frame(&mut self, _frame: Envelope) -> impl Future<Output = io::Result<()>> + Send {
+        std::future::pending()
+    }
+}
+
+impl PushSink<Envelope> for StalledSink {
+    fn send_push(&mut self, _frame: Envelope) -> impl Future<Output = io::Result<()>> + Send {
         std::future::pending()
     }
 }

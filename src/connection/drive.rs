@@ -12,6 +12,8 @@ use log::info;
 use super::{
     ConnectionActor,
     FrameSink,
+    PushSink,
+    drain::ActorStep,
     event::{Event, EventWatch},
     output::{ActiveOutput, AvailableOutput, EventAvailability},
     polling::EventSources,
@@ -74,7 +76,14 @@ where
     pub async fn run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>> {
         self.run_with_sink(out).await
     }
+}
 
+impl<F, E, P> ConnectionActor<F, E, P>
+where
+    F: FrameLike + CorrelatableFrame + Packet,
+    E: std::fmt::Debug,
+    P: FrameLike,
+{
     /// Drive the actor, awaiting `sink` for every emitted frame.
     ///
     /// Frames produced by a single loop iteration are buffered, then delivered
@@ -88,7 +97,7 @@ where
     /// error.
     pub(crate) async fn run_with_sink<S>(&mut self, sink: &mut S) -> Result<(), WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         // If cancellation has already been requested, exit immediately. Nothing
         // will be drained and any streaming response is abandoned. This mirrors
@@ -110,8 +119,16 @@ where
         while !state.is_done() {
             let event = self.next_event(&state).await;
             let mut frames = Vec::new();
-            self.dispatch_event(event, &mut state, &mut frames)?;
-            if self.flush_or_cancel(frames, sink).await? == WriteOutcome::Cancelled {
+            let mut pushes = Vec::new();
+            let mut step = ActorStep {
+                state: &mut state,
+                out: &mut frames,
+                pushes: &mut pushes,
+            };
+            self.dispatch_event(event, &mut step)?;
+            // `flush_out` writes pushes before response frames, matching the
+            // order the sources produced them.
+            if self.flush_or_cancel(pushes, frames, sink).await? == WriteOutcome::Cancelled {
                 info!(
                     "connection aborted during write: id={:?}, peer={:?}",
                     self.connection_id, self.peer_addr
@@ -150,7 +167,7 @@ where
         sink: &mut S,
     ) -> Result<ResponseOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         // Diagnostics for a stalled response report the request it belonged to.
         self.response_correlation = correlation_id;
@@ -204,7 +221,7 @@ where
         sink: &mut S,
     ) -> Result<ResponseOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         while self.active_output.is_response() || self.active_output.is_multi_packet() {
             let mut state = ActorState::new(
@@ -273,7 +290,7 @@ where
         sink: &mut S,
     ) -> Result<WriteOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         ensure_output_idle(&self.active_output)?;
         let mut out = Vec::with_capacity(frames.len());
@@ -283,7 +300,7 @@ where
             }
             self.process_frame_with_hooks_and_metrics(frame, &mut out);
         }
-        self.flush_or_cancel(out, sink).await
+        self.flush_or_cancel(Vec::new(), out, sink).await
     }
 
     /// Finish an immediately emitted response.
@@ -319,7 +336,7 @@ where
     ///
     /// The `strict_priority_order` and `shutdown_signal_precedence` tests
     /// assert that this ordering is preserved across refactors.
-    pub(super) async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
+    pub(super) async fn next_event(&mut self, state: &ActorState) -> Event<F, E, P> {
         self.next_event_inner(
             state,
             EventWatch {
@@ -351,7 +368,7 @@ where
         &mut self,
         state: &ActorState,
         watch: EventWatch,
-    ) -> Event<F, E> {
+    ) -> Event<F, E, P> {
         let avail = self.compute_availability(state);
         let can_poll_multi_packet = avail.output == AvailableOutput::MultiPacket;
         let can_poll_response = avail.output == AvailableOutput::Response;

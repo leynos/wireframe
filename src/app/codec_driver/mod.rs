@@ -98,13 +98,21 @@ impl<T> FramePipeline<T> {
             fragmentation: fragmentation.map(FragmentationState::new),
             out: Vec::new(),
             hooks,
-            context: ConnectionContext,
+            context: ConnectionContext::default(),
         }
     }
 
     /// Run the configured `before_send` hook for one outbound frame.
     pub(crate) fn before_send_frame(&mut self, frame: &mut T) {
         self.hooks.before_send(frame, &mut self.context);
+    }
+
+    /// Replace the per-connection context passed to protocol hooks.
+    ///
+    /// The connection actor and this pipeline both run `before_send`, so they
+    /// must agree on which connection the callbacks are running for.
+    pub(crate) const fn set_context(&mut self, context: ConnectionContext) {
+        self.context = context;
     }
 
     /// Process an envelope through the pipeline: fragment → metrics.
