@@ -125,13 +125,17 @@ where
         // accepted into a lane the actor has already stopped polling, which
         // would silently lose it.
         let mut lanes = [self.high_rx.take(), self.low_rx.take()];
+        // Taking a lane out of the actor does not close it: the receiver is
+        // still alive in `lanes`, so a concurrent push would be accepted into a
+        // lane this drain has already read and then be discarded when `lanes`
+        // drops. Every lane is therefore closed before any is drained, so a
+        // push arriving during the high-priority drain is rejected rather than
+        // queued into a low lane that will never be read again.
+        for receiver in lanes.iter_mut().flatten() {
+            receiver.close();
+        }
         let mut pushes = Vec::new();
         for receiver in lanes.iter_mut().flatten() {
-            // Taking a lane out of the actor does not close it: the receiver is
-            // still alive in `lanes`, so a concurrent push would be accepted
-            // into a lane this drain has already read and then be discarded
-            // when `lanes` drops. Closing first makes that push fail.
-            receiver.close();
             self.drain_receiver(receiver, &mut pushes).await;
         }
         for frame in pushes {
