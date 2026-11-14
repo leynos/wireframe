@@ -96,9 +96,10 @@ where
     ///
     /// Connections register their push handle with this registry on setup and
     /// deregister it on close, so application code holding the same `Arc` can
-    /// address individual connections. Without this call the application owns
-    /// a private registry that is still populated but not reachable by the
-    /// caller.
+    /// address individual connections. Without this call the application
+    /// creates its own registry, which [`Self::session_registry`] returns, so
+    /// call that before handing the application to a server if application
+    /// code needs to address its connections.
     ///
     /// # Examples
     ///

@@ -2697,9 +2697,11 @@ for that connection.
 
 `WireframeApp::with_session_registry` supplies an
 `Arc<SessionRegistry<F::Frame>>` that every connection registers with. Without
-it the application owns a private registry that is populated but unreachable by
-the caller. `session_registry()` returns the same `Arc` from the builder or a
-prepared application, so application code can address live connections:
+it the application creates its own registry, and `session_registry()` returns
+that same `Arc` from the builder or a prepared application, so calling it (and
+keeping the clone it returns) before handing the application to the server
+gives application code the registry the connections will use. A registry that
+is never obtained this way is populated by the connections but unreachable:
 
 ```rust
 use std::sync::Arc;
@@ -2739,19 +2741,22 @@ is set.
 
 Two kinds of end of connection behave differently:
 
-- On a clean peer close, the connection loop drains both lanes before it stops,
-  writing the high-priority frames first. Frames a producer queued while the
-  connection was busy are delivered rather than discarded.
+- On a clean peer close, the connection loop attempts to drain both lanes
+  before it stops, writing the high-priority frames first, so frames a producer
+  queued while the connection was busy are usually delivered rather than
+  discarded. Delivery is an attempt, not a guarantee: every drained write stays
+  bounded, so a write that fails, that is still blocked when the server stops,
+  or that an unobservable peer accepts nothing for during the 30-second grace
+  ends the drain and the frames still queued behind it are not sent.
 - On server shutdown the lanes are closed immediately, and a push attempted
   after that fails with `PushError::Closed`. Shutdown does not wait to flush
   what is still buffered: a write that would block is abandoned rather than
   awaited, so the server drain never blocks on a peer that has stopped reading.
   A write the transport still accepts completes, and only then is the stop
-  observed.
-  A frame that was queued but not yet written at that point is not guaranteed
-  to arrive. This bound is why accepted connections observe the server stop
-  token; [ADR 014](adr-014-server-shutdown-ownership.md) records the decision
-  and its addendum.
+  observed, so a frame that was queued but not yet written at that point is
+  not guaranteed to arrive. This bound is why accepted connections observe the
+  server stop token; [ADR 014](adr-014-server-shutdown-ownership.md) records
+  the decision and its addendum.
 
 `WireframeApp::with_push_dlq` is deprecated since 0.4.0. Its sink receives
 serialized payloads, is no longer consulted when connection queues are built,
