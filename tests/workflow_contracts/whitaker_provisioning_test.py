@@ -21,6 +21,7 @@ from typing import cast
 import pytest
 import yaml
 from make_route_reader import runs_make_install_whitaker
+from shell_script_reader import script_lines
 from whitaker_install_policy import (
     LocatedStep,
     Step,
@@ -75,7 +76,10 @@ def _whitaker_routes(steps: list[LocatedStep]) -> list[str]:
     """Return ``file:job: step`` for each step that runs Whitaker by hand."""
     return step_labels(
         steps,
-        lambda step: WHITAKER_ROUTE_RE.search(str(step.get("run", ""))) is not None,
+        lambda step: WHITAKER_ROUTE_RE.search(
+            "\n".join(script_lines(str(step.get("run", ""))))
+        )
+        is not None,
     )
 
 
@@ -142,6 +146,8 @@ def test_no_workflow_declares_a_whitaker_version_token() -> None:
         "./target/debug/whitaker --all",
         "cargo dylint --all",
         "cargo install cargo-dylint",
+        "whita\\\nker --all",
+        "cargo dy\\\nlint --all",
     ],
 )
 def test_the_whitaker_route_contract_rejects_a_manual_invocation(run: str) -> None:
@@ -199,6 +205,9 @@ def test_the_real_install_step_is_not_another_route() -> None:
         "echo x#y; make install-whitaker",
         "if make install-whitaker; then :; fi",
         'echo "$(make install-whitaker)"',
+        "bash -ec 'make install-whitaker'",
+        "ma\\\nke install-whitaker",
+        "make \\\n  install-whitaker",
     ],
 )
 def test_the_contract_reports_a_make_install_step(run: str) -> None:

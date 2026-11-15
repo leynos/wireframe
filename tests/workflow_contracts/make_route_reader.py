@@ -29,6 +29,8 @@ from shell_script_reader import commands, script_lines, substitutions, tokenize
 TARGET = "install-whitaker"
 
 _ASSIGNMENT: typ.Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+#: A short-option cluster containing `c`, which makes a shell run its next word.
+_COMMAND_OPTION: typ.Final = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
 #: Words that run the command after them, so the command is still `make`.
 _WRAPPERS: typ.Final = frozenset({"env", "command", "exec", "time", "sudo", "nice"})
 #: Words that introduce the command after them (`if make ...; then`).
@@ -65,7 +67,7 @@ def _shell_script(words: list[str]) -> str | None:
     Combined short options count: ``bash -ec 'script'`` runs ``script``.
     """
     for position, word in enumerate(words[1:-1], start=1):
-        if word.startswith("-") and not word.startswith("--") and "c" in word:
+        if _COMMAND_OPTION.fullmatch(word):
             return words[position + 1]
     return None
 

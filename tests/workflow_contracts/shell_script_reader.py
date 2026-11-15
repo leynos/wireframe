@@ -31,8 +31,12 @@ _SUBSTITUTION: typ.Final = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
 
 
 def script_lines(run: str) -> list[str]:
-    """Return a script's lines, with continuation lines joined to their head."""
-    return _LINE_CONTINUATION.sub(" ", run).splitlines()
+    """Return a script's lines, with continuation lines joined to their head.
+
+    The shell removes a backslash-newline pair outright, so ``ma\\`` followed by
+    ``ke`` is one word, ``make``.
+    """
+    return _LINE_CONTINUATION.sub("", run).splitlines()
 
 
 def tokenize(line: str) -> list[Token]:
