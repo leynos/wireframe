@@ -222,6 +222,23 @@ def test_the_whitaker_route_contract_rejects_a_manual_invocation(run: str) -> No
     assert _whitaker_routes(steps) == ["ci.yml:build-test: Lint"]
 
 
+def test_the_action_path_in_a_script_is_not_a_manual_route() -> None:
+    """A script that only names the action path is exempt from the scan.
+
+    The scanner reads ``run`` text, and a bare ``whitaker`` is a manual route.
+    The ``install-whitaker`` path is exempt only because the pattern refuses a
+    hyphen before the name; the final assertion shows that a pattern without
+    that lookbehind would report this script, so removing the lookbehind makes
+    this test fail.
+    """
+    run = "echo leynos/shared-actions/.github/actions/install-whitaker@" + "0" * 40
+    steps = [("ci.yml", "build-test", {"name": "Note", "run": run})]
+    assert _whitaker_routes(steps) == [], "the action path reads as a manual route"
+    assert re.search(r"whitaker(?:-ls)?\b", run), (
+        "the script must contain the bare name, or the lookbehind is untested"
+    )
+
+
 def test_the_real_install_step_is_not_another_route() -> None:
     """The sanctioned shared-action step is neither a manual nor a Make route."""
     steps = _install_steps(_workflow_steps())
@@ -239,6 +256,12 @@ def test_the_real_install_step_is_not_another_route() -> None:
         "cd . && make lint && make install-whitaker",
         "env X=1 make install-whitaker",
         "MAKEFLAGS=-s make install-whitaker",
+        "make install-whitaker && make lint",
+        "echo ok\nmake install-whitaker\nmake lint",
+        "make lint\nmake install-whitaker",
+        "env -i make install-whitaker",
+        "sudo -n make install-whitaker",
+        "echo x#y; make install-whitaker",
     ],
 )
 def test_the_contract_reports_a_make_install_step(run: str) -> None:

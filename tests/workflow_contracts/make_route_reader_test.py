@@ -35,6 +35,14 @@ from make_route_reader import runs_make_install_whitaker
         "printf '%s' 'hello # world'; make install-whitaker",
         "bash -c 'make install-whitaker'",
         "echo 'unbalanced; make install-whitaker",
+        "echo x#y; make install-whitaker",
+        "echo '&&' ; make install-whitaker",
+        "env -i make install-whitaker",
+        "sudo -n make install-whitaker",
+        "sudo -u builder env -i make install-whitaker",
+        "make install-whitaker && make lint",
+        "echo ok\nmake install-whitaker\nmake lint",
+        "make lint\nmake install-whitaker",
     ],
     ids=[
         "plain",
@@ -56,6 +64,14 @@ from make_route_reader import runs_make_install_whitaker
         "hash-inside-quotes",
         "shell-dash-c",
         "unparsable-quoting",
+        "hash-inside-a-word",
+        "quoted-operator-then-real-command",
+        "env-with-option",
+        "sudo-with-option",
+        "wrapper-options-with-arguments",
+        "install-then-lint",
+        "install-after-echo",
+        "install-after-lint-line",
     ],
 )
 def test_every_spelling_of_the_make_route_is_reported(run: str) -> None:
@@ -76,6 +92,11 @@ def test_every_spelling_of_the_make_route_is_reported(run: str) -> None:
         "make lint # then make install-whitaker",
         "printf '%s\\n' install-whitaker",
         "make lint \\\n  # make install-whitaker",
+        "echo '&&' make install-whitaker",
+        "echo \"a; make install-whitaker\"",
+        "env -i make lint",
+        "sudo -n make lint",
+        "echo x # make install-whitaker",
     ],
     ids=[
         "lint",
@@ -88,6 +109,11 @@ def test_every_spelling_of_the_make_route_is_reported(run: str) -> None:
         "trailing-comment-text",
         "printf",
         "commented-continuation",
+        "quoted-operator-is-text",
+        "double-quoted-separator",
+        "wrapper-then-lint",
+        "sudo-then-lint",
+        "comment-after-echo",
     ],
 )
 def test_text_naming_the_target_is_not_a_route(run: str) -> None:
