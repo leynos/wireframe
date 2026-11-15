@@ -1832,14 +1832,17 @@ language identifier, or a fence or marker inside a block quote. The scan covers
 only top-level blocks, so a quoted example is rejected rather than skipped;
 move it out of the quote.
 
-The gate is proved on the shipped documents, not only on a fixture. The
+The gates are proved on the shipped documents, not only on a fixture. The
 workflow contract `the_rustdoc_gate_runs_shipped_documents` in
 `tests/workflow_contracts/tested_documentation_doctest_test.py` copies the
-repository to a temporary root and runs `make test-doc` there: the untouched
-copy passes, an added non-compiling fence fails with `error[E0308]`, and
-removing one marker from a shipped guide makes the loader report the document
-path and `missing its marker`. The copy borrows the repository's `target`
-directory, so only this crate and its doctests are rebuilt.
+repository to a temporary root and runs both gates there. `make test-doc` on
+the untouched copy passes, and appending a non-compiling fence to a shipped
+guide makes it fail with `error[E0308]`. The missing-marker case belongs to the
+loader gate, `cargo test --test documentation_examples`: removing one marker
+from a shipped guide makes that command report the document path and
+`missing its marker`, whereas `make test-doc` runs doctests only. The copy
+borrows the repository's `target` directory, so only this crate and its
+doctests are rebuilt.
 
 Prefer a compiling fence. Mark an excerpt `ignore` only when it depends on a
 crate the workspace does not build, an async runtime a doctest cannot start, or
