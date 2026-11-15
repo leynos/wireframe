@@ -261,16 +261,8 @@ fn malformed_metadata_is_rejected(#[case] document: serde_json::Value, #[case] e
     );
 }
 
-#[test]
-fn metadata_queries_leave_an_isolated_package_unchanged() -> RepoAccessResult {
-    let scratch = Scratch::new()?;
-    let dir = scratch.open()?;
-    dir.create_dir("src")?;
-    dir.write("Cargo.toml", PROBE_MANIFEST)?;
-    dir.write("src/lib.rs", "pub fn probe() {}\n")?;
-    let root = scratch.path();
-    generate_lockfile(&root)?;
-    let before = file_contents(&dir)?;
+/// Require the snapshot to cover every file the metadata query could rewrite.
+fn require_snapshot_entries(before: &BTreeMap<String, Vec<u8>>) -> RepoAccessResult {
     for required in ["Cargo.toml", "Cargo.lock", "src/lib.rs"] {
         if !before.contains_key(required) {
             return Err(format!(
@@ -281,9 +273,11 @@ fn metadata_queries_leave_an_isolated_package_unchanged() -> RepoAccessResult {
             .into());
         }
     }
+    Ok(())
+}
 
-    let metadata = run_cargo_metadata(root.as_std_path(), WORKSPACE_METADATA)?;
-
+/// Require the probe workspace's metadata to describe exactly one package.
+fn require_one_package(metadata: &serde_json::Value) -> RepoAccessResult {
     let packages = metadata
         .get("packages")
         .and_then(serde_json::Value::as_array)
@@ -294,6 +288,24 @@ fn metadata_queries_leave_an_isolated_package_unchanged() -> RepoAccessResult {
         )
         .into());
     }
+    Ok(())
+}
+
+#[test]
+fn metadata_queries_leave_an_isolated_package_unchanged() -> RepoAccessResult {
+    let scratch = Scratch::new()?;
+    let dir = scratch.open()?;
+    dir.create_dir("src")?;
+    dir.write("Cargo.toml", PROBE_MANIFEST)?;
+    dir.write("src/lib.rs", "pub fn probe() {}\n")?;
+    let root = scratch.path();
+    generate_lockfile(&root)?;
+    let before = file_contents(&dir)?;
+    require_snapshot_entries(&before)?;
+
+    let metadata = run_cargo_metadata(root.as_std_path(), WORKSPACE_METADATA)?;
+
+    require_one_package(&metadata)?;
     let after = file_contents(&dir)?;
     if after != before {
         return Err(format!(
