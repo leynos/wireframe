@@ -17,6 +17,7 @@ Run these workflow contract tests with ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -295,24 +296,30 @@ def _whitaker_routes(
     ]
 
 
-def test_whitaker_is_installed_only_through_the_shared_action() -> None:
-    """Exactly one step installs Whitaker, through the shared action, unpinned.
+def _step_labels(
+    steps: list[tuple[str, str, dict[str, object]]],
+    predicate: Callable[[dict[str, object]], bool],
+) -> list[str]:
+    """Return ``file:job: step`` for each step the predicate selects."""
+    return [
+        f"{file}:{job}: {step.get('name')}"
+        for file, job, step in steps
+        if predicate(step)
+    ]
+
+
+def test_whitaker_has_one_shared_action_install_before_lint() -> None:
+    """Exactly one step installs Whitaker, through the shared action, in order.
 
     Invariant, over every job and step of every workflow: one shared
     ``install-whitaker`` action step, at a full commit SHA, in ci.yml's
-    ``build-test`` job before the exact ``make lint`` step; it passes no
-    ``suite-version`` or installer pin, since the action owns the installer
-    version and refuses a suite pin; no ``make install-whitaker`` step (that
-    target is the contributor's route); no other ``run`` script installs or
-    invokes the Whitaker tools; no repository-owned Whitaker cache step; and
-    no installer-version or suite-revision token appears in a workflow. The
-    count is asserted first, because a contract over no steps is satisfied by
-    deleting the install.
+    ``build-test`` job before the exact ``make lint`` step. The count is
+    asserted first, because a contract over no steps is satisfied by deleting
+    the install.
     """
-    steps = _workflow_steps()
     installs = [
         (file, job, step)
-        for file, job, step in steps
+        for file, job, step in _workflow_steps()
         if "install-whitaker@" in str(step.get("uses", ""))
     ]
     assert len(installs) == 1, (
@@ -325,34 +332,51 @@ def test_whitaker_is_installed_only_through_the_shared_action() -> None:
     assert INSTALL_WHITAKER_ACTION_RE.fullmatch(str(install["uses"])), (
         f"the install action must be pinned to a full commit SHA: {install['uses']}"
     )
+    _assert_installed_before_lint(install)
+
+
+def test_the_install_action_passes_no_pin() -> None:
+    """The action owns the installer version and refuses a suite pin."""
+    install = next(
+        step
+        for _file, _job, step in _workflow_steps()
+        if "install-whitaker@" in str(step.get("uses", ""))
+    )
     options = install.get("with") or {}
     assert isinstance(options, dict), "the install step's with: must be a mapping"
     pinned = sorted(
         key for key in options if key in {"suite-version", "installer-version"}
     )
     assert not pinned, f"the action owns the pins; the step passes {pinned}"
-    _assert_installed_before_lint(install)
 
-    make_installs = [
-        f"{file}:{job}: {step.get('name')}"
-        for file, job, step in steps
-        if str(step.get("run", "")).strip() == MAKE_INSTALL_WHITAKER_RUN
-    ]
+
+def test_no_other_route_installs_or_runs_whitaker_in_ci() -> None:
+    """No Make install, script, cache step or version token is another route.
+
+    The ``make install-whitaker`` target is the contributor's route; no ``run``
+    script installs or invokes the Whitaker tools; no repository-owned Whitaker
+    cache step remains; and no installer-version or suite-revision token
+    appears in a workflow.
+    """
+    steps = _workflow_steps()
+    make_installs = _step_labels(
+        steps, lambda step: str(step.get("run", "")).strip() == MAKE_INSTALL_WHITAKER_RUN
+    )
     assert not make_installs, (
         f"CI installs through the shared action, not Make: {make_installs}"
     )
-
     routes = _whitaker_routes(steps)
     assert not routes, f"a script installs or runs Whitaker by hand: {routes}"
-
-    caches = [
-        f"{file}:{job}: {step.get('name')}"
-        for file, job, step in steps
-        if str(step.get("uses", "")).startswith("actions/cache")
-        and "whitaker" in str(step.get("with", {})).lower()
-    ]
+    caches = _step_labels(
+        steps,
+        lambda step: str(step.get("uses", "")).startswith("actions/cache")
+        and "whitaker" in str(step.get("with", {})).lower(),
+    )
     assert not caches, f"a repository-owned Whitaker cache step remains: {caches}"
 
+
+def test_no_workflow_declares_a_whitaker_version_token() -> None:
+    """Installer and suite pins belong to the Makefile or the action."""
     text = "\n".join(
         path.read_text(encoding="utf-8")
         for path in WORKFLOWS_DIRECTORY.glob("*.y*ml")
