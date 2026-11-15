@@ -1,6 +1,8 @@
 //! Runtime control for [`WireframeServer`].
 
 mod accept;
+#[cfg(test)]
+mod accept_panic_tests;
 mod backoff;
 mod server;
 mod startup;
