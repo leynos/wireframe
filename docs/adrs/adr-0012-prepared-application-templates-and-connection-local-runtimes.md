@@ -84,8 +84,8 @@ Related issues and decisions:
 
 - Epic [#635](https://github.com/leynos/wireframe/issues/635);
 - ADR 011 proposal [#636](https://github.com/leynos/wireframe/issues/636);
-- [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md), whose
-  packet/transport-frame boundary remains unchanged;
+- [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md),
+  whose packet/transport-frame boundary remains unchanged;
 - [#547](https://github.com/leynos/wireframe/issues/547), normal app
   responses bypass configured protocol hooks;
 - [#549](https://github.com/leynos/wireframe/issues/549), returned
@@ -544,7 +544,7 @@ documentation obligations, delivered under
   teardown fires exactly once — across generated interleavings of terminal
   paths (clean close, decode error, transport error, cancellation, and panic),
   using `proptest`, `loom`, or the bounded checkers described in
-  [formal-verification-methods-in-wireframe.md](formal-verification-methods-in-wireframe.md),
+  [formal-verification-methods-in-wireframe.md](../formal-verification-methods-in-wireframe.md),
   mirroring ADR 013's state-machine verification.
 
 ## Outstanding decisions before acceptance
@@ -565,7 +565,7 @@ through `Arc<PreparedApp>`.
 
 - Epic [#635](https://github.com/leynos/wireframe/issues/635)
 - ADR 011 proposal [#636](https://github.com/leynos/wireframe/issues/636)
-- [ADR 010: transport-frame boundary for the zero-copy migration](adr-010-transport-frame-boundary-for-zero-copy.md)
+- [ADR 010: transport-frame boundary for the zero-copy migration](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
 - [#538](https://github.com/leynos/wireframe/issues/538)
 - [#547](https://github.com/leynos/wireframe/issues/547)
 - [#549](https://github.com/leynos/wireframe/issues/549)

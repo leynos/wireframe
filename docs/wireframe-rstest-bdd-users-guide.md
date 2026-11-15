@@ -70,6 +70,7 @@ structured or free‑form arguments to steps.
 
 ### Example feature file
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-001 -->
 ```gherkin
 Feature: Shopping basket
 
@@ -91,6 +92,7 @@ language's keyword catalogue, enabling teams to collaborate in their native
 language. The `examples/japanese-ledger` crate demonstrates the end-to-end
 workflow for Japanese:
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-002 -->
 ```gherkin
 # language: ja
 フィーチャ: 家計簿の残高を管理する
@@ -102,7 +104,8 @@ workflow for Japanese:
 
 Step definitions use the same Unicode phrases:
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-003 -->
+```rust,ignore
 use japanese_ledger::HouseholdLedger;
 use rstest_bdd_macros::{given, when, then};
 
@@ -174,7 +177,8 @@ exactly as before; mutability is an opt‑in convenience.
 
 #### Simple mutable world
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-004 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd_macros::{given, scenario, then, when};
 
@@ -211,7 +215,8 @@ fn mutable_world(world: CounterWorld) {
 
 #### Slot‑based state (unchanged and still useful)
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-005 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd::{ScenarioState as _, Slot};
 use rstest_bdd_macros::{given, scenario, then, when, ScenarioState};
@@ -238,7 +243,8 @@ fn keeps_value(cart_state: CartState) { let _ = cart_state; }
 
 #### Mixed approach
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-006 -->
+```rust,ignore
 #[derive(Default, ScenarioState)]
 struct ReportWorld {
     total: usize,
@@ -312,7 +318,8 @@ pattern) to force treating the return value as a payload even when it is
 Returning `()` or `Ok(())` produces no stored value, so fixtures of `()` are
 not overwritten.
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-007 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd_macros::{given, when, then, scenario};
 
@@ -344,6 +351,7 @@ During expansion the macro inserts a compile-time check to ensure the field
 count matches the pattern, producing a trait-bound error if the struct does not
 implement `StepArgs`.
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-008 -->
 ```rust,no_run
 use rstest::fixture;
 use rstest_bdd_macros::{given, scenario, then, when, StepArgs};
@@ -394,7 +402,8 @@ declare any placeholders.
 
 Example:
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-009 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd_macros::{given, when, then, scenario};
 
@@ -444,7 +453,8 @@ initialization.
 This compact example uses a formatted string in place of a real CLI call; it
 demonstrates storing results in slots and checking them in later steps.
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-010 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd::{ScenarioState, Slot};
 use rstest_bdd_macros::{given, scenario, then, when, ScenarioState};
@@ -506,6 +516,7 @@ Step macros may omit the pattern string or provide a string literal containing
 only whitespace. In either case, the macro derives a pattern from the function
 name by replacing underscores with spaces.
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-011 -->
 ```rust,no_run
 use rstest_bdd_macros::given;
 
@@ -546,7 +557,8 @@ include the leading `@`. When the filter is combined with `index` or `name`,
 the macro emits a compile error if the selected scenario does not satisfy the
 expression.
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-012 -->
+```rust,ignore
 # use rstest_bdd_macros::scenario;
 #[scenario(path = "features/search.feature", tags = "@fast and not @wip")]
 fn smoke_test() {}
@@ -616,7 +628,8 @@ thread panics with
 skip requests on the thread that executes steps, so the runner can intercept
 the panic payload.
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-013 -->
+```rust,ignore
 # use rstest_bdd as bdd;
 # use rstest_bdd_macros::{given, scenario};
 
@@ -643,6 +656,7 @@ fn resilience_test() {
 When `fail_on_skipped` is enabled, apply `@allow_skipped` to the feature or the
 scenario to document that the skip is expected:
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-014 -->
 ```gherkin
 @allow_skipped
 Scenario: Behaviour pending external contract
@@ -660,6 +674,7 @@ outcome, optionally constraining its message, and
 `message_absent = true` to assert that no message was provided and substring
 matching to confirm that a message contains the expected reason.
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-015 -->
 ```rust,no_run
 use rstest_bdd::{assert_scenario_skipped, assert_step_skipped, StepExecution};
 use rstest_bdd::reporting::{ScenarioMetadata, ScenarioRecord, ScenarioStatus, SkippedScenario};
@@ -696,7 +711,8 @@ after the feature file and scenario title. Identifiers are sanitized
 (ASCII-only) and deduplicated by appending a numeric suffix when collisions
 occur.
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-016 -->
+```rust,ignore
 use rstest_bdd_macros::{given, then, when, scenarios};
 
 #[given("a precondition")] fn precondition() {}
@@ -721,7 +737,8 @@ generated scenario tests. Fixtures are bound via rstest and inserted into the
 step context, making them available to step functions that declare the
 corresponding parameter.
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-017 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd_macros::{given, scenarios};
 
@@ -754,7 +771,8 @@ Declare the test function as `async fn` and add
 `#[tokio::test(flavor = "current_thread")]` after the `#[scenario]` attribute.
 The macro detects the async signature and generates an async step executor:
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-018 -->
+```rust,ignore
 use rstest_bdd_macros::{given, scenario, then, when};
 use rstest::fixture;
 
@@ -798,7 +816,8 @@ available as a deprecated alias for the explicit Tokio harness and emits a
 deprecation warning. New code should select `TokioHarness` directly; add
 `rstest-bdd-harness-tokio` to the package's `dev-dependencies`:
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-019 -->
+```rust,ignore
 use rstest_bdd_macros::{given, then, when, scenarios};
 
 #[given("a precondition")] fn precondition() {}
@@ -846,6 +865,7 @@ code while still permitting cross‑crate step sharing.
 
 To enable validation, pin a feature in the project's `dev-dependencies`:
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-020 -->
 ```toml
 [dev-dependencies]
 rstest-bdd-macros = { version = "0.6.0", features = ["compile-time-validation"] }
@@ -853,6 +873,7 @@ rstest-bdd-macros = { version = "0.6.0", features = ["compile-time-validation"] 
 
 For strict checking use:
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-021 -->
 ```toml
 [dev-dependencies]
 rstest-bdd-macros = { version = "0.6.0", features = ["strict-compile-time-validation"] }
@@ -920,6 +941,7 @@ each row should be interpreted for a given type. When `T::REQUIRES_HEADER` is
 `true`, the first table row is treated as a header and exposed via the
 `HeaderSpec` helpers.
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-022 -->
 ```rust,no_run
 use rstest_bdd::datatable::{
     self, DataTableError, DataTableRow, RowSpec, Rows,
@@ -992,6 +1014,7 @@ attributes:
 - `#[datatable(parse_with = path::to_fn)]` calls a custom parser that returns a
   `Result<T, E>`.
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-023 -->
 ```rust,no_run
 use rstest_bdd::datatable::{self, DataTableError, Rows};
 use rstest_bdd_macros::DataTableRow;
@@ -1038,6 +1061,7 @@ rows before exposing them to the step function:
 - `#[datatable(try_map = path::to_fn)]` performs fallible conversion, returning
   a `DataTableError` on failure.
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-024 -->
 ```rust,no_run
 use rstest_bdd::datatable::{DataTableError, Rows};
 use rstest_bdd_macros::{DataTable, DataTableRow};
@@ -1068,6 +1092,7 @@ fn collect_active(rows: Rows<UserRow>) -> Result<Vec<String>, DataTableError> {
 surface context when something goes wrong. Matching on the error value enables
 inspection of the row and column that triggered the failure:
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-025 -->
 ```rust,no_run
 # use rstest_bdd::datatable::{DataTableError, Rows};
 # use rstest_bdd_macros::DataTableRow;
@@ -1098,6 +1123,7 @@ Custom parsers bubble their source error through `DataTableError::CellParse`.
 Inspecting the formatted message shows the precise location of the failure,
 including the human-readable column label:
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-026 -->
 ```rust,no_run
 # use rstest_bdd::datatable::{DataTableError, Rows};
 # use rstest_bdd_macros::DataTableRow;
@@ -1141,6 +1167,7 @@ A Gherkin Docstring is available through an argument named `docstring` of type
 the procedural macros. When both are declared, place `datatable` before
 `docstring` at the end of the parameter list.
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-027 -->
 ```gherkin
 Scenario: capture table and docstring
   Given the following numbers:
@@ -1152,7 +1179,8 @@ Scenario: capture table and docstring
     """
 ```
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-028 -->
+```rust,ignore
 #[given("the following numbers:")]
 fn capture_table(datatable: Vec<Vec<String>>) {
     // ...
@@ -1198,6 +1226,7 @@ When step functions return `Result` values it is common to assert on their
 outcome. The `rstest-bdd` crate exports two helper macros to streamline these
 checks:
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-029 -->
 ```rust,no_run
 use rstest_bdd::{assert_step_err, assert_step_ok};
 
@@ -1222,6 +1251,7 @@ Feature files can opt into any Gherkin localization. Add a `# language: <code>`
 directive on the first line of the `.feature` file and keep the remainder of
 the scenario in the target language:
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-030 -->
 ```gherkin
 # language: es
 Característica: Control de stock
@@ -1245,6 +1275,7 @@ embedding the provided assets and selecting a language at runtime.
 
 Localization tooling can be added to `Cargo.toml` as follows:
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-031 -->
 ```toml
 [dependencies]
 rstest-bdd = "0.6.0"
@@ -1258,7 +1289,8 @@ Fluent infrastructure to load resources into their own
 [`FluentLanguageLoader`]. Libraries without a localization framework can rely
 on the built-in loader and request a different language at runtime:
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-032 -->
+```rust,ignore
 # fn scope_locale() -> Result<(), rstest_bdd::localization::LocalizationError> {
 use rstest_bdd::select_localizations;
 use unic_langid::langid;
@@ -1337,7 +1369,8 @@ runtime reporting modules. `rstest_bdd::reporting::json` offers helper
 functions that serialize the collector snapshot into a predictable schema with
 lowercase status labels:
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-033 -->
+```rust,ignore
 let mut buffer = Vec::new();
 rstest_bdd::reporting::json::write_snapshot(&mut buffer)?;
 ```
@@ -1346,7 +1379,8 @@ The companion `rstest_bdd::reporting::junit` module renders the same snapshot
 as JUnit XML. Each skipped scenario emits a `<skipped>` element with an optional
 `message` attribute so continuous integration (CI) servers surface the reason:
 
-```rust,no_run
+<!-- tested-example: wireframe-rstest-bdd-users-guide-034 -->
+```rust,ignore
 let mut xml = String::new();
 rstest_bdd::reporting::junit::write_snapshot(&mut xml)?;
 ```
@@ -1366,6 +1400,7 @@ Neovim, Zed, Helix, etc.).
 
 Build and install the language server from the workspace:
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-035 -->
 ```bash
 cargo install --path crates/rstest-bdd-server
 ```
@@ -1383,6 +1418,7 @@ The server reads configuration from environment variables:
 
 Example:
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-036 -->
 ```bash
 RSTEST_BDD_LSP_LOG_LEVEL=debug rstest-bdd-lsp
 ```
@@ -1396,6 +1432,7 @@ custom LSP servers. A minimal example using the
 [LSP-client](https://marketplace.visualstudio.com/items?itemName=ACharLuk.easy-lsp-client)
 extension:
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-037 -->
 ```json
 {
   "easylsp.servers": [
@@ -1409,6 +1446,7 @@ extension:
 
 #### Neovim (nvim-lspconfig)
 
+<!-- tested-example: wireframe-rstest-bdd-users-guide-038 -->
 ```lua
 local lspconfig = require('lspconfig')
 local configs = require('lspconfig.configs')

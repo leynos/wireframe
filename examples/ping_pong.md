@@ -5,6 +5,7 @@ small ping/pong protocol. The server accepts a `Ping` message containing a
 counter and responds with a `Pong` containing the incremented value. Logging
 middleware prints each request and response.
 
+<!-- tested-example: ping_pong-001 -->
 ```mermaid
 classDiagram
     class Ping {

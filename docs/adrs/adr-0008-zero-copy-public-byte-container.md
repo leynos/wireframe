@@ -19,8 +19,8 @@ storage.
 
 `FrameCodec` already supports `Bytes`-backed frame types, and the default
 length-delimited codec uses `Bytes` today. The inventory in
-[`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md), however, shows that
-the public packet, middleware, serializer, and client hook surfaces still
+[`frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md), however, shows
+that the public packet, middleware, serializer, and client hook surfaces still
 assume owned `Vec<u8>` payloads.
 
 Those APIs are not equivalent in how they use bytes:
@@ -40,14 +40,14 @@ buffer taxonomy manually.
 
 This ADR governs the Epic 284 work tracked in:
 
-- [`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md), especially the
+- [`frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md), especially the
   public payload surfaces and resolved direction in sections "Public
   `payload-bound` surfaces" and "Resolved direction for epic 284".
-- [`zero-copy-frame-and-payload-migration-roadmap.md`](zero-copy-frame-and-payload-migration-roadmap.md),
+- [`zero-copy-frame-and-payload-migration-roadmap.md`](../zero-copy-frame-and-payload-migration-roadmap.md),
   which tracks the dedicated zero-copy migration phases that apply this public
   byte-container decision across the internal migration, public API flip, and
   release workstream.
-- [`roadmap.md`](roadmap.md), specifically:
+- [`roadmap.md`](../roadmap.md), specifically:
   - roadmap item `10.1.1`, which approves the stable public byte-container and
     edit-on-demand model;
   - roadmap item `11.1.1`, which converts internal packet payload storage and
@@ -248,4 +248,4 @@ current serializer implementation remains unchanged until the proposal is
 accepted and delivered.
 
 [serializer-output-plan]:
-execplans/issue-538-plan-zero-copy-serializer-output-migration.md
+../execplans/issue-538-plan-zero-copy-serializer-output-migration.md

@@ -18,9 +18,9 @@ this document separates them before anything else.
 
 | Source                                                                                                | Status                     | What it fixes                                               |
 | ----------------------------------------------------------------------------------------------------- | -------------------------- | ----------------------------------------------------------- |
-| [ADR 008](adr-008-zero-copy-public-byte-container.md)                                                 | Accepted                   | Stable byte container plus explicit edit-on-demand mutation |
-| [ADR 009](adr-009-vec-u8-migration-rollout.md)                                                        | Accepted                   | Finite compatibility helpers, deprecation, removal timing   |
-| [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md)                                          | Accepted                   | Actor stays envelope-oriented; codec driver owns frames     |
+| [ADR 008](adrs/adr-0008-zero-copy-public-byte-container.md)                                           | Accepted                   | Stable byte container plus explicit edit-on-demand mutation |
+| [ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)                    | Accepted                   | Finite compatibility helpers, deprecation, removal timing   |
+| [ADR 010](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)                      | Accepted                   | Actor stays envelope-oriented; codec driver owns frames     |
 | Serializer amendment in ADRs 008 and 009; [#538](https://github.com/leynos/wireframe/issues/538) plan | **Proposed, not accepted** | Serializer writer output and `PayloadBytes` placement       |
 
 The proposed amendment changes three things the accepted text already settles:
@@ -379,9 +379,9 @@ shortest correct fix.
 
 ## References
 
-- [ADR 008: zero-copy public byte container](adr-008-zero-copy-public-byte-container.md)
-- [ADR 009: `Vec<u8>` migration rollout](adr-009-vec-u8-migration-rollout.md)
-- [ADR 010: transport frame boundary](adr-010-transport-frame-boundary-for-zero-copy.md)
+- [ADR 008: zero-copy public byte container](adrs/adr-0008-zero-copy-public-byte-container.md)
+- [ADR 009: `Vec<u8>` migration rollout](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+- [ADR 010: transport frame boundary](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
 - [Frame and `Vec<u8>` inventory](frame-vec-u8-inventory.md)
 - [Serializer output migration plan](execplans/issue-538-plan-zero-copy-serializer-output-migration.md)
 - [Zero-copy release plan](zero-copy-release-plan.md)

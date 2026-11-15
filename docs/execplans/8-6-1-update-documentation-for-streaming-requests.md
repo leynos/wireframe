@@ -11,7 +11,7 @@ Status: COMPLETE
 Roadmap items `8.6.1` through `8.6.3` close the documentation phase for
 streaming request bodies, the generic `MessageAssembler` abstraction, and the
 standardized per-connection memory-budget model introduced by
-`docs/adr-002-streaming-requests-and-shared-message-assembly.md`.
+`docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`.
 
 After this work, a protocol author or library consumer should be able to read
 the design documents and understand:
@@ -62,7 +62,7 @@ Success is observable when:
 - Use `rstest` for unit or integration validation and `rstest-bdd` for
   behavioural validation.
 - Use the existing design docs as the source of truth to reconcile wording:
-  `docs/adr-002-streaming-requests-and-shared-message-assembly.md`,
+  `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`,
   `docs/hardening-wireframe-a-guide-to-production-resilience.md`,
   `docs/generic-message-fragmentation-and-re-assembly-design.md`,
   `docs/multi-packet-and-streaming-responses-design.md`, and
@@ -231,7 +231,7 @@ is to align and close it.
 
 ### Existing documentation surface
 
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md` is the
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md` is the
   normative decision record. It defines:
   - `RequestParts` and `RequestBodyStream`;
   - the `MessageAssembler` hook and its composition with transport
@@ -480,7 +480,7 @@ Run all commands from `/home/user/project`.
      docs/multi-packet-and-streaming-responses-design.md \
      docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md \
      docs/users-guide.md \
-     docs/adr-002-streaming-requests-and-shared-message-assembly.md \
+     docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md \
      tests/streaming_request.rs \
      tests/features/message_assembler.feature \
      tests/features/memory_budgets.feature

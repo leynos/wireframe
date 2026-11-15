@@ -6,6 +6,7 @@ that stream transcript lines as frames, and then emits a summary once every
 chunk has been delivered. The consumer converts the response into a stream and
 prints each frame as it arrives.
 
+<!-- tested-example: multi_packet-001 -->
 ```mermaid
 sequenceDiagram
     participant Handler

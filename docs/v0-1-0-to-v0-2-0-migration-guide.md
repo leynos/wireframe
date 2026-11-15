@@ -13,7 +13,8 @@ en-GB-oxendict "-ize" spelling.
 
 Update any references accordingly, including documentation and code examples.
 
-```rust
+<!-- tested-example: v0-1-0-to-v0-2-0-migration-guide-001 -->
+```rust,ignore
 let config = BackoffConfig::normalized(...);
 ```
 
@@ -26,6 +27,7 @@ The crate feature used to expose test helper APIs was renamed.
 
 When a crate enables this feature in `Cargo.toml`, update it as follows:
 
+<!-- tested-example: v0-1-0-to-v0-2-0-migration-guide-002 -->
 ```toml
 # Before
 [dependencies]
@@ -45,7 +47,8 @@ The consuming payload accessors were renamed to follow Rust idioms.
 - `FragmentParts::payload(self)` has been removed. Use
   `FragmentParts::into_payload(self)` instead.
 
-```rust
+<!-- tested-example: v0-1-0-to-v0-2-0-migration-guide-003 -->
+```rust,ignore
 // Before
 let packet_payload = packet_parts.payload();
 let fragment_payload = fragment_parts.payload();
@@ -85,7 +88,8 @@ Wireframe now exposes one canonical crate-level error type:
 - Streaming and transport errors still use `Io`, `Protocol`, and `Codec`
   variants on the same `wireframe::WireframeError` type.
 
-```rust
+<!-- tested-example: v0-1-0-to-v0-2-0-migration-guide-004 -->
+```rust,ignore
 // Before
 use wireframe::app::WireframeError as AppError;
 use wireframe::response::WireframeError as StreamError;
@@ -170,7 +174,8 @@ owning modules, and root re-exports were removed.
 
 Example migration:
 
-```rust
+<!-- tested-example: v0-1-0-to-v0-2-0-migration-guide-005 -->
+```rust,ignore
 // Before
 use wireframe::{Response, Serializer, WireframeClient};
 

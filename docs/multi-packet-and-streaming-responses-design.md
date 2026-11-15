@@ -208,7 +208,7 @@ tuple containing a Tokio `mpsc::Sender` and an initial `Response`. The
 connection actor interprets this tuple as a request to stream follow-up frames
 from the paired channel after any immediate frames have been dispatched. This
 is the blessed pattern recorded in
-[ADR 0001](adr/0001-multi-packet-streaming-response-api.md).
+[ADR 0001](adrs/adr-0001-multi-packet-streaming-response-api.md).
 
 Two helpers are planned to codify the intended ergonomics (they are specified
 here for implementation in the follow-up to ADR 0001):
@@ -660,7 +660,7 @@ has not yet been consumed by the handler. Wireframe enforces:
 
 See [ADR 0002][adr-0002] for the complete specification.
 
-[adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md
+[adr-0002]: adrs/adr-0002-streaming-requests-and-shared-message-assembly.md
 
 ## 12. Client-side streaming consumption
 

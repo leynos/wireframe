@@ -509,7 +509,7 @@ downstream protocol crates a first-party import path.
 
 [^streaming]:
     See `docs/multi-packet-and-streaming-responses-design.md` and
-    [ADR 0001](0001-multi-packet-streaming-response-api.md).
+    [ADR 0001](adr-0001-multi-packet-streaming-response-api.md).
 
 [^fragmentation]:
     See `docs/generic-message-fragmentation-and-re-assembly-design.md`.

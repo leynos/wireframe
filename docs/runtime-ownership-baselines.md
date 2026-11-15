@@ -917,13 +917,13 @@ a repair — it removes the orphaned-worker mechanism, which is why the stall
 stopped reproducing. Fixing the disconnect itself still belongs to #647.
 
 The acquire path is the subject of
-[ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) and issue
-[#647](https://github.com/leynos/wireframe/issues/647). Fixing it is out of
-scope for #639, whose purpose is to record baselines before the ownership
-topology changes. The spurious `disconnected` defect re-tested above was live
-in the pre-#647 tree, and it had no separate tracker: it belonged to the same
-path that #647 later reworked, so a reader looking for its disposition should
-start there.
+[ADR 013](adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md)
+and issue [#647](https://github.com/leynos/wireframe/issues/647). Fixing it is
+out of scope for #639, whose purpose is to record baselines before the
+ownership topology changes. The spurious `disconnected` defect re-tested above
+was live in the pre-#647 tree, and it had no separate tracker: it belonged to
+the same path that #647 later reworked, so a reader looking for its disposition
+should start there.
 
 ## Issue #647: persistent scheduler actor
 
@@ -1135,6 +1135,6 @@ thresholds, and they belong in the suite.
 - [#535](https://github.com/leynos/wireframe/issues/535) — the waiter
   state-transition rework whose arrival prompted the re-test in
   [What re-testing found](#what-re-testing-found).
-- [ADR 011: runtime ownership and task-lifetime boundaries](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)
-- [ADR 012: prepared application and connection runtime](adr-012-prepared-application-and-connection-runtime.md)
-- [ADR 013: client pool scheduler and slot ownership](adr-013-client-pool-scheduler-and-slot-ownership.md)
+- [ADR 011: runtime ownership and task-lifetime boundaries](adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
+- [ADR 012: prepared application and connection runtime](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
+- [ADR 013: client pool scheduler and slot ownership](adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md)

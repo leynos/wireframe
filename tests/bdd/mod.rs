@@ -19,6 +19,9 @@ mod repo_access;
 #[path = "../common/formal_tooling_support.rs"]
 mod formal_tooling_support;
 
+#[path = "../common/tested_examples.rs"]
+mod tested_examples;
+
 #[path = "../support.rs"]
 mod support;
 

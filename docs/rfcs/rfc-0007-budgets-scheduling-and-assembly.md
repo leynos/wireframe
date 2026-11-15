@@ -90,4 +90,4 @@ RFC 0007 replaces any interpretation of `MAX_FRAME_LENGTH` as a universal
 logical-message limit. Reconcile existing assembly and queue docs during
 implementation; do not remove useful APIs solely to preserve compatibility.
 
-[^duplex]: [RFC 0004: Duplex session driver](0004-duplex-session-driver.md).
+[^duplex]: [RFC 0004: Duplex session driver](rfc-0004-duplex-session-driver.md).

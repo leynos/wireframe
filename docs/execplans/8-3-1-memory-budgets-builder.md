@@ -91,8 +91,10 @@ Success is observable when:
       behaviour, and composition with `with_codec`/`serializer`.
 - [x] (2026-02-17 22:31Z) Added `rstest-bdd` feature, fixture, steps, and
       scenarios for memory-budget configuration behaviour.
-- [x] (2026-02-17 22:31Z) Updated `docs/adr-002-...`, `docs/users-guide.md`,
-      and marked `docs/roadmap.md` item `8.3.1` as done.
+- [x] (2026-02-17 22:31Z) Updated
+      `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`,
+      `docs/users-guide.md`, and marked `docs/roadmap.md` item `8.3.1` as
+      done.
 - [x] (2026-02-17 22:31Z) Ran full quality gates with `tee` logs.
 
 ## Surprises & Discoveries
@@ -165,7 +167,7 @@ but there is no per-connection memory-budget configuration object yet.
 Relevant requirements and rationale are captured in:
 
 - `docs/roadmap.md` section `8.3.1`.
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md` section
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md` section
   "Configurable per-connection memory budgets and back-pressure".
 - `docs/generic-message-fragmentation-and-re-assembly-design.md` section
   `9.3 Memory budget integration`.
@@ -240,8 +242,8 @@ budget enforcement behaviour.
 
 Update docs to reflect the new public interface and record design decisions:
 
-- update `docs/adr-002-streaming-requests-and-shared-message-assembly.md` with
-  the concrete `memory_budgets(...)` API shape adopted in code;
+- update `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`
+  with the concrete `memory_budgets(...)` API shape adopted in code;
 - update `docs/users-guide.md` with builder usage examples and scope note that
   enforcement follows in later roadmap items;
 - if needed for consistency, add a brief alignment update in

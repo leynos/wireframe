@@ -447,9 +447,9 @@ Three `#[scenario]` functions binding the feature file scenarios to
 1. Mark `docs/roadmap.md` line 302: change `- [ ] 8.3.6.` to
    `- [x] 8.3.6.`.
 2. Add an implementation decisions section for `8.3.6` to
-   `docs/adr-002-streaming-requests-and-shared-message-assembly.md`, recording
-   that cleanup relies on RAII drop of `MessageAssemblyState` and that test
-   coverage exercises all three protection tiers end-to-end.
+   `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`,
+   recording that cleanup relies on RAII drop of `MessageAssemblyState` and
+   that test coverage exercises all three protection tiers end-to-end.
 3. Update this ExecPlan with final progress, surprises, and outcomes.
 
 ### Stage E: quality gates
@@ -552,7 +552,8 @@ Expected artefacts after completion:
 - Modified: `tests/steps/mod.rs`
 - Modified: `tests/scenarios/mod.rs`
 - Modified: `docs/roadmap.md`
-- Modified: `docs/adr-002-streaming-requests-and-shared-message-assembly.md`
+- Modified:
+  `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`
 - New: `docs/execplans/8-3-6-tests-for-per-connection-memory-budgets.md`
 - Gate logs: `/tmp/wireframe-8-3-6-*.log`
 

@@ -3,6 +3,7 @@
 This example demonstrates generating a `Response::Stream` using `async-stream`.
 It returns five frames to illustrate the pattern.
 
+<!-- tested-example: async_stream-001 -->
 ```mermaid
 sequenceDiagram
     actor User
@@ -17,6 +18,7 @@ sequenceDiagram
     Main->>User: Print received frame: Frame(n)
 ```
 
+<!-- tested-example: async_stream-002 -->
 ```mermaid
 classDiagram
     class Frame {

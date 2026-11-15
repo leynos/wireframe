@@ -56,3 +56,8 @@ pub mod session;
 pub mod test_helpers;
 #[cfg(feature = "testkit")]
 pub mod testkit;
+
+// These modules exist only during `cargo test --doc`, keeping guide examples
+// type-checked without adding them to the published crate documentation.
+#[cfg(doctest)]
+pub mod tested_documentation;

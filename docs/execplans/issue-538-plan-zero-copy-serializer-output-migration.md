@@ -387,8 +387,8 @@ https://docs.rs/bincode/2.0.1/bincode/serde/fn.encode_into_writer.html
 [bytesmut-freeze]:
 https://docs.rs/bytes/1.10.1/bytes/struct.BytesMut.html#method.freeze
 
-[adr-005]: ../adr-005-serializer-abstraction.md
+[adr-005]: ../adrs/adr-0005-serializer-abstraction-beyond-bincode.md
 
-[adr-008]: ../adr-008-zero-copy-public-byte-container.md
+[adr-008]: ../adrs/adr-0008-zero-copy-public-byte-container.md
 
-[adr-009]: ../adr-009-vec-u8-migration-rollout.md
+[adr-009]: ../adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md

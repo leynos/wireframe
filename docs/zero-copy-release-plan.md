@@ -22,13 +22,13 @@ without restating the label.
 
 Evidence, observed 2026-11-01:
 
-| Fact                                          | Source                                                    |
-| --------------------------------------------- | --------------------------------------------------------- |
-| Current crate version is `0.3.0`              | `Cargo.toml`                                              |
-| Latest published release is `v0.3.0`          | `gh release list`, 2026-11-01 (released 2026-04-06)       |
-| The project has not cut `1.0`                 | `git ls-remote --tags`, 2026-11-01: tags stop at `v0.3.0` |
-| A `0.4.0` migration guide is already in tree  | `docs/v0-3-0-to-v0-4-0-migration-guide.md`                |
-| Helper removal is `0.N` to `0.N+2` before 1.0 | [ADR 009](adr-009-vec-u8-migration-rollout.md)            |
+| Fact                                          | Source                                                                             |
+| --------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Current crate version is `0.3.0`              | `Cargo.toml`                                                                       |
+| Latest published release is `v0.3.0`          | `gh release list`, 2026-11-01 (released 2026-04-06)                                |
+| The project has not cut `1.0`                 | `git ls-remote --tags`, 2026-11-01: tags stop at `v0.3.0`                          |
+| A `0.4.0` migration guide is already in tree  | `docs/v0-3-0-to-v0-4-0-migration-guide.md`                                         |
+| Helper removal is `0.N` to `0.N+2` before 1.0 | [ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md) |
 
 Under Cargo's semver rules a `0.x` crate may break compatibility in a minor
 bump, so the next breaking release is a minor increment, not a major one. Two
@@ -202,8 +202,8 @@ readiness, which is the distinction the epic needs to keep.
 
 ## References
 
-- [ADR 009: `Vec<u8>` migration rollout](adr-009-vec-u8-migration-rollout.md)
-- [ADR 010: transport frame boundary](adr-010-transport-frame-boundary-for-zero-copy.md)
+- [ADR 009: `Vec<u8>` migration rollout](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+- [ADR 010: transport frame boundary](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
 - [Zero-copy migration guide outline](zero-copy-migration-guide-outline.md)
 - [Zero-copy benchmark plan](zero-copy-benchmark-plan.md)
 - [Zero-copy benchmark baselines](zero-copy-benchmark-baselines.md)

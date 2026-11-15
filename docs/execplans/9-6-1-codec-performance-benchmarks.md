@@ -26,7 +26,8 @@ command and seeing:
 - Allocation baseline counters for payload wrapping and decode extraction paths.
 - Unit validation implemented with `rstest`.
 - Behavioural validation implemented with `rstest-bdd` v0.5.0.
-- Design decisions recorded in `docs/adr-004-pluggable-protocol-codecs.md`.
+- Design decisions recorded in
+  `docs/adrs/adr-0004-pluggable-protocol-codecs.md`.
 - `docs/users-guide.md` updated if any library-consumer public interface
   changes.
 - Roadmap item `9.6.1` and its child bullets marked done only after all
@@ -47,7 +48,7 @@ command and seeing:
   for equivalent payload classes.
 - Record allocation baselines for payload wrapping and decode extraction.
 - Record benchmark design decisions in
-  `docs/adr-004-pluggable-protocol-codecs.md`. If fragmentation benchmark
+  `docs/adrs/adr-0004-pluggable-protocol-codecs.md`. If fragmentation benchmark
   thresholds or interpretation rules are introduced, update
   `docs/generic-message-fragmentation-and-re-assembly-design.md`.
 - Keep benchmark execution deterministic enough for local comparison by fixing
@@ -116,7 +117,7 @@ implementation; the benchmark binaries contain none.
 - [x] (2026-02-23 02:40Z) Stage D complete: rstest-bdd feature, fixture, step,
       and scenario coverage added for benchmark behaviour validation.
 - [x] (2026-02-23 02:55Z) Stage E complete: updated
-      `docs/adr-004-pluggable-protocol-codecs.md` and marked roadmap item
+      `docs/adrs/adr-0004-pluggable-protocol-codecs.md` and marked roadmap item
       `9.6.1` done in `docs/roadmap.md`.
 - [x] (2026-02-23 03:50Z) Stage F complete: all required gates passed
       (`make fmt`, `make check-fmt`, `make markdownlint`, `make nixie`,
@@ -196,7 +197,7 @@ Delivered outcomes:
   `tests/scenarios/codec_performance_benchmarks_scenarios.rs`, plus module
   wiring updates.
 - Updated design decision record in
-  `docs/adr-004-pluggable-protocol-codecs.md`.
+  `docs/adrs/adr-0004-pluggable-protocol-codecs.md`.
 - Marked roadmap item `9.6.1` complete in `docs/roadmap.md`.
 
 Additional quality fix completed during validation:
@@ -224,7 +225,8 @@ Primary implementation files and expected touchpoints:
 - `src/codec.rs` and `src/fragment/payload.rs` for benchmarked operations.
 - `tests/` modules for rstest and rstest-bdd verification of benchmark harness
   behaviour.
-- `docs/adr-004-pluggable-protocol-codecs.md` for benchmark design decisions.
+- `docs/adrs/adr-0004-pluggable-protocol-codecs.md` for benchmark design
+  decisions.
 - `docs/generic-message-fragmentation-and-re-assembly-design.md` for
   fragmentation overhead interpretation if thresholds are introduced.
 - `docs/users-guide.md` for any public-interface updates required by the
@@ -349,7 +351,7 @@ Record design decisions and update roadmap/documentation after implementation.
 
 Planned edits:
 
-- Update `docs/adr-004-pluggable-protocol-codecs.md` with benchmark design
+- Update `docs/adrs/adr-0004-pluggable-protocol-codecs.md` with benchmark design
   decisions, measurement method, and baseline interpretation notes.
 - Update `docs/generic-message-fragmentation-and-re-assembly-design.md` if
   fragmentation-overhead criteria are refined.
