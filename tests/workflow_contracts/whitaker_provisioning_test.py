@@ -148,6 +148,8 @@ def test_no_workflow_declares_a_whitaker_version_token() -> None:
         "cargo install cargo-dylint",
         "whita\\\nker --all",
         "cargo dy\\\nlint --all",
+        "# install-\\\nwhitaker --all",
+        "echo ok # note \\\nwhitaker --all",
     ],
 )
 def test_the_whitaker_route_contract_rejects_a_manual_invocation(run: str) -> None:
@@ -208,6 +210,8 @@ def test_the_real_install_step_is_not_another_route() -> None:
         "bash -ec 'make install-whitaker'",
         "ma\\\nke install-whitaker",
         "make \\\n  install-whitaker",
+        "make install-\\\nwhitaker",
+        "# note \\\nmake install-whitaker",
     ],
 )
 def test_the_contract_reports_a_make_install_step(run: str) -> None:
@@ -216,16 +220,19 @@ def test_the_contract_reports_a_make_install_step(run: str) -> None:
     assert _make_install_routes(steps) == ["ci.yml:build-test: Reinstall"]
 
 
-def test_the_contract_leaves_a_lint_step_alone() -> None:
+@pytest.mark.parametrize(
+    "run",
+    [
+        "make lint",
+        "echo 'make install-whitaker'",
+        "make lint\\\ninstall-whitaker",
+        "# make \\\ninstall-whitaker",
+        "bash -ec 'make lint'",
+    ],
+)
+def test_the_contract_leaves_other_steps_alone(run: str) -> None:
     """A step that runs other targets, or only names the target, is no route."""
-    steps = [
-        ("ci.yml", "build-test", {"name": "Lint", "run": "make lint"}),
-        (
-            "ci.yml",
-            "build-test",
-            {"name": "Note", "run": "echo 'make install-whitaker'"},
-        ),
-    ]
+    steps = [("ci.yml", "build-test", {"name": "Other", "run": run})]
     assert _make_install_routes(steps) == []
 
 

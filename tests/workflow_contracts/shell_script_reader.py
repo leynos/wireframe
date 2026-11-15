@@ -26,21 +26,49 @@ _TOKEN: typ.Final = re.compile(
     """,
     re.VERBOSE,
 )
-_LINE_CONTINUATION: typ.Final = re.compile(r"\\\n")
 _SUBSTITUTION: typ.Final = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+
+
+def _continues(line: str) -> bool:
+    """Return whether a line ends in a backslash that joins it to the next.
+
+    An odd run of trailing backslashes continues the line, except in a comment,
+    which the shell ends at the newline whatever it ends with. A line that
+    cannot be tokenized has an open quote, so it is read as continuing.
+    """
+    trailing = len(line) - len(line.rstrip("\\"))
+    if trailing % 2 == 0:
+        return False
+    try:
+        tokens = tokenize(line[:-1])
+    except ValueError:
+        return True
+    return not any(kind == "comment" for kind, _text in tokens)
 
 
 def script_lines(run: str) -> list[str]:
     """Return a script's lines, with continuation lines joined to their head.
 
     The shell removes a backslash-newline pair outright, so ``ma\\`` followed by
-    ``ke`` is one word, ``make``.
+    ``ke`` is one word, ``make``; a comment is the exception, since it ends at
+    its newline.
     """
-    return _LINE_CONTINUATION.sub("", run).splitlines()
+    lines: list[str] = []
+    pending = ""
+    for raw in run.splitlines():
+        current = pending + raw
+        if _continues(current):
+            pending = current[:-1]
+        else:
+            lines.append(current)
+            pending = ""
+    if pending:
+        lines.append(pending)
+    return lines
 
 
 def tokenize(line: str) -> list[Token]:
-    """Return a line's ``(kind, text)`` tokens, ending at a comment.
+    """Return a line's ``(kind, text)`` tokens, ending at a comment token.
 
     Raises
     ------
@@ -55,10 +83,10 @@ def tokenize(line: str) -> list[Token]:
             message = f"cannot read {line[position:]!r}"
             raise ValueError(message)
         position = match.end()
-        if match.lastgroup == "comment":
-            break
         if match.lastgroup != "space":
             tokens.append((str(match.lastgroup), match.group()))
+        if match.lastgroup == "comment":
+            break
     return tokens
 
 
@@ -68,7 +96,7 @@ def commands(tokens: list[Token]) -> list[list[str]]:
     for kind, text in tokens:
         if kind == "operator":
             grouped.append([])
-        else:
+        elif kind == "word":
             grouped[-1].append(text)
     return [command for command in grouped if command]
 
@@ -80,7 +108,7 @@ def substitutions(tokens: list[Token]) -> list[str]:
     whole line, so a backtick pair that spans several words is found. Quotes do
     not hide one: a substitution inside double quotes still runs.
     """
-    code = " ".join(text for _kind, text in tokens)
+    code = " ".join(text for kind, text in tokens if kind != "comment")
     return [
         inner for groups in _SUBSTITUTION.findall(code) for inner in groups if inner
     ]
