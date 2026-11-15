@@ -150,6 +150,8 @@ def test_no_workflow_declares_a_whitaker_version_token() -> None:
         "cargo dy\\\nlint --all",
         "# install-\\\nwhitaker --all",
         "echo ok # note \\\nwhitaker --all",
+        "bash -c '# install-\\\nwhitaker --all'",
+        "bash -c 'set -e\nwhitaker --all'",
     ],
 )
 def test_the_whitaker_route_contract_rejects_a_manual_invocation(run: str) -> None:
@@ -212,6 +214,8 @@ def test_the_real_install_step_is_not_another_route() -> None:
         "make \\\n  install-whitaker",
         "make install-\\\nwhitaker",
         "# note \\\nmake install-whitaker",
+        "bash -c 'make install-\\\nwhitaker'",
+        "bash -c 'set -e\nmake install-whitaker'",
     ],
 )
 def test_the_contract_reports_a_make_install_step(run: str) -> None:
@@ -227,6 +231,7 @@ def test_the_contract_reports_a_make_install_step(run: str) -> None:
         "echo 'make install-whitaker'",
         "make lint\\\ninstall-whitaker",
         "# make \\\ninstall-whitaker",
+        "bash -c '# make install-\\\nwhitaker'",
         "bash -ec 'make lint'",
     ],
 )

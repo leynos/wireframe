@@ -91,7 +91,7 @@ def _line_runs_make_install(line: str) -> bool:
             runs_make_install_whitaker(inner) for inner in substitutions(tokens)
         )
     except ValueError:
-        return re.search(rf"\bmake\b.*\b{TARGET}\b", line) is not None
+        return re.search(rf"\bmake\b.*\b{TARGET}\b", line, re.DOTALL) is not None
 
 
 def runs_make_install_whitaker(run: str) -> bool:

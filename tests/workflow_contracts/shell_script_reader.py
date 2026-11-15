@@ -1,10 +1,12 @@
 """Split a workflow step's shell script into lines, commands and substitutions.
 
 This is the lexical half of reading a ``run`` script the way the shell does:
-line continuations are joined, quoted text stays inside its word, a comment
-starts only at the beginning of a word, and unquoted control operators separate
-commands. It is not a shell parser. A line it cannot tokenize, because a quote
-is left open, raises ``ValueError`` so the caller can fail closed.
+a backslash-newline joins lines except in a comment or inside single quotes,
+quoted text stays inside its word (a quoted string that spans lines is one
+logical line), a comment starts only at the beginning of a word and ends at its
+newline, and unquoted control operators separate commands. It is not a shell
+parser. A line it cannot tokenize, because a quote is left open, raises
+``ValueError`` so the caller can fail closed.
 """
 
 from __future__ import annotations
@@ -29,42 +31,13 @@ _TOKEN: typ.Final = re.compile(
 _SUBSTITUTION: typ.Final = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
 
 
-def _continues(line: str) -> bool:
-    """Return whether a line ends in a backslash that joins it to the next.
+class UnterminatedQuoteError(ValueError):
+    """A line ends inside a quote; ``quote`` is the quote character left open."""
 
-    An odd run of trailing backslashes continues the line, except in a comment,
-    which the shell ends at the newline whatever it ends with. A line that
-    cannot be tokenized has an open quote, so it is read as continuing.
-    """
-    trailing = len(line) - len(line.rstrip("\\"))
-    if trailing % 2 == 0:
-        return False
-    try:
-        tokens = tokenize(line[:-1])
-    except ValueError:
-        return True
-    return not any(kind == "comment" for kind, _text in tokens)
-
-
-def script_lines(run: str) -> list[str]:
-    """Return a script's lines, with continuation lines joined to their head.
-
-    The shell removes a backslash-newline pair outright, so ``ma\\`` followed by
-    ``ke`` is one word, ``make``; a comment is the exception, since it ends at
-    its newline.
-    """
-    lines: list[str] = []
-    pending = ""
-    for raw in run.splitlines():
-        current = pending + raw
-        if _continues(current):
-            pending = current[:-1]
-        else:
-            lines.append(current)
-            pending = ""
-    if pending:
-        lines.append(pending)
-    return lines
+    def __init__(self, quote: str, rest: str) -> None:
+        """Record the open quote and the text from where it was opened."""
+        super().__init__(f"unterminated {quote} in {rest!r}")
+        self.quote = quote
 
 
 def tokenize(line: str) -> list[Token]:
@@ -72,14 +45,19 @@ def tokenize(line: str) -> list[Token]:
 
     Raises
     ------
+    UnterminatedQuoteError
+        If a quote is left open.
     ValueError
-        If the line cannot be tokenized, which is an unterminated quote.
+        If the line cannot be read for another reason, such as a lone
+        trailing backslash.
     """
     tokens: list[Token] = []
     position = 0
     while position < len(line):
         match = _TOKEN.match(line, position)
         if match is None:
+            if line[position] in "'\"":
+                raise UnterminatedQuoteError(line[position], line[position:])
             message = f"cannot read {line[position:]!r}"
             raise ValueError(message)
         position = match.end()
@@ -88,6 +66,48 @@ def tokenize(line: str) -> list[Token]:
         if match.lastgroup == "comment":
             break
     return tokens
+
+
+def _next_pending(current: str) -> str | None:
+    """Return the text to carry into the next line, or None if the line is done.
+
+    An odd run of trailing backslashes joins the next line, with the pair
+    removed, except in a comment (which ends at the newline) and inside single
+    quotes (where the pair is literal text). A line that ends inside a quote
+    carries its newline, so a quoted string stays one logical line.
+    """
+    is_continued = (len(current) - len(current.rstrip("\\"))) % 2 == 1
+    body = current[:-1] if is_continued else current
+    try:
+        tokens = tokenize(body)
+    except UnterminatedQuoteError as error:
+        if error.quote == "'" or not is_continued:
+            return current + "\n"
+        return body
+    has_comment = any(kind == "comment" for kind, _text in tokens)
+    return body if is_continued and not has_comment else None
+
+
+def script_lines(run: str) -> list[str]:
+    """Return a script's logical lines.
+
+    The shell removes a backslash-newline pair outright, so ``ma\\`` followed by
+    ``ke`` is one word, ``make``; a comment is the exception, since it ends at
+    its newline, and so is a single-quoted string, which keeps the pair.
+    """
+    lines: list[str] = []
+    pending = ""
+    for raw in run.splitlines():
+        current = pending + raw
+        carried = _next_pending(current)
+        if carried is None:
+            lines.append(current)
+            pending = ""
+        else:
+            pending = carried
+    if pending:
+        lines.append(pending.rstrip("\n"))
+    return lines
 
 
 def commands(tokens: list[Token]) -> list[list[str]]:
