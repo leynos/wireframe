@@ -228,9 +228,11 @@ lint-whitaker: ## Run Whitaker over every workspace member
 	RUSTFLAGS="-D warnings" $(WHITAKER) $(WHITAKER_FLAGS)
 
 # Installation stays explicit rather than a `lint` prerequisite: a contributor
-# with an existing installation should not pay for it on every run, and CI
-# installs once before its single `make lint` step. The suite revision is
-# resolved outside any Whitaker checkout so the installer clones its own copy.
+# with an existing installation should not pay for it on every run. This target
+# is the contributor's route; CI installs through the shared `install-whitaker`
+# action, which owns its installer version and takes the suite from the rolling
+# release (it refuses a suite pin). The suite revision is resolved outside any
+# Whitaker checkout so the installer clones its own copy.
 install-whitaker: ## Install the pinned Whitaker suite and Dylint tools
 	$(CARGO) install --locked --version $(CARGO_DYLINT_VERSION) cargo-dylint
 	$(CARGO) install --locked --version $(DYLINT_LINK_VERSION) dylint-link

@@ -1,10 +1,11 @@
 """Protect pull-request coverage enforcement in CI.
 
 Coverage generation, the spelling toolchain and the Markdown linter's pin are
-asserted here, and so is the workflow-wide Whitaker provisioning contract: the
-repository installs Whitaker through exactly one ``make install-whitaker``
-step, the Makefile owns every pin, and no workflow script, shared action or
-version variable provisions it another way. That check reads every job and
+asserted here, and so is the workflow-wide Whitaker provisioning contract: CI
+installs Whitaker through exactly one shared ``install-whitaker`` action step,
+which owns the installer version and takes no pin, and no workflow script,
+``make install-whitaker`` step or version variable provisions it another way;
+the Makefile's pins serve contributors only. That check reads every job and
 step of every workflow file, so a route added under a new step name or in a
 new workflow still fails it. Where CodeScene may and may not appear is a
 separate question with a separate reason, and is held by the shared CV-005
@@ -27,7 +28,10 @@ MAKEFILE_PATH = Path(__file__).resolve().parents[2] / "Makefile"
 MARKDOWNLINT_ACTION_RE = re.compile(
     r"^DavidAnson/markdownlint-cli2-action@[0-9a-f]{40}$"
 )
-INSTALL_WHITAKER_RUN = "make install-whitaker"
+MAKE_INSTALL_WHITAKER_RUN = "make install-whitaker"
+INSTALL_WHITAKER_ACTION_RE = re.compile(
+    r"^leynos/shared-actions/\.github/actions/install-whitaker@[0-9a-f]{40}$"
+)
 INSTALL_NIXIE_ACTION_RE = re.compile(
     r"^leynos/shared-actions/\.github/actions/install-nixie@[0-9a-f]{40}$"
 )
@@ -239,7 +243,8 @@ WHITAKER_ROUTE_RE = re.compile(
     r"|cargo\s+(\+\S+\s+)?dylint\b"
     # A path-qualified binary such as `./target/debug/whitaker` is still a
     # manual route, so only a word character or hyphen before the name
-    # disqualifies it: `make install-whitaker` must stay out of the scan.
+    # disqualifies it: the `install-whitaker` action path must stay out of the
+    # scan.
     r"|(?<![\w-])whitaker(?:-ls)?\b"
     r"|(?<![\w-])(cargo-dylint|dylint-link)\b",
 )
@@ -290,40 +295,51 @@ def _whitaker_routes(
     ]
 
 
-def test_whitaker_is_installed_only_through_the_pinned_make_target() -> None:
-    """Exactly one step installs Whitaker, and the Makefile owns every pin.
+def test_whitaker_is_installed_only_through_the_shared_action() -> None:
+    """Exactly one step installs Whitaker, through the shared action, unpinned.
 
-    Invariant, over every job and step of every workflow: one
-    ``make install-whitaker`` step, immediately before the exact ``make lint``
-    step; no shared ``install-whitaker`` action; no other ``run`` script
-    installs or invokes the Whitaker tools; no repository-owned Whitaker cache
-    step; and no installer-version or suite-revision token appears in a
-    workflow. The count is asserted first, because a contract over no steps is
-    satisfied by deleting the install.
+    Invariant, over every job and step of every workflow: one shared
+    ``install-whitaker`` action step, at a full commit SHA, in ci.yml's
+    ``build-test`` job before the exact ``make lint`` step; it passes no
+    ``suite-version`` or installer pin, since the action owns the installer
+    version and refuses a suite pin; no ``make install-whitaker`` step (that
+    target is the contributor's route); no other ``run`` script installs or
+    invokes the Whitaker tools; no repository-owned Whitaker cache step; and
+    no installer-version or suite-revision token appears in a workflow. The
+    count is asserted first, because a contract over no steps is satisfied by
+    deleting the install.
     """
     steps = _workflow_steps()
     installs = [
         (file, job, step)
         for file, job, step in steps
-        if str(step.get("run", "")).strip() == INSTALL_WHITAKER_RUN
+        if "install-whitaker@" in str(step.get("uses", ""))
     ]
     assert len(installs) == 1, (
-        f"expected one `{INSTALL_WHITAKER_RUN}` step, found {len(installs)}"
+        f"expected one shared install-whitaker action step, found {len(installs)}"
     )
     (file, job, install) = installs[0]
     assert (file, job) == ("ci.yml", "build-test"), (
-        "the Make-owned install must run in ci.yml's build-test job"
+        "the install must run in ci.yml's build-test job"
     )
-    assert "uses" not in install, "the install step must run Make, not an action"
+    assert INSTALL_WHITAKER_ACTION_RE.fullmatch(str(install["uses"])), (
+        f"the install action must be pinned to a full commit SHA: {install['uses']}"
+    )
+    options = install.get("with") or {}
+    assert isinstance(options, dict), "the install step's with: must be a mapping"
+    pinned = sorted(
+        key for key in options if key in {"suite-version", "installer-version"}
+    )
+    assert not pinned, f"the action owns the pins; the step passes {pinned}"
     _assert_installed_before_lint(install)
 
-    shared_actions = [
+    make_installs = [
         f"{file}:{job}: {step.get('name')}"
         for file, job, step in steps
-        if "install-whitaker@" in str(step.get("uses", ""))
+        if str(step.get("run", "")).strip() == MAKE_INSTALL_WHITAKER_RUN
     ]
-    assert not shared_actions, (
-        f"the shared install-whitaker action must be retired: {shared_actions}"
+    assert not make_installs, (
+        f"CI installs through the shared action, not Make: {make_installs}"
     )
 
     routes = _whitaker_routes(steps)
@@ -341,9 +357,9 @@ def test_whitaker_is_installed_only_through_the_pinned_make_target() -> None:
         path.read_text(encoding="utf-8")
         for path in WORKFLOWS_DIRECTORY.glob("*.y*ml")
     )
-    for token in (*WHITAKER_PIN_TOKENS, "suite-version"):
+    for token in (*WHITAKER_PIN_TOKENS, "suite-version", "installer-version"):
         assert token not in text, (
-            f"{token} belongs to the Makefile, not a workflow"
+            f"{token} belongs to the Makefile or the action, not a workflow"
         )
 
 
@@ -371,12 +387,33 @@ def test_the_whitaker_route_contract_rejects_a_manual_invocation(run: str) -> No
     assert _whitaker_routes(steps) == ["ci.yml:build-test: Lint"]
 
 
-def test_the_whitaker_route_contract_allows_the_make_owned_install() -> None:
-    """The sanctioned ``make install-whitaker`` step is not a manual route."""
+def test_the_whitaker_route_contract_allows_the_shared_action_install() -> None:
+    """The sanctioned shared-action step is not a manual route."""
     steps = [
-        ("ci.yml", "build-test", {"name": "Install", "run": INSTALL_WHITAKER_RUN}),
+        (
+            "ci.yml",
+            "build-test",
+            {
+                "name": "Install",
+                "uses": "leynos/shared-actions/.github/actions/install-whitaker@"
+                + "0" * 40,
+            },
+        ),
     ]
     assert _whitaker_routes(steps) == []
+
+
+@pytest.mark.parametrize(
+    "uses",
+    [
+        "leynos/shared-actions/.github/actions/install-whitaker@main",
+        "leynos/shared-actions/.github/actions/install-whitaker",
+        "leynos/shared-actions/.github/actions/install-whitaker@" + "0" * 39,
+    ],
+)
+def test_the_install_action_must_be_pinned_to_a_full_commit(uses: str) -> None:
+    """A mutable or short reference does not satisfy the install pattern."""
+    assert INSTALL_WHITAKER_ACTION_RE.fullmatch(uses) is None
 
 
 def test_whitaker_pins_live_only_in_the_makefile() -> None:

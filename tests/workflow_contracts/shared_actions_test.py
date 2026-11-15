@@ -159,8 +159,8 @@ def test_shared_action_invocations_have_expected_shape() -> None:
 def test_shared_action_invocations_use_one_consistent_version() -> None:
     """Every workflow invokes the same shared-actions revision.
 
-    Whitaker is installed by ``make install-whitaker`` rather than a shared
-    action, so no invocation needs an exemption from revision equality.
+    The shared ``install-whitaker`` action is pinned at the same revision as
+    every other invocation, so none needs an exemption from revision equality.
     """
     versions = _shared_action_versions()
     distinct_versions = {version for _, version in versions}
