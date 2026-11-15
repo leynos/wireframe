@@ -299,23 +299,29 @@ fn build_lifecycle_app(
         })?)
 }
 
+/// Repeat the malformed frame until the protocol failure limit is reached.
+fn protocol_error_input() -> Vec<u8> {
+    (0..DECODE_FAILURE_LIMIT)
+        .flat_map(|_| MALFORMED_FRAME)
+        .collect()
+}
+
+/// Encode the single request frame shared by the write-error and panic rows.
+fn scripted_request_frame() -> TestResult<Vec<u8>> { build_frame(1, vec![b'X']) }
+
 /// Build the scripted transport for one terminal outcome.
+///
+/// Each arm is a single expression so the outcome table stays readable and
+/// does not accumulate nested conditional logic.
 pub(super) fn stream_for(outcome: TerminalOutcome) -> TestResult<ScriptedStream> {
-    let stream = match outcome {
-        TerminalOutcome::CleanEof => ScriptedStream::new(Vec::new()),
-        TerminalOutcome::DecodeError => ScriptedStream::new(TRUNCATED_FRAME.to_vec()),
-        TerminalOutcome::ProtocolError => {
-            let mut input = Vec::new();
-            for _ in 0..DECODE_FAILURE_LIMIT {
-                input.extend_from_slice(&MALFORMED_FRAME);
-            }
-            ScriptedStream::new(input)
-        }
-        TerminalOutcome::ReadError => ScriptedStream::failing_read(),
-        TerminalOutcome::WriteError => ScriptedStream::failing_write(build_frame(1, vec![b'X'])?),
-        TerminalOutcome::HandlerPanic => ScriptedStream::new(build_frame(1, vec![b'X'])?),
-    };
-    Ok(stream)
+    match outcome {
+        TerminalOutcome::CleanEof => Ok(ScriptedStream::new(Vec::new())),
+        TerminalOutcome::DecodeError => Ok(ScriptedStream::new(TRUNCATED_FRAME.to_vec())),
+        TerminalOutcome::ProtocolError => Ok(ScriptedStream::new(protocol_error_input())),
+        TerminalOutcome::ReadError => Ok(ScriptedStream::failing_read()),
+        TerminalOutcome::WriteError => scripted_request_frame().map(ScriptedStream::failing_write),
+        TerminalOutcome::HandlerPanic => scripted_request_frame().map(ScriptedStream::new),
+    }
 }
 
 /// Route handler that panics when invoked.
