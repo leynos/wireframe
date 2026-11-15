@@ -29,11 +29,36 @@ MAKEFILE_PATH = Path(__file__).resolve().parents[2] / "Makefile"
 MARKDOWNLINT_ACTION_RE = re.compile(
     r"^DavidAnson/markdownlint-cli2-action@[0-9a-f]{40}$"
 )
-#: A `make` invocation naming the `install-whitaker` target, with options or
-#: other targets around it, as the first command or after a shell separator.
+#: A command that is a `make` invocation naming the `install-whitaker` target,
+#: with options or other targets around it.
 MAKE_INSTALL_WHITAKER_RE = re.compile(
-    r"(?:^|[\s;&|(])make\b[^\n;&|)]*(?<![\w-])install-whitaker(?![\w-])"
+    r"^make\b.*(?<![\w-])install-whitaker(?![\w-])"
 )
+_LINE_CONTINUATION_RE = re.compile(r"\\\n\s*")
+_SHELL_COMMENT_RE = re.compile(r"(?:^|(?<=\s))#.*$", re.MULTILINE)
+_COMMAND_SEPARATOR_RE = re.compile(r"[;&|(){}\n]+")
+
+
+def runs_make_install_whitaker(run: str) -> bool:
+    """Return whether a step's script runs ``make`` on ``install-whitaker``.
+
+    Line continuations are joined and shell comments dropped before the script
+    is split into commands, so ``make -s \\`` followed by ``install-whitaker``
+    is caught while a comment or an ``echo`` merely naming the target is not.
+
+    Parameters
+    ----------
+    run
+        The step's ``run`` script.
+
+    Returns
+    -------
+    bool
+        True when any command in the script is such a ``make`` invocation.
+    """
+    script = _SHELL_COMMENT_RE.sub("", _LINE_CONTINUATION_RE.sub(" ", run))
+    commands = (command.strip() for command in _COMMAND_SEPARATOR_RE.split(script))
+    return any(MAKE_INSTALL_WHITAKER_RE.match(command) for command in commands)
 INSTALL_WHITAKER_ACTION_RE = re.compile(
     r"^leynos/shared-actions/\.github/actions/install-whitaker@[0-9a-f]{40}$"
 )
@@ -365,7 +390,7 @@ def test_no_other_route_installs_or_runs_whitaker_in_ci() -> None:
     steps = _workflow_steps()
     make_installs = _step_labels(
         steps,
-        lambda step: MAKE_INSTALL_WHITAKER_RE.search(str(step.get("run", ""))) is not None,
+        lambda step: runs_make_install_whitaker(str(step.get("run", ""))),
     )
     assert not make_installs, (
         f"CI installs through the shared action, not Make: {make_installs}"
@@ -441,20 +466,32 @@ def test_the_whitaker_route_contract_allows_the_shared_action_install() -> None:
         "make install-whitaker lint",
         "cd . && make install-whitaker",
         "make lint; make install-whitaker",
+        "make -s \\\n  install-whitaker",
+        "set -e\nmake install-whitaker\n",
+        "make install-whitaker # install the suite",
     ],
 )
 def test_the_make_route_detector_reports_every_variant(run: str) -> None:
-    """A Make install is caught with options, extra targets or a prefix."""
-    assert MAKE_INSTALL_WHITAKER_RE.search(run) is not None, run
+    """A Make install is caught with options, extra targets, prefixes or splits."""
+    assert runs_make_install_whitaker(run), run
 
 
 @pytest.mark.parametrize(
     "run",
-    ["make lint", "make test", "make check-fmt", "echo install-whitaker"],
+    [
+        "make lint",
+        "make test",
+        "make check-fmt",
+        "echo install-whitaker",
+        "echo make install-whitaker",
+        "# make install-whitaker",
+        "make lint # then make install-whitaker",
+        "printf '%s\\n' install-whitaker",
+    ],
 )
 def test_the_make_route_detector_ignores_other_commands(run: str) -> None:
-    """Other Make targets, and text merely naming the target, are not routes."""
-    assert MAKE_INSTALL_WHITAKER_RE.search(run) is None, run
+    """Other Make targets, comments and echoed text are not routes."""
+    assert not runs_make_install_whitaker(run), run
 
 
 @pytest.mark.parametrize(
