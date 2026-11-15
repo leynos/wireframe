@@ -15,6 +15,24 @@ Wireframe uses progressive discovery for public APIs:
 - `wireframe::prelude::*` is an optional convenience import for common
   workflows.
 
+## Minimum supported Rust version
+
+Both `wireframe` and its `wireframe_testing` companion crate declare
+`rust-version = "1.95"`. Cargo reads that declaration in two ways:
+
+- **Compatibility check.** A toolchain older than Rust 1.95 refuses to compile
+  either crate, reporting that the package requires Rust 1.95 or newer. Use
+  `cargo +1.95` to select the minimum toolchain when the default is newer.
+- **Version selection.** Both manifests take part in dependency resolution, and
+  the v3 resolver that edition 2024 selects by default prefers dependency
+  versions that build on Rust 1.95. It falls back to a version needing a newer
+  Rust only when no compatible candidate exists, and that fallback then fails
+  with a toolchain error rather than silently raising the floor.
+
+The [MSRV workflow](developers-guide.md#development-builds) checks that floor
+on every pull request, every push to `main` and weekly, so neither a change in
+this repository nor a dependency release can raise it unnoticed.
+
 ## Conceptual model and vocabulary
 
 Wireframe uses layer-specific terms. Keep these boundaries explicit so

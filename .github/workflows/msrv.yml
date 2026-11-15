@@ -28,6 +28,7 @@ permissions: {}
 
 jobs:
   msrv:
+    name: Check the minimum Rust version
     # GitHub-hosted, where public-repository minutes are free; one
     # `cargo check` needs nothing the paid pool offers.
     runs-on: ubuntu-latest

@@ -52,17 +52,23 @@ def test_the_lane_runs_weekly_on_a_github_hosted_runner() -> None:
     minute, hour, day_of_month, month, day_of_week = schedules[0]["cron"].split()
     assert (day_of_month, month) == ("*", "*"), "the schedule must recur every week"
     assert day_of_week.isdigit(), "the schedule must name one day of the week"
-    assert minute.isdigit() and hour.isdigit(), "the schedule must run once that day"
+    assert minute.isdigit(), "the schedule must name one minute"
+    assert hour.isdigit(), "the schedule must name one hour"
     assert _workflow()["jobs"]["msrv"]["runs-on"] == "ubuntu-latest"
 
 
 def test_the_lane_runs_the_make_target_unconditionally() -> None:
     """One step runs the target, and nothing lets it be skipped or ignored."""
-    steps = _workflow()["jobs"]["msrv"]["steps"]
+    job = _workflow()["jobs"]["msrv"]
+    assert "if" not in job, "the job must not be conditioned away"
+    assert not job.get("continue-on-error"), "a job failure must fail the run"
+    steps = job["steps"]
+    assert all("if" not in step for step in steps), "no step may be skipped"
+    assert not any(step.get("continue-on-error") for step in steps), (
+        "no step may ignore a failure"
+    )
     matching = [step for step in steps if step.get("run") == "make test-msrv"]
     assert len(matching) == 1, "the job must run `make test-msrv` exactly once"
-    assert "if" not in matching[0], "the build must run for every event"
-    assert not matching[0].get("continue-on-error"), "a failure must fail the job"
 
 
 def test_the_make_target_runs_the_script() -> None:
