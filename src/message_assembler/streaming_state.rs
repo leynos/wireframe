@@ -1,4 +1,5 @@
-//! Streaming entry points on [`MessageAssemblyState`].
+//! Streaming entry points on
+//! [`MessageAssemblyState`](crate::message_assembler::MessageAssemblyState).
 //!
 //! These methods keep streaming partials in their own map so they never
 //! contribute to the aggregate assembly budgets, and report evicted streaming
@@ -18,7 +19,8 @@ use super::{
     validation,
 };
 
-/// Keys evicted by [`MessageAssemblyState::purge_expired_detailed`].
+/// Keys evicted by
+/// [`MessageAssemblyState::purge_expired_detailed`](crate::message_assembler::MessageAssemblyState::purge_expired_detailed).
 ///
 /// Streaming keys are reported separately so the connection can fail the
 /// handler's body with a timeout instead of leaving it waiting forever.

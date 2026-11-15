@@ -16,7 +16,7 @@
 //!
 //! Code outside the runtime that wants this shape owns both ends of
 //! [`body_channel`]. Wrap the stream with [`RequestBodyReader::new`] for an
-//! [`AsyncRead`] parser.
+//! [`AsyncRead`](tokio::io::AsyncRead) parser.
 //!
 //! ```
 //! use tokio::io::AsyncReadExt;
