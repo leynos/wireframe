@@ -435,8 +435,10 @@ When both layers are enabled, Wireframe applies them in the following order:
    request body.
 4. Route and invoke handlers.
 
-Streaming request bodies are caller-owned primitives rather than an assembler
-output; see [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md).
+Streaming request bodies are delivered by the connection runtime when a route
+opts in with `WireframeApp::streaming_route`, rather than being an assembler
+output; see [ADR 018](adr-018-streaming-request-body-dispatch.md) and
+[ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md).
 
 In operational terms, each layer owns a distinct hand-off:
 
@@ -446,8 +448,9 @@ In operational terms, each layer owns a distinct hand-off:
   first frame or a continuation frame for one logical message;
 - Wireframe strips the parsed protocol header, tracks assembly state by
   message key, and accumulates the assembled body for dispatch; and
-- handlers observe only the buffered, protocol-facing payload; the streaming
-  primitives remain caller-owned, and no `StreamingBody` extractor exists.
+- buffered handlers observe only the buffered, protocol-facing payload, while a
+  streaming route observes `RequestParts` and each delivered chunk; no
+  `StreamingBody` extractor exists.
 
 For screen readers: the following sequence diagram shows the decode → fragment
 reassembly → message assembly → handler pipeline.

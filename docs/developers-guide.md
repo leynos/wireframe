@@ -849,6 +849,46 @@ that boundary over values near `usize::MAX`, and
 break caused by the three new variants, matching the existing `ClientError`
 fixture.
 
+### Streaming dispatch slot architecture
+
+Streaming request bodies are dispatched by one slot per connection. The loop
+lives in `src/app/inbound_handler/stream_dispatch.rs`, the slot in
+`stream_slot.rs`, and the parking queue in `stream_parked.rs`. These modules
+are separate because the three concerns change for different reasons: the loop
+owns the event `select!`, the slot owns one exchange's lifecycle, and the
+parking queue owns completion order.
+
+Three properties follow from keeping the slot inside the connection loop rather
+than in a spawned task:
+
+- dropping the connection drops the handler, its body, and any in-flight
+  admission, so no detached work outlives the socket;
+- at most one admission is in flight per slot, so chunks cannot reorder; and
+- the handler and the socket are polled from the same place, so a slow consumer
+  suspends inbound reading for that body instead of starving the handler.
+
+`ActiveStream` holds the message key, route and correlation identifiers, the
+byte-accounted sender, the handler future, and an optional `PendingSend`. The
+sender is optional because the body closes when the final chunk is admitted or
+an admission fails; every later push is refused. `push_chunk()` refuses when
+there is no active stream, the key differs, or an admission is already pending,
+which keeps the ordering guarantee local to one predicate.
+
+Terminal paths converge on `close_active()`: expiry, assembly failure, and end
+of stream each deliver one terminal error through the sender, drop it, remove
+the message from the assembler's streaming map, await the handler under a
+timeout, and forward whatever reply it produced. `finish_active()` is the
+non-error path and additionally cancels a pending admission, because a handler
+that resolved on its own has no obligation to drain chunks already queued for
+it.
+
+Chunk accounting is the other half of the design. `src/request/accounted.rs`
+wraps the bounded channel so each queued chunk carries its byte length, and the
+guard releases those bytes when the chunk is taken or the queue is dropped. The
+loop adds `retained_bytes()` and the parked queue's bytes to the fragment
+buffers before evaluating pressure, so one soft-pause and hard-cap policy
+covers delivered-but-unread bodies as well as buffered assembly.
+
 ### `fill_buf_with_prefix`
 
 The private helper `fill_buf_with_prefix(buf, prefix, endianness)` in

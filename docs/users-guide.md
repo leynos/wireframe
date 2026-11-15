@@ -1385,12 +1385,100 @@ cheapest way to fail early on an oversized message. The decision is recorded in
 
 ### Streaming request body consumption
 
-`wireframe::request` provides the building blocks for consuming a request body
-incrementally: `RequestParts` carries routing metadata, and `RequestBodyStream`
-yields body chunks. The connection runtime does not create a body channel or
-hand these values to a route handler; a handler receives only its envelope.
-Code that owns the producer can pair both ends with `body_channel` and adapt
-the receiving end with `RequestBodyReader` when a parser wants `AsyncRead`.
+A route registered with `WireframeApp::streaming_route` receives `RequestParts`
+and a `RequestBodyStream` while the message's frames are still arriving.
+Buffered routes registered with `WireframeApp::route` are unchanged: their
+payload is reassembled before the handler runs, and their reply is the
+reassembled request payload unless middleware replaces it.
+
+```rust,no_run
+use std::sync::Arc;
+
+use futures::StreamExt;
+use wireframe::app::StreamingHandler;
+use wireframe::request::{RequestBodyStream, RequestParts};
+
+fn upload_handler() -> StreamingHandler {
+    Arc::new(|parts: RequestParts, mut body: RequestBodyStream| {
+        Box::pin(async move {
+            while let Some(chunk) = body.next().await {
+                match chunk {
+                    Ok(bytes) => log::debug!("request {}: {} bytes", parts.id(), bytes.len()),
+                    Err(error) => log::error!("request {} failed: {error}", parts.id()),
+                }
+            }
+            // Returning `None` sends no reply frame.
+            Some(b"accepted".to_vec())
+        })
+    })
+}
+```
+
+Register it with `app.streaming_route(42, upload_handler())?`. The route
+identifier must be unused by both buffered and streaming routes; reusing one
+fails with `WireframeError::DuplicateRoute`.
+
+`RequestParts` carries the route identifier, the correlation identifier, and
+any protocol metadata the handler needs to interpret the body. A message whose
+first frame completes it still reaches a streaming handler, as a body that
+yields exactly one chunk, so a handler never has to distinguish the two shapes.
+
+#### Replies, middleware, and ordering
+
+A streaming handler returns `Option<Vec<u8>>`. Its payload becomes an ordinary
+response envelope carrying the request's route and correlation identifiers and
+passes through the outbound codec pipeline, so it is framed exactly like a
+buffered reply. Returning `None` sends no frame.
+
+Middleware does not run for streaming routes. Middleware transforms a whole
+payload, while a streaming handler owns its body incrementally and may never
+materialize it. Apply authentication or logging inside the handler, or keep the
+route buffered.
+
+A connection delivers at most one streaming body at a time. Complete messages
+that arrive while a body is live are parked, and they are dispatched in
+completion order once the body ends. A parked message for a streaming route is
+delivered with its assembled body as a single chunk. Replies are written when
+each exchange finishes, so a parked message's reply always follows the reply of
+the body that was live before it.
+
+#### Limits and lifecycle
+
+The per-message cap and the declared total body length are enforced on each
+continuation before its bytes reach the handler. Continuity errors such as a
+duplicate or a gap keep the partial assembly, so a retransmission can still
+complete the message. A terminal breach removes the partial and fails the body:
+
+- a continuation that would exceed the per-message cap;
+- a continuation that would exceed the declared total;
+- a final frame whose accumulated body differs from the declared total.
+
+The handler observes exactly one termination of its body:
+
+| Event                                    | Body outcome                        |
+| ---------------------------------------- | ----------------------------------- |
+| Assembly expiry                          | `TimedOut`                          |
+| Connection end of stream                 | `UnexpectedEof`                     |
+| Inbound decode failure                   | the decoder's error kind            |
+| Per-message cap or declared-total breach | `InvalidData`                       |
+| Handler drops the body                   | remaining frames validated, dropped |
+| Aggregate hard cap breached              | connection closed, handler dropped  |
+
+Dropping the body stream switches the message to discard mode: later frames are
+still validated for continuity and size, so framing is preserved, but nothing
+is delivered. This is how a handler rejects a request early without
+desynchronizing the connection.
+
+Body chunks queued for a handler are charged against the connection's
+`bytes_per_connection` and `bytes_in_flight` budgets, so a slow consumer cannot
+grow an unbounded queue. A chunk larger than the remaining budget is still
+admitted to an empty queue; otherwise the producer would wait for room that
+only the consumer could create while the consumer had nothing to take. The
+hard-cap policy observes the queued bytes immediately afterwards, so the
+exception cannot hide an overrun.
+
+`RequestBodyReader` adapts the stream to `AsyncRead`, allowing protocol crates
+to reuse existing parsers:
 
 <!-- tested-example: users-guide-030 -->
 ```rust,no_run
@@ -1399,14 +1487,11 @@ use wireframe::request::{RequestBodyReader, RequestBodyStream, RequestParts};
 
 async fn read_upload(parts: RequestParts, body: RequestBodyStream) {
     let mut reader = RequestBodyReader::new(body);
-    let mut buf = Vec::new();
-    reader.read_to_end(&mut buf).await.expect("read body");
-
-    log::info!(
-        "received {} bytes for request {}",
-        buf.len(),
-        parts.id()
-    );
+    let mut buffer = Vec::new();
+    match reader.read_to_end(&mut buffer).await {
+        Ok(_) => log::info!("received {} bytes for request {}", buffer.len(), parts.id()),
+        Err(error) => log::error!("request {} failed: {error}", parts.id()),
+    }
 }
 ```
 
@@ -1431,11 +1516,8 @@ async fn read_chunks(parts: RequestParts, mut body: RequestBodyStream) {
 }
 ```
 
-Back-pressure is enforced by the bounded channel that producer and consumer
-share: when the channel fills, the sender awaits capacity until the consumer
-drains pending chunks. The framework cannot pause socket reads on a handler's
-behalf because it owns neither end. The `body_channel` helper creates channels
-with configurable capacity:
+Code outside the connection runtime that owns both ends can still pair them with
+`body_channel`. Capacity is set when the channel is created:
 
 <!-- tested-example: users-guide-033 -->
 ```rust
@@ -1447,9 +1529,10 @@ let (tx, rx) = body_channel(8);
 // rx: consumer reads the stream
 ```
 
-See [ADR 0002][adr-0002-ref] for the original design rationale and
-[ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md) for the
-decision to remove the extractor wrapper that was never wired to dispatch.
+See [ADR 0002][adr-0002-ref] for the original primitives,
+[ADR 018](adr-018-streaming-request-body-dispatch.md) for streaming dispatch,
+and [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md) for the
+decision to remove the extractor wrapper.
 
 ## Working with requests and middleware
 

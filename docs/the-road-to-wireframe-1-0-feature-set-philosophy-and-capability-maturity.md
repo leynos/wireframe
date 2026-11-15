@@ -93,17 +93,19 @@ See `examples/async_stream.rs` for a runnable demonstration of this pattern.
 
 [ADR 0002][adr-0002] extends the streaming model to inbound requests, providing
 symmetry with response streaming. `RequestParts` plus `RequestBodyStream`
-enable incremental processing of large inbound payloads. Route handlers do not
-receive those shapes: dispatch stays buffered, and a caller that needs an
-incremental body owns both ends of the stream.
+enable incremental processing of large inbound payloads. A route registered with
+`WireframeApp::streaming_route` receives those shapes incrementally, while
+buffered routes keep their reassembly guarantees; a caller outside the runtime
+that needs an incremental body owns both ends of the stream.
 
 This is now a concrete part of the public API rather than a future sketch.
 `RequestParts` separates routing metadata from the body, while
 `RequestBodyStream` yields body chunks as a pinned boxed stream. Protocol
-crates can adapt that stream to `AsyncRead` through `RequestBodyReader` and
-pair it with a producer through `body_channel`. The server does not deliver
-these shapes to route handlers; ADR 017 records that limitation and removes the
-`StreamingBody` extractor that was never wired to dispatch.
+crates can adapt that stream to `AsyncRead` through `RequestBodyReader`, or
+pair it with a producer through `body_channel`. The connection runtime delivers
+these shapes to streaming routes, following
+[ADR 018](adr-018-streaming-request-body-dispatch.md); ADR 017 removed the
+`StreamingBody` extractor wrapper.
 
 Completion of a streaming response is signalled by a protocol-defined
 terminator frame. The new `stream_end_frame` hook allows implementations to
