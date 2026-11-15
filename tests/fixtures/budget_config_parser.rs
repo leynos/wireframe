@@ -30,14 +30,7 @@ pub struct StandardBudgetConfig {
 /// Parse the standard four-segment budget config string used by budget BDD
 /// fixtures.
 pub fn parse_standard_budget_config(s: &str) -> Result<StandardBudgetConfig, String> {
-    let mut values = s.split('/').map(str::trim);
-    let timeout_ms = next_non_empty(&mut values, "timeout_ms")?;
-    let per_message = next_non_empty(&mut values, "per_message")?;
-    let per_connection = next_non_empty(&mut values, "per_connection")?;
-    let in_flight = next_non_empty(&mut values, "in_flight")?;
-    if values.next().is_some() {
-        return Err("unexpected trailing segments".to_owned());
-    }
+    let (timeout_ms, per_message, per_connection, in_flight) = split_four_segments(s)?;
 
     Ok(StandardBudgetConfig {
         timeout_ms: parse_segment(timeout_ms, "timeout_ms")?,
@@ -45,6 +38,21 @@ pub fn parse_standard_budget_config(s: &str) -> Result<StandardBudgetConfig, Str
         per_connection: parse_segment(per_connection, "per_connection")?,
         in_flight: parse_segment(in_flight, "in_flight")?,
     })
+}
+
+/// Split exactly four non-empty `/`-separated segments, rejecting extras.
+fn split_four_segments(s: &str) -> Result<(&str, &str, &str, &str), String> {
+    let mut values = s.split('/').map(str::trim);
+    let segments = (
+        next_non_empty(&mut values, "timeout_ms")?,
+        next_non_empty(&mut values, "per_message")?,
+        next_non_empty(&mut values, "per_connection")?,
+        next_non_empty(&mut values, "in_flight")?,
+    );
+    if values.next().is_some() {
+        return Err("unexpected trailing segments".to_owned());
+    }
+    Ok(segments)
 }
 
 fn next_non_empty<'a>(
