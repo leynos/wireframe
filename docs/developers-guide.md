@@ -1274,7 +1274,7 @@ as a test assertion on the SHA string.
 
 ## Development builds
 
-The repository pins `nightly-2026-10-30` with `rustfmt`, `clippy`, and
+The repository pins `nightly-2026-11-13` with `rustfmt`, `clippy`, and
 `rust-analyzer`. The toolchain also needs `rustc-codegen-cranelift-preview` for
 the optional development backend. Native Linux development builds use `mold` as
 the linker; CI provisions the component and linker before running the standard
@@ -1340,10 +1340,18 @@ The fragment configures the backend only and declares no `[target.<...>]`
 table, so a direct `--config tools/dev-fast/config.toml` invocation behaves the
 same on every machine.
 
-The fragment selects Cranelift for the development profile; Cargo test commands
-(`make test`, `make test-bdd`, and `make test-doc`) use the LLVM test profile
-described below. Installing the Cranelift component alone does not change the
-backend.
+LLVM is the default backend. The fragment's Cranelift selection for the
+development profile is commented out (Cranelift disabled estate-wide on
+14 November 2026; review 14 May 2027; see
+[concordat ADR-0004](https://github.com/leynos/concordat/blob/main/docs/adrs/adr-0004-cranelift-is-not-part-of-the-rust-build-standard.md)).
+To opt in locally, uncomment it and update the contract in
+`tests/workflow_contracts/dev_fast_routing_test.py` that asserts the fragment
+selects no development backend (or set `CARGO_PROFILE_DEV_CODEGEN_BACKEND`
+instead, which needs no contract change). Cranelift builds do not unwind, so
+panicking tests abort. An inherited `CARGO_PROFILE_*_CODEGEN_BACKEND` can still
+select it. Installing the Cranelift component alone does not change the
+backend. Cargo test commands (`make test`, `make test-bdd`, and
+`make test-doc`) keep the LLVM test profile described below.
 
 Release builds, coverage generation, verification commands, and Whitaker run
 without the development fragment. Direct Cargo commands also leave it
@@ -1366,9 +1374,12 @@ undefined; all doctests passed with the LLVM override.
 
 The explicit fragment remains selected by the Make test targets, but their
 tests are not Cranelift-accelerated. Development builds, lint, and typecheck
-continue to use Cranelift. This is a pinned-toolchain exception to the Netsuke
-source fragment; reproduce the recorded failures and reassess the override when
-the toolchain pin changes. The failures above are the first measurement; the
+used Cranelift until it was disabled by default on 14 November 2026; they now
+use LLVM unless the opt-in is uncommented or
+`CARGO_PROFILE_DEV_CODEGEN_BACKEND` selects Cranelift. This is a
+pinned-toolchain exception to the Netsuke source fragment; reproduce the
+recorded failures and reassess the override only if the opt-in is revived at
+the 14 May 2027 review. The failures above are the first measurement; the
 re-measurement below supersedes their details.
 
 Re-measured on 2026-09-28 on the then-pinned `nightly-2026-03-26`, with
@@ -1386,12 +1397,14 @@ build standard. The exception stands. Three test binaries fail:
   caught.
 
 The `src/metrics/mod.rs` doctest still fails to link, with undefined AWS-LC
-symbols. Re-measure on the next toolchain pin.
+symbols. This measurement asked for a re-measurement on the next toolchain pin;
+see below for what replaces that.
 
-The pinned toolchain is now `nightly-2026-10-30`. No measurement has been taken
+The pinned toolchain is now `nightly-2026-11-13`. No measurement has been taken
 on it: the suite was last run under Cranelift on `nightly-2026-03-26`, and this
-exception stands on that result. The deferral runs until the next toolchain pin
-change, when the suite is re-measured under Cranelift.
+exception stands on that result. Because Cranelift is now an opt-in, the
+re-measurement is deferred to the 14 May 2027 review rather than to the next
+pin change, and is taken only if the opt-in is revived.
 
 ## Cargo workspace semantics
 

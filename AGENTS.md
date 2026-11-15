@@ -135,9 +135,13 @@ project:
   selection because only Make can test whether the host is Linux. See
   [repository layout](docs/repository-layout.md) and the
   [developer guide](docs/developers-guide.md#development-builds) for backend
-  and linker details. The test profile stays on LLVM because the pinned
-  Cranelift test run fails; see the developer guide's Cranelift section. Use
-  `make fmt` to apply formatting fixes reported by the formatter check.
+  and linker details. LLVM is the default backend; Cranelift is an opt-in
+  (commented out in the fragment; see
+  [concordat ADR-0004](https://github.com/leynos/concordat/blob/main/docs/adrs/adr-0004-cranelift-is-not-part-of-the-rust-build-standard.md))
+  and does not unwind, so panicking tests abort. The test profile stays on
+  LLVM because the pinned Cranelift test run fails; see the developer guide's
+  Cranelift section. Use `make fmt` to apply formatting fixes reported by the
+  formatter check.
 - Clippy warnings MUST be disallowed.
 - Fix any warnings emitted during tests in the code itself rather than
   silencing them.
