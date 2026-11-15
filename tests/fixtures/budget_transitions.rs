@@ -271,18 +271,18 @@ impl BudgetTransitionsWorld {
         self.drain_ready_payloads()?;
         match self.join_server()? {
             Ok(()) => Err("expected connection to abort, but it completed successfully".into()),
-            Err(error) => {
-                if error.kind() != std::io::ErrorKind::InvalidData {
-                    return Err(format!(
-                        "expected budget-related InvalidData error, got {:?}: {error}",
-                        error.kind(),
-                    )
-                    .into());
-                }
-                self.connection_error = Some(error.to_string());
-                Ok(())
-            }
+            Err(error) => self.record_abort_error(&error),
         }
+    }
+
+    /// Accept an `InvalidData` abort and remember its text; reject any other kind.
+    fn record_abort_error(&mut self, error: &std::io::Error) -> TestResult {
+        let kind = error.kind();
+        if kind == std::io::ErrorKind::InvalidData {
+            self.connection_error = Some(error.to_string());
+            return Ok(());
+        }
+        Err(format!("expected budget-related InvalidData error, got {kind:?}: {error}").into())
     }
 
     /// Assert that the expected payload is eventually observed.
