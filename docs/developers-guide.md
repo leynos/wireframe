@@ -83,21 +83,27 @@ Namespace's shared profile is Ubuntu 22.04, which carries glibc 2.35.
 `ubicloud-standard-4` is Ubuntu 24.04, which carries glibc 2.39, so the
 constraint is satisfied rather than waived. repovec-appliance runs the same
 `whitaker-installer` on Ubicloud, green, and so does this lane, which now takes
-the 0.2.11 release the Makefile pins. Should a lane ever need the
+the installer release the shared action pins. Should a lane ever need the
 `-ubuntu-2204` variant, the old constraint returns with it.
 
-Whitaker is installed through `make install-whitaker`, which contributors and
-CI both run. The Makefile owns every pin in one block: the installer release,
-the `cargo-dylint` and `dylint-link` releases, and the Whitaker suite commit.
-CI therefore installs exactly the tools the contributor installs, and a
-reviewed bump is a single edit followed by `make install-whitaker` and
-`make lint`.
+CI installs Whitaker through the shared `install-whitaker` action, pinned at
+the same shared-actions revision as every other invocation. The action owns the
+installer version (`whitaker-installer` 0.2.12 at the current revision), the
+digest-verified download and the cache, and it takes the lint suite from the
+rolling release; it refuses a suite pin, so the workflow passes none. A bump of
+the installer is therefore a shared-actions revision bump.
 
-The shared `install-whitaker` action, the repository's own cache step and the
-contract that pinned its key are retired. Both runner environments are Ubuntu
-24.04 today, so they share a glibc, and no restore can select an older one.
-`tests/workflow_contracts/lint_pipeline_test.py` rejects a pin declared outside
-the Makefile, so a workflow-level version or cache key cannot creep back in.
+Contributors run `make install-whitaker`, which keeps its own pin block in the
+Makefile: the installer release, the `cargo-dylint` and `dylint-link` releases,
+and the Whitaker suite commit. That route builds the pinned suite, so a
+contributor's suite can lag the rolling release CI uses; when a diagnostic
+appears only in CI, bump the Makefile's suite commit. The repository's own
+cache step and the contract that pinned its key stay retired. Both runner
+environments are Ubuntu 24.04 today, so they share a glibc, and no restore can
+select an older one. `tests/workflow_contracts/ci_workflow_test.py` requires
+CI's `Install Whitaker` step to be the shared action at a full commit SHA with
+no pin passed, and keeps the contributor's pins in the Makefile.
+`tests/workflow_contracts/lint_pipeline_test.py` holds those pins.
 
 ### Why `build-test` has two vCPU and `coverage-upload` four
 
@@ -904,12 +910,12 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
 
 Install the pinned toolchain with `make install-whitaker` before the first
 `make lint`. The target installs `cargo-dylint`, `dylint-link`, the Whitaker
-installer and the suite revision from the single pin block in the Makefile, so
-local linting and CI use identical versions; see the
-[Whitaker user's guide](whitaker-users-guide.md).
+installer and the suite revision from the single pin block in the Makefile; see
+the [Whitaker user's guide](whitaker-users-guide.md).
 
-CI runs that same target, so the lint step is plain `make lint` with no Git
-wrapper and no action-owned version.
+CI installs through the shared `install-whitaker` action instead (the action
+owns the installer version and takes the rolling suite), so the lint step is
+plain `make lint` with no Git wrapper.
 
 Repository-wide exclusions for Whitaker lints live in the root `dylint.toml`.
 It is deliberately empty: add an `excluded_paths` entry only with a reproduced
@@ -1002,10 +1008,10 @@ PyYAML. Run them locally with `make test-workflow-contracts`. They validate:
 
 - every `leynos/shared-actions` invocation across the repository workflows
   targets an approved action or reusable workflow path, uses a full
-  40-character lowercase hex commit SHA, and shares the same version. No
-  workflow installs Whitaker through the shared action any more: the Makefile
-  owns that installation, so revision equality has no exception. The value
-  itself is not asserted, so Dependabot bumps it freely (see
+  40-character lowercase hex commit SHA, and shares the same version. The
+  `install-whitaker` action is pinned at that same revision, so revision
+  equality has no exception. The value itself is not asserted, so Dependabot
+  bumps it freely (see
   [Workflow pins and Dependabot](#workflow-pins-and-dependabot));
 - job permissions are exactly least-privilege (`contents: read`,
   `id-token: write`);
@@ -1249,8 +1255,8 @@ must not verify the specific SHA value.
   reusable-workflow path and is pinned to a full 40-character commit SHA, not a
   mutable branch such as `main` or `rolling`.
 - Do assert all `leynos/shared-actions` invocations across all workflows use
-  the same commit SHA. Whitaker is installed by `make install-whitaker`, not a
-  shared action, so no invocation needs an exemption.
+  the same commit SHA. The `install-whitaker` action is pinned at that same
+  commit SHA, so no invocation needs an exemption.
 - Do assert the expected `on:` triggers, least-privilege `permissions:`, and
   the inputs the caller relies on.
 - Do not hard-code the current SHA value as an expected string. Match it with

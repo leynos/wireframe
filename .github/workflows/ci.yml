@@ -108,10 +108,12 @@ jobs:
         run: make check-fmt
 
       - name: Install Whitaker
-        # The Makefile owns every pin: installer, Dylint tools and suite
-        # revision. CI installs through the same target a contributor runs, so
-        # the lint pipeline cannot drift between them.
-        run: make install-whitaker
+        # The shared action owns the installer version (whitaker-installer
+        # 0.2.12 at this shared-actions revision), the digest-verified download
+        # and the cache, and it takes the lint suite from the rolling release;
+        # it refuses a suite pin, so none is passed. The Makefile's
+        # `install-whitaker` target is the contributor's route, not CI's.
+        uses: leynos/shared-actions/.github/actions/install-whitaker@203eedc136c14c28041e92c06a929383807b3a3f
       - name: Lint
         run: make lint
       - name: Setup uv
