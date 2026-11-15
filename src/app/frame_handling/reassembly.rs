@@ -41,19 +41,28 @@ fn handle_reassembly_result(
             Ok(None)
         }
         Err(FragmentProcessError::Reassembly(err)) => {
-            if matches!(
-                err,
-                ReassemblyError::TooManyConcurrentPartials { .. }
-                    | ReassemblyError::AggregateBufferCapExceeded { .. }
-            ) {
-                log::warn!(
-                    "fragment aggregate cap exceeded; aborting connection: \
-                     correlation_id={correlation_id:?}, error={err:?}"
-                );
-                return Err(io::Error::new(io::ErrorKind::InvalidData, err));
-            }
-            failures.record(correlation_id, "fragment reassembly failed", err)?;
-            Ok(None)
+            handle_reassembly_error(err, failures, correlation_id)
         }
     }
+}
+
+/// Abort the connection on an aggregate cap error; count any other one.
+fn handle_reassembly_error(
+    err: ReassemblyError,
+    failures: &mut DeserFailureTracker<'_>,
+    correlation_id: Option<u64>,
+) -> io::Result<Option<Envelope>> {
+    if matches!(
+        err,
+        ReassemblyError::TooManyConcurrentPartials { .. }
+            | ReassemblyError::AggregateBufferCapExceeded { .. }
+    ) {
+        log::warn!(
+            "fragment aggregate cap exceeded; aborting connection: \
+             correlation_id={correlation_id:?}, error={err:?}"
+        );
+        return Err(io::Error::new(io::ErrorKind::InvalidData, err));
+    }
+    failures.record(correlation_id, "fragment reassembly failed", err)?;
+    Ok(None)
 }

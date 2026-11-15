@@ -18,6 +18,7 @@ use crate::{
         FrameHeader,
         MessageAssembler,
         MessageAssemblyState,
+        ParsedFrameHeader,
     },
 };
 
@@ -114,28 +115,10 @@ pub(crate) fn assemble_if_needed(
     let mut failures = DeserFailureTracker::new(deser_failures, max_deser_failures);
     let correlation_id = env.correlation_id;
 
-    let parsed = match assembler.parse_frame_header(env.payload_bytes()) {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            failures.record(
-                correlation_id,
-                "failed to parse message assembly frame header",
-                err,
-            )?;
-            return Ok(None);
-        }
-    };
-
     let payload = env.payload_bytes();
-    let Some(frame_bytes) = payload.get(parsed.header_len()..) else {
-        failures.record(
-            correlation_id,
-            "message assembly header length exceeds payload length",
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "message assembly header length exceeds payload",
-            ),
-        )?;
+    let Some((parsed, frame_bytes)) =
+        split_header(assembler.as_ref(), payload, &mut failures, correlation_id)?
+    else {
         return Ok(None);
     };
 
@@ -150,17 +133,56 @@ pub(crate) fn assemble_if_needed(
         correlation_id: env.correlation_id.map(Into::into),
     };
 
-    match parsed.into_header() {
-        FrameHeader::First(header) => {
-            let Some(result) = process_first_frame(&mut context, &header, frame_bytes, routing)?
-            else {
-                return Ok(None);
-            };
-            Ok(Some(Envelope::from_assembled(&result)))
+    let outcome = dispatch_frame(&mut context, parsed.into_header(), frame_bytes, routing)?;
+    Ok(outcome.map(|message| Envelope::from_assembled(&message)))
+}
+
+/// Parse the assembly header and return it with the bytes that follow it.
+///
+/// Malformed headers are recorded against the failure budget and yield
+/// `Ok(None)`; only the tracker's terminal error is propagated.
+fn split_header<'p>(
+    assembler: &dyn MessageAssembler,
+    payload: &'p [u8],
+    failures: &mut DeserFailureTracker<'_>,
+    correlation_id: Option<u64>,
+) -> io::Result<Option<(ParsedFrameHeader, &'p [u8])>> {
+    let parsed = match assembler.parse_frame_header(payload) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            failures.record(
+                correlation_id,
+                "failed to parse message assembly frame header",
+                err,
+            )?;
+            return Ok(None);
         }
-        FrameHeader::Continuation(header) => {
-            let result = process_continuation_frame(&mut context, &header, frame_bytes)?;
-            Ok(result.map(|assembled| Envelope::from_assembled(&assembled)))
+    };
+    let Some(frame_bytes) = payload.get(parsed.header_len()..) else {
+        failures.record(
+            correlation_id,
+            "message assembly header length exceeds payload length",
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "message assembly header length exceeds payload",
+            ),
+        )?;
+        return Ok(None);
+    };
+    Ok(Some((parsed, frame_bytes)))
+}
+
+/// Route a parsed header to the first-frame or continuation-frame handler.
+fn dispatch_frame(
+    context: &mut AssemblyContext<'_, '_>,
+    frame_header: FrameHeader,
+    frame_bytes: &[u8],
+    routing: EnvelopeRouting,
+) -> io::Result<Option<AssembledMessage>> {
+    match frame_header {
+        FrameHeader::First(first) => process_first_frame(context, &first, frame_bytes, routing),
+        FrameHeader::Continuation(continuation) => {
+            process_continuation_frame(context, &continuation, frame_bytes)
         }
     }
 }
