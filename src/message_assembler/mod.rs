@@ -135,6 +135,8 @@ pub trait MessageAssembler: Send + Sync + 'static {
 }
 
 #[cfg(test)]
+mod streaming_tests;
+#[cfg(test)]
 mod test_helpers;
 #[cfg(test)]
 mod tests;

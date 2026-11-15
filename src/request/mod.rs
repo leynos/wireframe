@@ -332,4 +332,7 @@ impl CorrelationResult {
 mod tests;
 
 #[cfg(test)]
+mod accounted_tests;
+
+#[cfg(test)]
 mod stream_tests;
