@@ -100,9 +100,11 @@ contributor's suite can lag the rolling release CI uses; when a diagnostic
 appears only in CI, bump the Makefile's suite commit. The repository's own
 cache step and the contract that pinned its key stay retired. Both runner
 environments are Ubuntu 24.04 today, so they share a glibc, and no restore can
-select an older one. `tests/workflow_contracts/ci_workflow_test.py` requires
-the action to be the only CI install and to pass no pin, and rejects a pin
-declared in a workflow, so a workflow-level version or cache key cannot creep
+select an older one. `tests/workflow_contracts/whitaker_provisioning_test.py`
+requires the action to be the only CI install and to pass no pin, and rejects a
+pin declared in a workflow, a `make install-whitaker` step (however its command
+line is spelled; `make_route_reader.py` reads the script as the shell does) and
+a cache step, so a workflow-level version, reinstall or cache key cannot creep
 back in. `tests/workflow_contracts/lint_pipeline_test.py` holds the Makefile's
 own pins.
 
@@ -1009,10 +1011,10 @@ PyYAML. Run them locally with `make test-workflow-contracts`. They validate:
 
 - every `leynos/shared-actions` invocation across the repository workflows
   targets an approved action or reusable workflow path, uses a full
-  40-character lowercase hex commit SHA, and shares the same version. No
-  workflow installs Whitaker through the shared action any more: the Makefile
-  owns that installation, so revision equality has no exception. The value
-  itself is not asserted, so Dependabot bumps it freely (see
+  40-character lowercase hex commit SHA, and shares the same version. The
+  `install-whitaker` action is pinned at that same revision, so revision
+  equality has no exception. The value itself is not asserted, so Dependabot
+  bumps it freely (see
   [Workflow pins and Dependabot](#workflow-pins-and-dependabot));
 - job permissions are exactly least-privilege (`contents: read`,
   `id-token: write`);
