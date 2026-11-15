@@ -77,6 +77,20 @@ fn assert_fragment_metadata(fragments: &[TestPacket], packet: &TestPacket) {
     }
 }
 
+/// Feed the first fragment twice, requiring that neither completes a message.
+fn feed_first_fragment_and_duplicate(
+    adapter: &mut DefaultFragmentAdapter,
+    first: TestPacket,
+) -> TestResult<()> {
+    if adapter.reassemble(first.clone())?.is_some() {
+        return Err("first fragment should not complete a message".into());
+    }
+    if adapter.reassemble(first)?.is_some() {
+        return Err("duplicate fragment should be suppressed".into());
+    }
+    Ok(())
+}
+
 fn reassemble_fragment_sequence(
     adapter: &mut DefaultFragmentAdapter,
     fragments: &[TestPacket],
@@ -85,12 +99,7 @@ fn reassemble_fragment_sequence(
         .first()
         .cloned()
         .ok_or("fragment list must contain at least one fragment")?;
-    if adapter.reassemble(first.clone())?.is_some() {
-        return Err("first fragment should not complete a message".into());
-    }
-    if adapter.reassemble(first)?.is_some() {
-        return Err("duplicate fragment should be suppressed".into());
-    }
+    feed_first_fragment_and_duplicate(adapter, first)?;
 
     let mut reassembled = Vec::new();
     for fragment in fragments.iter().skip(1).cloned() {
