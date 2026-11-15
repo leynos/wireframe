@@ -26,6 +26,8 @@ mod header;
 mod partial;
 pub mod series;
 pub mod state;
+mod streaming;
+mod streaming_state;
 pub mod types;
 mod validation;
 
@@ -42,6 +44,8 @@ pub use header::{
 };
 pub use series::MessageSeries;
 pub use state::MessageAssemblyState;
+pub use streaming::{StreamingContinuation, StreamingFailure, StreamingFirstFrame};
+pub use streaming_state::PurgedAssemblies;
 pub use types::{
     AssembledMessage,
     CorrelationId,

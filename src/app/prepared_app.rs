@@ -46,6 +46,8 @@ pub struct PreparedApp<
 > {
     /// Fully transformed route services keyed by protocol message identifier.
     pub(in crate::app) routes: HashMap<u32, HandlerService<E>>,
+    /// Streaming handlers, which bypass middleware transformation.
+    pub(in crate::app) streaming_routes: HashMap<u32, super::StreamingHandler>,
     /// Serializer retained by every connection driven by this application.
     pub(in crate::app) serializer: S,
     /// Codec template used to configure each connection's framed transport.
@@ -156,6 +158,7 @@ where
 
         Ok(PreparedApp {
             routes,
+            streaming_routes: self.streaming_handlers,
             serializer: self.serializer,
             codec: self.codec,
             on_connect: self.on_connect,
@@ -226,6 +229,7 @@ where
             stream,
             ConnectionProcessingContext {
                 routes: &self.routes,
+                streaming_routes: &self.streaming_routes,
                 serializer: &self.serializer,
                 codec: &self.codec,
                 on_connect: self.on_connect.as_ref(),

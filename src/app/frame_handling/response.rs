@@ -64,6 +64,49 @@ where
         .inherit_correlation(env.correlation_id);
     let envelope = Envelope::from_parts(parts);
 
+    write_envelope(envelope, ctx).await
+}
+
+/// Forward the reply produced by a streaming route handler.
+///
+/// A streaming handler receives [`RequestParts`](crate::request::RequestParts)
+/// rather than an [`Envelope`], so the reply is rebuilt from the original route
+/// identifier and correlation identifier. An empty `payload` means the handler
+/// chose not to reply and nothing is written.
+///
+/// Replies use the same pipeline, fragmentation, and outbound hooks as a
+/// buffered route, so `before_send` observes one connection context regardless
+/// of which dispatch path produced the frame.
+pub(crate) async fn forward_service_response<S, W, F>(
+    route_id: u32,
+    correlation_id: Option<u64>,
+    payload: Option<Vec<u8>>,
+    ctx: super::ResponseContext<'_, S, W, F>,
+) -> io::Result<()>
+where
+    S: Serializer + Send + Sync,
+    W: AsyncRead + AsyncWrite + Unpin,
+    F: FrameCodec,
+    Envelope: EncodeWith<S>,
+{
+    let Some(payload) = payload else {
+        return Ok(());
+    };
+    let envelope = Envelope::from_parts(PacketParts::new(route_id, correlation_id, payload));
+    write_envelope(envelope, ctx).await
+}
+
+/// Send one envelope through the outbound pipeline and transport.
+async fn write_envelope<S, W, F>(
+    envelope: Envelope,
+    ctx: super::ResponseContext<'_, S, W, F>,
+) -> io::Result<()>
+where
+    S: Serializer + Send + Sync,
+    W: AsyncRead + AsyncWrite + Unpin,
+    F: FrameCodec,
+    Envelope: EncodeWith<S>,
+{
     // Route through the pipeline: fragment → metrics, then flush with
     // serialize → wrap_payload → before_send → send.
     ctx.pipeline.process(envelope)?;

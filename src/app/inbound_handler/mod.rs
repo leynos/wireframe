@@ -1,6 +1,9 @@
 //! Inbound connection handling and route preparation utilities.
 
 mod core;
+mod stream_dispatch;
+mod stream_parked;
+mod stream_slot;
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -12,7 +15,7 @@ use super::{
     envelope::{Envelope, Packet},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
     memory_budgets::MemoryBudgets,
-    middleware_types::{Handler, Middleware},
+    middleware_types::{Handler, Middleware, StreamingHandler},
 };
 use crate::{
     codec::FrameCodec,
@@ -37,6 +40,8 @@ where
 {
     /// Immutable middleware chains used to dispatch decoded envelopes.
     pub(crate) routes: &'a HashMap<u32, HandlerService<E>>,
+    /// Streaming handlers keyed by message identifier.
+    pub(crate) streaming_routes: &'a HashMap<u32, StreamingHandler>,
     /// Serializer shared by all frames on the connection.
     pub(crate) serializer: &'a S,
     /// Codec configuration shared by all frames on the connection.
@@ -78,6 +83,7 @@ where
 {
     let ConnectionProcessingContext {
         routes,
+        streaming_routes,
         serializer,
         codec,
         on_connect,
@@ -104,6 +110,7 @@ where
         stream,
         core::StreamProcessingContext {
             routes,
+            streaming_routes,
             serializer,
             codec,
             message_assembler,
@@ -177,6 +184,7 @@ where
             stream,
             ConnectionProcessingContext {
                 routes: &routes,
+                streaming_routes: &self.streaming_handlers,
                 serializer: &self.serializer,
                 codec: &self.codec,
                 on_connect: self.on_connect.as_ref(),

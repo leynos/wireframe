@@ -11,7 +11,7 @@ use crate::{
         error::Result,
         lifecycle::{ConnectionSetup, ConnectionTeardown},
         memory_budgets::MemoryBudgets,
-        middleware_types::{Handler, Middleware},
+        middleware_types::{Handler, Middleware, StreamingHandler},
     },
     codec::{FrameCodec, LengthDelimitedFrameCodec},
     hooks::WireframeProtocol,
@@ -34,6 +34,8 @@ pub struct WireframeApp<
     pub(in crate::app) handlers: HashMap<u32, Handler<E>>,
     /// Middleware applied in registration order around each handler.
     pub(in crate::app) middleware: Vec<Box<dyn Middleware<E>>>,
+    /// Streaming handlers keyed by the protocol message identifier.
+    pub(in crate::app) streaming_handlers: HashMap<u32, StreamingHandler>,
     /// Serializer retained by every connection built from this application.
     pub(in crate::app) serializer: S,
     /// Optional asynchronous hook that creates per-connection state.
@@ -72,6 +74,7 @@ where
         Self {
             handlers: HashMap::new(),
             middleware: Vec::new(),
+            streaming_handlers: HashMap::new(),
             serializer: S::default(),
             on_connect: None,
             on_disconnect: None,
@@ -152,7 +155,7 @@ where
 {
     /// Helper to rebuild the app when changing type parameters.
     ///
-    /// The `WireframeApp` builder carries 12 fields that must be moved together
+    /// The `WireframeApp` builder carries many fields that must be moved together
     /// when swapping serializer or codec types. Centralizing the reconstruction
     /// here keeps the transitions consistent and avoids repeating the same
     /// field list across each type-changing method. For smaller builders with
@@ -169,6 +172,7 @@ where
         WireframeApp {
             handlers: self.handlers,
             middleware: self.middleware,
+            streaming_handlers: self.streaming_handlers,
             serializer: params.serializer,
             on_connect: self.on_connect,
             on_disconnect: self.on_disconnect,
@@ -197,6 +201,7 @@ where
         WireframeApp {
             handlers: self.handlers,
             middleware: self.middleware,
+            streaming_handlers: self.streaming_handlers,
             serializer: self.serializer,
             on_connect,
             on_disconnect: None,

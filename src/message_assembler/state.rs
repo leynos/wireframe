@@ -16,6 +16,7 @@ use super::{
     budget::{AggregateBudgets, ContinuationLimits, check_aggregate_budgets},
     error::{MessageAssemblyError, MessageSeriesError, MessageSeriesStatus},
     partial::PartialAssembly,
+    streaming::StreamingAssembly,
     types::{AssembledMessage, FirstFrameInput},
     validation,
 };
@@ -81,11 +82,14 @@ use super::{
 #[derive(Debug)]
 pub struct MessageAssemblyState {
     /// Maximum body size permitted for one logical message.
-    max_message_size: NonZeroUsize,
+    pub(super) max_message_size: NonZeroUsize,
     /// Age after which incomplete assemblies are removed.
-    timeout: Duration,
-    /// Active assemblies keyed by protocol message key.
-    assemblies: HashMap<MessageKey, PartialAssembly>,
+    pub(super) timeout: Duration,
+    /// Active buffered assemblies keyed by protocol message key.
+    pub(super) assemblies: HashMap<MessageKey, PartialAssembly>,
+    /// Streaming assemblies. These retain ordering state only, so they are
+    /// deliberately excluded from aggregate budget accounting.
+    pub(super) streaming_assemblies: HashMap<MessageKey, StreamingAssembly>,
     /// Aggregate limits protecting connection and in-flight memory.
     budgets: AggregateBudgets,
 }
@@ -116,6 +120,7 @@ impl MessageAssemblyState {
             max_message_size,
             timeout,
             assemblies: HashMap::new(),
+            streaming_assemblies: HashMap::new(),
             budgets: AggregateBudgets {
                 connection: connection_budget,
                 in_flight: in_flight_budget,
@@ -161,8 +166,9 @@ impl MessageAssemblyState {
         self.purge_expired_at(now);
         let key = input.header.message_key;
 
-        // Check for duplicate first frame
-        if self.assemblies.contains_key(&key) {
+        // Check for a duplicate first frame across both buffered and
+        // streaming assemblies: a key belongs to exactly one message.
+        if self.assemblies.contains_key(&key) || self.streaming_assemblies.contains_key(&key) {
             return Err(MessageAssemblyError::DuplicateFirstFrame { key });
         }
 
@@ -332,20 +338,11 @@ impl MessageAssemblyState {
 
     /// Remove expired assemblies using an explicit clock reading.
     ///
-    /// Returns the keys of evicted assemblies.
+    /// Returns the keys of evicted buffered assemblies. Streaming keys are
+    /// reported by [`Self::purge_expired_detailed_at`] so their consumers can
+    /// be failed explicitly.
     pub fn purge_expired_at(&mut self, now: Instant) -> Vec<MessageKey> {
-        let mut evicted = Vec::new();
-        let timeout = self.timeout;
-
-        self.assemblies.retain(|key, partial| {
-            let expired = now.saturating_duration_since(partial.started_at) >= timeout;
-            if expired {
-                evicted.push(*key);
-            }
-            !expired
-        });
-
-        evicted
+        self.purge_expired_detailed_at(now).buffered().to_vec()
     }
 
     /// Total bytes buffered across all in-flight assemblies.

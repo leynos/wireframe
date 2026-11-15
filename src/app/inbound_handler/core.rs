@@ -2,25 +2,20 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use futures::StreamExt;
-use log::{debug, warn};
-use tokio::{
-    io::{self, AsyncRead, AsyncWrite},
-    time::{Duration, timeout},
-};
+use log::warn;
+use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
-use super::{
-    super::{
+use super::{MAX_DESER_FAILURES, stream_dispatch};
+use crate::{
+    app::{
+        StreamingHandler,
         codec_driver::FramePipeline,
-        combined_codec::{CombinedCodec, ConnectionCodec},
+        combined_codec::CombinedCodec,
         envelope::{Envelope, Packet},
-        frame_handling,
+        frame_handling::{self, FrameOutcome},
         memory_budgets::MemoryBudgets,
     },
-    MAX_DESER_FAILURES,
-};
-use crate::{
     codec::{FrameCodec, MAX_FRAME_LENGTH, clamp_frame_length},
     frame::FrameMetadata,
     hooks::ProtocolHooks,
@@ -29,33 +24,6 @@ use crate::{
     middleware::HandlerService,
     serializer::Serializer,
 };
-
-/// Per-frame processing state bundled for `handle_frame`.
-struct FrameHandlingContext<'a, S, E, W, F>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    W: AsyncRead + AsyncWrite + Unpin,
-    F: FrameCodec,
-{
-    /// Framed transport used to write responses during frame handling.
-    framed: &'a mut Framed<W, ConnectionCodec<F>>,
-    /// Connection-wide malformed-frame counter shared with all stages.
-    deser_failures: &'a mut u32,
-    /// Immutable middleware chains used to dispatch decoded envelopes.
-    routes: &'a HashMap<u32, HandlerService<E>>,
-    /// Serializer used to decode envelopes and encode responses.
-    serializer: &'a S,
-    /// Codec configuration used by the response path.
-    codec: &'a F,
-    /// Optional assembly strategy for multi-frame protocol messages.
-    message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
-    /// Outbound processing state for fragmenting, hooking, and counting
-    /// responses.
-    pipeline: &'a mut FramePipeline<F::Frame>,
-    /// Connection-local state for assembling multi-frame messages.
-    message_assembly: &'a mut Option<MessageAssemblyState>,
-}
 
 /// Immutable stream-wide configuration shared by all inbound frames.
 pub(super) struct StreamProcessingContext<'a, S, E, F>
@@ -66,6 +34,8 @@ where
 {
     /// Immutable middleware chains used to dispatch decoded envelopes.
     pub(super) routes: &'a HashMap<u32, HandlerService<E>>,
+    /// Streaming handlers keyed by message identifier.
+    pub(super) streaming_routes: &'a HashMap<u32, StreamingHandler>,
     /// Serializer shared by all frames on the connection.
     pub(super) serializer: &'a S,
     /// Codec configuration shared by all frames on the connection.
@@ -80,81 +50,6 @@ where
     pub(super) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
     pub(super) read_timeout_ms: u64,
-}
-
-/// State needed to turn a raw frame into a dispatchable envelope.
-struct DispatchBuildContext<'a, F>
-where
-    F: FrameCodec,
-{
-    /// Raw frame borrowed while decoding its envelope metadata and payload.
-    frame: &'a F::Frame,
-    /// Pipeline needed to reassemble fragmented input and emit responses.
-    pipeline: &'a mut FramePipeline<F::Frame>,
-    /// Mutable assembly state retained across inbound frames.
-    message_assembly: &'a mut Option<MessageAssemblyState>,
-    /// Failure counter used to enforce the malformed-input limit.
-    deser_failures: &'a mut u32,
-}
-
-/// Remove stale outbound and message-assembly state after an idle interval.
-fn purge_expired<T>(
-    pipeline: &mut FramePipeline<T>,
-    message_assembly: &mut Option<MessageAssemblyState>,
-) {
-    pipeline.purge_expired();
-    frame_handling::purge_expired_assemblies(message_assembly);
-}
-
-/// Detect a bincode budget failure so fallback decoding does not repeat the work.
-fn is_bincode_limit_exceeded(error: &(dyn std::error::Error + 'static)) -> bool {
-    error
-        .downcast_ref::<bincode::error::DecodeError>()
-        .is_some_and(|decode_error| {
-            matches!(decode_error, bincode::error::DecodeError::LimitExceeded)
-        })
-}
-
-/// Decode exactly one envelope, using metadata to select full deserialization.
-pub(super) fn parse_envelope<S>(
-    serializer: &S,
-    payload: &[u8],
-) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>>
-where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
-    Envelope: DecodeWith<S>,
-{
-    let (envelope, consumed) = match serializer.parse(payload) {
-        Ok((parsed_envelope, metadata_bytes_consumed)) => {
-            if serializer.should_deserialize_after_parse() {
-                let context = DeserializeContext {
-                    frame_metadata: payload.get(..metadata_bytes_consumed),
-                    message_id: Some(parsed_envelope.id),
-                    correlation_id: parsed_envelope.correlation_id,
-                    metadata_bytes_consumed: Some(metadata_bytes_consumed),
-                };
-                serializer.deserialize_with_context::<Envelope>(payload, &context)
-            } else {
-                Ok((parsed_envelope, metadata_bytes_consumed))
-            }
-        }
-        Err(error) if is_bincode_limit_exceeded(&error) => {
-            Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
-        }
-        Err(_) => serializer.deserialize::<Envelope>(payload),
-    }?;
-    if consumed != payload.len() {
-        crate::metrics::inc_decode_rejection(
-            crate::metrics::DecodeRejectionPath::Envelope,
-            crate::metrics::DecodeRejectionReason::TrailingBytes,
-        );
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "trailing bytes after envelope: frame must contain exactly one value",
-        )
-        .into());
-    }
-    Ok((envelope, consumed))
 }
 
 /// Per-connection framing state shared by the inbound reader and response
@@ -209,6 +104,7 @@ where
 {
     let StreamProcessingContext {
         routes,
+        streaming_routes,
         serializer,
         codec,
         message_assembler,
@@ -219,134 +115,130 @@ where
     } = context;
     let ConnectionFraming {
         codec: connection_codec,
-        mut framed,
+        framed,
     } = prepare_connection_framing(stream, codec);
     let requested_frame_length = connection_codec.max_frame_length();
     let effective_budgets =
         frame_handling::resolve_effective_budgets(memory_budgets, requested_frame_length);
-    let mut deser_failures = 0u32;
-    let mut message_assembly = message_assembler.map(|_| {
+    let message_assembly = message_assembler.map(|_| {
         frame_handling::new_message_assembly_state(
             fragmentation,
             requested_frame_length,
             Some(effective_budgets),
         )
     });
-    let mut pipeline = FramePipeline::with_hooks(fragmentation, protocol_hooks);
+    let pipeline = FramePipeline::with_hooks(fragmentation, protocol_hooks);
 
-    loop {
-        let pressure = frame_handling::evaluate_memory_pressure(
-            message_assembly.as_ref(),
-            Some(effective_budgets),
-            pipeline.fragmentation_buffered_bytes(),
-        );
-        frame_handling::apply_memory_pressure(pressure, || {
-            purge_expired(&mut pipeline, &mut message_assembly);
-        })
-        .await?;
-
-        match timeout(Duration::from_millis(read_timeout_ms), framed.next()).await {
-            Ok(Some(Ok(frame))) => {
-                handle_frame(
-                    &frame,
-                    FrameHandlingContext {
-                        framed: &mut framed,
-                        deser_failures: &mut deser_failures,
-                        routes,
-                        serializer,
-                        codec: &connection_codec,
-                        message_assembler,
-                        message_assembly: &mut message_assembly,
-                        pipeline: &mut pipeline,
-                    },
-                )
-                .await?;
-            }
-            Ok(Some(Err(error))) => return Err(error),
-            Ok(None) => break,
-            Err(_) => {
-                debug!("read timeout elapsed; continuing to wait for next frame");
-                purge_expired(&mut pipeline, &mut message_assembly);
-            }
-        }
-    }
-
-    Ok(())
+    stream_dispatch::run(
+        framed,
+        stream_dispatch::DispatchContext {
+            routes,
+            streaming_routes,
+            serializer,
+            codec: &connection_codec,
+            message_assembler,
+            effective_budgets,
+            read_timeout_ms,
+        },
+        pipeline,
+        message_assembly,
+    )
+    .await
 }
 
-/// Decode one frame, apply reassembly, and dispatch the resulting envelope.
-async fn handle_frame<S, E, F, W>(
-    frame: &F::Frame,
-    context: FrameHandlingContext<'_, S, E, W, F>,
-) -> io::Result<()>
+/// Detect a bincode budget failure so fallback decoding does not repeat the work.
+fn is_bincode_limit_exceeded(error: &(dyn std::error::Error + 'static)) -> bool {
+    error
+        .downcast_ref::<bincode::error::DecodeError>()
+        .is_some_and(|decode_error| {
+            matches!(decode_error, bincode::error::DecodeError::LimitExceeded)
+        })
+}
+
+/// Decode exactly one envelope, using metadata to select full deserialization.
+pub(super) fn parse_envelope<S>(
+    serializer: &S,
+    payload: &[u8],
+) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
-    Envelope: DecodeWith<S> + EncodeWith<S>,
+    Envelope: DecodeWith<S>,
 {
-    let FrameHandlingContext {
-        framed,
-        deser_failures,
-        routes,
-        serializer,
-        codec,
-        message_assembler,
-        message_assembly,
-        pipeline,
-    } = context;
-
-    crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
-    let Some(envelope) = build_dispatchable_envelope(
-        serializer,
-        message_assembler,
-        DispatchBuildContext::<F> {
-            frame,
-            pipeline,
-            message_assembly,
-            deser_failures,
-        },
-    )?
-    else {
-        return Ok(());
-    };
-
-    if let Some(service) = routes.get(&envelope.id) {
-        frame_handling::forward_response(
-            envelope,
-            service,
-            frame_handling::ResponseContext::<S, W, F> {
-                serializer,
-                framed,
-                pipeline,
-                codec,
-            },
-        )
-        .await?;
-    } else {
-        warn!(
-            "no handler for message id: id={}, correlation_id={:?}",
-            envelope.id, envelope.correlation_id
+    let (envelope, consumed) = match serializer.parse(payload) {
+        Ok((parsed_envelope, metadata_bytes_consumed)) => {
+            if serializer.should_deserialize_after_parse() {
+                let context = DeserializeContext {
+                    frame_metadata: payload.get(..metadata_bytes_consumed),
+                    message_id: Some(parsed_envelope.id),
+                    correlation_id: parsed_envelope.correlation_id,
+                    metadata_bytes_consumed: Some(metadata_bytes_consumed),
+                };
+                serializer.deserialize_with_context::<Envelope>(payload, &context)
+            } else {
+                Ok((parsed_envelope, metadata_bytes_consumed))
+            }
+        }
+        Err(error) if is_bincode_limit_exceeded(&error) => {
+            Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
+        }
+        Err(_) => serializer.deserialize::<Envelope>(payload),
+    }?;
+    if consumed != payload.len() {
+        crate::metrics::inc_decode_rejection(
+            crate::metrics::DecodeRejectionPath::Envelope,
+            crate::metrics::DecodeRejectionReason::TrailingBytes,
         );
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "trailing bytes after envelope: frame must contain exactly one value",
+        )
+        .into());
     }
-
-    Ok(())
+    Ok((envelope, consumed))
 }
 
-/// Build a dispatchable envelope through decode, reassembly, and assembly.
-fn build_dispatchable_envelope<S, F>(
-    serializer: &S,
-    message_assembler: Option<&Arc<dyn MessageAssembler>>,
-    context: DispatchBuildContext<'_, F>,
-) -> io::Result<Option<Envelope>>
+/// Borrowed inputs for turning one raw frame into a dispatch outcome.
+pub(super) struct FrameBuildContext<'a, S, F>
+where
+    S: Serializer + Send + Sync,
+    F: FrameCodec,
+{
+    /// Raw frame borrowed while decoding its envelope metadata and payload.
+    pub(super) frame: &'a F::Frame,
+    /// Serializer used to decode the envelope.
+    pub(super) serializer: &'a S,
+    /// Optional assembly strategy for multi-frame protocol messages.
+    pub(super) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    /// Streaming route identifiers eligible for incremental delivery.
+    pub(super) streaming_routes: &'a HashMap<u32, StreamingHandler>,
+    /// Whether a streaming body already owns the dispatch slot.
+    pub(super) stream_live: bool,
+    /// Pipeline needed to reassemble fragmented input and emit responses.
+    pub(super) pipeline: &'a mut FramePipeline<F::Frame>,
+    /// Mutable assembly state retained across inbound frames.
+    pub(super) message_assembly: &'a mut Option<MessageAssemblyState>,
+    /// Failure counter used to enforce the malformed-input limit.
+    pub(super) deser_failures: &'a mut u32,
+}
+
+/// Decode, reassemble, and assemble one inbound frame.
+///
+/// A frame that completes the pipeline resets the consecutive-failure
+/// counter. A [`FrameOutcome::Pending`] frame may be an accepted partial or a
+/// rejected frame, so it deliberately leaves the counter untouched, matching
+/// the pre-streaming behaviour.
+pub(super) fn decode_outcome<S, F>(context: FrameBuildContext<'_, S, F>) -> io::Result<FrameOutcome>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
     F: FrameCodec,
     Envelope: DecodeWith<S>,
 {
-    let DispatchBuildContext {
+    let FrameBuildContext {
         frame,
+        serializer,
+        message_assembler,
+        streaming_routes,
+        stream_live,
         pipeline,
         message_assembly,
         deser_failures,
@@ -359,7 +251,7 @@ where
         &mut failure_tracker,
     )?
     else {
-        return Ok(None);
+        return Ok(FrameOutcome::Pending);
     };
     let Some(reassembled_envelope) = frame_handling::reassemble_if_needed(
         pipeline,
@@ -368,20 +260,22 @@ where
         MAX_DESER_FAILURES,
     )?
     else {
-        return Ok(None);
+        return Ok(FrameOutcome::Pending);
     };
-    let Some(assembled_envelope) = frame_handling::assemble_if_needed(
-        frame_handling::AssemblyRuntime::new(message_assembler, message_assembly),
+    let outcome = frame_handling::assemble_if_needed(
+        frame_handling::AssemblyRuntime::new(
+            message_assembler,
+            message_assembly,
+            streaming_routes,
+            stream_live,
+        ),
         deser_failures,
         reassembled_envelope,
         MAX_DESER_FAILURES,
-    )?
-    else {
-        return Ok(None);
-    };
+    )?;
 
-    // Reset only after the entire pipeline succeeds, so assembly failures
-    // accumulate towards the close threshold.
-    *deser_failures = 0;
-    Ok(Some(assembled_envelope))
+    if !matches!(outcome, FrameOutcome::Pending) {
+        *deser_failures = 0;
+    }
+    Ok(outcome)
 }
