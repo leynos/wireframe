@@ -7,8 +7,9 @@
 codegen-backend = true
 
 # Cranelift improves compilation time at the expense of runtime performance.
-[profile.dev]
-codegen-backend = "cranelift"
+# Cranelift disabled estate-wide on 14 November 2026 (concordat ADR; review 14 May 2027). Uncomment to opt back in.
+# [profile.dev]
+# codegen-backend = "cranelift"
 
 # On nightly-2026-03-26, an intentionally panicking thread aborts under
 # Cranelift and a runnable doctest fails to link AWS-LC. Keep tests on LLVM;
