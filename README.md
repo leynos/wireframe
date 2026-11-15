@@ -83,9 +83,11 @@ CPU count cannot be determined, the server falls back to a single worker.
 
 `Handler<E>` is a shared closure that receives the routed envelope and returns
 a boxed future. There is no type-based parameter resolution step: a route
-handler receives only `&E`, and the application echoes the envelope after the
-handler completes. Shared state reaches a handler by capturing an `Arc` in the
-closure, as the example does, so ownership and lifetime stay explicit[^3].
+handler receives only `&E`, and the base route service echoes the envelope's
+payload after the handler completes. Middleware can modify or replace that
+response before it is written. Shared state reaches a handler by capturing an
+`Arc` in the closure, as the example does, so ownership and lifetime stay
+explicit[^3].
 
 ## Example
 
@@ -104,7 +106,7 @@ use wireframe::{
 let handler: Handler<Envelope> = Arc::new(|_: &Envelope| {
     Box::pin(async {
         tracing::info!("echo request received");
-        // `WireframeApp` echoes the envelope after the handler completes.
+        // The base route service echoes the envelope after the handler completes.
     })
 });
 
@@ -170,8 +172,9 @@ This allows integration with existing packet formats without modifying
 
 ## Response serialization and framing
 
-A route handler returns `()`, and the application echoes the routed envelope as
-the reply on a `WireframeServer` connection.
+A route handler returns `()`, and the base route service echoes the routed
+envelope's payload as the reply on a `WireframeServer` connection. Middleware
+can modify or replace that response before it is written.
 
 The direct helpers `send_response` and `send_response_framed` are methods on
 `WireframeApp` for code that drives the connection stream itself, such as a

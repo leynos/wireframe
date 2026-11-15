@@ -132,7 +132,7 @@ Option B is adopted.
 | ------------------------------------------ | ------------------------------------------------------------- |
 | `wireframe::extractor` module              | No module; import the individual primitives below             |
 | `wireframe::extractor::MessageRequest`     | Build only the metadata a handler needs                       |
-| `wireframe::extractor::Payload`            | Borrow `Packet::payload_bytes` or the packet's `PacketParts`  |
+| `wireframe::extractor::Payload`            | Borrow `Envelope::payload_bytes` or a packet accessor         |
 | `wireframe::extractor::FromMessageRequest` | Use a decoder appropriate to the payload format               |
 | `wireframe::extractor::Message<T>`         | `message::Message::from_bytes` on a bincode payload           |
 | `wireframe::extractor::SharedState<T>`     | Capture an `Arc<T>` in the handler closure                    |
@@ -143,6 +143,11 @@ Option B is adopted.
 | `WireframeApp::app_data`                   | Capture an `Arc` in the handler closure                       |
 
 _Table 2: Removed symbols and their replacements._
+
+`Envelope::payload_bytes` borrows the default envelope's payload. A custom
+packet has no shared accessor: `Packet::into_parts` consumes the packet, so a
+handler that holds only `&E` needs an accessor defined on its own packet type,
+or an owned copy of the bytes.
 
 `message::Message::from_bytes` decodes a bincode payload only. A protocol with
 another payload format should decode with its matching serializer, for example
