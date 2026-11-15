@@ -2,14 +2,21 @@
 //!
 //! These types model consuming a request payload incrementally rather than
 //! waiting for full reassembly. See ADR 0002 for the design rationale and
-//! composition with transport-level fragmentation.
+//! composition with transport-level fragmentation, and
+//! [ADR 018](../../docs/adr-018-streaming-request-body-dispatch.md) for how the
+//! connection runtime delivers a body to a route handler.
 //!
-//! # Integration status
+//! # Where a body comes from
 //!
-//! The connection runtime does not deliver streaming bodies yet: a route
-//! handler receives only a reference to its envelope, and the server creates no
-//! body channel. Code wanting this shape owns both ends of [`body_channel`].
-//! Wrap the stream with [`RequestBodyReader::new`] for an [`AsyncRead`] parser.
+//! A route registered with `WireframeApp::streaming_route` receives
+//! [`RequestParts`] and a [`RequestBodyStream`] from the connection runtime;
+//! buffered routes are unchanged. Each live body is paired with a
+//! byte-accounted channel, so the chunks queued for a handler are covered by
+//! the same memory budgets as message assembly.
+//!
+//! Code outside the runtime that wants this shape owns both ends of
+//! [`body_channel`]. Wrap the stream with [`RequestBodyReader::new`] for an
+//! [`AsyncRead`] parser.
 //!
 //! ```
 //! use tokio::io::AsyncReadExt;

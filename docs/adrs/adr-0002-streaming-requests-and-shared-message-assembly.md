@@ -517,6 +517,17 @@ the server creates no body channel. `RequestParts`, `RequestBodyStream`, and
 a producer and consumer pair them explicitly. The decision to provide those
 primitives stands; the claim that handlers opt into them does not.
 
+## Addendum (2026-11-15)
+
+The handler-facing streaming shapes in §1 are now wired into dispatch.
+[ADR 018](adr-018-streaming-request-body-dispatch.md) adds an opt-in
+`WireframeApp::streaming_route` that delivers `RequestParts` and a
+`RequestBodyStream` to its handler as frames arrive, so this section's claim
+holds again for routes that register that way. Buffered routes are unchanged,
+`StreamingBody` and the extractor module stay removed, and ADR 018 records the
+dispatch slot, budget accounting, and body lifecycle that supersede this ADR's
+implementation notes where they overlap.
+
 [^streaming]:
     See `docs/multi-packet-and-streaming-responses-design.md` and
     [ADR 0001](adr-0001-multi-packet-streaming-response-api.md).
