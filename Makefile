@@ -56,10 +56,12 @@ MDTABLEFIX_RULES = --wrap --renumber --breaks --ellipsis --fences
 WHITAKER ?= whitaker
 # Whitaker pin
 #
-# Every component of the lint suite is pinned here, in one place, so a reviewed
-# bump is a single edit. `WHITAKER_SUITE_REV` is a full commit on
+# Every component of the lint suite that `make install-whitaker` installs is
+# pinned here, in one place, so a reviewed bump is a single edit. CI does not
+# read these pins: it installs through the shared action and takes the rolling
+# suite. `WHITAKER_SUITE_REV` is a full commit on
 # `leynos/whitaker`'s default branch rather than a floating release tag: the
-# rolling tag moves, and a moving suite would change this repository's lint
+# rolling tag moves, and a moving suite would change a contributor's lint
 # results without a reviewed diff. A pinned suite is built from source, so the
 # installer also needs the suite's own `rust-toolchain.toml` components, which
 # it installs through rustup.

@@ -17,13 +17,14 @@ make install-whitaker
 ```
 
 Do not install `cargo-dylint`, `dylint-link` or `whitaker-installer`
-separately, and do not pass `--suite-version` by hand. A version that appears
-anywhere but the Makefile breaks the workflow contract tests. CI does not run
-this target: it installs through the shared `install-whitaker` action, which
-owns the installer version (0.2.12 at the pinned shared-actions revision) and
-takes the lint suite from the rolling release, so a contributor's pinned suite
-can lag CI's. To bump the toolchain here, edit the pin block, run
-`make install-whitaker`, then `make lint`.
+separately, and do not pass `--suite-version` by hand. A Whitaker version pin
+declared in a workflow, rather than in the Makefile's pin block, breaks the
+workflow contract tests; a comment naming the version the action installs is
+fine. CI does not run this target: it installs through the shared
+`install-whitaker` action, which owns the installer version (0.2.12 at the
+pinned shared-actions revision) and takes the lint suite from the rolling
+release, so a contributor's pinned suite can lag CI's. To bump the toolchain
+here, edit the pin block, run `make install-whitaker`, then `make lint`.
 
 Lint exclusions for the repository live in the root `dylint.toml`. Keep them
 empty unless a reproduced diagnostic has a stated external constraint, and

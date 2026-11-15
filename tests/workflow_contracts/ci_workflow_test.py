@@ -29,7 +29,11 @@ MAKEFILE_PATH = Path(__file__).resolve().parents[2] / "Makefile"
 MARKDOWNLINT_ACTION_RE = re.compile(
     r"^DavidAnson/markdownlint-cli2-action@[0-9a-f]{40}$"
 )
-MAKE_INSTALL_WHITAKER_RUN = "make install-whitaker"
+#: A `make` invocation naming the `install-whitaker` target, with options or
+#: other targets around it, as the first command or after a shell separator.
+MAKE_INSTALL_WHITAKER_RE = re.compile(
+    r"(?:^|[\s;&|(])make\b[^\n;&|)]*(?<![\w-])install-whitaker(?![\w-])"
+)
 INSTALL_WHITAKER_ACTION_RE = re.compile(
     r"^leynos/shared-actions/\.github/actions/install-whitaker@[0-9a-f]{40}$"
 )
@@ -360,7 +364,8 @@ def test_no_other_route_installs_or_runs_whitaker_in_ci() -> None:
     """
     steps = _workflow_steps()
     make_installs = _step_labels(
-        steps, lambda step: str(step.get("run", "")).strip() == MAKE_INSTALL_WHITAKER_RUN
+        steps,
+        lambda step: MAKE_INSTALL_WHITAKER_RE.search(str(step.get("run", ""))) is not None,
     )
     assert not make_installs, (
         f"CI installs through the shared action, not Make: {make_installs}"
@@ -425,6 +430,31 @@ def test_the_whitaker_route_contract_allows_the_shared_action_install() -> None:
         ),
     ]
     assert _whitaker_routes(steps) == []
+
+
+@pytest.mark.parametrize(
+    "run",
+    [
+        "make install-whitaker",
+        "make -s install-whitaker",
+        "make --no-print-directory install-whitaker",
+        "make install-whitaker lint",
+        "cd . && make install-whitaker",
+        "make lint; make install-whitaker",
+    ],
+)
+def test_the_make_route_detector_reports_every_variant(run: str) -> None:
+    """A Make install is caught with options, extra targets or a prefix."""
+    assert MAKE_INSTALL_WHITAKER_RE.search(run) is not None, run
+
+
+@pytest.mark.parametrize(
+    "run",
+    ["make lint", "make test", "make check-fmt", "echo install-whitaker"],
+)
+def test_the_make_route_detector_ignores_other_commands(run: str) -> None:
+    """Other Make targets, and text merely naming the target, are not routes."""
+    assert MAKE_INSTALL_WHITAKER_RE.search(run) is None, run
 
 
 @pytest.mark.parametrize(
