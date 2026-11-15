@@ -34,21 +34,27 @@ fn encoded_len_at(frame: &RespFrame, depth: usize) -> Result<usize, io::Error> {
             checked_add(1, checked_add(digits, 2)?)
         }
         RespFrame::BulkString(None) | RespFrame::Array(None) => Ok(5), // $-1 or *-1
-        RespFrame::BulkString(Some(data)) => {
-            let len_digits = digits_len_usize(data.len());
-            let head = checked_add(1, checked_add(len_digits, 2)?)?;
-            let body = checked_add(data.len(), 2)?;
-            checked_add(head, body)
-        }
-        RespFrame::Array(Some(items)) => {
-            let count_digits = digits_len_usize(items.len());
-            let mut total = checked_add(1, checked_add(count_digits, 2)?)?;
-            for item in items {
-                total = checked_add(total, encoded_len_at(item, depth + 1)?)?;
-            }
-            Ok(total)
-        }
+        RespFrame::BulkString(Some(data)) => encoded_bulk_len(data.len()),
+        RespFrame::Array(Some(items)) => encoded_array_len(items, depth),
     }
+}
+
+/// Length of a non-null bulk string: `$<digits>\r\n<data>\r\n`.
+fn encoded_bulk_len(data_len: usize) -> Result<usize, io::Error> {
+    let len_digits = digits_len_usize(data_len);
+    let head = checked_add(1, checked_add(len_digits, 2)?)?;
+    let body = checked_add(data_len, 2)?;
+    checked_add(head, body)
+}
+
+/// Length of a non-null array: its header plus every nested frame.
+fn encoded_array_len(items: &[RespFrame], depth: usize) -> Result<usize, io::Error> {
+    let count_digits = digits_len_usize(items.len());
+    let mut total = checked_add(1, checked_add(count_digits, 2)?)?;
+    for item in items {
+        total = checked_add(total, encoded_len_at(item, depth + 1)?)?;
+    }
+    Ok(total)
 }
 
 /// Encode a RESP frame into the destination buffer.

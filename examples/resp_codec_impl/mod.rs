@@ -6,4 +6,5 @@
 pub mod codec;
 pub mod encode;
 pub mod frame;
+pub mod line;
 pub mod parse;
