@@ -1378,9 +1378,9 @@ used Cranelift until it was disabled by default on 14 November 2026; they now
 use LLVM unless the opt-in is uncommented or
 `CARGO_PROFILE_DEV_CODEGEN_BACKEND` selects Cranelift. This is a
 pinned-toolchain exception to the Netsuke source fragment; reproduce the
-recorded failures and reassess the override at the 14 May 2027 review. The
-failures above are the first measurement; the re-measurement below supersedes
-their details.
+recorded failures and reassess the override only if the opt-in is revived at
+the 14 May 2027 review. The failures above are the first measurement; the
+re-measurement below supersedes their details.
 
 Re-measured on 2026-09-28 on the then-pinned `nightly-2026-03-26`, with
 Cranelift for both the development and test profiles, as part of adopting the
