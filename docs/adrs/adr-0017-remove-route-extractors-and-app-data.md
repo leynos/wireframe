@@ -46,14 +46,15 @@ the layer into dispatch now and removing it while removal is still cheap.
   runtime invokes is a promise the library cannot keep.
 - Wiring extractors into dispatch changes the handler signature. That signature
   interacts with the response work and the reply-context boundary in
-  [RFC 0003](rfcs/0003-native-message-adapter-boundary.md), which are not
-  settled.
+  [RFC 0003](../rfcs/rfc-0003-native-message-adapter-boundary.md), which are
+  not settled.
 - Extraction failure has no defined response. A handler returns `()`, and reply
   construction belongs to middleware, so there is no universal place to turn an
   `ExtractError` into a protocol response.
 - Typed extraction through `Message<T>` assumes a serializer path. The
-  serializer abstraction in [ADR 005](adr-005-serializer-abstraction.md) does
-  not define a single decode shape that every protocol accepts.
+  serializer abstraction in
+  [ADR 005](adr-0005-serializer-abstraction-beyond-bincode.md) does not define
+  a single decode shape that every protocol accepts.
 - The documented closure-captured `Arc` pattern already provides shared state
   without a new dispatch stage.
 - Removing the API before 1.0 is a documented migration. Removing it after 1.0
@@ -234,8 +235,8 @@ once the RFC 0003 response and reply-context boundary is settled.
   for unwired runtime behaviour
 - [Issue #873](https://github.com/leynos/wireframe/pull/873), users' guide
   record of building blocks not yet wired into the server
-- [ADR 002: streaming requests and shared message assembly](adr-002-streaming-requests-and-shared-message-assembly.md)
-- [ADR 005: serializer abstraction](adr-005-serializer-abstraction.md)
-- [ADR 012: prepared application templates and connection-local runtimes](adr-012-prepared-application-and-connection-runtime.md)
-- [RFC 0003: native message adapter boundary](rfcs/0003-native-message-adapter-boundary.md)
-- [v0.3.0 to v0.4.0 migration guide](v0-3-0-to-v0-4-0-migration-guide.md)
+- [ADR 002: streaming requests and shared message assembly](adr-0002-streaming-requests-and-shared-message-assembly.md)
+- [ADR 005: serializer abstraction](adr-0005-serializer-abstraction-beyond-bincode.md)
+- [ADR 012: prepared application templates and connection-local runtimes](adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
+- [RFC 0003: native message adapter boundary](../rfcs/rfc-0003-native-message-adapter-boundary.md)
+- [v0.3.0 to v0.4.0 migration guide](../v0-3-0-to-v0-4-0-migration-guide.md)

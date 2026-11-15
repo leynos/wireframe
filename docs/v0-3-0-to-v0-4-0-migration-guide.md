@@ -7,7 +7,7 @@ workflow.
 
 ## Removed: extractors and `app_data`
 
-[ADR 017](adr-017-remove-route-extractors-and-app-data.md) removes the
+[ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md) removes the
 extractor module and the application-data store before 1.0. The module was
 public, but no dispatch path invoked it: route handlers received only their
 envelope, so `FromMessageRequest` implementations never ran and values stored by
@@ -15,16 +15,19 @@ envelope, so `FromMessageRequest` implementations never ran and values stored by
 
 Route handlers keep the `Handler<E>` shape:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-019 -->
 ```rust
 use std::sync::Arc;
 
 use wireframe::app::{Envelope, Handler};
 
-let handler: Handler<Envelope> = Arc::new(|envelope: &Envelope| {
-    // Decode or inspect the envelope here.
-    let _ = envelope.payload_bytes();
-    Box::pin(async {})
-});
+fn make_handler() -> Handler<Envelope> {
+    Arc::new(|envelope: &Envelope| {
+        // Decode or inspect the envelope here.
+        let _ = envelope.payload_bytes();
+        Box::pin(async {})
+    })
+}
 ```
 
 Replace each removed item as follows:
@@ -47,6 +50,7 @@ Replace each removed item as follows:
 Capture shared state in the handler closure instead of registering it on the
 application:
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-020 -->
 ```rust
 use std::sync::{
     Arc,
@@ -55,20 +59,18 @@ use std::sync::{
 
 use wireframe::app::{Envelope, Handler, WireframeApp};
 
-let counter = Arc::new(AtomicU64::new(0));
-let handler: Handler<Envelope> = {
-    let counter = Arc::clone(&counter);
-    Arc::new(move |_: &Envelope| {
+fn build_app(counter: Arc<AtomicU64>) -> wireframe::Result<WireframeApp> {
+    let handler: Handler<Envelope> = Arc::new(move |_: &Envelope| {
         let counter = Arc::clone(&counter);
         Box::pin(async move {
             counter.fetch_add(1, Ordering::Relaxed);
         })
-    })
-};
+    });
 
-// Annotate the binding so the remaining type parameters take their defaults,
-// and propagate the error that `route` returns.
-let app: WireframeApp = WireframeApp::new()?.route(1, handler)?;
+    // Annotate the binding so the remaining type parameters take their defaults.
+    let app: WireframeApp = WireframeApp::new()?.route(1, handler)?;
+    Ok(app)
+}
 ```
 
 ### Request decoding

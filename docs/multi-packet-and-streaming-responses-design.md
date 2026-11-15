@@ -443,9 +443,9 @@ not hang.
   pipeline.
 
 - **Streaming Request Bodies:** [ADR
-  0002](adr-002-streaming-requests-and-shared-message-assembly.md) introduces
-  `RequestParts` and `RequestBodyStream` as the inbound counterpart to
-  streaming responses, enabling incremental processing of large inbound
+  0002](adrs/adr-0002-streaming-requests-and-shared-message-assembly.md)
+  introduces `RequestParts` and `RequestBodyStream` as the inbound counterpart
+  to streaming responses, enabling incremental processing of large inbound
   payloads. The runtime does not deliver these to route handlers; ADR 017
   records that limitation and removes the extractor wrapper that was never
   wired to dispatch.
@@ -568,13 +568,13 @@ cannot regress or be removed.
 
 ## 11. Streaming request bodies
 
-[ADR 0002](adr-002-streaming-requests-and-shared-message-assembly.md) extends
-Wireframe's streaming model to inbound requests, providing symmetry with the
-outbound streaming capabilities documented above.
+[ADR 0002](adrs/adr-0002-streaming-requests-and-shared-message-assembly.md)
+extends Wireframe's streaming model to inbound requests, providing symmetry
+with the outbound streaming capabilities documented above.
 
 ### 11.1 Handler-facing shapes
 
-[ADR 017](adr-017-remove-route-extractors-and-app-data.md) removes the
+[ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md) removes the
 extractor wrapper and records that the connection runtime does not deliver
 streaming bodies. The primitives remain for callers that own both ends:
 
@@ -663,8 +663,8 @@ chooses its channel capacity.
 
 See [ADR 0002](adrs/adr-0002-streaming-requests-and-shared-message-assembly.md)
 for the complete specification and
-[ADR 017](adr-017-remove-route-extractors-and-app-data.md) for the removal of
-handler-delivered streaming bodies.
+[ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md) for the
+removal of handler-delivered streaming bodies.
 
 ## 12. Client-side streaming consumption
 
