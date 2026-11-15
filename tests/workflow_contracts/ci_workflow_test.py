@@ -1,8 +1,8 @@
 """Protect pull-request coverage enforcement in CI.
 
 Coverage generation, the spelling toolchain and the Markdown linter's pin are
-asserted here. The workflow-wide Whitaker provisioning contract lives in
-``whitaker_provisioning_test``. Where CodeScene may and may not appear is a
+asserted here, and so is the Whitaker install: CI's step is the shared
+``install-whitaker`` action at a full commit SHA. Where CodeScene may and may not appear is a
 separate question with a separate reason, and is held by the shared CV-005
 contract library (``make test-workflow-contracts``).
 
@@ -218,3 +218,39 @@ def test_build_test_checks_out_at_the_default_depth() -> None:
         "build-test must check out at the default depth; it sets fetch-depth "
         f"{options.get('fetch-depth')!r}, and nothing in the lane reads history"
     )
+
+
+INSTALL_WHITAKER_ACTION_RE = re.compile(
+    r"^leynos/shared-actions/\.github/actions/install-whitaker@[0-9a-f]{40}$"
+)
+#: Pin names that must live only in the Makefile.
+WHITAKER_PIN_TOKENS = (
+    "WHITAKER_INSTALLER_VERSION",
+    "CARGO_DYLINT_VERSION",
+    "DYLINT_LINK_VERSION",
+    "WHITAKER_SUITE_REV",
+)
+
+
+def test_ci_installs_whitaker_through_the_pinned_shared_action() -> None:
+    """CI's Whitaker step is the shared `install-whitaker` action at a full SHA.
+
+    The action owns the installer version and takes the suite from the rolling
+    release, so the step passes no inputs that pin either.
+    """
+    step = _find_step(_load_steps(), "Install Whitaker")
+    assert INSTALL_WHITAKER_ACTION_RE.match(str(step.get("uses", ""))), (
+        "CI must install Whitaker through the install-whitaker action at a full SHA"
+    )
+    assert not {"suite-version", "installer-version"} & set(step.get("with") or {}), (
+        "the action owns the Whitaker pins"
+    )
+
+
+def test_whitaker_pins_live_only_in_the_makefile() -> None:
+    """The Makefile is the one reviewed location for the contributor's pins."""
+    makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
+    for token in WHITAKER_PIN_TOKENS:
+        assert makefile.count(f"{token} ?=") == 1, (
+            f"{token} must be assigned exactly once in the Makefile"
+        )

@@ -100,13 +100,10 @@ contributor's suite can lag the rolling release CI uses; when a diagnostic
 appears only in CI, bump the Makefile's suite commit. The repository's own
 cache step and the contract that pinned its key stay retired. Both runner
 environments are Ubuntu 24.04 today, so they share a glibc, and no restore can
-select an older one. `tests/workflow_contracts/whitaker_provisioning_test.py`
-requires the action to be the only CI install and to pass no pin, and rejects a
-pin declared in a workflow, a `make install-whitaker` step (however its command
-line is spelled; `make_route_reader.py` reads the script as the shell does, and
-`whitaker_install_policy.py` judges the install step) and a cache step, so a
-workflow-level version, reinstall or cache key cannot creep back in.
-`tests/workflow_contracts/lint_pipeline_test.py` holds the Makefile's own pins.
+select an older one. `tests/workflow_contracts/ci_workflow_test.py` requires
+CI's `Install Whitaker` step to be the shared action at a full commit SHA with
+no pin passed, and keeps the contributor's pins in the Makefile.
+`tests/workflow_contracts/lint_pipeline_test.py` holds those pins.
 
 ### Why `build-test` has two vCPU and `coverage-upload` four
 
