@@ -2,6 +2,7 @@
 //!
 //! They verify successful extraction and error handling when state is missing.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use rstest::{fixture, rstest};
 use wireframe::extractor::{

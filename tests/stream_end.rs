@@ -11,6 +11,7 @@
 //! setup. It complements the testkit helpers by checking the concrete actor
 //! wiring used by streaming response tests.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 mod support;
 

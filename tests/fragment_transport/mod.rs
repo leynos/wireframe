@@ -5,6 +5,7 @@
 //! - Rejection tests (`fragment_transport/rejection.rs`)
 //! - Eviction tests (`fragment_transport/eviction.rs`)
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{io, time::Duration};
 

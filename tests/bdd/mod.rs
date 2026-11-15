@@ -5,6 +5,7 @@
 //! execute under the standard `cargo test` harness with rstest fixtures.
 
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 #[path = "../common/terminator.rs"]
 mod terminator;
@@ -17,6 +18,9 @@ mod repo_access;
 
 #[path = "../common/formal_tooling_support.rs"]
 mod formal_tooling_support;
+
+#[path = "../common/tested_examples.rs"]
+mod tested_examples;
 
 #[path = "../support.rs"]
 mod support;

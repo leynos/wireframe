@@ -5,6 +5,8 @@
 //! how cloning the sender enables cooperative production while back-pressure
 //! keeps senders in lock-step with the consumer.
 
+#![forbid(unsafe_code)]
+
 use std::{
     fmt::{self, Display, Formatter},
     time::Duration,

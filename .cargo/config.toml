@@ -8,9 +8,9 @@
 # reads this file and takes both, because Cargo does not select `rustflags` by
 # profile, unless the caller overrides them.
 #
-# Cranelift is not configured here: it is a recorded exception on the pinned
-# toolchain (see "Cranelift" in docs/developers-guide.md), so the development
-# backend stays in the explicit `tools/dev-fast/config.toml` fragment.
+# Cranelift is not configured here: LLVM is the default backend, and the
+# opt-in selection (disabled; see "Cranelift" in docs/developers-guide.md)
+# lives in the explicit `tools/dev-fast/config.toml` fragment.
 #
 # Cargo selects a single `rustflags` source rather than merging them: a
 # matching `[target.*]` table replaces `[build] rustflags` outright. Every flag

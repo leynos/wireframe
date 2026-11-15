@@ -4,6 +4,7 @@
 //! consumed by the inbound handler but never asserted, so a mutant forcing it
 //! to the trait default (`true`) survives without a direct check.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use wireframe::serializer::{BincodeSerializer, Serializer};
 

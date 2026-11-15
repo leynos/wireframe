@@ -10,6 +10,8 @@
 //! Wireframe payloads are carried in bulk strings. Other frame types are
 //! decoded for completeness but do not expose a payload for routing.
 
+#![forbid(unsafe_code)]
+
 use std::io;
 
 #[path = "resp_codec_impl/mod.rs"]

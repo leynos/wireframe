@@ -35,7 +35,7 @@ After this work, maintainers can run a deterministic property suite and observe:
 - Keep test code deterministic enough for CI by pinning proptest case counts
   and avoiding non-deterministic global state.
 - Record design decisions in a relevant design document. For this item, update
-  `docs/adr-004-pluggable-protocol-codecs.md`.
+  `docs/adrs/adr-0004-pluggable-protocol-codecs.md`.
 - Update `docs/users-guide.md` if, and only if, the public interface for
   library consumers changes.
 - Mark roadmap item `9.4.1` and its two child bullets as done in
@@ -95,7 +95,8 @@ After this work, maintainers can run a deterministic property suite and observe:
       `tests/fixtures/codec_property_roundtrip.rs`,
       `tests/steps/codec_property_roundtrip_steps.rs`, and
       `tests/scenarios/codec_property_roundtrip_scenarios.rs`.
-- [x] (2026-02-19 01:50Z) Updated `docs/adr-004-pluggable-protocol-codecs.md`
+- [x] (2026-02-19 01:50Z) Updated
+      `docs/adrs/adr-0004-pluggable-protocol-codecs.md`
       and marked roadmap entry `9.4.1` done in `docs/roadmap.md`.
 - [x] (2026-02-19 02:05Z) Ran full quality gates (`make fmt`,
       `make check-fmt`, `make markdownlint`, `make nixie`, `make lint`,
@@ -163,7 +164,7 @@ Delivered outcomes:
   `tests/steps/codec_property_roundtrip_steps.rs`,
   `tests/scenarios/codec_property_roundtrip_scenarios.rs`.
 - Updated design decision record:
-  `docs/adr-004-pluggable-protocol-codecs.md`.
+  `docs/adrs/adr-0004-pluggable-protocol-codecs.md`.
 - Marked roadmap 9.4.1 complete in `docs/roadmap.md`.
 
 No public API changes were required, so no user-guide API migration text was
@@ -190,7 +191,7 @@ The new work should align with these files:
 - `tests/fixtures/mod.rs`
 - `tests/steps/mod.rs`
 - `tests/scenarios/mod.rs`
-- `docs/adr-004-pluggable-protocol-codecs.md`
+- `docs/adrs/adr-0004-pluggable-protocol-codecs.md`
 - `docs/users-guide.md`
 - `docs/roadmap.md`
 
@@ -279,8 +280,8 @@ assertions.
 Update documentation after tests are stable:
 
 - Record design choices in
-  `docs/adr-004-pluggable-protocol-codecs.md` (strategy bounds, malformed class
-  coverage, stateful sequence guarantees).
+  `docs/adrs/adr-0004-pluggable-protocol-codecs.md` (strategy bounds, malformed
+  class coverage, stateful sequence guarantees).
 - Update `docs/users-guide.md` if public interface changed; if no public API
   changed, add no new API section.
 - Mark roadmap entry `9.4.1` and both sub-bullets done in `docs/roadmap.md`.

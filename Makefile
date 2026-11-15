@@ -1,4 +1,4 @@
-.PHONY: help all clean test test-doc test-wireframe-testing test-ui test-feature-gate test-pool-no-metrics bless-ui test-workflow-contracts test-loom doctest-benchmark
+.PHONY: help all clean test test-doc test-wireframe-testing test-ui test-feature-gate test-pool-no-metrics unsafe-boundary bless-ui test-workflow-contracts test-loom doctest-benchmark
 .PHONY: lint-python-docs
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
@@ -56,10 +56,12 @@ MDTABLEFIX_RULES = --wrap --renumber --breaks --ellipsis --fences
 WHITAKER ?= whitaker
 # Whitaker pin
 #
-# Every component of the lint suite is pinned here, in one place, so a reviewed
-# bump is a single edit. `WHITAKER_SUITE_REV` is a full commit on
+# Every component of the lint suite that `make install-whitaker` installs is
+# pinned here, in one place, so a reviewed bump is a single edit. CI does not
+# read these pins: it installs through the shared action and takes the rolling
+# suite. `WHITAKER_SUITE_REV` is a full commit on
 # `leynos/whitaker`'s default branch rather than a floating release tag: the
-# rolling tag moves, and a moving suite would change this repository's lint
+# rolling tag moves, and a moving suite would change a contributor's lint
 # results without a reviewed diff. A pinned suite is built from source, so the
 # installer also needs the suite's own `rust-toolchain.toml` components, which
 # it installs through rustup.
@@ -100,6 +102,9 @@ PROVER_TOOLS_REF_FILE ?= tools/rust-prover-tools/REF
 PROVER_TOOLS_REF ?= $(shell awk '/^ref:/ { print $$2 }' $(PROVER_TOOLS_REF_FILE))
 PROVER_TOOLS_SOURCE ?= git+https://github.com/leynos/rust-prover-tools.git@$(PROVER_TOOLS_REF)
 PROVER_TOOLS ?= uv tool run --python 3.14 --from "$(PROVER_TOOLS_SOURCE)" prover-tools
+# The tool's prebuilt Kani route covers Linux x86_64 only; any other host asks
+# for the compile fallback.
+KANI_INSTALL_FLAGS ?= $(if $(and $(filter Linux,$(shell uname -s)),$(filter x86_64,$(shell uname -m))),,--compile)
 VERUS_PROOF_FILE ?= verus/wireframe_proofs.rs
 VERIFICATION_CRATE ?= wireframe-verification
 # The Loom models live in their own package so a `--cfg loom` build never
@@ -156,6 +161,13 @@ test-feature-gate: ## Verify feature-gated APIs are actually absent when disable
 
 test-pool-no-metrics: ## Check the pool builds without metrics
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) check --lib --no-default-features --features pool,serializer-bincode $(BUILD_JOBS)
+
+# The contract test reads sources as text, so it can only show that the
+# prohibition is present. These probes compile deliberate unsafe code and show
+# that it is actually rejected, by both the crate attribute and the manifest
+# table.
+unsafe-boundary: ## Prove the unsafe_code prohibition rejects unsafe Rust
+	./scripts/check-unsafe-boundary.sh
 
 # Developer-only: review every changed snapshot; this target must not run in CI.
 bless-ui: ## Refresh trybuild snapshots for deliberate fixture changes
@@ -218,9 +230,11 @@ lint-whitaker: ## Run Whitaker over every workspace member
 	RUSTFLAGS="-D warnings" $(WHITAKER) $(WHITAKER_FLAGS)
 
 # Installation stays explicit rather than a `lint` prerequisite: a contributor
-# with an existing installation should not pay for it on every run, and CI
-# installs once before its single `make lint` step. The suite revision is
-# resolved outside any Whitaker checkout so the installer clones its own copy.
+# with an existing installation should not pay for it on every run. This target
+# is the contributor's route; CI installs through the shared `install-whitaker`
+# action, which owns its installer version and takes the suite from the rolling
+# release (it refuses a suite pin). The suite revision is resolved outside any
+# Whitaker checkout so the installer clones its own copy.
 install-whitaker: ## Install the pinned Whitaker suite and Dylint tools
 	$(CARGO) install --locked --version $(CARGO_DYLINT_VERSION) cargo-dylint
 	$(CARGO) install --locked --version $(DYLINT_LINK_VERSION) dylint-link
@@ -246,7 +260,7 @@ nixie: ## Validate Mermaid diagrams
 	$(NIXIE) --no-sandbox
 
 install-kani: ## Install the pinned Kani verifier
-	$(PROVER_TOOLS) kani install --repo-root .
+	$(PROVER_TOOLS) kani install --repo-root . $(KANI_INSTALL_FLAGS)
 
 check-kani-version: ## Check the installed Kani verifier version
 	$(PROVER_TOOLS) kani check-version --repo-root .

@@ -399,9 +399,10 @@ Stage E acceptance: `make test` passes with the new BDD scenarios green.
 
 ### Stage F: documentation and roadmap updates
 
-1. Update `docs/adr-004-pluggable-protocol-codecs.md` with a design decision
-   recording the codec-aware test harness API and its rationale (explicit codec
-   parameter, payload vs frame level drivers, reuse of `drive_internal`).
+1. Update `docs/adrs/adr-0004-pluggable-protocol-codecs.md` with a design
+   decision recording the codec-aware test harness API and its rationale
+   (explicit codec parameter, payload vs frame level drivers, reuse of
+   `drive_internal`).
 
 2. Update `docs/users-guide.md` with a section documenting:
    - The new `codec()` accessor on `WireframeApp`.
@@ -568,7 +569,7 @@ where
 | `tests/fixtures/mod.rs`                                        | Add `pub mod codec_test_harness;`                    |
 | `tests/steps/mod.rs`                                           | Add `mod codec_test_harness_steps;`                  |
 | `tests/scenarios/mod.rs`                                       | Add `mod codec_test_harness_scenarios;`              |
-| `docs/adr-004-pluggable-protocol-codecs.md`                    | Add test harness design decision                     |
+| `docs/adrs/adr-0004-pluggable-protocol-codecs.md`              | Add test harness design decision                     |
 | `docs/users-guide.md`                                          | Document new public API                              |
 | `docs/roadmap.md`                                              | Mark 9.7.1 done                                      |
 

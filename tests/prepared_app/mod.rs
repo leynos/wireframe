@@ -3,6 +3,8 @@
 //! Real-socket scenarios live in `prepared_app/tcp.rs`; the scenarios here
 //! cover startup instrumentation, teardown, and shared-route reuse.
 
+#![forbid(unsafe_code)]
+
 #[path = "../common/mod.rs"]
 mod common;
 
@@ -28,6 +30,7 @@ use std::{
 
 #[path = "../common/fallible_assertions/check.rs"]
 mod fallible_check;
+
 #[path = "../common/fallible_assertions/check_equal.rs"]
 mod fallible_check_equal;
 
@@ -59,7 +62,9 @@ use wireframe_testing::{
 };
 
 const ROUTES: usize = 2;
+
 const MIDDLEWARE_LAYERS: usize = 2;
+
 const CONNECTIONS: usize = 2;
 
 type TestPreparedApp = PreparedApp<BincodeSerializer, (), Envelope>;

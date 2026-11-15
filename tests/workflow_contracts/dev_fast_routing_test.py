@@ -272,7 +272,7 @@ def test_lint_keeps_dev_fast_off_the_whitaker_invocation() -> None:
 
 
 def test_dev_fast_fragment_exists_outside_cargo_auto_discovery() -> None:
-    """The explicit config keeps dev builds fast and tests on LLVM."""
+    """The explicit config selects no dev backend and keeps tests on LLVM."""
     assert CONFIG_PATH.is_file(), f"missing {CONFIG_RELATIVE_PATH}"
     assert ".cargo" not in CONFIG_RELATIVE_PATH.parts, (
         "dev-fast must stay outside Cargo's automatically discovered config path"
@@ -281,9 +281,9 @@ def test_dev_fast_fragment_exists_outside_cargo_auto_discovery() -> None:
     assert configuration.get("unstable", {}).get("codegen-backend") is True, (
         "the dev-fast fragment must enable the pinned experimental backend"
     )
-    assert configuration.get("profile", {}).get("dev", {}).get(
-        "codegen-backend"
-    ) == "cranelift", "debug builds must select Cranelift"
+    assert "codegen-backend" not in configuration.get("profile", {}).get("dev", {}), (
+        "debug builds must not select a backend; Cranelift is a commented opt-in"
+    )
     assert configuration.get("profile", {}).get("test", {}).get(
         "codegen-backend"
     ) == "llvm", (
@@ -292,7 +292,7 @@ def test_dev_fast_fragment_exists_outside_cargo_auto_discovery() -> None:
 
 
 def test_pinned_toolchain_declares_cranelift_component() -> None:
-    """The repository toolchain provisions the component selected by dev-fast."""
+    """The repository toolchain provisions the opt-in Cranelift component."""
     toolchain = tomllib.loads(TOOLCHAIN_PATH.read_text(encoding="utf-8"))
     components = toolchain.get("toolchain", {}).get("components", [])
     assert "rustc-codegen-cranelift-preview" in components, (

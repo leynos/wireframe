@@ -8,6 +8,8 @@
 //! These tests verify that the client lifecycle hooks (setup, teardown, error)
 //! work correctly when the client interacts with a real server.
 
+#![forbid(unsafe_code)]
+
 use std::sync::{
     Arc,
     atomic::{AtomicU32, AtomicUsize, Ordering},

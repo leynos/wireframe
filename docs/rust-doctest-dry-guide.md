@@ -161,7 +161,8 @@ function within the doctest that returns a Result. This leverages the
 Termination trait, which is implemented for Result. The surrounding boilerplate
 can then be hidden from the rendered documentation.
 
-```Rust
+<!-- tested-example: rust-doctest-dry-guide-001 -->
+```rust,ignore
 /// # Examples
 ///
 /// ```
@@ -185,7 +186,8 @@ rustdoc provides a lesser-known but more concise shorthand for this exact
 scenario. If a code block ends with the literal token (()), rustdoc will
 automatically wrap the code in a main function that returns a Result.
 
-```Rust
+<!-- tested-example: rust-doctest-dry-guide-002 -->
+```rust,ignore
 /// # Examples
 ///
 /// ```
@@ -325,7 +327,8 @@ any pollution of the final binary or the public API.
 The typical implementation pattern is to create a private helper module within
 the library:
 
-```Rust
+<!-- tested-example: rust-doctest-dry-guide-003 -->
+```rust,ignore
 // In lib.rs or a submodule
 
 /// A function that requires a complex environment to test.
@@ -411,16 +414,19 @@ builds.[^13]
 
 **The Pattern**:
 
-```Rust
+<!-- tested-example: rust-doctest-dry-guide-004 -->
+```rust
 /// A socket that is only available on Unix platforms.
-#[cfg(any(target_os = "unix", doc))]
+#[cfg(any(target_family = "unix", doc))]
 pub struct UnixSocket;
 ```
 
-This `any` directive ensures the struct is compiled either when the target OS is
-`unix` OR when `rustdoc` is running. This correctly makes the item visible in
-the generated HTML. However, it is crucial to understand that this **does not**
-make the doctest for `UnixSocket` pass on non-Unix platforms.
+This `any` directive ensures the struct is compiled either when the target
+family is `unix` OR when `rustdoc` is running. This correctly makes the item
+visible in the generated HTML. It does **not** make a doctest that *uses*
+`UnixSocket` pass on a non-Unix platform. The snippet above only declares the
+struct, so it compiles on every host; the failure appears in a doctest that
+names the type, such as the hypothetical one described next.
 
 This distinction highlights the "cfg duality." The `#[cfg(doc)]` attribute
 controls the *table of contents* of the documentation; it determines which
@@ -429,8 +435,8 @@ happens in a separate, later stage. In that stage, the `doc` cfg is *not*
 passed to the compiler.[^13] The compiler only sees the host
 
 `cfg` (e.g., `target_os = "windows"`), so the `UnixSocket` type is not
-available, and the test fails to compile. `#[cfg(doc)]` affects what is
-documented, not what is testable.
+available, and a doctest that references it fails to compile. `#[cfg(doc)]`
+affects what is documented, not what is testable.
 
 ### 5.2 Executing Doctests Conditionally: Feature Flags
 
@@ -445,7 +451,8 @@ Pattern 1: #\[cfg\] Inside the Code Block
 This pattern involves placing a #\[cfg\] attribute directly on the code within
 the doctest itself.
 
-```Rust
+<!-- tested-example: rust-doctest-dry-guide-005 -->
+```rust,ignore
 /// This example only runs if the "serde" feature is enabled.
 ///
 /// ```
@@ -469,7 +476,8 @@ A more explicit and accurate pattern uses the cfg_attr attribute to
 conditionally add the ignore flag to the doctest's header. This is typically
 done with inner doc comments (//!).
 
-```Rust
+<!-- tested-example: rust-doctest-dry-guide-006 -->
+```rust,ignore
 //! #![cfg_attr(not(feature = "serde"), doc = "```ignore")]
 //! #![cfg_attr(feature = "serde", doc = "```")]
 //! // Example code that requires the "serde" feature.
@@ -493,7 +501,8 @@ feature-gated items in the generated documentation. This is achieved with the
 `#[doc(cfg(...))]` attribute, which requires enabling the
 `#![feature(doc_cfg)]` feature gate at the crate root.
 
-```Rust
+<!-- tested-example: rust-doctest-dry-guide-007 -->
+```rust,ignore
 // At the crate root (lib.rs)
 #![feature(doc_cfg)]
 

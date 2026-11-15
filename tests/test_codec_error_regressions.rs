@@ -1,6 +1,7 @@
 //! Regression tests for codec error taxonomy and recovery labels backed by
 //! `wireframe_testing`.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use rstest::rstest;
 use wireframe::codec::{

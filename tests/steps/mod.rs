@@ -43,6 +43,7 @@ mod slow_io_backpressure_steps;
 mod stream_end_steps;
 mod streaming_request_steps;
 mod test_observability_steps;
+mod tested_examples_steps;
 mod testkit_export_steps;
 mod unified_codec_steps;
 mod workspace_manifest_steps;

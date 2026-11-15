@@ -89,7 +89,7 @@ integration (see Architecture Decision Record (ADR) 0002).
 
 Key references:
 
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md`
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`
   (authoritative requirements for `MessageAssembler`).
 - `docs/generic-message-fragmentation-and-re-assembly-design.md` section 9
   (composition order and memory budgeting).
@@ -171,7 +171,8 @@ documentation, and mark 8.2.1/8.2.2 as done in the roadmap.
    - `docs/users-guide.md`: describe the new `MessageAssembler` trait, how to
      configure it via `WireframeApp`, and call out that runtime integration
      into the inbound pipeline arrives in 8.2.5.
-   - `docs/adr-002-streaming-requests-and-shared-message-assembly.md`: record
+   - `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`:
+     record
      the concrete trait signature and header model decisions.
    - `docs/generic-message-fragmentation-and-re-assembly-design.md` and
      `docs/multi-packet-and-streaming-responses-design.md`: add references to

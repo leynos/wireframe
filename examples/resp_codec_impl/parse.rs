@@ -33,7 +33,7 @@ use std::{io, str};
 
 use bytes::BytesMut;
 
-use super::frame::RespFrame;
+use super::{frame::RespFrame, line::parse_line};
 
 /// Maximum number of elements permitted in a RESP array.
 ///
@@ -368,33 +368,4 @@ fn parse_frame_at(
             "unsupported RESP prefix",
         )),
     }
-}
-
-/// Find a bounded CRLF line without consuming partial input.
-fn parse_line(
-    buf: &BytesMut,
-    start: usize,
-    max_len: usize,
-) -> Result<Option<(&[u8], usize)>, io::Error> {
-    let mut index = start;
-    while let Some(byte) = buf.get(index).copied() {
-        if index.saturating_sub(start) > max_len {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "line too long"));
-        }
-        if byte == b'\r' {
-            let Some(next) = buf.get(index + 1).copied() else {
-                return Ok(None);
-            };
-            if next == b'\n' {
-                let line = buf
-                    .get(start..index)
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "line bounds"))?;
-                return Ok(Some((line, index + 2)));
-            }
-        }
-        index = index
-            .checked_add(1)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "line too long"))?;
-    }
-    Ok(None)
 }

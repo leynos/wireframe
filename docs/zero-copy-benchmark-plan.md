@@ -367,9 +367,9 @@ this document.
 
 ## References
 
-- [ADR 008: zero-copy public byte container](adr-008-zero-copy-public-byte-container.md)
-- [ADR 009: `Vec<u8>` migration rollout](adr-009-vec-u8-migration-rollout.md)
-- [ADR 010: transport frame boundary](adr-010-transport-frame-boundary-for-zero-copy.md)
+- [ADR 008: zero-copy public byte container](adrs/adr-0008-zero-copy-public-byte-container.md)
+- [ADR 009: `Vec<u8>` migration rollout](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+- [ADR 010: transport frame boundary](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
 - [Frame and `Vec<u8>` inventory](frame-vec-u8-inventory.md)
 - [Zero-copy benchmark baselines](zero-copy-benchmark-baselines.md)
 - [Runtime-ownership baselines](runtime-ownership-baselines.md), the

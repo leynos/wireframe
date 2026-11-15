@@ -1,5 +1,7 @@
 //! Criterion coverage for application factory and preparation startup work.
 
+#![forbid(unsafe_code)]
+
 use std::{
     hint::black_box,
     sync::{

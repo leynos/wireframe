@@ -2,6 +2,7 @@
 //!
 //! They check setup, teardown, and state propagation through helper utilities.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{
     future::Future,
@@ -14,6 +15,7 @@ use std::{
 
 #[path = "common/fallible_assertions/check.rs"]
 mod fallible_check;
+
 #[path = "common/fallible_assertions/check_eq.rs"]
 mod fallible_check_eq;
 
@@ -36,6 +38,7 @@ use wireframe_testing::{
 };
 
 type App<E> = wireframe::app::WireframeApp<BincodeSerializer, u32, E>;
+
 type BasicApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope>;
 
 fn call_counting_callback<R, A>(
@@ -98,6 +101,7 @@ async fn setup_and_teardown_callbacks_run() -> TestResult<()> {
 
     Ok(())
 }
+
 #[tokio::test]
 async fn setup_without_teardown_runs() -> TestResult<()> {
     let counter = Arc::new(AtomicUsize::new(0));

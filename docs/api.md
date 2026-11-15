@@ -4,8 +4,11 @@
 
 A `PacketParts` struct decomposes a packet into its components:
 
+<!-- tested-example: api-001 -->
 ```rust
-let parts = PacketParts::new(id, correlation_id, payload);
+use wireframe::app::PacketParts;
+
+let parts = PacketParts::new(7, Some(42), vec![1, 2, 3]);
 ```
 
 - `id: u32` — envelope identifier used for routing (`packet` in trait
@@ -17,9 +20,12 @@ let parts = PacketParts::new(id, correlation_id, payload);
 Custom packet types can convert to and from `PacketParts` to avoid manual
 mapping:
 
+<!-- tested-example: api-002 -->
 ```rust
-let parts = PacketParts::new(id, None, data);
-let env = Envelope::from(parts);
+use wireframe::app::{Envelope, PacketParts};
+
+let parts = PacketParts::new(7, None, vec![1, 2, 3]);
+let _env = Envelope::from(parts);
 ```
 
 `None` propagation ensures packets that originate on the server carry no

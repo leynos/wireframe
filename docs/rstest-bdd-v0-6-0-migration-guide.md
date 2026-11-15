@@ -62,7 +62,8 @@ that need a new testing practice to be useful.
 If a scenario or step parameter used a leading underscore only to silence the
 Rust unused-variable lint, no source change is needed:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-001 -->
+```rust,ignore
 #[scenario(path = "tests/features/search.feature")]
 fn search_works(_world: SearchWorld) {}
 ```
@@ -70,7 +71,8 @@ fn search_works(_world: SearchWorld) {}
 The parameter above now requests the `world` fixture key. If the code intended
 to request a literal `_world` fixture key, make that intent explicit:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-002 -->
+```rust,ignore
 #[scenario(path = "tests/features/search.feature")]
 fn search_works(#[from(_world)] world: SearchWorld) {}
 ```
@@ -88,7 +90,8 @@ than surfacing as opaque panics.
 
 Before:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-003 -->
+```rust,ignore
 use rstest_bdd_harness::{HarnessAdapter, StdScenarioRunRequest};
 
 struct MyHarness;
@@ -104,7 +107,8 @@ impl HarnessAdapter for MyHarness {
 
 After:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-004 -->
+```rust,ignore
 use rstest_bdd_harness::{HarnessAdapter, HarnessResult, StdScenarioRunRequest};
 
 struct MyHarness;
@@ -124,7 +128,8 @@ impl HarnessAdapter for MyHarness {
 Harnesses that build runtimes or other infrastructure should map construction
 errors into `HarnessError` and use `?`:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-005 -->
+```rust,ignore
 use rstest_bdd_harness::{HarnessError, HarnessResult};
 
 fn build_runtime() -> HarnessResult<tokio::runtime::Runtime> {
@@ -164,7 +169,8 @@ dropped. It now returns `InsertOutcome`, which names all three.
 Where the old `Option` was used only to recover the displaced override, call
 `into_previous()`:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-006 -->
+```rust,ignore
 // Before:
 let previous = ctx.insert_value(Box::new(7_u32));
 
@@ -174,7 +180,8 @@ let previous = ctx.insert_value(Box::new(7_u32)).into_previous();
 
 Where the distinction matters, match the outcome instead:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-007 -->
+```rust,ignore
 match ctx.insert_value(Box::new(7_u32)) {
     InsertOutcome::Inserted(previous) => { /* recorded; `previous` displaced */ }
     InsertOutcome::NoMatch => { /* no fixture has this type; value dropped */ }
@@ -190,7 +197,8 @@ match ctx.insert_value(Box::new(7_u32)) {
 Update callers of the public `find_feature_files` API to return its
 `ServerError` rather than treating a failed traversal as an empty result:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-008 -->
+```rust,ignore
 use std::path::{Path, PathBuf};
 
 use rstest_bdd_server::discovery::find_feature_files;
@@ -219,6 +227,7 @@ Both are replaced by a single function taking a `BypassedScenario` descriptor
 plus the steps. The descriptor borrows its tags, so the reason the second entry
 point existed no longer applies:
 
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-009 -->
 ```rust,ignore
 // Before:
 record_bypassed_steps(
@@ -242,7 +251,8 @@ record_bypassed_steps(
 `with_tags` and `with_reason` are optional. A scenario with neither needs only
 the constructor:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-010 -->
+```rust,ignore
 record_bypassed_steps(
     BypassedScenario::new("tests/features/skip.feature", "skips", 7),
     [(StepKeyword::Given, "a bypassed step")],
@@ -376,7 +386,8 @@ depend on published crates by version only, for example
 Use result-like fixture parameters when fixture construction can fail and the
 scenario should propagate that error directly:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-011 -->
+```rust,ignore
 use rstest::fixture;
 use rstest_bdd::StepResult;
 use rstest_bdd_macros::scenario;
@@ -404,7 +415,8 @@ use `Result<T, E>` or `StepResult<T, E>` by value rather than `&Result<T, E>` or
 Harnesses that provide framework or application state should expose it through
 `HarnessAdapter::Context` and call `request.run(context)`:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-012 -->
+```rust,ignore
 use rstest_bdd_harness::{HarnessAdapter, HarnessResult, ScenarioRunRequest};
 
 #[derive(Default)]
@@ -428,7 +440,8 @@ impl HarnessAdapter for AppHarness {
 
 Step functions request the harness-provided context with `#[from(...)]`:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-013 -->
+```rust,ignore
 use rstest_bdd_macros::given;
 
 #[given("the app counter starts at {n}")]
@@ -445,7 +458,8 @@ fn starts_at(
 The v0.6.1 beta adds `#[harness_context]` as a readable way to request the
 harness-provided context. Replace the legacy spelling above with:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-014 -->
+```rust,ignore
 #[given("the app counter starts at {n}")]
 fn starts_at(
     #[harness_context] app: &AppContext,
@@ -469,7 +483,8 @@ Harnesses that do not inject context should keep `type Context = ()` and call
 
 Replace the deprecated `runtime = "tokio-current-thread"` syntax:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-015 -->
+```rust,ignore
 use rstest_bdd_macros::scenarios;
 
 scenarios!(
@@ -480,7 +495,8 @@ scenarios!(
 
 with explicit harness selection:
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-016 -->
+```rust,ignore
 use rstest_bdd_macros::scenarios;
 
 scenarios!(
@@ -506,12 +522,14 @@ attributes-only configuration, or non-recognized harness paths.
 Add the GPUI harness crate as a dev-dependency and select the first-party
 harness in scenarios that need GPUI test context injection:
 
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-017 -->
 ```toml
 [dev-dependencies]
 rstest-bdd-harness-gpui = "0.6.0"
 ```
 
-```rust,no_run
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-018 -->
+```rust,ignore
 use rstest_bdd_macros::scenario;
 
 #[scenario(
@@ -574,6 +592,7 @@ of the user guide is the in-depth reference; the steps below mirror its outline:
    `gpui::VisualTestContext::from_window(window, cx)`. The vendored gpui return
    is `Option<VisualTestContext>`; treat `None` as an invariant violation:
 
+   <!-- tested-example: rstest-bdd-v0-6-0-migration-guide-019 -->
    ```rust,ignore
    let Some(visual_cx) = gpui::VisualTestContext::from_window(window, cx) else {
        panic!("stored window handle should reconstruct visual context");
@@ -587,6 +606,7 @@ For a downstream crate using published `gpui 0.2.2`, translate the `#[given]`
 and later step call sites as follows. The view type must implement `Render`,
 and its constructor receives the published view context:
 
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-020 -->
 ```rust,ignore
 use gpui::{AppContext as _, VisualContext as _};
 
@@ -692,6 +712,7 @@ To migrate off the v0.6
 
 Before (v0.6 interim shape):
 
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-021 -->
 ```rust,ignore
 thread_local! {
     static WORLD: RefCell<Option<World>> = RefCell::new(None);
@@ -711,6 +732,7 @@ fn given_shell_open(
 
 After (v0.7.0 guard-based borrowing):
 
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-022 -->
 ```rust,ignore
 #[given("the shell is open")]
 fn given_shell_open(
@@ -758,12 +780,14 @@ absolute path.
 
 Before:
 
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-023 -->
 ```json
 { "feature_path": "/home/alice/project/tests/features/login.feature" }
 ```
 
 After:
 
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-024 -->
 ```json
 { "feature_path": "tests/features/login.feature" }
 ```
@@ -897,6 +921,7 @@ fixture plus one immutable fixture can produce [`E0502`][rustc-e0502],
 This GPUI-shaped snippet is intentionally rejected by the v0.6 generated
 wrapper; see *Why this happens* below.
 
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-025 -->
 ```rust,ignore
 #[given("the shell is open")]
 fn given_shell_open(
@@ -916,6 +941,7 @@ body: the snippet already stores only durable handles, as the playbook requires.
 The same constraint is not GPUI-specific. This non-GPUI shape is also rejected
 when both parameters come from the same `StepContext`.
 
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-026 -->
 ```rust,ignore
 #[when("the account is saved")]
 fn save_account(pool: &mut SqlPool, world: &mut World) -> StepResult<()> {
@@ -964,6 +990,7 @@ case and still produces `E0502`.
 where each step touches one fixture only, and pass durable state between them
 through ordinary scenario fixtures or through the stateful GPUI playbook:
 
+<!-- tested-example: rstest-bdd-v0-6-0-migration-guide-027 -->
 ```gherkin
 When the account is saved
 Then the saved account is visible

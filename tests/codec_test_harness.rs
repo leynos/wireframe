@@ -1,6 +1,7 @@
 //! Integration tests for the codec-aware test harness drivers in
 //! `wireframe_testing`.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{io, sync::Arc};
 

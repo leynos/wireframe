@@ -6,6 +6,7 @@
 //! responses to ensure correlation identifiers allow clients to demultiplex
 //! concurrent activity.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::sync::{
     Arc,

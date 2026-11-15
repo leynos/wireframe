@@ -4,6 +4,8 @@
 //! binary. Baseline counts are embedded in benchmark labels as
 //! `wrap_allocs_<n>` and `decode_allocs_<n>`.
 
+#![forbid(unsafe_code)]
+
 use std::hint::black_box;
 
 use bytes::{Bytes, BytesMut};
@@ -104,14 +106,10 @@ codec_prepare_decode_input_fn!(
 fn prepare_decode_input(workload: BenchmarkWorkload) -> Result<PreparedDecodeInput, String> {
     let payload = payload_for_class(workload.payload_class);
     match workload.codec {
-        CodecUnderTest::LengthDelimited => {
-            let (encoded, decoder) = prepare_length_delimited_decode_input(payload)?;
-            Ok(PreparedDecodeInput::LengthDelimited { encoded, decoder })
-        }
-        CodecUnderTest::Hotline => {
-            let (encoded, decoder) = prepare_hotline_decode_input(payload)?;
-            Ok(PreparedDecodeInput::Hotline { encoded, decoder })
-        }
+        CodecUnderTest::LengthDelimited => prepare_length_delimited_decode_input(payload)
+            .map(|(encoded, decoder)| PreparedDecodeInput::LengthDelimited { encoded, decoder }),
+        CodecUnderTest::Hotline => prepare_hotline_decode_input(payload)
+            .map(|(encoded, decoder)| PreparedDecodeInput::Hotline { encoded, decoder }),
     }
 }
 

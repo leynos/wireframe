@@ -9,7 +9,7 @@ Status: DONE
 ## Purpose / big picture
 
 Roadmap item `8.5.3` closes the last missing testkit utility from
-[ADR 0002](../adr-002-streaming-requests-and-shared-message-assembly.md):
+[ADR 0002](../adrs/adr-0002-streaming-requests-and-shared-message-assembly.md):
 downstream tests need a first-class way to assert fragment reassembly and
 message assembly outcomes without re-implementing bespoke pattern matches in
 every fixture, step file, and integration test.
@@ -272,7 +272,7 @@ Testkit/public API touch points:
 - [`docs/users-guide.md`](../users-guide.md) already documents fragment,
   message-assembly, and slow-I/O testing surfaces, so it is the right place to
   document the public API for these new helpers.
-- [`docs/adr-002-streaming-requests-and-shared-message-assembly.md`](../adr-002-streaming-requests-and-shared-message-assembly.md)
+- [`docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`](../adrs/adr-0002-streaming-requests-and-shared-message-assembly.md)
   already names deterministic reassembly assertions as an explicit testkit
   requirement and should gain an implementation note for `8.5.3`.
 
@@ -397,7 +397,7 @@ Update these documents during implementation, not after the fact:
 2. [`docs/users-guide.md`](../users-guide.md)
    Add a consumer-facing section showing how to assert message assembly and
    fragment reassembly outcomes with `wireframe_testing`.
-3. [`docs/adr-002-streaming-requests-and-shared-message-assembly.md`](../adr-002-streaming-requests-and-shared-message-assembly.md)
+3. [`docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`](../adrs/adr-0002-streaming-requests-and-shared-message-assembly.md)
    Add an implementation note for roadmap item `8.5.3`, mirroring the style
    already used for `8.5.2`.
 

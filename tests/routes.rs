@@ -2,6 +2,7 @@
 //!
 //! They validate handler invocation, echo responses, and sequential processing.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::sync::{
     Arc,

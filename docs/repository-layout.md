@@ -15,7 +15,13 @@ and shared test support. Its main areas are:
   that depends on `wireframe` alone. It is the only place a feature-gated API
   can be observed as absent: trybuild forwards the harness features to its
   fixture and the workspace's `wireframe_testing` dev-dependency enables
-  `test-support` for every fixture. `make test-feature-gate` drives it.
+  `test-support` for every fixture. `make test-feature-gate` drives it. Because
+  it declares its own `[workspace]`, it cannot inherit `[workspace.lints]` and
+  hand-copies the tables it needs, including `unsafe_code = "forbid"`. See
+  [unsafe-code boundary verification](rust-boundary-verification.md).
+- `scripts/` contains the repository checks that need a shell or a second
+  compile: `check-feature-gate.sh`, `check-unsafe-boundary.sh`, and
+  `doctest-benchmark.sh`. `make unsafe-boundary` runs the second of these.
 - `tools/dev-fast/config.toml` is the explicitly selected development Cargo
   configuration. The
   [development builds](developers-guide.md#development-builds) section

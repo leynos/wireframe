@@ -683,5 +683,5 @@ passing. Phase 1 is complete.
 
 - [rstest-bdd User's Guide](../rstest-bdd-users-guide.md)
 - [ADR-003: Replace Cucumber with
-  rstest-bdd](../adr-003-replace-cucumber-with-rstest-bdd.md)
+  rstest-bdd](../adrs/adr-0003-replace-cucumber-with-rstest-bdd-for-behavioural-tests.md)
 - [Plan Agent Output](https://claude.ai) – Agent ID: a9eb419

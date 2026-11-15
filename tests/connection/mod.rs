@@ -6,6 +6,7 @@
 //! - Closure-reason logging (`logs.rs`)
 //! - Queue polling and lifecycle state (`state.rs`)
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 #[path = "logs.rs"]
 mod logs;

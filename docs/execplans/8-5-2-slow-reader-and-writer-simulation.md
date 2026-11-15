@@ -190,8 +190,8 @@ Relevant current files and why they matter:
   `tests/steps/partial_frame_feeding_steps.rs`,
   `tests/scenarios/partial_frame_feeding_scenarios.rs`: canonical `rstest-bdd`
   0.5.0 structure to mirror.
-- `docs/adr-002-streaming-requests-and-shared-message-assembly.md`: source of
-  requirement for slow reader/writer simulation in testkit utilities.
+- `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`:
+  source of requirement for slow reader/writer simulation in testkit utilities.
 - `docs/users-guide.md`: public-facing helper documentation.
 - `docs/wireframe-testing-crate.md`: design-facing testkit capability document.
 - `docs/roadmap.md`: completion checklist state for `8.5.2`.
@@ -279,8 +279,9 @@ Update docs once implementation and tests are stable:
 1. `docs/users-guide.md`: add a "Slow reader and writer simulation" subsection
    under testkit helpers with API and usage examples.
 2. `docs/wireframe-testing-crate.md`: record the new capability and rationale.
-3. `docs/adr-002-streaming-requests-and-shared-message-assembly.md`: append
-   implementation decision notes for item `8.5.2` and final API decisions.
+3. `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`:
+   append implementation decision notes for item `8.5.2` and final API
+   decisions.
 4. `docs/roadmap.md`: mark `8.5.2` as `[x]`.
 
 ### Stage G: Full quality gates and evidence capture

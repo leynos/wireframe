@@ -10,7 +10,7 @@ Status: COMPLETE
 
 Roadmap item `10.1.3` is a *decision-closure* item, not a code change. Its job
 is to move
-[ADR 010: transport-frame boundary for zero-copy](../adr-010-transport-frame-boundary-for-zero-copy.md)
+[ADR 010: transport-frame boundary for zero-copy](../adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
 from `Proposed` to `Accepted` by resolving its three Outstanding Decisions, so
 that the later runtime work in roadmap phase 11 has an approved, written
 boundary to build against. After this item lands, the project has a single
@@ -20,10 +20,10 @@ run, and which `Vec<u8>` bridges survive", and the migration can stop keeping
 
 A reader can observe success in three ways once the plan is executed:
 
-1. `docs/adr-010-transport-frame-boundary-for-zero-copy.md` reads `Accepted`,
-   carries dual `Proposed`/`Accepted` dates, and its former "Outstanding
-   Decisions" are each resolved in place with a link to the roadmap item that
-   implements them.
+1. `docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md`
+   reads `Accepted`, carries dual `Proposed`/`Accepted` dates, and its former
+   "Outstanding Decisions" are each resolved in place with a link to the
+   roadmap item that implements them.
 2. `docs/roadmap.md` item `10.1.3` and
    `docs/zero-copy-frame-and-payload-migration-roadmap.md` item `1.1.3` (with
    its child bullets) are checked `[x]`.
@@ -328,7 +328,7 @@ This section assumes no prior knowledge of the repository.
 
 ### The governing documents
 
-- [`docs/adr-010-transport-frame-boundary-for-zero-copy.md`](../adr-010-transport-frame-boundary-for-zero-copy.md)
+- [`docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md`](../adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
   — the accepted decision; now `Accepted`.
 - [`docs/frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md) — the source
   inventory; its "Resolved direction for epic 284" and ADR list reference ADR
@@ -370,7 +370,9 @@ that are folded into the constraints and the ADR rewrite below.
 
 ### Stage B: author the accepted ADR 010
 
-Edit `docs/adr-010-transport-frame-boundary-for-zero-copy.md` only:
+Edit
+`docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md`
+only:
 
 1. **Status.** Change `Proposed` to `Accepted` and add an acceptance paragraph
    in the form used by ADR 008/009: "Accepted on 2026-06-22. Wireframe keeps
@@ -445,7 +447,7 @@ Run all commands from the repository root (`.`).
 
    ```bash
    make markdownlint 2>&1 | tee /tmp/markdownlint-wireframe-10-1-3.out
-   git add docs/adr-010-transport-frame-boundary-for-zero-copy.md
+   git add docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md
    ```
 
    Commit with a message recording acceptance of ADR 010 and resolution of its
@@ -459,7 +461,7 @@ Run all commands from the repository root (`.`).
    stale status or governing reference elsewhere in the ADR is still caught:
 
    ```bash
-   adr=docs/adr-010-transport-frame-boundary-for-zero-copy.md
+   adr=docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md
 
    # 1. The ADR must declare acceptance in its Status section.
    if ! rg -Uq "## Status\n\nAccepted\b" "$adr"; then
@@ -475,7 +477,7 @@ Run all commands from the repository root (`.`).
         | rg -i "propos" \
         | rg -v \
           -e "execplans/10-1-3-approve-actor-and-codec-driver-boundary\.md" \
-          -e "adr-010-transport-frame-boundary-for-zero-copy\.md:[0-9]+:Proposed 2026-04-12\. Accepted 2026-06-22\." \
+          -e "adr-0010-.*Accepted 2026-06-22\." \
         | grep -q .; then
      echo "FAIL: a governing document still describes ADR 010 as proposed"
      exit 1
@@ -513,8 +515,9 @@ when test-first delivery is genuinely unavailable).
 
 Acceptance is behaviour a reviewer can verify:
 
-1. Opening `docs/adr-010-transport-frame-boundary-for-zero-copy.md` shows
-   `Status: Accepted`, dual dates, a `## Decision Outcome` heading, and a
+1. Opening
+   `docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md`
+   shows `Status: Accepted`, dual dates, a `## Decision Outcome` heading, and a
    `## Resolved Decisions` section answering all three former Outstanding
    Decisions, each linking a phase-11 roadmap item.
 2. `docs/roadmap.md` line for `10.1.3` and the zero-copy migration roadmap line

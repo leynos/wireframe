@@ -7,6 +7,7 @@
 //! Loom atomic, and these models hold the guard through
 //! `LoomConnectionGuard`, the same type the actor uses.
 #![cfg(loom)]
+#![forbid(unsafe_code)]
 
 use loom::{model, thread};
 use wireframe::connection::{LoomConnectionGuard, active_connection_count};

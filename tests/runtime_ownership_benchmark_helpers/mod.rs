@@ -37,6 +37,7 @@
 //! `docs/runtime-ownership-baselines.md` for the same reason.
 
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 mod actor;
 mod harness;

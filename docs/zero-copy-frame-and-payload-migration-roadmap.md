@@ -49,7 +49,7 @@ Success is measured by the following outcomes:
 ### 1.1. Resolve the remaining design choices
 
 - [x] 1.1.1. Approve the public byte-container and editing model. See
-  [ADR 008](adr-008-zero-copy-public-byte-container.md).
+  [ADR 008](adrs/adr-0008-zero-copy-public-byte-container.md).
   - [x] Confirm the stable read-only representation for packet, middleware,
     serializer, and hook surfaces.
   - [x] Confirm how mutation becomes explicit without forcing every caller to
@@ -58,7 +58,7 @@ Success is measured by the following outcomes:
     `PacketParts`, `Envelope`, `ServiceRequest`, `ServiceResponse`,
     `BeforeSendHook`, and `Serializer::serialize`.
 - [x] 1.1.2. Approve the compatibility and rollout policy. See
-  [ADR 009](adr-009-vec-u8-migration-rollout.md).
+  [ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md).
   - [x] Decide whether the major release carries finite compatibility shims,
     and document their lifetime. Decision: a narrow, finite helper set ships
     in the default build with `#[deprecated]` attributes and is removed in
@@ -72,7 +72,7 @@ Success is measured by the following outcomes:
   - [x] Success criteria: the release branch has an agreed downstream migration
     story before code changes start landing.
 - [x] 1.1.3. Approve the transport-frame boundary for the zero-copy path. See
-  [ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md).
+  [ADR 010](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md).
   - [x] Confirm whether `ConnectionActor` remains envelope-oriented or takes on
     codec-frame responsibilities.
   - [x] Confirm where protocol hooks execute when `F::Frame` differs from the

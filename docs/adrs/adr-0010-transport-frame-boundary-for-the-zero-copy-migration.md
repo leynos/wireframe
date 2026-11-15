@@ -21,9 +21,9 @@ Proposed 2026-04-12. Accepted 2026-06-22.
 
 ## Context and Problem Statement
 
-The inventory in [`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md) shows
-that the remaining `Vec<u8>` coupling is not only about public payload APIs.
-The transport pipeline also has an architectural boundary problem:
+The inventory in [`frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md)
+shows that the remaining `Vec<u8>` coupling is not only about public payload
+APIs. The transport pipeline also has an architectural boundary problem:
 
 - `ConnectionActor` operates on types satisfying
   `FrameLike + CorrelatableFrame + Packet`.
@@ -43,16 +43,16 @@ underspecified.
 
 This ADR governs the Epic 284 runtime-boundary work tracked in:
 
-- [`frame-vec-u8-inventory.md`](frame-vec-u8-inventory.md), especially the
+- [`frame-vec-u8-inventory.md`](../frame-vec-u8-inventory.md), especially the
   "`internal-only` runtime surfaces", "Adjacent constraints that matter but do
   not name `Vec<u8>`", and "Resolved direction for epic 284" sections.
-- [`zero-copy-frame-and-payload-migration-roadmap.md`](zero-copy-frame-and-payload-migration-roadmap.md),
+- [`zero-copy-frame-and-payload-migration-roadmap.md`](../zero-copy-frame-and-payload-migration-roadmap.md),
   which tracks the dedicated rollout workstream that applies this boundary
   decision and reviews the migration until the codec driver becomes the sole
   owner of transport frame emission. During implementation review, monitor all
   non-driver `FrameCodec::wrap_payload` call sites against this ADR until they
   are removed or relocated into the codec-driver boundary.
-- [`roadmap.md`](roadmap.md), specifically:
+- [`roadmap.md`](../roadmap.md), specifically:
   - roadmap item `10.1.3`, which approves the actor and codec-driver boundary;
   - roadmap item `11.1.2`, which removes the final default-path `Vec<u8>` copy
     between serialization and `FrameCodec::wrap_payload`;

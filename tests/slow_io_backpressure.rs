@@ -1,6 +1,7 @@
 //! Integration tests for slow reader and writer simulation helpers in
 //! `wireframe_testing`.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use std::{io, num::NonZeroUsize, sync::Arc, time::Duration};
 

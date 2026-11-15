@@ -6,6 +6,8 @@
 //! is performed before each timed region by the shared helpers in
 //! `wireframe_testing::codec_benchmarks`.
 
+#![forbid(unsafe_code)]
+
 use std::{hint::black_box, time::Duration};
 
 use criterion::{BenchmarkId, Criterion, Throughput};

@@ -4,3 +4,5 @@
 //! This package holds no code of its own. Its integration tests, in `tests/`,
 //! compile only under `--cfg loom` and run through `make test-loom`; the
 //! developers' guide records what they schedule and what they cannot.
+
+#![forbid(unsafe_code)]

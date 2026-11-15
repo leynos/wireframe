@@ -548,4 +548,4 @@ buffer budgets because they do not remain buffered in assembly state.
 See [ADR 0002][adr-0002] for the complete budget configuration surface and
 failure mode semantics.
 
-[adr-0002]: adr-002-streaming-requests-and-shared-message-assembly.md
+[adr-0002]: adrs/adr-0002-streaming-requests-and-shared-message-assembly.md

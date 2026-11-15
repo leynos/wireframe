@@ -1,5 +1,6 @@
 //! Tests for `PacketParts` conversions and helpers.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use wireframe::app::{Envelope, Packet, PacketParts};
 

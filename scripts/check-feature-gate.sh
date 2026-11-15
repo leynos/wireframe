@@ -1,21 +1,28 @@
 #!/usr/bin/env bash
-# Verify that the client pool's `test-support` accessors really are gated.
+# Verify that the feature gates work in both directions.
 #
-# Trybuild cannot prove this: it forwards the harness's own feature list to its
-# fixture, and the root manifest's `wireframe_testing` development dependency
-# enables `wireframe/test-support` for every fixture in this repository. This
-# script therefore builds a standalone consumer (`tests/feature_gate`) that
-# depends on `wireframe` alone and drives it through three configurations:
+# Trybuild cannot prove that a gated item is absent: it forwards the harness's
+# own feature list to its fixture, and the root manifest's `wireframe_testing`
+# development dependency enables `wireframe/test-support` for every fixture in
+# this repository. This script therefore builds a standalone consumer
+# (`tests/feature_gate`) that depends on `wireframe` alone and drives it
+# through four configurations:
 #
 #   1. accessors disabled  -> must FAIL, naming `pool_size` and `slot_id`
 #   2. accessors enabled   -> must PASS
 #   3. public API, disabled -> must PASS
+#   4. cancellation trace fields, metrics disabled -> must PASS
 #
 # Run 3 is the control. Without it, a consumer so broken that nothing compiles
 # would make run 1's expected failure meaningless.
 #
-# Each run is a separate `cargo check`, so this is not cheap; it is a
-# compile-time correctness gate, not a fast unit test.
+# Run 4 is the only place the metrics-disabled runtime behaviour can be
+# checked: the workspace's `wireframe_testing` dependency unifies `metrics` on
+# for every root-package test, so a subscriber assertion there would never see
+# the disabled configuration.
+#
+# Each run is a separate Cargo invocation, so this is not cheap; it is a
+# correctness gate, not a fast unit test.
 
 set -euo pipefail
 
@@ -44,6 +51,21 @@ run_check() {
 
     echo "==> $label"
     if cargo check --quiet --manifest-path "$consumer/Cargo.toml" "$@" >"$log" 2>&1; then
+        echo "    ok"
+        return 0
+    fi
+
+    echo "    failed (log: $log)" >&2
+    return 1
+}
+
+run_test() {
+    local label=$1
+    local log=$2
+    shift 2
+
+    echo "==> $label"
+    if cargo test --quiet --manifest-path "$consumer/Cargo.toml" "$@" >"$log" 2>&1; then
         echo "    ok"
         return 0
     fi
@@ -90,5 +112,12 @@ run_check "accessors enabled (expected to pass)" "$work/enabled.log" \
 run_check "public API without test-support (expected to pass)" "$work/control.log" \
     --lib ||
     fail "the public pool API does not compile without test-support"
+
+# 4. Metrics disabled: both cancellation trace events must still record the
+# `reason` field through `record_str`. `--lib` keeps the probe binary, which is
+# expected to fail without `test-support`, out of this build.
+run_test "cancellation trace fields without metrics (expected to pass)" \
+    "$work/cancellation.log" --lib ||
+    fail "the cancellation trace events did not record reason as a string without metrics"
 
 echo "feature-gate: ok"

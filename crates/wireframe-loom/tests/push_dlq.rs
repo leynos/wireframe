@@ -12,6 +12,7 @@
 //! channel assertion here would pass or fail regardless of any interleaving
 //! Loom chose.
 #![cfg(loom)]
+#![forbid(unsafe_code)]
 
 use std::time::Duration;
 

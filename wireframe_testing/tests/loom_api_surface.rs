@@ -2,6 +2,7 @@
 
 #![cfg(loom)]
 #![cfg(not(coverage))]
+#![forbid(unsafe_code)]
 
 #[test]
 fn loom_build_omits_non_loom_helpers() {

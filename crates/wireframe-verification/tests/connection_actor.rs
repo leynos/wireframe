@@ -1,5 +1,7 @@
 //! Integration checks for the placeholder connection-actor model.
 
+#![forbid(unsafe_code)]
+
 use rstest::rstest;
 use wireframe_verification::{
     connection_model::PlaceholderConnectionModel,

@@ -32,15 +32,16 @@ After this work, maintainers and library consumers can observe:
 - Deserializers can inspect frame metadata through an explicit context object,
   enabling protocol version negotiation patterns.
 - Unit tests use `rstest`, behavioural tests use `rstest-bdd` v0.5.0, design
-  decisions are recorded in `docs/adr-005-serializer-abstraction.md`, public
+  decisions are recorded in
+  `docs/adrs/adr-0005-serializer-abstraction-beyond-bincode.md`, public
   interface changes are documented in `docs/users-guide.md`, and roadmap item
   `9.5.1` is marked done only after all quality gates pass.
 
 Authority boundaries for documentation:
 
 - This ExecPlan is the implementation staging guide and task tracker.
-- `docs/adr-005-serializer-abstraction.md` is the source of truth for
-  serializer-boundary architecture and trade-offs.
+- `docs/adrs/adr-0005-serializer-abstraction-beyond-bincode.md` is the source
+  of truth for serializer-boundary architecture and trade-offs.
 - `docs/users-guide.md` is the source of truth for public API contracts and
   migration guidance for library consumers.
 
@@ -55,9 +56,10 @@ Authority boundaries for documentation:
   the roadmap bridge requirement via an optional Serde bridge.
 - Keep framing, fragmentation, correlation, and routing semantics unchanged
   except for introducing metadata visibility to deserialization context.
-- Record design decisions in `docs/adr-005-serializer-abstraction.md`. If
-  metadata context semantics change materially, update
-  `docs/message-versioning.md` as well.
+- Record design decisions in
+  `docs/adrs/adr-0005-serializer-abstraction-beyond-bincode.md`. If metadata
+  context semantics change materially, update `docs/message-versioning.md` as
+  well.
 - Update `docs/users-guide.md` with public API and migration guidance for
   existing bincode users.
 - Mark `9.5.1` and its child bullets done in `docs/roadmap.md` only after
@@ -175,7 +177,7 @@ Authority boundaries for documentation:
 - Provided optional Serde bridge support behind feature `serializer-serde`.
 - Validated serializer boundaries and metadata context handling with behavioural
   and unit tests.
-- Updated `docs/adr-005-serializer-abstraction.md`,
+- Updated `docs/adrs/adr-0005-serializer-abstraction-beyond-bincode.md`,
   `docs/users-guide.md`, and `docs/roadmap.md` to reflect shipped behaviour.
 
 ## Context and orientation
@@ -202,7 +204,8 @@ Current coupling points and likely edit targets:
 Reference documentation to keep aligned:
 
 - `docs/roadmap.md` (`9.5.1` scope and done criteria).
-- `docs/adr-005-serializer-abstraction.md` (architecture decision record).
+- `docs/adrs/adr-0005-serializer-abstraction-beyond-bincode.md` (architecture
+  decision record).
 - `docs/message-versioning.md` (metadata and version negotiation behaviour).
 - `docs/users-guide.md` (consumer-facing API and migration guidance).
 - `docs/generic-message-fragmentation-and-re-assembly-design.md`.
@@ -227,8 +230,9 @@ Planned edits:
 - `src/message.rs` and new `src/message/*` support modules for adapter traits
   and context types.
 - `src/serializer.rs` trait signature updates with compatibility defaults.
-- `docs/adr-005-serializer-abstraction.md` design section update describing the
-  chosen trait shape before implementation details are finalized.
+- `docs/adrs/adr-0005-serializer-abstraction-beyond-bincode.md` design section
+  update describing the chosen trait shape before implementation details are
+  finalized.
 
 Stage A validation:
 
@@ -342,7 +346,7 @@ Finalize consumer and design documentation, then run full quality gates.
 
 Planned edits:
 
-- `docs/adr-005-serializer-abstraction.md`:
+- `docs/adrs/adr-0005-serializer-abstraction-beyond-bincode.md`:
   record final API decisions, trade-offs, and status update.
 - `docs/users-guide.md`:
   add migration guidance for bincode users and document new serializer adapter
@@ -409,8 +413,9 @@ Acceptance is complete only when all the following are true:
 - Frame metadata is exposed to deserialization through a documented, tested
   context contract that supports version negotiation.
 - Unit tests use `rstest`; behavioural tests use `rstest-bdd` v0.5.0.
-- `docs/adr-005-serializer-abstraction.md` and `docs/users-guide.md` are
-  updated, and `docs/roadmap.md` marks `9.5.1` as done.
+- `docs/adrs/adr-0005-serializer-abstraction-beyond-bincode.md` and
+  `docs/users-guide.md` are updated, and `docs/roadmap.md` marks `9.5.1` as
+  done.
 - All commands listed in `Concrete steps` pass.
 
 ## Idempotence and recovery

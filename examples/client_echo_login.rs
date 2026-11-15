@@ -4,6 +4,8 @@
 //! typed login request inside an [`wireframe::app::Envelope`], receives the
 //! echoed envelope, and decodes the acknowledgement payload.
 
+#![forbid(unsafe_code)]
+
 use std::net::SocketAddr;
 
 use tokio::net::TcpStream;

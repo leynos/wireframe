@@ -487,4 +487,4 @@ a deep commitment to the principles of resilience, observability, and developer
 ergonomics, `wireframe` will provide the Rust community with a best-in-class
 tool for tackling the challenges of modern network programming.
 
-[adr-0002]: adr/0002-streaming-requests-and-shared-message-assembly.md
+[adr-0002]: adrs/adr-0002-streaming-requests-and-shared-message-assembly.md

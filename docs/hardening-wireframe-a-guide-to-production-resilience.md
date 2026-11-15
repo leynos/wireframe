@@ -47,7 +47,8 @@ This is achieved by adding a high-priority branch to every `select!` macro.
 
 #### Example: The Main Connection Actor Loop
 
-```rust
+<!-- tested-example: res-001 -->
+```rust,ignore
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -94,6 +95,7 @@ an error, or a server-wide shutdown, the task terminates cleanly and reliably.
 
 #### Sequence Diagram
 
+<!-- tested-example: res-002 -->
 ```mermaid
 sequenceDiagram
     participant MainServer
@@ -118,6 +120,7 @@ sequenceDiagram
 
 #### Class Diagram
 
+<!-- tested-example: res-003 -->
 ```mermaid
 classDiagram
     class Server {
@@ -186,7 +189,8 @@ The solution is to store non-owning `Weak` pointers in the registry.
 
 1. **Define** `PushHandle` **around an** `Arc`**:**
 
-   ```rust
+   <!-- tested-example: res-004 -->
+   ```rust,ignore
    // The internal state shared by handles.
    struct PushHandleInner<F> {
        tx: mpsc::Sender<F>,
@@ -202,7 +206,8 @@ The solution is to store non-owning `Weak` pointers in the registry.
 
 2. **Store** `Weak` **pointers in the** `SessionRegistry`**:**
 
-   ```rust
+   <!-- tested-example: res-005 -->
+   ```rust,ignore
    use dashmap::DashMap;
    use std::sync::{Arc, Weak};
 
@@ -216,7 +221,8 @@ The solution is to store non-owning `Weak` pointers in the registry.
    `Weak` pointer to a strong `Arc`. If the upgrade fails, it means the
    connection is gone, and the registry can perform just-in-time cleanup.
 
-   ```rust
+   <!-- tested-example: res-006 -->
+   ```rust,ignore
    impl<F> SessionRegistry<F> {
        pub fn get(&self, id: &ConnectionId) -> Option<PushHandle<F>> {
            self.0.get(id)
@@ -262,7 +268,8 @@ token-bucket algorithm is ideal.
 
 **Implementation Sketch:**
 
-```rust
+<!-- tested-example: res-007 -->
+```rust,ignore
 use wireframe::push::{PushQueues, MAX_PUSH_RATE};
 
 // Configure a connection to allow at most MAX_PUSH_RATE pushes per second.
@@ -332,18 +339,30 @@ provide optional, advanced patterns for error handling and recovery.
 ### 5.1 Typed Errors for Intelligent Recovery
 
 A simple `io::Error` is insufficient to describe all failure modes. `wireframe`
-will use a generic error enum to distinguish between unrecoverable transport
-errors and potentially recoverable protocol errors.
+distinguishes unrecoverable transport errors from potentially recoverable
+protocol errors with the generic `WireframeError<E>` enum, whose `Protocol`
+variant carries the application's protocol-error type.
 
+<!-- tested-example: res-008 -->
 ```rust
-pub enum WireframeError<E> {
-    /// A fatal I/O error occurred. The connection should be terminated.
-    Io(std::io::Error),
-    /// A protocol-specific logical error. The framework may be able to
-    /// format a reply before closing the logical stream.
-    Protocol(E),
+/// The application's protocol error type; `WireframeError` is generic over it.
+#[derive(Debug)]
+struct SqlError {
+    code: u32,
 }
 
+/// Reports whether the protocol can answer before the logical stream closes.
+fn is_recoverable(error: wireframe::WireframeError<SqlError>) -> bool {
+    match error {
+        // A fatal I/O error occurred; the connection should be terminated.
+        wireframe::WireframeError::Io(_) => false,
+        // A protocol-specific logical error; the framework can format a reply
+        // before closing the logical stream.
+        wireframe::WireframeError::Protocol(SqlError { .. }) => true,
+        // A codec or configuration fault is not recoverable at this layer.
+        wireframe::WireframeError::Codec(_) | wireframe::WireframeError::DuplicateRoute(_) => false,
+    }
+}
 ```
 
 When the connection actor receives a `WireframeError::Protocol(e)` from a
@@ -371,7 +390,8 @@ Implementation:
 The WireframeApp builder will allow the user to provide a mpsc::Sender for a
 DLQ. The PushHandle's internal logic for handling a full queue will be modified:
 
-```rust
+<!-- tested-example: res-009 -->
+```rust,ignore
 // Inside PushHandle, when try_send fails with a full queue
 match self.tx.try_send(frame) {
     Ok(_) => Ok(()),

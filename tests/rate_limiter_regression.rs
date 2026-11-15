@@ -5,6 +5,7 @@
 //! The third push must succeed immediately after the refill window even if the
 //! second future is never polled again.
 #![cfg(not(loom))]
+#![forbid(unsafe_code)]
 
 use futures::FutureExt;
 use tokio::time::{self, Duration};

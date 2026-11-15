@@ -272,7 +272,7 @@ of this plan and has since landed; see the update below.
   `send_envelope` runs `before_send` on the serialized, codec-wrapped frame
   immediately before the transport write. Actor-driven push and streaming
   traffic keeps its own hook pipeline. See
-  [ADR 010](../adr-010-transport-frame-boundary-for-zero-copy.md#addendum-reconciled-hook-boundary-2026-11-03).
+  [ADR 010](../adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md#addendum-reconciled-hook-boundary-2026-11-03).
 
 **Lessons:**
 
@@ -753,4 +753,4 @@ and streaming traffic keeps its own hook pipeline, and the direct response
 helpers still bypass the hook. The deferral statements in Outcomes &
 retrospective describe the state at the original completion and are superseded
 by this note; see the
-[ADR 010 addendum](../adr-010-transport-frame-boundary-for-zero-copy.md#addendum-application-response-before_send-2026-11-02).
+[ADR 010 addendum](../adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md#addendum-application-response-before_send-2026-11-02).

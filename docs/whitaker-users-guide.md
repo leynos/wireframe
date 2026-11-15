@@ -12,15 +12,20 @@ Wireframe pins the whole Whitaker toolchain in one block in the `Makefile`: the
 installer release, the `cargo-dylint` and `dylint-link` releases, and the
 Whitaker suite commit. Install exactly those versions with:
 
+<!-- tested-example: whitaker-users-guide-022 -->
 ```sh
 make install-whitaker
 ```
 
 Do not install `cargo-dylint`, `dylint-link` or `whitaker-installer`
-separately, and do not pass `--suite-version` by hand. A version that appears
-anywhere but the Makefile breaks the workflow contract tests and lets local
-results drift from CI, which runs the same target. To bump the toolchain, edit
-the pin block, run `make install-whitaker`, then `make lint`.
+separately, and do not pass `--suite-version` by hand. The workflow contract
+tests reject `suite-version` and `installer-version` inputs on CI's
+`Install Whitaker` step, and require the Makefile to assign each of its pins
+once. CI does not run this target: it installs through the shared
+`install-whitaker` action, which owns the installer version (0.2.12 at the
+pinned shared-actions revision) and takes the lint suite from the rolling
+release, so a contributor's pinned suite can lag CI's. To bump the toolchain
+here, edit the pin block, run `make install-whitaker`, then `make lint`.
 
 Lint exclusions for the repository live in the root `dylint.toml`. Keep them
 empty unless a reproduced diagnostic has a stated external constraint, and
@@ -38,6 +43,7 @@ options that the pinned toolchain implements.
 
 Install `cargo-dylint` and `dylint-link`:
 
+<!-- tested-example: whitaker-users-guide-001 -->
 ```sh
 cargo install cargo-dylint dylint-link
 ```
@@ -47,6 +53,7 @@ cargo install cargo-dylint dylint-link
 The simplest way to use Whitaker is via the standalone installer, which handles
 setup automatically:
 
+<!-- tested-example: whitaker-users-guide-002 -->
 ```sh
 cargo install whitaker-installer
 whitaker-installer
@@ -77,6 +84,7 @@ After installation, run `whitaker --all` in any Rust project to lint it. Use
 
 With the installer-managed toolchain, run the lints through the wrapper:
 
+<!-- tested-example: whitaker-users-guide-021 -->
 ```sh
 whitaker --all
 ```
@@ -87,6 +95,7 @@ directory that the wrapper supplies, and can attempt to clone public Clippy.
 Prefer the wrapper. If the direct command is required, declare the library in
 the workspace manifest first:
 
+<!-- tested-example: whitaker-users-guide-003 -->
 ```toml
 [workspace.metadata.dylint]
 [[workspace.metadata.dylint.libraries]]
@@ -94,10 +103,18 @@ git = "https://github.com/leynos/whitaker"
 pattern = "whitaker_suite"
 ```
 
+Then run the lints:
+
+<!-- tested-example: whitaker-users-guide-004 -->
+```sh
+cargo dylint --all
+```
+
 ### Version pinning
 
 For reproducible builds, pin to a specific release tag or commit:
 
+<!-- tested-example: whitaker-users-guide-005 -->
 ```toml
 [workspace.metadata.dylint]
 [[workspace.metadata.dylint.libraries]]
@@ -108,6 +125,7 @@ tag = "v0.1.0"
 
 Or pin to a specific commit:
 
+<!-- tested-example: whitaker-users-guide-006 -->
 ```toml
 [workspace.metadata.dylint]
 [[workspace.metadata.dylint.libraries]]
@@ -120,6 +138,7 @@ rev = "abc123def456"
 
 To load specific lints instead of the full suite, specify each lint explicitly:
 
+<!-- tested-example: whitaker-users-guide-007 -->
 ```toml
 [workspace.metadata.dylint]
 [[workspace.metadata.dylint.libraries]]
@@ -149,6 +168,7 @@ using the standalone installer.
 
 #### Via standalone installer
 
+<!-- tested-example: whitaker-users-guide-008 -->
 ```sh
 whitaker-installer --experimental
 ```
@@ -157,6 +177,7 @@ whitaker-installer --experimental
 
 Add experimental lints alongside the suite:
 
+<!-- tested-example: whitaker-users-guide-009 -->
 ```toml
 [workspace.metadata.dylint]
 [[workspace.metadata.dylint.libraries]]
@@ -172,6 +193,7 @@ pattern = "crates/bumpy_road_function"
 
 Configure lint behaviour in `dylint.toml` at the workspace root:
 
+<!-- tested-example: whitaker-users-guide-010 -->
 ```toml
 # Diagnostic language (default: en-GB)
 locale = "cy"
@@ -198,6 +220,7 @@ allow_in_main = true
 Whitaker supports multiple languages for diagnostic messages. Set the locale
 via the `DYLINT_LOCALE` environment variable or in `dylint.toml`:
 
+<!-- tested-example: whitaker-users-guide-011 -->
 ```toml
 locale = "cy"
 ```
@@ -219,6 +242,7 @@ of boolean branches.
 
 **Configuration:**
 
+<!-- tested-example: whitaker-users-guide-012 -->
 ```toml
 [conditional_max_n_branches]
 max_branches = 2
@@ -229,7 +253,8 @@ branches and would trigger the lint.
 
 **How to fix:** Extract complex conditions into helper functions:
 
-```rust
+<!-- tested-example: whitaker-users-guide-013 -->
+```rust,ignore
 // Before: Too many branches
 if condition_a && condition_b && condition_c {
     // action
@@ -253,7 +278,8 @@ Ensures doc comments appear before all other outer attributes on functions.
 
 **How to fix:** Move doc comments to appear before other attributes:
 
-```rust
+<!-- tested-example: whitaker-users-guide-014 -->
+```rust,ignore
 // Wrong
 #[inline]
 /// This function does something.
@@ -273,6 +299,7 @@ Warns when modules exceed a configurable line count threshold.
 
 **Configuration:**
 
+<!-- tested-example: whitaker-users-guide-015 -->
 ```toml
 [module_max_lines]
 max_lines = 400
@@ -288,6 +315,7 @@ Enforces that every module begins with an inner documentation comment (`//!`).
 
 **How to fix:**
 
+<!-- tested-example: whitaker-users-guide-016 -->
 ```rust
 mod my_module {
     //! Explain the module's purpose here.
@@ -303,6 +331,7 @@ Forbids calling `.expect()` on `Option` or `Result` outside test contexts.
 
 **Configuration:**
 
+<!-- tested-example: whitaker-users-guide-017 -->
 ```toml
 [no_expect_outside_tests]
 additional_test_attributes = ["my_framework::test", "async_std::test"]
@@ -320,6 +349,7 @@ Enforces capability-based filesystem access by forbidding direct use of
 
 **Configuration:**
 
+<!-- tested-example: whitaker-users-guide-018 -->
 ```toml
 [no_std_fs_operations]
 excluded_crates = ["my_cli_entrypoint", "my_test_utilities"]
@@ -337,7 +367,8 @@ operations without triggering diagnostics. This is useful for:
 
 **How to fix:** Replace `std::fs` with `cap_std`:
 
-```rust
+<!-- tested-example: whitaker-users-guide-019 -->
+```rust,ignore
 // Before
 use std::fs;
 fn read_config() -> std::io::Result<String> {
@@ -361,6 +392,7 @@ tests. Doctest runs remain exempt.
 
 **Configuration:**
 
+<!-- tested-example: whitaker-users-guide-020 -->
 ```toml
 [no_unwrap_or_else_panic]
 allow_in_main = true

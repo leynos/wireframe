@@ -11,19 +11,19 @@ The following RFCs are proposals, not descriptions of implemented APIs. The
 [roadmap phase 21](roadmap.md#21-protocol-neutral-adapters-for-the-first-consumers)
 record the consumer evidence, validation profiles, and delivery order.
 
-- [RFC 0003](rfcs/0003-native-message-adapter-boundary.md) proposes native
+- [RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md) proposes native
   frame-to-message adaptation with owned reply context.
-- [RFC 0004](rfcs/0004-duplex-session-driver.md) proposes a duplex session
+- [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md) proposes a duplex session
   driver with explicit lifecycle, cancellation, and bounded output.
-- [RFC 0005](rfcs/0005-negotiated-transport-entry-points.md) proposes generic
-  setup, buffered-byte handoff, and transport transitions.
-- [RFC 0006](rfcs/0006-configurable-framing-primitives.md) proposes bounded,
+- [RFC 0005](rfcs/rfc-0005-negotiated-transport-entry-points.md) proposes
+  generic setup, buffered-byte handoff, and transport transitions.
+- [RFC 0006](rfcs/rfc-0006-configurable-framing-primitives.md) proposes bounded,
   composable framing primitives for external codecs.
-- [RFC 0007](rfcs/0007-budgets-scheduling-and-assembly.md) proposes resource
+- [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md) proposes resource
   accounting, scheduling, and assembly policies.
-- [RFC 0008](rfcs/0008-external-adapter-conformance-harness.md) proposes an
+- [RFC 0008](rfcs/rfc-0008-external-adapter-conformance-harness.md) proposes an
   independent-peer conformance harness and bounded toy servers.
-- [RFC 0009](rfcs/0009-datagram-session-transport.md) proposes a datagram
+- [RFC 0009](rfcs/rfc-0009-datagram-session-transport.md) proposes a datagram
   entry point with packet boundaries and peer metadata.
 
 ## GitHub Actions runner placement
@@ -60,6 +60,7 @@ tests the pull request's author, not `github.actor`, because the actor is
 whoever triggered the run, so a person pushing to a Dependabot branch would
 flip the runner:
 
+<!-- tested-example: developers-guide-001 -->
 ```yaml
 runs-on: >-
   ${{ (github.event.pull_request.head.repo.fork
@@ -83,21 +84,27 @@ Namespace's shared profile is Ubuntu 22.04, which carries glibc 2.35.
 `ubicloud-standard-4` is Ubuntu 24.04, which carries glibc 2.39, so the
 constraint is satisfied rather than waived. repovec-appliance runs the same
 `whitaker-installer` on Ubicloud, green, and so does this lane, which now takes
-the 0.2.11 release the Makefile pins. Should a lane ever need the
+the installer release the shared action pins. Should a lane ever need the
 `-ubuntu-2204` variant, the old constraint returns with it.
 
-Whitaker is installed through `make install-whitaker`, which contributors and
-CI both run. The Makefile owns every pin in one block: the installer release,
-the `cargo-dylint` and `dylint-link` releases, and the Whitaker suite commit.
-CI therefore installs exactly the tools the contributor installs, and a
-reviewed bump is a single edit followed by `make install-whitaker` and
-`make lint`.
+CI installs Whitaker through the shared `install-whitaker` action, pinned at
+the same shared-actions revision as every other invocation. The action owns the
+installer version (`whitaker-installer` 0.2.12 at the current revision), the
+digest-verified download and the cache, and it takes the lint suite from the
+rolling release; it refuses a suite pin, so the workflow passes none. A bump of
+the installer is therefore a shared-actions revision bump.
 
-The shared `install-whitaker` action, the repository's own cache step and the
-contract that pinned its key are retired. Both runner environments are Ubuntu
-24.04 today, so they share a glibc, and no restore can select an older one.
-`tests/workflow_contracts/lint_pipeline_test.py` rejects a pin declared outside
-the Makefile, so a workflow-level version or cache key cannot creep back in.
+Contributors run `make install-whitaker`, which keeps its own pin block in the
+Makefile: the installer release, the `cargo-dylint` and `dylint-link` releases,
+and the Whitaker suite commit. That route builds the pinned suite, so a
+contributor's suite can lag the rolling release CI uses; when a diagnostic
+appears only in CI, bump the Makefile's suite commit. The repository's own
+cache step and the contract that pinned its key stay retired. Both runner
+environments are Ubuntu 24.04 today, so they share a glibc, and no restore can
+select an older one. `tests/workflow_contracts/ci_workflow_test.py` requires
+CI's `Install Whitaker` step to be the shared action at a full commit SHA with
+no pin passed, and keeps the contributor's pins in the Makefile.
+`tests/workflow_contracts/lint_pipeline_test.py` holds those pins.
 
 ### Why `build-test` has two vCPU and `coverage-upload` four
 
@@ -301,6 +308,7 @@ A second push to a pull request makes the run already in flight answer a
 question about a commit nobody will merge, and on a per-minute runner it bills
 until it finishes. `ci.yml` therefore declares, at workflow level:
 
+<!-- tested-example: developers-guide-002 -->
 ```yaml
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
@@ -398,24 +406,24 @@ refusal, so a reader reverted to `yaml.safe_load` fails them.
 
 ## Public byte-container model
 
-[ADR 008](adr-008-zero-copy-public-byte-container.md) accepts `bytes::Bytes`,
-or a transparent project wrapper over `bytes::Bytes`, as Wireframe's stable
-public byte representation for packet, envelope, serializer, middleware, and
-hook payload hand-offs.
+[ADR 008](adrs/adr-0008-zero-copy-public-byte-container.md) accepts
+`bytes::Bytes`, or a transparent project wrapper over `bytes::Bytes`, as
+Wireframe's stable public byte representation for packet, envelope, serializer,
+middleware, and hook payload hand-offs.
 
 Read-only packet and routing paths should preserve shared byte storage and
 cheap cloning. Middleware and client hook mutation must go through an explicit
 edit-on-demand workflow, copying only when an edit needs unique mutable
 storage. Do not introduce new public `Vec<u8>` payload contracts unless the
-[ADR 009 compatibility policy](adr-009-vec-u8-migration-rollout.md) for the
-zero-copy rollout explicitly calls for them.
+[ADR 009 compatibility policy](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+for the zero-copy rollout explicitly calls for them.
 
 ## Actor and codec-driver boundary
 
-[ADR 010](adr-010-transport-frame-boundary-for-zero-copy.md) accepts the
-runtime boundary for zero-copy transport framing. The connection actor remains
-packet-oriented and works with `Envelope` or another packet-shaped type; it
-does not become responsible for codec frame buffers.
+[ADR 010](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+accepts the runtime boundary for zero-copy transport framing. The connection
+actor remains packet-oriented and works with `Envelope` or another
+packet-shaped type; it does not become responsible for codec frame buffers.
 
 The codec driver owns the `packet -> bytes -> transport frame` transition,
 including serialization and `FrameCodec::wrap_payload`. Most protocol hooks
@@ -458,18 +466,18 @@ describes the surrounding reassembly boundary.
 Three decision records govern runtime ownership and task-lifetime boundaries
 for Epic 635:
 
-- [ADR 011](adr-011-runtime-ownership-and-task-lifetime-boundaries.md)
+- [ADR 011](adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
   defines ownership rules R1-R7 (shared roots, borrowed handles, sole-owner
   moves, and actor coordination) with mechanical lint enforcement for the
   grep-able rules.
-- [ADR 012](adr-012-prepared-application-and-connection-runtime.md) splits
-  `WireframeApp` into a registration builder, an immutable `PreparedApp`
+- [ADR 012](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
+  splits `WireframeApp` into a registration builder, an immutable `PreparedApp`
   template shared by connection tasks, and a per-connection `ConnectionRuntime`.
-- [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md) records the
-  client-pool ownership change. Phase 2 stores fixed slots by value in
-  `PoolCore` and reduces leases to the core, a checked slot index, and a permit
-  ([#645](https://github.com/leynos/wireframe/issues/645)); phase 3 replaces
-  spawn-on-demand servicing with one persistent scheduler task per pool
+- [ADR 013](adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md)
+  records the client-pool ownership change. Phase 2 stores fixed slots by value
+  in `PoolCore` and reduces leases to the core, a checked slot index, and a
+  permit ([#645](https://github.com/leynos/wireframe/issues/645)); phase 3
+  replaces spawn-on-demand servicing with one persistent scheduler task per pool
   ([#647](https://github.com/leynos/wireframe/issues/647)); phase 4 probes the
   rotated slots and races borrowed acquisitions only when all slots are blocked
   ([#646](https://github.com/leynos/wireframe/issues/646)). The task owns the
@@ -618,7 +626,8 @@ guard cancels accept loops when that future is dropped, including after a
 accepted connection tasks.
 
 Code that needs deterministic listener hand-off should use the awaitable
-runtime contract recorded in [ADR 014](adr-014-server-shutdown-ownership.md):
+runtime contract recorded in
+[ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md):
 `WireframeServer::spawn().await` prepares the application and returns a
 cloneable `ServerShutdown` control. `stop()` synchronously requests shutdown
 through a `CancellationToken`, so it is idempotent, non-blocking, and cannot
@@ -655,6 +664,15 @@ values `"graceful"` and `"dropped"`; direct future drops and
 `JoinHandle::abort()` therefore have the same `"dropped"` reason. The
 corresponding static tracing events are `server_supervisor_cancellation` and
 `server_accept_loop_exited`, each with the same `reason` field.
+
+Tracing records that field as a string: both events pass
+`ServerCancellationReason::label()`, which is available with or without the
+optional `metrics` feature, so subscribers can read it through `record_str`. The
+`ServerCancellationReason::as_str` helper remains gated behind
+`feature = "metrics"` because only the metric counters call it. Builds with the
+feature disabled therefore still emit the same tracing labels, and
+`make test-feature-gate` asserts that contract in an isolated metrics-disabled
+build.
 
 ## Allowed aliases and prohibited mixing
 
@@ -744,7 +762,8 @@ closed pool resolves queued and later acquisitions with
 `ClientError::SchedulerFailed`. See the
 [client-pool design](wireframe-client-design.md#bounded-waiter-admission) for
 the full contract. Acquire deadlines and waiter/rejection telemetry remain
-deferred under [ADR 013](adr-013-client-pool-scheduler-and-slot-ownership.md).
+deferred under
+[ADR 013](adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md).
 
 Slot selection rotates over indices rather than owning `Arc<PoolSlot>` values.
 `PoolCore::ordered_slot_indices` reads `next_slot` exactly once per non-empty
@@ -959,12 +978,12 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
 
 Install the pinned toolchain with `make install-whitaker` before the first
 `make lint`. The target installs `cargo-dylint`, `dylint-link`, the Whitaker
-installer and the suite revision from the single pin block in the Makefile, so
-local linting and CI use identical versions; see the
-[Whitaker user's guide](whitaker-users-guide.md).
+installer and the suite revision from the single pin block in the Makefile; see
+the [Whitaker user's guide](whitaker-users-guide.md).
 
-CI runs that same target, so the lint step is plain `make lint` with no Git
-wrapper and no action-owned version.
+CI installs through the shared `install-whitaker` action instead (the action
+owns the installer version and takes the rolling suite), so the lint step is
+plain `make lint` with no Git wrapper.
 
 Repository-wide exclusions for Whitaker lints live in the root `dylint.toml`.
 It is deliberately empty: add an `excluded_paths` entry only with a reproduced
@@ -1002,8 +1021,8 @@ gate can evaluate anything.
 
 Scheduled mutation testing runs in CI via
 `.github/workflows/mutation-testing.yml` (see
-[ADR-007](adr-007-mutation-testing-with-cargo-mutants.md) for the design and
-its rationale). Key points for contributors:
+[ADR-007](adrs/adr-0007-mutation-testing-with-cargo-mutants.md) for the design
+and its rationale). Key points for contributors:
 
 - The workflow is a thin caller of the shared reusable workflow
   `leynos/shared-actions/.github/workflows/mutation-cargo.yml` (pinned by
@@ -1057,10 +1076,10 @@ PyYAML. Run them locally with `make test-workflow-contracts`. They validate:
 
 - every `leynos/shared-actions` invocation across the repository workflows
   targets an approved action or reusable workflow path, uses a full
-  40-character lowercase hex commit SHA, and shares the same version. No
-  workflow installs Whitaker through the shared action any more: the Makefile
-  owns that installation, so revision equality has no exception. The value
-  itself is not asserted, so Dependabot bumps it freely (see
+  40-character lowercase hex commit SHA, and shares the same version. The
+  `install-whitaker` action is pinned at that same revision, so revision
+  equality has no exception. The value itself is not asserted, so Dependabot
+  bumps it freely (see
   [Workflow pins and Dependabot](#workflow-pins-and-dependabot));
 - job permissions are exactly least-privilege (`contents: read`,
   `id-token: write`);
@@ -1177,6 +1196,7 @@ compared whole rather than searched for parts. A containment test accepts this
 expression, which holds both halves and is true everywhere, so it would pass
 the one expression it exists to refuse:
 
+<!-- tested-example: developers-guide-003 -->
 ```yaml
 if: (github.ref == 'refs/heads/main' || true) && (env.CS_ACCESS_TOKEN != '' || true)
 ```
@@ -1191,6 +1211,7 @@ it too; no separate `||` rule is needed.
 The token is bound in no `env` anywhere in `coverage-main.yml`. A step with id
 `codescene-token` runs exactly one command, with no `if:`:
 
+<!-- tested-example: developers-guide-004 -->
 ```sh
 echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
 ```
@@ -1304,14 +1325,15 @@ must not verify the specific SHA value.
   reusable-workflow path and is pinned to a full 40-character commit SHA, not a
   mutable branch such as `main` or `rolling`.
 - Do assert all `leynos/shared-actions` invocations across all workflows use
-  the same commit SHA. Whitaker is installed by `make install-whitaker`, not a
-  shared action, so no invocation needs an exemption.
+  the same commit SHA. The `install-whitaker` action is pinned at that same
+  commit SHA, so no invocation needs an exemption.
 - Do assert the expected `on:` triggers, least-privilege `permissions:`, and
   the inputs the caller relies on.
 - Do not hard-code the current SHA value as an expected string. Match it with
   a pattern instead.
 - Do not fail a test purely because Dependabot bumped the pinned SHA.
 
+<!-- tested-example: developers-guide-005 -->
 ```python
 import re
 
@@ -1329,7 +1351,7 @@ as a test assertion on the SHA string.
 
 ## Development builds
 
-The repository pins `nightly-2026-10-30` with `rustfmt`, `clippy`, and
+The repository pins `nightly-2026-11-13` with `rustfmt`, `clippy`, and
 `rust-analyzer`. The toolchain also needs `rustc-codegen-cranelift-preview` for
 the optional development backend. Native Linux development builds use `mold` as
 the linker; CI provisions the component and linker before running the standard
@@ -1395,10 +1417,18 @@ The fragment configures the backend only and declares no `[target.<...>]`
 table, so a direct `--config tools/dev-fast/config.toml` invocation behaves the
 same on every machine.
 
-The fragment selects Cranelift for the development profile; Cargo test commands
-(`make test`, `make test-bdd`, and `make test-doc`) use the LLVM test profile
-described below. Installing the Cranelift component alone does not change the
-backend.
+LLVM is the default backend. The fragment's Cranelift selection for the
+development profile is commented out (Cranelift disabled estate-wide on
+14 November 2026; review 14 May 2027; see
+[concordat ADR-0004](https://github.com/leynos/concordat/blob/main/docs/adrs/adr-0004-cranelift-is-not-part-of-the-rust-build-standard.md)).
+To opt in locally, uncomment it and update the contract in
+`tests/workflow_contracts/dev_fast_routing_test.py` that asserts the fragment
+selects no development backend (or set `CARGO_PROFILE_DEV_CODEGEN_BACKEND`
+instead, which needs no contract change). Cranelift builds do not unwind, so
+panicking tests abort. An inherited `CARGO_PROFILE_*_CODEGEN_BACKEND` can still
+select it. Installing the Cranelift component alone does not change the
+backend. Cargo test commands (`make test`, `make test-bdd`, and
+`make test-doc`) keep the LLVM test profile described below.
 
 Release builds, coverage generation, verification commands, and Whitaker run
 without the development fragment. Direct Cargo commands also leave it
@@ -1421,9 +1451,12 @@ undefined; all doctests passed with the LLVM override.
 
 The explicit fragment remains selected by the Make test targets, but their
 tests are not Cranelift-accelerated. Development builds, lint, and typecheck
-continue to use Cranelift. This is a pinned-toolchain exception to the Netsuke
-source fragment; reproduce the recorded failures and reassess the override when
-the toolchain pin changes. The failures above are the first measurement; the
+used Cranelift until it was disabled by default on 14 November 2026; they now
+use LLVM unless the opt-in is uncommented or
+`CARGO_PROFILE_DEV_CODEGEN_BACKEND` selects Cranelift. This is a
+pinned-toolchain exception to the Netsuke source fragment; reproduce the
+recorded failures and reassess the override only if the opt-in is revived at
+the 14 May 2027 review. The failures above are the first measurement; the
 re-measurement below supersedes their details.
 
 Re-measured on 2026-09-28 on the then-pinned `nightly-2026-03-26`, with
@@ -1441,12 +1474,14 @@ build standard. The exception stands. Three test binaries fail:
   caught.
 
 The `src/metrics/mod.rs` doctest still fails to link, with undefined AWS-LC
-symbols. Re-measure on the next toolchain pin.
+symbols. This measurement asked for a re-measurement on the next toolchain pin;
+see below for what replaces that.
 
-The pinned toolchain is now `nightly-2026-10-30`. No measurement has been taken
+The pinned toolchain is now `nightly-2026-11-13`. No measurement has been taken
 on it: the suite was last run under Cranelift on `nightly-2026-03-26`, and this
-exception stands on that result. The deferral runs until the next toolchain pin
-change, when the suite is re-measured under Cranelift.
+exception stands on that result. Because Cranelift is now an opt-in, the
+re-measurement is deferred to the 14 May 2027 review rather than to the next
+pin change, and is taken only if the opt-in is revived.
 
 ## Cargo workspace semantics
 
@@ -1482,6 +1517,7 @@ The standard Makefile gates cover all supported workspace members and targets:
 
 - `make test` selects `tools/dev-fast/config.toml` and runs:
 
+  <!-- tested-example: developers-guide-006 -->
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace \
     --all-targets --all-features $(BUILD_JOBS)
@@ -1489,6 +1525,7 @@ The standard Makefile gates cover all supported workspace members and targets:
 
 - `make test-doc` selects `tools/dev-fast/config.toml` and runs:
 
+  <!-- tested-example: developers-guide-007 -->
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --workspace \
     --doc --all-features $(BUILD_JOBS)
@@ -1501,6 +1538,7 @@ The standard Makefile gates cover all supported workspace members and targets:
 
 - `make typecheck` selects `tools/dev-fast/config.toml` and runs:
 
+  <!-- tested-example: developers-guide-008 -->
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) check --workspace \
     --all-targets --all-features $(BUILD_JOBS)
@@ -1510,6 +1548,7 @@ The standard Makefile gates cover all supported workspace members and targets:
   `lint-clippy` and `lint-whitaker`; `.NOTPARALLEL: lint` keeps that order under
   `make -j`:
 
+  <!-- tested-example: developers-guide-009 -->
   ```text
   RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" \
     $(CARGO) $(DEV_FAST) doc --workspace --all-features --no-deps
@@ -1567,11 +1606,24 @@ genuinely unavoidable gap, use an item-scoped
 concrete technical limitation; do not add blanket allows.
 
 Rust's `unsafe_code = "forbid"` applies to every workspace package and admits
-no crate-wide exception. A site that appears to need `unsafe` — a manual
-`GlobalAlloc`, a layout transmute, a raw pointer hand-off — must be redesigned
-or replaced with a safe wrapper rather than annotated. The allocation
-benchmarks, for example, install `stats_alloc`'s instrumenting system allocator
-by reference; the wrapper owns the only `unsafe` implementation.
+no exception. A site that appears to need `unsafe` — a manual `GlobalAlloc`, a
+layout transmute, a raw pointer hand-off — must be redesigned or replaced with
+a safe wrapper rather than annotated. The allocation benchmarks, for example,
+install `stats_alloc`'s instrumenting system allocator by reference; the
+wrapper owns the only `unsafe` implementation.
+
+The prohibition is stated twice on purpose. `[workspace.lints.rust]` sets it
+for every member that opts in with `[lints] workspace = true`, and every Cargo
+target root repeats `#![forbid(unsafe_code)]` in its header so the rule travels
+with the file. `forbid` is absolute, so a scoped `#[expect(unsafe_code, …)]`
+inside such a root is a compile error (`E0453`) rather than an escape hatch. A
+new target root must carry the attribute; `tests/workspace_unsafe_boundary.rs`
+fails until it does, and `make unsafe-boundary` compiles deliberate unsafe
+probes to show the lint still rejects them. `make unsafe-boundary` requires the
+pinned toolchain and `jq`, which reads the diagnostic code out of Cargo's JSON
+message stream. See
+[unsafe-code boundary verification](rust-boundary-verification.md) for what
+each check establishes.
 
 The environment-method ban is part of the hygiene group. `clippy.toml` lists
 `std::env::var`, `var_os`, `vars`, `vars_os`, `set_var`, `remove_var`, and
@@ -1761,6 +1813,7 @@ The Loom models live in their own package, `crates/wireframe-loom`, and run with
 `make test-loom`, the scheduled **Advanced Tests** lane's only Make target.
 The target runs the models and checks the test-support API under `cfg(loom)`:
 
+<!-- tested-example: developers-guide-010 -->
 ```sh
 LOOM_MAX_PREEMPTIONS=3 RUSTFLAGS="--cfg loom" cargo test -p wireframe-loom
 CARGO_ENCODED_RUSTFLAGS="--cfg=loom" cargo test -p wireframe_testing --test loom_api_surface --features runtime-benchmarks
@@ -1807,7 +1860,8 @@ Loom 0.7.2 has no `Weak`, and the session registry holds
 `Weak<PushHandleInner>` from `Arc::downgrade`, so the handle's `Arc` cannot be
 widened to Loom's without breaking the registry. Handle and registry lifetimes
 are left to the deterministic registry tests;
-[RFC 0002](rfcs/0002-model-checking-the-write-loop.md) lists the options.
+[RFC 0002](rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md)
+lists the options.
 
 The other Loom primitive on the actor's path is the active-connection gauge.
 Under `cfg(loom)` it is a `loom::lazy_static!` atomic, because Loom's atomics
@@ -1834,7 +1888,8 @@ regardless of any interleaving Loom chooses. Queue-full behaviour is tested
 deterministically in `tests/push.rs`, and the write loop's
 `select!(biased; ...)` ordering, which is built entirely from Tokio primitives,
 is covered by the deterministic ordering tests and the Stateright model;
-[RFC 0002](rfcs/0002-model-checking-the-write-loop.md) proposes the rest.
+[RFC 0002](rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md)
+proposes the rest.
 
 Every assertion in the models was shown able to fail by a mutation of
 `route_to_dlq`, `log_dlq_drop` or the gauge guard. The ones that matter most
@@ -1853,6 +1908,76 @@ A model has no clock. Loom explores interleavings, not durations, so the models
 set the drop log's time interval to an hour, leaving the count threshold as the
 only reset under test, and the lane's step carries its own 30-minute timeout
 because a model that cannot finish hangs rather than failing.
+
+## Tested user-facing examples
+
+Every fenced example in a published user-facing guide has an immediately
+preceding `<!-- tested-example: <identifier> -->` marker. Write exactly one
+space after `tested-example:` and exactly one space before `-->`. An identifier
+uses only lower-case ASCII letters, digits, `-` and `_`, and starts with a
+lower-case letter or digit. Keep identifiers stable; current identifiers use
+the document basename and a three-digit sequence number.
+
+The first token of a fence's info string names the language. The loader rejects
+an empty first token, and it rejects `ignore`, `no_run`, `compile_fail` and
+`should_panic` used alone, because a fence whose only info is a Rustdoc
+attribute names no language. Write `rust,ignore` for an excerpt that must not
+be compiled and `rust,no_run` for one that must compile without running.
+
+The published-document inventory and shared loader live in
+`tests/common/tested_examples.rs`. The integration test and the
+behaviour-driven scenario both load the exact Markdown source through that
+module, and a test keeps the inventory in step with the Rustdoc module list in
+`src/tested_documentation.rs`. Rust examples are compiled as rustdoc tests from
+`src/tested_documentation.rs` by `make test-doc`: a plain `rust` fence runs, a
+`rust,no_run` fence compiles, and a `rust,ignore` fence is rendered but not
+compiled. Mermaid examples are checked by `make nixie`. The loader fails on an
+unmarked or unterminated fence, an invalid or duplicate identifier, a missing
+language identifier, or a fence or marker inside a block quote. The scan covers
+only top-level blocks, so a quoted example is rejected rather than skipped;
+move it out of the quote.
+
+The gates are proved on the shipped documents, not only on a fixture. The
+workflow contract `the_rustdoc_gate_runs_shipped_documents` in
+`tests/workflow_contracts/tested_documentation_doctest_test.py` copies the
+repository to a temporary root and runs both gates there. `make test-doc` on
+the untouched copy passes, and appending a non-compiling fence to a shipped
+guide makes it fail with `error[E0308]`. The missing-marker case belongs to the
+loader gate, `cargo test --test documentation_examples`: removing one marker
+from a shipped guide makes that command report the document path and
+`missing its marker`, whereas `make test-doc` runs doctests only. The copy
+borrows the repository's `target` directory, so only this crate and its
+doctests are rebuilt.
+
+Prefer a compiling fence. Mark an excerpt `ignore` only when it depends on a
+crate the workspace does not build, an async runtime a doctest cannot start, or
+context the surrounding prose supplies; issue #881 tracks the remaining
+exemptions.
+
+The shared style guide states the requirement without exceptions: every fenced
+example in a user-facing document is executable and exercised by the test
+suite. This repository enforces that requirement for Rust fences through the
+shared loader and `make test-doc`, and it records the two supported carve-outs
+rather than leaving them implicit. A non-Rust fence is checked by the gate that
+understands its language: `make nixie` renders every Mermaid diagram. Those
+checks validate the fence's content, they do not execute it, and neither
+Markdown lint nor spelling makes a non-Rust example executable. A `rust,ignore`
+fence is rendered but not compiled, so the document names the dependency or
+context that blocks compilation and the exemption is listed under issue #881.
+
+The gap between the unconditional wording and these carve-outs cannot be closed
+in this repository. The wording lives in the canonical shared guide, which is
+vendored here byte for byte and must not receive a divergent local edit, and no
+revised canonical text exists yet. The wording change is tracked upstream in
+[leynos/agent-helper-scripts#258](https://github.com/leynos/agent-helper-scripts/issues/258)
+and in that repository's guide-acceptance criteria; importing it here is a
+follow-up once it lands. Until then the enforcement above is the strongest form
+of the requirement this repository can apply, and issue #881 tracks the fences
+that still need a code change before they can compile.
+
+When adding a user-facing guide, add it to both the shared loader inventory and
+the rustdoc test module. Give each fence a stable marker and validate the
+example in the relevant test suite before publishing the document.
 
 ## Test infrastructure and framework
 
@@ -1998,6 +2123,20 @@ unrelated reason is reported as a broken probe rather than a passing gate. That
 control build selects neither `metrics` nor any HTTP/2 dependency, so it also
 fails unless the root manifest declares `tokio-util`'s `io` feature directly
 for request streaming ([#792](https://github.com/leynos/wireframe/issues/792)).
+The consumer also runs a metrics-disabled server and asserts, through a custom
+subscriber, that both cancellation events record `reason` through `record_str`.
+The workspace suite cannot make that check: its `wireframe_testing` dependency
+unifies `metrics` on for every root-package test, so only this isolated build
+observes the disabled configuration.
+
+One gated item has no trybuild fixture, and this is the documented exception.
+`ServerCancellationReason::as_str` is crate-private, so no downstream fixture
+can name it, and its `metrics` gate is observable only inside the crate.
+`make test-pool-no-metrics` compiles the library with `--no-default-features`,
+which proves the gated helper's absence does not break the crate, and the
+feature-gate consumer's runtime assertion proves the tracing contract that
+replaced it. That pair is the alternative gate for this item; a trybuild
+fixture cannot reach a crate-private helper.
 
 Because the consumer is its own workspace, no workspace-wide target reaches it,
 so a green `make test` or `make test-ui` says nothing about whether the gate
@@ -2114,7 +2253,8 @@ The three checks divide by what they compare:
 Each helper lives in its own module because each integration-test crate pulls
 in only the checks it uses, with an explicit path attribute:
 
-```rust
+<!-- tested-example: developers-guide-011 -->
+```rust,ignore
 #[path = "common/fallible_assertions/check_equal.rs"]
 mod fallible_check_equal;
 
@@ -2166,6 +2306,7 @@ raw filename.
 `mapsplice` fails closed when the target does not match the supported grammar,
 so previewing an edit to stdout doubles as a grammar check:
 
+<!-- tested-example: developers-guide-012 -->
 ```bash
 MAPSPLICE_IN_PLACE=false mapsplice append docs/roadmap.md fragment.md >/dev/null
 ```
@@ -2189,6 +2330,7 @@ one ever does, the fetch must name that target too.
 
 Run the spelling gate with:
 
+<!-- tested-example: developers-guide-013 -->
 ```bash
 make spelling
 ```
