@@ -146,6 +146,11 @@ When the handler drops its body stream, the message key switches to discard
 mode: remaining frames are still validated for continuity and size, so the
 connection does not lose framing, but nothing is delivered.
 
+A reply the handler produces while the body is being closed is still written to
+the connection, because a peer that half-closed its sending direction may still
+be reading. If the peer has gone entirely, that write fails and ends the
+connection; the handler's observation of the body error is unaffected.
+
 ## Consequences
 
 - Protocol crates can process large inbound messages incrementally without

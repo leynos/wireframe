@@ -44,6 +44,7 @@ pub mod result_alias_dispatch;
 pub mod serializer_boundaries;
 pub mod slow_io_backpressure;
 pub mod stream_end;
+pub mod streaming_dispatch;
 pub mod streaming_request;
 pub mod test_observability;
 pub mod tested_examples;

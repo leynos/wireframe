@@ -45,6 +45,7 @@ mod result_alias_dispatch_scenarios;
 mod serializer_boundaries_scenarios;
 mod slow_io_backpressure_scenarios;
 mod stream_end_scenarios;
+mod streaming_dispatch_scenarios;
 mod streaming_request_scenarios;
 mod test_observability_scenarios;
 mod tested_examples_scenarios;
