@@ -43,6 +43,12 @@ from make_route_reader import runs_make_install_whitaker
         "make install-whitaker && make lint",
         "echo ok\nmake install-whitaker\nmake lint",
         "make lint\nmake install-whitaker",
+        "if make install-whitaker; then :; fi",
+        'echo "$(make install-whitaker)"',
+        "echo `make install-whitaker`",
+        "x=$(make install-whitaker)",
+        "while ! make install-whitaker; do sleep 1; done",
+        "test -f Makefile && { make install-whitaker; }",
     ],
     ids=[
         "plain",
@@ -72,6 +78,12 @@ from make_route_reader import runs_make_install_whitaker
         "install-then-lint",
         "install-after-echo",
         "install-after-lint-line",
+        "if-wrapped",
+        "double-quoted-substitution",
+        "backtick-substitution",
+        "assignment-substitution",
+        "while-loop",
+        "brace-group",
     ],
 )
 def test_every_spelling_of_the_make_route_is_reported(run: str) -> None:

@@ -7,7 +7,16 @@ rejects it. This module answers whether a script runs that target. It reads
 the script the way the shell does rather than searching its text: line
 continuations are joined, quoted text is data, a comment starts only at the
 beginning of a word, unquoted control operators separate commands, and a
-command's environment and wrapper prefixes (with their options) are skipped.
+command's control keywords, environment assignments and wrapper prefixes
+(with their options) are skipped. Command substitutions are read as scripts
+in their own right, wherever they appear.
+
+Shell is not parsed completely. Where this reader cannot be sure, it fails
+closed: a line with an unterminated quote is a route if it names ``make``
+before the target, and a command substitution is scanned even inside quotes,
+so text that only prints one is reported rather than passed. A script that
+merely names the target, such as ``echo 'make install-whitaker'``, is not a
+route.
 """
 
 from __future__ import annotations
@@ -18,101 +27,128 @@ import typing as typ
 
 TARGET = "install-whitaker"
 
-_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-_LINE_CONTINUATION_RE = re.compile(r"\\\n")
-
-#: Characters that separate commands when they appear outside quotes.
-_SEPARATORS: typ.Final = frozenset(";&|()")
+#: One token at a position: a word-initial comment, a word (quoted segments
+#: included, so a quoted operator is part of its word), a run of control
+#: operators, or whitespace.
+_TOKEN: typ.Final = re.compile(
+    r"""
+    (?P<comment>(?:^|(?<=[\s;&|()]))\#.*)
+    |(?P<word>(?:'[^']*'|"(?:\\.|[^"\\])*"|\\.|[^\s;&|()'"\\])+)
+    |(?P<operator>[;&|()]+)
+    |(?P<space>\s+)
+    """,
+    re.VERBOSE,
+)
+_ASSIGNMENT_RE: typ.Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_LINE_CONTINUATION_RE: typ.Final = re.compile(r"\\\n")
+_SUBSTITUTION_RE: typ.Final = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
 
 #: Words that run the command after them, so the command is still `make`.
 _WRAPPERS: typ.Final = frozenset({"env", "command", "exec", "time", "sudo", "nice"})
+#: Words that introduce the command after them (`if make ...; then`).
+_KEYWORDS: typ.Final = frozenset(
+    {"if", "then", "elif", "else", "do", "while", "until", "!", "{", "}"}
+)
+_PROGRAMS: typ.Final = frozenset({"make", "sh", "bash"})
 
 
-def _split_commands(line: str) -> list[str]:
-    """Split one line into command strings at unquoted control operators.
-
-    A ``#`` that begins a word outside quotes starts a comment and ends the
-    line, whereas ``x#y`` and a quoted ``'#'`` are text.
+def _tokenize(line: str) -> list[tuple[str, str]]:
+    """Return a line's ``(kind, text)`` tokens, ending at a comment.
 
     Raises
     ------
     ValueError
-        If a quote is left open, so the line cannot be read reliably.
+        If the line cannot be tokenized, which is an unterminated quote.
     """
-    commands: list[str] = []
-    current: list[str] = []
-    quote = ""
-    previous = " "
-    index = 0
-    while index < len(line):
-        char = line[index]
-        if quote:
-            current.append(char)
-            if char == "\\" and quote == '"' and index + 1 < len(line):
-                index += 1
-                current.append(line[index])
-            elif char == quote:
-                quote = ""
-        elif char == "\\" and index + 1 < len(line):
-            current.extend((char, line[index + 1]))
-            index += 1
-        elif char in "'\"":
-            quote = char
-            current.append(char)
-        elif char == "#" and (previous.isspace() or previous in _SEPARATORS):
+    tokens: list[tuple[str, str]] = []
+    position = 0
+    while position < len(line):
+        match = _TOKEN.match(line, position)
+        if match is None:
+            message = f"cannot read {line[position:]!r}"
+            raise ValueError(message)
+        position = match.end()
+        if match.lastgroup == "comment":
             break
-        elif char in _SEPARATORS:
-            commands.append("".join(current))
-            current = []
+        if match.lastgroup != "space":
+            tokens.append((str(match.lastgroup), match.group()))
+    return tokens
+
+
+def _commands(tokens: list[tuple[str, str]]) -> list[list[str]]:
+    """Group word tokens into commands, split at control operators."""
+    commands: list[list[str]] = [[]]
+    for kind, text in tokens:
+        if kind == "operator":
+            commands.append([])
         else:
-            current.append(char)
-        previous = char
-        index += 1
-    if quote:
-        message = "unterminated quote"
-        raise ValueError(message)
-    commands.append("".join(current))
-    return [command.strip() for command in commands if command.strip()]
+            commands[-1].append(text)
+    return [command for command in commands if command]
 
 
 def _after_prefixes(words: list[str]) -> list[str]:
-    """Return a command's words with environment and wrapper prefixes removed.
+    """Return a command's words without keywords, assignments and wrappers.
 
-    Assignments such as ``MAKEFLAGS=-s`` are dropped. A wrapper such as
-    ``env`` or ``sudo`` is dropped along with its options and their arguments,
-    up to the first word that is a program (``make``) rather than an option.
+    A wrapper such as ``env`` or ``sudo`` is dropped along with its options
+    and their arguments, up to the first program word.
     """
     remaining = list(words)
-    while remaining and _ASSIGNMENT_RE.match(remaining[0]):
+    while remaining and (
+        remaining[0] in _KEYWORDS or _ASSIGNMENT_RE.match(remaining[0])
+    ):
         remaining.pop(0)
     if remaining and remaining[0] in _WRAPPERS:
-        programs = [
+        starts = [
             position
             for position, word in enumerate(remaining)
-            if word.rsplit("/", 1)[-1] in {"make", "sh", "bash"}
+            if word.rsplit("/", 1)[-1] in _PROGRAMS
         ]
-        remaining = remaining[programs[0] :] if programs else []
+        remaining = remaining[starts[0] :] if starts else []
     return remaining
 
 
-def _is_make_install(command: str) -> bool:
+def _is_make_install(words: list[str]) -> bool:
     """Return whether one command is ``make`` with the target among its words."""
-    words = _after_prefixes(shlex.split(command, comments=False, posix=True))
-    if not words:
+    command = _after_prefixes(shlex.split(" ".join(words)))
+    if not command:
         return False
-    program = words[0].rsplit("/", 1)[-1]
-    if program in {"sh", "bash"} and "-c" in words[1:-1]:
+    program = command[0].rsplit("/", 1)[-1]
+    if program in {"sh", "bash"} and "-c" in command[1:-1]:
         # `bash -c 'make install-whitaker'` runs the quoted script.
-        return runs_make_install_whitaker(words[words.index("-c") + 1])
-    return program == "make" and TARGET in words[1:]
+        return runs_make_install_whitaker(command[command.index("-c") + 1])
+    return program == "make" and TARGET in command[1:]
+
+
+def _substitutes_make_install(tokens: list[tuple[str, str]]) -> bool:
+    """Return whether the line's code holds a command substitution that installs.
+
+    The substitutions are looked for in the tokens, so a comment is not read,
+    and across the whole line, so a backtick pair that spans several words is
+    found.
+    """
+    code = " ".join(text for _kind, text in tokens)
+    return any(
+        runs_make_install_whitaker(inner)
+        for groups in _SUBSTITUTION_RE.findall(code)
+        for inner in groups
+        if inner
+    )
+
+
+def _line_runs_make_install(line: str) -> bool:
+    """Return whether one line of a script runs ``make`` on the target."""
+    try:
+        tokens = _tokenize(line)
+        commands = _commands(tokens)
+        return any(_is_make_install(words) for words in commands) or (
+            _substitutes_make_install(tokens)
+        )
+    except ValueError:
+        return re.search(rf"\bmake\b.*\b{TARGET}\b", line) is not None
 
 
 def runs_make_install_whitaker(run: str) -> bool:
     """Return whether a step's script runs ``make`` on ``install-whitaker``.
-
-    A script whose quoting cannot be parsed is reported as a route when its
-    text names the target after ``make``, because a contract that cannot read
-    a script must not pass it.
 
     Parameters
     ----------
@@ -128,14 +164,10 @@ def runs_make_install_whitaker(run: str) -> bool:
     --------
     >>> runs_make_install_whitaker("make -s install-whitaker")
     True
+    >>> runs_make_install_whitaker("if make install-whitaker; then :; fi")
+    True
     >>> runs_make_install_whitaker("echo 'make install-whitaker'")
     False
     """
-    for line in _LINE_CONTINUATION_RE.sub(" ", run).splitlines():
-        try:
-            if any(_is_make_install(command) for command in _split_commands(line)):
-                return True
-        except ValueError:
-            if re.search(rf"\bmake\b.*\b{TARGET}\b", line):
-                return True
-    return False
+    lines = _LINE_CONTINUATION_RE.sub(" ", run).splitlines()
+    return any(_line_runs_make_install(line) for line in lines)
