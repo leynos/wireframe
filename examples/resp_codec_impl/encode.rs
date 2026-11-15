@@ -19,24 +19,30 @@ pub fn encoded_len(frame: &RespFrame) -> Result<usize, io::Error> { encoded_len_
 /// Checked arithmetic turns a size overflow into an input error before the
 /// encoder reserves or writes any destination capacity.
 fn encoded_len_at(frame: &RespFrame, depth: usize) -> Result<usize, io::Error> {
+    check_depth(depth)?;
+    match frame {
+        RespFrame::SimpleString(text) | RespFrame::Error(text) => encoded_line_len(text.len()),
+        RespFrame::Integer(value) => encoded_line_len(digits_len_i64(*value)),
+        RespFrame::BulkString(None) | RespFrame::Array(None) => Ok(5), // $-1 or *-1
+        RespFrame::BulkString(Some(data)) => encoded_bulk_len(data.len()),
+        RespFrame::Array(Some(items)) => encoded_array_len(items, depth),
+    }
+}
+
+/// Reject nesting beyond the safety limit.
+fn check_depth(depth: usize) -> Result<(), io::Error> {
     if depth > MAX_RECURSION_DEPTH {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "maximum recursion depth exceeded",
         ));
     }
-    match frame {
-        RespFrame::SimpleString(text) | RespFrame::Error(text) => {
-            checked_add(1, checked_add(text.len(), 2)?)
-        }
-        RespFrame::Integer(value) => {
-            let digits = digits_len_i64(*value);
-            checked_add(1, checked_add(digits, 2)?)
-        }
-        RespFrame::BulkString(None) | RespFrame::Array(None) => Ok(5), // $-1 or *-1
-        RespFrame::BulkString(Some(data)) => encoded_bulk_len(data.len()),
-        RespFrame::Array(Some(items)) => encoded_array_len(items, depth),
-    }
+    Ok(())
+}
+
+/// Length of a prefix byte, `body_len` bytes and the closing CRLF.
+fn encoded_line_len(body_len: usize) -> Result<usize, io::Error> {
+    checked_add(1, checked_add(body_len, 2)?)
 }
 
 /// Length of a non-null bulk string: `$<digits>\r\n<data>\r\n`.

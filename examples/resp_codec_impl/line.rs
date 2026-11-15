@@ -14,18 +14,21 @@ pub(super) fn parse_line(
     start: usize,
     max_len: usize,
 ) -> Result<Option<(&[u8], usize)>, io::Error> {
-    let mut index = start;
-    while buf.get(index).is_some() {
-        match scan_byte(buf, start, index, max_len)? {
-            LineScan::Found(line, next) => return Ok(Some((line, next))),
-            LineScan::Incomplete => return Ok(None),
-            LineScan::Continue => {}
-        }
-        index = index
-            .checked_add(1)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "line too long"))?;
+    match scan_line(buf, start, max_len)? {
+        LineScan::Found(line, next) => Ok(Some((line, next))),
+        LineScan::Incomplete | LineScan::Continue => Ok(None),
     }
-    Ok(None)
+}
+
+/// Examine each buffered byte from `start` until one decides the scan.
+fn scan_line(buf: &BytesMut, start: usize, max_len: usize) -> Result<LineScan<'_>, io::Error> {
+    for index in start..buf.len() {
+        let scan = scan_byte(buf, start, index, max_len)?;
+        if !matches!(scan, LineScan::Continue) {
+            return Ok(scan);
+        }
+    }
+    Ok(LineScan::Continue)
 }
 
 /// What examining one byte of a bounded line scan decided.
