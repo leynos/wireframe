@@ -34,6 +34,13 @@ pub(super) struct Fence {
     pub(super) length: usize,
 }
 
+/// Return how many spaces `text` carries before its first other character.
+fn leading_spaces(text: &str) -> usize {
+    text.chars()
+        .take_while(|character| *character == ' ')
+        .count()
+}
+
 /// Return the fence when `line` opens one.
 ///
 /// Markdown lets a fence be indented by up to three spaces while still opening
@@ -41,10 +48,7 @@ pub(super) struct Fence {
 /// enforced here rather than at each call site.
 pub(super) fn opening_fence(line: SourceLine<'_>) -> Option<Fence> {
     let text = line.text();
-    let indentation = text
-        .chars()
-        .take_while(|character| *character == ' ')
-        .count();
+    let indentation = leading_spaces(text);
     if indentation > 3 {
         return None;
     }
@@ -67,10 +71,7 @@ pub(super) fn opening_fence(line: SourceLine<'_>) -> Option<Fence> {
 /// the close.
 pub(super) fn is_closing_fence(line: SourceLine<'_>, fence: Fence) -> bool {
     let text = line.text();
-    let indentation = text
-        .chars()
-        .take_while(|character| *character == ' ')
-        .count();
+    let indentation = leading_spaces(text);
     if indentation > 3 {
         return false;
     }
@@ -89,10 +90,7 @@ pub(super) fn is_closing_fence(line: SourceLine<'_>, fence: Fence) -> bool {
 /// Return the info string that follows the fence marker on `line`.
 pub(super) fn fence_info(line: SourceLine<'_>, fence: Fence) -> &str {
     let text = line.text();
-    let indentation = text
-        .chars()
-        .take_while(|character| *character == ' ')
-        .count();
+    let indentation = leading_spaces(text);
     let Some(remainder) = text.get(indentation..) else {
         return "";
     };
@@ -124,21 +122,31 @@ pub(super) fn fence_source(
 /// such a fence with a remedy instead of skipping it without comment.
 pub(super) fn block_quote_content(line: SourceLine<'_>) -> Option<&str> {
     let text = line.text();
-    let indentation = text
-        .chars()
-        .take_while(|character| *character == ' ')
-        .count();
+    let indentation = leading_spaces(text);
     if indentation > 3 {
         return None;
     }
-    let mut content = text.get(indentation..)?;
-    if !content.starts_with('>') {
-        return None;
-    }
-    while let Some(remainder) = content.strip_prefix('>') {
-        content = remainder.strip_prefix(' ').unwrap_or(remainder);
+    let remainder = text.get(indentation..)?.strip_prefix('>')?;
+    let mut content = remainder.strip_prefix(' ').unwrap_or(remainder);
+    while let Some(nested) = nested_quote_content(content) {
+        content = nested;
     }
     Some(content)
+}
+
+/// Return the content after a nested quote marker, when one follows `text`.
+///
+/// CommonMark allows up to three spaces before a block-quote marker, so those
+/// spaces belong to the container rather than to the quoted text. Four or more
+/// spaces mean the remainder is an indented code block inside the quote, whose
+/// indentation the caller must still see.
+fn nested_quote_content(text: &str) -> Option<&str> {
+    let spaces = leading_spaces(text);
+    if spaces > 3 {
+        return None;
+    }
+    let remainder = text.get(spaces..)?.strip_prefix('>')?;
+    Some(remainder.strip_prefix(' ').unwrap_or(remainder))
 }
 
 /// Reject an example that a block quote would hide from the document walk.

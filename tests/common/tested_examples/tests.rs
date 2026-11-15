@@ -167,6 +167,7 @@ fn a_rejected_document_reports_no_claims() {
 
 #[rstest]
 #[case::fence("Prose.\n\n> ```rust\n> fn quoted() {}\n> ```\n")]
+#[case::spaced_markers("Prose.\n\n>   > ```rust\n>   > fn quoted() {}\n>   > ```\n")]
 #[case::marker(concat!(
     "Prose.\n\n",
     "> <!-- tested-example: guide-001 -->\n",
@@ -266,8 +267,14 @@ proptest! {
     }
 
     #[test]
-    fn quoted_fences_are_rejected_at_any_quote_depth(depth in 1usize..5) {
-        let quote = "> ".repeat(depth);
+    fn quoted_fences_are_rejected_at_any_quote_depth_and_marker_spacing(
+        depth in 1usize..5,
+        spaces in 0usize..4,
+    ) {
+        // CommonMark allows zero to three spaces between nested quote markers,
+        // so every spacing must still reach the rejection rather than leave the
+        // remainder looking like plain prose.
+        let quote = format!(">{}", " ".repeat(spaces)).repeat(depth);
         let source = format!("Prose.\n\n{quote}```rust\n{quote}fn main() {{}}\n{quote}```\n");
 
         let error = parse(&source).expect_err("a quoted fence must fail the scan");
