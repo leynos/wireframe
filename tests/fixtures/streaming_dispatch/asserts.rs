@@ -2,15 +2,17 @@
 
 use std::{io, time::Duration};
 
+use wireframe::{
+    app::Envelope,
+    serializer::{BincodeSerializer, Serializer},
+};
+
 use super::{
-    BincodeSerializer,
     COLLECT_TIMEOUT_MS,
     DispatchEvent,
-    Envelope,
-    Serializer,
     StreamingDispatchWorld,
     TestResult,
-    read_frame,
+    frames::read_frame,
 };
 
 /// How long an assertion waits for the next reply frame.
