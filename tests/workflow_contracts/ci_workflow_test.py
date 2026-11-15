@@ -239,12 +239,51 @@ def test_ci_installs_whitaker_through_the_pinned_shared_action() -> None:
     release, so the step passes no inputs that pin either.
     """
     step = _find_step(_load_steps(), "Install Whitaker")
-    assert INSTALL_WHITAKER_ACTION_RE.match(str(step.get("uses", ""))), (
-        "CI must install Whitaker through the install-whitaker action at a full SHA"
-    )
-    assert not {"suite-version", "installer-version"} & set(step.get("with") or {}), (
-        "the action owns the Whitaker pins"
-    )
+    problems = _whitaker_step_problems(step)
+    assert not problems, problems
+
+
+def _whitaker_step_problems(step: dict[str, object]) -> list[str]:
+    """Return why a step is not the pinned, pin-free install-whitaker action."""
+    problems = []
+    if not INSTALL_WHITAKER_ACTION_RE.match(str(step.get("uses", ""))):
+        problems.append("must use install-whitaker at a full SHA")
+    options = step.get("with") or {}
+    if {"suite-version", "installer-version"} & set(options):
+        problems.append("the action owns the Whitaker pins")
+    return problems
+
+
+@pytest.mark.parametrize(
+    ("step", "expected"),
+    [
+        ({"uses": "leynos/shared-actions/.github/actions/install-whitaker@" + "0" * 40}, []),
+        ({"run": "make install-whitaker"}, ["full SHA"]),
+        ({"uses": "leynos/shared-actions/.github/actions/install-whitaker@main"}, ["full SHA"]),
+        (
+            {
+                "uses": "leynos/shared-actions/.github/actions/install-whitaker@" + "0" * 40,
+                "with": {"suite-version": "abc"},
+            },
+            ["owns the Whitaker pins"],
+        ),
+        (
+            {
+                "uses": "leynos/shared-actions/.github/actions/install-whitaker@" + "0" * 40,
+                "with": {"installer-version": "0.2.12"},
+            },
+            ["owns the Whitaker pins"],
+        ),
+    ],
+    ids=["conforming", "make-route", "mutable-reference", "suite-pin", "installer-pin"],
+)
+def test_the_whitaker_step_check_rejects_each_departure(
+    step: dict[str, object], expected: list[str]
+) -> None:
+    """Drive the check both ways, so it discriminates rather than echoing the file."""
+    problems = _whitaker_step_problems(step)
+    assert len(problems) == len(expected), problems
+    assert all(any(want in problem for problem in problems) for want in expected), problems
 
 
 def test_whitaker_pins_live_only_in_the_makefile() -> None:
