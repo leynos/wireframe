@@ -104,7 +104,7 @@ This is now a concrete part of the public API rather than a future sketch.
 crates can adapt that stream to `AsyncRead` through `RequestBodyReader`, or
 pair it with a producer through `body_channel`. The connection runtime delivers
 these shapes to streaming routes, following
-[ADR 018](adr-018-streaming-request-body-dispatch.md); ADR 017 removed the
+[ADR 018](adrs/adr-0018-streaming-request-body-dispatch.md); ADR 017 removed the
 `StreamingBody` extractor wrapper.
 
 Completion of a streaming response is signalled by a protocol-defined

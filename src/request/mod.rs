@@ -3,7 +3,7 @@
 //! These types model consuming a request payload incrementally rather than
 //! waiting for full reassembly. See ADR 0002 for the design rationale and
 //! composition with transport-level fragmentation, and
-//! [ADR 018](../../docs/adr-018-streaming-request-body-dispatch.md) for how the
+//! [ADR 018](../../docs/adrs/adr-0018-streaming-request-body-dispatch.md) for how the
 //! connection runtime delivers a body to a route handler.
 //!
 //! # Where a body comes from

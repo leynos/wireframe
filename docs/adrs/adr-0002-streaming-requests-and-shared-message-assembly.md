@@ -520,7 +520,7 @@ primitives stands; the claim that handlers opt into them does not.
 ## Addendum (2026-11-15)
 
 The handler-facing streaming shapes in §1 are now wired into dispatch.
-[ADR 018](adr-018-streaming-request-body-dispatch.md) adds an opt-in
+[ADR 018](adr-0018-streaming-request-body-dispatch.md) adds an opt-in
 `WireframeApp::streaming_route` that delivers `RequestParts` and a
 `RequestBodyStream` to its handler as frames arrive, so this section's claim
 holds again for routes that register that way. Buffered routes are unchanged,

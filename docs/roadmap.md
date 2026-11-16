@@ -280,8 +280,8 @@ abstraction, and standardized per-connection memory budgets.
 - [x] 8.1.4. Integrate streaming request extraction with the handler dispatch
   path. Opt-in `WireframeApp::streaming_route` delivers `RequestParts` and a
   `RequestBodyStream` while frames arrive; see
-  [ADR 018](adr-018-streaming-request-body-dispatch.md) and the coverage in
-  `tests/features/streaming_request_dispatch.feature`. The extractor-based
+  [ADR 018](adrs/adr-0018-streaming-request-body-dispatch.md) and the coverage
+  in `tests/features/streaming_request_dispatch.feature`. The extractor-based
   form was removed before it was wired in; see
   [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md).
 - [x] 8.1.5. Write tests for buffered-to-streaming fallback and back-pressure

@@ -1530,9 +1530,9 @@ let (tx, rx) = body_channel(8);
 ```
 
 See [ADR 0002][adr-0002-ref] for the original primitives,
-[ADR 018](adr-018-streaming-request-body-dispatch.md) for streaming dispatch,
-and [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md) for the
-decision to remove the extractor wrapper.
+[ADR 018](adrs/adr-0018-streaming-request-body-dispatch.md) for streaming
+dispatch, and [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md)
+for the decision to remove the extractor wrapper.
 
 ## Working with requests and middleware
 

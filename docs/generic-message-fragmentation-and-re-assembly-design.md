@@ -437,7 +437,7 @@ When both layers are enabled, Wireframe applies them in the following order:
 
 Streaming request bodies are delivered by the connection runtime when a route
 opts in with `WireframeApp::streaming_route`, rather than being an assembler
-output; see [ADR 018](adr-018-streaming-request-body-dispatch.md) and
+output; see [ADR 018](adrs/adr-0018-streaming-request-body-dispatch.md) and
 [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md).
 
 In operational terms, each layer owns a distinct hand-off:

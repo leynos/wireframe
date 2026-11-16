@@ -448,8 +448,8 @@ not hang.
   to streaming responses, enabling incremental processing of large inbound
   payloads. The connection runtime delivers them to handlers registered with
   `WireframeApp::streaming_route`;
-  [ADR 018](adr-018-streaming-request-body-dispatch.md) records that decision.
-  ADR 017 removed the extractor wrapper, not the primitives.
+  [ADR 018](adrs/adr-0018-streaming-request-body-dispatch.md) records that
+  decision. ADR 017 removed the extractor wrapper, not the primitives.
 
 - **MessageAssembler:** Protocol-level multi-frame message assembly integrates
   with streaming request bodies. The `MessageAssembler` abstraction allows
@@ -576,8 +576,9 @@ with the outbound streaming capabilities documented above.
 ### 11.1 Handler-facing shapes
 
 [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md) removed the
-extractor wrapper, and [ADR 018](adr-018-streaming-request-body-dispatch.md)
-wires the primitives into dispatch for opt-in streaming routes:
+extractor wrapper, and
+[ADR 018](adrs/adr-0018-streaming-request-body-dispatch.md) wires the
+primitives into dispatch for opt-in streaming routes:
 
 - `RequestParts` carries the routing and correlation metadata needed to
   dispatch the request before the body is fully received.
@@ -673,9 +674,9 @@ capacity.
 
 See [ADR 0002](adrs/adr-0002-streaming-requests-and-shared-message-assembly.md)
 for the complete specification,
-[ADR 018](adr-018-streaming-request-body-dispatch.md) for streaming dispatch,
-and [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md) for the
-removal of the extractor wrapper.
+[ADR 018](adrs/adr-0018-streaming-request-body-dispatch.md) for streaming
+dispatch, and [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md)
+for the removal of the extractor wrapper.
 
 ## 12. Client-side streaming consumption
 

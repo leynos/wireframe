@@ -74,7 +74,7 @@ reference when navigating the project's design and architecture material.
   Proposed workspace lint table, per-root attribute, and enforcement checks.
 - [ADR 017: remove the unwired route extractors and application data API](adrs/adr-0017-remove-route-extractors-and-app-data.md)
   Accepted removal of the extractor module and `app_data` before 1.0.
-- [ADR 018: deliver streaming request bodies to route handlers](adr-018-streaming-request-body-dispatch.md)
+- [ADR 018: deliver streaming request bodies to route handlers](adrs/adr-0018-streaming-request-body-dispatch.md)
   Accepted opt-in streaming route, dispatch slot, and body lifecycle.
 
 [adr-015]: adrs/adr-0015-declared-total-body-length-is-authoritative.md

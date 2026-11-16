@@ -15,11 +15,11 @@ for roadmap item 8.1.4 by issue
 
 ## Context and problem statement
 
-[ADR 002](adr-002-streaming-requests-and-shared-message-assembly.md) decided
+[ADR 002](adr-0002-streaming-requests-and-shared-message-assembly.md) decided
 that handlers MAY receive `RequestParts` plus `RequestBodyStream` rather than a
 fully reassembled body. Its addendum of 2026-11-09 recorded that the shapes
 were never wired into dispatch, and
-[ADR 017](adr-017-remove-route-extractors-and-app-data.md) removed the
+[ADR 017](adr-0017-remove-route-extractors-and-app-data.md) removed the
 `StreamingBody` extractor and the application data store, leaving
 `RequestParts`, `RequestBodyStream`, and `RequestBodyReader` as caller-owned
 primitives.
@@ -122,12 +122,12 @@ queued bytes immediately afterwards, so the exception cannot hide an overrun.
 ### 4) Per-message limits are enforced before delivery
 
 The per-message cap and the declared total body length
-([ADR 015](adr-015-declared-total-body-length-contract.md)) are checked when a
-continuation is admitted, before its bytes reach the handler. An overshoot, a
-short final frame, or a frame that would exceed the cap is a terminal failure:
-the partial is removed and the handler's body receives an error. A recoverable
-continuity error, such as a duplicate or a gap, retains the partial so a
-retransmission can still complete the message.
+([ADR 015](adr-0015-declared-total-body-length-is-authoritative.md)) are
+checked when a continuation is admitted, before its bytes reach the handler. An
+overshoot, a short final frame, or a frame that would exceed the cap is a
+terminal failure: the partial is removed and the handler's body receives an
+error. A recoverable continuity error, such as a duplicate or a gap, retains
+the partial so a retransmission can still complete the message.
 
 ### 5) Body lifecycle outcomes
 
@@ -177,6 +177,6 @@ and the TCP lifecycle tests in `tests/streaming_request_server.rs`.
 
 ## References
 
-- [ADR 002: streaming requests and shared message assembly](adr-002-streaming-requests-and-shared-message-assembly.md)
-- [ADR 015: declared total body length is authoritative](adr-015-declared-total-body-length-contract.md)
-- [ADR 017: remove the unwired route extractors and application data API](adr-017-remove-route-extractors-and-app-data.md)
+- [ADR 002: streaming requests and shared message assembly](adr-0002-streaming-requests-and-shared-message-assembly.md)
+- [ADR 015: declared total body length is authoritative](adr-0015-declared-total-body-length-is-authoritative.md)
+- [ADR 017: remove the unwired route extractors and application data API](adr-0017-remove-route-extractors-and-app-data.md)
