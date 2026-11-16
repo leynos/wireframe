@@ -40,6 +40,7 @@ pub(super) fn accept_streaming_first(
         Ok(first) => {
             let routing = first.routing();
             let key = first.key();
+            let assembly = first.assembly_id();
             let chunk = Bytes::copy_from_slice(first.chunk());
             let is_last = first.is_last();
             let parts = RequestParts::new(
@@ -49,6 +50,7 @@ pub(super) fn accept_streaming_first(
             );
             Ok(FrameOutcome::StreamStarted {
                 key: Some(key),
+                assembly,
                 parts,
                 chunk,
                 is_last,

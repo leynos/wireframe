@@ -15,21 +15,23 @@ use super::{
     StreamingContinuation,
     StreamingFailure,
     StreamingFirstFrame,
-    streaming::StreamingAssembly,
+    streaming::{StreamingAssembly, StreamingAssemblyId},
     validation,
 };
 
 /// Keys evicted by
 /// [`MessageAssemblyState::purge_expired_detailed`](crate::message_assembler::MessageAssemblyState::purge_expired_detailed).
 ///
-/// Streaming keys are reported separately so the connection can fail the
-/// handler's body with a timeout instead of leaving it waiting forever.
+/// Streaming assemblies are reported separately so the connection can fail the
+/// handler's body with a timeout instead of leaving it waiting forever. They
+/// are reported by identity rather than by key, because the key may already
+/// have been reused by a replacement assembly.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PurgedAssemblies {
     /// Buffered assemblies that were discarded.
     buffered: Vec<MessageKey>,
     /// Streaming assemblies whose consumer must be notified.
-    streaming: Vec<MessageKey>,
+    streaming: Vec<StreamingAssemblyId>,
 }
 
 impl PurgedAssemblies {
@@ -37,9 +39,9 @@ impl PurgedAssemblies {
     #[must_use]
     pub fn buffered(&self) -> &[MessageKey] { &self.buffered }
 
-    /// Return the evicted streaming assembly keys.
+    /// Return the evicted streaming assemblies.
     #[must_use]
-    pub fn streaming(&self) -> &[MessageKey] { &self.streaming }
+    pub fn streaming(&self) -> &[StreamingAssemblyId] { &self.streaming }
 
     /// Return whether no assembly was evicted.
     #[must_use]
@@ -99,12 +101,19 @@ impl super::MessageAssemblyState {
         let chunk = input.body;
         let is_last = input.header.is_last;
         let routing = input.routing;
+        // A single-frame message tracks no partial, so it has no identity to
+        // evict or discard later.
+        let mut assembly = None;
         if !is_last {
-            let partial = StreamingAssembly::from_first_frame(&input, chunk.len(), now);
+            self.streaming_generation = self.streaming_generation.wrapping_add(1);
+            let id = StreamingAssemblyId::new(key, self.streaming_generation);
+            let partial = StreamingAssembly::from_first_frame(id, &input, chunk.len(), now);
             self.streaming_assemblies.insert(key, partial);
+            assembly = Some(id);
         }
         Ok(StreamingFirstFrame {
             key,
+            assembly,
             routing,
             metadata: input.metadata,
             chunk,
@@ -199,11 +208,32 @@ impl super::MessageAssemblyState {
     /// Switch `key` into discard mode so remaining frames are validated but
     /// not delivered.
     ///
+    /// Use this only when the caller's frame was validated against the
+    /// assembly currently registered for `key`. A notification raised earlier
+    /// must use [`Self::discard_streaming_if`] instead, because the key may
+    /// have been reused by a replacement assembly in the meantime.
+    ///
     /// Returns `false` when no streaming assembly exists for the key.
     pub fn discard_streaming(&mut self, key: MessageKey) -> bool {
         self.streaming_assemblies
             .get_mut(&key)
             .is_some_and(|partial| {
+                partial.begin_discard();
+                true
+            })
+    }
+
+    /// Switch one specific assembly into discard mode.
+    ///
+    /// Returns `false` when the assembly is gone or when the key now names a
+    /// replacement, leaving that replacement untouched.
+    pub fn discard_streaming_if(&mut self, id: StreamingAssemblyId) -> bool {
+        self.streaming_assemblies
+            .get_mut(&id.key())
+            .is_some_and(|partial| {
+                if partial.id() != id {
+                    return false;
+                }
                 partial.begin_discard();
                 true
             })
@@ -248,10 +278,10 @@ impl super::MessageAssemblyState {
             }
             !expired
         });
-        self.streaming_assemblies.retain(|key, partial| {
+        self.streaming_assemblies.retain(|_key, partial| {
             let expired = now.saturating_duration_since(partial.started_at) >= timeout;
             if expired {
-                purged.streaming.push(*key);
+                purged.streaming.push(partial.id());
             }
             !expired
         });

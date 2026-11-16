@@ -111,6 +111,7 @@ where
         FrameOutcome::Buffered(env) => dispatch_buffered(env, stream_live, state, handles).await,
         FrameOutcome::StreamStarted {
             key,
+            assembly,
             parts,
             chunk,
             is_last,
@@ -118,6 +119,7 @@ where
             let streaming_handler = handles.ctx.streaming_routes.get(&parts.id());
             let first = FirstChunk {
                 key,
+                assembly,
                 parts,
                 chunk,
                 is_last,

@@ -35,7 +35,7 @@ mod tests;
 use crate::{
     codec::FrameCodec,
     message::EncodeWith,
-    message_assembler::{MessageAssemblyState, MessageKey},
+    message_assembler::{MessageAssemblyState, MessageKey, StreamingAssemblyId},
     request::{
         AccountedBodySender,
         DEFAULT_BODY_CHANNEL_CAPACITY,
@@ -61,8 +61,11 @@ pub(super) enum PendingEvent {
 
 /// The one live streaming exchange on a connection.
 pub(super) struct ActiveStream {
-    /// Assembly key used to discard remaining frames after abandonment.
+    /// Assembly key used to match continuation frames.
     key: Option<MessageKey>,
+    /// Identity of the partial this exchange owns, absent for a single-frame
+    /// message or when no assembler participates.
+    assembly: Option<StreamingAssemblyId>,
     /// Route identifier used to address the reply.
     route_id: u32,
     /// Correlation identifier inherited from the first frame.
@@ -184,6 +187,7 @@ impl ConnectionStreams {
     ) {
         let FirstChunk {
             key,
+            assembly,
             parts,
             chunk,
             is_last,
@@ -201,6 +205,7 @@ impl ConnectionStreams {
         let live_sender = (!is_last).then_some(sender);
         self.active = Some(ActiveStream {
             key,
+            assembly,
             route_id,
             correlation_id,
             sender: live_sender,
@@ -268,7 +273,7 @@ impl ConnectionStreams {
         // releases itself, and a queued chunk is dropped with its guard.
         active.pending = None;
         active.sender = None;
-        discard_streaming(active.key, handles.assembly);
+        discard_streaming(active.assembly, handles.assembly);
         forward_reply(active.route_id, active.correlation_id, outcome, handles).await
     }
 
@@ -290,7 +295,7 @@ impl ConnectionStreams {
         };
         active.pending = None;
         let sender = active.sender.take();
-        discard_streaming(active.key, handles.assembly);
+        discard_streaming(active.assembly, handles.assembly);
         let outcome = match (terminal, sender) {
             (Some(error), Some(open_sender)) => {
                 deliver_then_await(handles.wait, error, open_sender, &mut active.handler).await
@@ -304,9 +309,13 @@ impl ConnectionStreams {
     }
 
     /// Fail the body for an expired streaming assembly.
+    ///
+    /// The evicted assemblies are matched by identity, not by key: a
+    /// replacement may already have reused the key, and it must keep its
+    /// own body.
     pub(super) async fn expire<S, E, F, W>(
         &mut self,
-        keys: &[MessageKey],
+        ids: &[StreamingAssemblyId],
         handles: DispatchHandles<'_, S, E, F, W>,
     ) -> io::Result<()>
     where
@@ -316,7 +325,7 @@ impl ConnectionStreams {
         W: AsyncRead + AsyncWrite + Unpin,
         Envelope: EncodeWith<S>,
     {
-        if !self.is_key_live(keys) {
+        if !self.owns_assembly(ids) {
             return Ok(());
         }
         self.close_active(
@@ -353,6 +362,14 @@ impl ConnectionStreams {
     /// Drop the live exchange immediately after a hard budget breach.
     pub(super) fn abort(&mut self) { self.active = None; }
 
+    /// Return whether the slot owns one of the evicted assemblies.
+    fn owns_assembly(&self, ids: &[StreamingAssemblyId]) -> bool {
+        self.active
+            .as_ref()
+            .and_then(|active| active.assembly)
+            .is_some_and(|id| ids.contains(&id))
+    }
+
     /// Return whether the slot is live for one of `keys`.
     fn is_key_live(&self, keys: &[MessageKey]) -> bool {
         self.active
@@ -362,9 +379,12 @@ impl ConnectionStreams {
     }
 }
 
-/// Switch one streaming key to discard mode if assembly state is present.
-fn discard_streaming(key: Option<MessageKey>, assembly: &mut Option<MessageAssemblyState>) {
-    if let (Some(live_key), Some(assembly_state)) = (key, assembly.as_mut()) {
-        assembly_state.discard_streaming(live_key);
+/// Switch one streaming assembly to discard mode if state is present.
+///
+/// The exchange names the assembly it owns, so an assembly that reused the key
+/// after this one expired keeps receiving its frames.
+fn discard_streaming(id: Option<StreamingAssemblyId>, assembly: &mut Option<MessageAssemblyState>) {
+    if let (Some(owned), Some(assembly_state)) = (id, assembly.as_mut()) {
+        assembly_state.discard_streaming_if(owned);
     }
 }

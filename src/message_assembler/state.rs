@@ -16,7 +16,7 @@ use super::{
     budget::{AggregateBudgets, ContinuationLimits, check_aggregate_budgets},
     error::{MessageAssemblyError, MessageSeriesError, MessageSeriesStatus},
     partial::PartialAssembly,
-    streaming::StreamingAssembly,
+    streaming::{StreamingAssembly, StreamingAssemblyId},
     types::{AssembledMessage, FirstFrameInput},
     validation,
 };
@@ -90,13 +90,19 @@ pub struct MessageAssemblyState {
     /// Streaming assemblies. These retain ordering state only, so they are
     /// deliberately excluded from aggregate budget accounting.
     pub(super) streaming_assemblies: HashMap<MessageKey, StreamingAssembly>,
-    /// Streaming keys evicted by a purge that ran during admission.
+    /// Generation handed to the next streaming assembly.
+    ///
+    /// A key can be reused once its assembly is dropped, so every streaming
+    /// partial carries a generation that lets a later notification name the
+    /// instance it belongs to.
+    pub(super) streaming_generation: u64,
+    /// Streaming assemblies evicted by a purge that ran during admission.
     ///
     /// Admission purges expired state for self-maintenance, but the caller that
     /// can act on an eviction — the connection loop — only observes
-    /// [`Self::purge_expired_detailed`]. Keys evicted on the admission path are
-    /// therefore retained here until that call reports them.
-    pub(super) deferred_streaming_evictions: Vec<MessageKey>,
+    /// [`Self::purge_expired_detailed`]. Evictions made on the admission path
+    /// are therefore retained here until that call reports them.
+    pub(super) deferred_streaming_evictions: Vec<StreamingAssemblyId>,
     /// Aggregate limits protecting connection and in-flight memory.
     budgets: AggregateBudgets,
 }
@@ -128,6 +134,7 @@ impl MessageAssemblyState {
             timeout,
             assemblies: HashMap::new(),
             streaming_assemblies: HashMap::new(),
+            streaming_generation: 0,
             deferred_streaming_evictions: Vec::new(),
             budgets: AggregateBudgets {
                 connection: connection_budget,

@@ -24,6 +24,7 @@ use crate::{
         MessageAssemblyState,
         MessageKey,
         PurgedAssemblies,
+        StreamingAssemblyId,
     },
     request::RequestParts,
 };
@@ -74,6 +75,9 @@ pub(crate) enum FrameOutcome {
     StreamStarted {
         /// Assembly key, absent when no assembler participates.
         key: Option<MessageKey>,
+        /// Identity of the tracking partial, absent for a single-frame
+        /// message.
+        assembly: Option<StreamingAssemblyId>,
         /// Routing metadata captured from the first frame.
         parts: RequestParts,
         /// First body chunk.
@@ -254,6 +258,7 @@ fn fallback_outcome(
     }
     FrameOutcome::StreamStarted {
         key: None,
+        assembly: None,
         parts,
         chunk: Bytes::from(env.payload),
         is_last: true,

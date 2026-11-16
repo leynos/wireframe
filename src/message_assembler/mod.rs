@@ -44,7 +44,12 @@ pub use header::{
 };
 pub use series::MessageSeries;
 pub use state::MessageAssemblyState;
-pub use streaming::{StreamingContinuation, StreamingFailure, StreamingFirstFrame};
+pub use streaming::{
+    StreamingAssemblyId,
+    StreamingContinuation,
+    StreamingFailure,
+    StreamingFirstFrame,
+};
 pub use streaming_state::PurgedAssemblies;
 pub use types::{
     AssembledMessage,

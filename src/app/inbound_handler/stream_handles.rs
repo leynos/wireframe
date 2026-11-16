@@ -25,7 +25,7 @@ use super::{
 };
 use crate::{
     codec::FrameCodec,
-    message_assembler::{MessageAssemblyState, MessageKey},
+    message_assembler::{MessageAssemblyState, MessageKey, StreamingAssemblyId},
     request::RequestParts,
     serializer::Serializer,
 };
@@ -142,6 +142,8 @@ pub(super) fn retained_outside_queue(
 pub(super) struct FirstChunk {
     /// Assembly key, absent when no assembler participates.
     pub(super) key: Option<MessageKey>,
+    /// Identity of the tracking partial, absent for a single-frame message.
+    pub(super) assembly: Option<StreamingAssemblyId>,
     /// Routing metadata captured from the first frame.
     pub(super) parts: RequestParts,
     /// First body chunk.

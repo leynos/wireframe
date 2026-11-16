@@ -19,6 +19,7 @@ use super::{
     MessageAssemblyError,
     MessageAssemblyState,
     MessageKey,
+    StreamingAssemblyId,
     StreamingContinuation,
 };
 
@@ -28,6 +29,11 @@ const TIMEOUT: Duration = Duration::from_mins(1);
 #[cfg(test)]
 #[path = "streaming_declared_total_tests.rs"]
 mod streaming_declared_total_tests;
+
+/// Project reported assembly identities onto their keys.
+fn reported_keys(ids: &[StreamingAssemblyId]) -> Vec<MessageKey> {
+    ids.iter().map(StreamingAssemblyId::key).collect()
+}
 
 /// Build an assembly state with a per-message cap of `limit` bytes.
 fn state_with_limit(limit: usize) -> MessageAssemblyState {
@@ -73,11 +79,22 @@ fn admit_first(
     body: &[u8],
     now: Instant,
 ) {
+    let _identity = admit_first_tracked(state, header, body, now);
+}
+
+/// Admit a first frame and return the identity it registered.
+fn admit_first_tracked(
+    state: &mut MessageAssemblyState,
+    header: &FirstFrameHeader,
+    body: &[u8],
+    now: Instant,
+) -> Option<StreamingAssemblyId> {
     let input = FirstFrameInput::new(header, EnvelopeRouting::default(), Vec::new(), body)
         .expect("header lengths must match the body");
     state
         .accept_streaming_first_frame_at(input, now)
-        .expect("first frame should be admitted");
+        .expect("first frame should be admitted")
+        .assembly_id()
 }
 
 #[test]
@@ -234,7 +251,11 @@ fn expiry_reports_streaming_keys_separately() {
     assert!(state.is_streaming_key(key));
 
     let late = state.purge_expired_detailed_at(start + Duration::from_secs(61));
-    assert_eq!(late.streaming(), [key], "the expiry is reported per key");
+    assert_eq!(
+        reported_keys(late.streaming()),
+        [key],
+        "the expiry is reported for the assembly that expired"
+    );
     assert!(
         late.buffered().is_empty(),
         "no buffered assembly was evicted"
@@ -260,7 +281,7 @@ fn admission_defers_an_evicted_streaming_key_to_the_next_purge() {
 
     let reported = state.purge_expired_detailed_at(later);
     assert_eq!(
-        reported.streaming(),
+        reported_keys(reported.streaming()),
         [MessageKey(1)],
         "the body consumer must still be told its assembly expired"
     );
@@ -269,6 +290,57 @@ fn admission_defers_an_evicted_streaming_key_to_the_next_purge() {
     assert!(
         repeated.streaming().is_empty(),
         "a deferred eviction should be reported once"
+    );
+}
+
+/// A deferred eviction must not act on a replacement that reused its key.
+///
+/// The key is free as soon as the expired partial is purged, so a replacement
+/// can be registered before the connection observes the deferred eviction. A
+/// key-only match would then abandon the replacement's body.
+#[test]
+fn a_stale_eviction_leaves_a_replacement_assembly_alone() {
+    let mut state = state_with_limit(1024);
+    let start = Instant::now();
+    admit_first(
+        &mut state,
+        &first_header(7, 4, Some(8), false),
+        b"aaaa",
+        start,
+    );
+
+    let later = start + TIMEOUT + Duration::from_secs(1);
+    let replacement = admit_first_tracked(
+        &mut state,
+        &first_header(7, 4, Some(8), false),
+        b"bbbb",
+        later,
+    )
+    .expect("a multi-frame replacement registers a partial");
+
+    let reported = state.purge_expired_detailed_at(later);
+    let expired = reported
+        .streaming()
+        .first()
+        .copied()
+        .expect("the expiry is reported");
+    assert_eq!(expired.key(), replacement.key(), "both use the same key");
+    assert_ne!(
+        expired, replacement,
+        "the identities must distinguish the two assemblies"
+    );
+
+    assert!(
+        !state.discard_streaming_if(expired),
+        "a stale notification must not discard the replacement"
+    );
+    assert!(
+        state.is_streaming_key(replacement.key()),
+        "the replacement must still be tracked"
+    );
+    assert!(
+        state.discard_streaming_if(replacement),
+        "the replacement itself can still be discarded"
     );
 }
 

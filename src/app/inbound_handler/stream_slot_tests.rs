@@ -129,6 +129,7 @@ async fn retain_bytes_outside_the_slot(streams: &ConnectionStreams) -> RequestBo
 fn first_chunk(chunk: &'static [u8]) -> FirstChunk {
     FirstChunk {
         key: None,
+        assembly: None,
         parts: RequestParts::new(1, None, Vec::new()),
         chunk: Bytes::from_static(chunk),
         is_last: false,
@@ -157,6 +158,7 @@ fn stalled_handler() -> StreamingHandler {
 fn stalled_stream() -> ActiveStream {
     ActiveStream {
         key: None,
+        assembly: None,
         route_id: 1,
         correlation_id: None,
         sender: None,

@@ -26,6 +26,35 @@ use super::{
     validation,
 };
 
+/// Identity of one in-flight streaming assembly.
+///
+/// A message key can be reused as soon as its assembly is dropped, so a
+/// notification about an evicted or abandoned assembly must also name the
+/// instance it was raised for. Matching on the key alone would let a
+/// notification raised for an expired assembly act on the replacement that
+/// reused the key.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct StreamingAssemblyId {
+    /// Key the assembly is registered under.
+    key: MessageKey,
+    /// Connection-scoped counter distinguishing reuse of the same key.
+    generation: u64,
+}
+
+impl StreamingAssemblyId {
+    /// Pair a message key with the generation that registered it.
+    pub(super) const fn new(key: MessageKey, generation: u64) -> Self { Self { key, generation } }
+
+    /// Return the message key the assembly is registered under.
+    #[must_use]
+    pub const fn key(&self) -> MessageKey { self.key }
+
+    /// Return the generation that distinguishes this assembly from a reuse of
+    /// the same key.
+    #[must_use]
+    pub const fn generation(&self) -> u64 { self.generation }
+}
+
 /// A first frame admitted for immediate delivery to a streaming route.
 ///
 /// The body slice borrows the frame payload; callers copy it into an owned
@@ -34,6 +63,9 @@ use super::{
 pub struct StreamingFirstFrame<'a> {
     /// Key correlating the remaining frames of this message.
     pub(super) key: MessageKey,
+    /// Identity of the partial tracking a multi-frame message, absent when the
+    /// first frame also completes it.
+    pub(super) assembly: Option<StreamingAssemblyId>,
     /// Envelope routing captured from the first frame.
     pub(super) routing: EnvelopeRouting,
     /// Protocol metadata carried by the first frame.
@@ -48,6 +80,10 @@ impl<'a> StreamingFirstFrame<'a> {
     /// Return the message key.
     #[must_use]
     pub const fn key(&self) -> MessageKey { self.key }
+
+    /// Return the identity of the tracking partial, if one was created.
+    #[must_use]
+    pub const fn assembly_id(&self) -> Option<StreamingAssemblyId> { self.assembly }
 
     /// Return the routing metadata captured from the first frame.
     #[must_use]
@@ -141,6 +177,8 @@ impl StreamingFailure {
 /// In-flight state for a message delivered to a streaming route.
 #[derive(Debug)]
 pub(super) struct StreamingAssembly {
+    /// Identity that distinguishes this assembly from a reuse of its key.
+    id: StreamingAssemblyId,
     /// Ordering state that rejects gaps, duplicates, and post-completion data.
     series: MessageSeries,
     /// Body bytes admitted so far.
@@ -161,11 +199,13 @@ pub(super) struct StreamingAssembly {
 impl StreamingAssembly {
     /// Start tracking a multi-frame streaming message.
     pub(super) const fn from_first_frame(
+        id: StreamingAssemblyId,
         input: &FirstFrameInput<'_>,
         chunk_len: usize,
         started_at: Instant,
     ) -> Self {
         Self {
+            id,
             series: MessageSeries::from_first_frame(input.header),
             accumulated: chunk_len,
             metadata_len: input.metadata.len(),
@@ -173,6 +213,9 @@ impl StreamingAssembly {
             discard: false,
         }
     }
+
+    /// Return the identity of this assembly.
+    pub(super) const fn id(&self) -> StreamingAssemblyId { self.id }
 
     /// Return whether the final frame has been accepted.
     pub(super) const fn is_complete(&self) -> bool { self.series.is_complete() }
