@@ -84,6 +84,12 @@ pub struct StreamingDispatchWorld {
     server: Option<JoinHandle<io::Result<()>>>,
     events: Option<mpsc::UnboundedReceiver<DispatchEvent>>,
     observed: Vec<DispatchEvent>,
+    /// Number of observed chunks already matched by an assertion.
+    ///
+    /// Chunk assertions are positional: the handler must receive the chunks in
+    /// the order a scenario expects, so each one advances this cursor rather
+    /// than searching the whole history.
+    chunks_seen: usize,
     gate: Option<Arc<Semaphore>>,
     pending: Vec<u8>,
     replies: Vec<Vec<u8>>,
@@ -95,6 +101,7 @@ impl fmt::Debug for StreamingDispatchWorld {
         f.debug_struct("StreamingDispatchWorld")
             .field("client_initialized", &self.client.is_some())
             .field("observed_events", &self.observed.len())
+            .field("chunks_seen", &self.chunks_seen)
             .field("pending_bytes", &self.pending.len())
             .field("replies", &self.replies.len())
             .field("server_outcome", &self.server_outcome)
@@ -127,6 +134,7 @@ impl StreamingDispatchWorld {
             server: None,
             events: None,
             observed: Vec::new(),
+            chunks_seen: 0,
             gate: None,
             pending: Vec::new(),
             replies: Vec::new(),
@@ -142,6 +150,7 @@ impl StreamingDispatchWorld {
             server: None,
             events: None,
             observed: Vec::new(),
+            chunks_seen: 0,
             gate: None,
             pending: Vec::new(),
             replies: Vec::new(),
@@ -215,6 +224,7 @@ impl StreamingDispatchWorld {
         self.events = Some(events_rx);
         self.gate = Some(gate);
         self.observed.clear();
+        self.chunks_seen = 0;
         self.pending.clear();
         self.replies.clear();
         self.server_outcome = None;

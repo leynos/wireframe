@@ -21,18 +21,27 @@ const REPLY_TIMEOUT_MS: u64 = 400;
 const ABSENCE_TIMEOUT_MS: u64 = 150;
 
 impl StreamingDispatchWorld {
-    /// Assert that the handler received a chunk equal to `expected`.
+    /// Assert that the next chunk the handler received equals `expected`.
+    ///
+    /// Chunks are compared in delivery order, so successive calls pin the order
+    /// the handler observed rather than merely the set of chunks it saw.
     ///
     /// # Errors
     ///
-    /// Returns an error if the chunk was not observed.
+    /// Returns an error if the next chunk is missing or differs.
     pub fn assert_chunk_received(&mut self, expected: &str) -> TestResult {
         self.collect()?;
-        let found = self.chunks().any(|chunk| chunk == expected.as_bytes());
-        if found {
+        let actual = self.chunks().nth(self.chunks_seen);
+        if actual == Some(expected.as_bytes()) {
+            self.chunks_seen += 1;
             return Ok(());
         }
-        Err(format!("chunk {expected:?} not delivered; {}", self.describe()).into())
+        let actual = actual.map(|chunk| String::from_utf8_lossy(chunk).into_owned());
+        Err(format!(
+            "expected chunk {expected:?}, got {actual:?}; {}",
+            self.describe()
+        )
+        .into())
     }
 
     /// Assert that the handler observed a clean end of body.
