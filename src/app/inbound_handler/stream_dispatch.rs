@@ -15,7 +15,6 @@ use std::{collections::HashMap, io, sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use futures::StreamExt;
-use log::debug;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     time::timeout,
@@ -31,6 +30,7 @@ use super::{
         frame_handling::{self, MemoryPressureAction},
         memory_budgets::MemoryBudgets,
     },
+    stream_diagnostics,
     stream_frame::dispatch_frame,
     stream_handles::{DispatchHandles, LoopState},
     stream_parked::{dispatch_parked, parked_bytes},
@@ -271,7 +271,7 @@ where
 {
     match event {
         Event::Tick => {
-            debug!("read timeout elapsed; continuing to wait for next frame");
+            stream_diagnostics::read_timed_out();
             Ok(Step::Continue)
         }
         Event::Handler(outcome) => {
@@ -281,12 +281,29 @@ where
                 .await?;
             Ok(Step::Continue)
         }
-        Event::Frame(Err(error)) => fail_after_decode_error(state, handles, error).await,
-        Event::Frame(Ok(None)) => close_after_eof(state, handles).await,
-        Event::Frame(Ok(Some(frame))) => {
-            dispatch_frame(&frame, state, handles.reborrow()).await?;
-            Ok(Step::Continue)
-        }
+        Event::Frame(frame) => handle_frame(frame, state, handles).await,
+    }
+}
+
+/// Act on one inbound read: a frame, EOF, or a decoder error.
+async fn handle_frame<S, E, F, W>(
+    read: io::Result<Option<F::Frame>>,
+    state: &mut LoopState,
+    handles: &mut DispatchHandles<'_, S, E, F, W>,
+) -> io::Result<Step>
+where
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    E: Packet,
+    F: FrameCodec,
+    W: AsyncRead + AsyncWrite + Unpin,
+    Envelope: DecodeWith<S> + EncodeWith<S>,
+{
+    match read {
+        Err(error) => fail_after_decode_error(state, handles, error).await,
+        Ok(None) => close_after_eof(state, handles).await,
+        Ok(Some(frame)) => dispatch_frame(&frame, state, handles.reborrow())
+            .await
+            .map(|()| Step::Continue),
     }
 }
 

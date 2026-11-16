@@ -1,6 +1,7 @@
 //! Inbound connection handling and route preparation utilities.
 
 mod core;
+mod stream_diagnostics;
 mod stream_dispatch;
 mod stream_frame;
 mod stream_handles;

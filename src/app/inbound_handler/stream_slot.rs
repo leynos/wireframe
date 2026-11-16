@@ -10,12 +10,12 @@ use std::{io, pin::Pin, time::Duration};
 
 use bytes::Bytes;
 use futures::Future;
-use log::debug;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     time::timeout,
 };
 use tokio_util::codec::Framed;
+use tracing::debug;
 
 use super::{
     super::{
@@ -353,7 +353,7 @@ impl ConnectionStreams {
         Envelope: EncodeWith<S>,
     {
         if !self.is_key_live(std::slice::from_ref(&key)) {
-            debug!("streaming failure for a message with no live handler: key={key:?}");
+            debug!(?key, "streaming failure for a message with no live handler");
             return Ok(());
         }
         self.close_active(Some(error), handles).await

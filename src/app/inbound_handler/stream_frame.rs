@@ -8,8 +8,8 @@
 
 use std::io;
 
-use log::{debug, warn};
 use tokio::io::{AsyncRead, AsyncWrite};
+use tracing::{debug, warn};
 
 use super::{
     super::{
@@ -169,8 +169,8 @@ fn start_stream(
 ) {
     let Some(handler) = route_handler else {
         warn!(
-            "no streaming handler for message id: id={}",
-            first.parts.id()
+            message_id = first.parts.id(),
+            "no streaming handler for message id"
         );
         return;
     };
@@ -189,7 +189,7 @@ fn deliver_chunk(
         return;
     }
     if let Some(assembly_state) = assembly.as_mut() {
-        debug!("dropping chunk for abandoned streaming message: key={key:?}");
+        debug!(?key, "dropping chunk for abandoned streaming message");
         assembly_state.discard_streaming(key);
     }
 }
@@ -214,8 +214,9 @@ where
     }
     let Some(service) = handles.ctx.routes.get(&env.id) else {
         warn!(
-            "no handler for message id: id={}, correlation_id={:?}",
-            env.id, env.correlation_id
+            message_id = env.id,
+            correlation_id = ?env.correlation_id,
+            "no handler for message id"
         );
         return Ok(());
     };

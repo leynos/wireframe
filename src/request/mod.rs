@@ -43,6 +43,7 @@ pub(crate) use accounted::{
     AccountedBodySender,
     QueuedBytes,
     SendChunkError,
+    SendClosed,
     accounted_body_channel,
 };
 pub use reader::RequestBodyReader;

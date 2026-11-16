@@ -9,10 +9,9 @@
 use std::{io, time::Duration};
 
 use bytes::Bytes;
-use log::debug;
 use tokio::time::timeout;
 
-use super::stream_slot::HandlerFuture;
+use super::{stream_diagnostics, stream_slot::HandlerFuture};
 use crate::request::AccountedBodySender;
 
 /// Deliver a terminal body error while the handler drains, then await it.
@@ -48,11 +47,12 @@ pub(super) async fn deliver_then_await(
 
 /// Tell the handler that its body failed, without waiting indefinitely.
 async fn deliver_terminal(wait: Duration, error: io::Error, sender: AccountedBodySender) {
-    match timeout(wait, sender.send_terminal(error)).await {
-        Ok(Ok(())) => {}
-        Ok(Err(send_error)) => {
-            debug!("request body receiver gone before the failure was delivered: {send_error:?}");
-        }
-        Err(_) => debug!("timed out delivering the request body failure"),
+    let delivered = timeout(wait, sender.send_terminal(error)).await;
+    let Ok(outcome) = delivered else {
+        stream_diagnostics::terminal_delivery_timed_out();
+        return;
+    };
+    if let Err(send_error) = outcome {
+        stream_diagnostics::terminal_receiver_gone(send_error);
     }
 }
