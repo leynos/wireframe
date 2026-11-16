@@ -36,9 +36,9 @@ impl StreamingDispatchWorld {
             self.chunks_seen += 1;
             return Ok(());
         }
-        let actual = actual.map(|chunk| String::from_utf8_lossy(chunk).into_owned());
+        let received = actual.map(|chunk| String::from_utf8_lossy(chunk).into_owned());
         Err(format!(
-            "expected chunk {expected:?}, got {actual:?}; {}",
+            "expected chunk {expected:?}, got {received:?}; {}",
             self.describe()
         )
         .into())

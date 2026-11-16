@@ -283,8 +283,8 @@ impl ConnectionStreams {
         let sender = active.sender.take();
         discard_streaming(active.key, handles.assembly);
         let outcome = match (terminal, sender) {
-            (Some(error), Some(sender)) => {
-                deliver_then_await(handles.wait, error, sender, &mut active.handler).await
+            (Some(error), Some(open_sender)) => {
+                deliver_then_await(handles.wait, error, open_sender, &mut active.handler).await
             }
             _ => timeout(handles.wait, &mut active.handler)
                 .await
