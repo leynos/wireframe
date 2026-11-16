@@ -6,6 +6,7 @@ mod stream_frame;
 mod stream_handles;
 mod stream_parked;
 mod stream_slot;
+mod stream_terminal;
 
 use std::{collections::HashMap, sync::Arc};
 

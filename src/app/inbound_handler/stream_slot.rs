@@ -25,6 +25,7 @@ use super::{
     stream_dispatch::{Event, read_frame},
     stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk},
     stream_parked::forward_reply,
+    stream_terminal::deliver_then_await,
 };
 #[cfg(test)]
 #[path = "stream_slot_tests.rs"]
@@ -357,47 +358,5 @@ impl ConnectionStreams {
 fn discard_streaming(key: Option<MessageKey>, assembly: &mut Option<MessageAssemblyState>) {
     if let (Some(live_key), Some(assembly_state)) = (key, assembly.as_mut()) {
         assembly_state.discard_streaming(live_key);
-    }
-}
-
-/// Deliver a terminal body error while the handler drains, then await it.
-///
-/// The error needs a slot on the same bounded channel that carries body chunks,
-/// so delivering it before polling the handler would deadlock whenever that
-/// channel is full: only the handler can free a slot, and it is not running.
-/// The timeout on the delivery would then drop the error, the sender would
-/// close, and a truncated body would look like a clean end of stream.
-///
-/// Polling both together lets the handler take the queued chunks and then
-/// observe the failure. The wait bounds the whole exchange, so a handler that
-/// never reads still cannot hold the connection open.
-async fn deliver_then_await(
-    wait: Duration,
-    error: io::Error,
-    sender: AccountedBodySender,
-    handler: &mut HandlerFuture,
-) -> Option<Vec<u8>> {
-    let delivery = deliver_terminal(wait, error, sender);
-    tokio::pin!(delivery);
-    let deadline = tokio::time::sleep(wait);
-    tokio::pin!(deadline);
-    let mut is_delivered = false;
-    loop {
-        tokio::select! {
-            () = &mut delivery, if !is_delivered => is_delivered = true,
-            outcome = handler.as_mut() => return outcome,
-            () = &mut deadline => return None,
-        }
-    }
-}
-
-/// Tell the handler that its body failed, without waiting indefinitely.
-async fn deliver_terminal(wait: Duration, error: io::Error, sender: AccountedBodySender) {
-    match timeout(wait, sender.send_terminal(error)).await {
-        Ok(Ok(())) => {}
-        Ok(Err(send_error)) => {
-            debug!("request body receiver gone before the failure was delivered: {send_error:?}");
-        }
-        Err(_) => debug!("timed out delivering the request body failure"),
     }
 }

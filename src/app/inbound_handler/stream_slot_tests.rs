@@ -5,7 +5,13 @@ use std::{future, io, time::Duration};
 use bytes::Bytes;
 use futures::StreamExt;
 
-use super::{ActiveStream, HandlerFuture, PendingEvent, PendingSend, deliver_then_await};
+use super::{
+    super::stream_terminal::deliver_then_await,
+    ActiveStream,
+    HandlerFuture,
+    PendingEvent,
+    PendingSend,
+};
 use crate::request::{AccountedBodySender, QueuedBytes, RequestBodyStream, accounted_body_channel};
 
 #[tokio::test(start_paused = true)]
