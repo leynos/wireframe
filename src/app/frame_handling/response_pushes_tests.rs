@@ -258,3 +258,98 @@ async fn an_abandoned_write_discards_the_finished_response() {
         "the abandoned write must not reach the transport"
     );
 }
+
+/// Sink that records every frame and requests shutdown after the first one.
+///
+/// A writable transport models the reported case: shutdown arrives while the
+/// writes themselves always succeed, so only the loop's own shutdown
+/// observation can end the run.
+struct StopAfterFirstWrite {
+    /// Token cancelled once the first frame has been accepted, when set.
+    shutdown: Option<CancellationToken>,
+    /// Frames the transport accepted, in write order.
+    written: Vec<TestFrame>,
+}
+
+impl Sink<TestFrame> for StopAfterFirstWrite {
+    type Error = io::Error;
+
+    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn start_send(mut self: Pin<&mut Self>, item: TestFrame) -> Result<(), Self::Error> {
+        self.written.push(item);
+        if let Some(shutdown) = self.shutdown.take() {
+            shutdown.cancel();
+        }
+        Ok(())
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// A handler kept alive by its own pushes must still observe shutdown.
+///
+/// The sink stays writable, so every push write completes before the write's
+/// own shutdown arm could run. Without observing shutdown between batches the
+/// run would never end, and the connection could never finish draining.
+#[tokio::test]
+async fn shutdown_between_push_batches_abandons_the_handler() {
+    let shutdown = CancellationToken::new();
+    let (mut actor, handle) = build_actor(shutdown.clone()).expect("actor queues build");
+    let mut sink = StopAfterFirstWrite {
+        shutdown: Some(shutdown),
+        written: Vec::new(),
+    };
+    let codec = TestCodec::new(MAX_FRAME_LENGTH);
+    let serializer = BincodeSerializer;
+    let mut pipeline: FramePipeline<TestFrame> = FramePipeline::new(None);
+    let mut ctx = ResponseContext {
+        serializer: &serializer,
+        sink: &mut sink,
+        pipeline: &mut pipeline,
+        codec: &codec,
+        actor: &mut actor,
+        protocol: None,
+    };
+    let producer = handle.clone();
+    // The handler pushes once and then never finishes, so only a shutdown that
+    // is observed between batches can end the run.
+    let call = async move {
+        producer
+            .push_high_priority(queued_push())
+            .await
+            .expect("the lane has capacity");
+        std::future::pending::<()>().await;
+    };
+
+    let response = {
+        let running = run_handler_with_pushes(&mut ctx, call);
+        tokio::time::timeout(std::time::Duration::from_secs(5), running)
+            .await
+            .expect("shutdown between batches must end the run")
+            .expect("an abandoned run is not an error")
+    };
+
+    assert_eq!(
+        response, None,
+        "an abandoned handler must not deliver a response"
+    );
+    assert_eq!(
+        sink.written.len(),
+        1,
+        "the frame written before the stop reached the transport"
+    );
+    assert_eq!(
+        handle.push_high_priority(queued_push()).await,
+        Err(crate::push::PushError::Closed),
+        "the abandoned run must stop accepting pushes"
+    );
+}

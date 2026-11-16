@@ -52,18 +52,35 @@ where
         unobserved: &unobserved,
         grace: ctx.actor.peer_closed_grace(),
     };
-    let mut lanes_open = ctx.actor.has_open_push_lanes();
+    let mut flow = HandlerFlow {
+        lanes_open: ctx.actor.has_open_push_lanes(),
+        delivered_push: false,
+    };
     let mut handler = HandlerRun {
         call: std::pin::pin!(call),
         finished: None,
     };
     loop {
-        match run_step(ctx, &mut handler, &mut lanes_open, &bounds).await? {
+        match run_step(ctx, &mut handler, &mut flow, &bounds).await? {
             LoopStep::Response(response) => return Ok(Some(response)),
             LoopStep::Abandoned => return Ok(None),
-            LoopStep::Continue => {}
+            LoopStep::Continue => flow.delivered_push = true,
         }
     }
+}
+
+/// How much of the run's push delivery has happened so far.
+struct HandlerFlow {
+    /// Whether any lane can still produce frames.
+    lanes_open: bool,
+    /// Whether this run has already written at least one push batch.
+    ///
+    /// A run that has written a batch is being kept alive by its own pushes,
+    /// so shutdown must be observed before it takes another one. A run that has
+    /// not is an ordinary handler execution, which the connection loop leaves
+    /// to finish so its response can still be delivered during a graceful
+    /// drain.
+    delivered_push: bool,
 }
 
 /// What the handler/push loop must do after one pass.
@@ -80,7 +97,7 @@ enum LoopStep<Resp> {
 async fn run_step<Resp, S, K, F>(
     ctx: &mut ResponseContext<'_, S, K, F>,
     handler: &mut HandlerRun<'_, impl Future<Output = Resp>>,
-    lanes_open: &mut bool,
+    flow: &mut HandlerFlow,
     bounds: &PushWriteBounds<'_>,
 ) -> io::Result<LoopStep<Resp>>
 where
@@ -88,8 +105,9 @@ where
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
 {
-    let frames = match wait_for_batch(ctx, handler, lanes_open).await {
+    let frames = match wait_for_batch(ctx, handler, flow, bounds).await {
         LaneBatch::Response(response) => return Ok(LoopStep::Response(response)),
+        LaneBatch::Abandoned => return Ok(LoopStep::Abandoned),
         LaneBatch::Frames(frames) => frames,
     };
     if write_batch(ctx, frames, handler, bounds).await? == PushWrite::Abandoned {
@@ -115,6 +133,8 @@ enum LaneBatch<T, Resp> {
     Frames(Vec<T>),
     /// The handler finished before any lane produced output.
     Response(Resp),
+    /// Shutdown ended the run while its own pushes were keeping it alive.
+    Abandoned,
 }
 
 /// Wait for queued pushes, falling back to awaiting the handler.
@@ -122,10 +142,18 @@ enum LaneBatch<T, Resp> {
 /// A lane that closes is dropped from the set. Once every lane is closed the
 /// handler is the only thing left that can end the run, so it is awaited
 /// directly rather than raced against queues that will never produce again.
+///
+/// A run that has already written a push batch also observes shutdown here. A
+/// handler that keeps pushing small frames otherwise renews the run forever:
+/// each write completes before the write's own shutdown arm can run, and the
+/// connection loop does not interrupt an active dispatch, so `drained()` would
+/// never complete. The shutdown arm sits after the handler, so a response that
+/// is ready first is still returned.
 async fn wait_for_batch<Resp, S, K, F>(
     ctx: &mut ResponseContext<'_, S, K, F>,
     handler: &mut HandlerRun<'_, impl Future<Output = Resp>>,
-    lanes_open: &mut bool,
+    flow: &mut HandlerFlow,
+    bounds: &PushWriteBounds<'_>,
 ) -> LaneBatch<F::Frame, Resp>
 where
     S: Serializer + Send + Sync,
@@ -133,17 +161,24 @@ where
     F: FrameCodec,
 {
     loop {
-        if !*lanes_open {
+        if !flow.lanes_open {
             return LaneBatch::Response(handler.poll_while_running().await);
         }
         tokio::select! {
             biased;
             response = handler.poll_while_running() => return LaneBatch::Response(response),
+            () = bounds.shutdown.cancelled(), if flow.delivered_push => {
+                // Queued pushes are dropped rather than flushed once the
+                // connection stops, and the handler is abandoned with them.
+                ctx.actor.discard_push_lanes();
+                flow.lanes_open = false;
+                return LaneBatch::Abandoned;
+            }
             received = ctx.actor.next_pushes() => {
                 if let Some(frames) = received {
                     return LaneBatch::Frames(frames);
                 }
-                *lanes_open = false;
+                flow.lanes_open = false;
             }
         }
     }
