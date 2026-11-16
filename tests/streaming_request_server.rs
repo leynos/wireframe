@@ -22,9 +22,11 @@
 #![forbid(unsafe_code)]
 
 use std::{
+    future::Future,
     io,
     net::SocketAddr,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use bytes::Bytes;
@@ -32,6 +34,7 @@ use futures::{SinkExt, StreamExt};
 use tokio::{
     net::{TcpListener, TcpStream},
     task::JoinHandle,
+    time::timeout,
 };
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
@@ -46,6 +49,11 @@ use wireframe_testing::TestResult;
 const STREAM_ROUTE: u32 = 90;
 /// Per-connection frame budget.
 const BUFFER_CAPACITY: usize = 512;
+/// Longest any single network step may wait before the test fails.
+///
+/// Neither `cargo test` nor the CI job applies a global deadline, so an
+/// unresponsive server would stall the run instead of reporting a regression.
+const NETWORK_WAIT: Duration = Duration::from_secs(2);
 
 /// Client side of one connection, framed with the runtime's length prefix.
 type Client = Framed<TcpStream, LengthDelimitedCodec>;
@@ -74,9 +82,16 @@ async fn serve_once(
     Ok((address, server))
 }
 
+/// Wait for `step` to finish, bounding it by [`NETWORK_WAIT`].
+async fn bounded<T>(step: &str, future: impl Future<Output = T>) -> TestResult<T> {
+    timeout(NETWORK_WAIT, future)
+        .await
+        .map_err(|_| format!("{step} did not complete within two seconds").into())
+}
+
 /// Await the server task, reporting a join failure or a connection error.
 async fn finish_server(server: JoinHandle<io::Result<()>>) -> TestResult {
-    match server.await {
+    match bounded("the server task finishing", server).await? {
         Ok(result) => Ok(result?),
         Err(error) => Err(format!("the server task failed: {error}").into()),
     }
@@ -84,7 +99,7 @@ async fn finish_server(server: JoinHandle<io::Result<()>>) -> TestResult {
 
 /// Connect a length-delimited client to `address`.
 async fn connect(address: SocketAddr) -> TestResult<Client> {
-    let stream = TcpStream::connect(address).await?;
+    let stream = bounded("connecting to the server", TcpStream::connect(address)).await??;
     Ok(Framed::new(stream, LengthDelimitedCodec::new()))
 }
 
@@ -92,7 +107,7 @@ async fn connect(address: SocketAddr) -> TestResult<Client> {
 async fn send_request(client: &mut Client, payload: &[u8]) -> TestResult {
     let envelope = Envelope::new(STREAM_ROUTE, Some(1), payload.to_vec());
     let encoded = BincodeSerializer.serialize(&envelope)?;
-    client.send(Bytes::from(encoded)).await?;
+    bounded("sending a request frame", client.send(Bytes::from(encoded))).await??;
     Ok(())
 }
 
@@ -101,17 +116,28 @@ async fn send_request(client: &mut Client, payload: &[u8]) -> TestResult {
 /// The codec encodes both `Bytes` and `BytesMut`, so the sink item type is
 /// named explicitly rather than inferred.
 async fn close_client(client: &mut Client) -> TestResult {
-    SinkExt::<Bytes>::close(client).await?;
+    bounded(
+        "closing the client's sending half",
+        SinkExt::<Bytes>::close(client),
+    )
+    .await??;
     Ok(())
 }
 
 /// Read one reply frame and return its payload.
 async fn read_reply(client: &mut Client) -> TestResult<Vec<u8>> {
-    let Some(frame) = client.next().await else {
+    let Some(frame) = bounded("waiting for the reply frame", client.next()).await? else {
         return Err("the reply frame is missing".into());
     };
     let (envelope, _): (Envelope, usize) = BincodeSerializer.deserialize(&frame?)?;
     Ok(envelope.payload_bytes().to_vec())
+}
+
+/// Report whether any reply frame arrives, within the same bound.
+async fn reply_arrived(client: &mut Client) -> TestResult<bool> {
+    Ok(bounded("waiting for any reply frame", client.next())
+        .await?
+        .is_some())
 }
 
 /// Handler that collects the request body and answers once the body ends.
@@ -225,7 +251,7 @@ async fn closing_the_connection_mid_body_reports_unexpected_eof() -> TestResult 
     let first = test_helpers::first_frame_payload(2.into(), b"partial", false, None)?;
     send_request(&mut client, &first).await?;
     close_client(&mut client).await?;
-    let has_reply = client.next().await.is_some();
+    let has_reply = reply_arrived(&mut client).await?;
     finish_server(server).await?;
     let kind = *observed.lock().map_err(|_| "observation slot poisoned")?;
 
