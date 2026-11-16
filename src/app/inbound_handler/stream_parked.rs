@@ -28,7 +28,6 @@ use super::{
 use crate::{
     codec::FrameCodec,
     message::EncodeWith,
-    message_assembler::MessageAssemblyState,
     request::{DEFAULT_BODY_CHANNEL_CAPACITY, QueuedBytes, RequestParts, accounted_body_channel},
     serializer::Serializer,
 };
@@ -91,8 +90,13 @@ pub(super) fn parked_bytes(parked: &VecDeque<ParkedMessage>) -> usize {
 }
 
 /// Dispatch a parked message through its buffered service or streaming handler.
+///
+/// `parked` is the queue still waiting behind this message. Its bytes stay
+/// reserved while the message is answered, so a pre-filled body is admitted
+/// against the same aggregate account as every other retained byte.
 pub(super) async fn dispatch_parked<S, E, F, W>(
     message: ParkedMessage,
+    parked: &VecDeque<ParkedMessage>,
     handles: DispatchHandles<'_, S, E, F, W>,
 ) -> io::Result<()>
 where
@@ -104,7 +108,9 @@ where
 {
     match message {
         ParkedMessage::Envelope(env) => forward_buffered(env, handles).await,
-        ParkedMessage::Stream { parts, body } => dispatch_prefilled(parts, body, handles).await,
+        ParkedMessage::Stream { parts, body } => {
+            dispatch_prefilled(parts, body, parked, handles).await
+        }
     }
 }
 
@@ -145,6 +151,7 @@ where
 async fn dispatch_prefilled<S, E, F, W>(
     parts: RequestParts,
     body: Bytes,
+    parked: &VecDeque<ParkedMessage>,
     handles: DispatchHandles<'_, S, E, F, W>,
 ) -> io::Result<()>
 where
@@ -163,14 +170,7 @@ where
     let (sender, stream) =
         accounted_body_channel(DEFAULT_BODY_CHANNEL_CAPACITY, QueuedBytes::new());
     let response = streaming_handler(parts, stream);
-    let budget = ChunkBudget {
-        other_retained: handles
-            .assembly
-            .as_ref()
-            .map_or(0, MessageAssemblyState::total_buffered_bytes)
-            .saturating_add(handles.pipeline.fragmentation_buffered_bytes()),
-        limit: frame_handling::active_aggregate_limit_bytes(handles.ctx.effective_budgets),
-    };
+    let budget = ChunkBudget::measure(&handles, parked);
     // The queue starts empty, so the empty-queue exception admits the whole
     // body even when it exceeds the remaining aggregate budget. Assembly
     // already enforced the per-message cap.

@@ -227,7 +227,9 @@ where
     Envelope: EncodeWith<S>,
 {
     while let Some(message) = state.parked.pop_front() {
-        dispatch_parked(message, handles.reborrow()).await?;
+        // The messages still queued behind this one keep their bytes
+        // reserved while it is answered.
+        dispatch_parked(message, &state.parked, handles.reborrow()).await?;
     }
     Ok(())
 }

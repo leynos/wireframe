@@ -84,27 +84,8 @@ where
     Ok(DecodedFrame {
         outcome,
         stream_live,
-        budget: chunk_budget(handles),
+        budget: ChunkBudget::measure(handles, &state.parked),
     })
-}
-
-/// Compute the byte budget one body chunk must fit within.
-fn chunk_budget<S, E, F, W>(handles: &DispatchHandles<'_, S, E, F, W>) -> ChunkBudget
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
-{
-    let other_retained = handles
-        .assembly
-        .as_ref()
-        .map_or(0, MessageAssemblyState::total_buffered_bytes)
-        .saturating_add(handles.pipeline.fragmentation_buffered_bytes());
-    ChunkBudget {
-        other_retained,
-        limit: frame_handling::active_aggregate_limit_bytes(handles.ctx.effective_budgets),
-    }
 }
 
 /// Hand one decoded outcome to the component that owns it.
@@ -163,7 +144,7 @@ where
                 stream_parked::park(&mut state.parked, message)?;
                 return Ok(());
             }
-            dispatch_parked(message, handles).await
+            dispatch_parked(message, &state.parked, handles).await
         }
         FrameOutcome::StreamFailed { key, error } => {
             state.streams.fail(key, error, handles.reborrow()).await

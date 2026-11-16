@@ -13,9 +13,14 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
 use super::{
-    super::{codec_driver::FramePipeline, combined_codec::ConnectionCodec, envelope::Packet},
+    super::{
+        codec_driver::FramePipeline,
+        combined_codec::ConnectionCodec,
+        envelope::Packet,
+        frame_handling,
+    },
     stream_dispatch::DispatchContext,
-    stream_parked::ParkedMessage,
+    stream_parked::{ParkedMessage, parked_bytes},
     stream_slot::ConnectionStreams,
 };
 use crate::{
@@ -24,6 +29,10 @@ use crate::{
     request::RequestParts,
     serializer::Serializer,
 };
+
+#[cfg(test)]
+#[path = "stream_handles_tests.rs"]
+mod tests;
 
 /// Mutable connection handles needed to answer a streaming handler.
 ///
@@ -82,6 +91,50 @@ pub(super) struct ChunkBudget {
     pub(super) other_retained: usize,
     /// Aggregate byte limit the queued body must stay within.
     pub(super) limit: usize,
+}
+
+impl ChunkBudget {
+    /// Measure the budget a body chunk must fit within on this connection.
+    ///
+    /// Every holder outside the chunk queue counts towards `other_retained`,
+    /// including messages parked behind the live body: `send_chunk` admits a
+    /// chunk only when the queue, those bytes, and the chunk fit within the
+    /// aggregate limit. Omitting the parked queue would let a chunk in and
+    /// then trip the hard cap on the next loop step, which aborts the
+    /// connection instead of holding back the chunk.
+    pub(super) fn measure<S, E, F, W>(
+        handles: &DispatchHandles<'_, S, E, F, W>,
+        parked: &VecDeque<ParkedMessage>,
+    ) -> Self
+    where
+        S: Serializer + Send + Sync,
+        E: Packet,
+        F: FrameCodec,
+        W: AsyncRead + AsyncWrite + Unpin,
+    {
+        Self {
+            other_retained: retained_outside_queue(
+                handles
+                    .assembly
+                    .as_ref()
+                    .map_or(0, MessageAssemblyState::total_buffered_bytes),
+                handles.pipeline.fragmentation_buffered_bytes(),
+                parked,
+            ),
+            limit: frame_handling::active_aggregate_limit_bytes(handles.ctx.effective_budgets),
+        }
+    }
+}
+
+/// Sum the bytes assembly, fragmentation, and parked messages retain.
+pub(super) fn retained_outside_queue(
+    assembly_bytes: usize,
+    fragmentation_bytes: usize,
+    parked: &VecDeque<ParkedMessage>,
+) -> usize {
+    assembly_bytes
+        .saturating_add(fragmentation_bytes)
+        .saturating_add(parked_bytes(parked))
 }
 
 /// The first body chunk of a streaming request.
