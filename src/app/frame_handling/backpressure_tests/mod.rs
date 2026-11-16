@@ -339,6 +339,7 @@ fn resolve_derived_budgets_change_with_frame_budget() -> TestResult {
 }
 
 mod async_policy;
+mod retained_pressure;
 
 #[rstest]
 #[case(0, 79, ExpectedAction::Continue)]
