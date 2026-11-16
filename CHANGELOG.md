@@ -9,7 +9,9 @@ All notable changes to this project will be documented in this file.
   `RequestBodyStream` while the message's frames are still arriving, under the
   same per-message cap, declared-total check, and connection byte budgets as
   buffered assembly. The handler returns an `Option<Bytes>` reply, and
-  middleware does not run for these routes. See
+  middleware does not run for these routes. A connection streams one body at a
+  time: a message that completes while another body owns the slot is parked and
+  delivered afterwards as a pre-filled body. See
   [ADR 018](docs/adrs/adr-0018-streaming-request-body-dispatch.md) and the
   [users' guide](docs/users-guide.md#streaming-request-body-consumption).
   ([#876](https://github.com/leynos/wireframe/issues/876))

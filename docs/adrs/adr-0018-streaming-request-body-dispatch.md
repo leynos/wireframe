@@ -5,8 +5,10 @@
 Accepted.
 
 An opt-in `WireframeApp::streaming_route` delivers `RequestParts` and a
-`RequestBodyStream` to its handler as a message's frames arrive. Implemented
-for roadmap item 8.1.4 by issue
+`RequestBodyStream` to its handler as a message's frames arrive, for the one
+message that owns the connection's dispatch slot. A message that completes
+while another body owns that slot is parked and delivered afterwards as a
+pre-filled body. Implemented for roadmap item 8.1.4 by issue
 [#876](https://github.com/leynos/wireframe/issues/876).
 
 ## Date

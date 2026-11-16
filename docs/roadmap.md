@@ -279,7 +279,9 @@ abstraction, and standardized per-connection memory budgets.
   crates can reuse existing parsers.
 - [x] 8.1.4. Integrate streaming request extraction with the handler dispatch
   path. Opt-in `WireframeApp::streaming_route` delivers `RequestParts` and a
-  `RequestBodyStream` while frames arrive; see
+  `RequestBodyStream` while frames arrive, for the one message that owns the
+  connection's dispatch slot. A message that completes while another body owns
+  that slot is parked and delivered afterwards as a pre-filled body. See
   [ADR 018](adrs/adr-0018-streaming-request-body-dispatch.md) and the coverage
   in `tests/features/streaming_request_dispatch.feature`. The extractor-based
   form was removed before it was wired in; see
