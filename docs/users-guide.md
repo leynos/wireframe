@@ -23,11 +23,16 @@ Both `wireframe` and its `wireframe_testing` companion crate declare
 - **Compatibility check.** A toolchain older than Rust 1.95 refuses to compile
   either crate, reporting that the package requires Rust 1.95 or newer. Use
   `cargo +1.95` to select the minimum toolchain when the default is newer.
-- **Version selection.** Both manifests take part in dependency resolution, and
-  the v3 resolver that edition 2024 selects by default prefers dependency
-  versions that build on Rust 1.95. It falls back to a version needing a newer
-  Rust only when no compatible candidate exists, and that fallback then fails
-  with a toolchain error rather than silently raising the floor.
+- **Version selection.** The consuming workspace chooses the resolver: it gets
+  resolver v3 from `resolver = "3"` in its workspace manifest, or from edition
+  2024 at its workspace root, and neither crate can impose that choice on its
+  consumers. Under resolver v3, Cargo prefers dependency versions compatible
+  with the `rust-version` of the package it is resolving for, so this
+  repository's own graph prefers versions that build on Rust 1.95. Cargo falls
+  back to a version needing a newer Rust only when no compatible candidate
+  exists; an existing lock file also takes part, so the preference applies when
+  dependencies are resolved afresh. Such a fallback then fails to build on Rust
+  1.95, although a newer toolchain compiles it.
 
 The [MSRV workflow](developers-guide.md#development-builds) checks that floor
 on every pull request, every push to `main` and weekly, so neither a change in

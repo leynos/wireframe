@@ -71,6 +71,15 @@ def test_the_lane_runs_the_make_target_unconditionally() -> None:
     assert len(matching) == 1, "the job must run `make test-msrv` exactly once"
 
 
+def test_the_lane_depends_on_nothing_and_reads_only_the_repository() -> None:
+    """The check stands alone: no build lane gates it and it writes nothing."""
+    job = _workflow()["jobs"]["msrv"]
+    assert "needs" not in job, "the MSRV lane must not wait on a build lane"
+    assert job["permissions"] == {"contents": "read"}, (
+        "the lane needs only to read the repository"
+    )
+
+
 def test_the_make_target_runs_the_script() -> None:
     """The workflow and a contributor reach the same script."""
     dry_run = subprocess.run(

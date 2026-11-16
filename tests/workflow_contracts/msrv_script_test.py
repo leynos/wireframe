@@ -211,7 +211,7 @@ def _consumer_manifest(tmp_path: Path) -> dict[str, typ.Any]:
 
 
 def test_the_script_selects_the_version_the_manifest_declares(
-    run_script: typ.Callable[..., ScriptRun],
+    run_script: typ.Callable[..., ScriptRun], tmp_path: Path
 ) -> None:
     """Scenario: the floor moves to any version; the script must follow it."""
     result = run_script(MANIFEST_WITH_FLOOR.format(floor=SCRATCH_FLOOR))
@@ -228,6 +228,11 @@ def test_the_script_selects_the_version_the_manifest_declares(
     ]
     for cargo in result.cargo_calls():
         assert cargo["args"][0] == f"+{SCRATCH_FLOOR}", cargo
+    consumer = result.cargo_calls()[-1]
+    assert consumer["args"] == [f"+{SCRATCH_FLOOR}", "check"]
+    assert _consumer_manifest(tmp_path)["package"]["rust-version"] == SCRATCH_FLOOR, (
+        "the consumer must declare the floor the manifest names, not a fixed one"
+    )
     assert f"Rust {SCRATCH_FLOOR} compiles Wireframe" in result.completed.stdout
 
 
