@@ -26,6 +26,10 @@ use super::{
     stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk},
     stream_parked::forward_reply,
 };
+#[cfg(test)]
+#[path = "stream_slot_tests.rs"]
+mod tests;
+
 use crate::{
     codec::FrameCodec,
     message::EncodeWith,
@@ -49,6 +53,8 @@ pub(super) enum PendingEvent {
     Send(Result<(), SendChunkError>),
     /// The handler resolved first; the admission is cancelled.
     Handler(Option<Vec<u8>>),
+    /// The bounded wait elapsed with the admission still queued.
+    Idle,
 }
 
 /// The one live streaming exchange on a connection.
@@ -77,20 +83,27 @@ pub(super) struct PendingSend {
 
 impl ActiveStream {
     /// Drive the in-flight chunk admission alongside the handler.
-    pub(super) async fn drive_pending(&mut self) -> PendingEvent {
+    ///
+    /// The wait is bounded by `wait` so the caller regains control even when
+    /// neither side makes progress. Inbound frames cannot be read while an
+    /// admission is queued, because a continuation for the same message would
+    /// be mistaken for an abandoned body, so the timeout is what keeps assembly
+    /// expiry and the memory budget observable instead.
+    pub(super) async fn drive_pending(&mut self, wait: Duration) -> PendingEvent {
         let Self {
             pending, handler, ..
         } = self;
-        match pending {
-            Some(send) => {
-                tokio::select! {
-                    result = &mut send.future => PendingEvent::Send(result),
-                    outcome = handler.as_mut() => PendingEvent::Handler(outcome),
-                }
-            }
+        let Some(send) = pending else {
             // The caller only drives this branch when a send is pending.
-            None => PendingEvent::Send(Ok(())),
-        }
+            return PendingEvent::Send(Ok(()));
+        };
+        let exchange = async {
+            tokio::select! {
+                result = &mut send.future => PendingEvent::Send(result),
+                outcome = handler.as_mut() => PendingEvent::Handler(outcome),
+            }
+        };
+        timeout(wait, exchange).await.unwrap_or(PendingEvent::Idle)
     }
 
     /// Drive the handler alongside the inbound socket.
@@ -142,9 +155,9 @@ impl ConnectionStreams {
     }
 
     /// Drive the in-flight chunk admission on the live exchange.
-    pub(super) async fn drive_pending(&mut self) -> PendingEvent {
+    pub(super) async fn drive_pending(&mut self, wait: Duration) -> PendingEvent {
         match self.active.as_mut() {
-            Some(active) => active.drive_pending().await,
+            Some(active) => active.drive_pending(wait).await,
             None => PendingEvent::Send(Ok(())),
         }
     }

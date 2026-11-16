@@ -146,7 +146,7 @@ where
     W: AsyncRead + AsyncWrite + Unpin,
     Envelope: EncodeWith<S>,
 {
-    match state.streams.drive_pending().await {
+    match state.streams.drive_pending(handles.wait).await {
         PendingEvent::Send(result) => state.streams.complete_send(result),
         PendingEvent::Handler(outcome) => {
             state
@@ -154,6 +154,9 @@ where
                 .finish_active(outcome, handles.reborrow())
                 .await?;
         }
+        // The admission stays queued; the next step re-checks expiry and the
+        // memory budget before resuming it.
+        PendingEvent::Idle => {}
     }
     Ok(Step::Continue)
 }
