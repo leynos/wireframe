@@ -241,3 +241,127 @@ async fn try_push_shares_the_rate_limit_with_awaited_pushes() {
         "the refused frame must not be queued"
     );
 }
+
+/// A closed connection outranks an exhausted rate limit on the non-blocking
+/// path.
+///
+/// `RateLimited` invites the producer to retry after the next window, which is
+/// advice that can never succeed once the receiver is gone. Reporting the
+/// closure first ends the producer's work instead of postponing it by a refill
+/// interval.
+#[tokio::test]
+async fn try_push_reports_a_closed_connection_before_an_exhausted_rate_limit() {
+    time::pause();
+    let (queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .rate(Some(1))
+        .build()
+        .expect("queue builds");
+    handle
+        .push_high_priority(1)
+        .await
+        .expect("the first push consumes the only permit");
+    drop(queues);
+
+    assert_eq!(
+        handle.try_push(2, PushPriority::High, PushPolicy::ReturnErrorIfFull),
+        Err(PushError::Closed),
+        "a closed connection is permanent, so it must outrank the rate limit"
+    );
+}
+
+/// An awaited push reports the closure rather than waiting for a refill.
+///
+/// The permit loop sleeps between attempts, so a push that only learns about
+/// the closure after acquiring a token would keep the producer parked for a
+/// whole refill window — and would never succeed even then.
+#[tokio::test]
+async fn awaited_push_reports_closed_without_waiting_for_a_rate_token() {
+    time::pause();
+    let (queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .rate(Some(1))
+        .build()
+        .expect("queue builds");
+    handle
+        .push_high_priority(1)
+        .await
+        .expect("the first push consumes the only permit");
+    drop(queues);
+
+    let outcome = time::timeout(Duration::from_secs(5), handle.push_high_priority(2))
+        .await
+        .expect("a closed connection must be reported without waiting for a refill");
+    assert_eq!(outcome, Err(PushError::Closed));
+}
+
+/// Producers parked on a full queue hold no rate permit while they wait.
+///
+/// Capacity is reserved before a permit is drawn. A producer that instead took
+/// a permit first and then parked on a full queue would bank that permit, and
+/// every banked frame would leave the queue together the instant the consumer
+/// drained it — a burst that exceeds the configured rate.
+///
+/// The queue holds one frame and admits one per second, so the three parked
+/// producers must leave one per second rather than all at once.
+#[tokio::test]
+async fn producers_parked_on_a_full_queue_do_not_burst_after_it_drains() {
+    time::pause();
+    let (mut queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .rate(Some(1))
+        .build()
+        .expect("queue builds");
+    handle
+        .push_high_priority(1)
+        .await
+        .expect("the first push consumes the window's permit and fills the queue");
+
+    let parked = tokio::spawn({
+        let producer = handle.clone();
+        async move {
+            futures::join!(
+                producer.push_high_priority(2),
+                producer.push_high_priority(3),
+                producer.push_high_priority(4),
+            )
+        }
+    });
+    // Let the parked producers observe the full queue before time moves on.
+    tokio::task::yield_now().await;
+    // Time passes with the queue still full, so a producer that banked a
+    // permit would have one in hand by now.
+    time::advance(Duration::from_secs(3)).await;
+
+    assert_eq!(
+        queues.recv().await,
+        Some((PushPriority::High, 1)),
+        "the queued frame is drained first"
+    );
+    assert_eq!(
+        queues.recv().await,
+        Some((PushPriority::High, 2)),
+        "the permit accumulated while parked admits the next frame"
+    );
+    assert!(
+        time::timeout(Duration::ZERO, queues.recv()).await.is_err(),
+        "the third frame must wait for the next refill, not leave with the second"
+    );
+    time::advance(Duration::from_secs(1)).await;
+    assert_eq!(queues.recv().await, Some((PushPriority::High, 3)));
+    assert!(
+        time::timeout(Duration::ZERO, queues.recv()).await.is_err(),
+        "the fourth frame must also wait for a refill"
+    );
+    time::advance(Duration::from_secs(1)).await;
+    assert_eq!(queues.recv().await, Some((PushPriority::High, 4)));
+
+    assert_eq!(
+        parked.await.expect("the producer task must not panic"),
+        (Ok(()), Ok(()), Ok(())),
+        "every parked frame is eventually admitted"
+    );
+}

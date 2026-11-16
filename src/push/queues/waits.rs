@@ -22,8 +22,6 @@ use std::{
     task::Poll,
 };
 
-use tokio::sync::mpsc;
-
 /// Counters describing what one producer's awaited pushes had to wait for.
 ///
 /// A plain struct of integers rather than a live handle, so a caller can
@@ -149,8 +147,8 @@ impl PushWaitCounts {
 ///
 /// Split out of the `poll_fn` closure so the closure stays a poll and a call,
 /// keeping it under the repository's nesting ceiling.
-pub(super) fn record_first_pending<F>(
-    polled: &Poll<Result<(), mpsc::error::SendError<F>>>,
+pub(super) fn record_first_pending<Ok, Err>(
+    polled: &Poll<Result<Ok, Err>>,
     is_wait_recorded: &mut bool,
     waits: &PushWaitCounts,
 ) {
