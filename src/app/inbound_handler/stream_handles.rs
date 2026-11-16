@@ -102,6 +102,14 @@ impl ChunkBudget {
     /// aggregate limit. Omitting the parked queue would let a chunk in and
     /// then trip the hard cap on the next loop step, which aborts the
     /// connection instead of holding back the chunk.
+    ///
+    /// The measurement is a snapshot, and it stays valid for as long as the
+    /// admission it was taken for: only frame processing grows assembly,
+    /// fragmentation, or parked bytes, and the connection loop never reads
+    /// another frame while an admission is pending. [`super::stream_dispatch`]
+    /// re-enters `drive_pending_admission` before it reads, so between this
+    /// measurement and the chunk being charged the totals can only shrink as
+    /// assemblies expire or a handler releases bytes.
     pub(super) fn measure<S, E, F, W>(
         handles: &DispatchHandles<'_, S, E, F, W>,
         parked: &VecDeque<ParkedMessage>,
