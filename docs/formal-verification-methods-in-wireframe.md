@@ -164,11 +164,10 @@ wrong tool for the dominant risk.
 
 ### Low-priority or ordinary-testing-only modules
 
-Early formal-method effort should not focus on `fairness.rs`, `preamble.rs`,
-`app_data_store.rs`, or `session.rs` as stand-alone proof targets. The
-cost-benefit ratio looks weak there. Keep them under ordinary unit,
-behavioural, and property-based tests unless later evidence suggests
-otherwise.[^25]
+Early formal-method effort should not focus on `fairness.rs`, `preamble.rs`, or
+`session.rs` as stand-alone proof targets. The cost-benefit ratio looks weak
+there. Keep them under ordinary unit, behavioural, and property-based tests
+unless later evidence suggests otherwise.[^25]
 
 That said, **fairness behaviour as observed through `ConnectionActor`
 absolutely does belong in the Stateright model**. The distinction matters.

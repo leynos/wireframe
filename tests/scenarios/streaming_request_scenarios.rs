@@ -6,9 +6,9 @@ use crate::fixtures::streaming_request::*;
 
 #[scenario(
     path = "tests/features/streaming_request.feature",
-    name = "StreamingBody exposes an AsyncRead adapter"
+    name = "RequestBodyReader exposes an AsyncRead adapter"
 )]
-fn streaming_body_async_read(streaming_request_world: StreamingRequestWorld) {
+fn request_body_reader_async_read(streaming_request_world: StreamingRequestWorld) {
     drop(streaming_request_world);
 }
 

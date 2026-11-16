@@ -55,8 +55,10 @@ fn when_request_body_error_is_sent(
     streaming_request_world.send_error(kind.into())
 }
 
-#[when("the streaming body is read through the AsyncRead adapter")]
-fn when_streaming_body_is_read(streaming_request_world: &mut StreamingRequestWorld) -> TestResult {
+#[when("the request body stream is read through the AsyncRead adapter")]
+fn when_request_body_stream_is_read(
+    streaming_request_world: &mut StreamingRequestWorld,
+) -> TestResult {
     streaming_request_world.drain_with_reader()
 }
 

@@ -13,7 +13,6 @@ use crate::{
         memory_budgets::MemoryBudgets,
         middleware_types::{Handler, Middleware},
     },
-    app_data_store::AppDataStore,
     codec::{FrameCodec, LengthDelimitedFrameCodec},
     hooks::WireframeProtocol,
     message_assembler::MessageAssembler,
@@ -37,8 +36,6 @@ pub struct WireframeApp<
     pub(in crate::app) middleware: Vec<Box<dyn Middleware<E>>>,
     /// Serializer retained by every connection built from this application.
     pub(in crate::app) serializer: S,
-    /// Type-erased application state available to handlers and hooks.
-    pub(in crate::app) app_data: AppDataStore,
     /// Optional asynchronous hook that creates per-connection state.
     pub(in crate::app) on_connect: Option<Arc<ConnectionSetup<C>>>,
     /// Optional asynchronous hook that releases state after processing,
@@ -68,15 +65,14 @@ where
     E: Packet,
     F: FrameCodec + Default,
 {
-    /// Initializes empty handlers, middleware, and application data with the
-    /// default serializer and no lifecycle hooks.
+    /// Initializes empty handlers and middleware with the default serializer
+    /// and no lifecycle hooks.
     fn default() -> Self {
         let codec = F::default();
         Self {
             handlers: HashMap::new(),
             middleware: Vec::new(),
             serializer: S::default(),
-            app_data: AppDataStore::default(),
             on_connect: None,
             on_disconnect: None,
             protocol: None,
@@ -156,7 +152,7 @@ where
 {
     /// Helper to rebuild the app when changing type parameters.
     ///
-    /// The `WireframeApp` builder carries 13 fields that must be moved together
+    /// The `WireframeApp` builder carries 12 fields that must be moved together
     /// when swapping serializer or codec types. Centralizing the reconstruction
     /// here keeps the transitions consistent and avoids repeating the same
     /// field list across each type-changing method. For smaller builders with
@@ -174,7 +170,6 @@ where
             handlers: self.handlers,
             middleware: self.middleware,
             serializer: params.serializer,
-            app_data: self.app_data,
             on_connect: self.on_connect,
             on_disconnect: self.on_disconnect,
             protocol: params.protocol,
@@ -203,7 +198,6 @@ where
             handlers: self.handlers,
             middleware: self.middleware,
             serializer: self.serializer,
-            app_data: self.app_data,
             on_connect,
             on_disconnect: None,
             protocol: self.protocol,
