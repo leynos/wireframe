@@ -19,7 +19,7 @@ use super::{
     },
     core::{FrameBuildContext, decode_outcome},
     stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk, LoopState},
-    stream_parked::{ParkedMessage, dispatch_parked},
+    stream_parked::{self, ParkedMessage, dispatch_parked},
 };
 use crate::{
     codec::FrameCodec,
@@ -98,7 +98,7 @@ where
         FrameOutcome::StreamFallback { parts, body } => {
             let message = ParkedMessage::Stream { parts, body };
             if stream_live {
-                state.parked.push_back(message);
+                stream_parked::park(&mut state.parked, message)?;
                 return Ok(());
             }
             dispatch_parked(message, handles).await
@@ -162,7 +162,7 @@ where
     Envelope: EncodeWith<S>,
 {
     if stream_live {
-        state.parked.push_back(ParkedMessage::Envelope(env));
+        stream_parked::park(&mut state.parked, ParkedMessage::Envelope(env))?;
         return Ok(());
     }
     let Some(service) = handles.ctx.routes.get(&env.id) else {

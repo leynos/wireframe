@@ -33,6 +33,18 @@ use crate::{
     serializer::Serializer,
 };
 
+#[cfg(test)]
+#[path = "stream_parked_tests.rs"]
+mod tests;
+
+/// Maximum number of completed messages parked behind a live streaming body.
+///
+/// Parking exists so a pipelining peer keeps its reply order, not so a peer
+/// that never finishes its body can accumulate work indefinitely. The
+/// byte-based memory budget cannot see this queue grow when the parked payloads
+/// are small or empty, so the entry count is the limit that actually bounds it.
+pub(super) const MAX_PARKED_MESSAGES: usize = 64;
+
 /// A completed message held until the dispatch slot frees.
 pub(super) enum ParkedMessage {
     /// Complete message for a buffered route.
@@ -44,6 +56,28 @@ pub(super) enum ParkedMessage {
         /// Fully assembled request body.
         body: Bytes,
     },
+}
+
+/// Park one completed message, refusing to grow the queue past its cap.
+///
+/// # Errors
+///
+/// Returns an invalid-data error once [`MAX_PARKED_MESSAGES`] entries are
+/// already waiting. The caller ends the connection in that case, because the
+/// alternative is to absorb messages from a peer that never completes the body
+/// holding the dispatch slot.
+pub(super) fn park(
+    parked: &mut VecDeque<ParkedMessage>,
+    message: ParkedMessage,
+) -> io::Result<()> {
+    if parked.len() >= MAX_PARKED_MESSAGES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "too many messages parked behind a streaming request body",
+        ));
+    }
+    parked.push_back(message);
+    Ok(())
 }
 
 /// Return the bytes retained by parked messages.
