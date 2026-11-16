@@ -1406,7 +1406,11 @@ fn upload_handler() -> StreamingHandler {
             while let Some(chunk) = body.next().await {
                 match chunk {
                     Ok(bytes) => log::debug!("request {}: {} bytes", parts.id(), bytes.len()),
-                    Err(error) => log::error!("request {} failed: {error}", parts.id()),
+                    Err(error) => {
+                        log::error!("request {} failed: {error}", parts.id());
+                        // A body that stopped early was never acknowledged.
+                        return None;
+                    }
                 }
             }
             // Returning `None` sends no reply frame.
@@ -1415,6 +1419,10 @@ fn upload_handler() -> StreamingHandler {
     })
 }
 ```
+
+The example acknowledges a request only once its body ends cleanly. A body
+error means the message never arrived whole, so it returns no reply rather than
+reporting success for an incomplete upload.
 
 Register it with `app.streaming_route(42, upload_handler())?`. The route
 identifier must be unused by both buffered and streaming routes; reusing one
