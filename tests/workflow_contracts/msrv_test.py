@@ -1,0 +1,121 @@
+"""Hold the MSRV lane to the Rust version the manifests declare.
+
+The lane proves a promise made to users, so it fails quietly if it stops reading
+the promise: a hard-coded toolchain would keep passing after ``rust-version``
+moved, and a published crate with no floor of its own would be left out of what
+the promise covers. Concordat RT-026 requires every declared MSRV to be
+exercised by CI, and its cost rule limits the job to ``cargo check``.
+
+Run these contracts with ``make test-workflow-contracts``.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import tomllib
+from pathlib import Path
+
+import yaml
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "msrv.yml"
+SCRIPT_PATH = REPOSITORY_ROOT / "scripts" / "check-msrv.sh"
+PUBLISHED_MANIFESTS = (
+    REPOSITORY_ROOT / "Cargo.toml",
+    REPOSITORY_ROOT / "wireframe_testing" / "Cargo.toml",
+)
+
+
+def _workflow() -> dict[object, object]:
+    """Parse the MSRV workflow."""
+    return yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+
+
+def _triggers() -> dict[str, object]:
+    """Return the workflow's triggers."""
+    workflow = _workflow()
+    # PyYAML reads the bare key `on` as the boolean true.
+    return workflow.get("on", workflow.get(True))
+
+
+def test_the_lane_runs_on_every_change_to_main() -> None:
+    """Every pull request and push to main is checked, not only some paths."""
+    triggers = _triggers()
+    assert triggers["pull_request"] is None, "pull requests must not be filtered"
+    assert triggers["push"] == {"branches": ["main"]}, "pushes to main must run it"
+
+
+def test_the_lane_runs_weekly_on_a_github_hosted_runner() -> None:
+    """A weekly schedule on the hosted pool, for dependency releases."""
+    schedules = _triggers()["schedule"]
+    assert len(schedules) == 1, "the lane must have exactly one schedule"
+    minute, hour, day_of_month, month, day_of_week = schedules[0]["cron"].split()
+    assert (day_of_month, month) == ("*", "*"), "the schedule must recur every week"
+    assert day_of_week.isdigit(), "the schedule must name one day of the week"
+    assert minute.isdigit(), "the schedule must name one minute"
+    assert hour.isdigit(), "the schedule must name one hour"
+    assert _workflow()["jobs"]["msrv"]["runs-on"] == "ubuntu-latest"
+
+
+def test_the_lane_runs_the_make_target_unconditionally() -> None:
+    """One step runs the target, and nothing lets it be skipped or ignored."""
+    job = _workflow()["jobs"]["msrv"]
+    assert "if" not in job, "the job must not be conditioned away"
+    assert not job.get("continue-on-error"), "a job failure must fail the run"
+    steps = job["steps"]
+    assert all("if" not in step for step in steps), "no step may be skipped"
+    assert not any(step.get("continue-on-error") for step in steps), (
+        "no step may ignore a failure"
+    )
+    matching = [step for step in steps if step.get("run") == "make test-msrv"]
+    assert len(matching) == 1, "the job must run `make test-msrv` exactly once"
+
+
+def test_the_lane_depends_on_nothing_and_reads_only_the_repository() -> None:
+    """The check stands alone: no build lane gates it and it writes nothing."""
+    job = _workflow()["jobs"]["msrv"]
+    assert "needs" not in job, "the MSRV lane must not wait on a build lane"
+    assert job["permissions"] == {"contents": "read"}, (
+        "the lane needs only to read the repository"
+    )
+
+
+def test_the_make_target_runs_the_script() -> None:
+    """The workflow and a contributor reach the same script."""
+    dry_run = subprocess.run(
+        ["make", "--no-print-directory", "-n", "test-msrv"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert dry_run.strip() == "./scripts/check-msrv.sh"
+
+
+def test_the_script_reads_the_version_from_the_manifest() -> None:
+    """No toolchain version is written anywhere but the manifest."""
+    script = SCRIPT_PATH.read_text(encoding="utf-8")
+    assert 'rust-version *= *"' in script, "the script must read rust-version"
+
+
+def test_the_script_checks_without_building_or_testing() -> None:
+    """The cost rule allows ``cargo check`` on the MSRV, never a build or a test."""
+    script = SCRIPT_PATH.read_text(encoding="utf-8")
+    assert (
+        'cargo "+$msrv" check --locked --workspace --all-targets --all-features'
+        in script
+    )
+    assert 'cargo "+$msrv" check\n' in script, "the consumer must resolve afresh"
+    for forbidden in ('"+$msrv" build', '"+$msrv" test', '"+$msrv" nextest'):
+        assert forbidden not in script, f"the MSRV job must not run `{forbidden}`"
+
+
+def test_published_crates_declare_the_same_minimum() -> None:
+    """Both published crates carry the floor the documentation states."""
+    declared = {
+        path.parent.name: tomllib.loads(path.read_text(encoding="utf-8"))["package"][
+            "rust-version"
+        ]
+        for path in PUBLISHED_MANIFESTS
+    }
+    assert len(set(declared.values())) == 1, f"minimums disagree: {declared}"
