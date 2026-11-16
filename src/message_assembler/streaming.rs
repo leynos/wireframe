@@ -143,9 +143,15 @@ impl StreamingFailure {
 pub(super) struct StreamingAssembly {
     /// Ordering state that rejects gaps, duplicates, and post-completion data.
     series: MessageSeries,
-    /// Body bytes admitted so far. Metadata is not counted because it is
-    /// delivered once and not retained.
+    /// Body bytes admitted so far.
     accumulated: usize,
+    /// Metadata bytes carried by the first frame.
+    ///
+    /// Metadata is delivered once and never retained, but it still counts
+    /// against the per-message cap. The first frame is admitted against
+    /// `body + metadata`, so continuations must be checked against the same
+    /// total or a message can exceed the cap by its metadata length.
+    metadata_len: usize,
     /// Start time used to expire abandoned peer-controlled state.
     pub(super) started_at: Instant,
     /// Whether the consumer has abandoned the message.
@@ -162,6 +168,7 @@ impl StreamingAssembly {
         Self {
             series: MessageSeries::from_first_frame(input.header),
             accumulated: chunk_len,
+            metadata_len: input.metadata.len(),
             started_at,
             discard: false,
         }
@@ -193,7 +200,8 @@ impl StreamingAssembly {
             Err(error) => return Err(self.continuity_failure(error)),
         };
 
-        if let Err(error) = check_size_limit(max_message_size, key, self.accumulated, body.len()) {
+        let admitted = self.accumulated.saturating_add(self.metadata_len);
+        if let Err(error) = check_size_limit(max_message_size, key, admitted, body.len()) {
             return Err(StreamingFailure::new(key, error, true));
         }
 

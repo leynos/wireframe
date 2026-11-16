@@ -329,3 +329,42 @@ fn admission_defers_an_evicted_streaming_key_to_the_next_purge() {
         "a deferred eviction should be reported once"
     );
 }
+
+#[test]
+fn continuation_size_checks_include_the_metadata_block() {
+    // The first frame already fills the cap once its metadata is counted.
+    let mut state = state_with_limit(8);
+    let start = Instant::now();
+    let header = FirstFrameHeader {
+        message_key: MessageKey(1),
+        metadata_len: 4,
+        body_len: 4,
+        total_body_len: None,
+        is_last: false,
+    };
+    let input = FirstFrameInput::new(
+        &header,
+        EnvelopeRouting::default(),
+        vec![0x01, 0x02, 0x03, 0x04],
+        b"abcd",
+    )
+    .expect("header lengths must match the payload");
+    state
+        .accept_streaming_first_frame_at(input, start)
+        .expect("the first frame fits the cap exactly");
+
+    // Four more body bytes would make the logical message twelve bytes long.
+    let continuation = continuation_header(1, 1, 4, true);
+    let failure = state
+        .accept_streaming_continuation_at(&continuation, b"wxyz", start)
+        .expect_err("metadata must count against the per-message cap");
+
+    assert!(
+        matches!(
+            failure.source_error(),
+            MessageAssemblyError::MessageTooLarge { .. }
+        ),
+        "the continuation should be rejected for size, got {:?}",
+        failure.source_error()
+    );
+}
