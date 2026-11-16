@@ -24,6 +24,9 @@ use crate::{
     middleware::HandlerService,
     serializer::Serializer,
 };
+#[cfg(test)]
+#[path = "core_tests.rs"]
+mod tests;
 
 /// Immutable stream-wide configuration shared by all inbound frames.
 pub(super) struct StreamProcessingContext<'a, S, E, F>
@@ -223,10 +226,11 @@ where
 
 /// Decode, reassemble, and assemble one inbound frame.
 ///
-/// A frame that completes the pipeline resets the consecutive-failure
-/// counter. A [`FrameOutcome::Pending`] frame may be an accepted partial or a
-/// rejected frame, so it deliberately leaves the counter untouched, matching
-/// the pre-streaming behaviour.
+/// A frame that completes the pipeline resets the consecutive-failure counter,
+/// unless it reports a terminal streaming rejection: that rejection was
+/// counted before the outcome was built. A [`FrameOutcome::Pending`] frame may
+/// be an accepted partial or a rejected frame, so it deliberately leaves the
+/// counter untouched, matching the pre-streaming behaviour.
 pub(super) fn decode_outcome<S, F>(context: FrameBuildContext<'_, S, F>) -> io::Result<FrameOutcome>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
@@ -274,8 +278,22 @@ where
         MAX_DESER_FAILURES,
     )?;
 
-    if !matches!(outcome, FrameOutcome::Pending) {
-        *deser_failures = 0;
-    }
+    clear_deser_failures_after(&outcome, deser_failures);
     Ok(outcome)
+}
+
+/// Clear the consecutive-failure counter after a frame that completed.
+///
+/// A terminal streaming rejection was already counted before its outcome was
+/// built, so clearing the counter here would erase that count: a peer could
+/// alternate rejected continuations with well-formed frames and never reach
+/// [`MAX_DESER_FAILURES`].
+const fn clear_deser_failures_after(outcome: &FrameOutcome, deser_failures: &mut u32) {
+    if matches!(
+        outcome,
+        FrameOutcome::Pending | FrameOutcome::StreamFailed { .. }
+    ) {
+        return;
+    }
+    *deser_failures = 0;
 }
