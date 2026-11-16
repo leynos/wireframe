@@ -27,6 +27,11 @@ A similar approach can work for binary protocols: routes can be grouped under a
 
 ## Proposed Design
 
+The handler shapes below assume a typed-handler and extractor layer that the
+runtime does not implement. A route handler is `Handler<E>`, receives only
+`&E`, and decodes the payload itself. [ADR 017][adr-017] removed the unwired
+extractor API, and a typed-handler layer remains a separate proposed change.
+
 ### 1. VersionedMessage Trait
 
 ```rust
@@ -94,3 +99,5 @@ exists, the connection is rejected early.
 - Optional compile-time features for strict version matching or automatic
   upgrades.
 - Documentation examples showing how to deprecate old versions gracefully.
+
+[adr-017]: adrs/adr-0017-remove-route-extractors-and-app-data.md

@@ -620,9 +620,11 @@ Streaming request bodies mirror `Response::Stream`:
 | Outbound (response) | `Response::Stream`  | Socket write suspension propagates to stream producer  |
 | Inbound (request)   | `RequestBodyStream` | Channel capacity applies back-pressure to the producer |
 
-Outbound streaming uses the same per-connection memory budgets as other
-responses. Inbound streaming is caller-owned: Wireframe does not pause socket
-reads on a consumer's behalf because it does not create the channel.
+Memory budgets apply only to inbound assembly and read pacing. Outbound
+streaming is not limited by `bytes_per_message` or `bytes_per_connection`;
+outbound frames remain subject to the codec's `max_frame_length`. Inbound
+streaming is caller-owned: Wireframe does not pause socket reads on a
+consumer's behalf because it does not create the channel.
 
 The symmetry is conceptual, not identical in shape:
 
