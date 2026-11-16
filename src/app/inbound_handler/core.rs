@@ -226,11 +226,9 @@ where
 
 /// Decode, reassemble, and assemble one inbound frame.
 ///
-/// A frame that completes the pipeline resets the consecutive-failure counter,
-/// unless it reports a terminal streaming rejection: that rejection was
-/// counted before the outcome was built. A [`FrameOutcome::Pending`] frame may
-/// be an accepted partial or a rejected frame, so it deliberately leaves the
-/// counter untouched, matching the pre-streaming behaviour.
+/// A frame that completes a logical message resets the consecutive-failure
+/// counter; a frame that merely validates does not. See
+/// [`clear_deser_failures_after`] for why each outcome is classified that way.
 pub(super) fn decode_outcome<S, F>(context: FrameBuildContext<'_, S, F>) -> io::Result<FrameOutcome>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
@@ -282,18 +280,37 @@ where
     Ok(outcome)
 }
 
-/// Clear the consecutive-failure counter after a frame that completed.
+/// Clear the consecutive-failure counter after a frame that completed a message.
 ///
-/// A terminal streaming rejection was already counted before its outcome was
-/// built, so clearing the counter here would erase that count: a peer could
-/// alternate rejected continuations with well-formed frames and never reach
-/// [`MAX_DESER_FAILURES`].
+/// Only a completed message proves the peer is making progress, so only that
+/// kind of frame ends the current failure run:
+///
+/// - a buffered message, or a streaming-route message assembled into a pre-filled fallback, arrived
+///   in full;
+/// - a streaming first frame or continuation that is also the last frame completes its message;
+/// - a non-final streaming frame or a discarded continuation validated, but established no
+///   completion;
+/// - a [`FrameOutcome::Pending`] frame may be an accepted partial or a rejected frame, and a
+///   [`FrameOutcome::StreamFailed`] rejection was counted before its outcome was built.
+///
+/// A peer that follows each rejected message with a fresh non-final first frame
+/// would otherwise reset the count every time and never reach
+/// [`MAX_DESER_FAILURES`] while completing no valid message.
 const fn clear_deser_failures_after(outcome: &FrameOutcome, deser_failures: &mut u32) {
-    if matches!(
-        outcome,
-        FrameOutcome::Pending | FrameOutcome::StreamFailed { .. }
-    ) {
-        return;
+    if completes_message(outcome) {
+        *deser_failures = 0;
     }
-    *deser_failures = 0;
+}
+
+/// Return whether the outcome finished a logical message.
+const fn completes_message(outcome: &FrameOutcome) -> bool {
+    match outcome {
+        FrameOutcome::Buffered(_) | FrameOutcome::StreamFallback { .. } => true,
+        FrameOutcome::StreamStarted { is_last, .. } | FrameOutcome::StreamChunk { is_last, .. } => {
+            *is_last
+        }
+        FrameOutcome::Pending | FrameOutcome::Discarded | FrameOutcome::StreamFailed { .. } => {
+            false
+        }
+    }
 }
