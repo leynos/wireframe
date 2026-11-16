@@ -28,14 +28,8 @@ use support::{
     stop,
     wait_until_registry_empty,
 };
-use tokio::{io::AsyncWriteExt, net::TcpStream, sync::Notify, time::timeout};
-use wireframe::{
-    app::{Envelope, Handler, WireframeApp},
-    byte_order::write_network_u32,
-    push::PushError,
-    serializer::{BincodeSerializer, Serializer},
-    session::SessionRegistry,
-};
+use tokio::{io::AsyncWriteExt, net::TcpStream, time::timeout};
+use wireframe::{app::WireframeApp, push::PushError, session::SessionRegistry};
 use wireframe_testing::TestResult;
 
 /// Server shutdown ends an idle connection and rejects further pushes.
@@ -107,79 +101,78 @@ async fn pushes_are_rejected_after_the_connection_closes() -> TestResult<()> {
     stop(&shutdown).await
 }
 
-/// Write one length-delimited request envelope.
+/// Frames still queued when the peer half-closes are drained before exit.
 ///
-/// The default `()` preamble consumes no bytes, so the application's frame
-/// decoder reads the request from the first byte the client writes.
-async fn write_request(stream: &mut TcpStream, route_id: u32) -> TestResult<()> {
-    let envelope = Envelope::new(route_id, Some(1), Vec::new());
-    let payload = BincodeSerializer.serialize(&envelope)?;
-    let prefix = write_network_u32(u32::try_from(payload.len())?);
-    stream.write_all(&prefix).await?;
-    stream.write_all(&payload).await?;
-    Ok(())
-}
-
-/// Frames still queued when the peer half-closes are delivered before exit.
-///
-/// The route handler holds the connection loop inside dispatch, so both pushes
-/// are still sitting in their lanes when the client's write half closes. A
-/// clean end-of-stream must drain those lanes, high priority before low, rather
-/// than discard frames a producer was told had been accepted. The connection
-/// then ends on that half-close: its registry entry goes while the client's
-/// read half is still open, so the exit is not merely socket cleanup.
+/// The transport is an in-memory duplex stream whose buffer is smaller than the
+/// first frame, so that frame's write stays pending until the peer reads it. The
+/// backlog is therefore established rather than presumed: the first frame is in
+/// flight and the next two are still queued in their lanes when the peer closes
+/// its write half. Reading the in-flight frame lets its write finish, so the
+/// frames that follow can only have come from the drain, high priority before
+/// low. The peer's read half stays open, so the connection ends on the
+/// half-close rather than on socket cleanup.
 #[tokio::test]
 async fn queued_pushes_are_drained_after_a_clean_peer_close() -> TestResult<()> {
+    /// Buffer size of the in-memory transport, in bytes.
+    const BUFFER: usize = 64;
+    /// Payload that cannot fit in the buffer, so its write has to block.
+    const IN_FLIGHT: usize = 256;
+
     let registry = Arc::new(SessionRegistry::<Bytes>::new());
     let protocol = PushTestProtocol::new();
-    let started = Arc::new(Notify::new());
-    let gate = Arc::new(Notify::new());
-    let handler_started = Arc::clone(&started);
-    let handler_gate = Arc::clone(&gate);
-    let handler: Handler<Envelope> = Arc::new(move |_request: &Envelope| {
-        let route_started = Arc::clone(&handler_started);
-        let route_gate = Arc::clone(&handler_gate);
-        Box::pin(async move {
-            route_started.notify_one();
-            route_gate.notified().await;
-        })
-    });
-    let app = WireframeApp::default()
-        .route(1, handler)?
+    let app: WireframeApp = WireframeApp::default()
         .with_protocol(protocol.clone())
         .with_session_registry(Arc::clone(&registry));
-    let (addr, shutdown) = spawn_server(app).await?;
-    let mut client = TcpStream::connect(addr).await?;
+    let prepared = app
+        .prepare()
+        .await
+        .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
+    let prepared_template = Arc::new(prepared);
+    let (mut peer, server) = tokio::io::duplex(BUFFER);
+    // The connection borrows the prepared template, so the task owns a handle
+    // to it rather than a borrow that cannot outlive this function.
+    let connection = tokio::spawn({
+        let owned_template = Arc::clone(&prepared_template);
+        async move { owned_template.handle_connection_result(server).await }
+    });
     let (_, handle) = only_connection(&protocol).await?;
 
-    write_request(&mut client, 1).await?;
-    timeout(EVENT_TIMEOUT, started.notified())
+    handle
+        .push_high_priority(Bytes::from(vec![b'a'; IN_FLIGHT]))
         .await
-        .map_err(|_| "the route handler did not start")?;
-
+        .map_err(|error| format!("in-flight push should be accepted: {error:?}"))?;
+    // The high lane holds one frame, so this push cannot complete until the
+    // loop has taken the first one. Taken together with a frame too large for
+    // the transport buffer, that leaves the first write in flight here.
     handle
         .push_high_priority(Bytes::from_static(b"drained-high"))
         .await
-        .map_err(|error| format!("high-priority push should be accepted: {error:?}"))?;
+        .map_err(|error| format!("queued high-priority push should be accepted: {error:?}"))?;
     handle
         .push_low_priority(Bytes::from_static(b"drained-low"))
         .await
-        .map_err(|error| format!("low-priority push should be accepted: {error:?}"))?;
+        .map_err(|error| format!("queued low-priority push should be accepted: {error:?}"))?;
 
-    client.shutdown().await?;
-    gate.notify_one();
+    peer.shutdown().await?;
 
-    // The handler's own response is written first; the drained pushes follow.
-    timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
-    let high = timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
-    let low = timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
+    let in_flight = timeout(EVENT_TIMEOUT, read_frame(&mut peer)).await??;
+    if in_flight != vec![b'a'; IN_FLIGHT] {
+        return Err("the in-flight frame should arrive intact".into());
+    }
+    let high = timeout(EVENT_TIMEOUT, read_frame(&mut peer)).await??;
+    let low = timeout(EVENT_TIMEOUT, read_frame(&mut peer)).await??;
     if high != b"drained-high" || low != b"drained-low" {
         return Err(format!("drain should deliver high then low: {high:?}, {low:?}").into());
     }
 
-    // The read half stays open, so the entry disappearing now proves the
-    // connection ended on the half-close rather than when the socket dropped.
+    // The read half stays open, so an emptied registry proves the connection
+    // ended on the half-close rather than when the socket dropped.
     wait_until_registry_empty(&registry).await?;
+    let joined = timeout(EVENT_TIMEOUT, connection)
+        .await
+        .map_err(|_| "the connection task should finish after the drain")??;
+    joined?;
+
     let pushed = timeout(
         EVENT_TIMEOUT,
         handle.push_high_priority(Bytes::from_static(b"late")),
@@ -187,12 +180,7 @@ async fn queued_pushes_are_drained_after_a_clean_peer_close() -> TestResult<()> 
     .await
     .map_err(|_| "a push after the drain should not hang")?;
     match pushed {
-        Err(PushError::Closed) => {}
-        other => {
-            return Err(format!("a drained connection should reject pushes: {other:?}").into());
-        }
+        Err(PushError::Closed) => Ok(()),
+        other => Err(format!("a drained connection should reject pushes: {other:?}").into()),
     }
-
-    drop(client);
-    stop(&shutdown).await
 }

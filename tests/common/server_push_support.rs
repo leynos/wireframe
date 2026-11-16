@@ -12,8 +12,7 @@ use std::{
 
 use bytes::Bytes;
 use tokio::{
-    io::AsyncReadExt,
-    net::TcpStream,
+    io::{AsyncRead, AsyncReadExt},
     sync::oneshot,
     time::{Instant, sleep, timeout},
 };
@@ -125,8 +124,14 @@ pub async fn spawn_server(app: WireframeApp) -> TestResult<(SocketAddr, ServerSh
     Ok((addr, shutdown))
 }
 
-/// Read one length-delimited frame payload from the client socket.
-pub async fn read_frame(stream: &mut TcpStream) -> TestResult<Vec<u8>> {
+/// Read one length-delimited frame payload from `stream`.
+///
+/// Generic over the reader so the same framing serves a TCP peer and the
+/// in-memory duplex transport a test substitutes for it.
+pub async fn read_frame<R>(stream: &mut R) -> TestResult<Vec<u8>>
+where
+    R: AsyncRead + Unpin,
+{
     let mut prefix = vec![0u8; LengthFormat::default().bytes()];
     stream.read_exact(&mut prefix).await?;
     let length = read_network_u32(
