@@ -256,9 +256,9 @@ def test_the_script_checks_the_workspace_from_the_lock_file(
     ]
     # A blank value displaces the nightly-only `-Zthreads` in the repository's
     # Cargo configuration; leaving it unset would let that flag through.
-    assert workspace["rustflags"] != "<unset>"
-    assert workspace["rustflags"].strip() == ""
-    assert consumer["rustflags"] == "<unset>"
+    for call in (workspace, consumer):
+        assert call["rustflags"] != "<unset>", "RUSTFLAGS must be assigned"
+        assert call["rustflags"].strip() == "", "nightly flags must not reach 1.95"
 
 
 def test_the_script_checks_a_fresh_consumer(
@@ -291,6 +291,20 @@ def test_the_script_checks_a_fresh_consumer(
     source = (tmp_path / "consumer-lib.rs").read_text(encoding="utf-8")
     assert "pub use wireframe;" in source
     assert "pub use wireframe_testing;" in source
+
+
+def test_the_script_clears_inherited_nightly_flags(
+    run_script: typ.Callable[..., ScriptRun],
+) -> None:
+    """Scenario: nightly flags are exported; stable Rust must not receive them."""
+    result = run_script(RUSTFLAGS="-Zthreads=8")
+
+    assert result.completed.returncode == 0, result.completed.stderr
+    for call in result.cargo_calls():
+        assert call["rustflags"] != "<unset>", "no cargo call may inherit RUSTFLAGS"
+        assert call["rustflags"].strip() == "", (
+            "an inherited nightly flag would reach the minimum toolchain"
+        )
 
 
 def test_the_script_refuses_a_manifest_without_a_floor(

@@ -67,7 +67,8 @@ pub use wireframe_testing;
 SOURCE
 (
     cd "$work"
-    cargo "+$msrv" check
+    # A contributor may export nightly-only flags, so clear them here too.
+    RUSTFLAGS=" " cargo "+$msrv" check
 )
 
 echo "==> Rust $msrv compiles Wireframe"
