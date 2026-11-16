@@ -69,7 +69,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@203eedc136c14c28041e92c06a929383807b3a3f
+        uses: leynos/shared-actions/.github/actions/setup-rust@1123a35f1cc7810f65bfffa5ea4c8b981d6c0090
       - name: Install development backend and linker
         # Both runner choices are Ubuntu. Confirm the manifest's Cranelift
         # component and install the Linux linker before debug Make targets.
@@ -100,7 +100,7 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@203eedc136c14c28041e92c06a929383807b3a3f
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@1123a35f1cc7810f65bfffa5ea4c8b981d6c0090
         with:
           version: "0.6.1"
 
@@ -113,7 +113,7 @@ jobs:
         # and the cache, and it takes the lint suite from the rolling release;
         # it refuses a suite pin, so none is passed. The Makefile's
         # `install-whitaker` target is the contributor's route, not CI's.
-        uses: leynos/shared-actions/.github/actions/install-whitaker@203eedc136c14c28041e92c06a929383807b3a3f
+        uses: leynos/shared-actions/.github/actions/install-whitaker@1123a35f1cc7810f65bfffa5ea4c8b981d6c0090
       - name: Lint
         run: make lint
       - name: Setup uv
@@ -126,7 +126,7 @@ jobs:
       # Merman comes from its release archive, verified against a pinned
       # checksum, rather than being compiled from crates.io on every run.
       - name: Install Nixie and Merman CLI
-        uses: leynos/shared-actions/.github/actions/install-nixie@203eedc136c14c28041e92c06a929383807b3a3f
+        uses: leynos/shared-actions/.github/actions/install-nixie@1123a35f1cc7810f65bfffa5ea4c8b981d6c0090
         with:
           nixie-version: '1.1.0'
           merman-version: '0.7.0'
@@ -174,7 +174,7 @@ jobs:
       # coverage-main.yml uploads, and it needs nothing from here.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/generate-coverage@203eedc136c14c28041e92c06a929383807b3a3f
+        uses: leynos/shared-actions/.github/actions/generate-coverage@1123a35f1cc7810f65bfffa5ea4c8b981d6c0090
         with:
           output-path: lcov.info
           format: lcov
