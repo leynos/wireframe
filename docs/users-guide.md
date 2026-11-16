@@ -2637,8 +2637,8 @@ builder configures high- and low-priority capacities, optional rate limits, and
 an optional dead-letter queue with tunable logging cadence for dropped
 frames.[^23] Queue construction validates capacities and rate limits, clamping
 rates to the supported range.[^24] `PushHandle` exposes async
-`push_high_priority` and `push_low_priority` helpers that honour the rate
-limiter before awaiting channel capacity, while `try_push` shares that same
+`push_high_priority` and `push_low_priority` helpers that reserve channel
+capacity before they draw a rate permit, while `try_push` shares that same
 limiter without waiting: it returns `PushError::RateLimited` when no permit is
 available and otherwise implements policy-controlled drops with optional
 warnings and dead-letter forwarding.[^26] When the dead-letter queue is itself

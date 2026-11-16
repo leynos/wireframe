@@ -305,12 +305,12 @@ provides the capability to send frames to a specific connection.
 struct PushHandleInner<F> {
     high_prio_tx: mpsc::Sender<F>,
     low_prio_tx: mpsc::Sender<F>,
-    // Other shared state like rate limiters can be added here.
+    limiter: Option<RateLimiter>,
 }
 
-// The public, cloneable handle.
-#[derive(Clone)]
-  pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
+// The public, cloneable handle. `Clone` is written by hand so that cloning a
+// handle does not require the frame type itself to be `Clone`.
+pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
 
 pub enum PushPolicy {
     ReturnErrorIfFull,
@@ -355,11 +355,15 @@ sequenceDiagram
     participant PushQueues
     participant DLQ
     Producer->>PushHandle: push_high_priority(frame)
-    alt Rate-limiting enabled
-        PushHandle->>RateLimiter: acquire token
-        RateLimiter-->>PushHandle: token granted
+    PushHandle->>PushQueues: try_reserve() a queue slot
+    alt Queue full
+        PushQueues-->>PushHandle: slot reserved once one frees
     end
-    PushHandle->>PushQueues: try_send(frame)
+    alt Rate-limiting enabled
+        PushHandle->>RateLimiter: try_acquire(1)
+        RateLimiter-->>PushHandle: permit granted on the next refill
+    end
+    PushHandle->>PushQueues: send the reserved frame
     alt Queue full
         alt DLQ configured
             PushHandle->>DLQ: try_send(frame)
@@ -375,6 +379,15 @@ sequenceDiagram
         PushQueues-->>PushHandle: frame queued
     end
 ```
+
+Capacity is reserved before a permit is drawn, in that order and not the
+reverse. A producer that took a permit first would hold it while it waited for
+a free slot, and those parked frames would enter the queue back-to-back as soon
+as the consumer drained it — more than the configured rate on the wire.
+Reserving first delays only the producers that have nowhere to put a frame, and
+every frame still reaches the queue at the configured rate. The corollary is
+that an awaited push holds its slot for as long as it waits, so abandoning the
+future is what releases the slot for another producer.
 
 The example below demonstrates pushing frames and returning a streamed
 response. The [`async-stream`](https://docs.rs/async-stream) crate is the
