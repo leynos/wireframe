@@ -610,10 +610,12 @@ let (tx, rx) = body_channel(16);
 let mut reader = RequestBodyReader::new(rx);
 ```
 
-If a caller does not construct the pair, Wireframe preserves the buffered
-request path. This keeps the small-message path ergonomic and means protocol
-crates can adopt streaming only where large inbound bodies justify the extra
-complexity.
+Buffered or streaming dispatch is decided by which registration method names
+the route, not by whether a caller constructs a channel pair.
+`WireframeApp::route` keeps the buffered path, so the small-message path stays
+ergonomic, and `WireframeApp::streaming_route` marks the routes where large
+inbound bodies justify incremental delivery. The pair above exists for code
+outside the runtime that produces and consumes a body of its own.
 
 ### 11.3 Symmetry with response streaming
 
@@ -654,6 +656,16 @@ The inbound ordering is fixed:
 3. `MessageAssembler` maps protocol packets into one logical request; and
 4. route dispatch receives either the buffered body (buffered route) or each
    chunk as it is admitted (streaming route).
+
+A streaming route has two delivery paths. The first streaming body on a
+connection owns the single dispatch slot described in
+[ADR 018](adrs/adr-0018-streaming-request-body-dispatch.md) and receives each
+chunk as it is admitted. A streaming-route message that completes while another
+streaming body holds the slot cannot be delivered incrementally: it is
+assembled by the buffered path, parked in completion order, and later handed to
+its handler as a single pre-filled chunk once the slot frees. Protocol authors
+must therefore accept either incremental chunks or one complete body, and allow
+for the buffering and the delivery delay that parking implies.
 
 This means a protocol-specific assembler never needs to understand transport
 fragments. It only sees complete protocol packets.
