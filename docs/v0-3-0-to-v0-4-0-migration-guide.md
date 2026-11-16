@@ -278,9 +278,11 @@ configuration when:
   Call `preamble_timeout(Duration)` with a larger, explicit bound, or
   `disable_preamble_timeout()` when the wait must be unbounded.
 - A client waits for a server greeting before sending anything (server-first
-  protocols). Disabling the deadline does not make the server speak first: the
-  preamble is still read before the server writes, so the greeting must come
-  from an outer layer that runs before the preamble read.
+  protocols). Disabling the deadline does not by itself make the server speak
+  first: a non-empty preamble is still read before the server writes, so the
+  greeting must come from an outer layer that runs before the preamble read. A
+  preamble that encodes to no bytes, such as a unit `()`, reads nothing and
+  leaves the server free to greet from application code.
 
 The two setters override each other and the last call wins. `Duration::ZERO`
 still clamps to 1 ms, so use `disable_preamble_timeout()` rather than a zero
@@ -332,10 +334,12 @@ services and the runtime configuration. The builder's route-registration
 methods are therefore unavailable after the transition; register all routes and
 middleware before calling `prepare`.
 
-`prepare` returns `Result<PreparedApp, PrepareError>`. Preparation is currently
-infallible, but the typed error provides a stable place for callers to handle
-future fallible middleware or runtime preparation steps. A failed preparation
-does not expose a partially prepared application.
+`prepare` returns `Result<PreparedApp, PrepareError>`. Preparation can fail:
+`PrepareError::MiddlewareTransform` reports a route middleware transform that
+failed, and `PrepareError::InvalidPushConfig` reports a stored push-queue
+template whose capacity or rate is unusable, which is rejected before any
+connection exists rather than once per accepted connection. A failed
+preparation does not expose a partially prepared application.
 
 ## Reuse the prepared application
 

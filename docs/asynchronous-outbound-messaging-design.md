@@ -907,14 +907,17 @@ features of the 1.0 release.
   frame loop. `handle_error` is forwarded to the actor, which invokes it when a
   driven response reports a protocol error. Terminator emission and
   `on_command_end` run in the inbound handler once the actor has finished
-  driving the response: `stream_end_frame`'s frame is written without decoding
+driving the response: `stream_end_frame`'s frame is written without decoding
   or re-wrapping, because the protocol returns a complete codec frame, and the
   completion hook runs only after that final write. `before_send` still
   observes the frame, so the adapter's bypass does not freeze its bytes. The
   actor receives no terminator or completion hook of its own, so one response
-  is terminated and completed exactly once. Protocol setup and end-of-file
-  callbacks are not invoked on the prepared path at all. The direct response
-  helpers that bypass the pipeline also bypass `before_send`.
+  is terminated and completed exactly once. Protocol setup runs once per
+  connection, after the connection's `PushHandle` is published in the session
+  registry and before the actor starts. The end-of-file callback is never
+  invoked on the prepared path, so a protocol must not rely on it for cleanup
+  or diagnostics. The direct response helpers that bypass the pipeline also
+  bypass `before_send`.
 
 ```rust,ignore
 // Codec stack with explicit frame-size limits and fragmentation.

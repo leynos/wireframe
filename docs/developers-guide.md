@@ -576,6 +576,71 @@ the only aggregate signal available when the producer discards the
 are logged at `debug!` with the connection identifier, so a lookup that finds
 nothing can be told apart from a connection that never registered.
 
+## Server push path
+
+Each accepted connection has its own push path, from the stored template to the
+guard that removes the connection's registry entry. The
+[asynchronous outbound messaging design](asynchronous-outbound-messaging-design.md)
+owns the protocol-level contract, and the [ADR-014 addenda][adr-014-addenda]
+record why a write and a drain are both bounded. The implementation boundaries
+are:
+
+- **Template ownership** — `src/app/builder/push.rs` stores the
+  `PushQueuesBuilder` template. `validate_push_queues` rejects an unusable
+  capacity or rate during preparation as `PrepareError::InvalidPushConfig`, so
+  one bad template never becomes a failure repeated by every connection, and
+  `with_codec_frame_limit` applies the codec's frame limit to the template as a
+  ceiling.
+- **Per-connection construction** — `src/app/prepared_push.rs` exposes the
+  template and the `SessionRegistry` from a prepared application.
+  `PreparedApp::push_queues` always yields a template, because an application
+  that stored none gets the default configuration, still capped by the codec.
+- **Enqueue budget** — `src/push/queues/frame_limit.rs` holds `FrameLimits`. A
+  template limit and the codec limit stay two `FrameLimit` values with their
+  own payload measures, and both are checked: folding them into one numeric
+  bound would apply one side's measure to the other side's ceiling.
+  `PushError::FrameTooLarge` is raised at enqueue, before the producer is told
+  the push succeeded.
+- **Connection ownership** — `src/app/inbound_handler/actor.rs` builds one
+  connection's queues from the template, publishes the `PushHandle` in the
+  `SessionRegistry`, runs `on_connection_setup`, and creates the untracked
+  `ConnectionActor`. Its `RegistryGuard` removes the entry on drop, so a clean
+  EOF, an I/O error, a panic, and task cancellation all deregister the
+  connection. Publication and removal are logged at `debug!` with the
+  connection identifier.
+- **Lane polling** — `src/connection/pushes.rs` owns how the two lanes are
+  read. `PushKind` names the high and low lanes, and `PushComposer` decides
+  whether a frame is composed like a response (`Inline`) or handed to the sink
+  unchanged (`Deferred`, which is what the server uses because a push is
+  already encoded). `PendingPushes` carries frames together with the lane they
+  came from, so an abandoned write can name its priority. `next_pushes` biases
+  high before low, and `take_pending_pushes` closes both lanes and returns
+  whatever is still queued.
+- **Write bounds** — `src/connection/writes.rs` bounds every write.
+  `write_before_bound` races one write against the stop token and a
+  caller-supplied grace deadline and reports a `WriteBound` of `Finished`,
+  `Stopped`, or `GraceExpired`; a ready write is always preferred, so a stop
+  observed while the transport still accepts frames does not discard output it
+  would have taken. `write_within_grace` bounds the actor's own buffered output
+  the same way but re-arms the deadline on `next_progress`, so a peer that
+  keeps reading is never abandoned because one frame outlasted a grace.
+  `WriteBounds` groups the tokens, timer, and grace.
+- **Delivery between reads** — `src/app/inbound_handler/push_service.rs`
+  writes pushes between inbound reads. `deliver_pushes` keeps polling the read
+  half while a write is pending, because this is the last place that can notice
+  a peer which half-closed and then stopped reading, and `drain_queued` flushes
+  what is still queued after a clean EOF or a shutdown.
+  `src/app/inbound_handler/push_write.rs` owns the per-frame write: each frame
+  gets its own grace deadline, so the bound measures idleness rather than the
+  batch's elapsed time.
+- **Delivery during a handler** — `src/app/frame_handling/response_pushes.rs`
+  drains the same lanes while a handler runs, so a handler that pushes into a
+  full lane does not wait for itself. A run that has already written a batch
+  then observes shutdown before taking another, because its own writes would
+  otherwise renew it indefinitely.
+
+[adr-014-addenda]: adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md
+
 ## Runtime ownership model
 
 Three decision records govern runtime ownership and task-lifetime boundaries
