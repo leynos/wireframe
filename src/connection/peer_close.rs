@@ -180,17 +180,13 @@ where
     {
         let PendingOutput { frames, pushes } = output;
         let progress = sink.progress();
-        for push in pushes {
+        let lanes = pushes
+            .into_iter()
+            .map(writes::Output::Push)
+            .chain(frames.into_iter().map(writes::Output::Frame));
+        for item in lanes {
             let outcome = self
-                .write_one_after_peer_close(progress.clone(), sink.send_push(push))
-                .await?;
-            if outcome == WriteOutcome::Cancelled {
-                return Ok(WriteOutcome::Cancelled);
-            }
-        }
-        for frame in frames {
-            let outcome = self
-                .write_one_after_peer_close(progress.clone(), sink.send_frame(frame))
+                .write_output_after_peer_close(progress.clone(), item, sink)
                 .await?;
             if outcome == WriteOutcome::Cancelled {
                 return Ok(WriteOutcome::Cancelled);
@@ -199,29 +195,29 @@ where
         Ok(WriteOutcome::Written)
     }
 
-    /// Write a single frame, bounded by the idle grace and by shutdown.
-    ///
-    /// A sink that splits the frame into several physical writes renews the
-    /// grace per accepted fragment, so a peer that keeps reading is never
-    /// abandoned merely because the whole frame outlives one grace.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`WireframeError`] if the sink fails.
-    async fn write_one_after_peer_close<Writing>(
+    /// Write one piece of buffered output under the peer-close grace.
+    async fn write_output_after_peer_close<S>(
         &mut self,
         progress: Option<Arc<super::ProgressSignal>>,
-        writing: Writing,
+        item: writes::Output<F, P>,
+        sink: &mut S,
     ) -> Result<WriteOutcome, WireframeError<E>>
     where
-        Writing: std::future::Future<Output = std::io::Result<()>>,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         let limit = {
             let bounds = self.write_bounds();
-            let mut pinned = std::pin::pin!(writing);
-            writes::write_within_grace(pinned.as_mut(), &bounds, progress.as_deref())
-                .await
-                .map_err(WireframeError::Io)?
+            match item {
+                writes::Output::Push(push) => {
+                    let mut pinned = std::pin::pin!(sink.send_push(push));
+                    writes::write_within_grace(pinned.as_mut(), &bounds, progress.as_deref()).await
+                }
+                writes::Output::Frame(frame) => {
+                    let mut pinned = std::pin::pin!(sink.send_frame(frame));
+                    writes::write_within_grace(pinned.as_mut(), &bounds, progress.as_deref()).await
+                }
+            }
+            .map_err(WireframeError::Io)?
         };
         Ok(self.record_write_limit(limit))
     }

@@ -57,6 +57,18 @@ impl WriteBound {
     pub(crate) const fn is_grace_expired(self) -> bool { matches!(self, Self::GraceExpired) }
 }
 
+/// One piece of buffered output, tagged by the lane that produced it.
+///
+/// Pushes and frames travel through different sink methods, so the two lanes
+/// only form one write sequence when each item remembers which method it
+/// needs.
+pub(super) enum Output<F, P> {
+    /// A queued push, written before the frames produced with it.
+    Push(P),
+    /// A response frame for the event being dispatched.
+    Frame(F),
+}
+
 /// Await `write`, abandoning it if it cannot finish within its bounds.
 ///
 /// The app layer drives writes the actor does not own — one pushed frame
@@ -217,21 +229,41 @@ where
     {
         // Queued pushes go first because the actor produces them before any
         // response frames from the same event.
-        for push in pushes {
-            let progress = sink.progress();
-            let write = sink.send_push(push);
-            if self.write_one(write, progress.as_deref()).await? == WriteOutcome::Cancelled {
-                return Ok(WriteOutcome::Cancelled);
-            }
-        }
-        for frame in frames {
-            let progress = sink.progress();
-            let write = sink.send_frame(frame);
-            if self.write_one(write, progress.as_deref()).await? == WriteOutcome::Cancelled {
+        let output = pushes
+            .into_iter()
+            .map(Output::Push)
+            .chain(frames.into_iter().map(Output::Frame));
+        for item in output {
+            if self.write_output(item, sink).await? == WriteOutcome::Cancelled {
                 return Ok(WriteOutcome::Cancelled);
             }
         }
         Ok(WriteOutcome::Written)
+    }
+
+    /// Write one piece of buffered output under this connection's bounds.
+    ///
+    /// The progress signal is sampled just before the write, so progress
+    /// reported by one frame renews the idle grace for the next.
+    async fn write_output<S>(
+        &mut self,
+        item: Output<F, P>,
+        sink: &mut S,
+    ) -> Result<WriteOutcome, WireframeError<E>>
+    where
+        S: FrameSink<F> + PushSink<P> + Send,
+    {
+        let progress = sink.progress();
+        match item {
+            Output::Push(push) => {
+                self.write_one(sink.send_push(push), progress.as_deref())
+                    .await
+            }
+            Output::Frame(frame) => {
+                self.write_one(sink.send_frame(frame), progress.as_deref())
+                    .await
+            }
+        }
     }
 
     /// Write one frame under this connection's bounds.

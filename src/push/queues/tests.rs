@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use tokio::{sync::mpsc, time};
 
-use super::{PushConfigError, PushQueues, PushQueuesBuilder};
+use super::{MAX_PUSH_RATE, PushConfigError, PushQueues, PushQueuesBuilder};
 use crate::push::{PushError, PushPolicy, PushPriority};
 
 /// Frame type that deliberately does not implement `Clone`.
@@ -51,16 +51,23 @@ fn builder_clone_preserves_configuration() {
     );
 }
 
+/// Zero is never a usable capacity or rate, so both are refused up front
+/// rather than left to fail when the channels are allocated.
 #[test]
-fn validate_rejects_zero_capacity() {
-    let builder = PushQueuesBuilder::<u8>::default().high_capacity(0);
-
+fn validate_rejects_zero_capacity_and_rate() {
+    let zero_capacity = PushQueuesBuilder::<u8>::default().high_capacity(0);
     assert!(
         matches!(
-            builder.validate(),
+            zero_capacity.validate(),
             Err(PushConfigError::InvalidCapacity { .. })
         ),
         "zero capacity must be rejected before channels are allocated"
+    );
+
+    let zero_rate = PushQueuesBuilder::<u8>::default().rate(Some(0));
+    assert!(
+        matches!(zero_rate.validate(), Err(PushConfigError::InvalidRate(0))),
+        "zero rate must be rejected before channels are allocated"
     );
 }
 
@@ -89,12 +96,16 @@ fn validate_rejects_capacity_above_the_channel_limit() {
 }
 
 #[test]
-fn validate_rejects_out_of_range_rate() {
-    let builder = PushQueuesBuilder::<u8>::default().rate(Some(0));
+fn validate_rejects_rate_above_the_maximum() {
+    let excessive = MAX_PUSH_RATE + 1;
+    let builder = PushQueuesBuilder::<u8>::default().rate(Some(excessive));
 
     assert!(
-        matches!(builder.validate(), Err(PushConfigError::InvalidRate(0))),
-        "zero rate must be rejected before channels are allocated"
+        matches!(
+            builder.validate(),
+            Err(PushConfigError::InvalidRate(rate)) if rate == excessive
+        ),
+        "a rate above `MAX_PUSH_RATE` must be rejected"
     );
 }
 
