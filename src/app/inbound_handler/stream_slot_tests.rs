@@ -4,6 +4,7 @@ use std::{future, io, sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use futures::StreamExt;
+use rstest::{fixture, rstest};
 
 use super::{
     super::stream_terminal::deliver_then_await,
@@ -27,11 +28,77 @@ use crate::{
     },
 };
 
-#[tokio::test(start_paused = true)]
-async fn a_stalled_admission_returns_control_after_the_read_timeout() {
-    let mut stream = stalled_stream();
+/// A wait short enough that a stalled exchange hands control back quickly.
+#[fixture]
+fn short_wait() -> Duration {
+    // Kept as a binding so the fixture body is a statement list; a bare
+    // expression body trips `unused_braces` through the macro expansion.
+    let millis = 50;
+    Duration::from_millis(millis)
+}
 
-    let event = stream.drive_pending(Duration::from_millis(50)).await;
+/// Handler that holds its body open without ever consuming a chunk.
+#[fixture]
+fn stalled_handler() -> StreamingHandler {
+    Arc::new(|_parts: RequestParts, body: RequestBodyStream| {
+        Box::pin(async move {
+            let _body = body;
+            future::pending::<Option<Bytes>>().await
+        })
+    })
+}
+
+/// A slot whose handler and pending admission never make progress.
+#[fixture]
+fn stalled_stream() -> ActiveStream {
+    ActiveStream {
+        key: None,
+        assembly: None,
+        route_id: 1,
+        correlation_id: None,
+        sender: None,
+        handler: Box::pin(future::pending()),
+        pending: Some(PendingSend {
+            future: Box::pin(future::pending()),
+            is_last: false,
+        }),
+    }
+}
+
+/// A first chunk whose four bytes do not fit beside the held ones.
+#[fixture]
+fn unaffordable_first_chunk() -> FirstChunk {
+    FirstChunk {
+        key: None,
+        assembly: None,
+        parts: RequestParts::new(1, None, Vec::new()),
+        chunk: Bytes::from_static(b"abcd"),
+        is_last: false,
+    }
+}
+
+/// Allow less room than the held bytes and the first chunk need together.
+#[fixture]
+fn tight_budget() -> ChunkBudget {
+    ChunkBudget {
+        other_retained: 0,
+        limit: 6,
+    }
+}
+
+/// A body channel that holds one value, so the next send must wait.
+#[fixture]
+fn body_channel() -> (AccountedBodySender, RequestBodyStream) {
+    accounted_body_channel(1, QueuedBytes::new())
+}
+
+#[rstest]
+#[tokio::test(start_paused = true)]
+async fn a_stalled_admission_returns_control_after_the_read_timeout(
+    mut stalled_stream: ActiveStream,
+    short_wait: Duration,
+) {
+    let event = stalled_stream.drive_pending(short_wait).await;
 
     assert!(
         matches!(event, PendingEvent::Idle),
@@ -39,12 +106,12 @@ async fn a_stalled_admission_returns_control_after_the_read_timeout() {
     );
 }
 
+#[rstest]
 #[tokio::test(start_paused = true)]
-async fn a_resolved_handler_wins_over_a_stalled_admission() {
-    let mut stream = stalled_stream();
-    stream.handler = Box::pin(async { Some(Bytes::from_static(b"reply")) });
+async fn a_resolved_handler_wins_over_a_stalled_admission(mut stalled_stream: ActiveStream) {
+    stalled_stream.handler = Box::pin(async { Some(Bytes::from_static(b"reply")) });
 
-    match stream.drive_pending(Duration::from_secs(1)).await {
+    match stalled_stream.drive_pending(Duration::from_secs(1)).await {
         PendingEvent::Handler(outcome) => {
             assert_eq!(outcome.as_deref(), Some(b"reply".as_slice()));
         }
@@ -52,15 +119,15 @@ async fn a_resolved_handler_wins_over_a_stalled_admission() {
     }
 }
 
+#[rstest]
 #[tokio::test(start_paused = true)]
-async fn a_completed_admission_wins_over_a_stalled_handler() {
-    let mut stream = stalled_stream();
-    stream.pending = Some(PendingSend {
+async fn a_completed_admission_wins_over_a_stalled_handler(mut stalled_stream: ActiveStream) {
+    stalled_stream.pending = Some(PendingSend {
         future: Box::pin(async { Ok(()) }),
         is_last: true,
     });
 
-    match stream.drive_pending(Duration::from_secs(1)).await {
+    match stalled_stream.drive_pending(Duration::from_secs(1)).await {
         PendingEvent::Send(result) => assert!(result.is_ok()),
         _ => panic!("the admission result should win over a stalled handler"),
     }
@@ -72,12 +139,17 @@ async fn a_completed_admission_wins_over_a_stalled_handler() {
 /// earlier body still holds can keep it waiting. Waiting inside `start` would
 /// deadlock: the slot is only registered after the wait, and nothing else can
 /// release those bytes until the loop regains control.
+#[rstest]
 #[tokio::test(start_paused = true)]
-async fn an_unaffordable_first_chunk_becomes_a_pending_admission() {
+async fn an_unaffordable_first_chunk_becomes_a_pending_admission(
+    unaffordable_first_chunk: FirstChunk,
+    stalled_handler: StreamingHandler,
+    tight_budget: ChunkBudget,
+) {
     let mut streams = ConnectionStreams::new();
     let _held_body = retain_bytes_outside_the_slot(&streams).await;
 
-    streams.start(first_chunk(b"abcd"), &stalled_handler(), tight_budget());
+    streams.start(unaffordable_first_chunk, &stalled_handler, tight_budget);
 
     assert!(
         streams.is_live(),
@@ -89,11 +161,16 @@ async fn an_unaffordable_first_chunk_becomes_a_pending_admission() {
     );
 }
 
+#[rstest]
 #[tokio::test(start_paused = true)]
-async fn a_released_account_admits_the_pending_first_chunk() {
+async fn a_released_account_admits_the_pending_first_chunk(
+    unaffordable_first_chunk: FirstChunk,
+    stalled_handler: StreamingHandler,
+    tight_budget: ChunkBudget,
+) {
     let mut streams = ConnectionStreams::new();
     let held_body = retain_bytes_outside_the_slot(&streams).await;
-    streams.start(first_chunk(b"abcd"), &stalled_handler(), tight_budget());
+    streams.start(unaffordable_first_chunk, &stalled_handler, tight_budget);
 
     // The earlier body releases the bytes it was holding.
     drop(held_body);
@@ -125,57 +202,16 @@ async fn retain_bytes_outside_the_slot(streams: &ConnectionStreams) -> RequestBo
     body
 }
 
-/// Build a first chunk whose four bytes do not fit beside the held ones.
-fn first_chunk(chunk: &'static [u8]) -> FirstChunk {
-    FirstChunk {
-        key: None,
-        assembly: None,
-        parts: RequestParts::new(1, None, Vec::new()),
-        chunk: Bytes::from_static(chunk),
-        is_last: false,
-    }
-}
-
-/// Allow less room than the held bytes and the first chunk need together.
-fn tight_budget() -> ChunkBudget {
-    ChunkBudget {
-        other_retained: 0,
-        limit: 6,
-    }
-}
-
-/// Handler that holds its body open without ever consuming a chunk.
-fn stalled_handler() -> StreamingHandler {
-    Arc::new(|_parts: RequestParts, body: RequestBodyStream| {
-        Box::pin(async move {
-            let _body = body;
-            future::pending::<Option<Bytes>>().await
-        })
-    })
-}
-
-/// Build a slot whose handler and pending admission never make progress.
-fn stalled_stream() -> ActiveStream {
-    ActiveStream {
-        key: None,
-        assembly: None,
-        route_id: 1,
-        correlation_id: None,
-        sender: None,
-        handler: Box::pin(future::pending()),
-        pending: Some(PendingSend {
-            future: Box::pin(future::pending()),
-            is_last: false,
-        }),
-    }
-}
 /// A terminal error must reach a handler whose body channel is already full.
 ///
 /// Redelivering it before polling the handler would deadlock: the error needs a
 /// channel slot, and only the handler can free one.
+#[rstest]
 #[tokio::test(start_paused = true)]
-async fn a_terminal_error_reaches_a_handler_whose_channel_is_full() {
-    let (sender, body) = accounted_body_channel(1, QueuedBytes::new());
+async fn a_terminal_error_reaches_a_handler_whose_channel_is_full(
+    body_channel: (AccountedBodySender, RequestBodyStream),
+) {
+    let (sender, body) = body_channel;
     queue_one_chunk(&sender).await;
     let mut handler: HandlerFuture = Box::pin(read_until_terminal(body));
 
@@ -194,14 +230,18 @@ async fn a_terminal_error_reaches_a_handler_whose_channel_is_full() {
     );
 }
 
+#[rstest]
 #[tokio::test(start_paused = true)]
-async fn terminal_delivery_is_bounded_when_the_handler_never_reads() {
-    let (sender, body) = accounted_body_channel(1, QueuedBytes::new());
+async fn terminal_delivery_is_bounded_when_the_handler_never_reads(
+    body_channel: (AccountedBodySender, RequestBodyStream),
+    short_wait: Duration,
+) {
+    let (sender, body) = body_channel;
     queue_one_chunk(&sender).await;
     let mut handler: HandlerFuture = Box::pin(future::pending());
 
     let outcome = deliver_then_await(
-        Duration::from_millis(50),
+        short_wait,
         io::Error::new(io::ErrorKind::UnexpectedEof, "truncated body"),
         sender,
         &mut handler,
