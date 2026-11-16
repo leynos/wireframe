@@ -97,7 +97,7 @@ where
     } = wait;
     let should_try_read = read_first || inbound.pending.is_some();
     if should_try_read {
-        match inbound.try_next(reader).await? {
+        match inbound.try_next(reader, read_timeout_ms).await? {
             NextFrame::Ready(frame) => return Ok(StreamStep::Frame(frame)),
             NextFrame::Closed => return Ok(StreamStep::Closed),
             NextFrame::TimedOut => {}

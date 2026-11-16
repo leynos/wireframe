@@ -164,6 +164,9 @@ where
                     Some(budgets),
                 )
             }),
+            // Armed on the first silent read, so a fresh connection never
+            // starts by purging state it has not buffered.
+            read_deadline: None,
         };
         // A child token so the guard below cancels only this connection, while
         // a server shutdown still reaches it through the parent.
