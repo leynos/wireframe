@@ -2666,19 +2666,23 @@ A server connection now has a push path of its own.
 every accepted connection clones it to build its own queues, rate limiter, and
 dead-letter routing:
 
-```rust
+<!-- tested-example: users-guide-065 -->
+```rust,no_run
 use bytes::Bytes;
 use tokio::sync::mpsc;
 use wireframe::{app::WireframeApp, push::PushQueues};
 
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 let (dlq_tx, _dlq_rx) = mpsc::channel(16);
-let app: WireframeApp = WireframeApp::new()?.with_push_queues(
+let _app: WireframeApp = WireframeApp::new()?.with_push_queues(
     PushQueues::<Bytes>::builder()
         .high_capacity(8)
         .low_capacity(8)
         .rate(Some(64))
         .dlq(Some(dlq_tx)),
 );
+# Ok(())
+# }
 ```
 
 Each connection therefore has independent capacity and token accounting; one
@@ -2708,14 +2712,17 @@ keeping the clone it returns) before handing the application to the server
 gives application code the registry the connections will use. A registry that
 is never obtained this way is populated by the connections but unreachable:
 
-```rust
+<!-- tested-example: users-guide-066 -->
+```rust,no_run
 use std::sync::Arc;
 
 use bytes::Bytes;
 use wireframe::{app::WireframeApp, session::SessionRegistry};
 
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
 let registry = Arc::new(SessionRegistry::<Bytes>::new());
-let app: WireframeApp = WireframeApp::new()?.with_session_registry(Arc::clone(&registry));
+let _app: WireframeApp =
+    WireframeApp::new()?.with_session_registry(Arc::clone(&registry));
 
 // Later, from any task holding the same registry:
 // for (id, handle) in registry.active_handles() {
@@ -2726,6 +2733,8 @@ let app: WireframeApp = WireframeApp::new()?.with_session_registry(Arc::clone(&r
 //         log::warn!("push failed for connection {id}: {error}");
 //     }
 // }
+# Ok(())
+# }
 ```
 
 A connection's entry is inserted before its setup callback runs, so setup can
