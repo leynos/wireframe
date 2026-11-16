@@ -2822,6 +2822,7 @@ re-exported from `wireframe::app`. Route identifiers must stay unique across
 `route` and `route_response`; a duplicate is rejected with the same error as
 `route`.
 
+<!-- tested-example: users-guide-057 -->
 ```rust,no_run
 use std::sync::Arc;
 
@@ -2858,9 +2859,9 @@ fn build_app() -> wireframe::Result<WireframeApp> {
         })
     });
 
-    WireframeApp::new()?
+    Ok(WireframeApp::new()?
         .route_response(1, handler)?
-        .with_protocol(TerminatingProtocol)
+        .with_protocol(TerminatingProtocol))
 }
 ```
 
@@ -2982,7 +2983,7 @@ the client how to recognize the server's end-of-stream marker. The default
 implementation returns `false`; protocols override it to match their terminator
 format:
 
-<!-- tested-example: users-guide-057 -->
+<!-- tested-example: users-guide-058 -->
 ```rust
 use wireframe::app::{Packet, PacketParts};
 use wireframe::correlation::CorrelatableFrame;
@@ -3031,7 +3032,7 @@ needed, and returns a `ResponseStream`. The stream yields data frames as
 arrives: because the stream borrows the `WireframeClient` mutably, this call
 also prevents other client I/O until the stream is dropped or drained.
 
-<!-- tested-example: users-guide-058 -->
+<!-- tested-example: users-guide-059 -->
 ```rust,no_run
 use futures::StreamExt;
 use std::net::SocketAddr;
@@ -3060,7 +3061,7 @@ while let Some(result) = stream.next().await {
 domain items. This is useful when only some protocol frames should be exposed
 to the caller:
 
-<!-- tested-example: users-guide-059 -->
+<!-- tested-example: users-guide-060 -->
 ```rust,no_run
 use futures::TryStreamExt;
 use std::net::SocketAddr;
@@ -3146,7 +3147,7 @@ a `ResponseStream` without re-sending. As with `call_streaming`, that stream
 holds an exclusive mutable borrow of `WireframeClient` until dropped or fully
 consumed:
 
-<!-- tested-example: users-guide-060 -->
+<!-- tested-example: users-guide-061 -->
 ```rust,no_run
 use futures::StreamExt;
 use std::net::SocketAddr;
@@ -3247,7 +3248,7 @@ Phase out older message versions without breaking clients:
   dashboards.[^33][^8]
 - Remove adapters once the sunset window ends.
 
-<!-- tested-example: users-guide-061 -->
+<!-- tested-example: users-guide-062 -->
 ```rust,ignore
 use std::sync::Arc;
 use wireframe::{
@@ -3353,7 +3354,7 @@ who keep allocation budgets. It re-exports `stats_alloc`'s
 `INSTRUMENTED_SYSTEM` and `StatsAlloc` alongside `std::alloc::System`, so a
 benchmark binary opts in by installing the instrumenting allocator:
 
-<!-- tested-example: users-guide-062 -->
+<!-- tested-example: users-guide-063 -->
 ```rust
 use std::alloc::System;
 use wireframe_testing::benchmark_alloc_support::{INSTRUMENTED_SYSTEM, StatsAlloc};
@@ -3369,7 +3370,7 @@ Measure with `count_allocations`, which opens a window, resets the counter,
 runs the closure, samples the closing total, and closes the window before
 returning:
 
-<!-- tested-example: users-guide-063 -->
+<!-- tested-example: users-guide-064 -->
 ```rust
 use wireframe_testing::benchmark_alloc_support::count_allocations;
 
