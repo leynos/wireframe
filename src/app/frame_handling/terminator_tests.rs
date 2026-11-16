@@ -182,17 +182,17 @@ impl Sink<TaggedFrame> for RecordingSink {
     }
 }
 
-/// Build an untracked actor whose push queues stay open for the test.
-///
-/// # Errors
-///
-/// Returns [`PushConfigError`] if the queue capacities are rejected.
 /// Actor fixture paired with the push handle that keeps its queues open.
 type ActorFixture = (
     ConnectionActor<Envelope, (), TaggedFrame>,
     PushHandle<TaggedFrame>,
 );
 
+/// Build an untracked actor whose push queues stay open for the test.
+///
+/// # Errors
+///
+/// Returns [`PushConfigError`] if the queue capacities are rejected.
 fn build_actor() -> Result<ActorFixture, PushConfigError> {
     let (queues, handle) = PushQueues::<TaggedFrame>::builder()
         .high_capacity(1)

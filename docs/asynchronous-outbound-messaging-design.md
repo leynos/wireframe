@@ -907,7 +907,7 @@ features of the 1.0 release.
   frame loop. `handle_error` is forwarded to the actor, which invokes it when a
   driven response reports a protocol error. Terminator emission and
   `on_command_end` run in the inbound handler once the actor has finished
-driving the response: `stream_end_frame`'s frame is written without decoding
+  driving the response: `stream_end_frame`'s frame is written without decoding
   or re-wrapping, because the protocol returns a complete codec frame, and the
   completion hook runs only after that final write. `before_send` still
   observes the frame, so the adapter's bypass does not freeze its bytes. The
