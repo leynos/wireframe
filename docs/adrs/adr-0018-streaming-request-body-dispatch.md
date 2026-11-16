@@ -97,12 +97,21 @@ and again at end of connection.
 
 ### 3) Streaming bytes stay outside the assembly budgets
 
-A streaming message is never reassembled, so retaining its body in the assembly
-state would double-count bytes that have already been delivered.
-`MessageAssemblyState` keeps streaming partials in a separate map whose entries
-hold only the message key, the order and byte-count state, and the declared
-total. Delivered metadata and body bytes are not retained there, and a
-streaming partial therefore contributes nothing to `total_buffered_bytes`.
+A message delivered through the live slot is never reassembled, so retaining
+its body in the assembly state would double-count bytes that have already been
+delivered. `MessageAssemblyState` keeps streaming partials in a separate map
+whose entries hold only the message key, the order and byte-count state, and
+the declared total. The byte-count state records the first frame's metadata
+length so that later size checks charge it, but retains neither the metadata
+bytes nor the delivered body bytes, and a streaming partial therefore
+contributes nothing to `total_buffered_bytes`.
+
+A streaming-route message that completes while the slot is occupied is not a
+streaming body and is not an exception to the accounting above. Nothing can
+reach its handler until the slot frees, so it is assembled by the ordinary
+buffered path: its bytes are counted by the assembly budgets while it is
+incomplete, and by the parked-message account once it is complete and waiting.
+It is delivered later as a pre-filled, single-chunk body.
 
 The bytes the connection does retain are accounted elsewhere and added back
 into the pressure calculation:
