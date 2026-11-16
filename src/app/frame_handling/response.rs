@@ -51,10 +51,11 @@ pub(crate) enum Dispatch {
 /// installed on the connection actor with the request's correlation
 /// identifier: `Single`, `Vec`, and `Empty` complete immediately, while
 /// `Stream` and `MultiPacket` are driven to completion before the next inbound
-/// frame is read. Stream items inherit the request's correlation identifier
-/// lazily as they are polled; an item that supplies a different identifier is
-/// overwritten and logged as a warning. A route registered with `route` has no
-/// deferred body, so its bytes are wrapped in one [`Envelope`] and installed as
+/// frame is dispatched; the read half may buffer one request meanwhile. Stream
+/// items inherit the request's correlation identifier lazily as they are
+/// polled; an item that supplies a different identifier is overwritten and
+/// logged as a warning. A route registered with `route` has no deferred body,
+/// so its bytes are wrapped in one [`Envelope`] and installed as
 /// `Response::Single`, which is exactly one reply without a stream terminator.
 ///
 /// A cancelled response is the last thing written on its connection: its

@@ -146,8 +146,12 @@ observe it, and the adapter neither decodes nor restamps it, so tag, length, or
 padding metadata that a custom codec keeps outside the payload survives and the
 terminator carries the identifier the protocol encoded. The frame is not
 byte-preserved, because `before_send` may still rewrite it. `on_command_end`
-then runs after that final write. Neither hook runs when the connection shuts
-down or the peer disappears before the response completes.
+then runs after that final write. A shutdown or a clean peer half-close does
+not by itself suppress either hook: the prepared response keeps running under
+the idle grace, and if it completes, the terminator is written and
+`on_command_end` runs. Cancellation suppresses both: an idle grace that expires
+without the response completing, or an abandoned terminator write, leaves the
+response unfinished, so no terminator and no completion hook is emitted.
 
 The terminator write is bounded for the same reason the response frames are. A
 peer that stopped reading can block the last frame as readily as any other, so

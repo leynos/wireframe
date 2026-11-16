@@ -18,22 +18,25 @@ All notable changes to this project will be documented in this file.
   stream, or a multi-packet channel. Each prepared server connection now owns a
   private connection actor, so streamed and multi-packet responses are driven
   to completion through the connection's `FramePipeline` before the next
-  inbound frame is read, and every frame is stamped with the request
-  correlation id. Fragmentation, outbound metrics, serialization, codec
-  wrapping, and `before_send` therefore run in one fixed order for every
-  handler response. The protocol's `on_command_end`, `handle_error`, and
-  `stream_end_frame` callbacks now run on the prepared path; `on_command_end`
-  therefore fires once for an ordinary `route` reply, which existing protocols
-  previously did not observe. A completed stream is terminated by the codec
-  frame `stream_end_frame` returns, written without decoding or re-wrapping so
-  codec metadata outside the payload survives; the prepared path no longer
-  decodes that frame into an `Envelope` or restamps its correlation identifier.
-  The frame is not byte-preserved: `before_send` still runs, and a hook that
-  rewrites frames rewrites the terminator too. The protocol's
-  `on_connection_setup` and `on_eof` remain uninvoked on this path. A peer that
-  disconnects while a streamed response is idle no longer pins the connection:
-  the read half is watched during the response, and the response is bounded
-  when a buffered request stops that observation. **Breaking:**
+  inbound frame is dispatched; the read half may buffer one subsequent request
+  while the response runs, but that frame is not dispatched until the response
+  finishes. Data frames carry the request correlation id when the request
+  supplied one, and keep their own identifiers when it did not; a protocol
+  terminator is written as the protocol encoded it. Fragmentation, outbound
+  metrics, serialization, codec wrapping, and `before_send` therefore run in
+  one fixed order for every handler response. The protocol's `on_command_end`,
+  `handle_error`, and `stream_end_frame` callbacks now run on the prepared path;
+  `on_command_end` therefore fires once for an ordinary `route` reply, which
+  existing protocols previously did not observe. A completed stream is
+  terminated by the codec frame `stream_end_frame` returns, written without
+  decoding or re-wrapping so codec metadata outside the payload survives; the
+  prepared path no longer decodes that frame into an `Envelope` or restamps its
+  correlation identifier. The frame is not byte-preserved: `before_send` still
+  runs, and a hook that rewrites frames rewrites the terminator too. The
+  protocol's `on_connection_setup` and `on_eof` remain uninvoked on this path.
+  A peer that disconnects while a streamed response is idle no longer pins the
+  connection: the read half is watched during the response, and the response is
+  bounded when a buffered request stops that observation. **Breaking:**
   `PreparedApp::handle_connection_result` and the deprecated
   `WireframeApp::handle_connection*` methods now require `S: 'static` so the
   connection actor can retain the serializer in its protocol hooks. The
