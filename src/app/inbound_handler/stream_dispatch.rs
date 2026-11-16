@@ -287,6 +287,27 @@ where
     }
 }
 
+/// Fail the live body with `reason`, then end the loop with `step`.
+async fn fail_body_ending_with<S, E, F, W>(
+    state: &mut LoopState,
+    handles: &mut DispatchHandles<'_, S, E, F, W>,
+    reason: io::Error,
+    step: Step,
+) -> io::Result<Step>
+where
+    S: Serializer + Send + Sync,
+    E: Packet,
+    F: FrameCodec,
+    W: AsyncRead + AsyncWrite + Unpin,
+    Envelope: EncodeWith<S>,
+{
+    state
+        .streams
+        .close_active(Some(reason), handles.reborrow())
+        .await?;
+    Ok(step)
+}
+
 /// Fail the live body, then end the connection with the decoder error.
 async fn fail_after_decode_error<S, E, F, W>(
     state: &mut LoopState,
@@ -304,11 +325,7 @@ where
         error.kind(),
         "inbound frame decoding failed while a request body was open",
     );
-    state
-        .streams
-        .close_active(Some(reason), handles.reborrow())
-        .await?;
-    Ok(Step::Failed(error))
+    fail_body_ending_with(state, handles, reason, Step::Failed(error)).await
 }
 
 /// Fail the live body, answer parked messages, and end the connection cleanly.
@@ -327,10 +344,7 @@ where
         io::ErrorKind::UnexpectedEof,
         "connection closed before the request body completed",
     );
-    state
-        .streams
-        .close_active(Some(reason), handles.reborrow())
-        .await?;
+    fail_body_ending_with(state, handles, reason, Step::Closed).await?;
     drain_parked(state, handles).await?;
     Ok(Step::Closed)
 }

@@ -43,6 +43,33 @@ where
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
     crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
+    let decoded = decode_frame(frame, state, &mut handles)?;
+    route_outcome(decoded, state, handles).await
+}
+
+/// One decoded frame plus the context its routing needs.
+struct DecodedFrame {
+    /// Routing decision produced by the decoder.
+    outcome: FrameOutcome,
+    /// Whether a streaming body already owns the dispatch slot.
+    stream_live: bool,
+    /// Byte budget for any body chunk this frame carries.
+    budget: ChunkBudget,
+}
+
+/// Decode `frame` and measure the budget its routing needs.
+fn decode_frame<S, E, F, W>(
+    frame: &F::Frame,
+    state: &mut LoopState,
+    handles: &mut DispatchHandles<'_, S, E, F, W>,
+) -> io::Result<DecodedFrame>
+where
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    E: Packet,
+    F: FrameCodec,
+    W: AsyncRead + AsyncWrite + Unpin,
+    Envelope: DecodeWith<S> + EncodeWith<S>,
+{
     let stream_live = state.streams.is_live();
     let outcome = decode_outcome(FrameBuildContext::<S, F> {
         frame,
@@ -54,15 +81,50 @@ where
         message_assembly: &mut *handles.assembly,
         deser_failures: &mut state.deser_failures,
     })?;
-    let budget = ChunkBudget {
-        other_retained: handles
-            .assembly
-            .as_ref()
-            .map_or(0, MessageAssemblyState::total_buffered_bytes)
-            .saturating_add(handles.pipeline.fragmentation_buffered_bytes()),
-        limit: frame_handling::active_aggregate_limit_bytes(handles.ctx.effective_budgets),
-    };
+    Ok(DecodedFrame {
+        outcome,
+        stream_live,
+        budget: chunk_budget(handles),
+    })
+}
 
+/// Compute the byte budget one body chunk must fit within.
+fn chunk_budget<S, E, F, W>(handles: &DispatchHandles<'_, S, E, F, W>) -> ChunkBudget
+where
+    S: Serializer + Send + Sync,
+    E: Packet,
+    F: FrameCodec,
+    W: AsyncRead + AsyncWrite + Unpin,
+{
+    let other_retained = handles
+        .assembly
+        .as_ref()
+        .map_or(0, MessageAssemblyState::total_buffered_bytes)
+        .saturating_add(handles.pipeline.fragmentation_buffered_bytes());
+    ChunkBudget {
+        other_retained,
+        limit: frame_handling::active_aggregate_limit_bytes(handles.ctx.effective_budgets),
+    }
+}
+
+/// Hand one decoded outcome to the component that owns it.
+async fn route_outcome<S, E, F, W>(
+    decoded: DecodedFrame,
+    state: &mut LoopState,
+    mut handles: DispatchHandles<'_, S, E, F, W>,
+) -> io::Result<()>
+where
+    S: Serializer + Send + Sync,
+    E: Packet,
+    F: FrameCodec,
+    W: AsyncRead + AsyncWrite + Unpin,
+    Envelope: EncodeWith<S>,
+{
+    let DecodedFrame {
+        outcome,
+        stream_live,
+        budget,
+    } = decoded;
     match outcome {
         FrameOutcome::Pending | FrameOutcome::Discarded => Ok(()),
         FrameOutcome::Buffered(env) => dispatch_buffered(env, stream_live, state, handles).await,
