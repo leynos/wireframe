@@ -105,8 +105,18 @@ impl FrameCodec for TaggedCodec {
     fn max_frame_length(&self) -> usize { 1024 }
 }
 
+/// Observer the delivery-span test installs on the completion hook.
+pub(super) type CompletionProbe = Arc<dyn Fn() + Send + Sync>;
+
 /// Protocol that terminates streams with a frame carrying its own metadata.
-struct TaggingProtocol;
+struct TaggingProtocol {
+    /// Optional observer run from the completion hook.
+    ///
+    /// The delivery-span test uses it to record the span in force at
+    /// completion, which the forwarding path would otherwise only expose to a
+    /// real connection.
+    completion_probe: Option<CompletionProbe>,
+}
 
 impl WireframeProtocol for TaggingProtocol {
     type Frame = TaggedFrame;
@@ -117,6 +127,12 @@ impl WireframeProtocol for TaggingProtocol {
             tag: TERMINATOR_TAG,
             payload: vec![7],
         })
+    }
+
+    fn on_command_end(&self, _ctx: &mut ConnectionContext) {
+        if let Some(probe) = &self.completion_probe {
+            probe();
+        }
     }
 }
 
@@ -199,6 +215,23 @@ type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 pub(super) async fn forward_finished_stream(
     hooks: ProtocolHooks<TaggedFrame, ()>,
 ) -> Result<Vec<TaggedFrame>, Box<dyn std::error::Error + Send + Sync>> {
+    forward_finished_stream_with(hooks, None).await
+}
+
+/// Forward a finished stream, observing the completion hook if asked.
+///
+/// The completion hook belongs to the protocol rather than to
+/// [`ProtocolHooks`] on this path, so a test that needs to observe it supplies
+/// a probe here.
+///
+/// # Errors
+///
+/// Returns the push-queue configuration failure, or the transport error that
+/// [`super::forward_response`] reports.
+pub(super) async fn forward_finished_stream_with(
+    hooks: ProtocolHooks<TaggedFrame, ()>,
+    completion_probe: Option<CompletionProbe>,
+) -> Result<Vec<TaggedFrame>, Box<dyn std::error::Error + Send + Sync>> {
     let (mut actor, _handle) = build_actor()?;
     let codec = TaggedCodec;
     let serializer = BincodeSerializer;
@@ -206,7 +239,7 @@ pub(super) async fn forward_finished_stream(
     let mut pipeline: FramePipeline<TaggedFrame> = FramePipeline::with_hooks(None, hooks);
     let service = HandlerService::<Envelope>::from_service(7, FinishedStreamService);
     let protocol: Arc<dyn WireframeProtocol<Frame = TaggedFrame, ProtocolError = ()>> =
-        Arc::new(TaggingProtocol);
+        Arc::new(TaggingProtocol { completion_probe });
 
     super::forward_response(
         Envelope::new(7, Some(3), Vec::new()),

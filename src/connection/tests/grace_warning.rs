@@ -4,9 +4,14 @@
 //! The metric has unit coverage; this module pins the operator-facing log line,
 //! which names why observation stopped and which response was cancelled, so a
 //! later edit cannot silently drop the diagnostic operators rely on when a
-//! connection stalls.
+//! connection stalls. Both recorded causes are driven through a real actor, so
+//! the warning's cause is the one the inbound loop would have recorded rather
+//! than a value asserted only in isolation.
 
-use std::time::Duration;
+use std::{
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
@@ -15,7 +20,7 @@ use wireframe_testing::logger;
 use super::test_actor;
 use crate::{
     app::Envelope,
-    connection::ResponseOutcome,
+    connection::{ResponseOutcome, UnobservedCause},
     hooks::ProtocolHooks,
     response::{FrameStream, Response, WireframeError},
 };
@@ -24,13 +29,25 @@ use crate::{
 ///
 /// The actor is put into its bounded drain with a peer that never yields a
 /// frame, so the grace expires and the cancellation path runs against a real
-/// actor rather than a direct call to the helper.
+/// actor rather than a direct call to the helper. The cause cell is filled the
+/// way the inbound loop fills it, so the warning text under test is the one an
+/// operator sees for a half-close or a buffered request.
+#[rstest::rstest]
+#[case::half_close(UnobservedCause::HalfClose, "a half-close")]
+#[case::buffered_request(UnobservedCause::BufferedRequest, "a buffered request")]
 #[tokio::test(start_paused = true)]
-async fn an_idle_grace_cancellation_warns_with_the_response_identity() {
+async fn an_idle_grace_cancellation_warns_with_the_recorded_cause(
+    #[case] cause: UnobservedCause,
+    #[case] expected_cause: &str,
+) {
     let mut actor = test_actor(ProtocolHooks::default()).expect("actor should build");
     actor.set_peer_closed_grace(Duration::from_secs(5));
     let peer_closed = CancellationToken::new();
-    actor.set_peer_closed(peer_closed.clone());
+    let recorded_cause = Arc::new(OnceLock::new());
+    recorded_cause
+        .set(cause)
+        .expect("the cause cell starts empty");
+    actor.set_peer_observation(peer_closed.clone(), Arc::clone(&recorded_cause));
     let stalled: FrameStream<Envelope, ()> = Box::pin(futures::stream::pending::<
         Result<Envelope, WireframeError<()>>,
     >());
@@ -58,9 +75,7 @@ async fn an_idle_grace_cancellation_warns_with_the_response_identity() {
         .unwrap_or_else(|| panic!("the grace cancellation must warn; captured: {warnings:#?}"));
 
     for expected in [
-        // An untracked actor has no connection identity to report, so the
-        // warning states that rather than omitting the field.
-        "cause unknown",
+        expected_cause,
         "accepted no frame for 5s",
         "correlation=Some(7)",
         "cancelling",
@@ -70,4 +85,9 @@ async fn an_idle_grace_cancellation_warns_with_the_response_identity() {
             "the cancellation warning must name {expected}; captured: {warning}"
         );
     }
+    assert!(
+        !warning.contains("cause unknown"),
+        "the warning must report the recorded cause rather than an unknown one; captured: \
+         {warning}"
+    );
 }
