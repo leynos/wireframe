@@ -97,6 +97,98 @@ async fn admission_waits_while_the_combined_limit_is_full() {
     assert_eq!(queued.queued(), 4, "the resumed chunk is now queued");
 }
 
+/// Two producers sharing an account must not both pass admission.
+///
+/// Admission used to read the account and charge it only once channel
+/// capacity arrived. A second producer could charge during that wait, so the
+/// waiting chunk pushed the account past the limit when it finally landed.
+#[tokio::test]
+async fn admission_reserves_bytes_while_it_waits_for_channel_capacity() {
+    let queued = QueuedBytes::new();
+    let (first, mut first_body) = accounted_body_channel(1, queued.clone());
+    let (second, second_body) = accounted_body_channel(4, queued.clone());
+
+    // A zero-byte chunk fills the first channel without touching the account,
+    // so the next send there must wait for capacity rather than for room.
+    first
+        .clone()
+        .send_chunk(Bytes::from_static(b""), 0, LIMIT)
+        .await
+        .expect("an empty queue admits one chunk");
+    assert_eq!(queued.queued(), 0);
+
+    let waiting = first.send_chunk(Bytes::from_static(b"aaaa"), 0, LIMIT);
+    tokio::pin!(waiting);
+    assert!(
+        timeout(BLOCKED, &mut waiting).await.is_err(),
+        "the send should wait for the channel slot"
+    );
+    assert_eq!(
+        queued.queued(),
+        4,
+        "a chunk waiting for capacity still holds its reservation"
+    );
+
+    second
+        .clone()
+        .send_chunk(Bytes::from_static(b"bbbb"), 0, LIMIT)
+        .await
+        .expect("the remaining room admits the second chunk");
+    assert_eq!(queued.queued(), LIMIT, "the account is now exactly full");
+
+    let overflowing = second.send_chunk(Bytes::from_static(b"cccc"), 0, LIMIT);
+    tokio::pin!(overflowing);
+    assert!(
+        timeout(BLOCKED, &mut overflowing).await.is_err(),
+        "reserved bytes must count against the limit for every producer"
+    );
+
+    let filling = first_body.next().await.expect("the channel should yield");
+    assert!(
+        filling.expect("the chunk is not an error").is_empty(),
+        "the zero-byte chunk frees the channel slot"
+    );
+    timeout(RESUMES, waiting)
+        .await
+        .expect("the waiting chunk should land once capacity frees")
+        .expect("the waiting chunk was admitted");
+
+    assert_eq!(
+        queued.queued(),
+        LIMIT,
+        "the account never exceeds its limit"
+    );
+    drop(second_body);
+}
+
+/// Abandoning a send releases the room it reserved.
+#[tokio::test]
+async fn dropping_a_waiting_send_releases_its_reservation() {
+    let queued = QueuedBytes::new();
+    let (sender, _body) = accounted_body_channel(1, queued.clone());
+    sender
+        .clone()
+        .send_chunk(Bytes::from_static(b""), 0, LIMIT)
+        .await
+        .expect("an empty queue admits one chunk");
+
+    // Boxed so that dropping the binding drops the future itself: a `pin!`
+    // binding only pins a hidden local that outlives the reference.
+    let mut waiting = Box::pin(sender.send_chunk(Bytes::from_static(b"aaaa"), 0, LIMIT));
+    assert!(
+        timeout(BLOCKED, &mut waiting).await.is_err(),
+        "the send should wait for the channel slot"
+    );
+    assert_eq!(queued.queued(), 4, "the waiting send reserved its bytes");
+
+    drop(waiting);
+    assert_eq!(
+        queued.queued(),
+        0,
+        "an abandoned send must not keep its reservation"
+    );
+}
+
 /// A waiting admission must observe a closed receiver directly.
 ///
 /// A dropped receiver only releases the chunks it still holds, so closing it
