@@ -1,6 +1,8 @@
 //! Unit tests for inbound message assembly integration.
 #![cfg(test)]
 
+mod streaming_first_frame;
+
 use std::{
     collections::HashMap,
     fmt::Display,

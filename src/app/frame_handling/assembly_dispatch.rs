@@ -77,9 +77,12 @@ fn dispatch_first(
         correlation_id: correlation_id.map(Into::into),
     };
     if opens_stream(streaming_routes, envelope_id, stream_live) {
-        let input = buffered_assembly::build_first_frame_input(header, body, routing)
-            .map_err(|err| record_invalid(failures, correlation_id, err))?;
-        return stream_assembly::accept_streaming_first(state, failures, correlation_id, input);
+        return match buffered_assembly::build_first_frame_input(header, body, routing) {
+            Ok(input) => {
+                stream_assembly::accept_streaming_first(state, failures, correlation_id, input)
+            }
+            Err(err) => record_malformed_first(failures, correlation_id, err),
+        };
     }
     let mut context = assembly_context(state, failures, correlation_id);
     let admitted = buffered_assembly::admit_first_frame(&mut context, header, body, routing)?;
@@ -183,23 +186,24 @@ fn request_parts(routing: EnvelopeRouting, metadata: Vec<u8>) -> RequestParts {
     )
 }
 
-/// Record a malformed frame and return the resulting error for `?`.
+/// Record a malformed streaming first frame, staying pending below the limit.
 ///
-/// Returns the recorded failure-limit error when recording exhausts the
-/// malformed-frame budget, so the connection ends for the right reason.
-fn record_invalid(
+/// A malformed frame is a peer error rather than a fatal one: the connection
+/// ends only once the malformed-frame budget is exhausted. Returning pending
+/// keeps that contract identical to the buffered path in
+/// [`buffered_assembly::admit_first_frame`], so a streaming route does not
+/// terminate a connection that a buffered route would have survived.
+fn record_malformed_first(
     failures: &mut DeserFailureTracker<'_>,
     correlation_id: Option<u64>,
     err: io::Error,
-) -> io::Error {
-    failures
-        .record(
-            correlation_id,
-            "message assembly first frame malformed",
-            &err,
-        )
-        .err()
-        .unwrap_or(err)
+) -> io::Result<FrameOutcome> {
+    failures.record(
+        correlation_id,
+        "message assembly first frame malformed",
+        err,
+    )?;
+    Ok(FrameOutcome::Pending)
 }
 
 /// Record a continuation length mismatch and return a pending outcome.
