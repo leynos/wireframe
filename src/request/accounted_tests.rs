@@ -97,6 +97,39 @@ async fn admission_waits_while_the_combined_limit_is_full() {
     assert_eq!(queued.queued(), 4, "the resumed chunk is now queued");
 }
 
+/// A waiting admission must observe a closed receiver directly.
+///
+/// A dropped receiver only releases the chunks it still holds, so closing it
+/// does not necessarily notify the byte account. Here the queued bytes belong
+/// to an earlier body that shares the connection account, so nothing wakes the
+/// parked admission except the channel closing.
+#[tokio::test]
+async fn a_waiting_admission_observes_a_closed_receiver() {
+    let queued = QueuedBytes::new();
+    let (earlier, _earlier_body) = accounted_body_channel(1, queued.clone());
+    earlier
+        .send_chunk(Bytes::from_static(b"0123456789"), 0, 3)
+        .await
+        .expect("an empty queue admits the oversized chunk");
+
+    let (sender, body) = accounted_body_channel(4, queued.clone());
+    let pending = sender.send_chunk(Bytes::from_static(b"bbbb"), 0, 3);
+    tokio::pin!(pending);
+    assert!(
+        timeout(BLOCKED, &mut pending).await.is_err(),
+        "admission must wait while the shared account is full"
+    );
+
+    drop(body);
+
+    assert_eq!(
+        timeout(RESUMES, pending)
+            .await
+            .expect("a closed receiver should wake the waiting admission"),
+        Err(SendChunkError::Closed),
+    );
+}
+
 #[tokio::test]
 async fn an_oversized_chunk_is_admitted_to_an_empty_queue() {
     let queued = QueuedBytes::new();

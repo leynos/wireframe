@@ -170,7 +170,13 @@ impl AccountedBodySender {
             if self.tx.is_closed() {
                 return Err(SendChunkError::Closed);
             }
-            released.await;
+            // A closed receiver never notifies the byte account, so waiting on
+            // a release alone would park this send until some other body
+            // released bytes or the handler resolved.
+            tokio::select! {
+                () = &mut released => {}
+                () = self.tx.closed() => return Err(SendChunkError::Closed),
+            }
         }
     }
 }
