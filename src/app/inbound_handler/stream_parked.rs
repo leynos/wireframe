@@ -207,7 +207,7 @@ where
     frame_handling::forward_service_response(
         route_id,
         correlation_id,
-        payload.map(|payload| payload.to_vec()),
+        payload.map(|bytes| bytes.to_vec()),
         ResponseContext {
             serializer: handles.ctx.serializer,
             framed: handles.framed,
