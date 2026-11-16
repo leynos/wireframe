@@ -1,8 +1,23 @@
 //! Unit tests for the connection-owned streaming slot.
 
-use std::{future, time::Duration};
+use std::{future, io, time::Duration};
 
-use super::{ActiveStream, PendingEvent, PendingSend};
+use bytes::Bytes;
+use futures::StreamExt;
+
+use super::{
+    ActiveStream,
+    HandlerFuture,
+    PendingEvent,
+    PendingSend,
+    deliver_then_await,
+};
+use crate::request::{
+    AccountedBodySender,
+    QueuedBytes,
+    RequestBodyStream,
+    accounted_body_channel,
+};
 
 #[tokio::test(start_paused = true)]
 async fn a_stalled_admission_returns_control_after_the_read_timeout() {
@@ -56,4 +71,70 @@ fn stalled_stream() -> ActiveStream {
             is_last: false,
         }),
     }
+}
+/// A terminal error must reach a handler whose body channel is already full.
+///
+/// Redelivering it before polling the handler would deadlock: the error needs a
+/// channel slot, and only the handler can free one.
+#[tokio::test(start_paused = true)]
+async fn a_terminal_error_reaches_a_handler_whose_channel_is_full() {
+    let (sender, body) = accounted_body_channel(1, QueuedBytes::new());
+    queue_one_chunk(&sender).await;
+    let mut handler: HandlerFuture = Box::pin(read_until_terminal(body));
+
+    let outcome = deliver_then_await(
+        Duration::from_secs(1),
+        io::Error::new(io::ErrorKind::UnexpectedEof, "truncated body"),
+        sender,
+        &mut handler,
+    )
+    .await;
+
+    assert_eq!(
+        outcome.as_deref(),
+        Some(b"error".as_slice()),
+        "the handler should observe the failure, not a clean end of stream"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn terminal_delivery_is_bounded_when_the_handler_never_reads() {
+    let (sender, body) = accounted_body_channel(1, QueuedBytes::new());
+    queue_one_chunk(&sender).await;
+    let mut handler: HandlerFuture = Box::pin(future::pending());
+
+    let outcome = deliver_then_await(
+        Duration::from_millis(50),
+        io::Error::new(io::ErrorKind::UnexpectedEof, "truncated body"),
+        sender,
+        &mut handler,
+    )
+    .await;
+
+    // Keep the receiver alive until the wait expires, so the delivery really is
+    // stalled on channel capacity rather than on a closed channel.
+    drop(body);
+    assert_eq!(
+        outcome, None,
+        "an unresponsive handler should still be bounded by the wait"
+    );
+}
+
+/// Fill the body channel so the next send must wait for the consumer.
+async fn queue_one_chunk(sender: &AccountedBodySender) {
+    sender
+        .clone()
+        .send_chunk(Bytes::from_static(b"chunk"), 0, usize::MAX)
+        .await
+        .expect("an empty queue admits one chunk");
+}
+
+/// Read the body to its end, reporting whether the terminal error arrived.
+async fn read_until_terminal(mut body: RequestBodyStream) -> Option<Vec<u8>> {
+    while let Some(item) = body.next().await {
+        if item.is_err() {
+            return Some(b"error".to_vec());
+        }
+    }
+    Some(b"clean".to_vec())
 }

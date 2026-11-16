@@ -280,15 +280,17 @@ impl ConnectionStreams {
             return Ok(());
         };
         active.pending = None;
-        if let (Some(error), Some(sender)) = (terminal, active.sender.clone()) {
-            deliver_terminal(handles.wait, error, sender).await;
-        }
-        active.sender = None;
+        let sender = active.sender.take();
         discard_streaming(active.key, handles.assembly);
-        let outcome = timeout(handles.wait, &mut active.handler)
-            .await
-            .ok()
-            .flatten();
+        let outcome = match (terminal, sender) {
+            (Some(error), Some(sender)) => {
+                deliver_then_await(handles.wait, error, sender, &mut active.handler).await
+            }
+            _ => timeout(handles.wait, &mut active.handler)
+                .await
+                .ok()
+                .flatten(),
+        };
         forward_reply(active.route_id, active.correlation_id, outcome, handles).await
     }
 
@@ -355,6 +357,37 @@ impl ConnectionStreams {
 fn discard_streaming(key: Option<MessageKey>, assembly: &mut Option<MessageAssemblyState>) {
     if let (Some(live_key), Some(assembly_state)) = (key, assembly.as_mut()) {
         assembly_state.discard_streaming(live_key);
+    }
+}
+
+/// Deliver a terminal body error while the handler drains, then await it.
+///
+/// The error needs a slot on the same bounded channel that carries body chunks,
+/// so delivering it before polling the handler would deadlock whenever that
+/// channel is full: only the handler can free a slot, and it is not running.
+/// The timeout on the delivery would then drop the error, the sender would
+/// close, and a truncated body would look like a clean end of stream.
+///
+/// Polling both together lets the handler take the queued chunks and then
+/// observe the failure. The wait bounds the whole exchange, so a handler that
+/// never reads still cannot hold the connection open.
+async fn deliver_then_await(
+    wait: Duration,
+    error: io::Error,
+    sender: AccountedBodySender,
+    handler: &mut HandlerFuture,
+) -> Option<Vec<u8>> {
+    let delivery = deliver_terminal(wait, error, sender);
+    tokio::pin!(delivery);
+    let deadline = tokio::time::sleep(wait);
+    tokio::pin!(deadline);
+    let mut is_delivered = false;
+    loop {
+        tokio::select! {
+            () = &mut delivery, if !is_delivered => is_delivered = true,
+            outcome = handler.as_mut() => return outcome,
+            () = &mut deadline => return None,
+        }
     }
 }
 
