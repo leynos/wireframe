@@ -2928,7 +2928,7 @@ disconnect that arrives afterwards still releases the connection. If the grace
 expires, the response is cancelled without a terminator and the connection
 closes, so the buffered request is not served: a later response would otherwise
 be read as part of the truncated stream. Independent input and output are
-tracked by [RFC 0004](rfcs/0004-duplex-session-driver.md) and roadmap item
+tracked by [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md) and roadmap item
 21.2.2.
 
 The protocol callbacks that run for application responses are `before_send`,

@@ -563,7 +563,7 @@ staying true to the architecture already in production use.
   handler, stream, and multi-packet frames share one ordering. A streamed or
   multi-packet response is driven to completion before the next inbound frame
   is dispatched, so this change does not yet deliver independent input and
-  output; [RFC 0004](rfcs/0004-duplex-session-driver.md) and roadmap item
+  output; [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md) and roadmap item
   21.2.2 remain open. While such a response runs, the inbound loop still polls
   the read half for one frame, so a peer that leaves during an idle stream is
   noticed: a read error fails the connection, and a clean half-close lets the
