@@ -37,6 +37,8 @@ use crate::{
     serializer::{BincodeSerializer, Serializer},
 };
 
+mod accessors;
+
 /// An immutable application template with fully transformed route services.
 ///
 /// Obtain this type by consuming a [`WireframeApp`] with
@@ -341,74 +343,6 @@ where
                 None::<u64>
             );
         }
-    }
-}
-
-impl<S, C, E, F> PreparedApp<S, C, E, F>
-where
-    S: Serializer + Send + Sync,
-    C: Send + 'static,
-    E: Packet,
-    F: FrameCodec,
-{
-    /// Get a clone of the configured protocol, if any.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use wireframe::app::{PreparedApp, WireframeApp};
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
-    /// assert!(prepared.protocol().is_none());
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[must_use]
-    pub fn protocol(
-        &self,
-    ) -> Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>> {
-        self.protocol.clone()
-    }
-
-    /// Return protocol hooks derived from the installed protocol.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use wireframe::app::{PreparedApp, WireframeApp};
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
-    /// let hooks = prepared.protocol_hooks();
-    /// # let _ = hooks;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[must_use]
-    pub fn protocol_hooks(&self) -> crate::hooks::ProtocolHooks<F::Frame, ()> {
-        self.protocol.as_ref().map_or_else(
-            crate::hooks::ProtocolHooks::default,
-            crate::hooks::ProtocolHooks::from_protocol,
-        )
-    }
-
-    /// Get the configured message assembler, if any.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use wireframe::app::{PreparedApp, WireframeApp};
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
-    /// assert!(prepared.message_assembler().is_none());
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[must_use]
-    pub fn message_assembler(&self) -> Option<&Arc<dyn MessageAssembler>> {
-        self.message_assembler.as_ref()
     }
 }
 
