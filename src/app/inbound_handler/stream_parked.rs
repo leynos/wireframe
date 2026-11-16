@@ -66,10 +66,7 @@ pub(super) enum ParkedMessage {
 /// already waiting. The caller ends the connection in that case, because the
 /// alternative is to absorb messages from a peer that never completes the body
 /// holding the dispatch slot.
-pub(super) fn park(
-    parked: &mut VecDeque<ParkedMessage>,
-    message: ParkedMessage,
-) -> io::Result<()> {
+pub(super) fn park(parked: &mut VecDeque<ParkedMessage>, message: ParkedMessage) -> io::Result<()> {
     if parked.len() >= MAX_PARKED_MESSAGES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,

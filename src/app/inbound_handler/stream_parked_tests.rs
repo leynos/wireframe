@@ -40,7 +40,10 @@ fn park_accepts_a_message_once_the_queue_drains() {
     for _ in 0..MAX_PARKED_MESSAGES {
         assert!(park(&mut parked, empty_envelope()).is_ok());
     }
-    assert!(parked.pop_front().is_some(), "the queue should have an entry");
+    assert!(
+        parked.pop_front().is_some(),
+        "the queue should have an entry"
+    );
 
     assert!(
         park(&mut parked, empty_envelope()).is_ok(),

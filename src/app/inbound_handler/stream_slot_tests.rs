@@ -5,19 +5,8 @@ use std::{future, io, time::Duration};
 use bytes::Bytes;
 use futures::StreamExt;
 
-use super::{
-    ActiveStream,
-    HandlerFuture,
-    PendingEvent,
-    PendingSend,
-    deliver_then_await,
-};
-use crate::request::{
-    AccountedBodySender,
-    QueuedBytes,
-    RequestBodyStream,
-    accounted_body_channel,
-};
+use super::{ActiveStream, HandlerFuture, PendingEvent, PendingSend, deliver_then_await};
+use crate::request::{AccountedBodySender, QueuedBytes, RequestBodyStream, accounted_body_channel};
 
 #[tokio::test(start_paused = true)]
 async fn a_stalled_admission_returns_control_after_the_read_timeout() {
