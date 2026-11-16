@@ -1391,6 +1391,7 @@ Buffered routes registered with `WireframeApp::route` are unchanged: their
 payload is reassembled before the handler runs, and their reply is the
 reassembled request payload unless middleware replaces it.
 
+<!-- tested-example: users-guide-030 -->
 ```rust,no_run
 use std::sync::Arc;
 
@@ -1480,7 +1481,7 @@ exception cannot hide an overrun.
 `RequestBodyReader` adapts the stream to `AsyncRead`, allowing protocol crates
 to reuse existing parsers:
 
-<!-- tested-example: users-guide-030 -->
+<!-- tested-example: users-guide-031 -->
 ```rust,no_run
 use tokio::io::AsyncReadExt;
 use wireframe::request::{RequestBodyReader, RequestBodyStream, RequestParts};
@@ -1499,7 +1500,7 @@ async fn read_upload(parts: RequestParts, body: RequestBodyStream) {
 existing parsers. For raw stream access, use `RequestBodyStream` directly with
 `StreamExt` methods:
 
-<!-- tested-example: users-guide-031 -->
+<!-- tested-example: users-guide-032 -->
 ```rust,no_run
 use bytes::Bytes;
 use futures::StreamExt;
