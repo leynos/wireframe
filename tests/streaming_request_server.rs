@@ -12,21 +12,27 @@
 //! # Examples
 //!
 //! ```ignore
-//! let address = serve_once(collecting_handler(Arc::clone(&received))).await?;
+//! let (address, server) = serve_once(collecting_handler(Arc::clone(&received))).await?;
 //! let mut client = connect(address).await?;
 //! send_request(&mut client, &first_frame).await?;
+//! // ... drive the exchange, then prove the server finished cleanly:
+//! finish_server(server).await?;
 //! ```
 
 #![forbid(unsafe_code)]
 
 use std::{
     io,
+    net::SocketAddr,
     sync::{Arc, Mutex},
 };
 
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    task::JoinHandle,
+};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, StreamingHandler, WireframeApp},
@@ -45,26 +51,39 @@ const BUFFER_CAPACITY: usize = 512;
 type Client = Framed<TcpStream, LengthDelimitedCodec>;
 
 /// Serve exactly one connection with the supplied streaming handler.
+///
+/// The server task is returned rather than detached, so a test can prove the
+/// connection handler finished without an error instead of abandoning it.
 #[expect(
     deprecated,
     reason = "end-to-end coverage of the legacy builder connection API"
 )]
-async fn serve_once(handler: StreamingHandler) -> TestResult<std::net::SocketAddr> {
+async fn serve_once(
+    handler: StreamingHandler,
+) -> TestResult<(SocketAddr, JoinHandle<io::Result<()>>)> {
     let app: WireframeApp = WireframeApp::new()?
         .buffer_capacity(BUFFER_CAPACITY)
         .with_message_assembler(test_helpers::TestAssembler)
         .streaming_route(STREAM_ROUTE, handler)?;
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
-    tokio::spawn(async move {
+    let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await?;
         app.handle_connection_result(stream).await
     });
-    Ok(address)
+    Ok((address, server))
+}
+
+/// Await the server task, reporting a join failure or a connection error.
+async fn finish_server(server: JoinHandle<io::Result<()>>) -> TestResult {
+    match server.await {
+        Ok(result) => Ok(result?),
+        Err(error) => Err(format!("the server task failed: {error}").into()),
+    }
 }
 
 /// Connect a length-delimited client to `address`.
-async fn connect(address: std::net::SocketAddr) -> TestResult<Client> {
+async fn connect(address: SocketAddr) -> TestResult<Client> {
     let stream = TcpStream::connect(address).await?;
     Ok(Framed::new(stream, LengthDelimitedCodec::new()))
 }
@@ -178,7 +197,7 @@ fn assert_no_reply(has_reply: bool) {
 #[tokio::test]
 async fn streaming_body_reaches_the_handler_over_tcp() -> TestResult {
     let received = Arc::new(Mutex::new(Vec::new()));
-    let address = serve_once(collecting_handler(Arc::clone(&received))).await?;
+    let (address, server) = serve_once(collecting_handler(Arc::clone(&received))).await?;
     let mut client = connect(address).await?;
 
     let first = test_helpers::first_frame_payload(1.into(), b"alpha", false, None)?;
@@ -188,6 +207,7 @@ async fn streaming_body_reaches_the_handler_over_tcp() -> TestResult {
 
     let reply = read_reply(&mut client).await?;
     close_client(&mut client).await?;
+    finish_server(server).await?;
     let body = received
         .lock()
         .map_err(|_| "handler buffer poisoned")?
@@ -202,13 +222,14 @@ async fn streaming_body_reaches_the_handler_over_tcp() -> TestResult {
 #[tokio::test]
 async fn closing_the_connection_mid_body_reports_unexpected_eof() -> TestResult {
     let observed: Arc<Mutex<Option<io::ErrorKind>>> = Arc::new(Mutex::new(None));
-    let address = serve_once(observing_handler(Arc::clone(&observed))).await?;
+    let (address, server) = serve_once(observing_handler(Arc::clone(&observed))).await?;
     let mut client = connect(address).await?;
 
     let first = test_helpers::first_frame_payload(2.into(), b"partial", false, None)?;
     send_request(&mut client, &first).await?;
     close_client(&mut client).await?;
     let has_reply = client.next().await.is_some();
+    finish_server(server).await?;
     let kind = *observed.lock().map_err(|_| "observation slot poisoned")?;
 
     assert_truncated(kind);
