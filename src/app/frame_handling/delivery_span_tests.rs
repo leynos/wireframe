@@ -4,16 +4,23 @@
 //! it: the request and correlation identifiers, whether the response streamed,
 //! and the final outcome recorded after the terminator and completion hook have
 //! run. A test that inspects the recording API only proves the fields exist;
-//! only a captured close event proves they reach a subscriber. This module
+//! only a span reaching a subscriber proves they are exported. This module
 //! drives a streamed response through the real forwarding path under a
 //! capturing subscriber and asserts the exported fields. A second scenario
 //! probes from inside the protocol hooks, proving the span is still in force
 //! while the terminator is written and the completion hook runs, which is what
 //! makes the recorded outcome describe both.
+//!
+//! Two pieces of harness care are needed. Each scenario installs its subscriber
+//! with `set_default`, scoped to the test thread, because the process-wide slot
+//! belongs to `tracing_test`: installing a global default here would fail and
+//! poison `tracing_test` for every other test in the binary. Interest caching is
+//! then kept permissive by [`keep_interest_cache_permissive`], without which
+//! the delivery span is silently never created.
 
 use std::{
     io,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
 };
 
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -26,12 +33,38 @@ use super::terminator_tests::{
 };
 use crate::hooks::{ConnectionContext, ProtocolHooks};
 
+/// Keep the process-wide callsite interest cache permissive.
+///
+/// `tracing-core` recomputes every callsite's cached interest whenever a
+/// dispatcher is registered. With at most one registered dispatcher it consults
+/// the registering thread's default dispatcher instead, so a thread with no
+/// default — every test thread before its first installation — caches "never"
+/// for every callsite. The delivery span would then never be created, and its
+/// hooks would run outside any span. Keeping two permissive registries alive
+/// switches the cache to the mode that combines the registered dispatchers,
+/// which is stable across threads and registration order. They are kept in a
+/// `OnceLock` rather than dropped because a dropped dispatcher is pruned from
+/// the registry on the next registration.
+fn keep_interest_cache_permissive() {
+    static REGISTRIES: OnceLock<Vec<tracing::Dispatch>> = OnceLock::new();
+    let kept = REGISTRIES.get_or_init(|| {
+        (0..2)
+            .map(|_| tracing::Dispatch::new(tracing_subscriber::registry()))
+            .collect()
+    });
+    debug_assert_eq!(
+        kept.len(),
+        2,
+        "both permissive registries must stay registered"
+    );
+}
+
 /// Buffer the capturing subscriber formats span events into.
 #[derive(Clone, Default)]
 struct CapturedOutput(Arc<Mutex<Vec<u8>>>);
 
 impl CapturedOutput {
-    /// Everything the subscriber has written so far, as text.
+    /// Everything captured so far, as text.
     ///
     /// The subscriber formats span events, so a lossy conversion is enough:
     /// the assertions look for ASCII field names and values.
@@ -62,21 +95,33 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for CapturedOutput {
     fn make_writer(&'a self) -> Self::Writer { self.clone() }
 }
 
-/// A completed stream records its outcome on the delivery span.
+/// Install a capturing subscriber for the current test thread.
 ///
-/// The subscriber guard is thread-local, so the test keeps the default
-/// current-thread runtime: the forwarder must run on the thread that installed
-/// the capture.
-#[tokio::test]
-async fn a_completed_stream_records_its_outcome_on_the_delivery_span() {
-    let captured = CapturedOutput::default();
+/// Span close events are formatted so the delivery span's recorded fields reach
+/// the capture; the guard must stay alive for the whole scenario. The interest
+/// rebuild recomputes the cache against the now-current subscriber.
+fn capture_spans(captured: &CapturedOutput) -> tracing::subscriber::DefaultGuard {
+    keep_interest_cache_permissive();
     let subscriber = tracing_subscriber::fmt()
         .with_writer(captured.clone())
         .with_ansi(false)
         .with_max_level(tracing::Level::TRACE)
         .with_span_events(FmtSpan::CLOSE)
         .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
+    let guard = tracing::subscriber::set_default(subscriber);
+    tracing::callsite::rebuild_interest_cache();
+    guard
+}
+
+/// A completed stream records its outcome on the delivery span.
+///
+/// The capture is scoped to the test thread, so the test keeps the default
+/// current-thread runtime: the forwarder must run on the thread that installed
+/// it.
+#[tokio::test]
+async fn a_completed_stream_records_its_outcome_on_the_delivery_span() {
+    let captured = CapturedOutput::default();
+    let _capture = capture_spans(&captured);
 
     let frames = forward_finished_stream(ProtocolHooks::default())
         .await
@@ -172,10 +217,11 @@ fn span_probing_completion(observations: SpanObservations) -> CompletionProbe {
 /// The span records its outcome after the instrumented future resolves, so the
 /// recording only describes the terminator and the hook if both run while the
 /// span is current. Probing from inside each hook proves that directly, which
-/// a close-event capture alone cannot.
+/// a close-event capture alone cannot. The subscriber is installed only to
+/// enable spans; the probes read the span directly.
 #[tokio::test]
 async fn the_delivery_span_covers_the_terminator_and_completion_hook() {
-    let _guard = tracing::subscriber::set_default(tracing_subscriber::registry());
+    let _capture = capture_spans(&CapturedOutput::default());
 
     let observations = SpanObservations::default();
     let frames = forward_finished_stream_with(
