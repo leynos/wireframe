@@ -683,6 +683,7 @@ instead of exactly one reply. `ResponseHandler<E>` is re-exported from
 request of that type and may hold the borrow across an `await`, and it must
 return `Response<Envelope, ()>` rather than bytes.
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-021 -->
 ```rust,no_run
 use std::sync::Arc;
 
