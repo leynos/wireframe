@@ -2,6 +2,8 @@
 
 use std::{future::Future, pin::Pin, sync::Arc};
 
+use bytes::Bytes;
+
 use super::envelope::Packet;
 use crate::{
     middleware::{HandlerService, Transform},
@@ -16,11 +18,15 @@ pub type Handler<E> = Arc<dyn Fn(&E) -> Pin<Box<dyn Future<Output = ()> + Send>>
 /// Alias for handlers that consume a streaming request body.
 ///
 /// The handler receives routing metadata separately from the body and returns
-/// an optional response payload. Returning `None` suppresses the response
-/// frame. Streaming handlers do not run the middleware chain: middleware sees
-/// a whole payload, while a streaming handler owns the body incrementally.
+/// an optional response payload. The payload is [`Bytes`] rather than
+/// `Vec<u8>`: ADR 008 makes the zero-copy container the stable public payload
+/// type, and a new public surface must not add another `Vec<u8>` hand-off that
+/// the migration would later have to remove.
+/// Returning `None` suppresses the response frame. Streaming handlers do not
+/// run the middleware chain: middleware sees a whole payload, while a
+/// streaming handler owns the body incrementally.
 pub type StreamingHandler = Arc<
-    dyn Fn(RequestParts, RequestBodyStream) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send>>
+    dyn Fn(RequestParts, RequestBodyStream) -> Pin<Box<dyn Future<Output = Option<Bytes>> + Send>>
         + Send
         + Sync,
 >;

@@ -8,6 +8,7 @@
 
 use std::{io, pin::Pin, time::Duration};
 
+use bytes::Bytes;
 use futures::Future;
 use log::debug;
 use tokio::{
@@ -46,14 +47,14 @@ use crate::{
 };
 
 /// Future returned by a streaming route handler.
-pub(super) type HandlerFuture = Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send + 'static>>;
+pub(super) type HandlerFuture = Pin<Box<dyn Future<Output = Option<Bytes>> + Send + 'static>>;
 
 /// One step while a chunk admission is in flight.
 pub(super) enum PendingEvent {
     /// The chunk was queued, or the consumer had gone away.
     Send(Result<(), SendChunkError>),
     /// The handler resolved first; the admission is cancelled.
-    Handler(Option<Vec<u8>>),
+    Handler(Option<Bytes>),
     /// The bounded wait elapsed with the admission still queued.
     Idle,
 }
@@ -243,7 +244,7 @@ impl ConnectionStreams {
     /// Finish the exchange after the handler resolved on its own.
     pub(super) async fn finish_active<S, E, F, W>(
         &mut self,
-        outcome: Option<Vec<u8>>,
+        outcome: Option<Bytes>,
         handles: DispatchHandles<'_, S, E, F, W>,
     ) -> io::Result<()>
     where

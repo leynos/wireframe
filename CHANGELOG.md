@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Deliver streaming request bodies to route handlers. A route registered with
+  `WireframeApp::streaming_route` receives `RequestParts` and a
+  `RequestBodyStream` while the message's frames are still arriving, under the
+  same per-message cap, declared-total check, and connection byte budgets as
+  buffered assembly. The handler returns an `Option<Bytes>` reply, and
+  middleware does not run for these routes. See
+  [ADR 018](docs/adrs/adr-0018-streaming-request-body-dispatch.md) and the
+  [users' guide](docs/users-guide.md#streaming-request-body-consumption).
+  ([#876](https://github.com/leynos/wireframe/issues/876))
+
 - **Breaking:** Remove the `wireframe::extractor` module, `AppDataStore`, and
   `WireframeApp::app_data`. No dispatch path invoked the extractor traits, so
   handlers could never receive `SharedState<T>`, `Message<T>`,

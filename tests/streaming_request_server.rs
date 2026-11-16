@@ -122,17 +122,14 @@ fn collecting_handler(received: Arc<Mutex<Vec<u8>>>) -> StreamingHandler {
 }
 
 /// Read `body` to its end, appending each chunk to `received`.
-async fn collect_body(
-    mut body: RequestBodyStream,
-    received: Arc<Mutex<Vec<u8>>>,
-) -> Option<Vec<u8>> {
+async fn collect_body(mut body: RequestBodyStream, received: Arc<Mutex<Vec<u8>>>) -> Option<Bytes> {
     while let Some(chunk) = body.next().await {
         let bytes = chunk.ok()?;
         if let Ok(mut buffer) = received.lock() {
             buffer.extend_from_slice(&bytes);
         }
     }
-    Some(b"done".to_vec())
+    Some(Bytes::from_static(b"done"))
 }
 
 /// Handler that records how the request body ended and never replies.
@@ -146,7 +143,7 @@ fn observing_handler(observed: Arc<Mutex<Option<io::ErrorKind>>>) -> StreamingHa
 async fn observe_body_end(
     mut body: RequestBodyStream,
     observed: Arc<Mutex<Option<io::ErrorKind>>>,
-) -> Option<Vec<u8>> {
+) -> Option<Bytes> {
     while let Some(item) = body.next().await {
         if let Err(error) = item {
             record_kind(&observed, error.kind());

@@ -8,6 +8,7 @@
 
 use std::{io, time::Duration};
 
+use bytes::Bytes;
 use log::debug;
 use tokio::time::timeout;
 
@@ -30,7 +31,7 @@ pub(super) async fn deliver_then_await(
     error: io::Error,
     sender: AccountedBodySender,
     handler: &mut HandlerFuture,
-) -> Option<Vec<u8>> {
+) -> Option<Bytes> {
     let delivery = deliver_terminal(wait, error, sender);
     tokio::pin!(delivery);
     let deadline = tokio::time::sleep(wait);

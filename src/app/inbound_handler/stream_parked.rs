@@ -187,10 +187,14 @@ where
 }
 
 /// Send a streaming handler's reply through the outbound pipeline.
+///
+/// The handler produces [`Bytes`], while the middleware and envelope reply
+/// path still carries `Vec<u8>` pending the ADR 009 migration, so the payload
+/// is converted once at this boundary.
 pub(super) async fn forward_reply<S, E, F, W>(
     route_id: u32,
     correlation_id: Option<u64>,
-    payload: Option<Vec<u8>>,
+    payload: Option<Bytes>,
     handles: DispatchHandles<'_, S, E, F, W>,
 ) -> io::Result<()>
 where
@@ -203,7 +207,7 @@ where
     frame_handling::forward_service_response(
         route_id,
         correlation_id,
-        payload,
+        payload.map(|payload| payload.to_vec()),
         ResponseContext {
             serializer: handles.ctx.serializer,
             framed: handles.framed,

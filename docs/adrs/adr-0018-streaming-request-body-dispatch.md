@@ -53,7 +53,7 @@ request bodies.
 
 ```rust,no_run
 pub type StreamingHandler = Arc<
-    dyn Fn(RequestParts, RequestBodyStream) -> Pin<Box<dyn Future<Output = Option<Vec<u8>>> + Send>>
+    dyn Fn(RequestParts, RequestBodyStream) -> Pin<Box<dyn Future<Output = Option<Bytes>> + Send>>
         + Send
         + Sync,
 >;
@@ -64,6 +64,14 @@ for an identifier that already has a buffered or streaming handler fails with
 `WireframeError::DuplicateRoute`, and the reverse holds too. A message whose
 first frame completes the message still reaches the handler as a one-chunk
 body, so a streaming handler never has to distinguish the two shapes.
+
+The reply payload is `Bytes`.
+[ADR 008](adr-0008-zero-copy-public-byte-container.md) makes the zero-copy
+container the stable public payload type, and
+[ADR 009](adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+confines `Vec<u8>` to a named compatibility set that a new public surface must
+not join. The handler's payload is therefore converted once, at the reply
+boundary, while the middleware and envelope path still carries `Vec<u8>`.
 
 Middleware does not run for streaming routes. Middleware transforms a whole
 payload, while a streaming handler owns the body incrementally and may never
@@ -187,5 +195,7 @@ and the TCP lifecycle tests in `tests/streaming_request_server.rs`.
 ## References
 
 - [ADR 002: streaming requests and shared message assembly](adr-0002-streaming-requests-and-shared-message-assembly.md)
+- [ADR 008: zero-copy public byte container](adr-0008-zero-copy-public-byte-container.md)
+- [ADR 009: owned-byte migration rollout](adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
 - [ADR 015: declared total body length is authoritative](adr-0015-declared-total-body-length-is-authoritative.md)
 - [ADR 017: remove the unwired route extractors and application data API](adr-0017-remove-route-extractors-and-app-data.md)

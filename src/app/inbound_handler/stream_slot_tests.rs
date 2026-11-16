@@ -29,11 +29,11 @@ async fn a_stalled_admission_returns_control_after_the_read_timeout() {
 #[tokio::test(start_paused = true)]
 async fn a_resolved_handler_wins_over_a_stalled_admission() {
     let mut stream = stalled_stream();
-    stream.handler = Box::pin(async { Some(b"reply".to_vec()) });
+    stream.handler = Box::pin(async { Some(Bytes::from_static(b"reply")) });
 
     match stream.drive_pending(Duration::from_secs(1)).await {
         PendingEvent::Handler(outcome) => {
-            assert_eq!(outcome, Some(b"reply".to_vec()));
+            assert_eq!(outcome.as_deref(), Some(b"reply".as_slice()));
         }
         _ => panic!("the handler outcome should win over a stalled admission"),
     }
@@ -125,11 +125,11 @@ async fn queue_one_chunk(sender: &AccountedBodySender) {
 }
 
 /// Read the body to its end, reporting whether the terminal error arrived.
-async fn read_until_terminal(mut body: RequestBodyStream) -> Option<Vec<u8>> {
+async fn read_until_terminal(mut body: RequestBodyStream) -> Option<Bytes> {
     while let Some(item) = body.next().await {
         if item.is_err() {
-            return Some(b"error".to_vec());
+            return Some(Bytes::from_static(b"error"));
         }
     }
-    Some(b"clean".to_vec())
+    Some(Bytes::from_static(b"clean"))
 }

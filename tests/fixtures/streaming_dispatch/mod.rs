@@ -9,6 +9,7 @@ mod frames;
 
 use std::{fmt, future::Future, io, num::NonZeroUsize, sync::Arc, time::Duration};
 
+use bytes::Bytes;
 pub use frames::ContinuationSpec;
 use futures::StreamExt;
 use rstest::fixture;
@@ -352,13 +353,13 @@ fn build_streaming_handler(
         let handler_events = events.clone();
         Box::pin(async move {
             if mode == HandlerMode::Abandon {
-                return Some(ABANDONED_REPLY.to_vec());
+                return Some(Bytes::from_static(ABANDONED_REPLY));
             }
             if mode == HandlerMode::Hold {
                 let _permit = handler_gate.acquire().await;
             }
             consume_body(body, &handler_events).await;
-            Some(STREAM_REPLY.to_vec())
+            Some(Bytes::from_static(STREAM_REPLY))
         })
     })
 }

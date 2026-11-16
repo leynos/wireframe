@@ -1395,6 +1395,7 @@ reassembled request payload unless middleware replaces it.
 ```rust,no_run
 use std::sync::Arc;
 
+use bytes::Bytes;
 use futures::StreamExt;
 use wireframe::app::StreamingHandler;
 use wireframe::request::{RequestBodyStream, RequestParts};
@@ -1409,7 +1410,7 @@ fn upload_handler() -> StreamingHandler {
                 }
             }
             // Returning `None` sends no reply frame.
-            Some(b"accepted".to_vec())
+            Some(Bytes::from_static(b"accepted"))
         })
     })
 }
@@ -1426,10 +1427,16 @@ yields exactly one chunk, so a handler never has to distinguish the two shapes.
 
 #### Replies, middleware, and ordering
 
-A streaming handler returns `Option<Vec<u8>>`. Its payload becomes an ordinary
-response envelope carrying the request's route and correlation identifiers and
-passes through the outbound codec pipeline, so it is framed exactly like a
-buffered reply. Returning `None` sends no frame.
+A streaming handler returns `Option<Bytes>`. The zero-copy container is the
+public payload type for new handler hand-offs (see
+[ADR 008](adrs/adr-0008-zero-copy-public-byte-container.md)), while the
+middleware and envelope reply path still carries `Vec<u8>` until the staged
+migration in
+[ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+lands. The payload becomes an ordinary response envelope carrying the
+request's route and correlation identifiers and passes through the outbound
+codec pipeline, so it is framed exactly like a buffered reply. Returning `None`
+sends no frame.
 
 Middleware does not run for streaming routes. Middleware transforms a whole
 payload, while a streaming handler owns its body incrementally and may never

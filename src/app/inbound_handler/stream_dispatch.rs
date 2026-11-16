@@ -13,6 +13,7 @@
 
 use std::{collections::HashMap, io, sync::Arc, time::Duration};
 
+use bytes::Bytes;
 use futures::StreamExt;
 use log::debug;
 use tokio::{
@@ -375,5 +376,5 @@ pub(super) enum Event<T> {
     /// The read timeout elapsed.
     Tick,
     /// The handler resolved while the loop was waiting.
-    Handler(Option<Vec<u8>>),
+    Handler(Option<Bytes>),
 }
