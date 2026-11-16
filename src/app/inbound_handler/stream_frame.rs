@@ -122,7 +122,7 @@ where
                 chunk,
                 is_last,
             };
-            start_stream(state, streaming_handler, first, budget).await;
+            start_stream(state, streaming_handler, first, budget);
             Ok(())
         }
         FrameOutcome::StreamChunk {
@@ -156,8 +156,10 @@ where
 ///
 /// The handler is resolved by the caller so this helper borrows only what it
 /// needs: taking the whole [`DispatchHandles`] would require it to be `Sync`,
-/// which the framed connection is not.
-async fn start_stream(
+/// which the framed connection is not. The call only registers the exchange;
+/// the loop admits the first chunk on a later step so a busy byte account
+/// cannot stall this frame's processing.
+fn start_stream(
     state: &mut LoopState,
     route_handler: Option<&StreamingHandler>,
     first: FirstChunk,
@@ -170,7 +172,7 @@ async fn start_stream(
         );
         return;
     };
-    state.streams.start(first, handler, budget).await;
+    state.streams.start(first, handler, budget);
 }
 
 /// Queue a continuation chunk, discarding it when the body was abandoned.

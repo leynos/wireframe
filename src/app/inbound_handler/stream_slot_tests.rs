@@ -1,6 +1,6 @@
 //! Unit tests for the connection-owned streaming slot.
 
-use std::{future, io, time::Duration};
+use std::{future, io, sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use futures::StreamExt;
@@ -8,11 +8,24 @@ use futures::StreamExt;
 use super::{
     super::stream_terminal::deliver_then_await,
     ActiveStream,
+    ConnectionStreams,
     HandlerFuture,
     PendingEvent,
     PendingSend,
 };
-use crate::request::{AccountedBodySender, QueuedBytes, RequestBodyStream, accounted_body_channel};
+use crate::{
+    app::{
+        StreamingHandler,
+        inbound_handler::stream_handles::{ChunkBudget, FirstChunk},
+    },
+    request::{
+        AccountedBodySender,
+        QueuedBytes,
+        RequestBodyStream,
+        RequestParts,
+        accounted_body_channel,
+    },
+};
 
 #[tokio::test(start_paused = true)]
 async fn a_stalled_admission_returns_control_after_the_read_timeout() {
@@ -51,6 +64,93 @@ async fn a_completed_admission_wins_over_a_stalled_handler() {
         PendingEvent::Send(result) => assert!(result.is_ok()),
         _ => panic!("the admission result should win over a stalled handler"),
     }
+}
+
+/// A first chunk that cannot be admitted must not block the loop.
+///
+/// Admission is decided against the connection-wide account, so bytes an
+/// earlier body still holds can keep it waiting. Waiting inside `start` would
+/// deadlock: the slot is only registered after the wait, and nothing else can
+/// release those bytes until the loop regains control.
+#[tokio::test(start_paused = true)]
+async fn an_unaffordable_first_chunk_becomes_a_pending_admission() {
+    let mut streams = ConnectionStreams::new();
+    let _held_body = retain_bytes_outside_the_slot(&streams).await;
+
+    streams.start(first_chunk(b"abcd"), &stalled_handler(), tight_budget());
+
+    assert!(
+        streams.is_live(),
+        "the slot must be registered before its first chunk is admitted"
+    );
+    assert!(
+        streams.has_pending_send(),
+        "an unaffordable first chunk must wait as a pending admission"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_released_account_admits_the_pending_first_chunk() {
+    let mut streams = ConnectionStreams::new();
+    let held_body = retain_bytes_outside_the_slot(&streams).await;
+    streams.start(first_chunk(b"abcd"), &stalled_handler(), tight_budget());
+
+    // The earlier body releases the bytes it was holding.
+    drop(held_body);
+    let event = streams.drive_pending(Duration::from_secs(1)).await;
+    assert!(
+        matches!(event, PendingEvent::Send(Ok(()))),
+        "the first chunk should be admitted once the account drains"
+    );
+    streams.complete_send(Ok(()));
+
+    assert!(!streams.has_pending_send(), "the admission is finished");
+    assert_eq!(
+        streams.retained_bytes(),
+        b"abcd".len(),
+        "the delivered chunk is charged to the connection account"
+    );
+}
+
+/// Queue a chunk on the connection account that only `drop` releases.
+///
+/// This stands in for a handler that moved its body stream into a task the
+/// connection no longer drives.
+async fn retain_bytes_outside_the_slot(streams: &ConnectionStreams) -> RequestBodyStream {
+    let (sender, body) = accounted_body_channel(1, streams.queued.clone());
+    sender
+        .send_chunk(Bytes::from_static(b"held"), 0, usize::MAX)
+        .await
+        .expect("the consumer is still open");
+    body
+}
+
+/// Build a first chunk whose four bytes do not fit beside the held ones.
+fn first_chunk(chunk: &'static [u8]) -> FirstChunk {
+    FirstChunk {
+        key: None,
+        parts: RequestParts::new(1, None, Vec::new()),
+        chunk: Bytes::from_static(chunk),
+        is_last: false,
+    }
+}
+
+/// Allow less room than the held bytes and the first chunk need together.
+fn tight_budget() -> ChunkBudget {
+    ChunkBudget {
+        other_retained: 0,
+        limit: 6,
+    }
+}
+
+/// Handler that holds its body open without ever consuming a chunk.
+fn stalled_handler() -> StreamingHandler {
+    Arc::new(|_parts: RequestParts, body: RequestBodyStream| {
+        Box::pin(async move {
+            let _body = body;
+            future::pending::<Option<Bytes>>().await
+        })
+    })
 }
 
 /// Build a slot whose handler and pending admission never make progress.

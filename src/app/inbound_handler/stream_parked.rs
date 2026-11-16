@@ -12,11 +12,14 @@
 //! one delivery contract for streaming handlers while preserving the ordering
 //! guarantee that motivated parking.
 
-use std::{collections::VecDeque, io};
+use std::{collections::VecDeque, io, time::Duration};
 
 use bytes::Bytes;
 use log::debug;
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::{
+    io::{AsyncRead, AsyncWrite},
+    time::timeout,
+};
 
 use super::{
     super::{
@@ -28,7 +31,13 @@ use super::{
 use crate::{
     codec::FrameCodec,
     message::EncodeWith,
-    request::{DEFAULT_BODY_CHANNEL_CAPACITY, QueuedBytes, RequestParts, accounted_body_channel},
+    request::{
+        AccountedBodySender,
+        DEFAULT_BODY_CHANNEL_CAPACITY,
+        QueuedBytes,
+        RequestParts,
+        accounted_body_channel,
+    },
     serializer::Serializer,
 };
 
@@ -171,19 +180,47 @@ where
         accounted_body_channel(DEFAULT_BODY_CHANNEL_CAPACITY, QueuedBytes::new());
     let response = streaming_handler(parts, stream);
     let budget = ChunkBudget::measure(&handles, parked);
-    // The queue starts empty, so the empty-queue exception admits the whole
-    // body even when it exceeds the remaining aggregate budget. Assembly
-    // already enforced the per-message cap.
-    if let Err(error) = sender
-        .clone()
-        .send_chunk(body, budget.other_retained, budget.limit)
-        .await
-    {
-        debug!("pre-filled request body was not delivered: {error:?}");
-    }
+    deliver_prefilled(&sender, body, budget, handles.wait).await;
     drop(sender);
     let payload = response.await;
     forward_reply(route_id, correlation_id, payload, handles).await
+}
+
+/// Queue a fully assembled body as the only chunk of its stream.
+///
+/// The queue starts empty, so the empty-queue exception admits the whole body
+/// even when it exceeds the remaining aggregate budget; assembly already
+/// enforced the per-message cap. The wait is still bounded, because the shared
+/// byte account can hold bytes an earlier body never released, and those bytes
+/// cannot be reclaimed while this call blocks the loop that would answer the
+/// messages behind this one. A body that cannot be admitted becomes a terminal
+/// error, so the handler learns the upload was incomplete instead of waiting
+/// for a chunk that will never arrive.
+async fn deliver_prefilled(
+    sender: &AccountedBodySender,
+    body: Bytes,
+    budget: ChunkBudget,
+    wait: Duration,
+) {
+    let sent = timeout(
+        wait,
+        sender
+            .clone()
+            .send_chunk(body, budget.other_retained, budget.limit),
+    )
+    .await;
+    match sent {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => debug!("pre-filled request body was not delivered: {error:?}"),
+        Err(_) => {
+            debug!("pre-filled request body was not admitted within the read timeout");
+            let error =
+                io::Error::other("request body could not be retained within the connection budget");
+            if let Err(closed) = sender.clone().send_terminal(error).await {
+                debug!("pre-filled request body failure was not delivered: {closed:?}");
+            }
+        }
+    }
 }
 
 /// Send a streaming handler's reply through the outbound pipeline.

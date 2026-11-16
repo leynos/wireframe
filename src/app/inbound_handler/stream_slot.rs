@@ -164,12 +164,19 @@ impl ConnectionStreams {
         }
     }
 
-    /// Start a streaming exchange, queueing the first chunk immediately.
+    /// Start a streaming exchange and queue its first chunk.
     ///
-    /// The first chunk is sent on a freshly created channel, so admission
-    /// cannot wait: the queue is empty and the channel has spare capacity. A
-    /// closed consumer simply leaves the handler to observe an empty body.
-    pub(super) async fn start(
+    /// The first chunk becomes a pending admission rather than being awaited
+    /// here. Admission is decided against the connection-wide byte account, so
+    /// awaiting it would stall the loop on bytes this step cannot release:
+    /// messages parked behind the body are only dispatched once the slot frees,
+    /// and bytes an earlier body still holds are only released by a handler
+    /// this call has not polled. Registering the slot first lets the loop drive
+    /// the admission alongside the handler and the inbound socket, exactly as
+    /// it drives every continuation chunk.
+    ///
+    /// A closed consumer simply leaves the handler to observe an empty body.
+    pub(super) fn start(
         &mut self,
         first: FirstChunk,
         handler: &StreamingHandler,
@@ -186,22 +193,22 @@ impl ConnectionStreams {
         let (sender, body) =
             accounted_body_channel(DEFAULT_BODY_CHANNEL_CAPACITY, self.queued.clone());
         let handler_future = handler(parts, body);
-        let sent = sender
+        let admission = sender
             .clone()
-            .send_chunk(chunk, budget.other_retained, budget.limit)
-            .await;
-        let live_sender = if sent.is_ok() && !is_last {
-            Some(sender)
-        } else {
-            None
-        };
+            .send_chunk(chunk, budget.other_retained, budget.limit);
+        // The final chunk still has to reach the handler, so the admission owns
+        // its own sender clone until the loop records the result.
+        let live_sender = (!is_last).then_some(sender);
         self.active = Some(ActiveStream {
             key,
             route_id,
             correlation_id,
             sender: live_sender,
             handler: handler_future,
-            pending: None,
+            pending: Some(PendingSend {
+                future: Box::pin(admission),
+                is_last,
+            }),
         });
     }
 
