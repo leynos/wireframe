@@ -4,6 +4,18 @@
 //! split across two frames reaches the handler, and a connection that ends
 //! mid-body reports `UnexpectedEof` to that handler while the server still
 //! shuts the connection down cleanly.
+//!
+//! The client frames with [`LengthDelimitedCodec`] rather than hand-built
+//! length prefixes, so the tests speak exactly the wire format the runtime
+//! decodes.
+//!
+//! # Examples
+//!
+//! ```ignore
+//! let address = serve_once(collecting_handler(Arc::clone(&received))).await?;
+//! let mut client = connect(address).await?;
+//! send_request(&mut client, &first_frame).await?;
+//! ```
 
 #![forbid(unsafe_code)]
 
@@ -12,11 +24,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use futures::StreamExt;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::{TcpListener, TcpStream},
-};
+use bytes::Bytes;
+use futures::{SinkExt, StreamExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, StreamingHandler, WireframeApp},
     request::{RequestBodyStream, RequestParts},
@@ -29,6 +40,9 @@ use wireframe_testing::TestResult;
 const STREAM_ROUTE: u32 = 90;
 /// Per-connection frame budget.
 const BUFFER_CAPACITY: usize = 512;
+
+/// Client side of one connection, framed with the runtime's length prefix.
+type Client = Framed<TcpStream, LengthDelimitedCodec>;
 
 /// Serve exactly one connection with the supplied streaming handler.
 #[expect(
@@ -49,116 +63,155 @@ async fn serve_once(handler: StreamingHandler) -> TestResult<std::net::SocketAdd
     Ok(address)
 }
 
-/// Build a length-delimited request frame carrying `payload`.
-fn request_frame(payload: Vec<u8>) -> TestResult<Vec<u8>> {
-    let envelope = Envelope::new(STREAM_ROUTE, Some(1), payload);
-    let encoded = BincodeSerializer.serialize(&envelope)?;
-    let len = u32::try_from(encoded.len())?;
-    let mut framed = Vec::with_capacity(encoded.len() + 4);
-    framed.extend_from_slice(&len.to_be_bytes());
-    framed.extend_from_slice(&encoded);
-    Ok(framed)
+/// Connect a length-delimited client to `address`.
+async fn connect(address: std::net::SocketAddr) -> TestResult<Client> {
+    let stream = TcpStream::connect(address).await?;
+    Ok(Framed::new(stream, LengthDelimitedCodec::new()))
 }
 
-/// Read one length-delimited reply and return its payload.
-async fn read_reply(stream: &mut TcpStream) -> TestResult<Vec<u8>> {
-    let mut len = [0u8; 4];
-    stream.read_exact(&mut len).await?;
-    let mut frame = vec![0u8; u32::from_be_bytes(len) as usize];
-    stream.read_exact(&mut frame).await?;
-    let (envelope, _): (Envelope, usize) = BincodeSerializer.deserialize(&frame)?;
+/// Send one request frame carrying `payload` to the streaming route.
+async fn send_request(client: &mut Client, payload: &[u8]) -> TestResult {
+    let envelope = Envelope::new(STREAM_ROUTE, Some(1), payload.to_vec());
+    let encoded = BincodeSerializer.serialize(&envelope)?;
+    client.send(Bytes::from(encoded)).await?;
+    Ok(())
+}
+
+/// Close the client's sending half.
+///
+/// The codec encodes both `Bytes` and `BytesMut`, so the sink item type is
+/// named explicitly rather than inferred.
+async fn close_client(client: &mut Client) -> TestResult {
+    SinkExt::<Bytes>::close(client).await?;
+    Ok(())
+}
+
+/// Read one reply frame and return its payload.
+async fn read_reply(client: &mut Client) -> TestResult<Vec<u8>> {
+    let Some(frame) = client.next().await else {
+        return Err("the reply frame is missing".into());
+    };
+    let (envelope, _): (Envelope, usize) = BincodeSerializer.deserialize(&frame?)?;
     Ok(envelope.payload_bytes().to_vec())
 }
 
-/// A body delivered across two frames reaches the handler over TCP.
-#[tokio::test]
-async fn streaming_body_reaches_the_handler_over_tcp() -> TestResult<()> {
-    let received = Arc::new(Mutex::new(Vec::new()));
-    let handler: StreamingHandler = {
-        let received = Arc::clone(&received);
-        Arc::new(move |_parts: RequestParts, mut body: RequestBodyStream| {
-            let received = Arc::clone(&received);
-            Box::pin(async move {
-                while let Some(chunk) = body.next().await {
-                    let Some(chunk) = chunk.ok() else {
-                        return None;
-                    };
-                    if let Ok(mut buffer) = received.lock() {
-                        buffer.extend_from_slice(&chunk);
-                    }
-                }
-                Some(b"done".to_vec())
-            })
-        })
-    };
-    let address = serve_once(handler).await?;
+/// Handler that collects the request body and answers once the body ends.
+fn collecting_handler(received: Arc<Mutex<Vec<u8>>>) -> StreamingHandler {
+    Arc::new(move |_parts: RequestParts, body: RequestBodyStream| {
+        Box::pin(collect_body(body, Arc::clone(&received)))
+    })
+}
 
-    let first = test_helpers::first_frame_payload(1.into(), b"alpha", false, None)?;
-    let last = test_helpers::continuation_frame_payload(1.into(), 1.into(), b"beta", true)?;
-    let mut client = TcpStream::connect(address).await?;
-    client.write_all(&request_frame(first)?).await?;
-    client.write_all(&request_frame(last)?).await?;
-    client.flush().await?;
+/// Read `body` to its end, appending each chunk to `received`.
+async fn collect_body(
+    mut body: RequestBodyStream,
+    received: Arc<Mutex<Vec<u8>>>,
+) -> Option<Vec<u8>> {
+    while let Some(chunk) = body.next().await {
+        let bytes = chunk.ok()?;
+        if let Ok(mut buffer) = received.lock() {
+            buffer.extend_from_slice(&bytes);
+        }
+    }
+    Some(b"done".to_vec())
+}
 
-    let reply = read_reply(&mut client).await?;
-    client.shutdown().await?;
+/// Handler that records how the request body ended and never replies.
+fn observing_handler(observed: Arc<Mutex<Option<io::ErrorKind>>>) -> StreamingHandler {
+    Arc::new(move |_parts: RequestParts, body: RequestBodyStream| {
+        Box::pin(observe_body_end(body, Arc::clone(&observed)))
+    })
+}
 
+/// Record the body's terminal error, if any, and never produce a reply.
+async fn observe_body_end(
+    mut body: RequestBodyStream,
+    observed: Arc<Mutex<Option<io::ErrorKind>>>,
+) -> Option<Vec<u8>> {
+    while let Some(item) = body.next().await {
+        if let Err(error) = item {
+            record_kind(&observed, error.kind());
+            return None;
+        }
+    }
+    None
+}
+
+/// Store the observed error kind, ignoring a poisoned lock.
+fn record_kind(observed: &Mutex<Option<io::ErrorKind>>, kind: io::ErrorKind) {
+    if let Ok(mut slot) = observed.lock() {
+        *slot = Some(kind);
+    }
+}
+
+/// Assert the streaming reply reached the client.
+fn assert_reply(reply: &[u8]) {
     assert_eq!(
         reply, b"done",
         "the streaming reply should reach the client"
     );
-    let received = received
-        .lock()
-        .map_err(|_| "handler buffer poisoned")?
-        .clone();
+}
+
+/// Assert the handler saw the body in frame order.
+fn assert_received(received: &[u8]) {
     assert_eq!(
         received, b"alphabeta",
         "the handler should receive the body in frame order"
     );
-    Ok(())
 }
 
-/// A connection closed mid-body reports `UnexpectedEof` and closes cleanly.
-#[tokio::test]
-async fn closing_the_connection_mid_body_reports_unexpected_eof() -> TestResult<()> {
-    let observed: Arc<Mutex<Option<io::ErrorKind>>> = Arc::new(Mutex::new(None));
-    let handler: StreamingHandler = {
-        let observed = Arc::clone(&observed);
-        Arc::new(move |_parts: RequestParts, mut body: RequestBodyStream| {
-            let observed = Arc::clone(&observed);
-            Box::pin(async move {
-                while let Some(item) = body.next().await {
-                    if let Err(error) = item {
-                        if let Ok(mut slot) = observed.lock() {
-                            *slot = Some(error.kind());
-                        }
-                        return None;
-                    }
-                }
-                None
-            })
-        })
-    };
-    let address = serve_once(handler).await?;
-
-    let first = test_helpers::first_frame_payload(2.into(), b"partial", false, None)?;
-    let mut client = TcpStream::connect(address).await?;
-    client.write_all(&request_frame(first)?).await?;
-    client.flush().await?;
-    client.shutdown().await?;
-
-    let mut trailing = Vec::new();
-    client.read_to_end(&mut trailing).await?;
-
-    let kind = *observed.lock().map_err(|_| "observation slot poisoned")?;
+/// Assert the handler observed the truncated body.
+fn assert_truncated(kind: Option<io::ErrorKind>) {
     assert_eq!(
         kind,
         Some(io::ErrorKind::UnexpectedEof),
         "the handler should observe the truncated body"
     );
-    assert!(
-        trailing.is_empty(),
-        "an errored body sends no streaming reply"
-    );
+}
+
+/// Assert the server sent no reply frame.
+fn assert_no_reply(has_reply: bool) {
+    assert!(!has_reply, "an errored body sends no streaming reply");
+}
+
+/// A body delivered across two frames reaches the handler over TCP.
+#[tokio::test]
+async fn streaming_body_reaches_the_handler_over_tcp() -> TestResult {
+    let received = Arc::new(Mutex::new(Vec::new()));
+    let address = serve_once(collecting_handler(Arc::clone(&received))).await?;
+    let mut client = connect(address).await?;
+
+    let first = test_helpers::first_frame_payload(1.into(), b"alpha", false, None)?;
+    let last = test_helpers::continuation_frame_payload(1.into(), 1.into(), b"beta", true)?;
+    send_request(&mut client, &first).await?;
+    send_request(&mut client, &last).await?;
+
+    let reply = read_reply(&mut client).await?;
+    close_client(&mut client).await?;
+    let body = received
+        .lock()
+        .map_err(|_| "handler buffer poisoned")?
+        .clone();
+
+    assert_reply(&reply);
+    assert_received(&body);
+    Ok(())
+}
+
+/// A connection closed mid-body reports `UnexpectedEof` and closes cleanly.
+#[tokio::test]
+async fn closing_the_connection_mid_body_reports_unexpected_eof() -> TestResult {
+    let observed: Arc<Mutex<Option<io::ErrorKind>>> = Arc::new(Mutex::new(None));
+    let address = serve_once(observing_handler(Arc::clone(&observed))).await?;
+    let mut client = connect(address).await?;
+
+    let first = test_helpers::first_frame_payload(2.into(), b"partial", false, None)?;
+    send_request(&mut client, &first).await?;
+    close_client(&mut client).await?;
+    let has_reply = client.next().await.is_some();
+    let kind = *observed.lock().map_err(|_| "observation slot poisoned")?;
+
+    assert_truncated(kind);
+    assert_no_reply(has_reply);
     Ok(())
 }

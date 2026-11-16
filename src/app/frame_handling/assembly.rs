@@ -5,7 +5,10 @@ use std::{collections::HashMap, io, num::NonZeroUsize, sync::Arc, time::Duration
 use bytes::Bytes;
 use log::debug;
 
-use super::{buffered_assembly, core::DeserFailureTracker, stream_assembly};
+use super::{
+    assembly_dispatch::{self, AssembledFrame},
+    core::DeserFailureTracker,
+};
 use crate::{
     app::{
         Envelope,
@@ -16,8 +19,6 @@ use crate::{
     codec::clamp_frame_length,
     fragment::FragmentationConfig,
     message_assembler::{
-        AssembledMessage,
-        EnvelopeRouting,
         FrameHeader,
         MessageAssembler,
         MessageAssemblyState,
@@ -172,21 +173,45 @@ pub(crate) fn assemble_if_needed(
 ) -> io::Result<FrameOutcome> {
     let AssemblyRuntime {
         assembler: maybe_assembler,
-        state: assembly,
+        state: maybe_state,
         streaming_routes,
         stream_live,
     } = runtime;
-    let Some(assembler) = maybe_assembler else {
-        return Ok(fallback_outcome(env, streaming_routes, stream_live));
-    };
-    let Some(state) = assembly.as_mut() else {
+    let (Some(assembler), Some(state)) = (maybe_assembler, maybe_state.as_mut()) else {
         return Ok(fallback_outcome(env, streaming_routes, stream_live));
     };
 
     let mut failures = DeserFailureTracker::new(deser_failures, max_deser_failures);
     let correlation_id = env.correlation_id;
+    let Some((header, body)) = split_frame(
+        assembler.as_ref(),
+        env.payload_bytes(),
+        correlation_id,
+        &mut failures,
+    )?
+    else {
+        return Ok(FrameOutcome::Pending);
+    };
+    let frame = AssembledFrame {
+        state,
+        failures: &mut failures,
+        correlation_id,
+        streaming_routes,
+        stream_live,
+        envelope_id: env.id,
+        body,
+    };
+    assembly_dispatch::dispatch_assembled(header, frame)
+}
 
-    let parsed = match assembler.parse_frame_header(env.payload_bytes()) {
+/// Parse a frame header and split the payload into header and body bytes.
+fn split_frame<'a>(
+    assembler: &dyn MessageAssembler,
+    payload: &'a [u8],
+    correlation_id: Option<u64>,
+    failures: &mut DeserFailureTracker<'_>,
+) -> io::Result<Option<(FrameHeader, &'a [u8])>> {
+    let parsed = match assembler.parse_frame_header(payload) {
         Ok(parsed) => parsed,
         Err(err) => {
             failures.record(
@@ -194,11 +219,9 @@ pub(crate) fn assemble_if_needed(
                 "failed to parse message assembly frame header",
                 err,
             )?;
-            return Ok(FrameOutcome::Pending);
+            return Ok(None);
         }
     };
-
-    let payload = env.payload_bytes();
     let Some(frame_bytes) = payload.get(parsed.header_len()..) else {
         failures.record(
             correlation_id,
@@ -208,76 +231,9 @@ pub(crate) fn assemble_if_needed(
                 "message assembly header length exceeds payload",
             ),
         )?;
-        return Ok(FrameOutcome::Pending);
+        return Ok(None);
     };
-
-    let routing = EnvelopeRouting {
-        envelope_id: env.id.into(),
-        correlation_id: env.correlation_id.map(Into::into),
-    };
-
-    match parsed.into_header() {
-        FrameHeader::First(header) => {
-            if streaming_routes.contains_key(&env.id) && !stream_live {
-                let input =
-                    buffered_assembly::build_first_frame_input(&header, frame_bytes, routing)
-                        .map_err(|err| record_invalid(&mut failures, correlation_id, err))?;
-                stream_assembly::accept_streaming_first(state, &mut failures, correlation_id, input)
-            } else {
-                let mut context = buffered_assembly::AssemblyContext {
-                    state,
-                    failures: &mut failures,
-                    correlation_id,
-                };
-                let Some(msg) = buffered_assembly::admit_first_frame(
-                    &mut context,
-                    &header,
-                    frame_bytes,
-                    routing,
-                )?
-                else {
-                    return Ok(FrameOutcome::Pending);
-                };
-                Ok(buffered_outcome(msg, streaming_routes))
-            }
-        }
-        FrameHeader::Continuation(header) => {
-            let key = header.message_key;
-            if state.is_streaming_key(key) {
-                if frame_bytes.len() != header.body_len {
-                    return Ok(record_length_mismatch(
-                        &mut failures,
-                        correlation_id,
-                        header.body_len,
-                        frame_bytes.len(),
-                    ));
-                }
-                stream_assembly::accept_streaming_continuation(
-                    state,
-                    &mut failures,
-                    correlation_id,
-                    key,
-                    frame_bytes,
-                    &header,
-                )
-            } else {
-                let mut context = buffered_assembly::AssemblyContext {
-                    state,
-                    failures: &mut failures,
-                    correlation_id,
-                };
-                let Some(msg) = buffered_assembly::admit_continuation_frame(
-                    &mut context,
-                    &header,
-                    frame_bytes,
-                )?
-                else {
-                    return Ok(FrameOutcome::Pending);
-                };
-                Ok(buffered_outcome(msg, streaming_routes))
-            }
-        }
-    }
+    Ok(Some((parsed.into_header(), frame_bytes)))
 }
 
 /// Build a dispatch outcome when no assembler or state is available.
@@ -302,63 +258,4 @@ fn fallback_outcome(
         chunk: Bytes::from(env.payload),
         is_last: true,
     }
-}
-
-/// Convert a completed buffered assembly into its dispatch outcome.
-fn buffered_outcome(
-    msg: AssembledMessage,
-    streaming_routes: &HashMap<u32, StreamingHandler>,
-) -> FrameOutcome {
-    let route_id: u32 = msg.routing().envelope_id.into();
-    if streaming_routes.contains_key(&route_id) {
-        let parts = request_parts(msg.routing(), msg.metadata().to_vec());
-        return FrameOutcome::StreamFallback {
-            parts,
-            body: Bytes::from(msg.into_body()),
-        };
-    }
-    FrameOutcome::Buffered(Envelope::from_assembled(&msg))
-}
-
-/// Build request parts from assembly routing and metadata.
-fn request_parts(routing: EnvelopeRouting, metadata: Vec<u8>) -> RequestParts {
-    RequestParts::new(
-        routing.envelope_id.into(),
-        routing.correlation_id.map(Into::into),
-        metadata,
-    )
-}
-
-/// Record a malformed frame and return the resulting error for `?`.
-fn record_invalid(
-    failures: &mut DeserFailureTracker<'_>,
-    correlation_id: Option<u64>,
-    err: io::Error,
-) -> io::Error {
-    let _ = failures.record(
-        correlation_id,
-        "message assembly first frame malformed",
-        &err,
-    );
-    err
-}
-
-/// Record a continuation length mismatch and return a pending outcome.
-fn record_length_mismatch(
-    failures: &mut DeserFailureTracker<'_>,
-    correlation_id: Option<u64>,
-    expected: usize,
-    actual: usize,
-) -> FrameOutcome {
-    let _ = failures.record(
-        correlation_id,
-        "message assembly continuation frame length mismatch",
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "message assembly continuation length mismatch: expected {expected}, got {actual}"
-            ),
-        ),
-    );
-    FrameOutcome::Pending
 }

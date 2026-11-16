@@ -4,7 +4,7 @@ use std::io;
 
 use rstest_bdd_macros::{given, then, when};
 
-use crate::fixtures::streaming_dispatch::{StreamingDispatchWorld, TestResult};
+use crate::fixtures::streaming_dispatch::{ContinuationSpec, StreamingDispatchWorld, TestResult};
 
 /// Map a scenario's body-error description onto the I/O error kind the
 /// runtime reports.
@@ -74,7 +74,12 @@ fn when_final_streaming_continuation(
     sequence: u32,
     body: String,
 ) -> TestResult {
-    streaming_dispatch_world.send_streaming_continuation(key, sequence, &body, true)
+    streaming_dispatch_world.send_streaming_continuation(ContinuationSpec::new(
+        key.into(),
+        sequence.into(),
+        &body,
+        true,
+    ))
 }
 
 #[when("a complete buffered message for key {key:u64} with body {body:string} arrives")]
@@ -105,7 +110,12 @@ fn when_final_buffered_continuation(
     sequence: u32,
     body: String,
 ) -> TestResult {
-    streaming_dispatch_world.send_buffered_continuation(key, sequence, &body, true)
+    streaming_dispatch_world.send_buffered_continuation(ContinuationSpec::new(
+        key.into(),
+        sequence.into(),
+        &body,
+        true,
+    ))
 }
 
 #[when(
@@ -128,9 +138,8 @@ fn when_rest_of_buffered_message(
 }
 
 #[when("the handler is released")]
-fn when_handler_released(streaming_dispatch_world: &mut StreamingDispatchWorld) -> TestResult {
+fn when_handler_released(streaming_dispatch_world: &mut StreamingDispatchWorld) {
     streaming_dispatch_world.release_handler();
-    Ok(())
 }
 
 #[when("the connection closes")]

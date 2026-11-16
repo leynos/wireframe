@@ -85,7 +85,7 @@ pub enum StreamingContinuation<'a> {
     },
 }
 
-impl<'a> StreamingContinuation<'a> {
+impl StreamingContinuation<'_> {
     /// Return the message key that owns this outcome.
     #[must_use]
     pub const fn key(&self) -> MessageKey {
@@ -154,7 +154,7 @@ pub(super) struct StreamingAssembly {
 
 impl StreamingAssembly {
     /// Start tracking a multi-frame streaming message.
-    pub(super) fn from_first_frame(
+    pub(super) const fn from_first_frame(
         input: &FirstFrameInput<'_>,
         chunk_len: usize,
         started_at: Instant,
@@ -207,10 +207,8 @@ impl StreamingAssembly {
         self.accumulated = self.accumulated.saturating_add(body.len());
 
         let is_last = matches!(status, MessageSeriesStatus::Complete);
-        if is_last && let Some(declared) = self.series.expected_total() {
-            if let Err(error) = validation::validate_completion(key, declared, self.accumulated) {
-                return Err(StreamingFailure::new(key, error, true));
-            }
+        if is_last {
+            self.validate_completed_series(key)?;
         }
 
         if self.discard {
@@ -220,8 +218,22 @@ impl StreamingAssembly {
         Ok(Some(StreamingChunk { body, is_last }))
     }
 
+    /// Validate a completed series against its declared total, if it has one.
+    ///
+    /// # Errors
+    ///
+    /// Returns a terminal [`StreamingFailure`] when the assembled length does
+    /// not match the total declared by the first frame.
+    fn validate_completed_series(&self, key: MessageKey) -> Result<(), StreamingFailure> {
+        let Some(declared) = self.series.expected_total() else {
+            return Ok(());
+        };
+        validation::validate_completion(key, declared, self.accumulated)
+            .map_err(|error| StreamingFailure::new(key, error, true))
+    }
+
     /// Classify a continuity error and decide whether the assembly survives.
-    fn continuity_failure(&self, error: MessageSeriesError) -> StreamingFailure {
+    const fn continuity_failure(&self, error: MessageSeriesError) -> StreamingFailure {
         let key = self.series.message_key();
         let terminal = !is_recoverable_continuity_error(&error);
         StreamingFailure::new(key, MessageAssemblyError::Series(error), terminal)

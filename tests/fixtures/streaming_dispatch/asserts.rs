@@ -184,10 +184,10 @@ impl StreamingDispatchWorld {
         let Some(mut client) = self.take_client() else {
             return Ok(None);
         };
-        let frame =
+        let read =
             self.block_on(async { tokio::time::timeout(wait, read_frame(&mut client)).await });
         self.restore_client(client);
-        match frame? {
+        match read? {
             Err(_) => Ok(None),
             Ok(Ok(frame)) => {
                 let (envelope, _): (Envelope, usize) = BincodeSerializer.deserialize(&frame)?;

@@ -8,7 +8,6 @@
 
 use std::{io, pin::Pin, time::Duration};
 
-use bytes::Bytes;
 use futures::Future;
 use log::debug;
 use tokio::{
@@ -20,11 +19,11 @@ use tokio_util::codec::Framed;
 use super::{
     super::{
         StreamingHandler,
-        codec_driver::FramePipeline,
         combined_codec::ConnectionCodec,
         envelope::{Envelope, Packet},
     },
-    stream_dispatch::{DispatchContext, Event, read_frame},
+    stream_dispatch::{Event, read_frame},
+    stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk},
     stream_parked::forward_reply,
 };
 use crate::{
@@ -35,7 +34,6 @@ use crate::{
         AccountedBodySender,
         DEFAULT_BODY_CHANNEL_CAPACITY,
         QueuedBytes,
-        RequestParts,
         SendChunkError,
         accounted_body_channel,
     },
@@ -84,9 +82,9 @@ impl ActiveStream {
             pending, handler, ..
         } = self;
         match pending {
-            Some(pending) => {
+            Some(send) => {
                 tokio::select! {
-                    result = &mut pending.future => PendingEvent::Send(result),
+                    result = &mut send.future => PendingEvent::Send(result),
                     outcome = handler.as_mut() => PendingEvent::Handler(outcome),
                 }
             }
@@ -136,6 +134,21 @@ impl ConnectionStreams {
     /// Return the bytes queued for the consumer.
     pub(super) fn retained_bytes(&self) -> usize { self.queued.queued() }
 
+    /// Return whether a chunk admission is in flight.
+    pub(super) fn has_pending_send(&self) -> bool {
+        self.active
+            .as_ref()
+            .is_some_and(|active| active.pending.is_some())
+    }
+
+    /// Drive the in-flight chunk admission on the live exchange.
+    pub(super) async fn drive_pending(&mut self) -> PendingEvent {
+        match self.active.as_mut() {
+            Some(active) => active.drive_pending().await,
+            None => PendingEvent::Send(Ok(())),
+        }
+    }
+
     /// Start a streaming exchange, queueing the first chunk immediately.
     ///
     /// The first chunk is sent on a freshly created channel, so admission
@@ -143,24 +156,26 @@ impl ConnectionStreams {
     /// closed consumer simply leaves the handler to observe an empty body.
     pub(super) async fn start(
         &mut self,
-        key: Option<MessageKey>,
-        parts: RequestParts,
-        chunk: Bytes,
-        is_last: bool,
+        first: FirstChunk,
         handler: &StreamingHandler,
-        other_retained: usize,
-        limit: usize,
+        budget: ChunkBudget,
     ) {
+        let FirstChunk {
+            key,
+            parts,
+            chunk,
+            is_last,
+        } = first;
         let route_id = parts.id();
         let correlation_id = parts.correlation_id();
         let (sender, body) =
             accounted_body_channel(DEFAULT_BODY_CHANNEL_CAPACITY, self.queued.clone());
-        let future = handler(parts, body);
+        let handler_future = handler(parts, body);
         let sent = sender
             .clone()
-            .send_chunk(chunk, other_retained, limit)
+            .send_chunk(chunk, budget.other_retained, budget.limit)
             .await;
-        let sender = if sent.is_ok() && !is_last {
+        let live_sender = if sent.is_ok() && !is_last {
             Some(sender)
         } else {
             None
@@ -169,32 +184,30 @@ impl ConnectionStreams {
             key,
             route_id,
             correlation_id,
-            sender,
-            handler: future,
+            sender: live_sender,
+            handler: handler_future,
             pending: None,
         });
     }
 
     /// Queue one continuation chunk without reading further frames.
-    pub(super) fn push_chunk(
-        &mut self,
-        key: MessageKey,
-        chunk: Bytes,
-        is_last: bool,
-        other_retained: usize,
-        limit: usize,
-    ) -> bool {
+    pub(super) fn push_chunk(&mut self, offer: ChunkOffer, budget: ChunkBudget) -> bool {
         let Some(active) = self.active.as_mut() else {
             return false;
         };
-        if active.key != Some(key) || active.pending.is_some() {
+        if active.key != Some(offer.key) || active.pending.is_some() {
             return false;
         }
         let Some(sender) = active.sender.clone() else {
             return false;
         };
+        let ChunkOffer { chunk, is_last, .. } = offer;
         active.pending = Some(PendingSend {
-            future: Box::pin(async move { sender.send_chunk(chunk, other_retained, limit).await }),
+            future: Box::pin(async move {
+                sender
+                    .send_chunk(chunk, budget.other_retained, budget.limit)
+                    .await
+            }),
             is_last,
         });
         true
@@ -217,10 +230,7 @@ impl ConnectionStreams {
     pub(super) async fn finish_active<S, E, F, W>(
         &mut self,
         outcome: Option<Vec<u8>>,
-        assembly: &mut Option<MessageAssemblyState>,
-        pipeline: &mut FramePipeline<F::Frame>,
-        framed: &mut Framed<W, ConnectionCodec<F>>,
-        ctx: &DispatchContext<'_, S, E, F>,
+        handles: DispatchHandles<'_, S, E, F, W>,
     ) -> io::Result<()>
     where
         S: Serializer + Send + Sync,
@@ -236,29 +246,15 @@ impl ConnectionStreams {
         // releases itself, and a queued chunk is dropped with its guard.
         active.pending = None;
         active.sender = None;
-        if let (Some(key), Some(state)) = (active.key, assembly.as_mut()) {
-            state.discard_streaming(key);
-        }
-        forward_reply(
-            active.route_id,
-            active.correlation_id,
-            outcome,
-            pipeline,
-            framed,
-            ctx,
-        )
-        .await
+        discard_streaming(active.key, handles.assembly);
+        forward_reply(active.route_id, active.correlation_id, outcome, handles).await
     }
 
     /// Fail the live body, await its handler, and forward any reply.
     pub(super) async fn close_active<S, E, F, W>(
         &mut self,
         terminal: Option<io::Error>,
-        assembly: &mut Option<MessageAssemblyState>,
-        pipeline: &mut FramePipeline<F::Frame>,
-        framed: &mut Framed<W, ConnectionCodec<F>>,
-        ctx: &DispatchContext<'_, S, E, F>,
-        wait: Duration,
+        handles: DispatchHandles<'_, S, E, F, W>,
     ) -> io::Result<()>
     where
         S: Serializer + Send + Sync,
@@ -272,33 +268,22 @@ impl ConnectionStreams {
         };
         active.pending = None;
         if let (Some(error), Some(sender)) = (terminal, active.sender.clone()) {
-            let _ = timeout(wait, sender.send_terminal(error)).await;
+            deliver_terminal(handles.wait, error, sender).await;
         }
         active.sender = None;
-        if let (Some(key), Some(state)) = (active.key, assembly.as_mut()) {
-            state.discard_streaming(key);
-        }
-        let outcome = timeout(wait, &mut active.handler).await.ok().flatten();
-        forward_reply(
-            active.route_id,
-            active.correlation_id,
-            outcome,
-            pipeline,
-            framed,
-            ctx,
-        )
-        .await
+        discard_streaming(active.key, handles.assembly);
+        let outcome = timeout(handles.wait, &mut active.handler)
+            .await
+            .ok()
+            .flatten();
+        forward_reply(active.route_id, active.correlation_id, outcome, handles).await
     }
 
     /// Fail the body for an expired streaming assembly.
     pub(super) async fn expire<S, E, F, W>(
         &mut self,
         keys: &[MessageKey],
-        assembly: &mut Option<MessageAssemblyState>,
-        pipeline: &mut FramePipeline<F::Frame>,
-        framed: &mut Framed<W, ConnectionCodec<F>>,
-        ctx: &DispatchContext<'_, S, E, F>,
-        wait: Duration,
+        handles: DispatchHandles<'_, S, E, F, W>,
     ) -> io::Result<()>
     where
         S: Serializer + Send + Sync,
@@ -307,12 +292,7 @@ impl ConnectionStreams {
         W: AsyncRead + AsyncWrite + Unpin,
         Envelope: EncodeWith<S>,
     {
-        let is_expired = self
-            .active
-            .as_ref()
-            .and_then(|active| active.key)
-            .is_some_and(|key| keys.contains(&key));
-        if !is_expired {
+        if !self.is_key_live(keys) {
             return Ok(());
         }
         self.close_active(
@@ -320,11 +300,7 @@ impl ConnectionStreams {
                 io::ErrorKind::TimedOut,
                 "request body assembly expired before completion",
             )),
-            assembly,
-            pipeline,
-            framed,
-            ctx,
-            wait,
+            handles,
         )
         .await
     }
@@ -334,11 +310,7 @@ impl ConnectionStreams {
         &mut self,
         key: MessageKey,
         error: io::Error,
-        assembly: &mut Option<MessageAssemblyState>,
-        pipeline: &mut FramePipeline<F::Frame>,
-        framed: &mut Framed<W, ConnectionCodec<F>>,
-        ctx: &DispatchContext<'_, S, E, F>,
-        wait: Duration,
+        handles: DispatchHandles<'_, S, E, F, W>,
     ) -> io::Result<()>
     where
         S: Serializer + Send + Sync,
@@ -347,19 +319,39 @@ impl ConnectionStreams {
         W: AsyncRead + AsyncWrite + Unpin,
         Envelope: EncodeWith<S>,
     {
-        let matches_active = self
-            .active
-            .as_ref()
-            .and_then(|active| active.key)
-            .is_some_and(|active_key| active_key == key);
-        if !matches_active {
+        if !self.is_key_live(std::slice::from_ref(&key)) {
             debug!("streaming failure for a message with no live handler: key={key:?}");
             return Ok(());
         }
-        self.close_active(Some(error), assembly, pipeline, framed, ctx, wait)
-            .await
+        self.close_active(Some(error), handles).await
     }
 
     /// Drop the live exchange immediately after a hard budget breach.
     pub(super) fn abort(&mut self) { self.active = None; }
+
+    /// Return whether the slot is live for one of `keys`.
+    fn is_key_live(&self, keys: &[MessageKey]) -> bool {
+        self.active
+            .as_ref()
+            .and_then(|active| active.key)
+            .is_some_and(|key| keys.contains(&key))
+    }
+}
+
+/// Switch one streaming key to discard mode if assembly state is present.
+fn discard_streaming(key: Option<MessageKey>, assembly: &mut Option<MessageAssemblyState>) {
+    if let (Some(live_key), Some(assembly_state)) = (key, assembly.as_mut()) {
+        assembly_state.discard_streaming(live_key);
+    }
+}
+
+/// Tell the handler that its body failed, without waiting indefinitely.
+async fn deliver_terminal(wait: Duration, error: io::Error, sender: AccountedBodySender) {
+    match timeout(wait, sender.send_terminal(error)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(send_error)) => {
+            debug!("request body receiver gone before the failure was delivered: {send_error:?}");
+        }
+        Err(_) => debug!("timed out delivering the request body failure"),
+    }
 }

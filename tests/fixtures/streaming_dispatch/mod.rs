@@ -9,6 +9,7 @@ mod frames;
 
 use std::{fmt, future::Future, io, num::NonZeroUsize, sync::Arc, time::Duration};
 
+pub use frames::ContinuationSpec;
 use futures::StreamExt;
 use rstest::fixture;
 use tokio::{
@@ -288,25 +289,33 @@ impl StreamingDispatchWorld {
 
     fn collect_events_for(&mut self, wait: Duration) -> TestResult {
         let mut events = self.events.take().ok_or("event receiver not initialized")?;
-        let result = self.block_on(async {
-            let deadline = tokio::time::Instant::now() + wait;
-            let mut collected = Vec::new();
-            loop {
-                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-                if remaining.is_zero() {
-                    break;
-                }
-                match timeout(remaining, events.recv()).await {
-                    Ok(Some(event)) => collected.push(event),
-                    Ok(None) | Err(_) => break,
-                }
-            }
-            collected
-        });
+        let result = self.block_on(collect_until(&mut events, wait));
         self.events = Some(events);
         self.observed.extend(result?);
         Ok(())
     }
+}
+
+/// Drain queued dispatch events until `wait` elapses or the sender closes.
+async fn collect_until(
+    events: &mut mpsc::UnboundedReceiver<DispatchEvent>,
+    wait: Duration,
+) -> Vec<DispatchEvent> {
+    let deadline = tokio::time::Instant::now() + wait;
+    let mut collected = Vec::new();
+    while let Some(remaining) = remaining_until(deadline) {
+        match timeout(remaining, events.recv()).await {
+            Ok(Some(event)) => collected.push(event),
+            Ok(None) | Err(_) => break,
+        }
+    }
+    collected
+}
+
+/// Return the time left before `deadline`, or `None` once it has passed.
+fn remaining_until(deadline: tokio::time::Instant) -> Option<Duration> {
+    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+    (!remaining.is_zero()).then_some(remaining)
 }
 
 /// Construct the streaming dispatch world used by these scenarios.
@@ -329,16 +338,16 @@ fn build_streaming_handler(
     events: mpsc::UnboundedSender<DispatchEvent>,
 ) -> StreamingHandler {
     Arc::new(move |_parts: RequestParts, body: RequestBodyStream| {
-        let gate = Arc::clone(&gate);
-        let events = events.clone();
+        let handler_gate = Arc::clone(&gate);
+        let handler_events = events.clone();
         Box::pin(async move {
             if mode == HandlerMode::Abandon {
                 return Some(ABANDONED_REPLY.to_vec());
             }
             if mode == HandlerMode::Hold {
-                let _permit = gate.acquire().await;
+                let _permit = handler_gate.acquire().await;
             }
-            consume_body(body, &events).await;
+            consume_body(body, &handler_events).await;
             Some(STREAM_REPLY.to_vec())
         })
     })
@@ -368,10 +377,10 @@ async fn consume_body(mut body: RequestBodyStream, events: &mpsc::UnboundedSende
 /// Build the buffered route handler, which reports its payload.
 fn build_buffered_handler(events: mpsc::UnboundedSender<DispatchEvent>) -> Handler<Envelope> {
     Arc::new(move |envelope: &Envelope| {
-        let events = events.clone();
+        let handler_events = events.clone();
         let body = envelope.payload_bytes().to_vec();
         Box::pin(async move {
-            let _sent = events.send(DispatchEvent::Buffered { body });
+            let _sent = handler_events.send(DispatchEvent::Buffered { body });
         })
     })
 }

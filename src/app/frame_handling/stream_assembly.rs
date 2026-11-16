@@ -65,6 +65,15 @@ pub(super) fn accept_streaming_first(
     }
 }
 
+/// One continuation frame's body and the header that describes it.
+#[derive(Debug)]
+pub(super) struct ContinuationFrame<'a> {
+    /// Body bytes carried by the frame.
+    pub(super) body: &'a [u8],
+    /// Validated continuation header for the frame.
+    pub(super) header: &'a ContinuationFrameHeader,
+}
+
 /// Admit a continuation for an existing streaming message.
 ///
 /// A terminal failure (the assembly was removed) yields
@@ -81,10 +90,10 @@ pub(super) fn accept_streaming_continuation(
     state: &mut MessageAssemblyState,
     failures: &mut DeserFailureTracker<'_>,
     correlation_id: Option<u64>,
-    key: MessageKey,
-    body: &[u8],
-    header: &ContinuationFrameHeader,
+    frame: &ContinuationFrame<'_>,
 ) -> io::Result<FrameOutcome> {
+    let body = frame.body;
+    let header = frame.header;
     match state.accept_streaming_continuation(header, body) {
         Ok(StreamingContinuation::Chunk {
             key,
@@ -102,13 +111,13 @@ pub(super) fn accept_streaming_continuation(
                 "streaming message assembly continuation rejected",
                 &failure,
             )?;
-            Ok(stream_failure_outcome(key, failure))
+            Ok(stream_failure_outcome(header.message_key, &failure))
         }
     }
 }
 
 /// Convert a terminal streaming failure into a connection-visible outcome.
-fn stream_failure_outcome(key: MessageKey, failure: StreamingFailure) -> FrameOutcome {
+fn stream_failure_outcome(key: MessageKey, failure: &StreamingFailure) -> FrameOutcome {
     if failure.is_terminal() {
         FrameOutcome::StreamFailed {
             key,

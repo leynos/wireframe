@@ -15,17 +15,15 @@
 use std::{collections::VecDeque, io};
 
 use bytes::Bytes;
+use log::debug;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_util::codec::Framed;
 
 use super::{
     super::{
-        codec_driver::FramePipeline,
-        combined_codec::ConnectionCodec,
         envelope::{Envelope, Packet},
         frame_handling::{self, ResponseContext},
     },
-    stream_dispatch::DispatchContext,
+    stream_handles::{ChunkBudget, DispatchHandles},
 };
 use crate::{
     codec::FrameCodec,
@@ -64,10 +62,7 @@ pub(super) fn parked_bytes(parked: &VecDeque<ParkedMessage>) -> usize {
 /// Dispatch a parked message through its buffered service or streaming handler.
 pub(super) async fn dispatch_parked<S, E, F, W>(
     message: ParkedMessage,
-    ctx: &DispatchContext<'_, S, E, F>,
-    pipeline: &mut FramePipeline<F::Frame>,
-    framed: &mut Framed<W, ConnectionCodec<F>>,
-    assembly: Option<&MessageAssemblyState>,
+    handles: DispatchHandles<'_, S, E, F, W>,
 ) -> io::Result<()>
 where
     S: Serializer + Send + Sync,
@@ -77,41 +72,15 @@ where
     Envelope: EncodeWith<S>,
 {
     match message {
-        ParkedMessage::Envelope(env) => {
-            let Some(service) = ctx.routes.get(&env.id) else {
-                log::warn!(
-                    "no handler for message id: id={}, correlation_id={:?}",
-                    env.id,
-                    env.correlation_id
-                );
-                return Ok(());
-            };
-            frame_handling::forward_response(
-                env,
-                service,
-                ResponseContext {
-                    serializer: ctx.serializer,
-                    framed,
-                    pipeline,
-                    codec: ctx.codec,
-                },
-            )
-            .await
-        }
-        ParkedMessage::Stream { parts, body } => {
-            dispatch_prefilled(parts, body, ctx, pipeline, framed, assembly).await
-        }
+        ParkedMessage::Envelope(env) => forward_buffered(env, handles).await,
+        ParkedMessage::Stream { parts, body } => dispatch_prefilled(parts, body, handles).await,
     }
 }
 
-/// Run a streaming handler with an already assembled body.
-async fn dispatch_prefilled<S, E, F, W>(
-    parts: RequestParts,
-    body: Bytes,
-    ctx: &DispatchContext<'_, S, E, F>,
-    pipeline: &mut FramePipeline<F::Frame>,
-    framed: &mut Framed<W, ConnectionCodec<F>>,
-    assembly: Option<&MessageAssemblyState>,
+/// Run a parked buffered envelope through its middleware chain.
+async fn forward_buffered<S, E, F, W>(
+    env: Envelope,
+    handles: DispatchHandles<'_, S, E, F, W>,
 ) -> io::Result<()>
 where
     S: Serializer + Send + Sync,
@@ -120,7 +89,41 @@ where
     W: AsyncRead + AsyncWrite + Unpin,
     Envelope: EncodeWith<S>,
 {
-    let Some(handler) = ctx.streaming_routes.get(&parts.id()) else {
+    let Some(service) = handles.ctx.routes.get(&env.id) else {
+        log::warn!(
+            "no handler for message id: id={}, correlation_id={:?}",
+            env.id,
+            env.correlation_id
+        );
+        return Ok(());
+    };
+    frame_handling::forward_response(
+        env,
+        service,
+        ResponseContext {
+            serializer: handles.ctx.serializer,
+            framed: handles.framed,
+            pipeline: handles.pipeline,
+            codec: handles.ctx.codec,
+        },
+    )
+    .await
+}
+
+/// Run a streaming handler with an already assembled body.
+async fn dispatch_prefilled<S, E, F, W>(
+    parts: RequestParts,
+    body: Bytes,
+    handles: DispatchHandles<'_, S, E, F, W>,
+) -> io::Result<()>
+where
+    S: Serializer + Send + Sync,
+    E: Packet,
+    F: FrameCodec,
+    W: AsyncRead + AsyncWrite + Unpin,
+    Envelope: EncodeWith<S>,
+{
+    let Some(streaming_handler) = handles.ctx.streaming_routes.get(&parts.id()) else {
         log::warn!("no streaming handler for message id: id={}", parts.id());
         return Ok(());
     };
@@ -128,18 +131,28 @@ where
     let correlation_id = parts.correlation_id();
     let (sender, stream) =
         accounted_body_channel(DEFAULT_BODY_CHANNEL_CAPACITY, QueuedBytes::new());
-    let response = handler(parts, stream);
-    let other_retained = assembly
-        .map_or(0, MessageAssemblyState::total_buffered_bytes)
-        .saturating_add(pipeline.fragmentation_buffered_bytes());
-    let limit = frame_handling::active_aggregate_limit_bytes(ctx.effective_budgets);
+    let response = streaming_handler(parts, stream);
+    let budget = ChunkBudget {
+        other_retained: handles
+            .assembly
+            .as_ref()
+            .map_or(0, MessageAssemblyState::total_buffered_bytes)
+            .saturating_add(handles.pipeline.fragmentation_buffered_bytes()),
+        limit: frame_handling::active_aggregate_limit_bytes(handles.ctx.effective_budgets),
+    };
     // The queue starts empty, so the empty-queue exception admits the whole
     // body even when it exceeds the remaining aggregate budget. Assembly
     // already enforced the per-message cap.
-    let _ = sender.clone().send_chunk(body, other_retained, limit).await;
+    if let Err(error) = sender
+        .clone()
+        .send_chunk(body, budget.other_retained, budget.limit)
+        .await
+    {
+        debug!("pre-filled request body was not delivered: {error:?}");
+    }
     drop(sender);
     let payload = response.await;
-    forward_reply(route_id, correlation_id, payload, pipeline, framed, ctx).await
+    forward_reply(route_id, correlation_id, payload, handles).await
 }
 
 /// Send a streaming handler's reply through the outbound pipeline.
@@ -147,9 +160,7 @@ pub(super) async fn forward_reply<S, E, F, W>(
     route_id: u32,
     correlation_id: Option<u64>,
     payload: Option<Vec<u8>>,
-    pipeline: &mut FramePipeline<F::Frame>,
-    framed: &mut Framed<W, ConnectionCodec<F>>,
-    ctx: &DispatchContext<'_, S, E, F>,
+    handles: DispatchHandles<'_, S, E, F, W>,
 ) -> io::Result<()>
 where
     S: Serializer + Send + Sync,
@@ -163,10 +174,10 @@ where
         correlation_id,
         payload,
         ResponseContext {
-            serializer: ctx.serializer,
-            framed,
-            pipeline,
-            codec: ctx.codec,
+            serializer: handles.ctx.serializer,
+            framed: handles.framed,
+            pipeline: handles.pipeline,
+            codec: handles.ctx.codec,
         },
     )
     .await

@@ -89,10 +89,10 @@ where
     F: FrameCodec,
     Envelope: EncodeWith<S>,
 {
-    let Some(payload) = payload else {
+    let Some(bytes) = payload else {
         return Ok(());
     };
-    let envelope = Envelope::from_parts(PacketParts::new(route_id, correlation_id, payload));
+    let envelope = Envelope::from_parts(PacketParts::new(route_id, correlation_id, bytes));
     write_envelope(envelope, ctx).await
 }
 

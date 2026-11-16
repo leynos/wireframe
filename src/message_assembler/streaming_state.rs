@@ -43,7 +43,7 @@ impl PurgedAssemblies {
 
     /// Return whether no assembly was evicted.
     #[must_use]
-    pub fn is_empty(&self) -> bool { self.buffered.is_empty() && self.streaming.is_empty() }
+    pub const fn is_empty(&self) -> bool { self.buffered.is_empty() && self.streaming.is_empty() }
 }
 
 impl super::MessageAssemblyState {

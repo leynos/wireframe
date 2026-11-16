@@ -19,6 +19,36 @@ use super::{
     TestResult,
 };
 
+/// Description of one continuation frame to send.
+#[derive(Clone, Copy, Debug)]
+pub struct ContinuationSpec<'a> {
+    /// Assembly key the frame continues.
+    pub key: MessageKey,
+    /// Position of this frame in the message's sequence.
+    pub sequence: FrameSequence,
+    /// Body text carried by the frame.
+    pub body: &'a str,
+    /// Whether this frame completes the message.
+    pub is_last: bool,
+}
+
+impl<'a> ContinuationSpec<'a> {
+    /// Describe a continuation frame.
+    pub const fn new(
+        key: MessageKey,
+        sequence: FrameSequence,
+        body: &'a str,
+        is_last: bool,
+    ) -> Self {
+        Self {
+            key,
+            sequence,
+            body,
+            is_last,
+        }
+    }
+}
+
 impl StreamingDispatchWorld {
     /// Send a streaming first frame, optionally declaring the body length.
     ///
@@ -32,7 +62,7 @@ impl StreamingDispatchWorld {
         total: Option<u32>,
     ) -> TestResult {
         let payload = test_helpers::first_frame_payload(key.into(), body.as_bytes(), false, total)?;
-        self.send_message(STREAM_ROUTE, payload)
+        self.send_message(STREAM_ROUTE, &payload)
     }
 
     /// Send a streaming continuation frame.
@@ -40,20 +70,8 @@ impl StreamingDispatchWorld {
     /// # Errors
     ///
     /// Returns an error if the frame cannot be built or sent.
-    pub fn send_streaming_continuation(
-        &mut self,
-        key: impl Into<MessageKey>,
-        sequence: impl Into<FrameSequence>,
-        body: &str,
-        is_last: bool,
-    ) -> TestResult {
-        let payload = test_helpers::continuation_frame_payload(
-            key.into(),
-            sequence.into(),
-            body.as_bytes(),
-            is_last,
-        )?;
-        self.send_message(STREAM_ROUTE, payload)
+    pub fn send_streaming_continuation(&mut self, frame: ContinuationSpec<'_>) -> TestResult {
+        self.send_continuation(STREAM_ROUTE, frame)
     }
 
     /// Send a buffered first frame.
@@ -70,7 +88,7 @@ impl StreamingDispatchWorld {
         let total = is_last.then(|| u32::try_from(body.len()).unwrap_or(u32::MAX));
         let payload =
             test_helpers::first_frame_payload(key.into(), body.as_bytes(), is_last, total)?;
-        self.send_message(BUFFERED_ROUTE, payload)
+        self.send_message(BUFFERED_ROUTE, &payload)
     }
 
     /// Send a buffered continuation frame.
@@ -78,20 +96,8 @@ impl StreamingDispatchWorld {
     /// # Errors
     ///
     /// Returns an error if the frame cannot be built or sent.
-    pub fn send_buffered_continuation(
-        &mut self,
-        key: impl Into<MessageKey>,
-        sequence: impl Into<FrameSequence>,
-        body: &str,
-        is_last: bool,
-    ) -> TestResult {
-        let payload = test_helpers::continuation_frame_payload(
-            key.into(),
-            sequence.into(),
-            body.as_bytes(),
-            is_last,
-        )?;
-        self.send_message(BUFFERED_ROUTE, payload)
+    pub fn send_buffered_continuation(&mut self, frame: ContinuationSpec<'_>) -> TestResult {
+        self.send_continuation(BUFFERED_ROUTE, frame)
     }
 
     /// Send the first part of a complete buffered message, retaining the rest.
@@ -111,12 +117,12 @@ impl StreamingDispatchWorld {
         let total = u32::try_from(body.len()).unwrap_or(u32::MAX);
         let payload =
             test_helpers::first_frame_payload(key.into(), body.as_bytes(), true, Some(total))?;
-        let framed = transport_frame(&self.encode_message(BUFFERED_ROUTE, &payload)?)?;
+        let framed = transport_frame(&encode_message(BUFFERED_ROUTE, &payload)?)?;
         let split = framed.len().min(2);
         let (head, tail) = framed.split_at(split);
         self.write_raw(head)?;
         self.pending = tail.to_vec();
-        self.wait_millis(3 * READ_TIMEOUT_MS / 2)
+        self.wait_millis(READ_TIMEOUT_MS.saturating_mul(3).div_ceil(2))
     }
 
     /// Write the retained remainder of a split frame.
@@ -151,14 +157,19 @@ impl StreamingDispatchWorld {
         self.block_on(async move { tokio::time::sleep(Duration::from_millis(millis)).await })
     }
 
-    fn send_message(&mut self, route: u32, payload: Vec<u8>) -> TestResult {
-        let framed = transport_frame(&self.encode_message(route, &payload)?)?;
+    fn send_message(&mut self, route: u32, payload: &[u8]) -> TestResult {
+        let framed = transport_frame(&encode_message(route, payload)?)?;
         self.write_raw(&framed)
     }
 
-    fn encode_message(&self, route: u32, payload: &[u8]) -> TestResult<Vec<u8>> {
-        let envelope = Envelope::new(route, CORRELATION_ID, payload.to_vec());
-        Ok(BincodeSerializer.serialize(&envelope)?)
+    fn send_continuation(&mut self, route: u32, frame: ContinuationSpec<'_>) -> TestResult {
+        let payload = test_helpers::continuation_frame_payload(
+            frame.key,
+            frame.sequence,
+            frame.body.as_bytes(),
+            frame.is_last,
+        )?;
+        self.send_message(route, &payload)
     }
 
     /// Write raw transport bytes and let the connection runtime make progress.
@@ -179,7 +190,17 @@ impl StreamingDispatchWorld {
     }
 }
 
+/// Serialize one envelope for `route` with the fixed test correlation id.
+fn encode_message(route: u32, payload: &[u8]) -> TestResult<Vec<u8>> {
+    let envelope = Envelope::new(route, CORRELATION_ID, payload.to_vec());
+    Ok(BincodeSerializer.serialize(&envelope)?)
+}
+
 /// Prefix serialized envelope bytes with their transport length.
+#[expect(
+    clippy::big_endian_bytes,
+    reason = "the runtime length prefix is a 4-byte big-endian length"
+)]
 fn transport_frame(envelope: &[u8]) -> TestResult<Vec<u8>> {
     let len = u32::try_from(envelope.len()).map_err(|_| "frame too large")?;
     let mut framed = Vec::with_capacity(envelope.len() + 4);
@@ -189,6 +210,10 @@ fn transport_frame(envelope: &[u8]) -> TestResult<Vec<u8>> {
 }
 
 /// Read one length-delimited reply frame from the client side.
+#[expect(
+    clippy::big_endian_bytes,
+    reason = "the runtime length prefix is a 4-byte big-endian length"
+)]
 pub(super) async fn read_frame(client: &mut DuplexStream) -> io::Result<Vec<u8>> {
     let mut len = [0u8; 4];
     client.read_exact(&mut len).await?;

@@ -2,6 +2,8 @@
 
 mod core;
 mod stream_dispatch;
+mod stream_frame;
+mod stream_handles;
 mod stream_parked;
 mod stream_slot;
 

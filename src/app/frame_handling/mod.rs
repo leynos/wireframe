@@ -3,6 +3,7 @@
 //! Extracted from `connection.rs` to keep modules small and focused.
 
 mod assembly;
+mod assembly_dispatch;
 mod backpressure;
 mod buffered_assembly;
 mod core;
