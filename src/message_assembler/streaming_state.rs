@@ -77,7 +77,7 @@ impl super::MessageAssemblyState {
         input: super::FirstFrameInput<'a>,
         now: Instant,
     ) -> Result<StreamingFirstFrame<'a>, MessageAssemblyError> {
-        let _purged = self.purge_expired_detailed_at(now);
+        self.purge_deferring_streaming(now);
         let key = input.header.message_key;
 
         if self.assemblies.contains_key(&key) || self.streaming_assemblies.contains_key(&key) {
@@ -138,7 +138,7 @@ impl super::MessageAssemblyState {
         body: &'a [u8],
         now: Instant,
     ) -> Result<StreamingContinuation<'a>, StreamingFailure> {
-        let _purged = self.purge_expired_detailed_at(now);
+        self.purge_deferring_streaming(now);
         let key = header.message_key;
 
         if header.body_len != body.len() {
@@ -213,6 +213,19 @@ impl super::MessageAssemblyState {
     #[must_use]
     pub fn streaming_count(&self) -> usize { self.streaming_assemblies.len() }
 
+    /// Purge expired state during admission, deferring streaming evictions.
+    ///
+    /// An evicted buffered assembly needs no notification, but an evicted
+    /// streaming assembly leaves a handler waiting on a body that will never
+    /// complete. Only the connection loop can fail that body, and it learns
+    /// about evictions from [`Self::purge_expired_detailed`], so evictions made
+    /// here are queued for the next call rather than dropped.
+    pub(super) fn purge_deferring_streaming(&mut self, now: Instant) {
+        let purged = self.purge_expired_detailed_at(now);
+        self.deferred_streaming_evictions
+            .extend_from_slice(purged.streaming());
+    }
+
     /// Remove expired buffered and streaming assemblies.
     #[must_use]
     pub fn purge_expired_detailed(&mut self) -> PurgedAssemblies {
@@ -224,6 +237,9 @@ impl super::MessageAssemblyState {
     pub fn purge_expired_detailed_at(&mut self, now: Instant) -> PurgedAssemblies {
         let timeout = self.timeout;
         let mut purged = PurgedAssemblies::default();
+        purged
+            .streaming
+            .append(&mut self.deferred_streaming_evictions);
 
         self.assemblies.retain(|key, partial| {
             let expired = now.saturating_duration_since(partial.started_at) >= timeout;

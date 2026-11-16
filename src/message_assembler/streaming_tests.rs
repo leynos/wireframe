@@ -299,3 +299,33 @@ fn expiry_reports_streaming_keys_separately() {
     );
     assert_eq!(state.streaming_count(), 0);
 }
+
+#[test]
+fn admission_defers_an_evicted_streaming_key_to_the_next_purge() {
+    let mut state = state_with_limit(1024);
+    let start = Instant::now();
+    let expired = first_header(1, 4, Some(8), false);
+    admit_first(&mut state, &expired, b"abcd", start);
+
+    // Admitting an unrelated message after the timeout purges the stalled one.
+    let later = start + TIMEOUT + Duration::from_secs(1);
+    let unrelated = first_header(2, 2, Some(4), false);
+    admit_first(&mut state, &unrelated, b"xy", later);
+    assert!(
+        !state.is_streaming_key(MessageKey(1)),
+        "the stalled assembly should have been evicted during admission"
+    );
+
+    let reported = state.purge_expired_detailed_at(later);
+    assert_eq!(
+        reported.streaming(),
+        [MessageKey(1)],
+        "the body consumer must still be told its assembly expired"
+    );
+
+    let repeated = state.purge_expired_detailed_at(later);
+    assert!(
+        repeated.streaming().is_empty(),
+        "a deferred eviction should be reported once"
+    );
+}

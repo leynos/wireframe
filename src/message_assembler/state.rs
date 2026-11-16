@@ -90,6 +90,13 @@ pub struct MessageAssemblyState {
     /// Streaming assemblies. These retain ordering state only, so they are
     /// deliberately excluded from aggregate budget accounting.
     pub(super) streaming_assemblies: HashMap<MessageKey, StreamingAssembly>,
+    /// Streaming keys evicted by a purge that ran during admission.
+    ///
+    /// Admission purges expired state for self-maintenance, but the caller that
+    /// can act on an eviction — the connection loop — only observes
+    /// [`Self::purge_expired_detailed`]. Keys evicted on the admission path are
+    /// therefore retained here until that call reports them.
+    pub(super) deferred_streaming_evictions: Vec<MessageKey>,
     /// Aggregate limits protecting connection and in-flight memory.
     budgets: AggregateBudgets,
 }
@@ -121,6 +128,7 @@ impl MessageAssemblyState {
             timeout,
             assemblies: HashMap::new(),
             streaming_assemblies: HashMap::new(),
+            deferred_streaming_evictions: Vec::new(),
             budgets: AggregateBudgets {
                 connection: connection_budget,
                 in_flight: in_flight_budget,
@@ -163,7 +171,7 @@ impl MessageAssemblyState {
         input: FirstFrameInput<'_>,
         now: Instant,
     ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
-        self.purge_expired_at(now);
+        self.purge_deferring_streaming(now);
         let key = input.header.message_key;
 
         // Check for a duplicate first frame across both buffered and
@@ -274,7 +282,7 @@ impl MessageAssemblyState {
         body: &[u8],
         now: Instant,
     ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
-        self.purge_expired_at(now);
+        self.purge_deferring_streaming(now);
 
         let key = header.message_key;
 
