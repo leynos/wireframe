@@ -2,6 +2,7 @@
 
 mod completion;
 mod grace;
+mod grace_warning;
 mod shutdown_drain;
 mod stream_correlation;
 mod vec_delivery;

@@ -706,6 +706,7 @@ also changed. When the request carries no correlation identifier, a frame that
 supplies its own keeps it instead of having `None` written over it. A frame
 that supplies a different identifier than the request is still overwritten and
 logged as a warning. On a prepared server connection the protocol terminator is
-written unchanged, so it keeps the identifier produced by `stream_end_frame`
-for both streamed and multi-packet responses; see the
+written without decoding or re-wrapping, so the adapter does not replace the
+identifier produced by `stream_end_frame` for either streamed or multi-packet
+responses (`before_send` can still rewrite the frame); see the
 [users' guide](users-guide.md#response-producing-routes) for the full contract.

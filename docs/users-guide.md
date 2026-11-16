@@ -2808,11 +2808,12 @@ connection actor records why the channel ended (`drained`, `disconnected`, or
 after the actor has driven the response to completion and writes that frame
 through the standard `before_send` instrumentation, so telemetry and
 higher-level lifecycle hooks observe a consistent end-of-stream signal. The
-frame is written unchanged, so any codec metadata outside the payload survives
-and the adapter does not restamp its correlation identifier. A
-`ConnectionActor` driven directly through `ProtocolHooks` still stamps the
-stored `correlation_id` on the terminator it queues. Dropping all senders
-closes the channel; the actor logs the termination reason.
+adapter neither decodes nor re-wraps that frame, so any codec metadata outside
+the payload survives and the adapter does not restamp its correlation
+identifier; `before_send` may still rewrite the bytes. A `ConnectionActor`
+driven directly through `ProtocolHooks` still stamps the stored
+`correlation_id` on the terminator it queues. Dropping all senders closes the
+channel; the actor logs the termination reason.
 
 ### Response-producing routes
 
@@ -2900,15 +2901,19 @@ connection's frame pipeline before the next inbound frame is dispatched:
 - Every application envelope passes through fragmentation, outbound metrics,
   serialization, `wrap_payload`, and `before_send`, in that order, immediately
   before the transport write. A protocol terminator is already a complete codec
-  frame, so it is written unchanged: it skips fragmentation, serialization, and
-  `wrap_payload`, but still passes through `before_send` and the outbound frame
-  and response-send metrics.
+  frame, so the adapter writes it without decoding or re-wrapping it: it skips
+  fragmentation, serialization, and `wrap_payload`, and keeps the metadata the
+  protocol supplied outside the payload. It is not byte-preserved, though:
+  `before_send` still runs, so a hook that rewrites frames rewrites this one
+  too. It also counts towards the outbound frame and response-send metrics.
 - Every data frame for a response inherits the request's correlation id: a
   frame with no id adopts it, and a frame that supplies a different id is
   overwritten and logged as a warning. When the request carries no id, the
   frame keeps its own. Both stream and multi-packet terminators keep the id
-  produced by `stream_end_frame`, because the adapter writes that frame
-  unchanged (the client matches a terminator before it checks correlation).
+  produced by `stream_end_frame`, because the adapter does not restamp them
+  (the client matches a terminator before it checks correlation). A
+  `before_send` hook can still rewrite that id, as it can rewrite any other
+  part of the frame.
 
 Back-pressure is end-to-end. The actor awaits each transport write, so a slow
 peer stops further polling of a `Response::Stream`. `Response::MultiPacket`

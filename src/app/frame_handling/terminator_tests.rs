@@ -47,7 +47,7 @@ const WRAPPED_TAG: u8 = 0x01;
 
 /// Frame carrying protocol metadata in a tag byte outside the payload.
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct TaggedFrame {
+pub(super) struct TaggedFrame {
     tag: u8,
     payload: Vec<u8>,
 }
@@ -188,14 +188,15 @@ type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
 /// Forward a finished stream through the inbound response path.
 ///
-/// Builds the actor, codec, and protocol shared by both terminator scenarios
-/// and returns every frame that reached the sink.
+/// Builds the actor, codec, and protocol shared by the terminator scenarios and
+/// by the delivery-span capture in [`super::delivery_span_tests`], and returns
+/// every frame that reached the sink.
 ///
 /// # Errors
 ///
 /// Returns the push-queue configuration failure, or the transport error that
 /// [`super::forward_response`] reports.
-async fn forward_finished_stream(
+pub(super) async fn forward_finished_stream(
     hooks: ProtocolHooks<TaggedFrame, ()>,
 ) -> Result<Vec<TaggedFrame>, Box<dyn std::error::Error + Send + Sync>> {
     let (mut actor, _handle) = build_actor()?;

@@ -142,12 +142,12 @@ On a prepared server connection the actor carries no terminator hook. The
 inbound handler calls [`WireframeProtocol::stream_end_frame`] after the
 response has been driven to completion and writes the returned frame directly
 through the connection's frame pipeline. `before_send` and outbound metrics
-observe it, and the frame is written unchanged, so tag, length, or padding
-metadata that a custom codec keeps outside the payload survives. The adapter
-neither decodes nor restamps it, so the terminator carries exactly the
-identifier the protocol encoded. `on_command_end` then runs after that final
-write. Neither hook runs when the connection shuts down or the peer disappears
-before the response completes.
+observe it, and the adapter neither decodes nor restamps it, so tag, length, or
+padding metadata that a custom codec keeps outside the payload survives and the
+terminator carries the identifier the protocol encoded. The frame is not
+byte-preserved, because `before_send` may still rewrite it. `on_command_end`
+then runs after that final write. Neither hook runs when the connection shuts
+down or the peer disappears before the response completes.
 
 The terminator write is bounded for the same reason the response frames are. A
 peer that stopped reading can block the last frame as readily as any other, so
