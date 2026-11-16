@@ -56,6 +56,14 @@ Feature: Streaming request bodies reach route handlers
     And the reply payload is "next"
     And the connection ends without error
 
+  Scenario: A parked streaming message does not hold the connection open
+    Given an app whose streaming handler holds its body
+    When a streaming first frame for key 18 with body "held" arrives
+    And a streaming first frame for key 19 with body "late" arrives
+    And a final streaming continuation frame for key 19 sequence 1 with body "st" arrives
+    And the connection closes
+    Then the connection ends without error
+
   Scenario: End of stream reports an unexpected end to the body
     Given an app with a streaming route and a buffered route
     When a streaming first frame for key 14 with body "partial" arrives

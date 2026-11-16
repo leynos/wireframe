@@ -57,6 +57,16 @@ fn abandoned_body_does_not_block(
 
 #[scenario(
     path = "tests/features/streaming_request_dispatch.feature",
+    name = "A parked streaming message does not hold the connection open"
+)]
+fn parked_streaming_message_does_not_hold_the_connection_open(
+    streaming_dispatch_world: Result<StreamingDispatchWorld, TestError>,
+) -> Result<(), TestError> {
+    Ok(())
+}
+
+#[scenario(
+    path = "tests/features/streaming_request_dispatch.feature",
     name = "End of stream reports an unexpected end to the body"
 )]
 fn end_of_stream_reports_unexpected_eof(

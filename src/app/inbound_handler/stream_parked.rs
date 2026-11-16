@@ -15,18 +15,20 @@
 use std::{collections::VecDeque, io, time::Duration};
 
 use bytes::Bytes;
-use log::debug;
 use tokio::{
     io::{AsyncRead, AsyncWrite},
     time::timeout,
 };
+use tracing::warn;
 
 use super::{
     super::{
         envelope::{Envelope, Packet},
         frame_handling::{self, ResponseContext},
     },
+    stream_diagnostics,
     stream_handles::{ChunkBudget, DispatchHandles},
+    stream_slot::HandlerFuture,
 };
 use crate::{
     codec::FrameCodec,
@@ -136,10 +138,10 @@ where
     Envelope: EncodeWith<S>,
 {
     let Some(service) = handles.ctx.routes.get(&env.id) else {
-        log::warn!(
-            "no handler for message id: id={}, correlation_id={:?}",
-            env.id,
-            env.correlation_id
+        warn!(
+            message_id = env.id,
+            correlation_id = ?env.correlation_id,
+            "no handler for message id"
         );
         return Ok(());
     };
@@ -171,7 +173,10 @@ where
     Envelope: EncodeWith<S>,
 {
     let Some(streaming_handler) = handles.ctx.streaming_routes.get(&parts.id()) else {
-        log::warn!("no streaming handler for message id: id={}", parts.id());
+        warn!(
+            message_id = parts.id(),
+            "no streaming handler for message id"
+        );
         return Ok(());
     };
     let route_id = parts.id();
@@ -182,8 +187,21 @@ where
     let budget = ChunkBudget::measure(&handles, parked);
     deliver_prefilled(&sender, body, budget, handles.wait).await;
     drop(sender);
-    let payload = response.await;
+    let payload = await_reply(handles.wait, response).await;
     forward_reply(route_id, correlation_id, payload, handles).await
+}
+
+/// Await a parked handler's reply, bounded by the connection's read wait.
+///
+/// Parked messages are drained while the slot frees during normal operation and
+/// again at end of connection, so this await runs on the teardown path. The
+/// live slot bounds its equivalent wait in
+/// [`ConnectionStreams::close_active`](super::stream_slot::ConnectionStreams::close_active);
+/// without the same bound here, one handler that never completes would keep the
+/// connection closing and its resources allocated indefinitely. An elapsed wait
+/// means the handler produced no reply, so no frame is written.
+async fn await_reply(wait: Duration, response: HandlerFuture) -> Option<Bytes> {
+    timeout(wait, response).await.ok().flatten()
 }
 
 /// Queue a fully assembled body as the only chunk of its stream.
@@ -211,15 +229,20 @@ async fn deliver_prefilled(
     .await;
     match sent {
         Ok(Ok(())) => {}
-        Ok(Err(error)) => debug!("pre-filled request body was not delivered: {error:?}"),
-        Err(_) => {
-            debug!("pre-filled request body was not admitted within the read timeout");
-            let error =
-                io::Error::other("request body could not be retained within the connection budget");
-            if let Err(closed) = sender.clone().send_terminal(error).await {
-                debug!("pre-filled request body failure was not delivered: {closed:?}");
-            }
-        }
+        Ok(Err(error)) => stream_diagnostics::prefilled_not_delivered(error),
+        Err(_) => refuse_prefilled(sender).await,
+    }
+}
+
+/// Report a body the connection could not retain, and fail it terminally.
+///
+/// Without the terminal error the handler would wait for a chunk that will
+/// never arrive, because the whole body was refused rather than split.
+async fn refuse_prefilled(sender: &AccountedBodySender) {
+    stream_diagnostics::prefilled_not_admitted();
+    let error = io::Error::other("request body could not be retained within the connection budget");
+    if let Err(closed) = sender.clone().send_terminal(error).await {
+        stream_diagnostics::prefilled_failure_not_delivered(closed);
     }
 }
 
