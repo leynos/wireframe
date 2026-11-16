@@ -6,12 +6,12 @@
 
 mod asserts;
 mod frames;
+mod handlers;
 
 use std::{fmt, future::Future, io, num::NonZeroUsize, sync::Arc, time::Duration};
 
-use bytes::Bytes;
 pub use frames::ContinuationSpec;
-use futures::StreamExt;
+use handlers::{build_buffered_handler, build_streaming_handler};
 use rstest::fixture;
 use tokio::{
     io::DuplexStream,
@@ -19,12 +19,7 @@ use tokio::{
     task::JoinHandle,
     time::timeout,
 };
-use wireframe::{
-    app::{Envelope, Handler, StreamingHandler, WireframeApp},
-    fragment::FragmentationConfig,
-    request::{RequestBodyStream, RequestParts},
-    test_helpers,
-};
+use wireframe::{app::WireframeApp, fragment::FragmentationConfig, test_helpers};
 pub use wireframe_testing::TestResult;
 
 /// Route identifier for the streaming handler.
@@ -39,10 +34,6 @@ const BUFFER_CAPACITY: usize = 512;
 const READ_TIMEOUT_MS: u64 = 100;
 /// Longest a single assertion waits for handler activity.
 const COLLECT_TIMEOUT_MS: u64 = 400;
-/// Reply payload returned once a streaming body has been consumed.
-const STREAM_REPLY: &[u8] = b"stream-reply";
-/// Reply payload returned by a handler that abandons its body.
-const ABANDONED_REPLY: &[u8] = b"abandoned";
 
 /// What the streaming handler does with its body.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -353,58 +344,4 @@ pub fn streaming_dispatch_world() -> TestResult<StreamingDispatchWorld> {
     let world = StreamingDispatchWorld::default();
     world.runtime()?;
     Ok(world)
-}
-
-/// Build the streaming route handler for the given mode.
-fn build_streaming_handler(
-    mode: HandlerMode,
-    gate: Arc<Semaphore>,
-    events: mpsc::UnboundedSender<DispatchEvent>,
-) -> StreamingHandler {
-    Arc::new(move |_parts: RequestParts, body: RequestBodyStream| {
-        let handler_gate = Arc::clone(&gate);
-        let handler_events = events.clone();
-        Box::pin(async move {
-            if mode == HandlerMode::Abandon {
-                return Some(Bytes::from_static(ABANDONED_REPLY));
-            }
-            if mode == HandlerMode::Hold {
-                let _permit = handler_gate.acquire().await;
-            }
-            consume_body(body, &handler_events).await;
-            Some(Bytes::from_static(STREAM_REPLY))
-        })
-    })
-}
-
-/// Read a body to its end, reporting each chunk and how it ended.
-///
-/// The first error terminates the body, so a completed body and an errored
-/// body are mutually exclusive observations.
-async fn consume_body(mut body: RequestBodyStream, events: &mpsc::UnboundedSender<DispatchEvent>) {
-    while let Some(item) = body.next().await {
-        match item {
-            Ok(chunk) => {
-                let _sent = events.send(DispatchEvent::Chunk {
-                    body: chunk.to_vec(),
-                });
-            }
-            Err(error) => {
-                let _sent = events.send(DispatchEvent::Error { kind: error.kind() });
-                return;
-            }
-        }
-    }
-    let _sent = events.send(DispatchEvent::Completed);
-}
-
-/// Build the buffered route handler, which reports its payload.
-fn build_buffered_handler(events: mpsc::UnboundedSender<DispatchEvent>) -> Handler<Envelope> {
-    Arc::new(move |envelope: &Envelope| {
-        let handler_events = events.clone();
-        let body = envelope.payload_bytes().to_vec();
-        Box::pin(async move {
-            let _sent = handler_events.send(DispatchEvent::Buffered { body });
-        })
-    })
 }
