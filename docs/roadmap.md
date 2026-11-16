@@ -280,8 +280,9 @@ abstraction, and standardized per-connection memory budgets.
 - [ ] 8.1.4. Integrate streaming request extraction with the handler dispatch
   path. Superseded by
   [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md): extractor
-  dispatch was removed, so request streams reach handlers only through a
-  caller-owned `body_channel` pair, as
+  dispatch was never wired in and the extractor API was removed. The server
+  creates no request body stream; a caller that wants one pairs a producer and
+  consumer over `body_channel` itself, as
   [ADR 002](adrs/adr-0002-streaming-requests-and-shared-message-assembly.md)
   describes.
 - [x] 8.1.5. Write tests for buffered-to-streaming fallback and back-pressure
