@@ -69,17 +69,18 @@ async fn an_idle_grace_cancellation_warns_with_the_recorded_cause(
     let warnings: Vec<String> = std::iter::from_fn(|| log.pop())
         .map(|record| record.args().to_owned())
         .collect();
+    // The `log` crate is process-global, so another test's cancellation can
+    // land in this window. Select the record naming this test's configured
+    // grace: no other scenario uses a five-second idle grace.
     let warning = warnings
         .iter()
-        .find(|message| message.contains("could not be observed"))
+        .find(|message| {
+            message.contains("could not be observed")
+                && message.contains("accepted no frame for 5s")
+        })
         .unwrap_or_else(|| panic!("the grace cancellation must warn; captured: {warnings:#?}"));
 
-    for expected in [
-        expected_cause,
-        "accepted no frame for 5s",
-        "correlation=Some(7)",
-        "cancelling",
-    ] {
+    for expected in [expected_cause, "correlation=Some(7)", "cancelling"] {
         assert!(
             warning.contains(expected),
             "the cancellation warning must name {expected}; captured: {warning}"
