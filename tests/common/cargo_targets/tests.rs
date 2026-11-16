@@ -82,8 +82,13 @@ impl Drop for Scratch {
 
 /// Write the probe package's lockfile so the `--locked` query has one.
 fn generate_lockfile(root: &Utf8Path) -> RepoAccessResult {
+    // The probe has no dependencies (see `PROBE_MANIFEST`), so this resolves
+    // nothing from the registry; the command-local variable keeps it offline
+    // even if that stops being true, without touching the test process's own
+    // environment.
     let output = Command::new("cargo")
         .arg("generate-lockfile")
+        .env("CARGO_NET_OFFLINE", "true")
         .current_dir(root)
         .output()?;
     if output.status.success() {
