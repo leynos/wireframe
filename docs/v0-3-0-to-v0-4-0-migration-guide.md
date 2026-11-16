@@ -305,7 +305,8 @@ handler panic.
 A teardown callback that panics is invoked once, may not complete, and is not
 retried. Teardown is not invoked when setup was absent, failed, or never
 completed, nor when the connection future is dropped or aborted before
-processing stops.
+processing stops. Dropping the connection future after processing stops but
+while teardown is awaiting interrupts the callback, so it may not complete.
 
 ## Update test drivers
 
