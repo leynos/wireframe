@@ -30,8 +30,11 @@ impl StreamingDispatchWorld {
     ///
     /// Returns an error if the next chunk is missing or differs.
     pub fn assert_chunk_received(&mut self, expected: &str) -> TestResult {
-        self.collect()?;
-        let actual = self.chunks().nth(self.chunks_seen);
+        let index = self.chunks_seen;
+        let wanted = expected.as_bytes();
+        let done = |observed: &[DispatchEvent]| chunk_at(observed, index) == Some(wanted);
+        self.collect_matching(Duration::from_millis(COLLECT_TIMEOUT_MS), &done)?;
+        let actual = chunk_at(&self.observed, index);
         if actual == Some(expected.as_bytes()) {
             self.chunks_seen += 1;
             return Ok(());
@@ -50,8 +53,11 @@ impl StreamingDispatchWorld {
     ///
     /// Returns an error if the body has not completed successfully.
     pub fn assert_body_completed(&mut self) -> TestResult {
-        self.collect()?;
-        if self.has_event(|event| matches!(event, DispatchEvent::Completed)) {
+        let done = |observed: &[DispatchEvent]| {
+            has(observed, |event| matches!(event, DispatchEvent::Completed))
+        };
+        self.collect_matching(Duration::from_millis(COLLECT_TIMEOUT_MS), &done)?;
+        if done(&self.observed) {
             return Ok(());
         }
         Err(format!("body did not complete; {}", self.describe()).into())
@@ -63,11 +69,14 @@ impl StreamingDispatchWorld {
     ///
     /// Returns an error if that error was not observed.
     pub fn assert_body_error(&mut self, kind: io::ErrorKind) -> TestResult {
-        self.collect()?;
-        let found = self.has_event(
-            |event| matches!(event, DispatchEvent::Error { kind: observed } if *observed == kind),
-        );
-        if found {
+        let done = |events: &[DispatchEvent]| {
+            has(
+                events,
+                |event| matches!(event, DispatchEvent::Error { kind: seen } if *seen == kind),
+            )
+        };
+        self.collect_matching(Duration::from_millis(COLLECT_TIMEOUT_MS), &done)?;
+        if done(&self.observed) {
             return Ok(());
         }
         Err(format!("body error {kind:?} not observed; {}", self.describe()).into())
@@ -98,11 +107,10 @@ impl StreamingDispatchWorld {
     ///
     /// Returns an error if no matching dispatch was observed.
     pub fn assert_buffered_payload(&mut self, expected: &str) -> TestResult {
-        self.collect()?;
-        let found = self
-            .buffered_payloads()
-            .any(|body| body == expected.as_bytes());
-        if found {
+        let wanted = expected.as_bytes();
+        let done = |observed: &[DispatchEvent]| buffered(observed).any(|body| body == wanted);
+        self.collect_matching(Duration::from_millis(COLLECT_TIMEOUT_MS), &done)?;
+        if done(&self.observed) {
             return Ok(());
         }
         Err(format!(
@@ -119,7 +127,7 @@ impl StreamingDispatchWorld {
     /// Returns an error if a buffered dispatch was observed.
     pub fn assert_no_buffered_payload(&mut self) -> TestResult {
         self.collect_for(Duration::from_millis(ABSENCE_TIMEOUT_MS))?;
-        if self.buffered_payloads().next().is_none() {
+        if buffered(&self.observed).next().is_none() {
             return Ok(());
         }
         Err(format!("unexpected buffered dispatch; {}", self.describe()).into())
@@ -165,28 +173,10 @@ impl StreamingDispatchWorld {
         }
     }
 
-    fn collect(&mut self) -> TestResult {
-        self.collect_for(Duration::from_millis(COLLECT_TIMEOUT_MS))
-    }
-
     fn collect_for(&mut self, wait: Duration) -> TestResult { self.collect_events_for(wait) }
 
-    fn chunks(&self) -> impl Iterator<Item = &[u8]> {
-        self.observed.iter().filter_map(|event| match event {
-            DispatchEvent::Chunk { body } => Some(body.as_slice()),
-            _ => None,
-        })
-    }
-
-    fn buffered_payloads(&self) -> impl Iterator<Item = &[u8]> {
-        self.observed.iter().filter_map(|event| match event {
-            DispatchEvent::Buffered { body } => Some(body.as_slice()),
-            _ => None,
-        })
-    }
-
     fn has_event(&self, predicate: impl Fn(&DispatchEvent) -> bool) -> bool {
-        self.observed.iter().any(predicate)
+        has(&self.observed, predicate)
     }
 
     fn next_reply(&mut self, wait: Duration) -> TestResult<Option<Vec<u8>>> {
@@ -224,4 +214,30 @@ impl StreamingDispatchWorld {
             .collect();
         format!("observed=[{}]", events.join(", "))
     }
+}
+
+/// Return whether any observed event satisfies `predicate`.
+fn has(observed: &[DispatchEvent], predicate: impl Fn(&DispatchEvent) -> bool) -> bool {
+    observed.iter().any(predicate)
+}
+
+/// Return the chunk delivered at `index`, counting only chunk events.
+fn chunk_at(observed: &[DispatchEvent], index: usize) -> Option<&[u8]> {
+    chunks(observed).nth(index)
+}
+
+/// Iterate the chunk events in delivery order.
+fn chunks(observed: &[DispatchEvent]) -> impl Iterator<Item = &[u8]> {
+    observed.iter().filter_map(|event| match event {
+        DispatchEvent::Chunk { body } => Some(body.as_slice()),
+        _ => None,
+    })
+}
+
+/// Iterate the payloads dispatched to the buffered route.
+fn buffered(observed: &[DispatchEvent]) -> impl Iterator<Item = &[u8]> {
+    observed.iter().filter_map(|event| match event {
+        DispatchEvent::Buffered { body } => Some(body.as_slice()),
+        _ => None,
+    })
 }

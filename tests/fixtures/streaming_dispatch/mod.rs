@@ -299,28 +299,41 @@ impl StreamingDispatchWorld {
     fn server_outcome_text(&self) -> Option<&str> { self.server_outcome.as_deref() }
 
     fn collect_events_for(&mut self, wait: Duration) -> TestResult {
-        let mut events = self.events.take().ok_or("event receiver not initialized")?;
-        let result = self.block_on(collect_until(&mut events, wait));
-        self.events = Some(events);
-        self.observed.extend(result?);
-        Ok(())
+        self.collect_matching(wait, &|_| false).map(|_matched| ())
     }
-}
 
-/// Drain queued dispatch events until `wait` elapses or the sender closes.
-async fn collect_until(
-    events: &mut mpsc::UnboundedReceiver<DispatchEvent>,
-    wait: Duration,
-) -> Vec<DispatchEvent> {
-    let deadline = tokio::time::Instant::now() + wait;
-    let mut collected = Vec::new();
-    while let Some(remaining) = remaining_until(deadline) {
-        match timeout(remaining, events.recv()).await {
-            Ok(Some(event)) => collected.push(event),
-            Ok(None) | Err(_) => break,
+    /// Drain dispatch events until `done` accepts the history or `wait` elapses.
+    ///
+    /// A predicate lets a positive assertion finish as soon as the event it
+    /// waits for has arrived, instead of always paying for the whole window.
+    /// Absence assertions pass a predicate that never matches, which keeps the
+    /// full window they need to conclude that nothing arrived.
+    fn collect_matching(
+        &mut self,
+        wait: Duration,
+        done: &dyn Fn(&[DispatchEvent]) -> bool,
+    ) -> TestResult<bool> {
+        let deadline = tokio::time::Instant::now() + wait;
+        let mut events = self.events.take().ok_or("event receiver not initialized")?;
+        while !done(&self.observed) {
+            let Some(remaining) = remaining_until(deadline) else {
+                break;
+            };
+            match self.block_on(async { timeout(remaining, events.recv()).await }) {
+                Ok(Ok(Some(event))) => self.observed.push(event),
+                // Either the sender closed or the window elapsed, so no
+                // further event can arrive within it.
+                Ok(Ok(None) | Err(_)) => break,
+                Err(error) => {
+                    self.events = Some(events);
+                    return Err(error);
+                }
+            }
         }
+        let matched = done(&self.observed);
+        self.events = Some(events);
+        Ok(matched)
     }
-    collected
 }
 
 /// Return the time left before `deadline`, or `None` once it has passed.
