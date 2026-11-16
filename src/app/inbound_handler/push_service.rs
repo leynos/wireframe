@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     super::{
+        PushWriteDiagnostics,
         codec_driver::{ActorFrameSink, FramePipeline},
         envelope::Envelope,
     },
@@ -24,7 +25,8 @@ use super::{
 };
 use crate::{
     codec::FrameCodec,
-    connection::{ConnectionActor, PushSink},
+    connection::{ConnectionActor, PendingPushes, PushSink},
+    push::PushPriority,
     serializer::Serializer,
 };
 
@@ -35,7 +37,7 @@ mod tests;
 /// Outcome of waiting for the next unit of work on a connection.
 pub(super) enum StreamStep<F: FrameCodec> {
     /// Frames taken from the connection's push queues, in priority order.
-    Pushes(Vec<F::Frame>),
+    Pushes(PendingPushes<F::Frame>),
     /// One inbound frame read from the client.
     Frame(F::Frame),
     /// Every push lane closed, so only the inbound read remains.
@@ -136,6 +138,8 @@ where
     pub(super) sink: &'a mut K,
     /// Outbound pipeline supplying the per-connection `before_send` hook.
     pub(super) pipeline: &'a mut FramePipeline<F::Frame>,
+    /// Connection identity reported when a write is abandoned.
+    pub(super) diagnostics: PushWriteDiagnostics,
 }
 
 impl<S, K, F> PushTransport<'_, S, K, F>
@@ -178,6 +182,8 @@ where
 {
     /// Frames taken from the push queues, in delivery order.
     pub(super) frames: Vec<F::Frame>,
+    /// Lane the frames came from, absent when both lanes were drained.
+    pub(super) priority: Option<PushPriority>,
     /// Read half of the connection's framed transport.
     pub(super) reader: &'a mut R,
     /// Frame read during the write, kept for the next dispatch.
@@ -274,15 +280,18 @@ where
     // A ready collection wins: its frames are already buffered, so a stop does
     // not discard them. A collection still waiting on a producer is abandoned
     // instead, which is what keeps that producer from pinning the connection.
-    let frames = tokio::select! {
+    let pending = tokio::select! {
         biased;
-        frames = actor.take_pending_pushes() => frames,
+        pending = actor.take_pending_pushes() => pending,
         () = shutdown.cancelled() => return Ok(()),
     };
-    for frame in frames {
+    // Both lanes are drained here, so the batch has no single priority to
+    // report and every write is labelled `mixed`.
+    let diagnostics = transport.diagnostics.with_priority(pending.priority);
+    for frame in pending.frames {
         let write = transport.write(frame);
         tokio::pin!(write);
-        if !finish_write(write.as_mut(), shutdown).await? {
+        if !finish_write(write.as_mut(), shutdown, diagnostics).await? {
             return Ok(());
         }
     }

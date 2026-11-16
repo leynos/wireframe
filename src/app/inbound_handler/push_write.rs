@@ -9,13 +9,17 @@
 use std::{future::Future, io, pin::Pin};
 
 use futures::{Sink, Stream, StreamExt};
-use log::warn;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use super::push_service::{PushBatch, PushTransport};
+use super::{
+    super::PushWriteDiagnostics,
+    push_service::{PushBatch, PushTransport},
+};
 use crate::{
     codec::FrameCodec,
     connection::{PEER_CLOSED_RESPONSE_GRACE, write_before_bound},
+    metrics::PushWriteAbandonReason,
     serializer::Serializer,
 };
 
@@ -73,6 +77,9 @@ where
     F: FrameCodec,
     R: Stream<Item = io::Result<F::Frame>> + Unpin,
 {
+    // Read the identity before the write borrows the transport: the write
+    // future lives until this call returns, so the field is unreachable after.
+    let diagnostics = transport.diagnostics.with_priority(batch.priority);
     let write = transport.write(frame);
     tokio::pin!(write);
     let mut closed = peer_closed;
@@ -97,25 +104,31 @@ where
             },
         }
     }
-    Ok(if finish_write(write.as_mut(), batch.shutdown).await? {
-        FrameWrite::written(closed)
-    } else {
-        FrameWrite::stopped(closed)
-    })
+    Ok(
+        if finish_write(write.as_mut(), batch.shutdown, diagnostics).await? {
+            FrameWrite::written(closed)
+        } else {
+            FrameWrite::stopped(closed)
+        },
+    )
 }
 
 /// Finish a push write under the shutdown token and the idle grace.
 ///
 /// Returns whether the frame reached the transport. A blocked write is
-/// abandoned by either bound; only the grace means the peer stopped reading,
-/// which is what the caller warns about.
+/// abandoned by either bound and reported with the reason that ended it: only
+/// the grace means the peer stopped reading, which is the case the structured
+/// warning names, while a shutdown is counted without a warning because the
+/// connection's own teardown already records the stop.
 pub(super) async fn finish_write<W>(
     write: Pin<&mut W>,
     shutdown: &CancellationToken,
+    diagnostics: PushWriteDiagnostics,
 ) -> io::Result<bool>
 where
     W: Future<Output = io::Result<()>>,
 {
+    let started = Instant::now();
     let bound = write_before_bound(
         write,
         shutdown,
@@ -125,8 +138,11 @@ where
     if bound.is_finished() {
         return Ok(true);
     }
-    if bound.is_grace_expired() {
-        warn!("abandoning a push write: the peer stopped reading");
-    }
+    let reason = if bound.is_grace_expired() {
+        PushWriteAbandonReason::IdleGraceExpired
+    } else {
+        PushWriteAbandonReason::Shutdown
+    };
+    diagnostics.record_abandonment(reason, started.elapsed());
     Ok(false)
 }

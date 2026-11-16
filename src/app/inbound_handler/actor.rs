@@ -13,6 +13,7 @@
 
 use std::{io, sync::Arc};
 
+use log::debug;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -67,7 +68,16 @@ impl<F: FrameLike> RegistryGuard<F> {
 }
 
 impl<F: FrameLike> Drop for RegistryGuard<F> {
-    fn drop(&mut self) { self.registry.remove(&self.connection_id); }
+    fn drop(&mut self) {
+        // A lookup that finds nothing is indistinguishable from a connection
+        // that never registered, so both edges of the entry's lifetime are
+        // logged with the identifier that joins them.
+        debug!(
+            "session registry entry removed: connection_id={:?}",
+            self.connection_id
+        );
+        self.registry.remove(&self.connection_id);
+    }
 }
 
 /// Cancels the per-connection token when stream processing exits.
@@ -136,6 +146,7 @@ where
     // Published before setup so the callback can address this connection, and
     // before the actor starts so a push queued during setup is never dropped.
     registry.insert(connection_id, &handle);
+    debug!("session registry entry published: connection_id={connection_id:?}");
     let registry_guard = RegistryGuard::new(Arc::clone(registry), connection_id);
 
     let mut connection_context = context;

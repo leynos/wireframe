@@ -26,6 +26,7 @@ mod outbound_encoding;
 mod outbound_response;
 mod prepared_app;
 mod prepared_push;
+mod push_diagnostics;
 
 pub use builder::WireframeApp;
 pub use envelope::{Envelope, Packet, PacketParts};
@@ -38,3 +39,4 @@ pub use middleware_types::{Handler, Middleware, ResponseHandler};
 #[doc(hidden)]
 pub use outbound_encoding::benchmark_encode_message_frame;
 pub use prepared_app::PreparedApp;
+pub(crate) use push_diagnostics::PushWriteDiagnostics;

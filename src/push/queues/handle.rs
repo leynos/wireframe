@@ -379,6 +379,9 @@ impl<F: FrameLike> PushHandle<F> {
         if let Some(ref limiter) = self.0.limiter
             && !limiter.try_acquire(1)
         {
+            // The caller may discard the error, so this is the only aggregate
+            // signal that a push was refused for rate rather than for capacity.
+            crate::metrics::inc_push_rate_limited();
             return Err(PushError::RateLimited);
         }
 

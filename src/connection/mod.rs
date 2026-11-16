@@ -48,6 +48,7 @@ pub(crate) use init::UntrackedActorInit;
 use log::info;
 pub(crate) use observation::UnobservedCause;
 use output::ActiveOutput;
+pub(crate) use pushes::PendingPushes;
 pub(crate) use sink::{FrameSink, ProgressSignal, PushSink};
 use thiserror::Error;
 use tokio::sync::mpsc;
@@ -288,6 +289,7 @@ where
         } = init;
         let ConnectionChannels { queues, .. } = channels;
         let connection_id = ctx.connection_id();
+        let peer_addr = ctx.peer_addr();
         let active_output = response.map_or_else(|| ActiveOutput::None, ActiveOutput::Response);
         let actor = Self {
             high_rx: Some(queues.high_priority_rx),
@@ -301,7 +303,7 @@ where
             fragmenter: None,
             composer,
             connection_id,
-            peer_addr: None,
+            peer_addr,
             command_end_pending: false,
             response_failed: false,
             abandon_response_on_shutdown: true,

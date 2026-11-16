@@ -4,7 +4,7 @@
 //! [`WireframeProtocol`] exposes the public interface applications implement to
 //! configure those callbacks.
 
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use crate::{
     codec::EofError,
@@ -23,6 +23,8 @@ use crate::{
 pub struct ConnectionContext {
     /// Identifier assigned by the server, absent for standalone actors.
     connection_id: Option<ConnectionId>,
+    /// Peer address of the accepted socket, absent when it is not reported.
+    peer_addr: Option<SocketAddr>,
 }
 
 impl ConnectionContext {
@@ -32,7 +34,20 @@ impl ConnectionContext {
     /// actor and outbound pipeline, so protocol callbacks can correlate their
     /// work with registry entries.
     pub(crate) const fn with_connection_id(connection_id: Option<ConnectionId>) -> Self {
-        Self { connection_id }
+        Self {
+            connection_id,
+            peer_addr: None,
+        }
+    }
+
+    /// Attach the accepted socket's peer address for diagnostics.
+    ///
+    /// The address is used only to label connection-scoped events; a transport
+    /// that cannot report one, such as an in-memory duplex stream, leaves it
+    /// absent.
+    pub(crate) const fn with_peer_addr(mut self, peer_addr: Option<SocketAddr>) -> Self {
+        self.peer_addr = peer_addr;
+        self
     }
 
     /// Return the identifier of the connection this context belongs to.
@@ -51,6 +66,22 @@ impl ConnectionContext {
     /// ```
     #[must_use]
     pub const fn connection_id(&self) -> Option<ConnectionId> { self.connection_id }
+
+    /// Return the peer address of the accepted socket, when it is known.
+    ///
+    /// The address is present for connections accepted by
+    /// [`crate::server::WireframeServer`] and absent for standalone actors or
+    /// transports without a peer, so it can label connection diagnostics.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use wireframe::hooks::ConnectionContext;
+    ///
+    /// assert_eq!(ConnectionContext::default().peer_addr(), None);
+    /// ```
+    #[must_use]
+    pub const fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
 }
 
 /// Trait encapsulating protocol-specific logic and callbacks.

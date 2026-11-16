@@ -11,7 +11,7 @@ mod peer_watch;
 mod push_service;
 mod push_write;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
@@ -77,6 +77,8 @@ where
     pub(crate) push_queues: PushQueuesBuilder<F::Frame>,
     /// Registry that each connection registers its push handle with.
     pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
+    /// Peer address of the accepted socket, when the server reported one.
+    pub(crate) peer_addr: Option<SocketAddr>,
 }
 
 /// Drive a connection using immutable application inputs and prepared routes.
@@ -118,6 +120,7 @@ where
         shutdown,
         push_queues,
         session_registry,
+        peer_addr,
     } = context;
 
     let mut runtime = ConnectionRuntime::new(
@@ -135,6 +138,7 @@ where
             shutdown,
             push_queues,
             session_registry,
+            peer_addr,
         },
     );
 
@@ -229,6 +233,9 @@ where
                     &self.codec,
                 ),
                 session_registry: Arc::clone(&self.session_registry),
+                // This compatibility path is handed a stream rather than an
+                // accepted socket, so it has no peer address to report.
+                peer_addr: None,
             },
         )
         .await

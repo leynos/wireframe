@@ -22,7 +22,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{PushBatch, PushTransport, deliver_pushes, drain_queued};
 use crate::{
-    app::{Envelope, codec_driver::FramePipeline},
+    app::{Envelope, PushWriteDiagnostics, codec_driver::FramePipeline},
     codec::LengthDelimitedFrameCodec,
     connection::{
         ConnectionActor,
@@ -241,6 +241,7 @@ async fn a_slow_but_progressing_peer_receives_every_queued_frame() {
         codec: &codec,
         sink: &mut sink,
         pipeline: &mut pipeline,
+        diagnostics: PushWriteDiagnostics::new(None, None),
     };
 
     let started = tokio::time::Instant::now();
@@ -280,6 +281,7 @@ async fn a_closed_batch_renews_the_grace_for_every_frame() {
         codec: &codec,
         sink: &mut sink,
         pipeline: &mut pipeline,
+        diagnostics: PushWriteDiagnostics::new(None, None),
     };
     let peer_eof = CancellationToken::new();
     peer_eof.cancel();
@@ -292,6 +294,7 @@ async fn a_closed_batch_renews_the_grace_for_every_frame() {
         &mut actor,
         PushBatch {
             frames: paced_payloads().to_vec(),
+            priority: None,
             reader: &mut reader,
             pending_frame: &mut pending_frame,
             peer_eof: &peer_eof,
@@ -341,6 +344,7 @@ async fn a_ready_collection_is_written_after_a_stop() {
         codec: &codec,
         sink: &mut sink,
         pipeline: &mut pipeline,
+        diagnostics: PushWriteDiagnostics::new(None, None),
     };
 
     drain_queued(&mut transport, &mut actor, &shutdown)
@@ -375,6 +379,7 @@ async fn a_stop_abandons_a_collection_that_is_still_pending() {
         codec: &codec,
         sink: &mut sink,
         pipeline: &mut pipeline,
+        diagnostics: PushWriteDiagnostics::new(None, None),
     };
 
     tokio::time::timeout(

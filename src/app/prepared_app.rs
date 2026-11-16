@@ -2,6 +2,7 @@
 
 use std::{
     collections::HashMap,
+    net::SocketAddr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -185,6 +186,20 @@ where
     }
 }
 
+/// Inputs scoped to one connection attempt rather than the whole application.
+///
+/// Grouped because they travel together from the accept loop to the connection
+/// processing path, and a positional list of that length is easy to pass in the
+/// wrong order.
+struct ConnectionAttempt<'a> {
+    /// Clock used to measure the connection's duration.
+    clock: &'a dyn MonotonicClock,
+    /// Token whose cancellation stops this connection.
+    shutdown: &'a CancellationToken,
+    /// Peer address the accept loop resolved, when it has one.
+    peer_addr: Option<SocketAddr>,
+}
+
 impl<S, C, E, F> PreparedApp<S, C, E, F>
 where
     S: Serializer + FrameMetadata<Frame = super::Envelope> + Send + Sync + 'static,
@@ -217,7 +232,7 @@ where
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
-        self.handle_connection_with_shutdown(stream, CancellationToken::new())
+        self.handle_connection_with_shutdown(stream, CancellationToken::new(), None)
             .await
     }
 
@@ -225,31 +240,45 @@ where
     ///
     /// The server passes its worker shutdown token here so a connection whose
     /// peer stopped reading cannot pin a graceful drain: its pending write is
-    /// abandoned, which closes the connection. Callers outside the server keep
-    /// using [`Self::handle_connection_result`], whose token is never
-    /// cancelled.
+    /// abandoned, which closes the connection. It also passes the peer address
+    /// the accept loop already resolved, so connection-scoped diagnostics name
+    /// the same peer the preamble hooks were given. Callers outside the server
+    /// keep using [`Self::handle_connection_result`], whose token is never
+    /// cancelled and which has no peer address to report.
     pub(crate) async fn handle_connection_with_shutdown<W>(
         &self,
         stream: W,
         shutdown: CancellationToken,
+        peer_addr: Option<SocketAddr>,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
-        self.handle_connection_inner(stream, &StdMonotonicClock, &shutdown)
-            .await
+        self.handle_connection_inner(
+            stream,
+            ConnectionAttempt {
+                clock: &StdMonotonicClock,
+                shutdown: &shutdown,
+                peer_addr,
+            },
+        )
+        .await
     }
 
     /// Handle a connection with an injectable clock and shutdown signal.
     async fn handle_connection_inner<W>(
         &self,
         stream: W,
-        clock: &dyn MonotonicClock,
-        shutdown: &CancellationToken,
+        attempt: ConnectionAttempt<'_>,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
+        let ConnectionAttempt {
+            clock,
+            shutdown,
+            peer_addr,
+        } = attempt;
         metrics::inc_prepared_connection_uses();
         let started_at = clock.now();
         let span = tracing::info_span!(
@@ -273,6 +302,7 @@ where
                 read_timeout_ms: self.read_timeout_ms,
                 push_queues: self.push_queues(),
                 session_registry: Arc::clone(&self.session_registry),
+                peer_addr,
                 shutdown,
             },
         )

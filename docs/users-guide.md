@@ -3509,6 +3509,17 @@ warning carrying a stable `stage` (`serialize` or `write`) and a `category`
 that matches the outcome label, so log records and metric series can be
 correlated.
 
+Queued server pushes have their own counters.
+`wireframe_push_writes_abandoned_total` counts push frames dropped before
+delivery, with a bounded `reason` label of `"idle_grace_expired"` when the peer
+could not be observed and accepted nothing within the idle grace, or
+`"shutdown"` when the server stopped while the write was still pending.
+`wireframe_push_rate_limited_total` counts pushes refused because the
+connection's rate limiter had no permit; that counter has no labels, and it is
+the only aggregate record of a refusal when the producer discards the
+`PushError::RateLimited` it receives. Only the exhausted grace emits a warning,
+so a shutdown with queued output does not flood the log.
+
 ## Benchmark allocation counting
 
 The `wireframe_testing::benchmark_alloc_support` module provides the counting

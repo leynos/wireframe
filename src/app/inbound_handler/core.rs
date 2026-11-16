@@ -1,6 +1,6 @@
 //! Shared frame and stream processing for prepared application routes.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use log::debug;
 use tokio::io::{self, AsyncRead, AsyncWrite};
@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     super::{
+        PushWriteDiagnostics,
         codec_driver::FramePipeline,
         envelope::{Envelope, Packet},
         frame_handling::{self, Dispatch},
@@ -36,6 +37,7 @@ use super::{
 };
 use crate::{
     codec::FrameCodec,
+    connection::PendingPushes,
     frame::FrameMetadata,
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     message::{DecodeWith, EncodeWith},
@@ -77,6 +79,8 @@ where
     pub(super) push_queues: PushQueuesBuilder<F::Frame>,
     /// Registry this connection publishes its push handle to.
     pub(super) session_registry: Arc<SessionRegistry<F::Frame>>,
+    /// Peer address of the accepted socket, when the server reported one.
+    pub(super) peer_addr: Option<SocketAddr>,
 }
 
 /// Per-connection state driven by the inbound read loop.
@@ -147,6 +151,7 @@ where
             shutdown,
             push_queues,
             session_registry,
+            peer_addr,
         } = context;
         let (sink, reader, connection_codec) = prepare_connection_framing(stream, codec).split();
         let requested_frame_length = connection_codec.max_frame_length();
@@ -174,7 +179,8 @@ where
         let read_shutdown = connection_shutdown.clone();
         let peer_eof = CancellationToken::new();
         let connection_id = session_registry.next_connection_id();
-        let connection_context = ConnectionContext::with_connection_id(Some(connection_id));
+        let connection_context =
+            ConnectionContext::with_connection_id(Some(connection_id)).with_peer_addr(peer_addr);
         // The sink-owned pipeline runs `before_send` too, so it must know
         // which connection the callback is running for.
         inbound.pipeline.set_context(connection_context.clone());
@@ -251,7 +257,7 @@ where
     /// Act on one unit of work, reporting whether the connection continues.
     async fn handle_step(&mut self, step: StreamStep<F>) -> io::Result<bool> {
         match step {
-            StreamStep::Pushes(frames) => self.write_pushes(frames).await,
+            StreamStep::Pushes(pending) => self.write_pushes(pending).await,
             StreamStep::Idle => {
                 debug!("push lanes closed; continuing to wait for the next frame");
                 Ok(true)
@@ -304,15 +310,18 @@ where
     /// be observed, by the idle grace. The read half keeps being polled while
     /// the write runs, because this is the last place that can notice a peer
     /// which half-closed and then stopped reading.
-    async fn write_pushes(&mut self, frames: Vec<F::Frame>) -> io::Result<bool> {
+    async fn write_pushes(&mut self, pending: PendingPushes<F::Frame>) -> io::Result<bool> {
+        let diagnostics = self.push_diagnostics();
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,
+            diagnostics,
         };
         let batch = PushBatch {
-            frames,
+            frames: pending.frames,
+            priority: pending.priority,
             reader: &mut self.reader,
             pending_frame: &mut self.inbound.pending,
             peer_eof: &self.peer_eof,
@@ -321,13 +330,21 @@ where
         deliver_pushes(&mut transport, &mut self.response_actor.actor, batch).await
     }
 
+    /// Identity this connection reports when it abandons a push write.
+    const fn push_diagnostics(&self) -> PushWriteDiagnostics {
+        let actor = &self.response_actor.actor;
+        PushWriteDiagnostics::new(actor.connection_id(), actor.peer_addr())
+    }
+
     /// Deliver frames still queued when the peer stopped writing.
     async fn drain_pushes(&mut self) -> io::Result<()> {
+        let diagnostics = self.push_diagnostics();
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,
+            diagnostics,
         };
         drain_queued(
             &mut transport,

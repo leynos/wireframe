@@ -16,7 +16,33 @@
 use tokio::sync::mpsc;
 
 use super::{ConnectionActor, state::ActorState};
-use crate::{app::Packet, correlation::CorrelatableFrame, push::FrameLike};
+use crate::{
+    app::Packet,
+    correlation::CorrelatableFrame,
+    push::{FrameLike, PushPriority},
+};
+
+/// Frames taken from the push lanes for one write.
+///
+/// The priority travels with the frames so a writer that abandons one of them
+/// can name the lane it came from. A batch produced by draining both lanes has
+/// no single priority and reports none.
+pub(crate) struct PendingPushes<P> {
+    /// Lane that produced the batch, or `None` when both lanes were drained.
+    pub(crate) priority: Option<PushPriority>,
+    /// Frames in delivery order, high priority first.
+    pub(crate) frames: Vec<P>,
+}
+
+impl<P> PendingPushes<P> {
+    /// Build a batch from frames whose lane no longer applies.
+    const fn mixed(frames: Vec<P>) -> Self {
+        Self {
+            priority: None,
+            frames,
+        }
+    }
+}
 
 /// Priority lane a push frame was taken from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -25,6 +51,16 @@ pub(super) enum PushKind {
     High,
     /// Best-effort pushes subject to fairness yielding.
     Low,
+}
+
+impl PushKind {
+    /// Public priority this lane corresponds to.
+    const fn priority(self) -> PushPriority {
+        match self {
+            Self::High => PushPriority::High,
+            Self::Low => PushPriority::Low,
+        }
+    }
 }
 
 /// Composition applied to a frame taken from a push queue.
@@ -96,7 +132,7 @@ where
     /// never spin on an empty batch. The biased selection keeps urgent pushes
     /// ahead of best-effort ones, and a fairness yield pulls one low-priority
     /// frame forward after a burst of urgent traffic.
-    pub(crate) async fn next_pushes(&mut self) -> Option<Vec<P>> {
+    pub(crate) async fn next_pushes(&mut self) -> Option<PendingPushes<P>> {
         loop {
             if !self.has_open_push_lanes() {
                 return None;
@@ -118,13 +154,16 @@ where
                 continue;
             };
 
-            let mut pushes = Vec::new();
-            self.compose_push(frame, &mut pushes);
+            let mut frames = Vec::new();
+            self.compose_push(frame, &mut frames);
             match kind {
-                PushKind::High => self.yield_to_low_after_high(&mut pushes),
+                PushKind::High => self.yield_to_low_after_high(&mut frames),
                 PushKind::Low => self.fairness.reset(),
             }
-            return Some(pushes);
+            return Some(PendingPushes {
+                priority: Some(kind.priority()),
+                frames,
+            });
         }
     }
 
@@ -142,7 +181,7 @@ where
     /// write by its own idle grace: a closed lane can hold a slow producer's
     /// per-frame reservations, and one deadline for the whole drain would
     /// abandon frames the peer was still accepting.
-    pub(crate) async fn take_pending_pushes(&mut self) -> Vec<P> {
+    pub(crate) async fn take_pending_pushes(&mut self) -> PendingPushes<P> {
         // Take both lanes before reading them. A frame pushed while the drain
         // runs is then rejected by the now-closed channel instead of being
         // accepted into a lane the actor has already stopped polling, which
@@ -157,11 +196,11 @@ where
         for receiver in lanes.iter_mut().flatten() {
             receiver.close();
         }
-        let mut pushes = Vec::new();
+        let mut frames = Vec::new();
         for receiver in lanes.iter_mut().flatten() {
-            self.drain_receiver(receiver, &mut pushes).await;
+            self.drain_receiver(receiver, &mut frames).await;
         }
-        pushes
+        PendingPushes::mixed(frames)
     }
 
     /// Compose one push frame according to the actor's configured routing.

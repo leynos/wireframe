@@ -11,14 +11,15 @@
 use std::{future::Future, io, pin::Pin, time::Duration};
 
 use futures::Sink;
-use log::warn;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::ResponseContext;
 use crate::{
-    app::codec_driver::ActorFrameSink,
+    app::{PushWriteDiagnostics, codec_driver::ActorFrameSink},
     codec::FrameCodec,
-    connection::PushSink,
+    connection::{PendingPushes, PushSink},
+    metrics::PushWriteAbandonReason,
     serializer::Serializer,
 };
 
@@ -47,10 +48,11 @@ where
 {
     let shutdown = ctx.actor.shutdown_token();
     let unobserved = ctx.actor.unobserved_token();
-    let bounds = PushWriteBounds {
+    let bounds = PushWriteContext {
         shutdown: &shutdown,
         unobserved: &unobserved,
         grace: ctx.actor.peer_closed_grace(),
+        diagnostics: push_diagnostics(ctx),
     };
     let mut flow = HandlerFlow {
         lanes_open: ctx.actor.has_open_push_lanes(),
@@ -98,19 +100,19 @@ async fn run_step<Resp, S, K, F>(
     ctx: &mut ResponseContext<'_, S, K, F>,
     handler: &mut HandlerRun<'_, impl Future<Output = Resp>>,
     flow: &mut HandlerFlow,
-    bounds: &PushWriteBounds<'_>,
+    bounds: &PushWriteContext<'_>,
 ) -> io::Result<LoopStep<Resp>>
 where
     S: Serializer + Send + Sync,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
 {
-    let frames = match wait_for_batch(ctx, handler, flow, bounds).await {
+    let pending = match wait_for_batch(ctx, handler, flow, bounds).await {
         LaneBatch::Response(response) => return Ok(LoopStep::Response(response)),
         LaneBatch::Abandoned => return Ok(LoopStep::Abandoned),
-        LaneBatch::Frames(frames) => frames,
+        LaneBatch::Frames(pending) => pending,
     };
-    if write_batch(ctx, frames, handler, bounds).await? == PushWrite::Abandoned {
+    if write_batch(ctx, pending, handler, bounds).await? == PushWrite::Abandoned {
         return Ok(LoopStep::Abandoned);
     }
     Ok(finished_step(handler))
@@ -129,8 +131,8 @@ fn finished_step<Resp>(handler: &mut HandlerRun<'_, impl Future<Output = Resp>>)
 
 /// Either the next batch of queued pushes, or the handler's response.
 enum LaneBatch<T, Resp> {
-    /// Frames taken from a lane, in write order.
-    Frames(Vec<T>),
+    /// Frames taken from a lane, in write order, with the lane they came from.
+    Frames(PendingPushes<T>),
     /// The handler finished before any lane produced output.
     Response(Resp),
     /// Shutdown ended the run while its own pushes were keeping it alive.
@@ -153,7 +155,7 @@ async fn wait_for_batch<Resp, S, K, F>(
     ctx: &mut ResponseContext<'_, S, K, F>,
     handler: &mut HandlerRun<'_, impl Future<Output = Resp>>,
     flow: &mut HandlerFlow,
-    bounds: &PushWriteBounds<'_>,
+    bounds: &PushWriteContext<'_>,
 ) -> LaneBatch<F::Frame, Resp>
 where
     S: Serializer + Send + Sync,
@@ -190,21 +192,37 @@ where
 /// the remaining frames in the batch can no longer be delivered.
 async fn write_batch<Resp, S, K, F>(
     ctx: &mut ResponseContext<'_, S, K, F>,
-    frames: Vec<F::Frame>,
+    pending: PendingPushes<F::Frame>,
     handler: &mut HandlerRun<'_, impl Future<Output = Resp>>,
-    bounds: &PushWriteBounds<'_>,
+    bounds: &PushWriteContext<'_>,
 ) -> io::Result<PushWrite>
 where
     S: Serializer + Send + Sync,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
 {
-    for frame in frames {
-        if write_push_watching(ctx, frame, handler, bounds).await? == PushWrite::Abandoned {
+    // The priority belongs to this batch, so it is attached to a copy of the
+    // run-wide terms rather than stored back into them.
+    let terms = PushWriteContext {
+        diagnostics: push_diagnostics(ctx).with_priority(pending.priority),
+        ..*bounds
+    };
+    for frame in pending.frames {
+        if write_push_watching(ctx, frame, handler, &terms).await? == PushWrite::Abandoned {
             return Ok(PushWrite::Abandoned);
         }
     }
     Ok(PushWrite::Written)
+}
+
+/// Identity this connection reports when it abandons a push write.
+const fn push_diagnostics<S, K, F>(ctx: &ResponseContext<'_, S, K, F>) -> PushWriteDiagnostics
+where
+    S: Serializer + Send + Sync,
+    K: Sink<F::Frame, Error = io::Error> + Unpin,
+    F: FrameCodec,
+{
+    PushWriteDiagnostics::new(ctx.actor.connection_id(), ctx.actor.peer_addr())
 }
 
 /// The handler future plus a response it produced during a push write.
@@ -233,14 +251,21 @@ impl<Fut: Future> HandlerRun<'_, Fut> {
     }
 }
 
-/// Bounds applied to a push write made while a handler runs.
-struct PushWriteBounds<'a> {
+/// Terms governing a push write made while a handler runs.
+///
+/// Grouped because a write is bounded and reported together: the two tokens
+/// and the grace decide whether it is abandoned, and the diagnostics decide how
+/// that abandonment is reported.
+#[derive(Clone, Copy)]
+struct PushWriteContext<'a> {
     /// Token cancelled when the server must stop.
     shutdown: &'a CancellationToken,
     /// Token cancelled once the peer can no longer be observed.
     unobserved: &'a CancellationToken,
     /// How long an unobservable peer may take to accept one frame.
     grace: Duration,
+    /// Identity reported if the write is abandoned.
+    diagnostics: PushWriteDiagnostics,
 }
 
 /// Whether a push write let the connection keep serving its peer.
@@ -265,7 +290,7 @@ async fn write_push_watching<S, K, F, Fut>(
     ctx: &mut ResponseContext<'_, S, K, F>,
     frame: F::Frame,
     handler: &mut HandlerRun<'_, Fut>,
-    bounds: &PushWriteBounds<'_>,
+    terms: &PushWriteContext<'_>,
 ) -> io::Result<PushWrite>
 where
     S: Serializer + Send + Sync,
@@ -273,9 +298,10 @@ where
     F: FrameCodec,
     Fut: Future,
 {
+    let started = Instant::now();
     let writing = write_push(ctx, frame);
     tokio::pin!(writing);
-    let deadline = grace_after_observation(bounds.unobserved, bounds.grace);
+    let deadline = grace_after_observation(terms.unobserved, terms.grace);
     tokio::pin!(deadline);
     loop {
         let response = tokio::select! {
@@ -288,9 +314,18 @@ where
                 return Ok(PushWrite::Written);
             }
             response = handler.poll_while_running() => Some(response),
-            () = bounds.shutdown.cancelled() => return Ok(PushWrite::Abandoned),
+            () = terms.shutdown.cancelled() => {
+                terms.diagnostics.record_abandonment(
+                    PushWriteAbandonReason::Shutdown,
+                    started.elapsed(),
+                );
+                return Ok(PushWrite::Abandoned);
+            }
             () = &mut deadline => {
-                warn!("abandoning a push write: the peer stopped reading");
+                terms.diagnostics.record_abandonment(
+                    PushWriteAbandonReason::IdleGraceExpired,
+                    started.elapsed(),
+                );
                 return Ok(PushWrite::Abandoned);
             }
         };

@@ -9,7 +9,7 @@
 
 #[cfg(test)]
 use std::sync::Arc;
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -29,6 +29,7 @@ use crate::{
     fragment::{FragmentationConfig, Fragmenter},
     push::FrameLike,
     response::FrameStream,
+    session::ConnectionId,
 };
 
 impl<F, E, P> ConnectionActor<F, E, P>
@@ -118,6 +119,21 @@ impl<F, E, P> ConnectionActor<F, E, P> {
     /// Get a clone of the shutdown token used by the actor.
     #[must_use]
     pub fn shutdown_token(&self) -> CancellationToken { self.shutdown.clone() }
+
+    /// Identifier the server allocated for this connection, when it has one.
+    ///
+    /// The inbound loop writes queued pushes itself, so it needs the same
+    /// identity the actor reports to correlate an abandonment with the
+    /// connection that produced it. A standalone actor has no identity.
+    #[must_use]
+    pub(crate) const fn connection_id(&self) -> Option<ConnectionId> { self.connection_id }
+
+    /// Peer address of the accepted socket, when the transport reported one.
+    ///
+    /// A listener-only actor has none, so callers must treat the absence as
+    /// normal rather than as a missing connection.
+    #[must_use]
+    pub(crate) const fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
 
     /// Token cancelled when the inbound loop stops observing the peer.
     ///

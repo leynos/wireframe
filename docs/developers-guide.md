@@ -556,10 +556,25 @@ gauge guard, and its teardown path. The actor increments
 `wireframe_response_cancellations_total` with the bounded label
 `reason="idle_grace_expired"` and logs the cause, the connection id, the peer
 address, and the request correlation, so a truncated response can be traced to
-the request that caused it. Prepared connections do not currently populate the
-connection id or peer address, so those fields read as `None` there. The
-deadline source is injectable (`GraceTimer`), so tests fire it by hand instead
-of waiting on the clock.
+the request that caused it. A connection built by the prepared application
+populates both the connection id and the peer address from its
+`ConnectionContext`; a standalone actor reports `None` for each. The deadline
+source is injectable (`GraceTimer`), so tests fire it by hand instead of
+waiting on the clock.
+
+A push write the inbound loop owns is bounded the same way and reports the same
+identity. That covers a batch taken while a handler runs and a batch delivered
+between inbound reads. An abandoned write increments
+`wireframe_push_writes_abandoned_total` with a bounded `reason` label of
+`idle_grace_expired` or `shutdown`, alongside the connection id, peer address,
+priority lane, and elapsed time. Only an exhausted grace logs a warning: every
+connection that stops with queued output would otherwise log one, so a shutdown
+abandonment is counted without a per-write alert. A push the rate limiter
+refuses increments the unlabelled `wireframe_push_rate_limited_total`, which is
+the only aggregate signal available when the producer discards the
+`PushError::RateLimited` it receives. Session-registry publication and removal
+are logged at `debug!` with the connection identifier, so a lookup that finds
+nothing can be told apart from a connection that never registered.
 
 ## Runtime ownership model
 
