@@ -1,9 +1,9 @@
 //! End-to-end TCP lifecycle coverage for streaming request bodies.
 //!
 //! These tests exercise the streaming dispatch slot over a real socket: a body
-//! split across two frames reaches the handler, and a connection that ends
-//! mid-body reports `UnexpectedEof` to that handler while the server still
-//! shuts the connection down cleanly.
+//! split across two frames reaches the handler while the second frame is still
+//! unsent, and a connection that ends mid-body reports `UnexpectedEof` to that
+//! handler while the server still shuts the connection down cleanly.
 //!
 //! The client frames with [`LengthDelimitedCodec`] rather than hand-built
 //! length prefixes, so the tests speak exactly the wire format the runtime
@@ -33,6 +33,7 @@ use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use tokio::{
     net::{TcpListener, TcpStream},
+    sync::Notify,
     task::JoinHandle,
     time::timeout,
 };
@@ -141,18 +142,40 @@ async fn reply_arrived(client: &mut Client) -> TestResult<bool> {
 }
 
 /// Handler that collects the request body and answers once the body ends.
-fn collecting_handler(received: Arc<Mutex<Vec<u8>>>) -> StreamingHandler {
+///
+/// It also reports the first chunk, so a test can prove the handler ran before
+/// the rest of the body was even sent.
+fn progressing_handler(
+    received: Arc<Mutex<Vec<u8>>>,
+    first_chunk_seen: Arc<Notify>,
+) -> StreamingHandler {
     Arc::new(move |_parts: RequestParts, body: RequestBodyStream| {
-        Box::pin(collect_body(body, Arc::clone(&received)))
+        Box::pin(collect_body(
+            body,
+            Arc::clone(&received),
+            Arc::clone(&first_chunk_seen),
+        ))
     })
 }
 
 /// Read `body` to its end, appending each chunk to `received`.
-async fn collect_body(mut body: RequestBodyStream, received: Arc<Mutex<Vec<u8>>>) -> Option<Bytes> {
+///
+/// The first chunk is reported once, because the test only needs to know the
+/// handler has started consuming the body.
+async fn collect_body(
+    mut body: RequestBodyStream,
+    received: Arc<Mutex<Vec<u8>>>,
+    first_chunk_seen: Arc<Notify>,
+) -> Option<Bytes> {
+    let mut reported_first_chunk = false;
     while let Some(chunk) = body.next().await {
         let bytes = chunk.ok()?;
         if let Ok(mut buffer) = received.lock() {
             buffer.extend_from_slice(&bytes);
+        }
+        if !reported_first_chunk {
+            reported_first_chunk = true;
+            first_chunk_seen.notify_one();
         }
     }
     Some(Bytes::from_static(b"done"))
@@ -220,12 +243,24 @@ fn assert_no_reply(has_reply: bool) {
 #[tokio::test]
 async fn streaming_body_reaches_the_handler_over_tcp() -> TestResult {
     let received = Arc::new(Mutex::new(Vec::new()));
-    let (address, server) = serve_once(collecting_handler(Arc::clone(&received))).await?;
+    let first_chunk_seen = Arc::new(Notify::new());
+    let (address, server) = serve_once(progressing_handler(
+        Arc::clone(&received),
+        Arc::clone(&first_chunk_seen),
+    ))
+    .await?;
     let mut client = connect(address).await?;
 
     let first = test_helpers::first_frame_payload(1.into(), b"alpha", false, None)?;
     let last = test_helpers::continuation_frame_payload(1.into(), 1.into(), b"beta", true)?;
     send_request(&mut client, &first).await?;
+    // The final frame is only sent once the handler has the first chunk, so a
+    // passing test proves the body streamed rather than arriving at the end.
+    bounded(
+        "the handler receiving the first chunk",
+        first_chunk_seen.notified(),
+    )
+    .await?;
     send_request(&mut client, &last).await?;
 
     let reply = read_reply(&mut client).await?;
