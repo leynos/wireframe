@@ -26,7 +26,6 @@ use support::{
     read_frame,
     spawn_server,
     stop,
-    unblock_preamble,
     wait_until_registry_empty,
 };
 use tokio::{io::AsyncWriteExt, net::TcpStream, sync::Notify, time::timeout};
@@ -53,8 +52,7 @@ async fn shutdown_ends_idle_connections() -> TestResult<()> {
         .with_protocol(protocol.clone())
         .with_session_registry(Arc::clone(&registry));
     let (addr, shutdown) = spawn_server(app).await?;
-    let mut client = TcpStream::connect(addr).await?;
-    unblock_preamble(&mut client).await?;
+    let client = TcpStream::connect(addr).await?;
     let (connection_id, handle) = only_connection(&protocol).await?;
 
     stop(&shutdown).await?;
@@ -87,7 +85,6 @@ async fn pushes_are_rejected_after_the_connection_closes() -> TestResult<()> {
         .with_session_registry(Arc::clone(&registry));
     let (addr, shutdown) = spawn_server(app).await?;
     let mut client = TcpStream::connect(addr).await?;
-    unblock_preamble(&mut client).await?;
     let (_, handle) = only_connection(&protocol).await?;
 
     client.shutdown().await?;
@@ -110,23 +107,15 @@ async fn pushes_are_rejected_after_the_connection_closes() -> TestResult<()> {
     stop(&shutdown).await
 }
 
-/// Write one length-delimited request envelope after the preamble is unblocked.
+/// Write one length-delimited request envelope.
 ///
-/// [`unblock_preamble`] has already written the leading zero byte, which the
-/// default `()` preamble leaves buffered as the first byte of the application's
-/// four-byte length prefix. This helper writes the rest of that prefix and then
-/// the encoded envelope, so the route receives a well-formed frame.
+/// The default `()` preamble consumes no bytes, so the application's frame
+/// decoder reads the request from the first byte the client writes.
 async fn write_request(stream: &mut TcpStream, route_id: u32) -> TestResult<()> {
     let envelope = Envelope::new(route_id, Some(1), Vec::new());
     let payload = BincodeSerializer.serialize(&envelope)?;
     let prefix = write_network_u32(u32::try_from(payload.len())?);
-    let (leading, remainder) = prefix
-        .split_first()
-        .ok_or("a four-byte length prefix is never empty")?;
-    if *leading != 0 {
-        return Err("request payload exceeds the preamble-primed length prefix".into());
-    }
-    stream.write_all(remainder).await?;
+    stream.write_all(&prefix).await?;
     stream.write_all(&payload).await?;
     Ok(())
 }
@@ -161,7 +150,6 @@ async fn queued_pushes_are_drained_after_a_clean_peer_close() -> TestResult<()> 
         .with_session_registry(Arc::clone(&registry));
     let (addr, shutdown) = spawn_server(app).await?;
     let mut client = TcpStream::connect(addr).await?;
-    unblock_preamble(&mut client).await?;
     let (_, handle) = only_connection(&protocol).await?;
 
     write_request(&mut client, 1).await?;

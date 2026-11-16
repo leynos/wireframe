@@ -212,17 +212,26 @@ where
     }
 
     /// Perform one unit of inbound work, reporting whether to continue.
+    async fn step(&mut self) -> io::Result<bool> {
+        self.inbound.relieve_pressure(self.budgets).await?;
+        let Some(step) = self.wait_for_step().await? else {
+            return Ok(false);
+        };
+        self.serve_read_first = matches!(&step, StreamStep::Pushes(_));
+        self.handle_step(step).await
+    }
+
+    /// Wait for the next unit of work, or `None` once the server has stopped.
     ///
     /// The wait is raced against the connection's shutdown token. The read
     /// observes shutdown itself, but the push arm is polled first and a ready
     /// lane wins every biased pass, so without this arm a busy push stream
     /// would hide the stop from the connection task and the server drain
     /// waiting on it.
-    async fn step(&mut self) -> io::Result<bool> {
-        self.inbound.relieve_pressure(self.budgets).await?;
-        let step: StreamStep<F> = tokio::select! {
+    async fn wait_for_step(&mut self) -> io::Result<Option<StreamStep<F>>> {
+        tokio::select! {
             biased;
-            () = self.shutdown.cancelled() => return Ok(false),
+            () = self.shutdown.cancelled() => Ok(None),
             step = next_stream_step(
                 &mut self.response_actor.actor,
                 StreamWait {
@@ -232,9 +241,12 @@ where
                     shutdown: &self.shutdown,
                     read_first: self.serve_read_first,
                 },
-            ) => step?,
-        };
-        self.serve_read_first = matches!(&step, StreamStep::Pushes(_));
+            ) => step.map(Some),
+        }
+    }
+
+    /// Act on one unit of work, reporting whether the connection continues.
+    async fn handle_step(&mut self, step: StreamStep<F>) -> io::Result<bool> {
         match step {
             StreamStep::Pushes(frames) => self.write_pushes(frames).await,
             StreamStep::Idle => {

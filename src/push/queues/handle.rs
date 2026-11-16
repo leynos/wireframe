@@ -13,7 +13,7 @@ use tokio::{sync::mpsc, time::sleep};
 use super::probe::PushHandleProbe;
 use super::{
     FrameLike,
-    FrameLimit,
+    FrameLimits,
     PushError,
     PushPolicy,
     PushPriority,
@@ -43,8 +43,8 @@ pub(crate) struct PushHandleInner<F> {
     pub(crate) dead_letter: DeadLetterState<F>,
     /// What this handle's awaited pushes had to wait for, across both lanes.
     pub(crate) waits: PushWaitCounts,
-    /// Optional payload-size budget checked before a frame is queued.
-    pub(crate) max_frame_len: Option<FrameLimit<F>>,
+    /// Payload-size budgets checked before a frame is queued.
+    pub(crate) frame_limits: FrameLimits<F>,
 }
 
 /// Cloneable handle used by producers to push frames to a connection.
@@ -288,13 +288,24 @@ impl<F: FrameLike> PushHandle<F> {
 
     /// Attempt to push a frame with the given priority and policy.
     ///
+    /// Unlike [`push_high_priority`](Self::push_high_priority) and
+    /// [`push_low_priority`](Self::push_low_priority), this method never waits:
+    /// it makes one non-blocking attempt to acquire a rate-limit permit and one
+    /// non-blocking attempt to send. A frame is not queued when the limiter has
+    /// no permit, so a producer cannot exceed the configured rate by using this
+    /// path.
+    ///
     /// # Errors
     ///
+    /// Returns [`PushError::RateLimited`] when the shared rate limiter has no
+    /// permit available. The frame is then discarded without being queued or
+    /// dead-lettered, and the caller may retry after the next refill window.
     /// Returns [`PushError::QueueFull`] if the queue is full and the policy is
     /// [`PushPolicy::ReturnErrorIfFull`]. Returns [`PushError::Closed`] if the
-    /// receiving end has been dropped. When [`PushPolicy::DropIfFull`] or
-    /// [`PushPolicy::WarnAndDropIfFull`] is used, a configured dead letter queue
-    /// receives the dropped frame.
+    /// receiving end has been dropped, and [`PushError::FrameTooLarge`] if the
+    /// connection's codec cannot encode the frame. When
+    /// [`PushPolicy::DropIfFull`] or [`PushPolicy::WarnAndDropIfFull`] is used,
+    /// a configured dead letter queue receives the dropped frame.
     ///
     /// # Examples
     ///
@@ -332,6 +343,14 @@ impl<F: FrameLike> PushHandle<F> {
         F: std::fmt::Debug,
     {
         self.check_frame_len(&frame)?;
+        // The shared limiter is consulted here too, so this path cannot
+        // overdraw the budget the awaited pushes draw on. It cannot wait, so a
+        // missing permit is a refusal rather than a delay.
+        if let Some(ref limiter) = self.0.limiter
+            && !limiter.try_acquire(1)
+        {
+            return Err(PushError::RateLimited);
+        }
         let tx = match priority {
             PushPriority::High => &self.0.high_prio_tx,
             PushPriority::Low => &self.0.low_prio_tx,
@@ -367,9 +386,7 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// Returns [`PushError::FrameTooLarge`] when the payload exceeds the limit.
     fn check_frame_len(&self, frame: &F) -> Result<(), PushError> {
-        self.0
-            .max_frame_len
-            .map_or(Ok(()), |limit| limit.check(frame))
+        self.0.frame_limits.check(frame)
     }
 
     /// Downgrade to a `Weak` reference for storage in a registry.

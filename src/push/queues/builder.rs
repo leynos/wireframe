@@ -8,6 +8,7 @@ use super::{
     DEFAULT_PUSH_RATE,
     FrameLike,
     FrameLimit,
+    FrameLimits,
     PushConfigError,
     PushHandle,
     PushQueueConfig,
@@ -79,8 +80,8 @@ pub struct PushQueuesBuilder<F> {
     dlq_log_every_n: usize,
     /// Minimum interval between drop diagnostics.
     dlq_log_interval: Duration,
-    /// Optional payload-size limit applied before a frame is queued.
-    max_frame_len: Option<FrameLimit<F>>,
+    /// Payload-size limits applied before a frame is queued.
+    frame_limits: FrameLimits<F>,
 }
 
 // Written by hand so a stored builder can seed per-connection queues without
@@ -95,7 +96,7 @@ impl<F> Clone for PushQueuesBuilder<F> {
             dlq: self.dlq.clone(),
             dlq_log_every_n: self.dlq_log_every_n,
             dlq_log_interval: self.dlq_log_interval,
-            max_frame_len: self.max_frame_len,
+            frame_limits: self.frame_limits,
         }
     }
 }
@@ -112,7 +113,7 @@ impl<F: FrameLike> Default for PushQueuesBuilder<F> {
             // verbosity.
             dlq_log_every_n: 1,
             dlq_log_interval: Duration::from_secs(10),
-            max_frame_len: None,
+            frame_limits: FrameLimits::default(),
         }
     }
 }
@@ -186,25 +187,24 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     /// ```
     #[must_use]
     pub fn max_frame_len(mut self, max: usize, payload_len: fn(&F) -> usize) -> Self {
-        self.max_frame_len = Some(FrameLimit { max, payload_len });
+        self.frame_limits = self
+            .frame_limits
+            .with_template(FrameLimit { max, payload_len });
         self
     }
 
-    /// Apply a codec's frame ceiling without relaxing a stricter limit.
+    /// Add a codec's frame ceiling alongside any template limit.
     ///
-    /// The connection writes the codec's own frames, so the codec supplies the
-    /// payload measure either way; only the bound is clamped. A template that
-    /// already limits frames more tightly than its codec does keeps its own
-    /// bound, so configuring a codec ceiling never widens one already chosen.
+    /// The connection writes the codec's own frames, so the codec contributes
+    /// its own payload measure. That measure can differ from the one a template
+    /// configured, so the codec limit is checked as well as the template limit
+    /// rather than replacing it: folding the two into one bound would apply one
+    /// measure to the other's ceiling and could accept a frame either rejects.
     #[must_use]
     pub(crate) fn capped_by_codec(mut self, max: usize, payload_len: fn(&F) -> usize) -> Self {
-        let limit = self
-            .max_frame_len
-            .map_or(max, |existing| existing.max.min(max));
-        self.max_frame_len = Some(FrameLimit {
-            max: limit,
-            payload_len,
-        });
+        self.frame_limits = self
+            .frame_limits
+            .with_codec(FrameLimit { max, payload_len });
         self
     }
 
@@ -260,6 +260,6 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
             dlq_log_every_n: self.dlq_log_every_n,
             dlq_log_interval: self.dlq_log_interval,
         };
-        PushQueues::build_with_config(config, self.max_frame_len)
+        PushQueues::build_with_config(config, self.frame_limits)
     }
 }

@@ -17,6 +17,7 @@ use std::{
 
 use bytes::Bytes;
 use futures::{Sink, stream};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::{PushBatch, PushTransport, deliver_pushes, drain_queued};
@@ -44,24 +45,35 @@ const LANE_CAPACITY: usize = 4;
 /// that three frames outlast one grace in total.
 const PACING: Duration = Duration::from_secs(20);
 
-/// Sink that accepts each write after [`PACING`], recording what it wrote.
+/// Sink that records what it wrote and can pace later writes.
 ///
 /// The first write is accepted at once; every later one waits a full pacing
-/// interval. That models a peer that keeps reading slowly, and makes the batch
-/// outlast one idle grace without any single wait reaching it.
+/// interval when one is configured. That models a peer that keeps reading
+/// slowly, and makes the batch outlast one idle grace without any single wait
+/// reaching it. A sink built with [`PacedSink::immediate`] configures no pause
+/// and accepts every write at once.
 struct PacedSink {
     /// Frames accepted so far, in write order.
     accepted: Arc<Mutex<Vec<Bytes>>>,
+    /// Pause owed to each write after the first, or `None` to accept at once.
+    pacing: Option<Duration>,
     /// Pause owed to the next write, armed once a write has happened.
     delay: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
 impl PacedSink {
-    /// Share the sink's record of accepted frames with the test.
-    fn new() -> (Self, Arc<Mutex<Vec<Bytes>>>) {
+    /// Share a sink that pauses between writes with the test.
+    fn new() -> (Self, Arc<Mutex<Vec<Bytes>>>) { Self::with_pacing(Some(PACING)) }
+
+    /// Share a sink that accepts every write at once with the test.
+    fn immediate() -> (Self, Arc<Mutex<Vec<Bytes>>>) { Self::with_pacing(None) }
+
+    /// Build a sink and share its record of accepted frames with the test.
+    fn with_pacing(pacing: Option<Duration>) -> (Self, Arc<Mutex<Vec<Bytes>>>) {
         let accepted = Arc::new(Mutex::new(Vec::new()));
         let sink = Self {
             accepted: Arc::clone(&accepted),
+            pacing,
             delay: None,
         };
         (sink, accepted)
@@ -73,7 +85,9 @@ impl PacedSink {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .push(frame);
-        self.delay = Some(Box::pin(tokio::time::sleep(PACING)));
+        self.delay = self
+            .pacing
+            .map(|pacing| Box::pin(tokio::time::sleep(pacing)));
     }
 }
 
@@ -127,6 +141,61 @@ fn build_actor(shutdown: &CancellationToken) -> Result<ActorFixture, PushConfigE
         ctx: ConnectionContext::default(),
     });
     Ok((actor, handle))
+}
+
+/// Reservations held by a sender that has not sent what it reserved.
+///
+/// Keeping them alive keeps the actor's matching lane receiver pending even
+/// after the drain closes it, which is the producer that could otherwise pin
+/// the end-of-stream drain.
+struct HeldReservations {
+    /// Reservation on the high-priority lane.
+    _high: mpsc::OwnedPermit<Bytes>,
+    /// Reservation on the low-priority lane.
+    _low: mpsc::OwnedPermit<Bytes>,
+}
+
+/// Build an actor whose push lanes still have reservations outstanding.
+///
+/// The lanes are chosen by this helper rather than by the queue builder so a
+/// reservation can be taken before the actor owns the receivers. The handle
+/// comes from a separate pair, which is unused here: no frame is ever pushed
+/// through it.
+///
+/// # Errors
+///
+/// Returns [`PushConfigError`] if the lane capacities are rejected.
+fn build_reserved_actor(
+    shutdown: &CancellationToken,
+) -> Result<(ConnectionActor<Envelope, (), Bytes>, HeldReservations), PushConfigError> {
+    let (_unused_queues, handle) = PushQueues::<Bytes>::builder()
+        .high_capacity(LANE_CAPACITY)
+        .low_capacity(LANE_CAPACITY)
+        .build()?;
+    let (high_tx, high_priority_rx) = mpsc::channel(LANE_CAPACITY);
+    let (low_tx, low_priority_rx) = mpsc::channel(LANE_CAPACITY);
+    let reservations = HeldReservations {
+        _high: high_tx
+            .try_reserve_owned()
+            .expect("a fresh lane has room for a reservation"),
+        _low: low_tx
+            .try_reserve_owned()
+            .expect("a fresh lane has room for a reservation"),
+    };
+    let actor = ConnectionActor::new_untracked(UntrackedActorInit {
+        channels: ConnectionChannels::new(
+            PushQueues {
+                high_priority_rx,
+                low_priority_rx,
+            },
+            handle,
+        ),
+        response: None,
+        shutdown: shutdown.clone(),
+        hooks: ProtocolHooks::default(),
+        ctx: ConnectionContext::default(),
+    });
+    Ok((actor, reservations))
 }
 
 /// Snapshot the frames a paced sink accepted.
@@ -245,13 +314,14 @@ async fn a_closed_batch_renews_the_grace_for_every_frame() {
     );
 }
 
-/// A stop during an end-of-stream drain abandons the frames still queued.
+/// A stop does not discard a collection that is already ready.
 ///
-/// The collection is raced against the shutdown token, so a stop that has
-/// already fired ends the drain before any frame is collected or written
-/// rather than waiting for every lane to report itself exhausted.
+/// The frames were queued before the stop and the lanes report themselves
+/// exhausted at once, so no write is pending when the stop is observed. ADR 014
+/// limits abandonment to a write that is still pending, so the ready batch is
+/// written even though the token is already cancelled.
 #[tokio::test]
-async fn a_cancelled_shutdown_abandons_the_queued_frames() {
+async fn a_ready_collection_is_written_after_a_stop() {
     let shutdown = CancellationToken::new();
     let (mut actor, handle) = build_actor(&shutdown).expect("actor should build");
     for payload in paced_payloads() {
@@ -265,7 +335,7 @@ async fn a_cancelled_shutdown_abandons_the_queued_frames() {
     let serializer = BincodeSerializer;
     let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH);
     let mut pipeline = FramePipeline::<Bytes>::new(None);
-    let (mut sink, accepted) = PacedSink::new();
+    let (mut sink, accepted) = PacedSink::immediate();
     let mut transport = PushTransport {
         serializer: &serializer,
         codec: &codec,
@@ -275,10 +345,49 @@ async fn a_cancelled_shutdown_abandons_the_queued_frames() {
 
     drain_queued(&mut transport, &mut actor, &shutdown)
         .await
-        .expect("an abandoned drain must not fail");
+        .expect("the drain must not fail");
+
+    assert_eq!(
+        accepted_frames(&accepted),
+        paced_payloads().to_vec(),
+        "a ready collection must be written even after a stop"
+    );
+}
+
+/// A stop abandons a collection that is still waiting on a producer.
+///
+/// The lane holds a reservation that was never sent, so it reports itself
+/// exhausted only once that permit is released. The stop must end the drain
+/// without waiting for it, because a producer that never releases one would
+/// otherwise pin the connection, its registry entry, and the server drain.
+#[tokio::test]
+async fn a_stop_abandons_a_collection_that_is_still_pending() {
+    let shutdown = CancellationToken::new();
+    let (mut actor, reservations) = build_reserved_actor(&shutdown).expect("actor should build");
+    shutdown.cancel();
+
+    let serializer = BincodeSerializer;
+    let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH);
+    let mut pipeline = FramePipeline::<Bytes>::new(None);
+    let (mut sink, accepted) = PacedSink::immediate();
+    let mut transport = PushTransport {
+        serializer: &serializer,
+        codec: &codec,
+        sink: &mut sink,
+        pipeline: &mut pipeline,
+    };
+
+    tokio::time::timeout(
+        Duration::from_secs(1),
+        drain_queued(&mut transport, &mut actor, &shutdown),
+    )
+    .await
+    .expect("a pending collection must not outlive the stop")
+    .expect("an abandoned drain must not fail");
 
     assert!(
         accepted_frames(&accepted).is_empty(),
-        "a cancelled drain must write none of the queued frames"
+        "an abandoned collection must write nothing"
     );
+    drop(reservations);
 }

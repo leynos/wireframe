@@ -124,8 +124,8 @@ where
                 pushes: &mut pushes,
             };
             self.dispatch_event(event, &mut step)?;
-            // `flush_out` writes pushes before response frames, matching the
-            // order the sources produced them.
+            // Pushes are written before response frames, matching the order
+            // the sources produced them.
             if self.flush_or_cancel(pushes, frames, sink).await? == WriteOutcome::Cancelled {
                 info!(
                     "connection aborted during write: id={:?}, peer={:?}",

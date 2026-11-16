@@ -12,7 +12,7 @@ use std::{
 
 use bytes::Bytes;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::AsyncReadExt,
     net::TcpStream,
     sync::oneshot,
     time::{Instant, sleep, timeout},
@@ -123,18 +123,6 @@ pub async fn spawn_server(app: WireframeApp) -> TestResult<(SocketAddr, ServerSh
     let shutdown = server.ready_signal(ready_tx).spawn().await?;
     wait_for_server_readiness(ready_rx).await?;
     Ok((addr, shutdown))
-}
-
-/// Send the byte the preamble reader insists on before it hands the stream on.
-///
-/// The default preamble decodes no value but the reader still fills a one-byte
-/// buffer first, leaving that byte rewound for the application. A client that
-/// writes nothing would never let the connection reach `on_connection_setup`.
-/// The stray byte stays buffered in the application's length-prefixed decoder
-/// and is never completed into a frame.
-pub async fn unblock_preamble(stream: &mut TcpStream) -> TestResult<()> {
-    stream.write_all(b"\0").await?;
-    Ok(())
 }
 
 /// Read one length-delimited frame payload from the client socket.

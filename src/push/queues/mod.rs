@@ -39,7 +39,7 @@ pub trait FrameLike: Send + 'static {}
 
 impl<T> FrameLike for T where T: Send + 'static {}
 
-pub(crate) use frame_limit::FrameLimit;
+pub(crate) use frame_limit::{FrameLimit, FrameLimits};
 
 // Default maximum pushes per second when no custom rate is specified.
 // This is an internal implementation detail and may change.
@@ -166,7 +166,7 @@ impl<F: FrameLike> PushQueues<F> {
     /// Validate configuration, allocate channels, and pair them with a handle.
     pub(super) fn build_with_config(
         config: PushQueueConfig<F>,
-        max_frame_len: Option<FrameLimit<F>>,
+        frame_limits: FrameLimits<F>,
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
         let PushQueueConfig {
             high_capacity,
@@ -200,7 +200,7 @@ impl<F: FrameLike> PushQueues<F> {
             limiter,
             dead_letter: DeadLetterState::new(dlq, dlq_log_every_n, dlq_log_interval),
             waits: PushWaitCounts::default(),
-            max_frame_len,
+            frame_limits,
         };
         Ok((
             Self {
@@ -291,7 +291,7 @@ impl<F: FrameLike> PushQueues<F> {
     ) -> Result<(Self, PushHandle<F>), PushConfigError> {
         Self::build_with_config(
             PushQueueConfig::new(high_capacity, low_capacity, rate, dlq),
-            None,
+            FrameLimits::default(),
         )
     }
 

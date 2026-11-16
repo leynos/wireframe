@@ -130,10 +130,7 @@ where
     /// observing it, a producer that yields nothing would keep this wait
     /// pending past `stop()` and hold the connection, its gauge and the server
     /// drain open for as long as the peer stays connected.
-    pub(super) async fn next_event_while_draining(
-        &mut self,
-        state: &ActorState,
-    ) -> Event<F, E, P> {
+    pub(super) async fn next_event_while_draining(&mut self, state: &ActorState) -> Event<F, E, P> {
         let watch = EventWatch {
             peer: true,
             shutdown: true,
@@ -221,8 +218,8 @@ where
     {
         let limit = {
             let bounds = self.write_bounds();
-            let mut writing = std::pin::pin!(writing);
-            writes::write_within_grace(writing.as_mut(), &bounds, progress.as_deref())
+            let mut pinned = std::pin::pin!(writing);
+            writes::write_within_grace(pinned.as_mut(), &bounds, progress.as_deref())
                 .await
                 .map_err(WireframeError::Io)?
         };

@@ -326,6 +326,9 @@ impl<F: FrameLike> PushHandle<F> {
     pub async fn push_low_priority(&self, frame: F) -> Result<(), PushError>;
 
     /// Push a frame according to a specific policy for when the queue is full.
+    ///
+    /// Never waits for the rate limiter: a missing permit is reported as
+    /// `PushError::RateLimited` instead of delaying the caller.
     pub fn try_push(
         &self,
         frame: F,
@@ -425,6 +428,8 @@ classDiagram
         <<enum>>
         QueueFull
         Closed
+        RateLimited
+        FrameTooLarge
     }
     class PushHandleInner {
         high_prio_tx: mpsc::Sender<F>
@@ -509,9 +514,7 @@ the advanced test workflow.
 ```rust
 #[cfg(loom)]
 {
-    use wireframe::push::queues::PushHandleProbe;
-
-    let probe: PushHandleProbe<_> = handle.probe();
+    let probe = handle.probe();
     let dlq_drops = probe.dlq_drop_count();
     assert_eq!(dlq_drops, 0);
 }

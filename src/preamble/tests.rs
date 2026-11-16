@@ -198,12 +198,40 @@ async fn bounded_preamble_preserves_valid_containers_and_following_bytes(#[case]
     );
 }
 
+/// A zero-length preamble must not wait for the peer to speak.
+///
+/// The default `()` preamble encodes to no bytes, so decoding it has to
+/// succeed against a stream that never delivers anything. A read here would
+/// report end-of-file, which is why an exhausted cursor is enough to prove
+/// that no read was attempted.
 #[tokio::test]
-async fn preamble_returns_read_ahead_bytes_as_leftovers() {
+async fn empty_preamble_decodes_without_reading() {
+    let mut reader = Cursor::new([]);
+    let ((), leftover) = read_preamble::<_, ()>(&mut reader)
+        .await
+        .expect("an empty preamble must decode without reading");
+    assert!(leftover.is_empty(), "no bytes are read ahead");
+    assert_eq!(
+        reader.position(),
+        0,
+        "reader.position() should stay at zero"
+    );
+}
+
+/// Bytes the peer already sent stay available to the application.
+///
+/// Reading a zero-length preamble consumes nothing, so the application sees
+/// the peer's first byte as its own input instead of discarding it.
+#[tokio::test]
+async fn empty_preamble_leaves_the_peers_bytes_unread() {
     let mut reader = Cursor::new([9, 10]);
     let ((), leftover) = read_preamble::<_, ()>(&mut reader)
         .await
-        .expect("empty preamble must preserve bytes read ahead");
-    assert_eq!(leftover, [9], "leftover should equal [9]");
-    assert_eq!(reader.position(), 1, "reader.position() should equal 1");
+        .expect("an empty preamble must leave the peer's bytes unread");
+    assert!(leftover.is_empty(), "no bytes are read ahead");
+    assert_eq!(
+        reader.position(),
+        0,
+        "the application reads the peer's bytes itself"
+    );
 }

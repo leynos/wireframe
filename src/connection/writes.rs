@@ -215,9 +215,41 @@ where
     where
         S: FrameSink<F> + PushSink<P> + Send,
     {
-        let progress = sink.progress();
-        self.write_frame_bounded(flush_out(pushes, frames, sink), progress.as_deref())
+        // Queued pushes go first because the actor produces them before any
+        // response frames from the same event.
+        for push in pushes {
+            let progress = sink.progress();
+            let write = sink.send_push(push);
+            if self.write_one(write, progress.as_deref()).await? == WriteOutcome::Cancelled {
+                return Ok(WriteOutcome::Cancelled);
+            }
+        }
+        for frame in frames {
+            let progress = sink.progress();
+            let write = sink.send_frame(frame);
+            if self.write_one(write, progress.as_deref()).await? == WriteOutcome::Cancelled {
+                return Ok(WriteOutcome::Cancelled);
+            }
+        }
+        Ok(WriteOutcome::Written)
+    }
+
+    /// Write one frame under this connection's bounds.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`WireframeError::Io`] if the sink fails.
+    async fn write_one<Writing>(
+        &mut self,
+        writing: Writing,
+        progress: Option<&ProgressSignal>,
+    ) -> Result<WriteOutcome, WireframeError<E>>
+    where
+        Writing: Future<Output = io::Result<()>>,
+    {
+        self.write_frame_bounded(writing, progress)
             .await
+            .map_err(WireframeError::Io)
     }
 
     /// Await one write under this connection's write bounds.
@@ -271,50 +303,6 @@ where
             grace: self.peer_closed_grace,
         }
     }
-}
-
-/// Write buffered output through the sink in emission order.
-///
-/// Queued pushes are written first because the actor produces them before any
-/// response frames from the same event.
-pub(super) async fn flush_out<F, P, E, S>(
-    pushes: Vec<P>,
-    frames: Vec<F>,
-    sink: &mut S,
-) -> Result<(), WireframeError<E>>
-where
-    S: FrameSink<F> + PushSink<P> + Send,
-{
-    flush_pushes(pushes, sink).await?;
-    flush_frames(frames, sink).await
-}
-
-/// Write buffered push frames through the sink in emission order.
-pub(super) async fn flush_pushes<P, E, S>(
-    pushes: Vec<P>,
-    sink: &mut S,
-) -> Result<(), WireframeError<E>>
-where
-    S: PushSink<P> + Send,
-{
-    for frame in pushes {
-        sink.send_push(frame).await.map_err(WireframeError::Io)?;
-    }
-    Ok(())
-}
-
-/// Write buffered frames through the sink in emission order.
-pub(super) async fn flush_frames<F, E, S>(
-    frames: Vec<F>,
-    sink: &mut S,
-) -> Result<(), WireframeError<E>>
-where
-    S: FrameSink<F> + Send,
-{
-    for frame in frames {
-        sink.send_frame(frame).await.map_err(WireframeError::Io)?;
-    }
-    Ok(())
 }
 
 /// Await one write unless the connection ends or the peer's grace expires

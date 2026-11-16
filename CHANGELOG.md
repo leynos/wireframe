@@ -30,11 +30,19 @@ All notable changes to this project will be documented in this file.
   later pushes fail with `PushError::Closed`. A push whose encoded payload
   exceeds the connection codec's frame limit is refused with
   `PushError::FrameTooLarge` before it is queued, so an unencodable frame
-  cannot end the connection after its producer was told the push succeeded.
-  `PushHandle` and `PushQueuesBuilder` gain `Clone` implementations that do not
-  require `F: Clone`. **Breaking:** `ConnectionContext` is `#[non_exhaustive]`
-  and no longer a unit struct, and `WireframeApp::with_push_dlq` is deprecated
-  since 0.4.0 in favour of a `dlq` sender on the queue template.
+  cannot end the connection after its producer was told the push succeeded. A
+  template's own `max_frame_len` and the codec's ceiling are both enforced,
+  each with the payload measure it was configured with, so adding the codec
+  limit never relaxes a template's bound. `PushError` gains `RateLimited`:
+  `try_push` draws on the same rate limit as the awaited helpers and refuses
+  rather than waiting when no permit is available. A preamble that encodes to
+  no bytes, including the default `()`, decodes without reading, so a client
+  that sends nothing still reaches connection setup and receives its first push.
+  `PushHandle` and `PushQueuesBuilder` gain `Clone` implementations that do
+  not require `F: Clone`. **Breaking:** `ConnectionContext` is
+  `#[non_exhaustive]` and no longer a unit struct, and
+  `WireframeApp::with_push_dlq` is deprecated since 0.4.0 in favour of a `dlq`
+  sender on the queue template.
   ([#875](https://github.com/leynos/wireframe/issues/875))
 
 - Add `WireframeApp::route_response` and `ResponseHandler<E>` so a route can

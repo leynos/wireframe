@@ -40,7 +40,12 @@ pub(super) async fn next_inbound_frame<R, F>(
 where
     R: Stream<Item = io::Result<F>> + Unpin,
 {
-    poll_frame(pending_frame, reader, Duration::from_millis(read_timeout_ms)).await
+    poll_frame(
+        pending_frame,
+        reader,
+        Duration::from_millis(read_timeout_ms),
+    )
+    .await
 }
 
 /// Poll the buffered frame or the reader, giving up after `bound`.

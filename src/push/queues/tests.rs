@@ -1,6 +1,8 @@
 //! Unit tests for push queue construction and cloning.
 
-use tokio::sync::mpsc;
+use std::time::Duration;
+
+use tokio::{sync::mpsc, time};
 
 use super::{PushConfigError, PushQueues, PushQueuesBuilder};
 use crate::push::{PushError, PushPolicy, PushPriority};
@@ -129,4 +131,102 @@ async fn oversized_push_is_rejected_before_queueing() {
         .expect("a frame at the limit fits");
     let (_, frame) = queues.recv().await.expect("the accepted push is queued");
     assert_eq!(frame.len(), 4, "only the frame within the limit is queued");
+}
+
+/// A codec limit is checked as well as the template's, not instead of it.
+///
+/// The two limits can measure a frame differently, so the codec's measure
+/// must not be applied to the template's ceiling. Here the codec would accept
+/// every frame, while the template rejects anything above four bytes; the
+/// frame must stay rejected.
+#[tokio::test]
+async fn codec_limit_does_not_relax_the_template_limit() {
+    let (mut queues, handle) = PushQueues::<Vec<u8>>::builder()
+        .high_capacity(2)
+        .low_capacity(2)
+        .unlimited()
+        .max_frame_len(4, |frame: &Vec<u8>| frame.len())
+        .capped_by_codec(64, |_frame: &Vec<u8>| 1)
+        .build()
+        .expect("queue builds");
+
+    assert_eq!(
+        handle.try_push(vec![0; 5], PushPriority::High, PushPolicy::DropIfFull),
+        Err(PushError::FrameTooLarge { size: 5, max: 4 }),
+        "the template's own measure must still reject the frame"
+    );
+
+    handle
+        .try_push(vec![0; 4], PushPriority::High, PushPolicy::DropIfFull)
+        .expect("a frame within both limits is accepted");
+    let (_, frame) = queues.recv().await.expect("the accepted push is queued");
+    assert_eq!(
+        frame.len(),
+        4,
+        "only the frame within both limits is queued"
+    );
+}
+
+/// A codec limit rejects a frame the template would have accepted.
+///
+/// Merging the two limits under the template's measure would let this frame
+/// through even though the codec cannot encode it, which would end the
+/// connection after the producer was told the push succeeded.
+#[tokio::test]
+async fn codec_limit_rejects_a_frame_the_template_allows() {
+    let (_queues, handle) = PushQueues::<Vec<u8>>::builder()
+        .high_capacity(2)
+        .low_capacity(2)
+        .unlimited()
+        .max_frame_len(10, |frame: &Vec<u8>| frame.len())
+        .capped_by_codec(3, |frame: &Vec<u8>| frame.len())
+        .build()
+        .expect("queue builds");
+
+    assert_eq!(
+        handle.try_push(vec![0; 4], PushPriority::High, PushPolicy::DropIfFull),
+        Err(PushError::FrameTooLarge { size: 4, max: 3 }),
+        "the codec's own ceiling must still reject the frame"
+    );
+}
+
+/// `try_push` draws on the same rate budget as the awaited helpers.
+///
+/// The limiter allows one push per second. After an awaited push consumes that
+/// permit, the non-blocking path must refuse rather than overdraw the budget,
+/// and it must do so without waiting. Once the window refills, the same handle
+/// clone accepts the frame.
+#[tokio::test]
+async fn try_push_shares_the_rate_limit_with_awaited_pushes() {
+    time::pause();
+    let (mut queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(4)
+        .low_capacity(4)
+        .rate(Some(1))
+        .build()
+        .expect("queue builds");
+    let clone = handle.clone();
+
+    handle
+        .push_high_priority(1)
+        .await
+        .expect("the first push consumes the only permit");
+    assert_eq!(
+        clone.try_push(2, PushPriority::High, PushPolicy::DropIfFull),
+        Err(PushError::RateLimited),
+        "a clone must see the permit the awaited path consumed"
+    );
+
+    time::advance(Duration::from_secs(1)).await;
+    clone
+        .try_push(3, PushPriority::High, PushPolicy::DropIfFull)
+        .expect("a replenished permit admits the non-blocking push");
+
+    let (_, first) = queues.recv().await.expect("the awaited push is queued");
+    let (_, second) = queues.recv().await.expect("the admitted push is queued");
+    assert_eq!(
+        (first, second),
+        (1, 3),
+        "the refused frame must not be queued"
+    );
 }

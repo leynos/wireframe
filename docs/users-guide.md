@@ -1712,7 +1712,10 @@ before returning the error; the server writes nothing on the handler's behalf.
 The server bounds the read with `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) by
 default; `preamble_timeout` replaces that deadline and
 `disable_preamble_timeout` removes it. The deadline covers only the preamble
-read, and timeouts use the failure callback path.[^20]
+read, and timeouts use the failure callback path.[^20] A preamble that encodes
+to no bytes, such as the default `()`, decodes without reading at all, so an
+accepted connection reaches application setup even when its client sends
+nothing and waits for the first push.
 
 For an awaitable lifecycle outside the foreground task, call
 `WireframeServer::spawn().await`. It returns a cloneable `ServerShutdown`:
@@ -2635,19 +2638,21 @@ an optional dead-letter queue with tunable logging cadence for dropped
 frames.[^23] Queue construction validates capacities and rate limits, clamping
 rates to the supported range.[^24] `PushHandle` exposes async
 `push_high_priority` and `push_low_priority` helpers that honour the rate
-limiter before awaiting channel capacity, while `try_push` implements
-policy-controlled drops with optional warnings and dead-letter forwarding.[^26]
-When the dead-letter queue is itself full or closed, the throttled
-`DLQ dropped frames` warning reports, as `dropped`, exactly the number of drops
-since the previous report; concurrent producers never make it count a drop
-twice or lose one, and a producer that finds nothing left to report emits no
-`dropped=0` line. `dlq_log_every_n` and `dlq_log_interval` set how often it
-fires. The warning names the dead-letter state, priority and policy of the
-frame that triggered it, along with its Rust type, but never its contents. Only
-frames the DLQ accepted reach its receiver, so an application must consume from
-that receiver to inspect or log them; a frame refused because the DLQ was full
-or closed is lost, with no copy available. Cloneable handles downgrade to
-`Weak` references for registration in a session registry.[^25]
+limiter before awaiting channel capacity, while `try_push` shares that same
+limiter without waiting: it returns `PushError::RateLimited` when no permit is
+available and otherwise implements policy-controlled drops with optional
+warnings and dead-letter forwarding.[^26] When the dead-letter queue is itself
+full or closed, the throttled `DLQ dropped frames` warning reports, as
+`dropped`, exactly the number of drops since the previous report; concurrent
+producers never make it count a drop twice or lose one, and a producer that
+finds nothing left to report emits no `dropped=0` line. `dlq_log_every_n` and
+`dlq_log_interval` set how often it fires. The warning names the dead-letter
+state, priority and policy of the frame that triggered it, along with its Rust
+type, but never its contents. Only frames the DLQ accepted reach its receiver,
+so an application must consume from that receiver to inspect or log them; a
+frame refused because the DLQ was full or closed is lost, with no copy
+available. Cloneable handles downgrade to `Weak` references for registration in
+a session registry.[^25]
 
 `PushQueues::recv` prefers high-priority frames but eventually drains the
 low-priority queue; `close` lets tests release resources when no actor is
@@ -2740,7 +2745,10 @@ follows the configured `PushPolicy` and reaches the dead-letter queue when one
 is set. A frame whose encoded payload exceeds the connection codec's frame
 limit is refused with `PushError::FrameTooLarge` before it is queued, so an
 unencodable push is reported to its producer instead of failing the connection
-when the encoder sees it. That check measures the frame as queued: a
+when the encoder sees it. A template that also sets
+`PushQueues::builder().max_frame_len` keeps that limit: both checks run, each
+with the measure it was configured with, so adding the codec ceiling never
+relaxes a template's own bound. That check measures the frame as queued: a
 `before_send` hook that enlarges it past the codec's `max_frame_length` is not
 re-checked afterwards, and the default codec then fails the connection when it
 encodes the frame.
@@ -2759,8 +2767,8 @@ Two kinds of end of connection behave differently:
   what is still buffered: a write that would block is abandoned rather than
   awaited, so the server drain never blocks on a peer that has stopped reading.
   A write the transport still accepts completes, and only then is the stop
-  observed, so a frame that was queued but not yet written at that point is
-  not guaranteed to arrive. This bound is why accepted connections observe the
+  observed, so a frame that was queued but not yet written at that point is not
+  guaranteed to arrive. This bound is why accepted connections observe the
   server stop token; [ADR 014](adr-014-server-shutdown-ownership.md) records
   the decision and its addendum.
 

@@ -11,7 +11,7 @@
 
 use super::{ConnectionActor, drive::ResponseInterruption, event::Event};
 
-impl<F, E> ConnectionActor<F, E> {
+impl<F, E, P> ConnectionActor<F, E, P> {
     /// Classify an event that ends the unbounded wait for a response.
     ///
     /// `None` means the event carries a frame and must be dispatched normally. A
@@ -35,7 +35,7 @@ impl<F, E> ConnectionActor<F, E> {
     /// ```
     pub(super) const fn response_interruption(
         &self,
-        event: &Event<F, E>,
+        event: &Event<F, E, P>,
     ) -> Option<ResponseInterruption> {
         match event {
             Event::Shutdown if self.abandon_response_on_shutdown => {

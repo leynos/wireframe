@@ -112,10 +112,10 @@ where
             StreamStep::Idle,
             StreamStep::Pushes,
         )),
-        next = inbound.next(reader, read_timeout_ms, shutdown) => Ok(next.map_or(
-            StreamStep::Closed,
-            StreamStep::Frame,
-        )),
+        next = inbound.next(reader, read_timeout_ms, shutdown) => {
+            let frame = next?;
+            Ok(frame.map_or(StreamStep::Closed, StreamStep::Frame))
+        }
     }
 }
 
@@ -157,7 +157,7 @@ where
     }
 
     /// Borrow the push-writing sink for the duration of one call.
-    const fn frame_sink(&mut self) -> ActorFrameSink<'_, S, K, F> {
+    fn frame_sink(&mut self) -> ActorFrameSink<'_, S, K, F> {
         ActorFrameSink::new(
             self.serializer,
             self.codec,
@@ -243,10 +243,15 @@ where
 /// peer can no longer be observed. Any of these bounds abandons the remaining
 /// frames instead of pinning the connection task and its registry entry.
 ///
-/// The collection needs the token as well: a closed lane only reports itself
-/// exhausted once the buffer is empty and every permit taken before the close
-/// has been released, so a producer that never releases one would otherwise
-/// keep this await pending without ever reaching a write.
+/// The race prefers a collection that is ready now, because those frames are
+/// already buffered and no write is pending when the stop is observed: dropping
+/// them would abandon output a still-readable peer can take. The token cuts
+/// short only a collection that is still pending. That case needs bounding
+/// because a closed lane reports itself exhausted only once its buffer is empty
+/// and every permit taken before the close has been released, so a producer
+/// that never releases one would otherwise keep this await pending without ever
+/// reaching a write. Each selected frame is then written under its own bound,
+/// which is what limits an abandoned drain.
 ///
 /// The grace restarts for every frame, so it measures idleness rather than the
 /// time the whole drain has taken. A lane can still hold per-frame
@@ -266,12 +271,13 @@ where
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
 {
-    // Abandon the collection once shutdown wins: frames still inside it are
-    // part of the drain this stop is allowed to cut short.
+    // A ready collection wins: its frames are already buffered, so a stop does
+    // not discard them. A collection still waiting on a producer is abandoned
+    // instead, which is what keeps that producer from pinning the connection.
     let frames = tokio::select! {
         biased;
-        () = shutdown.cancelled() => return Ok(()),
         frames = actor.take_pending_pushes() => frames,
+        () = shutdown.cancelled() => return Ok(()),
     };
     for frame in frames {
         let write = transport.write(frame);

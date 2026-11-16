@@ -22,7 +22,6 @@ use support::{
     read_frame,
     spawn_server,
     stop,
-    unblock_preamble,
     wait_until_registry_empty,
 };
 use tokio::{io::AsyncWriteExt, net::TcpStream, sync::mpsc, time::timeout};
@@ -33,13 +32,18 @@ use wireframe::{
 };
 use wireframe_testing::TestResult;
 
+/// A client that sends nothing still receives a push.
+///
+/// The default `()` preamble consumes no bytes, so the connection reaches
+/// `on_connection_setup` and registers its push handle without the client
+/// writing anything. A server that waited for the first inbound byte here
+/// would leave a silent client waiting for an unsolicited frame.
 #[tokio::test]
-async fn setup_handle_delivers_push_over_tcp() -> TestResult<()> {
+async fn silent_client_receives_a_push_after_setup() -> TestResult<()> {
     let protocol = PushTestProtocol::new();
     let (addr, shutdown) =
         spawn_server(WireframeApp::default().with_protocol(protocol.clone())).await?;
     let mut client = TcpStream::connect(addr).await?;
-    unblock_preamble(&mut client).await?;
 
     let (_, handle) = only_connection(&protocol).await?;
     handle
@@ -68,7 +72,6 @@ async fn high_priority_pushes_precede_low_priority_pushes() -> TestResult<()> {
     let (addr, shutdown) =
         spawn_server(WireframeApp::default().with_protocol(protocol.clone())).await?;
     let mut client = TcpStream::connect(addr).await?;
-    unblock_preamble(&mut client).await?;
     protocol.wait_for_setups(1).await?;
 
     let first = timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
@@ -89,8 +92,7 @@ async fn connection_setup_registers_the_push_handle() -> TestResult<()> {
         .with_protocol(protocol.clone())
         .with_session_registry(Arc::clone(&registry));
     let (addr, shutdown) = spawn_server(app).await?;
-    let mut client = TcpStream::connect(addr).await?;
-    unblock_preamble(&mut client).await?;
+    let client = TcpStream::connect(addr).await?;
 
     let (connection_id, _) = only_connection(&protocol).await?;
     if registry.get(&connection_id).is_none() {
@@ -110,7 +112,6 @@ async fn registry_entry_is_removed_when_connection_closes() -> TestResult<()> {
         .with_session_registry(Arc::clone(&registry));
     let (addr, shutdown) = spawn_server(app).await?;
     let mut client = TcpStream::connect(addr).await?;
-    unblock_preamble(&mut client).await?;
     let (connection_id, _) = only_connection(&protocol).await?;
 
     client.shutdown().await?;
@@ -131,10 +132,8 @@ async fn concurrent_connections_receive_distinct_ids() -> TestResult<()> {
         .with_protocol(protocol.clone())
         .with_session_registry(Arc::clone(&registry));
     let (addr, shutdown) = spawn_server(app).await?;
-    let mut first = TcpStream::connect(addr).await?;
-    let mut second = TcpStream::connect(addr).await?;
-    unblock_preamble(&mut first).await?;
-    unblock_preamble(&mut second).await?;
+    let first = TcpStream::connect(addr).await?;
+    let second = TcpStream::connect(addr).await?;
 
     let records = protocol.wait_for_setups(2).await?;
     let mut ids: Vec<ConnectionId> = records
@@ -171,7 +170,6 @@ async fn dead_letter_queue_receives_frames_a_full_queue_drops() -> TestResult<()
         .with_push_queues(template);
     let (addr, shutdown) = spawn_server(app).await?;
     let mut client = TcpStream::connect(addr).await?;
-    unblock_preamble(&mut client).await?;
     protocol.wait_for_setups(1).await?;
 
     let payload = timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
@@ -209,7 +207,6 @@ async fn rate_limited_pushes_are_delivered_over_tcp() -> TestResult<()> {
         .with_push_queues(template);
     let (addr, shutdown) = spawn_server(app).await?;
     let mut client = TcpStream::connect(addr).await?;
-    unblock_preamble(&mut client).await?;
     let (_, handle) = only_connection(&protocol).await?;
 
     handle
