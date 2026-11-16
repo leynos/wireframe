@@ -219,6 +219,10 @@ async fn rate_limiter_blocks_when_exceeded(#[case] priority: PushPriority) -> Te
         format!("second push should be pending under rate limit, got {completed:?}"),
     )?;
 
+    // An awaited push reserves its queue slot before it waits for a permit, so
+    // abandoning it also releases the slot the next push needs.
+    drop(fut);
+
     time::advance(Duration::from_secs(1)).await;
     match priority {
         PushPriority::High => push_expect!(handle.push_high_priority(3u8))?,
@@ -266,6 +270,10 @@ async fn rate_limiter_shared_across_priorities() -> TestResult<()> {
         completed.is_none(),
         format!("second push should be pending across queues, got {completed:?}"),
     )?;
+
+    // The pending push holds its queue slot while it waits for a permit, so it
+    // has to be abandoned before another push can enter the low lane.
+    drop(fut);
 
     time::advance(Duration::from_secs(1)).await;
     push_expect!(handle.push_low_priority(2u8))?;
@@ -318,6 +326,10 @@ async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() -> TestRe
         completed.is_none(),
         format!("push exceeding burst capacity should be pending, got {completed:?}"),
     )?;
+
+    // The refused push holds the last slot of the lane while it waits for a
+    // permit, so abandoning it is what lets the next push be admitted.
+    drop(fut);
 
     time::advance(Duration::from_secs(1)).await;
     push_expect!(handle.push_high_priority(100))?;
