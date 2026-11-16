@@ -3648,8 +3648,10 @@ directories (one per shard on full dispatch runs) for offline triage.
 [^21]: Implemented in `src/server/error.rs` (lines 7-18).
 [^23]: Implemented in `src/push/queues/mod.rs` (lines 41-190).
 [^24]: Implemented in `src/push/queues/errors.rs` (lines 7-28).
-[^25]: Implemented in `src/push/queues/handle.rs` (lines 84-225).
-[^26]: Implemented in `src/push/queues/handle.rs` (lines 198-295).
+[^25]: Implemented in `src/push/queues/handle/mod.rs` (`push_high_priority`,
+    `push_low_priority`, `downgrade`) and `src/push/queues/handle/lane.rs`
+    (`push_with_priority`, `reserve_capacity`, `wait_for_permit`).
+[^26]: Implemented in `src/push/queues/handle/mod.rs` (`try_push`).
 [^27]: Implemented in `src/push/queues/mod.rs` (lines 255-318).
 [^28]: Implemented in `src/connection.rs` (lines 69-205).
 [^29]: Implemented in `src/fairness.rs` (lines 1-79).
