@@ -10,11 +10,12 @@ use std::{future::Future, io};
 
 use tokio_util::sync::CancellationToken;
 
-use super::test_actor_with_shutdown;
+use super::{ConnectionActor, ConnectionChannels, UntrackedActorInit, test_actor_with_shutdown};
 use crate::{
     app::Envelope,
     connection::{FrameSink, PushSink, ResponseOutcome},
     hooks::ProtocolHooks,
+    push::{PushError, PushQueues},
     response::{FrameStream, Response},
 };
 
@@ -97,5 +98,68 @@ async fn shutdown_either_drains_or_abandons_a_stream(
         expected_frames,
         "unexpected frames reached the sink: {:?}",
         sink.accepted
+    );
+}
+
+/// A response that yields nothing, so only the idle grace can end it.
+fn stalled_response() -> Response<Envelope, ()> {
+    let stream: FrameStream<Envelope, ()> = Box::pin(futures::stream::pending());
+    Response::Stream(stream)
+}
+
+/// A stop that starts the bounded drain drops pushes rather than flushing them.
+///
+/// ADR-014 keeps the response draining across `stop()`, but the connection is
+/// still ending. The documented shutdown rule is that a frame waiting in a push
+/// queue at that moment is dropped, and a producer must not be able to renew
+/// the drain's idle grace with a fresh push. The frame queued before the stop
+/// therefore never reaches the sink, and a push after it is refused outright.
+#[tokio::test(start_paused = true)]
+async fn shutdown_that_starts_the_bounded_drain_drops_queued_pushes() {
+    let shutdown = CancellationToken::new();
+    let (queues, handle) = PushQueues::<Envelope>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .expect("the push queues should build");
+    let mut actor = ConnectionActor::new_untracked(UntrackedActorInit {
+        channels: ConnectionChannels::new(queues, handle.clone()),
+        response: None,
+        shutdown: shutdown.clone(),
+        hooks: ProtocolHooks::default(),
+        ctx: crate::hooks::ConnectionContext::default(),
+    });
+    // Server semantics: a stop drains the response rather than abandoning it.
+    actor.set_abandon_response_on_shutdown(false);
+    let mut sink = RecordingSink {
+        shutdown: None,
+        accepted: Vec::new(),
+    };
+    handle
+        .push_high_priority(Envelope::new(1, None, vec![9]))
+        .await
+        .expect("the push is accepted before the stop");
+    shutdown.cancel();
+
+    let outcome = actor
+        .install_response(stalled_response(), Some(1), &mut sink)
+        .await
+        .expect("a bounded response is not an error");
+
+    assert_eq!(
+        outcome,
+        ResponseOutcome::Cancelled,
+        "the idle grace must end a stalled response"
+    );
+    assert!(
+        !sink.accepted.contains(&9),
+        "a push queued when the stop arrived must be dropped, not flushed"
+    );
+    assert_eq!(
+        handle
+            .push_high_priority(Envelope::new(1, None, vec![10]))
+            .await,
+        Err(PushError::Closed),
+        "a stopping connection must refuse a new push rather than queue it"
     );
 }

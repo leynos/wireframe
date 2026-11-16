@@ -19,12 +19,7 @@ where
 
     /// Close all receivers and mark streaming sources as closed if present.
     pub(super) fn start_shutdown(&mut self, state: &mut ActorState) {
-        if let Some(rx) = &mut self.high_rx {
-            rx.close();
-        }
-        if let Some(rx) = &mut self.low_rx {
-            rx.close();
-        }
+        self.close_push_lanes();
 
         // Check if multi-packet is active before shutdown clears it
         let was_multi_packet = self.active_output.is_multi_packet();

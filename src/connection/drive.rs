@@ -14,6 +14,7 @@ use super::{
     FrameSink,
     PushSink,
     drain::ActorStep,
+    event::Event,
     output::ActiveOutput,
     state::ActorState,
     writes::WriteOutcome,
@@ -233,7 +234,7 @@ where
                     return Ok(ResponseOutcome::Cancelled);
                 }
                 Some(ResponseInterruption::Bounded) => {
-                    return self.drive_bounded_drain(sink).await;
+                    return self.enter_bounded_drain(&event, sink).await;
                 }
                 None => {}
             }
@@ -242,6 +243,33 @@ where
             }
         }
         Ok(self.finish_outcome())
+    }
+
+    /// Switch to the bounded drain, dropping pushes if a stop caused it.
+    ///
+    /// A stop that starts the bounded drain ends push delivery: the documented
+    /// shutdown rule is that a frame still waiting in a push queue at that
+    /// moment is dropped rather than flushed. Discarding the lanes enforces
+    /// that rule and stops a producer from renewing the drain's idle grace with
+    /// a fresh push, which would let it hold the connection open indefinitely.
+    /// A peer close keeps the lanes open, because the connection still drains
+    /// the frames it accepted before the half-close.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`WireframeError`] if the sink fails while draining.
+    async fn enter_bounded_drain<S>(
+        &mut self,
+        event: &Event<F, E, P>,
+        sink: &mut S,
+    ) -> Result<ResponseOutcome, WireframeError<E>>
+    where
+        S: FrameSink<F> + PushSink<P> + Send,
+    {
+        if matches!(event, Event::Shutdown) {
+            self.discard_push_lanes();
+        }
+        self.drive_bounded_drain(sink).await
     }
 
     /// Map the response loop's terminal flags to an outcome.

@@ -100,6 +100,10 @@ where
             };
             if matches!(event, Event::Shutdown) {
                 ResponseCancellationReason::Shutdown.record();
+                // The response is abandoned, so nothing will be written from
+                // the push queues: drop them rather than leaving a producer
+                // able to queue into a lane that has already returned.
+                self.discard_push_lanes();
                 return Ok(ResponseOutcome::Cancelled);
             }
             let mut output = PendingOutput::new();

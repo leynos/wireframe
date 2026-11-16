@@ -63,6 +63,33 @@ where
         self.high_rx.is_some() || self.low_rx.is_some()
     }
 
+    /// Stop accepting new pushes without discarding the frames already queued.
+    ///
+    /// Shutdown ends the connection's willingness to take pushes. Closing the
+    /// lanes wakes a producer parked on a full lane, so it learns the lane is
+    /// closed instead of waiting for capacity that `stop()` has made
+    /// unreachable.
+    pub(crate) fn close_push_lanes(&mut self) {
+        if let Some(rx) = &mut self.high_rx {
+            rx.close();
+        }
+        if let Some(rx) = &mut self.low_rx {
+            rx.close();
+        }
+    }
+
+    /// Drop every push lane, discarding the frames still queued.
+    ///
+    /// A connection that stops while a response is still draining follows the
+    /// documented rule that a frame waiting in a push queue at that moment is
+    /// dropped rather than flushed. Dropping the receivers enforces that rule
+    /// and wakes a producer parked on capacity with `Closed`, so it cannot keep
+    /// the drain alive by feeding it another frame.
+    pub(crate) fn discard_push_lanes(&mut self) {
+        self.high_rx = None;
+        self.low_rx = None;
+    }
+
     /// Await the next push, returning `None` once every lane has closed.
     ///
     /// At least one frame is returned when the result is `Some`, so callers
