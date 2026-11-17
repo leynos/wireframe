@@ -255,7 +255,10 @@ callback. Because the failure handler is asynchronous and receives the
 `TcpStream`, it can emit a protocol-specific error before the socket closes.
 The deadline therefore bounds the read alone, not the failure callback that
 follows it, and it keeps resource usage bounded while preserving custom
-handshake responses.
+handshake responses. A callback that never finishes would hold the connection
+task, so each handshake step is also raced against the server's stop token: a
+stop releases the socket, the task and its guard without waiting for the
+callback.
 
 ## 4. Denial-of-Service (DoS) Mitigation
 
