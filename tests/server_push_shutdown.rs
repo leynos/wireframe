@@ -97,8 +97,8 @@ async fn shutdown_deregisters_a_connection_with_a_pending_push() -> TestResult<(
     let registry = Arc::new(SessionRegistry::<Bytes>::new());
     let protocol = PushTestProtocol::new();
     // The default app fixes the codec type the replacement is built from.
-    let app: WireframeApp = WireframeApp::default();
-    let app = app
+    let default_app: WireframeApp = WireframeApp::default();
+    let app = default_app
         .with_codec(LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH))
         .with_protocol(protocol.clone())
         .with_session_registry(Arc::clone(&registry));

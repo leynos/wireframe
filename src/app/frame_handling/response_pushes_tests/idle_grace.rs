@@ -10,6 +10,7 @@ use std::{
     time::Duration,
 };
 
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -38,8 +39,6 @@ use crate::{
 #[cfg(feature = "metrics")]
 #[tokio::test(start_paused = true)]
 async fn an_idle_grace_abandoned_write_is_counted_as_such() {
-    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-
     let grace = Duration::from_secs(5);
     let (mut actor, handle) = build_actor(CancellationToken::new()).expect("actor queues build");
     actor.set_peer_closed_grace(grace);
@@ -94,6 +93,15 @@ async fn an_idle_grace_abandoned_write_is_counted_as_such() {
         "the abandoned write must not reach the transport"
     );
 
+    assert_idle_grace_counter(&snapshotter);
+}
+
+/// Assert the counter holds one abandonment labelled `idle_grace_expired`.
+///
+/// Asserting the whole label set rather than the presence of a reason also
+/// fails a counter that records the abandonment under `shutdown` as well, which
+/// would misattribute a stalled peer to a server stop.
+fn assert_idle_grace_counter(snapshotter: &Snapshotter) {
     let samples = snapshotter.snapshot().into_vec();
     let counted: Vec<_> = samples
         .iter()
@@ -104,25 +112,22 @@ async fn an_idle_grace_abandoned_write_is_counted_as_such() {
         1,
         "exactly one push-write abandonment must be counted"
     );
-    let (key, _, _, value) = counted
-        .first()
-        .expect("the idle-grace abandonment must be counted");
+    let Some((key, _, _, value)) = counted.first() else {
+        panic!("the idle-grace abandonment must be counted");
+    };
     assert!(
         matches!(value, DebugValue::Counter(1)),
         "the idle grace must record exactly one abandonment; got {value:?}"
     );
-    assert!(
-        key.key().labels().count() == 1
-            && key
-                .key()
-                .labels()
-                .any(|label| label.key() == "reason" && label.value() == "idle_grace_expired"),
+    let reasons: Vec<_> = key
+        .key()
+        .labels()
+        .filter(|label| label.key() == "reason")
+        .map(::metrics::Label::value)
+        .collect();
+    assert_eq!(
+        reasons,
+        ["idle_grace_expired"],
         "the counter must name the idle grace as its only reason"
-    );
-    assert!(
-        !key.key()
-            .labels()
-            .any(|label| label.key() == "reason" && label.value() == "shutdown"),
-        "a shutdown reason would misattribute the abandonment"
     );
 }
