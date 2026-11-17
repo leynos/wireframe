@@ -45,7 +45,7 @@ where
         W: AsyncWrite + Unpin,
         M: EncodeWith<S>,
     {
-        let outbound_frame = encode_message_frame(&self.serializer, &self.codec, msg)?;
+        let outbound_frame = encode_message_frame(self.serializer.as_ref(), &self.codec, msg)?;
         let mut encoder = self.codec.encoder();
         let mut encoded_buf = BytesMut::new();
         encoder
@@ -77,7 +77,7 @@ where
         M: EncodeWith<S>,
         Cc: Encoder<F::Frame, Error = io::Error>,
     {
-        let encoded = encode_message_frame(&self.serializer, &self.codec, msg)?;
+        let encoded = encode_message_frame(self.serializer.as_ref(), &self.codec, msg)?;
         framed.send(encoded.frame).await.map_err(SendError::Io)
     }
 }

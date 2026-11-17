@@ -11,6 +11,7 @@ use tokio::{
     io::{self, AsyncRead, AsyncWrite},
     sync::mpsc,
 };
+use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
 use super::{
@@ -49,7 +50,10 @@ pub struct PreparedApp<
     /// Streaming handlers, which bypass middleware transformation.
     pub(in crate::app) streaming_routes: HashMap<u32, super::StreamingHandler>,
     /// Serializer retained by every connection driven by this application.
-    pub(in crate::app) serializer: S,
+    ///
+    /// Shared so the connection actor's `'static` protocol hooks can decode
+    /// terminator frames without copying the serializer.
+    pub(in crate::app) serializer: Arc<S>,
     /// Codec template used to configure each connection's framed transport.
     pub(in crate::app) codec: F,
     /// Optional hook that creates per-connection state.
@@ -173,9 +177,10 @@ where
     }
 }
 
+
 impl<S, C, E, F> PreparedApp<S, C, E, F>
 where
-    S: Serializer + FrameMetadata<Frame = super::Envelope> + Send + Sync,
+    S: Serializer + FrameMetadata<Frame = super::Envelope> + Send + Sync + 'static,
     C: Send + 'static,
     E: Packet,
     F: FrameCodec,
@@ -205,15 +210,35 @@ where
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
-        self.handle_connection_with_clock(stream, &StdMonotonicClock)
+        self.handle_connection_with_shutdown(stream, CancellationToken::new())
             .await
     }
 
-    /// Handle a connection with an injectable monotonic clock.
-    async fn handle_connection_with_clock<W>(
+    /// Handle an accepted connection, stopping it when `shutdown` is cancelled.
+    ///
+    /// The server passes its worker shutdown token here so a connection whose
+    /// peer stopped reading cannot pin a graceful drain: its pending write is
+    /// abandoned, which closes the connection. Callers outside the server keep
+    /// using [`Self::handle_connection_result`], whose token is never
+    /// cancelled.
+    pub(crate) async fn handle_connection_with_shutdown<W>(
+        &self,
+        stream: W,
+        shutdown: CancellationToken,
+    ) -> io::Result<()>
+    where
+        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    {
+        self.handle_connection_inner(stream, &StdMonotonicClock, &shutdown)
+            .await
+    }
+
+    /// Handle a connection with an injectable clock and shutdown signal.
+    async fn handle_connection_inner<W>(
         &self,
         stream: W,
         clock: &dyn MonotonicClock,
+        shutdown: &CancellationToken,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
@@ -230,15 +255,17 @@ where
             ConnectionProcessingContext {
                 routes: &self.routes,
                 streaming_routes: &self.streaming_routes,
-                serializer: &self.serializer,
+                serializer: Arc::clone(&self.serializer),
                 codec: &self.codec,
                 on_connect: self.on_connect.as_ref(),
                 on_disconnect: self.on_disconnect.as_ref(),
                 message_assembler: self.message_assembler.as_ref(),
                 fragmentation: self.fragmentation,
                 protocol_hooks: self.protocol_hooks(),
+                protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
+                shutdown,
             },
         )
         .instrument(span.clone())
@@ -249,6 +276,7 @@ where
         span.record("elapsed_ms", elapsed_ms);
         result
     }
+
 
     /// Handle an accepted connection and log any processing failure.
     ///
@@ -278,6 +306,7 @@ where
         }
     }
 }
+
 
 impl<S, C, E, F> PreparedApp<S, C, E, F>
 where
@@ -347,6 +376,8 @@ where
     }
 }
 
+
 #[cfg(test)]
 #[path = "prepared_app_tests.rs"]
 mod tests;
+// weave: run 'weave explain src/app/prepared_app.rs' for per-hunk detail, 'weave check' to verify your resolution

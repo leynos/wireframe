@@ -9,32 +9,48 @@ mod channels;
 mod counter;
 mod dispatch;
 mod drain;
+mod drive;
 mod event;
 mod frame;
+mod grace;
+mod init;
+mod interruption;
 mod multi_packet;
+mod observation;
 mod output;
+mod peer_close;
 mod polling;
 mod response;
 mod shutdown;
+mod sink;
 mod state;
 #[cfg(all(test, not(loom)))]
 mod tests;
+mod writes;
 
-use std::net::SocketAddr;
+use std::{
+    net::SocketAddr,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 pub use channels::ConnectionChannels;
-use counter::ActiveConnection;
+pub(crate) use counter::ActiveConnection;
 #[cfg(loom)]
 pub use counter::LoomConnectionGuard;
 pub use counter::active_connection_count;
-use event::Event;
+pub(crate) use drive::{PEER_CLOSED_RESPONSE_GRACE, ResponseOutcome};
+use grace::{GraceTimer, TokioGraceTimer};
+use init::ActorInit;
 use log::info;
 use multi_packet::MultiPacketContext;
-use output::{ActiveOutput, AvailableOutput, EventAvailability};
-use state::ActorState;
+pub(crate) use observation::UnobservedCause;
+use output::ActiveOutput;
+pub(crate) use sink::{FrameSink, ProgressSignal};
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+pub(crate) use writes::WriteOutcome;
 
 pub use crate::fairness::FairnessConfig;
 use crate::{
@@ -45,7 +61,7 @@ use crate::{
     fragment::{FragmentationConfig, Fragmenter},
     hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueues},
-    response::{FrameStream, WireframeError},
+    response::FrameStream,
     session::ConnectionId,
 };
 
@@ -108,6 +124,35 @@ pub struct ConnectionActor<F, E = NoProtocolError> {
     connection_id: Option<ConnectionId>,
     /// Peer address retained for diagnostics when the socket exposes it.
     peer_addr: Option<SocketAddr>,
+    /// Whether a completion hook is waiting for the final frame to be written.
+    command_end_pending: bool,
+    /// Whether the response currently being driven reported a protocol error.
+    response_failed: bool,
+    /// Whether a shutdown signal abandons a response still being driven.
+    ///
+    /// The direct actor API keeps shutdown precedence; a server connection opts
+    /// out so ADR-014's drain delivers a response its peer is still reading.
+    abandon_response_on_shutdown: bool,
+    /// Token cancelled when the peer closes its input half.
+    peer_closed: CancellationToken,
+    /// Idle grace applied to a response once the peer can no longer be observed.
+    ///
+    /// Production connections keep [`drive::PEER_CLOSED_RESPONSE_GRACE`]; tests
+    /// shorten it so a paused clock can exercise cancellation deterministically.
+    peer_closed_grace: Duration,
+    /// Deadline source that enforces [`Self::peer_closed_grace`].
+    ///
+    /// Production uses the ambient Tokio clock. A test installs a manually
+    /// fired deadline, so it proves cancellation happens exactly when the grace
+    /// expires without depending on the wall clock.
+    grace_timer: Arc<dyn GraceTimer>,
+    /// Correlation identifier of the response currently being driven.
+    response_correlation: Option<u64>,
+    /// Why direct peer observation stopped for the current dispatch.
+    ///
+    /// The inbound loop fills this before cancelling [`Self::peer_closed`], so
+    /// the cancellation warning can name the cause.
+    unobserved_cause: Option<Arc<OnceLock<UnobservedCause>>>,
 }
 
 impl<F, E> ConnectionActor<F, E>
@@ -155,31 +200,94 @@ where
         shutdown: CancellationToken,
         hooks: ProtocolHooks<F, E>,
     ) -> Self {
+        let connection = ActiveConnection::new();
+        Self::build(
+            ActorInit::new(channels, response, shutdown, hooks),
+            Some(connection),
+        )
+    }
+
+    /// Create an actor without registering it in the active-connection gauge.
+    ///
+    /// The server creates one untracked actor per accepted connection because
+    /// the accept loop already holds an [`ActiveConnection`] guard for the
+    /// whole connection lifetime. That avoids counting a connection twice.
+    #[must_use]
+    pub(crate) fn new_untracked(
+        channels: ConnectionChannels<F>,
+        response: Option<FrameStream<F, E>>,
+        shutdown: CancellationToken,
+        hooks: ProtocolHooks<F, E>,
+    ) -> Self {
+        Self::build(ActorInit::new(channels, response, shutdown, hooks), None)
+    }
+
+    /// Shared constructor used by the tracked and untracked entry points.
+    fn build(init: ActorInit<F, E>, counter: Option<ActiveConnection>) -> Self {
+        let ActorInit {
+            channels,
+            response,
+            shutdown,
+            hooks,
+        } = init;
         let ConnectionChannels { queues, handle } = channels;
         let ctx = ConnectionContext;
-        let counter = ActiveConnection::new();
         let active_output = response.map_or_else(|| ActiveOutput::None, ActiveOutput::Response);
         let mut actor = Self {
             high_rx: Some(queues.high_priority_rx),
             low_rx: Some(queues.low_priority_rx),
             active_output,
             shutdown,
-            counter: Some(counter),
+            counter,
             hooks,
             ctx,
             fairness: FairnessTracker::new(FairnessConfig::default()),
             fragmenter: None,
             connection_id: None,
             peer_addr: None,
+            command_end_pending: false,
+            response_failed: false,
+            abandon_response_on_shutdown: true,
+            peer_closed: CancellationToken::new(),
+            peer_closed_grace: drive::PEER_CLOSED_RESPONSE_GRACE,
+            grace_timer: Arc::new(TokioGraceTimer),
+            response_correlation: None,
+            unobserved_cause: None,
         };
-        info!(
-            "connection opened: wireframe_active_connections={}, id={:?}, peer={:?}",
-            counter::current_count(),
-            actor.connection_id,
-            actor.peer_addr
-        );
+        // The server builds an untracked actor per connection and owns the
+        // connection lifecycle in its accept loop. Logging an opening there
+        // would be unbalanced because `install_response`/`drive_response`
+        // never log a close, and the active-connection count would not include
+        // that connection.
+        if actor.counter.is_some() {
+            info!(
+                "connection opened: wireframe_active_connections={}, id={:?}, peer={:?}",
+                counter::current_count(),
+                actor.connection_id,
+                actor.peer_addr
+            );
+        }
         actor.hooks.on_connection_setup(handle, &mut actor.ctx);
         actor
+    }
+
+    /// Override the idle grace used once the peer can no longer be observed.
+    ///
+    /// The server keeps [`drive::PEER_CLOSED_RESPONSE_GRACE`]; tests pass a
+    /// short grace and a paused clock to prove that a stalled response is
+    /// cancelled without waiting for the production deadline.
+    pub(crate) const fn set_peer_closed_grace(&mut self, grace: Duration) {
+        self.peer_closed_grace = grace;
+    }
+
+    /// Replace the deadline source that enforces the idle grace.
+    ///
+    /// Production keeps [`TokioGraceTimer`], which uses the ambient clock. A
+    /// test installs a deadline it fires by hand, so cancellation is proved to
+    /// happen when the grace expires rather than merely eventually.
+    #[cfg(test)]
+    pub(crate) fn set_grace_timer(&mut self, timer: Arc<dyn GraceTimer>) {
+        self.grace_timer = timer;
     }
 
     /// Replace the fairness configuration.
@@ -279,109 +387,6 @@ where
     /// Get a clone of the shutdown token used by the actor.
     #[must_use]
     pub fn shutdown_token(&self) -> CancellationToken { self.shutdown.clone() }
-
-    /// Drive the actor until all sources are exhausted or shutdown is triggered.
-    ///
-    /// Frames are appended to `out` in the order they are processed.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`WireframeError`] if the response stream yields an I/O error.
-    pub async fn run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>> {
-        // Spans removed in favour of standardized log facade.
-        // If cancellation has already been requested, exit immediately. Nothing
-        // will be drained and any streaming response is abandoned. This mirrors
-        // a hard shutdown and is required for the tests.
-        if self.shutdown.is_cancelled() {
-            info!(
-                "connection aborted before start: id={:?}, peer={:?}",
-                self.connection_id, self.peer_addr
-            );
-            let _ = self.counter.take();
-            return Ok(());
-        }
-
-        let mut state = ActorState::new(
-            self.active_output.is_response(),
-            self.active_output.is_multi_packet(),
-        );
-
-        while !state.is_done() {
-            self.poll_sources(&mut state, out).await?;
-        }
-        info!(
-            "connection closed: id={:?}, peer={:?}",
-            self.connection_id, self.peer_addr
-        );
-        let _ = self.counter.take();
-        Ok(())
-    }
-
-    /// Compute which event sources are currently available for polling.
-    const fn compute_availability(&self, state: &ActorState) -> EventAvailability {
-        EventAvailability {
-            high: self.high_rx.is_some(),
-            low: self.low_rx.is_some(),
-            output: self
-                .active_output
-                .available_output(state.is_shutting_down()),
-        }
-    }
-
-    /// Await the next ready event using biased priority ordering.
-    ///
-    /// Shutdown is observed first, followed by high-priority pushes, then
-    /// low-priority pushes, multi-packet channels, and finally the response
-    /// stream. This mirrors the
-    /// original behaviour and matches the design documentation. The final
-    /// `else` branch prevents `tokio::select!` from panicking if all guards are
-    /// false.
-    ///
-    /// The `strict_priority_order` and `shutdown_signal_precedence` tests
-    /// assert that this ordering is preserved across refactors.
-    async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
-        let avail = self.compute_availability(state);
-        let can_poll_multi_packet = avail.output == AvailableOutput::MultiPacket;
-        let can_poll_response = avail.output == AvailableOutput::Response;
-
-        // Extract mutable references before the select! to satisfy the borrow
-        // checker. Only one of these can be Some due to the ActiveOutput enum
-        // invariant.
-        let (multi_rx, response_stream) = match &mut self.active_output {
-            ActiveOutput::MultiPacket(ctx) => (ctx.channel_mut(), None),
-            ActiveOutput::Response(stream) => (None, Some(stream)),
-            ActiveOutput::None => (None, None),
-        };
-        let shutdown = &self.shutdown;
-        let high_rx = self.high_rx.as_mut();
-        let low_rx = self.low_rx.as_mut();
-
-        tokio::select! {
-            biased;
-
-            () = Self::wait_shutdown(shutdown), if state.is_active() => Event::Shutdown,
-            res = Self::poll_queue(high_rx), if avail.high => Event::High(res),
-            res = Self::poll_queue(low_rx), if avail.low => Event::Low(res),
-            res = Self::poll_queue(multi_rx), if can_poll_multi_packet => Event::MultiPacket(res),
-            res = Self::poll_response(response_stream), if can_poll_response => Event::Response(res),
-            else => Event::Idle,
-        }
-    }
-
-    /// Poll all sources and push available frames into `out`.
-    ///
-    /// This method polls the shutdown token, high- and low-priority queues,
-    /// and the optional response stream. Frames are appended to `out` in the
-    /// order they are processed. `ActorState` is updated based on which sources
-    /// return `None`.
-    async fn poll_sources(
-        &mut self,
-        state: &mut ActorState,
-        out: &mut Vec<F>,
-    ) -> Result<(), WireframeError<E>> {
-        let event = self.next_event(state).await;
-        self.dispatch_event(event, state, out)
-    }
 }
 
 #[cfg(all(not(loom), any(test, feature = "test-support")))]

@@ -6,12 +6,13 @@ use tokio::sync::mpsc;
 
 use crate::{
     app::{
+Route,
         builder_defaults::DEFAULT_READ_TIMEOUT_MS,
         envelope::{Envelope, Packet},
         error::Result,
         lifecycle::{ConnectionSetup, ConnectionTeardown},
         memory_budgets::MemoryBudgets,
-        middleware_types::{Handler, Middleware, StreamingHandler},
+        middleware_types::{Middleware, StreamingHandler},
     },
     codec::{FrameCodec, LengthDelimitedFrameCodec},
     hooks::WireframeProtocol,
@@ -30,14 +31,18 @@ pub struct WireframeApp<
     E: Packet = Envelope,
     F: FrameCodec = LengthDelimitedFrameCodec,
 > {
-    /// Handler factories keyed by the protocol message identifier.
-    pub(in crate::app) handlers: HashMap<u32, Handler<E>>,
+    /// Registered routes keyed by the protocol message identifier.
+    pub(in crate::app) handlers: HashMap<u32, Route<E>>,
     /// Middleware applied in registration order around each handler.
     pub(in crate::app) middleware: Vec<Box<dyn Middleware<E>>>,
     /// Streaming handlers keyed by the protocol message identifier.
     pub(in crate::app) streaming_handlers: HashMap<u32, StreamingHandler>,
     /// Serializer retained by every connection built from this application.
-    pub(in crate::app) serializer: S,
+    ///
+    /// The handle is shared because the connection actor's protocol hooks are
+    /// `'static` and need to decode terminator frames without copying the
+    /// serializer.
+    pub(in crate::app) serializer: Arc<S>,
     /// Optional asynchronous hook that creates per-connection state.
     pub(in crate::app) on_connect: Option<Arc<ConnectionSetup<C>>>,
     /// Optional asynchronous hook that releases state after processing,
@@ -75,7 +80,7 @@ where
             handlers: HashMap::new(),
             middleware: Vec::new(),
             streaming_handlers: HashMap::new(),
-            serializer: S::default(),
+            serializer: Arc::new(S::default()),
             on_connect: None,
             on_disconnect: None,
             protocol: None,
@@ -88,6 +93,7 @@ where
         }
     }
 }
+
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
 where
@@ -120,11 +126,12 @@ where
     /// forward compatibility.
     pub fn with_serializer(serializer: S) -> Result<Self> {
         Ok(Self {
-            serializer,
+            serializer: Arc::new(serializer),
             ..Self::default()
         })
     }
 }
+
 
 /// Groups the type-changing parameters for [`WireframeApp::rebuild_with_params`].
 ///
@@ -133,7 +140,7 @@ where
 /// concise.
 pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     /// Serializer to carry into the rebuilt application type.
-    pub(super) serializer: S2,
+    pub(super) serializer: Arc<S2>,
     /// Codec to carry into the rebuilt application type.
     pub(super) codec: F2,
     /// Protocol hook whose frame type matches the replacement codec.
@@ -145,6 +152,7 @@ pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     /// Memory limits retained across a type transition.
     pub(super) memory_budgets: Option<MemoryBudgets>,
 }
+
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
 where
@@ -215,6 +223,7 @@ where
         }
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -386,3 +395,4 @@ mod tests {
         Ok(())
     }
 }
+// weave: run 'weave explain src/app/builder/core.rs' for per-hunk detail, 'weave check' to verify your resolution

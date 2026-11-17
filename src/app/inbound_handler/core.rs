@@ -2,23 +2,27 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
-use tokio_util::codec::Framed;
+use tokio_util::sync::CancellationToken;
 
-use super::{MAX_DESER_FAILURES, stream_dispatch};
-use crate::{
-    app::{
+use super::{
+    super::{
         StreamingHandler,
         codec_driver::FramePipeline,
-        combined_codec::CombinedCodec,
         envelope::{Envelope, Packet},
         frame_handling::{self, FrameOutcome},
         memory_budgets::MemoryBudgets,
     },
-    codec::{FrameCodec, MAX_FRAME_LENGTH, clamp_frame_length},
+    MAX_DESER_FAILURES,
+    actor::build_connection_actor,
+    frames::InboundFrames,
+    framing::prepare_connection_framing,
+    stream_dispatch::{self, DispatchContext},
+};
+use crate::{
+    codec::FrameCodec,
     frame::FrameMetadata,
-    hooks::ProtocolHooks,
+    hooks::{ProtocolHooks, WireframeProtocol},
     message::{DecodeWith, DeserializeContext, EncodeWith},
     message_assembler::{MessageAssembler, MessageAssemblyState},
     middleware::HandlerService,
@@ -27,6 +31,7 @@ use crate::{
 #[cfg(test)]
 #[path = "core_tests.rs"]
 mod tests;
+
 
 /// Immutable stream-wide configuration shared by all inbound frames.
 pub(super) struct StreamProcessingContext<'a, S, E, F>
@@ -40,7 +45,7 @@ where
     /// Streaming handlers keyed by message identifier.
     pub(super) streaming_routes: &'a HashMap<u32, StreamingHandler>,
     /// Serializer shared by all frames on the connection.
-    pub(super) serializer: &'a S,
+    pub(super) serializer: Arc<S>,
     /// Codec configuration shared by all frames on the connection.
     pub(super) codec: &'a F,
     /// Optional assembly strategy for multi-frame protocol messages.
@@ -49,49 +54,16 @@ where
     pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks applied to every outbound frame on this connection.
     pub(super) protocol_hooks: ProtocolHooks<F::Frame, ()>,
+    /// Protocol whose response hooks drive the connection actor.
+    pub(super) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
     pub(super) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
     pub(super) read_timeout_ms: u64,
+    /// Server shutdown signal; cancelling it stops this connection.
+    pub(super) shutdown: &'a CancellationToken,
 }
 
-/// Per-connection framing state shared by the inbound reader and response
-/// writer.
-struct ConnectionFraming<W, F>
-where
-    F: FrameCodec,
-{
-    /// Codec clone that carries per-connection framing state.
-    codec: F,
-    /// Framed stream built from the codec's decoder and encoder.
-    framed: Framed<W, CombinedCodec<F::Decoder, F::Encoder>>,
-}
-
-/// Build per-connection framing state and guard the requested frame length.
-fn prepare_connection_framing<W, F>(stream: W, codec: &F) -> ConnectionFraming<W, F>
-where
-    F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
-{
-    // Each connection needs isolated framing state: cloning resets the
-    // counters `SeqFrameCodec` and `TaggedFrameCodec::wrap_payload` consume.
-    let connection_codec = codec.clone();
-    let combined = CombinedCodec::new(connection_codec.decoder(), connection_codec.encoder());
-    let mut framed = Framed::new(stream, combined);
-    let requested_frame_length = connection_codec.max_frame_length();
-    let max_frame_length = clamp_frame_length(requested_frame_length);
-    if requested_frame_length > MAX_FRAME_LENGTH {
-        warn!(
-            "codec max frame length exceeds guardrail; clamping to {MAX_FRAME_LENGTH} bytes \
-             (requested={requested_frame_length})"
-        );
-    }
-    framed.read_buffer_mut().reserve(max_frame_length);
-    ConnectionFraming {
-        codec: connection_codec,
-        framed,
-    }
-}
 
 /// Read and process frames until the stream closes or an I/O error occurs.
 pub(super) async fn process_stream<S, E, F, W>(
@@ -99,55 +71,59 @@ pub(super) async fn process_stream<S, E, F, W>(
     context: StreamProcessingContext<'_, S, E, F>,
 ) -> io::Result<()>
 where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     E: Packet,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
+    W: AsyncRead + AsyncWrite + Send + Unpin,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    let StreamProcessingContext {
-        routes,
-        streaming_routes,
-        serializer,
-        codec,
-        message_assembler,
-        fragmentation,
-        protocol_hooks,
-        memory_budgets,
-        read_timeout_ms,
-    } = context;
-    let ConnectionFraming {
-        codec: connection_codec,
-        framed,
-    } = prepare_connection_framing(stream, codec);
+    let (mut sink, mut reader, connection_codec) =
+        prepare_connection_framing(stream, context.codec).split();
     let requested_frame_length = connection_codec.max_frame_length();
     let effective_budgets =
-        frame_handling::resolve_effective_budgets(memory_budgets, requested_frame_length);
-    let message_assembly = message_assembler.map(|_| {
-        frame_handling::new_message_assembly_state(
-            fragmentation,
-            requested_frame_length,
-            Some(effective_budgets),
-        )
-    });
-    let pipeline = FramePipeline::with_hooks(fragmentation, protocol_hooks);
-
+        frame_handling::resolve_effective_budgets(context.memory_budgets, requested_frame_length);
+    let mut inbound = InboundFrames {
+        // A frame read while the previous one was still being handled, so the
+        // loop never polls the read half twice for one inbound frame.
+        pending: None,
+        pipeline: FramePipeline::with_hooks(context.fragmentation, context.protocol_hooks),
+        message_assembly: context.message_assembler.map(|_| {
+            frame_handling::new_message_assembly_state(
+                context.fragmentation,
+                requested_frame_length,
+                Some(effective_budgets),
+            )
+        }),
+    };
+    // A child token so the guard below cancels only this connection, while a
+    // server shutdown still reaches it through the parent.
+    let connection_shutdown = context.shutdown.child_token();
+    // Cancelled only by a clean EOF, which is permanent for the connection.
+    let peer_eof = CancellationToken::new();
+    let (mut response_actor, _cancel_on_exit) =
+        build_connection_actor::<F>(context.protocol.as_ref(), connection_shutdown)?;
+    let dispatch = DispatchContext {
+        routes: context.routes,
+        streaming_routes: context.streaming_routes,
+        serializer: context.serializer.as_ref(),
+        codec: &connection_codec,
+        message_assembler: context.message_assembler,
+        protocol: context.protocol.as_ref(),
+        effective_budgets,
+        read_timeout_ms: context.read_timeout_ms,
+    };
     stream_dispatch::run(
-        framed,
-        stream_dispatch::DispatchContext {
-            routes,
-            streaming_routes,
-            serializer,
-            codec: &connection_codec,
-            message_assembler,
-            effective_budgets,
-            read_timeout_ms,
-        },
-        pipeline,
-        message_assembly,
+        &mut reader,
+        &mut sink,
+        &mut inbound,
+        &mut response_actor.actor,
+        &dispatch,
+        context.shutdown,
+        &peer_eof,
     )
     .await
 }
+
 
 /// Detect a bincode budget failure so fallback decoding does not repeat the work.
 fn is_bincode_limit_exceeded(error: &(dyn std::error::Error + 'static)) -> bool {
@@ -314,3 +290,5 @@ const fn completes_message(outcome: &FrameOutcome) -> bool {
         }
     }
 }
+
+// weave: run 'weave explain src/app/inbound_handler/core.rs' for per-hunk detail, 'weave check' to verify your resolution

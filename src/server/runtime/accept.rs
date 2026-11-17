@@ -15,12 +15,17 @@ use super::{SupervisorLifecycle, backoff::BackoffConfig};
 use crate::{
     app::{Envelope, Packet, PreparedApp},
     codec::{FrameCodec, LengthDelimitedFrameCodec},
+    connection::ActiveConnection,
     frame::FrameMetadata,
     message::{DecodeWith, EncodeWith},
     metrics::inc_server_accept_loop_exit,
     preamble::Preamble,
     serializer::{BincodeSerializer, Serializer},
-    server::{PreambleFailure, PreambleHandler, connection_spawner::spawn_connection_task},
+    server::{
+        PreambleFailure,
+        PreambleHandler,
+        connection_spawner::{ConnectionTask, spawn_connection_task},
+    },
 };
 
 /// Abstraction for sources of incoming connections consumed by the accept loop.
@@ -261,12 +266,17 @@ where
         () = handles.shutdown.cancelled() => None,
         res = listener.accept() => Some(match res {
             Ok((stream, _)) => {
-                spawn_connection_task(
+                // Register the connection immediately after a successful
+                // accept, before the task exists. The guard is moved into the
+                // spawned future and released when that future ends.
+                let task = ConnectionTask {
                     stream,
-                    Arc::clone(handles.app),
-                    handles.preamble.clone(),
-                    handles.tracker,
-                );
+                    app: Arc::clone(handles.app),
+                    hooks: handles.preamble.clone(),
+                    connection: ActiveConnection::new(),
+                    shutdown: handles.shutdown.clone(),
+                };
+                spawn_connection_task(task, handles.tracker);
                 handles.backoff.initial_delay
             }
             Err(e) => {

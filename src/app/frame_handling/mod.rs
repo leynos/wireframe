@@ -11,7 +11,6 @@ mod decode;
 mod reassembly;
 mod response;
 mod stream_assembly;
-
 pub(crate) use core::{DeserFailureTracker, ResponseContext};
 
 pub(crate) use assembly::{
@@ -30,11 +29,18 @@ pub(crate) use backpressure::{
 };
 pub(crate) use decode::decode_envelope;
 pub(crate) use reassembly::reassemble_if_needed;
-pub(crate) use response::{forward_response, forward_service_response};
+pub(crate) use response::{Dispatch, forward_response, forward_service_response};
 
 #[cfg(all(test, not(loom)))]
 mod assembly_tests;
 #[cfg(all(test, not(loom)))]
 mod backpressure_tests;
 #[cfg(all(test, not(loom)))]
+mod completion_tests;
+#[cfg(all(test, not(loom)))]
+mod delivery_span_tests;
+#[cfg(all(test, not(loom)))]
+mod terminator_tests;
+#[cfg(all(test, not(loom)))]
 mod tests;
+// weave: run 'weave explain src/app/frame_handling/mod.rs' for per-hunk detail, 'weave check' to verify your resolution

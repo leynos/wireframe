@@ -9,21 +9,16 @@
 use std::{io, pin::Pin, time::Duration};
 
 use bytes::Bytes;
-use futures::Future;
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    time::timeout,
-};
-use tokio_util::codec::Framed;
+use futures::{Future, Sink};
+use tokio::time::timeout;
 use tracing::debug;
 
 use super::{
     super::{
         StreamingHandler,
-        combined_codec::ConnectionCodec,
         envelope::{Envelope, Packet},
+        frame_handling::Dispatch,
     },
-    stream_dispatch::{Event, read_frame},
     stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk},
     stream_parked::forward_reply,
     stream_terminal::deliver_then_await,
@@ -111,22 +106,12 @@ impl ActiveStream {
         timeout(wait, exchange).await.unwrap_or(PendingEvent::Idle)
     }
 
-    /// Drive the handler alongside the inbound socket.
-    pub(super) async fn drive_open<F, W>(
-        &mut self,
-        framed: &mut Framed<W, ConnectionCodec<F>>,
-        wait: Duration,
-    ) -> Event<F::Frame>
-    where
-        F: FrameCodec,
-        W: AsyncRead + AsyncWrite + Unpin,
-    {
-        let Self { handler, .. } = self;
-        tokio::select! {
-            outcome = handler.as_mut() => Event::Handler(outcome),
-            event = read_frame::<F, W>(framed, wait) => event,
-        }
-    }
+    /// Poll the handler until it produces a reply.
+    ///
+    /// The connection loop selects this future against the next inbound read,
+    /// so a handler that finishes while its body is still arriving is not
+    /// delayed behind a peer that sends nothing.
+    pub(super) async fn poll_handler(&mut self) -> Option<Bytes> { (&mut self.handler).await }
 }
 
 /// Connection-owned streaming state: the dispatch slot and byte account.
@@ -138,13 +123,19 @@ pub(super) struct ConnectionStreams {
 }
 
 impl ConnectionStreams {
-    /// Create an empty slot with its own byte account.
-    pub(super) fn new() -> Self {
+    /// Create an empty slot sharing the connection's byte account.
+    pub(super) fn new(queued: QueuedBytes) -> Self {
         Self {
-            queued: QueuedBytes::new(),
+            queued,
             active: None,
         }
     }
+
+    /// Clone the connection-wide byte account.
+    ///
+    /// A pre-filled body is charged to the same account as an incrementally
+    /// delivered one, so both forms observe one aggregate budget.
+    pub(super) fn queued(&self) -> QueuedBytes { self.queued.clone() }
 
     /// Return whether a streaming body currently owns the slot.
     pub(super) const fn is_live(&self) -> bool { self.active.is_some() }
@@ -254,20 +245,20 @@ impl ConnectionStreams {
     }
 
     /// Finish the exchange after the handler resolved on its own.
-    pub(super) async fn finish_active<S, E, F, W>(
+    pub(super) async fn finish_active<S, E, K, F>(
         &mut self,
         outcome: Option<Bytes>,
-        handles: DispatchHandles<'_, S, E, F, W>,
-    ) -> io::Result<()>
+        handles: DispatchHandles<'_, S, E, K, F>,
+    ) -> io::Result<Dispatch>
     where
         S: Serializer + Send + Sync,
         E: Packet,
         F: FrameCodec,
-        W: AsyncRead + AsyncWrite + Unpin,
+        K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
         Envelope: EncodeWith<S>,
     {
         let Some(mut active) = self.active.take() else {
-            return Ok(());
+            return Ok(Dispatch::Continue);
         };
         // Cancelling the admission is safe: a reserved permit that never sent
         // releases itself, and a queued chunk is dropped with its guard.
@@ -278,20 +269,20 @@ impl ConnectionStreams {
     }
 
     /// Fail the live body, await its handler, and forward any reply.
-    pub(super) async fn close_active<S, E, F, W>(
+    pub(super) async fn close_active<S, E, K, F>(
         &mut self,
         terminal: Option<io::Error>,
-        handles: DispatchHandles<'_, S, E, F, W>,
-    ) -> io::Result<()>
+        handles: DispatchHandles<'_, S, E, K, F>,
+    ) -> io::Result<Dispatch>
     where
         S: Serializer + Send + Sync,
         E: Packet,
         F: FrameCodec,
-        W: AsyncRead + AsyncWrite + Unpin,
+        K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
         Envelope: EncodeWith<S>,
     {
         let Some(mut active) = self.active.take() else {
-            return Ok(());
+            return Ok(Dispatch::Continue);
         };
         active.pending = None;
         let sender = active.sender.take();
@@ -313,20 +304,20 @@ impl ConnectionStreams {
     /// The evicted assemblies are matched by identity, not by key: a
     /// replacement may already have reused the key, and it must keep its
     /// own body.
-    pub(super) async fn expire<S, E, F, W>(
+    pub(super) async fn expire<S, E, K, F>(
         &mut self,
         ids: &[StreamingAssemblyId],
-        handles: DispatchHandles<'_, S, E, F, W>,
-    ) -> io::Result<()>
+        handles: DispatchHandles<'_, S, E, K, F>,
+    ) -> io::Result<Dispatch>
     where
         S: Serializer + Send + Sync,
         E: Packet,
         F: FrameCodec,
-        W: AsyncRead + AsyncWrite + Unpin,
+        K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
         Envelope: EncodeWith<S>,
     {
         if !self.owns_assembly(ids) {
-            return Ok(());
+            return Ok(Dispatch::Continue);
         }
         self.close_active(
             Some(io::Error::new(
@@ -339,22 +330,22 @@ impl ConnectionStreams {
     }
 
     /// Fail the body for a terminal assembly rejection.
-    pub(super) async fn fail<S, E, F, W>(
+    pub(super) async fn fail<S, E, K, F>(
         &mut self,
         key: MessageKey,
         error: io::Error,
-        handles: DispatchHandles<'_, S, E, F, W>,
-    ) -> io::Result<()>
+        handles: DispatchHandles<'_, S, E, K, F>,
+    ) -> io::Result<Dispatch>
     where
         S: Serializer + Send + Sync,
         E: Packet,
         F: FrameCodec,
-        W: AsyncRead + AsyncWrite + Unpin,
+        K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
         Envelope: EncodeWith<S>,
     {
         if !self.is_key_live(std::slice::from_ref(&key)) {
             debug!(?key, "streaming failure for a message with no live handler");
-            return Ok(());
+            return Ok(Dispatch::Continue);
         }
         self.close_active(Some(error), handles).await
     }

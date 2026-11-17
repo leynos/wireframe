@@ -30,8 +30,10 @@ pub use envelope::{Envelope, Packet, PacketParts};
 pub use error::{PrepareError, Result, SendError};
 pub use lifecycle::{ConnectionSetup, ConnectionTeardown};
 pub use memory_budgets::{BudgetBytes, MemoryBudgets};
-pub use middleware_types::{Handler, Middleware, StreamingHandler};
+pub(crate) use middleware_types::Route;
+pub use middleware_types::{Handler, Middleware, ResponseHandler, StreamingHandler};
 #[cfg(feature = "test-support")]
 #[doc(hidden)]
 pub use outbound_encoding::benchmark_encode_message_frame;
 pub use prepared_app::PreparedApp;
+// weave: run 'weave explain src/app/mod.rs' for per-hunk detail, 'weave check' to verify your resolution

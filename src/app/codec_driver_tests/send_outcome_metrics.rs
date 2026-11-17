@@ -59,7 +59,7 @@ where
     let mut transport = OutboundTransport {
         serializer,
         codec,
-        framed: &mut framed,
+        sink: &mut framed,
     };
     let result = flush_pipeline_output(&mut transport, pipeline).await;
     (result, client, framed)
@@ -142,7 +142,7 @@ fn closed_peer_records_transport_failure() {
             let mut transport = OutboundTransport {
                 serializer: &BincodeSerializer,
                 codec: &codec,
-                framed: &mut server_framed,
+                sink: &mut server_framed,
             };
             flush_pipeline_output(&mut transport, &mut pipeline)
                 .await

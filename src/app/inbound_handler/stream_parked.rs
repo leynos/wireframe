@@ -15,16 +15,14 @@
 use std::{collections::VecDeque, io, time::Duration};
 
 use bytes::Bytes;
-use tokio::{
-    io::{AsyncRead, AsyncWrite},
-    time::timeout,
-};
+use futures::Sink;
+use tokio::time::timeout;
 use tracing::warn;
 
 use super::{
     super::{
         envelope::{Envelope, Packet},
-        frame_handling::{self, ResponseContext},
+        frame_handling::{self, Dispatch, ResponseContext},
     },
     stream_diagnostics,
     stream_handles::{ChunkBudget, DispatchHandles},
@@ -36,7 +34,6 @@ use crate::{
     request::{
         AccountedBodySender,
         DEFAULT_BODY_CHANNEL_CAPACITY,
-        QueuedBytes,
         RequestParts,
         accounted_body_channel,
     },
@@ -105,16 +102,16 @@ pub(super) fn parked_bytes(parked: &VecDeque<ParkedMessage>) -> usize {
 /// `parked` is the queue still waiting behind this message. Its bytes stay
 /// reserved while the message is answered, so a pre-filled body is admitted
 /// against the same aggregate account as every other retained byte.
-pub(super) async fn dispatch_parked<S, E, F, W>(
+pub(super) async fn dispatch_parked<S, E, K, F>(
     message: ParkedMessage,
     parked: &VecDeque<ParkedMessage>,
-    handles: DispatchHandles<'_, S, E, F, W>,
-) -> io::Result<()>
+    handles: DispatchHandles<'_, S, E, K, F>,
+) -> io::Result<Dispatch>
 where
     S: Serializer + Send + Sync,
     E: Packet,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: EncodeWith<S>,
 {
     match message {
@@ -126,15 +123,15 @@ where
 }
 
 /// Run a parked buffered envelope through its middleware chain.
-async fn forward_buffered<S, E, F, W>(
+async fn forward_buffered<S, E, K, F>(
     env: Envelope,
-    handles: DispatchHandles<'_, S, E, F, W>,
-) -> io::Result<()>
+    handles: DispatchHandles<'_, S, E, K, F>,
+) -> io::Result<Dispatch>
 where
     S: Serializer + Send + Sync,
     E: Packet,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: EncodeWith<S>,
 {
     let Some(service) = handles.ctx.routes.get(&env.id) else {
@@ -143,33 +140,35 @@ where
             correlation_id = ?env.correlation_id,
             "no handler for message id"
         );
-        return Ok(());
+        return Ok(Dispatch::Continue);
     };
     frame_handling::forward_response(
         env,
         service,
         ResponseContext {
             serializer: handles.ctx.serializer,
-            framed: handles.framed,
+            sink: handles.sink,
             pipeline: handles.pipeline,
             codec: handles.ctx.codec,
+            actor: handles.actor,
+            protocol: handles.ctx.protocol,
         },
     )
     .await
 }
 
 /// Run a streaming handler with an already assembled body.
-async fn dispatch_prefilled<S, E, F, W>(
+async fn dispatch_prefilled<S, E, K, F>(
     parts: RequestParts,
     body: Bytes,
     parked: &VecDeque<ParkedMessage>,
-    handles: DispatchHandles<'_, S, E, F, W>,
-) -> io::Result<()>
+    handles: DispatchHandles<'_, S, E, K, F>,
+) -> io::Result<Dispatch>
 where
     S: Serializer + Send + Sync,
     E: Packet,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: EncodeWith<S>,
 {
     let Some(streaming_handler) = handles.ctx.streaming_routes.get(&parts.id()) else {
@@ -177,12 +176,12 @@ where
             message_id = parts.id(),
             "no streaming handler for message id"
         );
-        return Ok(());
+        return Ok(Dispatch::Continue);
     };
     let route_id = parts.id();
     let correlation_id = parts.correlation_id();
     let (sender, stream) =
-        accounted_body_channel(DEFAULT_BODY_CHANNEL_CAPACITY, QueuedBytes::new());
+        accounted_body_channel(DEFAULT_BODY_CHANNEL_CAPACITY, handles.queued.clone());
     let response = streaming_handler(parts, stream);
     let budget = ChunkBudget::measure(&handles, parked);
     deliver_prefilled(&sender, body, budget, handles.wait).await;
@@ -251,28 +250,30 @@ async fn refuse_prefilled(sender: &AccountedBodySender) {
 /// The handler produces [`Bytes`], while the middleware and envelope reply
 /// path still carries `Vec<u8>` pending the ADR 009 migration, so the payload
 /// is converted once at this boundary.
-pub(super) async fn forward_reply<S, E, F, W>(
+pub(super) async fn forward_reply<S, E, K, F>(
     route_id: u32,
     correlation_id: Option<u64>,
     payload: Option<Bytes>,
-    handles: DispatchHandles<'_, S, E, F, W>,
-) -> io::Result<()>
+    handles: DispatchHandles<'_, S, E, K, F>,
+) -> io::Result<Dispatch>
 where
     S: Serializer + Send + Sync,
     E: Packet,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: EncodeWith<S>,
 {
     frame_handling::forward_service_response(
         route_id,
         correlation_id,
-        payload.map(|bytes| bytes.to_vec()),
+        payload,
         ResponseContext {
             serializer: handles.ctx.serializer,
-            framed: handles.framed,
+            sink: handles.sink,
             pipeline: handles.pipeline,
             codec: handles.ctx.codec,
+            actor: handles.actor,
+            protocol: handles.ctx.protocol,
         },
     )
     .await

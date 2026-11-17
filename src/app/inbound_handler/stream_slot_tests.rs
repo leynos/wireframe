@@ -146,7 +146,7 @@ async fn an_unaffordable_first_chunk_becomes_a_pending_admission(
     stalled_handler: StreamingHandler,
     tight_budget: ChunkBudget,
 ) {
-    let mut streams = ConnectionStreams::new();
+    let mut streams = ConnectionStreams::new(QueuedBytes::new());
     let _held_body = retain_bytes_outside_the_slot(&streams).await;
 
     streams.start(unaffordable_first_chunk, &stalled_handler, tight_budget);
@@ -168,7 +168,7 @@ async fn a_released_account_admits_the_pending_first_chunk(
     stalled_handler: StreamingHandler,
     tight_budget: ChunkBudget,
 ) {
-    let mut streams = ConnectionStreams::new();
+    let mut streams = ConnectionStreams::new(QueuedBytes::new());
     let held_body = retain_bytes_outside_the_slot(&streams).await;
     streams.start(unaffordable_first_chunk, &stalled_handler, tight_budget);
 
@@ -194,7 +194,7 @@ async fn a_released_account_admits_the_pending_first_chunk(
 /// This stands in for a handler that moved its body stream into a task the
 /// connection no longer drives.
 async fn retain_bytes_outside_the_slot(streams: &ConnectionStreams) -> RequestBodyStream {
-    let (sender, body) = accounted_body_channel(1, streams.queued.clone());
+    let (sender, body) = accounted_body_channel(1, streams.queued());
     sender
         .send_chunk(Bytes::from_static(b"held"), 0, usize::MAX)
         .await

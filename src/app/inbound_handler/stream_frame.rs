@@ -8,14 +8,14 @@
 
 use std::io;
 
-use tokio::io::{AsyncRead, AsyncWrite};
+use futures::Sink;
 use tracing::{debug, warn};
 
 use super::{
     super::{
         StreamingHandler,
         envelope::{Envelope, Packet},
-        frame_handling::{self, FrameOutcome, ResponseContext},
+        frame_handling::{self, Dispatch, FrameOutcome, ResponseContext},
     },
     core::{FrameBuildContext, decode_outcome},
     stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk, LoopState},
@@ -30,16 +30,16 @@ use crate::{
 };
 
 /// Decode one frame and route its outcome through the dispatch slot.
-pub(super) async fn dispatch_frame<S, E, F, W>(
+pub(super) async fn dispatch_frame<S, E, K, F>(
     frame: &F::Frame,
     state: &mut LoopState,
-    mut handles: DispatchHandles<'_, S, E, F, W>,
-) -> io::Result<()>
+    mut handles: DispatchHandles<'_, S, E, K, F>,
+) -> io::Result<Dispatch>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
     E: Packet,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
     crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
@@ -58,16 +58,16 @@ struct DecodedFrame {
 }
 
 /// Decode `frame` and measure the budget its routing needs.
-fn decode_frame<S, E, F, W>(
+fn decode_frame<S, E, K, F>(
     frame: &F::Frame,
     state: &mut LoopState,
-    handles: &mut DispatchHandles<'_, S, E, F, W>,
+    handles: &mut DispatchHandles<'_, S, E, K, F>,
 ) -> io::Result<DecodedFrame>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
     E: Packet,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
     let stream_live = state.streams.is_live();
@@ -89,16 +89,16 @@ where
 }
 
 /// Hand one decoded outcome to the component that owns it.
-async fn route_outcome<S, E, F, W>(
+async fn route_outcome<S, E, K, F>(
     decoded: DecodedFrame,
     state: &mut LoopState,
-    mut handles: DispatchHandles<'_, S, E, F, W>,
-) -> io::Result<()>
+    mut handles: DispatchHandles<'_, S, E, K, F>,
+) -> io::Result<Dispatch>
 where
     S: Serializer + Send + Sync,
     E: Packet,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: EncodeWith<S>,
 {
     let DecodedFrame {
@@ -107,7 +107,7 @@ where
         budget,
     } = decoded;
     match outcome {
-        FrameOutcome::Pending | FrameOutcome::Discarded => Ok(()),
+        FrameOutcome::Pending | FrameOutcome::Discarded => Ok(Dispatch::Continue),
         FrameOutcome::Buffered(env) => dispatch_buffered(env, stream_live, state, handles).await,
         FrameOutcome::StreamStarted {
             key,
@@ -125,7 +125,7 @@ where
                 is_last,
             };
             start_stream(state, streaming_handler, first, budget);
-            Ok(())
+            Ok(Dispatch::Continue)
         }
         FrameOutcome::StreamChunk {
             key,
@@ -138,13 +138,13 @@ where
                 is_last,
             };
             deliver_chunk(state, handles.assembly, offer, budget);
-            Ok(())
+            Ok(Dispatch::Continue)
         }
         FrameOutcome::StreamFallback { parts, body } => {
             let message = ParkedMessage::Stream { parts, body };
             if stream_live {
                 stream_parked::park(&mut state.parked, message)?;
-                return Ok(());
+                return Ok(Dispatch::Continue);
             }
             dispatch_parked(message, &state.parked, handles).await
         }
@@ -158,7 +158,7 @@ where
 ///
 /// The handler is resolved by the caller so this helper borrows only what it
 /// needs: taking the whole [`DispatchHandles`] would require it to be `Sync`,
-/// which the framed connection is not. The call only registers the exchange;
+/// which the transport sink is not. The call only registers the exchange;
 /// the loop admits the first chunk on a later step so a busy byte account
 /// cannot stall this frame's processing.
 fn start_stream(
@@ -195,22 +195,22 @@ fn deliver_chunk(
 }
 
 /// Send a complete buffered message through its middleware chain, or park it.
-async fn dispatch_buffered<S, E, F, W>(
+async fn dispatch_buffered<S, E, K, F>(
     env: Envelope,
     stream_live: bool,
     state: &mut LoopState,
-    handles: DispatchHandles<'_, S, E, F, W>,
-) -> io::Result<()>
+    handles: DispatchHandles<'_, S, E, K, F>,
+) -> io::Result<Dispatch>
 where
     S: Serializer + Send + Sync,
     E: Packet,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: EncodeWith<S>,
 {
     if stream_live {
         stream_parked::park(&mut state.parked, ParkedMessage::Envelope(env))?;
-        return Ok(());
+        return Ok(Dispatch::Continue);
     }
     let Some(service) = handles.ctx.routes.get(&env.id) else {
         warn!(
@@ -218,16 +218,18 @@ where
             correlation_id = ?env.correlation_id,
             "no handler for message id"
         );
-        return Ok(());
+        return Ok(Dispatch::Continue);
     };
     frame_handling::forward_response(
         env,
         service,
         ResponseContext {
             serializer: handles.ctx.serializer,
-            framed: handles.framed,
+            sink: handles.sink,
             pipeline: handles.pipeline,
             codec: handles.ctx.codec,
+            actor: handles.actor,
+            protocol: handles.ctx.protocol,
         },
     )
     .await

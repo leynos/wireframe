@@ -1,22 +1,25 @@
 //! Handles and per-chunk data shared by the streaming dispatch modules.
 //!
 //! The connection loop, the dispatch slot, and the parking queue each need the
-//! same four mutable connection handles to answer a streaming handler, plus the
+//! same mutable connection handles to answer a streaming handler, plus the
 //! read timeout that bounds teardown. Grouping them here keeps every helper
 //! within the repository's argument limit, and makes it explicit that a reply
 //! travels the same pipeline whichever path produced it.
+//!
+//! The bundled handles deliberately exclude the inbound reader. Reading the
+//! next frame borrows the whole inbound framing state, so a bundle that held
+//! the reader could not coexist with it. Each action therefore builds the
+//! bundle from disjoint borrows for the duration of that action only.
 
-use std::{collections::VecDeque, time::Duration};
+use std::{collections::VecDeque, io, time::Duration};
 
 use bytes::Bytes;
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio_util::codec::Framed;
+use futures::Sink;
 
 use super::{
     super::{
         codec_driver::FramePipeline,
-        combined_codec::ConnectionCodec,
-        envelope::Packet,
+        envelope::{Envelope, Packet},
         frame_handling,
     },
     stream_dispatch::DispatchContext,
@@ -25,8 +28,9 @@ use super::{
 };
 use crate::{
     codec::FrameCodec,
+    connection::ConnectionActor,
     message_assembler::{MessageAssemblyState, MessageKey, StreamingAssemblyId},
-    request::RequestParts,
+    request::{QueuedBytes, RequestParts},
     serializer::Serializer,
 };
 
@@ -38,31 +42,37 @@ mod tests;
 ///
 /// Borrow them for one call with [`DispatchHandles::reborrow`] when the caller
 /// must keep using the bundle afterwards.
-pub(super) struct DispatchHandles<'a, S, E, F, W>
+pub(super) struct DispatchHandles<'a, S, E, K, F>
 where
     S: Serializer + Send + Sync,
     E: Packet,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
 {
     /// Connection-local assembly state.
     pub(super) assembly: &'a mut Option<MessageAssemblyState>,
     /// Outbound pipeline shared by every reply on the connection.
     pub(super) pipeline: &'a mut FramePipeline<F::Frame>,
-    /// Framed connection the reply is written to.
-    pub(super) framed: &'a mut Framed<W, ConnectionCodec<F>>,
+    /// Write half the connection actor drives.
+    pub(super) sink: &'a mut K,
+    /// Actor that schedules and delivers every reply.
+    pub(super) actor: &'a mut ConnectionActor<Envelope, ()>,
+    /// Connection-wide byte account, shared with every body on this
+    /// connection so a pre-filled body is charged against the same budget as
+    /// an incrementally delivered one.
+    pub(super) queued: QueuedBytes,
     /// Immutable connection inputs.
     pub(super) ctx: &'a DispatchContext<'a, S, E, F>,
     /// Maximum wait for a handler or a body send while teardown runs.
     pub(super) wait: Duration,
 }
 
-impl<S, E, F, W> DispatchHandles<'_, S, E, F, W>
+impl<S, E, K, F> DispatchHandles<'_, S, E, K, F>
 where
     S: Serializer + Send + Sync,
     E: Packet,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
 {
     /// Reborrow every handle for a single call, leaving this bundle usable.
     ///
@@ -73,11 +83,13 @@ where
     /// slot.close_active(None, handles.reborrow()).await?;
     /// // `handles` is still live here.
     /// ```
-    pub(super) const fn reborrow(&mut self) -> DispatchHandles<'_, S, E, F, W> {
+    pub(super) fn reborrow(&mut self) -> DispatchHandles<'_, S, E, K, F> {
         DispatchHandles {
             assembly: &mut *self.assembly,
             pipeline: &mut *self.pipeline,
-            framed: &mut *self.framed,
+            sink: &mut *self.sink,
+            actor: &mut *self.actor,
+            queued: self.queued.clone(),
             ctx: self.ctx,
             wait: self.wait,
         }
@@ -110,15 +122,15 @@ impl ChunkBudget {
     /// re-enters `drive_pending_admission` before it reads, so between this
     /// measurement and the chunk being charged the totals can only shrink as
     /// assemblies expire or a handler releases bytes.
-    pub(super) fn measure<S, E, F, W>(
-        handles: &DispatchHandles<'_, S, E, F, W>,
+    pub(super) fn measure<S, E, K, F>(
+        handles: &DispatchHandles<'_, S, E, K, F>,
         parked: &VecDeque<ParkedMessage>,
     ) -> Self
     where
         S: Serializer + Send + Sync,
         E: Packet,
+        K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
         F: FrameCodec,
-        W: AsyncRead + AsyncWrite + Unpin,
     {
         Self {
             other_retained: retained_outside_queue(
@@ -170,6 +182,7 @@ pub(super) struct ChunkOffer {
     /// Whether this chunk completes the message.
     pub(super) is_last: bool,
 }
+
 /// Mutable state the connection loop owns across frames.
 pub(super) struct LoopState {
     /// The one live streaming exchange, if any.
@@ -182,9 +195,9 @@ pub(super) struct LoopState {
 
 impl LoopState {
     /// Create loop state for a fresh connection.
-    pub(super) fn new() -> Self {
+    pub(super) fn new(queued: QueuedBytes) -> Self {
         Self {
-            streams: ConnectionStreams::new(),
+            streams: ConnectionStreams::new(queued),
             parked: VecDeque::new(),
             deser_failures: 0,
         }

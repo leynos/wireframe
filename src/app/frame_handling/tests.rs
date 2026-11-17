@@ -9,7 +9,10 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::StreamExt;
 use rstest::{fixture, rstest};
 use tokio::io::DuplexStream;
-use tokio_util::codec::{Decoder, Encoder};
+use tokio_util::{
+    codec::{Decoder, Encoder},
+    sync::CancellationToken,
+};
 
 use super::ResponseContext;
 use crate::{
@@ -19,7 +22,9 @@ use crate::{
         combined_codec::CombinedCodec,
     },
     codec::FrameCodec,
+    connection::{ConnectionActor, ConnectionChannels},
     hooks::{ConnectionContext, ProtocolHooks},
+    push::PushQueues,
     serializer::BincodeSerializer,
 };
 
@@ -186,7 +191,7 @@ async fn send_envelope_wraps_with_codec(harness: TestHarness) {
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut framed,
+        sink: &mut framed,
     };
     send_envelope(&mut transport, &envelope, &mut pipeline)
         .await
@@ -237,7 +242,7 @@ async fn before_send_observes_codec_wrapped_frame(harness: TestHarness) {
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut framed,
+        sink: &mut framed,
     };
     send_envelope(&mut transport, &envelope, &mut pipeline)
         .await
@@ -276,12 +281,25 @@ async fn response_context_holds_references(harness: TestHarness) {
     } = harness;
     let serializer = BincodeSerializer;
     let mut pipeline: FramePipeline<TestFrame> = FramePipeline::new(None);
+    let (queues, handle) = PushQueues::<Envelope>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .expect("actor queues");
+    let mut actor = ConnectionActor::new_untracked(
+        ConnectionChannels::new(queues, handle),
+        None,
+        CancellationToken::new(),
+        ProtocolHooks::default(),
+    );
 
     let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
         serializer: &serializer,
-        framed: &mut framed,
+        sink: &mut framed,
         pipeline: &mut pipeline,
         codec: &codec,
+        actor: &mut actor,
+        protocol: None,
     };
 
     // Verify fields are accessible (compile-time check)
@@ -308,7 +326,7 @@ async fn send_envelope_returns_error_on_failure(small_harness: TestHarness) {
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,
-        framed: &mut framed,
+        sink: &mut framed,
     };
     let result = send_envelope(&mut transport, &envelope, &mut pipeline).await;
 
