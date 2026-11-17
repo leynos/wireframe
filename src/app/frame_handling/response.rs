@@ -150,8 +150,8 @@ where
 ///
 /// A streaming handler receives [`RequestParts`](crate::request::RequestParts)
 /// rather than an [`Envelope`], so the reply is rebuilt from the original route
-/// identifier and correlation identifier. An absent `payload` means the handler
-/// chose not to reply and nothing is written.
+/// identifier and correlation identifier. An absent reply means the handler
+/// chose not to answer and nothing is written.
 ///
 /// The reply is installed on the connection actor as one [`Response::Single`],
 /// so it passes through the same pipeline, fragmentation, and outbound hooks as
@@ -160,7 +160,7 @@ where
 pub(crate) async fn forward_service_response<S, K, F>(
     route_id: u32,
     correlation_id: Option<u64>,
-    payload: Option<Bytes>,
+    reply: Option<Bytes>,
     mut ctx: super::ResponseContext<'_, S, K, F>,
 ) -> io::Result<Dispatch>
 where
@@ -169,7 +169,7 @@ where
     F: FrameCodec,
     Envelope: EncodeWith<S>,
 {
-    let Some(payload) = payload else {
+    let Some(payload) = reply else {
         return Ok(Dispatch::Continue);
     };
     // The envelope reply path still carries `Vec<u8>` pending the ADR 009

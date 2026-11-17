@@ -15,6 +15,10 @@
 //! action rebuilds its [`DispatchHandles`] bundle from disjoint borrows, so the
 //! reader is never held while a reply is written, and the bundle is never held
 //! while the next frame is awaited.
+//!
+//! This module owns the state machine — which event arrived, what it means, and
+//! what to do next. The maintenance actions it schedules live in
+//! [`super::stream_actions`].
 
 use std::{collections::HashMap, io, sync::Arc, time::Duration};
 
@@ -26,17 +30,24 @@ use super::{
     super::{
         StreamingHandler,
         envelope::{Envelope, Packet},
-        frame_handling::{self, Dispatch, MemoryPressureAction},
+        frame_handling::Dispatch,
         memory_budgets::MemoryBudgets,
     },
     actor::observe_peer,
     frames::{InboundFrames, NextFrame},
     peer_watch::{PeerObservation, handle_watching_peer},
+    stream_actions::{
+        apply_memory_pressure,
+        close_after_eof,
+        drain_parked,
+        drive_pending_admission,
+        expire_finished_assemblies,
+        fail_after_decode_error,
+        finish_step,
+    },
     stream_diagnostics,
     stream_frame::dispatch_frame,
     stream_handles::{DispatchHandles, LoopState},
-    stream_parked::{dispatch_parked, parked_bytes},
-    stream_slot::PendingEvent,
 };
 use crate::{
     codec::FrameCodec,
@@ -77,7 +88,9 @@ where
 }
 
 /// What the loop should do after one step.
-enum Step {
+///
+/// Shared with [`super::stream_actions`], whose actions can end the loop.
+pub(super) enum Step {
     /// Keep reading frames.
     Continue,
     /// Stop dispatching: the peer closed, or a reply left its stream open.
@@ -87,7 +100,7 @@ enum Step {
 }
 
 /// One connected transport and the immutable inputs that drive it.
-struct Connection<'a, S, E, R, K, F>
+pub(super) struct Connection<'a, S, E, R, K, F>
 where
     S: Serializer + Send + Sync,
     E: Packet,
@@ -96,33 +109,31 @@ where
     F: FrameCodec,
 {
     /// Read half of the framed transport.
-    reader: &'a mut R,
+    pub(super) reader: &'a mut R,
     /// Write half of the framed transport.
-    sink: &'a mut K,
+    pub(super) sink: &'a mut K,
     /// Inbound framing state, including the frame buffered while the previous
     /// one was handled.
-    inbound: &'a mut InboundFrames<F::Frame>,
+    pub(super) inbound: &'a mut InboundFrames<F::Frame>,
     /// Actor that schedules and delivers every reply.
-    actor: &'a mut ConnectionActor<Envelope, ()>,
+    pub(super) actor: &'a mut ConnectionActor<Envelope, ()>,
     /// Immutable connection inputs.
-    ctx: &'a DispatchContext<'a, S, E, F>,
+    pub(super) ctx: &'a DispatchContext<'a, S, E, F>,
     /// Server shutdown signal; cancelling it stops this connection.
-    shutdown: &'a CancellationToken,
+    pub(super) shutdown: &'a CancellationToken,
     /// Connection-wide token cancelled only by a clean peer EOF.
-    peer_eof: &'a CancellationToken,
+    pub(super) peer_eof: &'a CancellationToken,
     /// Maximum wait for a handler or a body send while teardown runs.
-    wait: Duration,
+    pub(super) wait: Duration,
 }
 
 /// Read and process frames until the stream closes or an I/O error occurs.
+///
+/// The connection is taken by value: the loop owns the transport, the framing
+/// state and the actor for the whole exchange, so there is nothing left for the
+/// caller to use once it returns.
 pub(super) async fn run<S, E, F, R, K>(
-    reader: &mut R,
-    sink: &mut K,
-    inbound: &mut InboundFrames<F::Frame>,
-    actor: &mut ConnectionActor<Envelope, ()>,
-    ctx: &DispatchContext<'_, S, E, F>,
-    shutdown: &CancellationToken,
-    peer_eof: &CancellationToken,
+    mut connection: Connection<'_, S, E, R, K, F>,
 ) -> io::Result<()>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
@@ -132,19 +143,7 @@ where
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    let wait = Duration::from_millis(ctx.read_timeout_ms);
-    let queued = QueuedBytes::new();
-    let mut state = LoopState::new(queued);
-    let mut connection = Connection {
-        reader,
-        sink,
-        inbound,
-        actor,
-        ctx,
-        shutdown,
-        peer_eof,
-        wait,
-    };
+    let mut state = LoopState::new(QueuedBytes::new());
     loop {
         match connection.step(&mut state).await? {
             Step::Continue => {}
@@ -190,7 +189,7 @@ where
     /// The bundle borrows the two mutable pieces of inbound framing rather
     /// than the whole value, so the reader and its buffered frame stay
     /// reachable for the duration of the action.
-    fn handles<'h>(&'h mut self, queued: QueuedBytes) -> DispatchHandles<'h, S, E, K, F> {
+    const fn handles(&mut self, queued: QueuedBytes) -> DispatchHandles<'_, S, E, K, F> {
         DispatchHandles {
             assembly: &mut self.inbound.message_assembly,
             pipeline: &mut self.inbound.pipeline,
@@ -295,181 +294,6 @@ where
         .await?;
         Ok(finish_step(dispatch))
     }
-}
-
-/// Translate a response outcome into the loop's next decision.
-const fn finish_step(dispatch: Dispatch) -> Step {
-    match dispatch {
-        Dispatch::Continue => Step::Continue,
-        Dispatch::Stop => Step::Closed,
-    }
-}
-
-/// Advance the in-flight chunk admission, or the handler if it resolves first.
-async fn drive_pending_admission<S, E, K, F>(
-    state: &mut LoopState,
-    handles: &mut DispatchHandles<'_, S, E, K, F>,
-) -> io::Result<Step>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    Envelope: EncodeWith<S>,
-{
-    match state.streams.drive_pending(handles.wait).await {
-        PendingEvent::Send(result) => state.streams.complete_send(result),
-        PendingEvent::Handler(outcome) => {
-            let dispatch = state
-                .streams
-                .finish_active(outcome, handles.reborrow())
-                .await?;
-            return Ok(finish_step(dispatch));
-        }
-        // The admission stays queued; the next step re-checks expiry and the
-        // memory budget before resuming it.
-        PendingEvent::Idle => {}
-    }
-    Ok(Step::Continue)
-}
-
-/// Fail bodies whose assemblies expired, then release the expired entries.
-async fn expire_finished_assemblies<S, E, K, F>(
-    state: &mut LoopState,
-    handles: &mut DispatchHandles<'_, S, E, K, F>,
-) -> io::Result<Dispatch>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    Envelope: EncodeWith<S>,
-{
-    let purged = frame_handling::purge_expired_assemblies(handles.assembly);
-    handles.pipeline.purge_expired();
-    if purged.streaming().is_empty() {
-        return Ok(Dispatch::Continue);
-    }
-    state
-        .streams
-        .expire(purged.streaming(), handles.reborrow())
-        .await
-}
-
-/// Abort the connection when retained bytes exceed the hard cap.
-async fn apply_memory_pressure<S, E, K, F>(
-    state: &mut LoopState,
-    handles: &mut DispatchHandles<'_, S, E, K, F>,
-) -> io::Result<()>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-{
-    let pressure = frame_handling::evaluate_memory_pressure_with_retained(
-        handles.assembly.as_ref(),
-        Some(handles.ctx.effective_budgets),
-        handles.pipeline.fragmentation_buffered_bytes(),
-        state
-            .streams
-            .retained_bytes()
-            .saturating_add(parked_bytes(&state.parked)),
-    );
-    if matches!(pressure, MemoryPressureAction::Abort) {
-        state.streams.abort();
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "per-connection memory budget hard cap exceeded",
-        ));
-    }
-    frame_handling::apply_memory_pressure(pressure, || {}).await
-}
-
-/// Dispatch every parked message while the slot is free.
-async fn drain_parked<S, E, K, F>(
-    state: &mut LoopState,
-    handles: &mut DispatchHandles<'_, S, E, K, F>,
-) -> io::Result<Dispatch>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    Envelope: EncodeWith<S>,
-{
-    let mut dispatch = Dispatch::Continue;
-    while let Some(message) = state.parked.pop_front() {
-        // The messages still queued behind this one keep their bytes
-        // reserved while it is answered.
-        dispatch = dispatch_parked(message, &state.parked, handles.reborrow()).await?;
-        if dispatch == Dispatch::Stop {
-            break;
-        }
-    }
-    Ok(dispatch)
-}
-
-/// Fail the live body, then end the loop with `step`.
-async fn fail_body_ending_with<S, E, K, F>(
-    state: &mut LoopState,
-    handles: &mut DispatchHandles<'_, S, E, K, F>,
-    reason: io::Error,
-    step: Step,
-) -> io::Result<Step>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    Envelope: EncodeWith<S>,
-{
-    state
-        .streams
-        .close_active(Some(reason), handles.reborrow())
-        .await?;
-    Ok(step)
-}
-
-/// Fail the live body, then end the connection with the decoder error.
-async fn fail_after_decode_error<S, E, K, F>(
-    state: &mut LoopState,
-    handles: &mut DispatchHandles<'_, S, E, K, F>,
-    error: io::Error,
-) -> io::Result<Step>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    Envelope: EncodeWith<S>,
-{
-    let reason = io::Error::new(
-        error.kind(),
-        "inbound frame decoding failed while a request body was open",
-    );
-    fail_body_ending_with(state, handles, reason, Step::Failed(error)).await
-}
-
-/// Fail the live body, answer parked messages, and end the connection cleanly.
-async fn close_after_eof<S, E, K, F>(
-    state: &mut LoopState,
-    handles: &mut DispatchHandles<'_, S, E, K, F>,
-) -> io::Result<Step>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    Envelope: EncodeWith<S>,
-{
-    let reason = io::Error::new(
-        io::ErrorKind::UnexpectedEof,
-        "connection closed before the request body completed",
-    );
-    fail_body_ending_with(state, handles, reason, Step::Closed).await?;
-    drain_parked(state, handles).await?;
-    Ok(Step::Closed)
 }
 
 /// One step of the connection loop.

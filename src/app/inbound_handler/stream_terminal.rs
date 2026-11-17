@@ -31,10 +31,9 @@ pub(super) enum HandlerWait {
 
 /// Await the handler under the connection's teardown bound.
 pub(super) async fn await_handler(wait: Duration, handler: &mut HandlerFuture) -> HandlerWait {
-    match timeout(wait, handler.as_mut()).await {
-        Ok(outcome) => HandlerWait::Replied(outcome),
-        Err(_) => HandlerWait::Deadline,
-    }
+    timeout(wait, handler.as_mut())
+        .await
+        .map_or_else(|_elapsed| HandlerWait::Deadline, HandlerWait::Replied)
 }
 
 /// Deliver a terminal body error while the handler drains, then await it.

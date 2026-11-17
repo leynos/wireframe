@@ -195,7 +195,7 @@ pub(super) struct LoopState {
 
 impl LoopState {
     /// Create loop state for a fresh connection.
-    pub(super) fn new(queued: QueuedBytes) -> Self {
+    pub(super) const fn new(queued: QueuedBytes) -> Self {
         Self {
             streams: ConnectionStreams::new(queued),
             parked: VecDeque::new(),

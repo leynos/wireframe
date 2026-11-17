@@ -10,6 +10,8 @@ mod framing;
 
 mod peer_watch;
 
+mod stream_actions;
+
 mod stream_diagnostics;
 
 mod stream_dispatch;
@@ -26,6 +28,7 @@ mod stream_terminal;
 
 use std::{collections::HashMap, sync::Arc};
 
+use futures::future::BoxFuture;
 use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
@@ -94,7 +97,31 @@ where
 /// completed cleanly or returned an error such as a malformed frame or a
 /// failed send. Panic and cancellation finalization are outside this ordering
 /// and remain tracked by ADR-012 and issue #643.
-pub(crate) async fn process_connection<S, C, E, F, W>(
+///
+/// The future is boxed because the connection nests one `async` layer per
+/// stage — decoding, assembly, dispatch, the response actor, and the reply
+/// pipeline — so rustc's layout query overflows its recursion limit (128) in
+/// the `async` blocks of crates that merely await a connection. Erasing the
+/// concrete type here bounds the depth every caller sees, for both the
+/// prepared and compatibility entry points, at the cost of one allocation per
+/// connection.
+pub(crate) fn process_connection<S, C, E, F, W>(
+    stream: W,
+    context: ConnectionProcessingContext<'_, S, C, E, F>,
+) -> BoxFuture<'_, io::Result<()>>
+where
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+    C: Send + 'static,
+    E: Packet,
+    F: FrameCodec,
+    W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
+    Envelope: DecodeWith<S> + EncodeWith<S>,
+{
+    Box::pin(process_connection_inner(stream, context))
+}
+
+/// The un-erased body of [`process_connection`].
+async fn process_connection_inner<S, C, E, F, W>(
     stream: W,
     context: ConnectionProcessingContext<'_, S, C, E, F>,
 ) -> io::Result<()>

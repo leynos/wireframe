@@ -1,6 +1,6 @@
 //! Shared frame and stream processing for prepared application routes.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
@@ -110,15 +110,16 @@ where
         effective_budgets,
         read_timeout_ms: context.read_timeout_ms,
     };
-    stream_dispatch::run(
-        &mut reader,
-        &mut sink,
-        &mut inbound,
-        &mut response_actor.actor,
-        &dispatch,
-        context.shutdown,
-        &peer_eof,
-    )
+    stream_dispatch::run(stream_dispatch::Connection {
+        reader: &mut reader,
+        sink: &mut sink,
+        inbound: &mut inbound,
+        actor: &mut response_actor.actor,
+        ctx: &dispatch,
+        shutdown: context.shutdown,
+        peer_eof: &peer_eof,
+        wait: Duration::from_millis(dispatch.read_timeout_ms),
+    })
     .await
 }
 

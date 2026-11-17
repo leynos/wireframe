@@ -125,7 +125,7 @@ pub(super) struct ConnectionStreams {
 
 impl ConnectionStreams {
     /// Create an empty slot sharing the connection's byte account.
-    pub(super) fn new(queued: QueuedBytes) -> Self {
+    pub(super) const fn new(queued: QueuedBytes) -> Self {
         Self {
             queued,
             active: None,
