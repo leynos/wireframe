@@ -119,9 +119,10 @@ impl<T> InboundFrames<T> {
     /// wait behind a push stream.
     ///
     /// The probe also runs the expiry purge once the shared read deadline has
-    /// passed. It does not arm a timer, so a loop that only ever takes the push
-    /// branch would otherwise keep expired state buffered forever: the purge
-    /// would be waiting for a timeout that a push batch always cancels.
+    /// passed. It arms that deadline rather than a timer, because a loop whose
+    /// push lane is ready on every pass never polls the read wait below;
+    /// arming the deadline only there would leave buffered state without one,
+    /// so the purge would wait for a timeout that never starts.
     pub(super) async fn try_next<R>(
         &mut self,
         reader: &mut R,
@@ -130,10 +131,7 @@ impl<T> InboundFrames<T> {
     where
         R: Stream<Item = io::Result<T>> + Unpin,
     {
-        if self
-            .read_deadline
-            .is_some_and(|deadline| deadline <= Instant::now())
-        {
+        if self.arm_deadline(read_timeout_ms) <= Instant::now() {
             self.purge_after_timeout(read_timeout_ms);
         }
         let next = poll_frame(&mut self.pending, reader, Duration::ZERO).await?;
@@ -224,7 +222,7 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use futures::stream;
-    use tokio::time::{Duration, Instant};
+    use tokio::time::{Duration, Instant, advance};
 
     use super::*;
     use crate::message_assembler::{
@@ -291,20 +289,13 @@ mod tests {
         assert!(attempt.is_err(), "the reader stays silent throughout");
     }
 
-    /// A client that only receives pushes must still expire its buffered state.
+    /// Reader state holding one incomplete assembly that any purge evicts.
     ///
-    /// Each push batch cancels the pending read before its timeout fires. A
-    /// deadline re-armed inside every wait would therefore restart with each
-    /// batch, so the expiry purge would never run on a connection that only
-    /// receives pushes. The deadline belongs to the reader, so it is measured
-    /// across the cancelled waits: nothing is purged before it passes, and the
-    /// purge runs once it does.
-    ///
-    /// The assembly timeout is zero so that any purge evicts it; the assertions
-    /// then measure *when* the purge runs rather than the assembly clock, which
-    /// is a `std::time::Instant` that a paused runtime does not advance.
-    #[tokio::test(start_paused = true)]
-    async fn pushes_do_not_postpone_the_inbound_expiry() {
+    /// The assembly timeout is zero so that a purge always drops it; the
+    /// assertions then measure *when* the purge runs rather than the assembly
+    /// clock, which is a `std::time::Instant` that a paused runtime does not
+    /// advance.
+    fn inbound_with_incomplete_assembly() -> InboundFrames<u8> {
         let mut assembly = MessageAssemblyState::new(
             NonZeroUsize::new(1024).unwrap_or(NonZeroUsize::MIN),
             Duration::ZERO,
@@ -321,12 +312,33 @@ mod tests {
         assembly
             .accept_first_frame(input)
             .expect("the first frame is buffered");
-        let mut inbound = InboundFrames {
+        InboundFrames {
             pending: None,
             pipeline: FramePipeline::new(None),
             message_assembly: Some(assembly),
             read_deadline: None,
-        };
+        }
+    }
+
+    /// Number of incomplete assemblies still buffered.
+    fn buffered(inbound: &InboundFrames<u8>) -> Option<usize> {
+        inbound
+            .message_assembly
+            .as_ref()
+            .map(MessageAssemblyState::buffered_count)
+    }
+
+    /// A client that only receives pushes must still expire its buffered state.
+    ///
+    /// Each push batch cancels the pending read before its timeout fires. A
+    /// deadline re-armed inside every wait would therefore restart with each
+    /// batch, so the expiry purge would never run on a connection that only
+    /// receives pushes. The deadline belongs to the reader, so it is measured
+    /// across the cancelled waits: nothing is purged before it passes, and the
+    /// purge runs once it does.
+    #[tokio::test(start_paused = true)]
+    async fn pushes_do_not_postpone_the_inbound_expiry() {
+        let mut inbound = inbound_with_incomplete_assembly();
         let mut reader = stream::pending::<io::Result<u8>>();
 
         // Three cancelled waits keep the 400 ms read deadline in the future.
@@ -334,10 +346,7 @@ mod tests {
             wait_cancelled_by_a_push(&mut inbound, &mut reader).await;
         }
         assert_eq!(
-            inbound
-                .message_assembly
-                .as_ref()
-                .map(MessageAssemblyState::buffered_count),
+            buffered(&inbound),
             Some(1),
             "no purge may run before the read deadline passes"
         );
@@ -348,12 +357,50 @@ mod tests {
             wait_cancelled_by_a_push(&mut inbound, &mut reader).await;
         }
         assert_eq!(
-            inbound
-                .message_assembly
-                .as_ref()
-                .map(MessageAssemblyState::buffered_count),
+            buffered(&inbound),
             Some(0),
             "the incomplete assembly must expire despite the pushes"
+        );
+    }
+
+    /// A push lane that is always ready must not defer the expiry either.
+    ///
+    /// When a batch is ready on every pass the biased select serves pushes, so
+    /// the read wait is never polled and only the probe runs. A deadline armed
+    /// solely by the wait would therefore never start, and the buffered
+    /// assembly would outlive the timeout it was given. The probe arms the
+    /// deadline, so the purge runs from it without the read ever being driven.
+    #[tokio::test(start_paused = true)]
+    async fn a_ready_push_lane_does_not_postpone_the_inbound_expiry() {
+        let mut inbound = inbound_with_incomplete_assembly();
+        let mut reader = stream::pending::<io::Result<u8>>();
+
+        // Arming the deadline is not yet expiry: the assembly survives the
+        // first probe and the rest of the interval.
+        assert!(matches!(
+            inbound.try_next(&mut reader, 400).await,
+            Ok(NextFrame::TimedOut)
+        ));
+        advance(Duration::from_millis(399)).await;
+        assert!(matches!(
+            inbound.try_next(&mut reader, 400).await,
+            Ok(NextFrame::TimedOut)
+        ));
+        assert_eq!(
+            buffered(&inbound),
+            Some(1),
+            "no purge may run before the armed deadline passes"
+        );
+
+        advance(Duration::from_millis(2)).await;
+        assert!(matches!(
+            inbound.try_next(&mut reader, 400).await,
+            Ok(NextFrame::TimedOut)
+        ));
+        assert_eq!(
+            buffered(&inbound),
+            Some(0),
+            "the probe must purge once the armed deadline has passed"
         );
     }
 }
