@@ -38,11 +38,11 @@ use super::{
     peer_watch::{PeerObservation, handle_watching_peer},
     stream_actions::{
         apply_memory_pressure,
-        close_body_after_eof,
         drain_parked,
         drive_pending_admission,
         expire_finished_assemblies,
         fail_after_decode_error,
+        fail_body_ending_with,
         finish_step,
     },
     stream_diagnostics,
@@ -191,7 +191,10 @@ where
             }
         }
         if !state.streams.is_live()
-            && self.drain_parked_observed(state, queued.clone()).await? == Dispatch::Stop
+            && self
+                .dispatch_observed(state, queued.clone(), ObservedAction::Drain)
+                .await?
+                == Dispatch::Stop
         {
             return Ok(Step::Closed);
         }
@@ -199,19 +202,21 @@ where
         self.handle_event(state, event, queued).await
     }
 
-    /// Dispatch parked messages while watching the peer's read half.
+    /// Run one reply-producing action while watching the peer's read half.
     ///
-    /// A parked reply travels the ordinary response path, so it may stream for
-    /// an unbounded time. Draining without observing the reader would hide a
-    /// peer that half-closed meanwhile, leaving the actor's bounded peer-close
-    /// drain unarmed and the connection alive with nobody to answer.
-    async fn drain_parked_observed(
+    /// Both actions here write a reply that may stream for an unbounded time,
+    /// so both poll the reader alongside themselves. Without that, a peer that
+    /// half-closed is never observed, the actor's bounded peer-close drain is
+    /// never armed, and a producer that stops yielding keeps the connection
+    /// alive with nobody left to answer.
+    async fn dispatch_observed(
         &mut self,
         state: &mut LoopState,
         queued: QueuedBytes,
+        action: ObservedAction<'_, F::Frame>,
     ) -> io::Result<Dispatch> {
         // Built from field borrows rather than through `handles`, because the
-        // reader and its buffered frame must stay reachable for the drain.
+        // reader and its buffered frame must stay reachable for the action.
         let mut handles = DispatchHandles {
             assembly: &mut self.inbound.message_assembly,
             pipeline: &mut self.inbound.pipeline,
@@ -222,13 +227,28 @@ where
             wait: self.wait,
         };
         let (unobserved, cause) = observe_peer(handles.actor, self.peer_eof);
-        handle_watching_peer(
-            drain_parked(state, &mut handles),
-            self.reader,
-            PeerObservation::new(self.peer_eof, &unobserved, &cause),
-            &mut self.inbound.pending,
-        )
-        .await
+        let observation = PeerObservation::new(self.peer_eof, &unobserved, &cause);
+        let pending = &mut self.inbound.pending;
+        match action {
+            ObservedAction::Frame(frame) => {
+                handle_watching_peer(
+                    dispatch_frame(frame, state, handles),
+                    self.reader,
+                    observation,
+                    pending,
+                )
+                .await
+            }
+            ObservedAction::Drain => {
+                handle_watching_peer(
+                    drain_parked(state, &mut handles),
+                    self.reader,
+                    observation,
+                    pending,
+                )
+                .await
+            }
+        }
     }
 
     /// Build the action-scoped handle bundle from disjoint connection borrows.
@@ -301,7 +321,12 @@ where
                     .await?;
                 Ok(finish_step(dispatch))
             }
-            Event::Frame(Ok(Some(frame))) => self.dispatch_frame(frame, state, queued).await,
+            Event::Frame(Ok(Some(frame))) => {
+                let dispatch = self
+                    .dispatch_observed(state, queued, ObservedAction::Frame(&frame))
+                    .await?;
+                Ok(finish_step(dispatch))
+            }
             Event::Frame(Ok(None)) => {
                 // The read half ended, which is permanent for the connection.
                 // Record it before the parked messages drain, so each of their
@@ -310,9 +335,16 @@ where
                 self.peer_eof.cancel();
                 {
                     let mut handles = self.handles(queued.clone());
-                    close_body_after_eof(state, &mut handles).await?;
+                    // A body cut short by the peer's EOF cannot complete, so it
+                    // fails with the same reason a truncated upload reports.
+                    let reason = io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "connection closed before the request body completed",
+                    );
+                    fail_body_ending_with(state, &mut handles, reason, Step::Closed).await?;
                 }
-                self.drain_parked_observed(state, queued).await?;
+                self.dispatch_observed(state, queued, ObservedAction::Drain)
+                    .await?;
                 Ok(Step::Closed)
             }
             Event::Frame(Err(error)) => {
@@ -321,35 +353,14 @@ where
             }
         }
     }
+}
 
-    /// Decode one frame and route it through the dispatch slot.
-    async fn dispatch_frame(
-        &mut self,
-        frame: F::Frame,
-        state: &mut LoopState,
-        queued: QueuedBytes,
-    ) -> io::Result<Step> {
-        // Built from field borrows rather than through `handles`, because the
-        // reader and the buffered frame must stay reachable for the dispatch.
-        let mut handles = DispatchHandles {
-            assembly: &mut self.inbound.message_assembly,
-            pipeline: &mut self.inbound.pipeline,
-            sink: &mut *self.sink,
-            actor: &mut *self.actor,
-            queued,
-            ctx: self.ctx,
-            wait: self.wait,
-        };
-        let (unobserved, cause) = observe_peer(handles.actor, self.peer_eof);
-        let dispatch = handle_watching_peer(
-            dispatch_frame(&frame, state, handles.reborrow()),
-            self.reader,
-            PeerObservation::new(self.peer_eof, &unobserved, &cause),
-            &mut self.inbound.pending,
-        )
-        .await?;
-        Ok(finish_step(dispatch))
-    }
+/// One reply-producing action that must not hide a peer that went away.
+enum ObservedAction<'a, T> {
+    /// Dispatch one inbound frame.
+    Frame(&'a T),
+    /// Answer the messages parked behind a live request body.
+    Drain,
 }
 
 /// One step of the connection loop.

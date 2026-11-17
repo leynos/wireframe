@@ -140,7 +140,7 @@ where
 }
 
 /// Fail the live body, then end the loop with `step`.
-async fn fail_body_ending_with<S, E, K, F>(
+pub(super) async fn fail_body_ending_with<S, E, K, F>(
     state: &mut LoopState,
     handles: &mut DispatchHandles<'_, S, E, K, F>,
     reason: io::Error,
@@ -178,29 +178,4 @@ where
         "inbound frame decoding failed while a request body was open",
     );
     fail_body_ending_with(state, handles, reason, Step::Failed(error)).await
-}
-
-/// Fail the live body when the peer's read half ended.
-///
-/// Answering parked messages is left to the caller, which holds the connection
-/// and can therefore signal the unobservable peer first. Draining here would
-/// wait on a parked reply with no bound, because this action sees neither the
-/// peer tokens nor the reader.
-pub(super) async fn close_body_after_eof<S, E, K, F>(
-    state: &mut LoopState,
-    handles: &mut DispatchHandles<'_, S, E, K, F>,
-) -> io::Result<()>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    Envelope: EncodeWith<S>,
-{
-    let reason = io::Error::new(
-        io::ErrorKind::UnexpectedEof,
-        "connection closed before the request body completed",
-    );
-    fail_body_ending_with(state, handles, reason, Step::Closed).await?;
-    Ok(())
 }
