@@ -80,6 +80,9 @@ where
         memory_budgets: prepared.memory_budgets,
         read_timeout_ms: prepared.read_timeout_ms,
         shutdown,
+        recovery_hook: prepared.recovery_hook.as_ref(),
+        recovery_config: prepared.recovery_config.clone(),
+        peer_address: None,
     }
 }
 
