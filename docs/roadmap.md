@@ -682,11 +682,10 @@ cited section names the specific question it answers.
   the decision in an ADR and add tests for both conforming and violating
   inputs. Requires 15.1.1. See §"Is `total_body_len` authoritative or
   advisory?". Success criteria: an ADR records the decision, runtime code
-  enforces the contract, and tests verify both conforming and violating
-  inputs. See
-  [ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md); issue
-  [#544](https://github.com/leynos/wireframe/issues/544) added conformance and
-  violation coverage.
+  enforces the contract, and tests verify both conforming and violating inputs.
+  See [ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md);
+  issue [#544](https://github.com/leynos/wireframe/issues/544) added
+  conformance and violation coverage.
 - [ ] 15.2.3. Publish named fairness and priority guarantees for
   `ConnectionActor` and encode them as model properties for Stateright checks.
   Requires 15.1.1. See §"What fairness guarantee does `ConnectionActor`
@@ -970,16 +969,16 @@ Wireframe has a useful native-protocol framework without making Hotline its
 sole purpose. Magitek adds a standalone bounded Agent Client Protocol (ACP)
 consumer that tests JSONL framing, retained ownership, and bilateral progress.
 Each slice delivers a named toy with independent wire fixtures. Existing
-protocol libraries may be test-only oracles when licensed;
-production code uses Wireframe primitives. Pre-1.0 APIs may be replaced. See the
+protocol libraries may be test-only oracles when licensed; production code uses
+Wireframe primitives. Pre-1.0 APIs may be replaced. See the
 [gap survey](wire-protocol-gap-analysis-survey.md) and
 [RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md)–[RFC 0009](rfcs/rfc-0009-datagram-session-transport.md).
 
 These RFCs and unchecked tasks specify proposed work, not shipped guarantees.
 Task IDs organize scope rather than execution order: explicit prerequisites
 allow the ACP slice in 21.8 to run without database, datagram, or WebSocket
-completion. It strengthens the shared 20.1.3/21.2 runtime, not a parallel actor.
-Magitek's
+completion. It strengthens the shared 20.1.3/21.2 runtime, not a parallel
+actor. Magitek's
 [pinned design](https://github.com/leynos/magitek/blob/bfef49cbf10912ccf8ed246d4760bbb21f96c01b/docs/magitek-design.md)
 provides consumer requirements, not an external release prerequisite. Preserve
 completed historical records while replacing their envelope/codec assumptions
@@ -1289,7 +1288,8 @@ for acceptance; the broader protocol matrix does not gate this slice.
     router nor a second JSON-RPC correlation engine.
 - [ ] 21.8.9. Verify combined overload, ownership, and full-duplex invariants.
   - Requires 21.8.7 and 21.8.8.
-  - See [RFC 0002](rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md),
+  - See
+    [RFC 0002](rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md),
     [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md), and
     [RFC 0008](rfcs/rfc-0008-external-adapter-conformance-harness.md).
   - Success: generated traces and a bounded model exercise actual scheduling,

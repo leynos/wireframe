@@ -28,10 +28,10 @@ bounded writer and terminal lifecycle; push facilities already exist.
 
 Expose one host-driven connection future and bounded submission handles for
 both initiating and accepting peers. Accept supplied read/write halves without
-requiring a TCP listener, a server application, a private runtime, or one thread
-per connection. RFC 0005 specifies transport setup; an already-established
-stream needs no negotiation. There must be one writer and one semantic
-correlation owner, not competing SDK and Wireframe dispatch loops.
+requiring a TCP listener, a server application, a private runtime, or one
+thread per connection. RFC 0005 specifies transport setup; an
+already-established stream needs no negotiation. There must be one writer and
+one semantic correlation owner, not competing SDK and Wireframe dispatch loops.
 
 Output reports accepted, encoded, publication-attempted, flushed, failed,
 cancelled, or superseded. These describe local evidence, not peer receipt,
@@ -41,25 +41,25 @@ terminates the stream and never silently replays. Graceful close stops new
 admission and drains only a bounded accepted set before its deadline. Immediate
 close cancels work and abandons unsafe writes. Both settle each operation once;
 actual resource release follows ownership under RFC 0007. Errors distinguish
-transport, peer-decode, adapter-contract, application, resource-exhaustion,
-and shutdown failures. Distinct recovery paths must not be collapsed.
+transport, peer-decode, adapter-contract, application, resource-exhaustion, and
+shutdown failures. Distinct recovery paths must not be collapsed.
 
 ## Independent progress and work placement
 
 A pending write, handler, response stream, decoder job, or human decision must
 not monopolize the session loop. Poll the reader, bounded completions,
-deadlines, and cancellation while output is pending, subject to available
-input capacity. Keep partial-write state with the sole writer; never cancel a
-write future and restart its frame from byte zero. A small supervised task set
-or an explicitly polled state machine may implement this contract. Admission
-bounds every queued and running job; spawning one task per frame is not a bound.
+deadlines, and cancellation while output is pending, subject to available input
+capacity. Keep partial-write state with the sole writer; never cancel a write
+future and restart its frame from byte zero. A small supervised task set or an
+explicitly polled state machine may implement this contract. Admission bounds
+every queued and running job; spawning one task per frame is not a bound.
 
-The adapter's serial dispatch choice serializes dependent application work,
-not all transport progress. Protocol-declared reply routing and independent
-control work must still advance without waiting on that work. Ordered handlers
-perform bounded capture only and must not await later input from the same
-connection. Parsing and callbacks that exceed the synchronous work envelope
-use host-supplied admitted worker capacity. Timeouts cannot pre-empt arbitrary
+The adapter's serial dispatch choice serializes dependent application work, not
+all transport progress. Protocol-declared reply routing and independent control
+work must still advance without waiting on that work. Ordered handlers perform
+bounded capture only and must not await later input from the same connection.
+Parsing and callbacks that exceed the synchronous work envelope use
+host-supplied admitted worker capacity. Timeouts cannot pre-empt arbitrary
 blocking code; still-running work keeps its charges and cleanup status.
 
 Assign ingress ordinals before concurrent decode and bound reorder storage.
@@ -81,21 +81,21 @@ reordering. Adapters select execution semantics while core enforces bounds.
 
 A stalled request does not block reachable ping, close, or an independent
 channel while capacity and executor service permit progress. Kafka-like replies
-preserve order under concurrent completion. A PostgreSQL COPY-like stream
-stays bounded while cancellation is observed. OpenRA-style fan-out to a slow
-peer does not stall unrelated peers. The mandatory RFC 0008 ACP toy combines a
+preserve order under concurrent completion. A PostgreSQL COPY-like stream stays
+bounded while cancellation is observed. OpenRA-style fan-out to a slow peer
+does not stall unrelated peers. The mandatory RFC 0008 ACP toy combines a
 pending prompt, reverse permission request, notification flood, held consumer
 leases, partial writes, and cancellation. Each scenario progresses under its
-stated assumptions or produces an explicit bounded failure. Exercise EOF,
-close races, retained work, and exactly-once terminal settlement.
+stated assumptions or produces an explicit bounded failure. Exercise EOF, close
+races, retained work, and exactly-once terminal settlement.
 
 ## Event ordering and invalid actions
 
-The session is the sole owner of transport writes and adapter state. Events
-are observed in a total order by that owner, even when work is concurrent.
-Each RFC 0003 `Dispatch` operation receives its own monotonically increasing
-local ticket; a control action receives no dispatch ticket. Several dispatches
-from one frame therefore have distinct tickets. End a generation before ticket
+The session is the sole owner of transport writes and adapter state. Events are
+observed in a total order by that owner, even when work is concurrent. Each RFC
+0003 `Dispatch` operation receives its own monotonically increasing local
+ticket; a control action receives no dispatch ticket. Several dispatches from
+one frame therefore have distinct tickets. End a generation before ticket
 exhaustion. The adapter selects serial handling or a bounded in-flight window.
 In ordered mode, reply emission waits behind earlier tickets in its declared
 lane; unordered mode requires explicit permission. Do not impose a global
@@ -106,8 +106,8 @@ boundary. It must not overtake a causal prerequisite, such as cancellation
 passing the request it cancels. A completion for an unknown ticket, second
 completion, send after terminal close, or queue item exceeding its reservation
 is an internal contract error. Reject it, emit diagnostics, and close or fail
-the session according to the error class; never treat it as malformed input.
-A recoverable framing error follows RFC 0006 and reaches the adapter's explicit
+the session according to the error class; never treat it as malformed input. A
+recoverable framing error follows RFC 0006 and reaches the adapter's explicit
 policy. Fatal errors close. Recovery never replays dispatched work. EOF arrives
 once after buffered complete frames; a truncated tail is a decode termination,
 not clean EOF. Read-half closure does not itself establish external process
@@ -125,9 +125,9 @@ available through the handle or connection status.
 
 Reserve a terminal-status cell and its capped diagnostic storage at connection
 admission. A saturated event consumer must still observe the first failure,
-closure, and outstanding cleanup without needing ordinary event capacity.
-Do not synthesize successful protocol completion when a stream truncates.
-Report transport progress, consumer pressure, and cleanup separately. ACP
+closure, and outstanding cleanup without needing ordinary event capacity. Do
+not synthesize successful protocol completion when a stream truncates. Report
+transport progress, consumer pressure, and cleanup separately. ACP
 session-event delivery watermarks and host durability remain Magitek policy;
 generic ingress order or a flushed frame cannot stand in for either.
 
@@ -153,11 +153,11 @@ moving that registry into Wireframe or keeping dead generations unaccounted.
 ## Staging, risks and open decisions
 
 Prove event order and shutdown races with a deterministic fake transport, then
-integrate one prepared TCP connection and the same driver over separate supplied
-read/write halves. RFC 0008 supplies the executable contract toys. Decide
-whether ordered emission uses a session reorder buffer or per-stream lanes;
-either choice must preserve global bounds. Review protocol-close output versus
-handler cancellation explicitly. Use `proptest` for action, completion,
+integrate one prepared TCP connection and the same driver over separate
+supplied read/write halves. RFC 0008 supplies the executable contract toys.
+Decide whether ordered emission uses a session reorder buffer or per-stream
+lanes; either choice must preserve global bounds. Review protocol-close output
+versus handler cancellation explicitly. Use `proptest` for action, completion,
 publication, cancellation, and close interleavings. Reuse RFC 0002's pure
 scheduling-decision approach for bounded state exploration of production
 transitions; do not claim Loom schedules ordinary Tokio primitives.

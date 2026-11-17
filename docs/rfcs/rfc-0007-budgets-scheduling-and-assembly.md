@@ -23,32 +23,32 @@ connection-generation, optional logical-key, and stage scopes. Validate a
 complete immutable policy before admitting a connection. Acquire a resource
 before allocating, retaining, enqueueing, registering, or starting the work it
 authorizes. Every reservation has one terminal release; release follows actual
-ownership, not merely dequeue, logical completion, cancellation, or close.
-RFC 0004 supplies the connection and output lifecycle.
+ownership, not merely dequeue, logical completion, cancellation, or close. RFC
+0004 supplies the connection and output lifecycle.
 
-Adapters own protocol keys, correlation, fragment identifiers, duplicate policy,
-rollover, acknowledgements, and semantic timeout choices. Core enforces the
-selected accounting, deadline, and scheduling contracts without ACP-specific
-fields. A finite adapter-defined resource-class vocabulary can express decoded
-nodes or other typed units; it must declare units, limits, enforcement points,
-and bounded diagnostics at construction. Peer-provided class names or an
-unbounded dynamic class registry are not allowed. These APIs must work without
-message assembly, a default envelope, or the server router.
+Adapters own protocol keys, correlation, fragment identifiers, duplicate
+policy, rollover, acknowledgements, and semantic timeout choices. Core enforces
+the selected accounting, deadline, and scheduling contracts without
+ACP-specific fields. A finite adapter-defined resource-class vocabulary can
+express decoded nodes or other typed units; it must declare units, limits,
+enforcement points, and bounded diagnostics at construction. Peer-provided
+class names or an unbounded dynamic class registry are not allowed. These APIs
+must work without message assembly, a default envelope, or the server router.
 
 ## Resource dimensions and policy validation
 
 A bounded profile must express these dimensions independently where applicable:
 
-| Dimension | Required bound and ownership |
-| --- | --- |
-| Wire frames | Separate inbound/outbound encoded limits and framing overhead; aggregate receive/egress item and byte capacity. |
+| Dimension                | Required bound and ownership                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wire frames              | Separate inbound/outbound encoded limits and framing overhead; aggregate receive/egress item and byte capacity.                             |
 | Retained representations | Backing allocation capacity for wire, decoded, assembled, decompressed, and temporary encoded data; shared allocations remain charged once. |
-| Structural complexity | Per-frame depth/node limits, aggregate retained nodes, identifiers, metadata, and per-frame action count. |
-| Work and admission | Queued and running handler/CPU jobs, pending requests in each direction, parked responders, waiting producers, and reorder entries. |
-| Protocol populations | Active streams, routes, and validated/unvalidated peer entries, with both count and retained-state bytes charged before insertion. |
-| Consumer ownership | Queued and issued leases, including empty/null events; bytes, nodes, and lifetime item permits survive dequeue and close. |
-| Protected capacity | Finite control responses, cancellation obligations, and capped terminal-status storage inside enclosing host/connection budgets. |
-| Generations | Live and closed-but-retained connection generations, including their bounded state and outstanding obligations. |
+| Structural complexity    | Per-frame depth/node limits, aggregate retained nodes, identifiers, metadata, and per-frame action count.                                   |
+| Work and admission       | Queued and running handler/CPU jobs, pending requests in each direction, parked responders, waiting producers, and reorder entries.         |
+| Protocol populations     | Active streams, routes, and validated/unvalidated peer entries, with both count and retained-state bytes charged before insertion.          |
+| Consumer ownership       | Queued and issued leases, including empty/null events; bytes, nodes, and lifetime item permits survive dequeue and close.                   |
+| Protected capacity       | Finite control responses, cancellation obligations, and capped terminal-status storage inside enclosing host/connection budgets.            |
+| Generations              | Live and closed-but-retained connection generations, including their bounded state and outstanding obligations.                             |
 
 _Table 1: Independently bounded resource dimensions._
 
@@ -60,21 +60,23 @@ reserves, and aggregate reserves across the admitted connection count. Invalid
 policy fails construction rather than being silently clamped.
 
 Adapters declare how many response and cancellation obligations each admitted
-operation can create. Validate enough protected slots and bytes for the selected
-concurrency profile, while leaving ordinary traffic capacity. Validate the
-largest bounded control envelope with the actual encoder, including identifier
-escaping and delimiter bytes. A sum of plausible integers alone does not prove
-that the reserved response fits. Bound extension/context data and both queued
-and running jobs; a byte cap cannot bound populations of zero-byte objects.
+operation can create. Validate enough protected slots and bytes for the
+selected concurrency profile, while leaving ordinary traffic capacity. Validate
+the largest bounded control envelope with the actual encoder, including
+identifier escaping and delimiter bytes. A sum of plausible integers alone does
+not prove that the reserved response fits. Bound extension/context data and
+both queued and running jobs; a byte cap cannot bound populations of zero-byte
+objects.
 
 ## Reservations, transfer, and retirement
 
-Acquire a multi-scope, multi-resource reservation atomically or roll back before
-waiting. Never hold one budget's lock or partial permit while awaiting another.
-The default non-waiting submission form rejects pressure immediately. An
-explicit waiting form bounds waiter count and waiting time; it must not capture
-unlimited producer payloads in hidden waiting futures. Caller-retained input
-before admission is an explicit exclusion, not unobserved library-owned memory.
+Acquire a multi-scope, multi-resource reservation atomically or roll back
+before waiting. Never hold one budget's lock or partial permit while awaiting
+another. The default non-waiting submission form rejects pressure immediately.
+An explicit waiting form bounds waiter count and waiting time; it must not
+capture unlimited producer payloads in hidden waiting futures. Caller-retained
+input before admission is an explicit exclusion, not unobserved library-owned
+memory.
 
 Ownership guards or an equivalent ledger must support movement, splitting,
 sharing, and destination transfer without an uncharged interval. A stage change
@@ -95,14 +97,14 @@ Consumers may explicitly transfer it to a bounded sink. Copying a borrowed view
 into host-owned storage is outside the library ledger and does not release the
 source. Closing a logical key discards owned queues/assembly and cancels its
 work without revoking issued leases or cancelling unrelated keys. A completed
-assembly transfers its payload charge to the next owner rather than freeing
-it while the assembled value still exists.
+assembly transfers its payload charge to the next owner rather than freeing it
+while the assembled value still exists.
 
 Fence admission at close, but retain charges for issued leases, live workers,
-reply contexts, and other outstanding ownership. A generation retires only
-when these obligations and its retained state disappear. Its connection-count
-permit remains held until retirement, including for empty events; replacement
-uses the same shared budget and cannot reset the old account. Deadlines report
+reply contexts, and other outstanding ownership. A generation retires only when
+these obligations and its retained state disappear. Its connection-count permit
+remains held until retirement, including for empty events; replacement uses the
+same shared budget and cannot reset the old account. Deadlines report
 outstanding cleanup rather than falsely reclaiming a non-pre-emptible worker.
 Bound retired-ID diagnostics instead of accumulating permanent tombstones.
 
@@ -111,32 +113,32 @@ budget-aware allocation before materialization. Framework checks alone cannot
 meter arbitrary callback allocations or hidden SDK queues. Qualifying a bounded
 adapter requires an ownership map across those handoffs and either enforcement
 or explicit exclusions. Ledger limits do not promise a process resident-memory
-ceiling: allocator metadata, stacks, kernel buffers, and independent host copies
-require separately documented measurement or host limits.
+ceiling: allocator metadata, stacks, kernel buffers, and independent host
+copies require separately documented measurement or host limits.
 
 ## Scheduling, reserves, and deadlines
 
 Reserve protected control and terminal capacity at connection admission against
 the shared budget. Ordinary data cannot borrow it. Before starting a reverse
 request handler, reserve its response obligation. If its full reply cannot
-obtain ordinary data capacity, it may use a bounded policy-approved refusal;
-if that cannot progress, terminate with the original pressure cause. Status
+obtain ordinary data capacity, it may use a bounded policy-approved refusal; if
+that cannot progress, terminate with the original pressure cause. Status
 visibility must not depend on draining ordinary event leases.
 
 Scheduler readiness means both transport writable and protocol policy allows
 sending; transport readiness does not grant AMQP-like credit. Control capacity
-is finite and rate-limited. FIFO ordering applies within declared ordered lanes;
-fair service across ready lanes and connections uses finite work batches and
-documented service bounds. A profile may require round-robin scheduling across
-host-driven connections. State the executor-service assumptions and test quiet
-connections under noisy peers. Reserved control cannot bypass unread bytes or
-a partial write on one ordered transport.
+is finite and rate-limited. FIFO ordering applies within declared ordered
+lanes; fair service across ready lanes and connections uses finite work batches
+and documented service bounds. A profile may require round-robin scheduling
+across host-driven connections. State the executor-service assumptions and test
+quiet connections under noisy peers. Reserved control cannot bypass unread
+bytes or a partial write on one ordered transport.
 
 Deadline classes separately cover admission waiting, initialization, ordinary
-request/response work, partial-frame assembly, decoder queue/execution,
-write queue/transmission, handler work, permission waits, drain, and close.
-Expose monotonic clock injection and document start points. The admission timer
-starts at the first blocked handoff; partial framing starts at the first byte;
+request/response work, partial-frame assembly, decoder queue/execution, write
+queue/transmission, handler work, permission waits, drain, and close. Expose
+monotonic clock injection and document start points. The admission timer starts
+at the first blocked handoff; partial framing starts at the first byte;
 processing starts at job admission; writing starts at queue admission. Trickle
 input and queue handoffs do not reset these deadlines. Long application work,
 such as an ACP prompt or a human permission decision, must not inherit an
@@ -144,8 +146,8 @@ unrelated short request timer. Expiry is local evidence, not proof of peer
 cancellation or process exit.
 
 Adapters may opt into replacing stale snapshots before publication. An already
-accepted but still-unpublished replaceable frame may be superseded exactly
-once under an atomic reservation exchange; account for any overlapping old/new
+accepted but still-unpublished replaceable frame may be superseded exactly once
+under an atomic reservation exchange; account for any overlapping old/new
 allocations. Never rewrite a publication-attempted or partially written frame.
 Reliable output and ACP history events are not replaceable snapshots. Terminal
 failure, incomplete delivery, and suppressed diagnostic counts remain explicit.

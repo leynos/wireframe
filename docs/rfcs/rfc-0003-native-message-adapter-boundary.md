@@ -80,9 +80,9 @@ SDK queue does not establish a bounded end-to-end connection.
 
 Keep raw frame delimitation separate from admitted semantic decoding. The
 session owner performs only bounded capture and state transitions. Expensive
-parsing or schema conversion uses admitted work with finite queued/running
-jobs and charged results; RFCs 0004 and 0007 define progress and ownership.
-An ingress ordinal precedes concurrent decoding, and bounded reordering restores
+parsing or schema conversion uses admitted work with finite queued/running jobs
+and charged results; RFCs 0004 and 0007 define progress and ownership. An
+ingress ordinal precedes concurrent decoding, and bounded reordering restores
 source order before order-sensitive adapter decisions. JSON syntax, duplicate
 keys, capabilities, permissions, and ACP event watermarks remain external
 adapter or application policy, not core protocol branches.
@@ -98,8 +98,8 @@ Wireframe dispatch. A universal message type erases peer distinctions.
 A Hotline toy preserves native header and correlation through a reply without
 bincode; Modbus preserves transaction/unit identifiers; PostgreSQL preserves
 tagged reply context. The mandatory ACP toy in RFC 0008 preserves string and
-numeric IDs, notifications, extension fields, and raw permitted frame bytes.
-It uses different inbound/outbound types and exercises a standalone consumer
+numeric IDs, notifications, extension fields, and raw permitted frame bytes. It
+uses different inbound/outbound types and exercises a standalone consumer
 without a mandatory envelope or server application. External examples compile
 using public APIs only. Generated action, completion, and cancellation traces
 must prove each dispatch context settles exactly once, including recovery and
@@ -112,9 +112,12 @@ associated types or an enum if it preserves these properties:
 
 - `decode(frame, session) -> Vec<Action<Request, ReplyContext>>` consumes one
   complete native frame. The vector is bounded by the configured per-frame
-  action limit before allocation or dispatch. `Dispatch` owns request data and
-  reply context; `SendControl` owns a native control value; `Complete` has zero
-  or more bounded outputs; `Close` specifies graceful or immediate termination.
+  action limit before allocation or dispatch. A per-frame limit alone does not
+  bound aggregate action storage across connections, so the adapter reserves
+  its action count from the shared budget in RFC 0007 before it allocates or
+  dispatches. `Dispatch` owns request data and reply context; `SendControl`
+  owns a native control value; `Complete` has zero or more bounded outputs;
+  `Close` specifies graceful or immediate termination.
 - `encode(reply_context, completion) -> bounded native frames` consumes reply
   context exactly once. Context cannot be cloned or silently dropped; abort,
   timeout, recovery, and terminal close explicitly settle it. Cancellation
@@ -157,5 +160,5 @@ and owned/shared byte handles without exposing private driver internals.
 Supersede the mandatory-envelope assumptions in ADR 004 and ADR 005; preserve
 useful codec/serializer implementations only where they remain simpler than the
 new native path. Update affected codec, packet, correlation, envelope, and
-serializer APIs together with migration examples and compile-time tests. No
-new shared crate or Magitek production dependency is required by this RFC.
+serializer APIs together with migration examples and compile-time tests. No new
+shared crate or Magitek production dependency is required by this RFC.

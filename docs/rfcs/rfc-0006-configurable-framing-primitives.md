@@ -9,12 +9,12 @@
 
 ## Problem
 
-Fixed-width lengths, alternatives, short headers, delimiters, and payload bounds
-recur across codecs. mxd has a native 20-byte Hotline header, bincode mapping,
-and separate series tracker. Magitek needs newline-delimited JSON (JSONL) with
-raw-byte preservation and limits that hold before parsing or allocation.
-General framing support should simplify both without embedding either protocol
-in core or assuming one payload shape and one universal maximum.
+Fixed-width lengths, alternatives, short headers, delimiters, and payload
+bounds recur across codecs. mxd has a native 20-byte Hotline header, bincode
+mapping, and separate series tracker. Magitek needs newline-delimited JSON
+(JSONL) with raw-byte preservation and limits that hold before parsing or
+allocation. General framing support should simplify both without embedding
+either protocol in core or assuming one payload shape and one universal maximum.
 
 ## Contract
 
@@ -23,8 +23,8 @@ metadata, bounded lengths, delimiter/header-body composition, discriminated
 alternatives, and optional pure validation/transformation callbacks. Support
 independent inbound/outbound frame types and layouts. Incomplete input reports
 needed progress; overflow, invalid length, truncation, and EOF remain distinct.
-Check limits before allocation. Document byte consumption on failure and minimum
-progress. Resynchronization is opt-in and bounded. Sequence rollover,
+Check limits before allocation. Document byte consumption on failure and
+minimum progress. Resynchronization is opt-in and bounded. Sequence rollover,
 compression state, authentication, and reliability remain external Rust adapter
 code. Do not create a universal framing language.
 
@@ -52,8 +52,8 @@ MySQL 3-byte lengths, PostgreSQL startup/tagged records, IEC 104, DNP3 CRC
 blocks, RTSP mixed records, AMQP headers, OpenRA asymmetric layouts, Quake
 datagram payloads, and the mandatory RFC 0008 ACP/JSONL profile. These fixtures
 specify bounded subsets, not complete implementations. ACP fixtures test exact
-limits, delimiter splits, byte-preserving inspection, structural expansion,
-and bounded encoding rather than relying on a successful codec round-trip.
+limits, delimiter splits, byte-preserving inspection, structural expansion, and
+bounded encoding rather than relying on a successful codec round-trip.
 
 ## Pipeline and error ownership
 
@@ -64,11 +64,11 @@ explicitly consumes bytes in a bounded recovery result. Raw framing does not
 require constructing a JSON object or converting bytes to a string. Separate
 framing errors from UTF-8, syntax, schema, and application errors.
 
-A recoverable decode result carries a typed error and exact consumed count;
-the session applies explicit adapter policy. Fatal errors close. Any recovery
-scan belongs to the decoder, has an absolute byte/attempt bound, and must
-consume bytes or terminate on each iteration. Magitek's enforced profile closes
-on framing/size violations; it must not inherit the existing drop-and-continue
+A recoverable decode result carries a typed error and exact consumed count; the
+session applies explicit adapter policy. Fatal errors close. Any recovery scan
+belongs to the decoder, has an absolute byte/attempt bound, and must consume
+bytes or terminate on each iteration. Magitek's enforced profile closes on
+framing/size violations; it must not inherit the existing drop-and-continue
 default, or silently downgrade to unchecked byte forwarding.
 
 ## Primitive behaviour
@@ -102,19 +102,19 @@ byte-preserving forwarding. Native frame APIs need not impose this particular
 representation on other codecs.
 
 The JSONL profile emits LF. It may explicitly accept LF-only or LF/CRLF input;
-CRLF acceptance is a declared profile choice, not an added ACP requirement.
-The payload limit excludes the selected delimiter; reservations include its
-one or two bytes. Handle a trailing CR and a split CRLF at the exact limit
-without misclassifying it or resetting state. State dispositions for empty
-lines, a bare CR, and a non-delimited EOF tail. The enforced ACP toy rejects
-empty lines and incomplete tails. An escaped JSON newline is payload, not a
-physical delimiter; literal embedded LF ends a candidate frame.
+CRLF acceptance is a declared profile choice, not an added ACP requirement. The
+payload limit excludes the selected delimiter; reservations include its one or
+two bytes. Handle a trailing CR and a split CRLF at the exact limit without
+misclassifying it or resetting state. State dispositions for empty lines, a
+bare CR, and a non-delimited EOF tail. The enforced ACP toy rejects empty lines
+and incomplete tails. An escaped JSON newline is payload, not a physical
+delimiter; literal embedded LF ends a candidate frame.
 
 The same input bytes must receive the same acceptance or oversize decision
 under every transport chunk partition. Check complete and partial frames before
 retaining excess data, including coalesced frames and leftover tails. Reserve
-receive capacity before polling a read, and cap the writable receive window;
-a generic buffered reader that grows unchecked before `decode` is not enough.
+receive capacity before polling a read, and cap the writable receive window; a
+generic buffered reader that grows unchecked before `decode` is not enough.
 Maintain an incremental scan cursor so repeated tiny reads do not rescan an
 unbounded prefix. Apply scan/work quotas without losing progress. Start the
 partial-frame deadline at the first byte and do not reset it for trickle input.
@@ -149,9 +149,9 @@ Document conservative overcharges and allocations outside the contract.
 Implement checked length and delimiter primitives with split/coalescing
 properties, then demonstrate mixed text/binary composition and block validation
 with RFC 0008 toys. Add JSONL fixtures alongside the primitive rather than
-waiting for a complete ACP client. Decide whether variable-width integers belong
-in the primitive set only after multiple examples need them. Keep callback
-allocation and accounting obligations explicit.
+waiting for a complete ACP client. Decide whether variable-width integers
+belong in the primitive set only after multiple examples need them. Keep
+callback allocation and accounting obligations explicit.
 
 Existing Tokio codec support remains usable behind an audited adapter. This
 pre-1.0 proposal permits replacement of all `FrameCodec` methods, including

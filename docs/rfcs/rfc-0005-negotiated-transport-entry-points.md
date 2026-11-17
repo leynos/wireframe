@@ -19,10 +19,10 @@ require a TCP accept loop, a Wireframe preamble, or a negotiated upgrade.
 
 ## Contract
 
-Listener or caller-supplied setup receives an owned transport and peer metadata;
-it returns rejection or owned I/O plus session metadata and initial phase.
-An in-session phase transition is an explicit action after a confirmed writer
-flush barrier. It transfers unread bytes, phase state, and peer identity
+Listener or caller-supplied setup receives an owned transport and peer
+metadata; it returns rejection or owned I/O plus session metadata and initial
+phase. An in-session phase transition is an explicit action after a confirmed
+writer flush barrier. It transfers unread bytes, phase state, and peer identity
 atomically. The session retains ownership of its reader, writer, cancellation,
 and tasks. Buffered bytes reach the new phase exactly once. Consumed bytes
 cannot be reinterpreted. The existing reservation for unread bytes transfers to
@@ -32,9 +32,9 @@ Retained shared views keep their allocation charge under RFC 0007. Setup bounds
 bytes, time, rounds, and cancellation.
 
 First priority is raw stream setup: an already-established stream, server-first
-greeting, client-first startup, TLS handoff, and in-band phase changes. Adapting
-an existing parsed stream/sink is a lower-priority optional connector and
-preserves message kinds and limits. Core provides setup mechanics, not TLS
+greeting, client-first startup, TLS handoff, and in-band phase changes.
+Adapting an existing parsed stream/sink is a lower-priority optional connector
+and preserves message kinds and limits. Core provides setup mechanics, not TLS
 policy, authentication, process ownership, or protocol state machines.
 
 ## Supplied transport parts
@@ -42,10 +42,10 @@ policy, authentication, process ownership, or protocol state machines.
 Accept either an owned bidirectional byte stream or independently typed
 `AsyncRead` and `AsyncWrite` halves under the first Tokio integration. Their
 concrete types need not match. The caller owns runtime selection and supplies
-transport identity plus optional, separately observed lifecycle evidence.
-The session takes exclusive protocol read/write ownership. The same bounded
-framer and duplex actor must work over in-memory streams, stdio-style pipes,
-Unix sockets where available, and TCP without a protocol-specific core branch.
+transport identity plus optional, separately observed lifecycle evidence. The
+session takes exclusive protocol read/write ownership. The same bounded framer
+and duplex actor must work over in-memory streams, stdio-style pipes, Unix
+sockets where available, and TCP without a protocol-specific core branch.
 
 Declare transport buffering, flush, half-close, cancellation, and error
 semantics in the adapter profile. Hidden transport buffers or message queues
@@ -74,23 +74,24 @@ Scripted peers cover both greeting directions, coalesced handshake and first
 message, positive/negative upgrade, flush order, rejection, timeout, and
 cancellation. No byte is lost, duplicated, or replayed across a phase change.
 The mandatory RFC 0008 ACP toy also runs over separate supplied halves without
-negotiation or a TCP-only harness, with diagnostics and lifecycle kept separate.
-A WebSocket parsed-stream bridge is an optional example, not a condition for
-raw setup support. Generated transition, short-write, cancellation, and timeout
-traces prove reservation transfer is never double-charged or released twice.
+negotiation or a TCP-only harness, with diagnostics and lifecycle kept
+separate. A WebSocket parsed-stream bridge is an optional example, not a
+condition for raw setup support. Generated transition, short-write,
+cancellation, and timeout traces prove reservation transfer is never
+double-charged or released twice.
 
 ## Transition semantics
 
 Conceptually, setup returns `Reject(error)` or
-`Established(transport_parts, metadata, phase)`. A phase transition is requested
-by the current adapter and committed by the session writer after all earlier
-bytes flush. The transition result contains the new phase parser and unread
-bytes. Only the session commits it. At request time the session inserts a
-writer-owned barrier. All already-encoded earlier frames must flush before the
-barrier. Accepted but not-yet-encoded operations are cancelled and their
+`Established(transport_parts, metadata, phase)`. A phase transition is
+requested by the current adapter and committed by the session writer after all
+earlier bytes flush. The transition result contains the new phase parser and
+unread bytes. Only the session commits it. At request time the session inserts
+a writer-owned barrier. All already-encoded earlier frames must flush before
+the barrier. Accepted but not-yet-encoded operations are cancelled and their
 contexts settled; they are never encoded under the new phase. Still-running
-work retains its reservations until release. This cancellation rule prevents
-a barrier waiting on a handler whose completion depends on post-upgrade input.
+work retains its reservations until release. This cancellation rule prevents a
+barrier waiting on a handler whose completion depends on post-upgrade input.
 The adapter receives cancellation outcomes and may explicitly retry eligible
 unsubmitted work under the new phase as new operations. Concurrent transitions,
 transition after close, or partial-write crossing the barrier are contract
