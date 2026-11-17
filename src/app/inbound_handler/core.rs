@@ -76,11 +76,11 @@ where
     /// Server shutdown signal; cancelling it stops this connection.
     pub(crate) shutdown: &'a CancellationToken,
     /// Template cloned to build this connection's push queues.
-    pub(super) push_queues: PushQueuesBuilder<F::Frame>,
+    pub(crate) push_queues: PushQueuesBuilder<F::Frame>,
     /// Registry this connection publishes its push handle to.
-    pub(super) session_registry: Arc<SessionRegistry<F::Frame>>,
+    pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
     /// Peer address of the accepted socket, when the server reported one.
-    pub(super) peer_addr: Option<SocketAddr>,
+    pub(crate) peer_addr: Option<SocketAddr>,
 }
 
 /// Per-connection state driven by the inbound read loop.

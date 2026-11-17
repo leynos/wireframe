@@ -88,7 +88,7 @@ mod diagnostics_tests;
 #[path = "dispatch_tests.rs"]
 mod dispatch_tests;
 
-use std::{collections::HashMap, io, panic::AssertUnwindSafe, sync::Arc};
+use std::{collections::HashMap, io, net::SocketAddr, panic::AssertUnwindSafe, sync::Arc};
 
 use finalizer::{ConnectionFinalizer, FinalizationOutcome};
 use futures::FutureExt;
@@ -109,7 +109,9 @@ use crate::{
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
+    push::PushQueuesBuilder,
     serializer::Serializer,
+    session::SessionRegistry,
 };
 
 /// Immutable configuration borrowed by one connection's runtime.
@@ -142,6 +144,12 @@ where
     pub(crate) read_timeout_ms: u64,
     /// Per-connection shutdown signal; cancelling it stops this connection.
     pub(crate) shutdown: &'a CancellationToken,
+    /// Template cloned to build this connection's push queues.
+    pub(crate) push_queues: PushQueuesBuilder<F::Frame>,
+    /// Registry this connection publishes its push handle to.
+    pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
+    /// Peer address of the accepted socket, when the server reported one.
+    pub(crate) peer_addr: Option<SocketAddr>,
 }
 
 /// Panic payload recovered by [`futures::FutureExt::catch_unwind`].
@@ -254,6 +262,9 @@ where
             memory_budgets,
             read_timeout_ms,
             shutdown,
+            push_queues,
+            session_registry,
+            peer_addr,
         } = config;
         process_stream(
             stream,
@@ -268,6 +279,9 @@ where
                 memory_budgets,
                 read_timeout_ms,
                 shutdown,
+                push_queues,
+                session_registry,
+                peer_addr,
             },
         )
         .await
