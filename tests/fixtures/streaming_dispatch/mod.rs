@@ -19,7 +19,11 @@ use tokio::{
     task::JoinHandle,
     time::timeout,
 };
-use wireframe::{app::WireframeApp, fragment::FragmentationConfig, test_helpers};
+use wireframe::{
+    app::{Envelope, Handler, StreamingHandler, WireframeApp},
+    fragment::FragmentationConfig,
+    test_helpers,
+};
 pub use wireframe_testing::TestResult;
 
 /// Route identifier for the streaming handler.
@@ -185,26 +189,7 @@ impl StreamingDispatchWorld {
         let streaming = build_streaming_handler(mode, gate.clone(), events_tx.clone());
         let buffered = build_buffered_handler(events_tx);
 
-        let mut app: WireframeApp = WireframeApp::new()?
-            .buffer_capacity(BUFFER_CAPACITY)
-            .read_timeout_ms(READ_TIMEOUT_MS)
-            .with_message_assembler(test_helpers::TestAssembler);
-
-        if let Some(millis) = timeout_ms {
-            let message_limit =
-                NonZeroUsize::new(BUFFER_CAPACITY.saturating_mul(16)).unwrap_or(NonZeroUsize::MIN);
-            let config = FragmentationConfig::for_frame_budget(
-                BUFFER_CAPACITY,
-                message_limit,
-                Duration::from_millis(millis),
-            )
-            .ok_or("frame budget too small for fragmentation config")?;
-            app = app.fragmentation(Some(config));
-        }
-
-        app = app
-            .route(BUFFERED_ROUTE, buffered)?
-            .streaming_route(STREAM_ROUTE, streaming)?;
+        let app = build_app(buffered, streaming, timeout_ms)?;
 
         let (client, server_stream) = tokio::io::duplex(4096);
         let server = self
@@ -325,6 +310,41 @@ impl StreamingDispatchWorld {
         self.events = Some(events);
         Ok(matched)
     }
+}
+
+/// Build the fixture application with both routes and optional fragmentation.
+fn build_app(
+    buffered: Handler<Envelope>,
+    streaming: StreamingHandler,
+    timeout_ms: Option<u64>,
+) -> TestResult<WireframeApp> {
+    let configured: WireframeApp = WireframeApp::new()?
+        .buffer_capacity(BUFFER_CAPACITY)
+        .read_timeout_ms(READ_TIMEOUT_MS)
+        .with_message_assembler(test_helpers::TestAssembler);
+    let app = match fragmentation_for(timeout_ms)? {
+        Some(config) => configured.fragmentation(Some(config)),
+        None => configured,
+    };
+    Ok(app
+        .route(BUFFERED_ROUTE, buffered)?
+        .streaming_route(STREAM_ROUTE, streaming)?)
+}
+
+/// Build the fragmentation config for a scenario that sets an assembly timeout.
+fn fragmentation_for(timeout_ms: Option<u64>) -> TestResult<Option<FragmentationConfig>> {
+    let Some(millis) = timeout_ms else {
+        return Ok(None);
+    };
+    let message_limit =
+        NonZeroUsize::new(BUFFER_CAPACITY.saturating_mul(16)).unwrap_or(NonZeroUsize::MIN);
+    let config = FragmentationConfig::for_frame_budget(
+        BUFFER_CAPACITY,
+        message_limit,
+        Duration::from_millis(millis),
+    )
+    .ok_or("frame budget too small for fragmentation config")?;
+    Ok(Some(config))
 }
 
 /// Return the time left before `deadline`, or `None` once it has passed.

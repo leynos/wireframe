@@ -27,12 +27,9 @@ mod fallible_check;
 #[path = "../common/fallible_assertions/check_equal.rs"]
 mod fallible_check_equal;
 
-use common::prepared_app::{
-    TestApp,
-    TransformCountingMiddleware,
-    build_frame,
-    handler,
-    response_payload,
+use common::{
+    prepared_app::{TestApp, build_frame, handler, response_payload},
+    tagging::TransformCountingMiddleware,
 };
 use fallible_check_equal::check_equal;
 use tokio::{
@@ -312,12 +309,14 @@ async fn prepared_app_reuses_services_across_overlapping_connections() -> TestRe
 
     let first_frame = build_frame(1, vec![b'X'])?;
     let second_frame = build_frame(1, vec![b'Y'])?;
-    let (first, second) = timeout(Duration::from_secs(1), async {
+    // Boxed because the joined connection futures are large enough to trip
+    // `clippy::large_futures` on the enclosing test frame.
+    let (first, second) = Box::pin(timeout(Duration::from_secs(1), async {
         tokio::join!(
             drive_prepared_with_frames(&prepared, vec![first_frame]),
             drive_prepared_with_frames(&prepared, vec![second_frame]),
         )
-    })
+    }))
     .await
     .map_err(|_| "prepared connections did not overlap")?;
     check_equal(

@@ -988,6 +988,19 @@ loop adds `retained_bytes()` and the parked queue's bytes to the fragment
 buffers before evaluating pressure, so one soft-pause and hard-cap policy
 covers delivered-but-unread bodies as well as buffered assembly.
 
+The per-step maintenance actions the loop schedules live in
+`stream_actions.rs`: admission, assembly expiry, memory pressure, parked
+delivery, and the terminal paths. `stream_dispatch.rs` reads as the decision of
+what happens next, and `stream_actions.rs` as the work each decision does.
+
+`process_connection()` returns `BoxFuture<'_, io::Result<()>>` rather than the
+future of an `async fn`. A connection nests one `async` layer per stage, and
+the streaming dispatch work left it deep enough that rustc's layout query
+exceeded its recursion limit (128) in the `async` blocks of crates that merely
+await a connection. Erasing the concrete type at this one boundary bounds the
+depth every caller sees, for both the prepared and the compatibility entry
+points, at the cost of one allocation per connection.
+
 ### `fill_buf_with_prefix`
 
 The private helper `fill_buf_with_prefix(buf, prefix, endianness)` in

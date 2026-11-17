@@ -192,7 +192,7 @@ Unit tests cover streaming assembly
 (`src/message_assembler/streaming_tests.rs`) and the byte-accounted channel
 (`src/request/accounted_tests.rs`). Behavioural coverage lives in
 `tests/features/streaming_request_dispatch.feature` with its step definitions,
-and the TCP lifecycle tests in `tests/streaming_request_server.rs`.
+and the TCP lifecycle tests in `tests/streaming_request_server/`.
 
 ## References
 

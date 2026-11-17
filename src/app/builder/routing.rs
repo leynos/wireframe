@@ -1,5 +1,9 @@
 //! Routing and middleware configuration for `WireframeApp`.
 
+#[cfg(test)]
+#[path = "routing_tests.rs"]
+mod tests;
+
 use super::WireframeApp;
 use crate::{
     WireframeError,

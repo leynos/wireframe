@@ -12,12 +12,9 @@ use std::sync::{
 #[path = "common/fallible_assertions/check_equal.rs"]
 mod fallible_check_equal;
 
-use common::prepared_app::{
-    TestApp,
-    TransformCountingMiddleware,
-    build_frame,
-    handler,
-    response_payload,
+use common::{
+    prepared_app::{TestApp, build_frame, handler, response_payload},
+    tagging::TransformCountingMiddleware,
 };
 use fallible_check_equal::check_equal;
 use tokio::{

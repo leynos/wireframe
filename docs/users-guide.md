@@ -1063,9 +1063,9 @@ end to the handler together with `RequestParts`.
 A streaming route delivers at most one body at a time per connection. Messages
 that complete while a body is live are held and answered afterwards, in arrival
 order. Once the first frame completes the whole message, the handler still
-receives a single-chunk body, so a handler never needs a separate
-whole-payload path. Streaming routes are also outside the middleware chain:
-middleware inspects a whole payload, whereas a streaming handler owns the body
+receives a single-chunk body, so a handler never needs a separate whole-payload
+path. Streaming routes are also outside the middleware chain: middleware
+inspects a whole payload, whereas a streaming handler owns the body
 incrementally.
 
 <!-- tested-example: users-guide-025 -->
@@ -1524,6 +1524,11 @@ admitted to an empty queue; otherwise the producer would wait for room that
 only the consumer could create while the consumer had nothing to take. The
 hard-cap policy observes the queued bytes immediately afterwards, so the
 exception cannot hide an overrun.
+
+When the queue and the budget are both full, the connection stops reading until
+the handler consumes a chunk. The peer therefore blocks in `write` instead of
+the server accepting frames it cannot pass on, so a slow handler slows its own
+upload rather than growing server memory without limit.
 
 `RequestBodyReader` adapts the stream to `AsyncRead`, allowing protocol crates
 to reuse existing parsers:

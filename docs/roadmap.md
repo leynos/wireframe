@@ -288,7 +288,7 @@ abstraction, and standardized per-connection memory budgets.
   [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md).
 - [x] 8.1.5. Write tests for buffered-to-streaming fallback and back-pressure
   propagation, including the connection-level dispatch slot exercised by
-  `tests/streaming_request_server.rs`.
+  `tests/streaming_request_server/`.
 
 ### 8.2. MessageAssembler abstraction
 

@@ -87,6 +87,7 @@ identifier with `WireframeApp::streaming_route` instead of `route`; the
 connection runtime creates the body channel, feeds it from the inbound frames,
 and passes the receiving end to your handler.
 
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-022 -->
 ```rust,ignore
 let app = WireframeApp::new()?
     .streaming_route(UPLOAD, Arc::new(|parts, mut body| {
@@ -102,8 +103,9 @@ let app = WireframeApp::new()?
 ```
 
 Streaming routes do not run the middleware chain, and a handler that wants to
-own both ends of `body_channel` itself can still do so with `route`: the runtime
-only creates a channel for identifiers registered with `streaming_route`.
+own both ends of `body_channel` itself can still do so with `route`: the
+runtime only creates a channel for identifiers registered with
+`streaming_route`.
 
 ## Fragment reassembly limits
 
