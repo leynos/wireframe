@@ -12,6 +12,7 @@ mod builder;
 mod builder_defaults;
 mod codec_driver;
 mod combined_codec;
+pub(crate) mod connection_runtime;
 mod envelope;
 pub mod error;
 pub mod fragment_utils;

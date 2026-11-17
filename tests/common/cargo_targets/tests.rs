@@ -16,7 +16,10 @@ use std::{
 };
 
 use camino::{Utf8Path, Utf8PathBuf};
-use cap_std::{ambient_authority, fs_utf8::Dir};
+use cap_std::{
+    ambient_authority,
+    fs_utf8::{Dir, DirEntry},
+};
 use rstest::rstest;
 use serde_json::json;
 
@@ -112,24 +115,55 @@ fn file_contents(dir: &Dir) -> io::Result<BTreeMap<String, Vec<u8>>> {
 }
 
 /// Collect the files below `dir` into `files`, prefixed by `prefix`.
+///
+/// Each entry's work is delegated, so the loop carries one fallible read at a
+/// time instead of clustering path joining, descent, and file reads.
 fn collect_files(
     dir: &Dir,
     prefix: &Utf8Path,
     files: &mut BTreeMap<String, Vec<u8>>,
 ) -> io::Result<()> {
     for entry in dir.entries()? {
-        let child = entry?;
-        let name = child.file_name()?;
-        let path = prefix.join(&name);
-        if child.file_type()?.is_dir() {
-            collect_files(&child.open_dir()?, &path, files)?;
-        } else {
-            // `dir` is the directory that holds `name`, so the read stays
-            // relative to the level the entry came from.
-            let contents = dir.read(&name)?;
-            files.insert(path.into_string(), contents);
-        }
+        collect_entry(dir, &entry?, prefix, files)?;
     }
+    Ok(())
+}
+
+/// Record one entry below `dir`, descending when it names a directory.
+fn collect_entry(
+    dir: &Dir,
+    child: &DirEntry,
+    prefix: &Utf8Path,
+    files: &mut BTreeMap<String, Vec<u8>>,
+) -> io::Result<()> {
+    let name = child.file_name()?;
+    let path = prefix.join(&name);
+    if child.file_type()?.is_dir() {
+        return collect_directory(child, &path, files);
+    }
+    collect_file(dir, child, path, files)
+}
+
+/// Recurse into a directory entry, keeping `prefix` as its reported path.
+fn collect_directory(
+    child: &DirEntry,
+    prefix: &Utf8Path,
+    files: &mut BTreeMap<String, Vec<u8>>,
+) -> io::Result<()> {
+    collect_files(&child.open_dir()?, prefix, files)
+}
+
+/// Record a file entry's bytes under its prefixed path.
+fn collect_file(
+    dir: &Dir,
+    child: &DirEntry,
+    path: Utf8PathBuf,
+    files: &mut BTreeMap<String, Vec<u8>>,
+) -> io::Result<()> {
+    let name = child.file_name()?;
+    // `dir` is the directory that holds `name`, so the read stays relative to
+    // the level the entry came from.
+    files.insert(path.into_string(), dir.read(&name)?);
     Ok(())
 }
 

@@ -15,6 +15,8 @@ use crate::message_assembler::{
     ParsedFrameHeader,
 };
 
+pub mod bad_codec;
+
 pub mod connection_startup;
 
 pub mod frame_codec;
@@ -25,6 +27,9 @@ pub mod frame_codec;
 #[cfg(all(feature = "pool", not(loom)))]
 pub mod pool_client;
 
+pub mod teardown;
+
+pub use bad_codec::{BadCodec, BadDecoder, BadEncoder, BadFrame};
 pub use connection_startup::{
     ConnectionStartupCounts,
     ConnectionStartupInstrumentation,
@@ -35,7 +40,7 @@ pub use connection_startup::{
     counted_app_factory,
     noop_handler,
 };
-pub use frame_codec::{TestAdapter, TestCodec, TestFrame};
+pub use frame_codec::{CloneCountingCodec, TestAdapter, TestCodec, TestFrame};
 #[cfg(all(feature = "pool", not(loom)))]
 pub use pool_client::{
     ClientHello,
@@ -48,6 +53,7 @@ pub use pool_client::{
     build_pooled_client,
     build_preamble_pool,
 };
+pub use teardown::{UnitFuture, counting_teardown};
 
 /// Test-friendly message assembler implementation that shares parsing logic.
 #[derive(Clone, Copy, Debug, Default)]

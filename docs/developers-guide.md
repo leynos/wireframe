@@ -562,8 +562,8 @@ of waiting on the clock.
 
 ## Runtime ownership model
 
-Three proposed decision records govern runtime ownership and task-lifetime
-boundaries for Epic 635:
+Three decision records govern runtime ownership and task-lifetime boundaries
+for Epic 635:
 
 - [ADR 011](adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
   defines ownership rules R1-R7 (shared roots, borrowed handles, sole-owner
@@ -595,18 +595,84 @@ The server runtime now evaluates its factory once per run, prepares the
 resulting application before spawning accept loops, and signals readiness only
 after those workers have received the shared prepared root. Factory and
 preparation failures are returned as typed `ServerError` variants. The
-connection-local ownership model remains governed by
-[#643](https://github.com/leynos/wireframe/issues/643) and ADR 012. The
 `WireframeServer::from_app` constructor supplies an already-built application;
 callers still initialize tracing, create the Tokio runtime, and configure the
 server explicitly.
+
+### Connection-local runtime
+
+Each accepted connection constructs one crate-private `ConnectionRuntime` from
+the shared `PreparedApp`; the runtime is never shared between tasks and its
+mutable state is not placed behind `Arc<Mutex<_>>`. Construction stages:
+
+- the accepted transport and the immutable `InboundConfig` borrowed from the
+  prepared application, including its serializer, codec, protocol hooks and
+  actor protocol, memory budgets, read timeout, and per-connection shutdown
+  token; and
+- `ConnectionFinalizer<C>`, which owns the setup value produced by
+  `on_connection_setup` in exactly one of `NotSetUp`, `Armed(C)`, or
+  `Finalized`.
+
+Framing state is built inside `run`, after setup has completed, by the shared
+frame-processing loop in `inbound_handler::core::process_stream`. The framed
+stream, frame pipeline, message-assembly instance, decode-failure count,
+effective budgets, and connection-local codec clone are all locals of that one
+connection task. Deferring them means a pending setup cannot clone a custom
+codec or reserve the maximum frame buffer, and no codec is initialized before
+setup establishes its state.
+
+Peer addresses and connection identifiers are absent from the processing
+context: the entry points accept a generic `AsyncRead + AsyncWrite` stream, so
+the runtime owns none. Envelope correlation identifiers are per-frame state and
+stay on the decoded envelope; the connection-task span carries `peer_addr`.
+
+`process_connection` is the single entry point and drives the runtime. `run`
+destructures the staged runtime and wraps initialization together with inbound
+processing in `AssertUnwindSafe(..).catch_unwind()`, keeping the finalizer
+outside the caught future. It awaits finalization, and then returns the
+processing result or re-raises the panic, so a panic during initialization is
+finalized like a processing panic. `process` owns the framing state as a local,
+so when it returns or unwinds the transport is dropped before teardown is
+awaited. Teardown callbacks that wait for the peer to observe closure therefore
+cannot deadlock. Teardown runs before a handler panic reaches the
+connection-task supervisor, which remains responsible for counting and logging
+it. No `Drop` implementation performs async teardown.
+
+`take_for_teardown` replaces the finalizer state with `Finalized` before
+returning the setup value, so teardown runs at most once and a teardown panic
+cannot re-trigger it. Setup and teardown panics are not recovered.
+
+Teardown invocation has its own panic boundary: the callback call and the
+future it returns are both polled inside `AssertUnwindSafe(..)`, so a callback
+that panics before returning its future is reported and re-raised in the same
+way as one that panics while awaiting. `spawn_connection_task` instruments the
+whole connection task with a `connection` span carrying `peer_addr`, so the
+processing-panic and teardown diagnostics stay attributable to a peer after the
+transport has been released.
+
+Cooperative cancellation comes from the `shutdown` token in the processing
+context and is observed at the read boundary: it is the biased first branch of
+the `select!` around the timed frame read, and a frame already read is
+dispatched to completion first. The server supplies a per-connection child
+token of its worker shutdown signal through
+`PreparedApp::handle_connection_with_shutdown`, so a peer that stops reading
+cannot pin a graceful drain (ADR 014). Compatibility entry points supply a
+fresh token that is never cancelled. Finalization of a cancelled connection,
+including delivery of an exact non-`Clone` setup value, is covered by
+`ordering_tests`.
+
+The accepted gaps are a connection future dropped or aborted while running, a
+setup that panics or never completes, a teardown callback that panics, and
+`panic = "abort"` builds. In each case the runtime cannot await teardown; the
+module rustdoc in `src/app/connection_runtime/mod.rs` restates them at the
+implementation boundary.
 
 `WireframeApp::handle_connection_result` remains a deprecated public
 compatibility entrypoint. It delegates to the private
 `handle_unprepared_connection_result` path, which rebuilds route chains for
 callers that still own an unprepared builder. Server connection tasks use
-`PreparedApp::handle_connection_result` instead, preserving the once-per-run
-preparation boundary.
+`PreparedApp::handle_connection_with_shutdown` instead, preserving the
+once-per-run preparation boundary.
 
 ### Preamble handshake boundary
 
@@ -621,7 +687,7 @@ A connection task completes the preamble handshake before dispatch to
 2. `run_preamble_success` invokes the success callback, if one is registered,
    while the stream is still exclusively borrowed.
 3. `process_stream` rewinds any leftover bytes into a `RewindStream`.
-4. `PreparedApp::handle_connection_result` runs the application.
+4. `PreparedApp::handle_connection_with_shutdown` runs the application.
 
 `PreambleSuccessHandler` returns `io::Result<()>` because it is the authority
 for pre-application access control. `run_preamble_success` logs a callback
@@ -993,13 +1059,16 @@ The per-step maintenance actions the loop schedules live in
 delivery, and the terminal paths. `stream_dispatch.rs` reads as the decision of
 what happens next, and `stream_actions.rs` as the work each decision does.
 
-`process_connection()` returns `BoxFuture<'_, io::Result<()>>` rather than the
-future of an `async fn`. A connection nests one `async` layer per stage, and
+The frame-processing future is boxed at exactly one boundary.
+`ConnectionRuntime::run` drives `ConnectionRuntime::process` behind a pinned
+`BoxFuture`, so the runtime's own state machine holds a pointer rather than the
+whole frame-processing tree. A connection nests one `async` layer per stage —
+decoding, assembly, dispatch, the response actor, and the reply pipeline — and
 the streaming dispatch work left it deep enough that rustc's layout query
 exceeded its recursion limit (128) in the `async` blocks of crates that merely
-await a connection. Erasing the concrete type at this one boundary bounds the
-depth every caller sees, for both the prepared and the compatibility entry
-points, at the cost of one allocation per connection.
+await a connection. Both the prepared and the compatibility entry points reach
+the loop through that runtime, so a single allocation per connection bounds the
+depth every caller sees.
 
 ### `fill_buf_with_prefix`
 

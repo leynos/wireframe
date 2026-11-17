@@ -33,38 +33,38 @@ use crate::{
 mod tests;
 
 /// Immutable stream-wide configuration shared by all inbound frames.
-pub(super) struct StreamProcessingContext<'a, S, E, F>
+pub(crate) struct StreamProcessingContext<'a, S, E, F>
 where
     S: Serializer + Send + Sync,
     E: Packet,
     F: FrameCodec,
 {
     /// Immutable middleware chains used to dispatch decoded envelopes.
-    pub(super) routes: &'a HashMap<u32, HandlerService<E>>,
+    pub(crate) routes: &'a HashMap<u32, HandlerService<E>>,
     /// Streaming handlers keyed by message identifier.
-    pub(super) streaming_routes: &'a HashMap<u32, StreamingHandler>,
+    pub(crate) streaming_routes: &'a HashMap<u32, StreamingHandler>,
     /// Serializer shared by all frames on the connection.
-    pub(super) serializer: Arc<S>,
+    pub(crate) serializer: Arc<S>,
     /// Codec configuration shared by all frames on the connection.
-    pub(super) codec: &'a F,
+    pub(crate) codec: &'a F,
     /// Optional assembly strategy for multi-frame protocol messages.
-    pub(super) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    pub(crate) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
     /// Fragmentation settings used to initialize the frame pipeline.
-    pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
+    pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks applied to every outbound frame on this connection.
-    pub(super) protocol_hooks: ProtocolHooks<F::Frame, ()>,
+    pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
     /// Protocol whose response hooks drive the connection actor.
-    pub(super) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
+    pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
-    pub(super) memory_budgets: Option<MemoryBudgets>,
+    pub(crate) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
-    pub(super) read_timeout_ms: u64,
+    pub(crate) read_timeout_ms: u64,
     /// Server shutdown signal; cancelling it stops this connection.
-    pub(super) shutdown: &'a CancellationToken,
+    pub(crate) shutdown: &'a CancellationToken,
 }
 
 /// Read and process frames until the stream closes or an I/O error occurs.
-pub(super) async fn process_stream<S, E, F, W>(
+pub(crate) async fn process_stream<S, E, F, W>(
     stream: W,
     context: StreamProcessingContext<'_, S, E, F>,
 ) -> io::Result<()>
