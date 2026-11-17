@@ -243,6 +243,55 @@ async fn a_stalled_handler_stops_the_connection_reading_further_frames() -> Test
     finish_server(server).await
 }
 
+/// A server shutdown ends a connection stalled on a chunk admission.
+///
+/// The loop cannot read while a chunk waits for budget, so the cancelled server
+/// token is the one event that can still end the connection. Without that check
+/// the admission is retried forever: the connection outlives the server's
+/// drain, and [`finish_server`]'s bounded join is what fails.
+#[tokio::test]
+async fn a_server_shutdown_ends_a_connection_stalled_on_a_chunk_admission() -> TestResult {
+    let chunks = Arc::new(AtomicUsize::new(0));
+    let started = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let server = serve_routes_within(
+        AppLimits {
+            frame_budget: PRESSURE_FRAME_BUDGET,
+            budgets: Some(pressure_budgets()?),
+        },
+        vec![(
+            STREAM_ROUTE,
+            stalling_handler(
+                Arc::clone(&chunks),
+                Arc::clone(&started),
+                Arc::clone(&release),
+            ),
+        )],
+    )
+    .await?;
+    let mut client = connect(server.address).await?;
+
+    let chunk = vec![b'x'; BULK_CHUNK];
+    let first = test_helpers::first_frame_payload(LIVE_KEY.into(), &chunk, false, None)?;
+    send_envelope(&mut client, STREAM_ROUTE, &first).await?;
+    bounded("the stalled handler starting", started.notified()).await?;
+
+    let (sent_tx, sent_rx) = oneshot::channel();
+    let exchange = tokio::spawn(send_bulk_body(client, chunk, sent_tx));
+    // A blocked peer proves the connection is stalled on an admission, so the
+    // test cannot pass by shutting down a connection that was merely idle.
+    let blocked = timeout(PRESSURE_WAIT, sent_rx).await.is_err();
+    assert_blocked(blocked, &blocked);
+
+    // The handler never reads and the peer never stops writing, so only the
+    // shutdown signal can end this connection. The join inside `finish_server`
+    // is bounded: a connection that retries its admission forever fails here.
+    let finished = finish_server(server).await;
+    exchange.abort();
+    let _cancelled = exchange.await;
+    finished
+}
+
 /// A message parked behind a live body is answered once the slot frees.
 ///
 /// The parked message is a *complete* message for a streaming route, so it

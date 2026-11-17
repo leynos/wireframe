@@ -180,11 +180,16 @@ where
     fail_body_ending_with(state, handles, reason, Step::Failed(error)).await
 }
 
-/// Fail the live body, answer parked messages, and end the connection cleanly.
-pub(super) async fn close_after_eof<S, E, K, F>(
+/// Fail the live body when the peer's read half ended.
+///
+/// Answering parked messages is left to the caller, which holds the connection
+/// and can therefore signal the unobservable peer first. Draining here would
+/// wait on a parked reply with no bound, because this action sees neither the
+/// peer tokens nor the reader.
+pub(super) async fn close_body_after_eof<S, E, K, F>(
     state: &mut LoopState,
     handles: &mut DispatchHandles<'_, S, E, K, F>,
-) -> io::Result<Step>
+) -> io::Result<()>
 where
     S: Serializer + Send + Sync,
     E: Packet,
@@ -197,6 +202,5 @@ where
         "connection closed before the request body completed",
     );
     fail_body_ending_with(state, handles, reason, Step::Closed).await?;
-    drain_parked(state, handles).await?;
-    Ok(Step::Closed)
+    Ok(())
 }

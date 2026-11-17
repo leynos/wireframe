@@ -66,8 +66,8 @@ impl<'a> PeerObservation<'a> {
 ///
 /// At most one inbound frame is buffered while `handling` runs, so the
 /// connection task never reads ahead arbitrarily. Once EOF or a read error is
-/// observed, later calls dispatch the buffered frame without polling the
-/// reader again.
+/// observed, later calls dispatch without polling the reader again, and they
+/// still mark the peer unobservable so every later response stays bounded.
 pub(super) async fn handle_watching_peer<H, R, F>(
     handling: H,
     reader: &mut R,
@@ -84,11 +84,25 @@ where
         cause,
     } = observation;
     tokio::pin!(handling);
-    // A buffered frame means the read half is no longer polled, and a previous
-    // EOF means it never will be again. Either way the actor already bounds
-    // idle waits for this response.
-    if pending_frame.is_some() || eof.is_cancelled() {
+    // A buffered frame means the read half is no longer polled, and the token
+    // was cancelled when that frame was read, so the actor already bounds this
+    // response.
+    if pending_frame.is_some() {
         return handling.await;
+    }
+    // An EOF seen earlier is permanent, but it still has to be signalled for
+    // *this* response: a drain entered after the EOF would otherwise wait on a
+    // producer nobody can interrupt. Signalling is idempotent, so a dispatch
+    // that follows the EOF-driven drain re-cancels a token that is already
+    // cancelled.
+    if eof.is_cancelled() {
+        return await_unobserved_peer(
+            handling.as_mut(),
+            unobserved,
+            cause,
+            UnobservedCause::HalfClose,
+        )
+        .await;
     }
 
     tokio::select! {

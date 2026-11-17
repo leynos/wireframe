@@ -38,7 +38,7 @@ use super::{
     peer_watch::{PeerObservation, handle_watching_peer},
     stream_actions::{
         apply_memory_pressure,
-        close_after_eof,
+        close_body_after_eof,
         drain_parked,
         drive_pending_admission,
         expire_finished_assemblies,
@@ -60,6 +60,10 @@ use crate::{
     request::QueuedBytes,
     serializer::Serializer,
 };
+
+#[cfg(test)]
+#[path = "stream_watch_tests.rs"]
+mod watch_tests;
 
 /// Immutable connection inputs needed by the dispatch loop.
 pub(super) struct DispatchContext<'a, S, E, F>
@@ -164,6 +168,14 @@ where
 {
     /// Advance the connection loop by one decision.
     async fn step(&mut self, state: &mut LoopState) -> io::Result<Step> {
+        // Shutdown is observed here, not only at the read boundary. A pending
+        // chunk admission and a parked reply both keep the loop off the reader,
+        // so a cancelled token would otherwise never be seen while either one
+        // retries, and the connection would outlive the server's drain.
+        if self.shutdown.is_cancelled() {
+            state.streams.abort();
+            return Ok(Step::Closed);
+        }
         let queued = state.streams.queued();
         {
             let mut handles = self.handles(queued.clone());
@@ -171,17 +183,52 @@ where
                 return Ok(Step::Closed);
             }
             apply_memory_pressure(state, &mut handles).await?;
-            if !state.streams.is_live()
-                && drain_parked(state, &mut handles).await? == Dispatch::Stop
-            {
-                return Ok(Step::Closed);
-            }
+            // A pending admission means the slot is live, so the parked drain
+            // below cannot run in this step. Deciding it first keeps the drain
+            // outside this borrow scope, where the reader stays reachable.
             if state.streams.has_pending_send() {
                 return drive_pending_admission(state, &mut handles).await;
             }
         }
+        if !state.streams.is_live()
+            && self.drain_parked_observed(state, queued.clone()).await? == Dispatch::Stop
+        {
+            return Ok(Step::Closed);
+        }
         let event = self.next_event(state).await;
         self.handle_event(state, event, queued).await
+    }
+
+    /// Dispatch parked messages while watching the peer's read half.
+    ///
+    /// A parked reply travels the ordinary response path, so it may stream for
+    /// an unbounded time. Draining without observing the reader would hide a
+    /// peer that half-closed meanwhile, leaving the actor's bounded peer-close
+    /// drain unarmed and the connection alive with nobody to answer.
+    async fn drain_parked_observed(
+        &mut self,
+        state: &mut LoopState,
+        queued: QueuedBytes,
+    ) -> io::Result<Dispatch> {
+        // Built from field borrows rather than through `handles`, because the
+        // reader and its buffered frame must stay reachable for the drain.
+        let mut handles = DispatchHandles {
+            assembly: &mut self.inbound.message_assembly,
+            pipeline: &mut self.inbound.pipeline,
+            sink: &mut *self.sink,
+            actor: &mut *self.actor,
+            queued,
+            ctx: self.ctx,
+            wait: self.wait,
+        };
+        let (unobserved, cause) = observe_peer(handles.actor, self.peer_eof);
+        handle_watching_peer(
+            drain_parked(state, &mut handles),
+            self.reader,
+            PeerObservation::new(self.peer_eof, &unobserved, &cause),
+            &mut self.inbound.pending,
+        )
+        .await
     }
 
     /// Build the action-scoped handle bundle from disjoint connection borrows.
@@ -256,8 +303,17 @@ where
             }
             Event::Frame(Ok(Some(frame))) => self.dispatch_frame(frame, state, queued).await,
             Event::Frame(Ok(None)) => {
-                let mut handles = self.handles(queued);
-                close_after_eof(state, &mut handles).await
+                // The read half ended, which is permanent for the connection.
+                // Record it before the parked messages drain, so each of their
+                // replies is bounded by the actor's peer-close grace instead of
+                // waiting on a producer nobody can interrupt.
+                self.peer_eof.cancel();
+                {
+                    let mut handles = self.handles(queued.clone());
+                    close_body_after_eof(state, &mut handles).await?;
+                }
+                self.drain_parked_observed(state, queued).await?;
+                Ok(Step::Closed)
             }
             Event::Frame(Err(error)) => {
                 let mut handles = self.handles(queued);
