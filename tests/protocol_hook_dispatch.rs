@@ -371,8 +371,11 @@ async fn prepared_response_runs_before_send_once_on_the_wrapped_frame() -> TestR
         return Err(format!("expected exactly one response frame, got {}", frames.len()).into());
     };
     let events = fixture.events();
-    let [HookEvent::BeforeSend(observed)] = events.as_slice() else {
-        return Err(format!("expected one before_send event, got {events:?}").into());
+    let [HookEvent::BeforeSend(observed), HookEvent::CommandEnd] = events.as_slice() else {
+        return Err(format!(
+            "expected before_send then command end on the prepared path, got {events:?}"
+        )
+        .into());
     };
 
     let mut expected = observed.to_vec();
