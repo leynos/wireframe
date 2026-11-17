@@ -2202,7 +2202,8 @@ Scenario bindings take literal `path` and `name` arguments:
 
 The `path` must name the family's own feature file. Titles are read with the
 same `gherkin` parser that `rstest-bdd` uses, so every standard heading counts:
-`Scenario`, `Example`, `Scenario Outline`, and `Scenario Template`. Each title
+`Scenario`, `Example`, `Scenario Outline`, and `Scenario Template`. Scenarios
+grouped under a `Rule` count too, so each needs its own binding. Each title
 needs exactly one binding whose `name` matches the trimmed title. Text inside
 doc strings, data tables, or comments never counts as a title. The check
 rejects duplicate bindings, bindings for titles the feature does not contain,

@@ -1,4 +1,11 @@
 //! Pure evaluation of BDD family naming and registration rules.
+//!
+//! `evaluate` applies the whole documented contract to a `RepoSnapshot`: it
+//! resolves each harness's registries through `harness`, checks the family
+//! files, registrations and paths here, delegates binding and import checks to
+//! `bindings`, and finishes with `orphans` for modules no feature claims. The
+//! rules are pure so the live test and the synthetic mutation cases share one
+//! implementation.
 
 use std::collections::BTreeSet;
 

@@ -1,4 +1,11 @@
 //! Evaluation of scenario-title bindings and fixture imports.
+//!
+//! A scenario module only proves it belongs to its family when it imports the
+//! family's fixture and binds every scenario title in the feature exactly once.
+//! This module reads both facts with the `syn` and `features` helpers, against
+//! the files held by a `RepoSnapshot`, and reports each mismatch as a
+//! `Violation`. `check::evaluate` calls `check_scenario_module` once per family,
+//! after the harness registries have been resolved.
 
 use camino::Utf8Path;
 use syn::{Item, UseTree};

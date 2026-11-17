@@ -30,6 +30,7 @@ use bdd_wiring::{
     harness_scenario_modules,
     mutated_snapshot,
     nested_fixture_snapshot,
+    rule_scenario_snapshot,
 };
 use fallible_check::check;
 use rstest::rstest;
@@ -148,6 +149,14 @@ fn doc_string_text_is_not_a_scenario_title() -> TestResult {
     )
 }
 
+#[test]
+fn rule_grouped_scenario_is_bound() -> TestResult {
+    assert_no_violations(
+        &rule_scenario_snapshot().build(),
+        "a feature whose Rule scenario is bound",
+    )
+}
+
 #[rstest]
 #[case::missing_scenario(
     Mutation::MissingScenario,
@@ -233,6 +242,61 @@ fn doc_string_text_is_not_a_scenario_title() -> TestResult {
     Mutation::MalformedFeature,
     "tests/features/example.feature",
     "cannot parse feature file"
+)]
+#[case::split_registrations(
+    Mutation::SplitRegistrations,
+    "tests/scenarios/example_scenarios.rs",
+    "must be registered in the same harness"
+)]
+#[case::rule_scenario_unbound(
+    Mutation::RuleScenarioUnbound,
+    "tests/scenarios/example_scenarios.rs",
+    "scenario title `Grouped step` has no binding"
+)]
+#[case::non_literal_name(
+    Mutation::NonLiteralName,
+    "tests/scenarios/example_scenarios.rs",
+    "`name` must be a string literal"
+)]
+#[case::non_literal_path(
+    Mutation::NonLiteralPath,
+    "tests/scenarios/example_scenarios.rs",
+    "`path` must be a string literal"
+)]
+#[case::missing_name(
+    Mutation::MissingName,
+    "tests/scenarios/example_scenarios.rs",
+    "must provide a `name`"
+)]
+#[case::self_import(
+    Mutation::SelfImport,
+    "tests/scenarios/example_scenarios.rs",
+    "must import `crate::fixtures::example`"
+)]
+#[case::ambiguous_fixture(
+    Mutation::AmbiguousFixture,
+    "tests/fixtures/example.rs",
+    "is ambiguous"
+)]
+#[case::missing_registry_declaration(
+    Mutation::MissingRegistryDeclaration,
+    "tests/bdd/mod.rs",
+    "must declare"
+)]
+#[case::scenario_declaration_wrong_target(
+    Mutation::ScenarioDeclarationWrongTarget,
+    "tests/scenarios/example_scenarios.rs",
+    "but must resolve to"
+)]
+#[case::fixture_declaration_wrong_target(
+    Mutation::FixtureDeclarationWrongTarget,
+    "tests/fixtures/example.rs",
+    "but must resolve to"
+)]
+#[case::private_fixture(
+    Mutation::PrivateFixture,
+    "tests/fixtures/example.rs",
+    "must be declared `pub`"
 )]
 fn synthetic_violations_are_reported(
     #[case] mutation: Mutation,

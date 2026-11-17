@@ -1,4 +1,10 @@
 //! Feature titles and `#[scenario]` binding extraction.
+//!
+//! `bindings` and `check` consume these helpers to enforce that every scenario
+//! title in a feature file, including those grouped under a `Rule`, has exactly
+//! one matching binding in its family's scenario module. Extracting the titles
+//! with the harness's own parser keeps that enforcement aligned with what
+//! `rstest-bdd` validates at compile time.
 
 use syn::{Attribute, Item, Lit, Meta, Token};
 
@@ -19,7 +25,9 @@ pub(crate) struct ScenarioBinding {
 /// same parser keeps the check aligned with compile-time validation. That
 /// parser recognizes every scenario heading (`Scenario`, `Example`,
 /// `Scenario Outline`, and `Scenario Template`) and keeps doc strings, data
-/// tables, and comments out of the title list.
+/// tables, and comments out of the title list. Scenarios grouped under a
+/// `Rule` are collected too, because the parser stores them on the rule rather
+/// than on the feature.
 ///
 /// # Errors
 ///
@@ -27,9 +35,11 @@ pub(crate) struct ScenarioBinding {
 pub(crate) fn feature_titles(contents: &str) -> Result<Vec<String>, String> {
     let feature = gherkin::Feature::parse(contents, gherkin::GherkinEnv::default())
         .map_err(|error| format!("cannot parse feature file: {error}"))?;
+    let rule_scenarios = feature.rules.into_iter().flat_map(|rule| rule.scenarios);
     Ok(feature
         .scenarios
         .into_iter()
+        .chain(rule_scenarios)
         .map(|scenario| scenario.name)
         .collect())
 }

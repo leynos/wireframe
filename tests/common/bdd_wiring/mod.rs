@@ -25,4 +25,5 @@ pub(crate) use synthetic::{
     doc_string_snapshot,
     mutated_snapshot,
     nested_fixture_snapshot,
+    rule_scenario_snapshot,
 };
