@@ -794,3 +794,66 @@ queued. After that batch, shutdown discards the queued frames and closes the
 lanes, and later pushes fail with `PushError::Closed`. See the
 [users' guide](users-guide.md#server-connections-and-push-queues) and
 [ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md).
+## Protocol hook ownership and dispatch
+
+`ProtocolHooks` is no longer a struct of optional callbacks. It is an enum with
+three forms: `None` for a connection without hooks, `Protocol` for one that
+dispatches to an installed `WireframeProtocol`, and `Custom` for handwritten
+callbacks. The change removes the six forwarding closures that a
+protocol-backed value used to hold, so a connection that installs a protocol
+now holds exactly one strong reference to it.
+
+Custom callbacks move into `CustomProtocolHooks`, which keeps the same six
+optional public fields. Convert it into `ProtocolHooks` with `.into()`:
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-019 -->
+```rust,ignore
+use wireframe::hooks::{CustomProtocolHooks, ProtocolHooks};
+
+// Before: the callbacks were fields of `ProtocolHooks` itself.
+let hooks = ProtocolHooks {
+    before_send: Some(Box::new(|_frame: &mut Vec<u8>, _ctx| {})),
+    ..ProtocolHooks::default()
+};
+
+// After: build `CustomProtocolHooks` and convert it.
+let hooks: ProtocolHooks<Vec<u8>, ()> = CustomProtocolHooks {
+    before_send: Some(Box::new(|_frame: &mut Vec<u8>, _ctx| {})),
+    ..CustomProtocolHooks::default()
+}
+.into();
+```
+
+`ProtocolHooks::from_protocol` keeps its signature, including support for
+`?Sized` protocols and non-unit protocol errors. It clones the installed `Arc`
+once; the resulting value does not clone it again per operation.
+
+Two behavioural guarantees follow from the single owner. `on_connection_setup`
+runs at most once per `ProtocolHooks` value, so a setup callback that was
+already consumed is not invoked twice even if a caller drives setup again. And
+`before_send` runs exactly once per emitted packet on every packet-oriented
+outbound path: ordinary handler responses, high- and low-priority push frames,
+streamed responses, multi-packet channel frames, and stream-end terminators.
+Hook ordering and cardinality for the remaining callbacks are unchanged. There
+is still no hook for transport frames; the packet boundary from
+[ADR 010](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+is unchanged.
+
+Code that inspected the old six fields to detect an installed protocol should
+match on the enum instead:
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-020 -->
+```rust,ignore
+use wireframe::hooks::ProtocolHooks;
+
+fn is_protocol_backed<F, E>(hooks: &ProtocolHooks<F, E>) -> bool {
+    matches!(hooks, ProtocolHooks::Protocol(_))
+}
+```
+
+`WireframeApp::protocol()` still returns the installed protocol as an
+`Option<Arc<dyn WireframeProtocol<..>>>`. The returned `Arc` is a clone of the
+application's single stored reference, not a newly constructed value, and each
+connection's hooks add exactly one further reference for the lifetime of that
+connection. If you were relying on `protocol()` to count connections, note that
+the application root always retains its own reference.

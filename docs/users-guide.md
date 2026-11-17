@@ -1646,41 +1646,55 @@ the standalone push API.
 ## Protocol hooks
 
 Install a custom protocol with `with_protocol`. `protocol_hooks()` converts the
-stored implementation into `ProtocolHooks`.[^2][^7] `WireframeProtocol` exposes
-callbacks for connection setup, per-frame mutation, command completion,
+stored implementation into `ProtocolHooks`, which is one owner per connection
+rather than a copy of the protocol per callback.[^2][^7] `WireframeProtocol`
+exposes callbacks for connection setup, per-frame mutation, command completion,
 protocol errors, and optional end-of-stream frames.[^14]
 
-`before_send` runs on every `WireframeApp` handler response frame. The
-application builds a fresh `ProtocolHooks` value for each connection, and the
-response pipeline calls `before_send` after serialization and codec wrapping,
-immediately before the frame is written to the transport. Every fragment of a
-fragmented response passes through the hook individually, and the same
-connection-local `ConnectionContext` is used for all frames on that connection.
-This gives protocol implementations one place to stamp, encrypt, or observe
-ordinary server responses. The hook may grow the frame, but it receives no
-implicit space for doing so: whatever it writes must keep the frame within the
-codec's `max_frame_length`. The default `LengthDelimitedFrameCodec` rejects a
-frame that exceeds that limit with an oversized-frame error, which fails the
-send and ends the connection. A custom codec defines its own behaviour for an
-oversized frame, so it must enforce `max_frame_length` itself.
+`ProtocolHooks` has three forms: `None` for a connection without hooks,
+`Protocol` for one that dispatches to an installed `WireframeProtocol`, and
+`Custom` for handwritten callbacks. A `Protocol` value owns exactly one strong
+reference to the installed protocol, so any number of independent connections
+may share one implementation without one connection's hooks cloning it per
+operation. `CustomProtocolHooks` supplies the same six optional callbacks for
+code that does not install a full protocol; convert it with `.into()`. See the
+[v0.3-to-v0.4 migration guide](v0-3-0-to-v0-4-0-migration-guide.md#protocol-hook-ownership-and-dispatch).
 
-The application path also runs the protocol hooks that surround a response. A
-completed `Stream` or `MultiPacket` response is terminated by the frame
-`stream_end_frame` returns; that frame is a complete codec frame, so the
-adapter neither decodes nor restamps it. Any metadata a custom codec keeps
-outside the payload therefore survives. `before_send` still runs on the
-terminator like any other frame, so a hook that modifies frames changes the
-bytes that reach the wire; the adapter itself does not. `on_command_end` runs
-only after the final frame has been written, and not at all when the response
-is cancelled before its terminator. A protocol error reported by a response
-stream is passed to `handle_error`, and the connection then closes without a
-terminator, so a request buffered behind the failed stream is not served.
-`on_connection_setup` runs once per prepared connection and receives that
-connection's `PushHandle`; the end-of-file callback is not invoked on the
-prepared server path, and both remain available to callers that drive a
-`ConnectionActor` directly. The direct response helpers that write frames
-without the `FramePipeline` also bypass `before_send`; use `WireframeApp`
-routes when a response must traverse configured protocol hooks.
+`before_send` runs exactly once per emitted packet on every packet-oriented
+outbound path: ordinary handler responses, high- and low-priority push frames,
+streamed responses, multi-packet channel frames, and stream-end terminators.
+Each connection builds its own hook value and reuses one connection-local
+`ConnectionContext` for every call, so per-connection state needs no lock or
+`Arc<Mutex<_>>`. For handler responses the hook runs after serialization and
+codec wrapping, immediately before the frame is written to the transport, and
+every fragment of a fragmented response passes through it individually. This
+gives protocol implementations one place to stamp, encrypt, or observe outbound
+packets. The hook may grow the frame, but it receives no implicit space for
+doing so: whatever it writes must keep the frame within the codec's
+`max_frame_length`. The default `LengthDelimitedFrameCodec` rejects a frame
+that exceeds that limit with an oversized-frame error, which fails the send and
+ends the connection. A custom codec defines its own behaviour for an oversized
+frame, so it must enforce `max_frame_length` itself.
+
+`on_connection_setup` runs at most once per hooks value, and command end,
+stream end, error, and end-of-file callbacks keep the ordering and cardinality
+they have on the `ConnectionActor` paths. A completed `Stream` or `MultiPacket`
+response is terminated by the frame `stream_end_frame` returns; that frame is a
+complete codec frame, so the adapter neither decodes nor restamps it, and any
+metadata a custom codec keeps outside the payload survives. `on_command_end`
+runs only after the final frame has been written, and not at all when the
+response is cancelled before its terminator. A protocol error reported by a
+response stream is passed to `handle_error`, and the connection then closes
+without a terminator, so a request buffered behind the failed stream is not
+served. The prepared server path invokes `on_connection_setup` once, after the
+connection's push handle is published, so a protocol can address its own
+connection before the actor starts; it does not invoke the end-of-file
+callback, which remains available to callers that drive a `ConnectionActor`
+directly. There is no hook for transport frames; the packet boundary from
+[ADR 010](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+still applies. The direct response helpers that write frames without the
+`FramePipeline` bypass `before_send`; use `WireframeApp` routes when a response
+must traverse configured protocol hooks.
 
 ## Running servers
 
