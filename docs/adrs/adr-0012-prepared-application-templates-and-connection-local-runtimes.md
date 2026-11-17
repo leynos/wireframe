@@ -11,10 +11,11 @@ implements the connection-local inbound runtime — framed codec state, inbound
 pipeline, fragment reassembly, message-assembly state, the deserialization
 failure counter, resolved budgets, the read timeout, and connection setup state
 — together with the centralized lifecycle finalization described in section 5.
-Other ownership listed under `ConnectionRuntime` in section 1, including
-`ConnectionContext`, outbound connection-actor state, peer metadata, and the
-teardown guard, remains sequenced work. The broader ownership decision remains
-proposed while that work continues.
+[#644](https://github.com/leynos/wireframe/issues/644) implements the protocol
+ownership and hook-dispatch consolidation in section 6. Other ownership listed
+under `ConnectionRuntime` in section 1, including outbound connection-actor
+state, peer metadata, and the teardown guard, remains sequenced work. The
+broader ownership decision remains proposed while that work continues.
 
 First proposed on 2026-08-08 in issue
 [#637](https://github.com/leynos/wireframe/issues/637); imported and refined on
@@ -96,7 +97,7 @@ Related issues and decisions:
 - [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md),
   whose packet/transport-frame boundary remains unchanged;
 - [#547](https://github.com/leynos/wireframe/issues/547), normal app
-  responses bypass configured protocol hooks;
+  responses bypass configured protocol hooks (delivered);
 - [#549](https://github.com/leynos/wireframe/issues/549), returned
   stream-processing errors reach a registered teardown hook; completed together
   with panic and cancellation finalization by
@@ -115,7 +116,7 @@ Implementation of this ADR is sequenced through:
 - [#643](https://github.com/leynos/wireframe/issues/643), the
   connection-local runtime and centralized lifecycle finalization (implemented);
 - [#644](https://github.com/leynos/wireframe/issues/644), consolidated
-  protocol ownership and hook dispatch;
+  protocol ownership and hook dispatch (implemented);
 - [#648](https://github.com/leynos/wireframe/issues/648), collapse of
   nested application-owned sharing beneath `PreparedApp`.
 
@@ -491,6 +492,27 @@ past that limit fails the send and ends the connection. The remaining protocol
 hooks stay on the `ConnectionActor` push and streaming paths; the direct
 response helpers bypass `before_send` by design.
 
+[#547](https://github.com/leynos/wireframe/issues/547) delivered the
+handler-response dispatch.
+[#644](https://github.com/leynos/wireframe/issues/644) then consolidated
+ownership: `ProtocolHooks` is an enum whose `Protocol` form wraps a
+`ProtocolDispatch`, and that dispatch erases a possibly-`?Sized` protocol
+behind a single `Arc` instead of the six per-operation forwarding closures the
+old representation built. A protocol-backed connection therefore holds exactly
+one strong reference, and `on_connection_setup` runs at most once per hooks
+value. The connection actor and the frame pipeline each hold a crate-private
+`ConnectionProtocol` that pairs that hooks value with the connection's single
+`ConnectionContext`; it is the only place a connection mutates hook context.
+That pairing is the input the ownership collapse under
+[#648](https://github.com/leynos/wireframe/issues/648) needs: the actor and
+pipeline can be folded into one runtime without revisiting hook semantics.
+Every packet-oriented outbound path now runs `before_send` exactly once per
+emitted packet — handler responses, push frames, streamed responses,
+multi-packet channel frames, and stream-end terminators — and no
+transport-frame hook is introduced, so the
+[ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+packet boundary is unchanged.
+
 ### 7. Unify examples with the production runtime
 
 Examples should stop maintaining a separate `Arc<WireframeApp>` bootstrap
@@ -568,7 +590,11 @@ notification. Thread one prepared root into connection tasks
 Replace application-owned `Arc` callback/assembler layers with direct or boxed
 ownership where they cannot escape independently
 ([#648](https://github.com/leynos/wireframe/issues/648)). Consolidate protocol
-ownership under [#644](https://github.com/leynos/wireframe/issues/644).
+ownership under [#644](https://github.com/leynos/wireframe/issues/644)
+(implemented): each connection now holds one strong protocol reference and one
+hook context, and the remaining collapse under
+[#648](https://github.com/leynos/wireframe/issues/648) can build on that
+`ConnectionProtocol` pairing.
 
 ### Phase 5: settle public API and documentation
 

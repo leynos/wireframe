@@ -426,16 +426,23 @@ actor remains packet-oriented and works with `Envelope` or another
 packet-shaped type; it does not become responsible for codec frame buffers.
 
 The codec driver owns the `packet -> bytes -> transport frame` transition,
-including serialization and `FrameCodec::wrap_payload`. Most protocol hooks
-remain packet-oriented and run on the connection actor's path before
-serialization. The exception is `before_send` for application handler responses:
-`FramePipeline` owns the per-connection `ProtocolHooks` and
-`ConnectionContext`, and runs `before_send` on the codec-wrapped frame after
-serialization and `wrap_payload`, immediately before `Framed::send`. Each
-connection constructs fresh `ProtocolHooks` and a fresh `ConnectionContext`, so
-per-connection context and callback instances are not shared. State held by a
-shared `WireframeProtocol` implementation is still shared by every connection
-that installs it.
+including serialization and `FrameCodec::wrap_payload`. Protocol hooks remain
+packet-oriented, and every packet-oriented outbound path runs `before_send`
+exactly once per emitted packet: handler responses, push frames, streamed
+responses, multi-packet channel frames, and stream-end terminators. For an
+application handler response, `FramePipeline` runs the hook on the
+codec-wrapped frame after serialization and `wrap_payload`, immediately before
+`Framed::send`.
+
+`FramePipeline` and `ConnectionActor` each hold a crate-private
+`ConnectionProtocol`, which pairs one `ProtocolHooks` value with one
+`ConnectionContext`. A connection constructs both once and reuses that context
+for its lifetime, so per-connection state needs no `Arc<Mutex<_>>`. A
+`ProtocolHooks::Protocol` value owns exactly one strong reference to the
+installed protocol and dispatches every callback through it; the enum's
+`Custom` form holds handwritten callbacks instead. State held by a shared
+`WireframeProtocol` implementation is still shared by every connection that
+installs it, but a connection never clones the protocol per callback.
 
 The hook therefore receives the exact frame that will be written, and its
 mutation reaches the wire. Hook output must still fit the codec's
