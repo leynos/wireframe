@@ -242,6 +242,44 @@ async fn try_push_shares_the_rate_limit_with_awaited_pushes() {
     );
 }
 
+/// A non-blocking push refused for capacity spends no rate budget.
+///
+/// Capacity is reserved before a permit is drawn, so the refused high-priority
+/// push leaves the last permit untouched. The low-priority lane has room of its
+/// own, so its push must still be admitted. Drawing the permit first would have
+/// spent it on the refused frame and rejected the low-priority push as
+/// `RateLimited` with nothing queued.
+#[tokio::test]
+async fn try_push_refused_for_capacity_does_not_spend_a_rate_permit() {
+    time::pause();
+    let (mut queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .rate(Some(2))
+        .build()
+        .expect("queue builds");
+
+    handle
+        .push_high_priority(1)
+        .await
+        .expect("the first push spends one permit and fills the high lane");
+    assert_eq!(
+        handle.try_push(2, PushPriority::High, PushPolicy::ReturnErrorIfFull),
+        Err(PushError::QueueFull),
+        "a full high lane must refuse the frame without spending the last permit"
+    );
+    handle
+        .try_push(3, PushPriority::Low, PushPolicy::ReturnErrorIfFull)
+        .expect("the low lane has room and the refusal spent no permit");
+
+    let delivered = [queues.recv().await, queues.recv().await];
+    assert_eq!(
+        delivered,
+        [Some((PushPriority::High, 1)), Some((PushPriority::Low, 3)),],
+        "only the admitted frames are queued, in delivery order"
+    );
+}
+
 /// A closed connection outranks an exhausted rate limit on the non-blocking
 /// path.
 ///

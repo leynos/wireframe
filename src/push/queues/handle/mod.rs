@@ -177,25 +177,29 @@ impl<F: FrameLike> PushHandle<F> {
     ///
     /// Unlike [`push_high_priority`](Self::push_high_priority) and
     /// [`push_low_priority`](Self::push_low_priority), this method never waits:
-    /// it makes one non-blocking attempt to acquire a rate-limit permit and one
-    /// non-blocking attempt to send. A frame is not queued when the limiter has
-    /// no permit, so a producer cannot exceed the configured rate by using this
-    /// path.
+    /// it makes one non-blocking attempt to reserve queue capacity and, only
+    /// then, one non-blocking attempt to acquire a rate-limit permit. Capacity
+    /// is reserved before a permit is drawn, matching the awaited helpers, so a
+    /// push refused for a full queue spends no rate budget and a rate refusal
+    /// releases its reservation without changing the queue. A frame is not
+    /// queued when the limiter has no permit, so a producer cannot exceed the
+    /// configured rate by using this path.
     ///
     /// # Errors
     ///
-    /// Returns [`PushError::RateLimited`] when the shared rate limiter has no
-    /// permit available. The frame is then discarded without being queued or
-    /// dead-lettered, and the caller may retry after the next refill window.
-    /// Returns [`PushError::QueueFull`] if the queue is full and the policy is
-    /// [`PushPolicy::ReturnErrorIfFull`]. Returns [`PushError::Closed`] if the
-    /// receiving end has been dropped, which is reported even when no permit
-    /// is available: a closed connection is permanent, so a producer must not
-    /// be told to retry after a refill. Returns
-    /// [`PushError::FrameTooLarge`] if the connection's codec cannot encode the
-    /// frame. When
-    /// [`PushPolicy::DropIfFull`] or [`PushPolicy::WarnAndDropIfFull`] is used,
-    /// a configured dead letter queue receives the dropped frame.
+    /// Returns [`PushError::RateLimited`] when the queue has room but the
+    /// shared rate limiter has no permit available. The reservation is then
+    /// released, leaving the queue unchanged, and the frame is discarded
+    /// without being queued or dead-lettered; the caller may retry after the
+    /// next refill window. Returns [`PushError::QueueFull`] if the queue is
+    /// full and the policy is [`PushPolicy::ReturnErrorIfFull`]. Returns
+    /// [`PushError::Closed`] if the receiving end has been dropped, which is
+    /// reported even when no permit is available: a closed connection is
+    /// permanent, so a producer must not be told to retry after a refill.
+    /// Returns [`PushError::FrameTooLarge`] if the connection's codec cannot
+    /// encode the frame. When [`PushPolicy::DropIfFull`] or
+    /// [`PushPolicy::WarnAndDropIfFull`] is used, a configured dead letter
+    /// queue receives the dropped frame.
     ///
     /// # Examples
     ///
@@ -243,34 +247,64 @@ impl<F: FrameLike> PushHandle<F> {
         if tx.is_closed() {
             return Err(PushError::Closed);
         }
-        // The shared limiter is consulted here too, so this path cannot
-        // overdraw the budget the awaited pushes draw on. It cannot wait, so a
-        // missing permit is a refusal rather than a delay.
-        if let Some(ref limiter) = self.0.limiter
-            && !limiter.try_acquire(1)
-        {
-            // The caller may discard the error, so this is the only aggregate
-            // signal that a push was refused for rate rather than for capacity.
-            crate::metrics::inc_push_rate_limited();
-            return Err(PushError::RateLimited);
-        }
-
-        match tx.try_send(frame) {
-            Ok(()) => Ok(()),
-            Err(mpsc::error::TrySendError::Full(f)) => match policy {
-                PushPolicy::ReturnErrorIfFull => Err(PushError::QueueFull),
-                PushPolicy::DropIfFull | PushPolicy::WarnAndDropIfFull => {
-                    if matches!(policy, PushPolicy::WarnAndDropIfFull) {
-                        warn!(
-                            "push queue full: priority={priority:?}, policy={policy:?}, dlq={dlq}",
-                            dlq = self.0.dead_letter.has_queue()
-                        );
-                    }
-                    self.0.dead_letter.route_or_count(f, priority, policy);
-                    Ok(())
+        // Capacity is reserved before a permit is drawn, the same order the
+        // awaited helpers use. A permit taken for a frame that is then refused
+        // would spend budget with nothing queued, and a following push on the
+        // other lane could be refused `RateLimited` while that budget was gone.
+        match tx.try_reserve() {
+            Ok(permit) => {
+                // The shared limiter is consulted here too, so this path cannot
+                // overdraw the budget the awaited pushes draw on. It cannot
+                // wait, so a missing permit is a refusal rather than a delay.
+                if let Some(ref limiter) = self.0.limiter
+                    && !limiter.try_acquire(1)
+                {
+                    // The caller may discard the error, so this is the only
+                    // aggregate signal that a push was refused for rate rather
+                    // than for capacity.
+                    crate::metrics::inc_push_rate_limited();
+                    // Dropping the reservation releases the slot and leaves the
+                    // queue exactly as it was.
+                    drop(permit);
+                    return Err(PushError::RateLimited);
                 }
-            },
-            Err(mpsc::error::TrySendError::Closed(_)) => Err(PushError::Closed),
+                permit.send(frame);
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Full(())) => {
+                self.apply_full_policy(frame, priority, policy)
+            }
+            Err(mpsc::error::TrySendError::Closed(())) => Err(PushError::Closed),
+        }
+    }
+
+    /// Apply the configured policy to a frame refused by a full queue.
+    ///
+    /// The frame is still owned here, so the drop policies can route it to the
+    /// dead-letter queue rather than losing it without a trace.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PushError::QueueFull`] when the policy is
+    /// [`PushPolicy::ReturnErrorIfFull`].
+    fn apply_full_policy(
+        &self,
+        frame: F,
+        priority: PushPriority,
+        policy: PushPolicy,
+    ) -> Result<(), PushError> {
+        match policy {
+            PushPolicy::ReturnErrorIfFull => Err(PushError::QueueFull),
+            PushPolicy::DropIfFull | PushPolicy::WarnAndDropIfFull => {
+                if matches!(policy, PushPolicy::WarnAndDropIfFull) {
+                    warn!(
+                        "push queue full: priority={priority:?}, policy={policy:?}, dlq={dlq}",
+                        dlq = self.0.dead_letter.has_queue()
+                    );
+                }
+                self.0.dead_letter.route_or_count(frame, priority, policy);
+                Ok(())
+            }
         }
     }
 
