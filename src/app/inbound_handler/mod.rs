@@ -1,7 +1,9 @@
 //! Inbound connection handling and route preparation utilities.
 
 mod actor;
-mod core;
+// The connection-local runtime drives the same frame loop from outside this
+// module, so the processing entry point is crate-visible.
+pub(crate) mod core;
 mod frames;
 mod framing;
 mod peer_watch;
@@ -15,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 use super::{
     Route,
     builder::WireframeApp,
+    connection_runtime::{ConnectionRuntime, InboundConfig},
     envelope::{Envelope, Packet},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
     memory_budgets::MemoryBudgets,
@@ -69,11 +72,16 @@ where
 
 /// Drive a connection using immutable application inputs and prepared routes.
 ///
-/// When a teardown hook is registered and setup produced state, teardown runs
-/// exactly once before this function returns, whether stream processing
-/// completed cleanly or returned an error such as a malformed frame or a
-/// failed send. Panic and cancellation finalization are outside this ordering
-/// and remain tracked by ADR-012 and issue #643.
+/// One [`ConnectionRuntime`] owns the per-connection state for the whole
+/// call. When a teardown hook is registered and setup produced state, teardown
+/// runs exactly once after processing stops: whether stream processing
+/// completed cleanly, returned an error such as a malformed frame or a failed
+/// send, observed shutdown, or panicked inside a handler. A handler panic is
+/// finalized and then re-raised so the connection-task supervisor still counts
+/// and logs it.
+///
+/// Setup completes before any framing state is built, and the framed transport
+/// is released before teardown is awaited.
 pub(crate) async fn process_connection<S, C, E, F, W>(
     stream: W,
     context: ConnectionProcessingContext<'_, S, C, E, F>,
@@ -100,21 +108,10 @@ where
         read_timeout_ms,
         shutdown,
     } = context;
-    let connection_state = if let Some(setup) = on_connect {
-        Some(setup().await)
-    } else {
-        None
-    };
 
-    // Keep the processing result instead of propagating it with `?`. When
-    // setup has produced state and a teardown hook is registered, an early
-    // return here would skip teardown and leak per-connection resources on
-    // decode, protocol, or transport errors. Do not add `?` to this await:
-    // teardown must observe every path that can still return a value. Panic
-    // and cancellation are not finalized here; see ADR-012 and issue #643.
-    let processing_result = core::process_stream(
+    let mut runtime = ConnectionRuntime::new(
         stream,
-        core::StreamProcessingContext {
+        InboundConfig {
             routes,
             serializer,
             codec,
@@ -126,12 +123,21 @@ where
             read_timeout_ms,
             shutdown,
         },
-    )
-    .await;
+    );
 
-    if let (Some(teardown), Some(state)) = (on_disconnect, connection_state) {
-        teardown(state).await;
+    // Setup runs before any frame is read. A setup panic or a dropped setup
+    // future leaves the finalizer `NotSetUp`, so teardown is never invoked
+    // without state. `ConnectionRuntime::new` only stages the transport: the
+    // codec clone and frame-buffer reservation happen inside `run`, after this
+    // await, so a pending setup cannot retain connection memory.
+    if let Some(setup) = on_connect {
+        runtime.arm_setup(setup().await);
     }
+
+    // Keep the processing result instead of propagating it with `?`. An early
+    // return here would skip finalization and leak per-connection resources on
+    // decode, protocol, or transport errors.
+    let processing_result = runtime.run(on_disconnect).await;
 
     if let Err(error) = processing_result {
         warn!(

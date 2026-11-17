@@ -8,6 +8,12 @@
 #[path = "../common/mod.rs"]
 mod common;
 
+#[path = "lifecycle_matrix.rs"]
+mod lifecycle_matrix;
+
+#[path = "lifecycle_support.rs"]
+mod lifecycle_support;
+
 #[path = "tcp.rs"]
 mod tcp;
 
@@ -24,6 +30,7 @@ use std::{
 
 #[path = "../common/fallible_assertions/check.rs"]
 mod fallible_check;
+
 #[path = "../common/fallible_assertions/check_equal.rs"]
 mod fallible_check_equal;
 
@@ -55,7 +62,9 @@ use wireframe_testing::{
 };
 
 const ROUTES: usize = 2;
+
 const MIDDLEWARE_LAYERS: usize = 2;
+
 const CONNECTIONS: usize = 2;
 
 type TestPreparedApp = PreparedApp<BincodeSerializer, (), Envelope>;

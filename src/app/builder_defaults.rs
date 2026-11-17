@@ -16,8 +16,8 @@ pub(super) const MIN_READ_TIMEOUT_MS: u64 = 1;
 /// idle connection.
 pub(super) const MAX_READ_TIMEOUT_MS: u64 = 86_400_000;
 /// Default inbound frame/stream read timeout in milliseconds, used by
-/// [`WireframeApp::default`] and `process_stream` for every `framed.next()`
-/// read.
+/// [`WireframeApp::default`] and the connection-local inbound read loop for
+/// every `framed.next()` read.
 pub(super) const DEFAULT_READ_TIMEOUT_MS: u64 = 100;
 /// Timeout after which incomplete fragment assemblies are evicted.
 const DEFAULT_FRAGMENT_TIMEOUT: Duration = Duration::from_secs(30);
