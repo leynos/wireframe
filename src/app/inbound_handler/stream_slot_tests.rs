@@ -7,7 +7,7 @@ use futures::StreamExt;
 use rstest::{fixture, rstest};
 
 use super::{
-    super::stream_terminal::deliver_then_await,
+    super::stream_terminal::{HandlerWait, await_handler, deliver_then_await},
     ActiveStream,
     ConnectionStreams,
     HandlerFuture,
@@ -224,8 +224,8 @@ async fn a_terminal_error_reaches_a_handler_whose_channel_is_full(
     .await;
 
     assert_eq!(
-        outcome.as_deref(),
-        Some(b"error".as_slice()),
+        outcome,
+        HandlerWait::Replied(Some(Bytes::from_static(b"error"))),
         "the handler should observe the failure, not a clean end of stream"
     );
 }
@@ -252,8 +252,55 @@ async fn terminal_delivery_is_bounded_when_the_handler_never_reads(
     // stalled on channel capacity rather than on a closed channel.
     drop(body);
     assert_eq!(
-        outcome, None,
+        outcome,
+        HandlerWait::Deadline,
         "an unresponsive handler should still be bounded by the wait"
+    );
+}
+
+/// A handler that finishes normally reports its own outcome, not a deadline.
+#[rstest]
+#[tokio::test(start_paused = true)]
+async fn a_handler_reply_is_reported_as_replied() {
+    let mut handler: HandlerFuture =
+        Box::pin(async { Some(Bytes::from_static(b"reply")) });
+
+    let outcome = await_handler(Duration::from_secs(1), &mut handler).await;
+
+    assert_eq!(
+        outcome,
+        HandlerWait::Replied(Some(Bytes::from_static(b"reply"))),
+        "a completed handler must not be reported as a deadline"
+    );
+}
+
+/// A deliberate silence is distinct from the handler outliving the wait.
+#[rstest]
+#[tokio::test(start_paused = true)]
+async fn a_handler_without_a_reply_is_reported_as_replied() {
+    let mut handler: HandlerFuture = Box::pin(async { None });
+
+    let outcome = await_handler(Duration::from_secs(1), &mut handler).await;
+
+    assert_eq!(
+        outcome,
+        HandlerWait::Replied(None),
+        "choosing not to reply must not look like a deadline"
+    );
+}
+
+/// A handler that never finishes must be reported as a deadline.
+#[rstest]
+#[tokio::test(start_paused = true)]
+async fn a_handler_outliving_the_wait_is_reported_as_a_deadline(short_wait: Duration) {
+    let mut handler: HandlerFuture = Box::pin(future::pending());
+
+    let outcome = await_handler(short_wait, &mut handler).await;
+
+    assert_eq!(
+        outcome,
+        HandlerWait::Deadline,
+        "a hung handler must be observable as a deadline"
     );
 }
 

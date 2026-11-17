@@ -19,9 +19,10 @@ use super::{
         envelope::{Envelope, Packet},
         frame_handling::Dispatch,
     },
+    stream_diagnostics,
     stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk},
     stream_parked::forward_reply,
-    stream_terminal::deliver_then_await,
+    stream_terminal::{HandlerWait, await_handler, deliver_then_await},
 };
 #[cfg(test)]
 #[path = "stream_slot_tests.rs"]
@@ -287,16 +288,23 @@ impl ConnectionStreams {
         active.pending = None;
         let sender = active.sender.take();
         discard_streaming(active.assembly, handles.assembly);
-        let outcome = match (terminal, sender) {
+        let wait = match (terminal, sender) {
             (Some(error), Some(open_sender)) => {
                 deliver_then_await(handles.wait, error, open_sender, &mut active.handler).await
             }
-            _ => timeout(handles.wait, &mut active.handler)
-                .await
-                .ok()
-                .flatten(),
+            _ => await_handler(handles.wait, &mut active.handler).await,
         };
-        forward_reply(active.route_id, active.correlation_id, outcome, handles).await
+        let reply = match wait {
+            HandlerWait::Replied(reply) => reply,
+            HandlerWait::Deadline => {
+                // The handler outlived the wait and its reply is abandoned.
+                // Recording it keeps a hung handler distinguishable from one
+                // that deliberately chose not to reply.
+                stream_diagnostics::handler_deadline_exceeded(active.route_id);
+                None
+            }
+        };
+        forward_reply(active.route_id, active.correlation_id, reply, handles).await
     }
 
     /// Fail the body for an expired streaming assembly.

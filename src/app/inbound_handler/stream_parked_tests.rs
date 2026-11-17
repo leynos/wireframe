@@ -4,8 +4,11 @@ use std::{collections::VecDeque, future, time::Duration};
 
 use bytes::Bytes;
 use futures::StreamExt;
+use tracing_test::traced_test;
 
-use super::{MAX_PARKED_MESSAGES, ParkedMessage, await_reply, deliver_prefilled, park};
+use super::{
+    MAX_PARKED_MESSAGES, ParkedMessage, await_parked_reply, deliver_prefilled, park,
+};
 use crate::{
     app::{
         Envelope,
@@ -105,23 +108,31 @@ async fn an_affordable_prefilled_body_arrives_whole() {
 /// The reply is awaited while parked messages drain, which happens during
 /// end-of-connection teardown. Without a bound, one unresponsive handler kept
 /// the connection from closing and its resources allocated.
+#[traced_test]
 #[tokio::test(start_paused = true)]
 async fn an_unresponsive_prefilled_handler_is_bounded_by_the_wait() {
-    let response: HandlerFuture = Box::pin(future::pending());
+    let mut response: HandlerFuture = Box::pin(future::pending());
 
-    let payload = await_reply(wait(), response).await;
+    let payload = await_parked_reply(wait(), &mut response, 7).await;
 
     assert_eq!(
         payload, None,
         "an elapsed reply wait must be treated as no reply"
     );
+    logs_assert(|lines: &[&str]| {
+        lines
+            .iter()
+            .any(|line| line.contains("streaming handler exceeded the connection wait"))
+            .then_some(())
+            .ok_or_else(|| "abandoned handler was not reported".to_owned())
+    });
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_completed_prefilled_handler_reply_is_returned() {
-    let response: HandlerFuture = Box::pin(async { Some(Bytes::from_static(b"reply")) });
+    let mut response: HandlerFuture = Box::pin(async { Some(Bytes::from_static(b"reply")) });
 
-    let payload = await_reply(wait(), response).await;
+    let payload = await_parked_reply(wait(), &mut response, 7).await;
 
     assert_eq!(
         payload.as_deref(),

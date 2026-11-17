@@ -27,6 +27,7 @@ use super::{
     stream_diagnostics,
     stream_handles::{ChunkBudget, DispatchHandles},
     stream_slot::HandlerFuture,
+    stream_terminal::{HandlerWait, await_handler},
 };
 use crate::{
     codec::FrameCodec,
@@ -182,11 +183,11 @@ where
     let correlation_id = parts.correlation_id();
     let (sender, stream) =
         accounted_body_channel(DEFAULT_BODY_CHANNEL_CAPACITY, handles.queued.clone());
-    let response = streaming_handler(parts, stream);
+    let mut response = streaming_handler(parts, stream);
     let budget = ChunkBudget::measure(&handles, parked);
     deliver_prefilled(&sender, body, budget, handles.wait).await;
     drop(sender);
-    let payload = await_reply(handles.wait, response).await;
+    let payload = await_parked_reply(handles.wait, &mut response, route_id).await;
     forward_reply(route_id, correlation_id, payload, handles).await
 }
 
@@ -197,10 +198,21 @@ where
 /// live slot bounds its equivalent wait in
 /// [`ConnectionStreams::close_active`](super::stream_slot::ConnectionStreams::close_active);
 /// without the same bound here, one handler that never completes would keep the
-/// connection closing and its resources allocated indefinitely. An elapsed wait
-/// means the handler produced no reply, so no frame is written.
-async fn await_reply(wait: Duration, response: HandlerFuture) -> Option<Bytes> {
-    timeout(wait, response).await.ok().flatten()
+/// connection closing and its resources allocated indefinitely. A handler that
+/// outlived the wait produces no reply, and is reported rather than being
+/// mistaken for one that chose to stay silent.
+async fn await_parked_reply(
+    wait: Duration,
+    response: &mut HandlerFuture,
+    route_id: u32,
+) -> Option<Bytes> {
+    match await_handler(wait, response).await {
+        HandlerWait::Replied(reply) => reply,
+        HandlerWait::Deadline => {
+            stream_diagnostics::handler_deadline_exceeded(route_id);
+            None
+        }
+    }
 }
 
 /// Queue a fully assembled body as the only chunk of its stream.

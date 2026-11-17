@@ -8,7 +8,7 @@
 //! here also keeps the wording and field names consistent across the dispatch
 //! modules that raise them.
 
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::request::{SendChunkError, SendClosed};
 
@@ -43,4 +43,15 @@ pub(super) fn prefilled_not_admitted() {
 /// Report a pre-filled body's terminal failure that never reached its handler.
 pub(super) fn prefilled_failure_not_delivered(error: SendClosed) {
     debug!(?error, "pre-filled request body failure was not delivered");
+}
+
+/// Report a handler that outlived the connection's wait for its reply.
+///
+/// The reply is abandoned at this point, so the deadline is the only evidence
+/// that the handler did not simply choose to stay silent.
+pub(super) fn handler_deadline_exceeded(route_id: u32) {
+    warn!(
+        route_id,
+        "streaming handler exceeded the connection wait; its reply is abandoned"
+    );
 }

@@ -14,6 +14,29 @@ use tokio::time::timeout;
 use super::{stream_diagnostics, stream_slot::HandlerFuture};
 use crate::request::AccountedBodySender;
 
+/// How a handler finished while the connection was waiting for its reply.
+///
+/// A handler that returns `None` has deliberately chosen not to reply, which is
+/// a normal outcome. A handler still running when the wait expires has produced
+/// no answer at all, and the connection has abandoned it. Keeping the two apart
+/// means the abandoned case can be reported instead of silently looking like a
+/// deliberate silence.
+#[derive(Debug, Eq, PartialEq)]
+pub(super) enum HandlerWait {
+    /// The handler finished within the wait, with or without a reply.
+    Replied(Option<Bytes>),
+    /// The wait elapsed with the handler still running.
+    Deadline,
+}
+
+/// Await the handler under the connection's teardown bound.
+pub(super) async fn await_handler(wait: Duration, handler: &mut HandlerFuture) -> HandlerWait {
+    match timeout(wait, handler.as_mut()).await {
+        Ok(outcome) => HandlerWait::Replied(outcome),
+        Err(_) => HandlerWait::Deadline,
+    }
+}
+
 /// Deliver a terminal body error while the handler drains, then await it.
 ///
 /// The error needs a slot on the same bounded channel that carries body chunks,
@@ -30,7 +53,7 @@ pub(super) async fn deliver_then_await(
     error: io::Error,
     sender: AccountedBodySender,
     handler: &mut HandlerFuture,
-) -> Option<Bytes> {
+) -> HandlerWait {
     let delivery = deliver_terminal(wait, error, sender);
     tokio::pin!(delivery);
     let deadline = tokio::time::sleep(wait);
@@ -39,8 +62,8 @@ pub(super) async fn deliver_then_await(
     loop {
         tokio::select! {
             () = &mut delivery, if !is_delivered => is_delivered = true,
-            outcome = handler.as_mut() => return outcome,
-            () = &mut deadline => return None,
+            outcome = handler.as_mut() => return HandlerWait::Replied(outcome),
+            () = &mut deadline => return HandlerWait::Deadline,
         }
     }
 }
