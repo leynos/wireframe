@@ -265,4 +265,3 @@ async fn an_abandoned_write_discards_the_finished_response() {
         "the abandoned write must not reach the transport"
     );
 }
-
