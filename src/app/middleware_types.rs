@@ -64,7 +64,6 @@ pub type StreamingHandler = Arc<
         + Sync,
 >;
 
-
 /// Trait representing middleware components.
 pub trait Middleware<E: Packet>:
     Transform<HandlerService<E>, Output = HandlerService<E>> + Send + Sync
@@ -108,4 +107,3 @@ mod tests {
         );
     }
 }
-// weave: run 'weave explain src/app/middleware_types.rs' for per-hunk detail, 'weave check' to verify your resolution

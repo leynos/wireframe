@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::{
     app::{
-Route,
+        Route,
         builder_defaults::DEFAULT_READ_TIMEOUT_MS,
         envelope::{Envelope, Packet},
         error::Result,
@@ -94,7 +94,6 @@ where
     }
 }
 
-
 impl<S, C, E, F> WireframeApp<S, C, E, F>
 where
     S: Serializer + Default + Send + Sync,
@@ -132,7 +131,6 @@ where
     }
 }
 
-
 /// Groups the type-changing parameters for [`WireframeApp::rebuild_with_params`].
 ///
 /// Consolidates serializer, codec, protocol, fragmentation, message assembler,
@@ -152,7 +150,6 @@ pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     /// Memory limits retained across a type transition.
     pub(super) memory_budgets: Option<MemoryBudgets>,
 }
-
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
 where
@@ -223,7 +220,6 @@ where
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -395,4 +391,3 @@ mod tests {
         Ok(())
     }
 }
-// weave: run 'weave explain src/app/builder/core.rs' for per-hunk detail, 'weave check' to verify your resolution

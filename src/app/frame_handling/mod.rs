@@ -43,4 +43,3 @@ mod delivery_span_tests;
 mod terminator_tests;
 #[cfg(all(test, not(loom)))]
 mod tests;
-// weave: run 'weave explain src/app/frame_handling/mod.rs' for per-hunk detail, 'weave check' to verify your resolution

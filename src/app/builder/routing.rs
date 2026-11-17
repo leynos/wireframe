@@ -5,7 +5,7 @@ use crate::{
     WireframeError,
     app::{
         Packet,
-Route,
+        Route,
         error::Result,
         middleware_types::{Handler, Middleware, ResponseHandler, StreamingHandler},
     },
@@ -25,7 +25,7 @@ where
     /// # Errors
     ///
     /// Returns [`WireframeError::DuplicateRoute`] if a handler for `id`
-/// has already been registered, buffered or streaming.
+    /// has already been registered, buffered or streaming.
     pub fn route(self, id: u32, handler: Handler<E>) -> Result<Self> {
         self.insert_route(id, Route::Unit(handler))
     }
@@ -99,4 +99,3 @@ where
         Ok(self)
     }
 }
-// weave: run 'weave explain src/app/builder/routing.rs' for per-hunk detail, 'weave check' to verify your resolution

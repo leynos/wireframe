@@ -32,7 +32,6 @@ use crate::{
 #[path = "core_tests.rs"]
 mod tests;
 
-
 /// Immutable stream-wide configuration shared by all inbound frames.
 pub(super) struct StreamProcessingContext<'a, S, E, F>
 where
@@ -63,7 +62,6 @@ where
     /// Server shutdown signal; cancelling it stops this connection.
     pub(super) shutdown: &'a CancellationToken,
 }
-
 
 /// Read and process frames until the stream closes or an I/O error occurs.
 pub(super) async fn process_stream<S, E, F, W>(
@@ -123,7 +121,6 @@ where
     )
     .await
 }
-
 
 /// Detect a bincode budget failure so fallback decoding does not repeat the work.
 fn is_bincode_limit_exceeded(error: &(dyn std::error::Error + 'static)) -> bool {
@@ -290,5 +287,3 @@ const fn completes_message(outcome: &FrameOutcome) -> bool {
         }
     }
 }
-
-// weave: run 'weave explain src/app/inbound_handler/core.rs' for per-hunk detail, 'weave check' to verify your resolution

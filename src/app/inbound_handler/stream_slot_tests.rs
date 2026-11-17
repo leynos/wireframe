@@ -262,8 +262,7 @@ async fn terminal_delivery_is_bounded_when_the_handler_never_reads(
 #[rstest]
 #[tokio::test(start_paused = true)]
 async fn a_handler_reply_is_reported_as_replied() {
-    let mut handler: HandlerFuture =
-        Box::pin(async { Some(Bytes::from_static(b"reply")) });
+    let mut handler: HandlerFuture = Box::pin(async { Some(Bytes::from_static(b"reply")) });
 
     let outcome = await_handler(Duration::from_secs(1), &mut handler).await;
 

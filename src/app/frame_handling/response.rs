@@ -348,4 +348,3 @@ fn install_error(failure: WireframeError<()>) -> io::Error {
         other => io::Error::other(format!("failed to install handler response: {other:?}")),
     }
 }
-// weave: run 'weave explain src/app/frame_handling/response.rs' for per-hunk detail, 'weave check' to verify your resolution

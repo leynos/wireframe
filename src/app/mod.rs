@@ -36,4 +36,3 @@ pub use middleware_types::{Handler, Middleware, ResponseHandler, StreamingHandle
 #[doc(hidden)]
 pub use outbound_encoding::benchmark_encode_message_frame;
 pub use prepared_app::PreparedApp;
-// weave: run 'weave explain src/app/mod.rs' for per-hunk detail, 'weave check' to verify your resolution

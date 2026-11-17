@@ -172,7 +172,8 @@ where
                 return Ok(Step::Closed);
             }
             apply_memory_pressure(state, &mut handles).await?;
-            if !state.streams.is_live() && drain_parked(state, &mut handles).await? == Dispatch::Stop
+            if !state.streams.is_live()
+                && drain_parked(state, &mut handles).await? == Dispatch::Stop
             {
                 return Ok(Step::Closed);
             }

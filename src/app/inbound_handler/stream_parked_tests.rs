@@ -6,9 +6,7 @@ use bytes::Bytes;
 use futures::StreamExt;
 use tracing_test::traced_test;
 
-use super::{
-    MAX_PARKED_MESSAGES, ParkedMessage, await_parked_reply, deliver_prefilled, park,
-};
+use super::{MAX_PARKED_MESSAGES, ParkedMessage, await_parked_reply, deliver_prefilled, park};
 use crate::{
     app::{
         Envelope,

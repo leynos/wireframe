@@ -177,7 +177,6 @@ where
     }
 }
 
-
 impl<S, C, E, F> PreparedApp<S, C, E, F>
 where
     S: Serializer + FrameMetadata<Frame = super::Envelope> + Send + Sync + 'static,
@@ -277,7 +276,6 @@ where
         result
     }
 
-
     /// Handle an accepted connection and log any processing failure.
     ///
     /// # Examples
@@ -306,7 +304,6 @@ where
         }
     }
 }
-
 
 impl<S, C, E, F> PreparedApp<S, C, E, F>
 where
@@ -376,8 +373,6 @@ where
     }
 }
 
-
 #[cfg(test)]
 #[path = "prepared_app_tests.rs"]
 mod tests;
-// weave: run 'weave explain src/app/prepared_app.rs' for per-hunk detail, 'weave check' to verify your resolution
