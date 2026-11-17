@@ -16,7 +16,7 @@
 #[path = "common/server_push_support.rs"]
 mod support;
 
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use bytes::Bytes;
 use support::{
@@ -103,7 +103,14 @@ async fn shutdown_deregisters_a_connection_with_a_pending_push() -> TestResult<(
         .with_protocol(protocol.clone())
         .with_session_registry(Arc::clone(&registry));
     let (addr, shutdown) = spawn_server(app).await?;
-    let socket = TcpSocket::new_v4()?;
+    // The listener binds `localhost`, whose preferred family depends on the
+    // host's resolver: this machine answers with `127.0.0.1`, while the CI
+    // runner answers with `::1`. A socket of the wrong family fails to connect
+    // with `EAFNOSUPPORT`, so the family has to follow the listener.
+    let socket = match addr {
+        SocketAddr::V4(_) => TcpSocket::new_v4()?,
+        SocketAddr::V6(_) => TcpSocket::new_v6()?,
+    };
     socket.set_recv_buffer_size(RECEIVE_BUFFER)?;
     let client = socket.connect(addr).await?;
     let (connection_id, handle) = only_connection(&protocol).await?;
