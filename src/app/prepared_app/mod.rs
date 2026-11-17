@@ -22,8 +22,10 @@ mod preparation;
 
 /// An immutable application template with fully transformed route services.
 ///
-/// Obtain this type by consuming a [`WireframeApp`] with
-/// [`WireframeApp::prepare`]. It deliberately has no route-registration API,
+/// Obtain this type by consuming a
+/// [`WireframeApp`](crate::app::builder::WireframeApp) with
+/// [`WireframeApp::prepare`](crate::app::builder::WireframeApp::prepare). It
+/// deliberately has no route-registration API,
 /// so all handler and middleware transforms have completed before connections
 /// start using the application.
 pub struct PreparedApp<
