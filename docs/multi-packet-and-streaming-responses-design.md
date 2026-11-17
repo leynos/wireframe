@@ -156,8 +156,7 @@ asked for a terminator and neither the terminator nor `on_command_end` is
 emitted. An abandoned terminator write is reached only after the response
 completed and `stream_end_frame` supplied the frame: the write is abandoned
 mid-flight, so the terminator never reaches the peer and `on_command_end` is
-still suppressed, because a half-written terminator must not report
-completion.
+still suppressed, because a half-written terminator must not report completion.
 
 The terminator write is bounded for the same reason the response frames are. A
 peer that stopped reading can block the last frame as readily as any other, so
