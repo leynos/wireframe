@@ -1,31 +1,37 @@
 //! Feature titles and `#[scenario]` binding extraction.
 
-use camino::Utf8PathBuf;
 use syn::{Attribute, Item, Lit, Meta, Token};
 
 /// One parsed `#[scenario]` attribute from a scenario module.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ScenarioBinding {
     /// Literal `path` argument, when the attribute provided one.
-    pub(crate) path: Option<Utf8PathBuf>,
+    pub(crate) path: Option<String>,
     /// Literal `name` argument, when the attribute provided one.
     pub(crate) name: Option<String>,
     /// Reason the binding cannot be checked, when it is unsupported.
     pub(crate) problem: Option<String>,
 }
 
-/// Return the trimmed scenario titles from Gherkin source.
-pub(crate) fn feature_titles(contents: &str) -> Vec<String> {
-    contents
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.starts_with('#'))
-        .filter_map(|line| {
-            line.strip_prefix("Scenario Outline:")
-                .or_else(|| line.strip_prefix("Scenario:"))
-                .map(|title| title.trim().to_owned())
-        })
-        .collect()
+/// Parse Gherkin source with the harness's parser and return scenario titles.
+///
+/// `rstest-bdd` parses feature files with the `gherkin` crate, so using the
+/// same parser keeps the check aligned with compile-time validation. That
+/// parser recognizes every scenario heading (`Scenario`, `Example`,
+/// `Scenario Outline`, and `Scenario Template`) and keeps doc strings, data
+/// tables, and comments out of the title list.
+///
+/// # Errors
+///
+/// Returns a message when the source is not valid Gherkin.
+pub(crate) fn feature_titles(contents: &str) -> Result<Vec<String>, String> {
+    let feature = gherkin::Feature::parse(contents, gherkin::GherkinEnv::default())
+        .map_err(|error| format!("cannot parse feature file: {error}"))?;
+    Ok(feature
+        .scenarios
+        .into_iter()
+        .map(|scenario| scenario.name)
+        .collect())
 }
 
 /// Parse every top-level `#[scenario]` binding in a scenario module.
@@ -91,9 +97,9 @@ fn parse_argument(
     binding: &mut ScenarioBinding,
 ) -> syn::Result<()> {
     if meta.path.is_ident("path") {
-        parse_path_argument(meta, binding)
+        set_string_argument(meta, &mut binding.path, "path", &mut binding.problem)
     } else if meta.path.is_ident("name") {
-        parse_name_argument(meta, binding)
+        set_string_argument(meta, &mut binding.name, "name", &mut binding.problem)
     } else if meta.path.is_ident("index") {
         parse_index_argument(meta, binding)
     } else {
@@ -101,33 +107,17 @@ fn parse_argument(
     }
 }
 
-/// Parse the `path` argument, recording a non-literal value as a problem.
-fn parse_path_argument(
+/// Store a string argument, recording a non-literal value as a problem.
+fn set_string_argument(
     meta: &syn::meta::ParseNestedMeta<'_>,
-    binding: &mut ScenarioBinding,
+    field: &mut Option<String>,
+    name: &str,
+    problem: &mut Option<String>,
 ) -> syn::Result<()> {
     match take_string(meta)? {
-        Some(value) => binding.path = Some(Utf8PathBuf::from(value)),
+        Some(value) => *field = Some(value),
         None => {
-            binding
-                .problem
-                .get_or_insert_with(|| "`path` must be a string literal".to_owned());
-        }
-    }
-    Ok(())
-}
-
-/// Parse the `name` argument, recording a non-literal value as a problem.
-fn parse_name_argument(
-    meta: &syn::meta::ParseNestedMeta<'_>,
-    binding: &mut ScenarioBinding,
-) -> syn::Result<()> {
-    match take_string(meta)? {
-        Some(value) => binding.name = Some(value),
-        None => {
-            binding
-                .problem
-                .get_or_insert_with(|| "`name` must be a string literal".to_owned());
+            problem.get_or_insert_with(|| format!("`{name}` must be a string literal"));
         }
     }
     Ok(())

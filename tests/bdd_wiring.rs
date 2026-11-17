@@ -20,7 +20,9 @@ use bdd_wiring::{
     Mutation,
     RepoSnapshot,
     Violation,
+    alternate_heading_snapshot,
     base_snapshot,
+    doc_string_snapshot,
     evaluate,
     feature_stems,
     harness_scenario_modules,
@@ -91,14 +93,13 @@ fn live_repository_families_are_wired() -> TestResult {
     Ok(())
 }
 
-#[test]
-fn conforming_synthetic_layout_has_no_violations() -> TestResult {
-    let snapshot = base_snapshot().build();
+/// Require a snapshot to evaluate without violations.
+fn assert_no_violations(snapshot: RepoSnapshot, description: &str) -> TestResult {
     let violations = evaluate(&snapshot);
     check(
         violations.is_empty(),
         format!(
-            "the conforming layout should have no violations; got:\n{}",
+            "{description} should have no violations; got:\n{}",
             render(&violations)
         ),
     )?;
@@ -106,17 +107,32 @@ fn conforming_synthetic_layout_has_no_violations() -> TestResult {
 }
 
 #[test]
+fn conforming_synthetic_layout_has_no_violations() -> TestResult {
+    assert_no_violations(base_snapshot().build(), "the conforming layout")
+}
+
+#[test]
 fn nested_fixture_layout_is_accepted() -> TestResult {
-    let snapshot = nested_fixture_snapshot().build();
-    let violations = evaluate(&snapshot);
-    check(
-        violations.is_empty(),
-        format!(
-            "the nested fixture layout should have no violations; got:\n{}",
-            render(&violations)
-        ),
-    )?;
-    Ok(())
+    assert_no_violations(
+        nested_fixture_snapshot().build(),
+        "the nested fixture layout",
+    )
+}
+
+#[test]
+fn alternate_scenario_headings_are_accepted() -> TestResult {
+    assert_no_violations(
+        alternate_heading_snapshot().build(),
+        "the alternative heading layout",
+    )
+}
+
+#[test]
+fn doc_string_text_is_not_a_scenario_title() -> TestResult {
+    assert_no_violations(
+        doc_string_snapshot().build(),
+        "a feature whose doc string contains heading-like text",
+    )
 }
 
 #[rstest]
@@ -189,6 +205,21 @@ fn nested_fixture_layout_is_accepted() -> TestResult {
     Mutation::DocCommentOnly,
     "tests/scenarios/example_scenarios.rs",
     "has no binding"
+)]
+#[case::example_heading_unbound(
+    Mutation::ExampleHeadingUnbound,
+    "tests/scenarios/example_scenarios.rs",
+    "scenario title `Unbound example` has no binding"
+)]
+#[case::scenario_template_unbound(
+    Mutation::ScenarioTemplateUnbound,
+    "tests/scenarios/example_scenarios.rs",
+    "scenario title `Unbound template` has no binding"
+)]
+#[case::malformed_feature(
+    Mutation::MalformedFeature,
+    "tests/features/example.feature",
+    "cannot parse feature file"
 )]
 fn synthetic_violations_are_reported(
     #[case] mutation: Mutation,

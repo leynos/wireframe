@@ -38,12 +38,13 @@ pub(crate) fn check_orphans(
         }
     }
     for inventory in inventories {
-        check_registered_orphans(inventory, stems, violations);
+        check_orphan_scenarios(inventory, stems, violations);
+        check_orphan_fixtures(inventory, stems, violations);
     }
 }
 
-/// Report registered modules that have no matching feature.
-fn check_registered_orphans(
+/// Report registered scenario modules that have no matching feature.
+fn check_orphan_scenarios(
     inventory: &HarnessInventory,
     stems: &BTreeSet<String>,
     violations: &mut Vec<Violation>,
@@ -61,6 +62,14 @@ fn check_registered_orphans(
             ));
         }
     }
+}
+
+/// Report public fixture modules that have no matching feature.
+fn check_orphan_fixtures(
+    inventory: &HarnessInventory,
+    stems: &BTreeSet<String>,
+    violations: &mut Vec<Violation>,
+) {
     for declaration in inventory
         .fixtures
         .iter()

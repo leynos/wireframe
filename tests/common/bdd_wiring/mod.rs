@@ -18,4 +18,11 @@ mod synthetic;
 pub(crate) use check::evaluate;
 pub(crate) use harness::{feature_stems, harness_scenario_modules};
 pub(crate) use snapshot::{RepoSnapshot, Violation};
-pub(crate) use synthetic::{Mutation, base_snapshot, mutated_snapshot, nested_fixture_snapshot};
+pub(crate) use synthetic::{
+    Mutation,
+    alternate_heading_snapshot,
+    base_snapshot,
+    doc_string_snapshot,
+    mutated_snapshot,
+    nested_fixture_snapshot,
+};

@@ -3669,6 +3669,7 @@ dependencies = [
  "dashmap",
  "derive_more",
  "futures",
+ "gherkin",
  "googletest",
  "itoa",
  "leaky-bucket",

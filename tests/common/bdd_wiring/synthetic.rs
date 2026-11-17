@@ -25,6 +25,62 @@ Feature: Example
     Given an example
 ";
 
+/// A feature using the alternative `Example:` and `Scenario Template:` headings.
+const ALTERNATE_FEATURE: &str = r"
+Feature: Example
+  Example: Example runs
+    Given an example
+
+  Scenario Template: Example is templated
+    Given an example
+
+    Examples:
+      | value |
+      | one   |
+";
+
+/// A feature whose `Example:` heading has no binding.
+const EXAMPLE_HEADING_FEATURE: &str = r"
+Feature: Example
+  Scenario: Example runs
+    Given an example
+
+  Example: Unbound example
+    Given an example
+";
+
+/// A feature whose `Scenario Template:` heading has no binding.
+const TEMPLATE_HEADING_FEATURE: &str = r"
+Feature: Example
+  Scenario: Example runs
+    Given an example
+
+  Scenario Template: Unbound template
+    Given an example
+
+    Examples:
+      | value |
+      | one   |
+";
+
+/// A feature whose doc string contains text that looks like a heading.
+const DOC_STRING_FEATURE: &str = r#"
+Feature: Example
+  Scenario: Example runs
+    Given an example
+      """
+      Scenario: Not a real scenario
+      """
+"#;
+
+/// A feature with an unterminated doc string.
+const MALFORMED_FEATURE: &str = r#"
+Feature: Example
+  Scenario: Example runs
+    Given an example
+      """
+"#;
+
 /// A scenario module that conforms to every wiring rule.
 const EXAMPLE_SCENARIO: &str = r#"
 use rstest_bdd_macros::scenario;
@@ -35,6 +91,24 @@ use crate::fixtures::example::*;
     name = "Example runs"
 )]
 fn example_runs(example_world: ExampleWorld) { let _ = example_world; }
+"#;
+
+/// A scenario module binding both alternative headings.
+const ALTERNATE_SCENARIO: &str = r#"
+use rstest_bdd_macros::scenario;
+use crate::fixtures::example::*;
+
+#[scenario(
+    path = "tests/features/example.feature",
+    name = "Example runs"
+)]
+fn example_runs(example_world: ExampleWorld) { let _ = example_world; }
+
+#[scenario(
+    path = "tests/features/example.feature",
+    name = "Example is templated"
+)]
+fn example_is_templated(example_world: ExampleWorld) { let _ = example_world; }
 "#;
 
 /// A scenario module with imports but no bindings.
@@ -64,6 +138,15 @@ fn example_runs(example_world: ExampleWorld) { let _ = example_world; }
 
 /// Example world fixture.
 const EXAMPLE_FIXTURE: &str = "//! Example world.\npub struct ExampleWorld;\n";
+
+/// Paths shared by the synthetic layouts.
+const FEATURE_FILE: &str = "tests/features/example.feature";
+const SCENARIO_FILE: &str = "tests/scenarios/example_scenarios.rs";
+const SCENARIO_REGISTRY: &str = "tests/scenarios/mod.rs";
+const FIXTURE_FILE: &str = "tests/fixtures/example.rs";
+const FIXTURE_REGISTRY: &str = "tests/fixtures/mod.rs";
+const POOL_SCENARIOS: &str = "tests/bdd_pool/scenarios.rs";
+const POOL_FIXTURES: &str = "tests/bdd_pool/fixtures.rs";
 
 /// A single synthetic defect applied to the conforming layout.
 #[derive(Clone, Copy, Debug)]
@@ -96,90 +179,145 @@ pub(crate) enum Mutation {
     UnresolvablePath,
     /// The `#[scenario]` attribute appears only in a doc comment.
     DocCommentOnly,
+    /// An `Example:` heading has no binding.
+    ExampleHeadingUnbound,
+    /// A `Scenario Template:` heading has no binding.
+    ScenarioTemplateUnbound,
+    /// The feature file is not valid Gherkin.
+    MalformedFeature,
 }
 
 /// Build the conforming synthetic layout shared by the mutation cases.
 pub(crate) fn base_snapshot() -> SnapshotBuilder {
     SnapshotBuilder::new()
         .with_file("tests/bdd/mod.rs", MAIN_ROOT)
-        .with_file("tests/scenarios/mod.rs", "mod example_scenarios;\n")
-        .with_file("tests/fixtures/mod.rs", "pub mod example;\n")
-        .with_file("tests/features/example.feature", EXAMPLE_FEATURE)
-        .with_file("tests/scenarios/example_scenarios.rs", EXAMPLE_SCENARIO)
-        .with_file("tests/fixtures/example.rs", EXAMPLE_FIXTURE)
+        .with_file(SCENARIO_REGISTRY, "mod example_scenarios;\n")
+        .with_file(FIXTURE_REGISTRY, "pub mod example;\n")
+        .with_file(FEATURE_FILE, EXAMPLE_FEATURE)
+        .with_file(SCENARIO_FILE, EXAMPLE_SCENARIO)
+        .with_file(FIXTURE_FILE, EXAMPLE_FIXTURE)
         .with_file("tests/bdd_pool/mod.rs", POOL_ROOT)
-        .with_file("tests/bdd_pool/scenarios.rs", "//! Scenario wiring.\n")
-        .with_file("tests/bdd_pool/fixtures.rs", "//! Fixture wiring.\n")
+        .with_file(POOL_SCENARIOS, "//! Scenario wiring.\n")
+        .with_file(POOL_FIXTURES, "//! Fixture wiring.\n")
 }
 
 /// Build the conforming layout with the `<stem>/mod.rs` fixture form.
 pub(crate) fn nested_fixture_snapshot() -> SnapshotBuilder {
     base_snapshot()
-        .without_file("tests/fixtures/example.rs")
+        .without_file(FIXTURE_FILE)
         .with_file("tests/fixtures/example/mod.rs", EXAMPLE_FIXTURE)
+}
+
+/// Build the conforming layout with the alternative Gherkin headings.
+pub(crate) fn alternate_heading_snapshot() -> SnapshotBuilder {
+    base_snapshot()
+        .with_file(FEATURE_FILE, ALTERNATE_FEATURE)
+        .with_file(SCENARIO_FILE, ALTERNATE_SCENARIO)
+}
+
+/// Build the conforming layout with heading-like text inside a doc string.
+pub(crate) fn doc_string_snapshot() -> SnapshotBuilder {
+    base_snapshot().with_file(FEATURE_FILE, DOC_STRING_FEATURE)
 }
 
 /// Apply one synthetic defect to the conforming layout.
 pub(crate) fn mutated_snapshot(mutation: Mutation) -> SnapshotBuilder {
     let builder = base_snapshot();
     match mutation {
-        Mutation::MissingScenario => builder
-            .without_file("tests/scenarios/example_scenarios.rs")
-            .with_file("tests/scenarios/mod.rs", ""),
-        Mutation::MissingFixture => builder
-            .without_file("tests/fixtures/example.rs")
-            .with_file("tests/fixtures/mod.rs", ""),
-        Mutation::UnregisteredScenario => builder.with_file("tests/scenarios/mod.rs", ""),
-        Mutation::RegisteredTwice => builder
-            .with_file(
-                "tests/bdd_pool/scenarios.rs",
-                "#[path = \"../scenarios/example_scenarios.rs\"]\nmod example_scenarios;\n",
-            )
-            .with_file(
-                "tests/bdd_pool/fixtures.rs",
-                "#[path = \"../fixtures/example.rs\"]\npub mod example;\n",
-            ),
-        Mutation::WrongFeaturePath => builder.with_file(
-            "tests/scenarios/example_scenarios.rs",
-            EXAMPLE_SCENARIO.replace(
-                "tests/features/example.feature",
-                "tests/features/other.feature",
-            ),
-        ),
-        Mutation::MissingBinding => {
-            builder.with_file("tests/scenarios/example_scenarios.rs", IMPORTS_ONLY)
+        Mutation::MissingScenario => missing_scenario(builder),
+        Mutation::MissingFixture => missing_fixture(builder),
+        Mutation::UnregisteredScenario => builder.with_file(SCENARIO_REGISTRY, ""),
+        Mutation::RegisteredTwice => registered_twice(builder),
+        Mutation::WrongFeaturePath => wrong_feature_path(builder),
+        Mutation::MissingBinding => builder.with_file(SCENARIO_FILE, IMPORTS_ONLY),
+        Mutation::UnmatchedBinding => unmatched_binding(builder),
+        Mutation::DuplicateBinding => duplicate_binding(builder),
+        Mutation::IndexSelector => index_selector(builder),
+        Mutation::MissingImport => builder.with_file(SCENARIO_FILE, MISSING_IMPORT),
+        Mutation::OrphanScenario => orphan_scenario(builder),
+        Mutation::PublicFixtureWithoutFeature => public_fixture_without_feature(builder),
+        Mutation::UnresolvablePath => unresolvable_path(builder),
+        Mutation::DocCommentOnly => builder.with_file(SCENARIO_FILE, DOC_COMMENT_ONLY),
+        Mutation::ExampleHeadingUnbound => builder.with_file(FEATURE_FILE, EXAMPLE_HEADING_FEATURE),
+        Mutation::ScenarioTemplateUnbound => {
+            builder.with_file(FEATURE_FILE, TEMPLATE_HEADING_FEATURE)
         }
-        Mutation::UnmatchedBinding => builder.with_file(
-            "tests/scenarios/example_scenarios.rs",
-            EXAMPLE_SCENARIO.replace("Example runs", "Unknown scenario"),
-        ),
-        Mutation::DuplicateBinding => builder.with_file(
-            "tests/scenarios/example_scenarios.rs",
-            format!("{EXAMPLE_SCENARIO}\n{EXAMPLE_SCENARIO}"),
-        ),
-        Mutation::IndexSelector => builder.with_file(
-            "tests/scenarios/example_scenarios.rs",
-            EXAMPLE_SCENARIO.replace("name = \"Example runs\"", "index = 0"),
-        ),
-        Mutation::MissingImport => {
-            builder.with_file("tests/scenarios/example_scenarios.rs", MISSING_IMPORT)
-        }
-        Mutation::OrphanScenario => builder.with_file(
-            "tests/scenarios/orphan_scenarios.rs",
-            "//! Orphan scenario module.\n",
-        ),
-        Mutation::PublicFixtureWithoutFeature => builder
-            .with_file(
-                "tests/fixtures/mod.rs",
-                "pub mod example;\npub mod orphan;\n",
-            )
-            .with_file("tests/fixtures/orphan.rs", "//! Orphan fixture module.\n"),
-        Mutation::UnresolvablePath => builder.with_file(
-            "tests/scenarios/mod.rs",
-            "mod example_scenarios;\n#[path = \"missing_scenarios.rs\"]\nmod missing_scenarios;\n",
-        ),
-        Mutation::DocCommentOnly => {
-            builder.with_file("tests/scenarios/example_scenarios.rs", DOC_COMMENT_ONLY)
-        }
+        Mutation::MalformedFeature => builder.with_file(FEATURE_FILE, MALFORMED_FEATURE),
     }
+}
+
+/// Remove the scenario module and its registration.
+fn missing_scenario(builder: SnapshotBuilder) -> SnapshotBuilder {
+    builder
+        .without_file(SCENARIO_FILE)
+        .with_file(SCENARIO_REGISTRY, "")
+}
+
+/// Remove the fixture module and its registration.
+fn missing_fixture(builder: SnapshotBuilder) -> SnapshotBuilder {
+    builder
+        .without_file(FIXTURE_FILE)
+        .with_file(FIXTURE_REGISTRY, "")
+}
+
+/// Register the family in both harnesses.
+fn registered_twice(builder: SnapshotBuilder) -> SnapshotBuilder {
+    builder
+        .with_file(
+            POOL_SCENARIOS,
+            "#[path = \"../scenarios/example_scenarios.rs\"]\nmod example_scenarios;\n",
+        )
+        .with_file(
+            POOL_FIXTURES,
+            "#[path = \"../fixtures/example.rs\"]\npub mod example;\n",
+        )
+}
+
+/// Point the binding at a feature file that does not exist.
+fn wrong_feature_path(builder: SnapshotBuilder) -> SnapshotBuilder {
+    let source = EXAMPLE_SCENARIO.replace(FEATURE_FILE, "tests/features/other.feature");
+    builder.with_file(SCENARIO_FILE, source)
+}
+
+/// Bind a name the feature does not contain.
+fn unmatched_binding(builder: SnapshotBuilder) -> SnapshotBuilder {
+    let source = EXAMPLE_SCENARIO.replace("Example runs", "Unknown scenario");
+    builder.with_file(SCENARIO_FILE, source)
+}
+
+/// Bind the same title twice.
+fn duplicate_binding(builder: SnapshotBuilder) -> SnapshotBuilder {
+    builder.with_file(
+        SCENARIO_FILE,
+        format!("{EXAMPLE_SCENARIO}\n{EXAMPLE_SCENARIO}"),
+    )
+}
+
+/// Select a scenario by index instead of by name.
+fn index_selector(builder: SnapshotBuilder) -> SnapshotBuilder {
+    let source = EXAMPLE_SCENARIO.replace("name = \"Example runs\"", "index = 0");
+    builder.with_file(SCENARIO_FILE, source)
+}
+
+/// Add a scenario module that has no matching feature.
+fn orphan_scenario(builder: SnapshotBuilder) -> SnapshotBuilder {
+    builder.with_file(
+        "tests/scenarios/orphan_scenarios.rs",
+        "//! Orphan scenario module.\n",
+    )
+}
+
+/// Register a public fixture module that has no matching feature.
+fn public_fixture_without_feature(builder: SnapshotBuilder) -> SnapshotBuilder {
+    builder
+        .with_file(FIXTURE_REGISTRY, "pub mod example;\npub mod orphan;\n")
+        .with_file("tests/fixtures/orphan.rs", "//! Orphan fixture module.\n")
+}
+
+/// Declare a module whose `#[path]` target does not exist.
+fn unresolvable_path(builder: SnapshotBuilder) -> SnapshotBuilder {
+    builder.with_file(
+        SCENARIO_REGISTRY,
+        "mod example_scenarios;\n#[path = \"missing_scenarios.rs\"]\nmod missing_scenarios;\n",
+    )
 }

@@ -2199,12 +2199,15 @@ Scenario bindings take literal `path` and `name` arguments:
 )]
 ```
 
-The `path` must name the family's own feature file, and every `Scenario:` or
-`Scenario Outline:` title in that file needs exactly one binding whose `name`
-matches the trimmed title. The check rejects duplicate bindings, bindings for
-titles the feature does not contain, and titles without a binding. Scenario
-modules import their world as `use crate::fixtures::<stem>::*;` or a grouped
-explicit import such as `use crate::fixtures::<stem>::{World, world};`.
+The `path` must name the family's own feature file. Titles are read with the
+same `gherkin` parser that `rstest-bdd` uses, so every standard heading counts:
+`Scenario`, `Example`, `Scenario Outline`, and `Scenario Template`. Each title
+needs exactly one binding whose `name` matches the trimmed title. Text inside
+doc strings, data tables, or comments never counts as a title. The check
+rejects duplicate bindings, bindings for titles the feature does not contain,
+and titles without a binding. Scenario modules import their world as
+`use crate::fixtures::<stem>::*;` or a grouped explicit import such as
+`use crate::fixtures::<stem>::{World, world};`.
 
 Fixture registry declarations for a family are public (`pub mod <stem>;`).
 Modules under `tests/fixtures/` that support a family without defining its

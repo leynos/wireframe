@@ -35,16 +35,46 @@ pub(crate) fn check_scenario_module(
             format!("scenario module must import `crate::fixtures::{stem}`"),
         ));
     }
-    if let Some(feature_source) = snapshot.get(feature_path) {
-        let titles = feature_titles(feature_source);
-        let context = BindingContext {
-            titles: &titles,
+    if let Some(contents) = snapshot.get(feature_path) {
+        let source = BindingSource {
+            contents,
             feature_path,
             scenario_path,
         };
-        context.check(&file, &mut Vec::new(), &mut violations);
+        check_feature_bindings(&source, &file, &mut violations);
     }
     violations
+}
+
+/// Feature source and the paths of the modules that bind it.
+struct BindingSource<'a> {
+    /// Feature file contents.
+    contents: &'a str,
+    /// Family feature file.
+    feature_path: &'a Utf8Path,
+    /// Scenario module that must bind the feature's titles.
+    scenario_path: &'a Utf8Path,
+}
+
+/// Compare a scenario module's bindings with its feature's titles.
+fn check_feature_bindings(
+    source: &BindingSource<'_>,
+    file: &syn::File,
+    violations: &mut Vec<Violation>,
+) {
+    let titles = match feature_titles(source.contents) {
+        Ok(titles) => titles,
+        Err(reason) => {
+            violations.push(Violation::new(source.feature_path, reason));
+            return;
+        }
+    };
+    let context = BindingContext {
+        titles: &titles,
+        feature_path: source.feature_path,
+        scenario_path: source.scenario_path,
+    };
+    context.check(file, &mut Vec::new(), violations);
 }
 
 /// Context shared by binding checks for one scenario module.
@@ -83,7 +113,7 @@ impl BindingContext<'_> {
             return;
         }
         if let Some(path) = &binding.path
-            && path.as_path() != self.feature_path
+            && Utf8Path::new(path) != self.feature_path
         {
             violations.push(Violation::new(
                 self.scenario_path,
