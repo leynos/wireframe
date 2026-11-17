@@ -20,9 +20,10 @@ use super::*;
 /// observation token. A half-close alone does not mean the peer stopped
 /// reading, so the write keeps a whole grace to complete. The test therefore
 /// checks both sides of that deadline — still pending just before it, and
-/// abandoned once it passes — because checking only the final outcome would
-/// also pass an implementation that abandoned the terminator the moment the
-/// peer closed its input half.
+/// abandoned promptly once it passes — because checking only the final
+/// outcome would also pass an implementation that abandoned the terminator the
+/// moment the peer closed its input half, or one that abandoned it only long
+/// after the grace had expired.
 #[rstest::rstest]
 #[case::half_close(true)]
 #[case::buffered_request(false)]
@@ -86,8 +87,12 @@ async fn a_terminator_keeps_its_whole_grace_before_being_abandoned(
     );
 
     tokio::time::advance(PAST_DEADLINE).await;
-    let outcome = driving
+    // The deadline is virtual under a paused clock, so a short bound here still
+    // fails an implementation that only abandons the write long after the
+    // grace expired, without costing real time.
+    let outcome = tokio::time::timeout(Duration::from_millis(100), driving)
         .await
+        .expect("the terminator must be abandoned once the grace has passed")
         .expect("an abandoned terminator is not a transport error");
 
     assert_eq!(
