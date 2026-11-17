@@ -24,6 +24,20 @@ use crate::{
     serializer::Serializer,
 };
 
+/// Runtime inputs a connection run needs beyond the accepted stream.
+///
+/// They are grouped so the internal entry point keeps a short argument list,
+/// and so every caller states in one place which clock and shutdown signal a
+/// run uses.
+pub(super) struct ConnectionRun<'a> {
+    /// Address the connection was accepted from, when the transport exposed one.
+    pub(super) peer_address: Option<SocketAddr>,
+    /// Clock used for connection-timing telemetry.
+    pub(super) clock: &'a dyn MonotonicClock,
+    /// Signal that stops the connection when cancelled.
+    pub(super) shutdown: &'a CancellationToken,
+}
+
 impl<S, C, E, F> PreparedApp<S, C, E, F>
 where
     S: Serializer + FrameMetadata<Frame = crate::app::Envelope> + Send + Sync + 'static,
@@ -114,21 +128,28 @@ where
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
-        self.handle_connection_inner(stream, peer_address, &StdMonotonicClock, &shutdown)
-            .await
+        let run = ConnectionRun {
+            peer_address,
+            clock: &StdMonotonicClock,
+            shutdown: &shutdown,
+        };
+        self.handle_connection_inner(stream, run).await
     }
 
     /// Handle a connection with an injectable clock and shutdown signal.
     pub(super) async fn handle_connection_inner<W>(
         &self,
         stream: W,
-        peer_address: Option<SocketAddr>,
-        clock: &dyn MonotonicClock,
-        shutdown: &CancellationToken,
+        run: ConnectionRun<'_>,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
+        let ConnectionRun {
+            peer_address,
+            clock,
+            shutdown,
+        } = run;
         metrics::inc_prepared_connection_uses();
         let started_at = clock.now();
         let span = tracing::info_span!(
@@ -136,27 +157,33 @@ where
             outcome = tracing::field::Empty,
             elapsed_ms = tracing::field::Empty
         );
-        let result = process_connection(
-            stream,
-            ConnectionProcessingContext {
-                routes: &self.routes,
-                serializer: Arc::clone(&self.serializer),
-                codec: &self.codec,
-                on_connect: self.on_connect.as_ref(),
-                on_disconnect: self.on_disconnect.as_ref(),
-                message_assembler: self.message_assembler.as_ref(),
-                fragmentation: self.fragmentation,
-                protocol_hooks: self.protocol_hooks(),
-                protocol: self.protocol.clone(),
-                memory_budgets: self.memory_budgets,
-                read_timeout_ms: self.read_timeout_ms,
-                shutdown,
-                recovery_hook: self.recovery_hook.as_ref(),
-                recovery_config: self.recovery_config.clone(),
-                peer_address,
-            },
+        // One connection's read loop is a large future: the framed transport,
+        // the recovery coordinator, and the actioner all live across its
+        // awaits. Boxing it here keeps every caller's future small, which
+        // matters because the server keeps one per accepted connection.
+        let result = Box::pin(
+            process_connection(
+                stream,
+                ConnectionProcessingContext {
+                    routes: &self.routes,
+                    serializer: Arc::clone(&self.serializer),
+                    codec: &self.codec,
+                    on_connect: self.on_connect.as_ref(),
+                    on_disconnect: self.on_disconnect.as_ref(),
+                    message_assembler: self.message_assembler.as_ref(),
+                    fragmentation: self.fragmentation,
+                    protocol_hooks: self.protocol_hooks(),
+                    protocol: self.protocol.clone(),
+                    memory_budgets: self.memory_budgets,
+                    read_timeout_ms: self.read_timeout_ms,
+                    shutdown,
+                    recovery_hook: self.recovery_hook.as_ref(),
+                    recovery_config: self.recovery_config.clone(),
+                    peer_address,
+                },
+            )
+            .instrument(span.clone()),
         )
-        .instrument(span.clone())
         .await;
         span.record("outcome", if result.is_ok() { "success" } else { "error" });
         let elapsed_ms =

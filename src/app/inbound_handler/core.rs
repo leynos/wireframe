@@ -215,27 +215,8 @@ where
         else {
             break;
         };
-        // A decoder failure is handled here rather than inside `handle_frame`:
-        // the recovery policy can discard or quarantine it, which is a property
-        // of the read loop rather than of dispatching one decoded frame.
-        let frame = match item {
-            DecodedItem::Frame(frame) => {
-                recovery.record_decoded_frame();
-                frame
-            }
-            DecodedItem::Failure(failure) => {
-                if let Some(error) = recovery
-                    .apply(
-                        failure,
-                        &mut inbound.pipeline,
-                        &mut inbound.message_assembly,
-                    )
-                    .await
-                {
-                    return Err(error);
-                }
-                continue;
-            }
+        let Some(frame) = resolve_read_item(item, &mut inbound, &mut recovery).await? else {
+            continue;
         };
 
         let (unobserved, cause) = observe_peer(&mut response_actor.actor, &peer_eof);
@@ -269,6 +250,34 @@ where
     }
 
     Ok(())
+}
+
+/// Resolve one read item into the frame the loop must dispatch.
+///
+/// A decoder failure is handled here rather than inside [`handle_frame`]: the
+/// recovery policy can discard or quarantine it, which is a property of the
+/// read loop rather than of dispatching one decoded frame. `None` means the
+/// applied policy discarded the failure, so the loop reads again; a policy that
+/// ends the connection returns the decoder's own error.
+async fn resolve_read_item<T>(
+    item: DecodedItem<T>,
+    inbound: &mut InboundFrames<DecodedItem<T>, T>,
+    recovery: &mut RecoveryCoordinator<'_>,
+) -> io::Result<Option<T>> {
+    match item {
+        DecodedItem::Frame(frame) => {
+            recovery.record_decoded_frame();
+            Ok(Some(frame))
+        }
+        DecodedItem::Failure(failure) => recovery
+            .apply(
+                failure,
+                &mut inbound.pipeline,
+                &mut inbound.message_assembly,
+            )
+            .await
+            .map_or(Ok(None), Err),
+    }
 }
 
 /// Decode one frame, apply reassembly, and dispatch the resulting envelope.

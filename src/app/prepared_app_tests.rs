@@ -5,7 +5,8 @@ use std::{cell::Cell, time::Duration};
 use monotony::test_util::FixedMonotonicClock;
 use tokio_util::sync::CancellationToken;
 
-use super::*;
+use super::{connection::ConnectionRun, preparation::PreparationTimeSource, *};
+use crate::app::builder::WireframeApp;
 
 /// Deterministic preparation time source that records the calls it serves.
 struct FixedPreparationTimeSource {
@@ -62,8 +63,14 @@ async fn prepared_connection_uses_injected_monotonic_clock() {
     let (client, server) = tokio::io::duplex(64);
     drop(client);
 
+    let shutdown = CancellationToken::new();
+    let run = ConnectionRun {
+        peer_address: None,
+        clock: &clock,
+        shutdown: &shutdown,
+    };
     prepared
-        .handle_connection_inner(server, None, &clock, &CancellationToken::new())
+        .handle_connection_inner(server, run)
         .await
         .expect("clean EOF should complete");
 }
