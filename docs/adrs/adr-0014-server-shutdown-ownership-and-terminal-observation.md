@@ -287,13 +287,13 @@ section stands.
 ### Superseded: the rejection of the stop token in connection tasks
 
 Connections now receive the stop token, but **only as a bound on work that
-cannot make progress**: a write that would otherwise block forever, and a
+cannot make progress**: a frame write that would otherwise block forever, and a
 response wait whose producer has stopped yielding. The distinction the original
 bullet protects is preserved:
 
 - A connection keeps running across `stop()` and still drains a response whose
   peer is reading. Its writes complete normally and its completion hook runs.
-- A write that is still pending when the connection stops is abandoned, because
+- A frame write still pending when the connection stops is abandoned, because
   it could otherwise block forever on a peer that stopped reading and the drain
   would never resolve.
 - A response wait is bounded rather than abandoned: the drive switches to a
