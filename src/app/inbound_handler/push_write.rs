@@ -84,6 +84,7 @@ where
     tokio::pin!(write);
     let mut closed = peer_closed;
     if batch.pending_frame.is_none() && !closed {
+        let started = Instant::now();
         tokio::select! {
             biased;
             // A ready write is preferred: a frame the transport accepts
@@ -93,7 +94,16 @@ where
                 result?;
                 return Ok(FrameWrite::written(closed));
             }
-            () = batch.shutdown.cancelled() => return Ok(FrameWrite::stopped(closed)),
+            // This arm abandons the frame before `finish_write` sees it, so it
+            // records the abandonment itself; the bounded path below records
+            // once and must not be counted twice.
+            () = batch.shutdown.cancelled() => {
+                diagnostics.record_abandonment(
+                    PushWriteAbandonReason::Shutdown,
+                    started.elapsed(),
+                );
+                return Ok(FrameWrite::stopped(closed));
+            }
             next = batch.reader.next() => match next {
                 Some(Ok(next_frame)) => *batch.pending_frame = Some(next_frame),
                 Some(Err(error)) => return Err(error),

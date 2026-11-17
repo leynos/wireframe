@@ -47,6 +47,8 @@ pub(super) struct PacedSink {
     pacing: Option<Duration>,
     /// Pause owed to the next write, armed once a write has happened.
     delay: Option<Pin<Box<tokio::time::Sleep>>>,
+    /// Whether every write reports itself unready, so none is ever accepted.
+    never_ready: bool,
 }
 
 impl PacedSink {
@@ -56,6 +58,14 @@ impl PacedSink {
     /// Share a sink that accepts every write at once with the test.
     fn immediate() -> (Self, Arc<Mutex<Vec<Bytes>>>) { Self::with_pacing(None) }
 
+    /// Share a sink whose writes stay pending, so a write never completes.
+    #[cfg(feature = "metrics")]
+    fn blocked() -> (Self, Arc<Mutex<Vec<Bytes>>>) {
+        let (mut sink, accepted) = Self::with_pacing(None);
+        sink.never_ready = true;
+        (sink, accepted)
+    }
+
     /// Build a sink and share its record of accepted frames with the test.
     fn with_pacing(pacing: Option<Duration>) -> (Self, Arc<Mutex<Vec<Bytes>>>) {
         let accepted = Arc::new(Mutex::new(Vec::new()));
@@ -63,6 +73,7 @@ impl PacedSink {
             accepted: Arc::clone(&accepted),
             pacing,
             delay: None,
+            never_ready: false,
         };
         (sink, accepted)
     }
@@ -83,6 +94,9 @@ impl Sink<Bytes> for PacedSink {
     type Error = io::Error;
 
     fn poll_ready(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        if self.never_ready {
+            return Poll::Pending;
+        }
         let is_ready = self
             .delay
             .as_mut()
@@ -173,5 +187,13 @@ pub(super) fn paced_transport() -> TransportRig {
 #[fixture]
 pub(super) fn immediate_transport() -> TransportRig {
     let (sink, accepted) = PacedSink::immediate();
+    TransportRig::new(sink, accepted)
+}
+
+/// A rig whose sink never accepts a write, so a pending write is abandoned.
+#[cfg(feature = "metrics")]
+#[fixture]
+pub(super) fn blocked_transport() -> TransportRig {
+    let (sink, accepted) = PacedSink::blocked();
     TransportRig::new(sink, accepted)
 }

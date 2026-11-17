@@ -12,8 +12,12 @@ use bytes::Bytes;
 use futures::stream;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+#[cfg(feature = "metrics")]
+use transport::blocked_transport;
 use transport::{TransportRig, immediate_transport, paced_transport};
 
+#[cfg(feature = "metrics")]
+use super::super::push_write::write_frame;
 use super::{PushBatch, deliver_pushes, drain_queued};
 use crate::{
     app::Envelope,
@@ -264,4 +268,70 @@ async fn a_stop_abandons_a_collection_that_is_still_pending(
         "an abandoned collection must write nothing"
     );
     drop(reservations);
+}
+
+/// A shutdown that abandons a fast-path write is counted, not just returned.
+///
+/// The first select prefers a ready write, so its shutdown arm handles only a
+/// write that is still pending. That arm must record the abandonment like the
+/// bounded path does; otherwise `reason="shutdown"` under-counts the frames a
+/// stop actually dropped.
+#[cfg(feature = "metrics")]
+#[rstest::rstest]
+#[tokio::test]
+async fn a_shutdown_abandoned_fast_path_write_is_counted(
+    #[from(blocked_transport)] mut harness: TransportRig,
+) {
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+    use crate::{metrics::PUSH_WRITES_ABANDONED, push::PushPriority};
+
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let shutdown = CancellationToken::new();
+    shutdown.cancel();
+    let peer_eof = CancellationToken::new();
+    let mut pending_frame = None;
+    let mut reader = stream::pending::<io::Result<Bytes>>();
+    let frame = Bytes::from_static(b"abandoned");
+    let mut batch = PushBatch {
+        frames: Vec::new(),
+        // A single lane, so the diagnostics would name `high` in a warning.
+        // The counter keeps its fixed `reason` label and grows no priority
+        // label from it.
+        priority: Some(PushPriority::High),
+        reader: &mut reader,
+        pending_frame: &mut pending_frame,
+        peer_eof: &peer_eof,
+        shutdown: &shutdown,
+    };
+
+    let outcome = {
+        let _recorder = ::metrics::set_default_local_recorder(&recorder);
+        write_frame(&mut harness.transport(), frame, &mut batch, false).await
+    }
+    .expect("a shutdown abandonment is not an error");
+    assert!(!outcome.may_continue(), "the connection must stop");
+    assert!(
+        !outcome.peer_closed(),
+        "the peer did not close its write half"
+    );
+
+    let samples = snapshotter.snapshot().into_vec();
+    let (key, _, _, value) = samples
+        .iter()
+        .find(|(key, ..)| key.key().name() == PUSH_WRITES_ABANDONED)
+        .expect("the shutdown abandonment must be counted");
+    assert!(
+        matches!(value, DebugValue::Counter(1)),
+        "the fast path must record exactly one abandonment"
+    );
+    assert!(
+        key.key().labels().count() == 1
+            && key
+                .key()
+                .labels()
+                .any(|label| label.key() == "reason" && label.value() == "shutdown"),
+        "the counter keeps its single reason label and adds no priority label"
+    );
 }
