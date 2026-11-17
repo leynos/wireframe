@@ -118,22 +118,20 @@ where
                     return Ok(ResponseOutcome::Cancelled);
                 }
             };
-            if matches!(event, Event::Shutdown) {
-                if self.abandon_response_on_shutdown {
-                    ResponseCancellationReason::Shutdown.record();
-                    // The response is abandoned, so nothing will be written from
-                    // the push queues: drop them rather than leaving a producer
-                    // able to queue into a lane that has already returned.
-                    self.discard_push_lanes();
-                    return Ok(ResponseOutcome::Cancelled);
-                }
-                // The response must still be delivered, but the connection is
-                // ending: no push lane may survive `stop()`. Discarding both
-                // lanes drops a frame queued at that moment and refuses later
-                // pushes, matching the documented shutdown rule. The event is not
-                // dispatched because a stop only closes push delivery here.
-                // Later iterations stop watching shutdown, so the cancelled token
-                // cannot spin this loop (see `watch_shutdown` above).
+            // A shutdown observed here always closes the push lanes: the
+            // connection is ending, so a frame queued at this moment is dropped
+            // rather than flushed and later pushes are refused. The event itself
+            // is never dispatched, because a stop only closes push delivery.
+            let shutdown_observed = matches!(event, Event::Shutdown);
+            if shutdown_observed && self.abandon_response_on_shutdown {
+                ResponseCancellationReason::Shutdown.record();
+                self.discard_push_lanes();
+                return Ok(ResponseOutcome::Cancelled);
+            }
+            if shutdown_observed {
+                // The response must still be delivered, so the drain continues
+                // with the lanes closed. Later iterations stop watching shutdown,
+                // which is what keeps the cancelled token from spinning the loop.
                 self.discard_push_lanes();
                 push_lanes_discarded = true;
                 continue;
