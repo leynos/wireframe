@@ -78,11 +78,6 @@ where
     H: Future<Output = io::Result<Dispatch>>,
     R: Stream<Item = io::Result<F>> + Unpin,
 {
-    let PeerObservation {
-        eof,
-        unobserved,
-        cause,
-    } = observation;
     tokio::pin!(handling);
     // A buffered frame means the read half is no longer polled, and the token
     // was cancelled when that frame was read, so the actor already bounds this
@@ -95,11 +90,11 @@ where
     // producer nobody can interrupt. Signalling is idempotent, so a dispatch
     // that follows the EOF-driven drain re-cancels a token that is already
     // cancelled.
-    if eof.is_cancelled() {
+    if observation.eof.is_cancelled() {
         return await_unobserved_peer(
             handling.as_mut(),
-            unobserved,
-            cause,
+            observation.unobserved,
+            observation.cause,
             UnobservedCause::HalfClose,
         )
         .await;
@@ -108,29 +103,48 @@ where
     tokio::select! {
         biased;
         result = &mut handling => result,
-        next = reader.next() => match next {
-            Some(Ok(frame)) => {
-                *pending_frame = Some(frame);
-                await_unobserved_peer(
-                    handling.as_mut(),
-                    unobserved,
-                    cause,
-                    UnobservedCause::BufferedRequest,
-                )
-                .await
-            }
-            Some(Err(error)) => Err(error),
-            None => {
-                eof.cancel();
-                await_unobserved_peer(
-                    handling.as_mut(),
-                    unobserved,
-                    cause,
-                    UnobservedCause::HalfClose,
-                )
-                .await
-            }
-        },
+        next = reader.next() => {
+            settle_read(next, pending_frame, handling.as_mut(), observation).await
+        }
+    }
+}
+
+/// Decide what the read half's outcome means for the in-flight response.
+///
+/// A buffered frame ends direct observation, because the read half is not
+/// polled again while that frame waits. A clean EOF is recorded connection-wide
+/// first, so every later response inherits it. Both then bound the response
+/// wait through the actor; a read error simply fails the connection.
+async fn settle_read<H, F>(
+    next: Option<io::Result<F>>,
+    pending_frame: &mut Option<F>,
+    handling: Pin<&mut H>,
+    observation: PeerObservation<'_>,
+) -> io::Result<Dispatch>
+where
+    H: Future<Output = io::Result<Dispatch>>,
+{
+    let PeerObservation {
+        eof,
+        unobserved,
+        cause,
+    } = observation;
+    match next {
+        Some(Ok(frame)) => {
+            *pending_frame = Some(frame);
+            await_unobserved_peer(
+                handling,
+                unobserved,
+                cause,
+                UnobservedCause::BufferedRequest,
+            )
+            .await
+        }
+        Some(Err(error)) => Err(error),
+        None => {
+            eof.cancel();
+            await_unobserved_peer(handling, unobserved, cause, UnobservedCause::HalfClose).await
+        }
     }
 }
 
