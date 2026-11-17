@@ -200,34 +200,20 @@ async fn bounded_preamble_preserves_valid_containers_and_following_bytes(#[case]
 
 /// A zero-length preamble must not wait for the peer to speak.
 ///
-/// The default `()` preamble encodes to no bytes, so decoding it has to
-/// succeed against a stream that never delivers anything. A read here would
-/// report end-of-file, which is why an exhausted cursor is enough to prove
-/// that no read was attempted.
+/// The default `()` preamble encodes to no bytes, so decoding it has to succeed
+/// both against a stream that never delivers anything and against one whose
+/// first bytes are already buffered. A read would report end-of-file in the
+/// first case and swallow the peer's input in the second; either way the
+/// cursor's position staying at zero proves that nothing was read.
+#[rstest]
+#[case::silent_peer(&[])]
+#[case::bytes_already_buffered(&[9, 10])]
 #[tokio::test]
-async fn empty_preamble_decodes_without_reading() {
-    let mut reader = Cursor::new([]);
+async fn empty_preamble_decodes_without_reading(#[case] pending: &[u8]) {
+    let mut reader = Cursor::new(pending);
     let ((), leftover) = read_preamble::<_, ()>(&mut reader)
         .await
         .expect("an empty preamble must decode without reading");
-    assert!(leftover.is_empty(), "no bytes are read ahead");
-    assert_eq!(
-        reader.position(),
-        0,
-        "reader.position() should stay at zero"
-    );
-}
-
-/// Bytes the peer already sent stay available to the application.
-///
-/// Reading a zero-length preamble consumes nothing, so the application sees
-/// the peer's first byte as its own input instead of discarding it.
-#[tokio::test]
-async fn empty_preamble_leaves_the_peers_bytes_unread() {
-    let mut reader = Cursor::new([9, 10]);
-    let ((), leftover) = read_preamble::<_, ()>(&mut reader)
-        .await
-        .expect("an empty preamble must leave the peer's bytes unread");
     assert!(leftover.is_empty(), "no bytes are read ahead");
     assert_eq!(
         reader.position(),
