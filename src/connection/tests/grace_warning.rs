@@ -82,7 +82,15 @@ async fn an_idle_grace_cancellation_warns_with_the_recorded_cause(
         })
         .unwrap_or_else(|| panic!("the grace cancellation must warn; captured: {warnings:#?}"));
 
-    for expected in [expected_cause, correlation_field.as_str(), "cancelling"] {
+    // The bound the grace actually applied is part of the diagnostic: an
+    // operator needs the interval that elapsed, not just the fact that one did.
+    // The fixture sets five seconds, so the rendered field is `5s`.
+    for expected in [
+        expected_cause,
+        correlation_field.as_str(),
+        "cancelling",
+        "accepted no frame for 5s",
+    ] {
         assert!(
             warning.contains(expected),
             "the cancellation warning must name {expected}; captured: {warning}"
