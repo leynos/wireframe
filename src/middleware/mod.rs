@@ -4,10 +4,18 @@
 //! the underlying [`Service`]. Implement [`Transform`] to wrap services or use
 //! [`from_fn`] to create middleware from an async function.
 
-use std::convert::Infallible;
+mod service_response;
+#[cfg(all(test, not(loom)))]
+mod service_response_tests;
+
+use std::{
+    convert::Infallible,
+    sync::{Arc, Mutex},
+};
 
 use async_trait::async_trait;
 
+pub use self::service_response::ServiceResponse;
 use crate::app::PacketParts;
 
 /// Generic container for request and response frame data.
@@ -78,49 +86,6 @@ impl ServiceRequest {
     pub fn into_inner(self) -> Vec<u8> { self.inner.into_inner() }
 }
 
-/// Response produced by a handler or middleware.
-#[derive(Debug, Default)]
-pub struct ServiceResponse {
-    /// Payload returned by a handler and later encoded for transport.
-    inner: FrameContainer<Vec<u8>>,
-    /// Correlation metadata carried by the response.
-    correlation_id: Option<u64>,
-}
-
-impl ServiceResponse {
-    /// Create a new [`ServiceResponse`] containing the given frame bytes.
-    #[must_use]
-    pub const fn new(frame: Vec<u8>, correlation_id: Option<u64>) -> Self {
-        Self {
-            inner: FrameContainer::new(frame),
-            correlation_id,
-        }
-    }
-
-    /// Borrow the inner frame bytes.
-    #[must_use]
-    pub const fn frame(&self) -> &[u8] { self.inner.frame().as_slice() }
-
-    /// Mutable access to the response frame bytes.
-    #[must_use]
-    pub const fn frame_mut(&mut self) -> &mut Vec<u8> { self.inner.frame_mut() }
-
-    /// Return the correlation identifier associated with this response, if any.
-    #[must_use]
-    pub const fn correlation_id(&self) -> Option<u64> { self.correlation_id }
-
-    /// Set or clear the correlation identifier.
-    #[must_use]
-    pub const fn set_correlation_id(&mut self, correlation_id: Option<u64>) -> &mut Self {
-        self.correlation_id = correlation_id;
-        self
-    }
-
-    /// Consume the response, yielding the raw frame bytes.
-    #[must_use]
-    pub fn into_inner(self) -> Vec<u8> { self.inner.into_inner() }
-}
-
 /// Continuation used by middleware to call the next service in the chain.
 pub struct Next<'a, S>
 where
@@ -171,6 +136,13 @@ where
 }
 
 /// Trait representing an asynchronous service.
+///
+/// Middleware that participates in a response route must mutate the incoming
+/// [`ServiceResponse`] and return it. A response installed by
+/// `WireframeApp::route_response` travels in a deferred slot on that same
+/// value; constructing a fresh [`ServiceResponse`] discards the slot, so the
+/// handler's `Response` is dropped and the route emits one frame carrying the
+/// fresh response's bytes instead.
 #[async_trait]
 pub trait Service: Send + Sync {
     /// Error type returned by the service.
@@ -281,7 +253,7 @@ where
     }
 }
 
-use crate::app::{Handler, Packet};
+use crate::app::{Handler, Packet, ResponseHandler, Route};
 
 /// Service that invokes a stored route handler and middleware chain.
 pub struct HandlerService<E: Packet> {
@@ -318,6 +290,22 @@ impl<E: Packet> HandlerService<E> {
         }
     }
 
+    /// Construct a `HandlerService` for whichever route kind is registered.
+    #[must_use]
+    pub(crate) fn from_route(id: u32, route: &Route<E>) -> Self {
+        match route {
+            Route::Unit(handler) => Self::new(id, Arc::clone(handler)),
+            Route::Response(handler) => Self::from_service(
+                id,
+                ResponseRouteService {
+                    id,
+                    handler: Arc::clone(handler),
+                    _marker: std::marker::PhantomData,
+                },
+            ),
+        }
+    }
+
     /// Returns the route identifier associated with this service.
     #[must_use]
     pub const fn id(&self) -> u32 { self.id }
@@ -350,6 +338,33 @@ impl<E: Packet> Service for RouteService<E> {
         let correlation_id = parts.correlation_id();
         let payload = parts.into_payload();
         Ok(ServiceResponse::new(payload, correlation_id))
+    }
+}
+
+/// Concrete service that invokes a response-building handler for one route.
+struct ResponseRouteService<E: Packet> {
+    /// Route identifier copied into the request envelope.
+    id: u32,
+    /// Handler invoked after middleware accepts the request.
+    handler: ResponseHandler<E>,
+    /// Keeps the packet type associated with the erased service.
+    _marker: std::marker::PhantomData<E>,
+}
+
+#[async_trait]
+impl<E: Packet> Service for ResponseRouteService<E> {
+    type Error = Infallible;
+
+    async fn call(&self, req: ServiceRequest) -> Result<ServiceResponse, Self::Error> {
+        let correlation_id = req.correlation_id();
+        let env = E::from_parts(PacketParts::new(self.id, correlation_id, req.into_inner()));
+        let response = (self.handler.as_ref())(&env).await;
+        let deferred = Arc::new(Mutex::new(Some(response)));
+        Ok(ServiceResponse::with_deferred(
+            Vec::new(),
+            correlation_id,
+            deferred,
+        ))
     }
 }
 

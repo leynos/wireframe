@@ -39,7 +39,9 @@ where
             );
         }
         if result.call_on_command_end {
-            self.hooks.on_command_end(&mut self.ctx);
+            // Shutdown emits no frames of its own, but the completion hook
+            // still runs only after the loop has flushed whatever it produced.
+            self.defer_command_end();
         }
     }
 
@@ -59,7 +61,9 @@ where
             self.after_low();
         }
         self.active_output.clear();
-        self.hooks.on_command_end(&mut self.ctx);
+        // The terminator was just buffered for the sink; completion follows
+        // its successful write.
+        self.defer_command_end();
     }
 
     /// Log a stream termination with severity matching its cancellation cause.

@@ -1,0 +1,19 @@
+error[E0597]: `owner` does not live long enough
+  --> tests/ui/prepared_app_rejects_borrowed_serializer.rs:50:40
+   |
+48 |     let owner = ();
+   |         ----- binding `owner` declared here
+49 |     let app = WireframeApp::<BincodeSerializer, (), Envelope>::default()
+50 |         .serializer(BorrowedSerializer(&owner));
+   |                                        ^^^^^^ borrowed value does not live long enough
+...
+54 |     let _connection = prepared.handle_connection_result(server);
+   |                       ----------------------------------------- argument requires that `owner` is borrowed for `'static`
+55 | }
+   | - `owner` dropped here while still borrowed
+   |
+note: requirement that the value outlives `'static` introduced here
+  --> src/app/prepared_app.rs
+   |
+   |     S: Serializer + FrameMetadata<Frame = super::Envelope> + Send + Sync + 'static,
+   |                                                                            ^^^^^^^

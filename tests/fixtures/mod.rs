@@ -42,6 +42,7 @@ pub mod partial_frame_feeding;
 pub mod request_parts;
 pub mod result_alias_dispatch;
 pub mod serializer_boundaries;
+pub mod server_streaming;
 pub mod slow_io_backpressure;
 pub mod stream_end;
 pub mod streaming_request;

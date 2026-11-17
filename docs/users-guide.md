@@ -1622,18 +1622,19 @@ let app = WireframeApp::new()?
 
 Call `fragmentation(None)` to keep fragmentation disabled after explicit
 configuration (for example, when the transport already supports large frames or
-fragmentation is delegated to an upstream gateway). The `ConnectionActor`
-mirrors the same behaviour for push traffic and streaming responses through
-`enable_fragmentation`, ensuring client-visible frames follow the same format.
+fragmentation is delegated to an upstream gateway). A `ConnectionActor` used
+for push traffic mirrors the same behaviour through `enable_fragmentation`,
+ensuring client-visible frames follow the same format.
 
 On the server side, a unified `FramePipeline` applies fragmentation to every
 outbound handler response `Envelope` before serialization and codec wrapping.
 Its connection-scoped `FragmentationState` adapter owns both the outbound
 fragmenter and the inbound reassembler. Streaming responses and multi-packet
-channels are emitted by the `ConnectionActor`, which keeps its own
-connection-local `Fragmenter` and applies the same fragmentation logic through
-`enable_fragmentation`. The two paths share the wire format rather than one
-fragmentation state.
+channels are scheduled by the `ConnectionActor`, but their frames are written
+through that same `FramePipeline`, so one prepared connection uses one
+fragmentation state and one wire format. The actor keeps its own
+connection-local `Fragmenter`, configured with `enable_fragmentation`, only for
+the standalone push API.
 
 ## Protocol hooks
 
@@ -1656,12 +1657,22 @@ frame that exceeds that limit with an oversized-frame error, which fails the
 send and ends the connection. A custom codec defines its own behaviour for an
 oversized frame, so it must enforce `max_frame_length` itself.
 
-The application path does not run the remaining protocol hooks: connection
-setup, command end, stream end, error, and end-of-file callbacks remain the
-responsibility of the `ConnectionActor` for push and streaming traffic. The
-direct response helpers that write frames without the `FramePipeline` also
-bypass `before_send`; use `WireframeApp` routes when a response must traverse
-configured protocol hooks.
+The application path also runs the protocol hooks that surround a response. A
+completed `Stream` or `MultiPacket` response is terminated by the frame
+`stream_end_frame` returns; that frame is a complete codec frame, so the
+adapter neither decodes nor restamps it. Any metadata a custom codec keeps
+outside the payload therefore survives. `before_send` still runs on the
+terminator like any other frame, so a hook that modifies frames changes the
+bytes that reach the wire; the adapter itself does not. `on_command_end` runs
+only after the final frame has been written, and not at all when the response
+is cancelled before its terminator. A protocol error reported by a response
+stream is passed to `handle_error`, and the connection then closes without a
+terminator, so a request buffered behind the failed stream is not served. The
+connection setup and end-of-file callbacks are not invoked on the prepared
+server path; they remain available to callers that drive a `ConnectionActor`
+directly. The direct response helpers that write frames without the
+`FramePipeline` also bypass `before_send`; use `WireframeApp` routes when a
+response must traverse configured protocol hooks.
 
 ## Running servers
 
@@ -2692,10 +2703,14 @@ invokes protocol hooks, records metrics for outbound frames, and returns a
 `WireframeError` when the response stream hits an I/O problem.[^30][^33] Active
 connection counts are tracked with a guard that increments on creation and
 decrements on drop; the `active_connection_count()` helper exposes the current
-gauge.[^31] Interleaved high- and low-priority push behaviour is validated by
-the test suite: the shared rate limiter enforces symmetrical throughput caps
-across both queues, and `FairnessConfig` prevents low-priority starvation
-during sustained high-priority bursts.
+gauge.[^31] The built-in server creates that guard immediately after `accept()`
+succeeds and moves it into the spawned task, so the gauge covers the preamble
+handshake, application processing, and teardown, and is released when that task
+ends: after a clean close, after a rejected preamble, and after a panic.
+Interleaved high- and low-priority push behaviour is validated by the test
+suite: the shared rate limiter enforces symmetrical throughput caps across both
+queues, and `FairnessConfig` prevents low-priority starvation during sustained
+high-priority bursts.
 
 ## Session management
 
@@ -2789,12 +2804,164 @@ actor's `Packet` and `CorrelatableFrame` bounds.
 Multi-packet responders rely on the protocol hook `stream_end_frame` to emit a
 terminator when the producer side of the channel closes naturally. The
 connection actor records why the channel ended (`drained`, `disconnected`, or
-`shutdown`), stamps the stored `correlation_id` on the terminator frame, and
-routes it through the standard `before_send` instrumentation so telemetry and
-higher-level lifecycle hooks observe a consistent end-of-stream signal.
-Dropping all senders closes the channel; the actor logs the termination reason
-and forwards the terminator through the same hooks used for regular frames so
-existing observability continues to work.
+`shutdown`). On a prepared server connection the adapter obtains the terminator
+after the actor has driven the response to completion and writes that frame
+through the standard `before_send` instrumentation, so telemetry and
+higher-level lifecycle hooks observe a consistent end-of-stream signal. The
+adapter neither decodes nor re-wraps that frame, so any codec metadata outside
+the payload survives and the adapter does not restamp its correlation
+identifier; `before_send` may still rewrite the bytes. A `ConnectionActor`
+driven directly through `ProtocolHooks` still stamps the stored
+`correlation_id` on the terminator it queues. Dropping all senders closes the
+channel; the actor logs the termination reason.
+
+### Response-producing routes
+
+`WireframeApp::route_response` registers a handler that returns a whole
+`Response` instead of raw bytes. The handler type is `ResponseHandler<E>`,
+re-exported from `wireframe::app`. Route identifiers must stay unique across
+`route` and `route_response`; a duplicate is rejected with the same error as
+`route`.
+
+<!-- tested-example: users-guide-057 -->
+```rust,no_run
+use std::sync::Arc;
+
+use bytes::Bytes;
+use wireframe::app::{Envelope, ResponseHandler, WireframeApp};
+use wireframe::codec::{FrameCodec, LengthDelimitedFrameCodec};
+use wireframe::hooks::{ConnectionContext, WireframeProtocol};
+use wireframe::response::{FrameStream, Response};
+use wireframe::serializer::{BincodeSerializer, Serializer};
+
+/// Marks the end of a response stream with an id-zero envelope.
+struct TerminatingProtocol;
+
+impl WireframeProtocol for TerminatingProtocol {
+    type Frame = Bytes;
+    type ProtocolError = ();
+
+    fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> {
+        let envelope = Envelope::new(0, None, Vec::new());
+        let payload = BincodeSerializer.serialize(&envelope).ok()?;
+        Some(LengthDelimitedFrameCodec::new(2048).wrap_payload(Bytes::from(payload)))
+    }
+}
+
+fn build_app() -> wireframe::Result<WireframeApp> {
+    let handler: ResponseHandler<Envelope> = Arc::new(|_request: &Envelope| {
+        Box::pin(async {
+            let frames: FrameStream<Envelope, ()> = Box::pin(async_stream::try_stream! {
+                for part in [b"alpha".as_slice(), b"beta".as_slice()] {
+                    yield Envelope::new(1, None, part.to_vec());
+                }
+            });
+            Response::Stream(frames)
+        })
+    });
+
+    Ok(WireframeApp::new()?
+        .route_response(1, handler)?
+        .with_protocol(TerminatingProtocol))
+}
+```
+
+The example builds its stream with `async_stream::try_stream!`. That crate is a
+development dependency of this repository, so applications using the pattern
+must declare it (`async-stream = "0.3.6"`); any `FrameStream<Envelope, ()>`
+works, including one built from a channel.
+
+`with_protocol` supplies the stream terminator. A stream ends on the wire only
+when the installed protocol's `stream_end_frame` returns a frame; without such
+a protocol the default returns none, the handler's frames stop arriving, and a
+`call_streaming` client keeps waiting for a marker that never comes. The
+terminator must already be a complete codec frame, because the adapter writes
+it without decoding or wrapping it again.
+
+Every prepared server connection owns a private connection actor. When a
+response route matches an inbound envelope, the body is installed on that actor
+with the request's correlation id, and the actor is driven through the
+connection's frame pipeline before the next inbound frame is dispatched:
+
+- `Response::Single`, `Response::Vec`, and `Response::Empty` complete
+  immediately. `Single` and `Vec` write their frames and then call
+  `on_command_end`; `Empty` writes no frame and no terminator but still calls
+  `on_command_end` once.
+- `Response::Stream` and `Response::MultiPacket` are polled to completion,
+  including the protocol's `stream_end_frame` terminator, before a further
+  inbound frame is dispatched. While such a response runs, the read half is
+  still polled for exactly one pending frame, so the connection never reads
+  ahead arbitrarily and a pipelined request is served next. Responses are
+  serial per connection: a long stream delays, but never interleaves with, the
+  next request on that connection. The actor still polls its internal high- and
+  low-priority push queues while a stream runs, but the server neither exposes
+  those queues nor installs server-initiated pushes on this actor, so that
+  polling is structural for now rather than an interleaving guarantee for
+  out-of-band pushes.
+- Every application envelope passes through fragmentation, outbound metrics,
+  serialization, `wrap_payload`, and `before_send`, in that order, immediately
+  before the transport write. A protocol terminator is already a complete codec
+  frame, so the adapter writes it without decoding or re-wrapping it: it skips
+  fragmentation, serialization, and `wrap_payload`, and keeps the metadata the
+  protocol supplied outside the payload. It is not byte-preserved, though:
+  `before_send` still runs, so a hook that rewrites frames rewrites this one
+  too. It also counts towards the outbound frame and response-send metrics.
+- Every data frame for a response inherits the request's correlation id: a
+  frame with no id adopts it, and a frame that supplies a different id is
+  overwritten and logged as a warning. When the request carries no id, the
+  frame keeps its own. Both stream and multi-packet terminators keep the id
+  produced by `stream_end_frame`, because the adapter does not restamp them
+  (the client matches a terminator before it checks correlation). A
+  `before_send` hook can still rewrite that id, as it can rewrite any other
+  part of the frame.
+
+Back-pressure is end-to-end. The actor awaits each transport write, so a slow
+peer stops further polling of a `Response::Stream`. `Response::MultiPacket`
+adds a bounded channel in front of that: `send().await` resolves only when the
+channel has capacity, and reports an error once the connection has gone away.
+When a write fails, the remaining fragments of that frame are discarded, the
+connection ends with an I/O error, and teardown runs once.
+
+A peer disconnect during an idle `Response::Stream` or `Response::MultiPacket`
+does not pin the connection. While no further request is pending, the read half
+is polled alongside the response: a read error fails the connection, and a
+clean close of the peer's sending half lets the response finish, but each idle
+wait is then bounded by a 30-second grace so that a producer which never yields
+cannot keep the connection task, its gauge guard, teardown, and the server
+drain open. A request read during that window is buffered, which stops the read
+half being polled; the pending response is then bounded by the same grace, so a
+disconnect that arrives afterwards still releases the connection. If the grace
+expires, the response is cancelled without a terminator and the connection
+closes, so the buffered request is not served: a later response would otherwise
+be read as part of the truncated stream. Independent input and output are
+tracked by [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md) and roadmap item
+21.2.2.
+
+The protocol callbacks that run for application responses are `before_send`,
+`on_command_end`, `handle_error`, and `stream_end_frame`. A prepared connection
+does not invoke the protocol's connection-setup or end-of-file callbacks at
+all, so initialization or cleanup that must run belongs in the application's
+`on_connection_setup` and `on_connection_teardown` hooks instead. Those hooks
+are separate from the protocol and run once per connection, with teardown
+running only when setup produced state. Without an installed protocol the
+response callbacks are no-ops. The terminator is written without decoding, so a
+write failure ends the connection like any other failed response write.
+
+#### Deferred response bodies and middleware
+
+A response route stores its `Response` in a deferred slot on `ServiceResponse`
+and leaves the ordinary response bytes empty. Middleware therefore observes an
+empty `frame()` for a response route, and editing those bytes does not change
+what the actor writes. The deferred body is taken exactly once: cloning a
+`ServiceResponse` shares the slot, so the first taker consumes it and later
+clones observe none. Equality ignores the deferred body, and `Debug` only
+reports whether one is present. Middleware still mutates request bytes and may
+short-circuit before the handler runs, exactly as it does for a `route`
+handler; a short-circuit returns its own response normally, because no deferred
+body has been installed. A fresh `ServiceResponse` built after the handler has
+run replaces the deferred body rather than merging with it: only the
+middleware's own bytes reach the client, and the frames the handler installed
+are discarded.
 
 ## Consuming streaming responses on the client
 
@@ -2821,7 +2988,7 @@ the client how to recognize the server's end-of-stream marker. The default
 implementation returns `false`; protocols override it to match their terminator
 format:
 
-<!-- tested-example: users-guide-057 -->
+<!-- tested-example: users-guide-058 -->
 ```rust
 use wireframe::app::{Packet, PacketParts};
 use wireframe::correlation::CorrelatableFrame;
@@ -2870,7 +3037,7 @@ needed, and returns a `ResponseStream`. The stream yields data frames as
 arrives: because the stream borrows the `WireframeClient` mutably, this call
 also prevents other client I/O until the stream is dropped or drained.
 
-<!-- tested-example: users-guide-058 -->
+<!-- tested-example: users-guide-059 -->
 ```rust,no_run
 use futures::StreamExt;
 use std::net::SocketAddr;
@@ -2899,7 +3066,7 @@ while let Some(result) = stream.next().await {
 domain items. This is useful when only some protocol frames should be exposed
 to the caller:
 
-<!-- tested-example: users-guide-059 -->
+<!-- tested-example: users-guide-060 -->
 ```rust,no_run
 use futures::TryStreamExt;
 use std::net::SocketAddr;
@@ -2985,7 +3152,7 @@ a `ResponseStream` without re-sending. As with `call_streaming`, that stream
 holds an exclusive mutable borrow of `WireframeClient` until dropped or fully
 consumed:
 
-<!-- tested-example: users-guide-060 -->
+<!-- tested-example: users-guide-061 -->
 ```rust,no_run
 use futures::StreamExt;
 use std::net::SocketAddr;
@@ -3086,7 +3253,7 @@ Phase out older message versions without breaking clients:
   dashboards.[^33][^8]
 - Remove adapters once the sunset window ends.
 
-<!-- tested-example: users-guide-061 -->
+<!-- tested-example: users-guide-062 -->
 ```rust,ignore
 use std::sync::Arc;
 use wireframe::{
@@ -3192,7 +3359,7 @@ who keep allocation budgets. It re-exports `stats_alloc`'s
 `INSTRUMENTED_SYSTEM` and `StatsAlloc` alongside `std::alloc::System`, so a
 benchmark binary opts in by installing the instrumenting allocator:
 
-<!-- tested-example: users-guide-062 -->
+<!-- tested-example: users-guide-063 -->
 ```rust
 use std::alloc::System;
 use wireframe_testing::benchmark_alloc_support::{INSTRUMENTED_SYSTEM, StatsAlloc};
@@ -3208,7 +3375,7 @@ Measure with `count_allocations`, which opens a window, resets the counter,
 runs the closure, samples the closing total, and closes the window before
 returning:
 
-<!-- tested-example: users-guide-063 -->
+<!-- tested-example: users-guide-064 -->
 ```rust
 use wireframe_testing::benchmark_alloc_support::count_allocations;
 

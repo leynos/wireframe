@@ -233,7 +233,7 @@ fn decode_envelope_tracks_failures_and_logs_correlation_id() {
         let mut failure_tracker =
             frame_handling::DeserFailureTracker::new(&mut deser_failures, MAX_DESER_FAILURES);
         let result = frame_handling::decode_envelope::<BadCodec>(
-            core::parse_envelope(&app.serializer, BadCodec::frame_payload(&frame)),
+            core::parse_envelope(app.serializer.as_ref(), BadCodec::frame_payload(&frame)),
             &frame,
             &mut failure_tracker,
         );
@@ -247,7 +247,7 @@ fn decode_envelope_tracks_failures_and_logs_correlation_id() {
     let mut failure_tracker =
         frame_handling::DeserFailureTracker::new(&mut deser_failures, MAX_DESER_FAILURES);
     let err = frame_handling::decode_envelope::<BadCodec>(
-        core::parse_envelope(&app.serializer, BadCodec::frame_payload(&frame)),
+        core::parse_envelope(app.serializer.as_ref(), BadCodec::frame_payload(&frame)),
         &frame,
         &mut failure_tracker,
     )

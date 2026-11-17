@@ -1,23 +1,29 @@
 //! Inbound connection handling and route preparation utilities.
 
+mod actor;
 mod core;
+mod frames;
+mod framing;
+mod peer_watch;
 
 use std::{collections::HashMap, sync::Arc};
 
 use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
+use tokio_util::sync::CancellationToken;
 
 use super::{
+    Route,
     builder::WireframeApp,
     envelope::{Envelope, Packet},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
     memory_budgets::MemoryBudgets,
-    middleware_types::{Handler, Middleware},
+    middleware_types::Middleware,
 };
 use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
-    hooks::ProtocolHooks,
+    hooks::{ProtocolHooks, WireframeProtocol},
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
@@ -38,7 +44,7 @@ where
     /// Immutable middleware chains used to dispatch decoded envelopes.
     pub(crate) routes: &'a HashMap<u32, HandlerService<E>>,
     /// Serializer shared by all frames on the connection.
-    pub(crate) serializer: &'a S,
+    pub(crate) serializer: Arc<S>,
     /// Codec configuration shared by all frames on the connection.
     pub(crate) codec: &'a F,
     /// Optional hook that creates per-connection state.
@@ -51,10 +57,14 @@ where
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks built for this connection from the installed protocol.
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
+    /// Protocol whose response hooks drive the connection actor.
+    pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
     pub(crate) read_timeout_ms: u64,
+    /// Server shutdown signal; cancelling it stops this connection.
+    pub(crate) shutdown: &'a CancellationToken,
 }
 
 /// Drive a connection using immutable application inputs and prepared routes.
@@ -69,7 +79,7 @@ pub(crate) async fn process_connection<S, C, E, F, W>(
     context: ConnectionProcessingContext<'_, S, C, E, F>,
 ) -> io::Result<()>
 where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     C: Send + 'static,
     E: Packet,
     F: FrameCodec,
@@ -85,8 +95,10 @@ where
         message_assembler,
         fragmentation,
         protocol_hooks,
+        protocol,
         memory_budgets,
         read_timeout_ms,
+        shutdown,
     } = context;
     let connection_state = if let Some(setup) = on_connect {
         Some(setup().await)
@@ -109,8 +121,10 @@ where
             message_assembler,
             fragmentation,
             protocol_hooks,
+            protocol,
             memory_budgets,
             read_timeout_ms,
+            shutdown,
         },
     )
     .await;
@@ -135,15 +149,15 @@ where
 /// Middleware is folded in reverse registration order, preserving the first
 /// registered middleware as the outermost service layer.
 pub(crate) async fn build_route_chains<E>(
-    handlers: &HashMap<u32, Handler<E>>,
+    handlers: &HashMap<u32, Route<E>>,
     middleware: &[Box<dyn Middleware<E>>],
 ) -> HashMap<u32, HandlerService<E>>
 where
     E: Packet,
 {
     let mut routes = HashMap::new();
-    for (&id, handler) in handlers {
-        let mut service = HandlerService::new(id, handler.clone());
+    for (&id, route) in handlers {
+        let mut service = HandlerService::from_route(id, route);
         for mw in middleware.iter().rev() {
             service = mw.transform(service).await;
         }
@@ -154,7 +168,7 @@ where
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
 where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     C: Send + 'static,
     E: Packet,
     F: FrameCodec,
@@ -173,19 +187,24 @@ where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
         let routes = build_route_chains(&self.handlers, &self.middleware).await;
+        // This compatibility path has no server shutdown signal, so its
+        // connection token is never cancelled from outside.
+        let shutdown = CancellationToken::new();
         process_connection(
             stream,
             ConnectionProcessingContext {
                 routes: &routes,
-                serializer: &self.serializer,
+                serializer: Arc::clone(&self.serializer),
                 codec: &self.codec,
                 on_connect: self.on_connect.as_ref(),
                 on_disconnect: self.on_disconnect.as_ref(),
                 message_assembler: self.message_assembler.as_ref(),
                 fragmentation: self.fragmentation,
                 protocol_hooks: self.protocol_hooks(),
+                protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
+                shutdown: &shutdown,
             },
         )
         .await

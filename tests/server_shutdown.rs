@@ -54,26 +54,32 @@ async fn dropping_final_shutdown_handle_requests_shutdown(
     wait_for_listener_release(addr).await
 }
 
+/// A stop releases a connected peer that has no response in flight.
+///
+/// The connection completed its preamble handshake and then sent nothing, so
+/// its inbound read is parked. Observing the shutdown token there is what lets
+/// the drain finish: without it the task, its gauge guard and the drain would
+/// wait for a peer that may never send again. The other half of the contract —
+/// a stop must not truncate a response that is still being written — is covered
+/// by `tests/server_shutdown_streaming.rs`.
 #[rstest]
 #[tokio::test]
-async fn stop_preserves_graceful_drain_for_in_flight_connections(
+async fn stop_releases_a_connected_peer_without_a_response_in_flight(
     #[future] spawn_ready_server_with_connection: TestResult<(
         SocketAddr,
         ServerShutdown,
         TcpStream,
     )>,
 ) -> TestResult {
-    let (_addr, shutdown, stream) = spawn_ready_server_with_connection.await?;
+    let (addr, shutdown, stream) = spawn_ready_server_with_connection.await?;
     shutdown.stop();
-    let mut drain = Box::pin(shutdown.drained());
-    if timeout(Duration::from_millis(50), &mut drain).await.is_ok() {
-        return Err("server drained before the in-flight connection closed".into());
-    }
-
-    drop(stream);
-    timeout(Duration::from_secs(1), drain)
+    timeout(Duration::from_secs(1), shutdown.drained())
         .await
-        .map_err(|_| "server did not drain after connection closed")??;
+        .map_err(|_| "server did not drain while an idle peer stayed connected")??;
+    assert_connection_refused(addr).await?;
+
+    // The peer stayed open for the whole drain, so only the stop released it.
+    drop(stream);
     Ok(())
 }
 

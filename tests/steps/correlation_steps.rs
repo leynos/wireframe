@@ -41,10 +41,10 @@ fn then_verify(correlation_world: &mut CorrelationWorld, id: u64) -> TestResult 
     correlation_world.verify()
 }
 
-#[then("each emitted frame has no correlation id")]
-fn then_verify_absent(correlation_world: &mut CorrelationWorld) -> TestResult {
+#[then("each emitted frame keeps its own correlation id")]
+fn then_verify_own(correlation_world: &mut CorrelationWorld) -> TestResult {
     if correlation_world.expected().is_some() {
-        return Err("expected correlation id should be cleared".into());
+        return Err("expected correlation id should be absent".into());
     }
     correlation_world.verify()
 }

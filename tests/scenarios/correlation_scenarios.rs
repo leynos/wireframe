@@ -18,6 +18,6 @@ fn multi_packet_correlation(correlation_world: CorrelationWorld) { let _ = corre
 
 #[scenario(
     path = "tests/features/correlation_id.feature",
-    name = "Multi-packet responses clear correlation ids without a request id"
+    name = "Multi-packet responses keep their own correlation ids without a request id"
 )]
 fn no_correlation(correlation_world: CorrelationWorld) { let _ = correlation_world; }

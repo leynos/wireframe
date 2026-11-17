@@ -27,10 +27,13 @@ where
     /// A fresh [`ProtocolHooks`] value is built for each connection. The
     /// `before_send` hook runs for every `WireframeApp` handler response frame
     /// after serialization and codec wrapping, immediately before the frame is
-    /// written to the transport. The application path does **not** run the
-    /// connection setup, command end, stream end, error, or end-of-file hooks;
-    /// those belong to the connection actor's push and streaming paths. The
-    /// direct response helpers on [`WireframeApp`] also bypass `before_send`.
+    /// written to the transport. Because handler responses are driven through
+    /// the per-connection [`crate::connection::ConnectionActor`], the
+    /// `on_command_end`, stream-end terminator, and error hooks also run on the
+    /// application path. Connection setup and end-of-file hooks remain with the
+    /// server's connection lifecycle rather than the response actor. The direct
+    /// response helpers on [`WireframeApp`] bypass `before_send` because they
+    /// write to a caller-supplied stream.
     ///
     /// At present, the protocol must use `ProtocolError = ()`. This keeps the
     /// protocol object safe for dynamic dispatch, maintains a uniform
