@@ -149,9 +149,15 @@ byte-preserved, because `before_send` may still rewrite it. `on_command_end`
 then runs after that final write. A shutdown or a clean peer half-close does
 not by itself suppress either hook: the prepared response keeps running under
 the idle grace, and if it completes, the terminator is written and
-`on_command_end` runs. Cancellation suppresses both: an idle grace that expires
-without the response completing, or an abandoned terminator write, leaves the
-response unfinished, so no terminator and no completion hook is emitted.
+`on_command_end` runs. Cancellation suppresses the completion hook in both
+cases, but the two are not the same. An idle grace that expires before the
+response completes abandons the response itself, so `stream_end_frame` is never
+asked for a terminator and neither the terminator nor `on_command_end` is
+emitted. An abandoned terminator write is reached only after the response
+completed and `stream_end_frame` supplied the frame: the write is abandoned
+mid-flight, so the terminator never reaches the peer and `on_command_end` is
+still suppressed, because a half-written terminator must not report
+completion.
 
 The terminator write is bounded for the same reason the response frames are. A
 peer that stopped reading can block the last frame as readily as any other, so
