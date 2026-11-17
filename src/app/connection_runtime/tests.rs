@@ -25,7 +25,7 @@ use crate::{
         Envelope,
         PreparedApp,
         WireframeApp,
-        inbound_handler::{ConnectionProcessingContext, process_connection_with_cancellation},
+        inbound_handler::{ConnectionProcessingContext, process_connection},
         lifecycle::ConnectionTeardown,
     },
     codec::{FrameCodec, LengthDelimitedFrameCodec},
@@ -59,24 +59,27 @@ async fn prepared_with_teardown(calls: Arc<AtomicUsize>) -> TestPrepared {
 }
 
 /// Borrow the prepared application as the runtime's processing context.
-fn context<C, F>(
-    prepared: &PreparedApp<BincodeSerializer, C, Envelope, F>,
-) -> ConnectionProcessingContext<'_, BincodeSerializer, C, Envelope, F>
+fn context<'a, C, F>(
+    prepared: &'a PreparedApp<BincodeSerializer, C, Envelope, F>,
+    shutdown: &'a CancellationToken,
+) -> ConnectionProcessingContext<'a, BincodeSerializer, C, Envelope, F>
 where
     C: Send + 'static,
     F: crate::codec::FrameCodec,
 {
     ConnectionProcessingContext {
         routes: &prepared.routes,
-        serializer: &prepared.serializer,
+        serializer: Arc::clone(&prepared.serializer),
         codec: &prepared.codec,
         on_connect: prepared.on_connect.as_ref(),
         on_disconnect: prepared.on_disconnect.as_ref(),
         message_assembler: prepared.message_assembler.as_ref(),
         fragmentation: prepared.fragmentation,
         protocol_hooks: prepared.protocol_hooks(),
+        protocol: prepared.protocol.clone(),
         memory_budgets: prepared.memory_budgets,
         read_timeout_ms: prepared.read_timeout_ms,
+        shutdown,
     }
 }
 
@@ -91,7 +94,10 @@ where
     F: FrameCodec,
     W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
-    process_connection_with_cancellation(stream, context(prepared), cancellation).await
+    // A connection with no externally supplied signal still needs a token that
+    // is never cancelled, mirroring the compatibility entry points.
+    let shutdown = cancellation.unwrap_or_default();
+    process_connection(stream, context(prepared, &shutdown)).await
 }
 
 /// Cancellation requested before the first read still finalizes exactly once.

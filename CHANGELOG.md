@@ -4,11 +4,56 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Breaking:** Remove the `wireframe::extractor` module, `AppDataStore`, and
+  `WireframeApp::app_data`. No dispatch path invoked the extractor traits, so
+  handlers could never receive `SharedState<T>`, `Message<T>`,
+  `ConnectionInfo`, or `StreamingBody`. Capture an `Arc` in the handler closure
+  for shared state and decode envelopes directly; see
+  [ADR 017](docs/adrs/adr-0017-remove-route-extractors-and-app-data.md) and the
+  [migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#removed-extractors-and-app_data).
+  ([#877](https://github.com/leynos/wireframe/issues/877))
+
+- Add `WireframeApp::route_response` and `ResponseHandler<E>` so a route can
+  return a whole `Response`: a single frame, a vector, an empty reply, a
+  stream, or a multi-packet channel. Each prepared server connection now owns a
+  private connection actor, so streamed and multi-packet responses are driven
+  to completion through the connection's `FramePipeline` before the next
+  inbound frame is dispatched; the read half may buffer one subsequent request
+  while the response runs, but that frame is not dispatched until the response
+  finishes. Data frames carry the request correlation id when the request
+  supplied one, and keep their own identifiers when it did not; a protocol
+  terminator is written as the protocol encoded it. Fragmentation, outbound
+  metrics, serialization, codec wrapping, and `before_send` therefore run in
+  one fixed order for every handler response. The protocol's `on_command_end`,
+  `handle_error`, and `stream_end_frame` callbacks now run on the prepared path;
+  `on_command_end` therefore fires once for an ordinary `route` reply, which
+  existing protocols previously did not observe. A completed stream is
+  terminated by the codec frame `stream_end_frame` returns, written without
+  decoding or re-wrapping so codec metadata outside the payload survives; the
+  prepared path no longer decodes that frame into an `Envelope` or restamps its
+  correlation identifier. The frame is not byte-preserved: `before_send` still
+  runs, and a hook that rewrites frames rewrites the terminator too. The
+  protocol's `on_connection_setup` and `on_eof` remain uninvoked on this path.
+  A peer that disconnects while a streamed response is idle no longer pins the
+  connection: the read half is watched during the response, and the response is
+  bounded when a buffered request stops that observation. **Breaking:**
+  `PreparedApp::handle_connection_result` and the deprecated
+  `WireframeApp::handle_connection*` methods now require `S: 'static` so the
+  connection actor can retain the serializer in its protocol hooks. The
+  active-connection gauge now covers the preamble handshake, application
+  processing, and teardown.
+  ([#874](https://github.com/leynos/wireframe/issues/874))
+
 - Make `wireframe_testing` compile against `tokio-util` 0.7.20, whose extra
   `Encoder` implementations made `.into()` conversions ambiguous. The lock file
   held 0.7.19, so a fresh install failed while CI passed. The lock file now
   selects 0.7.20, and the `metadata_routing` example and the tests build with
   it.
+
+- Check the declared minimum Rust version on every pull request, every push to
+  `main` and every week, with both the committed lock file and freshly resolved
+  dependencies, as concordat RT-026 requires, and declare the same minimum on
+  `wireframe_testing`.
 
 - Correct rustdoc that overstated runtime integration: streaming request
   bodies, extractors and `app_data` are not delivered to route handlers,
@@ -29,8 +74,7 @@ All notable changes to this project will be documented in this file.
   handler responses, not only actor-driven push and multi-packet frames. The
   hook sees the serialized, codec-wrapped frame before codec encoding and must
   keep it within `FrameCodec::max_frame_length`; the direct `send_response*`
-  helpers still bypass it, and actor-owned traffic keeps its own hook pipeline.
-  See the
+  helpers still bypass it. See the
   [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#protocol-hooks-on-application-responses).
   ([#547](https://github.com/leynos/wireframe/issues/547))
 
@@ -94,8 +138,6 @@ All notable changes to this project will be documented in this file.
   `src/server/connection_spawner.rs` to clarify directionality and eliminate
   naming ambiguity with the public `src/connection/` module. No public API
   changes.
-- Deprecated `SharedState::new` (since 0.2.0); construct via `inner.into()`
-  instead.
 - Breaking: Marked `ServerError` as `#[non_exhaustive]`. Downstream consumers
   must add a wildcard arm when matching it.
 - **Breaking:** Mark `ClientError` as `#[non_exhaustive]` and add the typed

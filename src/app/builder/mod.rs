@@ -10,6 +10,5 @@ mod core;
 mod lifecycle;
 mod protocol;
 mod routing;
-mod state;
 
 pub use core::WireframeApp;

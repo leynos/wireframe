@@ -17,13 +17,13 @@ use tokio::{
     runtime::Builder,
     time::{sleep, timeout},
 };
-use tokio_util::{codec::LengthDelimitedCodec, task::TaskTracker};
+use tokio_util::{codec::LengthDelimitedCodec, sync::CancellationToken, task::TaskTracker};
 use tracing_test::traced_test;
 use wireframe_testing::encode_frame;
 
 use super::*;
 use crate::{
-    app::{Handler, WireframeApp},
+    app::{Envelope, Handler, WireframeApp},
     codec::LengthDelimitedFrameCodec,
     message::Message,
     serializer::BincodeSerializer,
@@ -87,9 +87,13 @@ async fn spawn_connection_task_logs_panic(
         async move {
             let (stream, _) = listener.accept().await.expect("accept");
             spawn_connection_task(
-                stream,
-                task_app,
-                PreambleHooks::<()>::default(),
+                ConnectionTask {
+                    stream,
+                    app: task_app,
+                    hooks: PreambleHooks::<()>::default(),
+                    connection: ActiveConnection::new(),
+                    shutdown: CancellationToken::new(),
+                },
                 &task_tracker,
             );
             task_tracker.close();
@@ -188,17 +192,26 @@ struct SupervisionHarness {
 }
 
 impl SupervisionHarness {
+    /// Spawn the accepted connection through the real supervision boundary.
+    fn spawn(&self, stream: TcpStream) {
+        spawn_connection_task(
+            ConnectionTask {
+                stream,
+                app: Arc::clone(&self.app),
+                hooks: PreambleHooks::<()>::default(),
+                connection: ActiveConnection::new(),
+                shutdown: CancellationToken::new(),
+            },
+            &self.tracker,
+        );
+    }
+
     /// Connect one client, accept it, and spawn its connection task.
     async fn spawn_client(&self) -> TcpStream {
         let address = self.listener.local_addr().expect("listener address");
         let mut client = TcpStream::connect(address).await.expect("connect client");
         let (stream, _) = self.listener.accept().await.expect("accept client");
-        spawn_connection_task(
-            stream,
-            Arc::clone(&self.app),
-            PreambleHooks::<()>::default(),
-            &self.tracker,
-        );
+        self.spawn(stream);
         client
             .write_all(&self.frame)
             .await
@@ -216,7 +229,6 @@ impl SupervisionHarness {
     /// Serve a healthy connection and check that it receives a response.
     async fn serve_healthy_connection(&self) {
         let mut client = self.spawn_client().await;
-        client.shutdown().await.expect("shutdown healthy client");
         let mut response = [0_u8; 1];
         let read = timeout(Duration::from_secs(5), client.read(&mut response))
             .await

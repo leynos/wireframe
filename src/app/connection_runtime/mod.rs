@@ -2,12 +2,13 @@
 //!
 //! A [`PreparedApp`](crate::app::PreparedApp) is immutable and shared by every
 //! connection task. This module supplies the other half of that ownership
-//! split: one [`ConnectionRuntime`] per accepted connection owns the mutable
-//! stream, framed codec state, inbound pipeline, reassembly and assembly state,
-//! the malformed-envelope counter, the resolved memory budgets, the read
-//! timeout, and the setup state `C` produced by the connection lifecycle hook.
-//! Nothing here is shared between connection tasks, and no field is wrapped in
-//! `Arc<Mutex<_>>`.
+//! split: one [`ConnectionRuntime`] per accepted connection owns the transport
+//! and drives the shared frame-processing loop, whose framed codec state,
+//! inbound pipeline, reassembly and assembly state, malformed-envelope
+//! counter, resolved memory budgets, and read timeout are all locals of that
+//! one connection task. The runtime additionally owns the setup state `C`
+//! produced by the connection lifecycle hook. Nothing here is shared between
+//! connection tasks, and no field is wrapped in `Arc<Mutex<_>>`.
 //!
 //! Finalization is a three-state machine rather than a `Drop` guard:
 //!
@@ -23,27 +24,27 @@
 //! # Ordering
 //!
 //! The runtime stages the raw transport and the immutable inbound
-//! configuration, then builds [`InboundState`] when [`ConnectionRuntime::run`]
-//! is driven. Setup therefore completes before the connection codec is cloned
-//! or the maximum frame buffer is reserved: a setup hook that is still pending
+//! configuration, then builds framing state when [`ConnectionRuntime::run`] is
+//! driven. Setup therefore completes before the connection codec is cloned or
+//! the maximum frame buffer is reserved: a setup hook that is still pending
 //! cannot hold up to a frame's worth of buffer per connection, and a custom
 //! codec is not initialized before setup establishes its state. Initialization
 //! happens inside the panic-finalization boundary, so a panic during
 //! initialization still releases the armed setup value.
 //!
-//! Inbound processing owns the framed stream. When processing stops, the
-//! inbound state is dropped before teardown is awaited, which releases the
-//! transport first. A teardown callback that waits for the peer to observe
-//! closure can therefore make progress instead of deadlocking against a
-//! transport this runtime still holds.
+//! Inbound processing owns the framed stream. When processing stops, that
+//! framing is dropped before teardown is awaited, which releases the transport
+//! first. A teardown callback that waits for the peer to observe closure can
+//! therefore make progress instead of deadlocking against a transport this
+//! runtime still holds.
 //!
 //! # Cancellation
 //!
 //! Cooperative cancellation is observed only at the read boundary. A frame
 //! that has already been read is decoded and dispatched to completion before
-//! cancellation is noticed. Connection actors have their own cancellation
-//! observations; this token is distinct from server accept-loop shutdown and
-//! graceful drain.
+//! cancellation is noticed. The server supplies its per-connection shutdown
+//! signal here so a peer that stops reading cannot pin a graceful drain;
+//! connection actors observe the same token for in-flight responses.
 //!
 //! # Accepted gaps
 //!
@@ -66,9 +67,7 @@
 //! A read timeout purges expired outbound and assembly state and continues
 //! waiting; it is not a terminal outcome.
 
-mod decode;
 mod finalizer;
-mod inbound;
 
 #[cfg(test)]
 #[path = "finalizer_properties.rs"]
@@ -89,29 +88,61 @@ mod diagnostics_tests;
 #[path = "dispatch_tests.rs"]
 mod dispatch_tests;
 
-use std::{io, panic::AssertUnwindSafe, sync::Arc};
+use std::{collections::HashMap, io, panic::AssertUnwindSafe, sync::Arc};
 
-// Only the inbound-handler tests decode envelopes directly; production code
-// reaches the same function through `build_dispatchable_envelope`.
-#[cfg(test)]
-pub(crate) use decode::parse_envelope;
 use finalizer::{ConnectionFinalizer, FinalizationOutcome};
 use futures::FutureExt;
-pub(crate) use inbound::{InboundConfig, InboundState};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 use tracing::error;
 
+use super::{
+    envelope::{Envelope, Packet},
+    inbound_handler::core::{StreamProcessingContext, process_stream},
+    lifecycle::ConnectionTeardown,
+    memory_budgets::MemoryBudgets,
+};
 use crate::{
-    app::{
-        envelope::{Envelope, Packet},
-        lifecycle::ConnectionTeardown,
-    },
     codec::FrameCodec,
     frame::FrameMetadata,
+    hooks::{ProtocolHooks, WireframeProtocol},
     message::{DecodeWith, EncodeWith},
+    message_assembler::MessageAssembler,
+    middleware::HandlerService,
     serializer::Serializer,
 };
+
+/// Immutable configuration borrowed by one connection's runtime.
+///
+/// Every field is template-owned and shared across connections; none of it is
+/// mutated while the connection runs.
+pub(crate) struct InboundConfig<'a, S, E, F>
+where
+    S: Serializer + Send + Sync,
+    E: Packet,
+    F: FrameCodec,
+{
+    /// Immutable middleware chains used to dispatch decoded envelopes.
+    pub(crate) routes: &'a HashMap<u32, HandlerService<E>>,
+    /// Serializer shared by all frames on the connection.
+    pub(crate) serializer: Arc<S>,
+    /// Codec configuration shared by all frames on the connection.
+    pub(crate) codec: &'a F,
+    /// Optional assembly strategy for multi-frame protocol messages.
+    pub(crate) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    /// Fragmentation settings used to initialize the frame pipeline.
+    pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
+    /// Protocol hooks built for this connection from the installed protocol.
+    pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
+    /// Protocol whose response hooks drive the connection actor.
+    pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
+    /// Optional byte budgets enforced while processing the connection.
+    pub(crate) memory_budgets: Option<MemoryBudgets>,
+    /// Maximum interval to wait for the next inbound frame.
+    pub(crate) read_timeout_ms: u64,
+    /// Per-connection shutdown signal; cancelling it stops this connection.
+    pub(crate) shutdown: &'a CancellationToken,
+}
 
 /// Panic payload recovered by [`futures::FutureExt::catch_unwind`].
 ///
@@ -130,7 +161,7 @@ where
     E: Packet,
     F: FrameCodec,
 {
-    /// Transport owned until inbound state is built for processing.
+    /// Transport owned until the processing loop is driven.
     stream: W,
     /// Immutable template configuration borrowed for the connection lifetime.
     config: InboundConfig<'a, S, E, F>,
@@ -140,19 +171,19 @@ where
 
 impl<'a, S, C, E, F, W> ConnectionRuntime<'a, S, C, E, F, W>
 where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     C: Send + 'static,
     E: Packet,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
+    W: AsyncRead + AsyncWrite + Send + Unpin,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
     /// Construct a runtime that owes no teardown until setup state is armed.
     ///
-    /// Construction only stages the transport and configuration. The framed
-    /// inbound state is built later by [`ConnectionRuntime::run`], so calling
-    /// this before awaiting a setup hook cannot clone the codec or reserve the
-    /// frame buffer.
+    /// Construction only stages the transport and configuration. Framing is
+    /// built later by [`ConnectionRuntime::run`], so calling this before
+    /// awaiting a setup hook cannot clone the codec or reserve the frame
+    /// buffer.
     pub(crate) const fn new(stream: W, config: InboundConfig<'a, S, E, F>) -> Self {
         Self {
             stream,
@@ -171,14 +202,13 @@ where
     ///
     /// Initialization happens here, inside `catch_unwind`, rather than during
     /// construction: setup has already completed, and a panic while building
-    /// the inbound state still finalizes the armed setup value. `process`
-    /// consumes the staged transport and drops the framed stream when it
-    /// returns or unwinds, so the transport is released before teardown is
-    /// awaited.
+    /// framing state still finalizes the armed setup value. `process` consumes
+    /// the staged transport and drops the framed stream when it returns or
+    /// unwinds, so the transport is released before teardown is awaited.
     ///
     /// Only the inbound processing future is wrapped in `catch_unwind`.
     /// `AssertUnwindSafe` is sound here because handlers never observe `C`,
-    /// and the inbound state is dropped during unwinding without being reused
+    /// and the framing state is dropped during unwinding without being reused
     /// after a panic. Setup and teardown panics are intentionally *not*
     /// caught: setup has not produced state to release, and teardown has
     /// already disarmed the finalizer before it runs.
@@ -187,17 +217,19 @@ where
     /// is awaited, then re-raised after finalization so the spawner's existing
     /// supervision still observes, counts, and logs it with its payload. The
     /// metric stays in supervision, so the panic is counted exactly once.
-    pub(crate) async fn run(
-        self,
-        cancellation: Option<&CancellationToken>,
-        teardown: Option<&Arc<ConnectionTeardown<C>>>,
-    ) -> io::Result<()> {
+    ///
+    /// The processing future is boxed so the runtime's own state machine holds
+    /// a pointer rather than the whole frame-processing tree. Nesting that tree
+    /// directly below the lifecycle wrapper makes the compiler's layout queries
+    /// for a test crate exceed their depth limit, and it would otherwise be
+    /// duplicated into every caller that joins two connections.
+    pub(crate) async fn run(self, teardown: Option<&Arc<ConnectionTeardown<C>>>) -> io::Result<()> {
         let Self {
             stream,
             config,
             mut finalizer,
         } = self;
-        let processing_outcome = AssertUnwindSafe(Self::process(stream, config, cancellation))
+        let processing_outcome = AssertUnwindSafe(Box::pin(Self::process(stream, config)))
             .catch_unwind()
             .await;
         let outcome = classify_processing_outcome(&processing_outcome);
@@ -205,18 +237,40 @@ where
         resolve_processing_outcome(processing_outcome)
     }
 
-    /// Build the connection-local inbound state and drive it to completion.
+    /// Drive the shared frame-processing loop to completion.
     ///
-    /// The framed stream is a local value. Dropping it before returning, or
-    /// during an unwind, releases the transport before the caller awaits
-    /// teardown.
-    async fn process(
-        stream: W,
-        config: InboundConfig<'a, S, E, F>,
-        cancellation: Option<&CancellationToken>,
-    ) -> io::Result<()> {
-        let mut inbound = InboundState::new(stream, config);
-        inbound.run(cancellation).await
+    /// Framing state, the response actor, and the frame pipeline are all locals
+    /// of the processing future. Dropping them before returning, or during an
+    /// unwind, releases the transport before the caller awaits teardown.
+    async fn process(stream: W, config: InboundConfig<'a, S, E, F>) -> io::Result<()> {
+        let InboundConfig {
+            routes,
+            serializer,
+            codec,
+            message_assembler,
+            fragmentation,
+            protocol_hooks,
+            protocol,
+            memory_budgets,
+            read_timeout_ms,
+            shutdown,
+        } = config;
+        process_stream(
+            stream,
+            StreamProcessingContext {
+                routes,
+                serializer,
+                codec,
+                message_assembler,
+                fragmentation,
+                protocol_hooks,
+                protocol,
+                memory_budgets,
+                read_timeout_ms,
+                shutdown,
+            },
+        )
+        .await
     }
 }
 

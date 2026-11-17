@@ -20,7 +20,6 @@
 extern crate self as wireframe;
 
 pub mod app;
-pub mod app_data_store;
 pub mod benchmark_counters;
 pub mod byte_order;
 #[cfg(not(loom))]
@@ -30,8 +29,6 @@ pub mod error;
 pub use error::{NoProtocolError, Result, WireframeError};
 pub mod connection;
 pub mod correlation;
-#[cfg(not(loom))]
-pub mod extractor;
 mod fairness;
 pub mod fragment;
 pub mod frame;

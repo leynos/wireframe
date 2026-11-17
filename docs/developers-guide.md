@@ -390,7 +390,7 @@ refusal, so a reader reverted to `yaml.safe_load` fails them.
 | --------------------- | -------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
 | Transport framing     | Frame          | `FrameCodec::Frame`, `LengthDelimitedFrameCodec` | Physical wire unit read from or written to the socket.                                                                     |
 | Routing envelope      | Envelope       | `Packet`, `Envelope`, `PacketParts`              | Routable wrapper that carries route id, optional correlation id, and payload bytes (`Packet` names the trait abstraction). |
-| Domain payload        | Message        | `message::Message`, extractor `Message<T>`       | Typed application data encoded into envelope payload bytes.                                                                |
+| Domain payload        | Message        | `message::Message`                               | Typed application data encoded into envelope payload bytes.                                                                |
 | Transport subdivision | Fragment       | `FragmentHeader`, `Fragmenter`, `Reassembler`    | Size-limited chunk used when a payload exceeds frame budget.                                                               |
 
 ## Naming invariants
@@ -442,9 +442,36 @@ mutation reaches the wire. Hook output must still fit the codec's
 `max_frame_length`. The pipeline does not check this limit: the default
 `LengthDelimitedFrameCodec` rejects an oversized frame, so the send fails and
 ends the connection, while a custom encoder must enforce `max_frame_length`
-itself. Actor-driven push and streaming traffic runs its own hook pipeline, and
-the direct response helpers bypass `before_send`. The
+itself. Only the direct response helpers, which write to a stream the caller
+supplies rather than through the prepared application, bypass `before_send`. The
 [users' guide](users-guide.md) states the user-facing contract.
+
+Every prepared server connection now owns an untracked `ConnectionActor` built
+by `src/app/inbound_handler/actor.rs`. Handler responses — including
+`Response::Stream` and `Response::MultiPacket` installed by `route_response` —
+are installed on that actor, and the actor's transport sink borrows the
+connection's `Framed` and `FramePipeline`. The sink therefore applies
+fragmentation, outbound metrics, serialization, `wrap_payload`, and
+`before_send` in one fixed order before `Framed::send`. The actor itself
+receives no fragmenter and no `before_send` hook, so application frames are
+never serialized or hooked twice.
+
+Only `handle_error` is forwarded from the protocol to that actor: the actor
+registers no completion or terminator hook, and `before_send` stays with the
+pipeline. The prepared path does not invoke the protocol's
+`on_connection_setup` or `on_eof`; those callbacks remain unreached there, and
+the application-level connection setup and teardown callbacks registered on
+`WireframeApp` are separate hooks. Without a protocol the actor uses default,
+no-op hooks.
+
+`forward_response` owns the rest of the command lifecycle. Once the actor
+reports a completed `Stream` or `MultiPacket` response, it calls
+`stream_end_frame`, writes the returned codec frame unchanged through the same
+pipeline (so `before_send` and outbound metrics still observe it), and only
+then calls `on_command_end`. Writing the native frame keeps tag, length, or
+padding metadata a custom codec adds outside the payload, which decoding into an
+`Envelope` and re-wrapping would discard. The adapter neither decodes nor
+restamps the frame, so a correlated terminator must be built by the protocol.
 
 The connection actor stores its outbound producer as one `ActiveOutput` value,
 so a response stream and a multi-packet channel cannot both be active. Its
@@ -460,6 +487,78 @@ advances the accepted header before classifying it as complete or incomplete,
 so a terminal first fragment follows the same index rule as a partial one. The
 [fragment design](generic-message-fragmentation-and-re-assembly-design.md)
 describes the surrounding reassembly boundary.
+
+### Deferred handler responses
+
+A handler registered with `WireframeApp::route_response` returns a
+`Response<Envelope, ()>` instead of mutating the request envelope. The route
+service keeps that response in a deferred slot on `ServiceResponse`: an
+`Arc<Mutex<Option<Response>>>` that starts filled and can be taken exactly
+once. The response frame itself carries no bytes, so middleware sees the
+request frame it expects without a serialized body appearing beside it.
+
+Every clone of the `ServiceResponse` shares the slot, and `take_deferred`
+empties it for all of them. The connection's response forwarder is the single
+consumer, so a clone taken earlier observes an empty slot rather than replaying
+the body. `PartialEq` and `Debug` ignore the slot, which keeps comparisons and
+logs independent of whether the body was already taken; `Debug` reports only
+its presence.
+
+Middleware must return the `ServiceResponse` it received to preserve the
+deferred body. Mutating `frame_mut()` edits the response frame and leaves the
+deferred frames untouched. Returning a fresh `ServiceResponse` — for example
+after a short circuit — discards the slot, and the route then emits one frame
+carrying the new response's bytes. Middleware that wraps a response route
+returns `HandlerService::from_service(id, wrapper)` so the wrapper is
+type-erased back into the route chain, and `from_fn` middleware must forward
+the value returned by `Next::call` for the same reason.
+
+Delivery runs inside a `response_delivery` debug span that records the request
+id, the correlation id, and whether the body streamed. The span stays open
+through the terminator write and the completion hook, and records the final
+`ResponseOutcome` or `transport_error`, so one trace covers the whole exchange.
+
+### Peer observation and the idle grace
+
+A handler may stream for an unbounded time, so waiting for its response before
+reading the next inbound frame would hide a peer that has already gone away.
+`src/app/inbound_handler/peer_watch.rs` polls the read half while one frame is
+handled and tracks peer state with two tokens:
+
+- `peer_eof` is connection-wide and is cancelled only by a clean EOF. That
+  state is permanent: the read half has ended, so no later response can be
+  observed either.
+- `unobserved` is per dispatch. The connection loop installs a fresh child of
+  `peer_eof` on the actor before each frame, so cancelling it bounds one
+  response without affecting the next.
+
+At most one inbound frame is buffered while a response is driven. Buffering
+stops the read half being polled, so a later disconnect cannot be observed
+directly. A clean EOF cancels the connection-wide `peer_eof`, and the
+per-dispatch `unobserved` child with it; a buffered request cancels only
+`unobserved`, leaving `peer_eof` live for the next dispatch. Either way the
+actor bounds the pending response instead of waiting for a peer that will never
+read it. A read error is different: it fails the connection and leaves both
+tokens untouched. The loop records the cause in a cell the actor reads, so the
+cancellation warning itself names a half-close or a buffered request.
+
+The actor applies `PEER_CLOSED_RESPONSE_GRACE` — 30 seconds in production — to
+each wait once the per-dispatch signal is cancelled. The deadline is renewed
+for every event the response produces rather than applied once to the whole
+response, so a half-close does not truncate a response that keeps making
+progress; only a producer that produces no frame for a whole grace is
+cancelled. Cancellation clears the active output and returns
+`ResponseOutcome::Cancelled`; the inbound loop then stops dispatching and
+closes the connection, so the request buffered behind the truncated stream is
+not served. That close releases the connection task, its active-connection
+gauge guard, and its teardown path. The actor increments
+`wireframe_response_cancellations_total` with the bounded label
+`reason="idle_grace_expired"` and logs the cause, the connection id, the peer
+address, and the request correlation, so a truncated response can be traced to
+the request that caused it. Prepared connections do not currently populate the
+connection id or peer address, so those fields read as `None` there. The
+deadline source is injectable (`GraceTimer`), so tests fire it by hand instead
+of waiting on the clock.
 
 ## Runtime ownership model
 
@@ -507,31 +606,33 @@ the shared `PreparedApp`; the runtime is never shared between tasks and its
 mutable state is not placed behind `Arc<Mutex<_>>`. Construction stages:
 
 - the accepted transport and the immutable `InboundConfig` borrowed from the
-  prepared application; and
+  prepared application, including its serializer, codec, protocol hooks and
+  actor protocol, memory budgets, read timeout, and per-connection shutdown
+  token; and
 - `ConnectionFinalizer<C>`, which owns the setup value produced by
   `on_connection_setup` in exactly one of `NotSetUp`, `Armed(C)`, or
   `Finalized`.
 
-`InboundState` is built inside `run`, after setup has completed. It owns the
-framed stream, frame pipeline, message-assembly instance, decode-failure count,
-effective budgets, read timeout, and the connection-local codec clone that
-carries framing state. Deferring it means a pending setup cannot clone a custom
+Framing state is built inside `run`, after setup has completed, by the shared
+frame-processing loop in `inbound_handler::core::process_stream`. The framed
+stream, frame pipeline, message-assembly instance, decode-failure count,
+effective budgets, and connection-local codec clone are all locals of that one
+connection task. Deferring them means a pending setup cannot clone a custom
 codec or reserve the maximum frame buffer, and no codec is initialized before
 setup establishes its state.
 
-Peer addresses and connection identifiers are absent from this path: the entry
-points accept a generic `AsyncRead + AsyncWrite` stream, so the runtime owns
-none. Envelope correlation identifiers are per-frame state and stay on the
-decoded envelope.
+Peer addresses and connection identifiers are absent from the processing
+context: the entry points accept a generic `AsyncRead + AsyncWrite` stream, so
+the runtime owns none. Envelope correlation identifiers are per-frame state and
+stay on the decoded envelope; the connection-task span carries `peer_addr`.
 
-Both entry points, `process_connection` and
-`process_connection_with_cancellation`, drive the same runtime. `run`
+`process_connection` is the single entry point and drives the runtime. `run`
 destructures the staged runtime and wraps initialization together with inbound
 processing in `AssertUnwindSafe(..).catch_unwind()`, keeping the finalizer
 outside the caught future. It awaits finalization, and then returns the
 processing result or re-raises the panic, so a panic during initialization is
-finalized like a processing panic. `process` holds `InboundState` as a local,
-so when it returns or unwinds the framed stream is dropped before teardown is
+finalized like a processing panic. `process` owns the framing state as a local,
+so when it returns or unwinds the transport is dropped before teardown is
 awaited. Teardown callbacks that wait for the peer to observe closure therefore
 cannot deadlock. Teardown runs before a handler panic reaches the
 connection-task supervisor, which remains responsible for counting and logging
@@ -549,14 +650,14 @@ whole connection task with a `connection` span carrying `peer_addr`, so the
 processing-panic and teardown diagnostics stay attributable to a peer after the
 transport has been released.
 
-Cooperative cancellation takes an `Option<CancellationToken>` and is observed
-only at a read boundary: it is the biased first branch of the `select!` before
-the timed `framed.next()`. No production entry point supplies a token: both
-prepared entry points and the server connection task pass `None`. Server
-shutdown stops acceptance and drains established connections under ADR 014;
-handing the server stop token to a connection would end it outside that
-graceful-drain contract. The cancellation-aware path remains crate-private for
-a caller that already owns a connection-scoped token, and its finalization,
+Cooperative cancellation comes from the `shutdown` token in the processing
+context and is observed at the read boundary: it is the biased first branch of
+the `select!` around the timed frame read, and a frame already read is
+dispatched to completion first. The server supplies a per-connection child
+token of its worker shutdown signal through
+`PreparedApp::handle_connection_with_shutdown`, so a peer that stops reading
+cannot pin a graceful drain (ADR 014). Compatibility entry points supply a
+fresh token that is never cancelled. Finalization of a cancelled connection,
 including delivery of an exact non-`Clone` setup value, is covered by
 `ordering_tests`.
 
@@ -570,8 +671,8 @@ implementation boundary.
 compatibility entrypoint. It delegates to the private
 `handle_unprepared_connection_result` path, which rebuilds route chains for
 callers that still own an unprepared builder. Server connection tasks use
-`PreparedApp::handle_connection_result` instead, preserving the once-per-run
-preparation boundary.
+`PreparedApp::handle_connection_with_shutdown` instead, preserving the
+once-per-run preparation boundary.
 
 ### Preamble handshake boundary
 
@@ -586,7 +687,7 @@ A connection task completes the preamble handshake before dispatch to
 2. `run_preamble_success` invokes the success callback, if one is registered,
    while the stream is still exclusively borrowed.
 3. `process_stream` rewinds any leftover bytes into a `RewindStream`.
-4. `PreparedApp::handle_connection_result` runs the application.
+4. `PreparedApp::handle_connection_with_shutdown` runs the application.
 
 `PreambleSuccessHandler` returns `io::Result<()>` because it is the authority
 for pre-application access control. `run_preamble_success` logs a callback
@@ -1361,6 +1462,28 @@ The root package declares Rust 1.95 as its minimum. `rstest-bdd` 0.6.0 requires
 Rust 1.88, and existing `AtomicU64::try_update` calls require Rust 1.95. This
 floor applies to the root package's test targets as well as its library. The
 pinned nightly remains the standard repository gate toolchain.
+
+The **MSRV** workflow proves that floor on a GitHub-hosted runner, as concordat
+rule RT-026 requires of every declared minimum. It runs on every pull request
+and push to `main`, so a change that raises the floor fails before it merges,
+and every Monday, through `make test-msrv` and `scripts/check-msrv.sh`. It
+reads the version from `Cargo.toml`, then checks the workspace from the lock
+file and a throwaway consumer with freshly resolved dependencies, so it also
+catches a dependency release that breaks the minimum. Both steps are
+`cargo check`: the estate's cost rule for an MSRV job is a check on the minimum
+toolchain, never a build or a second test run, because the pinned nightly
+already builds and tests everything. Plain `cargo +1.95` fails inside this
+repository, because `.cargo/config.toml` passes the nightly-only `-Zthreads`;
+the script assigns `RUSTFLAGS` to displace it. When raising the floor, change
+`rust-version` in both `Cargo.toml` and `wireframe_testing/Cargo.toml`, and any
+statement of the minimum in the README and the guides.
+
+The shared `msrv-check` action in `leynos/shared-actions` does the same
+workspace check, and RT-026 recognizes it. It has not merged yet
+([shared-actions#622](https://github.com/leynos/shared-actions/pull/622)), and
+a commit from an unmerged branch is not a stable pin, so the script stands in
+for it. Once the action lands, its step can replace the workspace check; the
+fresh-dependency consumer check has no counterpart there and stays.
 
 The Makefile keeps the development configuration in
 `tools/dev-fast/config.toml`, outside Cargo's automatic configuration paths.
@@ -2149,6 +2272,24 @@ consumer's empty `[workspace]` table and its absence from the root members,
 because joining the workspace would let Cargo unify the root dev-dependency's
 `wireframe/test-support` into the consumer and turn the expected compile
 failure into a pass.
+
+#### Serializer and response-handler bounds
+
+Three fixtures pin the type-level contracts around response streaming:
+
+| Fixture                                                | Contract it pins                                                   |
+| ------------------------------------------------------ | ------------------------------------------------------------------ |
+| `tests/ui/codec_without_default_serializer.rs`         | `with_codec` needs no `S: Default` once a serializer is installed  |
+| `tests/ui/prepared_app_rejects_borrowed_serializer.rs` | `handle_connection_result` requires `S: 'static`                   |
+| `tests/ui/response_handler_borrows_request.rs`         | a response-handler future may borrow its request across an `await` |
+
+The first fixture prepares nothing; it only builds an application, so a
+regression that reintroduces the redundant `Default` bound fails to type check.
+The second prepares successfully and fails at the connection boundary, which
+pins that the `'static` requirement belongs to the connection and not to
+preparation. The third passes, because the response handler's higher-ranked
+lifetime lets a handler read request data after an asynchronous step instead of
+copying it up front.
 
 ### Feature files and step definitions
 

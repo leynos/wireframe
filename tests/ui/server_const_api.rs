@@ -1,21 +1,20 @@
 //! Verifies public server-runtime APIs remain callable in const contexts.
 //!
 //! The lint-census layer made the push-queue builder setters, `ConnectionId`
-//! accessors, `ConnectionInfo::peer_addr`, and several error and codec
-//! accessors `const fn`. Const callability is a compile-time promise, so a
-//! fixture that compiles is the only check that can catch a regression.
+//! accessors, and several error and codec accessors `const fn`. Const
+//! callability is a compile-time promise, so a fixture that compiles is the
+//! only check that can catch a regression.
 //!
 //! Values that no `const fn` can construct, such as `io::Error` or a live
 //! connection, arrive as parameters: the point under test is the callee, not
 //! the argument.
 
-use std::{net::SocketAddr, time::Duration};
+use std::time::Duration;
 
 use wireframe::{
     app::Envelope,
     codec::{CodecError, EofError, LengthDelimitedFrameCodec},
     error::WireframeError,
-    extractor::ConnectionInfo,
     push::PushQueuesBuilder,
     serializer::BincodeSerializer,
     server::{AppFactory, PrebuiltAppFactory, WireframeServer},
@@ -52,9 +51,6 @@ const fn frame_limit(codec: &LengthDelimitedFrameCodec) -> usize {
     codec.max_frame_length()
 }
 
-/// `ConnectionInfo::peer_addr` is const; a live value arrives as a parameter.
-const fn peer_addr_of(info: &ConnectionInfo) -> Option<SocketAddr> { info.peer_addr() }
-
 /// `WireframeError::from_codec` is const, and the codec error it wraps is
 /// const-constructible, so the whole value is built in a `const` item.
 const CLEAN_CLOSE_CODEC: CodecError = CodecError::Eof(EofError::CleanClose);
@@ -88,7 +84,6 @@ fn main() {
         recalibrate_builder::<Vec<u8>>,
         CONNECTION_ID_VALUE,
         frame_limit,
-        peer_addr_of,
         CLEAN_CLOSE_ERROR.is_clean_close(),
         is_clean_close(&CLEAN_CLOSE_ERROR),
         wrap_io,

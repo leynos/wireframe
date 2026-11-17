@@ -26,7 +26,9 @@ where
             Event::Low(res) => self.process_low(res, state, out),
             Event::MultiPacket(res) => self.process_multi_packet(res, state, out),
             Event::Response(res) => self.process_response(res, state, out)?,
-            Event::Idle => {}
+            // Only the response drive observes a half-close; it handles the
+            // event itself and never dispatches it.
+            Event::Idle | Event::PeerClosed => {}
         }
 
         Ok(())

@@ -381,53 +381,54 @@ cancellation, and panic-recovery paths where execution can safely continue.
 
 The connection-local runtime implements this with two collaborating values.
 `ConnectionRuntime` stages the accepted transport and the immutable
-`InboundConfig`, and builds `InboundState` only when `run` is driven; that
-state then owns the framed stream, pipeline, message assembly, decode failure
-count, effective budgets, and read timeout. `ConnectionFinalizer<C>` owns the
-setup value in one of three states: `NotSetUp`, `Armed(C)`, or `Finalized`. Only
-`arm` from `NotSetUp` records setup output, and `take_for_teardown` replaces
-the state with `Finalized` before returning the value. Teardown therefore
-consumes the setup value at most once even if finalization is requested after
-the state has already been taken, and a teardown-callback panic cannot
-re-trigger it. Finalization is an explicit async method; no `Drop`
-implementation performs I/O or awaits teardown.
+`InboundConfig`, and builds framing state only when `run` is driven; the framed
+stream, pipeline, message assembly, decode-failure count, effective budgets,
+and read timeout are locals of that one connection task.
+`ConnectionFinalizer<C>` owns the setup value in one of three states:
+`NotSetUp`, `Armed(C)`, or `Finalized`. Only `arm` from `NotSetUp` records
+setup output, and `take_for_teardown` replaces the state with `Finalized`
+before returning the value. Teardown therefore consumes the setup value at most
+once even if finalization is requested after the state has already been taken,
+and a teardown-callback panic cannot re-trigger it. Finalization is an explicit
+async method; no `Drop` implementation performs I/O or awaits teardown.
 
 Construction is deliberately staged. `ConnectionRuntime::new` only stores the
 transport and configuration, so it cannot clone the connection codec or reserve
 the maximum frame buffer while a setup hook is still pending, and a custom
 codec is never initialized before setup establishes its state. Setup completes
-first; `run` then builds `InboundState` and drives it.
+first; `run` then builds framing state and drives the shared frame-processing
+loop.
 
 `ConnectionRuntime::run` keeps the processing result rather than propagating it
 with `?`, awaits finalization, and only then returns the result or re-raises a
 panic. Initialization and processing share one future inside
 `AssertUnwindSafe(..).catch_unwind()`, while the finalizer is destructured out
 of the runtime and stays outside the caught future. The assertion is sound
-because handlers never observe `C`, and the inbound state is a local that is
+because handlers never observe `C`, and the framing state is a local that is
 dropped during unwinding and never reused. A panic during initialization is
 therefore finalized and re-raised like any processing panic. Setup and teardown
 panics remain intentionally outside this recovery point.
 
-Because `InboundState` is a local of the caught future, the framed stream is
+Because the framing state is a local of the caught future, the framed stream is
 dropped when processing returns or unwinds, before `run` awaits teardown. The
 transport is therefore released before a teardown callback runs, so a callback
 that waits for the peer to observe closure cannot deadlock against a transport
 the runtime still owns. Regression tests pin both orderings in
 `src/app/connection_runtime/ordering_tests.rs`.
 
-Cooperative cancellation is an `Option<CancellationToken>` observed only at the
-read boundary: it is the biased first branch of the `select!` before the timed
-`framed.next()`. Cancellation therefore ends the connection between frames,
-never mid-decode or mid-write, and finalizes through the same path, including
-delivery of an exact non-`Clone` setup value. No production entry point
-supplies a token: the prepared byte-stream and TCP entry points, and the server
-connection task, all pass `None`. Server shutdown stops acceptance and drains
-established connections, as
-[ADR 014](adr-0014-server-shutdown-ownership-and-terminal-observation.md)
-specifies; passing the server stop token to connections would end them outside
-that graceful-drain contract. The cancellation-aware path is therefore
-crate-private, available to a caller that already owns a connection-scoped
-token, and is not part of the public lifecycle promise.
+Cooperative cancellation comes from the per-connection shutdown token in the
+processing context and is observed only at the read boundary: it is the biased
+first branch of the `select!` around the timed frame read. Cancellation
+therefore ends the connection between frames, never mid-decode or mid-write,
+and finalizes through the same path, including delivery of an exact non-`Clone`
+setup value. The server supplies a per-connection child token of its worker
+shutdown signal through `PreparedApp::handle_connection_with_shutdown`, and
+[ADR 014](adr-0014-server-shutdown-ownership-and-terminal-observation.md)'s
+2026-11-14 addendum bounds that token to work that cannot otherwise make
+progress: a connection whose peer is reading still drains across `stop()`,
+while a write or response wait that cannot proceed is abandoned rather than
+pinning the drain. Compatibility entry points supply a fresh token that is
+never cancelled and are not part of the public lifecycle promise.
 
 The prepared byte-stream entry points carry no peer address or connection
 identifier, so the runtime owns none; envelope correlation identifiers remain

@@ -6,14 +6,14 @@ use tokio::sync::mpsc;
 
 use crate::{
     app::{
+        Route,
         builder_defaults::DEFAULT_READ_TIMEOUT_MS,
         envelope::{Envelope, Packet},
         error::Result,
         lifecycle::{ConnectionSetup, ConnectionTeardown},
         memory_budgets::MemoryBudgets,
-        middleware_types::{Handler, Middleware},
+        middleware_types::Middleware,
     },
-    app_data_store::AppDataStore,
     codec::{FrameCodec, LengthDelimitedFrameCodec},
     hooks::WireframeProtocol,
     message_assembler::MessageAssembler,
@@ -31,14 +31,16 @@ pub struct WireframeApp<
     E: Packet = Envelope,
     F: FrameCodec = LengthDelimitedFrameCodec,
 > {
-    /// Handler factories keyed by the protocol message identifier.
-    pub(in crate::app) handlers: HashMap<u32, Handler<E>>,
+    /// Registered routes keyed by the protocol message identifier.
+    pub(in crate::app) handlers: HashMap<u32, Route<E>>,
     /// Middleware applied in registration order around each handler.
     pub(in crate::app) middleware: Vec<Box<dyn Middleware<E>>>,
     /// Serializer retained by every connection built from this application.
-    pub(in crate::app) serializer: S,
-    /// Type-erased application state available to handlers and hooks.
-    pub(in crate::app) app_data: AppDataStore,
+    ///
+    /// The handle is shared because the connection actor's protocol hooks are
+    /// `'static` and need to decode terminator frames without copying the
+    /// serializer.
+    pub(in crate::app) serializer: Arc<S>,
     /// Optional asynchronous hook that creates per-connection state.
     pub(in crate::app) on_connect: Option<Arc<ConnectionSetup<C>>>,
     /// Optional asynchronous hook that releases state after processing once
@@ -71,15 +73,14 @@ where
     E: Packet,
     F: FrameCodec + Default,
 {
-    /// Initializes empty handlers, middleware, and application data with the
-    /// default serializer and no lifecycle hooks.
+    /// Initializes empty handlers and middleware with the default serializer
+    /// and no lifecycle hooks.
     fn default() -> Self {
         let codec = F::default();
         Self {
             handlers: HashMap::new(),
             middleware: Vec::new(),
-            serializer: S::default(),
-            app_data: AppDataStore::default(),
+            serializer: Arc::new(S::default()),
             on_connect: None,
             on_disconnect: None,
             protocol: None,
@@ -124,7 +125,7 @@ where
     /// forward compatibility.
     pub fn with_serializer(serializer: S) -> Result<Self> {
         Ok(Self {
-            serializer,
+            serializer: Arc::new(serializer),
             ..Self::default()
         })
     }
@@ -137,7 +138,7 @@ where
 /// concise.
 pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     /// Serializer to carry into the rebuilt application type.
-    pub(super) serializer: S2,
+    pub(super) serializer: Arc<S2>,
     /// Codec to carry into the rebuilt application type.
     pub(super) codec: F2,
     /// Protocol hook whose frame type matches the replacement codec.
@@ -159,7 +160,7 @@ where
 {
     /// Helper to rebuild the app when changing type parameters.
     ///
-    /// The `WireframeApp` builder carries 13 fields that must be moved together
+    /// The `WireframeApp` builder carries 12 fields that must be moved together
     /// when swapping serializer or codec types. Centralizing the reconstruction
     /// here keeps the transitions consistent and avoids repeating the same
     /// field list across each type-changing method. For smaller builders with
@@ -177,7 +178,6 @@ where
             handlers: self.handlers,
             middleware: self.middleware,
             serializer: params.serializer,
-            app_data: self.app_data,
             on_connect: self.on_connect,
             on_disconnect: self.on_disconnect,
             protocol: params.protocol,
@@ -206,7 +206,6 @@ where
             handlers: self.handlers,
             middleware: self.middleware,
             serializer: self.serializer,
-            app_data: self.app_data,
             on_connect,
             on_disconnect: None,
             protocol: self.protocol,

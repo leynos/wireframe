@@ -5,6 +5,87 @@ drive accepted streams directly. It explains how to move route and middleware
 setup out of connection handling while retaining the existing server factory
 workflow.
 
+## Removed: extractors and `app_data`
+
+[ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md) removes the
+extractor module and the application-data store before 1.0. The module was
+public, but no dispatch path invoked it: route handlers received only their
+envelope, so `FromMessageRequest` implementations never ran and values stored by
+`WireframeApp::app_data` were never readable through `SharedState<T>`.
+
+Route handlers keep the `Handler<E>` shape:
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-019 -->
+```rust
+use std::sync::Arc;
+
+use wireframe::app::{Envelope, Handler};
+
+fn make_handler() -> Handler<Envelope> {
+    Arc::new(|envelope: &Envelope| {
+        // Decode or inspect the envelope here.
+        let _ = envelope.payload_bytes();
+        Box::pin(async {})
+    })
+}
+```
+
+Replace each removed item as follows:
+
+| Removed symbol                             | Replacement                                          |
+| ------------------------------------------ | ---------------------------------------------------- |
+| `wireframe::extractor::FromMessageRequest` | Decode in the handler or a helper function           |
+| `wireframe::extractor::MessageRequest`     | Use the envelope fields the handler actually needs   |
+| `wireframe::extractor::Payload`            | Borrow `Envelope::payload_bytes`                     |
+| `wireframe::extractor::Message<T>`         | `T::from_bytes` on a bincode payload                 |
+| `wireframe::extractor::SharedState<T>`     | Capture an `Arc<T>` in the handler closure           |
+| `wireframe::extractor::ConnectionInfo`     | No peer address reaches route handlers               |
+| `wireframe::extractor::StreamingBody`      | `RequestBodyReader::new(stream)` on a stream you own |
+| `wireframe::extractor::ExtractError`       | Define a protocol- or application-specific error     |
+| `wireframe::app_data_store::AppDataStore`  | Capture an `Arc` in the handler closure              |
+| `WireframeApp::app_data`                   | Capture an `Arc` in the handler closure              |
+
+### Shared state
+
+Capture shared state in the handler closure instead of registering it on the
+application:
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-020 -->
+```rust
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
+
+use wireframe::app::{Envelope, Handler, WireframeApp};
+
+fn build_app(counter: Arc<AtomicU64>) -> wireframe::Result<WireframeApp> {
+    let handler: Handler<Envelope> = Arc::new(move |_: &Envelope| {
+        let counter = Arc::clone(&counter);
+        Box::pin(async move {
+            counter.fetch_add(1, Ordering::Relaxed);
+        })
+    });
+
+    // Annotate the binding so the remaining type parameters take their defaults.
+    let app: WireframeApp = WireframeApp::new()?.route(1, handler)?;
+    Ok(app)
+}
+```
+
+### Request decoding
+
+`message::Message::from_bytes` decodes a bincode payload only. A protocol with
+another payload format should call its serializer's decoder instead, binding
+the target type through `DecodeWith`.
+
+### Inbound streaming
+
+`RequestParts`, `RequestBodyStream`, and `RequestBodyReader` remain available,
+but the connection runtime does not create a body channel. Code that wants an
+incremental body owns both ends of `body_channel` and wraps the receiving end
+with `RequestBodyReader::new`.
+
 ## Fragment reassembly limits
 
 `FragmentationConfig` now requires `max_concurrent_partials` and
@@ -592,8 +673,62 @@ its own behaviour for an oversized frame, so it must enforce `max_frame_length`
 itself.
 
 Only the direct response helpers (`send_response`, `send_response_framed`, and
-`send_response_framed_with_codec`) bypass the hook. Actor-owned push and
-streaming traffic runs its own hook pipeline: `ConnectionActor::push_frame`
-invokes `before_send` on actor frames, so that traffic is not bypassed. See the
-[users' guide](users-guide.md)
-for the user-facing contract.
+`send_response_framed_with_codec`) bypass the hook. Push traffic submitted
+directly to a `ConnectionActor` runs `before_send` from the actor's own hooks.
+On a prepared server connection, handler responses — including streamed and
+multi-packet bodies — are written through the connection's `FramePipeline`, and
+the actor built for that connection deliberately has no `before_send` hook of
+its own, so the hook runs exactly once per frame. See the
+[users' guide](users-guide.md) for the user-facing contract.
+
+`on_command_end` now fires once for every completed handler response on a
+prepared server connection, including an ordinary `route` reply that previously
+only emitted bytes. A protocol that releases per-request state in that hook
+therefore sees one call per completed reply, not only for actor-driven push and
+multi-packet traffic. The hook is not a guaranteed cleanup point: a response
+cancelled by the peer-close grace skips it, and a terminator write that fails
+returns before it, so per-request state that must always be released needs a
+separate fallback.
+
+Prepared connections also require `S: 'static` on the serializer.
+`PreparedApp::handle_connection_result` and the deprecated
+`WireframeApp::handle_connection*` methods now carry this bound, so a
+serializer that borrows connection-local data can no longer be used with them.
+
+## Response-producing routes and multi-packet correlation
+
+`WireframeApp::route_response` registers a handler that returns a whole
+`Response` rather than raw bytes, so a route can stream or send several frames
+instead of exactly one reply. `ResponseHandler<E>` is re-exported from
+`wireframe::app`, and route identifiers stay unique across `route` and
+`route_response`. `E` is the request type: the handler receives a borrowed
+request of that type and may hold the borrow across an `await`, and it must
+return `Response<Envelope, ()>` rather than bytes.
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-021 -->
+```rust,no_run
+use std::sync::Arc;
+
+use wireframe::app::{Envelope, ResponseHandler};
+use wireframe::response::Response;
+
+fn handler() -> ResponseHandler<Envelope> {
+    Arc::new(|request: &Envelope| {
+        let payload = request.payload_bytes().to_vec();
+        Box::pin(async move { Response::Single(Envelope::new(1, None, payload)) })
+    })
+}
+```
+
+A route registered with `route` is unchanged: its bytes are wrapped in one
+envelope and sent as a single reply.
+
+Correlation behaviour for direct `ConnectionActor` multi-packet traffic has
+also changed. When the request carries no correlation identifier, a frame that
+supplies its own keeps it instead of having `None` written over it. A frame
+that supplies a different identifier than the request is still overwritten and
+logged as a warning. On a prepared server connection the protocol terminator is
+written without decoding or re-wrapping, so the adapter does not replace the
+identifier produced by `stream_end_frame` for either streamed or multi-packet
+responses (`before_send` can still rewrite the frame); see the
+[users' guide](users-guide.md#response-producing-routes) for the full contract.
