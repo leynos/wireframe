@@ -28,8 +28,17 @@ use support::{
     stop,
     wait_until_registry_empty,
 };
-use tokio::{io::AsyncWriteExt, net::TcpStream, time::timeout};
-use wireframe::{app::WireframeApp, push::PushError, session::SessionRegistry};
+use tokio::{
+    io::AsyncWriteExt,
+    net::{TcpSocket, TcpStream},
+    time::timeout,
+};
+use wireframe::{
+    app::WireframeApp,
+    codec::LengthDelimitedFrameCodec,
+    push::PushError,
+    session::SessionRegistry,
+};
 use wireframe_testing::TestResult;
 
 /// Server shutdown ends an idle connection and rejects further pushes.
@@ -64,6 +73,53 @@ async fn shutdown_ends_idle_connections() -> TestResult<()> {
     match pushed {
         Err(PushError::Closed) => {}
         other => return Err(format!("shutdown should close the push lanes: {other:?}").into()),
+    }
+
+    drop(client);
+    Ok(())
+}
+
+/// A stop request deregisters a connection whose push write cannot progress.
+///
+/// The client never reads and asks for a tiny receive buffer, so a frame far
+/// larger than the socket buffers stays in flight. The stop token abandons
+/// that write rather than waiting for the peer, and the connection's registry
+/// guard must still remove the entry.
+#[tokio::test]
+async fn shutdown_deregisters_a_connection_with_a_pending_push() -> TestResult<()> {
+    /// Payload larger than the buffers a loopback write could drain.
+    const IN_FLIGHT: usize = 16 * 1024 * 1024 - 1;
+    /// Maximum frame length accepted by the connection codec.
+    const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
+    /// Client receive buffer, small enough to stall the write after one window.
+    const RECEIVE_BUFFER: u32 = 4096;
+
+    let registry = Arc::new(SessionRegistry::<Bytes>::new());
+    let protocol = PushTestProtocol::new();
+    // The default app fixes the codec type the replacement is built from.
+    let app: WireframeApp = WireframeApp::default();
+    let app = app
+        .with_codec(LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH))
+        .with_protocol(protocol.clone())
+        .with_session_registry(Arc::clone(&registry));
+    let (addr, shutdown) = spawn_server(app).await?;
+    let socket = TcpSocket::new_v4()?;
+    socket.set_recv_buffer_size(RECEIVE_BUFFER)?;
+    let client = socket.connect(addr).await?;
+    let (connection_id, handle) = only_connection(&protocol).await?;
+
+    handle
+        .push_high_priority(Bytes::from(vec![b'p'; IN_FLIGHT]))
+        .await
+        .map_err(|error| format!("the pending push should be accepted: {error:?}"))?;
+    // Let the actor take the frame, so the stop lands while the write blocks
+    // on a peer that is not draining its receive window.
+    tokio::task::yield_now().await;
+
+    stop(&shutdown).await?;
+    wait_until_registry_empty(&registry).await?;
+    if registry.get(&connection_id).is_some() {
+        return Err("shutdown should deregister a connection with a pending push".into());
     }
 
     drop(client);

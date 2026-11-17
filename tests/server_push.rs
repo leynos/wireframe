@@ -27,7 +27,8 @@ use support::{
 use tokio::{io::AsyncWriteExt, net::TcpStream, sync::mpsc, time::timeout};
 use wireframe::{
     app::WireframeApp,
-    push::{PushPriority, PushQueues},
+    hooks::{ConnectionContext, WireframeProtocol},
+    push::{PushHandle, PushPriority, PushQueues},
     session::{ConnectionId, SessionRegistry},
 };
 use wireframe_testing::TestResult;
@@ -119,6 +120,77 @@ async fn registry_entry_is_removed_when_connection_closes() -> TestResult<()> {
     wait_until_registry_empty(&registry).await?;
     if registry.get(&connection_id).is_some() {
         return Err("closed connection should be deregistered".into());
+    }
+
+    stop(&shutdown).await
+}
+
+/// Protocol that panics in `on_connection_setup`, after recording the setup.
+///
+/// The protocol callback runs immediately after the connection publishes its
+/// registry entry, so this is the earliest point a connection can fail while
+/// it is registered. The recorded setup keeps a strong handle alive, so an
+/// entry the guard failed to remove would still upgrade rather than look like
+/// an already-dead weak reference.
+#[derive(Clone)]
+struct PanickingSetupProtocol(PushTestProtocol);
+
+impl WireframeProtocol for PanickingSetupProtocol {
+    type Frame = Bytes;
+    type ProtocolError = ();
+
+    fn on_connection_setup(&self, handle: PushHandle<Self::Frame>, ctx: &mut ConnectionContext) {
+        WireframeProtocol::on_connection_setup(&self.0, handle, ctx);
+        panic!("connection setup panic");
+    }
+}
+
+/// A panic while a connection sets up still deregisters it.
+///
+/// The application's own `on_connection_setup` hook runs before the registry
+/// entry is published, so a panic there would leave nothing to observe. This
+/// panics in the protocol callback instead, which runs after publication, and
+/// waits for the connection to be torn down before looking the entry up.
+#[tokio::test]
+async fn registry_entry_is_removed_when_connection_setup_panics() -> TestResult<()> {
+    let registry = Arc::new(SessionRegistry::<Bytes>::new());
+    let protocol = PushTestProtocol::new();
+    let app = WireframeApp::default()
+        .with_protocol(PanickingSetupProtocol(protocol.clone()))
+        .with_session_registry(Arc::clone(&registry));
+    let (addr, shutdown) = spawn_server(app).await?;
+    let _client = TcpStream::connect(addr).await?;
+
+    // Recording the setup proves the entry was published before the panic.
+    let (connection_id, _) = only_connection(&protocol).await?;
+    wait_until_registry_empty(&registry).await?;
+    if registry.get(&connection_id).is_some() {
+        return Err("a connection whose setup panicked should be deregistered".into());
+    }
+
+    stop(&shutdown).await
+}
+
+/// A reset is an I/O error, not a clean close, and still deregisters.
+///
+/// `SO_LINGER` with a zero timeout makes `drop` send a reset, so the server's
+/// read fails with `ECONNRESET` instead of observing end-of-file.
+#[tokio::test]
+async fn registry_entry_is_removed_after_a_connection_reset() -> TestResult<()> {
+    let registry = Arc::new(SessionRegistry::<Bytes>::new());
+    let protocol = PushTestProtocol::new();
+    let app = WireframeApp::default()
+        .with_protocol(protocol.clone())
+        .with_session_registry(Arc::clone(&registry));
+    let (addr, shutdown) = spawn_server(app).await?;
+    let client = TcpStream::connect(addr).await?;
+    let (connection_id, _) = only_connection(&protocol).await?;
+
+    client.set_zero_linger()?;
+    drop(client);
+    wait_until_registry_empty(&registry).await?;
+    if registry.get(&connection_id).is_some() {
+        return Err("a reset connection should be deregistered".into());
     }
 
     stop(&shutdown).await
