@@ -87,9 +87,9 @@ fn holding_handler(started: Arc<Notify>, release: Arc<Notify>) -> StreamingHandl
             start_signal.notify_one();
             release_signal.notified().await;
             while let Some(item) = body.next().await {
-                if item.is_err() {
-                    return None;
-                }
+                // A body cut short by the peer still reaches end-of-stream, so
+                // the read error is the only signal that no reply is possible.
+                item.ok()?;
             }
             Some(Bytes::from_static(b"live"))
         })
