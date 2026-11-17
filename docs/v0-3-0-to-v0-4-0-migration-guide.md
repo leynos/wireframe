@@ -843,7 +843,7 @@ Code that inspected the old six fields to detect an installed protocol should
 match on the enum instead:
 
 <!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-020 -->
-```rust,ignore
+```rust
 use wireframe::hooks::ProtocolHooks;
 
 fn is_protocol_backed<F, E>(hooks: &ProtocolHooks<F, E>) -> bool {
