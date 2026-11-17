@@ -7,9 +7,14 @@
 //! connection, its gauge guard, and the server drain pending forever. Each wait
 //! and each write is therefore bounded by the actor's idle grace.
 //!
-//! The same bounded drive carries a response across a server `stop()` when the
+//! The same drain carries a response across a server `stop()` when the
 //! connection must not abandon it: progress still completes the response, and
-//! only a producer that stops yielding is cancelled.
+//! only a producer that stops yielding is cancelled. Its first shutdown is
+//! always observed, so no push lane can outlive `stop()`; afterwards it stops
+//! observing shutdown, because the response must still be delivered and an
+//! already-cancelled token would spin the biased select. Each wait and each
+//! write remains bounded, but the drain as a whole is not bounded in total
+//! duration while the response keeps progressing.
 
 use std::sync::Arc;
 
@@ -73,6 +78,13 @@ where
     /// while guaranteeing teardown after a stall. The bound comes from the
     /// actor's [`GraceTimer`](super::grace::GraceTimer), so production uses the
     /// ambient clock and a test can fire the deadline by hand.
+    ///
+    /// The first shutdown observed here always discards the push lanes, because
+    /// the connection is ending and a frame queued at that moment is dropped
+    /// rather than flushed. Only a connection configured to abandon the
+    /// response ends there; one that must still deliver its response continues
+    /// draining with the lanes closed, and later iterations stop watching
+    /// shutdown so the already-cancelled token cannot spin the loop.
     pub(super) async fn drive_bounded_drain<S>(
         &mut self,
         sink: &mut S,
@@ -80,6 +92,12 @@ where
     where
         S: FrameSink<F> + PushSink<P> + Send,
     {
+        // Once the drain has closed the push lanes, shutdown is no longer
+        // watched: the response may still have frames to deliver, and a
+        // cancelled token would make the biased select return immediately on
+        // every iteration. Watching it until the first shutdown closes the lanes
+        // is what stops a push lane outliving `stop()` without spinning here.
+        let mut push_lanes_discarded = false;
         while self.active_output.is_response() || self.active_output.is_multi_packet() {
             let mut state = ActorState::new(
                 self.active_output.is_response(),
@@ -87,24 +105,38 @@ where
             );
             let timer = Arc::clone(&self.grace_timer);
             let mut grace = timer.elapse(self.peer_closed_grace);
+            let watch_shutdown = self.abandon_response_on_shutdown || !push_lanes_discarded;
             let event = tokio::select! {
                 biased;
                 // The peer is no longer observed here, and each wait is already
-                // bounded below, so only the drain policy decides whether a
-                // shutdown still preempts the wait.
-                event = self.next_event_in_bounded_drain(&state) => event,
+                // bounded below. The drain policy decides whether a shutdown
+                // still preempts the wait: always until it has closed the push
+                // lanes, and never afterwards.
+                event = self.next_event_in_bounded_drain(&state, watch_shutdown) => event,
                 () = grace.as_mut() => {
                     self.cancel_stalled_response();
                     return Ok(ResponseOutcome::Cancelled);
                 }
             };
             if matches!(event, Event::Shutdown) {
-                ResponseCancellationReason::Shutdown.record();
-                // The response is abandoned, so nothing will be written from
-                // the push queues: drop them rather than leaving a producer
-                // able to queue into a lane that has already returned.
+                if self.abandon_response_on_shutdown {
+                    ResponseCancellationReason::Shutdown.record();
+                    // The response is abandoned, so nothing will be written from
+                    // the push queues: drop them rather than leaving a producer
+                    // able to queue into a lane that has already returned.
+                    self.discard_push_lanes();
+                    return Ok(ResponseOutcome::Cancelled);
+                }
+                // The response must still be delivered, but the connection is
+                // ending: no push lane may survive `stop()`. Discarding both
+                // lanes drops a frame queued at that moment and refuses later
+                // pushes, matching the documented shutdown rule. The event is not
+                // dispatched because a stop only closes push delivery here.
+                // Later iterations stop watching shutdown, so the cancelled token
+                // cannot spin this loop (see `watch_shutdown` above).
                 self.discard_push_lanes();
-                return Ok(ResponseOutcome::Cancelled);
+                push_lanes_discarded = true;
+                continue;
             }
             let mut output = PendingOutput::new();
             let mut step = ActorStep {
@@ -144,17 +176,21 @@ where
 
     /// Await the next event in the bounded drain.
     ///
-    /// Each wait there is already bounded by the idle grace, so shutdown is
-    /// observed only when it must abandon the response. Watching a cancelled
-    /// token unconditionally would make the biased select return immediately on
-    /// every iteration and spin the loop.
+    /// Each wait there is already bounded by the idle grace, so `watch_shutdown`
+    /// is supplied by the driver rather than derived here. The drain watches a
+    /// stop until it has closed the push lanes, which is what stops a push lane
+    /// outliving `stop()`; afterwards it must stop watching, because the
+    /// response still needs delivering and an already-cancelled token would make
+    /// the biased select return immediately on every iteration and spin the
+    /// loop.
     pub(super) async fn next_event_in_bounded_drain(
         &mut self,
         state: &ActorState,
+        watch_shutdown: bool,
     ) -> Event<F, E, P> {
         let watch = EventWatch {
             peer: false,
-            shutdown: self.abandon_response_on_shutdown,
+            shutdown: watch_shutdown,
         };
         self.next_event_inner(state, watch).await
     }
