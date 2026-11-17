@@ -34,6 +34,10 @@ use crate::{
 /// Maximum frame length accepted by the test codec.
 const MAX_FRAME_LENGTH: usize = 1024;
 
+#[cfg(feature = "metrics")]
+#[path = "response_pushes_tests/idle_grace.rs"]
+mod idle_grace;
+
 /// Response the deferred handler returns once it is polled twice.
 const HANDLER_RESPONSE: &str = "handler finished";
 
