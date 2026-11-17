@@ -806,7 +806,7 @@ now holds exactly one strong reference to it.
 Custom callbacks move into `CustomProtocolHooks`, which keeps the same six
 optional public fields. Convert it into `ProtocolHooks` with `.into()`:
 
-<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-019 -->
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-022 -->
 ```rust,ignore
 use wireframe::hooks::{CustomProtocolHooks, ProtocolHooks};
 
@@ -842,7 +842,7 @@ is unchanged.
 Code that inspected the old six fields to detect an installed protocol should
 match on the enum instead:
 
-<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-020 -->
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-023 -->
 ```rust
 use wireframe::hooks::ProtocolHooks;
 
