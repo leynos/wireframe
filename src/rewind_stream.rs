@@ -112,13 +112,15 @@ impl<S: Unpin> Unpin for RewindStream<S> {}
 mod tests {
     //! Coverage for rewind-buffer bounds and poll sequencing.
     //!
-    //! Two `poll_read` mutants are equivalent and deliberately left
+    //! Three `poll_read` mutants are equivalent and deliberately left
     //! unannotated. Mutating the replay-completion guard's `<` to `<=` cannot
     //! change behaviour because `pos == len` with `to_copy == 0` is
     //! unreachable after a successful copy; the second disjunct already
-    //! covers the completing copy. Mutating the cleanup guard's `&&` to `||`
-    //! only clears an already empty vector, because the cleanup guard is
-    //! reached only with `pos == len`.
+    //! covers the completing copy. Mutating its `>` to `>=` is equivalent
+    //! because `to_copy` is a `usize`, so `to_copy >= 0` always holds.
+    //! Mutating the cleanup guard's `&&` to `||` only clears an already empty
+    //! vector, because the cleanup guard is reached only with
+    //! `pos == len`.
 
     use std::{
         io,
