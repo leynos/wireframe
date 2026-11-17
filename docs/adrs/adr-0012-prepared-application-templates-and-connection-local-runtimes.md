@@ -422,7 +422,8 @@ never mid-decode or mid-write, and finalizes through the same path, including
 delivery of an exact non-`Clone` setup value. No production entry point
 supplies a token: the prepared byte-stream and TCP entry points, and the server
 connection task, all pass `None`. Server shutdown stops acceptance and drains
-established connections, as [ADR 014](adr-014-server-shutdown-ownership.md)
+established connections, as
+[ADR 014](adr-0014-server-shutdown-ownership-and-terminal-observation.md)
 specifies; passing the server stop token to connections would end them outside
 that graceful-drain contract. The cancellation-aware path is therefore
 crate-private, available to a caller that already owns a connection-scoped

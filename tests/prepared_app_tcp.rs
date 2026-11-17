@@ -150,8 +150,23 @@ async fn from_app_serves_concurrent_tcp_connections_from_one_prepared_root() -> 
     shutdown_tx
         .send(())
         .map_err(|()| "server shutdown receiver was dropped")?;
-    server_task.await??;
+    await_server_stop(server_task).await?;
     wait_for_listener_release(address).await
+}
+
+/// Wait for the spawned server task under a deadline.
+///
+/// A shutdown regression must fail the test instead of hanging it until the
+/// CI job limit, so both the join result and the server result propagate
+/// through a bounded wait.
+async fn await_server_stop(
+    server_task: tokio::task::JoinHandle<Result<(), wireframe::server::ServerError>>,
+) -> TestResult<()> {
+    timeout(Duration::from_secs(10), server_task)
+        .await
+        .map_err(|_| "server did not stop within 10 seconds")?
+        .map_err(|error| format!("server task failed to join: {error}"))??;
+    Ok(())
 }
 
 /// Handler that panics on its first invocation and succeeds after.
@@ -274,7 +289,7 @@ async fn handler_panic_over_tcp_finalizes_and_serves_the_next_connection() -> Te
     shutdown_tx
         .send(())
         .map_err(|()| "server shutdown receiver was dropped")?;
-    server_task.await??;
+    await_server_stop(server_task).await?;
     check_equal(
         &teardowns.load(Ordering::SeqCst),
         &2usize,
