@@ -33,6 +33,36 @@ use wireframe::{
 };
 use wireframe_testing::TestResult;
 
+/// Build an application whose connections publish into `registry`.
+///
+/// Takes the protocol by value because the caller keeps a clone to observe the
+/// setups, while the server owns the application's copy.
+fn registered_app<P>(protocol: P, registry: Arc<SessionRegistry<Bytes>>) -> WireframeApp
+where
+    P: WireframeProtocol<Frame = Bytes, ProtocolError = ()> + 'static,
+{
+    WireframeApp::default()
+        .with_protocol(protocol)
+        .with_session_registry(registry)
+}
+
+/// Wait for `connection_id` to leave `registry`, failing with `message`.
+///
+/// The wait is what makes the assertion meaningful: the entry is removed when
+/// the connection task ends, so looking it up too early would race the task
+/// rather than test the guard.
+async fn assert_deregistered(
+    registry: &SessionRegistry<Bytes>,
+    connection_id: &ConnectionId,
+    message: &str,
+) -> TestResult<()> {
+    wait_until_registry_empty(registry).await?;
+    if registry.get(connection_id).is_some() {
+        return Err(message.into());
+    }
+    Ok(())
+}
+
 /// A client that sends nothing still receives a push.
 ///
 /// The default `()` preamble consumes no bytes, so the connection reaches
@@ -89,9 +119,7 @@ async fn high_priority_pushes_precede_low_priority_pushes() -> TestResult<()> {
 async fn connection_setup_registers_the_push_handle() -> TestResult<()> {
     let registry = Arc::new(SessionRegistry::<Bytes>::new());
     let protocol = PushTestProtocol::new();
-    let app = WireframeApp::default()
-        .with_protocol(protocol.clone())
-        .with_session_registry(Arc::clone(&registry));
+    let app = registered_app(protocol.clone(), Arc::clone(&registry));
     let (addr, shutdown) = spawn_server(app).await?;
     let client = TcpStream::connect(addr).await?;
 
@@ -104,24 +132,60 @@ async fn connection_setup_registers_the_push_handle() -> TestResult<()> {
     stop(&shutdown).await
 }
 
-#[tokio::test]
-async fn registry_entry_is_removed_when_connection_closes() -> TestResult<()> {
-    let registry = Arc::new(SessionRegistry::<Bytes>::new());
-    let protocol = PushTestProtocol::new();
-    let app = WireframeApp::default()
-        .with_protocol(protocol.clone())
-        .with_session_registry(Arc::clone(&registry));
-    let (addr, shutdown) = spawn_server(app).await?;
-    let mut client = TcpStream::connect(addr).await?;
-    let (connection_id, _) = only_connection(&protocol).await?;
+/// How a client ends its connection, which decides what the server observes.
+///
+/// A half-close sends end-of-file, which the server sees as a clean close. A
+/// zero-length `SO_LINGER` instead makes `drop` send a reset, so the server's
+/// read fails with `ECONNRESET`: an I/O error rather than a clean close.
+#[derive(Clone, Copy, Debug)]
+enum ClientTeardown {
+    /// Half-close the connection, then drop it.
+    HalfClose,
+    /// Drop it with a zero-length linger so the peer reads a reset.
+    Reset,
+}
 
-    client.shutdown().await?;
-    drop(client);
-    wait_until_registry_empty(&registry).await?;
-    if registry.get(&connection_id).is_some() {
-        return Err("closed connection should be deregistered".into());
+impl ClientTeardown {
+    /// End `client` this way, so the server observes the matching close.
+    async fn apply(self, mut client: TcpStream) -> TestResult<()> {
+        match self {
+            Self::HalfClose => client.shutdown().await?,
+            Self::Reset => client.set_zero_linger()?,
+        }
+        drop(client);
+        Ok(())
     }
 
+    /// What a failure to deregister after this teardown should say.
+    fn deregistration_message(self) -> &'static str {
+        match self {
+            Self::HalfClose => "closed connection should be deregistered",
+            Self::Reset => "a reset connection should be deregistered",
+        }
+    }
+}
+
+/// However a peer ends the connection, its registry entry is removed.
+///
+/// The entry is published at setup and removed when the connection task ends,
+/// so neither a clean close nor an I/O error may strand it.
+#[rstest::rstest]
+#[case::clean_close(ClientTeardown::HalfClose)]
+#[case::reset(ClientTeardown::Reset)]
+#[tokio::test]
+async fn registry_entry_is_removed_when_the_peer_ends(
+    #[case] teardown: ClientTeardown,
+) -> TestResult<()> {
+    let registry = Arc::new(SessionRegistry::<Bytes>::new());
+    let protocol = PushTestProtocol::new();
+    let app = registered_app(protocol.clone(), Arc::clone(&registry));
+    let (addr, shutdown) = spawn_server(app).await?;
+    let client = TcpStream::connect(addr).await?;
+    let (connection_id, _) = only_connection(&protocol).await?;
+
+    teardown.apply(client).await?;
+
+    assert_deregistered(&registry, &connection_id, teardown.deregistration_message()).await?;
     stop(&shutdown).await
 }
 
@@ -155,44 +219,22 @@ impl WireframeProtocol for PanickingSetupProtocol {
 async fn registry_entry_is_removed_when_connection_setup_panics() -> TestResult<()> {
     let registry = Arc::new(SessionRegistry::<Bytes>::new());
     let protocol = PushTestProtocol::new();
-    let app = WireframeApp::default()
-        .with_protocol(PanickingSetupProtocol(protocol.clone()))
-        .with_session_registry(Arc::clone(&registry));
+    let app = registered_app(
+        PanickingSetupProtocol(protocol.clone()),
+        Arc::clone(&registry),
+    );
     let (addr, shutdown) = spawn_server(app).await?;
     let _client = TcpStream::connect(addr).await?;
 
     // Recording the setup proves the entry was published before the panic.
     let (connection_id, _) = only_connection(&protocol).await?;
-    wait_until_registry_empty(&registry).await?;
-    if registry.get(&connection_id).is_some() {
-        return Err("a connection whose setup panicked should be deregistered".into());
-    }
 
-    stop(&shutdown).await
-}
-
-/// A reset is an I/O error, not a clean close, and still deregisters.
-///
-/// `SO_LINGER` with a zero timeout makes `drop` send a reset, so the server's
-/// read fails with `ECONNRESET` instead of observing end-of-file.
-#[tokio::test]
-async fn registry_entry_is_removed_after_a_connection_reset() -> TestResult<()> {
-    let registry = Arc::new(SessionRegistry::<Bytes>::new());
-    let protocol = PushTestProtocol::new();
-    let app = WireframeApp::default()
-        .with_protocol(protocol.clone())
-        .with_session_registry(Arc::clone(&registry));
-    let (addr, shutdown) = spawn_server(app).await?;
-    let client = TcpStream::connect(addr).await?;
-    let (connection_id, _) = only_connection(&protocol).await?;
-
-    client.set_zero_linger()?;
-    drop(client);
-    wait_until_registry_empty(&registry).await?;
-    if registry.get(&connection_id).is_some() {
-        return Err("a reset connection should be deregistered".into());
-    }
-
+    assert_deregistered(
+        &registry,
+        &connection_id,
+        "a connection whose setup panicked should be deregistered",
+    )
+    .await?;
     stop(&shutdown).await
 }
 
@@ -200,9 +242,7 @@ async fn registry_entry_is_removed_after_a_connection_reset() -> TestResult<()> 
 async fn concurrent_connections_receive_distinct_ids() -> TestResult<()> {
     let registry = Arc::new(SessionRegistry::<Bytes>::new());
     let protocol = PushTestProtocol::new();
-    let app = WireframeApp::default()
-        .with_protocol(protocol.clone())
-        .with_session_registry(Arc::clone(&registry));
+    let app = registered_app(protocol.clone(), Arc::clone(&registry));
     let (addr, shutdown) = spawn_server(app).await?;
     let first = TcpStream::connect(addr).await?;
     let second = TcpStream::connect(addr).await?;

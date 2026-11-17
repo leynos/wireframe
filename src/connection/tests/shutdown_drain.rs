@@ -15,7 +15,7 @@ use crate::{
     app::Envelope,
     connection::{FrameSink, PushSink, ResponseOutcome},
     hooks::ProtocolHooks,
-    push::{PushError, PushQueues},
+    push::{PushError, PushHandle, PushQueues},
     response::{FrameStream, Response},
 };
 
@@ -112,6 +112,69 @@ fn stalled_response() -> Response<Envelope, ()> {
     Response::Stream(stream)
 }
 
+/// Build a server-semantics actor over fresh push lanes sharing `shutdown`.
+///
+/// A server drains a response across a stop instead of abandoning it, so the
+/// abandon behaviour the direct actor API defaults to is turned off here. The
+/// returned handle is what a producer holds, and is how these cases observe
+/// that a stopping connection refuses a later push.
+fn server_actor_with_pushes(
+    shutdown: &CancellationToken,
+    high_capacity: usize,
+) -> (ConnectionActor<Envelope, ()>, PushHandle<Envelope>) {
+    let built = PushQueues::<Envelope>::builder()
+        .high_capacity(high_capacity)
+        .low_capacity(1)
+        .build();
+    let (queues, handle) = match built {
+        Ok(pair) => pair,
+        Err(error) => panic!("the push queues should build: {error:?}"),
+    };
+    let mut actor = ConnectionActor::new_untracked(UntrackedActorInit {
+        channels: ConnectionChannels::new(queues, handle.clone()),
+        response: None,
+        shutdown: shutdown.clone(),
+        hooks: ProtocolHooks::default(),
+        ctx: crate::hooks::ConnectionContext::default(),
+    });
+    actor.set_abandon_response_on_shutdown(false);
+    (actor, handle)
+}
+
+/// Drain a stalled response to its idle grace and prove the lanes are closed.
+///
+/// Only the grace can end a response that yields nothing, so the outcome is
+/// always a cancellation. The push attempted afterwards is the producer-visible
+/// half of the same rule: once the connection is stopping, a new frame is
+/// refused rather than queued.
+async fn drain_stalled_response_and_assert_lanes_closed(
+    actor: &mut ConnectionActor<Envelope, ()>,
+    sink: &mut RecordingSink,
+    handle: &PushHandle<Envelope>,
+    refused_byte: u8,
+) {
+    let installed = actor
+        .install_response(stalled_response(), Some(1), sink)
+        .await;
+    let outcome = match installed {
+        Ok(outcome) => outcome,
+        Err(error) => panic!("a bounded response is not an error: {error:?}"),
+    };
+
+    assert_eq!(
+        outcome,
+        ResponseOutcome::Cancelled,
+        "the idle grace must end a stalled response"
+    );
+    assert_eq!(
+        handle
+            .push_high_priority(Envelope::new(1, None, vec![refused_byte]))
+            .await,
+        Err(PushError::Closed),
+        "a stopping connection must refuse a new push rather than queue it"
+    );
+}
+
 /// A stop that starts the bounded drain drops pushes rather than flushing them.
 ///
 /// ADR-014 keeps the response draining across `stop()`, but the connection is
@@ -122,20 +185,7 @@ fn stalled_response() -> Response<Envelope, ()> {
 #[tokio::test(start_paused = true)]
 async fn shutdown_that_starts_the_bounded_drain_drops_queued_pushes() {
     let shutdown = CancellationToken::new();
-    let (queues, handle) = PushQueues::<Envelope>::builder()
-        .high_capacity(1)
-        .low_capacity(1)
-        .build()
-        .expect("the push queues should build");
-    let mut actor = ConnectionActor::new_untracked(UntrackedActorInit {
-        channels: ConnectionChannels::new(queues, handle.clone()),
-        response: None,
-        shutdown: shutdown.clone(),
-        hooks: ProtocolHooks::default(),
-        ctx: crate::hooks::ConnectionContext::default(),
-    });
-    // Server semantics: a stop drains the response rather than abandoning it.
-    actor.set_abandon_response_on_shutdown(false);
+    let (mut actor, handle) = server_actor_with_pushes(&shutdown, 1);
     let mut sink = RecordingSink {
         shutdown: None,
         accepted: Vec::new(),
@@ -146,26 +196,10 @@ async fn shutdown_that_starts_the_bounded_drain_drops_queued_pushes() {
         .expect("the push is accepted before the stop");
     shutdown.cancel();
 
-    let outcome = actor
-        .install_response(stalled_response(), Some(1), &mut sink)
-        .await
-        .expect("a bounded response is not an error");
-
-    assert_eq!(
-        outcome,
-        ResponseOutcome::Cancelled,
-        "the idle grace must end a stalled response"
-    );
+    drain_stalled_response_and_assert_lanes_closed(&mut actor, &mut sink, &handle, 10).await;
     assert!(
         !sink.accepted.contains(&9),
         "a push queued when the stop arrived must be dropped, not flushed"
-    );
-    assert_eq!(
-        handle
-            .push_high_priority(Envelope::new(1, None, vec![10]))
-            .await,
-        Err(PushError::Closed),
-        "a stopping connection must refuse a new push rather than queue it"
     );
 }
 
@@ -180,20 +214,7 @@ async fn shutdown_that_starts_the_bounded_drain_drops_queued_pushes() {
 #[tokio::test(start_paused = true)]
 async fn a_stop_during_a_peer_close_drain_discards_the_push_lanes() {
     let shutdown = CancellationToken::new();
-    let (queues, handle) = PushQueues::<Envelope>::builder()
-        .high_capacity(2)
-        .low_capacity(1)
-        .build()
-        .expect("the push queues should build");
-    let mut actor = ConnectionActor::new_untracked(UntrackedActorInit {
-        channels: ConnectionChannels::new(queues, handle.clone()),
-        response: None,
-        shutdown: shutdown.clone(),
-        hooks: ProtocolHooks::default(),
-        ctx: crate::hooks::ConnectionContext::default(),
-    });
-    // Server semantics: a stop drains the response rather than abandoning it.
-    actor.set_abandon_response_on_shutdown(false);
+    let (mut actor, handle) = server_actor_with_pushes(&shutdown, 2);
     actor.set_peer_closed_grace(Duration::from_secs(5));
     let peer_closed = CancellationToken::new();
     actor.set_peer_closed(peer_closed.clone());
@@ -209,11 +230,7 @@ async fn a_stop_during_a_peer_close_drain_discards_the_push_lanes() {
     }
     peer_closed.cancel();
 
-    let outcome = actor
-        .install_response(stalled_response(), Some(1), &mut sink)
-        .await
-        .expect("a bounded response is not an error");
-
+    drain_stalled_response_and_assert_lanes_closed(&mut actor, &mut sink, &handle, 11).await;
     assert_eq!(
         sink.accepted.first(),
         Some(&9),
@@ -222,17 +239,5 @@ async fn a_stop_during_a_peer_close_drain_discards_the_push_lanes() {
     assert!(
         !sink.accepted.contains(&10),
         "a push queued when the stop arrived must be dropped, not flushed"
-    );
-    assert_eq!(
-        outcome,
-        ResponseOutcome::Cancelled,
-        "the idle grace must end a stalled response"
-    );
-    assert_eq!(
-        handle
-            .push_high_priority(Envelope::new(1, None, vec![11]))
-            .await,
-        Err(PushError::Closed),
-        "a stopping connection must refuse a new push rather than queue it"
     );
 }
