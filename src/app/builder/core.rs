@@ -14,7 +14,7 @@ use crate::{
         memory_budgets::MemoryBudgets,
         middleware_types::Middleware,
     },
-    codec::{FrameCodec, LengthDelimitedFrameCodec},
+    codec::{FrameCodec, LengthDelimitedFrameCodec, RecoveryConfig, RecoveryPolicyHook},
     hooks::WireframeProtocol,
     message_assembler::MessageAssembler,
     serializer::{BincodeSerializer, Serializer},
@@ -64,6 +64,10 @@ pub struct WireframeApp<
     pub(in crate::app) message_assembler: Option<Arc<dyn MessageAssembler>>,
     /// Optional byte caps protecting message and connection memory usage.
     pub(in crate::app) memory_budgets: Option<MemoryBudgets>,
+    /// Optional hook consulted when a decoder fails on a live connection.
+    pub(in crate::app) recovery_hook: Option<Arc<dyn RecoveryPolicyHook>>,
+    /// Global recovery settings such as the consecutive-drop limit.
+    pub(in crate::app) recovery_config: RecoveryConfig,
 }
 
 impl<S, C, E, F> Default for WireframeApp<S, C, E, F>
@@ -90,6 +94,8 @@ where
             fragmentation: None,
             message_assembler: None,
             memory_budgets: None,
+            recovery_hook: None,
+            recovery_config: RecoveryConfig::default(),
         }
     }
 }
@@ -160,7 +166,7 @@ where
 {
     /// Helper to rebuild the app when changing type parameters.
     ///
-    /// The `WireframeApp` builder carries 12 fields that must be moved together
+    /// The `WireframeApp` builder carries 14 fields that must be moved together
     /// when swapping serializer or codec types. Centralizing the reconstruction
     /// here keeps the transitions consistent and avoids repeating the same
     /// field list across each type-changing method. For smaller builders with
@@ -187,6 +193,8 @@ where
             fragmentation: params.fragmentation,
             message_assembler: params.message_assembler,
             memory_budgets: params.memory_budgets,
+            recovery_hook: self.recovery_hook,
+            recovery_config: self.recovery_config,
         }
     }
 
@@ -215,6 +223,8 @@ where
             fragmentation: self.fragmentation,
             message_assembler: self.message_assembler,
             memory_budgets: self.memory_budgets,
+            recovery_hook: self.recovery_hook,
+            recovery_config: self.recovery_config,
         }
     }
 }

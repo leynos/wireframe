@@ -52,9 +52,9 @@ where
 }
 
 /// State purged when a read timeout expires without a frame.
-pub(super) struct ExpiryState<'a, T> {
+pub(super) struct ExpiryState<'a, F> {
     /// Fragmentation pipeline whose expired buffers are dropped.
-    pub(super) pipeline: &'a mut FramePipeline<T>,
+    pub(super) pipeline: &'a mut FramePipeline<F>,
     /// Message assembly state whose expired assemblies are dropped.
     pub(super) message_assembly: &'a mut Option<MessageAssemblyState>,
 }
@@ -62,11 +62,11 @@ pub(super) struct ExpiryState<'a, T> {
 /// Wait for the next inbound frame, purging expired state on a read timeout.
 ///
 /// Returns `None` once the peer has closed, which ends the connection.
-pub(super) async fn await_inbound_frame<T, R>(
+pub(super) async fn await_inbound_frame<T, F, R>(
     pending_frame: &mut Option<T>,
     reader: &mut R,
     read_timeout_ms: u64,
-    expiry: &mut ExpiryState<'_, T>,
+    expiry: &mut ExpiryState<'_, F>,
 ) -> io::Result<Option<T>>
 where
     R: Stream<Item = io::Result<T>> + Unpin,
@@ -84,8 +84,8 @@ where
 }
 
 /// Drop expired fragmentation buffers and message assemblies.
-pub(super) fn purge_expired<T>(
-    pipeline: &mut FramePipeline<T>,
+pub(super) fn purge_expired<F>(
+    pipeline: &mut FramePipeline<F>,
     message_assembly: &mut Option<MessageAssemblyState>,
 ) {
     pipeline.purge_expired();
@@ -98,16 +98,21 @@ pub(super) fn purge_expired<T>(
 /// state a read timeout purges. They are only ever touched together, and
 /// holding them as one value lets the loop read through a single call that also
 /// observes shutdown.
-pub(super) struct InboundFrames<T> {
+///
+/// `T` is what the reader yields and `F` is the outbound codec frame type. They
+/// differ because the recovery-aware decoder reports a failure as an item, so
+/// the reader yields [`DecodedItem<F>`](super::super::recovery_codec::DecodedItem)
+/// while the pipeline still buffers real frames.
+pub(super) struct InboundFrames<T, F> {
     /// Frame read while the previous one was still being handled.
     pub(super) pending: Option<T>,
     /// Fragmentation pipeline, whose expired buffers a timeout drops.
-    pub(super) pipeline: FramePipeline<T>,
+    pub(super) pipeline: FramePipeline<F>,
     /// Reassembled messages, likewise purged on a timeout.
     pub(super) message_assembly: Option<MessageAssemblyState>,
 }
 
-impl<T> InboundFrames<T> {
+impl<T, F> InboundFrames<T, F> {
     /// Apply memory pressure before reading the next inbound frame.
     ///
     /// The read pauses for the configured interval while soft limits are

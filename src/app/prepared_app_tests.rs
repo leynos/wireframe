@@ -3,6 +3,7 @@
 use std::{cell::Cell, time::Duration};
 
 use monotony::test_util::FixedMonotonicClock;
+use tokio_util::sync::CancellationToken;
 
 use super::*;
 
@@ -62,7 +63,7 @@ async fn prepared_connection_uses_injected_monotonic_clock() {
     drop(client);
 
     prepared
-        .handle_connection_inner(server, &clock, &CancellationToken::new())
+        .handle_connection_inner(server, None, &clock, &CancellationToken::new())
         .await
         .expect("clean EOF should complete");
 }

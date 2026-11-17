@@ -283,6 +283,13 @@ name = "bdd_pool"
 path = "tests/bdd_pool/mod.rs"
 required-features = ["advanced-tests", "pool"]
 
+# The recovery cases assert codec-error counts through the optional `metrics`
+# dependency, so the target only builds when that feature is enabled.
+[[test]]
+name = "codec_recovery_server"
+path = "tests/codec_recovery_server.rs"
+required-features = ["metrics"]
+
 [[test]]
 name = "connection"
 path = "tests/connection/mod.rs"

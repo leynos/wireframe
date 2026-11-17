@@ -9,6 +9,7 @@ mod config;
 mod core;
 mod lifecycle;
 mod protocol;
+mod recovery;
 mod routing;
 
 pub use core::WireframeApp;

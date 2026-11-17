@@ -120,7 +120,7 @@ async fn process_stream<T, Ser, Ctx, E, Codec>(
         return;
     };
     let rewind_stream = RewindStream::new(leftover, stream);
-    handle_app_connection(&app, rewind_stream, shutdown).await;
+    handle_app_connection(&app, rewind_stream, shutdown, peer_addr).await;
 }
 
 /// Complete the preamble handshake, returning the bytes after the preamble.
@@ -191,6 +191,7 @@ async fn handle_app_connection<Ser, Ctx, E, Codec>(
     app: &PreparedApp<Ser, Ctx, E, Codec>,
     stream: RewindStream<TcpStream>,
     shutdown: CancellationToken,
+    peer_addr: Option<SocketAddr>,
 ) where
     Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     Ctx: Send + 'static,
@@ -198,7 +199,10 @@ async fn handle_app_connection<Ser, Ctx, E, Codec>(
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
-    if let Err(error) = app.handle_connection_with_shutdown(stream, shutdown).await {
+    if let Err(error) = app
+        .handle_connection_with_shutdown(stream, peer_addr, shutdown)
+        .await
+    {
         warn!("connection task error: {error:?}");
     }
 }

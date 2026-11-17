@@ -7,8 +7,9 @@ pub(crate) mod core;
 mod frames;
 mod framing;
 mod peer_watch;
+mod recovery;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
@@ -24,7 +25,7 @@ use super::{
     middleware_types::Middleware,
 };
 use crate::{
-    codec::FrameCodec,
+    codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
     frame::FrameMetadata,
     hooks::{ProtocolHooks, WireframeProtocol},
     message::{DecodeWith, EncodeWith},
@@ -68,6 +69,12 @@ where
     pub(crate) read_timeout_ms: u64,
     /// Server shutdown signal; cancelling it stops this connection.
     pub(crate) shutdown: &'a CancellationToken,
+    /// Optional hook consulted when a decoder fails on this connection.
+    pub(crate) recovery_hook: Option<&'a Arc<dyn RecoveryPolicyHook>>,
+    /// Global recovery settings copied for this connection.
+    pub(crate) recovery_config: RecoveryConfig,
+    /// Peer address of the accepted connection, when the transport reported one.
+    pub(crate) peer_address: Option<SocketAddr>,
 }
 
 /// Drive a connection using immutable application inputs and prepared routes.
@@ -107,6 +114,9 @@ where
         memory_budgets,
         read_timeout_ms,
         shutdown,
+        recovery_hook,
+        recovery_config,
+        peer_address,
     } = context;
 
     let mut runtime = ConnectionRuntime::new(
@@ -122,6 +132,9 @@ where
             memory_budgets,
             read_timeout_ms,
             shutdown,
+            recovery_hook: recovery_hook.map(Arc::as_ref),
+            recovery_config,
+            peer_address,
         },
     );
 
@@ -211,6 +224,9 @@ where
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
                 shutdown: &shutdown,
+                recovery_hook: self.recovery_hook.as_ref(),
+                recovery_config: self.recovery_config.clone(),
+                peer_address: None,
             },
         )
         .await

@@ -274,7 +274,7 @@ design:
 - **Observability**: The `wireframe_codec_errors_total` metric tracks codec
   errors by type and recovery policy when the `metrics` feature is enabled.
 
-See `src/codec/error.rs` and `src/codec/recovery.rs` for implementation details.
+See `src/codec/error.rs` and `src/codec/recovery/` for implementation details.
 
 ### Zero-copy payload extraction (resolved 2026-01-19)
 
@@ -398,6 +398,35 @@ preserves existing behaviour through a default codec while enabling protocol
 specificity and reusability. By tying buffer sizing and maximum frame length to
 codec configuration, the design keeps transport-level constraints close to the
 framing rules that define them.
+
+## Addendum: runtime recovery-hook consultation (2026-11-15)
+
+This addendum records how the recovery surface is wired into the application
+connection loop. It supersedes the "Error handling and recovery" finding, which
+stated that decode errors always close the connection, and completes the
+"CodecError taxonomy and recovery policies" decision, which left hook
+installation and metric emission to application code.
+
+- **Builder installation.** `WireframeApp::with_recovery_hook` installs a
+  `RecoveryPolicyHook` for every connection the application serves, and
+  `WireframeApp::recovery_config` sets the global `RecoveryConfig` limits. Both
+  survive the codec, serializer, and connection-setup type transitions.
+- **Runtime consultation.** The connection codec wraps the frame decoder so a
+  decode failure arrives as a stream item instead of terminating the framed
+  transport. The connection loop consults the installed hook, applies the
+  documented fallbacks (an end-of-file failure, a failure that consumed no
+  bytes, or a drop beyond `max_consecutive_drops` all disconnect), and then
+  drops the frame, quarantines the connection, or returns the original error.
+  Socket-read errors stay terminal, and a clean close at a frame boundary
+  remains a normal end of stream.
+- **Metric emission.** `wireframe_codec_errors_total` is now emitted by the
+  connection runtime, once per decode failure, labelled with the error type and
+  the _applied_ policy rather than the policy the hook selected.
+- **Decoder contract.** Recovery requires the decoder to consume the malformed
+  frame and leave its framing state valid before returning the error.
+
+The recovery implementation lives in `src/codec/recovery/`, which supersedes
+the stale `src/codec/recovery.rs` path quoted earlier in this record.
 
 [^adr-006]: See
             [adr-0006-test-observability-harness.md](adr-0006-test-observability-harness.md).

@@ -20,6 +20,7 @@ fn compile_tests() {
     t.pass("tests/ui/const_config_docs_example.rs");
     t.pass("tests/ui/fragment_const_api.rs");
     t.pass("tests/ui/app_const_api.rs");
+    t.pass("tests/ui/app_recovery_hook.rs");
     t.pass("tests/ui/app_response_sends_const_api.rs");
     t.pass("tests/ui/server_const_api.rs");
     t.compile_fail("tests/ui/server_rejects_non_send_factory.rs");

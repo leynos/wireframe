@@ -88,7 +88,9 @@ mod diagnostics_tests;
 #[path = "dispatch_tests.rs"]
 mod dispatch_tests;
 
-use std::{collections::HashMap, io, panic::AssertUnwindSafe, sync::Arc};
+use std::{
+    collections::HashMap, io, net::SocketAddr, panic::AssertUnwindSafe, sync::Arc,
+};
 
 use finalizer::{ConnectionFinalizer, FinalizationOutcome};
 use futures::FutureExt;
@@ -103,7 +105,7 @@ use super::{
     memory_budgets::MemoryBudgets,
 };
 use crate::{
-    codec::FrameCodec,
+    codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
     frame::FrameMetadata,
     hooks::{ProtocolHooks, WireframeProtocol},
     message::{DecodeWith, EncodeWith},
@@ -142,6 +144,12 @@ where
     pub(crate) read_timeout_ms: u64,
     /// Per-connection shutdown signal; cancelling it stops this connection.
     pub(crate) shutdown: &'a CancellationToken,
+    /// Optional hook consulted when a decoder fails on this connection.
+    pub(crate) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
+    /// Global recovery settings copied for this connection.
+    pub(crate) recovery_config: RecoveryConfig,
+    /// Peer address of the accepted connection, when the transport reported one.
+    pub(crate) peer_address: Option<SocketAddr>,
 }
 
 /// Panic payload recovered by [`futures::FutureExt::catch_unwind`].
@@ -254,6 +262,9 @@ where
             memory_budgets,
             read_timeout_ms,
             shutdown,
+            recovery_hook,
+            recovery_config,
+            peer_address,
         } = config;
         process_stream(
             stream,
@@ -268,6 +279,9 @@ where
                 memory_budgets,
                 read_timeout_ms,
                 shutdown,
+                recovery_hook,
+                recovery_config,
+                peer_address,
             },
         )
         .await

@@ -1,6 +1,6 @@
 //! Shared frame and stream processing for prepared application routes.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use futures::Sink;
 use log::warn;
@@ -13,15 +13,17 @@ use super::{
         envelope::{Envelope, Packet},
         frame_handling::{self, Dispatch},
         memory_budgets::MemoryBudgets,
+        recovery_codec::DecodedItem,
     },
     MAX_DESER_FAILURES,
     actor::{build_connection_actor, observe_peer},
     frames::InboundFrames,
     framing::prepare_connection_framing,
     peer_watch::{PeerObservation, handle_watching_peer},
+    recovery::RecoveryCoordinator,
 };
 use crate::{
-    codec::FrameCodec,
+    codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
     connection::ConnectionActor,
     frame::FrameMetadata,
     hooks::{ProtocolHooks, WireframeProtocol},
@@ -89,6 +91,12 @@ where
     pub(crate) read_timeout_ms: u64,
     /// Server shutdown signal; cancelling it stops this connection.
     pub(crate) shutdown: &'a CancellationToken,
+    /// Optional hook consulted when a decoder fails on this connection.
+    pub(crate) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
+    /// Global recovery settings copied for this connection.
+    pub(crate) recovery_config: RecoveryConfig,
+    /// Peer address of the accepted connection, when the transport reported one.
+    pub(crate) peer_address: Option<SocketAddr>,
 }
 
 /// State needed to turn a raw frame into a dispatchable envelope.
@@ -195,15 +203,39 @@ where
     let peer_eof = CancellationToken::new();
     let (mut response_actor, _cancel_on_exit) =
         build_connection_actor::<F>(context.protocol.as_ref(), connection_shutdown)?;
+    let mut recovery = RecoveryCoordinator::new(context.recovery_hook, context.recovery_config)
+        .with_peer_address(context.peer_address);
 
     loop {
         inbound.relieve_pressure(effective_budgets).await?;
 
-        let Some(frame) = inbound
+        let Some(item) = inbound
             .next(&mut reader, context.read_timeout_ms, context.shutdown)
             .await?
         else {
             break;
+        };
+        // A decoder failure is handled here rather than inside `handle_frame`:
+        // the recovery policy can discard or quarantine it, which is a property
+        // of the read loop rather than of dispatching one decoded frame.
+        let frame = match item {
+            DecodedItem::Frame(frame) => {
+                recovery.record_decoded_frame();
+                frame
+            }
+            DecodedItem::Failure(failure) => {
+                if let Some(error) = recovery
+                    .apply(
+                        failure,
+                        &mut inbound.pipeline,
+                        &mut inbound.message_assembly,
+                    )
+                    .await
+                {
+                    return Err(error);
+                }
+                continue;
+            }
         };
 
         let (unobserved, cause) = observe_peer(&mut response_actor.actor, &peer_eof);

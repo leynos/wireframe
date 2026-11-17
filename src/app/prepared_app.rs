@@ -6,32 +6,26 @@ use std::{
     time::{Duration, Instant},
 };
 
-use monotony::{MonotonicClock, StdMonotonicClock};
-use tokio::{
-    io::{self, AsyncRead, AsyncWrite},
-    sync::mpsc,
-};
-use tokio_util::sync::CancellationToken;
-use tracing::Instrument as _;
+use tokio::sync::mpsc;
 
 use super::{
     PrepareError,
     builder::WireframeApp,
     envelope::Packet,
-    inbound_handler::{ConnectionProcessingContext, build_route_chains, process_connection},
+    inbound_handler::build_route_chains,
     lifecycle::{ConnectionSetup, ConnectionTeardown},
     memory_budgets::MemoryBudgets,
 };
 use crate::{
-    codec::{FrameCodec, LengthDelimitedFrameCodec},
-    frame::FrameMetadata,
+    codec::{FrameCodec, LengthDelimitedFrameCodec, RecoveryConfig, RecoveryPolicyHook},
     hooks::WireframeProtocol,
-    message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     metrics::{self, PreparationOutcome},
     middleware::HandlerService,
     serializer::{BincodeSerializer, Serializer},
 };
+
+mod connection;
 
 /// An immutable application template with fully transformed route services.
 ///
@@ -77,6 +71,10 @@ pub struct PreparedApp<
     pub(in crate::app) read_timeout_ms: u64,
     /// Optional byte caps protecting message and connection memory usage.
     pub(in crate::app) memory_budgets: Option<MemoryBudgets>,
+    /// Optional hook consulted when a decoder fails on a live connection.
+    pub(in crate::app) recovery_hook: Option<Arc<dyn RecoveryPolicyHook>>,
+    /// Global recovery settings copied into each connection.
+    pub(in crate::app) recovery_config: RecoveryConfig,
 }
 
 /// Supplies elapsed durations for preparation instrumentation.
@@ -170,134 +168,9 @@ where
             fragmentation: self.fragmentation,
             read_timeout_ms: self.read_timeout_ms,
             memory_budgets: self.memory_budgets,
+            recovery_hook: self.recovery_hook,
+            recovery_config: self.recovery_config,
         })
-    }
-}
-
-impl<S, C, E, F> PreparedApp<S, C, E, F>
-where
-    S: Serializer + FrameMetadata<Frame = super::Envelope> + Send + Sync + 'static,
-    C: Send + 'static,
-    E: Packet,
-    F: FrameCodec,
-    super::Envelope: DecodeWith<S> + EncodeWith<S>,
-{
-    /// Handle an accepted connection using the prepared route services.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::io::duplex;
-    /// use wireframe::app::{PreparedApp, WireframeApp};
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
-    /// let (client, server) = duplex(64);
-    /// drop(client);
-    /// prepared.handle_connection_result(server).await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an [`io::Error`] if stream processing or handler execution fails.
-    pub async fn handle_connection_result<W>(&self, stream: W) -> io::Result<()>
-    where
-        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-    {
-        self.handle_connection_with_shutdown(stream, CancellationToken::new())
-            .await
-    }
-
-    /// Handle an accepted connection, stopping it when `shutdown` is cancelled.
-    ///
-    /// The server passes its worker shutdown token here so a connection whose
-    /// peer stopped reading cannot pin a graceful drain: its pending write is
-    /// abandoned, which closes the connection. Callers outside the server keep
-    /// using [`Self::handle_connection_result`], whose token is never
-    /// cancelled.
-    pub(crate) async fn handle_connection_with_shutdown<W>(
-        &self,
-        stream: W,
-        shutdown: CancellationToken,
-    ) -> io::Result<()>
-    where
-        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-    {
-        self.handle_connection_inner(stream, &StdMonotonicClock, &shutdown)
-            .await
-    }
-
-    /// Handle a connection with an injectable clock and shutdown signal.
-    async fn handle_connection_inner<W>(
-        &self,
-        stream: W,
-        clock: &dyn MonotonicClock,
-        shutdown: &CancellationToken,
-    ) -> io::Result<()>
-    where
-        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-    {
-        metrics::inc_prepared_connection_uses();
-        let started_at = clock.now();
-        let span = tracing::info_span!(
-            "prepared_connection",
-            outcome = tracing::field::Empty,
-            elapsed_ms = tracing::field::Empty
-        );
-        let result = process_connection(
-            stream,
-            ConnectionProcessingContext {
-                routes: &self.routes,
-                serializer: Arc::clone(&self.serializer),
-                codec: &self.codec,
-                on_connect: self.on_connect.as_ref(),
-                on_disconnect: self.on_disconnect.as_ref(),
-                message_assembler: self.message_assembler.as_ref(),
-                fragmentation: self.fragmentation,
-                protocol_hooks: self.protocol_hooks(),
-                protocol: self.protocol.clone(),
-                memory_budgets: self.memory_budgets,
-                read_timeout_ms: self.read_timeout_ms,
-                shutdown,
-            },
-        )
-        .instrument(span.clone())
-        .await;
-        span.record("outcome", if result.is_ok() { "success" } else { "error" });
-        let elapsed_ms =
-            u64::try_from(clock.now().duration_since(started_at).as_millis()).unwrap_or(u64::MAX);
-        span.record("elapsed_ms", elapsed_ms);
-        result
-    }
-
-    /// Handle an accepted connection and log any processing failure.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::io::duplex;
-    /// use wireframe::app::{PreparedApp, WireframeApp};
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
-    /// let (client, server) = duplex(64);
-    /// drop(client);
-    /// prepared.handle_connection(server).await;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn handle_connection<W>(&self, stream: W)
-    where
-        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-    {
-        if let Err(error) = self.handle_connection_result(stream).await {
-            log::warn!(
-                "connection handling completed with error: correlation_id={:?}, error={error:?}",
-                None::<u64>
-            );
-        }
     }
 }
 

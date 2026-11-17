@@ -79,10 +79,8 @@ async fn exercise_growth_property_case(delta: i64) -> Result<(), Box<dyn std::er
     let extra = growth_for_delta(base_len, delta)?;
     let codec = TestCodec::new(GROWTH_LIMIT);
     let (client, server) = tokio::io::duplex(1024);
-    let mut server_framed =
-        Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
-    let mut client_framed =
-        Framed::new(client, CombinedCodec::new(codec.decoder(), codec.encoder()));
+    let mut server_framed = Framed::new(server, connection_codec(&codec));
+    let mut client_framed = Framed::new(client, connection_codec(&codec));
 
     let mut pipeline: FramePipeline<Bytes> = FramePipeline::with_hooks(None, growing_hooks(extra));
     pipeline.process(envelope)?;

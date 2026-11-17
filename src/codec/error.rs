@@ -194,6 +194,13 @@ pub enum CodecError {
 impl CodecError {
     /// Returns the recommended recovery policy for this error.
     ///
+    /// This is the value
+    /// [`RecoveryPolicyHook::recovery_policy`](crate::codec::RecoveryPolicyHook::recovery_policy)
+    /// returns by default. The connection loop then applies the policy that
+    /// survives its fallbacks, which can be a
+    /// [`RecoveryPolicy::Disconnect`] even when this method recommends
+    /// [`RecoveryPolicy::Drop`].
+    ///
     /// # Default Policies
     ///
     /// | Error Type | Policy |

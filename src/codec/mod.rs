@@ -21,7 +21,7 @@
 use std::io;
 
 use bytes::{Bytes, BytesMut};
-use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
+use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec, LengthDelimitedCodecError};
 
 use crate::byte_order::read_network_u32;
 
@@ -61,6 +61,17 @@ pub mod examples;
 ///
 /// Implementors define their own `Frame` type (for example, a struct carrying
 /// transaction identifiers) and provide decoder/encoder instances.
+///
+/// # Recovery contract
+///
+/// Wireframe consults the installed
+/// [`RecoveryPolicyHook`] when a decoder returns an error on a live connection,
+/// and can then keep reading from that connection. A decoder that supports
+/// recovery must therefore consume the malformed frame and leave its framing
+/// state valid before returning the error. A decoder that returns an error
+/// without consuming any bytes would be offered the same input again, so the
+/// connection loop escalates that case to [`RecoveryPolicy::Disconnect`]
+/// instead.
 pub trait FrameCodec: Send + Sync + Clone + 'static {
     /// Frame type produced by decoding.
     type Frame: Send + Sync + 'static;
@@ -70,6 +81,9 @@ pub trait FrameCodec: Send + Sync + Clone + 'static {
     type Encoder: Encoder<Self::Frame, Error = io::Error> + Send;
 
     /// Create a Tokio decoder for this codec.
+    ///
+    /// The decoder should consume a malformed frame before returning an error
+    /// so the connection can survive it; see the trait's recovery contract.
     fn decoder(&self) -> Self::Decoder;
 
     /// Create a Tokio encoder for this codec.
@@ -150,6 +164,8 @@ pub const LENGTH_HEADER_SIZE: usize = 4;
 pub struct LengthDelimitedDecoder {
     /// Stateful length-delimited decoder used for one stream.
     inner: LengthDelimitedCodec,
+    /// Largest payload this decoder accepts, used to report oversize errors.
+    max_frame_length: usize,
 }
 
 impl Decoder for LengthDelimitedDecoder {
@@ -157,7 +173,10 @@ impl Decoder for LengthDelimitedDecoder {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        self.inner.decode(src).map(|opt| opt.map(BytesMut::freeze))
+        match self.inner.decode(src) {
+            Ok(frame) => Ok(frame.map(BytesMut::freeze)),
+            Err(error) => Err(as_framing_error(error, src, self.max_frame_length)),
+        }
     }
 
     fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
@@ -178,7 +197,9 @@ impl Decoder for LengthDelimitedDecoder {
             // like oversized frames to maintain correct recovery policy (Drop vs
             // Disconnect). For all other errors (typically incomplete data indicated
             // by Other kind), convert to our structured EOF error.
-            Err(e) if e.kind() == io::ErrorKind::InvalidData => Err(e),
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => {
+                Err(as_framing_error(e, src, self.max_frame_length))
+            }
             Err(e) => {
                 // Log inner error for diagnostics before replacing with structured EOF error
                 tracing::debug!(
@@ -203,17 +224,45 @@ struct EofContext {
 impl EofContext {
     /// Inspect buffered bytes without consuming them before EOF classification.
     fn from_buffer(src: &BytesMut) -> Self {
-        let bytes_received = src.len();
-        let expected = src
-            .get(..LENGTH_HEADER_SIZE)
-            .and_then(|slice| <[u8; LENGTH_HEADER_SIZE]>::try_from(slice).ok())
-            .and_then(|bytes| usize::try_from(read_network_u32(bytes)).ok());
-
         Self {
-            bytes_received,
-            expected,
+            bytes_received: src.len(),
+            expected: declared_frame_length(src),
         }
     }
+}
+
+/// Read the payload length declared by the length prefix, when it is present.
+fn declared_frame_length(src: &BytesMut) -> Option<usize> {
+    src.get(..LENGTH_HEADER_SIZE)
+        .and_then(|slice| <[u8; LENGTH_HEADER_SIZE]>::try_from(slice).ok())
+        .and_then(|bytes| usize::try_from(read_network_u32(bytes)).ok())
+}
+
+/// Reclassify `tokio_util`'s oversize error as a structured framing error.
+///
+/// The inner codec reports a length prefix beyond `max` as an [`io::Error`] of
+/// kind `InvalidData` whose source is [`LengthDelimitedCodecError`]. Reported
+/// unchanged, the recovery coordinator would present it to a
+/// [`RecoveryPolicyHook`] as [`CodecError::Io`] and record
+/// `error_type="io"`, so an operator could not tell a framing failure apart
+/// from a transport failure.
+///
+/// The declared length is still in `src` because the inner decoder returns
+/// before it consumes the header. If it cannot be read, the error is passed
+/// through untouched rather than reporting a size that was never observed.
+fn as_framing_error(error: io::Error, src: &BytesMut, max: usize) -> io::Error {
+    let is_oversize = error.kind() == io::ErrorKind::InvalidData
+        && error
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<LengthDelimitedCodecError>())
+            .is_some();
+    if !is_oversize {
+        return error;
+    }
+
+    declared_frame_length(src).map_or(error, |size| {
+        CodecError::Framing(FramingError::OversizedFrame { size, max }).into()
+    })
 }
 
 /// Build the appropriate EOF error based on remaining buffer state.
@@ -281,6 +330,7 @@ impl FrameCodec for LengthDelimitedFrameCodec {
     fn decoder(&self) -> Self::Decoder {
         LengthDelimitedDecoder {
             inner: self.new_inner_codec(),
+            max_frame_length: self.max_frame_length,
         }
     }
 

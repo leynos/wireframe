@@ -31,7 +31,14 @@ pub struct RecoveryConfig {
     /// Default: 10.
     pub max_consecutive_drops: u32,
 
-    /// Default quarantine duration.
+    /// Fallback quarantine duration.
+    ///
+    /// An installed
+    /// [`RecoveryPolicyHook`](crate::codec::RecoveryPolicyHook) supplies the
+    /// pause through its own `quarantine_duration` method, so this value only
+    /// takes effect when no hook is installed. Because a missing hook always
+    /// disconnects, it is effectively inert today; it remains for callers that
+    /// configure recovery before choosing a hook.
     ///
     /// Default: 30 seconds.
     pub quarantine_duration: Duration,
@@ -60,7 +67,11 @@ impl RecoveryConfig {
         self
     }
 
-    /// Set the default quarantine duration.
+    /// Set the fallback quarantine duration.
+    ///
+    /// The installed [`RecoveryPolicyHook`](crate::codec::RecoveryPolicyHook)
+    /// controls the pause whenever one is present, so prefer its
+    /// `quarantine_duration` method for per-error decisions.
     #[must_use]
     pub const fn quarantine_duration(mut self, duration: Duration) -> Self {
         self.quarantine_duration = duration;
