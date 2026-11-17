@@ -69,6 +69,7 @@ where
 {
     ConnectionProcessingContext {
         routes: &prepared.routes,
+        streaming_routes: &prepared.streaming_routes,
         serializer: Arc::clone(&prepared.serializer),
         codec: &prepared.codec,
         on_connect: prepared.on_connect.as_ref(),
