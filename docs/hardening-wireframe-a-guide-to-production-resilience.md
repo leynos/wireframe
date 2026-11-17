@@ -253,7 +253,9 @@ A preamble that encodes to no bytes, such as a unit `()`, reads nothing and
 lets application code greet the peer. Expiry routes through the failure
 callback. Because the failure handler is asynchronous and receives the
 `TcpStream`, it can emit a protocol-specific error before the socket closes.
-This keeps resource usage bounded while preserving custom handshake responses.
+The deadline therefore bounds the read alone, not the failure callback that
+follows it, and it keeps resource usage bounded while preserving custom
+handshake responses.
 
 ## 4. Denial-of-Service (DoS) Mitigation
 

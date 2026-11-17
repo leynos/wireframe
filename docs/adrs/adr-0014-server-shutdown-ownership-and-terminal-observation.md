@@ -365,9 +365,9 @@ every accepted connection:
 - `drained()` still proves every connection task has returned, because the
   tracker drain is unchanged.
 
-The trade-off is deliberate. A server stop is bounded even when a peer stops
-reading, and losing queued pushes is acceptable where the alternative is a
-connection that never ends. Issue
+The trade-off is deliberate. A server stop bounds each stalled wait and write
+even when a peer stops reading, and losing queued pushes is acceptable where
+the alternative is a connection that never ends. Issue
 [#875](https://github.com/leynos/wireframe/issues/875) adds the push path this
 bound applies to, and the users' guide documents the resulting shutdown
 behaviour.

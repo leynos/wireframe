@@ -2641,18 +2641,19 @@ rates to the supported range.[^24] `PushHandle` exposes async
 capacity before they draw a rate permit, while `try_push` shares that same
 limiter without waiting: it returns `PushError::RateLimited` when no permit is
 available and otherwise implements policy-controlled drops with optional
-warnings and dead-letter forwarding.[^26] When the dead-letter queue is itself
-full or closed, the throttled `DLQ dropped frames` warning reports, as
-`dropped`, exactly the number of drops since the previous report; concurrent
-producers never make it count a drop twice or lose one, and a producer that
-finds nothing left to report emits no `dropped=0` line. `dlq_log_every_n` and
-`dlq_log_interval` set how often it fires. The warning names the dead-letter
-state, priority and policy of the frame that triggered it, along with its Rust
-type, but never its contents. Only frames the DLQ accepted reach its receiver,
-so an application must consume from that receiver to inspect or log them; a
-frame refused because the DLQ was full or closed is lost, with no copy
-available. Cloneable handles downgrade to `Weak` references for registration in
-a session registry.[^25]
+warnings and dead-letter forwarding.[^26] A refused or rate-limited `try_push`
+spends no rate budget and leaves the queue unchanged. When the dead-letter
+queue is itself full or closed, the throttled `DLQ dropped frames` warning
+reports, as `dropped`, exactly the number of drops since the previous report;
+concurrent producers never make it count a drop twice or lose one, and a
+producer that finds nothing left to report emits no `dropped=0` line.
+`dlq_log_every_n` and `dlq_log_interval` set how often it fires. The warning
+names the dead-letter state, priority and policy of the frame that triggered
+it, along with its Rust type, but never its contents. Only frames the DLQ
+accepted reach its receiver, so an application must consume from that receiver
+to inspect or log them; a frame refused because the DLQ was full or closed is
+lost, with no copy available. Cloneable handles downgrade to `Weak` references
+for registration in a session registry.[^25]
 
 `PushQueues::recv` prefers high-priority frames but eventually drains the
 low-priority queue; `close` lets tests release resources when no actor is
@@ -2778,8 +2779,9 @@ Two kinds of end of connection behave differently:
   A write the transport still accepts completes, and only then is the stop
   observed, so a frame that was queued but not yet written at that point is not
   guaranteed to arrive. This bound is why accepted connections observe the
-  server stop token; [ADR 014](adr-014-server-shutdown-ownership.md) records
-  the decision and its addendum.
+  server stop token;
+  [ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md)
+  records the decision and its addendum.
 
 `WireframeApp::with_push_dlq` is deprecated since 0.4.0. Its sink receives
 serialized payloads, is no longer consulted when connection queues are built,

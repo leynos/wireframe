@@ -124,8 +124,9 @@ leaves a usable bound. The last configuration call wins.
 
 `disable_preamble_timeout()` removes the deadline entirely. Use it only when a
 peer legitimately needs unbounded waiting, because a peer that never sends a
-preamble otherwise keeps its connection task alive indefinitely and delays
-graceful drain.
+preamble otherwise keeps its connection task alive indefinitely. It does not
+delay a server stop: the handshake read is raced against the stop token, which
+releases the socket and the connection task.
 
 The opt-out does not by itself make the server speak first. A non-empty
 preamble is read before the server writes anything, so a server-first protocol

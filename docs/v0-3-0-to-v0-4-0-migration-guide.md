@@ -777,4 +777,4 @@ though a write that fails or is abandoned drops the frames behind it; server
 shutdown closes the lanes immediately and later pushes fail with
 `PushError::Closed`. See the
 [users' guide](users-guide.md#server-connections-and-push-queues) and
-[ADR 014](adr-014-server-shutdown-ownership.md).
+[ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md).

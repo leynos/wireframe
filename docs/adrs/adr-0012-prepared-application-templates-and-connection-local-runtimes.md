@@ -675,9 +675,13 @@ Every accepted connection now owns an untracked `ConnectionActor`, built by
 `process_stream`. Each handler response, including the streamed and
 multi-packet forms, is installed on that actor rather than written by the
 inbound handler, and the actor's sink borrows the connection's `FramePipeline`.
-The pipeline order is therefore unchanged — fragmentation, serialization,
-`FrameCodec::wrap_payload`, `before_send`, transport write — and now applies
-uniformly to `Single`, `Vec`, streamed, multi-packet, and push output.
+The pipeline order for a handler response is therefore unchanged —
+fragmentation, serialization, `FrameCodec::wrap_payload`, `before_send`,
+transport write — and now applies uniformly to `Single`, `Vec`, streamed, and
+multi-packet output. Push output does not join that pipeline: a push is already
+encoded when it is enqueued, so it takes only `before_send` and the transport
+write. Fragmentation never runs for a push, because a frame larger than the
+codec's ceiling is refused at enqueue as `PushError::FrameTooLarge`.
 
 The hooks divide as follows:
 

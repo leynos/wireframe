@@ -2195,6 +2195,27 @@ auto-discovers `tests/*.rs` and `tests/<name>/main.rs`, but not
 declaration the root is not built, so its tests stop running with no compile
 error to flag the loss.
 
+### Recursion limit for test crate roots
+
+Sixteen Rust crate roots carry `#![recursion_limit = "256"]`: the fifteen
+integration-test roots under `tests/` (`bdd/mod.rs`, `codec_test_harness.rs`,
+`frame_codec.rs`, `metadata.rs`, `partial_frame_feeding.rs`,
+`prepared_app/mod.rs`, `prepared_app_observability.rs`,
+`prepared_app_properties.rs`, `response/mod.rs`, `routes.rs`,
+`server_streaming_backpressure.rs`, `slow_io_backpressure.rs`,
+`test_codec_error_regressions.rs`, `testkit_exports.rs` and
+`wireframe_app_protocol_hooks.rs`) and `wireframe_testing/src/lib.rs`.
+
+The attribute exists because the connection pipeline's future nests deeply
+enough that the pinned nightly toolchain used for the dylint gate overflows the
+default query-depth limit while computing the layout of the async test bodies;
+each root repeats that rationale as a comment beside the attribute, and the
+compiler suggests the higher limit when the overflow occurs. Remove it only
+when that toolchain no longer overflows the default limit, or when the affected
+test bodies are flattened enough that it does not. It is not a general licence
+to raise the limit for new crates: a new crate needs the attribute only if the
+same gate fails in the same way.
+
 ### rstest and rstest-bdd
 
 The test suite uses [`rstest`](https://crates.io/crates/rstest) for
@@ -2356,13 +2377,16 @@ failure into a pass.
 
 #### Serializer and response-handler bounds
 
-Three fixtures pin the type-level contracts around response streaming:
+Five fixtures pin the type-level contracts around response streaming and
+prepared applications:
 
 | Fixture                                                | Contract it pins                                                   |
 | ------------------------------------------------------ | ------------------------------------------------------------------ |
 | `tests/ui/codec_without_default_serializer.rs`         | `with_codec` needs no `S: Default` once a serializer is installed  |
 | `tests/ui/prepared_app_rejects_borrowed_serializer.rs` | `handle_connection_result` requires `S: 'static`                   |
 | `tests/ui/response_handler_borrows_request.rs`         | a response-handler future may borrow its request across an `await` |
+| `tests/ui/prepared_app_rejects_route.rs`               | `PreparedApp` has no `route` method                                |
+| `tests/ui/prepared_app_rejects_route_response.rs`      | `PreparedApp` has no `route_response` method                       |
 
 The first fixture prepares nothing; it only builds an application, so a
 regression that reintroduces the redundant `Default` bound fails to type check.
@@ -2370,7 +2394,11 @@ The second prepares successfully and fails at the connection boundary, which
 pins that the `'static` requirement belongs to the connection and not to
 preparation. The third passes, because the response handler's higher-ranked
 lifetime lets a handler read request data after an asynchronous step instead of
-copying it up front.
+copying it up front. The fourth and fifth fixtures prepare successfully and
+then call `route` and `route_response` on the result, which fails to type check
+because `PreparedApp` deliberately has no route-registration surface.
+Preparation fixes the route table, so a call that adds a route belongs on
+`WireframeApp` before `prepare()` rather than on the prepared application.
 
 ### Feature files and step definitions
 
