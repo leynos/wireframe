@@ -82,3 +82,101 @@ const fn priority_label(priority: Option<PushPriority>) -> &'static str {
 
 /// Whole milliseconds waited, saturating rather than wrapping.
 fn elapsed_ms(waited: Duration) -> u64 { u64::try_from(waited.as_millis()).unwrap_or(u64::MAX) }
+
+#[cfg(test)]
+mod tests {
+    //! Tests pinning the operator-visible abandonment diagnostics.
+    //!
+    //! An exhausted idle grace is the one per-connection signal an operator
+    //! gets that a peer stopped reading, so the fields and vocabulary of its
+    //! warning are fixed here. The shutdown path deliberately stays silent;
+    //! pinning that silence stops a later edit from producing one warning per
+    //! connection during ordinary teardown.
+
+    use std::{net::SocketAddr, time::Duration};
+
+    use wireframe_testing::logger;
+
+    use super::PushWriteDiagnostics;
+    use crate::{metrics::PushWriteAbandonReason, push::PushPriority, session::ConnectionId};
+
+    /// An exhausted idle grace warns once, naming the connection it dropped.
+    ///
+    /// The warning is the only trace of a write the peer never read, so it
+    /// must carry the connection identity, peer, lane and wait an operator
+    /// needs to identify the stalled connection.
+    #[test]
+    fn idle_grace_abandonment_warns_with_the_connection_identity() {
+        let connection_id = ConnectionId::new(4_242);
+        let peer = SocketAddr::from(([127, 0, 0, 1], 9_042));
+        let mut log = logger();
+        log.clear();
+
+        PushWriteDiagnostics::new(Some(connection_id), Some(peer))
+            .with_priority(Some(PushPriority::High))
+            .record_abandonment(
+                PushWriteAbandonReason::IdleGraceExpired,
+                Duration::from_millis(1_234),
+            );
+
+        // The log buffer is process-wide, so only records naming this
+        // connection and peer count as this test's abandonment.
+        let warnings: Vec<String> = std::iter::from_fn(|| log.pop())
+            .map(|record| record.args().to_owned())
+            .filter(|message| {
+                message.contains("ConnectionId(4242)") && message.contains(&peer.to_string())
+            })
+            .collect();
+        assert_eq!(
+            warnings.len(),
+            1,
+            "exactly one abandonment warning must be captured; captured: {warnings:#?}"
+        );
+
+        let warning = warnings
+            .first()
+            .expect("the single captured warning must be inspectable");
+        let peer_field = format!("peer_addr=Some({peer})");
+        // The log bridge renders string fields with `Debug`, so their quotes
+        // are part of the captured line.
+        for fragment in [
+            "ConnectionId(4242)",
+            peer_field.as_str(),
+            r#"priority="high""#,
+            r#"reason="idle_grace_expired""#,
+            "elapsed_ms=1234",
+        ] {
+            assert!(
+                warning.contains(fragment),
+                "the abandonment warning must name {fragment}; captured: {warning}"
+            );
+        }
+    }
+
+    /// A shutdown abandonment is counted but emits no warning.
+    ///
+    /// Every teardown with queued output abandons its writes, so a warning
+    /// here would flood the log during ordinary shutdown while adding nothing
+    /// beyond the connection's own stop diagnostics.
+    #[test]
+    fn shutdown_abandonment_does_not_warn() {
+        let mut log = logger();
+        log.clear();
+
+        PushWriteDiagnostics::new(
+            Some(ConnectionId::new(4_243)),
+            Some(SocketAddr::from(([127, 0, 0, 1], 9_043))),
+        )
+        .with_priority(Some(PushPriority::Low))
+        .record_abandonment(PushWriteAbandonReason::Shutdown, Duration::from_millis(10));
+
+        let warnings: Vec<String> = std::iter::from_fn(|| log.pop())
+            .map(|record| record.args().to_owned())
+            .filter(|message| message.contains("abandoning a push write"))
+            .collect();
+        assert!(
+            warnings.is_empty(),
+            "a shutdown abandonment must not warn; captured: {warnings:#?}"
+        );
+    }
+}
