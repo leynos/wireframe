@@ -119,17 +119,29 @@ fn collect_files(
 ) -> io::Result<()> {
     for entry in dir.entries()? {
         let child = entry?;
-        let name = child.file_name()?;
-        let path = prefix.join(&name);
-        if child.file_type()?.is_dir() {
-            collect_files(&child.open_dir()?, &path, files)?;
-        } else {
-            // `dir` is the directory that holds `name`, so the read stays
-            // relative to the level the entry came from.
-            let contents = dir.read(&name)?;
-            files.insert(path.into_string(), contents);
-        }
+        collect_entry(dir, prefix, &child, files)?;
     }
+    Ok(())
+}
+
+/// Record one directory entry, descending into it when it is a directory.
+///
+/// Kept separate from [`collect_files`] so the loop body carries a single
+/// propagation point and the branch that classifies an entry reads on its own.
+fn collect_entry(
+    dir: &Dir,
+    prefix: &Utf8Path,
+    entry: &cap_std::fs_utf8::DirEntry,
+    files: &mut BTreeMap<String, Vec<u8>>,
+) -> io::Result<()> {
+    let name = entry.file_name()?;
+    let path = prefix.join(&name);
+    if entry.file_type()?.is_dir() {
+        return collect_files(&entry.open_dir()?, &path, files);
+    }
+    // `dir` is the directory that holds `name`, so the read stays relative to
+    // the level the entry came from.
+    files.insert(path.into_string(), dir.read(&name)?);
     Ok(())
 }
 
