@@ -31,7 +31,7 @@ use super::terminator_tests::{
     forward_finished_stream,
     forward_finished_stream_with,
 };
-use crate::hooks::{ConnectionContext, ProtocolHooks};
+use crate::hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks};
 
 /// Keep the process-wide callsite interest cache permissive.
 ///
@@ -197,14 +197,15 @@ impl SpanObservations {
 
 /// Hooks that record the span in force when `before_send` runs.
 fn span_probing_hooks(observations: SpanObservations) -> ProtocolHooks<TaggedFrame, ()> {
-    ProtocolHooks {
+    CustomProtocolHooks {
         before_send: Some(Box::new(
             move |_frame: &mut TaggedFrame, _ctx: &mut ConnectionContext| {
                 observations.record_before_send(current_span_name());
             },
         )),
-        ..ProtocolHooks::default()
+        ..CustomProtocolHooks::default()
     }
+    .into()
 }
 
 /// Completion probe that records the span in force when the hook runs.

@@ -9,7 +9,9 @@
 //! The actor deliberately receives no fragmenter and no `before_send` hook.
 //! Fragmentation, codec wrapping, and protocol hooks for application frames
 //! all happen in the transport sink owned by the caller, which keeps a single
-//! ordering for serialization, hooks, and write metrics.
+//! ordering for serialization, hooks, and write metrics. Connection setup and
+//! the protocol error hook do run at this boundary, because the connection's
+//! push handle and registry entry come into existence here.
 
 use std::{io, sync::Arc};
 
@@ -25,7 +27,7 @@ use crate::{
         PEER_CLOSED_RESPONSE_GRACE,
         UntrackedActorInit,
     },
-    hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
+    hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks, WireframeProtocol},
     push::{FrameLike, PushHandle, PushQueuesBuilder},
     session::{ConnectionId, SessionRegistry},
 };
@@ -238,8 +240,9 @@ where
         })
     };
 
-    ProtocolHooks {
+    CustomProtocolHooks {
         handle_error: Some(handle_error),
-        ..ProtocolHooks::default()
+        ..CustomProtocolHooks::default()
     }
+    .into()
 }

@@ -30,7 +30,7 @@ use tokio::io;
 use super::{envelope::Envelope, fragmentation_state::FragmentationState};
 use crate::{
     fragment::{FragmentationConfig, FragmentationError},
-    hooks::{ConnectionContext, ProtocolHooks},
+    hooks::{ConnectionContext, ConnectionProtocol, ProtocolHooks},
 };
 
 /// Outbound frame processing pipeline mirroring the connection actor's
@@ -51,10 +51,9 @@ pub(crate) struct FramePipeline<T = Envelope> {
     fragmentation: Option<FragmentationState>,
     /// Envelopes waiting to be serialized and written to the transport.
     out: Vec<Envelope>,
-    /// Protocol hooks applied to each outbound codec frame.
-    hooks: ProtocolHooks<T, ()>,
-    /// Per-connection state passed to protocol hooks.
-    context: ConnectionContext,
+    /// Protocol hooks and the single context shared by every hook on this
+    /// connection.
+    protocol: ConnectionProtocol<T, ()>,
 }
 
 impl<T> FramePipeline<T> {
@@ -70,21 +69,22 @@ impl<T> FramePipeline<T> {
 
     /// Create a pipeline with per-connection protocol hooks.
     ///
-    /// The pipeline owns both the hooks and a fresh [`ConnectionContext`], so
+    /// The pipeline owns both the hooks and a fresh
+    /// [`ConnectionContext`](crate::hooks::ConnectionContext), so
     /// connection-local hook state never leaks into another connection. Each
     /// buffered envelope is serialized part-way through flushing; the hook
     /// then runs on the encoded frame while the frame is still in memory.
     ///
     /// ```text
-    /// let hooks = ProtocolHooks {
+    /// let hooks = CustomProtocolHooks {
     ///     before_send: Some(Box::new(|frame: &mut Bytes, _ctx| {
     ///         let mut bytes = frame.to_vec();
     ///         bytes.push(MARKER);
     ///         *frame = Bytes::from(bytes);
     ///     })),
-    ///     ..ProtocolHooks::default()
+    ///     ..CustomProtocolHooks::default()
     /// };
-    /// let mut pipeline = FramePipeline::with_hooks(fragmentation, hooks);
+    /// let mut pipeline = FramePipeline::with_hooks(fragmentation, hooks.into());
     /// pipeline.process(envelope)?;
     /// // Every frame drained by `flush_pipeline_output` now carries the
     /// // marker appended by the hook, including each fragment.
@@ -97,30 +97,29 @@ impl<T> FramePipeline<T> {
         Self {
             fragmentation: fragmentation.map(FragmentationState::new),
             out: Vec::new(),
-            hooks,
-            context: ConnectionContext::default(),
+            protocol: ConnectionProtocol::new(hooks),
         }
     }
 
     /// Run the configured `before_send` hook for one outbound frame.
-    pub(crate) fn before_send_frame(&mut self, frame: &mut T) {
-        self.hooks.before_send(frame, &mut self.context);
-    }
+    pub(crate) fn before_send_frame(&mut self, frame: &mut T) { self.protocol.before_send(frame); }
 
     /// Replace the per-connection context passed to protocol hooks.
     ///
-    /// The connection actor and this pipeline both run `before_send`, so they
-    /// must agree on which connection the callbacks are running for.
-    pub(crate) const fn set_context(&mut self, context: ConnectionContext) {
-        self.context = context;
+    /// The context is decided when the server publishes the connection, after
+    /// this pipeline exists, so the pipeline is told the identity rather than
+    /// inventing one. The hook owner holds the only copy, so every callback on
+    /// the connection observes it.
+    pub(crate) fn set_context(&mut self, context: ConnectionContext) {
+        self.protocol.set_context(context);
     }
 
     /// Copy the per-connection context used for protocol hooks.
     ///
-    /// Completion hooks that run outside the pipeline need the same context as
-    /// `before_send`, so a protocol observes one connection identity across all
-    /// of its callbacks for the connection's lifetime.
-    pub(crate) fn context(&self) -> ConnectionContext { self.context.clone() }
+    /// The connection actor keeps the same context for its diagnostics, so a
+    /// protocol observes one connection identity across all of its callbacks
+    /// for the connection's lifetime.
+    pub(crate) fn context(&self) -> ConnectionContext { self.protocol.context() }
 
     /// Process an envelope through the pipeline: fragment → metrics.
     ///

@@ -12,7 +12,7 @@ use wireframe::{
     app::Envelope,
     connection::{ConnectionActor, ConnectionChannels},
     correlation::CorrelatableFrame,
-    hooks::{ConnectionContext, ProtocolHooks},
+    hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks},
     push::PushQueues,
     response::FrameStream,
 };
@@ -128,12 +128,13 @@ async fn multi_packet_terminator_applies_expected_correlation(
     #[case] terminator_correlation: Option<u64>,
     #[case] expected: Option<u64>,
 ) -> TestResult {
-    let hooks = ProtocolHooks {
+    let hooks = CustomProtocolHooks {
         stream_end: Some(Box::new(move |_ctx: &mut ConnectionContext| {
             Some(Envelope::new(255, terminator_correlation, vec![]))
         })),
-        ..ProtocolHooks::default()
-    };
+        ..CustomProtocolHooks::default()
+    }
+    .into();
 
     let frames = run_multi_packet_channel(request, &[], hooks).await?;
     let [terminator] = frames.as_slice() else {
