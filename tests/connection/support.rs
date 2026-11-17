@@ -9,7 +9,7 @@ use log::Level;
 use rstest::fixture;
 use wireframe::{
     connection::test_support::ActorHarness,
-    hooks::{ConnectionContext, ProtocolHooks},
+    hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks},
 };
 use wireframe_testing::LoggerHandle;
 
@@ -55,7 +55,7 @@ impl HookCounters {
         let before_clone = Arc::clone(&self.before_calls);
         let end_clone = Arc::clone(&self.end_calls);
 
-        ProtocolHooks {
+        CustomProtocolHooks {
             before_send: Some(Box::new(
                 move |frame: &mut u8, _ctx: &mut ConnectionContext| {
                     before_clone.fetch_add(1, Ordering::SeqCst);
@@ -67,8 +67,9 @@ impl HookCounters {
             })
                 as Box<dyn FnMut(&mut ConnectionContext) + Send + 'static>),
             stream_end: Some(Box::new(stream_end_value)),
-            ..ProtocolHooks::<u8, wireframe::NoProtocolError>::default()
+            ..CustomProtocolHooks::<u8, wireframe::NoProtocolError>::default()
         }
+        .into()
     }
 
     /// Snapshot the recorded hook counts for verification.

@@ -31,7 +31,7 @@ use crate::{
     app::{Envelope, codec_driver::FramePipeline},
     codec::FrameCodec,
     connection::{ConnectionActor, ConnectionChannels, UntrackedActorInit},
-    hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
+    hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks, WireframeProtocol},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse},
     push::{PushConfigError, PushHandle, PushQueues},
     response::{FrameStream, Response},
@@ -268,14 +268,15 @@ pub(super) async fn forward_finished_stream_with(
 
 /// Hooks that append [`MARKER`] to every frame the pipeline sends.
 fn marking_hooks() -> ProtocolHooks<TaggedFrame, ()> {
-    ProtocolHooks {
+    CustomProtocolHooks {
         before_send: Some(Box::new(
             |frame: &mut TaggedFrame, _ctx: &mut ConnectionContext| {
                 frame.payload.push(MARKER);
             },
         )),
-        ..ProtocolHooks::default()
+        ..CustomProtocolHooks::default()
     }
+    .into()
 }
 
 /// The protocol terminator reaches the sink with its original metadata.

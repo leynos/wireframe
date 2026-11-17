@@ -43,7 +43,7 @@ use crate::{
     NoProtocolError,
     app::Envelope,
     correlation::CorrelatableFrame,
-    hooks::ProtocolHooks,
+    hooks::{CustomProtocolHooks, ProtocolHooks},
     push::{PushConfigError, PushQueues},
     response::{FrameStream, Response, WireframeError},
 };
@@ -73,12 +73,13 @@ fn test_actor_with_shutdown(
 }
 
 fn counting_hooks(calls: Arc<AtomicUsize>) -> ProtocolHooks<Envelope, ()> {
-    ProtocolHooks {
+    CustomProtocolHooks {
         on_command_end: Some(Box::new(move |_ctx| {
             calls.fetch_add(1, Ordering::SeqCst);
         })),
-        ..ProtocolHooks::default()
+        ..CustomProtocolHooks::default()
     }
+    .into()
 }
 
 #[tokio::test]

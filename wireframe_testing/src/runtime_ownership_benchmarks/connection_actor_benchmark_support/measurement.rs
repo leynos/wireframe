@@ -17,7 +17,7 @@ use tokio_util::sync::CancellationToken;
 use wireframe::{
     app::Envelope,
     connection::{ConnectionActor, ConnectionChannels},
-    hooks::{ConnectionContext, ProtocolHooks},
+    hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks},
     push::{PushHandle, PushQueues},
 };
 
@@ -84,12 +84,12 @@ fn workload_hooks(
     shutdown: &CancellationToken,
     cancelled_during_drain: &Arc<AtomicBool>,
 ) -> ProtocolHooks<Envelope, wireframe::NoProtocolError> {
-    let mut hooks = ProtocolHooks::default();
+    let mut hooks = CustomProtocolHooks::default();
     if !matches!(
         workload.cancellation,
         CancellationMode::CancelledDuringDrain
     ) {
-        return hooks;
+        return hooks.into();
     }
 
     let token = shutdown.clone();
@@ -103,7 +103,7 @@ fn workload_hooks(
             observed.store(true, Ordering::SeqCst);
         },
     ));
-    hooks
+    hooks.into()
 }
 
 /// Drive one iteration to completion and report how many frames it emitted.

@@ -19,6 +19,7 @@ use super::*;
 use crate::{
     app::combined_codec::CombinedCodec,
     codec::{FrameCodec, LengthDelimitedFrameCodec, MIN_FRAME_LENGTH},
+    hooks::{ConnectionContext, CustomProtocolHooks},
     serializer::{BincodeSerializer, Serializer},
 };
 
@@ -65,7 +66,7 @@ fn framed_pair() -> FramedPair {
 /// Build hooks whose `before_send` appends [`MARKER`] and counts calls.
 fn marker_hooks(counter: &Arc<AtomicUsize>) -> ProtocolHooks<Bytes, ()> {
     let call_counter = Arc::clone(counter);
-    ProtocolHooks {
+    CustomProtocolHooks {
         before_send: Some(Box::new(
             move |frame: &mut Bytes, _ctx: &mut ConnectionContext| {
                 let mut bytes = frame.to_vec();
@@ -74,8 +75,9 @@ fn marker_hooks(counter: &Arc<AtomicUsize>) -> ProtocolHooks<Bytes, ()> {
                 call_counter.fetch_add(1, Ordering::SeqCst);
             },
         )),
-        ..ProtocolHooks::default()
+        ..CustomProtocolHooks::default()
     }
+    .into()
 }
 
 /// Build hooks whose `before_send` grows every frame by `extra` bytes.
@@ -83,7 +85,7 @@ fn marker_hooks(counter: &Arc<AtomicUsize>) -> ProtocolHooks<Bytes, ()> {
 /// Used to pin down what happens when a hook ignores the frame-length
 /// contract.
 fn growing_hooks(extra: usize) -> ProtocolHooks<Bytes, ()> {
-    ProtocolHooks {
+    CustomProtocolHooks {
         before_send: Some(Box::new(
             move |frame: &mut Bytes, _ctx: &mut ConnectionContext| {
                 let mut bytes = frame.to_vec();
@@ -91,8 +93,9 @@ fn growing_hooks(extra: usize) -> ProtocolHooks<Bytes, ()> {
                 *frame = Bytes::from(bytes);
             },
         )),
-        ..ProtocolHooks::default()
+        ..CustomProtocolHooks::default()
     }
+    .into()
 }
 
 /// Read every frame the server wrote before closing the transport.
