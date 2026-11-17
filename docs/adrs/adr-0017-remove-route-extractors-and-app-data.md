@@ -233,6 +233,37 @@ once the RFC 0003 response and reply-context boundary is settled.
 - `make check-fmt`, `make lint`, `make test`, `make test-doc`, `make test-ui`,
   and `make test-loom` pass.
 
+## Addendum: 2026-11-17 — the `request` module is available in Loom builds
+
+The _Technical requirements_ bullet "Keep the `request` module and its
+`#[cfg(not(loom))]` gate, and keep the `message::Message` prelude export" is
+superseded to the extent below; the rest of each section stands.
+
+### Superseded: the `#[cfg(not(loom))]` gate on `request`
+
+`request` stays, as required. Its gate no longer does.
+
+The gate was added because the module did not compile under `--cfg loom`:
+`RequestBodyReader` adapts a body stream through `tokio_util::io::StreamReader`,
+and the runtime facilities that adapter needs were unavailable in that build.
+The pinned toolchain now compiles the whole module under `--cfg loom`, so the
+gate excluded working code without preventing anything.
+
+Streaming request bodies made the stale gate observable. `crate::app` now hands
+`RequestParts` and a `RequestBodyStream` to route handlers, so the connection
+runtime names those types throughout its dispatch loop. A Loom-excluded
+`request` therefore broke the Loom lane's build of `wireframe`, and the fix
+that keeps the gate is a second `cfg` boundary threaded through every one of
+those modules. Keeping the module available instead lets the Loom lane compile
+the same `app` surface as an ordinary build, which is also the boundary RFC 0002
+records as fragile: a module admitted under `cfg(loom)` that imports one
+compiled out there cannot be caught until the lane builds.
+
+The prelude follows the same boundary: the `request` exports moved out of the
+`#[cfg(not(loom))]` group. `client` and `server` remain excluded from Loom
+builds, and `make test-ui` still pins the `wireframe_testing` helpers that the
+lane omits through its `loom_api_surface` fixture.
+
 ## References
 
 - [Issue #877](https://github.com/leynos/wireframe/issues/877)
