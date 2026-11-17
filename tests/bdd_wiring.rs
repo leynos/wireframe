@@ -5,6 +5,8 @@
 //! The synthetic cases prove each rule reports its violation instead of
 //! passing vacuously.
 
+#![forbid(unsafe_code)]
+
 #[path = "common/fallible_assertions/check.rs"]
 mod fallible_check;
 
@@ -14,7 +16,7 @@ mod repo_access;
 #[path = "common/bdd_wiring/mod.rs"]
 mod bdd_wiring;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bdd_wiring::{
     Mutation,
@@ -65,14 +67,18 @@ fn expect_violation(
 #[test]
 fn live_repository_families_are_wired() -> TestResult {
     let snapshot = RepoSnapshot::from_repository()?;
-    let violations = evaluate(&snapshot);
-    check(
-        violations.is_empty(),
-        format!("BDD wiring violations:\n{}", render(&violations)),
-    )?;
+    assert_no_violations(&snapshot, "the live repository")?;
     let stems = feature_stems(&snapshot);
     check(!stems.is_empty(), "expected at least one feature file")?;
     let harnesses = harness_scenario_modules(&snapshot);
+    assert_harnesses_register_families(&harnesses)?;
+    assert_pool_families_are_registered(&harnesses)
+}
+
+/// Require every BDD harness to register at least one family.
+fn assert_harnesses_register_families(
+    harnesses: &BTreeMap<&'static str, BTreeSet<String>>,
+) -> TestResult {
     for harness in ["bdd", "bdd_pool"] {
         let registered = harnesses.get(harness).map_or(0, BTreeSet::len);
         check(
@@ -80,6 +86,13 @@ fn live_repository_families_are_wired() -> TestResult {
             format!("harness `{harness}` should register at least one family"),
         )?;
     }
+    Ok(())
+}
+
+/// Require the pool harness to register each pool family.
+fn assert_pool_families_are_registered(
+    harnesses: &BTreeMap<&'static str, BTreeSet<String>>,
+) -> TestResult {
     let pool = harnesses
         .get("bdd_pool")
         .ok_or("the pool harness inventory is missing")?;
@@ -94,8 +107,8 @@ fn live_repository_families_are_wired() -> TestResult {
 }
 
 /// Require a snapshot to evaluate without violations.
-fn assert_no_violations(snapshot: RepoSnapshot, description: &str) -> TestResult {
-    let violations = evaluate(&snapshot);
+fn assert_no_violations(snapshot: &RepoSnapshot, description: &str) -> TestResult {
+    let violations = evaluate(snapshot);
     check(
         violations.is_empty(),
         format!(
@@ -108,13 +121,13 @@ fn assert_no_violations(snapshot: RepoSnapshot, description: &str) -> TestResult
 
 #[test]
 fn conforming_synthetic_layout_has_no_violations() -> TestResult {
-    assert_no_violations(base_snapshot().build(), "the conforming layout")
+    assert_no_violations(&base_snapshot().build(), "the conforming layout")
 }
 
 #[test]
 fn nested_fixture_layout_is_accepted() -> TestResult {
     assert_no_violations(
-        nested_fixture_snapshot().build(),
+        &nested_fixture_snapshot().build(),
         "the nested fixture layout",
     )
 }
@@ -122,7 +135,7 @@ fn nested_fixture_layout_is_accepted() -> TestResult {
 #[test]
 fn alternate_scenario_headings_are_accepted() -> TestResult {
     assert_no_violations(
-        alternate_heading_snapshot().build(),
+        &alternate_heading_snapshot().build(),
         "the alternative heading layout",
     )
 }
@@ -130,7 +143,7 @@ fn alternate_scenario_headings_are_accepted() -> TestResult {
 #[test]
 fn doc_string_text_is_not_a_scenario_title() -> TestResult {
     assert_no_violations(
-        doc_string_snapshot().build(),
+        &doc_string_snapshot().build(),
         "a feature whose doc string contains heading-like text",
     )
 }

@@ -2192,7 +2192,8 @@ in the same harness as its fixture module.
 
 Scenario bindings take literal `path` and `name` arguments:
 
-```rust
+<!-- tested-example: developers-guide-014 -->
+```rust,ignore
 #[scenario(
     path = "tests/features/correlation.feature",
     name = "Streamed frames reuse the request correlation id"

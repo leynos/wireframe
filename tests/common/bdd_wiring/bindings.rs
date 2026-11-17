@@ -35,9 +35,9 @@ pub(crate) fn check_scenario_module(
             format!("scenario module must import `crate::fixtures::{stem}`"),
         ));
     }
-    if let Some(contents) = snapshot.get(feature_path) {
+    if let Some(feature_contents) = snapshot.get(feature_path) {
         let source = BindingSource {
-            contents,
+            contents: feature_contents,
             feature_path,
             scenario_path,
         };
