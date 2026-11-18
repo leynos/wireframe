@@ -1,4 +1,39 @@
 //! Inbound connection handling and route preparation utilities.
+//!
+//! Everything between an accepted socket and a dispatched envelope lives here.
+//! A prepared route calls [`process_connection`] with a
+//! [`ConnectionProcessingContext`], which carries the immutable application
+//! inputs for one connection: the middleware chains, serializer, codec,
+//! assembly and fragmentation settings, protocol hooks, read timeout, the
+//! server stop token, the push queue template, the [`SessionRegistry`], and the
+//! peer address. That function owns setup and teardown around the framed work,
+//! which it hands to `core`.
+//!
+//! [`process_connection`] and its inputs are split across the submodules by
+//! responsibility:
+//!
+//! - `core` drives one connection: it prepares framing, builds the response
+//!   actor that owns the push lanes, and loops over inbound work.
+//! - `actor` builds that response actor, allocates the connection's identifier,
+//!   registers its push handle, and installs the guard that deregisters it when
+//!   the connection ends.
+//! - `frames` holds the buffered inbound frame and the read deadline, and runs
+//!   the timeout's expiry command.
+//! - `push_service` races queued pushes against the reader, writes the batch
+//!   the actor hands over, and drains the lanes once the peer closes.
+//! - `push_write` bounds each push write by the stop token and, when the peer
+//!   can no longer be observed, by the idle grace.
+//! - `dispatch` decodes an envelope and runs it through the middleware chain.
+//! - `framing` and `peer_watch` prepare the transport halves and observe the
+//!   peer while a response is written.
+//! - `tests` covers envelope decoding, decode-failure diagnostics, and the
+//!   unprepared compatibility path.
+//!
+//! Route preparation lives here too: a `WireframeApp` hands
+//! [`process_connection`] the push queues, the [`SessionRegistry`], and the
+//! connection's peer address, so a server-recovered connection has its push
+//! handle registered before the first frame is read and removes it again when
+//! the loop ends.
 
 mod actor;
 // The connection-local runtime drives the same frame loop from outside this

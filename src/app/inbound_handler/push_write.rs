@@ -65,6 +65,20 @@ impl FrameWrite {
 /// The rule `handle_watching_peer` applies: a buffered frame or an earlier EOF
 /// means the read half is not polled, so the write is bounded by the grace
 /// from its first poll instead.
+///
+/// # Why these steps stay together
+///
+/// The peer observation cannot move out of the write wait. While a write is
+/// pending this loop is not reading the socket, so an end-of-file or a frame
+/// that arrives at that moment is only observable by polling the reader in the
+/// same select as the write. Polling the reader beforehand would miss exactly
+/// the peer that half-closed while the transport stalled.
+///
+/// Abandonment accounting stays with each branch instead: only the branch that
+/// fired knows which bound ended the write, and each stopped connection is
+/// counted once. The shutdown arm records its own abandonment because it
+/// returns before `finish_write` runs; the bounded path records after
+/// `finish_write` has classified the bound.
 pub(super) async fn write_frame<S, K, F, R>(
     transport: &mut PushTransport<'_, S, K, F>,
     frame: F::Frame,

@@ -1,4 +1,31 @@
 //! Shared frame and stream processing for prepared application routes.
+//!
+//! [`process_stream`] is the entry point once a transport is framed: the
+//! application's `ConnectionRuntime` calls it after the setup hook, and the
+//! server's connection spawner calls it directly for an accepted socket. It
+//! builds a [`ConnectionLoop`], which owns the read half, the buffered inbound
+//! state and the response actor, and runs it until the peer closes, the server
+//! stops, or a transport error ends the connection.
+//!
+//! Each iteration performs one unit of work: apply memory pressure, wait for a
+//! push batch or an inbound frame, then act on it. Frames are observed against
+//! the peer, decoded, reassembled and dispatched; a push batch is written under
+//! the bounds in `push_write`; a close first drains the lanes. The work itself
+//! belongs to sibling modules: `frames` owns the read-ahead buffer and its
+//! expiry command, `framing` the [`TransportSink`] and [`TransportStream`]
+//! halves, `dispatch` the decode-assemble-dispatch path through
+//! [`handle_frame`], `push_service` the push-versus-read wait
+//! ([`next_stream_step`]), batch write ([`deliver_pushes`]) and close-time
+//! drain ([`drain_queued`]), `peer_watch` the mid-write peer observation, and
+//! `actor` the response actor and the guard that cancels its token.
+//!
+//! Push queues and the stop token arrive through [`StreamProcessingContext`]:
+//! the queue template the actor clones into these lanes, the server shutdown
+//! token, from which the loop derives a child token so its own exit cancels
+//! only this connection, the [`SessionRegistry`] the actor registers with, and
+//! the peer address diagnostics report. The loop observes shutdown between
+//! units, so a handler kept alive by its own pushes still ends when the server
+//! stops.
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
