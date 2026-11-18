@@ -55,16 +55,8 @@ const TRANSPORT_CAPACITY: usize = 64;
 /// Reply size, chosen to exceed [`TRANSPORT_CAPACITY`] and still fit one frame.
 const BULK_REPLY_BYTES: usize = 512;
 
-/// Handler that resolves immediately with a reply too large to buffer.
-fn bulk_reply(started: Arc<Notify>) -> StreamingHandler {
-    Arc::new(move |_parts: RequestParts, _body: RequestBodyStream| {
-        let start_signal = Arc::clone(&started);
-        Box::pin(async move {
-            start_signal.notify_one();
-            Some(Bytes::from(vec![7_u8; BULK_REPLY_BYTES]))
-        })
-    })
-}
+/// Build the reply that outgrows the transport buffer but still fits one frame.
+fn bulk_answer() -> Bytes { Bytes::from(vec![7_u8; BULK_REPLY_BYTES]) }
 
 /// Drain a body to its end, reporting whether the peer truncated it.
 async fn drain_to_end(mut body: RequestBodyStream) -> bool {
@@ -75,16 +67,31 @@ async fn drain_to_end(mut body: RequestBodyStream) -> bool {
     truncated
 }
 
-/// Handler that answers a truncated body with a reply too large to buffer.
-fn truncated_body_reply(started: Arc<Notify>) -> StreamingHandler {
+/// Handler that answers with a reply too large to buffer.
+///
+/// `waits_for_truncation` selects the shape each scenario needs. The live-reply
+/// scenario must answer before the peer leaves, so it cannot read its body
+/// first; the truncated-body scenario answers only a body the peer cut short,
+/// so a clean end produces no reply at all.
+fn bulk_reply_handler(started: Arc<Notify>, waits_for_truncation: bool) -> StreamingHandler {
     Arc::new(move |_parts: RequestParts, body: RequestBodyStream| {
         let start_signal = Arc::clone(&started);
         Box::pin(async move {
             start_signal.notify_one();
-            let truncated = drain_to_end(body).await;
-            truncated.then(|| Bytes::from(vec![7_u8; BULK_REPLY_BYTES]))
+            if waits_for_truncation && !drain_to_end(body).await {
+                return None;
+            }
+            Some(bulk_answer())
         })
     })
+}
+
+/// Handler that resolves immediately with a reply too large to buffer.
+fn bulk_reply(started: Arc<Notify>) -> StreamingHandler { bulk_reply_handler(started, false) }
+
+/// Handler that answers a truncated body with a reply too large to buffer.
+fn truncated_body_reply(started: Arc<Notify>) -> StreamingHandler {
+    bulk_reply_handler(started, true)
 }
 
 /// Buffered route whose handler records whether it was served at all.
