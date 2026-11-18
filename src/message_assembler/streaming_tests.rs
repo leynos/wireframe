@@ -30,6 +30,10 @@ const TIMEOUT: Duration = Duration::from_mins(1);
 #[path = "streaming_declared_total_tests.rs"]
 mod streaming_declared_total_tests;
 
+#[cfg(test)]
+#[path = "streaming_eviction_tests.rs"]
+mod streaming_eviction_tests;
+
 /// Project reported assembly identities onto their keys.
 fn reported_keys(ids: &[StreamingAssemblyId]) -> Vec<MessageKey> {
     ids.iter().map(StreamingAssemblyId::key).collect()
@@ -234,63 +238,6 @@ fn discard_mode_validates_without_delivering() {
         "the chunk must be discarded, not delivered"
     );
     assert_eq!(state.streaming_count(), 0, "completion removes the partial");
-}
-
-#[test]
-fn expiry_reports_streaming_keys_separately() {
-    let mut state = state_with_limit(1024);
-    let key = MessageKey(8);
-    let start = Instant::now();
-    admit_first(&mut state, &first_header(8, 4, None, false), b"aaaa", start);
-
-    let early = state.purge_expired_detailed_at(start + Duration::from_secs(30));
-    assert!(
-        early.streaming().is_empty(),
-        "the assembly has not expired yet"
-    );
-    assert!(state.is_streaming_key(key));
-
-    let late = state.purge_expired_detailed_at(start + Duration::from_secs(61));
-    assert_eq!(
-        reported_keys(late.streaming()),
-        [key],
-        "the expiry is reported for the assembly that expired"
-    );
-    assert!(
-        late.buffered().is_empty(),
-        "no buffered assembly was evicted"
-    );
-    assert_eq!(state.streaming_count(), 0);
-}
-
-#[test]
-fn admission_defers_an_evicted_streaming_key_to_the_next_purge() {
-    let mut state = state_with_limit(1024);
-    let start = Instant::now();
-    let expired = first_header(1, 4, Some(8), false);
-    admit_first(&mut state, &expired, b"abcd", start);
-
-    // Admitting an unrelated message after the timeout purges the stalled one.
-    let later = start + TIMEOUT + Duration::from_secs(1);
-    let unrelated = first_header(2, 2, Some(4), false);
-    admit_first(&mut state, &unrelated, b"xy", later);
-    assert!(
-        !state.is_streaming_key(MessageKey(1)),
-        "the stalled assembly should have been evicted during admission"
-    );
-
-    let reported = state.purge_expired_detailed_at(later);
-    assert_eq!(
-        reported_keys(reported.streaming()),
-        [MessageKey(1)],
-        "the body consumer must still be told its assembly expired"
-    );
-
-    let repeated = state.purge_expired_detailed_at(later);
-    assert!(
-        repeated.streaming().is_empty(),
-        "a deferred eviction should be reported once"
-    );
 }
 
 /// A deferred eviction must not act on a replacement that reused its key.

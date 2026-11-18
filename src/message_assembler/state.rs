@@ -353,11 +353,16 @@ impl MessageAssemblyState {
 
     /// Remove expired assemblies using an explicit clock reading.
     ///
-    /// Returns the keys of evicted buffered assemblies. Streaming keys are
-    /// reported by [`Self::purge_expired_detailed_at`] so their consumers can
-    /// be failed explicitly.
+    /// Returns the keys of evicted buffered assemblies. A streaming eviction
+    /// cannot be reported through this signature, but its consumer is waiting
+    /// on a body that will never complete, so the identity stays deferred and
+    /// the next [`Self::purge_expired_detailed_at`] still reports it. Callers
+    /// that mix the two APIs therefore do not lose the notification.
     pub fn purge_expired_at(&mut self, now: Instant) -> Vec<MessageKey> {
-        self.purge_expired_detailed_at(now).buffered().to_vec()
+        let purged = self.purge_expired_detailed_at(now);
+        self.deferred_streaming_evictions
+            .extend_from_slice(purged.streaming());
+        purged.buffered().to_vec()
     }
 
     /// Total bytes buffered across all in-flight assemblies.
