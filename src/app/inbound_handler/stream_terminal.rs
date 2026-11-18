@@ -25,8 +25,19 @@ use crate::request::AccountedBodySender;
 pub(super) enum HandlerWait {
     /// The handler finished within the wait, with or without a reply.
     Replied(Option<Bytes>),
-    /// The wait elapsed with the handler still running.
+    /// The handler produced no answer the connection could wait for.
     Deadline,
+}
+
+/// What became of an attempt to deliver a body failure to its handler.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Delivery {
+    /// The handler's channel accepted the failure.
+    Accepted,
+    /// The channel did not accept it within the wait.
+    TimedOut,
+    /// The handler had already dropped its body.
+    ReceiverGone,
 }
 
 /// Await the handler under the connection's teardown bound.
@@ -53,14 +64,23 @@ pub(super) async fn deliver_then_await(
     sender: AccountedBodySender,
     handler: &mut HandlerFuture,
 ) -> HandlerWait {
-    let delivery = deliver_terminal(wait, error, sender);
-    tokio::pin!(delivery);
+    let sending = deliver_terminal(wait, error, sender);
+    tokio::pin!(sending);
     let deadline = tokio::time::sleep(wait);
     tokio::pin!(deadline);
-    let mut is_delivered = false;
+    let mut delivered: Option<Delivery> = None;
     loop {
         tokio::select! {
-            () = &mut delivery, if !is_delivered => is_delivered = true,
+            // Biased so a settled delivery is acted on before the handler is
+            // polled again: when the failure could not be handed over, its
+            // reply cannot describe that failure.
+            biased;
+            outcome = &mut sending, if delivered.is_none() => {
+                delivered = Some(outcome);
+                if outcome == Delivery::TimedOut {
+                    return HandlerWait::Deadline;
+                }
+            }
             outcome = handler.as_mut() => return HandlerWait::Replied(outcome),
             () = &mut deadline => return HandlerWait::Deadline,
         }
@@ -68,13 +88,23 @@ pub(super) async fn deliver_then_await(
 }
 
 /// Tell the handler that its body failed, without waiting indefinitely.
-async fn deliver_terminal(wait: Duration, error: io::Error, sender: AccountedBodySender) {
-    let delivered = timeout(wait, sender.send_terminal(error)).await;
-    let Ok(outcome) = delivered else {
-        stream_diagnostics::terminal_delivery_timed_out();
-        return;
-    };
-    if let Err(send_error) = outcome {
-        stream_diagnostics::terminal_receiver_gone(send_error);
+///
+/// The outcome is returned rather than only logged, because it decides whether
+/// waiting for the handler can still produce a reply worth forwarding.
+async fn deliver_terminal(
+    wait: Duration,
+    error: io::Error,
+    sender: AccountedBodySender,
+) -> Delivery {
+    match timeout(wait, sender.send_terminal(error)).await {
+        Ok(Ok(())) => Delivery::Accepted,
+        Ok(Err(gone)) => {
+            stream_diagnostics::terminal_receiver_gone(gone);
+            Delivery::ReceiverGone
+        }
+        Err(_elapsed) => {
+            stream_diagnostics::terminal_delivery_timed_out();
+            Delivery::TimedOut
+        }
     }
 }

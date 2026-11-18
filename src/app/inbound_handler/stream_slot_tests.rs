@@ -1,6 +1,15 @@
 //! Unit tests for the connection-owned streaming slot.
 
-use std::{future, io, sync::Arc, time::Duration};
+use std::{
+    future::{self, poll_fn},
+    io,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    task::Poll,
+    time::Duration,
+};
 
 use bytes::Bytes;
 use futures::StreamExt;
@@ -339,6 +348,53 @@ async fn terminal_delivery_is_bounded_when_the_handler_never_reads(
         outcome,
         HandlerWait::Deadline,
         "an unresponsive handler should still be bounded by the wait"
+    );
+}
+
+/// A delivery that times out abandons the handler instead of polling it again.
+///
+/// Once the channel refuses the failure for a whole wait, the handler can only
+/// read a clean end of stream, so a reply it produces afterwards would present a
+/// truncated body as complete. The exchange therefore ends at the delivery
+/// timeout, without another poll of the handler.
+#[rstest]
+#[tokio::test(start_paused = true)]
+async fn a_delivery_timeout_stops_polling_the_handler(
+    body_channel: (AccountedBodySender, RequestBodyStream),
+    short_wait: Duration,
+) {
+    let (sender, body) = body_channel;
+    queue_one_chunk(&sender).await;
+    let polls = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&polls);
+    let mut handler: HandlerFuture = Box::pin(poll_fn(move |_context| {
+        if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+            Poll::Pending
+        } else {
+            panic!("a timed-out delivery must abandon the handler");
+        }
+    }));
+
+    let outcome = deliver_then_await(
+        short_wait,
+        io::Error::new(io::ErrorKind::UnexpectedEof, "truncated body"),
+        sender,
+        &mut handler,
+    )
+    .await;
+
+    // The receiver outlives the exchange, so the delivery was blocked on
+    // channel capacity rather than on a closed channel.
+    drop(body);
+    assert_eq!(
+        outcome,
+        HandlerWait::Deadline,
+        "a delivery the channel refused must end the exchange"
+    );
+    assert_eq!(
+        polls.load(Ordering::SeqCst),
+        1,
+        "the abandoned handler must not be polled again"
     );
 }
 
