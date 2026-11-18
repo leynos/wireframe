@@ -83,7 +83,11 @@ double-charged or released twice.
 ## Transition semantics
 
 Conceptually, setup returns `Reject(error)` or
-`Established(transport_parts, metadata, phase)`. A phase transition is
+`Established(transport_parts, metadata, phase, prefetched_bytes)`. Setup may
+read ahead only within its configured bounds, and it returns any byte it has
+already consumed together with that byte's RFC 0007 reservation rather than
+keeping a hidden second buffer. The session consumes those prefetched bytes
+exactly once, before or as part of the first phase. A phase transition is
 requested by the current adapter and committed by the session writer after all
 earlier bytes flush. The transition result contains the new phase parser and
 unread bytes. Only the session commits it. At request time the session inserts
