@@ -119,3 +119,133 @@ impl<F> FrameLimits<F> {
             .map_or(Ok(()), |limit| limit.check(frame))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Unit and property coverage for the per-connection frame-size budget.
+
+    use proptest::prelude::*;
+
+    use super::{FrameLimit, FrameLimits};
+    use crate::push::PushError;
+
+    /// Measure a frame by the bytes it occupies.
+    fn exact(frame: &usize) -> usize { *frame }
+
+    /// Measure a frame at twice its bytes, to model a codec that adds framing.
+    fn doubled(frame: &usize) -> usize { frame.saturating_mul(2) }
+
+    /// A limit that measures frames exactly.
+    fn limit(max: usize) -> FrameLimit<usize> {
+        FrameLimit {
+            max,
+            payload_len: exact,
+        }
+    }
+
+    /// The boundary the budget is named for: the limit itself is admissible.
+    #[test]
+    fn a_frame_at_the_limit_is_accepted() {
+        let limits = FrameLimits::default().with_template(limit(4));
+
+        assert_eq!(limits.check(&4), Ok(()));
+    }
+
+    /// One byte over the limit is rejected with the measured size and ceiling.
+    #[test]
+    fn a_frame_above_the_limit_reports_its_measurement() {
+        let limits = FrameLimits::default().with_template(limit(4));
+
+        assert_eq!(
+            limits.check(&5),
+            Err(PushError::FrameTooLarge { size: 5, max: 4 })
+        );
+    }
+
+    // A template-only budget admits exactly the frames inside its bound.
+    proptest! {
+        #[test]
+        fn a_template_limit_admits_exactly_frames_within_it(
+            size in 0usize..2048,
+            max in 0usize..2048,
+        ) {
+            let limits = FrameLimits::default().with_template(limit(max));
+
+            prop_assert_eq!(limits.check(&size).is_ok(), size <= max);
+        }
+    }
+
+    // A codec-only budget admits exactly the frames inside its bound.
+    proptest! {
+        #[test]
+        fn a_codec_limit_admits_exactly_frames_within_it(
+            size in 0usize..2048,
+            max in 0usize..2048,
+        ) {
+            let limits = FrameLimits::default().with_codec(limit(max));
+
+            prop_assert_eq!(limits.check(&size).is_ok(), size <= max);
+        }
+    }
+
+    // A combined budget admits a frame only when both limits accept it, and the
+    // rejection it reports belongs to the limit that rejected it.
+    proptest! {
+        #[test]
+        fn combined_limits_admit_only_frames_both_accept(
+            size in 0usize..2048,
+            template_max in 0usize..2048,
+            codec_max in 0usize..2048,
+        ) {
+            let limits = FrameLimits::default()
+                .with_template(limit(template_max))
+                .with_codec(limit(codec_max));
+            let outcome = limits.check(&size);
+
+            prop_assert_eq!(
+                outcome.is_ok(),
+                size <= template_max && size <= codec_max
+            );
+            if size > template_max {
+                prop_assert_eq!(
+                    outcome,
+                    Err(PushError::FrameTooLarge {
+                        size,
+                        max: template_max,
+                    })
+                );
+            } else if size > codec_max {
+                prop_assert_eq!(
+                    outcome,
+                    Err(PushError::FrameTooLarge {
+                        size,
+                        max: codec_max,
+                    })
+                );
+            }
+        }
+    }
+
+    // Each side keeps its own measure, so a codec that counts framing overhead
+    // can reject a frame the template's byte count would have admitted.
+    proptest! {
+        #[test]
+        fn each_limit_applies_its_own_measure(
+            size in 0usize..1024,
+            template_max in 0usize..1024,
+            codec_max in 0usize..2048,
+        ) {
+            let limits = FrameLimits::default()
+                .with_template(limit(template_max))
+                .with_codec(FrameLimit {
+                    max: codec_max,
+                    payload_len: doubled,
+                });
+
+            prop_assert_eq!(
+                limits.check(&size).is_ok(),
+                size <= template_max && size.saturating_mul(2) <= codec_max
+            );
+        }
+    }
+}

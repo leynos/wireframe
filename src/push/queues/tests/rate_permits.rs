@@ -7,7 +7,11 @@
 
 use std::time::Duration;
 
-use tokio::time;
+use proptest::{prelude::*, test_runner::TestCaseError};
+use tokio::{
+    runtime::{Builder, Runtime},
+    time,
+};
 
 use super::super::PushQueues;
 use crate::push::{PushError, PushPolicy, PushPriority};
@@ -140,7 +144,11 @@ async fn awaited_push_reports_closed_without_waiting_for_a_rate_token() {
         .expect("the first push consumes the only permit");
     drop(queues);
 
-    let outcome = time::timeout(Duration::from_secs(5), handle.push_high_priority(2))
+    // Paused time auto-advances whenever the runtime goes idle, so a multi-
+    // second budget would let the permit sleep elapse and hide the wait this
+    // test is about. A zero budget admits only a future that is ready on its
+    // first poll.
+    let outcome = time::timeout(Duration::ZERO, handle.push_high_priority(2))
         .await
         .expect("a closed connection must be reported without waiting for a refill");
     assert_eq!(outcome, Err(PushError::Closed));
@@ -213,4 +221,104 @@ async fn producers_parked_on_a_full_queue_do_not_burst_after_it_drains() {
         (Ok(()), Ok(()), Ok(())),
         "every parked frame is eventually admitted"
     );
+}
+
+/// Build a current-thread runtime whose clock only moves when asked.
+///
+/// The limiter refills once a second, so a runtime that advanced time on its
+/// own could admit a push from the next window and hide an overdraw.
+fn paused_runtime() -> Result<Runtime, TestCaseError> {
+    Builder::new_current_thread()
+        .enable_time()
+        .start_paused(true)
+        .build()
+        .map_err(|error| TestCaseError::fail(format!("a paused runtime must build: {error}")))
+}
+
+/// Build queues that admit `budget` pushes per window with room for every
+/// generated attempt in either lane.
+fn ticketed_queues(
+    budget: u8,
+) -> Result<(PushQueues<u8>, crate::push::PushHandle<u8>), TestCaseError> {
+    PushQueues::<u8>::builder()
+        .high_capacity(64)
+        .low_capacity(64)
+        .rate(Some(usize::from(budget)))
+        .build()
+        .map_err(|error| TestCaseError::fail(format!("the queues must build: {error}")))
+}
+
+// However the attempts are split across lanes and cloned handles, one window
+// admits exactly its budget and never more.
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 48, ..ProptestConfig::default() })]
+
+    #[test]
+    fn a_window_never_admits_more_pushes_than_its_budget(
+        budget in 1u8..=8,
+        lanes in proptest::collection::vec(any::<bool>(), 1..=32),
+    ) {
+        let runtime = paused_runtime()?;
+        let (attempts, admitted) = runtime.block_on(async move {
+            let (_queues, handle) = ticketed_queues(budget)?;
+            let clone = handle.clone();
+            let attempts = lanes.len();
+            let mut admitted = 0usize;
+            for is_high in lanes {
+                let priority = if is_high {
+                    PushPriority::High
+                } else {
+                    PushPriority::Low
+                };
+                if clone
+                    .try_push(1, priority, PushPolicy::ReturnErrorIfFull)
+                    .is_ok()
+                {
+                    admitted += 1;
+                }
+            }
+            Ok::<_, TestCaseError>((attempts, admitted))
+        })?;
+
+        let budget = usize::from(budget);
+        prop_assert!(
+            admitted <= budget,
+            "{admitted} pushes were admitted in one window with a budget of {budget}"
+        );
+        prop_assert_eq!(
+            admitted,
+            attempts.min(budget),
+            "every attempt a fresh window can admit must be admitted"
+        );
+    }
+}
+
+// A closed connection is reported before an exhausted window, for either lane
+// and any budget: `RateLimited` invites a retry that can never succeed once the
+// receiver is gone.
+proptest! {
+    #[test]
+    fn a_closed_connection_outranks_an_exhausted_window(
+        budget in 1u8..=8,
+        is_high in any::<bool>(),
+    ) {
+        let runtime = paused_runtime()?;
+        let error = runtime.block_on(async move {
+            let (queues, handle) = ticketed_queues(budget)?;
+            for _ in 0..budget {
+                handle
+                    .try_push(1, PushPriority::High, PushPolicy::ReturnErrorIfFull)
+                    .map_err(|error| TestCaseError::fail(format!("the budget must admit the frame: {error}")))?;
+            }
+            drop(queues);
+            let priority = if is_high {
+                PushPriority::High
+            } else {
+                PushPriority::Low
+            };
+            Ok::<_, TestCaseError>(handle.try_push(2, priority, PushPolicy::ReturnErrorIfFull))
+        })?;
+
+        prop_assert_eq!(error, Err(PushError::Closed));
+    }
 }
