@@ -84,19 +84,20 @@ double-charged or released twice.
 
 Conceptually, setup returns `Reject(error)` or
 `Established(transport_parts, metadata, phase, prefetched_bytes)`. Setup may
-read ahead only within its configured bounds, and it returns any byte it has
-already consumed together with that byte's RFC 0007 reservation rather than
-keeping a hidden second buffer. The session consumes those prefetched bytes
-exactly once, before or as part of the first phase. A phase transition is
-requested by the current adapter and committed by the session writer after all
-earlier bytes flush. The transition result contains the new phase parser and
-unread bytes. Only the session commits it. At request time the session inserts
-a writer-owned barrier. All already-encoded earlier frames must flush before
-the barrier. Accepted but not-yet-encoded operations are cancelled and their
-contexts settled; they are never encoded under the new phase. Still-running
-work retains its reservations until release. This cancellation rule prevents a
-barrier waiting on a handler whose completion depends on post-upgrade input.
-The adapter receives cancellation outcomes and may explicitly retry eligible
+read ahead only within its configured bounds. Bytes setup itself consumed to
+complete the handshake are gone and are never replayed; only the unread bytes
+it prefetched are returned, with their RFC 0007 reservation, rather than kept
+in a hidden second buffer. The session consumes those prefetched bytes exactly
+once, before or as part of the first phase. A phase transition is requested by
+the current adapter and committed by the session writer after all earlier bytes
+flush. The transition result contains the new phase parser and unread bytes.
+Only the session commits it. At request time the session inserts a writer-owned
+barrier. All already-encoded earlier frames must flush before the barrier.
+Accepted but not-yet-encoded operations are cancelled and their contexts
+settled; they are never encoded under the new phase. Still-running work retains
+its reservations until release. This cancellation rule prevents a barrier
+waiting on a handler whose completion depends on post-upgrade input. The
+adapter receives cancellation outcomes and may explicitly retry eligible
 unsubmitted work under the new phase as new operations. Concurrent transitions,
 transition after close, or partial-write crossing the barrier are contract
 errors and terminate.
