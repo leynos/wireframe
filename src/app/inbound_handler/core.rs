@@ -18,7 +18,7 @@ use super::{
     MAX_DESER_FAILURES,
     actor::{build_connection_actor, observe_peer},
     frames::InboundFrames,
-    framing::prepare_connection_framing,
+    framing::{prepare_connection_framing, prepare_inbound_state, resolve_framing_limits},
     peer_watch::{PeerObservation, handle_watching_peer},
     recovery::RecoveryCoordinator,
 };
@@ -163,58 +163,6 @@ where
         .into());
     }
     Ok((envelope, consumed))
-}
-
-/// Frame-length limit and resolved budgets for one connection's framing.
-#[derive(Clone, Copy)]
-struct FramingLimits {
-    /// Maximum frame length advertised by the codec.
-    requested_frame_length: usize,
-    /// Budgets resolved from the connection's configuration.
-    effective_budgets: MemoryBudgets,
-}
-
-/// Resolve the frame-length limit and memory budgets for one connection.
-fn resolve_framing_limits<F>(budgets: Option<MemoryBudgets>, codec: &F) -> FramingLimits
-where
-    F: FrameCodec,
-{
-    let requested_frame_length = codec.max_frame_length();
-    FramingLimits {
-        requested_frame_length,
-        effective_budgets: frame_handling::resolve_effective_budgets(
-            budgets,
-            requested_frame_length,
-        ),
-    }
-}
-
-/// Build the framing state one inbound loop reads and dispatches through.
-///
-/// Assembly state exists only when an assembler is installed, so a read
-/// timeout purges exactly the state this connection can hold.
-fn prepare_inbound_state<F>(
-    fragmentation: Option<crate::fragment::FragmentationConfig>,
-    protocol_hooks: ProtocolHooks<F::Frame, ()>,
-    message_assembler: Option<&Arc<dyn MessageAssembler>>,
-    limits: FramingLimits,
-) -> InboundFrames<DecodedItem<F::Frame>, F::Frame>
-where
-    F: FrameCodec,
-{
-    InboundFrames {
-        // A frame read while the previous one was still being handled, so the
-        // loop never polls the read half twice for one inbound frame.
-        pending: None,
-        pipeline: FramePipeline::with_hooks(fragmentation, protocol_hooks),
-        message_assembly: message_assembler.map(|_| {
-            frame_handling::new_message_assembly_state(
-                fragmentation,
-                limits.requested_frame_length,
-                Some(limits.effective_budgets),
-            )
-        }),
-    }
 }
 
 /// Read and process frames until the stream closes or an I/O error occurs.
