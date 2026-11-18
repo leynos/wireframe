@@ -161,6 +161,20 @@ use crate::fixtures::example::*;
 fn example_runs(example_world: ExampleWorld) { let _ = example_world; }
 "#;
 
+/// A scenario module importing the family fixture by name, rename, and group.
+const NAMED_IMPORTS: &str = r#"
+use rstest_bdd_macros::scenario;
+use crate::fixtures::example::example_world;
+use crate::fixtures::example::ExampleWorld as World;
+use crate::fixtures::example::{ExampleWorld, example_world as fixture};
+
+#[scenario(
+    path = "tests/features/example.feature",
+    name = "Example runs"
+)]
+fn example_runs(example_world: ExampleWorld) { let _ = example_world; }
+"#;
+
 /// A scenario module without the fixture import.
 const MISSING_IMPORT: &str = r#"
 use rstest_bdd_macros::scenario;
@@ -221,6 +235,10 @@ pub(crate) enum Mutation {
     MissingImport,
     /// The scenario module imports only the fixture's `self`.
     SelfImport,
+    /// The scenario module imports a different family's fixture.
+    WrongFixtureImport,
+    /// The scenario module imports only the fixture's `self`, renamed.
+    SelfImportAliased,
     /// A feature family has both fixture file forms.
     AmbiguousFixture,
     /// A harness root omits a registry declaration.
@@ -287,6 +305,11 @@ pub(crate) fn rule_scenario_snapshot() -> SnapshotBuilder {
     base_snapshot()
         .with_file(FEATURE_FILE, RULE_BOUND_FEATURE)
         .with_file(SCENARIO_FILE, RULE_SCENARIO)
+}
+
+/// Build the conforming layout with named fixture imports.
+pub(crate) fn named_import_snapshot() -> SnapshotBuilder {
+    base_snapshot().with_file(SCENARIO_FILE, NAMED_IMPORTS)
 }
 
 /// Apply one synthetic defect to the conforming layout.

@@ -29,6 +29,7 @@ use bdd_wiring::{
     feature_stems,
     harness_scenario_modules,
     mutated_snapshot,
+    named_import_snapshot,
     nested_fixture_snapshot,
     rule_scenario_snapshot,
 };
@@ -154,6 +155,14 @@ fn rule_grouped_scenario_is_bound() -> TestResult {
     assert_no_violations(
         &rule_scenario_snapshot().build(),
         "a feature whose Rule scenario is bound",
+    )
+}
+
+#[test]
+fn named_fixture_imports_are_accepted() -> TestResult {
+    assert_no_violations(
+        &named_import_snapshot().build(),
+        "a scenario module importing its fixture by name, rename, and group",
     )
 }
 
@@ -302,6 +311,16 @@ fn rule_grouped_scenario_is_bound() -> TestResult {
     Mutation::RegisteredOrphanScenario,
     "tests/scenarios/orphan_scenarios.rs",
     "registered scenario module `orphan_scenarios` has no matching feature"
+)]
+#[case::wrong_fixture_import(
+    Mutation::WrongFixtureImport,
+    "tests/scenarios/example_scenarios.rs",
+    "must import `crate::fixtures::example`"
+)]
+#[case::self_import_aliased(
+    Mutation::SelfImportAliased,
+    "tests/scenarios/example_scenarios.rs",
+    "must import `crate::fixtures::example`"
 )]
 fn synthetic_violations_are_reported(
     #[case] mutation: Mutation,

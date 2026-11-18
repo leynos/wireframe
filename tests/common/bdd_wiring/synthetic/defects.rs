@@ -58,6 +58,16 @@ pub(super) fn apply(builder: SnapshotBuilder, mutation: Mutation) -> SnapshotBui
             "use crate::fixtures::example::*;",
             "use crate::fixtures::example::{self};",
         ),
+        Mutation::WrongFixtureImport => replace_scenario(
+            builder,
+            "use crate::fixtures::example::*;",
+            "use crate::fixtures::other::*;",
+        ),
+        Mutation::SelfImportAliased => replace_scenario(
+            builder,
+            "use crate::fixtures::example::*;",
+            "use crate::fixtures::example::{self as ex};",
+        ),
         Mutation::AmbiguousFixture => ambiguous_fixture(builder),
         Mutation::MissingRegistryDeclaration => builder.with_file(
             MAIN_ROOT_FILE,
