@@ -111,6 +111,21 @@ impl<T> InboundFrames<T> {
         .await
     }
 
+    /// Expire buffered state once the current silence has lasted the timeout.
+    ///
+    /// This is the read timeout as an explicit command. The read wait below
+    /// arms and observes the same deadline, but the connection loop polls
+    /// pushes and the reader in one biased select, so an always-ready push
+    /// lane wins every pass and the wait is cancelled before its timeout
+    /// fires. Running this command on each pass keeps the deadline measured
+    /// from the last observed frame rather than from the last wait, so a
+    /// client that only receives pushes still expires its buffered state.
+    pub(super) fn expire_silence(&mut self, read_timeout_ms: u64) {
+        if self.arm_deadline(read_timeout_ms) <= Instant::now() {
+            self.purge_after_timeout(read_timeout_ms);
+        }
+    }
+
     /// Poll once for a frame the buffered slot or the reader already holds.
     ///
     /// The connection loop polls pushes and the reader in one biased select, so
@@ -118,26 +133,17 @@ impl<T> InboundFrames<T> {
     /// non-blocking chance per pass, which bounds how long an inbound frame can
     /// wait behind a push stream.
     ///
-    /// The probe also runs the expiry purge once the shared read deadline has
-    /// passed. It arms that deadline rather than a timer, because a loop whose
-    /// push lane is ready on every pass never polls the read wait below;
-    /// arming the deadline only there would leave buffered state without one,
-    /// so the purge would wait for a timeout that never starts.
-    pub(super) async fn try_next<R>(
-        &mut self,
-        reader: &mut R,
-        read_timeout_ms: u64,
-    ) -> io::Result<NextFrame<T>>
+    /// The probe only reads. Expiring buffered state is the separate
+    /// [`Self::expire_silence`] command, so a probe cannot drop state as a side
+    /// effect of being called. A returned frame still ends the idle interval,
+    /// so the next silence gets its full timeout rather than the rest of this
+    /// one.
+    pub(super) async fn try_next<R>(&mut self, reader: &mut R) -> io::Result<NextFrame<T>>
     where
         R: Stream<Item = io::Result<T>> + Unpin,
     {
-        if self.arm_deadline(read_timeout_ms) <= Instant::now() {
-            self.purge_after_timeout(read_timeout_ms);
-        }
         let next = poll_frame(&mut self.pending, reader, Duration::ZERO).await?;
         if !matches!(next, NextFrame::TimedOut) {
-            // Observing the peer ends the idle interval, so the next silence
-            // gets its full timeout rather than the rest of this one.
             self.read_deadline = None;
         }
         Ok(next)
@@ -202,6 +208,14 @@ impl<T> InboundFrames<T> {
     }
 
     /// Deadline for the current silence, armed on first use.
+    ///
+    /// This reads Tokio's ambient clock rather than an injected timer seam.
+    /// The clock *is* this loop's injection point: every test that exercises
+    /// the deadline runs on a paused Tokio runtime, which `Instant::now` and
+    /// `timeout_at` already follow, so a test advances the deadline
+    /// deterministically without a custom trait. The connection layer's
+    /// `GraceTimer` exists for the opposite case: those tests fire one
+    /// deadline by hand and never advance a clock at all.
     fn arm_deadline(&mut self, read_timeout_ms: u64) -> Instant {
         *self
             .read_deadline

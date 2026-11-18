@@ -142,26 +142,20 @@ async fn pushes_do_not_postpone_the_inbound_expiry() {
 /// A push lane that is always ready must not defer the expiry either.
 ///
 /// When a batch is ready on every pass the biased select serves pushes, so
-/// the read wait is never polled and only the probe runs. A deadline armed
-/// solely by the wait would therefore never start, and the buffered
-/// assembly would outlive the timeout it was given. The probe arms the
-/// deadline, so the purge runs from it without the read ever being driven.
+/// the read wait is never polled and only the loop's own pass runs. A
+/// deadline armed solely by the wait would therefore never start, and the
+/// buffered assembly would outlive the timeout it was given. The loop runs
+/// the expiry command on every pass, so the purge happens without the read
+/// ever being driven.
 #[tokio::test(start_paused = true)]
 async fn a_ready_push_lane_does_not_postpone_the_inbound_expiry() {
     let mut inbound = inbound_with_incomplete_assembly();
-    let mut reader = stream::pending::<io::Result<u8>>();
 
     // Arming the deadline is not yet expiry: the assembly survives the
-    // first probe and the rest of the interval.
-    assert!(matches!(
-        inbound.try_next(&mut reader, 400).await,
-        Ok(NextFrame::TimedOut)
-    ));
+    // first pass and the rest of the interval.
+    inbound.expire_silence(400);
     advance(Duration::from_millis(399)).await;
-    assert!(matches!(
-        inbound.try_next(&mut reader, 400).await,
-        Ok(NextFrame::TimedOut)
-    ));
+    inbound.expire_silence(400);
     assert_eq!(
         buffered(&inbound),
         Some(1),
@@ -169,13 +163,42 @@ async fn a_ready_push_lane_does_not_postpone_the_inbound_expiry() {
     );
 
     advance(Duration::from_millis(2)).await;
+    inbound.expire_silence(400);
+    assert_eq!(
+        buffered(&inbound),
+        Some(0),
+        "the expiry command must purge once the deadline has passed"
+    );
+}
+
+/// The read probe must never purge as a side effect of being called.
+///
+/// Expiry is a command the loop runs on each pass, so a probe stays a query:
+/// a caller that polls the reader without expiring first keeps its buffered
+/// state even after the deadline. Pinning that keeps the two responsibilities
+/// separate, and keeps the loop's explicit call the only thing that drops it.
+#[tokio::test(start_paused = true)]
+async fn the_read_probe_never_purges_buffered_state() {
+    let mut inbound = inbound_with_incomplete_assembly();
+    let mut reader = stream::pending::<io::Result<u8>>();
+
+    // Arm the deadline, then let it pass without running the command again.
+    inbound.expire_silence(400);
+    advance(Duration::from_millis(401)).await;
     assert!(matches!(
-        inbound.try_next(&mut reader, 400).await,
+        inbound.try_next(&mut reader).await,
         Ok(NextFrame::TimedOut)
     ));
     assert_eq!(
         buffered(&inbound),
+        Some(1),
+        "the probe must not purge; only the expiry command may"
+    );
+
+    inbound.expire_silence(400);
+    assert_eq!(
+        buffered(&inbound),
         Some(0),
-        "the probe must purge once the armed deadline has passed"
+        "the same interval expires once the command runs"
     );
 }

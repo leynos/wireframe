@@ -97,9 +97,14 @@ where
         shutdown,
         read_first,
     } = wait;
+    // Expiry is its own command, run before the loop can be held by a ready
+    // push lane. The wait below observes the same deadline, but a stream of
+    // ready batches cancels it before it fires, so the command is what keeps
+    // buffered state expiring on a push-only connection.
+    inbound.expire_silence(read_timeout_ms);
     let should_try_read = read_first || inbound.pending.is_some();
     if should_try_read {
-        match inbound.try_next(reader, read_timeout_ms).await? {
+        match inbound.try_next(reader).await? {
             NextFrame::Ready(frame) => return Ok(StreamStep::Frame(frame)),
             NextFrame::Closed => return Ok(StreamStep::Closed),
             NextFrame::TimedOut => {}
