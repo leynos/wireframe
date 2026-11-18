@@ -1,8 +1,9 @@
 //! Property tests for the path invariants the wiring check relies on.
 //!
-//! Generated inputs cover component sequences and module layouts that the
-//! fixed mutation table cannot enumerate, so the normalization and module
-//! resolution rules are checked for every shape rather than a sample of them.
+//! Generated inputs sample bounded component sequences and module layouts that
+//! the fixed mutation table cannot enumerate. Each case is drawn from a
+//! generated space rather than checked exhaustively, so a passing run raises
+//! confidence without proving every possible shape.
 
 use camino::{Utf8Component, Utf8PathBuf};
 use proptest::prelude::*;
@@ -54,7 +55,11 @@ struct DeclaringFile {
 fn declaring_file_strategy() -> impl Strategy<Value = DeclaringFile> {
     (name_strategy(), name_strategy(), any::<bool>()).prop_map(|(leaf, stem, is_mod_rs)| {
         let directory = Utf8PathBuf::from("tests").join(leaf);
-        if is_mod_rs {
+        // A file named `mod.rs` searches its own directory whatever produced
+        // it, so a `mod` stem takes the root-file shape to keep the generated
+        // declaring file and module directory consistent.
+        let uses_mod_rs = is_mod_rs || stem == "mod";
+        if uses_mod_rs {
             DeclaringFile {
                 file: directory.join("mod.rs"),
                 declaring_directory: directory.clone(),
