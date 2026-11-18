@@ -5,16 +5,16 @@ use crate::{codec::EofError, push::PushHandle};
 
 /// One connection's protocol hooks and the context they share.
 ///
-/// The connection runtime owns exactly one value for the connection's
-/// lifetime, so every protocol operation observes the same
-/// [`ConnectionContext`] in the documented order. The value is deliberately
-/// not `Clone` and does not wrap the context in `Arc<Mutex<_>>`: the
-/// connection runtime serializes hook invocation.
+/// Exactly one value provides the callbacks for a connection: the frame
+/// pipeline on the prepared server path, or the connection actor when an actor
+/// is driven directly through its own hooks. Every protocol operation on that
+/// path therefore observes the same [`ConnectionContext`] in the documented
+/// order. The value is deliberately not `Clone` and does not wrap the context
+/// in `Arc<Mutex<_>>`: the owning path invokes hooks one at a time.
 ///
-/// This owner is the intended home for the per-connection protocol state and
-/// is consumed by the connection runtime and the connection actor. Issue #643
-/// establishes the runtime that owns it; this type keeps hook values and their
-/// context together until then.
+/// A prepared connection hands its actor [`ProtocolHooks::default`], so the
+/// actor holds no second protocol reference and the pipeline's value is the
+/// only one for that connection.
 pub(crate) struct ConnectionProtocol<F, E> {
     /// Hooks invoked for this connection.
     hooks: ProtocolHooks<F, E>,
@@ -48,13 +48,6 @@ impl<F, E> ConnectionProtocol<F, E> {
     pub(crate) const fn set_context(&mut self, context: ConnectionContext) {
         self.context = context;
     }
-
-    /// Copy the context the callbacks observe.
-    ///
-    /// The actor keeps the connection's identifier for diagnostics, so the
-    /// prepared path hands the same context to both owners instead of keeping
-    /// two independently constructed copies.
-    pub(crate) fn context(&self) -> ConnectionContext { self.context.clone() }
 
     /// Run connection setup against this connection's context.
     pub(crate) fn on_connection_setup(&mut self, handle: PushHandle<F>) {

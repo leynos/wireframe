@@ -7,10 +7,10 @@
 //!
 //! A protocol-backed value owns exactly one strong reference to the installed
 //! protocol, rather than one clone per hook. The protocol object may be shared
-//! by independent connections, so mutable per-connection state belongs in
-//! [`ConnectionContext`], not inside the protocol. The crate-private
-//! `ConnectionProtocol` pairs the hooks with the single context a connection
-//! reuses for its whole lifetime.
+//! by independent connections, so a protocol implementation must not treat its
+//! own fields as per-connection state. The crate-private `ConnectionProtocol`
+//! pairs the hooks with the single [`ConnectionContext`] a connection reuses
+//! for its whole lifetime; that context is the designated home for such state.
 
 use std::net::SocketAddr;
 

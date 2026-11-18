@@ -488,9 +488,11 @@ serialized and codec-wrapped handler-response frame, including each fragment of
 a fragmented response, immediately before the transport write. Hooks are never
 shared between connections. Because the hook may change the frame, it is
 responsible for keeping it within the codec's `max_frame_length`; growing it
-past that limit fails the send and ends the connection. The remaining protocol
-hooks stay on the `ConnectionActor` push and streaming paths; the direct
-response helpers bypass `before_send` by design.
+past that limit fails the send and ends the connection. Every protocol callback
+other than setup is dispatched by that same pipeline owner: push and streaming
+frames pass through its transport sink, and the error, terminator, and
+completion hooks follow a handler response. The direct response helpers bypass
+`before_send` by design.
 
 [#547](https://github.com/leynos/wireframe/issues/547) delivered the
 handler-response dispatch.
@@ -500,10 +502,12 @@ ownership: `ProtocolHooks` is an enum whose `Protocol` form wraps a
 behind a single `Arc` instead of the six per-operation forwarding closures the
 old representation built. A protocol-backed connection therefore holds exactly
 one strong reference, and `on_connection_setup` runs at most once per hooks
-value. The connection actor and the frame pipeline each hold a crate-private
-`ConnectionProtocol` that pairs that hooks value with the connection's single
-`ConnectionContext`; it is the only place a connection mutates hook context.
-That pairing is the input the ownership collapse under
+value. The frame pipeline holds a crate-private `ConnectionProtocol` pairing
+that hooks value with the connection's single `ConnectionContext`; it is the
+only hook owner on the prepared path, so the connection actor built there is
+handed `ProtocolHooks::None` and keeps neither a protocol reference nor a
+context of its own. An actor driven directly through `with_hooks` is the single
+owner instead. That pairing is the input the ownership collapse under
 [#648](https://github.com/leynos/wireframe/issues/648) needs: the actor and
 pipeline can be folded into one runtime without revisiting hook semantics.
 Every packet-oriented outbound path now runs `before_send` exactly once per
@@ -734,3 +738,32 @@ token and the idle grace, through `write_before_bound` in
 module-level owner of each boundary and the enqueue-time frame budget.
 
 [push-path]: ../developers-guide.md#server-push-path
+
+## Addendum: 2026-11-20 — one hook owner per connection on every prepared path
+
+Issue [#644](https://github.com/leynos/wireframe/issues/644) finishes the
+ownership collapse section 6 describes, and supersedes two bullets of the
+2026-11-16 addendum: "`handle_error` is forwarded to the actor, which invokes
+it when a driven response reports a protocol error." and "`stream_end_frame`
+and `on_command_end` run in the inbound handler once the actor has finished
+driving the response, so one response is terminated and completed exactly once
+and the actor receives neither hook." — those bullets name the dispatch site as
+it stood before this change, and the text is left unchanged.
+
+The connection's `FramePipeline` is the only hook owner for a prepared
+connection. `forward_response` dispatches the protocol error through the
+pipeline, then asks the same owner for the stream terminator and runs the
+completion hook, so every callback that follows a frame shares one context and
+one strong reference to the installed protocol. The actor built for a prepared
+connection is handed `ProtocolHooks::None` and keeps neither a protocol
+reference nor a context of its own; an actor driven directly through
+`with_hooks` owns its own value instead.
+
+`on_connection_setup` is the one callback that does not run through the
+pipeline: it runs once per connection from `build_connection_actor`, after the
+connection's `PushHandle` is published in the `SessionRegistry` and before the
+actor starts, because the push handle and registry entry come into existence
+there. The reference used for that call is not retained, so a live connection
+still holds exactly one strong protocol reference, and the connection reuses
+the single `ConnectionContext` its pipeline owns. `on_eof` remains unreached on
+the prepared path.

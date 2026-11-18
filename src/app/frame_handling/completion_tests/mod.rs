@@ -217,18 +217,17 @@ where
 {
     let codec = LengthDelimitedFrameCodec::new(1024);
     let serializer = BincodeSerializer;
-    let mut pipeline: FramePipeline<Bytes> =
-        FramePipeline::with_hooks(None, ProtocolHooks::default());
     let service = HandlerService::<Envelope>::from_service(
         7,
         StreamService {
             deferred: Arc::new(Mutex::new(Some(response))),
         },
     );
-    let protocol: Arc<dyn WireframeProtocol<Frame = Bytes, ProtocolError = ()>> =
-        Arc::new(RecordingProtocol {
-            log: Arc::clone(log),
-        });
+    let protocol: Arc<RecordingProtocol> = Arc::new(RecordingProtocol {
+        log: Arc::clone(log),
+    });
+    let mut pipeline: FramePipeline<Bytes> =
+        FramePipeline::with_hooks(None, ProtocolHooks::from_protocol(&protocol));
 
     super::forward_response(
         Envelope::new(7, Some(3), Vec::new()),
@@ -239,7 +238,6 @@ where
             pipeline: &mut pipeline,
             codec: &codec,
             actor,
-            protocol: Some(&protocol),
         },
     )
     .await

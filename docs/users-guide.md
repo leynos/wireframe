@@ -1664,17 +1664,20 @@ code that does not install a full protocol; convert it with `.into()`. See the
 outbound path: ordinary handler responses, high- and low-priority push frames,
 streamed responses, multi-packet channel frames, and stream-end terminators.
 Each connection builds its own hook value and reuses one connection-local
-`ConnectionContext` for every call, so per-connection state needs no lock or
-`Arc<Mutex<_>>`. For handler responses the hook runs after serialization and
-codec wrapping, immediately before the frame is written to the transport, and
-every fragment of a fragmented response passes through it individually. This
-gives protocol implementations one place to stamp, encrypt, or observe outbound
-packets. The hook may grow the frame, but it receives no implicit space for
-doing so: whatever it writes must keep the frame within the codec's
-`max_frame_length`. The default `LengthDelimitedFrameCodec` rejects a frame
-that exceeds that limit with an oversized-frame error, which fails the send and
-ends the connection. A custom codec defines its own behaviour for an oversized
-frame, so it must enforce `max_frame_length` itself.
+`ConnectionContext` for every call, so dispatching a hook needs no lock or
+`Arc<Mutex<_>>`. The context currently has no fields, so a protocol cannot yet
+store per-connection state there; it must not use its own fields for that,
+because every connection that installs it shares that one implementation. For
+handler responses the hook runs after serialization and codec wrapping,
+immediately before the frame is written to the transport, and every fragment of
+a fragmented response passes through it individually. This gives protocol
+implementations one place to stamp, encrypt, or observe outbound packets. The
+hook may grow the frame, but it receives no implicit space for doing so:
+whatever it writes must keep the frame within the codec's `max_frame_length`.
+The default `LengthDelimitedFrameCodec` rejects a frame that exceeds that limit
+with an oversized-frame error, which fails the send and ends the connection. A
+custom codec defines its own behaviour for an oversized frame, so it must
+enforce `max_frame_length` itself.
 
 `on_connection_setup` runs at most once per hooks value, and command end,
 stream end, error, and end-of-file callbacks keep the ordering and cardinality

@@ -122,7 +122,6 @@ where
             pipeline: &mut self.pipeline,
             codec: &self.codec,
             actor: &mut self.actor,
-            protocol: None,
         }
     }
 }

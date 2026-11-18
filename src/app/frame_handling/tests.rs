@@ -304,7 +304,6 @@ async fn response_context_holds_references(harness: TestHarness) {
         pipeline: &mut pipeline,
         codec: &codec,
         actor: &mut actor,
-        protocol: None,
     };
 
     // Verify fields are accessible (compile-time check)

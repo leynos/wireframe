@@ -35,6 +35,30 @@ pub enum ProtocolHooks<F, E> {
 }
 
 impl<F, E> From<CustomProtocolHooks<F, E>> for ProtocolHooks<F, E> {
+    /// Wrap independently registered callbacks as connection hooks.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bytes::Bytes;
+    /// use wireframe::hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks};
+    ///
+    /// let custom = CustomProtocolHooks::<Bytes, ()> {
+    ///     before_send: Some(Box::new(
+    ///         |frame: &mut Bytes, _ctx: &mut ConnectionContext| {
+    ///             let mut tagged = frame.to_vec();
+    ///             tagged.push(0xff);
+    ///             *frame = Bytes::from(tagged);
+    ///         },
+    ///     )),
+    ///     ..CustomProtocolHooks::default()
+    /// };
+    /// let mut hooks: ProtocolHooks<Bytes, ()> = custom.into();
+    ///
+    /// let mut frame = Bytes::from_static(b"payload");
+    /// hooks.before_send(&mut frame, &mut ConnectionContext::default());
+    /// assert_eq!(frame.as_ref(), b"payload\xff".as_slice());
+    /// ```
     fn from(hooks: CustomProtocolHooks<F, E>) -> Self { Self::Custom(hooks) }
 }
 
@@ -107,6 +131,35 @@ impl<F, E> ProtocolHooks<F, E> {
     /// Setup is forwarded at most once per hooks value. The remaining
     /// operations are forwarded on every call, preserving the trait's
     /// cardinality.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    ///
+    /// use bytes::Bytes;
+    /// use wireframe::hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol};
+    ///
+    /// struct Tagging;
+    ///
+    /// impl WireframeProtocol for Tagging {
+    ///     type Frame = Bytes;
+    ///     type ProtocolError = ();
+    ///
+    ///     fn before_send(&self, frame: &mut Self::Frame, _ctx: &mut ConnectionContext) {
+    ///         let mut tagged = frame.to_vec();
+    ///         tagged.push(0xff);
+    ///         *frame = Bytes::from(tagged);
+    ///     }
+    /// }
+    ///
+    /// let protocol: Arc<Tagging> = Arc::new(Tagging);
+    /// let mut hooks = ProtocolHooks::<Bytes, ()>::from_protocol(&protocol);
+    ///
+    /// let mut frame = Bytes::from_static(b"payload");
+    /// hooks.before_send(&mut frame, &mut ConnectionContext::default());
+    /// assert_eq!(frame.as_ref(), b"payload\xff".as_slice());
+    /// ```
     pub fn from_protocol<P>(protocol: &Arc<P>) -> Self
     where
         P: WireframeProtocol<Frame = F, ProtocolError = E> + ?Sized,
