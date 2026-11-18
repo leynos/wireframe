@@ -327,49 +327,5 @@ impl<F: FrameLike> SessionRegistry<F> {
 }
 
 #[cfg(test)]
-mod tests {
-    //! Unit tests for lazy dead-entry cleanup in the session registry.
-
-    use super::{ConnectionId, SessionRegistry};
-    use crate::push::PushQueues;
-
-    /// A failed lookup must also evict the dead weak entry; retaining it
-    /// grows the registry until a later `prune`, which is the observable
-    /// difference the `strong_count() == 0` guard protects.
-    #[tokio::test]
-    async fn get_evicts_dead_entry_from_registry() {
-        let registry = SessionRegistry::<u8>::default();
-        let id = ConnectionId::new(1);
-
-        let (queues, handle) = PushQueues::<u8>::builder()
-            .high_capacity(1)
-            .low_capacity(1)
-            .build()
-            .expect("failed to build PushQueues");
-        registry.insert(id, &handle);
-        drop(handle);
-        drop(queues);
-
-        assert!(registry.get(&id).is_none(), "dead handle must not upgrade");
-        assert!(
-            registry.entries.is_empty(),
-            "failed lookup must evict the dead entry rather than leave it to prune"
-        );
-    }
-
-    #[test]
-    fn connection_ids_start_at_one_and_increase() {
-        let registry = SessionRegistry::<u8>::new();
-
-        assert_eq!(registry.next_connection_id(), ConnectionId::new(1));
-        assert_eq!(registry.next_connection_id(), ConnectionId::new(2));
-        assert_eq!(registry.next_connection_id(), ConnectionId::new(3));
-    }
-
-    #[test]
-    fn default_registry_allocates_ids_from_one() {
-        let registry = SessionRegistry::<u8>::default();
-
-        assert_eq!(registry.next_connection_id(), ConnectionId::new(1));
-    }
-}
+#[path = "session_tests.rs"]
+mod tests;
