@@ -164,6 +164,19 @@ impl ConnectionStreams {
     /// Return the bytes queued for the consumer.
     pub(super) fn retained_bytes(&self) -> usize { self.queued.queued() }
 
+    /// Return the bytes of the chunk still waiting for admission, if any.
+    ///
+    /// The chunk is not charged to the account until it is admitted, so a
+    /// reader that wants the connection's whole retained total has to add it
+    /// to [`Self::retained_bytes`].
+    #[cfg(feature = "test-support")]
+    pub(super) fn pending_chunk_len(&self) -> usize {
+        self.active
+            .as_ref()
+            .and_then(|active| active.pending.as_ref())
+            .map_or(0, |pending| pending.chunk.len())
+    }
+
     /// Return whether a chunk admission is in flight.
     pub(super) fn has_pending_send(&self) -> bool {
         self.active

@@ -26,6 +26,7 @@ use wireframe::{
     app::{BudgetBytes, MemoryBudgets, StreamingHandler},
     request::{RequestBodyStream, RequestParts},
     test_helpers,
+    test_helpers::retained_bytes,
 };
 use wireframe_testing::TestResult;
 
@@ -257,6 +258,9 @@ async fn a_stalled_handler_stops_the_connection_reading_further_frames() -> Test
     send_envelope(&mut client, STREAM_ROUTE, &first).await?;
     bounded("the stalled handler starting", started.notified()).await?;
 
+    // Observe what the connection holds while the handler refuses to read.
+    retained_bytes::arm(PRESSURE_CONNECTION_BUDGET);
+
     // The sender runs in its own task so the test never cancels a partially
     // written frame: it either finishes all thirty-two megabytes quickly,
     // proving there is no back-pressure, or stays blocked until the handler is
@@ -268,6 +272,20 @@ async fn a_stalled_handler_stops_the_connection_reading_further_frames() -> Test
     // both mean the stalled handler did not hold the reader back.
     let outcome = timeout(PRESSURE_WAIT, sent_rx).await;
     assert_blocked(outcome.is_err(), &outcome);
+    let peak = retained_bytes::peak();
+    retained_bytes::disarm();
+
+    // A single chunk is admitted into an empty account whatever its size, so
+    // the bound is the aggregate budget plus the chunk waiting beside it. The
+    // total spans queued and reserved chunks, assembly and fragment bytes,
+    // parked messages, and the pending chunk itself.
+    let ceiling = PRESSURE_CONNECTION_BUDGET + BULK_CHUNK;
+    if peak == 0 || peak > ceiling {
+        return Err(format!(
+            "a stalled connection must retain at most {ceiling} bytes, recorded {peak}"
+        )
+        .into());
+    }
 
     release.notify_one();
     let joined = bounded_for(DRAIN_WAIT, "the streaming exchange finishing", exchange).await?;

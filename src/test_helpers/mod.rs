@@ -27,6 +27,7 @@ pub mod frame_codec;
 #[cfg(all(feature = "pool", not(loom)))]
 pub mod pool_client;
 
+pub mod retained_bytes;
 pub mod teardown;
 
 pub use bad_codec::{BadCodec, BadDecoder, BadEncoder, BadFrame};

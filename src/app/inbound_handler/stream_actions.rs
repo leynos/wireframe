@@ -60,6 +60,8 @@ pub(super) async fn drive_pending_admission(
     wait: Duration,
     budget: ChunkBudget,
 ) -> AdmissionStep {
+    #[cfg(feature = "test-support")]
+    observe_retained(state, budget);
     match state.streams.drive_pending(wait, budget).await {
         PendingEvent::Send(result) => state.streams.complete_send(result),
         PendingEvent::Handler(outcome) => return AdmissionStep::Handler(outcome),
@@ -68,6 +70,20 @@ pub(super) async fn drive_pending_admission(
         PendingEvent::Idle => {}
     }
     AdmissionStep::Continue
+}
+
+/// Report the bytes this connection retains while a chunk waits for admission.
+///
+/// Only a socket-level scenario needs the total, and only test builds compile
+/// the observation, so the production path stays free of it.
+#[cfg(feature = "test-support")]
+fn observe_retained(state: &LoopState, budget: ChunkBudget) {
+    let streams = &state.streams;
+    let retained = streams
+        .retained_bytes()
+        .saturating_add(budget.other_retained)
+        .saturating_add(streams.pending_chunk_len());
+    crate::test_helpers::retained_bytes::record(budget.limit, retained);
 }
 
 /// Purge expired assemblies and report the streaming bodies that must fail.
