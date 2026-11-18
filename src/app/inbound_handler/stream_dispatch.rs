@@ -43,7 +43,7 @@ use super::{
         finish_step,
     },
     stream_diagnostics,
-    stream_handles::{DispatchHandles, LoopState},
+    stream_handles::{ChunkBudget, DispatchHandles, LoopState},
     stream_observed::ObservedAction,
 };
 use crate::{
@@ -195,7 +195,12 @@ where
             // below cannot run in this step. Deciding it first keeps the drain
             // outside this borrow scope, where the reader stays reachable.
             if state.streams.has_pending_send() {
-                admission = drive_pending_admission(state, handles.wait).await;
+                // Measured here, not when the chunk was queued: bytes retained
+                // elsewhere can only be released between drives, and a stale
+                // snapshot would refuse a chunk that has since become
+                // affordable.
+                let budget = ChunkBudget::measure(&handles, &state.parked);
+                admission = drive_pending_admission(state, handles.wait, budget).await;
             }
         }
         if let AdmissionStep::Handler(outcome) = admission {

@@ -18,7 +18,7 @@ use super::{
         frame_handling::{self, Dispatch, FrameOutcome, ResponseContext},
     },
     core::{FrameBuildContext, decode_outcome},
-    stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk, LoopState},
+    stream_handles::{ChunkOffer, DispatchHandles, FirstChunk, LoopState},
     stream_parked::{self, ParkedMessage, dispatch_parked},
 };
 use crate::{
@@ -53,8 +53,6 @@ struct DecodedFrame {
     outcome: FrameOutcome,
     /// Whether a streaming body already owns the dispatch slot.
     stream_live: bool,
-    /// Byte budget for any body chunk this frame carries.
-    budget: ChunkBudget,
 }
 
 /// Decode `frame` and measure the budget its routing needs.
@@ -84,7 +82,6 @@ where
     Ok(DecodedFrame {
         outcome,
         stream_live,
-        budget: ChunkBudget::measure(handles, &state.parked),
     })
 }
 
@@ -104,7 +101,6 @@ where
     let DecodedFrame {
         outcome,
         stream_live,
-        budget,
     } = decoded;
     match outcome {
         FrameOutcome::Pending | FrameOutcome::Discarded => Ok(Dispatch::Continue),
@@ -124,7 +120,7 @@ where
                 chunk,
                 is_last,
             };
-            start_stream(state, streaming_handler, first, budget);
+            start_stream(state, streaming_handler, first);
             Ok(Dispatch::Continue)
         }
         FrameOutcome::StreamChunk {
@@ -137,7 +133,7 @@ where
                 chunk,
                 is_last,
             };
-            deliver_chunk(state, handles.assembly, offer, budget);
+            deliver_chunk(state, handles.assembly, offer);
             Ok(Dispatch::Continue)
         }
         FrameOutcome::StreamFallback { parts, body } => {
@@ -165,7 +161,6 @@ fn start_stream(
     state: &mut LoopState,
     route_handler: Option<&StreamingHandler>,
     first: FirstChunk,
-    budget: ChunkBudget,
 ) {
     let Some(handler) = route_handler else {
         warn!(
@@ -174,7 +169,7 @@ fn start_stream(
         );
         return;
     };
-    state.streams.start(first, handler, budget);
+    state.streams.start(first, handler);
 }
 
 /// Queue a continuation chunk, discarding it when the body was abandoned.
@@ -182,10 +177,9 @@ fn deliver_chunk(
     state: &mut LoopState,
     assembly: &mut Option<MessageAssemblyState>,
     offer: ChunkOffer,
-    budget: ChunkBudget,
 ) {
     let key = offer.key;
-    if state.streams.push_chunk(offer, budget) {
+    if state.streams.push_chunk(offer) {
         return;
     }
     if let Some(assembly_state) = assembly.as_mut() {

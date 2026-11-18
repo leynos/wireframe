@@ -21,7 +21,7 @@ use super::{
         frame_handling::{self, Dispatch, MemoryPressureAction},
     },
     stream_dispatch::Step,
-    stream_handles::{DispatchHandles, LoopState},
+    stream_handles::{ChunkBudget, DispatchHandles, LoopState},
     stream_parked::{dispatch_parked, parked_bytes},
     stream_slot::PendingEvent,
 };
@@ -53,8 +53,9 @@ pub(super) enum AdmissionStep {
 pub(super) async fn drive_pending_admission(
     state: &mut LoopState,
     wait: Duration,
+    budget: ChunkBudget,
 ) -> AdmissionStep {
-    match state.streams.drive_pending(wait).await {
+    match state.streams.drive_pending(wait, budget).await {
         PendingEvent::Send(result) => state.streams.complete_send(result),
         PendingEvent::Handler(outcome) => return AdmissionStep::Handler(outcome),
         // The admission stays queued; the next step re-checks expiry and the

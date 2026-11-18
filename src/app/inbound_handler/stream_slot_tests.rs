@@ -49,9 +49,22 @@ fn stalled_handler() -> StreamingHandler {
 }
 
 /// A slot whose handler and pending admission never make progress.
-#[fixture]
-fn stalled_stream() -> ActiveStream {
-    ActiveStream {
+///
+/// The body stream is returned alongside the slot: dropping it would close the
+/// channel, and a closed consumer turns the pending admission into an error
+/// instead of leaving it waiting.
+///
+/// One chunk is left unread in the channel. It charges bytes to the slot's
+/// account, so the four-byte pending chunk is refused outright rather than
+/// admitted by the empty-account exception.
+async fn stalled_stream() -> (ActiveStream, RequestBodyStream) {
+    let (sender, body) = accounted_body_channel(2, QueuedBytes::new());
+    sender
+        .clone()
+        .send_chunk(Bytes::from_static(b"unread"), 0, usize::MAX)
+        .await
+        .expect("an empty channel admits one chunk");
+    let stream = ActiveStream {
         key: None,
         assembly: None,
         route_id: 1,
@@ -59,9 +72,20 @@ fn stalled_stream() -> ActiveStream {
         sender: None,
         handler: Box::pin(future::pending()),
         pending: Some(PendingSend {
-            future: Box::pin(future::pending()),
+            sender,
+            chunk: Bytes::from_static(b"abcd"),
             is_last: false,
         }),
+    };
+    (stream, body)
+}
+
+/// A budget that cannot admit the stalled slot's four-byte chunk.
+#[fixture]
+fn blocked_budget() -> ChunkBudget {
+    ChunkBudget {
+        other_retained: 0,
+        limit: 2,
     }
 }
 
@@ -95,10 +119,11 @@ fn body_channel() -> (AccountedBodySender, RequestBodyStream) {
 #[rstest]
 #[tokio::test(start_paused = true)]
 async fn a_stalled_admission_returns_control_after_the_read_timeout(
-    mut stalled_stream: ActiveStream,
     short_wait: Duration,
+    blocked_budget: ChunkBudget,
 ) {
-    let event = stalled_stream.drive_pending(short_wait).await;
+    let (mut stream, _body) = stalled_stream().await;
+    let event = stream.drive_pending(short_wait, blocked_budget).await;
 
     assert!(
         matches!(event, PendingEvent::Idle),
@@ -108,10 +133,14 @@ async fn a_stalled_admission_returns_control_after_the_read_timeout(
 
 #[rstest]
 #[tokio::test(start_paused = true)]
-async fn a_resolved_handler_wins_over_a_stalled_admission(mut stalled_stream: ActiveStream) {
-    stalled_stream.handler = Box::pin(async { Some(Bytes::from_static(b"reply")) });
+async fn a_resolved_handler_wins_over_a_stalled_admission(blocked_budget: ChunkBudget) {
+    let (mut stream, _body) = stalled_stream().await;
+    stream.handler = Box::pin(async { Some(Bytes::from_static(b"reply")) });
 
-    match stalled_stream.drive_pending(Duration::from_secs(1)).await {
+    match stream
+        .drive_pending(Duration::from_secs(1), blocked_budget)
+        .await
+    {
         PendingEvent::Handler(outcome) => {
             assert_eq!(outcome.as_deref(), Some(b"reply".as_slice()));
         }
@@ -121,13 +150,26 @@ async fn a_resolved_handler_wins_over_a_stalled_admission(mut stalled_stream: Ac
 
 #[rstest]
 #[tokio::test(start_paused = true)]
-async fn a_completed_admission_wins_over_a_stalled_handler(mut stalled_stream: ActiveStream) {
-    stalled_stream.pending = Some(PendingSend {
-        future: Box::pin(async { Ok(()) }),
-        is_last: true,
-    });
+async fn a_completed_admission_wins_over_a_stalled_handler() {
+    let (mut stream, _body) = stalled_stream().await;
+    let pending = stream
+        .pending
+        .as_mut()
+        .expect("the fixture queues a pending admission");
+    // An empty chunk needs no bytes, so its admission settles immediately.
+    pending.chunk = Bytes::new();
+    pending.is_last = true;
 
-    match stalled_stream.drive_pending(Duration::from_secs(1)).await {
+    match stream
+        .drive_pending(
+            Duration::from_secs(1),
+            ChunkBudget {
+                other_retained: 0,
+                limit: usize::MAX,
+            },
+        )
+        .await
+    {
         PendingEvent::Send(result) => assert!(result.is_ok()),
         _ => panic!("the admission result should win over a stalled handler"),
     }
@@ -144,12 +186,11 @@ async fn a_completed_admission_wins_over_a_stalled_handler(mut stalled_stream: A
 async fn an_unaffordable_first_chunk_becomes_a_pending_admission(
     unaffordable_first_chunk: FirstChunk,
     stalled_handler: StreamingHandler,
-    tight_budget: ChunkBudget,
 ) {
     let mut streams = ConnectionStreams::new(QueuedBytes::new());
     let _held_body = retain_bytes_outside_the_slot(&streams).await;
 
-    streams.start(unaffordable_first_chunk, &stalled_handler, tight_budget);
+    streams.start(unaffordable_first_chunk, &stalled_handler);
 
     assert!(
         streams.is_live(),
@@ -170,11 +211,13 @@ async fn a_released_account_admits_the_pending_first_chunk(
 ) {
     let mut streams = ConnectionStreams::new(QueuedBytes::new());
     let held_body = retain_bytes_outside_the_slot(&streams).await;
-    streams.start(unaffordable_first_chunk, &stalled_handler, tight_budget);
+    streams.start(unaffordable_first_chunk, &stalled_handler);
 
     // The earlier body releases the bytes it was holding.
     drop(held_body);
-    let event = streams.drive_pending(Duration::from_secs(1)).await;
+    let event = streams
+        .drive_pending(Duration::from_secs(1), tight_budget)
+        .await;
     assert!(
         matches!(event, PendingEvent::Send(Ok(()))),
         "the first chunk should be admitted once the account drains"
@@ -186,6 +229,47 @@ async fn a_released_account_admits_the_pending_first_chunk(
         streams.retained_bytes(),
         b"abcd".len(),
         "the delivered chunk is charged to the connection account"
+    );
+}
+
+/// A chunk refused against a snapshot of outside bytes is admitted later.
+///
+/// The budget is measured again for every drive, so bytes released between
+/// drives are seen. A measurement kept from the moment the chunk was queued
+/// would refuse it forever, because it can only overstate what is retained
+/// elsewhere.
+#[rstest]
+#[tokio::test(start_paused = true)]
+async fn a_chunk_refused_by_outside_bytes_is_admitted_once_they_are_released(
+    unaffordable_first_chunk: FirstChunk,
+    stalled_handler: StreamingHandler,
+) {
+    let mut streams = ConnectionStreams::new(QueuedBytes::new());
+    // Four bytes are already charged to the connection account, so the
+    // empty-account exception cannot admit the chunk on its own.
+    let _held_body = retain_bytes_outside_the_slot(&streams).await;
+    streams.start(unaffordable_first_chunk, &stalled_handler);
+
+    // An assembly still holds four more, which leave no room for the chunk.
+    let crowded = ChunkBudget {
+        other_retained: 4,
+        limit: 11,
+    };
+    let refused = streams.drive_pending(Duration::from_secs(1), crowded).await;
+    assert!(
+        matches!(refused, PendingEvent::Idle),
+        "the chunk must wait while the assembly holds bytes"
+    );
+
+    // The assembly expires, so the same chunk now fits.
+    let freed = ChunkBudget {
+        other_retained: 0,
+        limit: 11,
+    };
+    let admitted = streams.drive_pending(Duration::from_secs(1), freed).await;
+    assert!(
+        matches!(admitted, PendingEvent::Send(Ok(()))),
+        "the released bytes must let the queued chunk in"
     );
 }
 

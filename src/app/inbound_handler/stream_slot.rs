@@ -9,7 +9,7 @@
 use std::{io, pin::Pin, time::Duration};
 
 use bytes::Bytes;
-use futures::{Future, Sink};
+use futures::Sink;
 use tokio::time::timeout;
 use tracing::debug;
 
@@ -75,9 +75,17 @@ pub(super) struct ActiveStream {
 }
 
 /// One chunk waiting for byte admission and channel capacity.
+///
+/// The chunk is kept rather than a future that admitted it, because admission
+/// is re-decided on every drive: the bytes retained outside the queue can only
+/// shrink while a chunk waits, and a chunk refused against a stale, larger
+/// total would be affordable moments later. Re-reserving is safe, because a
+/// cancelled attempt releases whatever it had reserved.
 pub(super) struct PendingSend {
-    /// Admission future; dropping it cancels the send safely.
-    future: Pin<Box<dyn Future<Output = Result<(), SendChunkError>> + Send + 'static>>,
+    /// Sender the chunk is admitted to.
+    sender: AccountedBodySender,
+    /// The chunk still waiting for admission.
+    chunk: Bytes,
     /// Whether this chunk also completes the message.
     is_last: bool,
 }
@@ -90,7 +98,11 @@ impl ActiveStream {
     /// admission is queued, because a continuation for the same message would
     /// be mistaken for an abandoned body, so the timeout is what keeps assembly
     /// expiry and the memory budget observable instead.
-    pub(super) async fn drive_pending(&mut self, wait: Duration) -> PendingEvent {
+    pub(super) async fn drive_pending(
+        &mut self,
+        wait: Duration,
+        budget: ChunkBudget,
+    ) -> PendingEvent {
         let Self {
             pending, handler, ..
         } = self;
@@ -98,9 +110,17 @@ impl ActiveStream {
             // The caller only drives this branch when a send is pending.
             return PendingEvent::Send(Ok(()));
         };
+        // Rebuilt from the current budget on every drive. The measurement taken
+        // when the chunk was queued can only overstate what is retained
+        // elsewhere, and overstating it refuses a chunk that has since become
+        // affordable; the queued chunk itself is preserved across attempts.
+        let admission =
+            send.sender
+                .clone()
+                .send_chunk(send.chunk.clone(), budget.other_retained, budget.limit);
         let exchange = async {
             tokio::select! {
-                result = &mut send.future => PendingEvent::Send(result),
+                result = admission => PendingEvent::Send(result),
                 outcome = handler.as_mut() => PendingEvent::Handler(outcome),
             }
         };
@@ -152,9 +172,13 @@ impl ConnectionStreams {
     }
 
     /// Drive the in-flight chunk admission on the live exchange.
-    pub(super) async fn drive_pending(&mut self, wait: Duration) -> PendingEvent {
+    pub(super) async fn drive_pending(
+        &mut self,
+        wait: Duration,
+        budget: ChunkBudget,
+    ) -> PendingEvent {
         match self.active.as_mut() {
-            Some(active) => active.drive_pending(wait).await,
+            Some(active) => active.drive_pending(wait, budget).await,
             None => PendingEvent::Send(Ok(())),
         }
     }
@@ -171,12 +195,7 @@ impl ConnectionStreams {
     /// it drives every continuation chunk.
     ///
     /// A closed consumer simply leaves the handler to observe an empty body.
-    pub(super) fn start(
-        &mut self,
-        first: FirstChunk,
-        handler: &StreamingHandler,
-        budget: ChunkBudget,
-    ) {
+    pub(super) fn start(&mut self, first: FirstChunk, handler: &StreamingHandler) {
         let FirstChunk {
             key,
             assembly,
@@ -189,12 +208,9 @@ impl ConnectionStreams {
         let (sender, body) =
             accounted_body_channel(DEFAULT_BODY_CHANNEL_CAPACITY, self.queued.clone());
         let handler_future = handler(parts, body);
-        let admission = sender
-            .clone()
-            .send_chunk(chunk, budget.other_retained, budget.limit);
         // The final chunk still has to reach the handler, so the admission owns
         // its own sender clone until the loop records the result.
-        let live_sender = (!is_last).then_some(sender);
+        let live_sender = (!is_last).then(|| sender.clone());
         self.active = Some(ActiveStream {
             key,
             assembly,
@@ -203,14 +219,19 @@ impl ConnectionStreams {
             sender: live_sender,
             handler: handler_future,
             pending: Some(PendingSend {
-                future: Box::pin(admission),
+                sender,
+                chunk,
                 is_last,
             }),
         });
     }
 
     /// Queue one continuation chunk without reading further frames.
-    pub(super) fn push_chunk(&mut self, offer: ChunkOffer, budget: ChunkBudget) -> bool {
+    ///
+    /// The chunk is stored unadmitted: it is admitted against a fresh budget
+    /// each time the loop drives it, so bytes released while it waits are
+    /// observed.
+    pub(super) fn push_chunk(&mut self, offer: ChunkOffer) -> bool {
         let Some(active) = self.active.as_mut() else {
             return false;
         };
@@ -222,11 +243,8 @@ impl ConnectionStreams {
         };
         let ChunkOffer { chunk, is_last, .. } = offer;
         active.pending = Some(PendingSend {
-            future: Box::pin(async move {
-                sender
-                    .send_chunk(chunk, budget.other_retained, budget.limit)
-                    .await
-            }),
+            sender,
+            chunk,
             is_last,
         });
         true
