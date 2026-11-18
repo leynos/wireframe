@@ -35,12 +35,25 @@ type OnEofHook = Box<dyn FnMut(&EofError, &[u8], &mut ConnectionContext) + Send 
 /// A value that previously used a structural `ProtocolHooks { .. }` literal is
 /// now a [`CustomProtocolHooks`] literal with the same six fields:
 ///
-/// ```text
+/// ```
+/// use bytes::Bytes;
+/// use wireframe::hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks};
+///
 /// let hooks = CustomProtocolHooks {
-///     before_send: Some(Box::new(|frame: &mut Bytes, _ctx| { /* ... */ })),
+///     before_send: Some(Box::new(
+///         |frame: &mut Bytes, _ctx: &mut ConnectionContext| {
+///             let mut tagged = frame.to_vec();
+///             tagged.push(0xff);
+///             *frame = Bytes::from(tagged);
+///         },
+///     )),
 ///     ..CustomProtocolHooks::default()
 /// };
-/// let hooks: ProtocolHooks<Bytes, ()> = hooks.into();
+/// let mut hooks: ProtocolHooks<Bytes, ()> = hooks.into();
+///
+/// let mut frame = Bytes::from_static(b"payload");
+/// hooks.before_send(&mut frame, &mut ConnectionContext::default());
+/// assert_eq!(frame.as_ref(), b"payload\xff".as_slice());
 /// ```
 pub struct CustomProtocolHooks<F, E> {
     /// Invoked when a connection is established.

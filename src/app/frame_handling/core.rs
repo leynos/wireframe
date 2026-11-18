@@ -1,6 +1,6 @@
 //! Core frame handling context types.
 
-use std::{io, sync::Arc};
+use std::io;
 
 use futures::Sink;
 use log::warn;
@@ -9,7 +9,6 @@ use crate::{
     app::{Envelope, codec_driver::FramePipeline},
     codec::FrameCodec,
     connection::ConnectionActor,
-    hooks::WireframeProtocol,
     serializer::Serializer,
 };
 
@@ -70,7 +69,4 @@ where
     /// Pushes are already encoded for the wire, so the actor's push frame type
     /// is the codec frame rather than the application [`Envelope`].
     pub(crate) actor: &'a mut ConnectionActor<Envelope, (), F::Frame>,
-    /// Protocol whose terminator and completion hooks follow the response.
-    pub(crate) protocol:
-        Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
 }

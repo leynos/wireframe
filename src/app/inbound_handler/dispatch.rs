@@ -22,7 +22,6 @@ use crate::{
     codec::FrameCodec,
     connection::ConnectionActor,
     frame::FrameMetadata,
-    hooks::WireframeProtocol,
     message::{DecodeWith, DeserializeContext, EncodeWith},
     message_assembler::{MessageAssembler, MessageAssemblyState},
     middleware::HandlerService,
@@ -56,9 +55,6 @@ where
     pub(super) message_assembly: &'a mut Option<MessageAssemblyState>,
     /// Actor that schedules and delivers handler responses and pushes.
     pub(super) actor: &'a mut ConnectionActor<Envelope, (), F::Frame>,
-    /// Protocol whose terminator and completion hooks follow a response.
-    pub(super) protocol:
-        Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
 }
 
 /// State needed to turn a raw frame into a dispatchable envelope.
@@ -98,7 +94,6 @@ where
         message_assembly,
         pipeline,
         actor,
-        protocol,
     } = context;
 
     crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
@@ -126,7 +121,6 @@ where
                 pipeline,
                 codec,
                 actor,
-                protocol,
             },
         )
         .await

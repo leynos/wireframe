@@ -72,6 +72,7 @@ mod finalizer;
 #[cfg(test)]
 #[path = "finalizer_properties.rs"]
 mod finalizer_properties;
+
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
@@ -105,13 +106,13 @@ use super::{
 use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
-    hooks::{ProtocolHooks, WireframeProtocol},
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
     push::PushQueuesBuilder,
     serializer::Serializer,
     session::SessionRegistry,
+    hooks::{ProtocolHooks, WireframeProtocol},
 };
 
 /// Immutable configuration borrowed by one connection's runtime.
@@ -136,7 +137,10 @@ where
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks built for this connection from the installed protocol.
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
-    /// Protocol whose response hooks drive the connection actor.
+    /// Installed protocol, used only to dispatch `on_connection_setup`.
+    ///
+    /// The runtime releases this reference once setup has run, so the
+    /// connection's pipeline remains its single strong protocol owner.
     pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,

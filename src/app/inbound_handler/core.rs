@@ -89,7 +89,13 @@ where
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks applied to every outbound frame on this connection.
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
-    /// Protocol whose response hooks drive the connection actor.
+    /// Installed protocol, used only to dispatch `on_connection_setup`.
+    ///
+    /// Setup has to run at the connection boundary, before the actor starts,
+    /// because that is where the push handle and registry entry come into
+    /// existence. Every other callback runs through the pipeline's hook owner,
+    /// so this reference is dropped once setup has run: the connection keeps
+    /// exactly one strong protocol reference for its lifetime.
     pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
@@ -129,8 +135,6 @@ where
     routes: &'a HashMap<u32, HandlerService<E>>,
     /// Optional assembler consulted while handling frames.
     message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
-    /// Protocol whose response and terminator hooks follow each response.
-    protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Byte budgets enforced while reading.
     budgets: MemoryBudgets,
     /// Maximum interval to wait for the next inbound frame.
@@ -224,7 +228,6 @@ where
             serializer,
             routes,
             message_assembler,
-            protocol,
             budgets,
             read_timeout_ms,
             shutdown: read_shutdown,
@@ -314,7 +317,6 @@ where
                 message_assembly: &mut self.inbound.message_assembly,
                 pipeline: &mut self.inbound.pipeline,
                 actor: &mut self.response_actor.actor,
-                protocol: self.protocol.as_ref(),
             },
         );
         handle_watching_peer(

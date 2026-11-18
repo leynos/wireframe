@@ -26,12 +26,12 @@ use std::{
 use tracing_subscriber::fmt::format::FmtSpan;
 
 use super::terminator_tests::{
+    BeforeSendProbe,
     CompletionProbe,
     TaggedFrame,
     forward_finished_stream,
     forward_finished_stream_with,
 };
-use crate::hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks};
 
 /// Keep the process-wide callsite interest cache permissive.
 ///
@@ -123,7 +123,7 @@ async fn a_completed_stream_records_its_outcome_on_the_delivery_span() {
     let captured = CapturedOutput::default();
     let _capture = capture_spans(&captured);
 
-    let frames = forward_finished_stream(ProtocolHooks::default())
+    let frames = forward_finished_stream()
         .await
         .expect("the finished stream must be forwarded");
 
@@ -195,17 +195,11 @@ impl SpanObservations {
     }
 }
 
-/// Hooks that record the span in force when `before_send` runs.
-fn span_probing_hooks(observations: SpanObservations) -> ProtocolHooks<TaggedFrame, ()> {
-    CustomProtocolHooks {
-        before_send: Some(Box::new(
-            move |_frame: &mut TaggedFrame, _ctx: &mut ConnectionContext| {
-                observations.record_before_send(current_span_name());
-            },
-        )),
-        ..CustomProtocolHooks::default()
-    }
-    .into()
+/// Probe that records the span in force when `before_send` runs.
+fn span_probing_before_send(observations: SpanObservations) -> BeforeSendProbe {
+    Arc::new(move |_frame: &mut TaggedFrame| {
+        observations.record_before_send(current_span_name());
+    })
 }
 
 /// Completion probe that records the span in force when the hook runs.
@@ -226,8 +220,8 @@ async fn the_delivery_span_covers_the_terminator_and_completion_hook() {
 
     let observations = SpanObservations::default();
     let frames = forward_finished_stream_with(
-        span_probing_hooks(observations.clone()),
         Some(span_probing_completion(observations.clone())),
+        Some(span_probing_before_send(observations.clone())),
     )
     .await
     .expect("the finished stream must be forwarded");

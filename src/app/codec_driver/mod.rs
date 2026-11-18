@@ -104,6 +104,13 @@ impl<T> FramePipeline<T> {
     /// Run the configured `before_send` hook for one outbound frame.
     pub(crate) fn before_send_frame(&mut self, frame: &mut T) { self.protocol.before_send(frame); }
 
+    /// Run the protocol's error hook against this connection's context.
+    ///
+    /// The prepared connection dispatches a protocol error here rather than
+    /// through the response actor, so the connection keeps one hook owner and
+    /// one context for every protocol callback.
+    pub(crate) fn handle_error(&mut self) { self.protocol.handle_error(()); }
+
     /// Replace the per-connection context passed to protocol hooks.
     ///
     /// The context is decided when the server publishes the connection, after
@@ -114,12 +121,11 @@ impl<T> FramePipeline<T> {
         self.protocol.set_context(context);
     }
 
-    /// Copy the per-connection context used for protocol hooks.
-    ///
-    /// The connection actor keeps the same context for its diagnostics, so a
-    /// protocol observes one connection identity across all of its callbacks
-    /// for the connection's lifetime.
-    pub(crate) fn context(&self) -> ConnectionContext { self.protocol.context() }
+    /// Ask the protocol for the end-of-stream frame for this connection.
+    pub(crate) fn stream_end_frame(&mut self) -> Option<T> { self.protocol.stream_end_frame() }
+
+    /// Run the protocol's completion hook against this connection's context.
+    pub(crate) fn on_command_end(&mut self) { self.protocol.on_command_end(); }
 
     /// Process an envelope through the pipeline: fragment → metrics.
     ///

@@ -247,7 +247,7 @@ async fn repeated_explicit_setup_runs_once_per_hooks_value() -> TestResult<()> {
         "the hooks value owns exactly one reference"
     );
     let (_queues, handle) = queues()?;
-    let mut context = ConnectionContext;
+    let mut context = ConnectionContext::default();
 
     hooks.on_connection_setup(handle.clone(), &mut context);
     hooks.on_connection_setup(handle, &mut context);
@@ -287,7 +287,7 @@ async fn custom_setup_callback_runs_once_per_hooks_value() -> TestResult<()> {
     }
     .into();
     let (_queues, handle) = queues()?;
-    let mut context = ConnectionContext;
+    let mut context = ConnectionContext::default();
 
     hooks.on_connection_setup(handle.clone(), &mut context);
     hooks.on_connection_setup(handle, &mut context);
@@ -304,7 +304,7 @@ async fn custom_setup_callback_runs_once_per_hooks_value() -> TestResult<()> {
 fn explicit_eof_records_clean_and_partial_events() {
     let fixture = RecordingProtocolFixture::<Vec<u8>>::new(None);
     let mut hooks = ProtocolHooks::from_protocol(&fixture.shared());
-    let mut context = ConnectionContext;
+    let mut context = ConnectionContext::default();
 
     hooks.on_eof(&EofError::CleanClose, &[], &mut context);
     hooks.on_eof(

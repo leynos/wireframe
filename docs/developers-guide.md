@@ -436,8 +436,17 @@ codec-wrapped frame after serialization and `wrap_payload`, immediately before
 
 `FramePipeline` and `ConnectionActor` each hold a crate-private
 `ConnectionProtocol`, which pairs one `ProtocolHooks` value with one
-`ConnectionContext`. A connection constructs both once and reuses that context
-for its lifetime, so per-connection state needs no `Arc<Mutex<_>>`. A
+`ConnectionContext`. On the prepared server path the pipeline's value is the
+connection's only hook owner: it carries the installed protocol and the
+context, and it dispatches every callback, including the protocol error and the
+completion hook that follow a response. The actor built for that path holds a
+`ProtocolHooks::None` value instead, so it never keeps a second protocol
+reference or a second context. When a caller drives a `ConnectionActor`
+directly with `with_hooks`, the actor's own value is the single owner. Either
+way the owner is built once and its context reused for the connection's
+lifetime, so dispatching needs no `Arc<Mutex<_>>`; the context carries the
+connection identifier and peer address and remains the designated place for
+connection-local state. A
 `ProtocolHooks::Protocol` value owns exactly one strong reference to the
 installed protocol and dispatches every callback through it; the enum's
 `Custom` form holds handwritten callbacks instead. State held by a shared
@@ -463,14 +472,15 @@ fragmentation, outbound metrics, serialization, `wrap_payload`, and
 receives no fragmenter and no `before_send` hook, so application frames are
 never serialized or hooked twice.
 
-Only `handle_error` is forwarded from the protocol to that actor: the actor
-registers no completion or terminator hook, and `before_send` stays with the
-pipeline. The prepared path invokes `on_connection_setup` once, with the
-connection's `PushHandle`, after the registry entry is published and before the
-actor starts, so setup can address its own connection or any other live one. The
-`on_eof` callback remains unreached there. The application-level connection
-setup and teardown callbacks registered on `WireframeApp` are separate hooks.
-Without a protocol the actor uses default, no-op hooks.
+The prepared actor receives no protocol hooks at all. Its value is
+`ProtocolHooks::None`, so the error hook, the stream terminator, and the
+completion hook all run through the pipeline's single owner as part of
+`forward_response`; no callback is dispatched twice. The prepared path invokes
+`on_connection_setup` once, with the connection's `PushHandle`, after the
+registry entry is published and before the actor starts, so setup can address
+its own connection or any other live one. The `on_eof` callback remains
+unreached there. The application-level connection setup and teardown callbacks
+registered on `WireframeApp` are separate hooks.
 
 `forward_response` owns the rest of the command lifecycle. Once the actor
 reports a completed `Stream` or `MultiPacket` response, it calls

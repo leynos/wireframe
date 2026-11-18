@@ -11,7 +11,7 @@
 #[path = "common/recording_protocol.rs"]
 mod recording_protocol;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, Weak};
 
 use bytes::Bytes;
 use recording_protocol::{
@@ -24,12 +24,13 @@ use recording_protocol::{
 use rstest::rstest;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
-    app::Envelope,
+    app::{Envelope, Handler},
     connection::{ConnectionActor, ConnectionChannels},
-    hooks::ProtocolHooks,
+    hooks::{ProtocolHooks, WireframeProtocol},
     push::PushQueues,
+    serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::TestResult;
+use wireframe_testing::{TestResult, drive_prepared_with_frames, encode_frame};
 
 /// Application type using the default length-delimited codec (`Bytes` frames).
 type ResponseApp =
@@ -47,6 +48,104 @@ fn actor_holding(hooks: ProtocolHooks<Vec<u8>, ()>) -> TestResult<ConnectionActo
         CancellationToken::new(),
         hooks,
     ))
+}
+
+/// Encode one request envelope into a length-delimited frame.
+fn request_frame(id: u32) -> TestResult<Vec<u8>> {
+    let payload = BincodeSerializer.serialize(&Envelope::new(id, Some(7), Vec::new()))?;
+    let mut codec = tokio_util::codec::LengthDelimitedCodec::builder()
+        .max_frame_length(1024)
+        .new_codec();
+    Ok(encode_frame(&mut codec, payload)?)
+}
+
+/// Type of the protocol reference a connection installs.
+type InstalledProtocol = Arc<dyn WireframeProtocol<Frame = Bytes, ProtocolError = ()>>;
+
+/// Published view of the installed protocol the handler observes.
+type ProbeSlot = Arc<Mutex<Option<Weak<dyn WireframeProtocol<Frame = Bytes, ProtocolError = ()>>>>>;
+
+/// Slot the test publishes the probe into once preparation has run.
+type CountLog = Arc<Mutex<Vec<usize>>>;
+
+/// Handler that records the protocol's strong count while the connection runs.
+///
+/// The handler executes inside the live connection, so a count read here sees
+/// the connection's own reference. A weak handle keeps the handler from
+/// changing the count it reports.
+fn counting_handler(probe: ProbeSlot, counts: CountLog) -> Handler<Envelope> {
+    Arc::new(move |_env: &Envelope| {
+        if let Some(weak) = probe.lock().expect("probe slot").as_ref() {
+            counts.lock().expect("count log").push(weak.strong_count());
+        }
+        Box::pin(async {})
+    })
+}
+
+/// A prepared connection holds exactly one strong protocol reference.
+///
+/// The prepared template owns one, the live connection adds exactly one while
+/// it serves a request, and teardown returns the count to the template's.
+#[rstest]
+#[tokio::test]
+async fn prepared_connection_holds_exactly_one_protocol_reference() -> TestResult<()> {
+    let fixture = RecordingProtocolFixture::<Bytes>::new(None);
+    let probe_slot: ProbeSlot = Arc::default();
+    let counts: CountLog = Arc::default();
+    let app = ResponseApp::new()?
+        .route(
+            1,
+            counting_handler(Arc::clone(&probe_slot), Arc::clone(&counts)),
+        )?
+        .with_protocol(fixture.protocol());
+    let prepared = app
+        .prepare()
+        .await
+        .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
+
+    let probe: InstalledProtocol = prepared.protocol().expect("protocol should be installed");
+    let weak = Arc::downgrade(&probe);
+    assert_eq!(
+        Arc::strong_count(&probe),
+        2,
+        "the prepared template holds one reference and the accessor returned its clone"
+    );
+    *probe_slot.lock().expect("probe slot") = Some(Arc::downgrade(&probe));
+
+    drive_prepared_with_frames(&prepared, vec![request_frame(1)?]).await?;
+
+    assert_eq!(
+        *counts.lock().expect("count log"),
+        vec![3],
+        "the live connection added exactly one reference to the template's"
+    );
+    assert_eq!(
+        Arc::strong_count(&probe),
+        2,
+        "the finished connection released its single reference"
+    );
+    assert!(
+        fixture
+            .events()
+            .iter()
+            .any(|event| matches!(event, HookEvent::CommandEnd)),
+        "the connection's own hook owner ran the completion hook: {:?}",
+        fixture.events()
+    );
+
+    drop(probe);
+    assert!(
+        is_alive(&weak),
+        "the prepared template still owns the protocol"
+    );
+    drop(prepared);
+    assert!(!is_alive(&weak), "preparing released no other reference");
+    assert_eq!(
+        fixture.drops(),
+        1,
+        "exactly one installed protocol instance was dropped"
+    );
+    Ok(())
 }
 
 #[rstest]
