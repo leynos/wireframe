@@ -67,6 +67,7 @@ pub(super) fn apply(builder: SnapshotBuilder, mutation: Mutation) -> SnapshotBui
         Mutation::FixtureDeclarationWrongTarget => fixture_declaration_wrong_target(builder),
         Mutation::PrivateFixture => builder.with_file(FIXTURE_REGISTRY, "mod example;\n"),
         Mutation::OrphanScenario => orphan_scenario(builder),
+        Mutation::RegisteredOrphanScenario => registered_orphan_scenario(builder),
         Mutation::PublicFixtureWithoutFeature => public_fixture_without_feature(builder),
         Mutation::UnresolvablePath => builder.with_file(
             SCENARIO_REGISTRY,
@@ -175,6 +176,19 @@ fn orphan_scenario(builder: SnapshotBuilder) -> SnapshotBuilder {
         "tests/scenarios/orphan_scenarios.rs",
         "//! Orphan scenario module.\n",
     )
+}
+
+/// Register a scenario module that has no matching feature.
+fn registered_orphan_scenario(builder: SnapshotBuilder) -> SnapshotBuilder {
+    builder
+        .with_file(
+            SCENARIO_REGISTRY,
+            "mod example_scenarios;\nmod orphan_scenarios;\n",
+        )
+        .with_file(
+            "tests/scenarios/orphan_scenarios.rs",
+            "//! Orphan scenario module.\n",
+        )
 }
 
 /// Register a public fixture module that has no matching feature.

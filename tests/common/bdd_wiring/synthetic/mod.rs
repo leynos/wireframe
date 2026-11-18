@@ -233,6 +233,8 @@ pub(crate) enum Mutation {
     PrivateFixture,
     /// A scenario file has no matching feature.
     OrphanScenario,
+    /// A registered scenario module has no matching feature.
+    RegisteredOrphanScenario,
     /// A public fixture module has no matching feature.
     PublicFixtureWithoutFeature,
     /// A `#[path]` declaration resolves to a missing file.

@@ -2,8 +2,8 @@
 //!
 //! The live test runs the checker against this repository so drift in
 //! `tests/features`, `tests/scenarios`, or `tests/fixtures` fails `make test`.
-//! The synthetic cases prove each rule reports its violation instead of
-//! passing vacuously.
+//! Each mutation case breaks one documented rule and asserts the violation
+//! that rule must produce, so the rule cannot silently stop firing.
 
 #![forbid(unsafe_code)]
 
@@ -297,6 +297,11 @@ fn rule_grouped_scenario_is_bound() -> TestResult {
     Mutation::PrivateFixture,
     "tests/fixtures/example.rs",
     "must be declared `pub`"
+)]
+#[case::registered_orphan_scenario(
+    Mutation::RegisteredOrphanScenario,
+    "tests/scenarios/orphan_scenarios.rs",
+    "registered scenario module `orphan_scenarios` has no matching feature"
 )]
 fn synthetic_violations_are_reported(
     #[case] mutation: Mutation,
