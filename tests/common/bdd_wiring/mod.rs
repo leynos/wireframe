@@ -11,6 +11,7 @@ mod check;
 mod features;
 mod harness;
 mod orphans;
+mod path_properties;
 mod snapshot;
 mod syntax;
 mod synthetic;

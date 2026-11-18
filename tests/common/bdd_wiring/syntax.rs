@@ -89,7 +89,12 @@ fn literal_path(expression: &syn::Expr) -> Option<Utf8PathBuf> {
 }
 
 /// Resolve the file a module declaration targets.
-fn resolve_target(
+///
+/// Exposed to the crate so the property tests can exercise the resolution
+/// rules directly with generated declaring files and `#[path]` values; the
+/// wiring evaluation itself reaches this function through
+/// [`module_declarations`].
+pub(crate) fn resolve_target(
     snapshot: &RepoSnapshot,
     declaring_file: &Utf8Path,
     name: &str,
