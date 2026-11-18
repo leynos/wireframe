@@ -759,22 +759,24 @@ configured. Pass a `dlq` sender to `PushQueues::builder()` inside
 `with_push_queues` instead, so dropped frames arrive as codec frames.
 
 `SessionRegistry` now allocates connection identifiers with
-`next_connection_id`, whose values start at `1` and are never reused. A server
-connection inserts its handle before its setup callback runs and removes it
-when the connection task ends, so an application that shares a registry no
+`allocate_connection_id`, whose values start at `1` and are never reused. A
+server connection inserts its handle before its setup callback runs and removes
+it when the connection task ends, so an application that shares a registry no
 longer inserts or removes entries itself.
 
 If an application does keep inserting entries by hand, as earlier releases
 required, those identifiers must not overlap the ones the registry allocates.
 `insert` replaces any existing entry for the same identifier, and
-`next_connection_id` does not skip identifiers already present, so a manual
+`allocate_connection_id` does not skip identifiers already present, so a manual
 entry whose identifier a server connection later receives is replaced by that
 connection's handle: pushes addressed to the old identifier then reach the
 server connection instead.
 
 A clean peer close attempts to drain frames still queued, high priority first,
-though a write that fails or is abandoned drops the frames behind it; server
-shutdown closes the lanes immediately and later pushes fail with
-`PushError::Closed`. See the
+though a write that fails or is abandoned drops the frames behind it. On server
+shutdown a running handler keeps its push lanes open until it has delivered its
+first push batch, so a push accepted before then is queued and written; after
+that batch, shutdown discards the queued frames and closes the lanes, and later
+pushes fail with `PushError::Closed`. See the
 [users' guide](users-guide.md#server-connections-and-push-queues) and
 [ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md).

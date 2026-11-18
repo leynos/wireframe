@@ -360,8 +360,8 @@ every accepted connection:
 
 - a connection blocked writing to a peer that stopped reading abandons the
   pending write instead of pinning its task;
-- a frame still waiting in a connection's push queues at that moment is
-  dropped rather than flushed;
+- a queued frame that the peer can accept at that moment is still flushed;
+  a frame whose queue collection or write is still pending is dropped;
 - `drained()` still proves every connection task has returned, because the
   tracker drain is unchanged.
 

@@ -2772,14 +2772,17 @@ Two kinds of end of connection behave differently:
   bounded, so a write that fails, that is still blocked when the server stops,
   or that an unobservable peer accepts nothing for during the 30-second grace
   ends the drain and the frames still queued behind it are not sent.
-- On server shutdown the lanes are closed immediately, and a push attempted
-  after that fails with `PushError::Closed`. Shutdown does not wait to flush
-  what is still buffered: a write that would block is abandoned rather than
-  awaited, so the server drain never blocks on a peer that has stopped reading.
-  A write the transport still accepts completes, and only then is the stop
-  observed, so a frame that was queued but not yet written at that point is not
-  guaranteed to arrive. This bound is why accepted connections observe the
-  server stop token;
+- On server shutdown the connection does not wait to flush what is still
+  buffered: a write that would block is abandoned rather than awaited, so the
+  server drain never blocks on a peer that has stopped reading. A handler run
+  that has not yet delivered a push batch is the exception: shutdown does not
+  close its lanes from inside the run, so a push accepted then is queued and
+  written with the response; once that run has delivered a batch, shutdown
+  discards the queued frames and closes the lanes, and a push attempted after
+  that fails with `PushError::Closed`. A write the transport still accepts
+  completes, and only then is the stop observed, so a frame that was queued but
+  not yet written at that point is not guaranteed to arrive. This bound is why
+  accepted connections observe the server stop token;
   [ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md)
   records the decision and its addendum.
 
@@ -2864,13 +2867,13 @@ entries, or return live handle/identifier pairs for background tasks that need
 to enumerate active sessions.[^40]
 
 The registry also allocates connection identifiers through
-`next_connection_id`: the first is `1`, later ones increase monotonically, and
-a value the registry allocated is never reused after a closed connection frees
-it, so an identifier obtained that way cannot address a new session. The
+`allocate_connection_id`: the first is `1`, later ones increase monotonically,
+and a value the registry allocated is never reused after a closed connection
+frees it, so an identifier obtained that way cannot address a new session. The
 guarantee covers allocated identifiers only: `insert` accepts any identifier,
 and one inserted by hand can later be allocated to a server connection, so
 pushes addressed to it reach that connection. Server connections call
-`next_connection_id` themselves, then register their handle before their
+`allocate_connection_id` themselves, then register their handle before their
 protocol setup callback runs and deregister when the connection task ends. See
 [Server connections and push queues](#server-connections-and-push-queues) for
 the application-side configuration.

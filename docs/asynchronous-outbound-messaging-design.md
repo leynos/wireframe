@@ -596,7 +596,7 @@ so pruning while collecting may contend more than the previous post-collection
 `remove_if` sweep. Maintenance tasks may instead invoke `prune()` to avoid this
 contention.
 
-The registry also owns identifier allocation. `next_connection_id` hands out
+The registry also owns identifier allocation. `allocate_connection_id` hands out
 `1` first and then increases monotonically, so an identifier freed by a closed
 connection is never reused. A server connection allocates its identifier,
 inserts its handle, and only then runs the protocol setup callback; a guard
