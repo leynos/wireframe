@@ -178,7 +178,7 @@ where
         let connection_shutdown = shutdown.child_token();
         let read_shutdown = connection_shutdown.clone();
         let peer_eof = CancellationToken::new();
-        let connection_id = session_registry.next_connection_id();
+        let connection_id = session_registry.allocate_connection_id();
         let connection_context =
             ConnectionContext::with_connection_id(Some(connection_id)).with_peer_addr(peer_addr);
         // The sink-owned pipeline runs `before_send` too, so it must know

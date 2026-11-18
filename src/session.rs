@@ -75,7 +75,7 @@ impl<F> Default for SessionRegistry<F> {
 impl<F> SessionRegistry<F> {
     /// Create an empty registry.
     ///
-    /// The first identifier allocated by [`Self::next_connection_id`] is `1`.
+    /// The first identifier allocated by [`Self::allocate_connection_id`] is `1`.
     ///
     /// # Examples
     ///
@@ -83,7 +83,7 @@ impl<F> SessionRegistry<F> {
     /// use wireframe::session::{ConnectionId, SessionRegistry};
     ///
     /// let registry = SessionRegistry::<u8>::new();
-    /// assert_eq!(registry.next_connection_id(), ConnectionId::new(1));
+    /// assert_eq!(registry.allocate_connection_id(), ConnectionId::new(1));
     /// ```
     #[must_use]
     pub fn new() -> Self {
@@ -106,7 +106,7 @@ impl<F> SessionRegistry<F> {
     /// reports an unrecoverable configuration error rather than wrapping and
     /// handing out a duplicate.
     #[must_use]
-    pub fn next_connection_id(&self) -> ConnectionId {
+    pub fn allocate_connection_id(&self) -> ConnectionId {
         let updated = self
             .next_id
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
@@ -170,7 +170,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// An existing entry for the same identifier is replaced. A server
     /// connection inserts its own handle under an identifier from
-    /// [`next_connection_id`](Self::next_connection_id), which does not skip
+    /// [`allocate_connection_id`](Self::allocate_connection_id), which does not skip
     /// identifiers already present, so an application that still inserts
     /// entries manually must not reuse identifiers the registry allocates:
     /// its entry would be replaced and pushes to that identifier would reach

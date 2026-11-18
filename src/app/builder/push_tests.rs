@@ -34,7 +34,7 @@ fn default_session_registry_allocates_identifiers() {
     let app: WireframeApp = WireframeApp::new().expect("builder should initialize");
 
     assert_eq!(
-        app.session_registry().next_connection_id(),
+        app.session_registry().allocate_connection_id(),
         ConnectionId::new(1),
         "a fresh registry should start at one"
     );
