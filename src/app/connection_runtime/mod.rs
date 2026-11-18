@@ -88,9 +88,7 @@ mod diagnostics_tests;
 #[path = "dispatch_tests.rs"]
 mod dispatch_tests;
 
-use std::{
-    collections::HashMap, io, net::SocketAddr, panic::AssertUnwindSafe, sync::Arc,
-};
+use std::{collections::HashMap, io, net::SocketAddr, panic::AssertUnwindSafe, sync::Arc};
 
 use finalizer::{ConnectionFinalizer, FinalizationOutcome};
 use futures::FutureExt;
