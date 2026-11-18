@@ -65,9 +65,11 @@ pub(crate) enum StreamingBodyOutcome {
 impl StreamingBodyOutcome {
     /// Return the stable label for this outcome.
     ///
-    /// The same vocabulary serves the metric label and the `error_category`
-    /// field of the matching diagnostic event, so the two can be correlated
-    /// without a second mapping.
+    /// The label names the counter's `outcome` value. The diagnostic events
+    /// that report the same case derive their `error_category` from it, so the
+    /// counter and the event cannot describe one case two different ways. An
+    /// abandoned body is the exception: the counter labels the delivery
+    /// attempt `abandoned` while the event names the body `abandoned_body`.
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Delivered => "delivered",

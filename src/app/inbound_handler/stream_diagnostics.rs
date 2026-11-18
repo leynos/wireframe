@@ -18,6 +18,7 @@ use tracing::{debug, warn};
 use super::stream_active::BodyIdentity;
 use crate::{
     message_assembler::MessageKey,
+    metrics::StreamingBodyOutcome,
     request::{SendChunkError, SendClosed},
 };
 
@@ -28,13 +29,16 @@ const ABANDONED_BODY: &str = "abandoned_body";
 const CLOSED: &str = "closed";
 
 /// Error category for a wait that expired before a chunk was admitted.
-const ADMISSION_TIMEOUT: &str = "admission_timeout";
+///
+/// The three categories that name a recorded body outcome are taken from the
+/// outcome itself, so the counter series and the event cannot drift apart.
+const ADMISSION_TIMEOUT: &str = StreamingBodyOutcome::AdmissionTimeout.as_str();
 
 /// Error category for a wait that expired before a failure was delivered.
-const DELIVERY_TIMEOUT: &str = "delivery_timeout";
+const DELIVERY_TIMEOUT: &str = StreamingBodyOutcome::DeliveryTimeout.as_str();
 
 /// Error category for a failure with no live handler to receive it.
-const NO_HANDLER: &str = "no_handler";
+const NO_HANDLER: &str = StreamingBodyOutcome::NoHandler.as_str();
 
 /// Error category for a receiver that had already gone away.
 const RECEIVER_GONE: &str = "receiver_gone";
