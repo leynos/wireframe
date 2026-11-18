@@ -24,14 +24,15 @@ use super::{
         envelope::{Envelope, Packet},
         frame_handling::{self, Dispatch, ResponseContext},
     },
+    stream_active::HandlerFuture,
     stream_diagnostics,
     stream_handles::{ChunkBudget, DispatchHandles},
-    stream_slot::HandlerFuture,
     stream_terminal::{HandlerWait, await_handler},
 };
 use crate::{
     codec::FrameCodec,
     message::EncodeWith,
+    metrics::{StreamingBodyOutcome, add_parked_body, release_parked_bodies, release_parked_body},
     request::{
         AccountedBodySender,
         DEFAULT_BODY_CHANNEL_CAPACITY,
@@ -66,6 +67,53 @@ pub(super) enum ParkedMessage {
     },
 }
 
+/// Completed messages waiting for the dispatch slot.
+///
+/// The queue reports its length to the process-wide parked-bodies gauge on
+/// every change, and releases the messages a connection still holds when it
+/// drops, so the gauge totals every connection rather than showing one
+/// connection's occupancy.
+#[derive(Default)]
+pub(super) struct ParkedQueue {
+    /// Messages in arrival order.
+    messages: VecDeque<ParkedMessage>,
+}
+
+impl ParkedQueue {
+    /// Create an empty queue.
+    pub(super) const fn new() -> Self {
+        Self {
+            messages: VecDeque::new(),
+        }
+    }
+
+    /// Return the number of queued messages.
+    pub(super) fn len(&self) -> usize { self.messages.len() }
+
+    /// Iterate over the queued messages in arrival order.
+    pub(super) fn iter(&self) -> impl Iterator<Item = &ParkedMessage> { self.messages.iter() }
+
+    /// Remove the oldest message, releasing it from the gauge.
+    pub(super) fn pop_front(&mut self) -> Option<ParkedMessage> {
+        let message = self.messages.pop_front();
+        if message.is_some() {
+            release_parked_body();
+        }
+        message
+    }
+
+    /// Append one message, charging it to the gauge.
+    fn push_back(&mut self, message: ParkedMessage) {
+        self.messages.push_back(message);
+        add_parked_body();
+    }
+}
+
+impl Drop for ParkedQueue {
+    /// Release the messages a connection still holds when it ends.
+    fn drop(&mut self) { release_parked_bodies(self.messages.len()); }
+}
+
 /// Park one completed message, refusing to grow the queue past its cap.
 ///
 /// # Errors
@@ -74,7 +122,7 @@ pub(super) enum ParkedMessage {
 /// already waiting. The caller ends the connection in that case, because the
 /// alternative is to absorb messages from a peer that never completes the body
 /// holding the dispatch slot.
-pub(super) fn park(parked: &mut VecDeque<ParkedMessage>, message: ParkedMessage) -> io::Result<()> {
+pub(super) fn park(parked: &mut ParkedQueue, message: ParkedMessage) -> io::Result<()> {
     if parked.len() >= MAX_PARKED_MESSAGES {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -86,7 +134,7 @@ pub(super) fn park(parked: &mut VecDeque<ParkedMessage>, message: ParkedMessage)
 }
 
 /// Return the bytes retained by parked messages.
-pub(super) fn parked_bytes(parked: &VecDeque<ParkedMessage>) -> usize {
+pub(super) fn parked_bytes(parked: &ParkedQueue) -> usize {
     parked
         .iter()
         .map(|message| match message {
@@ -105,7 +153,7 @@ pub(super) fn parked_bytes(parked: &VecDeque<ParkedMessage>) -> usize {
 /// against the same aggregate account as every other retained byte.
 pub(super) async fn dispatch_parked<S, E, K, F>(
     message: ParkedMessage,
-    parked: &VecDeque<ParkedMessage>,
+    parked: &ParkedQueue,
     handles: DispatchHandles<'_, S, E, K, F>,
 ) -> io::Result<Dispatch>
 where
@@ -158,11 +206,19 @@ where
     .await
 }
 
+/// One assembled body waiting to reach a parked streaming handler.
+pub(super) struct PrefilledOffer {
+    /// The whole assembled request body.
+    pub(super) body: Bytes,
+    /// Route identifier of the message, carried into diagnostics.
+    pub(super) message_id: u32,
+}
+
 /// Run a streaming handler with an already assembled body.
 async fn dispatch_prefilled<S, E, K, F>(
     parts: RequestParts,
     body: Bytes,
-    parked: &VecDeque<ParkedMessage>,
+    parked: &ParkedQueue,
     handles: DispatchHandles<'_, S, E, K, F>,
 ) -> io::Result<Dispatch>
 where
@@ -172,20 +228,22 @@ where
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: EncodeWith<S>,
 {
-    let Some(streaming_handler) = handles.ctx.streaming_routes.get(&parts.id()) else {
-        warn!(
-            message_id = parts.id(),
-            "no streaming handler for message id"
-        );
+    let route_id = parts.id();
+    let Some(streaming_handler) = handles.ctx.streaming_routes.get(&route_id) else {
+        stream_diagnostics::no_streaming_handler(route_id);
+        StreamingBodyOutcome::NoHandler.record();
         return Ok(Dispatch::Continue);
     };
-    let route_id = parts.id();
     let correlation_id = parts.correlation_id();
     let (sender, stream) =
         accounted_body_channel(DEFAULT_BODY_CHANNEL_CAPACITY, handles.queued.clone());
     let mut response = streaming_handler(parts, stream);
     let budget = ChunkBudget::measure(&handles, parked);
-    deliver_prefilled(&sender, body, budget, handles.wait).await;
+    let offer = PrefilledOffer {
+        body,
+        message_id: route_id,
+    };
+    deliver_prefilled(&sender, offer, budget, handles.wait).await;
     drop(sender);
     let payload = await_parked_reply(handles.wait, &mut response, route_id).await;
     forward_reply(route_id, correlation_id, payload, handles).await
@@ -227,10 +285,11 @@ async fn await_parked_reply(
 /// for a chunk that will never arrive.
 async fn deliver_prefilled(
     sender: &AccountedBodySender,
-    body: Bytes,
+    offer: PrefilledOffer,
     budget: ChunkBudget,
     wait: Duration,
 ) {
+    let PrefilledOffer { body, message_id } = offer;
     let sent = timeout(
         wait,
         sender
@@ -239,9 +298,12 @@ async fn deliver_prefilled(
     )
     .await;
     match sent {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => stream_diagnostics::prefilled_not_delivered(error),
-        Err(_) => refuse_prefilled(sender).await,
+        Ok(Ok(())) => StreamingBodyOutcome::Delivered.record(),
+        Ok(Err(error)) => {
+            stream_diagnostics::prefilled_not_delivered(message_id, error);
+            StreamingBodyOutcome::Abandoned.record();
+        }
+        Err(_) => refuse_prefilled(sender, message_id).await,
     }
 }
 
@@ -249,11 +311,13 @@ async fn deliver_prefilled(
 ///
 /// Without the terminal error the handler would wait for a chunk that will
 /// never arrive, because the whole body was refused rather than split.
-async fn refuse_prefilled(sender: &AccountedBodySender) {
-    stream_diagnostics::prefilled_not_admitted();
+async fn refuse_prefilled(sender: &AccountedBodySender, message_id: u32) {
+    stream_diagnostics::prefilled_not_admitted(message_id);
+    StreamingBodyOutcome::AdmissionTimeout.record();
     let error = io::Error::other("request body could not be retained within the connection budget");
     if let Err(closed) = sender.clone().send_terminal(error).await {
-        stream_diagnostics::prefilled_failure_not_delivered(closed);
+        stream_diagnostics::prefilled_failure_not_delivered(message_id, closed);
+        StreamingBodyOutcome::Abandoned.record();
     }
 }
 

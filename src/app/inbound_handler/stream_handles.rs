@@ -11,7 +11,7 @@
 //! the reader could not coexist with it. Each action therefore builds the
 //! bundle from disjoint borrows for the duration of that action only.
 
-use std::{collections::VecDeque, io, time::Duration};
+use std::{io, time::Duration};
 
 use bytes::Bytes;
 use futures::Sink;
@@ -23,7 +23,7 @@ use super::{
         frame_handling,
     },
     stream_dispatch::DispatchContext,
-    stream_parked::{ParkedMessage, parked_bytes},
+    stream_parked::{ParkedQueue, parked_bytes},
     stream_slot::ConnectionStreams,
 };
 use crate::{
@@ -129,7 +129,7 @@ impl ChunkBudget {
     /// admission is pending.
     pub(super) fn measure<S, E, K, F>(
         handles: &DispatchHandles<'_, S, E, K, F>,
-        parked: &VecDeque<ParkedMessage>,
+        parked: &ParkedQueue,
     ) -> Self
     where
         S: Serializer + Send + Sync,
@@ -155,7 +155,7 @@ impl ChunkBudget {
 pub(super) fn retained_outside_queue(
     assembly_bytes: usize,
     fragmentation_bytes: usize,
-    parked: &VecDeque<ParkedMessage>,
+    parked: &ParkedQueue,
 ) -> usize {
     assembly_bytes
         .saturating_add(fragmentation_bytes)
@@ -193,7 +193,7 @@ pub(super) struct LoopState {
     /// The one live streaming exchange, if any.
     pub(super) streams: ConnectionStreams,
     /// Complete messages waiting for the dispatch slot.
-    pub(super) parked: VecDeque<ParkedMessage>,
+    pub(super) parked: ParkedQueue,
     /// Consecutive malformed-frame count.
     pub(super) deser_failures: u32,
 }
@@ -203,7 +203,7 @@ impl LoopState {
     pub(super) const fn new(queued: QueuedBytes) -> Self {
         Self {
             streams: ConnectionStreams::new(queued),
-            parked: VecDeque::new(),
+            parked: ParkedQueue::new(),
             deser_failures: 0,
         }
     }

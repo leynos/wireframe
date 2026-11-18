@@ -13,6 +13,8 @@ mod peer_watch;
 
 mod stream_actions;
 
+mod stream_active;
+
 mod stream_diagnostics;
 
 mod stream_dispatch;

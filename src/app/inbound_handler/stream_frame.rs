@@ -9,7 +9,7 @@
 use std::io;
 
 use futures::Sink;
-use tracing::{debug, warn};
+use tracing::warn;
 
 use super::{
     super::{
@@ -18,6 +18,7 @@ use super::{
         frame_handling::{self, Dispatch, FrameOutcome, ResponseContext},
     },
     core::{FrameBuildContext, decode_outcome},
+    stream_diagnostics,
     stream_handles::{ChunkOffer, DispatchHandles, FirstChunk, LoopState},
     stream_parked::{self, ParkedMessage, dispatch_parked},
 };
@@ -26,6 +27,7 @@ use crate::{
     frame::FrameMetadata,
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssemblyState,
+    metrics::StreamingBodyOutcome,
     serializer::Serializer,
 };
 
@@ -163,10 +165,8 @@ fn start_stream(
     first: FirstChunk,
 ) {
     let Some(handler) = route_handler else {
-        warn!(
-            message_id = first.parts.id(),
-            "no streaming handler for message id"
-        );
+        stream_diagnostics::no_streaming_handler(first.parts.id());
+        StreamingBodyOutcome::NoHandler.record();
         return;
     };
     state.streams.start(first, handler);
@@ -182,8 +182,9 @@ fn deliver_chunk(
     if state.streams.push_chunk(offer) {
         return;
     }
+    stream_diagnostics::abandoned_chunk(key);
+    StreamingBodyOutcome::Abandoned.record();
     if let Some(assembly_state) = assembly.as_mut() {
-        debug!(?key, "dropping chunk for abandoned streaming message");
         assembly_state.discard_streaming(key);
     }
 }

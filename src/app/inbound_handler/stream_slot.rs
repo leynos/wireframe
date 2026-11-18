@@ -1,17 +1,19 @@
-//! Connection-owned streaming state: the dispatch slot and byte account.
+//! Connection-owned streaming slot.
 //!
-//! The slot owns everything that outlives a single inbound frame while a
-//! request body streams: the handler future, the byte-accounted sender, and at
-//! most one in-flight chunk admission. Keeping them together means the loop
-//! never has to reconstruct a partially consumed exchange, and dropping the
-//! slot cancels the handler and releases queued bytes in one step.
+//! The slot holds everything that outlives a single inbound frame while a
+//! request body streams: the live exchange, and the byte account every chunk
+//! of that body is charged to. Keeping them together means the loop never has
+//! to reconstruct a partially consumed exchange, and dropping the slot cancels
+//! the handler and releases queued bytes in one step.
+//!
+//! The exchange itself, with its pending chunk admission, is in
+//! [`stream_active`](super::stream_active); this module owns the slot that
+//! holds it and the terminal paths that free it.
 
-use std::{io, pin::Pin, time::Duration};
+use std::{io, time::Duration};
 
 use bytes::Bytes;
 use futures::Sink;
-use tokio::time::timeout;
-use tracing::debug;
 
 use super::{
     super::{
@@ -19,121 +21,28 @@ use super::{
         envelope::{Envelope, Packet},
         frame_handling::Dispatch,
     },
+    stream_active::{ActiveStream, PendingEvent, PendingSend},
     stream_diagnostics,
     stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk},
     stream_parked::forward_reply,
-    stream_terminal::{HandlerWait, await_handler, deliver_then_await},
+    stream_terminal::{HandlerWait, TerminalFailure, await_handler, deliver_then_await},
 };
 #[cfg(test)]
 #[path = "stream_slot_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "stream_admission_tests.rs"]
+mod admission_tests;
+
 use crate::{
     codec::FrameCodec,
     message::EncodeWith,
     message_assembler::{MessageAssemblyState, MessageKey, StreamingAssemblyId},
-    request::{
-        AccountedBodySender,
-        DEFAULT_BODY_CHANNEL_CAPACITY,
-        QueuedBytes,
-        SendChunkError,
-        accounted_body_channel,
-    },
+    metrics::StreamingBodyOutcome,
+    request::{DEFAULT_BODY_CHANNEL_CAPACITY, QueuedBytes, SendChunkError, accounted_body_channel},
     serializer::Serializer,
 };
-
-/// Future returned by a streaming route handler.
-pub(super) type HandlerFuture = Pin<Box<dyn Future<Output = Option<Bytes>> + Send + 'static>>;
-
-/// One step while a chunk admission is in flight.
-pub(super) enum PendingEvent {
-    /// The chunk was queued, or the consumer had gone away.
-    Send(Result<(), SendChunkError>),
-    /// The handler resolved first; the admission is cancelled.
-    Handler(Option<Bytes>),
-    /// The bounded wait elapsed with the admission still queued.
-    Idle,
-}
-
-/// The one live streaming exchange on a connection.
-pub(super) struct ActiveStream {
-    /// Assembly key used to match continuation frames.
-    key: Option<MessageKey>,
-    /// Identity of the partial this exchange owns, absent for a single-frame
-    /// message or when no assembler participates.
-    assembly: Option<StreamingAssemblyId>,
-    /// Route identifier used to address the reply.
-    route_id: u32,
-    /// Correlation identifier inherited from the first frame.
-    correlation_id: Option<u64>,
-    /// Body sender; `None` once the body is complete or abandoned.
-    sender: Option<AccountedBodySender>,
-    /// Handler awaiting the body.
-    handler: HandlerFuture,
-    /// Chunk admission in flight.
-    pub(super) pending: Option<PendingSend>,
-}
-
-/// One chunk waiting for byte admission and channel capacity.
-///
-/// The chunk is kept rather than a future that admitted it, because admission
-/// is re-decided on every drive: the bytes retained outside the queue can only
-/// shrink while a chunk waits, and a chunk refused against a stale, larger
-/// total would be affordable moments later. Re-reserving is safe, because a
-/// cancelled attempt releases whatever it had reserved.
-pub(super) struct PendingSend {
-    /// Sender the chunk is admitted to.
-    sender: AccountedBodySender,
-    /// The chunk still waiting for admission.
-    chunk: Bytes,
-    /// Whether this chunk also completes the message.
-    is_last: bool,
-}
-
-impl ActiveStream {
-    /// Drive the in-flight chunk admission alongside the handler.
-    ///
-    /// The wait is bounded by `wait` so the caller regains control even when
-    /// neither side makes progress. Inbound frames cannot be read while an
-    /// admission is queued, because a continuation for the same message would
-    /// be mistaken for an abandoned body, so the timeout is what keeps assembly
-    /// expiry and the memory budget observable instead.
-    pub(super) async fn drive_pending(
-        &mut self,
-        wait: Duration,
-        budget: ChunkBudget,
-    ) -> PendingEvent {
-        let Self {
-            pending, handler, ..
-        } = self;
-        let Some(send) = pending else {
-            // The caller only drives this branch when a send is pending.
-            return PendingEvent::Send(Ok(()));
-        };
-        // Rebuilt from the current budget on every drive. The measurement taken
-        // when the chunk was queued can only overstate what is retained
-        // elsewhere, and overstating it refuses a chunk that has since become
-        // affordable; the queued chunk itself is preserved across attempts.
-        let admission =
-            send.sender
-                .clone()
-                .send_chunk(send.chunk.clone(), budget.other_retained, budget.limit);
-        let exchange = async {
-            tokio::select! {
-                result = admission => PendingEvent::Send(result),
-                outcome = handler.as_mut() => PendingEvent::Handler(outcome),
-            }
-        };
-        timeout(wait, exchange).await.unwrap_or(PendingEvent::Idle)
-    }
-
-    /// Poll the handler until it produces a reply.
-    ///
-    /// The connection loop selects this future against the next inbound read,
-    /// so a handler that finishes while its body is still arriving is not
-    /// delayed behind a peer that sends nothing.
-    pub(super) async fn poll_handler(&mut self) -> Option<Bytes> { (&mut self.handler).await }
-}
 
 /// Connection-owned streaming state: the dispatch slot and byte account.
 pub(super) struct ConnectionStreams {
@@ -271,6 +180,11 @@ impl ConnectionStreams {
         let Some(pending) = active.pending.take() else {
             return;
         };
+        if pending.is_last && result.is_ok() {
+            // The final chunk reached the handler, so the body is delivered
+            // whatever the handler does with it afterwards.
+            StreamingBodyOutcome::Delivered.record();
+        }
         if pending.is_last || result.is_err() {
             active.sender = None;
         }
@@ -294,7 +208,11 @@ impl ConnectionStreams {
         };
         // Cancelling the admission is safe: a reserved permit that never sent
         // releases itself, and a queued chunk is dropped with its guard.
-        active.pending = None;
+        if active.pending.take().is_some() {
+            // The handler replied before the chunk it was waiting for arrived,
+            // so that chunk is abandoned with the exchange.
+            StreamingBodyOutcome::Abandoned.record();
+        }
         active.sender = None;
         discard_streaming(active.assembly, handles.assembly);
         forward_reply(active.route_id, active.correlation_id, outcome, handles).await
@@ -321,7 +239,11 @@ impl ConnectionStreams {
         discard_streaming(active.assembly, handles.assembly);
         let wait = match (terminal, sender) {
             (Some(error), Some(open_sender)) => {
-                deliver_then_await(handles.wait, error, open_sender, &mut active.handler).await
+                let failure = TerminalFailure {
+                    identity: active.identity(),
+                    error,
+                };
+                deliver_then_await(handles.wait, failure, open_sender, &mut active.handler).await
             }
             _ => await_handler(handles.wait, &mut active.handler).await,
         };
@@ -383,14 +305,18 @@ impl ConnectionStreams {
         Envelope: EncodeWith<S>,
     {
         if !self.is_key_live(std::slice::from_ref(&key)) {
-            debug!(?key, "streaming failure for a message with no live handler");
+            stream_diagnostics::no_live_handler(key);
             return Ok(Dispatch::Continue);
         }
         self.close_active(Some(error), handles).await
     }
 
     /// Drop the live exchange immediately after a hard budget breach.
-    pub(super) fn abort(&mut self) { self.active = None; }
+    pub(super) fn abort(&mut self) {
+        if self.active.take().is_some() {
+            StreamingBodyOutcome::Abandoned.record();
+        }
+    }
 
     /// Return whether the slot owns one of the evicted assemblies.
     fn owns_assembly(&self, ids: &[StreamingAssemblyId]) -> bool {

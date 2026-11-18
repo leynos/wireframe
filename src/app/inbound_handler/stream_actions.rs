@@ -20,10 +20,10 @@ use super::{
         envelope::{Envelope, Packet},
         frame_handling::{self, Dispatch, MemoryPressureAction},
     },
+    stream_active::PendingEvent,
     stream_dispatch::Step,
     stream_handles::{ChunkBudget, DispatchHandles, LoopState},
     stream_parked::{dispatch_parked, parked_bytes},
-    stream_slot::PendingEvent,
 };
 use crate::{
     codec::FrameCodec,

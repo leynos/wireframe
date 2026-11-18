@@ -10,6 +10,8 @@ use tracing_test::traced_test;
 use super::{
     MAX_PARKED_MESSAGES,
     ParkedMessage,
+    ParkedQueue,
+    PrefilledOffer,
     await_parked_reply,
     deliver_prefilled,
     park,
@@ -18,17 +20,20 @@ use super::{
 use crate::{
     app::{
         Envelope,
-        inbound_handler::{stream_handles::ChunkBudget, stream_slot::HandlerFuture},
+        inbound_handler::{stream_active::HandlerFuture, stream_handles::ChunkBudget},
     },
     request::{QueuedBytes, RequestParts, accounted_body_channel},
 };
+
+/// Message identifier the pre-filled delivery tests report under.
+const PARKED_MESSAGE_ID: u32 = 10;
 
 /// An empty payload is the case the byte-based memory budget cannot see.
 fn empty_envelope() -> ParkedMessage { ParkedMessage::Envelope(Envelope::new(9, None, Vec::new())) }
 
 #[test]
 fn park_refuses_to_grow_past_the_cap() {
-    let mut parked = VecDeque::new();
+    let mut parked = ParkedQueue::new();
     for _ in 0..MAX_PARKED_MESSAGES {
         assert!(
             park(&mut parked, empty_envelope()).is_ok(),
@@ -54,7 +59,7 @@ fn park_refuses_to_grow_past_the_cap() {
 
 #[test]
 fn park_accepts_a_message_once_the_queue_drains() {
-    let mut parked = VecDeque::new();
+    let mut parked = ParkedQueue::new();
     for _ in 0..MAX_PARKED_MESSAGES {
         assert!(park(&mut parked, empty_envelope()).is_ok());
     }
@@ -80,7 +85,11 @@ async fn an_unaffordable_prefilled_body_becomes_a_terminal_error() {
         .expect("an empty queue admits one chunk");
     let (sender, mut body) = accounted_body_channel(1, queued);
 
-    deliver_prefilled(&sender, Bytes::from_static(b"abcd"), tight_budget(), wait()).await;
+    let offer = PrefilledOffer {
+        body: Bytes::from_static(b"abcd"),
+        message_id: PARKED_MESSAGE_ID,
+    };
+    deliver_prefilled(&sender, offer, tight_budget(), wait()).await;
 
     let item = body
         .next()
@@ -96,7 +105,11 @@ async fn an_unaffordable_prefilled_body_becomes_a_terminal_error() {
 async fn an_affordable_prefilled_body_arrives_whole() {
     let (sender, mut body) = accounted_body_channel(1, QueuedBytes::new());
 
-    deliver_prefilled(&sender, Bytes::from_static(b"abcd"), tight_budget(), wait()).await;
+    let offer = PrefilledOffer {
+        body: Bytes::from_static(b"abcd"),
+        message_id: PARKED_MESSAGE_ID,
+    };
+    deliver_prefilled(&sender, offer, tight_budget(), wait()).await;
 
     let item = body
         .next()
@@ -234,7 +247,7 @@ proptest! {
     fn parking_and_draining_conserve_the_queue(
         operations in prop::collection::vec(operation(), 1..80),
     ) {
-        let mut parked = VecDeque::new();
+        let mut parked = ParkedQueue::new();
         let mut model: VecDeque<usize> = VecDeque::new();
         for step in operations {
             match step {

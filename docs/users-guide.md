@@ -3471,6 +3471,74 @@ warning carrying a stable `stage` (`serialize` or `write`) and a `category`
 that matches the outcome label, so log records and metric series can be
 correlated.
 
+### Streaming request bodies
+
+Streaming request bodies record their own signals when the `metrics` feature is
+enabled, so an operator can tell a body that was delivered from one that was
+rejected or abandoned.
+
+`wireframe_streaming_body_outcomes_total` counts each body outcome with a fixed
+`outcome` label:
+
+- `"delivered"` — the final chunk, or a whole pre-filled body, reached its
+  handler.
+- `"terminal"` — the handler was told its body failed, so it can answer with a
+  truncated-body error instead of waiting for chunks that will never arrive.
+- `"abandoned"` — the body, or a chunk of it, was dropped before it completed:
+  the handler replied early, the message's remaining frames were discarded, or
+  the hard memory cap ended the exchange.
+- `"admission_timeout"` — a chunk was still waiting for byte admission when a
+  bounded wait expired. One body contributes one observation per expired wait,
+  so a steadily rising value marks a body that cannot make progress.
+- `"delivery_timeout"` — a terminal failure could not be handed to the handler
+  within the bounded wait, usually because the handler stopped reading.
+- `"no_handler"` — a frame arrived for a streaming route with no registered
+  handler.
+
+Two gauges report the work a connection holds for its bodies. Both are totals
+across every connection in the process, so concurrent connections add to the
+same series instead of overwriting one another:
+
+- `wireframe_streaming_body_bytes_queued` — body bytes queued for handlers,
+  including a chunk that has reserved its bytes but is still waiting for
+  channel capacity. A value that stays at the configured connection budget
+  marks a handler that has stopped reading; the connection then stops reading
+  the socket, which is the back-pressure this design relies on.
+- `wireframe_streaming_bodies_parked` — completed messages waiting behind the
+  live body. A value approaching `MAX_PARKED_MESSAGES` (64) means one peer is
+  pipelining requests faster than its body completes, and the connection ends
+  rather than absorb more. A connection that ends with messages still parked
+  releases them, so the gauge cannot count work nobody will dispatch.
+
+The dispatch modules log one structured event per body decision. Each event
+carries an `operation` field (`stream_start`, `chunk_delivery`,
+`prefilled_body`, or `terminal_body`), the `message_id` or `key` of the
+message, and an `error_category` drawn from the `outcome` label vocabulary plus
+`closed`, `receiver_gone`, `abandoned_body`, and `reply_abandoned`. Payload
+bytes are never logged. Three events are warnings, because each marks a message
+the connection could not serve:
+
+- `pre-filled request body was not admitted within the read timeout`
+  (`prefilled_body`, `admission_timeout`) — an assembled body did not fit the
+  connection budget in time, and is failed terminally so the handler learns the
+  upload was incomplete.
+- `timed out delivering the request body failure`
+  (`terminal_body`, `delivery_timeout`) — the handler's channel would not
+  accept the terminal error, so a truncated body may reach it as a clean end of
+  stream.
+- `no streaming handler for message id` and
+  `streaming failure for a message with no live handler` (`stream_start` /
+  `terminal_body`, `no_handler`) — the route is unregistered, or the handler
+  released the slot before the failure was decoded.
+
+To diagnose a stalled upload, read `wireframe_streaming_body_bytes_queued`
+first: if it sits at the budget while `admission_timeout` climbs, the handler
+is not reading. If the byte gauge stays low and
+`wireframe_streaming_bodies_parked` climbs instead, the peer is pipelining
+behind a body that never completes. A rejected assembly shows as a
+`prefilled_body` warning with the `admission_timeout` category and a matching
+counter increment.
+
 ## Benchmark allocation counting
 
 The `wireframe_testing::benchmark_alloc_support` module provides the counting

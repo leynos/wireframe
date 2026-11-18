@@ -202,6 +202,66 @@ reply that outgrows the transport buffer ends at the peer-close grace once the
 peer stops reading, and a cancelled reply serves no parked message. Reverting
 the dispatch to an unobserved write makes both tests fail by never completing.
 
+## Addendum (2026-11-18): body outcomes and occupancy are observable
+
+Section 5 lists the terminations a handler observes, but the connection's own
+view of a body was invisible: a delivered body, a body failed terminally, a
+body abandoned by an early reply, and a chunk that never cleared admission all
+left the same trace, which was a handful of unstructured log lines. An operator
+could see that a connection was busy without being able to say which of those
+had happened, and a stalled handler and a peer that stopped reading looked
+identical from outside.
+
+Three metric series now separate them. All three are gated behind the `metrics`
+feature and are no-ops otherwise.
+
+- `wireframe_streaming_body_outcomes_total` counts each body decision with a
+  fixed `outcome` label: `delivered`, `terminal`, `abandoned`,
+  `admission_timeout`, `delivery_timeout`, or `no_handler`. The label
+  vocabulary is a closed set so application data cannot create new series, and
+  the same strings appear as the `error_category` field of the matching
+  diagnostic event, so a counter increment and its log record can be correlated
+  without a second mapping.
+- `wireframe_streaming_body_bytes_queued` gauges the body bytes a process
+  holds for handlers. A chunk is charged where its reservation is installed, so
+  the number includes a chunk that is still waiting for channel capacity rather
+  than only queued ones, and it is released by the byte guard whoever drops it.
+- `wireframe_streaming_bodies_parked` gauges completed messages waiting behind
+  the live body.
+
+The two gauges are process-wide totals rather than per-connection values. A
+per-connection gauge would need a connection label, and connection identity is
+unbounded; a single process-wide total with no labels reports the same
+occupancy without turning a connection identifier into a metric dimension.
+Concurrent connections therefore add to one total, which is held in an
+`AtomicUsize` and published on every change. Release is a conditional exchange,
+not a bare subtraction: a release that outranks its addition floors at zero
+instead of wrapping to `usize::MAX`. A connection that ends with messages still
+parked releases them in one step, so the gauge cannot keep counting work nobody
+will dispatch.
+
+The counter records one observation per decision, with two exceptions noted in
+the vocabulary: an expired admission wait is recorded per expiry, so one body
+that waits across several reads contributes several `admission_timeout`
+observations, and an abandoned pending chunk is recorded once when the exchange
+is torn down rather than per chunk that never arrived.
+
+Every decision also emits one structured `tracing` event, carrying an
+`operation` (`stream_start`, `chunk_delivery`, `prefilled_body`, or
+`terminal_body`), the `message_id` or assembly `key`, and an `error_category`.
+Payload bytes are never logged. The `warn` level is reserved for the three
+cases where a message could not be served: a pre-filled body that did not fit
+the connection budget in time, a terminal failure the handler's channel would
+not accept, and a frame for a streaming route with no live handler. A body
+abandoned by an early reply or by the hard cap is a `debug` record, because the
+handler chose that outcome.
+
+`src/metrics/streaming_bodies.rs` holds the series and its tests, and
+`src/app/inbound_handler/stream_diagnostics.rs` holds the event vocabulary. The
+occupancy arithmetic is exercised on local tallies rather than the shared
+statics, because the statics are process-wide and an absolute assertion on them
+would race with concurrently running tests.
+
 ## Consequences
 
 - Protocol crates can process large inbound messages incrementally without

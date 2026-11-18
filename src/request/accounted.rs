@@ -81,7 +81,13 @@ impl QueuedBytes {
                 .bytes
                 .compare_exchange(queued, reserved, Ordering::SeqCst, Ordering::SeqCst)
             {
-                Ok(_) => return Some(self.guard(len)),
+                Ok(_) => {
+                    // Charged here, where the reservation is installed, so the
+                    // process-wide total includes bytes that are waiting for
+                    // channel capacity and not only queued ones.
+                    crate::metrics::add_queued_body_bytes(len);
+                    return Some(self.guard(len));
+                }
                 // Another producer charged or released bytes between the read
                 // and the swap, so the rule must be evaluated again against
                 // the total it left behind.
@@ -134,6 +140,7 @@ struct QueuedBytesGuard {
 impl Drop for QueuedBytesGuard {
     fn drop(&mut self) {
         self.bytes.fetch_sub(self.len, Ordering::SeqCst);
+        crate::metrics::release_queued_body_bytes(self.len);
         self.released.notify_waiters();
     }
 }

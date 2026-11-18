@@ -11,8 +11,11 @@ use std::{io, time::Duration};
 use bytes::Bytes;
 use tokio::time::timeout;
 
-use super::{stream_diagnostics, stream_slot::HandlerFuture};
-use crate::request::AccountedBodySender;
+use super::{
+    stream_active::{BodyIdentity, HandlerFuture},
+    stream_diagnostics,
+};
+use crate::{metrics::StreamingBodyOutcome, request::AccountedBodySender};
 
 /// How a handler finished while the connection was waiting for its reply.
 ///
@@ -27,6 +30,14 @@ pub(super) enum HandlerWait {
     Replied(Option<Bytes>),
     /// The handler produced no answer the connection could wait for.
     Deadline,
+}
+
+/// One body failure the handler has yet to observe.
+pub(super) struct TerminalFailure {
+    /// Message whose body failed.
+    pub(super) identity: BodyIdentity,
+    /// Failure the handler should observe instead of a clean end of stream.
+    pub(super) error: io::Error,
 }
 
 /// What became of an attempt to deliver a body failure to its handler.
@@ -60,11 +71,11 @@ pub(super) async fn await_handler(wait: Duration, handler: &mut HandlerFuture) -
 /// never reads still cannot hold the connection open.
 pub(super) async fn deliver_then_await(
     wait: Duration,
-    error: io::Error,
+    failure: TerminalFailure,
     sender: AccountedBodySender,
     handler: &mut HandlerFuture,
 ) -> HandlerWait {
-    let sending = deliver_terminal(wait, error, sender);
+    let sending = deliver_terminal(wait, failure, sender);
     tokio::pin!(sending);
     let deadline = tokio::time::sleep(wait);
     tokio::pin!(deadline);
@@ -93,17 +104,23 @@ pub(super) async fn deliver_then_await(
 /// waiting for the handler can still produce a reply worth forwarding.
 async fn deliver_terminal(
     wait: Duration,
-    error: io::Error,
+    failure: TerminalFailure,
     sender: AccountedBodySender,
 ) -> Delivery {
+    let TerminalFailure { identity, error } = failure;
     match timeout(wait, sender.send_terminal(error)).await {
-        Ok(Ok(())) => Delivery::Accepted,
+        Ok(Ok(())) => {
+            StreamingBodyOutcome::Terminal.record();
+            Delivery::Accepted
+        }
         Ok(Err(gone)) => {
-            stream_diagnostics::terminal_receiver_gone(gone);
+            stream_diagnostics::terminal_receiver_gone(identity, gone);
+            StreamingBodyOutcome::Abandoned.record();
             Delivery::ReceiverGone
         }
         Err(_elapsed) => {
-            stream_diagnostics::terminal_delivery_timed_out();
+            stream_diagnostics::terminal_delivery_timed_out(identity);
+            StreamingBodyOutcome::DeliveryTimeout.record();
             Delivery::TimedOut
         }
     }
