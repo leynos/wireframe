@@ -1673,8 +1673,10 @@ protocol cannot yet store per-connection state there; it must not use its own
 fields for that, because every connection that installs it shares that one
 implementation. For handler responses the hook runs after serialization and
 codec wrapping, immediately before the frame is written to the transport, and
-every fragment of a fragmented response passes through it individually. This
-gives protocol implementations one place to stamp, encrypt, or observe outbound
+every fragment of a fragmented response passes through it individually. That is
+the pre-transport boundary, not a pre-serialization one: the hook receives the
+codec frame and never sees the `Envelope` before it is serialized. This gives
+protocol implementations one place to stamp, encrypt, or observe outbound
 packets. The hook may grow the frame, but it receives no implicit space for
 doing so: whatever it writes must keep the frame within the codec's
 `max_frame_length`. The default `LengthDelimitedFrameCodec` rejects a frame

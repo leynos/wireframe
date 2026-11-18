@@ -517,7 +517,8 @@ emitted packet — handler responses, push frames, streamed responses,
 multi-packet channel frames, and stream-end terminators — and no
 transport-frame hook is introduced, so the
 [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
-packet boundary is unchanged.
+packet boundary is unchanged. Section 8 records that boundary against #644's
+"before serialization" wording and the prepared path's lifecycle contract.
 
 ### 7. Unify examples with the production runtime
 
@@ -525,6 +526,51 @@ Examples should stop maintaining a separate `Arc<WireframeApp>` bootstrap
 topology. They should exercise the same preparation and server runtime used by
 library consumers, unless an example deliberately demonstrates a lower-level
 API.
+
+### 8. Hook boundary and prepared lifecycle addendum — 2026-11-18
+
+This addendum settles two questions section 6 left implicit and supersedes the
+"before serialization" wording in
+[#644](https://github.com/leynos/wireframe/issues/644)'s dispatch requirement.
+Section 6 otherwise stands unchanged.
+
+`before_send` observes the packet as the connection will write it: the
+serializer has produced the payload and `FrameCodec::wrap_payload` has wrapped
+it into `F::Frame`. The hook therefore runs after the application packet
+(`Envelope`) has been serialized, not before it. Two constraints force that
+boundary:
+
+- the hook's signature is
+  `before_send(&self, frame: &mut Self::Frame, ctx: &mut ConnectionContext)`,
+  so it cannot see the `Envelope`; a pre-serialization hook would need a
+  differently shaped callback and a public API break;
+- [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+  fixes the packet boundary at the codec frame, and changing that boundary is
+  an explicit non-goal of #644.
+
+"Before serialization" is therefore read as "before the packet is serialized
+onto the transport", that is, immediately before the codec driver writes the
+frame. A protocol-supplied frame such as a stream terminator is already a
+complete codec frame, so the hook runs on it unchanged before emission.
+`prepared_response_runs_before_send_once_after_serialization` and
+`prepared_stream_runs_before_send_once_per_frame_and_terminator` pin the
+boundary through a prepared connection, and
+`push_and_streamed_frames_run_before_send_once` pins it for an actor-driven one.
+
+The same addendum records the prepared path's lifecycle contract. A prepared
+connection dispatches `before_send`, `handle_error`, `stream_end_frame`, and
+`on_command_end` through its hook owner, dispatches `on_connection_setup`
+exactly once per connection, and never dispatches `on_eof`. Setup runs from
+`build_connection_actor`, after the connection's `PushHandle` is published in
+the `SessionRegistry` and before the actor starts, so a protocol can address
+its own connection; the reference used for that call is not retained.
+Application-level initialization and cleanup for a prepared connection remain
+the `on_connection_setup` and `on_connection_teardown` lifecycle hooks, which
+the runtime finalizer drives once per connection. The protocol's own
+end-of-file callback remains available only to callers that drive a
+`ConnectionActor` directly.
+`prepared_connection_dispatches_setup_once_and_no_eof_hook` pins that contract
+through a prepared connection, including a mid-frame end-of-file.
 
 ## Consequences
 
@@ -765,7 +811,8 @@ reference nor a context of its own; an actor driven directly through
 pipeline: it runs once per connection from `build_connection_actor`, after the
 connection's `PushHandle` is published in the `SessionRegistry` and before the
 actor starts, because the push handle and registry entry come into existence
-there. The reference used for that call is not retained, so a live connection
-still holds exactly one strong protocol reference, and the connection reuses
-the single `ConnectionContext` its pipeline owns. `on_eof` remains unreached on
-the prepared path.
+there. It receives a context carrying the identifier the actor just published
+and the peer address; the pipeline's context carries the same pair and is the
+one every other callback sees. The reference used for that call is not
+retained, so a live connection still holds exactly one strong protocol
+reference. `on_eof` remains unreached on the prepared path.

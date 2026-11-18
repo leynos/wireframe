@@ -4,7 +4,9 @@
 //! unchanged, so a hook that ran before wrapping would see exactly the bytes a
 //! hook that ran after wrapping sees. Tests that pin the dispatch order use
 //! this codec instead: its wrapper appends a tag, which makes the two orders
-//! produce different frames. Include this module with
+//! produce different frames. It is an outbound fixture: use it to wrap frames
+//! whose wire bytes a test asserts on, not to build input for a decoder, which
+//! would see [`WRAP_TAG`] as message data. Include this module with
 //! `#[path = "common/tagging_codec.rs"] mod tagging_codec;`.
 
 use bytes::Bytes;
@@ -20,7 +22,12 @@ pub struct TaggingCodec {
 }
 
 impl TaggingCodec {
-    /// Build a codec accepting payloads up to `max_frame_length`.
+    /// Build a codec whose limit applies to the wrapped frame.
+    ///
+    /// `max_frame_length` bounds the frame the encoder emits, so it includes
+    /// the [`WRAP_TAG`] byte this codec appends: a payload of exactly
+    /// `max_frame_length` bytes becomes an oversized frame the encoder
+    /// rejects.
     pub fn new(max_frame_length: usize) -> Self {
         Self {
             inner: LengthDelimitedFrameCodec::new(max_frame_length),
