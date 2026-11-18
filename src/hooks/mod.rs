@@ -255,3 +255,4 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// ```
     fn on_eof(&self, _error: &EofError, _partial_data: &[u8], _ctx: &mut ConnectionContext) {}
 }
+// weave: run 'weave explain src/hooks/mod.rs' for per-hunk detail, 'weave check' to verify your resolution

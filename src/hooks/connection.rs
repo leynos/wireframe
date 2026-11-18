@@ -1,7 +1,7 @@
 //! The per-connection owner of protocol hooks and their context.
 
 use super::{ConnectionContext, ProtocolHooks};
-use crate::{codec::EofError, push::PushHandle};
+use crate::push::PushHandle;
 
 /// One connection's protocol hooks and the context they share.
 ///
@@ -71,18 +71,5 @@ impl<F, E> ConnectionProtocol<F, E> {
     /// context.
     pub(crate) fn stream_end_frame(&mut self) -> Option<F> {
         self.hooks.stream_end_frame(&mut self.context)
-    }
-
-    /// Run the explicit EOF hook against this connection's context.
-    ///
-    /// The connection loop does not invoke EOF automatically, so no production
-    /// caller reaches this method yet. It exists so the owner covers all six
-    /// operations and callers can dispatch EOF through the same context.
-    #[expect(
-        dead_code,
-        reason = "on_eof is explicit-only; no runtime path invokes it automatically"
-    )]
-    pub(crate) fn on_eof(&mut self, error: &EofError, partial_data: &[u8]) {
-        self.hooks.on_eof(error, partial_data, &mut self.context);
     }
 }

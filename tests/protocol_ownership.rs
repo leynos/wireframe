@@ -8,12 +8,15 @@
 #![cfg(not(loom))]
 #![forbid(unsafe_code)]
 
+#[path = "common/protocol_request.rs"]
+mod protocol_request;
 #[path = "common/recording_protocol.rs"]
 mod recording_protocol;
 
 use std::sync::{Arc, Mutex, Weak};
 
 use bytes::Bytes;
+use protocol_request::request_frame;
 use recording_protocol::{
     HookEvent,
     RecordingProtocolFixture,
@@ -28,9 +31,8 @@ use wireframe::{
     connection::{ConnectionActor, ConnectionChannels},
     hooks::{ProtocolHooks, WireframeProtocol},
     push::PushQueues,
-    serializer::{BincodeSerializer, Serializer},
 };
-use wireframe_testing::{TestResult, drive_prepared_with_frames, encode_frame};
+use wireframe_testing::{TestResult, drive_prepared_with_frames};
 
 /// Application type using the default length-delimited codec (`Bytes` frames).
 type ResponseApp =
@@ -48,15 +50,6 @@ fn actor_holding(hooks: ProtocolHooks<Vec<u8>, ()>) -> TestResult<ConnectionActo
         CancellationToken::new(),
         hooks,
     ))
-}
-
-/// Encode one request envelope into a length-delimited frame.
-fn request_frame(id: u32) -> TestResult<Vec<u8>> {
-    let payload = BincodeSerializer.serialize(&Envelope::new(id, Some(7), Vec::new()))?;
-    let mut codec = tokio_util::codec::LengthDelimitedCodec::builder()
-        .max_frame_length(1024)
-        .new_codec();
-    Ok(encode_frame(&mut codec, payload)?)
 }
 
 /// Type of the protocol reference a connection installs.
@@ -209,13 +202,15 @@ fn barrier_held_connections_each_add_one_owner() {
     let protocol = fixture.shared();
 
     let mut actors = Vec::new();
+    let mut built_counts = Vec::new();
     for _ in 0..3 {
         actors.push(actor_holding(ProtocolHooks::from_protocol(&protocol)).expect("build actor"));
+        built_counts.push(strong_count(&protocol));
     }
     assert_eq!(
-        strong_count(&protocol),
-        4,
-        "three concurrently open connections hold one reference each"
+        built_counts,
+        vec![2, 3, 4],
+        "each concurrently open connection adds exactly one reference"
     );
     assert_eq!(
         fixture.events(),
@@ -223,13 +218,15 @@ fn barrier_held_connections_each_add_one_owner() {
         "each connection ran setup exactly once"
     );
 
+    let mut released_counts = Vec::new();
     while let Some(actor) = actors.pop() {
         drop(actor);
+        released_counts.push(strong_count(&protocol));
     }
     assert_eq!(
-        strong_count(&protocol),
-        1,
-        "each connection releases exactly one reference"
+        released_counts,
+        vec![3, 2, 1],
+        "each connection releases exactly one reference at teardown"
     );
 }
 

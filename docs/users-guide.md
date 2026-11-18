@@ -1661,30 +1661,35 @@ code that does not install a full protocol; convert it with `.into()`. See the
 [v0.3-to-v0.4 migration guide](v0-3-0-to-v0-4-0-migration-guide.md#protocol-hook-ownership-and-dispatch).
 
 `before_send` runs exactly once per emitted packet on every packet-oriented
-outbound path: ordinary handler responses, high- and low-priority push frames,
-streamed responses, multi-packet channel frames, and stream-end terminators.
-Each connection builds its own hook value and reuses one connection-local
-`ConnectionContext` for every call, so dispatching a hook needs no lock or
-`Arc<Mutex<_>>`. The context currently has no fields, so a protocol cannot yet
-store per-connection state there; it must not use its own fields for that,
-because every connection that installs it shares that one implementation. For
-handler responses the hook runs after serialization and codec wrapping,
-immediately before the frame is written to the transport, and every fragment of
-a fragmented response passes through it individually. This gives protocol
-implementations one place to stamp, encrypt, or observe outbound packets. The
-hook may grow the frame, but it receives no implicit space for doing so:
-whatever it writes must keep the frame within the codec's `max_frame_length`.
-The default `LengthDelimitedFrameCodec` rejects a frame that exceeds that limit
-with an oversized-frame error, which fails the send and ends the connection. A
-custom codec defines its own behaviour for an oversized frame, so it must
-enforce `max_frame_length` itself.
+outbound path: ordinary handler responses, streamed responses, multi-packet
+channel frames, and stream-end terminators. High- and low-priority push frames
+reach it when a `ConnectionActor` is driven directly with `with_hooks`; the
+prepared server neither exposes its per-connection actor's push queues nor
+installs server-initiated pushes on that actor, so a prepared connection emits
+no push frame. Each connection builds its own hook value and reuses one
+connection-local `ConnectionContext` for every call, so dispatching a hook
+needs no lock or `Arc<Mutex<_>>`. The context currently has no fields, so a
+protocol cannot yet store per-connection state there; it must not use its own
+fields for that, because every connection that installs it shares that one
+implementation. For handler responses the hook runs after serialization and
+codec wrapping, immediately before the frame is written to the transport, and
+every fragment of a fragmented response passes through it individually. This
+gives protocol implementations one place to stamp, encrypt, or observe outbound
+packets. The hook may grow the frame, but it receives no implicit space for
+doing so: whatever it writes must keep the frame within the codec's
+`max_frame_length`. The default `LengthDelimitedFrameCodec` rejects a frame
+that exceeds that limit with an oversized-frame error, which fails the send and
+ends the connection. A custom codec defines its own behaviour for an oversized
+frame, so it must enforce `max_frame_length` itself.
 
 `on_connection_setup` runs at most once per hooks value, and command end,
 stream end, error, and end-of-file callbacks keep the ordering and cardinality
 they have on the `ConnectionActor` paths. A completed `Stream` or `MultiPacket`
 response is terminated by the frame `stream_end_frame` returns; that frame is a
-complete codec frame, so the adapter neither decodes nor restamps it, and any
-metadata a custom codec keeps outside the payload survives. `on_command_end`
+complete codec frame, so the adapter neither decodes nor restamps it, and
+metadata a custom codec keeps outside the payload survives the adapter.
+`before_send` still runs on that frame and may replace it, so the metadata is
+preserved only up to the hook, not necessarily on the wire. `on_command_end`
 runs only after the final frame has been written, and not at all when the
 response is cancelled before its terminator. A protocol error reported by a
 response stream is passed to `handle_error`, and the connection then closes

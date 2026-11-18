@@ -61,6 +61,10 @@ impl WireframeProtocol for RecordingProtocol {
         Some(Bytes::from_static(b"END"))
     }
 
+    fn handle_error(&self, (): (), _ctx: &mut ConnectionContext) {
+        record(&self.log, "handle_error");
+    }
+
     fn on_command_end(&self, _ctx: &mut ConnectionContext) { record(&self.log, "command_end"); }
 }
 
@@ -304,8 +308,8 @@ async fn protocol_error_stops_dispatch_without_a_terminator() {
 
     assert_eq!(
         events(&log),
-        vec!["send", "command_end"],
-        "exactly one frame is written and no terminator follows the failure"
+        vec!["send", "handle_error", "command_end"],
+        "one frame is written, the error hook runs once, and no terminator follows"
     );
 }
 

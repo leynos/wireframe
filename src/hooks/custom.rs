@@ -85,40 +85,49 @@ impl<F, E> Default for CustomProtocolHooks<F, E> {
 
 impl<F, E> CustomProtocolHooks<F, E> {
     /// Run the `on_connection_setup` hook if registered.
-    pub fn on_connection_setup(&mut self, handle: PushHandle<F>, ctx: &mut ConnectionContext) {
+    pub(super) fn on_connection_setup(
+        &mut self,
+        handle: PushHandle<F>,
+        ctx: &mut ConnectionContext,
+    ) {
         if let Some(hook) = self.on_connection_setup.take() {
             hook(handle, ctx);
         }
     }
 
     /// Run the `before_send` hook if registered.
-    pub fn before_send(&mut self, frame: &mut F, ctx: &mut ConnectionContext) {
+    pub(super) fn before_send(&mut self, frame: &mut F, ctx: &mut ConnectionContext) {
         if let Some(hook) = &mut self.before_send {
             hook(frame, ctx);
         }
     }
 
     /// Run the `on_command_end` hook if registered.
-    pub fn on_command_end(&mut self, ctx: &mut ConnectionContext) {
+    pub(super) fn on_command_end(&mut self, ctx: &mut ConnectionContext) {
         if let Some(hook) = &mut self.on_command_end {
             hook(ctx);
         }
     }
 
     /// Run the `handle_error` hook if registered.
-    pub fn handle_error(&mut self, error: E, ctx: &mut ConnectionContext) {
+    pub(super) fn handle_error(&mut self, error: E, ctx: &mut ConnectionContext) {
         if let Some(hook) = &mut self.handle_error {
             hook(error, ctx);
         }
     }
 
     /// Run the `stream_end_frame` hook if registered.
-    pub fn stream_end_frame(&mut self, ctx: &mut ConnectionContext) -> Option<F> {
+    pub(super) fn stream_end_frame(&mut self, ctx: &mut ConnectionContext) -> Option<F> {
         self.stream_end.as_mut().and_then(|hook| hook(ctx))
     }
 
     /// Run the `on_eof` hook if registered.
-    pub fn on_eof(&mut self, error: &EofError, partial_data: &[u8], ctx: &mut ConnectionContext) {
+    pub(super) fn on_eof(
+        &mut self,
+        error: &EofError,
+        partial_data: &[u8],
+        ctx: &mut ConnectionContext,
+    ) {
         if let Some(hook) = &mut self.on_eof {
             hook(error, partial_data, ctx);
         }

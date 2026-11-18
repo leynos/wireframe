@@ -861,5 +861,7 @@ fn is_protocol_backed<F, E>(hooks: &ProtocolHooks<F, E>) -> bool {
 `Option<Arc<dyn WireframeProtocol<..>>>`. The returned `Arc` is a clone of the
 application's single stored reference, not a newly constructed value, and each
 connection's hooks add exactly one further reference for the lifetime of that
-connection. If you were relying on `protocol()` to count connections, note that
-the application root always retains its own reference.
+connection. `Arc::strong_count` on the returned handle therefore measures
+owners, not connections: it includes the application root and every clone
+returned by `protocol()`, in addition to each live connection's single hook
+reference.
