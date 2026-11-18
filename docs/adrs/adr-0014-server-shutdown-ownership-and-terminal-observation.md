@@ -361,7 +361,9 @@ every accepted connection:
 - a connection blocked writing to a peer that stopped reading abandons the
   pending write instead of pinning its task;
 - a queued frame that the peer can accept at that moment is still flushed;
-  a frame whose queue collection or write is still pending is dropped;
+  a frame whose queue collection or write is still pending is dropped, and once
+  a handler run has delivered a push batch the stop can win before the next
+  queued batch is selected;
 - `drained()` still proves every connection task has returned, because the
   tracker drain is unchanged.
 

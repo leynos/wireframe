@@ -2776,13 +2776,16 @@ Two kinds of end of connection behave differently:
   buffered: a write that would block is abandoned rather than awaited, so the
   server drain never blocks on a peer that has stopped reading. A handler run
   that has not yet delivered a push batch is the exception: shutdown does not
-  close its lanes from inside the run, so a push accepted then is queued and
-  written with the response; once that run has delivered a batch, shutdown
-  discards the queued frames and closes the lanes, and a push attempted after
-  that fails with `PushError::Closed`. A write the transport still accepts
-  completes, and only then is the stop observed, so a frame that was queued but
-  not yet written at that point is not guaranteed to arrive. This bound is why
-  accepted connections observe the server stop token;
+  close its lanes from inside the run, so a push accepted then is queued for
+  the run rather than refused. Delivery is still only attempted: the run's
+  write is raced against the stop token, so a write that is blocked when the
+  server stops is abandoned, and a handler response that becomes ready first
+  ends the run with the push still queued. Once that run has delivered a batch,
+  shutdown discards the queued frames and closes the lanes, and a push
+  attempted after that fails with `PushError::Closed`. A write the transport
+  still accepts completes, and only then is the stop observed, so a frame that
+  was queued but not yet written at that point is not guaranteed to arrive.
+  This bound is why accepted connections observe the server stop token;
   [ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md)
   records the decision and its addendum.
 

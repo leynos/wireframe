@@ -775,8 +775,11 @@ server connection instead.
 A clean peer close attempts to drain frames still queued, high priority first,
 though a write that fails or is abandoned drops the frames behind it. On server
 shutdown a running handler keeps its push lanes open until it has delivered its
-first push batch, so a push accepted before then is queued and written; after
-that batch, shutdown discards the queued frames and closes the lanes, and later
-pushes fail with `PushError::Closed`. See the
+first push batch, so a push accepted before then is queued rather than refused.
+Delivery is still only attempted: the run's write is raced against the stop
+token, so a write that is blocked when the server stops is abandoned, and a
+handler response that becomes ready first ends the run with the push still
+queued. After that batch, shutdown discards the queued frames and closes the
+lanes, and later pushes fail with `PushError::Closed`. See the
 [users' guide](users-guide.md#server-connections-and-push-queues) and
 [ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md).
