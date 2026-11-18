@@ -9,8 +9,14 @@
 #![cfg(not(loom))]
 #![forbid(unsafe_code)]
 
+#[path = "common/protocol_request.rs"]
+mod protocol_request;
+
 #[path = "common/recording_protocol.rs"]
 mod recording_protocol;
+
+#[path = "common/tagging_codec.rs"]
+mod tagging_codec;
 
 use std::{
     io,
@@ -22,6 +28,7 @@ use std::{
 
 use bytes::Bytes;
 use futures::stream;
+use protocol_request::request_frame;
 use recording_protocol::{
     HookEvent,
     MARKER,
@@ -31,6 +38,7 @@ use recording_protocol::{
     weak_handle,
 };
 use rstest::rstest;
+use tagging_codec::{TaggingCodec, WRAP_TAG};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
@@ -40,9 +48,9 @@ use wireframe::{
     hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks},
     push::{PushHandle, PushQueues},
     response::{FrameStream, WireframeError},
-    serializer::{BincodeSerializer, Serializer},
+    serializer::BincodeSerializer,
 };
-use wireframe_testing::{TestResult, decode_frames, encode_frame, prepare_and_drive_with_frames};
+use wireframe_testing::{TestResult, decode_frames, prepare_and_drive_with_frames};
 
 /// Frame returned by the recording protocol's `stream_end_frame`.
 const TERMINATOR: u8 = 0xee;
@@ -328,29 +336,26 @@ fn explicit_eof_records_clean_and_partial_events() {
         fixture.events(),
         vec![
             HookEvent::Eof {
-                clean: true,
-                partial_len: 0,
+                error: EofError::CleanClose,
+                partial: Vec::new(),
             },
             HookEvent::Eof {
-                clean: false,
-                partial_len: 3,
+                error: EofError::MidFrame {
+                    bytes_received: 3,
+                    expected: 8,
+                },
+                partial: vec![1, 2, 3],
             },
             HookEvent::Eof {
-                clean: false,
-                partial_len: 1,
+                error: EofError::MidHeader {
+                    bytes_received: 1,
+                    header_size: 4,
+                },
+                partial: vec![9],
             },
         ],
-        "EOF dispatch reports the close kind and the partial bytes it saw"
+        "EOF dispatch forwards the exact error and partial bytes it saw"
     );
-}
-
-/// Encode one request envelope into a length-delimited frame.
-fn request_frame(id: u32) -> TestResult<Vec<u8>> {
-    let payload = BincodeSerializer.serialize(&Envelope::new(id, Some(7), Vec::new()))?;
-    let mut codec = tokio_util::codec::LengthDelimitedCodec::builder()
-        .max_frame_length(1024)
-        .new_codec();
-    Ok(encode_frame(&mut codec, payload)?)
 }
 
 /// Handler that accepts an envelope without changing it.
@@ -362,6 +367,7 @@ async fn prepared_response_runs_before_send_once_on_the_wrapped_frame() -> TestR
     let fixture = RecordingProtocolFixture::<Bytes>::new(None);
     let app = ResponseApp::new()?
         .route(1, echo_handler())?
+        .with_codec(TaggingCodec::new(1024))
         .with_protocol(fixture.protocol());
 
     let bytes = prepare_and_drive_with_frames(app, vec![request_frame(1)?]).await?;
@@ -378,6 +384,11 @@ async fn prepared_response_runs_before_send_once_on_the_wrapped_frame() -> TestR
         .into());
     };
 
+    assert_eq!(
+        observed.last(),
+        Some(&WRAP_TAG),
+        "the hook must run after the codec wrapped the payload: {observed:?}"
+    );
     let mut expected = observed.to_vec();
     expected.push(MARKER);
     assert_eq!(

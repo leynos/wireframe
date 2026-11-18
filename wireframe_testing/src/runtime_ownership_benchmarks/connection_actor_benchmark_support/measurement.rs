@@ -89,7 +89,10 @@ fn workload_hooks(
         workload.cancellation,
         CancellationMode::CancelledDuringDrain
     ) {
-        return hooks.into();
+        // A workload with no callback should exercise the normal no-hook path;
+        // converting the empty custom value would leave every frame checking a
+        // custom slot that is never populated.
+        return ProtocolHooks::default();
     }
 
     let token = shutdown.clone();

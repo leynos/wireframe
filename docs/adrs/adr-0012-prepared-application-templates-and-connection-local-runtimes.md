@@ -505,8 +505,10 @@ one strong reference, and `on_connection_setup` runs at most once per hooks
 value. The frame pipeline holds a crate-private `ConnectionProtocol` pairing
 that hooks value with the connection's single `ConnectionContext`; it is the
 only hook owner on the prepared path, so the connection actor built there is
-handed `ProtocolHooks::None` and keeps neither a protocol reference nor a
-context of its own. An actor driven directly through `with_hooks` is the single
+handed `ProtocolHooks::None`. The actor's own `ConnectionProtocol` field then
+holds an inert `ConnectionContext` that no callback receives, and it holds no
+protocol reference; the pipeline's context is the only one the prepared path
+dispatches against. An actor driven directly through `with_hooks` is the single
 owner instead. That pairing is the input the ownership collapse under
 [#648](https://github.com/leynos/wireframe/issues/648) needs: the actor and
 pipeline can be folded into one runtime without revisiting hook semantics.

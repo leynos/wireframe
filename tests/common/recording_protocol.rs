@@ -44,12 +44,12 @@ pub enum HookEvent<F> {
     ProtocolError,
     /// `stream_end_frame` ran.
     StreamEnd,
-    /// `on_eof` ran; `clean` distinguishes a clean close from a partial one.
+    /// `on_eof` ran with `error` and `partial`.
     Eof {
-        /// `true` when the close happened at a frame boundary.
-        clean: bool,
-        /// Number of bytes received before the close.
-        partial_len: usize,
+        /// The end-of-file condition the connection reported.
+        error: EofError,
+        /// Payload bytes received before the close.
+        partial: Vec<u8>,
     },
 }
 
@@ -130,8 +130,8 @@ where
 
     fn on_eof(&self, error: &EofError, partial_data: &[u8], _ctx: &mut ConnectionContext) {
         self.record(HookEvent::Eof {
-            clean: matches!(error, EofError::CleanClose),
-            partial_len: partial_data.len(),
+            error: *error,
+            partial: partial_data.to_vec(),
         });
     }
 }

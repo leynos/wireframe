@@ -21,7 +21,10 @@ use crate::{codec::EofError, push::PushHandle};
 ///
 /// A protocol-backed connection therefore holds one strong protocol reference,
 /// not one per hook. The protocol object itself may be shared by independent
-/// connections; per-connection mutable state belongs in [`ConnectionContext`].
+/// connections, so its own fields cannot hold per-connection state. Callbacks
+/// on one connection share a single [`ConnectionContext`], which is the
+/// designated home for that state; it is currently empty, so callbacks cannot
+/// store connection-local state yet.
 /// Setup runs at most once per value; the remaining hooks run on every call.
 pub enum ProtocolHooks<F, E> {
     /// No hooks are installed.

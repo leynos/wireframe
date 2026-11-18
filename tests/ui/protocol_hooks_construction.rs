@@ -6,6 +6,7 @@
 
 use std::{io, sync::Arc};
 
+use bytes::Bytes;
 use wireframe::{
     app::{Envelope, WireframeApp},
     codec::EofError,
@@ -26,13 +27,14 @@ impl WireframeProtocol for NonUnitErrorProtocol {
     }
 }
 
-/// Accept the exact owned accessor shape an application exposes.
-fn accept_owned<P>(protocol: Option<Arc<P>>) -> Option<Arc<P>>
-where
-    P: WireframeProtocol<ProtocolError = ()> + ?Sized,
-{
-    protocol
-}
+/// The exact type `WireframeApp::protocol` must return.
+///
+/// Naming it as a function pointer checks the method's own signature; a
+/// generic helper would also accept a concrete handle or a differently framed
+/// trait object, neither of which matches the public contract.
+type ProtocolAccessor = fn(
+    &WireframeApp<BincodeSerializer, (), Envelope>,
+) -> Option<Arc<dyn WireframeProtocol<Frame = Bytes, ProtocolError = ()>>>;
 
 fn main() {
     // Independently registered callbacks convert into the explicit enum.
@@ -63,8 +65,8 @@ fn main() {
     let _: ProtocolHooks<Vec<u8>, io::Error> = ProtocolHooks::from_protocol(&erased);
 
     // The application accessor returns an owned, erased protocol handle.
-    let app: WireframeApp<BincodeSerializer, (), Envelope> =
-        WireframeApp::new().expect("builder");
-    let owned = accept_owned(app.protocol());
+    let app: WireframeApp<BincodeSerializer, (), Envelope> = WireframeApp::new().expect("builder");
+    let accessor: ProtocolAccessor = WireframeApp::<BincodeSerializer, (), Envelope>::protocol;
+    let owned = accessor(&app);
     assert!(owned.is_none(), "no protocol was installed");
 }
