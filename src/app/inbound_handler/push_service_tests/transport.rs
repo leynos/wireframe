@@ -158,12 +158,24 @@ impl TransportRig {
     pub(super) fn transport(
         &mut self,
     ) -> PushTransport<'_, BincodeSerializer, PacedSink, LengthDelimitedFrameCodec> {
+        self.transport_with(PushWriteDiagnostics::new(None, None))
+    }
+
+    /// Borrow the transport reporting the caller's connection diagnostics.
+    ///
+    /// A case that inspects the operator-visible abandonment warning needs a
+    /// connection identity to look for, so it supplies diagnostics naming one
+    /// rather than the anonymous pair [`Self::transport`] builds.
+    pub(super) fn transport_with(
+        &mut self,
+        diagnostics: PushWriteDiagnostics,
+    ) -> PushTransport<'_, BincodeSerializer, PacedSink, LengthDelimitedFrameCodec> {
         PushTransport {
             serializer: &self.serializer,
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.pipeline,
-            diagnostics: PushWriteDiagnostics::new(None, None),
+            diagnostics,
         }
     }
 
