@@ -7,12 +7,6 @@
 #![cfg(not(loom))]
 #![forbid(unsafe_code)]
 
-// The harness is shared with `server_push`, which uses the preload and
-// setup-record helpers this binary does not drive.
-#[expect(
-    dead_code,
-    reason = "the shared push harness also serves `server_push`"
-)]
 #[path = "common/server_push_support.rs"]
 mod support;
 

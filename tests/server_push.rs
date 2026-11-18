@@ -11,6 +11,10 @@
 
 #[path = "common/server_push_support.rs"]
 mod support;
+// The preload constructor is an inherent impl, so this declaration adds it to
+// this binary without naming the module at any call site.
+#[path = "common/server_push_preload.rs"]
+mod preload_support;
 
 use std::sync::Arc;
 

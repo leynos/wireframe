@@ -2,7 +2,9 @@
 //!
 //! The protocol records the [`PushHandle`] it receives at setup so a test can
 //! push frames the way application code would, while the helpers own the
-//! server lifecycle and the length-delimited client reads.
+//! server lifecycle and the length-delimited client reads. The constructor for
+//! frames preloaded during setup lives in `server_push_preload`, so a binary
+//! that never preloads a frame does not carry it.
 
 use std::{
     net::SocketAddr,
@@ -42,22 +44,17 @@ pub struct SetupRecord {
 #[derive(Clone, Default)]
 pub struct PushTestProtocol {
     /// Records captured by `on_connection_setup`, oldest first.
-    setups: Arc<Mutex<Vec<SetupRecord>>>,
+    pub(crate) setups: Arc<Mutex<Vec<SetupRecord>>>,
     /// Frames queued during setup, before the connection reads anything.
-    preloaded: Arc<Vec<(Bytes, PushPriority)>>,
+    ///
+    /// Set through the `server_push_preload` constructor, which only the
+    /// binary that tests preloaded frames compiles.
+    pub(crate) preloaded: Arc<Vec<(Bytes, PushPriority)>>,
 }
 
 impl PushTestProtocol {
     /// Build a protocol with no preloaded frames.
     pub fn new() -> Self { Self::default() }
-
-    /// Build a protocol that queues `preloaded` during every setup.
-    pub fn with_preloaded(preloaded: Vec<(Bytes, PushPriority)>) -> Self {
-        Self {
-            preloaded: Arc::new(preloaded),
-            ..Self::default()
-        }
-    }
 
     /// Wait until at least `count` connections have completed setup.
     pub async fn wait_for_setups(&self, count: usize) -> TestResult<Vec<SetupRecord>> {
