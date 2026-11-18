@@ -5,7 +5,74 @@
 //! stop. These cases hold the shutdown token open so only the grace can end the
 //! write, and then read what the operator would see.
 
+use std::net::SocketAddr;
+
+use metrics::{SharedString, Unit};
+use metrics_util::{
+    CompositeKey,
+    debugging::{DebugValue, DebuggingRecorder},
+};
+use wireframe_testing::{LoggerHandle, logger};
+
 use super::*;
+use crate::{
+    app::PushWriteDiagnostics,
+    metrics::PUSH_WRITES_ABANDONED,
+    push::PushPriority,
+    session::ConnectionId,
+};
+
+/// One recorded metric sample, as the debugging recorder reports it.
+type MetricSample = (CompositeKey, Option<Unit>, Option<SharedString>, DebugValue);
+
+/// Tally the abandonment counter and read back the reasons it was labelled with.
+fn abandonment(samples: &[MetricSample]) -> (u64, Vec<String>) {
+    let mut count = 0;
+    let mut reasons = Vec::new();
+    for (key, _, _, value) in samples
+        .iter()
+        .filter(|(key, ..)| key.key().name() == PUSH_WRITES_ABANDONED)
+    {
+        if let DebugValue::Counter(recorded) = value {
+            count += *recorded;
+        }
+        reasons.extend(
+            key.key()
+                .labels()
+                .filter(|label| label.key() == "reason")
+                .map(|label| label.value().to_owned()),
+        );
+    }
+    (count, reasons)
+}
+
+/// Collect the captured log records that name one connection.
+///
+/// The log buffer is process-wide, so only records naming this connection count
+/// as this test's abandonment.
+fn warnings_for(log: &mut LoggerHandle, connection_id: ConnectionId) -> Vec<String> {
+    std::iter::from_fn(|| log.pop())
+        .map(|record| record.args().to_owned())
+        .filter(|message| message.contains(&connection_id.to_string()))
+        .collect()
+}
+
+/// Assert the abandonment warning carries every operator-visible field.
+fn assert_warning_names(warning: &str, peer: SocketAddr) {
+    let peer_field = format!("peer_addr=Some({peer})");
+    let elapsed_field = format!("elapsed_ms={}", PEER_CLOSED_RESPONSE_GRACE.as_millis());
+    for fragment in [
+        peer_field.as_str(),
+        r#"priority="high""#,
+        r#"reason="idle_grace_expired""#,
+        elapsed_field.as_str(),
+    ] {
+        assert!(
+            warning.contains(fragment),
+            "the abandonment warning must name {fragment}; captured: {warning}"
+        );
+    }
+}
 
 /// An idle grace that abandons a drain write is counted and warned about.
 ///
@@ -21,18 +88,6 @@ use super::*;
 async fn an_idle_grace_abandoned_drain_write_is_counted_and_warned(
     #[from(blocked_transport)] mut harness: TransportRig,
 ) {
-    use std::net::SocketAddr;
-
-    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-    use wireframe_testing::logger;
-
-    use crate::{
-        app::PushWriteDiagnostics,
-        metrics::PUSH_WRITES_ABANDONED,
-        push::PushPriority,
-        session::ConnectionId,
-    };
-
     let connection_id = ConnectionId::new(4_301);
     let peer = SocketAddr::from(([127, 0, 0, 1], 9_044));
     let shutdown = CancellationToken::new();
@@ -73,33 +128,18 @@ async fn an_idle_grace_abandoned_drain_write_is_counted_and_warned(
         "the abandonment must keep the peer-closed state it was given"
     );
 
-    let samples = snapshotter.snapshot().into_vec();
-    let (key, _, _, value) = samples
-        .iter()
-        .find(|(key, ..)| key.key().name() == PUSH_WRITES_ABANDONED)
-        .expect("the idle-grace abandonment must be counted");
-    assert!(
-        matches!(value, DebugValue::Counter(1)),
+    let (abandonments, reasons) = abandonment(&snapshotter.snapshot().into_vec());
+    assert_eq!(
+        abandonments, 1,
         "the drain must record exactly one abandonment"
     );
-    let reasons: Vec<_> = key
-        .key()
-        .labels()
-        .filter(|label| label.key() == "reason")
-        .map(::metrics::Label::value)
-        .collect();
     assert_eq!(
         reasons,
         ["idle_grace_expired"],
         "the grace, not the shutdown token, ended this write"
     );
 
-    // The log buffer is process-wide, so only records naming this connection
-    // count as this test's abandonment.
-    let warnings: Vec<String> = std::iter::from_fn(|| log.pop())
-        .map(|record| record.args().to_owned())
-        .filter(|message| message.contains(&connection_id.to_string()))
-        .collect();
+    let warnings = warnings_for(&mut log, connection_id);
     assert_eq!(
         warnings.len(),
         1,
@@ -108,17 +148,5 @@ async fn an_idle_grace_abandoned_drain_write_is_counted_and_warned(
     let warning = warnings
         .first()
         .expect("the single captured warning must be inspectable");
-    let peer_field = format!("peer_addr=Some({peer})");
-    let elapsed_field = format!("elapsed_ms={}", PEER_CLOSED_RESPONSE_GRACE.as_millis());
-    for fragment in [
-        peer_field.as_str(),
-        r#"priority="high""#,
-        r#"reason="idle_grace_expired""#,
-        elapsed_field.as_str(),
-    ] {
-        assert!(
-            warning.contains(fragment),
-            "the abandonment warning must name {fragment}; captured: {warning}"
-        );
-    }
+    assert_warning_names(warning, peer);
 }
