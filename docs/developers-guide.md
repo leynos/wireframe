@@ -440,8 +440,10 @@ codec-wrapped frame after serialization and `wrap_payload`, immediately before
 connection's only hook owner: it carries the installed protocol and the
 context, and it dispatches every callback, including the protocol error and the
 completion hook that follow a response. The actor built for that path holds a
-`ProtocolHooks::None` value instead, so it never keeps a second protocol
-reference or a second context. When a caller drives a `ConnectionActor`
+`ProtocolHooks::None` value instead, so it keeps no second protocol reference
+and invokes no callback. Its own `ConnectionProtocol` still constructs an inert
+`ConnectionContext`, but nothing dispatches against it: only the pipeline's
+context reaches callbacks. When a caller drives a `ConnectionActor`
 directly with `with_hooks`, the actor's own value is the single owner. Either
 way the owner is built once and its context reused for the connection's
 lifetime, so dispatching needs no `Arc<Mutex<_>>`; the context carries the
@@ -454,13 +456,20 @@ installed protocol and dispatches every callback through it; the enum's
 installs it, but a connection never clones the protocol per callback.
 
 The hook therefore receives the exact frame that will be written, and its
-mutation reaches the wire. Hook output must still fit the codec's
-`max_frame_length`. The pipeline does not check this limit: the default
-`LengthDelimitedFrameCodec` rejects an oversized frame, so the send fails and
-ends the connection, while a custom encoder must enforce `max_frame_length`
-itself. Only the direct response helpers, which write to a stream the caller
-supplies rather than through the prepared application, bypass `before_send`. The
-[users' guide](users-guide.md) states the user-facing contract.
+mutation reaches the wire. It is the pre-transport boundary, not a
+pre-serialization one: `before_send` takes `&mut F::Frame`, so it cannot see the
+`Envelope`, and moving it ahead of serialization would reopen
+[ADR 010](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md).
+The 2026-11-18 addendum to
+[ADR 012](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
+records that reading and the prepared path's lifecycle contract. Hook output
+must still fit the codec's `max_frame_length`. The pipeline does not check this
+limit: the default `LengthDelimitedFrameCodec` rejects an oversized frame, so
+the send fails and ends the connection, while a custom encoder must enforce
+`max_frame_length` itself. Only the direct response helpers, which write to a
+stream the caller supplies rather than through the prepared application, bypass
+`before_send`. The [users' guide](users-guide.md) states the user-facing
+contract.
 
 Every prepared server connection now owns an untracked `ConnectionActor` built
 by `src/app/inbound_handler/actor.rs`. Handler responses — including
