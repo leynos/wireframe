@@ -1059,6 +1059,17 @@ The per-step maintenance actions the loop schedules live in
 delivery, and the terminal paths. `stream_dispatch.rs` reads as the decision of
 what happens next, and `stream_actions.rs` as the work each decision does.
 
+Every action that writes, drains, or closes a reply runs through
+`stream_observed.rs` rather than being awaited directly. A reply may stream for
+an unbounded time, and forwarding it blocks for as long as the peer declines to
+read, so the reader is polled alongside the write. A peer that half-closes is
+then observed during the write, which arms the actor's peer-close grace and
+bounds the connection instead of leaving it waiting on a producer nobody can
+interrupt. The delivery outcome decides whether anything else may be written: a
+`Dispatch::Stop` from failing a body suppresses the parked drain that follows
+the peer's end of stream, because a cancelled reply can leave a partial frame
+behind and each later message would be read as part of the broken stream.
+
 The frame-processing future is boxed at exactly one boundary.
 `ConnectionRuntime::run` drives `ConnectionRuntime::process` behind a pinned
 `BoxFuture`, so the runtime's own state machine holds a pointer rather than the

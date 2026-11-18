@@ -170,6 +170,38 @@ the connection, because a peer that half-closed its sending direction may still
 be reading. If the peer has gone entirely, that write fails and ends the
 connection; the handler's observation of the body error is unaffected.
 
+## Addendum (2026-11-18): replies are peer-observed while they are written
+
+Section 5 says a reply produced while the body is being closed is written to
+the connection, and that the write fails and ends the connection when the peer
+has gone entirely. That holds only while the peer's read half is observed
+during the write.
+
+Forwarding a reply writes to the transport, which blocks for as long as the
+peer declines to read, and a reply may stream for an unbounded time. The loop
+therefore polls the reader alongside every reply-producing action: dispatching
+a frame, draining parked messages, forwarding the reply of a handler that
+resolved while the loop waited, and failing a body whose request was cut short.
+A peer that half-closes is observed during the write, which arms the actor's
+peer-close grace; a write that makes no progress within the grace is abandoned
+and the connection stops.
+
+The delivery outcome of that write decides whether anything else may be served.
+A reply that fails or is cancelled can leave a partial frame on the wire, so a
+`Dispatch::Stop` from failing the body suppresses the parked drain that follows
+a peer's end of stream; those messages would otherwise be read as part of the
+broken stream.
+
+The consequences above name `stream_dispatch.rs`, `stream_slot.rs`, and
+`stream_parked.rs`. The loop's maintenance actions now live in
+`stream_actions.rs` and its peer-observed reply path in `stream_observed.rs`,
+so each module stays within the repository's size limit.
+
+`src/app/inbound_handler/stream_reply_watch_tests.rs` pins the behaviour: a
+reply that outgrows the transport buffer ends at the peer-close grace once the
+peer stops reading, and a cancelled reply serves no parked message. Reverting
+the dispatch to an unobserved write makes both tests fail by never completing.
+
 ## Consequences
 
 - Protocol crates can process large inbound messages incrementally without
