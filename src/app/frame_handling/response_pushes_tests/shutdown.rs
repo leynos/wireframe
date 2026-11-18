@@ -16,9 +16,7 @@ use std::{
 use futures::Sink;
 use tokio_util::sync::CancellationToken;
 
-use super::{
-    super::response_pushes::run_handler_with_pushes, HandlerRig, queued_push,
-};
+use super::{super::response_pushes::run_handler_with_pushes, HandlerRig, queued_push};
 use crate::test_helpers::frame_codec::TestFrame;
 
 /// Sink that records every frame and requests shutdown after the first one.

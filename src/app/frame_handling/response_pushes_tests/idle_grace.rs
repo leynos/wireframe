@@ -15,7 +15,10 @@ use rstest::rstest;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    super::response_pushes::run_handler_with_pushes, BlockedRigFixture, DeferredHandler, blocked_rig,
+    super::response_pushes::run_handler_with_pushes,
+    BlockedRigFixture,
+    DeferredHandler,
+    blocked_rig,
 };
 use crate::metrics::PUSH_WRITES_ABANDONED;
 

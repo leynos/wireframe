@@ -56,10 +56,8 @@ async fn an_idle_grace_abandoned_drain_write_is_counted_and_warned(
         let _recorder = ::metrics::set_default_local_recorder(&recorder);
         // `peer_closed` skips the observation select, so the blocked write is
         // handed straight to `finish_write` under the uncancelled token.
-        let mut transport = harness.transport_with(PushWriteDiagnostics::new(
-            Some(connection_id),
-            Some(peer),
-        ));
+        let mut transport =
+            harness.transport_with(PushWriteDiagnostics::new(Some(connection_id), Some(peer)));
         write_frame(
             &mut transport,
             Bytes::from_static(b"stalled"),

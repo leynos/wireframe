@@ -24,8 +24,8 @@ const FAIRNESS_THRESHOLD: usize = 8;
 type LaneFrame = (bool, u8);
 
 /// Build an actor whose lanes accept every generated interleaving.
-fn actor_with_lanes(
-) -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>), TestCaseError> {
+fn actor_with_lanes() -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>), TestCaseError>
+{
     let (queues, handle) = PushQueues::<Envelope>::builder()
         .high_capacity(64)
         .low_capacity(64)
@@ -171,7 +171,8 @@ fn assert_overtaking_needs_a_burst(
             .count();
         prop_assert!(
             urgent_before >= FAIRNESS_THRESHOLD,
-            "best-effort frame {marker} overtook urgent traffic after only {urgent_before} urgent frames"
+            "best-effort frame {marker} overtook urgent traffic after only {urgent_before} urgent \
+             frames"
         );
     }
     Ok(())

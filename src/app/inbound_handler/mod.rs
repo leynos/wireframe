@@ -12,22 +12,21 @@
 //! [`process_connection`] and its inputs are split across the submodules by
 //! responsibility:
 //!
-//! - `core` drives one connection: it prepares framing, builds the response
-//!   actor that owns the push lanes, and loops over inbound work.
-//! - `actor` builds that response actor, allocates the connection's identifier,
-//!   registers its push handle, and installs the guard that deregisters it when
-//!   the connection ends.
-//! - `frames` holds the buffered inbound frame and the read deadline, and runs
-//!   the timeout's expiry command.
-//! - `push_service` races queued pushes against the reader, writes the batch
-//!   the actor hands over, and drains the lanes once the peer closes.
-//! - `push_write` bounds each push write by the stop token and, when the peer
-//!   can no longer be observed, by the idle grace.
+//! - `core` drives one connection: it prepares framing, builds the response actor that owns the
+//!   push lanes, and loops over inbound work.
+//! - `actor` builds that response actor, allocates the connection's identifier, registers its push
+//!   handle, and installs the guard that deregisters it when the connection ends.
+//! - `frames` holds the buffered inbound frame and the read deadline, and runs the timeout's expiry
+//!   command.
+//! - `push_service` races queued pushes against the reader, writes the batch the actor hands over,
+//!   and drains the lanes once the peer closes.
+//! - `push_write` bounds each push write by the stop token and, when the peer can no longer be
+//!   observed, by the idle grace.
 //! - `dispatch` decodes an envelope and runs it through the middleware chain.
-//! - `framing` and `peer_watch` prepare the transport halves and observe the
-//!   peer while a response is written.
-//! - `tests` covers envelope decoding, decode-failure diagnostics, and the
-//!   unprepared compatibility path.
+//! - `framing` and `peer_watch` prepare the transport halves and observe the peer while a response
+//!   is written.
+//! - `tests` covers envelope decoding, decode-failure diagnostics, and the unprepared compatibility
+//!   path.
 //!
 //! Route preparation lives here too: a `WireframeApp` hands
 //! [`process_connection`] the push queues, the [`SessionRegistry`], and the
