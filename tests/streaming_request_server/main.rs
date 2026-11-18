@@ -7,8 +7,8 @@
 //! - [`delivery`] proves a body split across frames reaches the handler while later frames are
 //!   still unsent, that a one-frame message arrives as one chunk, and that a connection closed
 //!   mid-body reports `UnexpectedEof`.
-//! - [`back_pressure`] proves a handler that stops reading stalls the peer through the socket, and
-//!   that a message parked behind a live body is still answered.
+//! - [`back_pressure`] proves a handler that stops reading stalls the peer through the socket.
+//! - [`parking`] proves a message parked behind a live body is still answered.
 //! - [`middleware`] proves a streaming route bypasses the middleware chain while a buffered route
 //!   on the same connection still runs it.
 //!
@@ -27,4 +27,5 @@ mod tagging;
 mod back_pressure;
 mod delivery;
 mod middleware;
+mod parking;
 mod support;

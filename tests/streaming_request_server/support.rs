@@ -40,6 +40,11 @@ use wireframe_testing::{
 pub(crate) const STREAM_ROUTE: u32 = 90;
 /// Route identifier served by the buffered middleware-bypass control.
 pub(crate) const BUFFER_ROUTE: u32 = 1;
+/// Message key of the live streaming body in the wire scenarios.
+///
+/// Continuation frames reuse it, so a scenario that sends one body and one
+/// parked message needs a distinct key for each.
+pub(crate) const LIVE_KEY: u64 = 21;
 /// Per-connection frame budget.
 pub(crate) const BUFFER_CAPACITY: usize = 512;
 /// Longest any single network step may wait before the test fails.
