@@ -11,23 +11,13 @@ use std::{
 };
 
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
-use tokio::sync::oneshot;
+use rstest::rstest;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    super::{ResponseContext, response_pushes::run_handler_with_pushes},
-    BlockingSink,
-    DeferredHandler,
-    MAX_FRAME_LENGTH,
-    build_actor,
-    queued_push,
+    super::response_pushes::run_handler_with_pushes, BlockedRigFixture, DeferredHandler, blocked_rig,
 };
-use crate::{
-    app::codec_driver::FramePipeline,
-    metrics::PUSH_WRITES_ABANDONED,
-    serializer::BincodeSerializer,
-    test_helpers::frame_codec::{TestCodec, TestFrame},
-};
+use crate::metrics::PUSH_WRITES_ABANDONED;
 
 /// An idle-grace abandonment is counted with the reason that ended it.
 ///
@@ -37,35 +27,20 @@ use crate::{
 /// `idle_grace_expired`; removing that `record_abandonment` call leaves the
 /// counter unrecorded and fails this test.
 #[cfg(feature = "metrics")]
+#[rstest]
 #[tokio::test(start_paused = true)]
-async fn an_idle_grace_abandoned_write_is_counted_as_such() {
+async fn an_idle_grace_abandoned_write_is_counted_as_such(blocked_rig: BlockedRigFixture) {
     let grace = Duration::from_secs(5);
-    let (mut actor, handle) = build_actor(CancellationToken::new()).expect("actor queues build");
-    actor.set_peer_closed_grace(grace);
+    let (mut rig, _release) = blocked_rig.expect("the rig's queues build");
+    rig.actor.set_peer_closed_grace(grace);
     let peer_closed = CancellationToken::new();
-    actor.set_peer_closed(peer_closed.clone());
-    handle
-        .push_high_priority(queued_push())
-        .await
-        .expect("the lane has capacity");
-    let (_release, blocked) = oneshot::channel();
-    let mut sink = BlockingSink::new(blocked);
-    let codec = TestCodec::new(MAX_FRAME_LENGTH);
-    let serializer = BincodeSerializer;
-    let mut pipeline: FramePipeline<TestFrame> = FramePipeline::new(None);
-    let mut ctx = ResponseContext {
-        serializer: &serializer,
-        sink: &mut sink,
-        pipeline: &mut pipeline,
-        codec: &codec,
-        actor: &mut actor,
-        protocol: None,
-    };
+    rig.actor.set_peer_closed(peer_closed.clone());
     let call = DeferredHandler::new(Arc::new(AtomicBool::new(false)));
 
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
     let response = {
+        let mut ctx = rig.context();
         let _recorder = ::metrics::set_default_local_recorder(&recorder);
         let running = run_handler_with_pushes(&mut ctx, call);
         tokio::pin!(running);
@@ -89,7 +64,7 @@ async fn an_idle_grace_abandoned_write_is_counted_as_such() {
         "a response behind an abandoned write must not be returned"
     );
     assert!(
-        sink.written.is_empty(),
+        rig.sink.written.is_empty(),
         "the abandoned write must not reach the transport"
     );
 

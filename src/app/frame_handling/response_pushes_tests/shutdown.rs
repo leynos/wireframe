@@ -17,16 +17,9 @@ use futures::Sink;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    super::{ResponseContext, response_pushes::run_handler_with_pushes},
-    MAX_FRAME_LENGTH,
-    build_actor,
-    queued_push,
+    super::response_pushes::run_handler_with_pushes, HandlerRig, queued_push,
 };
-use crate::{
-    app::codec_driver::FramePipeline,
-    serializer::BincodeSerializer,
-    test_helpers::frame_codec::{TestCodec, TestFrame},
-};
+use crate::test_helpers::frame_codec::TestFrame;
 
 /// Sink that records every frame and requests shutdown after the first one.
 ///
@@ -72,34 +65,26 @@ impl Sink<TestFrame> for StopAfterFirstWrite {
 #[tokio::test]
 async fn shutdown_between_push_batches_abandons_the_handler() {
     let shutdown = CancellationToken::new();
-    let (mut actor, handle) = build_actor(shutdown.clone()).expect("actor queues build");
-    let mut sink = StopAfterFirstWrite {
-        shutdown: Some(shutdown),
+    let sink = StopAfterFirstWrite {
+        shutdown: Some(shutdown.clone()),
         written: Vec::new(),
     };
-    let codec = TestCodec::new(MAX_FRAME_LENGTH);
-    let serializer = BincodeSerializer;
-    let mut pipeline: FramePipeline<TestFrame> = FramePipeline::new(None);
-    let mut ctx = ResponseContext {
-        serializer: &serializer,
-        sink: &mut sink,
-        pipeline: &mut pipeline,
-        codec: &codec,
-        actor: &mut actor,
-        protocol: None,
-    };
-    let producer = handle.clone();
+    let mut rig = HandlerRig::new(shutdown, sink).expect("actor queues build");
     // The handler pushes once and then never finishes, so only a shutdown that
     // is observed between batches can end the run.
-    let call = async move {
-        producer
-            .push_high_priority(queued_push())
-            .await
-            .expect("the lane has capacity");
-        std::future::pending::<()>().await;
+    let call = {
+        let producer = rig.handle.clone();
+        async move {
+            producer
+                .push_high_priority(queued_push())
+                .await
+                .expect("the lane has capacity");
+            std::future::pending::<()>().await;
+        }
     };
 
     let response = {
+        let mut ctx = rig.context();
         let running = run_handler_with_pushes(&mut ctx, call);
         tokio::time::timeout(Duration::from_secs(5), running)
             .await
@@ -112,12 +97,12 @@ async fn shutdown_between_push_batches_abandons_the_handler() {
         "an abandoned handler must not deliver a response"
     );
     assert_eq!(
-        sink.written.len(),
+        rig.sink.written.len(),
         1,
         "the frame written before the stop reached the transport"
     );
     assert_eq!(
-        handle.push_high_priority(queued_push()).await,
+        rig.handle.push_high_priority(queued_push()).await,
         Err(crate::push::PushError::Closed),
         "the abandoned run must stop accepting pushes"
     );
@@ -132,41 +117,33 @@ async fn shutdown_between_push_batches_abandons_the_handler() {
 #[tokio::test]
 async fn shutdown_takes_precedence_over_a_queued_push_batch() {
     let shutdown = CancellationToken::new();
-    let (mut actor, handle) = build_actor(shutdown.clone()).expect("actor queues build");
-    let mut sink = StopAfterFirstWrite {
+    let sink = StopAfterFirstWrite {
         // The first write requests the stop, so it is pending by the time the
         // loop looks for another batch.
-        shutdown: Some(shutdown),
+        shutdown: Some(shutdown.clone()),
         written: Vec::new(),
     };
-    let codec = TestCodec::new(MAX_FRAME_LENGTH);
-    let serializer = BincodeSerializer;
-    let mut pipeline: FramePipeline<TestFrame> = FramePipeline::new(None);
-    let mut ctx = ResponseContext {
-        serializer: &serializer,
-        sink: &mut sink,
-        pipeline: &mut pipeline,
-        codec: &codec,
-        actor: &mut actor,
-        protocol: None,
-    };
-    let producer = handle.clone();
+    let mut rig = HandlerRig::new(shutdown, sink).expect("actor queues build");
     // The second push can only complete once the actor has taken the first
     // batch, so it is queued while that batch is being written. The handler
     // then never finishes, leaving the run to the stop token alone.
-    let call = async move {
-        producer
-            .push_high_priority(queued_push())
-            .await
-            .expect("the lane has capacity");
-        producer
-            .push_high_priority(queued_push())
-            .await
-            .expect("the drained lane has capacity");
-        std::future::pending::<()>().await;
+    let call = {
+        let producer = rig.handle.clone();
+        async move {
+            producer
+                .push_high_priority(queued_push())
+                .await
+                .expect("the lane has capacity");
+            producer
+                .push_high_priority(queued_push())
+                .await
+                .expect("the drained lane has capacity");
+            std::future::pending::<()>().await;
+        }
     };
 
     let response = {
+        let mut ctx = rig.context();
         let running = run_handler_with_pushes(&mut ctx, call);
         tokio::time::timeout(Duration::from_secs(5), running)
             .await
@@ -179,17 +156,17 @@ async fn shutdown_takes_precedence_over_a_queued_push_batch() {
         "an abandoned handler must not deliver a response"
     );
     assert_eq!(
-        sink.written.len(),
+        rig.sink.written.len(),
         1,
         "the queued batch must be discarded rather than written"
     );
     assert_eq!(
-        sink.written.first().map(|frame| frame.tag),
+        rig.sink.written.first().map(|frame| frame.tag),
         Some(7),
         "the only frame written must be the first batch's push"
     );
     assert_eq!(
-        handle.push_high_priority(queued_push()).await,
+        rig.handle.push_high_priority(queued_push()).await,
         Err(crate::push::PushError::Closed),
         "the abandoned run must stop accepting pushes"
     );
