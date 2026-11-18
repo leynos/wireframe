@@ -48,28 +48,8 @@ impl<F, E> Default for ProtocolHooks<F, E> {
 impl<F, E> From<CustomProtocolHooks<F, E>> for ProtocolHooks<F, E> {
     /// Wrap independently registered callbacks as connection hooks.
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// use bytes::Bytes;
-    /// use wireframe::hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks};
-    ///
-    /// let custom = CustomProtocolHooks::<Bytes, ()> {
-    ///     before_send: Some(Box::new(
-    ///         |frame: &mut Bytes, _ctx: &mut ConnectionContext| {
-    ///             let mut tagged = frame.to_vec();
-    ///             tagged.push(0xff);
-    ///             *frame = Bytes::from(tagged);
-    ///         },
-    ///     )),
-    ///     ..CustomProtocolHooks::default()
-    /// };
-    /// let mut hooks: ProtocolHooks<Bytes, ()> = custom.into();
-    ///
-    /// let mut frame = Bytes::from_static(b"payload");
-    /// hooks.before_send(&mut frame, &mut ConnectionContext::default());
-    /// assert_eq!(frame.as_ref(), b"payload\xff".as_slice());
-    /// ```
+    /// [`CustomProtocolHooks`] documents the conversion example, including
+    /// the `into()` call and the frame it produces.
     fn from(hooks: CustomProtocolHooks<F, E>) -> Self { Self::Custom(hooks) }
 }
 

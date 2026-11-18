@@ -3,6 +3,7 @@
 //! The fixture pins four construction paths: independently registered
 //! callbacks, a concrete protocol with a non-unit error type, an erased
 //! protocol object, and the owned handle the application accessor returns.
+#![forbid(unsafe_code)]
 
 use std::{io, sync::Arc};
 
