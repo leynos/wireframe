@@ -163,7 +163,7 @@ where
             )
             .await,
             &mut inbound,
-            &mut runtime.recovery,
+            &runtime.recovery,
         )?;
         // A cancelled response left its stream without a terminator, so any
         // further response would be read as part of it. Drop the buffered

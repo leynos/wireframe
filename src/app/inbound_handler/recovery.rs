@@ -12,17 +12,21 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use super::{
-    super::{
-        frame_handling::Dispatch,
-        recovery_codec::{DecodeFailure, DecodeOrigin, DecodedItem},
-    },
-    frames::{InboundFrames, purge_expired},
+    super::recovery_codec::{DecodeFailure, DecodeOrigin},
+    frames::purge_expired,
 };
 use crate::{
     app::codec_driver::FramePipeline,
     codec::{CodecError, CodecErrorContext, RecoveryConfig, RecoveryPolicy, RecoveryPolicyHook},
     message_assembler::MessageAssemblyState,
 };
+
+// A sibling file rather than a `recovery/` directory: this module remains one
+// flat file beside its tests.
+#[path = "recovery_loop.rs"]
+mod recovery_loop;
+
+pub(super) use recovery_loop::{resolve_read_item, settle_dispatch};
 
 /// What the connection loop should do after a decoder failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -33,6 +37,31 @@ pub(super) enum RecoveryAction {
     Quarantine(Duration),
     /// Stop reading and return the original error to the teardown path.
     Disconnect,
+}
+
+/// The hook's selection and the policy actually applied to one failure.
+///
+/// They differ whenever a fallback overrides the hook, and a failure the
+/// connection can no longer act on reports neither.
+#[derive(Clone, Copy)]
+struct ReportedPolicies {
+    /// Policy selected before any fallback; logged for comparison.
+    selected: RecoveryPolicy,
+    /// Policy the connection loop applied, reported to the hook and the metric.
+    applied: RecoveryPolicy,
+}
+
+impl ReportedPolicies {
+    /// The single policy a closing connection reports.
+    ///
+    /// No hook policy can take effect, so the selection mirrors the applied
+    /// disconnect rather than naming a policy that was never considered.
+    const fn terminal() -> Self {
+        Self {
+            selected: RecoveryPolicy::Disconnect,
+            applied: RecoveryPolicy::Disconnect,
+        }
+    }
 }
 
 /// The applied action paired with the error that produced it.
@@ -169,13 +198,38 @@ impl<'a> RecoveryCoordinator<'a> {
         let applied = self.apply_fallbacks(selected, origin, consumed);
         let action = self.action_for(applied, error, &context);
 
+        self.publish(error, &context, ReportedPolicies { selected, applied });
+
+        action
+    }
+
+    /// Report a failure the connection can no longer act on.
+    ///
+    /// A response that ends the connection abandons any prefetched failure: its
+    /// frame is discarded and the connection closes whatever the hook would
+    /// have selected. Reporting that selection would claim a drop or a
+    /// quarantine that never happened, so the failure is reported as the
+    /// disconnect it actually is. The hook is not asked for a policy, because
+    /// no policy can be applied on this path.
+    pub(super) fn report_terminal(&self, failure: DecodeFailure) {
+        let (error, ..) = failure.into_parts();
+        let context = self.error_context();
+        let policies = ReportedPolicies::terminal();
+
+        match codec_error_in(&error) {
+            Some(codec_error) => self.publish(codec_error, &context, policies),
+            None => self.publish(&CodecError::Io(error), &context, policies),
+        }
+    }
+
+    /// Report one decided failure to the hook, the metric, and the log.
+    fn publish(&self, error: &CodecError, context: &CodecErrorContext, policies: ReportedPolicies) {
+        let ReportedPolicies { selected, applied } = policies;
         if let Some(hook) = self.hook {
-            hook.on_error(error, &context, applied);
+            hook.on_error(error, context, applied);
         }
         crate::metrics::inc_codec_error(error.error_type(), applied.as_str());
         self.log_failure(error, selected, applied);
-
-        action
     }
 
     /// Build the context reported to the hook for one failure.
@@ -280,72 +334,13 @@ fn codec_error_in(error: &io::Error) -> Option<&CodecError> {
 }
 
 #[cfg(test)]
+#[path = "recovery_dispatch_tests.rs"]
+mod dispatch_tests;
+
+#[cfg(test)]
+#[path = "recovery_test_support.rs"]
+mod test_support;
+
+#[cfg(test)]
 #[path = "recovery_tests.rs"]
 mod tests;
-
-/// Resolve one read item into the frame the loop must dispatch.
-///
-/// A decoder failure is handled here rather than inside the dispatch step: the
-/// recovery policy can discard or quarantine it, which is a property of the
-/// read loop rather than of dispatching one decoded frame. `None` means the
-/// applied policy discarded the failure, so the loop reads again; a policy that
-/// ends the connection returns the decoder's own error.
-pub(super) async fn resolve_read_item<T>(
-    item: DecodedItem<T>,
-    inbound: &mut InboundFrames<DecodedItem<T>, T>,
-    recovery: &mut RecoveryCoordinator<'_>,
-    shutdown: &CancellationToken,
-) -> io::Result<Option<T>> {
-    match item {
-        DecodedItem::Frame(frame) => {
-            recovery.record_decoded_frame();
-            Ok(Some(frame))
-        }
-        DecodedItem::Failure(failure) => recovery
-            .apply(
-                failure,
-                RecoveryState {
-                    pipeline: &mut inbound.pipeline,
-                    message_assembly: &mut inbound.message_assembly,
-                    shutdown,
-                },
-            )
-            .await
-            .map_or(Ok(None), Err),
-    }
-}
-
-/// Report a decoder failure prefetched while a response was in flight.
-///
-/// The read half buffers at most one item while a response runs. When that
-/// response ends the connection, the buffered failure never reaches
-/// [`resolve_read_item`], so its hook callback and metric would be lost.
-/// Nothing is applied here: the connection is already ending, so only the
-/// observation is owed.
-pub(super) fn report_pending_failure<T>(
-    inbound: &mut InboundFrames<DecodedItem<T>, T>,
-    recovery: &mut RecoveryCoordinator<'_>,
-) {
-    if let Some(DecodedItem::Failure(failure)) = inbound.pending.take() {
-        drop(recovery.evaluate(failure));
-    }
-}
-
-/// Settle one dispatch, reporting any buffered failure on a terminal outcome.
-///
-/// Continuing dispatch leaves a buffered failure for
-/// [`resolve_read_item`] on the next iteration, which is where its policy is
-/// applied. An error or a `Stop` ends the connection, so the pending failure is
-/// reported here instead: the hook callback and metric still observe it, but no
-/// quarantine or further read is started for a connection that is closing.
-pub(super) fn settle_dispatch<T>(
-    dispatch: io::Result<Dispatch>,
-    inbound: &mut InboundFrames<DecodedItem<T>, T>,
-    recovery: &mut RecoveryCoordinator<'_>,
-) -> io::Result<Dispatch> {
-    if matches!(dispatch, Ok(Dispatch::Continue)) {
-        return Ok(Dispatch::Continue);
-    }
-    report_pending_failure(inbound, recovery);
-    dispatch
-}

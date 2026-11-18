@@ -1,140 +1,17 @@
-//! Tests for decoder-failure recovery evaluation and reporting.
+//! Tests for decoder-failure recovery evaluation.
+//!
+//! These cover how one failure is classified, escalated, and reported. The
+//! loop-level tests that settle a dispatch live beside
+//! [`super::dispatch_tests`].
 
-use std::{io, net::SocketAddr, sync::Mutex, time::Duration};
+use std::{io, net::SocketAddr, time::Duration};
 
 #[cfg(feature = "metrics")]
-use metrics::{SharedString, Unit};
-#[cfg(feature = "metrics")]
-use metrics_util::{
-    CompositeKey,
-    debugging::{DebugValue, DebuggingRecorder},
-};
+use metrics_util::debugging::DebuggingRecorder;
 use rstest::rstest;
 
-use super::*;
-use crate::{
-    app::recovery_codec::{DecodeFailure, DecodeOrigin},
-    codec::ProtocolError,
-};
-
-/// Bytes consumed by the default test failure.
-const CONSUMED: usize = 8;
-
-/// One observed `on_error` call.
-struct HookCall {
-    /// Policy the connection loop applied.
-    policy: RecoveryPolicy,
-    /// Error category the connection loop classified.
-    error_type: &'static str,
-    /// Peer address carried in the context, when one was known.
-    peer_address: Option<SocketAddr>,
-}
-
-/// Hook that records each `on_error` call and answers with fixed settings.
-struct RecordingHook {
-    /// Policy returned from `recovery_policy`.
-    selected: RecoveryPolicy,
-    /// Duration returned from `quarantine_duration`.
-    quarantine: Duration,
-    /// Callbacks observed by `on_error`.
-    calls: Mutex<Vec<HookCall>>,
-}
-
-impl RecordingHook {
-    /// Build a hook that selects `selected` and pauses for `quarantine`.
-    fn new(selected: RecoveryPolicy, quarantine: Duration) -> Self {
-        Self {
-            selected,
-            quarantine,
-            calls: Mutex::new(Vec::new()),
-        }
-    }
-
-    /// Return the policies `on_error` was called with.
-    fn applied_policies(&self) -> Vec<RecoveryPolicy> {
-        self.calls
-            .lock()
-            .expect("hook call log lock")
-            .iter()
-            .map(|call| call.policy)
-            .collect()
-    }
-
-    /// Return the error types `on_error` was called with.
-    fn error_types(&self) -> Vec<&'static str> {
-        self.calls
-            .lock()
-            .expect("hook call log lock")
-            .iter()
-            .map(|call| call.error_type)
-            .collect()
-    }
-
-    /// Return the peer addresses `on_error` was called with.
-    fn peer_addresses(&self) -> Vec<Option<SocketAddr>> {
-        self.calls
-            .lock()
-            .expect("hook call log lock")
-            .iter()
-            .map(|call| call.peer_address)
-            .collect()
-    }
-}
-
-impl RecoveryPolicyHook for RecordingHook {
-    fn recovery_policy(&self, _error: &CodecError, _ctx: &CodecErrorContext) -> RecoveryPolicy {
-        self.selected
-    }
-
-    fn quarantine_duration(&self, _error: &CodecError, _ctx: &CodecErrorContext) -> Duration {
-        self.quarantine
-    }
-
-    fn on_error(&self, error: &CodecError, ctx: &CodecErrorContext, policy: RecoveryPolicy) {
-        self.calls
-            .lock()
-            .expect("hook call log lock")
-            .push(HookCall {
-                policy,
-                error_type: error.error_type(),
-                peer_address: ctx.peer_address,
-            });
-    }
-}
-
-/// Classified protocol failure as a decoder would report it.
-fn protocol_failure() -> DecodeFailure {
-    let error = CodecError::Protocol(ProtocolError::UnknownMessageType { type_id: 7 });
-    DecodeFailure::new(error.into(), DecodeOrigin::Decode, CONSUMED)
-}
-
-/// Configuration with a small drop budget so escalation is easy to reach.
-fn tight_config() -> RecoveryConfig {
-    RecoveryConfig::default()
-        .max_consecutive_drops(2)
-        .quarantine_duration(Duration::from_millis(5))
-}
-
-#[cfg(feature = "metrics")]
-type MetricSample = (CompositeKey, Option<Unit>, Option<SharedString>, DebugValue);
-
-/// Total count recorded for the codec-error counter under one policy label.
-#[cfg(feature = "metrics")]
-fn policy_count(samples: &[MetricSample], expected: &str) -> u64 {
-    samples
-        .iter()
-        .filter(|(key, ..)| key.key().name() == crate::metrics::CODEC_ERRORS)
-        .filter(|(key, ..)| {
-            key.key()
-                .labels()
-                .any(|label| label.key() == "recovery_policy" && label.value() == expected)
-        })
-        .map(|(_, _, _, value)| match value {
-            DebugValue::Counter(count) => *count,
-            _ => 0,
-        })
-        .sum()
-}
+use super::{test_support::*, *};
+use crate::codec::ProtocolError;
 
 #[test]
 fn no_hook_disconnects_without_reporting() {
@@ -368,24 +245,4 @@ async fn quarantine_pause_completes_without_shutdown() {
         .await;
 
     assert!(result.is_none(), "quarantine keeps the connection alive");
-}
-
-#[rstest]
-fn pending_failure_is_reported_before_the_loop_exits() {
-    let hook = RecordingHook::new(RecoveryPolicy::Disconnect, Duration::from_millis(5));
-    let mut coordinator = RecoveryCoordinator::new(Some(&hook), RecoveryConfig::default());
-    let mut inbound: InboundFrames<DecodedItem<u8>, u8> = InboundFrames {
-        pending: Some(DecodedItem::Failure(protocol_failure())),
-        pipeline: FramePipeline::new(None),
-        message_assembly: None,
-    };
-
-    report_pending_failure(&mut inbound, &mut coordinator);
-
-    assert!(inbound.pending.is_none(), "the reported item must be taken");
-    assert_eq!(
-        hook.error_types(),
-        vec!["protocol"],
-        "the buffered failure must still reach on_error"
-    );
 }
