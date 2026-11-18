@@ -13,14 +13,12 @@ use super::{
         envelope::{Envelope, Packet},
         frame_handling::{self, Dispatch},
         memory_budgets::MemoryBudgets,
-        recovery_codec::DecodedItem,
     },
     MAX_DESER_FAILURES,
     actor::{build_connection_actor, observe_peer},
-    frames::InboundFrames,
     framing::{prepare_connection_framing, prepare_inbound_state, resolve_framing_limits},
     peer_watch::{PeerObservation, handle_watching_peer},
-    recovery::RecoveryCoordinator,
+    recovery::{RecoveryCoordinator, report_pending_failure, resolve_read_item},
 };
 use crate::{
     codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
@@ -193,7 +191,7 @@ where
     // Cancelled only by a clean EOF, which is permanent for the connection.
     let peer_eof = CancellationToken::new();
     let (mut response_actor, _cancel_on_exit) =
-        build_connection_actor::<F>(context.protocol.as_ref(), connection_shutdown)?;
+        build_connection_actor::<F>(context.protocol.as_ref(), connection_shutdown.clone())?;
     let mut recovery = RecoveryCoordinator::new(context.recovery_hook, context.recovery_config)
         .with_peer_address(context.peer_address);
 
@@ -206,7 +204,9 @@ where
         else {
             break;
         };
-        let Some(frame) = resolve_read_item(item, &mut inbound, &mut recovery).await? else {
+        let Some(frame) =
+            resolve_read_item(item, &mut inbound, &mut recovery, &connection_shutdown).await?
+        else {
             continue;
         };
 
@@ -231,44 +231,24 @@ where
             PeerObservation::new(&peer_eof, &unobserved, &cause),
             &mut inbound.pending,
         )
-        .await?;
+        .await;
+        let dispatch = match dispatch {
+            Ok(dispatch) => dispatch,
+            Err(error) => {
+                report_pending_failure(&mut inbound, &mut recovery);
+                return Err(error);
+            }
+        };
         // A cancelled response left its stream without a terminator, so any
         // further response would be read as part of it. Drop the buffered
         // request and close the connection instead.
         if dispatch == Dispatch::Stop {
+            report_pending_failure(&mut inbound, &mut recovery);
             break;
         }
     }
 
     Ok(())
-}
-
-/// Resolve one read item into the frame the loop must dispatch.
-///
-/// A decoder failure is handled here rather than inside [`handle_frame`]: the
-/// recovery policy can discard or quarantine it, which is a property of the
-/// read loop rather than of dispatching one decoded frame. `None` means the
-/// applied policy discarded the failure, so the loop reads again; a policy that
-/// ends the connection returns the decoder's own error.
-async fn resolve_read_item<T>(
-    item: DecodedItem<T>,
-    inbound: &mut InboundFrames<DecodedItem<T>, T>,
-    recovery: &mut RecoveryCoordinator<'_>,
-) -> io::Result<Option<T>> {
-    match item {
-        DecodedItem::Frame(frame) => {
-            recovery.record_decoded_frame();
-            Ok(Some(frame))
-        }
-        DecodedItem::Failure(failure) => recovery
-            .apply(
-                failure,
-                &mut inbound.pipeline,
-                &mut inbound.message_assembly,
-            )
-            .await
-            .map_or(Ok(None), Err),
-    }
 }
 
 /// Decode one frame, apply reassembly, and dispatch the resulting envelope.

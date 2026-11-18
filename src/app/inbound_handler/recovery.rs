@@ -8,11 +8,12 @@
 
 use std::{io, net::SocketAddr, time::Duration};
 
-use log::warn;
+use tokio_util::sync::CancellationToken;
+use tracing::warn;
 
 use super::{
-    super::recovery_codec::{DecodeFailure, DecodeOrigin},
-    frames::purge_expired,
+    super::recovery_codec::{DecodeFailure, DecodeOrigin, DecodedItem},
+    frames::{InboundFrames, purge_expired},
 };
 use crate::{
     app::codec_driver::FramePipeline,
@@ -37,6 +38,19 @@ pub(super) struct RecoveryOutcome {
     pub(super) action: RecoveryAction,
     /// Original decoder error, returned unchanged when disconnecting.
     pub(super) error: io::Error,
+}
+
+/// Connection state a quarantine pause must observe and purge.
+///
+/// The pause belongs to the read loop, so the loop owns this state and the
+/// coordinator only borrows it while applying one decision.
+pub(super) struct RecoveryState<'a, T> {
+    /// Fragmentation pipeline whose expired buffers the pause drops.
+    pub(super) pipeline: &'a mut FramePipeline<T>,
+    /// Assembly state whose expired assemblies the pause drops.
+    pub(super) message_assembly: &'a mut Option<MessageAssemblyState>,
+    /// Connection shutdown signal; cancelling it ends the pause early.
+    pub(super) shutdown: &'a CancellationToken,
 }
 
 /// Per-connection recovery state: the installed hook and drop accounting.
@@ -112,17 +126,25 @@ impl<'a> RecoveryCoordinator<'a> {
     /// coordinator has already forced a disconnect for a policy that would
     /// discard bytes the decoder did not consume, so a drop here always
     /// advances the read position.
+    ///
+    /// A quarantine pause is cut short when the connection's shutdown token is
+    /// cancelled, so a hook-chosen pause cannot delay a graceful drain; the
+    /// loop observes the same token again at its next read.
     pub(super) async fn apply<T>(
         &mut self,
         failure: DecodeFailure,
-        pipeline: &mut FramePipeline<T>,
-        message_assembly: &mut Option<MessageAssemblyState>,
+        state: RecoveryState<'_, T>,
     ) -> Option<io::Error> {
         let RecoveryOutcome { action, error } = self.evaluate(failure);
+        let RecoveryState {
+            pipeline,
+            message_assembly,
+            shutdown,
+        } = state;
         match action {
             RecoveryAction::Drop => None,
             RecoveryAction::Quarantine(duration) => {
-                tokio::time::sleep(duration).await;
+                await_quarantine(duration, shutdown).await;
                 purge_expired(pipeline, message_assembly);
                 None
             }
@@ -223,16 +245,27 @@ impl<'a> RecoveryCoordinator<'a> {
     }
 
     /// Log the failure, honouring the dropped-frame logging switch.
+    ///
+    /// The policy fields are structured so a subscriber can filter on them
+    /// rather than parsing the message text.
     fn log_failure(&self, error: &CodecError, selected: RecoveryPolicy, applied: RecoveryPolicy) {
         let should_log = applied != RecoveryPolicy::Drop || self.config.log_dropped_frames;
         if should_log {
             warn!(
-                "codec error recovery: error_type={}, selected_policy={}, applied_policy={}",
-                error.error_type(),
-                selected.as_str(),
-                applied.as_str()
+                error_type = error.error_type(),
+                selected_policy = selected.as_str(),
+                applied_policy = applied.as_str(),
+                "codec error recovery"
             );
         }
+    }
+}
+
+/// Wait out a quarantine pause, or stop waiting when the connection shuts down.
+async fn await_quarantine(duration: Duration, shutdown: &CancellationToken) {
+    tokio::select! {
+        () = tokio::time::sleep(duration) => {}
+        () = shutdown.cancelled() => {}
     }
 }
 
@@ -246,3 +279,51 @@ fn codec_error_in(error: &io::Error) -> Option<&CodecError> {
 #[cfg(test)]
 #[path = "recovery_tests.rs"]
 mod tests;
+
+/// Resolve one read item into the frame the loop must dispatch.
+///
+/// A decoder failure is handled here rather than inside the dispatch step: the
+/// recovery policy can discard or quarantine it, which is a property of the
+/// read loop rather than of dispatching one decoded frame. `None` means the
+/// applied policy discarded the failure, so the loop reads again; a policy that
+/// ends the connection returns the decoder's own error.
+pub(super) async fn resolve_read_item<T>(
+    item: DecodedItem<T>,
+    inbound: &mut InboundFrames<DecodedItem<T>, T>,
+    recovery: &mut RecoveryCoordinator<'_>,
+    shutdown: &CancellationToken,
+) -> io::Result<Option<T>> {
+    match item {
+        DecodedItem::Frame(frame) => {
+            recovery.record_decoded_frame();
+            Ok(Some(frame))
+        }
+        DecodedItem::Failure(failure) => recovery
+            .apply(
+                failure,
+                RecoveryState {
+                    pipeline: &mut inbound.pipeline,
+                    message_assembly: &mut inbound.message_assembly,
+                    shutdown,
+                },
+            )
+            .await
+            .map_or(Ok(None), Err),
+    }
+}
+
+/// Report a decoder failure prefetched while a response was in flight.
+///
+/// The read half buffers at most one item while a response runs. When that
+/// response ends the connection, the buffered failure never reaches
+/// [`resolve_read_item`], so its hook callback and metric would be lost.
+/// Nothing is applied here: the connection is already ending, so only the
+/// observation is owed.
+pub(super) fn report_pending_failure<T>(
+    inbound: &mut InboundFrames<DecodedItem<T>, T>,
+    recovery: &mut RecoveryCoordinator<'_>,
+) {
+    if let Some(DecodedItem::Failure(failure)) = inbound.pending.take() {
+        drop(recovery.evaluate(failure));
+    }
+}

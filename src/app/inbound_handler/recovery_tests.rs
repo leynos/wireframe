@@ -318,3 +318,74 @@ fn no_hook_records_a_disconnect_for_each_failure() {
     assert_eq!(policy_count(&samples, "disconnect"), 1);
     assert_eq!(policy_count(&samples, "drop"), 0);
 }
+
+#[tokio::test]
+async fn shutdown_ends_a_quarantine_pause_early() {
+    let hook = RecordingHook::new(RecoveryPolicy::Quarantine, Duration::from_secs(3600));
+    let mut coordinator = RecoveryCoordinator::new(Some(&hook), RecoveryConfig::default());
+    let shutdown = CancellationToken::new();
+    shutdown.cancel();
+    let mut pipeline: FramePipeline<()> = FramePipeline::new(None);
+    let mut message_assembly = None;
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        coordinator.apply(
+            protocol_failure(),
+            RecoveryState {
+                pipeline: &mut pipeline,
+                message_assembly: &mut message_assembly,
+                shutdown: &shutdown,
+            },
+        ),
+    )
+    .await;
+
+    assert!(
+        matches!(result, Ok(None)),
+        "a cancelled shutdown must end the pause without a disconnect"
+    );
+}
+
+#[tokio::test]
+async fn quarantine_pause_completes_without_shutdown() {
+    let pause = Duration::from_millis(5);
+    let hook = RecordingHook::new(RecoveryPolicy::Quarantine, pause);
+    let mut coordinator = RecoveryCoordinator::new(Some(&hook), RecoveryConfig::default());
+    let shutdown = CancellationToken::new();
+    let mut pipeline: FramePipeline<()> = FramePipeline::new(None);
+    let mut message_assembly = None;
+
+    let result = coordinator
+        .apply(
+            protocol_failure(),
+            RecoveryState {
+                pipeline: &mut pipeline,
+                message_assembly: &mut message_assembly,
+                shutdown: &shutdown,
+            },
+        )
+        .await;
+
+    assert!(result.is_none(), "quarantine keeps the connection alive");
+}
+
+#[rstest]
+fn pending_failure_is_reported_before_the_loop_exits() {
+    let hook = RecordingHook::new(RecoveryPolicy::Disconnect, Duration::from_millis(5));
+    let mut coordinator = RecoveryCoordinator::new(Some(&hook), RecoveryConfig::default());
+    let mut inbound: InboundFrames<DecodedItem<u8>, u8> = InboundFrames {
+        pending: Some(DecodedItem::Failure(protocol_failure())),
+        pipeline: FramePipeline::new(None),
+        message_assembly: None,
+    };
+
+    report_pending_failure(&mut inbound, &mut coordinator);
+
+    assert!(inbound.pending.is_none(), "the reported item must be taken");
+    assert_eq!(
+        hook.error_types(),
+        vec!["protocol"],
+        "the buffered failure must still reach on_error"
+    );
+}

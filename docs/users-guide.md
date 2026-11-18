@@ -824,8 +824,10 @@ impl RecoveryPolicyHook for StrictRecovery {
 
 Install the hook on the application builder. `with_recovery_hook` stores the
 hook for every connection the application serves, and `recovery_config` sets
-the global limits: how many consecutive frames a `Drop` may discard, the
-fallback quarantine pause, and whether dropped frames are logged:
+the global limits: how many consecutive frames a `Drop` may discard and whether
+dropped frames are logged. The configured fallback quarantine pause is
+currently inactive, because an installed hook supplies the pause through
+`RecoveryPolicyHook::quarantine_duration` and a missing hook disconnects:
 
 <!-- tested-example: users-guide-065 -->
 ```rust
