@@ -58,6 +58,14 @@ fn queue_all(handle: &PushHandle<Envelope>, frames: &[LaneFrame]) -> Result<(), 
     Ok(())
 }
 
+/// The marker byte a queued frame carries.
+///
+/// Generated markers are `0..=24`, so `u8::MAX` can only mean an unexpectedly
+/// empty payload, and that cannot match a queued marker.
+fn frame_marker(frame: &Envelope) -> u8 {
+    frame.payload_bytes().first().copied().unwrap_or(u8::MAX)
+}
+
 /// Collect every queued frame through the actor's normal delivery path.
 fn collect_from_actor(actor: &mut ConnectionActor<Envelope, ()>, expected: usize) -> Vec<u8> {
     futures::executor::block_on(async {
@@ -66,7 +74,7 @@ fn collect_from_actor(actor: &mut ConnectionActor<Envelope, ()>, expected: usize
             let Some(batch) = actor.next_pushes().await else {
                 break;
             };
-            delivered.extend(batch.frames.iter().map(|frame| frame.payload_bytes()[0]));
+            delivered.extend(batch.frames.iter().map(frame_marker));
         }
         delivered
     })
@@ -159,13 +167,19 @@ fn assert_overtaking_needs_a_burst(
         if !best_effort.contains(marker) {
             continue;
         }
-        let urgent_after = delivered[position + 1..]
+        // `position` comes from `enumerate` over `delivered`, so both slices
+        // exist; `unwrap_or_default` keeps the helper free of indexing panics.
+        let urgent_after = delivered
+            .get(position + 1..)
+            .unwrap_or_default()
             .iter()
             .any(|later| urgent.contains(later));
         if !urgent_after {
             continue;
         }
-        let urgent_before = delivered[..position]
+        let urgent_before = delivered
+            .get(..position)
+            .unwrap_or_default()
             .iter()
             .filter(|seen| urgent.contains(seen))
             .count();
@@ -197,11 +211,7 @@ proptest! {
         let pending = futures::executor::block_on(actor.take_pending_pushes());
         let mut expected = lane_markers(&frames, true);
         expected.extend(lane_markers(&frames, false));
-        let drained: Vec<u8> = pending
-            .frames
-            .iter()
-            .map(|frame| frame.payload_bytes()[0])
-            .collect();
+        let drained: Vec<u8> = pending.frames.iter().map(frame_marker).collect();
         prop_assert_eq!(drained, expected);
 
         for priority in [PushPriority::High, PushPriority::Low] {

@@ -129,14 +129,21 @@ mod tests {
     use super::{FrameLimit, FrameLimits};
     use crate::push::PushError;
 
+    /// Frame under test, measured by the size it carries.
+    ///
+    /// Deliberately not `Copy`, so the measure's signature is the one a real
+    /// codec uses: a limit always borrows the frame it measures.
+    #[derive(Debug)]
+    struct Body(usize);
+
     /// Measure a frame by the bytes it occupies.
-    fn exact(frame: &usize) -> usize { *frame }
+    fn exact(frame: &Body) -> usize { frame.0 }
 
     /// Measure a frame at twice its bytes, to model a codec that adds framing.
-    fn doubled(frame: &usize) -> usize { frame.saturating_mul(2) }
+    fn doubled(frame: &Body) -> usize { frame.0.saturating_mul(2) }
 
     /// A limit that measures frames exactly.
-    fn limit(max: usize) -> FrameLimit<usize> {
+    fn limit(max: usize) -> FrameLimit<Body> {
         FrameLimit {
             max,
             payload_len: exact,
@@ -148,7 +155,7 @@ mod tests {
     fn a_frame_at_the_limit_is_accepted() {
         let limits = FrameLimits::default().with_template(limit(4));
 
-        assert_eq!(limits.check(&4), Ok(()));
+        assert_eq!(limits.check(&Body(4)), Ok(()));
     }
 
     /// One byte over the limit is rejected with the measured size and ceiling.
@@ -157,7 +164,7 @@ mod tests {
         let limits = FrameLimits::default().with_template(limit(4));
 
         assert_eq!(
-            limits.check(&5),
+            limits.check(&Body(5)),
             Err(PushError::FrameTooLarge { size: 5, max: 4 })
         );
     }
@@ -171,7 +178,7 @@ mod tests {
         ) {
             let limits = FrameLimits::default().with_template(limit(max));
 
-            prop_assert_eq!(limits.check(&size).is_ok(), size <= max);
+            prop_assert_eq!(limits.check(&Body(size)).is_ok(), size <= max);
         }
     }
 
@@ -184,7 +191,7 @@ mod tests {
         ) {
             let limits = FrameLimits::default().with_codec(limit(max));
 
-            prop_assert_eq!(limits.check(&size).is_ok(), size <= max);
+            prop_assert_eq!(limits.check(&Body(size)).is_ok(), size <= max);
         }
     }
 
@@ -200,7 +207,7 @@ mod tests {
             let limits = FrameLimits::default()
                 .with_template(limit(template_max))
                 .with_codec(limit(codec_max));
-            let outcome = limits.check(&size);
+            let outcome = limits.check(&Body(size));
 
             prop_assert_eq!(
                 outcome.is_ok(),
@@ -243,7 +250,7 @@ mod tests {
                 });
 
             prop_assert_eq!(
-                limits.check(&size).is_ok(),
+                limits.check(&Body(size)).is_ok(),
                 size <= template_max && size.saturating_mul(2) <= codec_max
             );
         }

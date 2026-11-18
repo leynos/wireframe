@@ -280,14 +280,14 @@ proptest! {
             Ok::<_, TestCaseError>((attempts, admitted))
         })?;
 
-        let budget = usize::from(budget);
+        let allowance = usize::from(budget);
         prop_assert!(
-            admitted <= budget,
-            "{admitted} pushes were admitted in one window with a budget of {budget}"
+            admitted <= allowance,
+            "{admitted} pushes were admitted in one window with a budget of {allowance}"
         );
         prop_assert_eq!(
             admitted,
-            attempts.min(budget),
+            attempts.min(allowance),
             "every attempt a fresh window can admit must be admitted"
         );
     }

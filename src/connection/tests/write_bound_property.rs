@@ -71,7 +71,7 @@ impl PushSink<Envelope> for PacedSink {
 }
 
 /// Whether the write completes inside `grace`, which is what decides the bound.
-fn completes_first(write_ms: u64, grace_ms: u64) -> bool { write_ms <= grace_ms }
+const fn completes_first(write_ms: u64, grace_ms: u64) -> bool { write_ms <= grace_ms }
 
 // With no server stop, a pending write is abandoned exactly when the grace
 // expires and a write that finishes first is delivered.
@@ -125,10 +125,10 @@ proptest! {
         let bound = runtime.block_on(async move {
             let shutdown = CancellationToken::new();
             let stopper = tokio::spawn({
-                let shutdown = shutdown.clone();
+                let stop_token = shutdown.clone();
                 async move {
                     tokio::time::sleep(Duration::from_millis(stop_ms)).await;
-                    shutdown.cancel();
+                    stop_token.cancel();
                 }
             });
             let write = async move {
@@ -192,11 +192,11 @@ proptest! {
                 .install_response(response, Some(7), &mut sink)
                 .await
                 .map_err(|error| TestCaseError::fail(format!("a bounded response is not an error: {error:?}")))?;
-            let written = written
+            let accepted = written
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .len();
-            Ok::<_, TestCaseError>((outcome, written))
+            Ok::<_, TestCaseError>((outcome, accepted))
         })?;
 
         if completes_first(pacing_ms, grace_ms) {

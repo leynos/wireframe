@@ -52,6 +52,12 @@ fn default_registry_allocates_ids_from_one() {
 // unique and strictly increasing from one. Strict increase is what makes
 // `ConnectionId` a durable key: a value freed by a closed connection is never
 // reused, so a stale identifier cannot address a later connection.
+/// Whether every identifier is strictly greater than the one before it.
+fn is_strictly_increasing(ids: &[u64]) -> bool {
+    ids.windows(2)
+        .all(|pair| matches!(pair, [earlier, later] if earlier < later))
+}
+
 proptest! {
     #[test]
     fn allocation_is_unique_and_strictly_increasing(requested in 1usize..=512) {
@@ -66,7 +72,7 @@ proptest! {
             "the first identifier must be 1"
         );
         prop_assert!(
-            ids.windows(2).all(|pair| pair[0] < pair[1]),
+            is_strictly_increasing(&ids),
             "identifiers must increase strictly: {:?}",
             ids
         );
@@ -89,10 +95,10 @@ proptest! {
         let registry = Arc::new(SessionRegistry::<u8>::new());
         let workers: Vec<_> = (0..threads)
             .map(|_| {
-                let registry = Arc::clone(&registry);
+                let shared = Arc::clone(&registry);
                 std::thread::spawn(move || {
                     (0..per_thread)
-                        .map(|_| registry.allocate_connection_id().as_u64())
+                        .map(|_| shared.allocate_connection_id().as_u64())
                         .collect::<Vec<_>>()
                 })
             })
@@ -104,7 +110,7 @@ proptest! {
                 .join()
                 .map_err(|_| TestCaseError::fail("an allocation thread panicked"))?;
             prop_assert!(
-                run.windows(2).all(|pair| pair[0] < pair[1]),
+                is_strictly_increasing(&run),
                 "one thread's identifiers must increase strictly: {:?}",
                 run
             );
@@ -119,7 +125,7 @@ proptest! {
             "the lowest identifier must be 1"
         );
         prop_assert!(
-            all.windows(2).all(|pair| pair[0] < pair[1]),
+            is_strictly_increasing(&all),
             "identifiers handed to different threads must be unique: {:?}",
             all
         );
