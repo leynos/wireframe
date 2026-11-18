@@ -42,9 +42,10 @@ use crate::{
 /// transmission.
 ///
 /// The pipeline owns the per-connection [`ProtocolHooks`] and
-/// [`ConnectionContext`], so `before_send` runs exactly where the encoded
-/// frame is written and connection-local hook state is retained for the
-/// lifetime of the connection. Hooks are never shared between connections.
+/// [`ConnectionContext`](crate::hooks::ConnectionContext), so `before_send`
+/// runs exactly where the encoded frame is written and connection-local hook
+/// state is retained for the lifetime of the connection. Hooks are never
+/// shared between connections.
 pub(crate) struct FramePipeline<T = Envelope> {
     /// State shared by outbound envelope fragmentation and inbound fragment
     /// reassembly.
