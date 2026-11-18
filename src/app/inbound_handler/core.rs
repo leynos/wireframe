@@ -22,7 +22,7 @@ use super::{
         resolve_framing_limits,
     },
     peer_watch::{PeerObservation, handle_watching_peer},
-    recovery::{resolve_read_item, settle_dispatch},
+    recovery::{report_pending_failure, resolve_read_item, settle_dispatch},
 };
 use crate::{
     codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
@@ -198,6 +198,9 @@ where
             .next(reader, poll.read_timeout_ms, poll.shutdown)
             .await?
         else {
+            // Shutdown wins the read race before the buffered item is taken,
+            // so the loop can end still holding a decoder failure.
+            report_pending_failure(inbound, &runtime.recovery);
             return Ok(None);
         };
         if let Some(frame) =

@@ -45,15 +45,16 @@ pub(in crate::app::inbound_handler) async fn resolve_read_item<T>(
     }
 }
 
-/// Report a decoder failure prefetched while a response was in flight.
+/// Report a decoder failure buffered when the connection stops reading.
 ///
-/// The read half buffers at most one item while a response runs. When that
-/// response ends the connection, the buffered failure never reaches
+/// The read half holds at most one item while a response runs. Two exits can
+/// leave that item unread: a response that ends the connection, and a shutdown
+/// that cancels the next read before the buffer is drained. Neither reaches
 /// [`resolve_read_item`], so its hook callback and metric would be lost.
 /// Nothing is applied here: the connection is already ending, so only the
 /// observation is owed, and it is reported as a disconnect because no selected
 /// policy can take effect on a closing connection.
-fn report_pending_failure<T>(
+pub(in crate::app::inbound_handler) fn report_pending_failure<T>(
     inbound: &mut InboundFrames<DecodedItem<T>, T>,
     recovery: &RecoveryCoordinator<'_>,
 ) {

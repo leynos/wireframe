@@ -968,7 +968,8 @@ wireframe_codec_errors_total{error_type="eof",recovery_policy="disconnect"} 2
 
 The label also reports a disconnect for a failure the connection could no
 longer act on, such as one buffered while a response ran that then ended the
-connection: no selected policy was applied, so none is reported.
+connection, or one still buffered when shutdown ended the read: no selected
+policy was applied, so none is reported.
 
 A decoder that reports a structured `CodecError` is classified from that value,
 so its `error_type` label names the real category. The built-in

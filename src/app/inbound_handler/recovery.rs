@@ -26,7 +26,7 @@ use crate::{
 #[path = "recovery_loop.rs"]
 mod recovery_loop;
 
-pub(super) use recovery_loop::{resolve_read_item, settle_dispatch};
+pub(super) use recovery_loop::{report_pending_failure, resolve_read_item, settle_dispatch};
 
 /// What the connection loop should do after a decoder failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
