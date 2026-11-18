@@ -13,8 +13,10 @@ use crate::push::PushHandle;
 /// in `Arc<Mutex<_>>`: the owning path invokes hooks one at a time.
 ///
 /// A prepared connection hands its actor [`ProtocolHooks::default`], so the
-/// actor holds no second protocol reference and the pipeline's value is the
-/// only one for that connection.
+/// actor holds no second protocol reference and invokes no callback. The actor
+/// still constructs a `ConnectionProtocol` around those inert hooks, and that
+/// value owns a `ConnectionContext`; no callback receives it, so the pipeline's
+/// value is the only hook owner that dispatches for that connection.
 pub(crate) struct ConnectionProtocol<F, E> {
     /// Hooks invoked for this connection.
     hooks: ProtocolHooks<F, E>,
