@@ -211,6 +211,14 @@ where
                 .await?;
             return Ok(finish_step(dispatch));
         }
+        if state.streams.has_pending_send() {
+            // A chunk still waiting for admission cannot be joined by another:
+            // `push_chunk` refuses it, and the refusal is indistinguishable
+            // from an abandoned body. Return to the top instead, where shutdown
+            // is re-checked, expiry and the memory budget run again, and the
+            // admission is driven against a freshly measured budget.
+            return Ok(Step::Continue);
+        }
         if !state.streams.is_live()
             && self
                 .dispatch_observed(state, queued.clone(), ObservedAction::Drain)

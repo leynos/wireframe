@@ -11,7 +11,7 @@ use std::{
     sync::{
         Arc,
         Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -114,21 +114,47 @@ fn budget_bytes(bytes: usize) -> TestResult<BudgetBytes> {
         .ok_or_else(|| format!("a budget of {bytes} bytes must be non-zero").into())
 }
 
+/// Stamp a chunk with the sequence number of the frame carrying it.
+///
+/// Every chunk has the same length and contents, so only an explicit stamp can
+/// show whether the handler received them in the order the peer sent them.
+fn stamped(mut chunk: Vec<u8>, sequence: u32) -> Vec<u8> {
+    chunk[..4].copy_from_slice(&sequence.to_be_bytes());
+    chunk
+}
+
+/// Read the sequence stamp a frame's chunk carries.
+fn leading_sequence(chunk: &Bytes) -> Option<u32> {
+    let stamp: [u8; 4] = chunk.get(..4)?.try_into().ok()?;
+    Some(u32::from_be_bytes(stamp))
+}
+
 /// Handler that refuses to read until released, then counts every chunk.
+///
+/// `out_of_order` is set when a chunk arrives out of sequence, which is what a
+/// body that entered discard mode looks like from the handler's side.
 fn stalling_handler(
     chunks: Arc<AtomicUsize>,
+    out_of_order: Arc<AtomicBool>,
     started: Arc<Notify>,
     release: Arc<Notify>,
 ) -> StreamingHandler {
     Arc::new(move |_parts: RequestParts, mut body: RequestBodyStream| {
         let counted = Arc::clone(&chunks);
+        let disordered = Arc::clone(&out_of_order);
         let start_signal = Arc::clone(&started);
         let release_signal = Arc::clone(&release);
         Box::pin(async move {
             start_signal.notify_one();
             release_signal.notified().await;
+            let mut expected = 0_u32;
             while let Some(chunk) = body.next().await {
-                chunk.ok()?;
+                let chunk = chunk.ok()?;
+                let sequence = leading_sequence(&chunk)?;
+                if sequence != expected {
+                    disordered.store(true, Ordering::SeqCst);
+                }
+                expected = sequence.saturating_add(1);
                 counted.fetch_add(1, Ordering::SeqCst);
             }
             Some(Bytes::from_static(b"done"))
@@ -149,7 +175,7 @@ async fn send_bulk_body(
         let frame = test_helpers::continuation_frame_payload(
             LIVE_KEY.into(),
             sequence.into(),
-            &chunk,
+            &stamped(chunk.clone(), sequence),
             false,
         )?;
         send_envelope(&mut client, STREAM_ROUTE, &frame).await?;
@@ -161,7 +187,7 @@ async fn send_bulk_body(
     let last = test_helpers::continuation_frame_payload(
         LIVE_KEY.into(),
         (BULK_FRAMES + 1).into(),
-        &chunk,
+        &stamped(chunk, BULK_FRAMES + 1),
         true,
     )?;
     send_envelope(&mut client, STREAM_ROUTE, &last).await?;
@@ -190,6 +216,7 @@ fn holding_handler(started: Arc<Notify>, release: Arc<Notify>) -> StreamingHandl
 #[tokio::test]
 async fn a_stalled_handler_stops_the_connection_reading_further_frames() -> TestResult {
     let chunks = Arc::new(AtomicUsize::new(0));
+    let out_of_order = Arc::new(AtomicBool::new(false));
     let started = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
     let server = serve_routes_within(
@@ -201,6 +228,7 @@ async fn a_stalled_handler_stops_the_connection_reading_further_frames() -> Test
             STREAM_ROUTE,
             stalling_handler(
                 Arc::clone(&chunks),
+                Arc::clone(&out_of_order),
                 Arc::clone(&started),
                 Arc::clone(&release),
             ),
@@ -210,7 +238,12 @@ async fn a_stalled_handler_stops_the_connection_reading_further_frames() -> Test
     let mut client = connect(server.address).await?;
 
     let chunk = vec![b'x'; BULK_CHUNK];
-    let first = test_helpers::first_frame_payload(LIVE_KEY.into(), &chunk, false, None)?;
+    let first = test_helpers::first_frame_payload(
+        LIVE_KEY.into(),
+        &stamped(chunk.clone(), 0),
+        false,
+        None,
+    )?;
     send_envelope(&mut client, STREAM_ROUTE, &first).await?;
     bounded("the stalled handler starting", started.notified()).await?;
 
@@ -240,6 +273,10 @@ async fn a_stalled_handler_stops_the_connection_reading_further_frames() -> Test
         TOTAL_CHUNKS,
         "every chunk held back by the stall should reach the handler once it resumes",
     );
+    assert!(
+        !out_of_order.load(Ordering::SeqCst),
+        "a chunk queued behind an admission must not be discarded or reordered"
+    );
     finish_server(server).await
 }
 
@@ -252,6 +289,7 @@ async fn a_stalled_handler_stops_the_connection_reading_further_frames() -> Test
 #[tokio::test]
 async fn a_server_shutdown_ends_a_connection_stalled_on_a_chunk_admission() -> TestResult {
     let chunks = Arc::new(AtomicUsize::new(0));
+    let out_of_order = Arc::new(AtomicBool::new(false));
     let started = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
     let server = serve_routes_within(
@@ -263,6 +301,7 @@ async fn a_server_shutdown_ends_a_connection_stalled_on_a_chunk_admission() -> T
             STREAM_ROUTE,
             stalling_handler(
                 Arc::clone(&chunks),
+                Arc::clone(&out_of_order),
                 Arc::clone(&started),
                 Arc::clone(&release),
             ),
@@ -272,7 +311,12 @@ async fn a_server_shutdown_ends_a_connection_stalled_on_a_chunk_admission() -> T
     let mut client = connect(server.address).await?;
 
     let chunk = vec![b'x'; BULK_CHUNK];
-    let first = test_helpers::first_frame_payload(LIVE_KEY.into(), &chunk, false, None)?;
+    let first = test_helpers::first_frame_payload(
+        LIVE_KEY.into(),
+        &stamped(chunk.clone(), 0),
+        false,
+        None,
+    )?;
     send_envelope(&mut client, STREAM_ROUTE, &first).await?;
     bounded("the stalled handler starting", started.notified()).await?;
 
