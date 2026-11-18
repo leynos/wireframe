@@ -23,15 +23,23 @@ use crate::{codec::EofError, push::PushHandle};
 /// not one per hook. The protocol object itself may be shared by independent
 /// connections; per-connection mutable state belongs in [`ConnectionContext`].
 /// Setup runs at most once per value; the remaining hooks run on every call.
-#[derive(Default)]
 pub enum ProtocolHooks<F, E> {
     /// No hooks are installed.
-    #[default]
     None,
     /// One installed protocol owns every operation.
     Protocol(ProtocolDispatch<F, E>),
     /// Independently registered callbacks.
     Custom(CustomProtocolHooks<F, E>),
+}
+
+/// The default hooks install no callbacks.
+///
+/// Written by hand rather than derived so the impl carries no bounds on `F` or
+/// `E`. Callers such as [`crate::connection::ConnectionActor::new`] construct
+/// the default value under only their own frame and error bounds, which do not
+/// imply `Default` for either type parameter.
+impl<F, E> Default for ProtocolHooks<F, E> {
+    fn default() -> Self { Self::None }
 }
 
 impl<F, E> From<CustomProtocolHooks<F, E>> for ProtocolHooks<F, E> {
