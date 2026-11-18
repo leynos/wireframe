@@ -6,11 +6,15 @@ mod grace;
 
 mod grace_warning;
 
+mod push_ordering;
+
 mod shutdown_drain;
 
 mod stream_correlation;
 
 mod vec_delivery;
+
+mod write_bound_property;
 
 mod writes;
 
