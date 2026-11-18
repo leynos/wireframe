@@ -80,7 +80,7 @@ fn single_envelope_frames_require_full_consumption(
     let envelope = Envelope::new(1, None, vec![42]);
     let mut bytes = envelope.to_bytes().expect("encode envelope");
     bytes.extend(std::iter::repeat_n(0, trailing));
-    let result = core::parse_envelope(&FrameDecodeSerializer(mode), &bytes);
+    let result = dispatch::parse_envelope(&FrameDecodeSerializer(mode), &bytes);
     if trailing == 0 {
         let (decoded, consumed) =
             result.expect("complete envelope must decode through every branch");
@@ -132,7 +132,7 @@ fn oversized_bincode_envelope_counts_one_message_limit_rejection() {
     let snapshotter = recorder.snapshotter();
 
     let error = metrics::with_local_recorder(&recorder, || {
-        core::parse_envelope(&BincodeSerializer, &bytes)
+        dispatch::parse_envelope(&BincodeSerializer, &bytes)
     })
     .expect_err("oversized envelope must fail");
     assert!(
@@ -233,7 +233,7 @@ fn decode_envelope_tracks_failures_and_logs_correlation_id() {
         let mut failure_tracker =
             frame_handling::DeserFailureTracker::new(&mut deser_failures, MAX_DESER_FAILURES);
         let result = frame_handling::decode_envelope::<BadCodec>(
-            core::parse_envelope(app.serializer.as_ref(), BadCodec::frame_payload(&frame)),
+            dispatch::parse_envelope(app.serializer.as_ref(), BadCodec::frame_payload(&frame)),
             &frame,
             &mut failure_tracker,
         );
@@ -247,7 +247,7 @@ fn decode_envelope_tracks_failures_and_logs_correlation_id() {
     let mut failure_tracker =
         frame_handling::DeserFailureTracker::new(&mut deser_failures, MAX_DESER_FAILURES);
     let err = frame_handling::decode_envelope::<BadCodec>(
-        core::parse_envelope(app.serializer.as_ref(), BadCodec::frame_payload(&frame)),
+        dispatch::parse_envelope(app.serializer.as_ref(), BadCodec::frame_payload(&frame)),
         &frame,
         &mut failure_tracker,
     )

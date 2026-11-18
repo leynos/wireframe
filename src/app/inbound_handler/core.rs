@@ -2,65 +2,37 @@
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
-use futures::Sink;
-use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 
 use super::{
     super::{
-        codec_driver::FramePipeline,
         envelope::{Envelope, Packet},
-        frame_handling::{self, Dispatch},
+        frame_handling::Dispatch,
         memory_budgets::MemoryBudgets,
+        recovery_codec::DecodedItem,
     },
-    MAX_DESER_FAILURES,
-    actor::{build_connection_actor, observe_peer},
-    framing::{prepare_connection_framing, prepare_inbound_state, resolve_framing_limits},
+    actor::{ConnectionRuntime, RuntimeParams, observe_peer},
+    dispatch::{FrameHandlingContext, handle_frame},
+    frames::InboundFrames,
+    framing::{
+        TransportStream,
+        prepare_connection_framing,
+        prepare_inbound_state,
+        resolve_framing_limits,
+    },
     peer_watch::{PeerObservation, handle_watching_peer},
-    recovery::{RecoveryCoordinator, report_pending_failure, resolve_read_item},
+    recovery::{resolve_read_item, settle_dispatch},
 };
 use crate::{
     codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
-    connection::ConnectionActor,
     frame::FrameMetadata,
     hooks::{ProtocolHooks, WireframeProtocol},
-    message::{DecodeWith, DeserializeContext, EncodeWith},
-    message_assembler::{MessageAssembler, MessageAssemblyState},
+    message::{DecodeWith, EncodeWith},
+    message_assembler::MessageAssembler,
     middleware::HandlerService,
     serializer::Serializer,
 };
-
-/// Per-frame processing state bundled for `handle_frame`.
-struct FrameHandlingContext<'a, S, E, K, F>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    K: Sink<F::Frame, Error = io::Error> + Unpin,
-    F: FrameCodec,
-{
-    /// Sink used to write responses during frame handling.
-    sink: &'a mut K,
-    /// Connection-wide malformed-frame counter shared with all stages.
-    deser_failures: &'a mut u32,
-    /// Immutable middleware chains used to dispatch decoded envelopes.
-    routes: &'a HashMap<u32, HandlerService<E>>,
-    /// Serializer used to decode envelopes and encode responses.
-    serializer: &'a S,
-    /// Codec configuration used by the response path.
-    codec: &'a F,
-    /// Optional assembly strategy for multi-frame protocol messages.
-    message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
-    /// Outbound processing state for fragmenting, hooking, and counting
-    /// responses.
-    pipeline: &'a mut FramePipeline<F::Frame>,
-    /// Connection-local state for assembling multi-frame messages.
-    message_assembly: &'a mut Option<MessageAssemblyState>,
-    /// Actor that schedules and delivers handler responses.
-    actor: &'a mut ConnectionActor<Envelope, ()>,
-    /// Protocol whose terminator and completion hooks follow a response.
-    protocol: Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
-}
 
 /// Immutable stream-wide configuration shared by all inbound frames.
 pub(crate) struct StreamProcessingContext<'a, S, E, F>
@@ -97,70 +69,36 @@ where
     pub(crate) peer_address: Option<SocketAddr>,
 }
 
-/// State needed to turn a raw frame into a dispatchable envelope.
-struct DispatchBuildContext<'a, F>
+impl<'a, S, E, F> StreamProcessingContext<'a, S, E, F>
 where
+    S: Serializer + Send + Sync,
+    E: Packet,
     F: FrameCodec,
 {
-    /// Raw frame borrowed while decoding its envelope metadata and payload.
-    frame: &'a F::Frame,
-    /// Pipeline needed to reassemble fragmented input and emit responses.
-    pipeline: &'a mut FramePipeline<F::Frame>,
-    /// Mutable assembly state retained across inbound frames.
-    message_assembly: &'a mut Option<MessageAssemblyState>,
-    /// Failure counter used to enforce the malformed-input limit.
-    deser_failures: &'a mut u32,
-}
-
-/// Detect a bincode budget failure so fallback decoding does not repeat the work.
-fn is_bincode_limit_exceeded(error: &(dyn std::error::Error + 'static)) -> bool {
-    error
-        .downcast_ref::<bincode::error::DecodeError>()
-        .is_some_and(|decode_error| {
-            matches!(decode_error, bincode::error::DecodeError::LimitExceeded)
-        })
-}
-
-/// Decode exactly one envelope, using metadata to select full deserialization.
-pub(super) fn parse_envelope<S>(
-    serializer: &S,
-    payload: &[u8],
-) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>>
-where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
-    Envelope: DecodeWith<S>,
-{
-    let (envelope, consumed) = match serializer.parse(payload) {
-        Ok((parsed_envelope, metadata_bytes_consumed)) => {
-            if serializer.should_deserialize_after_parse() {
-                let context = DeserializeContext {
-                    frame_metadata: payload.get(..metadata_bytes_consumed),
-                    message_id: Some(parsed_envelope.id),
-                    correlation_id: parsed_envelope.correlation_id,
-                    metadata_bytes_consumed: Some(metadata_bytes_consumed),
-                };
-                serializer.deserialize_with_context::<Envelope>(payload, &context)
-            } else {
-                Ok((parsed_envelope, metadata_bytes_consumed))
-            }
+    /// The per-connection handles this stream asks its runtime to build.
+    fn runtime_params(&self) -> RuntimeParams<'a, F> {
+        RuntimeParams {
+            protocol: self.protocol.clone(),
+            server_shutdown: self.shutdown,
+            recovery_hook: self.recovery_hook,
+            recovery_config: self.recovery_config.clone(),
+            peer_address: self.peer_address,
         }
-        Err(error) if is_bincode_limit_exceeded(&error) => {
-            Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
-        }
-        Err(_) => serializer.deserialize::<Envelope>(payload),
-    }?;
-    if consumed != payload.len() {
-        crate::metrics::inc_decode_rejection(
-            crate::metrics::DecodeRejectionPath::Envelope,
-            crate::metrics::DecodeRejectionReason::TrailingBytes,
-        );
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "trailing bytes after envelope: frame must contain exactly one value",
-        )
-        .into());
     }
-    Ok((envelope, consumed))
+}
+
+/// How one connection waits for its next inbound frame.
+///
+/// These values are resolved once per connection, so the read step names them
+/// together rather than threading three arguments through the loop.
+#[derive(Clone, Copy)]
+struct ReadPoll<'a> {
+    /// Maximum interval to wait for the next inbound frame.
+    read_timeout_ms: u64,
+    /// Server shutdown signal observed while waiting.
+    shutdown: &'a CancellationToken,
+    /// Resolved byte budgets applied before each read.
+    budgets: MemoryBudgets,
 }
 
 /// Read and process frames until the stream closes or an I/O error occurs.
@@ -178,6 +116,9 @@ where
     let (mut sink, mut reader, connection_codec) =
         prepare_connection_framing(stream, context.codec).split();
     let limits = resolve_framing_limits(context.memory_budgets, &connection_codec);
+    // Built before the inbound state takes ownership of the protocol hooks, so
+    // the runtime can read the remaining stream configuration as a whole.
+    let mut runtime = ConnectionRuntime::prepare(context.runtime_params())?;
     let mut deser_failures = 0u32;
     let mut inbound = prepare_inbound_state::<F>(
         context.fragmentation,
@@ -185,65 +126,49 @@ where
         context.message_assembler,
         limits,
     );
-    // A child token so the guard below cancels only this connection, while a
-    // server shutdown still reaches it through the parent.
-    let connection_shutdown = context.shutdown.child_token();
-    // Cancelled only by a clean EOF, which is permanent for the connection.
-    let peer_eof = CancellationToken::new();
-    let (mut response_actor, _cancel_on_exit) =
-        build_connection_actor::<F>(context.protocol.as_ref(), connection_shutdown.clone())?;
-    let mut recovery = RecoveryCoordinator::new(context.recovery_hook, context.recovery_config)
-        .with_peer_address(context.peer_address);
+    let poll = ReadPoll {
+        read_timeout_ms: context.read_timeout_ms,
+        shutdown: context.shutdown,
+        budgets: limits.effective_budgets,
+    };
 
     loop {
-        inbound.relieve_pressure(limits.effective_budgets).await?;
-
-        let Some(item) = inbound
-            .next(&mut reader, context.read_timeout_ms, context.shutdown)
-            .await?
+        let Some(frame) = next_frame::<W, F>(&mut inbound, &mut reader, &mut runtime, poll).await?
         else {
             break;
         };
-        let Some(frame) =
-            resolve_read_item(item, &mut inbound, &mut recovery, &connection_shutdown).await?
-        else {
-            continue;
-        };
 
-        let (unobserved, cause) = observe_peer(&mut response_actor.actor, &peer_eof);
-        let dispatch = handle_watching_peer(
-            handle_frame(
-                &frame,
-                FrameHandlingContext {
-                    sink: &mut sink,
-                    deser_failures: &mut deser_failures,
-                    routes: context.routes,
-                    serializer: context.serializer.as_ref(),
-                    codec: &connection_codec,
-                    message_assembler: context.message_assembler,
-                    message_assembly: &mut inbound.message_assembly,
-                    pipeline: &mut inbound.pipeline,
-                    actor: &mut response_actor.actor,
-                    protocol: context.protocol.as_ref(),
-                },
-            ),
-            &mut reader,
-            PeerObservation::new(&peer_eof, &unobserved, &cause),
-            &mut inbound.pending,
-        )
-        .await;
-        let dispatch = match dispatch {
-            Ok(dispatch) => dispatch,
-            Err(error) => {
-                report_pending_failure(&mut inbound, &mut recovery);
-                return Err(error);
-            }
-        };
+        let (unobserved, cause) =
+            observe_peer(&mut runtime.response_actor.actor, &runtime.peer_eof);
+        let dispatch = settle_dispatch(
+            handle_watching_peer(
+                handle_frame(
+                    &frame,
+                    FrameHandlingContext {
+                        sink: &mut sink,
+                        deser_failures: &mut deser_failures,
+                        routes: context.routes,
+                        serializer: context.serializer.as_ref(),
+                        codec: &connection_codec,
+                        message_assembler: context.message_assembler,
+                        message_assembly: &mut inbound.message_assembly,
+                        pipeline: &mut inbound.pipeline,
+                        actor: &mut runtime.response_actor.actor,
+                        protocol: context.protocol.as_ref(),
+                    },
+                ),
+                &mut reader,
+                PeerObservation::new(&runtime.peer_eof, &unobserved, &cause),
+                &mut inbound.pending,
+            )
+            .await,
+            &mut inbound,
+            &mut runtime.recovery,
+        )?;
         // A cancelled response left its stream without a terminator, so any
         // further response would be read as part of it. Drop the buffered
         // request and close the connection instead.
         if dispatch == Dispatch::Stop {
-            report_pending_failure(&mut inbound, &mut recovery);
             break;
         }
     }
@@ -251,117 +176,34 @@ where
     Ok(())
 }
 
-/// Decode one frame, apply reassembly, and dispatch the resulting envelope.
-async fn handle_frame<S, E, K, F>(
-    frame: &F::Frame,
-    context: FrameHandlingContext<'_, S, E, K, F>,
-) -> io::Result<Dispatch>
+/// Read the next dispatchable frame, applying recovery to decoder failures.
+///
+/// Returns `None` once the peer has closed or the server has stopped. A
+/// discarded failure is not an end of stream: the policy kept the connection
+/// alive, so this reads on and only the caller sees a frame that actually
+/// decoded.
+async fn next_frame<W, F>(
+    inbound: &mut InboundFrames<DecodedItem<F::Frame>, F::Frame>,
+    reader: &mut TransportStream<W, F>,
+    runtime: &mut ConnectionRuntime<'_>,
+    poll: ReadPoll<'_>,
+) -> io::Result<Option<F::Frame>>
 where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
-    E: Packet,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
-    Envelope: DecodeWith<S> + EncodeWith<S>,
+    W: AsyncRead + AsyncWrite + Unpin,
 {
-    let FrameHandlingContext {
-        sink,
-        deser_failures,
-        routes,
-        serializer,
-        codec,
-        message_assembler,
-        message_assembly,
-        pipeline,
-        actor,
-        protocol,
-    } = context;
-
-    crate::metrics::inc_frames(crate::metrics::Direction::Inbound);
-    let Some(envelope) = build_dispatchable_envelope(
-        serializer,
-        message_assembler,
-        DispatchBuildContext::<F> {
-            frame,
-            pipeline,
-            message_assembly,
-            deser_failures,
-        },
-    )?
-    else {
-        return Ok(Dispatch::Continue);
-    };
-
-    if let Some(service) = routes.get(&envelope.id) {
-        frame_handling::forward_response(
-            envelope,
-            service,
-            frame_handling::ResponseContext::<S, K, F> {
-                serializer,
-                sink,
-                pipeline,
-                codec,
-                actor,
-                protocol,
-            },
-        )
-        .await
-    } else {
-        warn!(
-            "no handler for message id: id={}, correlation_id={:?}",
-            envelope.id, envelope.correlation_id
-        );
-        Ok(Dispatch::Continue)
+    loop {
+        inbound.relieve_pressure(poll.budgets).await?;
+        let Some(item) = inbound
+            .next(reader, poll.read_timeout_ms, poll.shutdown)
+            .await?
+        else {
+            return Ok(None);
+        };
+        if let Some(frame) =
+            resolve_read_item(item, inbound, &mut runtime.recovery, &runtime.shutdown).await?
+        {
+            return Ok(Some(frame));
+        }
     }
-}
-
-/// Build a dispatchable envelope through decode, reassembly, and assembly.
-fn build_dispatchable_envelope<S, F>(
-    serializer: &S,
-    message_assembler: Option<&Arc<dyn MessageAssembler>>,
-    context: DispatchBuildContext<'_, F>,
-) -> io::Result<Option<Envelope>>
-where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
-    F: FrameCodec,
-    Envelope: DecodeWith<S>,
-{
-    let DispatchBuildContext {
-        frame,
-        pipeline,
-        message_assembly,
-        deser_failures,
-    } = context;
-    let mut failure_tracker =
-        frame_handling::DeserFailureTracker::new(deser_failures, MAX_DESER_FAILURES);
-    let Some(envelope) = frame_handling::decode_envelope::<F>(
-        parse_envelope(serializer, F::frame_payload(frame)),
-        frame,
-        &mut failure_tracker,
-    )?
-    else {
-        return Ok(None);
-    };
-    let Some(reassembled_envelope) = frame_handling::reassemble_if_needed(
-        pipeline,
-        deser_failures,
-        envelope,
-        MAX_DESER_FAILURES,
-    )?
-    else {
-        return Ok(None);
-    };
-    let Some(assembled_envelope) = frame_handling::assemble_if_needed(
-        frame_handling::AssemblyRuntime::new(message_assembler, message_assembly),
-        deser_failures,
-        reassembled_envelope,
-        MAX_DESER_FAILURES,
-    )?
-    else {
-        return Ok(None);
-    };
-
-    // Reset only after the entire pipeline succeeds, so assembly failures
-    // accumulate towards the close threshold.
-    *deser_failures = 0;
-    Ok(Some(assembled_envelope))
 }

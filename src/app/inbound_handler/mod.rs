@@ -4,6 +4,7 @@ mod actor;
 // The connection-local runtime drives the same frame loop from outside this
 // module, so the processing entry point is crate-visible.
 pub(crate) mod core;
+mod dispatch;
 mod frames;
 mod framing;
 mod peer_watch;

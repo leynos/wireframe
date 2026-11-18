@@ -15,14 +15,16 @@
 
 use std::{
     io,
+    net::SocketAddr,
     sync::{Arc, OnceLock},
 };
 
 use tokio_util::sync::CancellationToken;
 
+use super::recovery::RecoveryCoordinator;
 use crate::{
     app::Envelope,
-    codec::FrameCodec,
+    codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
     connection::{
         ConnectionActor,
         ConnectionChannels,
@@ -158,5 +160,66 @@ where
     ProtocolHooks {
         handle_error: Some(handle_error),
         ..ProtocolHooks::default()
+    }
+}
+
+/// Per-connection handles that outlive any single inbound frame.
+///
+/// The read loop keeps these for the whole connection: the token bounding it,
+/// the token recording a peer that will send nothing further, the actor that
+/// drives responses, and the coordinator that decides what a decoder failure
+/// means. Building them together names each policy once, in one place.
+pub(super) struct ConnectionRuntime<'a> {
+    /// Cancelled when this connection must stop reading.
+    pub(super) shutdown: CancellationToken,
+    /// Cancelled once a clean EOF makes further peer input impossible.
+    pub(super) peer_eof: CancellationToken,
+    /// Actor that schedules and delivers handler responses.
+    pub(super) response_actor: ConnectionResponseActor,
+    /// Coordinator consulted for each decoder failure.
+    pub(super) recovery: RecoveryCoordinator<'a>,
+    /// Cancels [`Self::shutdown`] when stream processing exits.
+    _cancel_on_exit: CancellationGuard,
+}
+
+/// Inputs that decide one connection's lifetime and recovery behaviour.
+pub(super) struct RuntimeParams<'a, F: FrameCodec> {
+    /// Protocol whose response hooks drive the connection actor.
+    ///
+    /// The handle is cloned rather than borrowed: the stream context hands its
+    /// protocol hooks to the inbound state, so it cannot stay borrowed here.
+    pub(super) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
+    /// Server shutdown signal inherited by this connection.
+    pub(super) server_shutdown: &'a CancellationToken,
+    /// Hook consulted when a decoder fails on this connection.
+    pub(super) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
+    /// Global recovery settings copied for this connection.
+    pub(super) recovery_config: RecoveryConfig,
+    /// Peer address of the accepted connection, when the transport reported one.
+    pub(super) peer_address: Option<SocketAddr>,
+}
+
+impl<'a> ConnectionRuntime<'a> {
+    /// Build the handles for one accepted connection.
+    ///
+    /// The shutdown guard is stored in the returned value, so dropping the
+    /// runtime cancels the connection's token exactly once.
+    pub(super) fn prepare<F: FrameCodec>(params: RuntimeParams<'a, F>) -> io::Result<Self> {
+        // A child token so the returned guard cancels only this connection,
+        // while a server shutdown still reaches it through the parent.
+        let shutdown = params.server_shutdown.child_token();
+        // Cancelled only by a clean EOF, which is permanent for the connection.
+        let peer_eof = CancellationToken::new();
+        let (response_actor, cancel_on_exit) =
+            build_connection_actor::<F>(params.protocol.as_ref(), shutdown.clone())?;
+        let recovery = RecoveryCoordinator::new(params.recovery_hook, params.recovery_config)
+            .with_peer_address(params.peer_address);
+        Ok(Self {
+            shutdown,
+            peer_eof,
+            response_actor,
+            recovery,
+            _cancel_on_exit: cancel_on_exit,
+        })
     }
 }

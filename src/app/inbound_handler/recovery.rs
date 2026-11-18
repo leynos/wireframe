@@ -12,7 +12,10 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use super::{
-    super::recovery_codec::{DecodeFailure, DecodeOrigin, DecodedItem},
+    super::{
+        frame_handling::Dispatch,
+        recovery_codec::{DecodeFailure, DecodeOrigin, DecodedItem},
+    },
     frames::{InboundFrames, purge_expired},
 };
 use crate::{
@@ -326,4 +329,23 @@ pub(super) fn report_pending_failure<T>(
     if let Some(DecodedItem::Failure(failure)) = inbound.pending.take() {
         drop(recovery.evaluate(failure));
     }
+}
+
+/// Settle one dispatch, reporting any buffered failure on a terminal outcome.
+///
+/// Continuing dispatch leaves a buffered failure for
+/// [`resolve_read_item`] on the next iteration, which is where its policy is
+/// applied. An error or a `Stop` ends the connection, so the pending failure is
+/// reported here instead: the hook callback and metric still observe it, but no
+/// quarantine or further read is started for a connection that is closing.
+pub(super) fn settle_dispatch<T>(
+    dispatch: io::Result<Dispatch>,
+    inbound: &mut InboundFrames<DecodedItem<T>, T>,
+    recovery: &mut RecoveryCoordinator<'_>,
+) -> io::Result<Dispatch> {
+    if matches!(dispatch, Ok(Dispatch::Continue)) {
+        return Ok(Dispatch::Continue);
+    }
+    report_pending_failure(inbound, recovery);
+    dispatch
 }
