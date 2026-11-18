@@ -728,9 +728,12 @@ exposing lower transport concerns.
 ### 11.4 Composition with MessageAssembler
 
 When a protocol uses the `MessageAssembler` abstraction for multi-frame message
-assembly, the assembler produces a buffered request body. It handles
-protocol-specific continuity rules (ordering, missing frames, duplicate frames)
-while Wireframe provides shared buffering machinery and limit enforcement.
+assembly, the assembler handles protocol-specific continuity rules (ordering,
+missing frames, duplicate frames) while Wireframe provides shared buffering
+machinery and limit enforcement. What it produces depends on the route: a
+buffered route receives the completed request body, while a streaming route's
+body is delivered to its handler chunk by chunk, so the assembler retains only
+the partial's key, order state and declared total for it.
 
 The inbound ordering is fixed:
 

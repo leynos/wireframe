@@ -88,18 +88,36 @@ connection runtime creates the body channel, feeds it from the inbound frames,
 and passes the receiving end to your handler.
 
 <!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-022 -->
-```rust,ignore
-let app = WireframeApp::new()?
-    .streaming_route(UPLOAD, Arc::new(|parts, mut body| {
+```rust,no_run
+use std::sync::Arc;
+
+use futures::StreamExt;
+use wireframe::app::{StreamingHandler, WireframeApp};
+use wireframe::request::{RequestBodyStream, RequestParts};
+
+/// Message identifier the upload route is registered under.
+const UPLOAD: u32 = 42;
+
+fn upload_handler() -> StreamingHandler {
+    Arc::new(|parts: RequestParts, mut body: RequestBodyStream| {
         Box::pin(async move {
             while let Some(chunk) = body.next().await {
-                // Handle each chunk as it arrives.
-                let _ = chunk?;
+                if chunk.is_err() {
+                    // A body that stopped early was never acknowledged.
+                    return None;
+                }
             }
             let _ = parts.id();
             None
         })
-    }))?;
+    })
+}
+
+fn main() -> wireframe::Result<()> {
+    let _app: WireframeApp =
+        WireframeApp::new()?.streaming_route(UPLOAD, upload_handler())?;
+    Ok(())
+}
 ```
 
 Streaming routes do not run the middleware chain, and a handler that wants to
