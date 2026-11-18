@@ -25,7 +25,12 @@ use super::{
     stream_parked::{dispatch_parked, parked_bytes},
     stream_slot::PendingEvent,
 };
-use crate::{codec::FrameCodec, message::EncodeWith, serializer::Serializer};
+use crate::{
+    codec::FrameCodec,
+    message::EncodeWith,
+    message_assembler::StreamingAssemblyId,
+    serializer::Serializer,
+};
 
 /// Translate a response outcome into the loop's next decision.
 pub(super) const fn finish_step(dispatch: Dispatch) -> Step {
@@ -65,27 +70,23 @@ pub(super) async fn drive_pending_admission(
     AdmissionStep::Continue
 }
 
-/// Fail bodies whose assemblies expired, then release the expired entries.
-pub(super) async fn expire_finished_assemblies<S, E, K, F>(
-    state: &mut LoopState,
+/// Purge expired assemblies and report the streaming bodies that must fail.
+///
+/// The reply an expired body produces is written by the caller through the
+/// peer-observed path: it may stream for an unbounded time, so writing it here
+/// would hide a peer that has already gone away.
+pub(super) fn expire_finished_assemblies<S, E, K, F>(
     handles: &mut DispatchHandles<'_, S, E, K, F>,
-) -> io::Result<Dispatch>
+) -> Vec<StreamingAssemblyId>
 where
     S: Serializer + Send + Sync,
     E: Packet,
     F: FrameCodec,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    Envelope: EncodeWith<S>,
 {
     let purged = frame_handling::purge_expired_assemblies(handles.assembly);
     handles.pipeline.purge_expired();
-    if purged.streaming().is_empty() {
-        return Ok(Dispatch::Continue);
-    }
-    state
-        .streams
-        .expire(purged.streaming(), handles.reborrow())
-        .await
+    purged.streaming().to_vec()
 }
 
 /// Abort the connection when retained bytes exceed the hard cap.
@@ -164,27 +165,4 @@ where
         .streams
         .close_active(Some(reason), handles.reborrow())
         .await
-}
-
-/// Fail the live body, then end the connection with the decoder error.
-pub(super) async fn fail_after_decode_error<S, E, K, F>(
-    state: &mut LoopState,
-    handles: &mut DispatchHandles<'_, S, E, K, F>,
-    error: io::Error,
-) -> io::Result<Step>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    Envelope: EncodeWith<S>,
-{
-    let reason = io::Error::new(
-        error.kind(),
-        "inbound frame decoding failed while a request body was open",
-    );
-    // The decode error ends the connection whatever the body's reply did, so
-    // the delivery outcome cannot change the decision.
-    fail_body_ending_with(state, handles, reason).await?;
-    Ok(Step::Failed(error))
 }

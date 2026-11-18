@@ -31,6 +31,7 @@ use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
     message::{DecodeWith, EncodeWith},
+    message_assembler::StreamingAssemblyId,
     request::QueuedBytes,
     serializer::Serializer,
 };
@@ -45,6 +46,8 @@ pub(super) enum ObservedAction<'a, T> {
     Handler(Option<Bytes>),
     /// Fail the live body, forwarding whatever reply it still produced.
     FailBody(io::Error),
+    /// Fail the bodies whose assemblies expired, forwarding their replies.
+    Expire(Vec<StreamingAssemblyId>),
 }
 
 impl<S, E, R, K, F> Connection<'_, S, E, R, K, F>
@@ -114,6 +117,15 @@ where
             ObservedAction::FailBody(reason) => {
                 handle_watching_peer(
                     fail_body_ending_with(state, &mut handles, reason),
+                    self.reader,
+                    observation,
+                    pending,
+                )
+                .await
+            }
+            ObservedAction::Expire(ids) => {
+                handle_watching_peer(
+                    state.streams.expire(&ids, handles.reborrow()),
                     self.reader,
                     observation,
                     pending,

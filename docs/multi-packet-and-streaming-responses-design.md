@@ -710,9 +710,11 @@ Streaming request bodies mirror `Response::Stream`:
 Memory budgets cover inbound assembly, inbound streaming, and read pacing.
 Outbound streaming is not limited by `bytes_per_message` or
 `bytes_per_connection`; outbound frames remain subject to the codec's
-`max_frame_length`. Inbound streaming for a streaming route is runtime-owned:
-queued chunks are charged against the same budgets, and a consumer that stops
-reading pauses inbound reads for that body rather than growing the queue.
+`max_frame_length`. Inbound bytes are charged against those budgets on both
+paths: a buffered assembly is charged for the body and metadata it retains, and
+a streaming route is charged for each queued chunk. A consumer that stops
+reading therefore pauses the inbound reads for that body, whether the body is
+assembled first or streamed directly, rather than letting the queue grow.
 
 The symmetry is conceptual, not identical in shape:
 

@@ -10,9 +10,13 @@
 //! cancelled with its frame half-written, so the message parked behind it must
 //! never be served — its frame would be read as part of the broken stream.
 
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    num::NonZeroUsize,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
 use bytes::Bytes;
@@ -34,6 +38,7 @@ use super::watch_support::{
 use crate::{
     app::{Envelope, ResponseHandler, StreamingHandler, WireframeApp},
     connection::PEER_CLOSED_RESPONSE_GRACE,
+    fragment::FragmentationConfig,
     request::{RequestBodyStream, RequestParts},
     response::Response,
     test_helpers::TestAssembler,
@@ -47,6 +52,10 @@ const PARKED_ROUTE: u32 = 73;
 const LIVE_KEY: u64 = 51;
 /// Message key of the buffered message parked behind it.
 const PARKED_KEY: u64 = 52;
+/// Route whose streaming handler answers only a body the runtime failed.
+const EXPIRY_ROUTE: u32 = 74;
+/// Message key of the body left to expire.
+const EXPIRY_KEY: u64 = 61;
 /// Transport buffer for these scenarios, in each direction.
 ///
 /// It is smaller than a reply, so the reply cannot be written in one go and the
@@ -54,6 +63,13 @@ const PARKED_KEY: u64 = 52;
 const TRANSPORT_CAPACITY: usize = 64;
 /// Reply size, chosen to exceed [`TRANSPORT_CAPACITY`] and still fit one frame.
 const BULK_REPLY_BYTES: usize = 512;
+/// Assembly timeout for the expiry scenario.
+///
+/// An assembly ages on the wall clock, which the paused runtime clock cannot
+/// advance, so this scenario waits the timeout out for real and keeps it short.
+const EXPIRY_TIMEOUT: Duration = Duration::from_millis(20);
+/// Real time allowed for the assembly to expire and be reported.
+const EXPIRY_SETTLE: Duration = Duration::from_millis(100);
 
 /// Build the reply that outgrows the transport buffer but still fits one frame.
 fn bulk_answer() -> Bytes { Bytes::from(vec![7_u8; BULK_REPLY_BYTES]) }
@@ -102,21 +118,35 @@ fn recording_reply(served: Arc<AtomicBool>) -> ResponseHandler<Envelope> {
     })
 }
 
-/// Build an application whose live handler answers with a bulk reply.
-fn bulk_app(started: Arc<Notify>) -> TestResult<App> {
+/// Build an application with one bulk-reply streaming route.
+fn streaming_app(route: u32, handler: StreamingHandler) -> TestResult<App> {
     WireframeApp::new()
         .map(|app| app.with_message_assembler(TestAssembler))
-        .and_then(|app| app.streaming_route(LIVE_ROUTE, bulk_reply(started)))
+        .and_then(|app| app.streaming_route(route, handler))
         .map_err(|error| TestError::Msg(format!("build the application: {error}")))
+}
+
+/// Build an application whose live handler answers with a bulk reply.
+fn bulk_app(started: Arc<Notify>) -> TestResult<App> {
+    streaming_app(LIVE_ROUTE, bulk_reply(started))
 }
 
 /// Build the two-route application whose truncated body answers anyway.
 fn truncated_app(started: Arc<Notify>, served: Arc<AtomicBool>) -> TestResult<App> {
-    WireframeApp::new()
-        .map(|app| app.with_message_assembler(TestAssembler))
-        .and_then(|app| app.streaming_route(LIVE_ROUTE, truncated_body_reply(started)))
-        .and_then(|app| app.route_response(PARKED_ROUTE, recording_reply(served)))
+    streaming_app(LIVE_ROUTE, truncated_body_reply(started))?
+        .route_response(PARKED_ROUTE, recording_reply(served))
         .map_err(|error| TestError::Msg(format!("build the application: {error}")))
+}
+
+/// Build an application whose streaming route answers only a failed body.
+fn expiry_app(started: Arc<Notify>) -> TestResult<App> {
+    let fragmentation = FragmentationConfig::for_frame_budget(
+        1024,
+        NonZeroUsize::new(BULK_REPLY_BYTES * 8).unwrap_or(NonZeroUsize::MIN),
+        EXPIRY_TIMEOUT,
+    );
+    streaming_app(EXPIRY_ROUTE, truncated_body_reply(started))
+        .map(|app| app.fragmentation(fragmentation))
 }
 
 /// Await `connection`, requiring it to end at the peer-close grace.
@@ -215,4 +245,31 @@ async fn a_cancelled_live_reply_does_not_drain_parked_messages() -> TestResult {
         !served.load(Ordering::SeqCst),
         "a cancelled reply must stop the parked drain",
     )
+}
+
+/// An expired body's reply is bounded when the peer stops reading.
+///
+/// No further frames arrive, so the assembly expires and the runtime fails the
+/// body. The handler answers that failure with a reply the peer never reads,
+/// and nothing but observing the read half during that write can end the
+/// connection.
+#[tokio::test(start_paused = true)]
+async fn an_expired_body_reply_is_bounded_when_the_peer_stops_reading() -> TestResult {
+    let started = Arc::new(Notify::new());
+    let Scenario {
+        mut client,
+        connection,
+    } = spawn_connection_buffering(expiry_app(Arc::clone(&started))?, TRANSPORT_CAPACITY).await?;
+
+    open_body(&mut client, EXPIRY_ROUTE, EXPIRY_KEY, &started).await?;
+    // The assembly ages on the wall clock, not the paused runtime clock, so the
+    // timeout has to pass for real. The loop's read wake-up then reports it.
+    std::thread::sleep(EXPIRY_SETTLE);
+    ensure(
+        read_buffered(&mut client).await? > 0,
+        "the expired body's reply must reach the transport before the peer leaves",
+    )?;
+    SinkExt::<Bytes>::close(&mut client).await?;
+    let window = Instant::now();
+    ends_at_the_grace(connection, window).await
 }

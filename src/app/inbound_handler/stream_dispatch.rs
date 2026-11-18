@@ -39,7 +39,6 @@ use super::{
         apply_memory_pressure,
         drive_pending_admission,
         expire_finished_assemblies,
-        fail_after_decode_error,
         finish_step,
     },
     stream_diagnostics,
@@ -182,23 +181,35 @@ where
             return Ok(Step::Closed);
         }
         let queued = state.streams.queued();
+        // Purged inside the handle scope and acted on after it: the reply an
+        // expired body produces may stream for an unbounded time, so it is
+        // written through the peer-observed path where the reader stays
+        // reachable.
+        let expired = {
+            let mut handles = self.handles(queued.clone());
+            apply_memory_pressure(state, &mut handles).await?;
+            expire_finished_assemblies(&mut handles)
+        };
+        if !expired.is_empty()
+            && self
+                .dispatch_observed(state, queued.clone(), ObservedAction::Expire(expired))
+                .await?
+                == Dispatch::Stop
+        {
+            return Ok(Step::Closed);
+        }
         // Decided inside the handle scope, acted on after it: the handler's
         // reply is forwarded once the reader is reachable again.
         let mut admission = AdmissionStep::Continue;
         {
-            let mut handles = self.handles(queued.clone());
-            if expire_finished_assemblies(state, &mut handles).await? == Dispatch::Stop {
-                return Ok(Step::Closed);
-            }
-            apply_memory_pressure(state, &mut handles).await?;
+            let handles = self.handles(queued.clone());
             // A pending admission means the slot is live, so the parked drain
-            // below cannot run in this step. Deciding it first keeps the drain
+            // below cannot run in this step. Driving it first keeps the drain
             // outside this borrow scope, where the reader stays reachable.
             if state.streams.has_pending_send() {
                 // Measured here, not when the chunk was queued: bytes retained
-                // elsewhere can only be released between drives, and a stale
-                // snapshot would refuse a chunk that has since become
-                // affordable.
+                // elsewhere can only be released between drives, and expiry
+                // above may just have released them.
                 let budget = ChunkBudget::measure(&handles, &state.parked);
                 admission = drive_pending_admission(state, handles.wait, budget).await;
             }
@@ -341,8 +352,17 @@ where
                 }
             }
             Event::Frame(Err(error)) => {
-                let mut handles = self.handles(queued);
-                fail_after_decode_error(state, &mut handles, error).await
+                let reason = io::Error::new(
+                    error.kind(),
+                    "inbound frame decoding failed while a request body was open",
+                );
+                // The decode error ends the connection whatever the body's reply
+                // did, so the delivery outcome cannot change the decision. The
+                // reply is still forwarded through the observed path, because it
+                // may stream for an unbounded time.
+                self.dispatch_observed(state, queued, ObservedAction::FailBody(reason))
+                    .await?;
+                Ok(Step::Failed(error))
             }
         }
     }

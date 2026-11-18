@@ -73,6 +73,8 @@ const PRESSURE_MESSAGE_BUDGET: usize = 64 * 1024 * 1024;
 const PRESSURE_CONNECTION_BUDGET: usize = 64 * 1024;
 /// Size of each bulk body chunk, well inside any supported frame limit.
 const BULK_CHUNK: usize = 32 * 1024;
+/// Width of the decimal sequence stamp at the start of every chunk.
+const STAMP_BYTES: usize = 4;
 /// Continuation frames a stalled handler must apply pressure against.
 ///
 /// The body is far larger than the connection budget plus any plausible kernel
@@ -119,14 +121,26 @@ fn budget_bytes(bytes: usize) -> TestResult<BudgetBytes> {
 /// Every chunk has the same length and contents, so only an explicit stamp can
 /// show whether the handler received them in the order the peer sent them.
 fn stamped(mut chunk: Vec<u8>, sequence: u32) -> Vec<u8> {
-    chunk[..4].copy_from_slice(&sequence.to_be_bytes());
+    let stamp = format!("{sequence:04}");
+    if let Some(field) = chunk.get_mut(..STAMP_BYTES) {
+        field.copy_from_slice(stamp.as_bytes());
+    }
     chunk
 }
 
 /// Read the sequence stamp a frame's chunk carries.
 fn leading_sequence(chunk: &Bytes) -> Option<u32> {
-    let stamp: [u8; 4] = chunk.get(..4)?.try_into().ok()?;
-    Some(u32::from_be_bytes(stamp))
+    let field = std::str::from_utf8(chunk.get(..STAMP_BYTES)?).ok()?;
+    field.parse().ok()
+}
+
+/// Flag a chunk that did not arrive at its expected position.
+fn record_chunk(chunk: &Bytes, expected: &mut u32, disordered: &AtomicBool) {
+    let sequence = leading_sequence(chunk).unwrap_or(u32::MAX);
+    if sequence != *expected {
+        disordered.store(true, Ordering::SeqCst);
+    }
+    *expected = sequence.saturating_add(1);
 }
 
 /// Handler that refuses to read until released, then counts every chunk.
@@ -149,12 +163,8 @@ fn stalling_handler(
             release_signal.notified().await;
             let mut expected = 0_u32;
             while let Some(chunk) = body.next().await {
-                let chunk = chunk.ok()?;
-                let sequence = leading_sequence(&chunk)?;
-                if sequence != expected {
-                    disordered.store(true, Ordering::SeqCst);
-                }
-                expected = sequence.saturating_add(1);
+                let received = chunk.ok()?;
+                record_chunk(&received, &mut expected, &disordered);
                 counted.fetch_add(1, Ordering::SeqCst);
             }
             Some(Bytes::from_static(b"done"))
@@ -273,10 +283,13 @@ async fn a_stalled_handler_stops_the_connection_reading_further_frames() -> Test
         TOTAL_CHUNKS,
         "every chunk held back by the stall should reach the handler once it resumes",
     );
-    assert!(
-        !out_of_order.load(Ordering::SeqCst),
-        "a chunk queued behind an admission must not be discarded or reordered"
-    );
+    if out_of_order.load(Ordering::SeqCst) {
+        return Err(
+            "a chunk queued behind an admission must not be discarded or reordered"
+                .to_owned()
+                .into(),
+        );
+    }
     finish_server(server).await
 }
 
