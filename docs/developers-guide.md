@@ -1131,7 +1131,7 @@ introducing additional breaking changes.
 Use the Makefile targets as the contributor entrypoint for routine validation:
 
 - `make check-fmt` verifies workspace formatting.
-- `make lint` runs the three lint stages over every workspace package, target
+- `make lint` runs the four lint stages over every workspace package, target
   and feature, with warnings denied:
 
   - `lint-doc` builds rustdoc with
@@ -1141,7 +1141,9 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
     `--workspace --all-targets --all-features -- -D warnings`;
   - `lint-whitaker` runs
     `whitaker --all -- --workspace --all-targets --all-features` under
-    `RUSTFLAGS="-D warnings"`.
+    `RUSTFLAGS="-D warnings"`;
+  - `lint-python-docs` runs `interrogate` at a 100% threshold over
+    `tests/workflow_contracts`, the repository's only Python.
 
   `make lint` is a thin aggregate target, so each leaf can be run alone.
   `.NOTPARALLEL: lint` keeps the stages sequential even under `make -j lint`,
@@ -1152,8 +1154,21 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
   helper crates unchecked. `lint-doc` builds documentation for every member,
   including `wireframe_testing`. Ordinary workspace tests cover that crate's
   test targets, and the separate `test-doc` target covers its doctests.
+
+  `lint-python-docs` holds a docstring on every module, class and function in
+  the workflow contract tests; Ruff-style docstring wording is not enforced
+  there. It needs `uv` on `PATH`, which resolves the pinned
+  `interrogate>=1.7,<2` into an ephemeral environment, so no Python packages
+  need installing first. The required `build-test` job runs `make lint`, so a
+  missing docstring fails the pull-request lane even though the crate's own
+  Rust tests pass.
 - `make test` runs the main automated test suite with warnings treated as
   errors.
+- `make test-wireframe-testing` runs only the `wireframe_testing` companion
+  crate's tests
+  (`cargo test -p wireframe_testing --all-targets --all-features`). `make test`
+  already covers the crate as a workspace member; this is the shorter loop to
+  use while editing the test helpers themselves.
 - `make test-pool-no-metrics` checks the `pool,serializer-bincode` feature set
   with default features disabled and warnings denied. The required `build-test`
   CI job runs it in the `Pool without metrics compile check` step.
