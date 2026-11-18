@@ -21,6 +21,8 @@ mod stream_frame;
 
 mod stream_handles;
 
+mod stream_observed;
+
 mod stream_parked;
 
 mod stream_slot;

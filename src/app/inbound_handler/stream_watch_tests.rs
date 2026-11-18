@@ -13,30 +13,31 @@
 //! time. A stalled producer holds no timer of its own, so the paused clock
 //! reaches exactly the deadline under test.
 
-use std::{future::Future, io, sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt, stream};
-use tokio::{
-    io::DuplexStream,
-    sync::Notify,
-    task::JoinHandle,
-    time::{Instant, timeout},
-};
-use tokio_util::{
-    codec::{Framed, LengthDelimitedCodec},
-    sync::CancellationToken,
-};
+use tokio::{sync::Notify, time::Instant};
 use wireframe_testing::{TestError, TestResult};
 
-use super::super::{ConnectionProcessingContext, process_connection};
+use super::watch_support::{
+    App,
+    GRACE_SLACK,
+    Scenario,
+    bounded_for,
+    ensure,
+    open_body,
+    read_reply,
+    send_complete,
+    send_request,
+    spawn_connection,
+};
 use crate::{
-    app::{Envelope, PreparedApp, ResponseHandler, StreamingHandler, WireframeApp},
+    app::{Envelope, ResponseHandler, StreamingHandler, WireframeApp},
     connection::PEER_CLOSED_RESPONSE_GRACE,
     request::{RequestBodyStream, RequestParts},
     response::{FrameStream, Response, WireframeError},
-    serializer::{BincodeSerializer, Serializer},
-    test_helpers::{TestAssembler, continuation_frame_payload, first_frame_payload},
+    test_helpers::{TestAssembler, continuation_frame_payload},
 };
 
 /// Route whose streaming handler holds the dispatch slot open.
@@ -47,33 +48,6 @@ const PARKED_ROUTE: u32 = 71;
 const LIVE_KEY: u64 = 41;
 /// Message key of the buffered message parked behind it.
 const PARKED_KEY: u64 = 42;
-/// Correlation identifier stamped on every request in this module.
-const REQUEST_CORRELATION: u64 = 5;
-/// Bytes the in-memory transport may buffer in each direction.
-const DUPLEX_CAPACITY: usize = 1024;
-/// Bound for a step that has to complete on its own.
-///
-/// The clock is paused, so this only fires when the connection genuinely makes
-/// no progress, and the failure names the step that stalled.
-const STEP_WAIT: Duration = Duration::from_secs(5);
-/// Slack allowed past the grace for scheduling at one virtual instant.
-const GRACE_SLACK: Duration = Duration::from_millis(1);
-
-/// Application type every scenario builds.
-type App = WireframeApp<BincodeSerializer, (), Envelope>;
-/// Prepared form of [`App`], as the connection runtime receives it.
-type Prepared = PreparedApp<BincodeSerializer, (), Envelope>;
-/// Client end of one in-memory connection.
-type Client = Framed<DuplexStream, LengthDelimitedCodec>;
-
-/// Require `condition`, reporting `message` as the test failure otherwise.
-fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
-    if condition {
-        Ok(())
-    } else {
-        Err(TestError::Msg(message.into()))
-    }
-}
 
 /// Handler that holds the slot until released, then drains its body.
 ///
@@ -122,116 +96,6 @@ fn scenario_app(started: Arc<Notify>, release: Arc<Notify>) -> TestResult<App> {
         .map_err(|error| TestError::Msg(format!("build the application: {error}")))
 }
 
-/// One spawned connection and its client end.
-struct Scenario {
-    /// Client end of the in-memory transport.
-    client: Client,
-    /// Task driving the production connection loop.
-    connection: JoinHandle<io::Result<()>>,
-}
-
-/// Prepare `app` and spawn its connection over an in-memory transport.
-async fn spawn_connection(app: App) -> TestResult<Scenario> {
-    let prepared: Prepared = app
-        .prepare()
-        .await
-        .map_err(|error| format!("prepare the application: {error}"))?;
-    let (client, server) = tokio::io::duplex(DUPLEX_CAPACITY);
-    let connection = tokio::spawn(async move {
-        let shutdown = CancellationToken::new();
-        process_connection(server, context(&prepared, &shutdown)).await
-    });
-    Ok(Scenario {
-        client: Framed::new(client, LengthDelimitedCodec::new()),
-        connection,
-    })
-}
-
-/// Borrow the prepared application as the runtime's processing context.
-fn context<'a, C, F>(
-    prepared: &'a PreparedApp<BincodeSerializer, C, Envelope, F>,
-    shutdown: &'a CancellationToken,
-) -> ConnectionProcessingContext<'a, BincodeSerializer, C, Envelope, F>
-where
-    C: Send + 'static,
-    F: crate::codec::FrameCodec,
-{
-    ConnectionProcessingContext {
-        routes: &prepared.routes,
-        streaming_routes: &prepared.streaming_routes,
-        serializer: Arc::clone(&prepared.serializer),
-        codec: &prepared.codec,
-        on_connect: prepared.on_connect.as_ref(),
-        on_disconnect: prepared.on_disconnect.as_ref(),
-        message_assembler: prepared.message_assembler.as_ref(),
-        fragmentation: prepared.fragmentation,
-        protocol_hooks: prepared.protocol_hooks(),
-        protocol: prepared.protocol.clone(),
-        memory_budgets: prepared.memory_budgets,
-        read_timeout_ms: prepared.read_timeout_ms,
-        shutdown,
-    }
-}
-
-/// Send one request envelope carrying `payload` to `route`.
-async fn send_request(client: &mut Client, route: u32, payload: &[u8]) -> TestResult {
-    let envelope = Envelope::new(route, Some(REQUEST_CORRELATION), payload.to_vec());
-    let encoded = BincodeSerializer.serialize(&envelope)?;
-    client.send(Bytes::from(encoded)).await?;
-    Ok(())
-}
-
-/// Send one complete message to a buffered route.
-///
-/// The assembler is installed for the whole connection, so a request to a
-/// buffered route must still arrive as assembly frames: the payload the
-/// handler receives is the assembled body, and a payload that is not a frame
-/// header is a deserialization failure rather than a request.
-async fn send_complete(client: &mut Client, route: u32, key: u64, body: &[u8]) -> TestResult {
-    send_request(
-        client,
-        route,
-        &first_frame_payload(key.into(), body, true, None)?,
-    )
-    .await
-}
-
-/// Read one reply frame and return its payload.
-async fn read_reply(client: &mut Client, step: &str) -> TestResult<Vec<u8>> {
-    let frame = bounded(step, client.next())
-        .await?
-        .ok_or_else(|| format!("the connection closed before {step} arrived"))??;
-    let (envelope, _): (Envelope, usize) = BincodeSerializer.deserialize(&frame)?;
-    Ok(envelope.payload_bytes().to_vec())
-}
-
-/// Await `future`, bounding it by [`STEP_WAIT`].
-async fn bounded<T>(step: &str, future: impl Future<Output = T>) -> TestResult<T> {
-    bounded_for(STEP_WAIT, step, future).await
-}
-
-/// Await `future`, bounding it by `wait`.
-async fn bounded_for<T>(
-    wait: Duration,
-    step: &str,
-    future: impl Future<Output = T>,
-) -> TestResult<T> {
-    timeout(wait, future)
-        .await
-        .map_err(|_| format!("{step} did not complete within {wait:?}").into())
-}
-
-/// Open a streaming body that owns the dispatch slot until released.
-async fn open_live_body(client: &mut Client, started: &Notify) -> TestResult {
-    send_request(
-        client,
-        LIVE_ROUTE,
-        &first_frame_payload(LIVE_KEY.into(), b"start", false, None)?,
-    )
-    .await?;
-    bounded("the live handler starting", started.notified()).await
-}
-
 /// A parked reply observes a peer that half-closes while it streams.
 ///
 /// The reply stalls after one frame, so nothing but observing the closed read
@@ -246,7 +110,7 @@ async fn a_parked_reply_observes_a_peer_that_half_closes_while_it_streams() -> T
         connection,
     } = spawn_connection(scenario_app(Arc::clone(&started), Arc::clone(&release))?).await?;
 
-    open_live_body(&mut client, &started).await?;
+    open_body(&mut client, LIVE_ROUTE, LIVE_KEY, &started).await?;
     // A complete buffered message arrives while the live body owns the slot.
     send_complete(&mut client, PARKED_ROUTE, PARKED_KEY, b"parked").await?;
 
@@ -310,7 +174,7 @@ async fn a_parked_reply_is_bounded_when_the_peer_closes_before_it_drains() -> Te
         connection,
     } = spawn_connection(scenario_app(Arc::clone(&started), Arc::clone(&release))?).await?;
 
-    open_live_body(&mut client, &started).await?;
+    open_body(&mut client, LIVE_ROUTE, LIVE_KEY, &started).await?;
     // The live handler is consuming, so it observes the truncation the close
     // below causes and replies with nothing.
     release.notify_one();

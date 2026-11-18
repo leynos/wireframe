@@ -10,8 +10,9 @@
 //! Every action borrows the same [`DispatchHandles`] bundle, so a reply
 //! produced by any of them travels the identical pipeline.
 
-use std::io;
+use std::{io, time::Duration};
 
+use bytes::Bytes;
 use futures::Sink;
 
 use super::{
@@ -34,32 +35,33 @@ pub(super) const fn finish_step(dispatch: Dispatch) -> Step {
     }
 }
 
-/// Advance the in-flight chunk admission, or the handler if it resolves first.
-pub(super) async fn drive_pending_admission<S, E, K, F>(
+/// What one drive of the pending chunk admission decided.
+pub(super) enum AdmissionStep {
+    /// The admission settled, or stayed queued with the slot still live.
+    Continue,
+    /// The handler resolved first, so its reply is now owed.
+    Handler(Option<Bytes>),
+}
+
+/// Advance the in-flight chunk admission, or report the handler if it resolves
+/// first.
+///
+/// A handler that resolves here still owes a reply, and that reply may stream
+/// for an unbounded time. The outcome is handed back rather than forwarded in
+/// this scope because only the caller owns the reader, and is therefore the
+/// only place that can forward the reply while still observing the peer.
+pub(super) async fn drive_pending_admission(
     state: &mut LoopState,
-    handles: &mut DispatchHandles<'_, S, E, K, F>,
-) -> io::Result<Step>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-    Envelope: EncodeWith<S>,
-{
-    match state.streams.drive_pending(handles.wait).await {
+    wait: Duration,
+) -> AdmissionStep {
+    match state.streams.drive_pending(wait).await {
         PendingEvent::Send(result) => state.streams.complete_send(result),
-        PendingEvent::Handler(outcome) => {
-            let dispatch = state
-                .streams
-                .finish_active(outcome, handles.reborrow())
-                .await?;
-            return Ok(finish_step(dispatch));
-        }
+        PendingEvent::Handler(outcome) => return AdmissionStep::Handler(outcome),
         // The admission stays queued; the next step re-checks expiry and the
         // memory budget before resuming it.
         PendingEvent::Idle => {}
     }
-    Ok(Step::Continue)
+    AdmissionStep::Continue
 }
 
 /// Fail bodies whose assemblies expired, then release the expired entries.
@@ -139,13 +141,17 @@ where
     Ok(dispatch)
 }
 
-/// Fail the live body, then end the loop with `step`.
+/// Fail the live body and report whether the connection may still write.
+///
+/// Closing the body also forwards any reply the handler managed to produce, so
+/// the result carries that delivery's outcome. A cancelled reply can leave a
+/// partial frame on the wire, and [`Dispatch::Stop`] says no later write may
+/// follow it; the caller must not serve anything else on that connection.
 pub(super) async fn fail_body_ending_with<S, E, K, F>(
     state: &mut LoopState,
     handles: &mut DispatchHandles<'_, S, E, K, F>,
     reason: io::Error,
-    step: Step,
-) -> io::Result<Step>
+) -> io::Result<Dispatch>
 where
     S: Serializer + Send + Sync,
     E: Packet,
@@ -156,8 +162,7 @@ where
     state
         .streams
         .close_active(Some(reason), handles.reborrow())
-        .await?;
-    Ok(step)
+        .await
 }
 
 /// Fail the live body, then end the connection with the decoder error.
@@ -177,5 +182,8 @@ where
         error.kind(),
         "inbound frame decoding failed while a request body was open",
     );
-    fail_body_ending_with(state, handles, reason, Step::Failed(error)).await
+    // The decode error ends the connection whatever the body's reply did, so
+    // the delivery outcome cannot change the decision.
+    fail_body_ending_with(state, handles, reason).await?;
+    Ok(Step::Failed(error))
 }
