@@ -20,18 +20,18 @@
 //! what to do next. The maintenance actions it schedules live in
 //! [`super::stream_actions`].
 
-use std::{collections::HashMap, io, sync::Arc, time::Duration};
+use std::{io, time::Duration};
 
-use bytes::Bytes;
 use futures::{Sink, Stream};
 use tokio_util::sync::CancellationToken;
 
+// Re-exported so the loop's callers keep naming these through the module that
+// owns the state machine, while their definitions stay in `stream_types`.
+pub(super) use super::stream_types::{DispatchContext, Event, Step};
 use super::{
     super::{
-        StreamingHandler,
         envelope::{Envelope, Packet},
         frame_handling::Dispatch,
-        memory_budgets::MemoryBudgets,
     },
     frames::{InboundFrames, NextFrame},
     stream_actions::{
@@ -49,10 +49,7 @@ use crate::{
     codec::FrameCodec,
     connection::ConnectionActor,
     frame::FrameMetadata,
-    hooks::WireframeProtocol,
     message::{DecodeWith, EncodeWith},
-    message_assembler::MessageAssembler,
-    middleware::HandlerService,
     request::QueuedBytes,
     serializer::Serializer,
 };
@@ -68,44 +65,6 @@ mod watch_tests;
 #[cfg(test)]
 #[path = "stream_reply_watch_tests.rs"]
 mod reply_watch_tests;
-
-/// Immutable connection inputs needed by the dispatch loop.
-pub(super) struct DispatchContext<'a, S, E, F>
-where
-    S: Serializer + Send + Sync,
-    E: Packet,
-    F: FrameCodec,
-{
-    /// Immutable middleware chains used to dispatch buffered envelopes.
-    pub(super) routes: &'a HashMap<u32, HandlerService<E>>,
-    /// Streaming handlers keyed by message identifier.
-    pub(super) streaming_routes: &'a HashMap<u32, StreamingHandler>,
-    /// Serializer shared by all frames on the connection.
-    pub(super) serializer: &'a S,
-    /// Codec configuration shared by all frames on the connection.
-    pub(super) codec: &'a F,
-    /// Optional assembly strategy for multi-frame protocol messages.
-    pub(super) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
-    /// Protocol whose terminator and completion hooks follow a response.
-    pub(super) protocol:
-        Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
-    /// Effective byte budgets for this connection.
-    pub(super) effective_budgets: MemoryBudgets,
-    /// Maximum interval to wait for the next inbound frame.
-    pub(super) read_timeout_ms: u64,
-}
-
-/// What the loop should do after one step.
-///
-/// Shared with [`super::stream_actions`], whose actions can end the loop.
-pub(super) enum Step {
-    /// Keep reading frames.
-    Continue,
-    /// Stop dispatching: the peer closed, or a reply left its stream open.
-    Closed,
-    /// The connection must end with this error.
-    Failed(io::Error),
-}
 
 /// One connected transport and the immutable inputs that drive it.
 pub(super) struct Connection<'a, S, E, R, K, F>
@@ -181,39 +140,10 @@ where
             return Ok(Step::Closed);
         }
         let queued = state.streams.queued();
-        // Purged inside the handle scope and acted on after it: the reply an
-        // expired body produces may stream for an unbounded time, so it is
-        // written through the peer-observed path where the reader stays
-        // reachable.
-        let expired = {
-            let mut handles = self.handles(queued.clone());
-            apply_memory_pressure(state, &mut handles).await?;
-            expire_finished_assemblies(&mut handles)
-        };
-        if !expired.is_empty()
-            && self
-                .dispatch_observed(state, queued.clone(), ObservedAction::Expire(expired))
-                .await?
-                == Dispatch::Stop
-        {
+        if self.expire_bodies(state, queued.clone()).await? {
             return Ok(Step::Closed);
         }
-        // Decided inside the handle scope, acted on after it: the handler's
-        // reply is forwarded once the reader is reachable again.
-        let mut admission = AdmissionStep::Continue;
-        {
-            let handles = self.handles(queued.clone());
-            // A pending admission means the slot is live, so the parked drain
-            // below cannot run in this step. Driving it first keeps the drain
-            // outside this borrow scope, where the reader stays reachable.
-            if state.streams.has_pending_send() {
-                // Measured here, not when the chunk was queued: bytes retained
-                // elsewhere can only be released between drives, and expiry
-                // above may just have released them.
-                let budget = ChunkBudget::measure(&handles, &state.parked);
-                admission = drive_pending_admission(state, handles.wait, budget).await;
-            }
-        }
+        let admission = self.drive_admission(state, queued.clone()).await;
         if let AdmissionStep::Handler(outcome) = admission {
             // The handler's reply may stream for an unbounded time, so it is
             // forwarded through the same peer-observed path as a frame's reply.
@@ -230,16 +160,77 @@ where
             // admission is driven against a freshly measured budget.
             return Ok(Step::Continue);
         }
-        if !state.streams.is_live()
-            && self
-                .dispatch_observed(state, queued.clone(), ObservedAction::Drain)
-                .await?
-                == Dispatch::Stop
-        {
+        if self.drain_parked(state, queued.clone()).await? {
             return Ok(Step::Closed);
         }
         let event = self.next_event(state).await;
         self.handle_event(state, event, queued).await
+    }
+
+    /// Apply the memory budget, then act on any assembly that has expired.
+    ///
+    /// Purged inside the handle scope and acted on after it: the reply an
+    /// expired body produces may stream for an unbounded time, so it is written
+    /// through the peer-observed path where the reader stays reachable.
+    ///
+    /// Returns `true` when the connection must stop.
+    async fn expire_bodies(
+        &mut self,
+        state: &mut LoopState,
+        queued: QueuedBytes,
+    ) -> io::Result<bool> {
+        let expired = {
+            let mut handles = self.handles(queued.clone());
+            apply_memory_pressure(state, &mut handles).await?;
+            expire_finished_assemblies(&mut handles)
+        };
+        if expired.is_empty() {
+            return Ok(false);
+        }
+        let dispatch = self
+            .dispatch_observed(state, queued, ObservedAction::Expire(expired))
+            .await?;
+        Ok(dispatch == Dispatch::Stop)
+    }
+
+    /// Drive the slot's in-flight chunk admission, if it has one.
+    ///
+    /// Decided inside the handle scope and acted on after it: the handler's
+    /// reply is forwarded once the reader is reachable again.
+    async fn drive_admission(
+        &mut self,
+        state: &mut LoopState,
+        queued: QueuedBytes,
+    ) -> AdmissionStep {
+        let handles = self.handles(queued);
+        // A pending admission means the slot is live, so the parked drain
+        // cannot run in this step. Driving it first keeps the drain outside
+        // this borrow scope, where the reader stays reachable.
+        if !state.streams.has_pending_send() {
+            return AdmissionStep::Continue;
+        }
+        // Measured here, not when the chunk was queued: bytes retained
+        // elsewhere can only be released between drives, and expiry above may
+        // just have released them.
+        let budget = ChunkBudget::measure(&handles, &state.parked);
+        drive_pending_admission(state, handles.wait, budget).await
+    }
+
+    /// Dispatch parked messages once the live slot is free.
+    ///
+    /// Returns `true` when the connection must stop.
+    async fn drain_parked(
+        &mut self,
+        state: &mut LoopState,
+        queued: QueuedBytes,
+    ) -> io::Result<bool> {
+        if state.streams.is_live() {
+            return Ok(false);
+        }
+        let dispatch = self
+            .dispatch_observed(state, queued, ObservedAction::Drain)
+            .await?;
+        Ok(dispatch == Dispatch::Stop)
     }
 
     /// Build the action-scoped handle bundle from disjoint connection borrows.
@@ -366,16 +357,4 @@ where
             }
         }
     }
-}
-
-/// One step of the connection loop.
-pub(super) enum Event<T> {
-    /// An inbound frame, EOF, or decoder error.
-    Frame(io::Result<Option<T>>),
-    /// The server stopped the connection.
-    Shutdown,
-    /// The read timeout elapsed with no frame.
-    Tick,
-    /// The handler resolved while the loop was waiting.
-    Handler(Option<Bytes>),
 }

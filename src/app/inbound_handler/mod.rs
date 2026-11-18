@@ -30,6 +30,8 @@ mod stream_parked;
 mod stream_slot;
 
 mod stream_terminal;
+
+mod stream_types;
 use std::{collections::HashMap, sync::Arc};
 
 use log::warn;
