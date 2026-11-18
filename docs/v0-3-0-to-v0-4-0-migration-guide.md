@@ -806,17 +806,23 @@ now holds exactly one strong reference to it.
 Custom callbacks move into `CustomProtocolHooks`, which keeps the same six
 optional public fields. Convert it into `ProtocolHooks` with `.into()`:
 
+The old form no longer compiles, because the callbacks were fields of
+`ProtocolHooks` itself:
+
 <!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-022 -->
 ```rust,ignore
-use wireframe::hooks::{CustomProtocolHooks, ProtocolHooks};
-
-// Before: the callbacks were fields of `ProtocolHooks` itself.
 let hooks = ProtocolHooks {
     before_send: Some(Box::new(|_frame: &mut Vec<u8>, _ctx| {})),
     ..ProtocolHooks::default()
 };
+```
 
-// After: build `CustomProtocolHooks` and convert it.
+Build `CustomProtocolHooks` and convert it instead:
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-023 -->
+```rust
+use wireframe::hooks::{CustomProtocolHooks, ProtocolHooks};
+
 let hooks: ProtocolHooks<Vec<u8>, ()> = CustomProtocolHooks {
     before_send: Some(Box::new(|_frame: &mut Vec<u8>, _ctx| {})),
     ..CustomProtocolHooks::default()
@@ -842,7 +848,7 @@ is unchanged.
 Code that inspected the old six fields to detect an installed protocol should
 match on the enum instead:
 
-<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-023 -->
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-024 -->
 ```rust
 use wireframe::hooks::ProtocolHooks;
 
