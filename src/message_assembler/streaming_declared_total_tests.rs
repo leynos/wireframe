@@ -7,6 +7,7 @@
 
 use std::time::Instant;
 
+use proptest::prelude::*;
 use rstest::rstest;
 
 use super::{admit_first, continuation_header, first_header, state_with_limit};
@@ -115,4 +116,75 @@ fn a_continuation_that_breaks_the_declared_total_is_terminal(#[case] case: &Decl
         !state.is_streaming_key(MessageKey(case.key)),
         "the partial is removed"
     );
+}
+
+proptest! {
+    /// A continuation's declared-total outcome follows the contract.
+    ///
+    /// The generated sizes cover both terminal violations and both successes.
+    /// A terminal violation must remove the partial so the handler sees an
+    /// error, and a completing continuation must remove it too, because the
+    /// message finished rather than stalled.
+    #[test]
+    fn continuation_outcomes_follow_the_declared_total(
+        declared in 4_usize..=64,
+        continuation_len in 0_usize..=64,
+        is_last in any::<bool>(),
+    ) {
+        /// Body bytes the first frame carries, and what it therefore declares.
+        const FIRST: usize = 4;
+        let key = MessageKey(1);
+        let mut state = state_with_limit(1024);
+        let start = Instant::now();
+        admit_first(
+            &mut state,
+            &first_header(1, FIRST, Some(declared), false),
+            b"aaaa",
+            start,
+        );
+
+        let header = continuation_header(1, 1, continuation_len, is_last);
+        let body = vec![b'b'; continuation_len];
+        let outcome = state.accept_streaming_continuation_at(&header, &body, start);
+        let attempted = FIRST + continuation_len;
+
+        match outcome {
+            Ok(_) => {
+                prop_assert!(attempted <= declared, "an overrun must not be admitted");
+                prop_assert!(
+                    !is_last || attempted == declared,
+                    "a completing frame must match the declaration exactly"
+                );
+                prop_assert_eq!(
+                    state.is_streaming_key(key),
+                    !is_last,
+                    "only a completed message leaves no partial behind"
+                );
+            }
+            Err(failure) => {
+                prop_assert!(
+                    attempted > declared || (is_last && attempted != declared),
+                    "a continuation that honours the declaration is not terminal"
+                );
+                let source = failure.source_error();
+                match source {
+                    MessageAssemblyError::DeclaredTotalExceeded { .. } => {
+                        prop_assert!(attempted > declared, "exceeded means the total was overrun");
+                    }
+                    MessageAssemblyError::DeclaredTotalMismatch { .. } => {
+                        prop_assert!(
+                            is_last && attempted != declared,
+                            "a mismatch is only possible when the frame completes the body"
+                        );
+                    }
+                    other => prop_assert!(false, "unexpected failure: {other:?}"),
+                }
+                prop_assert!(failure.is_terminal(), "a broken declaration closes the message");
+                prop_assert!(
+                    !state.is_streaming_key(key),
+                    "a terminal violation removes the partial"
+                );
+            }
+        }
+    }
 }
