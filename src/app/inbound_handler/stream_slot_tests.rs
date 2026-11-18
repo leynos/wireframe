@@ -3,12 +3,13 @@
 use std::{
     future::{self, poll_fn},
     io,
+    num::NonZeroUsize,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
     task::Poll,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use bytes::Bytes;
@@ -26,7 +27,14 @@ use super::{
 use crate::{
     app::{
         StreamingHandler,
-        inbound_handler::stream_handles::{ChunkBudget, FirstChunk},
+        inbound_handler::stream_handles::{ChunkBudget, ChunkOffer, FirstChunk},
+    },
+    message_assembler::{
+        EnvelopeRouting,
+        FirstFrameHeader,
+        FirstFrameInput,
+        MessageAssemblyState,
+        MessageKey,
     },
     request::{
         AccountedBodySender,
@@ -103,6 +111,18 @@ fn blocked_budget() -> ChunkBudget {
 fn unaffordable_first_chunk() -> FirstChunk {
     FirstChunk {
         key: None,
+        assembly: None,
+        parts: RequestParts::new(1, None, Vec::new()),
+        chunk: Bytes::from_static(b"abcd"),
+        is_last: false,
+    }
+}
+
+/// A first chunk carrying a message key a continuation can name.
+#[fixture]
+fn keyed_first_chunk() -> FirstChunk {
+    FirstChunk {
+        key: Some(MessageKey(3)),
         assembly: None,
         parts: RequestParts::new(1, None, Vec::new()),
         chunk: Bytes::from_static(b"abcd"),
@@ -280,6 +300,134 @@ async fn a_chunk_refused_by_outside_bytes_is_admitted_once_they_are_released(
         matches!(admitted, PendingEvent::Send(Ok(()))),
         "the released bytes must let the queued chunk in"
     );
+}
+
+/// An assembly purge releases the bytes that were refusing a pending chunk.
+///
+/// This is the release path the loop relies on: an assembly that expires stops
+/// counting towards `other_retained` before the next admission drive, so the
+/// chunk that had been refused is admitted without the chunk itself changing.
+#[rstest]
+#[tokio::test(start_paused = true)]
+async fn an_assembly_purge_releases_the_bytes_refusing_a_pending_chunk(
+    unaffordable_first_chunk: FirstChunk,
+    stalled_handler: StreamingHandler,
+) {
+    let mut streams = ConnectionStreams::new(QueuedBytes::new());
+    let _held_body = retain_bytes_outside_the_slot(&streams).await;
+    streams.start(unaffordable_first_chunk, &stalled_handler);
+
+    // Four bytes are charged to the queue and four more are retained by an
+    // assembly that outlives its reassembly timeout without completing.
+    let start = Instant::now();
+    let mut assembly = retaining_assembly(start);
+    let crowded = ChunkBudget {
+        other_retained: assembly.total_buffered_bytes(),
+        limit: 11,
+    };
+    let refused = streams.drive_pending(Duration::from_secs(1), crowded).await;
+    assert!(
+        matches!(refused, PendingEvent::Idle),
+        "the chunk must wait while the assembly retains its bytes"
+    );
+
+    let purged = assembly.purge_expired_detailed_at(start + Duration::from_secs(31));
+    assert!(
+        !purged.buffered().is_empty(),
+        "the stalled assembly must actually expire"
+    );
+    let freed = ChunkBudget {
+        other_retained: assembly.total_buffered_bytes(),
+        limit: 11,
+    };
+    let admitted = streams.drive_pending(Duration::from_secs(1), freed).await;
+    assert!(
+        matches!(admitted, PendingEvent::Send(Ok(()))),
+        "the purged assembly must release the bytes the chunk was waiting for"
+    );
+}
+
+/// A continuation chunk follows its first chunk through the same admission.
+///
+/// Only one chunk may wait at a time. A continuation offered while the first
+/// chunk is still unadmitted is refused rather than queued, because the
+/// refusal is indistinguishable from an abandoned body and the caller then
+/// discards the streaming assembly.
+#[rstest]
+#[tokio::test(start_paused = true)]
+async fn a_continuation_chunk_is_admitted_only_after_the_first_chunk(
+    keyed_first_chunk: FirstChunk,
+    stalled_handler: StreamingHandler,
+) {
+    let mut streams = ConnectionStreams::new(QueuedBytes::new());
+    let _held_body = retain_bytes_outside_the_slot(&streams).await;
+    let key = keyed_first_chunk
+        .key
+        .expect("the fixture carries a message key");
+    streams.start(keyed_first_chunk, &stalled_handler);
+
+    let continuation = || ChunkOffer {
+        key,
+        chunk: Bytes::from_static(b"next"),
+        is_last: true,
+    };
+    assert!(
+        !streams.push_chunk(continuation()),
+        "a continuation must not be queued behind an unadmitted chunk"
+    );
+
+    let roomy = ChunkBudget {
+        other_retained: 0,
+        limit: usize::MAX,
+    };
+    let first = streams.drive_pending(Duration::from_secs(1), roomy).await;
+    assert!(
+        matches!(first, PendingEvent::Send(Ok(()))),
+        "the first chunk must be admitted once the account has room"
+    );
+    streams.complete_send(Ok(()));
+
+    assert!(
+        streams.push_chunk(continuation()),
+        "the continuation is accepted once no admission is in flight"
+    );
+    let second = streams.drive_pending(Duration::from_secs(1), roomy).await;
+    assert!(
+        matches!(second, PendingEvent::Send(Ok(()))),
+        "the continuation must reach the handler after the first chunk"
+    );
+    streams.complete_send(Ok(()));
+
+    assert!(
+        !streams.has_pending_send(),
+        "the final chunk closes the body"
+    );
+    assert_eq!(
+        streams.retained_bytes(),
+        b"held".len() + b"abcd".len() + b"next".len(),
+        "every delivered chunk is charged to the connection account"
+    );
+}
+
+/// Build assembly state holding four buffered body bytes.
+fn retaining_assembly(start: Instant) -> MessageAssemblyState {
+    let mut state = MessageAssemblyState::new(
+        NonZeroUsize::new(1024).expect("the per-message cap is non-zero"),
+        Duration::from_secs(30),
+    );
+    let header = FirstFrameHeader {
+        message_key: MessageKey(7),
+        metadata_len: 0,
+        body_len: 4,
+        total_body_len: None,
+        is_last: false,
+    };
+    let input = FirstFrameInput::new(&header, EnvelopeRouting::default(), vec![], b"abcd")
+        .expect("the first frame fits the per-message cap");
+    state
+        .accept_first_frame_at(input, start)
+        .expect("the first frame is admissible");
+    state
 }
 
 /// Queue a chunk on the connection account that only `drop` releases.

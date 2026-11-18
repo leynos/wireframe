@@ -109,19 +109,24 @@ impl ChunkBudget {
     /// Measure the budget a body chunk must fit within on this connection.
     ///
     /// Every holder outside the chunk queue counts towards `other_retained`,
-    /// including messages parked behind the live body: `send_chunk` admits a
-    /// chunk only when the queue, those bytes, and the chunk fit within the
-    /// aggregate limit. Omitting the parked queue would let a chunk in and
-    /// then trip the hard cap on the next loop step, which aborts the
-    /// connection instead of holding back the chunk.
+    /// including messages parked behind the live body. Omitting the parked
+    /// queue would let a chunk in only to trip the hard cap on the next loop
+    /// step, which aborts the connection instead of holding the chunk back.
     ///
-    /// The measurement is a snapshot, and it stays valid for as long as the
-    /// admission it was taken for: only frame processing grows assembly,
-    /// fragmentation, or parked bytes, and the connection loop never reads
-    /// another frame while an admission is pending. [`super::stream_dispatch`]
-    /// re-enters `drive_pending_admission` before it reads, so between this
-    /// measurement and the chunk being charged the totals can only shrink as
-    /// assemblies expire or a handler releases bytes.
+    /// One documented exception applies, and no measurement can override it:
+    /// `AccountedBodySender::send_chunk` admits a single chunk into an empty
+    /// account whatever that chunk's size or `other_retained`. The exception
+    /// exists so a body whose first chunk alone exceeds the budget can still
+    /// start, which means the aggregate limit is a strict cap only for the
+    /// chunks that follow. Otherwise admission requires the queued bytes,
+    /// `other_retained`, and the chunk to fit within `limit`.
+    ///
+    /// The measurement is a snapshot and is deliberately not kept for the life
+    /// of one admission: the loop measures again before every drive, so bytes
+    /// released in between — an expired assembly, a drained parked message, a
+    /// handler that took its chunk — are seen. Between drives the totals can
+    /// only shrink, because the loop does not read another frame while an
+    /// admission is pending.
     pub(super) fn measure<S, E, K, F>(
         handles: &DispatchHandles<'_, S, E, K, F>,
         parked: &VecDeque<ParkedMessage>,
