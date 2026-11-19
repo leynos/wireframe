@@ -50,19 +50,35 @@ fn render(violations: &[Violation]) -> String {
         .join("\n")
 }
 
-/// Require one violation with the expected path and reason fragment.
-fn expect_violation(
-    violations: &[Violation],
-    expected_path: &str,
-    expected_fragment: &str,
-) -> Result<(), String> {
+/// A violation a case expects, naming its path and a fragment of its reason.
+///
+/// The two values always travel together — a case cannot ask for a reason
+/// fragment without also saying where to look — so they form one value rather
+/// than two loose arguments.
+#[derive(Clone, Copy)]
+struct Expectation {
+    /// Repository-relative path the violation must name.
+    path: &'static str,
+    /// Text the violation's reason must contain.
+    fragment: &'static str,
+}
+
+impl Expectation {
+    /// Describe an expected violation.
+    const fn new(path: &'static str, fragment: &'static str) -> Self { Self { path, fragment } }
+}
+
+/// Require one violation matching the expectation.
+fn expect_violation(violations: &[Violation], expected: Expectation) -> Result<(), String> {
     let matched = violations.iter().any(|violation| {
-        violation.path.as_str() == expected_path && violation.reason.contains(expected_fragment)
+        violation.path.as_str() == expected.path && violation.reason.contains(expected.fragment)
     });
     check(
         matched,
         format!(
-            "expected a violation at `{expected_path}` containing `{expected_fragment}`; got:\n{}",
+            "expected a violation at `{}` containing `{}`; got:\n{}",
+            expected.path,
+            expected.fragment,
             render(violations)
         ),
     )
@@ -184,166 +200,173 @@ fn each_fixture_import_form_is_accepted(#[case] form: ImportForm) -> TestResult 
 #[rstest]
 #[case::missing_scenario(
     Mutation::MissingScenario,
-    "tests/scenarios/example_scenarios.rs",
-    "missing scenario module"
+    Expectation::new("tests/scenarios/example_scenarios.rs", "missing scenario module")
 )]
 #[case::missing_fixture(
     Mutation::MissingFixture,
-    "tests/fixtures/example.rs",
-    "missing fixture module"
+    Expectation::new("tests/fixtures/example.rs", "missing fixture module")
 )]
 #[case::unregistered_scenario(
     Mutation::UnregisteredScenario,
-    "tests/scenarios/example_scenarios.rs",
-    "not registered in any harness"
+    Expectation::new(
+        "tests/scenarios/example_scenarios.rs",
+        "not registered in any harness"
+    )
 )]
 #[case::registered_twice(
     Mutation::RegisteredTwice,
-    "tests/scenarios/example_scenarios.rs",
-    "registered in both harnesses"
+    Expectation::new("tests/scenarios/example_scenarios.rs", "registered in both harnesses")
 )]
 #[case::wrong_feature_path(
     Mutation::WrongFeaturePath,
-    "tests/scenarios/example_scenarios.rs",
-    "must reference"
+    Expectation::new("tests/scenarios/example_scenarios.rs", "must reference")
 )]
 #[case::missing_binding(
     Mutation::MissingBinding,
-    "tests/scenarios/example_scenarios.rs",
-    "has no binding"
+    Expectation::new("tests/scenarios/example_scenarios.rs", "has no binding")
 )]
 #[case::unmatched_binding(
     Mutation::UnmatchedBinding,
-    "tests/scenarios/example_scenarios.rs",
-    "does not match a scenario title"
+    Expectation::new(
+        "tests/scenarios/example_scenarios.rs",
+        "does not match a scenario title"
+    )
 )]
 #[case::duplicate_binding(
     Mutation::DuplicateBinding,
-    "tests/scenarios/example_scenarios.rs",
-    "bound more than once"
+    Expectation::new("tests/scenarios/example_scenarios.rs", "bound more than once")
 )]
 #[case::index_selector(
     Mutation::IndexSelector,
-    "tests/scenarios/example_scenarios.rs",
-    "`index` selectors are not supported"
+    Expectation::new(
+        "tests/scenarios/example_scenarios.rs",
+        "`index` selectors are not supported"
+    )
 )]
 #[case::missing_import(
     Mutation::MissingImport,
-    "tests/scenarios/example_scenarios.rs",
-    "must import"
+    Expectation::new("tests/scenarios/example_scenarios.rs", "must import")
 )]
 #[case::orphan_scenario(
     Mutation::OrphanScenario,
-    "tests/scenarios/orphan_scenarios.rs",
-    "orphan scenario module"
+    Expectation::new("tests/scenarios/orphan_scenarios.rs", "orphan scenario module")
 )]
 #[case::public_fixture_without_feature(
     Mutation::PublicFixtureWithoutFeature,
-    "tests/fixtures/orphan.rs",
-    "public fixture module"
+    Expectation::new("tests/fixtures/orphan.rs", "public fixture module")
 )]
 #[case::unresolvable_path(
     Mutation::UnresolvablePath,
-    "tests/scenarios/missing_scenarios.rs",
-    "resolves to a missing file"
+    Expectation::new("tests/scenarios/missing_scenarios.rs", "resolves to a missing file")
 )]
 #[case::doc_comment_only(
     Mutation::DocCommentOnly,
-    "tests/scenarios/example_scenarios.rs",
-    "has no binding"
+    Expectation::new("tests/scenarios/example_scenarios.rs", "has no binding")
 )]
 #[case::example_heading_unbound(
     Mutation::ExampleHeadingUnbound,
-    "tests/scenarios/example_scenarios.rs",
-    "scenario title `Unbound example` has no binding"
+    Expectation::new(
+        "tests/scenarios/example_scenarios.rs",
+        "scenario title `Unbound example` has no binding"
+    )
 )]
 #[case::scenario_template_unbound(
     Mutation::ScenarioTemplateUnbound,
-    "tests/scenarios/example_scenarios.rs",
-    "scenario title `Unbound template` has no binding"
+    Expectation::new(
+        "tests/scenarios/example_scenarios.rs",
+        "scenario title `Unbound template` has no binding"
+    )
 )]
 #[case::malformed_feature(
     Mutation::MalformedFeature,
-    "tests/features/example.feature",
-    "cannot parse feature file"
+    Expectation::new("tests/features/example.feature", "cannot parse feature file")
 )]
 #[case::split_registrations(
     Mutation::SplitRegistrations,
-    "tests/scenarios/example_scenarios.rs",
-    "must be registered in the same harness"
+    Expectation::new(
+        "tests/scenarios/example_scenarios.rs",
+        "must be registered in the same harness"
+    )
 )]
 #[case::rule_scenario_unbound(
     Mutation::RuleScenarioUnbound,
-    "tests/scenarios/example_scenarios.rs",
-    "scenario title `Grouped step` has no binding"
+    Expectation::new(
+        "tests/scenarios/example_scenarios.rs",
+        "scenario title `Grouped step` has no binding"
+    )
 )]
 #[case::non_literal_name(
     Mutation::NonLiteralName,
-    "tests/scenarios/example_scenarios.rs",
-    "`name` must be a string literal"
+    Expectation::new(
+        "tests/scenarios/example_scenarios.rs",
+        "`name` must be a string literal"
+    )
 )]
 #[case::non_literal_path(
     Mutation::NonLiteralPath,
-    "tests/scenarios/example_scenarios.rs",
-    "`path` must be a string literal"
+    Expectation::new(
+        "tests/scenarios/example_scenarios.rs",
+        "`path` must be a string literal"
+    )
 )]
 #[case::missing_name(
     Mutation::MissingName,
-    "tests/scenarios/example_scenarios.rs",
-    "must provide a `name`"
+    Expectation::new("tests/scenarios/example_scenarios.rs", "must provide a `name`")
 )]
 #[case::self_import(
     Mutation::SelfImport,
-    "tests/scenarios/example_scenarios.rs",
-    "must import `crate::fixtures::example`"
+    Expectation::new(
+        "tests/scenarios/example_scenarios.rs",
+        "must import `crate::fixtures::example`"
+    )
 )]
 #[case::ambiguous_fixture(
     Mutation::AmbiguousFixture,
-    "tests/fixtures/example.rs",
-    "is ambiguous"
+    Expectation::new("tests/fixtures/example.rs", "is ambiguous")
 )]
 #[case::missing_registry_declaration(
     Mutation::MissingRegistryDeclaration,
-    "tests/bdd/mod.rs",
-    "must declare"
+    Expectation::new("tests/bdd/mod.rs", "must declare")
 )]
 #[case::scenario_declaration_wrong_target(
     Mutation::ScenarioDeclarationWrongTarget,
-    "tests/scenarios/example_scenarios.rs",
-    "but must resolve to"
+    Expectation::new("tests/scenarios/example_scenarios.rs", "but must resolve to")
 )]
 #[case::fixture_declaration_wrong_target(
     Mutation::FixtureDeclarationWrongTarget,
-    "tests/fixtures/example.rs",
-    "but must resolve to"
+    Expectation::new("tests/fixtures/example.rs", "but must resolve to")
 )]
 #[case::private_fixture(
     Mutation::PrivateFixture,
-    "tests/fixtures/example.rs",
-    "must be declared `pub`"
+    Expectation::new("tests/fixtures/example.rs", "must be declared `pub`")
 )]
 #[case::registered_orphan_scenario(
     Mutation::RegisteredOrphanScenario,
-    "tests/scenarios/orphan_scenarios.rs",
-    "registered scenario module `orphan_scenarios` has no matching feature"
+    Expectation::new(
+        "tests/scenarios/orphan_scenarios.rs",
+        "registered scenario module `orphan_scenarios` has no matching feature"
+    )
 )]
 #[case::wrong_fixture_import(
     Mutation::WrongFixtureImport,
-    "tests/scenarios/example_scenarios.rs",
-    "must import `crate::fixtures::example`"
+    Expectation::new(
+        "tests/scenarios/example_scenarios.rs",
+        "must import `crate::fixtures::example`"
+    )
 )]
 #[case::self_import_aliased(
     Mutation::SelfImportAliased,
-    "tests/scenarios/example_scenarios.rs",
-    "must import `crate::fixtures::example`"
+    Expectation::new(
+        "tests/scenarios/example_scenarios.rs",
+        "must import `crate::fixtures::example`"
+    )
 )]
 fn synthetic_violations_are_reported(
     #[case] mutation: Mutation,
-    #[case] expected_path: &str,
-    #[case] expected_fragment: &str,
+    #[case] expected: Expectation,
 ) -> TestResult {
     let snapshot = mutated_snapshot(mutation).build();
     let violations = evaluate(&snapshot);
-    expect_violation(&violations, expected_path, expected_fragment)?;
+    expect_violation(&violations, expected)?;
     Ok(())
 }
