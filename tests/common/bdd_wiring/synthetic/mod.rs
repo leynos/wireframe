@@ -312,6 +312,42 @@ pub(crate) fn named_import_snapshot() -> SnapshotBuilder {
     base_snapshot().with_file(SCENARIO_FILE, NAMED_IMPORTS)
 }
 
+/// A single `use` form that can satisfy the family fixture import.
+///
+/// Each form takes a different branch of the `use`-tree walk, so the
+/// acceptance cases built from this enum fail independently when one branch
+/// stops recognizing a fixture import.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ImportForm {
+    /// Import the fixture by name.
+    Name,
+    /// Import the fixture under a different name.
+    Rename,
+    /// Import the fixture as one item of a group.
+    Group,
+}
+
+impl ImportForm {
+    /// The `use` item that imports the family fixture in this form.
+    fn import(self) -> &'static str {
+        match self {
+            Self::Name => "use crate::fixtures::example::example_world;",
+            Self::Rename => "use crate::fixtures::example::ExampleWorld as World;",
+            Self::Group => {
+                "use crate::fixtures::example::{ExampleWorld, example_world as fixture};"
+            }
+        }
+    }
+}
+
+/// Build the conforming layout importing the fixture in one `use` form only.
+pub(crate) fn import_form_snapshot(form: ImportForm) -> SnapshotBuilder {
+    base_snapshot().with_file(
+        SCENARIO_FILE,
+        EXAMPLE_SCENARIO.replace("use crate::fixtures::example::*;", form.import()),
+    )
+}
+
 /// Apply one synthetic defect to the conforming layout.
 pub(crate) fn mutated_snapshot(mutation: Mutation) -> SnapshotBuilder {
     defects::apply(base_snapshot(), mutation)

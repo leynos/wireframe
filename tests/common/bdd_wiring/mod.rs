@@ -20,10 +20,12 @@ pub(crate) use check::evaluate;
 pub(crate) use harness::{feature_stems, harness_scenario_modules};
 pub(crate) use snapshot::{RepoSnapshot, Violation};
 pub(crate) use synthetic::{
+    ImportForm,
     Mutation,
     alternate_heading_snapshot,
     base_snapshot,
     doc_string_snapshot,
+    import_form_snapshot,
     mutated_snapshot,
     named_import_snapshot,
     nested_fixture_snapshot,

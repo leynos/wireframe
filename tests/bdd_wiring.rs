@@ -19,6 +19,7 @@ mod bdd_wiring;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bdd_wiring::{
+    ImportForm,
     Mutation,
     RepoSnapshot,
     Violation,
@@ -28,6 +29,7 @@ use bdd_wiring::{
     evaluate,
     feature_stems,
     harness_scenario_modules,
+    import_form_snapshot,
     mutated_snapshot,
     named_import_snapshot,
     nested_fixture_snapshot,
@@ -163,6 +165,19 @@ fn named_fixture_imports_are_accepted() -> TestResult {
     assert_no_violations(
         &named_import_snapshot().build(),
         "a scenario module importing its fixture by name, rename, and group",
+    )
+}
+
+/// Each single `use` form is accepted on its own, so one form cannot mask
+/// another form's import from being recognized.
+#[rstest]
+#[case::name_import(ImportForm::Name)]
+#[case::rename_import(ImportForm::Rename)]
+#[case::group_import(ImportForm::Group)]
+fn each_fixture_import_form_is_accepted(#[case] form: ImportForm) -> TestResult {
+    assert_no_violations(
+        &import_form_snapshot(form).build(),
+        "a scenario module importing its fixture in one `use` form",
     )
 }
 
