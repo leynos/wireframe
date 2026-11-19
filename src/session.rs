@@ -285,10 +285,10 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// whether one was removed. Teardown uses this rather than [`Self::remove`],
     /// so a connection cannot remove a handle a later insert published under its
     /// old identifier.
-    pub(crate) fn remove_owned(&self, id: &ConnectionId, handle: &PushHandle<F>) -> bool {
+    pub(crate) fn remove_owned(&self, id: ConnectionId, handle: &PushHandle<F>) -> bool {
         let owned = handle.downgrade();
         self.entries
-            .remove_if(id, |_, weak| Weak::ptr_eq(weak, &owned))
+            .remove_if(&id, |_, weak| Weak::ptr_eq(weak, &owned))
             .is_some()
     }
 

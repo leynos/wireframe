@@ -84,9 +84,7 @@ impl<F: FrameLike> Drop for RegistryGuard<F> {
         // indistinguishable from a connection that never registered, so both
         // edges of the entry's lifetime are logged with the identifier that
         // joins them.
-        let removed = self
-            .registry
-            .remove_owned(&self.connection_id, &self.handle);
+        let removed = self.registry.remove_owned(self.connection_id, &self.handle);
         debug!(
             "session registry entry released: connection_id={:?}, removed={removed}",
             self.connection_id

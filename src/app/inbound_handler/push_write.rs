@@ -247,8 +247,8 @@ async fn grace_with_purges(expiry: &mut InboundExpiry<'_>) {
 /// Waking is only a signal: the caller purges and re-enters the wait, so the
 /// write it was awaiting is neither cancelled nor restarted.
 fn purge_wait(deadline: Option<Instant>) -> Either<Sleep, future::Pending<()>> {
-    match deadline {
-        Some(at) => Either::Left(sleep_until(at)),
-        None => Either::Right(future::pending()),
-    }
+    deadline.map_or_else(
+        || Either::Right(future::pending()),
+        |at| Either::Left(sleep_until(at)),
+    )
 }

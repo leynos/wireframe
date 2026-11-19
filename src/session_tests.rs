@@ -147,7 +147,7 @@ async fn teardown_removes_only_the_entry_it_published() {
     assert!(registry.insert(id, &manual));
 
     assert!(
-        !registry.remove_owned(&id, &ending),
+        !registry.remove_owned(id, &ending),
         "a later handle under the identifier must not be removed"
     );
     assert!(
@@ -155,7 +155,7 @@ async fn teardown_removes_only_the_entry_it_published() {
         "the application's handle must survive the ending connection's teardown"
     );
     assert!(
-        registry.remove_owned(&id, &manual),
+        registry.remove_owned(id, &manual),
         "removal must succeed while the entry holds the connection's handle"
     );
     assert!(registry.get(&id).is_none());
