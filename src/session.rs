@@ -106,32 +106,35 @@ impl<F> SessionRegistry<F> {
     ///
     /// # Panics
     ///
-    /// Panics when the `u64` identifier space is exhausted. Reaching that
-    /// point requires allocating every possible identifier, so the panic
-    /// reports an unrecoverable configuration error rather than wrapping and
-    /// handing out a duplicate.
+    /// Panics when the `u64` identifier space is exhausted. That requires
+    /// allocating every possible identifier, so it is unrecoverable, not a wrap.
     #[must_use]
     pub fn allocate_connection_id(&self) -> ConnectionId {
+        self.claim_next(|candidate| !self.entries.contains_key(&candidate))
+    }
+
+    /// Take identifiers from the counter until `publish` accepts one.
+    ///
+    /// A candidate is offered to `publish` before the next is taken, so a
+    /// publisher that cannot hold the identifier it is given can refuse it and
+    /// have the claim move on. The accepted candidate is therefore one the
+    /// caller holds.
+    ///
+    /// # Panics
+    /// Panics when the `u64` identifier space is exhausted.
+    fn claim_next(&self, mut publish: impl FnMut(ConnectionId) -> bool) -> ConnectionId {
         loop {
-            let candidate = self.next_candidate();
-            if !self.entries.contains_key(&candidate) {
+            let Ok(id) = self
+                .next_id
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            else {
+                panic!("connection identifier space exhausted");
+            };
+            let candidate = ConnectionId::new(id);
+            if publish(candidate) {
                 return candidate;
             }
         }
-    }
-
-    /// Take the next identifier from the counter, occupied or not.
-    ///
-    /// Panics when the `u64` identifier space is exhausted.
-    fn next_candidate(&self) -> ConnectionId {
-        let bump = |id: u64| id.checked_add(1);
-        let Ok(id) = self
-            .next_id
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, bump)
-        else {
-            panic!("connection identifier space exhausted");
-        };
-        ConnectionId::new(id)
     }
 }
 
@@ -233,8 +236,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// Allocation and publication are a single claim, so a manual
     /// [`Self::insert`] racing this call cannot leave the connection addressing
-    /// a handle it does not own. An identifier already holding a live handle is
-    /// refused rather than replaced, and the claim retries the next one.
+    /// a handle it does not own: a live identifier is refused and retried.
     ///
     /// # Panics
     ///
@@ -254,12 +256,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// ```
     #[must_use]
     pub fn allocate_and_publish(&self, handle: &PushHandle<F>) -> ConnectionId {
-        loop {
-            let candidate = self.next_candidate();
-            if self.insert(candidate, handle) {
-                return candidate;
-            }
-        }
+        self.claim_next(|candidate| self.insert(candidate, handle))
     }
 
     /// Remove a handle, typically on connection teardown.

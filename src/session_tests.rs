@@ -88,15 +88,13 @@ async fn insert_refuses_to_replace_a_live_entry() {
     );
 }
 
-/// The claim retries past an identifier a live entry already occupies.
+/// An application's own entry is never the one a claim publishes.
 ///
-/// `allocate_and_publish` takes the next counter value and tries to publish it
-/// in the same step, so a refusal at publication sends it round again. A live
-/// manual entry at `1`, the first value a fresh registry hands out, therefore
-/// forces that retry branch: the claim is refused `1` and publishes under `2`.
-/// Both handles then stay separately addressable, where a claim that published
-/// regardless of the refusal would have put two connections under one
-/// identifier.
+/// Identifier `1` is what a fresh registry hands out first, so a live manual
+/// entry there is exactly the overlap the claim has to tolerate: it publishes
+/// under `2` and both handles stay separately addressable. This is the outcome
+/// the claim owes its callers; the window inside it is driven in
+/// `a_competing_insert_in_the_claim_window_makes_it_retry`.
 #[tokio::test]
 async fn allocation_and_publication_claim_one_identifier() {
     let registry = SessionRegistry::<u8>::default();
@@ -131,6 +129,66 @@ async fn allocation_and_publication_claim_one_identifier() {
         manual_queues.recv().await.expect("recv failed").1,
         22,
         "the manual identifier must still address the application's handle"
+    );
+}
+
+/// A competing insert in the claim's window makes it retry.
+///
+/// `claim_next` offers each candidate to its publisher before taking the next,
+/// so the closure below is the claim's window: it lets a live manual entry take
+/// the identifier the claim has just allocated, and only then attempts the
+/// connection's own publication. That attempt is refused, the claim takes the
+/// next identifier, and the connection ends up published under its own entry
+/// while the manual one keeps the identifier it took. Dropping the retry
+/// returns the taken identifier instead, which the assertion on `published`
+/// catches before anything is pushed.
+#[tokio::test]
+async fn a_competing_insert_in_the_claim_window_makes_it_retry() {
+    let registry = SessionRegistry::<u8>::default();
+    let (mut manual_queues, manual_handle) = live_handle();
+    let (mut connection_queues, connection_handle) = live_handle();
+    let mut took_window = false;
+
+    let published = registry.claim_next(|candidate| {
+        if !took_window {
+            took_window = true;
+            assert!(
+                registry.insert(candidate, &manual_handle),
+                "the competing insert must take the freshly allocated candidate"
+            );
+        }
+        registry.insert(candidate, &connection_handle)
+    });
+
+    let manual_id = ConnectionId::new(1);
+    assert_eq!(
+        published,
+        ConnectionId::new(2),
+        "the claim must retry past the identifier the competing insert took"
+    );
+    let addressed = registry
+        .get(&published)
+        .expect("the published entry must address the connection");
+    addressed
+        .push_high_priority(41)
+        .await
+        .expect("the published lane has room");
+    assert_eq!(
+        connection_queues.recv().await.expect("recv failed").1,
+        41,
+        "the published identifier must address this connection"
+    );
+    let manual = registry
+        .get(&manual_id)
+        .expect("the manual entry must survive the claim");
+    manual
+        .push_high_priority(42)
+        .await
+        .expect("the manual lane has room");
+    assert_eq!(
+        manual_queues.recv().await.expect("recv failed").1,
+        42,
+        "the identifier the manual insert took must still address its handle"
     );
 }
 
