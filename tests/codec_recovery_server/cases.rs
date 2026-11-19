@@ -21,17 +21,28 @@ fn expect_payload(payload: &[u8]) -> TestResult {
     }
 }
 
-/// Assert the hook reported exactly `expected` policies, in order.
+/// Assert the hook observed the accepted connection's peer address.
+fn expect_peer(event: &RecoveryEvent, peer: SocketAddr) -> TestResult {
+    if event.peer == Some(peer) {
+        Ok(())
+    } else {
+        Err(format!(
+            "the hook must observe the accepted connection's peer address {peer}, saw {:?}",
+            event.peer
+        )
+        .into())
+    }
+}
+
+/// Drain the hook callbacks and assert they reported exactly `expected` policies.
 fn expect_policies(
     events: &mut mpsc::UnboundedReceiver<RecoveryEvent>,
     expected: &[RecoveryPolicy],
-) -> TestResult {
-    let policies: Vec<RecoveryPolicy> = drain_events(events)
-        .iter()
-        .map(|event| event.policy)
-        .collect();
+) -> TestResult<Vec<RecoveryEvent>> {
+    let recorded = drain_events(events);
+    let policies: Vec<RecoveryPolicy> = recorded.iter().map(|event| event.policy).collect();
     if policies == expected {
-        Ok(())
+        Ok(recorded)
     } else {
         Err(format!("expected {expected:?}, saw {policies:?}").into())
     }
@@ -71,6 +82,7 @@ async fn connect_with_hook(
 /// Send a malformed frame then a valid one, asserting the connection survives.
 async fn continuing_case(policy: RecoveryPolicy) -> TestResult {
     let (server, mut client, mut events) = connect_with_hook(policy, 10).await?;
+    let client_addr = client.local_addr()?;
     client.write_all(&malformed_frame()).await?;
     client.write_all(&envelope_frame(VALID_PAYLOAD)?).await?;
     let reply = read_reply(&mut client).await?;
@@ -90,6 +102,7 @@ async fn continuing_case(policy: RecoveryPolicy) -> TestResult {
             format!("on_error should report the applied {policy:?} for a protocol error").into(),
         );
     }
+    expect_peer(event, client_addr)?;
     let paused = received_at.duration_since(event.at);
     if policy == RecoveryPolicy::Quarantine && paused < QUARANTINE {
         return Err(format!(
@@ -104,11 +117,16 @@ async fn continuing_case(policy: RecoveryPolicy) -> TestResult {
 async fn disconnect_case() -> TestResult {
     let (server, mut client, mut events) =
         connect_with_hook(RecoveryPolicy::Disconnect, 10).await?;
+    let client_addr = client.local_addr()?;
     client.write_all(&malformed_frame()).await?;
     expect_closed(&mut client).await?;
     drop(client);
     server.stop().await?;
-    expect_policies(&mut events, &[RecoveryPolicy::Disconnect])
+    let recorded = expect_policies(&mut events, &[RecoveryPolicy::Disconnect])?;
+    for event in &recorded {
+        expect_peer(event, client_addr)?;
+    }
+    Ok(())
 }
 
 /// Connect without a hook and assert the default disconnect behaviour.
@@ -123,15 +141,20 @@ async fn no_hook_case() -> TestResult {
 /// Exhaust a one-frame drop budget and assert the second failure disconnects.
 async fn drop_budget_case() -> TestResult {
     let (server, mut client, mut events) = connect_with_hook(RecoveryPolicy::Drop, 1).await?;
+    let client_addr = client.local_addr()?;
     client.write_all(&malformed_frame()).await?;
     client.write_all(&malformed_frame()).await?;
     expect_closed(&mut client).await?;
     drop(client);
     server.stop().await?;
-    expect_policies(
+    let recorded = expect_policies(
         &mut events,
         &[RecoveryPolicy::Drop, RecoveryPolicy::Disconnect],
-    )
+    )?;
+    for event in &recorded {
+        expect_peer(event, client_addr)?;
+    }
+    Ok(())
 }
 
 /// Send a frame the built-in codec rejects before consuming it.
@@ -147,6 +170,7 @@ async fn oversized_built_in_frame_case() -> TestResult {
         events: events_tx,
     };
     let (server, mut client) = connect_app(built_in_app(hook)?).await?;
+    let client_addr = client.local_addr()?;
     client
         .write_all(&oversized_frame(BUILT_IN_MAX_FRAME_LENGTH))
         .await?;
@@ -158,6 +182,7 @@ async fn oversized_built_in_frame_case() -> TestResult {
     let [event] = recorded.as_slice() else {
         return Err(format!("expected one on_error call, got {}", recorded.len()).into());
     };
+    expect_peer(event, client_addr)?;
     if event.error_type == "framing" && event.policy == RecoveryPolicy::Disconnect {
         Ok(())
     } else {

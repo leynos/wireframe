@@ -63,6 +63,8 @@ struct RecoveryEvent {
     policy: RecoveryPolicy,
     /// Moment the callback ran, used to measure the quarantine pause.
     at: Instant,
+    /// Peer address the connection loop forwarded to the hook.
+    peer: Option<SocketAddr>,
 }
 
 /// Hook with a fixed policy that reports every callback through a channel.
@@ -84,13 +86,14 @@ impl RecoveryPolicyHook for RecordingHook {
         self.quarantine
     }
 
-    fn on_error(&self, error: &CodecError, _ctx: &CodecErrorContext, policy: RecoveryPolicy) {
+    fn on_error(&self, error: &CodecError, ctx: &CodecErrorContext, policy: RecoveryPolicy) {
         // The receiver only exists to observe the hook, so a closed channel is
         // not an error worth reporting from a test hook.
         drop(self.events.send(RecoveryEvent {
             error_type: error.error_type(),
             policy,
             at: Instant::now(),
+            peer: ctx.peer_address,
         }));
     }
 }

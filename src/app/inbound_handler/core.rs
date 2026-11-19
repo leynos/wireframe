@@ -210,3 +210,7 @@ where
         }
     }
 }
+
+#[cfg(test)]
+#[path = "read_loop_tests.rs"]
+mod read_loop_tests;

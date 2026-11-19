@@ -2,9 +2,10 @@
 //!
 //! Each connection owns one [`RecoveryCoordinator`]. It converts a captured
 //! [`DecodeFailure`] into an action for the read loop, consulting the installed
-//! [`RecoveryPolicyHook`] when there is one. The coordinator is also the single
-//! place that reports a failure to the hook's `on_error` callback, emits
-//! `wireframe_codec_errors_total`, and logs the selected and applied policies.
+//! [`RecoveryPolicyHook`] when there is one. Deciding what to do is a pure
+//! query; recording the drop streak and reporting the failure to the hook, the
+//! `wireframe_codec_errors_total` metric, and the log are two explicit commands
+//! that run afterwards.
 
 use std::{io, net::SocketAddr, time::Duration};
 
@@ -43,7 +44,7 @@ pub(super) enum RecoveryAction {
 ///
 /// They differ whenever a fallback overrides the hook, and a failure the
 /// connection can no longer act on reports neither.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ReportedPolicies {
     /// Policy selected before any fallback; logged for comparison.
     selected: RecoveryPolicy,
@@ -62,6 +63,20 @@ impl ReportedPolicies {
             applied: RecoveryPolicy::Disconnect,
         }
     }
+}
+
+/// One decided failure, before the connection has recorded or reported it.
+///
+/// [`RecoveryCoordinator::decide`] returns this without storing the drop streak,
+/// calling the hook's `on_error`, emitting a metric, or logging.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Decision {
+    /// The hook's selection and the policy the connection applied.
+    policies: ReportedPolicies,
+    /// Action the read loop must perform.
+    action: RecoveryAction,
+    /// Drop streak the connection must store for the next failure.
+    consecutive_drops: u32,
 }
 
 /// The applied action paired with the error that produced it.
@@ -123,12 +138,13 @@ impl<'a> RecoveryCoordinator<'a> {
     /// Record that a real frame decoded, restarting the drop streak.
     pub(super) const fn record_decoded_frame(&mut self) { self.consecutive_drops = 0; }
 
-    /// Decide what to do with one decoder failure and report it.
+    /// Decide one failure, then record and report that decision.
     ///
-    /// The original error is always returned so a disconnect can propagate it
-    /// without rebuilding it from text. `on_error` observes the *applied*
-    /// policy, which may differ from the hook's selection after a fallback.
-    pub(super) fn evaluate(&mut self, failure: DecodeFailure) -> RecoveryOutcome {
+    /// The decision itself comes from the side-effect-free [`Self::decide`];
+    /// this method performs the two commands that follow it. The original error
+    /// is always returned so a disconnect can propagate it without rebuilding
+    /// it from text.
+    pub(super) fn record_failure(&mut self, failure: DecodeFailure) -> RecoveryOutcome {
         let (error, origin, consumed) = failure.into_parts();
 
         // A decoder that already wraps a `CodecError` carries a precise
@@ -136,38 +152,39 @@ impl<'a> RecoveryCoordinator<'a> {
         // still see a typed error, then the exact original error is recovered
         // for the return path.
         if let Some(codec_error) = codec_error_in(&error) {
-            let action = self.decide(codec_error, origin, consumed);
-            return RecoveryOutcome { action, error };
+            let decision = self.decide(codec_error, origin, consumed);
+            self.record_and_report(codec_error, decision);
+            return RecoveryOutcome {
+                action: decision.action,
+                error,
+            };
         }
 
         let codec_error = CodecError::Io(error);
-        let action = self.decide(&codec_error, origin, consumed);
+        let decision = self.decide(&codec_error, origin, consumed);
+        self.record_and_report(&codec_error, decision);
         let original = match codec_error {
             CodecError::Io(io_error) => io_error,
             other => other.into(),
         };
         RecoveryOutcome {
-            action,
+            action: decision.action,
             error: original,
         }
     }
 
-    /// Decide on one failure and carry out the resulting action.
+    /// Apply one failure's decision and carry out the resulting action.
     ///
-    /// Yields the decoder's original error when the connection must end. The
-    /// coordinator has already forced a disconnect for a policy that would
-    /// discard bytes the decoder did not consume, so a drop here always
-    /// advances the read position.
-    ///
-    /// A quarantine pause is cut short when the connection's shutdown token is
-    /// cancelled, so a hook-chosen pause cannot delay a graceful drain; the
-    /// loop observes the same token again at its next read.
+    /// Yields the decoder's original error when the connection must end. A
+    /// disconnect is already forced for a policy that would discard bytes the
+    /// decoder did not consume, so a drop here advances the read position. A
+    /// quarantine pause ends early when the connection shuts down.
     pub(super) async fn apply<T>(
         &mut self,
         failure: DecodeFailure,
         state: RecoveryState<'_, T>,
     ) -> Option<io::Error> {
-        let RecoveryOutcome { action, error } = self.evaluate(failure);
+        let RecoveryOutcome { action, error } = self.record_failure(failure);
         let RecoveryState {
             pipeline,
             message_assembly,
@@ -186,47 +203,69 @@ impl<'a> RecoveryCoordinator<'a> {
         }
     }
 
-    /// Apply the documented decision order to one classified failure.
-    fn decide(
-        &mut self,
-        error: &CodecError,
-        origin: DecodeOrigin,
-        consumed: usize,
-    ) -> RecoveryAction {
+    /// Report a failure the connection can no longer act on.
+    ///
+    /// A response that ends the connection abandons any prefetched failure, so
+    /// the frame is discarded and the connection closes whatever the hook would
+    /// have selected. Reporting that selection would claim a drop or a
+    /// quarantine that never happened, so the failure is reported as the
+    /// disconnect it actually is. The hook is not consulted.
+    pub(super) fn report_terminal(&self, failure: DecodeFailure) {
+        let (error, ..) = failure.into_parts();
+        let policies = ReportedPolicies::terminal();
+
+        match codec_error_in(&error) {
+            Some(codec_error) => self.publish(codec_error, policies),
+            None => self.publish(&CodecError::Io(error), policies),
+        }
+    }
+
+    /// Decide what to do with one classified failure.
+    ///
+    /// A pure query: it reads the hook, the configuration, and the drop streak
+    /// it is given, and writes none of them. Nothing is recorded, reported, or
+    /// logged. [`Self::record_and_report`] owns those effects.
+    fn decide(&self, error: &CodecError, origin: DecodeOrigin, consumed: usize) -> Decision {
         let context = self.error_context();
         let selected = self.select_policy(error, &context);
         let applied = self.apply_fallbacks(selected, origin, consumed);
         let action = self.action_for(applied, error, &context);
+        let streak = if is_budgeted_drop(selected, origin, consumed) {
+            self.consecutive_drops.saturating_add(1)
+        } else {
+            self.consecutive_drops
+        };
 
-        self.publish(error, &context, ReportedPolicies { selected, applied });
-
-        action
-    }
-
-    /// Report a failure the connection can no longer act on.
-    ///
-    /// A response that ends the connection abandons any prefetched failure: its
-    /// frame is discarded and the connection closes whatever the hook would
-    /// have selected. Reporting that selection would claim a drop or a
-    /// quarantine that never happened, so the failure is reported as the
-    /// disconnect it actually is. The hook is not asked for a policy, because
-    /// no policy can be applied on this path.
-    pub(super) fn report_terminal(&self, failure: DecodeFailure) {
-        let (error, ..) = failure.into_parts();
-        let context = self.error_context();
-        let policies = ReportedPolicies::terminal();
-
-        match codec_error_in(&error) {
-            Some(codec_error) => self.publish(codec_error, &context, policies),
-            None => self.publish(&CodecError::Io(error), &context, policies),
+        Decision {
+            policies: ReportedPolicies { selected, applied },
+            action,
+            consecutive_drops: streak,
         }
     }
 
+    /// Store the drop streak a decision computed.
+    const fn record(&mut self, decision: Decision) {
+        self.consecutive_drops = decision.consecutive_drops;
+    }
+
+    /// Carry out the two commands a decision requires.
+    ///
+    /// Recording comes first so the next failure sees the updated streak, then
+    /// the decision is reported through the single path that touches the hook,
+    /// the metric, and the log.
+    fn record_and_report(&mut self, error: &CodecError, decision: Decision) {
+        self.record(decision);
+        self.publish(error, decision.policies);
+    }
+
     /// Report one decided failure to the hook, the metric, and the log.
-    fn publish(&self, error: &CodecError, context: &CodecErrorContext, policies: ReportedPolicies) {
+    ///
+    /// The only place that calls `on_error` and `inc_codec_error`, so a decision
+    /// taken by [`Self::decide`] cannot emit anything on its own.
+    fn publish(&self, error: &CodecError, policies: ReportedPolicies) {
         let ReportedPolicies { selected, applied } = policies;
         if let Some(hook) = self.hook {
-            hook.on_error(error, context, applied);
+            hook.on_error(error, &self.error_context(), applied);
         }
         crate::metrics::inc_codec_error(error.error_type(), applied.as_str());
         self.log_failure(error, selected, applied);
@@ -254,26 +293,26 @@ impl<'a> RecoveryCoordinator<'a> {
     /// Apply the safety fallbacks that override the hook's selection.
     ///
     /// `decode_eof` means the peer stopped sending, and a failure that consumed
-    /// no bytes would repeat forever. Both force a disconnect. A drop streak
-    /// beyond the configured maximum escalates in the same way.
+    /// no bytes would repeat forever; both force a disconnect for a policy that
+    /// discards the frame. A drop streak beyond the configured maximum escalates
+    /// in the same way.
     fn apply_fallbacks(
-        &mut self,
+        &self,
         selected: RecoveryPolicy,
         origin: DecodeOrigin,
         consumed: usize,
     ) -> RecoveryPolicy {
-        if origin == DecodeOrigin::DecodeEof {
-            return RecoveryPolicy::Disconnect;
+        if !is_budgeted_drop(selected, origin, consumed) {
+            return match selected {
+                RecoveryPolicy::Drop | RecoveryPolicy::Quarantine
+                    if origin == DecodeOrigin::DecodeEof || consumed == 0 =>
+                {
+                    RecoveryPolicy::Disconnect
+                }
+                other => other,
+            };
         }
-        if consumed == 0 && matches!(selected, RecoveryPolicy::Drop | RecoveryPolicy::Quarantine) {
-            return RecoveryPolicy::Disconnect;
-        }
-        if selected != RecoveryPolicy::Drop {
-            return selected;
-        }
-
-        self.consecutive_drops = self.consecutive_drops.saturating_add(1);
-        if self.consecutive_drops > self.config.max_consecutive_drops {
+        if self.consecutive_drops.saturating_add(1) > self.config.max_consecutive_drops {
             RecoveryPolicy::Disconnect
         } else {
             RecoveryPolicy::Drop
@@ -318,6 +357,17 @@ impl<'a> RecoveryCoordinator<'a> {
     }
 }
 
+/// Whether this failure extends the connection's drop streak.
+///
+/// Only a drop the connection can actually apply counts: an EOF, or a failure
+/// that consumed no bytes, disconnects whatever the hook selected, and a
+/// selection other than drop never contributes to the drop budget.
+const fn is_budgeted_drop(selected: RecoveryPolicy, origin: DecodeOrigin, consumed: usize) -> bool {
+    matches!(selected, RecoveryPolicy::Drop)
+        && !matches!(origin, DecodeOrigin::DecodeEof)
+        && consumed > 0
+}
+
 /// Wait out a quarantine pause, or stop waiting when the connection shuts down.
 async fn await_quarantine(duration: Duration, shutdown: &CancellationToken) {
     tokio::select! {
@@ -337,9 +387,12 @@ fn codec_error_in(error: &io::Error) -> Option<&CodecError> {
 #[path = "recovery_dispatch_tests.rs"]
 mod dispatch_tests;
 
+// The read step's tests drive the same hook and metric that recovery reports
+// through, so these fixtures are shared across the inbound module rather than
+// rebuilt in each test tree.
 #[cfg(test)]
 #[path = "recovery_test_support.rs"]
-mod test_support;
+pub(in crate::app::inbound_handler) mod test_support;
 
 #[cfg(test)]
 #[path = "recovery_tests.rs"]

@@ -5,7 +5,14 @@
 //! configuration, and the state builders live here rather than being
 //! duplicated in each test module.
 
-use std::{net::SocketAddr, sync::Mutex, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 #[cfg(feature = "metrics")]
 use metrics::{SharedString, Unit};
@@ -35,7 +42,7 @@ pub(super) struct HookCall {
 }
 
 /// Hook that records each `on_error` call and answers with fixed settings.
-pub(super) struct RecordingHook {
+pub(in crate::app::inbound_handler) struct RecordingHook {
     /// Policy returned from `recovery_policy`.
     selected: RecoveryPolicy,
     /// Duration returned from `quarantine_duration`.
@@ -46,7 +53,10 @@ pub(super) struct RecordingHook {
 
 impl RecordingHook {
     /// Build a hook that selects `selected` and pauses for `quarantine`.
-    pub(super) fn new(selected: RecoveryPolicy, quarantine: Duration) -> Self {
+    pub(in crate::app::inbound_handler) fn new(
+        selected: RecoveryPolicy,
+        quarantine: Duration,
+    ) -> Self {
         Self {
             selected,
             quarantine,
@@ -55,7 +65,7 @@ impl RecordingHook {
     }
 
     /// Return the policies `on_error` was called with.
-    pub(super) fn applied_policies(&self) -> Vec<RecoveryPolicy> {
+    pub(in crate::app::inbound_handler) fn applied_policies(&self) -> Vec<RecoveryPolicy> {
         self.calls
             .lock()
             .expect("hook call log lock")
@@ -65,7 +75,7 @@ impl RecordingHook {
     }
 
     /// Return the error types `on_error` was called with.
-    pub(super) fn error_types(&self) -> Vec<&'static str> {
+    pub(in crate::app::inbound_handler) fn error_types(&self) -> Vec<&'static str> {
         self.calls
             .lock()
             .expect("hook call log lock")
@@ -106,14 +116,49 @@ impl RecoveryPolicyHook for RecordingHook {
     }
 }
 
+/// Hook that answers failures from a prepared policy sequence.
+///
+/// A property test generates the sequence, so the answer must change between
+/// failures rather than be fixed when the hook is built.
+pub(super) struct ScriptedHook {
+    /// Policies returned in call order.
+    policies: Vec<RecoveryPolicy>,
+    /// Index of the next policy to return.
+    next: AtomicUsize,
+}
+
+impl ScriptedHook {
+    /// Build a hook that returns `policies` in order.
+    pub(super) fn new(policies: Vec<RecoveryPolicy>) -> Self {
+        Self {
+            policies,
+            next: AtomicUsize::new(0),
+        }
+    }
+}
+
+impl RecoveryPolicyHook for ScriptedHook {
+    fn recovery_policy(&self, _error: &CodecError, _ctx: &CodecErrorContext) -> RecoveryPolicy {
+        let index = self.next.fetch_add(1, Ordering::Relaxed);
+        self.policies
+            .get(index)
+            .copied()
+            .unwrap_or(RecoveryPolicy::Disconnect)
+    }
+
+    fn quarantine_duration(&self, _error: &CodecError, _ctx: &CodecErrorContext) -> Duration {
+        Duration::ZERO
+    }
+}
+
 /// Classified protocol failure as a decoder would report it.
-pub(super) fn protocol_failure() -> DecodeFailure {
+pub(in crate::app::inbound_handler) fn protocol_failure() -> DecodeFailure {
     let error = CodecError::Protocol(ProtocolError::UnknownMessageType { type_id: 7 });
     DecodeFailure::new(error.into(), DecodeOrigin::Decode, CONSUMED)
 }
 
 /// Configuration with a small drop budget so escalation is easy to reach.
-pub(super) fn tight_config() -> RecoveryConfig {
+pub(in crate::app::inbound_handler) fn tight_config() -> RecoveryConfig {
     RecoveryConfig::default()
         .max_consecutive_drops(2)
         .quarantine_duration(Duration::from_millis(5))
@@ -130,11 +175,15 @@ pub(super) fn inbound_with_pending_failure() -> InboundFrames<DecodedItem<u8>, u
 
 /// One recorded metric sample.
 #[cfg(feature = "metrics")]
-pub(super) type MetricSample = (CompositeKey, Option<Unit>, Option<SharedString>, DebugValue);
+pub(in crate::app::inbound_handler) type MetricSample =
+    (CompositeKey, Option<Unit>, Option<SharedString>, DebugValue);
 
 /// Total count recorded for the codec-error counter under one policy label.
 #[cfg(feature = "metrics")]
-pub(super) fn policy_count(samples: &[MetricSample], expected: &str) -> u64 {
+pub(in crate::app::inbound_handler) fn policy_count(
+    samples: &[MetricSample],
+    expected: &str,
+) -> u64 {
     samples
         .iter()
         .filter(|(key, ..)| key.key().name() == crate::metrics::CODEC_ERRORS)
