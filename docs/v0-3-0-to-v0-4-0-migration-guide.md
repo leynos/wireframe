@@ -771,15 +771,17 @@ required, should keep them in a separate registry. A shared registry also keeps
 the two sets apart: the claim skips an identifier a live entry occupies, so the
 first server connection receives `1` only when nothing else holds it, and
 `insert` refuses to replace a live entry, so a later manual insert cannot
-displace a server connection's handle. Because the claim is atomic, the
-connection never serves under an identifier that addresses another handle, and
-teardown removes an entry only while it still holds that connection's own
-handle, so an identifier an application took over after a `remove` survives the
-connection's end. A producer that moves from a hand-picked identifier to the
-server registry must address connections by the identifier the connection
-publishes — read it from `ConnectionContext::connection_id` in the setup
-callback, or enumerate `active_handles` — rather than reusing the identifier it
-chose itself.
+displace a server connection's handle. Because the claim is atomic, a
+connection is never published under an identifier that already holds another
+live handle. An application can still take one over deliberately, by removing
+the entry and inserting its own handle in its place: the connection then simply
+stops being addressable under that identifier. Teardown removes an entry only
+while it still holds that connection's own handle, so an identifier an
+application took over after a `remove` survives the connection's end. A
+producer that moves from a hand-picked identifier to the server registry must
+address connections by the identifier the connection publishes — read it from
+`ConnectionContext::connection_id` in the setup callback, or enumerate
+`active_handles` — rather than reusing the identifier it chose itself.
 
 A clean peer close attempts to drain frames still queued, high priority first,
 though a write that fails or is abandoned drops the frames behind it. On server

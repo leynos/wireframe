@@ -2881,9 +2881,12 @@ refuses to replace a live entry, so a later manual insert cannot take over a
 connection's identifier. Server connections claim their identifier and publish
 their handle in one step with `allocate_and_publish`, before their protocol
 setup callback runs, and deregister when the connection task ends; that claim
-is atomic, so a connection never serves under an identifier that addresses
-another handle, and teardown removes an entry only while it still holds the
-connection's own handle. `allocate_connection_id` remains available for an
+is atomic, so a connection is never published under an identifier that already
+holds another live handle. An application can still take an identifier over
+deliberately, by removing the entry and inserting its own handle in its place:
+the connection then simply stops being addressable there, and teardown, which
+removes an entry only while it still holds the connection's own handle, leaves
+that newcomer in place. `allocate_connection_id` remains available for an
 application that needs an identifier of its own. Address a connection by the
 identifier it publishes — `ConnectionContext::connection_id` in the setup
 callback, or `active_handles` from a background task — rather than by one

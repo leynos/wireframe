@@ -90,9 +90,9 @@ async fn insert_refuses_to_replace_a_live_entry() {
 
 /// The identifier an application entry holds is never the one published.
 ///
-/// Allocation and publication happen as one claim, so the interleaving where a
-/// manual insert lands between them cannot occur: the connection moves past the
-/// occupied identifier and both handles stay separately addressable.
+/// The claim retries until publication succeeds, so an identifier a manual
+/// entry already occupies is skipped rather than displaced: the connection
+/// moves past it and both handles stay separately addressable.
 #[tokio::test]
 async fn allocation_and_publication_claim_one_identifier() {
     let registry = SessionRegistry::<u8>::default();
@@ -126,6 +126,61 @@ async fn allocation_and_publication_claim_one_identifier() {
     assert_eq!(
         manual_queues.recv().await.expect("recv failed").1,
         22,
+        "the manual identifier must still address the application's handle"
+    );
+}
+
+/// A manual insert that wins the race is refused the connection's publication.
+///
+/// Allocation and publication are the two halves the claim loops over, so
+/// driving them apart reproduces the window between them exactly: a manual
+/// entry takes the allocated identifier before the connection publishes, and
+/// the connection's own publication is then refused rather than replacing it.
+/// The claim itself skips that identifier, so both handles stay separately
+/// addressable either way.
+#[tokio::test]
+async fn a_manual_insert_between_allocation_and_publication_is_refused() {
+    let registry = SessionRegistry::<u8>::default();
+    let (mut manual_queues, manual_handle) = live_handle();
+    let (mut connection_queues, connection_handle) = live_handle();
+
+    let allocated = registry.allocate_connection_id();
+    assert!(
+        registry.insert(allocated, &manual_handle),
+        "the manual insert must take the free identifier"
+    );
+    assert!(
+        !registry.insert(allocated, &connection_handle),
+        "the connection must not displace the live manual entry"
+    );
+
+    let published = registry.allocate_and_publish(&connection_handle);
+    assert_ne!(
+        published, allocated,
+        "the claim must move past the identifier the manual insert took"
+    );
+    let addressed = registry
+        .get(&published)
+        .expect("the published entry must address the connection");
+    addressed
+        .push_high_priority(31)
+        .await
+        .expect("the published lane has room");
+    assert_eq!(
+        connection_queues.recv().await.expect("recv failed").1,
+        31,
+        "the published identifier must address this connection"
+    );
+    let manual = registry
+        .get(&allocated)
+        .expect("the manual entry must survive the claim");
+    manual
+        .push_high_priority(32)
+        .await
+        .expect("the manual lane has room");
+    assert_eq!(
+        manual_queues.recv().await.expect("recv failed").1,
+        32,
         "the manual identifier must still address the application's handle"
     );
 }

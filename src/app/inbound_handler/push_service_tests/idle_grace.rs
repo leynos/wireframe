@@ -131,6 +131,10 @@ async fn an_idle_grace_abandoned_drain_write_is_counted_and_warned(
         .await
     }
     .expect("an idle-grace abandonment is not an error");
+    assert!(
+        harness.accepted_frames().is_empty(),
+        "a write abandoned under the idle grace must not reach the sink"
+    );
     assert!(!outcome.may_continue(), "the connection must stop");
     assert!(
         outcome.peer_closed(),
@@ -190,6 +194,10 @@ async fn an_idle_grace_abandoned_drain_is_warned_as_mixed(
             .expect("an idle-grace abandonment is not an error");
     }
 
+    assert!(
+        harness.accepted_frames().is_empty(),
+        "a drain abandoned under the idle grace must not reach the sink"
+    );
     assert_eq!(
         abandonment_labels(&snapshotter.snapshot().into_vec()),
         [("reason".to_owned(), "idle_grace_expired".to_owned())],
