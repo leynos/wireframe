@@ -3,7 +3,10 @@
 //! Tests use this fixture to prove two different properties: that each
 //! packet-oriented outbound path runs `before_send` exactly once per emitted
 //! frame, and that a protocol-backed connection owns exactly one strong
-//! reference to the installed protocol. It is not part of any test target on
+//! reference to the installed protocol. This module provides the recorder and
+//! its event log; the ownership probes live in
+//! `recording_protocol_ownership` so a binary that only asserts dispatch order
+//! does not compile probes it never uses. It is not part of any test target on
 //! its own; include it with
 //! `#[path = "common/recording_protocol.rs"] mod recording_protocol;`.
 
@@ -13,7 +16,6 @@ use std::{
         Arc,
         Mutex,
         PoisonError,
-        Weak,
         atomic::{AtomicUsize, Ordering},
     },
 };
@@ -144,7 +146,7 @@ pub struct RecordingProtocolFixture<F> {
     /// Ordered hook events recorded by every instance built from this fixture.
     events: Arc<Mutex<Vec<HookEvent<F>>>>,
     /// Drops of installed instances built from this fixture.
-    drops: Arc<AtomicUsize>,
+    pub(crate) drops: Arc<AtomicUsize>,
     /// Frame returned by `stream_end_frame`, if any.
     terminator: Option<F>,
 }
@@ -173,9 +175,6 @@ where
         }
     }
 
-    /// Build a fresh protocol instance behind the single `Arc` a caller owns.
-    pub fn shared(&self) -> Arc<RecordingProtocol<F>> { Arc::new(self.protocol()) }
-
     /// Snapshot the events recorded so far.
     pub fn events(&self) -> Vec<HookEvent<F>> {
         self.events
@@ -183,20 +182,4 @@ where
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
-
-    /// Number of installed protocol instances dropped so far.
-    pub fn drops(&self) -> usize { self.drops.load(Ordering::SeqCst) }
 }
-
-/// Number of strong references currently keeping `protocol` alive.
-pub fn strong_count<F>(protocol: &Arc<RecordingProtocol<F>>) -> usize {
-    Arc::strong_count(protocol)
-}
-
-/// Capture a weak handle used to prove a connection released its reference.
-pub fn weak_handle<F>(protocol: &Arc<RecordingProtocol<F>>) -> Weak<RecordingProtocol<F>> {
-    Arc::downgrade(protocol)
-}
-
-/// `true` while some strong reference still keeps the pointee alive.
-pub fn is_alive<T: ?Sized>(weak: &Weak<T>) -> bool { weak.strong_count() > 0 }
