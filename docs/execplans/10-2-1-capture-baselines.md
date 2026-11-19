@@ -5,7 +5,17 @@ This execution plan (ExecPlan) is a living document. The sections `Constraints`,
 `Outcomes and retrospective`, `Conformance basis`, and `Verification plan`
 must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: DRAFT — superseded on `main`; awaiting a decision to close or retain.
+
+Roadmap item `10.2.1` was delivered on `main` by
+[pull request 838](https://github.com/leynos/wireframe/pull/838), merged on
+2026-11-02, without this plan being implemented. That work defines the
+sixteen-row matrix in `docs/zero-copy-benchmark-plan.md`, records the measured
+rows in `docs/zero-copy-benchmark-baselines.md`, and gates copied bytes per
+seam through `src/benchmark_counters.rs`. Read those documents, not this plan,
+for the current baseline. This plan is retained as a design record until its
+pull request is closed or repurposed; its citations predate `main`'s move of
+the ADRs into `docs/adrs/` and have not been re-verified since.
 
 No `PLANS.md` exists in this repository as of 2026-08-23.
 
@@ -1090,6 +1100,23 @@ for this item; see the verification plan.
   relies on — `iter_custom`, `Throughput::Bytes`, `Throughput::Elements`, and
   `BenchmarkId` — is unchanged in 0.8.2.
 
+- Observation: a third rebase onto `main` (2026-11-19) found roadmap item
+  `10.2.1` already delivered and ticked. Evidence: commit `5e749c9f` (pull
+  request 838) adds the middleware, hooks, and outbound harnesses;
+  `src/benchmark_counters.rs`, which counts copied bytes at three seams,
+  including the framed-encoder copy into the transport write buffer
+  (`record_framed`); `docs/zero-copy-benchmark-plan.md`; and
+  `docs/zero-copy-benchmark-baselines.md`, which also records the shared
+  control block that `Bytes::from(Vec<u8>)` allocates for a vector with spare
+  capacity. The same work proposes the `10.2.2` thresholds. `main` has also
+  moved the ADRs to `docs/adrs/`, and number `0011` now belongs to the
+  runtime-ownership ADR, so this plan's proposed ADR-011 would collide. Impact:
+  every distinctive finding of this plan — the second payload-sized copy in the
+  framed encoder, the control-block allocation, and per-seam copied-byte
+  measurement — is covered on `main`, by in-process seam counters rather than
+  Valgrind DHAT. No milestone here remains to implement; the open question is
+  only whether to close the pull request or keep the plan as a design record.
+
 - Observation: a second rebase onto `main` (2026-10-30) crossed 110 commits,
   several of which change this plan's premises rather than merely its line
   numbers. Evidence: commit `37208b74` (issue 639, runtime-ownership baselines)
@@ -1291,6 +1318,11 @@ re-verified against the reorganized tree, and three design points moved with
 `pub(super)`; and the formal-verification rationale reflects that `15.1.4` has
 landed as stub targets. The invariants-not-numbers split is unchanged and now
 has an independent precedent in the issue 639 plan.
+
+**Rebase onto `main` (2026-11-19)** found `10.2.1` delivered by pull request
+838 and marked the plan superseded. The branch's regenerated `typos.toml`
+commit was dropped as redundant, because `main` had already committed the same
+regeneration. No other content changed.
 
 Effect on remaining work: Stage A now ships an independently valuable docs-only
 correction before any instrument exists, and the measurement work that follows
