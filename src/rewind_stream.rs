@@ -176,6 +176,34 @@ mod tests {
         }
     }
 
+    /// Expected observable state after a single poll.
+    #[derive(Clone, Copy)]
+    struct PollExpectation {
+        /// Bytes delivered by the poll.
+        bytes: &'static [u8],
+        /// Total number of times the inner stream has been polled.
+        inner_polls: usize,
+        /// Cursor into the leftover buffer.
+        pos: usize,
+        /// Number of bytes still held in the leftover buffer.
+        leftover_len: usize,
+    }
+
+    /// Poll `stream` once and assert the delivered bytes and replay state.
+    ///
+    /// Grouping the expectations keeps each test focused on its scenario
+    /// while still checking every observable dimension of the replay state.
+    fn assert_poll(
+        stream: &mut RewindStream<CountingReader>,
+        capacity: usize,
+        expected: PollExpectation,
+    ) {
+        assert_eq!(poll_once(stream, capacity).as_slice(), expected.bytes);
+        assert_eq!(stream.inner().polls, expected.inner_polls);
+        assert_eq!(stream.pos_for_tests(), expected.pos);
+        assert_eq!(stream.leftover_len_for_tests(), expected.leftover_len);
+    }
+
     #[test]
     fn poll_read_returns_error_for_invalid_leftover_slice_bounds() {
         let mut stream = RewindStream::new(vec![1_u8, 2, 3], tokio::io::empty());
@@ -208,23 +236,61 @@ mod tests {
         // replay-completion guard, and `>=` -> `<` and `!` deletion on the
         // cleanup guard, each of which would either append inner bytes to the
         // completing read or retain the cleared leftover.
-        assert_eq!(poll_once(&mut stream, 2).as_slice(), b"ab");
-        assert_eq!(poll_once(&mut stream, 1).as_slice(), b"c");
-        assert_eq!(poll_once(&mut stream, 2).as_slice(), b"de");
-        assert_eq!(stream.inner().polls, 0);
-        assert_eq!(stream.leftover_len_for_tests(), 5);
-        assert_eq!(stream.pos_for_tests(), 5);
+        assert_poll(
+            &mut stream,
+            2,
+            PollExpectation {
+                bytes: b"ab",
+                inner_polls: 0,
+                pos: 2,
+                leftover_len: 5,
+            },
+        );
+        assert_poll(
+            &mut stream,
+            1,
+            PollExpectation {
+                bytes: b"c",
+                inner_polls: 0,
+                pos: 3,
+                leftover_len: 5,
+            },
+        );
+        assert_poll(
+            &mut stream,
+            2,
+            PollExpectation {
+                bytes: b"de",
+                inner_polls: 0,
+                pos: 5,
+                leftover_len: 5,
+            },
+        );
 
         // Replay is complete, so this poll clears it before reading the inner
         // stream. A retained leftover or stale cursor fails here.
-        assert_eq!(poll_once(&mut stream, 8).as_slice(), b"XYZ");
-        assert_eq!(stream.inner().polls, 1);
-        assert_eq!(stream.leftover_len_for_tests(), 0);
-        assert_eq!(stream.pos_for_tests(), 0);
+        assert_poll(
+            &mut stream,
+            8,
+            PollExpectation {
+                bytes: b"XYZ",
+                inner_polls: 1,
+                pos: 0,
+                leftover_len: 0,
+            },
+        );
 
         // The inner reader is now exhausted; a further poll reports EOF.
-        assert_eq!(poll_once(&mut stream, 8).as_slice(), b"");
-        assert_eq!(stream.inner().polls, 2);
+        assert_poll(
+            &mut stream,
+            8,
+            PollExpectation {
+                bytes: b"",
+                inner_polls: 2,
+                pos: 0,
+                leftover_len: 0,
+            },
+        );
     }
 
     #[test]
@@ -235,14 +301,26 @@ mod tests {
         // Kills `>` -> `==` and `||` -> `&&` on the replay-completion guard:
         // both fall through when the copy exhausts the leftover, clearing it
         // and polling the inner stream within the same read.
-        assert_eq!(poll_once(&mut stream, 8).as_slice(), b"abc");
-        assert_eq!(stream.inner().polls, 0);
-        assert_eq!(stream.leftover_len_for_tests(), 3);
-        assert_eq!(stream.pos_for_tests(), 3);
-
-        assert_eq!(poll_once(&mut stream, 8).as_slice(), b"XYZ");
-        assert_eq!(stream.inner().polls, 1);
-        assert_eq!(stream.leftover_len_for_tests(), 0);
+        assert_poll(
+            &mut stream,
+            8,
+            PollExpectation {
+                bytes: b"abc",
+                inner_polls: 0,
+                pos: 3,
+                leftover_len: 3,
+            },
+        );
+        assert_poll(
+            &mut stream,
+            8,
+            PollExpectation {
+                bytes: b"XYZ",
+                inner_polls: 1,
+                pos: 0,
+                leftover_len: 0,
+            },
+        );
     }
 
     #[test]
@@ -253,33 +331,66 @@ mod tests {
         // without touching the inner stream or the cursor. Kills `<` -> `==`
         // and `<` -> `>` on the replay-completion guard, which would both fall
         // through to the inner stream.
-        assert_eq!(poll_once(&mut stream, 0).as_slice(), b"");
-        assert_eq!(stream.inner().polls, 0);
-        assert_eq!(stream.pos_for_tests(), 0);
-        assert_eq!(stream.leftover_len_for_tests(), 3);
-
-        assert_eq!(poll_once(&mut stream, 8).as_slice(), b"abc");
+        assert_poll(
+            &mut stream,
+            0,
+            PollExpectation {
+                bytes: b"",
+                inner_polls: 0,
+                pos: 0,
+                leftover_len: 3,
+            },
+        );
+        assert_poll(
+            &mut stream,
+            8,
+            PollExpectation {
+                bytes: b"abc",
+                inner_polls: 0,
+                pos: 3,
+                leftover_len: 3,
+            },
+        );
     }
 
     #[test]
     fn poll_read_clears_replayed_leftover_before_polling_inner() {
         let mut stream = RewindStream::new(b"abc".to_vec(), CountingReader::new(b"XYZ"));
 
-        assert_eq!(poll_once(&mut stream, 3).as_slice(), b"abc");
-        assert_eq!(stream.inner().polls, 0);
-        assert_eq!(stream.leftover_len_for_tests(), 3);
-        assert_eq!(stream.pos_for_tests(), 3);
+        assert_poll(
+            &mut stream,
+            3,
+            PollExpectation {
+                bytes: b"abc",
+                inner_polls: 0,
+                pos: 3,
+                leftover_len: 3,
+            },
+        );
 
         // Replay is complete, so the next poll clears it before delegating.
         // With no buffer space the inner read yields nothing, but it must be
         // reached exactly once. Kills `>=` -> `<` and `!` deletion on the
         // cleanup guard, which would retain the leftover and cursor.
-        assert_eq!(poll_once(&mut stream, 0).as_slice(), b"");
-        assert_eq!(stream.inner().polls, 1);
-        assert_eq!(stream.leftover_len_for_tests(), 0);
-        assert_eq!(stream.pos_for_tests(), 0);
-
-        assert_eq!(poll_once(&mut stream, 8).as_slice(), b"XYZ");
-        assert_eq!(stream.inner().polls, 2);
+        assert_poll(
+            &mut stream,
+            0,
+            PollExpectation {
+                bytes: b"",
+                inner_polls: 1,
+                pos: 0,
+                leftover_len: 0,
+            },
+        );
+        assert_poll(
+            &mut stream,
+            8,
+            PollExpectation {
+                bytes: b"XYZ",
+                inner_polls: 2,
+                pos: 0,
+                leftover_len: 0,
+            },
+        );
     }
 }
