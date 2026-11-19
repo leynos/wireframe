@@ -22,9 +22,9 @@ All notable changes to this project will be documented in this file.
   `ConnectionId`. `WireframeApp::with_session_registry` shares a
   `SessionRegistry` that each connection joins before setup and leaves when its
   task ends; `SessionRegistry::allocate_connection_id` allocates identifiers
-  from `1`, never reuses one, and skips an identifier a live entry occupies,
-  and `SessionRegistry::insert` now returns whether it published the handle
-  and refuses to replace a live entry. Pushed frames reach the client over the same
+  from `1`, never reuses one, and skips an identifier a live entry occupies, and
+  `SessionRegistry::insert` now returns whether it published the handle and
+  refuses to replace a live entry. Pushed frames reach the client over the same
   transport as handler responses, subject to priority, fairness, rate limiting,
   and the dead-letter queue, and interleave with streamed responses. A clean
   peer close attempts to drain queued frames, but a write that fails or is
@@ -37,16 +37,16 @@ All notable changes to this project will be documented in this file.
   after its producer was told the push succeeded. That check runs when the
   frame is enqueued, before the protocol `before_send` hook; a hook that
   enlarges a frame past the codec's limit is instead rejected when the frame is
-  written. A template's own `max_frame_len` and the codec's
-  ceiling are both enforced, each with the payload measure it was configured
-  with, so adding the codec limit never relaxes a template's bound. `PushError`
-  gains `RateLimited`: `try_push` draws on the same rate limit as the awaited
-  helpers and refuses rather than waiting when no permit is available. A
-  preamble that encodes to no bytes, including the default `()`, decodes
-  without reading, so a client that sends nothing still reaches connection
-  setup and receives its first push. `PushHandle` and `PushQueuesBuilder` gain
-  `Clone` implementations that do not require `F: Clone`. **Breaking:**
-  `ConnectionContext` is `#[non_exhaustive]` and no longer a unit struct, and
+  written. A template's own `max_frame_len` and the codec's ceiling are both
+  enforced, each with the payload measure it was configured with, so adding the
+  codec limit never relaxes a template's bound. `PushError` gains `RateLimited`:
+  `try_push` draws on the same rate limit as the awaited helpers and refuses
+  rather than waiting when no permit is available. A preamble that encodes to
+  no bytes, including the default `()`, decodes without reading, so a client
+  that sends nothing still reaches connection setup and receives its first push.
+  `PushHandle` and `PushQueuesBuilder` gain `Clone` implementations that do
+  not require `F: Clone`. **Breaking:** `ConnectionContext` is
+  `#[non_exhaustive]` and no longer a unit struct, and
   `WireframeApp::with_push_dlq` is deprecated since 0.4.0 in favour of a `dlq`
   sender on the queue template.
   ([#875](https://github.com/leynos/wireframe/issues/875))

@@ -2771,10 +2771,10 @@ Two kinds of end of connection behave differently:
   discarded. The drain seals both lanes and takes only the frames they already
   hold, so a producer that still holds a capacity reservation is not waited
   for: its push fails with `PushError::Closed` rather than delaying the drain.
-  Delivery is an attempt, not a guarantee: every drained write stays
-  bounded, so a write that fails, that is still blocked when the server stops,
-  or that an unobservable peer accepts nothing for during the 30-second grace
-  ends the drain and the frames still queued behind it are not sent.
+  Delivery is an attempt, not a guarantee: every drained write stays bounded,
+  so a write that fails, that is still blocked when the server stops, or that
+  an unobservable peer accepts nothing for during the 30-second grace ends the
+  drain and the frames still queued behind it are not sent.
 - On server shutdown the connection does not wait to flush what is still
   buffered: a write that would block is abandoned rather than awaited, so the
   server drain never blocks on a peer that has stopped reading. A handler run
