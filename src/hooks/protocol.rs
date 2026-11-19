@@ -1,4 +1,16 @@
 //! The explicit protocol-hook representation used by connections.
+//!
+//! This module owns [`ProtocolHooks`], the value a connection stores to decide
+//! where its callbacks come from. The enum separates the three installations a
+//! connection can have — none, one shared protocol, or independently
+//! registered callbacks — so the ownership of each is visible in the type
+//! rather than implied by whichever closure was cloned most recently.
+//!
+//! The utility is centralization: every outbound path dispatches through this
+//! one value, so a protocol-backed connection keeps a single strong reference
+//! to the installed protocol regardless of how many hook points exist, and a
+//! caller that needs custom callbacks opts into [`CustomProtocolHooks`] instead
+//! of competing for the protocol reference.
 
 use std::sync::Arc;
 

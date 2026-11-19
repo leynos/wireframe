@@ -1,4 +1,15 @@
 //! Type erasure and dispatch for one installed protocol.
+//!
+//! [`ProtocolDispatch`] is the protocol-backed form of a connection's hooks. It
+//! owns exactly one strong reference to the installed protocol and forwards
+//! every operation to it, so a connection that installs a protocol allocates
+//! one dispatch object instead of one closure per callback.
+//!
+//! The private `ProtocolOperations` trait exists to erase the concrete
+//! protocol type, including protocols that are not `Sized`, behind a single
+//! boxed value. That keeps [`ProtocolHooks`](super::ProtocolHooks) nameable
+//! without the protocol type parameter while preserving per-operation
+//! dispatch.
 
 use std::sync::Arc;
 

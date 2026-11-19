@@ -1,4 +1,15 @@
 //! Independently registered protocol callbacks.
+//!
+//! [`CustomProtocolHooks`] is the escape hatch for callers that install
+//! separate closures rather than one [`WireframeProtocol`](super::WireframeProtocol).
+//! It stores each callback in its own optional slot, converts into
+//! [`ProtocolHooks`](super::ProtocolHooks), and runs each callback only when a
+//! caller registered it.
+//!
+//! The type keeps the migration path from the former struct-of-closures
+//! representation explicit: existing callers replace a `ProtocolHooks { .. }`
+//! literal with `CustomProtocolHooks { .. }.into()`, while a protocol-based
+//! application keeps one strong owner instead of six forwarded closures.
 
 use super::ConnectionContext;
 use crate::{codec::EofError, push::PushHandle};
