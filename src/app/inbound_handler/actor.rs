@@ -13,7 +13,7 @@
 
 use std::{io, sync::Arc};
 
-use log::{debug, warn};
+use log::debug;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -41,6 +41,8 @@ pub(super) struct ConnectionResponseActor<F: FrameCodec> {
     pub(super) actor: ConnectionActor<Envelope, (), F::Frame>,
     /// Strong handle keeping the high- and low-priority queues open.
     _push_handle: PushHandle<F::Frame>,
+    /// Identifier the connection published to the session registry.
+    pub(super) connection_id: ConnectionId,
     /// Removes the registry entry when the connection ends.
     _registry: RegistryGuard<F::Frame>,
 }
@@ -55,28 +57,40 @@ struct RegistryGuard<F: FrameLike> {
     registry: Arc<SessionRegistry<F>>,
     /// Identifier allocated for this connection.
     connection_id: ConnectionId,
+    /// Handle published under that identifier.
+    handle: PushHandle<F>,
 }
 
 impl<F: FrameLike> RegistryGuard<F> {
     /// Wrap the registry entry so it is removed when the guard drops.
-    const fn new(registry: Arc<SessionRegistry<F>>, connection_id: ConnectionId) -> Self {
+    const fn new(
+        registry: Arc<SessionRegistry<F>>,
+        connection_id: ConnectionId,
+        handle: PushHandle<F>,
+    ) -> Self {
         Self {
             registry,
             connection_id,
+            handle,
         }
     }
 }
 
 impl<F: FrameLike> Drop for RegistryGuard<F> {
     fn drop(&mut self) {
-        // A lookup that finds nothing is indistinguishable from a connection
-        // that never registered, so both edges of the entry's lifetime are
-        // logged with the identifier that joins them.
+        // Only this connection's own entry is removed: a manual insert may have
+        // reused the identifier once this connection's entry died, and that
+        // handle belongs to someone else. A lookup that finds nothing is
+        // indistinguishable from a connection that never registered, so both
+        // edges of the entry's lifetime are logged with the identifier that
+        // joins them.
+        let removed = self
+            .registry
+            .remove_owned(&self.connection_id, &self.handle);
         debug!(
-            "session registry entry removed: connection_id={:?}",
+            "session registry entry released: connection_id={:?}, removed={removed}",
             self.connection_id
         );
-        self.registry.remove(&self.connection_id);
     }
 }
 
@@ -105,8 +119,6 @@ where
         Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Token cancelled when the connection loop exits.
     pub(super) shutdown: CancellationToken,
-    /// Identifier allocated for this connection.
-    pub(super) connection_id: ConnectionId,
     /// Registry the connection publishes its push handle to.
     pub(super) registry: &'a Arc<SessionRegistry<F::Frame>>,
     /// Template cloned to build this connection's push queues.
@@ -119,9 +131,9 @@ where
 ///
 /// The push queues are built from the application's template, so every
 /// connection gets independent capacity, rate-limiter state, and dead-letter
-/// routing. The registry entry is published before the protocol setup callback
-/// runs, so setup can address its own connection — or any other live one —
-/// through [`SessionRegistry::get`].
+/// routing. The identifier is allocated and published as one step before the
+/// protocol setup callback runs, so setup can address its own connection — or
+/// any other live one — through [`SessionRegistry::get`].
 ///
 /// Returns the actor bundle and the guard that cancels the connection token
 /// when processing ends.
@@ -134,7 +146,6 @@ where
     let ConnectionActorInit {
         protocol,
         shutdown,
-        connection_id,
         registry,
         push_queues,
         context,
@@ -143,23 +154,16 @@ where
     let (queues, handle) = push_queues.clone().build().map_err(|error| {
         io::Error::other(format!("failed to build connection push queues: {error}"))
     })?;
-    // Published before setup so the callback can address this connection, and
-    // before the actor starts so a push queued during setup is never dropped.
-    // A refusal means an application inserted a live handle under the
-    // identifier this connection just allocated; the connection is still
-    // served, but producers addressing that identifier reach the other handle.
-    let published = registry.insert(connection_id, &handle);
-    if published {
-        debug!("session registry entry published: connection_id={connection_id:?}");
-    } else {
-        warn!(
-            "session registry identifier already owned by a live entry: \
-             connection_id={connection_id:?}"
-        );
-    }
-    let registry_guard = RegistryGuard::new(Arc::clone(registry), connection_id);
+    // Allocating and publishing as one step means the identifier is this
+    // connection's own: a manual insert racing it is skipped rather than
+    // leaving the connection addressing a handle it does not own. Published
+    // before setup so the callback can address this connection, and before the
+    // actor starts so a push queued during setup is never dropped.
+    let connection_id = registry.allocate_and_publish(&handle);
+    debug!("session registry entry published: connection_id={connection_id:?}");
+    let registry_guard = RegistryGuard::new(Arc::clone(registry), connection_id, handle.clone());
 
-    let mut connection_context = context;
+    let mut connection_context = context.with_published_id(connection_id);
     if let Some(setup_protocol) = protocol {
         setup_protocol.on_connection_setup(handle.clone(), &mut connection_context);
     }
@@ -184,6 +188,7 @@ where
     let response_actor = ConnectionResponseActor {
         actor,
         _push_handle: handle,
+        connection_id,
         _registry: registry_guard,
     };
     Ok((response_actor, CancellationGuard::new(shutdown)))

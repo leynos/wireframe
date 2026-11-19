@@ -225,6 +225,38 @@ impl<F: FrameLike> SessionRegistry<F> {
         true
     }
 
+    /// Allocate an identifier and publish `handle` under it in one step.
+    ///
+    /// Allocation and publication are a single claim, so a manual
+    /// [`Self::insert`] racing this call cannot leave the connection addressing
+    /// a handle it does not own.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the `u64` identifier space is exhausted.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use wireframe::{push::PushQueues, session::SessionRegistry};
+    /// let (_queues, handle) = PushQueues::<u8>::builder()
+    ///     .unlimited()
+    ///     .build()
+    ///     .expect("failed to build PushQueues");
+    /// let registry = SessionRegistry::default();
+    /// let id = registry.allocate_and_publish(&handle);
+    /// assert!(registry.get(&id).is_some());
+    /// ```
+    #[must_use]
+    pub fn allocate_and_publish(&self, handle: &PushHandle<F>) -> ConnectionId {
+        loop {
+            let candidate = self.allocate_connection_id();
+            if self.insert(candidate, handle) {
+                return candidate;
+            }
+        }
+    }
+
     /// Remove a handle, typically on connection teardown.
     ///
     /// # Examples
@@ -248,6 +280,17 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// assert!(registry.get(&id).is_none());
     /// ```
     pub fn remove(&self, id: &ConnectionId) { self.entries.remove(id); }
+
+    /// Remove the entry for `id` only while it still holds `handle`, reporting
+    /// whether one was removed. Teardown uses this rather than [`Self::remove`],
+    /// so a connection cannot remove a handle a later insert published under its
+    /// old identifier.
+    pub(crate) fn remove_owned(&self, id: &ConnectionId, handle: &PushHandle<F>) -> bool {
+        let owned = handle.downgrade();
+        self.entries
+            .remove_if(id, |_, weak| Weak::ptr_eq(weak, &owned))
+            .is_some()
+    }
 
     /// Remove all stale weak references without returning any handles.
     ///

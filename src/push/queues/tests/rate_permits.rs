@@ -63,13 +63,15 @@ async fn try_push_shares_the_rate_limit_with_awaited_pushes() {
 /// exhausted by `try_push`, then an awaited push on another handle and the
 /// other lane must stay pending until the window refills. The same future is
 /// polled across the wait, so a reservation dropped and retried on every wake
-/// would show up as an extra permit being available.
+/// would show up as an extra permit being available. The waiting push keeps its
+/// lane slot for the whole wait: the low lane holds one frame, so a competing
+/// non-blocking push is refused for capacity while the first one waits.
 #[tokio::test]
 async fn an_awaited_push_waits_for_a_permit_a_try_push_spent() {
     time::pause();
     let (mut queues, handle) = PushQueues::<u8>::builder()
         .high_capacity(4)
-        .low_capacity(4)
+        .low_capacity(1)
         .rate(Some(1))
         .build()
         .expect("queue builds");
@@ -85,6 +87,11 @@ async fn an_awaited_push_waits_for_a_permit_a_try_push_spent() {
     assert!(
         futures::poll!(push.as_mut()).is_pending(),
         "the awaited push must wait for the next window"
+    );
+    assert_eq!(
+        handle.try_push(3, PushPriority::Low, PushPolicy::ReturnErrorIfFull),
+        Err(PushError::QueueFull),
+        "the waiting push must hold its lane slot until its permit arrives"
     );
 
     time::advance(Duration::from_secs(1)).await;

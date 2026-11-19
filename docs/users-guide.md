@@ -2872,18 +2872,22 @@ entries during lookups. Helpers insert and remove handles, bulk-prune stale
 entries, or return live handle/identifier pairs for background tasks that need
 to enumerate active sessions.[^40]
 
-The registry also allocates connection identifiers through
-`allocate_connection_id`: the first is `1`, later ones increase monotonically,
-and a value the registry allocated is never reused after a closed connection
-frees it, so an identifier obtained that way cannot address a new session. An
-identifier a live entry occupies is skipped, so an application's own entry is
-never displaced by a server connection, and `insert` refuses to replace a live
-entry, so a later manual insert cannot take over a connection's identifier.
-Server connections call `allocate_connection_id` themselves, then register
-their handle before their protocol setup callback runs and deregister when the
-connection task ends. Address a connection by the identifier it publishes —
-`ConnectionContext::connection_id` in the setup callback, or `active_handles`
-from a background task — rather than by one chosen by hand. See
+The registry also allocates connection identifiers: the first is `1`, later
+ones increase monotonically, and a value the registry allocated is never reused
+after a closed connection frees it, so an identifier obtained that way cannot
+address a new session. An identifier a live entry occupies is skipped, so an
+application's own entry is never displaced by a server connection, and `insert`
+refuses to replace a live entry, so a later manual insert cannot take over a
+connection's identifier. Server connections claim their identifier and publish
+their handle in one step with `allocate_and_publish`, before their protocol
+setup callback runs, and deregister when the connection task ends; that claim
+is atomic, so a connection never serves under an identifier that addresses
+another handle, and teardown removes an entry only while it still holds the
+connection's own handle. `allocate_connection_id` remains available for an
+application that needs an identifier of its own. Address a connection by the
+identifier it publishes — `ConnectionContext::connection_id` in the setup
+callback, or `active_handles` from a background task — rather than by one
+chosen by hand. See
 [Server connections and push queues](#server-connections-and-push-queues) for
 the application-side configuration.
 

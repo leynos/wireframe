@@ -21,10 +21,12 @@ All notable changes to this project will be documented in this file.
   `PushHandle`, and `ConnectionContext` now carries the server-allocated
   `ConnectionId`. `WireframeApp::with_session_registry` shares a
   `SessionRegistry` that each connection joins before setup and leaves when its
-  task ends; `SessionRegistry::allocate_connection_id` allocates identifiers
-  from `1`, never reuses one, and skips an identifier a live entry occupies, and
-  `SessionRegistry::insert` now returns whether it published the handle and
-  refuses to replace a live entry. Pushed frames reach the client over the same
+  task ends; `SessionRegistry::allocate_and_publish` claims an identifier and
+  publishes the handle in one atomic step, from `1`, never reusing one, and
+  skipping an identifier a live entry occupies, and `SessionRegistry::insert`
+  now returns whether it published the handle and refuses to replace a live
+  entry. Deregistration removes an entry only while it still holds the ending
+  connection's own handle. Pushed frames reach the client over the same
   transport as handler responses, subject to priority, fairness, rate limiting,
   and the dead-letter queue, and interleave with streamed responses. A clean
   peer close attempts to drain queued frames, but a write that fails or is

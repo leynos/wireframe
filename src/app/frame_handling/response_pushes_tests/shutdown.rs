@@ -9,6 +9,10 @@
 use std::{
     io,
     pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     task::{Context, Poll},
     time::Duration,
 };
@@ -122,28 +126,32 @@ fn second_push() -> TestFrame {
 
 /// A stop wins over a batch that is already queued behind the pending one.
 ///
-/// The first write is held open, so the handler can queue a second batch and
-/// only then request the stop. The stop is therefore observed between batches
-/// with the second batch already ready: a run that consulted the lanes before
-/// the stop token would deliver it too. Holding the write removes the race
-/// where the stop lands before the second send is even queued, which would let
-/// the test pass without ever exercising a ready batch.
+/// The first write is held open, so the handler can queue a second batch before
+/// the stop arrives. The stop is therefore observed between batches with the
+/// second batch already ready: a run that consulted the lanes before the stop
+/// token would deliver it too. The stop is requested only after the queued
+/// batch is proven present, and the peer then accepts the first write, so the
+/// pending write is ready before the run is polled again. A ready write
+/// outranks the stop, which is what lets the test reach the between-batch check
+/// instead of abandoning the very write it means to have delivered.
 #[rstest::rstest]
 #[tokio::test]
 async fn shutdown_takes_precedence_over_a_queued_push_batch(blocked_rig: BlockedRigFixture) {
     let (mut rig, release) = blocked_rig.expect("the rig's queues build");
     let shutdown = rig.shutdown.clone();
     // The first batch is already queued by the fixture. The handler queues the
-    // second one once the actor has taken the first, then requests the stop and
-    // never finishes, leaving the run to the stop token alone.
+    // second one once the actor has taken the first, and never finishes, so
+    // only the stop token can end the run.
+    let queued = Arc::new(AtomicBool::new(false));
     let call = {
         let producer = rig.handle.clone();
+        let queued = Arc::clone(&queued);
         async move {
             producer
                 .push_high_priority(second_push())
                 .await
                 .expect("the drained lane has capacity");
-            shutdown.cancel();
+            queued.store(true, Ordering::SeqCst);
             std::future::pending::<()>().await;
         }
     };
@@ -156,8 +164,14 @@ async fn shutdown_takes_precedence_over_a_queued_push_batch(blocked_rig: Blocked
             futures::poll!(running.as_mut()).is_pending(),
             "the first write must still be waiting for the peer"
         );
-        // The handler has now queued the second batch and requested the stop
-        // while the first write was pending.
+        assert!(
+            queued.load(Ordering::SeqCst),
+            "the second batch must be queued while the first write waits"
+        );
+        // Both events are ready before the run is polled again: the peer
+        // accepts the first write, and the stop arrives. The write wins that
+        // poll, so the stop is met between batches rather than mid-write.
+        shutdown.cancel();
         release
             .send(())
             .expect("the handler run still holds the release channel");

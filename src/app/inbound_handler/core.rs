@@ -200,20 +200,21 @@ where
         let connection_shutdown = shutdown.child_token();
         let read_shutdown = connection_shutdown.clone();
         let peer_eof = CancellationToken::new();
-        let connection_id = session_registry.allocate_connection_id();
-        let connection_context =
-            ConnectionContext::with_connection_id(Some(connection_id)).with_peer_addr(peer_addr);
-        // The sink-owned pipeline runs `before_send` too, so it must know
-        // which connection the callback is running for.
-        inbound.pipeline.set_context(connection_context.clone());
         let (response_actor, cancel_on_exit) = build_connection_actor(ConnectionActorInit {
             protocol: protocol.as_ref(),
             shutdown: connection_shutdown,
-            connection_id,
             registry: &session_registry,
             push_queues: &push_queues,
-            context: connection_context,
+            context: ConnectionContext::default().with_peer_addr(peer_addr),
         })?;
+        // The identifier is the one the actor claimed when it published its
+        // handle, so the sink's callbacks and the registry agree on it.
+        let connection_context =
+            ConnectionContext::with_connection_id(Some(response_actor.connection_id))
+                .with_peer_addr(peer_addr);
+        // The sink-owned pipeline runs `before_send` too, so it must know
+        // which connection the callback is running for.
+        inbound.pipeline.set_context(connection_context);
         Ok(Self {
             sink,
             reader,

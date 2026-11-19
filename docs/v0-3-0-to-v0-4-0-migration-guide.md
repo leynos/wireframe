@@ -758,22 +758,28 @@ serialized payloads, is not wired to connection queues, and only warns when
 configured. Pass a `dlq` sender to `PushQueues::builder()` inside
 `with_push_queues` instead, so dropped frames arrive as codec frames.
 
-`SessionRegistry` now allocates connection identifiers with
-`allocate_connection_id`, whose values start at `1` and are never reused. A
-server connection inserts its handle before its setup callback runs and removes
-it when the connection task ends, so an application that shares a registry no
-longer inserts or removes entries itself.
+`SessionRegistry` now allocates connection identifiers from `1`, increasing
+monotonically, and never reuses one. A server connection claims its identifier
+and publishes its handle in one step with `allocate_and_publish`, before its
+setup callback runs, and removes that entry when the connection task ends, so
+an application that shares a registry no longer inserts or removes entries
+itself. `allocate_connection_id` remains available for an application that
+needs an identifier of its own.
 
 An application that still needs entries of its own, as earlier releases
-required, should keep them in a separate registry. The two APIs also keep out
-of each other's way in a shared one: `allocate_connection_id` skips an
-identifier a live entry occupies, so the first server connection receives `1`
-only when nothing else holds it, and `insert` refuses to replace a live entry,
-so a later manual insert cannot displace a server connection's handle. A
-producer that moves from a hand-picked identifier to the server registry must
-address connections by the identifier the connection publishes — read it from
-`ConnectionContext::connection_id` in the setup callback, or enumerate
-`active_handles` — rather than reusing the identifier it chose itself.
+required, should keep them in a separate registry. A shared registry also keeps
+the two sets apart: the claim skips an identifier a live entry occupies, so the
+first server connection receives `1` only when nothing else holds it, and
+`insert` refuses to replace a live entry, so a later manual insert cannot
+displace a server connection's handle. Because the claim is atomic, the
+connection never serves under an identifier that addresses another handle, and
+teardown removes an entry only while it still holds that connection's own
+handle, so an identifier an application took over after a `remove` survives the
+connection's end. A producer that moves from a hand-picked identifier to the
+server registry must address connections by the identifier the connection
+publishes — read it from `ConnectionContext::connection_id` in the setup
+callback, or enumerate `active_handles` — rather than reusing the identifier it
+chose itself.
 
 A clean peer close attempts to drain frames still queued, high priority first,
 though a write that fails or is abandoned drops the frames behind it. On server

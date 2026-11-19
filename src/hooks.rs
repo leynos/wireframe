@@ -40,6 +40,15 @@ impl ConnectionContext {
         }
     }
 
+    /// Attach the identifier the connection claimed when it published.
+    ///
+    /// The identifier is decided at publication, so a context built before the
+    /// connection registers cannot carry one.
+    pub(crate) const fn with_published_id(mut self, connection_id: ConnectionId) -> Self {
+        self.connection_id = Some(connection_id);
+        self
+    }
+
     /// Attach the accepted socket's peer address for diagnostics.
     ///
     /// The address is used only to label connection-scoped events; a transport

@@ -88,6 +88,79 @@ async fn insert_refuses_to_replace_a_live_entry() {
     );
 }
 
+/// The identifier an application entry holds is never the one published.
+///
+/// Allocation and publication happen as one claim, so the interleaving where a
+/// manual insert lands between them cannot occur: the connection moves past the
+/// occupied identifier and both handles stay separately addressable.
+#[tokio::test]
+async fn allocation_and_publication_claim_one_identifier() {
+    let registry = SessionRegistry::<u8>::default();
+    let manual_id = ConnectionId::new(1);
+    let (mut manual_queues, manual_handle) = live_handle();
+    assert!(registry.insert(manual_id, &manual_handle));
+    let (mut server_queues, server_handle) = live_handle();
+
+    let published = registry.allocate_and_publish(&server_handle);
+
+    assert_eq!(published, ConnectionId::new(2));
+    let addressed = registry
+        .get(&published)
+        .expect("the published entry must address the connection");
+    addressed
+        .push_high_priority(21)
+        .await
+        .expect("the published lane has room");
+    assert_eq!(
+        server_queues.recv().await.expect("recv failed").1,
+        21,
+        "the published identifier must address this connection"
+    );
+    let manual = registry
+        .get(&manual_id)
+        .expect("the manual entry must survive the publication");
+    manual
+        .push_high_priority(22)
+        .await
+        .expect("the manual lane has room");
+    assert_eq!(
+        manual_queues.recv().await.expect("recv failed").1,
+        22,
+        "the manual identifier must still address the application's handle"
+    );
+}
+
+/// Teardown removes only the entry the ending connection published.
+///
+/// An application may deliberately take an identifier over by removing the
+/// entry and publishing its own handle there. Removing by identifier alone
+/// would then deregister the newcomer when the connection ends, so removal is
+/// conditional on the entry still holding the connection's own handle.
+#[tokio::test]
+async fn teardown_removes_only_the_entry_it_published() {
+    let registry = SessionRegistry::<u8>::default();
+    let id = ConnectionId::new(5);
+    let (_ending_queues, ending) = live_handle();
+    assert!(registry.insert(id, &ending));
+    registry.remove(&id);
+    let (_manual_queues, manual) = live_handle();
+    assert!(registry.insert(id, &manual));
+
+    assert!(
+        !registry.remove_owned(&id, &ending),
+        "a later handle under the identifier must not be removed"
+    );
+    assert!(
+        registry.get(&id).is_some(),
+        "the application's handle must survive the ending connection's teardown"
+    );
+    assert!(
+        registry.remove_owned(&id, &manual),
+        "removal must succeed while the entry holds the connection's handle"
+    );
+    assert!(registry.get(&id).is_none());
+}
+
 /// A dead entry does not block publication of a new handle.
 #[tokio::test]
 async fn insert_replaces_a_dead_entry() {

@@ -596,13 +596,18 @@ so pruning while collecting may contend more than the previous post-collection
 `remove_if` sweep. Maintenance tasks may instead invoke `prune()` to avoid this
 contention.
 
-The registry also owns identifier allocation. `allocate_connection_id` hands out
-`1` first and then increases monotonically, so an identifier freed by a closed
-connection is never reused. A server connection allocates its identifier,
-inserts its handle, and only then runs the protocol setup callback; a guard
-removes the entry when the connection task ends, whether that is a clean close,
-an I/O error, a panic, or cancellation. Sharing the registry with application
-code is what makes `SessionRegistry::get` useful after setup.
+The registry also owns identifier allocation. Identifiers start at `1` and
+increase monotonically, so an identifier freed by a closed connection is never
+reused. A server connection claims its identifier and publishes its handle in
+one atomic step with `allocate_and_publish`, and only then runs the protocol
+setup callback. The step is a claim rather than a separate allocation and
+insert, so a manual insert racing it cannot leave the connection serving under
+an identifier that addresses another handle: the claim skips an occupied one
+and retries with the next. A guard removes the entry when the connection task
+ends, whether that is a clean close, an I/O error, a panic, or cancellation,
+and removes it only while the entry still holds that connection's own handle,
+so an identifier an application took over is left alone. Sharing the registry
+with application code is what makes `SessionRegistry::get` useful after setup.
 
 The diagram below summarizes the data structures and how they interact when
 storing session handles. `SessionRegistry` maps `ConnectionId`s to weak

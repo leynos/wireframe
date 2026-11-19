@@ -12,10 +12,11 @@
 //! [`process_connection`] and its inputs are split across the submodules by
 //! responsibility:
 //!
-//! - `core` drives one connection: it prepares framing, and its `ConnectionLoop::new` allocates the
-//!   connection's identifier before the loop waits for pushes or inbound frames on each pass.
-//! - `actor` builds the response actor from that identifier: `build_connection_actor` registers its
-//!   push handle and installs the guard that deregisters it when the connection ends.
+//! - `core` drives one connection: it prepares framing, hands the response actor its connection
+//!   context, and then waits for pushes or inbound frames on each pass.
+//! - `actor` builds the response actor: `build_connection_actor` allocates the connection's
+//!   identifier and publishes its push handle in one step, and installs the guard that deregisters
+//!   that entry when the connection ends.
 //! - `frames` holds the buffered inbound frame and the read deadline, and runs the timeout's expiry
 //!   command.
 //! - `push_service` races queued pushes against the reader, writes the batch the actor hands over,
@@ -31,11 +32,12 @@
 //! Route preparation lives here too. The server spawner forwards the accepted
 //! socket's peer address through `PreparedApp::handle_connection_with_shutdown`,
 //! so the TCP path reaches [`process_connection`] with the peer the preamble
-//! hooks were given. The `WireframeApp` compatibility path reaches it through
-//! `PreparedApp::handle_connection_result`, which has no peer address and
-//! passes `None`, so its diagnostics name no peer. Either way the connection's
-//! push handle is registered before the first frame is read and removed again
-//! when the loop ends.
+//! hooks were given. The `WireframeApp` compatibility path calls
+//! [`process_connection`] directly from `handle_unprepared_connection_result`,
+//! which is handed a stream rather than an accepted socket, so it passes `None`
+//! and its diagnostics name no peer. Either way the connection's push handle is
+//! registered before the first frame is read and removed again when the loop
+//! ends.
 
 mod actor;
 // The connection-local runtime drives the same frame loop from outside this
