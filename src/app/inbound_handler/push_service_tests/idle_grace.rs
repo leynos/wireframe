@@ -36,12 +36,9 @@ fn abandonment_labels(samples: &[MetricSample]) -> Vec<(String, String)> {
         .iter()
         .filter(|(key, ..)| key.key().name() == PUSH_WRITES_ABANDONED)
         .collect();
-    assert_eq!(
-        recorded.len(),
-        1,
-        "exactly one abandonment sample must be recorded"
-    );
-    let (key, _, _, value) = recorded[0];
+    let [(key, _, _, value)] = recorded.as_slice() else {
+        panic!("exactly one abandonment sample must be recorded");
+    };
     assert!(
         matches!(value, DebugValue::Counter(1)),
         "the abandonment must be counted once; recorded: {value:?}"

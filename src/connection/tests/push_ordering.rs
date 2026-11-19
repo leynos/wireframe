@@ -119,7 +119,8 @@ fn expected_fair_order(frames: &[LaneFrame]) -> Vec<u8> {
     let (mut next_urgent, mut next_best_effort) = (0, 0);
     while next_urgent < urgent.len() || next_best_effort < best_effort.len() {
         let burst_end = (next_urgent + FAIRNESS_THRESHOLD).min(urgent.len());
-        expected.extend_from_slice(&urgent[next_urgent..burst_end]);
+        let burst = urgent.get(next_urgent..burst_end).unwrap_or_default();
+        expected.extend_from_slice(burst);
         next_urgent = burst_end;
         if let Some(marker) = best_effort.get(next_best_effort) {
             expected.push(*marker);
@@ -213,8 +214,10 @@ proptest! {
 #[test]
 fn a_fairness_yield_reports_a_mixed_batch() {
     let (mut actor, handle) = actor_with_lanes().expect("the actor should build");
-    let mut frames: Vec<LaneFrame> = (0..FAIRNESS_THRESHOLD as u8).map(|m| (true, m)).collect();
-    frames.push((false, FAIRNESS_THRESHOLD as u8));
+    let threshold =
+        u8::try_from(FAIRNESS_THRESHOLD).expect("the fairness threshold fits a frame marker");
+    let mut frames: Vec<LaneFrame> = (0..threshold).map(|m| (true, m)).collect();
+    frames.push((false, threshold));
     queue_all(&handle, &frames).expect("the lanes have room for every frame");
 
     let runtime = tokio::runtime::Builder::new_current_thread()

@@ -145,13 +145,13 @@ async fn shutdown_takes_precedence_over_a_queued_push_batch(blocked_rig: Blocked
     let queued = Arc::new(AtomicBool::new(false));
     let call = {
         let producer = rig.handle.clone();
-        let queued = Arc::clone(&queued);
+        let record = Arc::clone(&queued);
         async move {
             producer
                 .push_high_priority(second_push())
                 .await
                 .expect("the drained lane has capacity");
-            queued.store(true, Ordering::SeqCst);
+            record.store(true, Ordering::SeqCst);
             std::future::pending::<()>().await;
         }
     };
