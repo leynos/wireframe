@@ -2768,7 +2768,10 @@ Two kinds of end of connection behave differently:
 - On a clean peer close, the connection loop attempts to drain both lanes
   before it stops, writing the high-priority frames first, so frames a producer
   queued while the connection was busy are usually delivered rather than
-  discarded. Delivery is an attempt, not a guarantee: every drained write stays
+  discarded. The drain seals both lanes and takes only the frames they already
+  hold, so a producer that still holds a capacity reservation is not waited
+  for: its push fails with `PushError::Closed` rather than delaying the drain.
+  Delivery is an attempt, not a guarantee: every drained write stays
   bounded, so a write that fails, that is still blocked when the server stops,
   or that an unobservable peer accepts nothing for during the 30-second grace
   ends the drain and the frames still queued behind it are not sent.
@@ -2872,12 +2875,15 @@ to enumerate active sessions.[^40]
 The registry also allocates connection identifiers through
 `allocate_connection_id`: the first is `1`, later ones increase monotonically,
 and a value the registry allocated is never reused after a closed connection
-frees it, so an identifier obtained that way cannot address a new session. The
-guarantee covers allocated identifiers only: `insert` accepts any identifier,
-and one inserted by hand can later be allocated to a server connection, so
-pushes addressed to it reach that connection. Server connections call
-`allocate_connection_id` themselves, then register their handle before their
-protocol setup callback runs and deregister when the connection task ends. See
+frees it, so an identifier obtained that way cannot address a new session. An
+identifier a live entry occupies is skipped, so an application's own entry is
+never displaced by a server connection, and `insert` refuses to replace a live
+entry, so a later manual insert cannot take over a connection's identifier.
+Server connections call `allocate_connection_id` themselves, then register
+their handle before their protocol setup callback runs and deregister when the
+connection task ends. Address a connection by the identifier it publishes —
+`ConnectionContext::connection_id` in the setup callback, or `active_handles`
+from a background task — rather than by one chosen by hand. See
 [Server connections and push queues](#server-connections-and-push-queues) for
 the application-side configuration.
 

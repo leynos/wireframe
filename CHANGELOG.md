@@ -22,7 +22,9 @@ All notable changes to this project will be documented in this file.
   `ConnectionId`. `WireframeApp::with_session_registry` shares a
   `SessionRegistry` that each connection joins before setup and leaves when its
   task ends; `SessionRegistry::allocate_connection_id` allocates identifiers
-  from `1` and never reuses one. Pushed frames reach the client over the same
+  from `1`, never reuses one, and skips an identifier a live entry occupies,
+  and `SessionRegistry::insert` now returns whether it published the handle
+  and refuses to replace a live entry. Pushed frames reach the client over the same
   transport as handler responses, subject to priority, fairness, rate limiting,
   and the dead-letter queue, and interleave with streamed responses. A clean
   peer close attempts to drain queued frames, but a write that fails or is
@@ -31,8 +33,11 @@ All notable changes to this project will be documented in this file.
   which queued frames are discarded and later pushes fail with
   `PushError::Closed`. A push whose encoded payload exceeds the connection
   codec's frame limit is refused with `PushError::FrameTooLarge` before it is
-  queued, so an unencodable frame cannot end the connection after its producer
-  was told the push succeeded. A template's own `max_frame_len` and the codec's
+  queued, so a frame that is already unencodable cannot end the connection
+  after its producer was told the push succeeded. That check runs when the
+  frame is enqueued, before the protocol `before_send` hook; a hook that
+  enlarges a frame past the codec's limit is instead rejected when the frame is
+  written. A template's own `max_frame_len` and the codec's
   ceiling are both enforced, each with the payload measure it was configured
   with, so adding the codec limit never relaxes a template's bound. `PushError`
   gains `RateLimited`: `try_push` draws on the same rate limit as the awaited

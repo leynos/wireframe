@@ -614,8 +614,11 @@ are:
   unchanged (`Deferred`, which is what the server uses because a push is
   already encoded). `PendingPushes` carries frames together with the lane they
   came from, so an abandoned write can name its priority. `next_pushes` biases
-  high before low, and `take_pending_pushes` closes both lanes and returns
-  whatever is still queued.
+  high before low. `take_pending_pushes` seals both lanes and returns the
+  frames they already hold without waiting: a producer that reserved capacity
+  but never sent would otherwise stall the drain, so the producer re-checks the
+  lane after any rate-limit wait and reports `PushError::Closed` instead of
+  sending into a lane the drain has finished with.
 - **Write bounds** — `src/connection/writes.rs` bounds every write.
   `write_before_bound` races one write against the stop token and a
   caller-supplied grace deadline and reports a `WriteBound` of `Finished`,

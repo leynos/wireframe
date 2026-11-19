@@ -764,13 +764,16 @@ server connection inserts its handle before its setup callback runs and removes
 it when the connection task ends, so an application that shares a registry no
 longer inserts or removes entries itself.
 
-If an application does keep inserting entries by hand, as earlier releases
-required, those identifiers must not overlap the ones the registry allocates.
-`insert` replaces any existing entry for the same identifier, and
-`allocate_connection_id` does not skip identifiers already present, so a manual
-entry whose identifier a server connection later receives is replaced by that
-connection's handle: pushes addressed to the old identifier then reach the
-server connection instead.
+An application that still needs entries of its own, as earlier releases
+required, should keep them in a separate registry. The two APIs also keep out
+of each other's way in a shared one: `allocate_connection_id` skips an
+identifier a live entry occupies, so the first server connection receives `1`
+only when nothing else holds it, and `insert` refuses to replace a live entry,
+so a later manual insert cannot displace a server connection's handle. A
+producer that moves from a hand-picked identifier to the server registry must
+address connections by the identifier the connection publishes — read it from
+`ConnectionContext::connection_id` in the setup callback, or enumerate
+`active_handles` — rather than reusing the identifier it chose itself.
 
 A clean peer close attempts to drain frames still queued, high priority first,
 though a write that fails or is abandoned drops the frames behind it. On server
