@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 use super::test_actor;
 use crate::{
     app::Envelope,
-    connection::FrameSink,
+    connection::{FrameSink, PushSink},
     hooks::ProtocolHooks,
     response::{FrameStream, Response},
 };
@@ -39,12 +39,28 @@ impl FrameSink<Envelope> for RecordingSink {
     }
 }
 
+impl PushSink<Envelope> for RecordingSink {
+    fn send_push(&mut self, _frame: Envelope) -> impl Future<Output = io::Result<()>> + Send {
+        self.events
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push("write");
+        std::future::ready(Ok(()))
+    }
+}
+
 /// Sink that rejects every write, modelling a lost peer.
 struct FailingSink;
 
 impl FrameSink<Envelope> for FailingSink {
     // The failure is immediate, so no `async` state machine is needed.
     fn send_frame(&mut self, _frame: Envelope) -> impl Future<Output = io::Result<()>> + Send {
+        std::future::ready(Err(io::Error::other("peer lost")))
+    }
+}
+
+impl PushSink<Envelope> for FailingSink {
+    fn send_push(&mut self, _frame: Envelope) -> impl Future<Output = io::Result<()>> + Send {
         std::future::ready(Err(io::Error::other("peer lost")))
     }
 }

@@ -4,19 +4,94 @@
 //! [`WireframeProtocol`] exposes the public interface applications implement to
 //! configure those callbacks.
 
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use crate::{
     codec::EofError,
     push::{FrameLike, PushHandle},
+    session::ConnectionId,
 };
 
 /// Per-connection state passed to protocol callbacks.
 ///
-/// This empty struct is intentionally extensible. Future protocol features may
-/// require storing connection-local data without breaking existing APIs.
-#[derive(Default)]
-pub struct ConnectionContext;
+/// The context is intentionally extensible. Future protocol features may
+/// require storing connection-local data without breaking existing APIs, so the
+/// struct is non-exhaustive and obtains the connection identifier from the
+/// server rather than from a public constructor.
+#[derive(Clone, Default)]
+#[non_exhaustive]
+pub struct ConnectionContext {
+    /// Identifier assigned by the server, absent for standalone actors.
+    connection_id: Option<ConnectionId>,
+    /// Peer address of the accepted socket, absent when it is not reported.
+    peer_addr: Option<SocketAddr>,
+}
+
+impl ConnectionContext {
+    /// Build a context carrying an already allocated connection identifier.
+    ///
+    /// The server allocates the identifier and hands it to the connection
+    /// actor and outbound pipeline, so protocol callbacks can correlate their
+    /// work with registry entries.
+    pub(crate) const fn with_connection_id(connection_id: Option<ConnectionId>) -> Self {
+        Self {
+            connection_id,
+            peer_addr: None,
+        }
+    }
+
+    /// Attach the identifier the connection claimed when it published.
+    ///
+    /// The identifier is decided at publication, so a context built before the
+    /// connection registers cannot carry one.
+    pub(crate) const fn with_published_id(mut self, connection_id: ConnectionId) -> Self {
+        self.connection_id = Some(connection_id);
+        self
+    }
+
+    /// Attach the accepted socket's peer address for diagnostics.
+    ///
+    /// The address is used only to label connection-scoped events; a transport
+    /// that cannot report one, such as an in-memory duplex stream, leaves it
+    /// absent.
+    pub(crate) const fn with_peer_addr(mut self, peer_addr: Option<SocketAddr>) -> Self {
+        self.peer_addr = peer_addr;
+        self
+    }
+
+    /// Return the identifier of the connection this context belongs to.
+    ///
+    /// The identifier is present for connections accepted by
+    /// [`crate::server::WireframeServer`] and absent for a
+    /// [`crate::connection::ConnectionActor`] driven directly by an
+    /// application or test.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use wireframe::hooks::ConnectionContext;
+    ///
+    /// assert_eq!(ConnectionContext::default().connection_id(), None);
+    /// ```
+    #[must_use]
+    pub const fn connection_id(&self) -> Option<ConnectionId> { self.connection_id }
+
+    /// Return the peer address of the accepted socket, when it is known.
+    ///
+    /// The address is present for connections accepted by
+    /// [`crate::server::WireframeServer`] and absent for standalone actors or
+    /// transports without a peer, so it can label connection diagnostics.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use wireframe::hooks::ConnectionContext;
+    ///
+    /// assert_eq!(ConnectionContext::default().peer_addr(), None);
+    /// ```
+    #[must_use]
+    pub const fn peer_addr(&self) -> Option<SocketAddr> { self.peer_addr }
+}
 
 /// Trait encapsulating protocol-specific logic and callbacks.
 ///
@@ -37,6 +112,14 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// Called once when a new connection is established. The provided
     /// [`PushHandle`] may be stored by the implementation to enable
     /// asynchronous server pushes.
+    ///
+    /// On a prepared server connection this runs once per accepted connection,
+    /// after the handle is published to the application's
+    /// [`SessionRegistry`][crate::session::SessionRegistry] and before the
+    /// actor starts, so frames queued here are delivered. The context carries
+    /// the server-allocated [`ConnectionId`].
+    /// Code that drives a [`ConnectionActor`][crate::connection::ConnectionActor]
+    /// directly invokes the callback itself.
     fn on_connection_setup(&self, _handle: PushHandle<Self::Frame>, _ctx: &mut ConnectionContext) {}
 
     /// Invoked before application-response and connection-actor frames are

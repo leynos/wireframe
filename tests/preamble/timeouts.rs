@@ -256,31 +256,33 @@ async fn preamble_timeout_allows_timely_preamble() -> TestResult {
     assert_prompt_preamble_succeeds(server).await
 }
 
-/// A default server closes an idle connection after the default deadline.
+/// An idle client is not held by the preamble deadline for a unit preamble.
+///
+/// The default `()` preamble encodes no bytes, so the server decodes it
+/// without reading and hands the connection to the application. The preamble
+/// deadline must not close a client that connects and sends nothing: such a
+/// client may be waiting for the first server push.
 #[tokio::test(start_paused = true)]
-async fn default_preamble_timeout_closes_idle_unit_preamble_connection() -> TestResult {
+async fn default_unit_preamble_does_not_wait_for_an_idle_client() -> TestResult {
     let server = WireframeServer::new(factory());
     let (result_tx, result_rx) = oneshot::channel();
     with_running_server(server, move |addr| async move {
         let mut stream = TcpStream::connect(addr).await?;
-        let started = Instant::now();
         let mut buf = [0u8; 1];
-        // The test-side bound outlives the server deadline so paused time
-        // auto-advances to the server's timer first.
+        // The test-side bound outlives the default deadline, so paused time
+        // advances past the server's timer without it closing the socket.
         let read = timeout(beyond_default_timeout(), stream.read(&mut buf)).await;
-        let closed = is_connection_closed(read?)?;
-        let elapsed = started.elapsed();
-        let _closed_result_sent = result_tx.send((closed, elapsed));
+        let still_open = read.is_err();
+        // Closing here lets the fixture's graceful drain finish.
+        drop(stream);
+        let _still_open_sent = result_tx.send(still_open);
         Ok(())
     })
     .await?;
 
-    let (closed, elapsed) = recv_within(beyond_default_timeout(), result_rx).await?;
-    if !closed {
-        return Err("expected the default deadline to close the idle connection".into());
-    }
-    if elapsed < DEFAULT_PREAMBLE_TIMEOUT {
-        return Err(format!("connection closed before the default deadline: {elapsed:?}").into());
+    let still_open = recv_within(Duration::from_secs(1), result_rx).await?;
+    if !still_open {
+        return Err("a silent client must not be closed by the preamble deadline".into());
     }
     Ok(())
 }

@@ -1,6 +1,12 @@
 //! Observability coverage for prepared application transitions.
 #![cfg(feature = "metrics")]
 #![forbid(unsafe_code)]
+#![recursion_limit = "256"]
+
+// The connection pipeline's future nests deeply enough that the pinned nightly
+// used for the dylint gate overflows the default query-depth limit while
+// computing the layout of the async test bodies. The compiler recommends a
+// higher limit for this crate.
 
 use metrics::with_local_recorder;
 use tokio::runtime::Builder;

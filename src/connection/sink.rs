@@ -72,11 +72,27 @@ pub(crate) trait FrameSink<F> {
     fn progress(&self) -> Option<Arc<ProgressSignal>> { None }
 }
 
+/// Destination for frames taken directly from a connection's push queues.
+///
+/// Push frames have a different shape from response frames when the server
+/// drives a connection: responses are application [`Envelope`]s that the sink
+/// serializes, while pushes arrive already encoded for the wire. The separate
+/// trait keeps both kinds flowing through the same actor loop without forcing
+/// either producer through the other's composition.
+///
+/// [`Envelope`]: crate::app::Envelope
+pub(crate) trait PushSink<P> {
+    /// Write one queued push frame, awaiting transport capacity.
+    fn send_push(&mut self, frame: P) -> impl Future<Output = io::Result<()>> + Send;
+}
+
 /// Buffered sink retaining emitted frames for inspection.
 ///
 /// This backs the standalone [`ConnectionActor::run`] driver, so it counts
 /// each physical frame as outbound. An integrated transport sink leaves that
-/// accounting to the transport it wraps.
+/// accounting to the transport it wraps. The same buffer receives queued push
+/// frames, because a standalone actor's pushes are composed into its response
+/// frame type.
 ///
 /// [`ConnectionActor::run`]: super::ConnectionActor::run
 impl<F> FrameSink<F> for Vec<F>
@@ -84,6 +100,17 @@ where
     F: Send + 'static,
 {
     fn send_frame(&mut self, frame: F) -> impl Future<Output = io::Result<()>> + Send {
+        self.push(frame);
+        inc_frames(Direction::Outbound);
+        std::future::ready(Ok(()))
+    }
+}
+
+impl<P> PushSink<P> for Vec<P>
+where
+    P: Send + 'static,
+{
+    fn send_push(&mut self, frame: P) -> impl Future<Output = io::Result<()>> + Send {
         self.push(frame);
         inc_frames(Direction::Outbound);
         std::future::ready(Ok(()))

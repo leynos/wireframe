@@ -5,6 +5,7 @@ use crate::{
     app::Packet,
     codec::{FrameCodec, LengthDelimitedFrameCodec, clamp_frame_length},
     serializer::Serializer,
+    session::SessionRegistry,
 };
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
@@ -19,9 +20,10 @@ where
 
     /// Replace the frame codec used for framing I/O.
     ///
-    /// This resets any installed protocol hooks because the frame type may
-    /// change across codecs. Fragmentation is disabled so callers can
-    /// reconfigure explicitly for the new frame budget.
+    /// This resets any installed protocol hooks, push-queue template, and
+    /// session registry because the frame type may change across codecs.
+    /// Fragmentation is disabled so callers can reconfigure explicitly for the
+    /// new frame budget.
     #[must_use]
     pub fn with_codec<F2: FrameCodec>(mut self, codec: F2) -> WireframeApp<S, C, E, F2> {
         let serializer = std::sync::Arc::clone(&self.serializer);
@@ -31,6 +33,8 @@ where
             serializer,
             codec,
             protocol: None,
+            push_queues: None,
+            session_registry: std::sync::Arc::new(SessionRegistry::new()),
             fragmentation: None,
             message_assembler,
             memory_budgets,
@@ -46,6 +50,8 @@ where
     {
         let codec = std::mem::take(&mut self.codec);
         let protocol = self.protocol.take();
+        let push_queues = self.push_queues.take();
+        let session_registry = std::sync::Arc::clone(&self.session_registry);
         let fragmentation = self.fragmentation.take();
         let message_assembler = self.message_assembler.take();
         let memory_budgets = self.memory_budgets.take();
@@ -53,6 +59,8 @@ where
             serializer: std::sync::Arc::new(serializer),
             codec,
             protocol,
+            push_queues,
+            session_registry,
             fragmentation,
             message_assembler,
             memory_budgets,

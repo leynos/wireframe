@@ -198,12 +198,26 @@ async fn bounded_preamble_preserves_valid_containers_and_following_bytes(#[case]
     );
 }
 
+/// A zero-length preamble must not wait for the peer to speak.
+///
+/// The default `()` preamble encodes to no bytes, so decoding it has to succeed
+/// both against a stream that never delivers anything and against one whose
+/// first bytes are already buffered. A read would report end-of-file in the
+/// first case and swallow the peer's input in the second; either way the
+/// cursor's position staying at zero proves that nothing was read.
+#[rstest]
+#[case::silent_peer(&[])]
+#[case::bytes_already_buffered(&[9, 10])]
 #[tokio::test]
-async fn preamble_returns_read_ahead_bytes_as_leftovers() {
-    let mut reader = Cursor::new([9, 10]);
+async fn empty_preamble_decodes_without_reading(#[case] pending: &[u8]) {
+    let mut reader = Cursor::new(pending);
     let ((), leftover) = read_preamble::<_, ()>(&mut reader)
         .await
-        .expect("empty preamble must preserve bytes read ahead");
-    assert_eq!(leftover, [9], "leftover should equal [9]");
-    assert_eq!(reader.position(), 1, "reader.position() should equal 1");
+        .expect("an empty preamble must decode without reading");
+    assert!(leftover.is_empty(), "no bytes are read ahead");
+    assert_eq!(
+        reader.position(),
+        0,
+        "the application reads the peer's bytes itself"
+    );
 }

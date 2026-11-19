@@ -124,12 +124,21 @@ leaves a usable bound. The last configuration call wins.
 
 `disable_preamble_timeout()` removes the deadline entirely. Use it only when a
 peer legitimately needs unbounded waiting, because a peer that never sends a
-preamble otherwise keeps its connection task alive indefinitely and delays
-graceful drain. The opt-out does not make the server speak first: the preamble
-is read before the server writes anything, so a server-first protocol still
-needs its greeting from an outer layer that runs before the preamble read. The
-deadline covers only the preamble read: the success and failure callbacks and
-application message handling run outside it.
+preamble otherwise keeps its connection task alive indefinitely. It does not
+delay a server stop: the handshake read is raced against the stop token, which
+releases the socket and the connection task.
+
+The opt-out does not by itself make the server speak first. A non-empty
+preamble is read before the server writes anything, so a server-first protocol
+whose preamble is non-empty still needs its greeting from an outer layer that
+runs before the preamble read. A preamble that encodes to no bytes, such as a
+unit `()`, is decoded from an empty buffer without reading from the peer, so
+the default deadline is never reached and the connection proceeds straight to
+application handling. Only a non-empty preamble makes the server wait for the
+client.
+
+The deadline covers only the preamble read: the success and failure callbacks
+and application message handling run outside it.
 
 When decoding fails or times out, an optional failure handler runs before the
 connection is closed. The handler is asynchronous and receives both the error

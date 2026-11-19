@@ -8,13 +8,16 @@ use std::sync::{
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use futures::StreamExt;
 use rstest::{fixture, rstest};
-use tokio::io::DuplexStream;
+use tokio::{
+    io::DuplexStream,
+    time::{Duration, Instant, timeout},
+};
 use tokio_util::{
     codec::{Decoder, Encoder},
     sync::CancellationToken,
 };
 
-use super::ResponseContext;
+use super::{ResponseContext, response_pushes::grace_after_observation};
 use crate::{
     app::{
         Envelope,
@@ -22,7 +25,7 @@ use crate::{
         combined_codec::CombinedCodec,
     },
     codec::FrameCodec,
-    connection::{ConnectionActor, ConnectionChannels},
+    connection::{ConnectionActor, ConnectionChannels, UntrackedActorInit},
     hooks::{ConnectionContext, ProtocolHooks},
     push::PushQueues,
     serializer::BincodeSerializer,
@@ -281,17 +284,18 @@ async fn response_context_holds_references(harness: TestHarness) {
     } = harness;
     let serializer = BincodeSerializer;
     let mut pipeline: FramePipeline<TestFrame> = FramePipeline::new(None);
-    let (queues, handle) = PushQueues::<Envelope>::builder()
+    let (queues, handle) = PushQueues::<TestFrame>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()
         .expect("actor queues");
-    let mut actor = ConnectionActor::new_untracked(
-        ConnectionChannels::new(queues, handle),
-        None,
-        CancellationToken::new(),
-        ProtocolHooks::default(),
-    );
+    let mut actor = ConnectionActor::<Envelope, (), TestFrame>::new_untracked(UntrackedActorInit {
+        channels: ConnectionChannels::new(queues, handle),
+        response: None,
+        shutdown: CancellationToken::new(),
+        hooks: ProtocolHooks::default(),
+        ctx: ConnectionContext::default(),
+    });
 
     let ctx: ResponseContext<'_, BincodeSerializer, _, TestCodec> = ResponseContext {
         serializer: &serializer,
@@ -333,5 +337,32 @@ async fn send_envelope_returns_error_on_failure(small_harness: TestHarness) {
     assert!(
         result.is_err(),
         "expected send to fail for oversized payload"
+    );
+}
+
+/// The idle grace starts only once the peer stops being observable.
+///
+/// A peer that half-closes but keeps reading deserves the time it takes to
+/// accept a frame, so the grace must not run during observation. Starting it
+/// when the deadline is created would abandon a healthy write one gratuitous
+/// grace after the push began.
+#[tokio::test(start_paused = true)]
+async fn the_push_grace_starts_when_observation_ends() {
+    let unobserved = CancellationToken::new();
+    let started = Instant::now();
+    let wait = grace_after_observation(&unobserved, Duration::from_secs(5));
+    tokio::pin!(wait);
+
+    assert!(
+        timeout(Duration::from_secs(60), &mut wait).await.is_err(),
+        "a watched peer must not spend the grace"
+    );
+    unobserved.cancel();
+    (&mut wait).await;
+
+    assert_eq!(
+        started.elapsed(),
+        Duration::from_secs(65),
+        "the grace must run from the moment observation ended"
     );
 }

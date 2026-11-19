@@ -7,6 +7,8 @@ use tokio::sync::mpsc;
 use super::{
     DEFAULT_PUSH_RATE,
     FrameLike,
+    FrameLimit,
+    FrameLimits,
     PushConfigError,
     PushHandle,
     PushQueueConfig,
@@ -78,6 +80,25 @@ pub struct PushQueuesBuilder<F> {
     dlq_log_every_n: usize,
     /// Minimum interval between drop diagnostics.
     dlq_log_interval: Duration,
+    /// Payload-size limits applied before a frame is queued.
+    frame_limits: FrameLimits<F>,
+}
+
+// Written by hand so a stored builder can seed per-connection queues without
+// requiring the frame type to be `Clone`. The dead-letter sender is cloneable
+// independently of its payload; every clone shares the same sink.
+impl<F> Clone for PushQueuesBuilder<F> {
+    fn clone(&self) -> Self {
+        Self {
+            high_capacity: self.high_capacity,
+            low_capacity: self.low_capacity,
+            rate: self.rate,
+            dlq: self.dlq.clone(),
+            dlq_log_every_n: self.dlq_log_every_n,
+            dlq_log_interval: self.dlq_log_interval,
+            frame_limits: self.frame_limits,
+        }
+    }
 }
 
 impl<F: FrameLike> Default for PushQueuesBuilder<F> {
@@ -92,6 +113,7 @@ impl<F: FrameLike> Default for PushQueuesBuilder<F> {
             // verbosity.
             dlq_log_every_n: 1,
             dlq_log_interval: Duration::from_secs(10),
+            frame_limits: FrameLimits::default(),
         }
     }
 }
@@ -143,11 +165,77 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
         self
     }
 
+    /// Reject pushes whose encoded payload exceeds `max` bytes.
+    ///
+    /// `payload_len` reports how many payload bytes a frame encodes to. It is
+    /// supplied by the codec rather than assumed, because a codec's frame type
+    /// need not expose its own payload length. The check runs before a frame is
+    /// queued, so a push the connection cannot encode is reported to its
+    /// producer instead of failing the connection when the encoder sees it.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use wireframe::push::PushQueues;
+    ///
+    /// # fn main() {
+    /// let (_queues, _handle) = PushQueues::<Vec<u8>>::builder()
+    ///     .max_frame_len(64, |frame: &Vec<u8>| frame.len())
+    ///     .build()
+    ///     .expect("failed to build PushQueues");
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn max_frame_len(mut self, max: usize, payload_len: fn(&F) -> usize) -> Self {
+        self.frame_limits = self
+            .frame_limits
+            .with_template(FrameLimit { max, payload_len });
+        self
+    }
+
+    /// Add a codec's frame ceiling alongside any template limit.
+    ///
+    /// The connection writes the codec's own frames, so the codec contributes
+    /// its own payload measure. That measure can differ from the one a template
+    /// configured, so the codec limit is checked as well as the template limit
+    /// rather than replacing it: folding the two into one bound would apply one
+    /// measure to the other's ceiling and could accept a frame either rejects.
+    #[must_use]
+    pub(crate) fn capped_by_codec(mut self, max: usize, payload_len: fn(&F) -> usize) -> Self {
+        self.frame_limits = self
+            .frame_limits
+            .with_codec(FrameLimit { max, payload_len });
+        self
+    }
+
     /// Minimum interval between DLQ drop log entries.
     #[must_use]
     pub const fn dlq_log_interval(mut self, interval: Duration) -> Self {
         self.dlq_log_interval = interval;
         self
+    }
+
+    /// Validate the stored configuration without allocating its channels.
+    ///
+    /// This lets a stored template be rejected while preparing an application,
+    /// before any connection exists. [`Self::build`] uses the same checks.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PushConfigError::InvalidRate`] if the rate is zero or strictly
+    /// greater than [`super::MAX_PUSH_RATE`] and
+    /// [`PushConfigError::InvalidCapacity`] if either queue capacity is zero or
+    /// greater than [`tokio::sync::Semaphore::MAX_PERMITS`].
+    pub(crate) const fn validate(&self) -> Result<(), PushConfigError> {
+        if let Some(invalid) = PushQueues::<F>::invalid_rate(self.rate) {
+            return Err(PushConfigError::InvalidRate(invalid));
+        }
+        if let Some((high, low)) =
+            PushQueues::<F>::invalid_capacity(self.high_capacity, self.low_capacity)
+        {
+            return Err(PushConfigError::InvalidCapacity { high, low });
+        }
+        Ok(())
     }
 
     /// Build the configured [`PushQueues`] and associated [`PushHandle`].
@@ -160,15 +248,18 @@ impl<F: FrameLike> PushQueuesBuilder<F> {
     ///
     /// Returns [`PushConfigError::InvalidRate`] if the rate is zero or strictly
     /// greater than [`super::MAX_PUSH_RATE`] and
-    /// [`PushConfigError::InvalidCapacity`] if either queue capacity is zero.
+    /// [`PushConfigError::InvalidCapacity`] if either queue capacity is zero or
+    /// greater than [`tokio::sync::Semaphore::MAX_PERMITS`].
     pub fn build(self) -> Result<(PushQueues<F>, PushHandle<F>), PushConfigError> {
-        PushQueues::build_with_config(PushQueueConfig {
+        self.validate()?;
+        let config = PushQueueConfig {
             high_capacity: self.high_capacity,
             low_capacity: self.low_capacity,
             rate: self.rate,
             dlq: self.dlq,
             dlq_log_every_n: self.dlq_log_every_n,
             dlq_log_interval: self.dlq_log_interval,
-        })
+        };
+        PushQueues::build_with_config(config, self.frame_limits)
     }
 }

@@ -36,6 +36,8 @@ mod pool_scheduler;
 
 mod preamble_rejections;
 
+mod push_writes;
+
 mod response_delivery;
 
 #[cfg(not(loom))]
@@ -72,6 +74,8 @@ pub use pool_scheduler::POOL_SCHEDULER_FAILURES;
 pub(crate) use pool_scheduler::inc_pool_scheduler_failure;
 pub use preamble_rejections::PREAMBLE_REJECTIONS;
 pub(crate) use preamble_rejections::{PreambleRejectionReason, inc_preamble_rejection};
+pub use push_writes::{PUSH_RATE_LIMITED, PUSH_WRITES_ABANDONED};
+pub(crate) use push_writes::{PushWriteAbandonReason, inc_push_rate_limited};
 pub use response_delivery::RESPONSE_CANCELLATIONS;
 pub(crate) use response_delivery::ResponseCancellationReason;
 pub use server_startup::{SERVER_STARTUP_DURATION, SERVER_STARTUP_FAILURES};

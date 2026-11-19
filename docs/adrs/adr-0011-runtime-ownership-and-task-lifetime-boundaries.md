@@ -384,6 +384,28 @@ path for `AppFactory`.
 ADR 013 must decide the client-pool scheduler command transport, shutdown
 protocol, and bounded-waiter integration.
 
+## Addendum: server connections receive the worker stop token (2026-11-14)
+
+Two statements above describe the runtime before issue
+[#874](https://github.com/leynos/wireframe/issues/874): the server-supervisor
+section's claim that the drop guard "does not cancel connection tasks that have
+already been accepted; they retain the existing graceful-drain semantics", and
+the Verification bullet that says the graceful shutdown path and in-flight
+connection-task drain "remain unchanged".
+
+Both are superseded for the prepared server. Each accepted connection now
+receives a clone of the worker shutdown token, and the connection loop derives
+a child token from it. Cancelling that token, whether by the caller's shutdown
+future resolving, by `ServerShutdown::stop()`, or by the supervisor drop guard,
+therefore reaches every accepted connection. A connection blocked writing to a
+peer that stopped reading abandons the pending write; frames still queued for
+push at that moment are dropped rather than flushed. The tracker drain is
+unchanged, so a caller still observes every connection task return.
+
+The rule R3 recommendation to borrow the token rather than clone it still
+applies inside each actor loop; the clone is the per-connection hand-off, not a
+per-iteration one. The rest of this ADR is unchanged.
+
 ## References
 
 - Epic [#635](https://github.com/leynos/wireframe/issues/635)

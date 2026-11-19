@@ -21,6 +21,7 @@ use crate::{
     connection::{
         FrameSink,
         ProgressSignal,
+        PushSink,
         ResponseOutcome,
         grace::{GraceFuture, GraceTimer},
     },
@@ -54,6 +55,13 @@ impl FrameSink<Envelope> for PacedSink {
                 .push(frame);
             Ok(())
         }
+    }
+}
+
+/// These tests queue no pushes, so a push takes the frame path unchanged.
+impl PushSink<Envelope> for PacedSink {
+    fn send_push(&mut self, frame: Envelope) -> impl Future<Output = io::Result<()>> + Send {
+        self.send_frame(frame)
     }
 }
 
@@ -235,6 +243,13 @@ impl FrameSink<Envelope> for FragmentingSink {
     }
 
     fn progress(&self) -> Option<Arc<ProgressSignal>> { Some(Arc::clone(&self.progress)) }
+}
+
+/// These tests queue no pushes, so a push takes the frame path unchanged.
+impl PushSink<Envelope> for FragmentingSink {
+    fn send_push(&mut self, frame: Envelope) -> impl Future<Output = io::Result<()>> + Send {
+        self.send_frame(frame)
+    }
 }
 
 /// A fragmented frame renews the grace after each accepted physical write.

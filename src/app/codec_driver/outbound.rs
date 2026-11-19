@@ -22,7 +22,7 @@ use super::FramePipeline;
 use crate::{
     app::{Envelope, outbound_encoding::encode_message_frame},
     codec::{CodecError, FrameCodec},
-    connection::{FrameSink, ProgressSignal},
+    connection::{FrameSink, ProgressSignal, PushSink},
     message::EncodeWith,
     metrics::{AppResponseSendOutcome, Direction, inc_app_response_send, inc_frames},
     serializer::Serializer,
@@ -308,5 +308,26 @@ where
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut *self.get_mut().inner).poll_close(cx)
+    }
+}
+
+impl<S, K, F> PushSink<F::Frame> for ActorFrameSink<'_, S, K, F>
+where
+    S: Serializer + Send + Sync,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
+    F: FrameCodec,
+{
+    /// Write an already-encoded push frame to the transport.
+    ///
+    /// Pushes are encoded when they are enqueued, so they skip fragmentation,
+    /// serialization, and codec wrapping; only the `before_send` hook and the
+    /// transport write remain. Running the hook here keeps push frames on the
+    /// same path as handler responses, which is where the hook sees them in
+    /// their wire form.
+    async fn send_push(&mut self, mut frame: F::Frame) -> io::Result<()> {
+        self.pipeline.before_send_frame(&mut frame);
+        self.sink.send(frame).await?;
+        inc_frames(Direction::Outbound);
+        Ok(())
     }
 }

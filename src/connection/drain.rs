@@ -2,180 +2,125 @@
 
 use tokio::sync::mpsc::error::TryRecvError;
 
-use super::{ConnectionActor, multi_packet::MultiPacketTerminationReason, state::ActorState};
+use super::{
+    ConnectionActor,
+    multi_packet::MultiPacketTerminationReason,
+    pushes::PushKind,
+    state::ActorState,
+};
 use crate::{app::Packet, correlation::CorrelatableFrame, push::FrameLike};
 
-/// Context for drain operations containing mutable references to output and actor state.
-pub(super) struct DrainContext<'a, F> {
-    /// Destination preserving the actor's wire-order output.
-    pub(super) out: &'a mut Vec<F>,
-    /// Actor lifecycle state borrowed for queue-closure handling and related termination paths.
+/// Mutable buffers and scheduling state advanced by one actor step.
+///
+/// Handlers read and write the source state, the response output, and the
+/// queued pushes as a unit, while the caller decides when each buffer is
+/// flushed. Bundling them keeps the per-event handlers to a readable
+/// parameter list.
+pub(super) struct ActorStep<'a, F, P> {
+    /// Which output sources are still open.
     pub(super) state: &'a mut ActorState,
+    /// Response-shaped frames produced by this step.
+    pub(super) out: &'a mut Vec<F>,
+    /// Push frames produced by this step, already composed.
+    pub(super) pushes: &'a mut Vec<P>,
 }
 
-/// Queue variants processed by the connection actor.
-#[derive(Clone, Copy)]
-pub(super) enum QueueKind {
-    /// Urgent pushes that take precedence in the biased select loop.
-    High,
-    /// Best-effort pushes subject to fairness yielding.
-    Low,
-    /// Frames from the currently active multi-packet response.
-    Multi,
-}
-
-impl<F, E> ConnectionActor<F, E>
+impl<F, E, P> ConnectionActor<F, E, P>
 where
     F: FrameLike + CorrelatableFrame + Packet,
     E: std::fmt::Debug,
+    P: FrameLike,
 {
     /// Handle the result of polling the high-priority queue.
-    pub(super) fn process_high(
-        &mut self,
-        res: Option<F>,
-        state: &mut ActorState,
-        out: &mut Vec<F>,
-    ) {
-        self.process_queue(QueueKind::High, res, DrainContext { out, state });
-    }
-
-    /// Process a queue-backed source with shared low-priority semantics.
-    pub(super) fn process_queue(
-        &mut self,
-        kind: QueueKind,
-        res: Option<F>,
-        ctx: DrainContext<'_, F>,
-    ) {
-        if let Some(frame) = res {
-            self.forward_queue_frame(kind, frame, ctx);
-        } else {
-            let DrainContext { out, state } = ctx;
-            self.handle_empty_queue(kind, state, out);
-        }
+    pub(super) fn process_high(&mut self, res: Option<P>, step: &mut ActorStep<'_, F, P>) {
+        self.process_push(PushKind::High, res, step);
     }
 
     /// Handle the result of polling the low-priority queue.
-    pub(super) fn process_low(&mut self, res: Option<F>, state: &mut ActorState, out: &mut Vec<F>) {
-        self.process_queue(QueueKind::Low, res, DrainContext { out, state });
+    pub(super) fn process_low(&mut self, res: Option<P>, step: &mut ActorStep<'_, F, P>) {
+        self.process_push(PushKind::Low, res, step);
+    }
+
+    /// Route one push result through composition, fairness, and closure handling.
+    fn process_push(&mut self, kind: PushKind, res: Option<P>, step: &mut ActorStep<'_, F, P>) {
+        let Some(frame) = res else {
+            self.handle_empty_push_lane(kind, step.state);
+            return;
+        };
+        self.compose_push(frame, step.pushes);
+        match kind {
+            PushKind::High => self.after_high(step),
+            PushKind::Low => self.after_low(),
+        }
     }
 
     /// Handle frames drained from the multi-packet channel.
-    pub(super) fn process_multi_packet(
-        &mut self,
-        res: Option<F>,
-        state: &mut ActorState,
-        out: &mut Vec<F>,
-    ) {
-        self.process_queue(QueueKind::Multi, res, DrainContext { out, state });
+    pub(super) fn process_multi_packet(&mut self, res: Option<F>, step: &mut ActorStep<'_, F, P>) {
+        match res {
+            Some(frame) => {
+                self.emit_multi_packet_frame(frame, step.out);
+                self.after_low();
+            }
+            None => self.handle_empty_multi_packet(step.state, step.out),
+        }
     }
 
-    /// Update counters and opportunistically drain the low-priority and multi-packet queues.
-    pub(super) fn after_high(&mut self, out: &mut Vec<F>, state: &mut ActorState) {
+    /// Update counters and opportunistically drain lower-priority sources.
+    pub(super) fn after_high(&mut self, step: &mut ActorStep<'_, F, P>) {
         self.fairness.record_high_priority();
 
         if !self.fairness.should_yield_to_low_priority() {
             return;
         }
 
-        if self.try_opportunistic_drain(
-            QueueKind::Low,
-            DrainContext {
-                out: &mut *out,
-                state: &mut *state,
-            },
-        ) {
+        if self.try_opportunistic_low_drain(step.state, step.pushes) {
             return;
         }
 
-        let _ = self.try_opportunistic_drain(
-            QueueKind::Multi,
-            DrainContext {
-                out: &mut *out,
-                state: &mut *state,
-            },
-        );
+        let _ = self.try_opportunistic_multi_drain(step.state, step.out);
     }
 
-    /// Try to opportunistically drain a queue-backed source when fairness allows.
-    ///
-    /// Returns `true` when a frame is forwarded to `out`.
-    pub(super) fn try_opportunistic_drain(
-        &mut self,
-        kind: QueueKind,
-        ctx: DrainContext<'_, F>,
-    ) -> bool {
-        let DrainContext { out, state } = ctx;
-        match kind {
-            QueueKind::High => {
-                debug_assert!(false, "try_opportunistic_drain(High) should not be called");
-                false
-            }
-            QueueKind::Low => self.try_opportunistic_low_drain(state, out),
-            QueueKind::Multi => self.try_opportunistic_multi_drain(state, out),
-        }
-    }
-
-    /// Reset burst history after low-priority or [`QueueKind::Multi`] frames.
+    /// Reset burst history after low-priority or multi-packet frames.
     pub(super) const fn after_low(&mut self) { self.fairness.reset(); }
 
-    /// Common logic for handling closed receivers.
-    pub(super) fn handle_closed_receiver(
-        receiver: &mut Option<tokio::sync::mpsc::Receiver<F>>,
+    /// Common logic for handling a closed receiver of any frame type.
+    pub(super) fn handle_closed_receiver<Q>(
+        receiver: &mut Option<tokio::sync::mpsc::Receiver<Q>>,
         state: &mut ActorState,
     ) {
         *receiver = None;
         state.mark_closed();
     }
 
-    /// Forward one frame, then update fairness and lifecycle bookkeeping.
-    fn forward_queue_frame(&mut self, kind: QueueKind, frame: F, ctx: DrainContext<'_, F>) {
-        let DrainContext { out, state } = ctx;
-        if self.should_emit_multi_packet_frame(kind) {
-            self.emit_multi_packet_frame(frame, out);
-        } else {
-            self.process_frame_with_hooks_and_metrics(frame, out);
-        }
-
+    /// Mark a push lane closed when polling reports no further frames.
+    fn handle_empty_push_lane(&mut self, kind: PushKind, state: &mut ActorState) {
         match kind {
-            QueueKind::High => self.after_high(out, state),
-            QueueKind::Low | QueueKind::Multi => self.after_low(),
-        }
-    }
-
-    /// Check whether multi-packet output needs correlation stamping.
-    fn should_emit_multi_packet_frame(&mut self, kind: QueueKind) -> bool {
-        matches!(kind, QueueKind::Multi)
-            && self
-                .active_output
-                .multi_packet_mut()
-                .is_some_and(|ctx| ctx.is_stamping_enabled())
-    }
-
-    /// Mark a source closed when polling reports no further frames.
-    fn handle_empty_queue(&mut self, kind: QueueKind, state: &mut ActorState, out: &mut Vec<F>) {
-        match kind {
-            QueueKind::High => {
+            PushKind::High => {
                 Self::handle_closed_receiver(&mut self.high_rx, state);
                 self.fairness.reset();
             }
-            QueueKind::Low => {
-                Self::handle_closed_receiver(&mut self.low_rx, state);
-            }
-            QueueKind::Multi => {
-                self.handle_multi_packet_closed(MultiPacketTerminationReason::Drained, state, out);
-            }
+            PushKind::Low => Self::handle_closed_receiver(&mut self.low_rx, state),
         }
     }
 
+    /// Mark the multi-packet source closed when polling reports no frames.
+    fn handle_empty_multi_packet(&mut self, state: &mut ActorState, out: &mut Vec<F>) {
+        self.handle_multi_packet_closed(MultiPacketTerminationReason::Drained, state, out);
+    }
+
     /// Perform one non-blocking low-priority drain after a fairness yield.
-    fn try_opportunistic_low_drain(&mut self, state: &mut ActorState, out: &mut Vec<F>) -> bool {
+    pub(super) fn try_opportunistic_low_drain(
+        &mut self,
+        state: &mut ActorState,
+        pushes: &mut Vec<P>,
+    ) -> bool {
         let Some(receiver) = self.low_rx.as_mut() else {
             return false;
         };
 
         match receiver.try_recv() {
             Ok(frame) => {
-                self.process_frame_with_hooks_and_metrics(frame, out);
+                self.compose_push(frame, pushes);
                 self.after_low();
                 true
             }
@@ -188,7 +133,11 @@ where
     }
 
     /// Perform one non-blocking multi-packet drain after a fairness yield.
-    fn try_opportunistic_multi_drain(&mut self, state: &mut ActorState, out: &mut Vec<F>) -> bool {
+    pub(super) fn try_opportunistic_multi_drain(
+        &mut self,
+        state: &mut ActorState,
+        out: &mut Vec<F>,
+    ) -> bool {
         let Some(ctx) = self.active_output.multi_packet_mut() else {
             return false;
         };

@@ -4,6 +4,12 @@
 //! cover startup instrumentation, teardown, and shared-route reuse.
 
 #![forbid(unsafe_code)]
+#![recursion_limit = "256"]
+
+// The connection pipeline's future nests deeply enough that the pinned nightly
+// used for the dylint gate overflows the default query-depth limit while
+// computing the layout of the async test bodies. The compiler recommends a
+// higher limit for this crate.
 
 #[path = "../common/mod.rs"]
 mod common;
@@ -321,12 +327,15 @@ async fn prepared_app_reuses_services_across_overlapping_connections() -> TestRe
 
     let first_frame = build_frame(1, vec![b'X'])?;
     let second_frame = build_frame(1, vec![b'Y'])?;
-    let (first, second) = timeout(Duration::from_secs(1), async {
+    // Two prepared connections drive the whole prepared path at once, so the
+    // joined future carries two connection actors' worth of state and would
+    // otherwise exceed Clippy's inline-future budget.
+    let (first, second) = Box::pin(timeout(Duration::from_secs(1), async {
         tokio::join!(
             drive_prepared_with_frames(&prepared, vec![first_frame]),
             drive_prepared_with_frames(&prepared, vec![second_frame]),
         )
-    })
+    }))
     .await
     .map_err(|_| "prepared connections did not overlap")?;
     check_equal(

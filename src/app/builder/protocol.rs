@@ -30,10 +30,10 @@ where
     /// written to the transport. Because handler responses are driven through
     /// the per-connection [`crate::connection::ConnectionActor`], the
     /// `on_command_end`, stream-end terminator, and error hooks also run on the
-    /// application path. Connection setup and end-of-file hooks remain with the
-    /// server's connection lifecycle rather than the response actor. The direct
-    /// response helpers on [`WireframeApp`] bypass `before_send` because they
-    /// write to a caller-supplied stream.
+    /// application path. Connection setup runs once per connection before the
+    /// response actor starts, and the end-of-file hook is never invoked on the
+    /// prepared connection path. The direct response helpers on [`WireframeApp`]
+    /// bypass `before_send` because they write to a caller-supplied stream.
     ///
     /// At present, the protocol must use `ProtocolError = ()`. This keeps the
     /// protocol object safe for dynamic dispatch, maintains a uniform

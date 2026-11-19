@@ -2,6 +2,7 @@
 
 use std::{
     collections::HashMap,
+    net::SocketAddr,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -16,7 +17,10 @@ use tracing::Instrument as _;
 
 use super::{
     PrepareError,
-    builder::WireframeApp,
+    builder::{
+        WireframeApp,
+        push::{validate_push_queues, warn_about_legacy_push_dlq},
+    },
     envelope::Packet,
     inbound_handler::{ConnectionProcessingContext, build_route_chains, process_connection},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
@@ -32,6 +36,8 @@ use crate::{
     middleware::HandlerService,
     serializer::{BincodeSerializer, Serializer},
 };
+
+mod accessors;
 
 /// An immutable application template with fully transformed route services.
 ///
@@ -71,6 +77,10 @@ pub struct PreparedApp<
     )]
     /// Optional dead-letter sink for pushes that cannot be delivered.
     pub(in crate::app) push_dlq: Option<mpsc::Sender<Vec<u8>>>,
+    /// Template cloned to build each connection's push queues.
+    pub(in crate::app) push_queues: Option<crate::push::PushQueuesBuilder<F::Frame>>,
+    /// Registry that each connection registers its push handle with.
+    pub(in crate::app) session_registry: Arc<crate::session::SessionRegistry<F::Frame>>,
     /// Optional limits and timeout for transparent frame fragmentation.
     pub(in crate::app) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Maximum interval to wait for the next inbound frame.
@@ -156,6 +166,8 @@ where
 
     /// Build the prepared representation before publishing it to the caller.
     async fn build_prepared(self) -> Result<PreparedApp<S, C, E, F>, PrepareError> {
+        validate_push_queues(self.push_queues.as_ref())?;
+        warn_about_legacy_push_dlq(self.push_dlq.as_ref());
         let routes = build_route_chains(&self.handlers, &self.middleware).await;
 
         Ok(PreparedApp {
@@ -167,11 +179,27 @@ where
             protocol: self.protocol,
             message_assembler: self.message_assembler,
             push_dlq: self.push_dlq,
+            push_queues: self.push_queues,
+            session_registry: self.session_registry,
             fragmentation: self.fragmentation,
             read_timeout_ms: self.read_timeout_ms,
             memory_budgets: self.memory_budgets,
         })
     }
+}
+
+/// Inputs scoped to one connection attempt rather than the whole application.
+///
+/// Grouped because they travel together from the accept loop to the connection
+/// processing path, and a positional list of that length is easy to pass in the
+/// wrong order.
+struct ConnectionAttempt<'a> {
+    /// Clock used to measure the connection's duration.
+    clock: &'a dyn MonotonicClock,
+    /// Token whose cancellation stops this connection.
+    shutdown: &'a CancellationToken,
+    /// Peer address the accept loop resolved, when it has one.
+    peer_addr: Option<SocketAddr>,
 }
 
 impl<S, C, E, F> PreparedApp<S, C, E, F>
@@ -206,7 +234,7 @@ where
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
-        self.handle_connection_with_shutdown(stream, CancellationToken::new())
+        self.handle_connection_with_shutdown(stream, CancellationToken::new(), None)
             .await
     }
 
@@ -214,31 +242,45 @@ where
     ///
     /// The server passes its worker shutdown token here so a connection whose
     /// peer stopped reading cannot pin a graceful drain: its pending write is
-    /// abandoned, which closes the connection. Callers outside the server keep
-    /// using [`Self::handle_connection_result`], whose token is never
-    /// cancelled.
+    /// abandoned, which closes the connection. It also passes the peer address
+    /// the accept loop already resolved, so connection-scoped diagnostics name
+    /// the same peer the preamble hooks were given. Callers outside the server
+    /// keep using [`Self::handle_connection_result`], whose token is never
+    /// cancelled and which has no peer address to report.
     pub(crate) async fn handle_connection_with_shutdown<W>(
         &self,
         stream: W,
         shutdown: CancellationToken,
+        peer_addr: Option<SocketAddr>,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
-        self.handle_connection_inner(stream, &StdMonotonicClock, &shutdown)
-            .await
+        self.handle_connection_inner(
+            stream,
+            ConnectionAttempt {
+                clock: &StdMonotonicClock,
+                shutdown: &shutdown,
+                peer_addr,
+            },
+        )
+        .await
     }
 
     /// Handle a connection with an injectable clock and shutdown signal.
     async fn handle_connection_inner<W>(
         &self,
         stream: W,
-        clock: &dyn MonotonicClock,
-        shutdown: &CancellationToken,
+        attempt: ConnectionAttempt<'_>,
     ) -> io::Result<()>
     where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
+        let ConnectionAttempt {
+            clock,
+            shutdown,
+            peer_addr,
+        } = attempt;
         metrics::inc_prepared_connection_uses();
         let started_at = clock.now();
         let span = tracing::info_span!(
@@ -260,6 +302,9 @@ where
                 protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
+                push_queues: self.push_queues(),
+                session_registry: Arc::clone(&self.session_registry),
+                peer_addr,
                 shutdown,
             },
         )
@@ -298,74 +343,6 @@ where
                 None::<u64>
             );
         }
-    }
-}
-
-impl<S, C, E, F> PreparedApp<S, C, E, F>
-where
-    S: Serializer + Send + Sync,
-    C: Send + 'static,
-    E: Packet,
-    F: FrameCodec,
-{
-    /// Get a clone of the configured protocol, if any.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use wireframe::app::{PreparedApp, WireframeApp};
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
-    /// assert!(prepared.protocol().is_none());
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[must_use]
-    pub fn protocol(
-        &self,
-    ) -> Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>> {
-        self.protocol.clone()
-    }
-
-    /// Return protocol hooks derived from the installed protocol.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use wireframe::app::{PreparedApp, WireframeApp};
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
-    /// let hooks = prepared.protocol_hooks();
-    /// # let _ = hooks;
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[must_use]
-    pub fn protocol_hooks(&self) -> crate::hooks::ProtocolHooks<F::Frame, ()> {
-        self.protocol.as_ref().map_or_else(
-            crate::hooks::ProtocolHooks::default,
-            crate::hooks::ProtocolHooks::from_protocol,
-        )
-    }
-
-    /// Get the configured message assembler, if any.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use wireframe::app::{PreparedApp, WireframeApp};
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
-    /// assert!(prepared.message_assembler().is_none());
-    /// # Ok(())
-    /// # }
-    /// ```
-    #[must_use]
-    pub fn message_assembler(&self) -> Option<&Arc<dyn MessageAssembler>> {
-        self.message_assembler.as_ref()
     }
 }
 

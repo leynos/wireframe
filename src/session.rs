@@ -4,7 +4,11 @@
 //! allowing asynchronous tasks to send frames to live connections without
 //! preventing their cleanup. Dead entries can be pruned opportunistically or
 //! lazily at lookup time.
-use std::sync::{Arc, Weak};
+use std::sync::{
+    Arc,
+    Weak,
+    atomic::{AtomicU64, Ordering},
+};
 
 use dashmap::DashMap;
 
@@ -53,8 +57,86 @@ impl std::fmt::Display for ConnectionId {
 }
 
 /// Concurrent registry of push handles keyed by [`ConnectionId`].
-#[derive(Default)]
-pub struct SessionRegistry<F>(DashMap<ConnectionId, Weak<PushHandleInner<F>>>);
+///
+/// The registry also owns the source of connection identifiers. Identifiers
+/// start at one and increase monotonically, so a value freed by a closed
+/// connection is never reused for a later one.
+pub struct SessionRegistry<F> {
+    /// Weak references to the live push handles, keyed by connection.
+    entries: DashMap<ConnectionId, Weak<PushHandleInner<F>>>,
+    /// Next identifier handed to a connection.
+    next_id: AtomicU64,
+}
+
+impl<F> Default for SessionRegistry<F> {
+    fn default() -> Self { Self::new() }
+}
+
+impl<F> SessionRegistry<F> {
+    /// Create an empty registry.
+    ///
+    /// The first identifier allocated by [`Self::allocate_connection_id`] is `1`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use wireframe::session::{ConnectionId, SessionRegistry};
+    ///
+    /// let registry = SessionRegistry::<u8>::new();
+    /// assert_eq!(registry.allocate_connection_id(), ConnectionId::new(1));
+    /// ```
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            entries: DashMap::new(),
+            next_id: AtomicU64::new(1),
+        }
+    }
+
+    /// Allocate the next connection identifier no entry currently occupies.
+    ///
+    /// Identifiers are unique for the lifetime of the registry and are never
+    /// reused. Callers should allocate one per accepted connection and store
+    /// it alongside the connection's push handle.
+    ///
+    /// An identifier already present in the registry is skipped rather than
+    /// handed out. An application that still inserts entries by hand therefore
+    /// keeps them: the first server connection receives `1` only when no entry
+    /// occupies it, and otherwise the next free identifier.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the `u64` identifier space is exhausted. That requires
+    /// allocating every possible identifier, so it is unrecoverable, not a wrap.
+    #[must_use]
+    pub fn allocate_connection_id(&self) -> ConnectionId {
+        self.claim_next(|candidate| !self.entries.contains_key(&candidate))
+    }
+
+    /// Take identifiers from the counter until `publish` accepts one.
+    ///
+    /// A candidate is offered to `publish` before the next is taken, so a
+    /// publisher that cannot hold the identifier it is given can refuse it and
+    /// have the claim move on. The accepted candidate is therefore one the
+    /// caller holds.
+    ///
+    /// # Panics
+    /// Panics when the `u64` identifier space is exhausted.
+    fn claim_next(&self, mut publish: impl FnMut(ConnectionId) -> bool) -> ConnectionId {
+        loop {
+            let Ok(id) = self
+                .next_id
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            else {
+                panic!("connection identifier space exhausted");
+            };
+            let candidate = ConnectionId::new(id);
+            if publish(candidate) {
+                return candidate;
+            }
+        }
+    }
+}
 
 impl<F: FrameLike> SessionRegistry<F> {
     /// Retain live entries and collect data from each upgraded handle.
@@ -62,8 +144,8 @@ impl<F: FrameLike> SessionRegistry<F> {
         &self,
         mut map: impl FnMut(ConnectionId, Arc<PushHandleInner<F>>) -> T,
     ) -> Vec<T> {
-        let mut out = Vec::with_capacity(self.0.len());
-        self.0.retain(|id, weak| {
+        let mut out = Vec::with_capacity(self.entries.len());
+        self.entries.retain(|id, weak| {
             weak.upgrade().is_some_and(|inner| {
                 out.push(map(*id, inner));
                 true
@@ -83,26 +165,36 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// };
     ///
     /// let (_queues, handle) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let registry = SessionRegistry::default();
     /// let id = ConnectionId::new(1);
-    /// registry.insert(id, &handle);
+    /// assert!(registry.insert(id, &handle));
     /// assert!(registry.get(&id).is_some());
     /// ```
     pub fn get(&self, id: &ConnectionId) -> Option<PushHandle<F>> {
-        let guard = self.0.get(id);
+        let guard = self.entries.get(id);
         let handle = guard.as_ref().and_then(|weak| weak.upgrade());
         drop(guard);
         if handle.is_none() {
-            self.0.remove_if(id, |_, weak| weak.strong_count() == 0);
+            self.entries
+                .remove_if(id, |_, weak| weak.strong_count() == 0);
         }
         handle.map(PushHandle::from_arc)
     }
 
     /// Insert a handle for a newly established connection.
+    ///
+    /// Returns `true` when the handle was published, and `false` when a live
+    /// connection already owns the identifier: its entry is kept, so a manual
+    /// insert cannot displace the handle of a connection the registry
+    /// allocated that identifier to. Call [`Self::remove`] first to replace a
+    /// live entry deliberately.
+    ///
+    /// A dead entry does not block publication. Its weak reference cannot
+    /// upgrade, so replacing it publishes the new handle under the same
+    /// identifier without affecting any live connection.
     ///
     /// # Examples
     ///
@@ -113,18 +205,58 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// };
     ///
     /// let (_queues, handle) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let registry = SessionRegistry::default();
     /// let id = ConnectionId::new(2);
     /// assert!(registry.get(&id).is_none());
-    /// registry.insert(id, &handle);
+    /// assert!(registry.insert(id, &handle));
+    /// assert!(registry.get(&id).is_some());
+    /// // A second publish would displace a live connection, so it is refused.
+    /// assert!(!registry.insert(id, &handle));
+    /// ```
+    #[must_use]
+    pub fn insert(&self, id: ConnectionId, handle: &PushHandle<F>) -> bool {
+        match self.entries.entry(id) {
+            dashmap::mapref::entry::Entry::Occupied(mut occupied) => {
+                if occupied.get().strong_count() > 0 {
+                    return false;
+                }
+                occupied.insert(handle.downgrade());
+            }
+            dashmap::mapref::entry::Entry::Vacant(vacant) => {
+                vacant.insert(handle.downgrade());
+            }
+        }
+        true
+    }
+
+    /// Allocate an identifier and publish `handle` under it in one step.
+    ///
+    /// Allocation and publication are a single claim, so a manual
+    /// [`Self::insert`] racing this call cannot leave the connection addressing
+    /// a handle it does not own: a live identifier is refused and retried.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the `u64` identifier space is exhausted.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use wireframe::{push::PushQueues, session::SessionRegistry};
+    /// let (_queues, handle) = PushQueues::<u8>::builder()
+    ///     .unlimited()
+    ///     .build()
+    ///     .expect("failed to build PushQueues");
+    /// let registry = SessionRegistry::default();
+    /// let id = registry.allocate_and_publish(&handle);
     /// assert!(registry.get(&id).is_some());
     /// ```
-    pub fn insert(&self, id: ConnectionId, handle: &PushHandle<F>) {
-        self.0.insert(id, handle.downgrade());
+    #[must_use]
+    pub fn allocate_and_publish(&self, handle: &PushHandle<F>) -> ConnectionId {
+        self.claim_next(|candidate| self.insert(candidate, handle))
     }
 
     /// Remove a handle, typically on connection teardown.
@@ -138,18 +270,28 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// };
     ///
     /// let (_queues, handle) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let registry = SessionRegistry::default();
     /// let id = ConnectionId::new(3);
-    /// registry.insert(id, &handle);
+    /// assert!(registry.insert(id, &handle));
     /// assert!(registry.get(&id).is_some());
     /// registry.remove(&id);
     /// assert!(registry.get(&id).is_none());
     /// ```
-    pub fn remove(&self, id: &ConnectionId) { self.0.remove(id); }
+    pub fn remove(&self, id: &ConnectionId) { self.entries.remove(id); }
+
+    /// Remove the entry for `id` only while it still holds `handle`, reporting
+    /// whether one was removed. Teardown uses this rather than [`Self::remove`],
+    /// so a connection cannot remove a handle a later insert published under its
+    /// old identifier.
+    pub(crate) fn remove_owned(&self, id: ConnectionId, handle: &PushHandle<F>) -> bool {
+        let owned = handle.downgrade();
+        self.entries
+            .remove_if(&id, |_, weak| Weak::ptr_eq(weak, &owned))
+            .is_some()
+    }
 
     /// Remove all stale weak references without returning any handles.
     ///
@@ -166,17 +308,16 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// let registry = SessionRegistry::default();
     /// let (_queues, handle) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let id = ConnectionId::new(4);
-    /// registry.insert(id, &handle);
+    /// assert!(registry.insert(id, &handle));
     /// drop(handle);
     /// registry.prune();
     /// assert!(registry.get(&id).is_none());
     /// ```
-    pub fn prune(&self) { self.0.retain(|_, weak| weak.strong_count() > 0); }
+    pub fn prune(&self) { self.entries.retain(|_, weak| weak.strong_count() > 0); }
 
     /// Prune stale weak references, then collect the remaining live handles.
     ///
@@ -194,19 +335,17 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// let registry = SessionRegistry::default();
     /// let (_q1, h1) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let (_q2, h2) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let id1 = ConnectionId::new(5);
     /// let id2 = ConnectionId::new(6);
-    /// registry.insert(id1, &h1);
-    /// registry.insert(id2, &h2);
+    /// assert!(registry.insert(id1, &h1));
+    /// assert!(registry.insert(id2, &h2));
     /// drop(h1);
     /// let active = registry.active_handles();
     /// assert_eq!(active.len(), 1);
@@ -233,19 +372,17 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// let registry = SessionRegistry::default();
     /// let (_q1, h1) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let (_q2, h2) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let id1 = ConnectionId::new(7);
     /// let id2 = ConnectionId::new(8);
-    /// registry.insert(id1, &h1);
-    /// registry.insert(id2, &h2);
+    /// assert!(registry.insert(id1, &h1));
+    /// assert!(registry.insert(id2, &h2));
     /// drop(h1);
     /// let ids = registry.active_ids();
     /// assert_eq!(ids, vec![id2]);
@@ -255,33 +392,5 @@ impl<F: FrameLike> SessionRegistry<F> {
 }
 
 #[cfg(test)]
-mod tests {
-    //! Unit tests for lazy dead-entry cleanup in the session registry.
-
-    use super::{ConnectionId, SessionRegistry};
-    use crate::push::PushQueues;
-
-    /// A failed lookup must also evict the dead weak entry; retaining it
-    /// grows the registry until a later `prune`, which is the observable
-    /// difference the `strong_count() == 0` guard protects.
-    #[tokio::test]
-    async fn get_evicts_dead_entry_from_registry() {
-        let registry = SessionRegistry::<u8>::default();
-        let id = ConnectionId::new(1);
-
-        let (queues, handle) = PushQueues::<u8>::builder()
-            .high_capacity(1)
-            .low_capacity(1)
-            .build()
-            .expect("failed to build PushQueues");
-        registry.insert(id, &handle);
-        drop(handle);
-        drop(queues);
-
-        assert!(registry.get(&id).is_none(), "dead handle must not upgrade");
-        assert!(
-            registry.0.is_empty(),
-            "failed lookup must evict the dead entry rather than leave it to prune"
-        );
-    }
-}
+#[path = "session_tests.rs"]
+mod tests;

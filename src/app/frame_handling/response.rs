@@ -6,6 +6,7 @@ use futures::{Sink, StreamExt};
 use log::warn;
 use tracing::Instrument;
 
+use super::response_pushes::run_handler_with_pushes;
 use crate::{
     app::{
         Envelope,
@@ -15,7 +16,6 @@ use crate::{
     },
     codec::FrameCodec,
     connection::{ResponseOutcome, WriteOutcome},
-    hooks::ConnectionContext,
     message::EncodeWith,
     middleware::{HandlerService, Service, ServiceRequest},
     response::{FrameStream, Response, WireframeError},
@@ -85,7 +85,12 @@ where
     let request_id = env.id;
     let correlation_id = env.correlation_id;
     let request = ServiceRequest::new(env.payload, correlation_id);
-    let resp = match service.call(request).await {
+    let Some(handled) = run_handler_with_pushes(&mut ctx, service.call(request)).await? else {
+        // Shutdown abandoned the handler while one of its pushes blocked. No
+        // response was delivered, so the connection stops here.
+        return Ok(Dispatch::Stop);
+    };
+    let resp = match handled {
         Ok(resp) => resp,
         Err(e) => {
             warn!("handler error: id={request_id}, correlation_id={correlation_id:?}, error={e:?}");
@@ -162,7 +167,9 @@ where
     let Some(protocol) = ctx.protocol else {
         return Ok(outcome);
     };
-    let mut context = ConnectionContext;
+    // The pipeline owns the connection's context, so the completion hooks see
+    // the same connection identifier as `before_send`.
+    let mut context = ctx.pipeline.context();
     if owes_terminator(outcome, delivery.is_streaming) {
         // The protocol terminator is a complete codec frame. Writing it
         // unchanged preserves metadata a custom codec adds outside the payload,

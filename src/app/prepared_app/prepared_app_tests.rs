@@ -62,7 +62,14 @@ async fn prepared_connection_uses_injected_monotonic_clock() {
     drop(client);
 
     prepared
-        .handle_connection_inner(server, &clock, &CancellationToken::new())
+        .handle_connection_inner(
+            server,
+            ConnectionAttempt {
+                clock: &clock,
+                shutdown: &CancellationToken::new(),
+                peer_addr: None,
+            },
+        )
         .await
         .expect("clean EOF should complete");
 }

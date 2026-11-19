@@ -94,9 +94,12 @@ where
     /// call the opt-out to remove the bound.
     ///
     /// The deadline covers the whole read, including the wait for the first
-    /// byte. A unit preamble (`T = ()`) still reads one byte, so a client that
-    /// waits for a server greeting blocks this read until an outer layer sends
-    /// that greeting; the server does not speak first.
+    /// byte, when the preamble is non-empty. A preamble that encodes to no
+    /// bytes, such as `()`, is decoded from an empty buffer without reading
+    /// anything, so this deadline is never reached for it. Any non-empty
+    /// preamble is read before the server writes anything, so a client that
+    /// waits for a server greeting blocks until an outer layer sends that
+    /// greeting; the server does not speak first.
     ///
     /// # Examples
     ///
