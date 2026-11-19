@@ -93,10 +93,12 @@ impl ActiveStream {
     /// Drive the in-flight chunk admission alongside the handler.
     ///
     /// The wait is bounded by `wait` so the caller regains control even when
-    /// neither side makes progress. Inbound frames cannot be read while an
-    /// admission is queued, because a continuation for the same message would
-    /// be mistaken for an abandoned body, so the timeout is what keeps assembly
-    /// expiry and the memory budget observable instead.
+    /// neither side makes progress. An inbound frame that arrives while the
+    /// chunk is queued is therefore not dispatched from here: a continuation
+    /// for the same message would be mistaken for an abandoned body. The
+    /// caller keeps such a frame for the step after admission, and the timeout
+    /// is what keeps assembly expiry and the memory budget observable while
+    /// the chunk waits.
     pub(super) async fn drive_pending(
         &mut self,
         wait: Duration,

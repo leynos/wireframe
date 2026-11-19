@@ -35,6 +35,10 @@ mod tests;
 #[path = "stream_admission_tests.rs"]
 mod admission_tests;
 
+#[cfg(all(test, feature = "metrics"))]
+#[path = "stream_outcome_tests.rs"]
+mod outcome_tests;
+
 use crate::{
     codec::FrameCodec,
     message::EncodeWith,
@@ -180,12 +184,22 @@ impl ConnectionStreams {
         let Some(pending) = active.pending.take() else {
             return;
         };
-        if pending.is_last && result.is_ok() {
-            // The final chunk reached the handler, so the body is delivered
-            // whatever the handler does with it afterwards.
-            StreamingBodyOutcome::Delivered.record();
-        }
-        if pending.is_last || result.is_err() {
+        if pending.is_last {
+            // No later chunk can report the final one's fate, because a final
+            // chunk is the last thing the body sends. A handler that had
+            // already dropped its stream therefore leaves the body abandoned
+            // rather than uncounted, which matches the parked path.
+            if result.is_ok() {
+                // The final chunk reached the handler, so the body is
+                // delivered whatever the handler does with it afterwards.
+                StreamingBodyOutcome::Delivered.record();
+            } else {
+                StreamingBodyOutcome::Abandoned.record();
+            }
+            active.sender = None;
+        } else if result.is_err() {
+            // A refused earlier chunk is reported per chunk until the body
+            // ends, so counting it here would double-count.
             active.sender = None;
         }
     }

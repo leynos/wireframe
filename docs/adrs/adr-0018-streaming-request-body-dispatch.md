@@ -194,8 +194,9 @@ broken stream.
 
 The consequences above name `stream_dispatch.rs`, `stream_slot.rs`, and
 `stream_parked.rs`. The loop's maintenance actions now live in
-`stream_actions.rs` and its peer-observed reply path in `stream_observed.rs`,
-so each module stays within the repository's size limit.
+`stream_actions.rs`, its peer-observed reply path in `stream_observed.rs`, and
+its peer-observed chunk admission in `stream_admission_watch.rs`, so each
+module stays within the repository's size limit.
 
 `src/app/inbound_handler/stream_reply_watch_tests.rs` pins the behaviour: a
 reply that outgrows the transport buffer ends at the peer-close grace once the
@@ -218,10 +219,16 @@ feature and are no-ops otherwise.
 - `wireframe_streaming_body_outcomes_total` counts each body decision with a
   fixed `outcome` label: `delivered`, `terminal`, `abandoned`,
   `admission_timeout`, `delivery_timeout`, or `no_handler`. The label
-  vocabulary is a closed set so application data cannot create new series, and
-  the same strings appear as the `error_category` field of the matching
-  diagnostic event, so a counter increment and its log record can be correlated
-  without a second mapping.
+  vocabulary is a closed set so application data cannot create new series.
+  Three of the labels are also the `error_category` of a diagnostic event:
+  `admission_timeout` on `prefilled_body`, and `delivery_timeout` and
+  `no_handler` on `terminal_body` (with `no_handler` also naming a
+  `stream_start` event). Those three categories are defined from the outcome
+  vocabulary rather than repeated as literals, so the counter and the event
+  cannot drift apart. The other categories name something the counter does not:
+  `abandoned_body` reports the chunk-dropping event whose counter label is
+  `abandoned`, and `closed`, `receiver_gone` and `reply_abandoned` describe a
+  delivery or reply outcome rather than a body decision.
 - `wireframe_streaming_body_bytes_queued` gauges the body bytes a process
   holds for handlers. A chunk is charged where its reservation is installed, so
   the number includes a chunk that is still waiting for channel capacity rather
@@ -233,12 +240,15 @@ The two gauges are process-wide totals rather than per-connection values. A
 per-connection gauge would need a connection label, and connection identity is
 unbounded; a single process-wide total with no labels reports the same
 occupancy without turning a connection identifier into a metric dimension.
-Concurrent connections therefore add to one total, which is held in an
-`AtomicUsize` and published on every change. Release is a conditional exchange,
-not a bare subtraction: a release that outranks its addition floors at zero
-instead of wrapping to `usize::MAX`. A connection that ends with messages still
-parked releases them in one step, so the gauge cannot keep counting work nobody
-will dispatch.
+Concurrent connections therefore add to one total, which is guarded by a
+`Mutex` and published on every change. The change and the publish happen under
+the one lock, because `Gauge::set` assigns rather than advances: two releases
+that each computed their total outside the lock could publish in the opposite
+order, and the gauge would stay above the real total for good. Release
+saturates, so a release that outranks its addition floors at zero instead of
+wrapping to `usize::MAX`. A connection that ends with messages still parked
+releases them in one step, so the gauge cannot keep counting work nobody will
+dispatch.
 
 The counter records one observation per decision, with two exceptions noted in
 the vocabulary: an expired admission wait is recorded per expiry, so one body
@@ -249,18 +259,31 @@ is torn down rather than per chunk that never arrived.
 Every decision also emits one structured `tracing` event, carrying an
 `operation` (`stream_start`, `chunk_delivery`, `prefilled_body`, or
 `terminal_body`), the `message_id` or assembly `key`, and an `error_category`.
-Payload bytes are never logged. The `warn` level is reserved for the three
-cases where a message could not be served: a pre-filled body that did not fit
-the connection budget in time, a terminal failure the handler's channel would
-not accept, and a frame for a streaming route with no live handler. A body
-abandoned by an early reply or by the hard cap is a `debug` record, because the
-handler chose that outcome.
+Payload bytes are never logged. The `warn` level is reserved for the cases
+where a message could not be served: a pre-filled body that did not fit the
+connection budget in time, a terminal failure the handler's channel would not
+accept, a frame for a streaming route with no live handler, a terminal failure
+with no live handler left to receive it, and a handler that outlived the
+connection's wait for its reply. A body abandoned by an early reply or by the
+hard cap is a `debug` record, because the handler chose that outcome.
+
+A chunk that cannot clear admission keeps the loop off the reader for as long
+as the handler declines to take it, so the read half is now polled alongside
+the admission as well: the peer's departure is what ends such a connection. A
+frame that arrives meanwhile is buffered for the step after admission rather
+than dispatched, because a continuation offered while its own chunk is still
+queued would be refused as an abandoned body. The buffer holds one frame, which
+is the same bound the reply-observation path uses.
+`src/app/inbound_handler/stream_admission_watch_tests.rs` pins that
+observation: without it the stalled connection never ends.
 
 `src/metrics/streaming_bodies.rs` holds the series and its tests, and
-`src/app/inbound_handler/stream_diagnostics.rs` holds the event vocabulary. The
-occupancy arithmetic is exercised on local tallies rather than the shared
-statics, because the statics are process-wide and an absolute assertion on them
-would race with concurrently running tests.
+`src/app/inbound_handler/stream_diagnostics.rs` holds the event vocabulary.
+`src/app/inbound_handler/stream_outcome_tests.rs` pins the two outcomes that
+only their deciding branch can count. The occupancy arithmetic is exercised on
+local tallies rather than the shared statics, because the statics are
+process-wide and an absolute assertion on them would race with concurrently
+running tests.
 
 ## Consequences
 

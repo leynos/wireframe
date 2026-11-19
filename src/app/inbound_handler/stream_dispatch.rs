@@ -27,22 +27,16 @@ use tokio_util::sync::CancellationToken;
 
 // Re-exported so the loop's callers keep naming these through the module that
 // owns the state machine, while their definitions stay in `stream_types`.
-pub(super) use super::stream_types::{DispatchContext, Event, Step};
+pub(super) use super::stream_types::{AdmissionWait, DispatchContext, Event, Step};
 use super::{
     super::{
         envelope::{Envelope, Packet},
         frame_handling::Dispatch,
     },
     frames::{InboundFrames, NextFrame},
-    stream_actions::{
-        AdmissionStep,
-        apply_memory_pressure,
-        drive_pending_admission,
-        expire_finished_assemblies,
-        finish_step,
-    },
+    stream_actions::{apply_memory_pressure, expire_finished_assemblies, finish_step},
     stream_diagnostics,
-    stream_handles::{ChunkBudget, DispatchHandles, LoopState},
+    stream_handles::{DispatchHandles, LoopState},
     stream_observed::ObservedAction,
 };
 use crate::{
@@ -57,6 +51,10 @@ use crate::{
 #[cfg(test)]
 #[path = "stream_watch_support.rs"]
 mod watch_support;
+
+#[cfg(test)]
+#[path = "stream_admission_watch_tests.rs"]
+mod admission_watch_tests;
 
 #[cfg(test)]
 #[path = "stream_watch_tests.rs"]
@@ -143,14 +141,20 @@ where
         if self.expire_bodies(state, queued.clone()).await? {
             return Ok(Step::Closed);
         }
-        let admission = self.drive_admission(state, queued.clone()).await;
-        if let AdmissionStep::Handler(outcome) = admission {
-            // The handler's reply may stream for an unbounded time, so it is
-            // forwarded through the same peer-observed path as a frame's reply.
-            let dispatch = self
-                .dispatch_observed(state, queued, ObservedAction::Handler(outcome))
-                .await?;
-            return Ok(finish_step(dispatch));
+        match self.drive_admission(state, queued.clone()).await? {
+            AdmissionWait::Handler(outcome) => {
+                // The handler's reply may stream for an unbounded time, so it is
+                // forwarded through the same peer-observed path as a frame's
+                // reply.
+                let dispatch = self
+                    .dispatch_observed(state, queued, ObservedAction::Handler(outcome))
+                    .await?;
+                return Ok(finish_step(dispatch));
+            }
+            // The read half settled the step, so it is handled exactly as an
+            // event read outside an admission would be.
+            AdmissionWait::Peer(event) => return self.handle_event(state, event, queued).await,
+            AdmissionWait::Continue => {}
         }
         if state.streams.has_pending_send() {
             // A chunk still waiting for admission cannot be joined by another:
@@ -193,29 +197,6 @@ where
         Ok(dispatch == Dispatch::Stop)
     }
 
-    /// Drive the slot's in-flight chunk admission, if it has one.
-    ///
-    /// Decided inside the handle scope and acted on after it: the handler's
-    /// reply is forwarded once the reader is reachable again.
-    async fn drive_admission(
-        &mut self,
-        state: &mut LoopState,
-        queued: QueuedBytes,
-    ) -> AdmissionStep {
-        let handles = self.handles(queued);
-        // A pending admission means the slot is live, so the parked drain
-        // cannot run in this step. Driving it first keeps the drain outside
-        // this borrow scope, where the reader stays reachable.
-        if !state.streams.has_pending_send() {
-            return AdmissionStep::Continue;
-        }
-        // Measured here, not when the chunk was queued: bytes retained
-        // elsewhere can only be released between drives, and expiry above may
-        // just have released them.
-        let budget = ChunkBudget::measure(&handles, &state.parked);
-        drive_pending_admission(state, handles.wait, budget).await
-    }
-
     /// Dispatch parked messages once the live slot is free.
     ///
     /// Returns `true` when the connection must stop.
@@ -238,7 +219,7 @@ where
     /// The bundle borrows the two mutable pieces of inbound framing rather
     /// than the whole value, so the reader and its buffered frame stay
     /// reachable for the duration of the action.
-    const fn handles(&mut self, queued: QueuedBytes) -> DispatchHandles<'_, S, E, K, F> {
+    pub(super) const fn handles(&mut self, queued: QueuedBytes) -> DispatchHandles<'_, S, E, K, F> {
         DispatchHandles {
             assembly: &mut self.inbound.message_assembly,
             pipeline: &mut self.inbound.pipeline,
@@ -265,7 +246,7 @@ where
     }
 
     /// Read the next inbound frame and classify it for the loop.
-    async fn read_frame(&mut self, read_timeout_ms: u64) -> Event<F::Frame> {
+    pub(super) async fn read_frame(&mut self, read_timeout_ms: u64) -> Event<F::Frame> {
         let read = self
             .inbound
             .next(self.reader, read_timeout_ms, self.shutdown)

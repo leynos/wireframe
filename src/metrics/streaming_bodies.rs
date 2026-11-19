@@ -13,7 +13,8 @@
 //! values, so concurrent connections add to the same series instead of
 //! overwriting one another.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(feature = "metrics")]
+use std::sync::{Mutex, MutexGuard};
 
 #[cfg(feature = "metrics")]
 use metrics::{counter, gauge};
@@ -103,75 +104,110 @@ pub(crate) fn inc_streaming_body_outcome(_outcome: StreamingBodyOutcome) {}
 /// exercised on a local instance: the statics below are shared with every
 /// concurrently running test, so asserting an absolute value on them would be
 /// racy.
+///
+/// The tally and its gauge are updated under one lock. Publishing a value
+/// computed outside the lock would let a stale observation land last: two
+/// releases can each compute their total, then publish in the opposite order,
+/// and `Gauge::set` assigns rather than advances, so the gauge would stay above
+/// the real total for good.
+#[cfg(feature = "metrics")]
 struct Occupancy {
-    /// Current total.
-    total: AtomicUsize,
+    /// Current total, guarded so a publish cannot be reordered against it.
+    total: Mutex<usize>,
+    /// Gauge publisher for this total.
+    publish: fn(usize),
 }
 
+#[cfg(feature = "metrics")]
 impl Occupancy {
-    /// Create an empty tally.
-    const fn new() -> Self {
+    /// Create an empty tally that publishes through `publish`.
+    const fn new(publish: fn(usize)) -> Self {
         Self {
-            total: AtomicUsize::new(0),
+            total: Mutex::new(0),
+            publish,
         }
     }
 
-    /// Add `count` and return the new total.
-    fn add(&self, count: usize) -> usize {
-        self.total
-            .fetch_add(count, Ordering::SeqCst)
-            .saturating_add(count)
-    }
+    /// Add `count`, publish the result, and return the new total.
+    fn add(&self, count: usize) -> usize { self.update(|total| total.saturating_add(count)) }
 
-    /// Remove `count` and return the new total.
+    /// Remove `count`, publish the result, and return the new total.
     ///
-    /// The exchange is conditional rather than a bare subtraction, because a
-    /// release that outruns its additions must floor at zero: an unconditional
-    /// `fetch_sub` would wrap the stored value to `usize::MAX` and report an
-    /// absurd occupancy for every later reader.
-    fn release(&self, count: usize) -> usize {
-        let mut current = self.total.load(Ordering::SeqCst);
-        loop {
-            let next = current.saturating_sub(count);
-            match self
-                .total
-                .compare_exchange(current, next, Ordering::SeqCst, Ordering::SeqCst)
-            {
-                Ok(_) => return next,
-                Err(observed) => current = observed,
-            }
-        }
+    /// The subtraction saturates rather than wrapping, because a release that
+    /// outruns its additions must floor at zero: an unconditional subtraction
+    /// would wrap the stored value to `usize::MAX` and report an absurd
+    /// occupancy for every later reader.
+    fn release(&self, count: usize) -> usize { self.update(|total| total.saturating_sub(count)) }
+
+    /// Apply one change and publish it while the tally is still locked.
+    fn update(&self, change: impl FnOnce(usize) -> usize) -> usize {
+        let mut total = self.lock();
+        *total = change(*total);
+        let current = *total;
+        (self.publish)(current);
+        current
+    }
+
+    /// Take the lock, recovering the value from a poisoned guard.
+    ///
+    /// A panic elsewhere must not stop occupancy accounting. The guarded value
+    /// is a plain count, so the poisoned state carries no broken invariant.
+    fn lock(&self) -> MutexGuard<'_, usize> {
+        self.total
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Return the current total.
     #[cfg(test)]
-    fn get(&self) -> usize { self.total.load(Ordering::SeqCst) }
+    fn get(&self) -> usize { *self.lock() }
 }
 
 /// Bytes currently queued for streaming handlers, across all connections.
-static QUEUED_BODY_BYTES: Occupancy = Occupancy::new();
+#[cfg(feature = "metrics")]
+static QUEUED_BODY_BYTES: Occupancy = Occupancy::new(set_queued_body_bytes);
 
 /// Messages currently parked behind live bodies, across all connections.
-static PARKED_BODIES: Occupancy = Occupancy::new();
+#[cfg(feature = "metrics")]
+static PARKED_BODIES: Occupancy = Occupancy::new(set_parked_bodies);
 
 /// Add `len` bytes to the queued-body total.
 ///
 /// Called where a chunk reserves its bytes, so the total already includes a
 /// chunk waiting for channel capacity rather than only queued ones.
-pub(crate) fn add_queued_body_bytes(len: usize) {
-    set_queued_body_bytes(QUEUED_BODY_BYTES.add(len));
-}
+#[cfg(feature = "metrics")]
+pub(crate) fn add_queued_body_bytes(len: usize) { QUEUED_BODY_BYTES.add(len); }
+
+/// Add `len` bytes to the queued-body total.
+///
+/// This function is a no-op when the `metrics` feature is disabled, and the
+/// tally and gauge it would update are not compiled then, so a disabled build
+/// spends nothing per chunk.
+#[cfg(not(feature = "metrics"))]
+pub(crate) const fn add_queued_body_bytes(_len: usize) {}
 
 /// Remove `len` bytes from the queued-body total.
 ///
 /// Called where a chunk's guard is dropped, which covers a consumer taking the
 /// chunk, the channel dropping it, and a connection ending with it queued.
-pub(crate) fn release_queued_body_bytes(len: usize) {
-    set_queued_body_bytes(QUEUED_BODY_BYTES.release(len));
-}
+#[cfg(feature = "metrics")]
+pub(crate) fn release_queued_body_bytes(len: usize) { QUEUED_BODY_BYTES.release(len); }
+
+/// Remove `len` bytes from the queued-body total.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
+#[cfg(not(feature = "metrics"))]
+pub(crate) const fn release_queued_body_bytes(_len: usize) {}
 
 /// Add one message to the parked-body total.
-pub(crate) fn add_parked_body() { set_parked_bodies(PARKED_BODIES.add(1)); }
+#[cfg(feature = "metrics")]
+pub(crate) fn add_parked_body() { PARKED_BODIES.add(1); }
+
+/// Add one message to the parked-body total.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
+#[cfg(not(feature = "metrics"))]
+pub(crate) const fn add_parked_body() {}
 
 /// Remove one message from the parked-body total.
 pub(crate) fn release_parked_body() { release_parked_bodies(1); }
@@ -180,9 +216,14 @@ pub(crate) fn release_parked_body() { release_parked_bodies(1); }
 ///
 /// A connection that ends with messages still parked releases them in one
 /// step, so the gauge cannot keep counting work nobody will dispatch.
-pub(crate) fn release_parked_bodies(count: usize) {
-    set_parked_bodies(PARKED_BODIES.release(count));
-}
+#[cfg(feature = "metrics")]
+pub(crate) fn release_parked_bodies(count: usize) { PARKED_BODIES.release(count); }
+
+/// Remove `count` messages from the parked-body total.
+///
+/// This function is a no-op when the `metrics` feature is disabled.
+#[cfg(not(feature = "metrics"))]
+pub(crate) const fn release_parked_bodies(_count: usize) {}
 
 /// Publish the queued-body total.
 ///
@@ -197,12 +238,6 @@ pub(crate) fn release_parked_bodies(count: usize) {
 )]
 fn set_queued_body_bytes(total: usize) { gauge!(STREAMING_BODY_BYTES_QUEUED).set(total as f64); }
 
-/// Publish the queued-body total.
-///
-/// This function is a no-op when the `metrics` feature is disabled.
-#[cfg(not(feature = "metrics"))]
-const fn set_queued_body_bytes(_total: usize) {}
-
 /// Publish the parked-body total.
 #[cfg(feature = "metrics")]
 #[expect(
@@ -210,12 +245,6 @@ const fn set_queued_body_bytes(_total: usize) {}
     reason = "a gauge series is f64; more than 2^52 parked messages cannot exist"
 )]
 fn set_parked_bodies(total: usize) { gauge!(STREAMING_BODIES_PARKED).set(total as f64); }
-
-/// Publish the parked-body total.
-///
-/// This function is a no-op when the `metrics` feature is disabled.
-#[cfg(not(feature = "metrics"))]
-const fn set_parked_bodies(_total: usize) {}
 
 #[cfg(all(test, feature = "metrics", not(loom)))]
 mod tests {
@@ -279,23 +308,76 @@ mod tests {
         }
     }
 
+    /// Every value a tally publishes, in the order it published it.
+    static PUBLISHED: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+
+    /// Record one published total for the concurrency test.
+    fn capture(total: usize) {
+        let mut published = PUBLISHED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        published.push(total);
+    }
+
+    /// Take the recorded publications.
+    fn published() -> Vec<usize> {
+        let mut published = PUBLISHED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::mem::take(&mut *published)
+    }
+
     /// The tally aggregates additions across connections and releases exactly
     /// what was added, so concurrent connections share one total instead of
     /// overwriting one another's occupancy.
     #[test]
     fn occupancy_totals_aggregate_and_release() {
-        let bytes = Occupancy::new();
+        let bytes = Occupancy::new(capture);
         assert_eq!(bytes.add(3), 3);
         assert_eq!(bytes.add(4), 7);
         assert_eq!(bytes.release(3), 4);
         assert_eq!(bytes.release(4), 0);
 
-        let parked = Occupancy::new();
+        let parked = Occupancy::new(capture);
         assert_eq!(parked.add(1), 1);
         assert_eq!(parked.add(1), 2);
         assert_eq!(parked.release(2), 0);
         // A release that races teardown saturates instead of wrapping.
         assert_eq!(parked.release(1), 0);
         assert_eq!(parked.get(), 0);
+        published();
+    }
+
+    /// Take and release one reservation a hundred times.
+    ///
+    /// Kept out of the spawned closure so the concurrency test reads as one
+    /// action per thread rather than as nested loops.
+    fn churn(occupancy: &Occupancy) {
+        for _ in 0..100 {
+            occupancy.add(1);
+            occupancy.release(1);
+        }
+    }
+
+    /// A tally publishes the total it computed, in the order it computed it.
+    ///
+    /// Computing a total outside the lock and publishing it afterwards would
+    /// let two concurrent releases publish in the opposite order, leaving the
+    /// gauge above the real total once every reservation had gone.
+    #[test]
+    fn concurrent_updates_publish_their_own_total() {
+        let parked = Occupancy::new(capture);
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                scope.spawn(|| churn(&parked));
+            }
+        });
+
+        assert_eq!(parked.get(), 0, "every reservation was released");
+        assert_eq!(
+            published().last().copied(),
+            Some(0),
+            "the last publication reports an empty total"
+        );
     }
 }

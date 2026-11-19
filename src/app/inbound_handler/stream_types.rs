@@ -66,6 +66,21 @@ pub(super) enum Step {
     Failed(io::Error),
 }
 
+/// What the loop learned while a chunk waited for admission.
+///
+/// The wait normally ends with either a settled admission or the handler
+/// resolving. It also watches the read half: a chunk that cannot be admitted
+/// keeps the loop off the reader, so nothing else would notice the peer
+/// leaving while the budget stayed saturated.
+pub(super) enum AdmissionWait<T> {
+    /// Keep looping: the chunk settled, stayed queued, or a frame arrived.
+    Continue,
+    /// The handler resolved first, so its reply is owed.
+    Handler(Option<Bytes>),
+    /// The read half ended, failed, or the server stopped.
+    Peer(Event<T>),
+}
+
 /// One step of the connection loop.
 pub(super) enum Event<T> {
     /// An inbound frame, EOF, or decoder error.

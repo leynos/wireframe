@@ -1,0 +1,159 @@
+//! Peer observation while a body chunk waits for admission.
+//!
+//! A chunk that cannot be admitted keeps the connection loop off the reader:
+//! the byte budget stays saturated for as long as the handler declines to take
+//! its chunk, so nothing else in the loop would ever notice the peer leaving.
+//! Without observing the read half during the admission, such a connection
+//! outlives the peer that abandoned it and holds its handler, its queued bytes
+//! and its server drain with it.
+//!
+//! The clock is paused, so the bounded waits under test cost no real time and
+//! the assertion is about the path taken rather than about how long it took.
+
+use std::{
+    num::NonZeroUsize,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
+
+use bytes::Bytes;
+use futures::SinkExt;
+use tokio::sync::Notify;
+use wireframe_testing::{TestError, TestResult};
+
+use super::watch_support::{
+    App,
+    STEP_WAIT,
+    Scenario,
+    bounded,
+    bounded_for,
+    ensure,
+    send_request,
+    spawn_connection,
+};
+use crate::{
+    app::{BudgetBytes, MemoryBudgets, StreamingHandler, WireframeApp},
+    request::{RequestBodyStream, RequestParts},
+    test_helpers::{TestAssembler, continuation_frame_payload, first_frame_payload},
+};
+
+/// Route whose streaming handler never reads its body.
+const STALLED_ROUTE: u32 = 75;
+/// Message key of the stalled streaming body.
+const STALLED_KEY: u64 = 62;
+/// Size of each body chunk, small enough to fit the default frame budget.
+const CHUNK_BYTES: usize = 256;
+/// Per-message cap, generous enough that the message never trips it.
+const MESSAGE_BUDGET: usize = 64 * 1024;
+/// Per-connection cap that binds.
+///
+/// Two chunks exceed it, so the second one cannot be admitted while the first
+/// is still charged; a single chunk fits comfortably inside it, so the body is
+/// able to start.
+const CONNECTION_BUDGET: usize = 500;
+/// Bound for the connection ending once the peer has gone.
+///
+/// The teardown bound is a whole read timeout, so a little slack is allowed on
+/// top for scheduling at one virtual instant.
+const END_WAIT: Duration = Duration::from_millis(200);
+
+/// Handler that announces itself and then never touches its body.
+///
+/// Holding the stream without reading it is what keeps the first chunk charged
+/// to the connection budget, so every later chunk is refused admission and the
+/// connection always has one waiting when the peer leaves.
+fn stalled_handler(
+    started: Arc<Notify>,
+    release: Arc<Notify>,
+    read: Arc<AtomicUsize>,
+) -> StreamingHandler {
+    Arc::new(move |_parts: RequestParts, body: RequestBodyStream| {
+        let start_signal = Arc::clone(&started);
+        let release_signal = Arc::clone(&release);
+        let counted = Arc::clone(&read);
+        Box::pin(async move {
+            start_signal.notify_one();
+            // Never notified: the handler stays parked for the whole scenario.
+            release_signal.notified().await;
+            counted.fetch_add(1, Ordering::SeqCst);
+            drop(body);
+            None
+        })
+    })
+}
+
+/// Convert a byte count into a budget.
+fn budget(bytes: usize) -> TestResult<BudgetBytes> {
+    NonZeroUsize::new(bytes)
+        .map(BudgetBytes::new)
+        .ok_or_else(|| format!("a budget of {bytes} bytes must be non-zero").into())
+}
+
+/// Build the application every scenario drives.
+fn stalled_app(handler: StreamingHandler) -> TestResult<App> {
+    let budgets = MemoryBudgets::new(
+        budget(MESSAGE_BUDGET)?,
+        budget(CONNECTION_BUDGET)?,
+        budget(CONNECTION_BUDGET)?,
+    );
+    WireframeApp::new()
+        .map(|app| app.with_message_assembler(TestAssembler))
+        .and_then(|app| app.streaming_route(STALLED_ROUTE, handler))
+        .map(|app| app.memory_budgets(budgets))
+        .map_err(|error| TestError::Msg(format!("build the application: {error}")))
+}
+
+/// A peer that leaves while a chunk waits for admission ends the connection.
+///
+/// The handler never reads, so the first chunk stays charged and the second is
+/// refused admission for as long as the connection lasts. Nothing in the loop
+/// makes progress except the read half, and only observing it can end the
+/// connection.
+#[tokio::test(start_paused = true)]
+async fn a_peer_leaving_while_a_chunk_waits_is_observed() -> TestResult {
+    let started = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let read = Arc::new(AtomicUsize::new(0));
+    let Scenario {
+        mut client,
+        connection,
+    } = spawn_connection(stalled_app(stalled_handler(
+        Arc::clone(&started),
+        Arc::clone(&release),
+        Arc::clone(&read),
+    ))?)
+    .await?;
+
+    let chunk = vec![7_u8; CHUNK_BYTES];
+    send_request(
+        &mut client,
+        STALLED_ROUTE,
+        &first_frame_payload(STALLED_KEY.into(), &chunk, false, None)?,
+    )
+    .await?;
+    bounded("the live handler starting", started.notified()).await?;
+    // The second chunk cannot be admitted while the first is charged, so the
+    // connection is left holding one pending admission.
+    send_request(
+        &mut client,
+        STALLED_ROUTE,
+        &continuation_frame_payload(STALLED_KEY.into(), 1_u32.into(), &chunk, false)?,
+    )
+    .await?;
+    SinkExt::<Bytes>::close(&mut client).await?;
+
+    let joined = bounded_for(
+        STEP_WAIT + END_WAIT,
+        "the connection ending after the peer left",
+        connection,
+    )
+    .await?;
+    joined??;
+    ensure(
+        read.load(Ordering::SeqCst) == 0,
+        "the stalled handler must not be released",
+    )
+}

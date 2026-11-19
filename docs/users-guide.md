@@ -3495,28 +3495,31 @@ rejected or abandoned.
 - `"no_handler"` — a frame arrived for a streaming route with no registered
   handler.
 
-Two gauges report the work a connection holds for its bodies. Both are totals
-across every connection in the process, so concurrent connections add to the
-same series instead of overwriting one another:
+Two gauges report the work the process holds for its bodies. Both are totals
+across every connection, so concurrent connections add to the same series
+instead of overwriting one another:
 
 - `wireframe_streaming_body_bytes_queued` — body bytes queued for handlers,
   including a chunk that has reserved its bytes but is still waiting for
-  channel capacity. A value that stays at the configured connection budget
-  marks a handler that has stopped reading; the connection then stops reading
-  the socket, which is the back-pressure this design relies on.
-- `wireframe_streaming_bodies_parked` — completed messages waiting behind the
-  live body. A value approaching `MAX_PARKED_MESSAGES` (64) means one peer is
-  pipelining requests faster than its body completes, and the connection ends
-  rather than absorb more. A connection that ends with messages still parked
-  releases them, so the gauge cannot count work nobody will dispatch.
+  channel capacity. The value covers every connection, so it is a pressure
+  signal for the process rather than evidence that one connection reached its
+  own budget. A total that stays above the per-connection budget means some
+  handler has stopped reading; that connection then stops reading its socket,
+  which is the back-pressure this design relies on.
+- `wireframe_streaming_bodies_parked` — completed messages waiting behind live
+  bodies. The value covers every connection, so it counts the process's parked
+  work; `MAX_PARKED_MESSAGES` (64) is the per-connection limit, and reaching it
+  ends that connection rather than absorbing more. A connection that ends with
+  messages still parked releases them, so the gauge cannot count work nobody
+  will dispatch.
 
 The dispatch modules log one structured event per body decision. Each event
 carries an `operation` field (`stream_start`, `chunk_delivery`,
 `prefilled_body`, or `terminal_body`), the `message_id` or `key` of the
 message, and an `error_category` drawn from the `outcome` label vocabulary plus
 `closed`, `receiver_gone`, `abandoned_body`, and `reply_abandoned`. Payload
-bytes are never logged. Three events are warnings, because each marks a message
-the connection could not serve:
+bytes are never logged. Five events are warnings: each marks a message the
+connection could not serve.
 
 - `pre-filled request body was not admitted within the read timeout`
   (`prefilled_body`, `admission_timeout`) — an assembled body did not fit the
@@ -3530,14 +3533,19 @@ the connection could not serve:
   `streaming failure for a message with no live handler` (`stream_start` /
   `terminal_body`, `no_handler`) — the route is unregistered, or the handler
   released the slot before the failure was decoded.
+- `streaming handler exceeded the connection wait; its reply is abandoned`
+  (`terminal_body`, `reply_abandoned`) — the handler outlived the connection's
+  wait for its reply. The reply is not sent, and the warning is the only
+  evidence that the handler did not simply choose to stay silent.
 
 To diagnose a stalled upload, read `wireframe_streaming_body_bytes_queued`
-first: if it sits at the budget while `admission_timeout` climbs, the handler
-is not reading. If the byte gauge stays low and
-`wireframe_streaming_bodies_parked` climbs instead, the peer is pipelining
-behind a body that never completes. A rejected assembly shows as a
-`prefilled_body` warning with the `admission_timeout` category and a matching
-counter increment.
+first: if it stays above the per-connection budget while `admission_timeout`
+climbs, some handler is not reading. If the byte gauge stays low and
+`wireframe_streaming_bodies_parked` climbs instead, peers are pipelining behind
+bodies that never complete. Neither gauge identifies which connection is
+responsible, so pair it with the `message_id` in the events above. A rejected
+assembly shows as a `prefilled_body` warning with the `admission_timeout`
+category and a matching counter increment.
 
 ## Benchmark allocation counting
 

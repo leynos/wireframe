@@ -125,8 +125,8 @@ impl ChunkBudget {
     /// of one admission: the loop measures again before every drive, so bytes
     /// released in between — an expired assembly, a drained parked message, a
     /// handler that took its chunk — are seen. Between drives the totals can
-    /// only shrink, because the loop does not read another frame while an
-    /// admission is pending.
+    /// only shrink: the one frame the loop may read while an admission is
+    /// pending is buffered uncharged, and nothing else it does retains bytes.
     pub(super) fn measure<S, E, K, F>(
         handles: &DispatchHandles<'_, S, E, K, F>,
         parked: &ParkedQueue,

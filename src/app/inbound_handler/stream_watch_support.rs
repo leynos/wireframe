@@ -174,7 +174,7 @@ pub(super) async fn open_body(
 }
 
 /// Await `future`, bounding it by [`STEP_WAIT`].
-async fn bounded<T>(step: &str, future: impl Future<Output = T>) -> TestResult<T> {
+pub(super) async fn bounded<T>(step: &str, future: impl Future<Output = T>) -> TestResult<T> {
     bounded_for(STEP_WAIT, step, future).await
 }
 

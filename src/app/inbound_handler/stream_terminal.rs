@@ -92,7 +92,16 @@ pub(super) async fn deliver_then_await(
                     return HandlerWait::Deadline;
                 }
             }
-            outcome = handler.as_mut() => return HandlerWait::Replied(outcome),
+            outcome = handler.as_mut() => {
+                // The reply settled before the failure did, so the body was
+                // abandoned undelivered. `deliver_terminal` records the
+                // outcome for every delivery it completes itself, and this
+                // branch is only reachable while none has.
+                if delivered.is_none() {
+                    StreamingBodyOutcome::Abandoned.record();
+                }
+                return HandlerWait::Replied(outcome);
+            }
             () = &mut deadline => return HandlerWait::Deadline,
         }
     }
