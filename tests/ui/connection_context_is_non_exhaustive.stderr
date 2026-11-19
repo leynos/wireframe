@@ -1,7 +1,7 @@
 error[E0423]: cannot find value `ConnectionContext` in this scope
-  --> tests/ui/connection_context_is_non_exhaustive.rs:10:17
+  --> tests/ui/connection_context_is_non_exhaustive.rs:11:17
    |
-10 |     let _unit = ConnectionContext;
+11 |     let _unit = ConnectionContext;
    |                 ^^^^^^^^^^^^^^^^^
    |
   ::: src/hooks.rs
@@ -12,11 +12,7 @@ error[E0423]: cannot find value `ConnectionContext` in this scope
    = note: a struct named `ConnectionContext` exists in another namespace
 
 error[E0639]: cannot create non-exhaustive struct using struct expression
-  --> tests/ui/connection_context_is_non_exhaustive.rs:11:20
+  --> tests/ui/connection_context_is_non_exhaustive.rs:12:20
    |
-11 |       let _literal = ConnectionContext {
-   |  ____________________^
-12 | |         connection_id: None,
-13 | |         peer_addr: None,
-14 | |     };
-   | |_____^
+12 |     let _literal = ConnectionContext {};
+   |                    ^^^^^^^^^^^^^^^^^^^^
