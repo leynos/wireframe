@@ -12,18 +12,15 @@
 mod protocol_request;
 #[path = "common/recording_protocol.rs"]
 mod recording_protocol;
+#[path = "common/recording_protocol_ownership.rs"]
+mod recording_protocol_ownership;
 
 use std::sync::{Arc, Mutex, Weak};
 
 use bytes::Bytes;
 use protocol_request::request_frame;
-use recording_protocol::{
-    HookEvent,
-    RecordingProtocolFixture,
-    is_alive,
-    strong_count,
-    weak_handle,
-};
+use recording_protocol::{HookEvent, RecordingProtocolFixture};
+use recording_protocol_ownership::{drop_count, is_alive, shared, strong_count, weak_handle};
 use rstest::rstest;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
@@ -134,7 +131,7 @@ async fn prepared_connection_holds_exactly_one_protocol_reference() -> TestResul
     drop(prepared);
     assert!(!is_alive(&weak), "preparing released no other reference");
     assert_eq!(
-        fixture.drops(),
+        drop_count(&fixture),
         1,
         "exactly one installed protocol instance was dropped"
     );
@@ -144,7 +141,7 @@ async fn prepared_connection_holds_exactly_one_protocol_reference() -> TestResul
 #[rstest]
 fn actor_holds_exactly_one_protocol_reference() {
     let fixture = RecordingProtocolFixture::<Vec<u8>>::new(None);
-    let protocol = fixture.shared();
+    let protocol = shared(&fixture);
     assert_eq!(
         strong_count(&protocol),
         1,
@@ -182,7 +179,7 @@ fn actor_holds_exactly_one_protocol_reference() {
         "the fixture reference keeps the protocol alive"
     );
     assert_eq!(
-        fixture.drops(),
+        drop_count(&fixture),
         0,
         "the protocol is not dropped while a reference remains"
     );
@@ -190,7 +187,7 @@ fn actor_holds_exactly_one_protocol_reference() {
     drop(protocol);
     assert!(!is_alive(&weak), "no strong reference remains");
     assert_eq!(
-        fixture.drops(),
+        drop_count(&fixture),
         1,
         "exactly one installed protocol instance was dropped"
     );
@@ -199,7 +196,7 @@ fn actor_holds_exactly_one_protocol_reference() {
 #[rstest]
 fn barrier_held_connections_each_add_one_owner() {
     let fixture = RecordingProtocolFixture::<Vec<u8>>::new(None);
-    let protocol = fixture.shared();
+    let protocol = shared(&fixture);
 
     let mut actors = Vec::new();
     let mut built_counts = Vec::new();
@@ -233,7 +230,7 @@ fn barrier_held_connections_each_add_one_owner() {
 #[rstest]
 fn each_hooks_value_owns_one_reference() {
     let fixture = RecordingProtocolFixture::<Vec<u8>>::new(None);
-    let protocol = fixture.shared();
+    let protocol = shared(&fixture);
 
     let hooks: Vec<ProtocolHooks<Vec<u8>, ()>> = (0..3)
         .map(|_| ProtocolHooks::from_protocol(&protocol))
@@ -306,7 +303,7 @@ fn app_accessor_returns_the_single_installed_protocol() {
     drop(app);
     assert!(!is_alive(&weak), "app teardown releases its reference");
     assert_eq!(
-        fixture.drops(),
+        drop_count(&fixture),
         1,
         "exactly one installed protocol instance was dropped"
     );
