@@ -12,15 +12,16 @@ use bytes::Bytes;
 use futures::stream;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
-#[cfg(feature = "metrics")]
-use transport::blocked_transport;
 use transport::{TransportRig, immediate_transport, paced_transport};
 
-#[cfg(feature = "metrics")]
-use super::super::push_write::write_frame;
-use super::{PushBatch, deliver_pushes, drain_queued};
+use super::{
+    super::frames::{InboundExpiry, InboundFrames},
+    PushBatch,
+    deliver_pushes,
+    drain_queued,
+};
 use crate::{
-    app::Envelope,
+    app::{Envelope, codec_driver::FramePipeline},
     connection::{
         ConnectionActor,
         ConnectionChannels,
@@ -35,11 +36,28 @@ use crate::{
 #[path = "push_service_tests/idle_grace.rs"]
 mod idle_grace;
 
+#[cfg(feature = "metrics")]
+#[path = "push_service_tests/stalled_write.rs"]
+mod stalled_write;
+
 #[path = "push_service_tests/transport.rs"]
 mod transport;
 
 /// Capacity of each push lane, enough for every frame these tests queue.
 const LANE_CAPACITY: usize = 4;
+
+/// Read timeout used by tests that do not exercise the inbound expiry.
+const READ_TIMEOUT_MS: u64 = 30_000;
+
+/// Inbound read state with nothing buffered and no silence under way.
+fn empty_inbound() -> InboundFrames<Bytes> {
+    InboundFrames {
+        pending: None,
+        pipeline: FramePipeline::new(None),
+        message_assembly: None,
+        read_deadline: None,
+    }
+}
 
 /// Untracked actor paired with the handle that keeps its push lanes open.
 type ActorFixture = (ConnectionActor<Envelope, (), Bytes>, PushHandle<Bytes>);
@@ -66,9 +84,9 @@ fn build_actor(shutdown: &CancellationToken) -> Result<ActorFixture, PushConfigE
 
 /// Reservations held by a sender that has not sent what it reserved.
 ///
-/// Keeping them alive keeps the actor's matching lane receiver pending even
-/// after the drain closes it, which is the producer that could otherwise pin
-/// the end-of-stream drain.
+/// Keeping them alive keeps the actor's matching lane receiver reporting
+/// `Empty` rather than exhausted, which is the producer that could otherwise
+/// pin the end-of-stream drain.
 struct HeldReservations {
     /// Reservation on the high-priority lane.
     _high: mpsc::OwnedPermit<Bytes>,
@@ -76,12 +94,16 @@ struct HeldReservations {
     _low: mpsc::OwnedPermit<Bytes>,
 }
 
-/// Build an actor whose push lanes still have reservations outstanding.
+/// The frame a reserved actor accepted before the peer closed.
+const ACCEPTED_PAYLOAD: &[u8] = b"accepted";
+
+/// Build an actor whose lanes hold both an accepted frame and a reservation.
 ///
-/// The lanes are chosen by this helper rather than by the queue builder so a
-/// reservation can be taken before the actor owns the receivers. The handle
-/// comes from a separate pair, which is unused here: no frame is ever pushed
-/// through it.
+/// The accepted frame models a producer whose push already returned `Ok`; the
+/// reservation models a producer that has taken capacity and has not sent. The
+/// lanes are created here rather than by the queue builder because only an
+/// `mpsc::Sender` can take a reservation, and the handle comes from a separate
+/// pair that nothing pushes through.
 ///
 /// # Errors
 ///
@@ -95,6 +117,9 @@ fn build_reserved_actor(
         .build()?;
     let (high_tx, high_priority_rx) = mpsc::channel(LANE_CAPACITY);
     let (low_tx, low_priority_rx) = mpsc::channel(LANE_CAPACITY);
+    high_tx
+        .try_send(Bytes::from_static(ACCEPTED_PAYLOAD))
+        .expect("a fresh lane has room for the accepted frame");
     let reservations = HeldReservations {
         _high: high_tx
             .try_reserve_owned()
@@ -180,7 +205,7 @@ async fn a_closed_batch_renews_the_grace_for_every_frame(
     let (mut actor, _handle) = build_actor(&shutdown).expect("actor should build");
     let peer_eof = CancellationToken::new();
     peer_eof.cancel();
-    let mut pending_frame = None;
+    let mut inbound = empty_inbound();
     let mut reader = stream::pending::<io::Result<Bytes>>();
 
     let started = tokio::time::Instant::now();
@@ -191,7 +216,12 @@ async fn a_closed_batch_renews_the_grace_for_every_frame(
             frames: paced_payloads().to_vec(),
             priority: None,
             reader: &mut reader,
-            pending_frame: &mut pending_frame,
+            pending_frame: &mut inbound.pending,
+            expiry: InboundExpiry::new(
+                &mut inbound.message_assembly,
+                &mut inbound.read_deadline,
+                READ_TIMEOUT_MS,
+            ),
             peer_eof: &peer_eof,
             shutdown: &shutdown,
         },
@@ -244,98 +274,33 @@ async fn a_ready_collection_is_written_after_a_stop(
     );
 }
 
-/// A stop abandons a collection that is still waiting on a producer.
+/// An unsent reservation does not hold up the frames already accepted.
 ///
-/// The lane holds a reservation that was never sent, so it reports itself
-/// exhausted only once that permit is released. The stop must end the drain
-/// without waiting for it, because a producer that never releases one would
-/// otherwise pin the connection, its registry entry, and the server drain.
+/// The lane reports itself exhausted only once every permit taken before the
+/// close has been released, so a producer that never sends would stall an
+/// awaited collection before its first write. The drain seals the lanes and
+/// takes what they already hold instead; the shutdown token is deliberately
+/// left uncancelled so nothing else can end the wait.
 #[rstest::rstest]
-#[tokio::test]
-async fn a_stop_abandons_a_collection_that_is_still_pending(
+#[tokio::test(start_paused = true)]
+async fn an_unsent_reservation_does_not_hold_up_the_drain(
     #[from(immediate_transport)] mut harness: TransportRig,
 ) {
     let shutdown = CancellationToken::new();
     let (mut actor, reservations) = build_reserved_actor(&shutdown).expect("actor should build");
-    shutdown.cancel();
 
     tokio::time::timeout(
         Duration::from_secs(1),
         drain_queued(&mut harness.transport(), &mut actor, &shutdown),
     )
     .await
-    .expect("a pending collection must not outlive the stop")
-    .expect("an abandoned drain must not fail");
+    .expect("the drain must not wait for an unsent reservation")
+    .expect("the drain must not fail");
 
-    assert!(
-        harness.accepted_frames().is_empty(),
-        "an abandoned collection must write nothing"
+    assert_eq!(
+        harness.accepted_frames(),
+        vec![Bytes::from_static(ACCEPTED_PAYLOAD)],
+        "the frame whose producer was told it was accepted must still be written"
     );
     drop(reservations);
-}
-
-/// A shutdown that abandons a fast-path write is counted, not just returned.
-///
-/// The first select prefers a ready write, so its shutdown arm handles only a
-/// write that is still pending. That arm must record the abandonment like the
-/// bounded path does; otherwise `reason="shutdown"` under-counts the frames a
-/// stop actually dropped.
-#[cfg(feature = "metrics")]
-#[rstest::rstest]
-#[tokio::test]
-async fn a_shutdown_abandoned_fast_path_write_is_counted(
-    #[from(blocked_transport)] mut harness: TransportRig,
-) {
-    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-
-    use crate::{metrics::PUSH_WRITES_ABANDONED, push::PushPriority};
-
-    let recorder = DebuggingRecorder::new();
-    let snapshotter = recorder.snapshotter();
-    let shutdown = CancellationToken::new();
-    shutdown.cancel();
-    let peer_eof = CancellationToken::new();
-    let mut pending_frame = None;
-    let mut reader = stream::pending::<io::Result<Bytes>>();
-    let frame = Bytes::from_static(b"abandoned");
-    let mut batch = PushBatch {
-        frames: Vec::new(),
-        // A single lane, so the diagnostics would name `high` in a warning.
-        // The counter keeps its fixed `reason` label and grows no priority
-        // label from it.
-        priority: Some(PushPriority::High),
-        reader: &mut reader,
-        pending_frame: &mut pending_frame,
-        peer_eof: &peer_eof,
-        shutdown: &shutdown,
-    };
-
-    let outcome = {
-        let _recorder = ::metrics::set_default_local_recorder(&recorder);
-        write_frame(&mut harness.transport(), frame, &mut batch, false).await
-    }
-    .expect("a shutdown abandonment is not an error");
-    assert!(!outcome.may_continue(), "the connection must stop");
-    assert!(
-        !outcome.peer_closed(),
-        "the peer did not close its write half"
-    );
-
-    let samples = snapshotter.snapshot().into_vec();
-    let (key, _, _, value) = samples
-        .iter()
-        .find(|(key, ..)| key.key().name() == PUSH_WRITES_ABANDONED)
-        .expect("the shutdown abandonment must be counted");
-    assert!(
-        matches!(value, DebugValue::Counter(1)),
-        "the fast path must record exactly one abandonment"
-    );
-    assert!(
-        key.key().labels().count() == 1
-            && key
-                .key()
-                .labels()
-                .any(|label| label.key() == "reason" && label.value() == "shutdown"),
-        "the counter keeps its single reason label and adds no priority label"
-    );
 }

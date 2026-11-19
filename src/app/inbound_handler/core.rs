@@ -1,23 +1,18 @@
 //! Shared frame and stream processing for prepared application routes.
 //!
-//! [`process_stream`] is the entry point once a transport is framed: the
-//! application's `ConnectionRuntime` calls it after the setup hook, and the
-//! server's connection spawner calls it directly for an accepted socket. It
-//! builds a [`ConnectionLoop`], which owns the read half, the buffered inbound
-//! state and the response actor, and runs it until the peer closes, the server
-//! stops, or a transport error ends the connection.
-//!
-//! Each iteration performs one unit of work: apply memory pressure, wait for a
-//! push batch or an inbound frame, then act on it. Frames are observed against
-//! the peer, decoded, reassembled and dispatched; a push batch is written under
-//! the bounds in `push_write`; a close first drains the lanes. The work itself
-//! belongs to sibling modules: `frames` owns the read-ahead buffer and its
-//! expiry command, `framing` the [`TransportSink`] and [`TransportStream`]
-//! halves, `dispatch` the decode-assemble-dispatch path through
-//! [`handle_frame`], `push_service` the push-versus-read wait
-//! ([`next_stream_step`]), batch write ([`deliver_pushes`]) and close-time
-//! drain ([`drain_queued`]), `peer_watch` the mid-write peer observation, and
-//! `actor` the response actor and the guard that cancels its token.
+//! [`process_stream`] is the entry point once a transport is framed. The
+//! application path reaches it through `ConnectionRuntime::run`, after the
+//! setup hook has run. The server's TCP path reaches it through
+//! `PreparedApp::handle_connection_with_shutdown`, which runs
+//! `process_connection` for the accepted socket. The connection spawner's own
+//! `process_stream` is a different function: it completes the preamble
+//! handshake and hands the socket to the prepared application, so it never
+//! calls the frame loop directly. This function builds a [`ConnectionLoop`],
+//! which owns the read half, the buffered inbound state and the response actor,
+//! and runs it until the peer closes, the server stops, or a transport error
+//! ends the connection. Each iteration applies memory pressure, waits for a
+//! push batch or an inbound frame, then acts on it; the sibling modules named
+//! in the parent overview own each of those steps.
 //!
 //! Push queues and the stop token arrive through [`StreamProcessingContext`]:
 //! the queue template the actor clones into these lanes, the server shutdown
@@ -49,7 +44,7 @@ use super::{
         observe_peer,
     },
     dispatch::{FrameHandlingContext, handle_frame},
-    frames::InboundFrames,
+    frames::{InboundExpiry, InboundFrames},
     framing::{TransportSink, TransportStream, prepare_connection_framing},
     peer_watch::{PeerObservation, handle_watching_peer},
     push_service::{
@@ -351,6 +346,11 @@ where
             priority: pending.priority,
             reader: &mut self.reader,
             pending_frame: &mut self.inbound.pending,
+            expiry: InboundExpiry::new(
+                &mut self.inbound.message_assembly,
+                &mut self.inbound.read_deadline,
+                self.read_timeout_ms,
+            ),
             peer_eof: &self.peer_eof,
             shutdown: &self.shutdown,
         };

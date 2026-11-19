@@ -57,6 +57,53 @@ async fn try_push_shares_the_rate_limit_with_awaited_pushes() {
     );
 }
 
+/// An awaited push waits for a permit a non-blocking push already spent.
+///
+/// The reverse of the case above, across lanes and handles: the budget is
+/// exhausted by `try_push`, then an awaited push on another handle and the
+/// other lane must stay pending until the window refills. The same future is
+/// polled across the wait, so a reservation dropped and retried on every wake
+/// would show up as an extra permit being available.
+#[tokio::test]
+async fn an_awaited_push_waits_for_a_permit_a_try_push_spent() {
+    time::pause();
+    let (mut queues, handle) = PushQueues::<u8>::builder()
+        .high_capacity(4)
+        .low_capacity(4)
+        .rate(Some(1))
+        .build()
+        .expect("queue builds");
+    let non_blocking = handle.clone();
+    let awaited = handle.clone();
+
+    non_blocking
+        .try_push(1, PushPriority::High, PushPolicy::ReturnErrorIfFull)
+        .expect("the first push consumes the only permit");
+
+    let push = awaited.push_low_priority(2);
+    tokio::pin!(push);
+    assert!(
+        futures::poll!(push.as_mut()).is_pending(),
+        "the awaited push must wait for the next window"
+    );
+
+    time::advance(Duration::from_secs(1)).await;
+    push.await
+        .expect("the refilled permit admits the awaited push");
+
+    let (_, first) = queues
+        .recv()
+        .await
+        .expect("the non-blocking push is queued");
+    let (priority, second) = queues.recv().await.expect("the awaited push is queued");
+    assert_eq!((first, second), (1, 2), "both frames are delivered once");
+    assert_eq!(
+        priority,
+        PushPriority::Low,
+        "the awaited push keeps its lane"
+    );
+}
+
 /// A non-blocking push refused for capacity spends no rate budget.
 ///
 /// Capacity is reserved before a permit is drawn, so the refused high-priority

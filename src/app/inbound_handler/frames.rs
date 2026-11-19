@@ -71,6 +71,63 @@ pub(super) fn purge_expired<T>(
     frame_handling::purge_expired_assemblies(message_assembly);
 }
 
+/// Deadline for the current silence, armed on first use.
+fn arm_deadline(deadline: &mut Option<Instant>, read_timeout_ms: u64) -> Instant {
+    *deadline.get_or_insert_with(|| Instant::now() + Duration::from_millis(read_timeout_ms))
+}
+
+/// Start the next idle interval after a purge.
+fn restart_deadline(deadline: &mut Option<Instant>, read_timeout_ms: u64) {
+    *deadline = Some(Instant::now() + Duration::from_millis(read_timeout_ms));
+}
+
+/// Buffered inbound state an outbound write must keep expiring.
+///
+/// A push write stops running the loop's expiry command while it waits, and it
+/// holds the transport's fragmentation pipeline for the whole write, so it
+/// borrows the remaining expiry state directly: the reassembled messages and
+/// the silence deadline. Sealing a partially written frame is worse than
+/// letting this state expire a few frames later, and the pipeline's expired
+/// fragment buffers are purged at each frame boundary instead.
+pub(super) struct InboundExpiry<'a> {
+    /// Reassembled messages the read deadline purges.
+    assembly: &'a mut Option<MessageAssemblyState>,
+    /// Deadline at which the current silence purges expired state.
+    deadline: &'a mut Option<Instant>,
+    /// Maximum interval to wait for the next inbound frame.
+    read_timeout_ms: u64,
+}
+
+impl<'a> InboundExpiry<'a> {
+    /// Borrow the expiry state of one connection's buffered reads.
+    pub(super) const fn new(
+        assembly: &'a mut Option<MessageAssemblyState>,
+        deadline: &'a mut Option<Instant>,
+        read_timeout_ms: u64,
+    ) -> Self {
+        Self {
+            assembly,
+            deadline,
+            read_timeout_ms,
+        }
+    }
+
+    /// Instant at which the current silence expires buffered state.
+    pub(super) fn due(&mut self) -> Instant { arm_deadline(self.deadline, self.read_timeout_ms) }
+
+    /// Purge expired assemblies once the deadline has passed.
+    ///
+    /// The deadline is shared with the read path, so a purge here is the same
+    /// event that path would have performed; the next silence starts from now
+    /// rather than from whenever the write finishes.
+    pub(super) fn expire_silence(&mut self) {
+        if arm_deadline(self.deadline, self.read_timeout_ms) <= Instant::now() {
+            frame_handling::purge_expired_assemblies(self.assembly);
+            restart_deadline(self.deadline, self.read_timeout_ms);
+        }
+    }
+}
+
 /// Read side of the inbound loop.
 ///
 /// Groups the frame buffered while the previous one was being handled with the
@@ -217,16 +274,62 @@ impl<T> InboundFrames<T> {
     /// `GraceTimer` exists for the opposite case: those tests fire one
     /// deadline by hand and never advance a clock at all.
     fn arm_deadline(&mut self, read_timeout_ms: u64) -> Instant {
-        *self
-            .read_deadline
-            .get_or_insert_with(|| Instant::now() + Duration::from_millis(read_timeout_ms))
+        arm_deadline(&mut self.read_deadline, read_timeout_ms)
     }
 
     /// Purge expired state and start the next idle interval.
     fn purge_after_timeout(&mut self, read_timeout_ms: u64) {
         purge_expired(&mut self.pipeline, &mut self.message_assembly);
-        self.read_deadline = Some(Instant::now() + Duration::from_millis(read_timeout_ms));
+        restart_deadline(&mut self.read_deadline, read_timeout_ms);
     }
+}
+
+/// Buffered read state holding one incomplete assembly that any purge evicts.
+///
+/// The assembly timeout is zero so that a purge always drops it; assertions
+/// then measure *when* the purge runs rather than the assembly clock, which is
+/// a `std::time::Instant` that a paused runtime does not advance.
+#[cfg(test)]
+pub(super) fn incomplete_inbound<T>() -> InboundFrames<T> {
+    use crate::message_assembler::{
+        EnvelopeRouting,
+        FirstFrameHeader,
+        FirstFrameInput,
+        MessageAssemblyState,
+        MessageKey,
+    };
+
+    let mut assembly = MessageAssemblyState::new(
+        std::num::NonZeroUsize::new(1024).unwrap_or(std::num::NonZeroUsize::MIN),
+        Duration::ZERO,
+    );
+    let first = FirstFrameHeader {
+        message_key: MessageKey(1),
+        metadata_len: 0,
+        body_len: 4,
+        total_body_len: Some(8),
+        is_last: false,
+    };
+    let input = FirstFrameInput::new(&first, EnvelopeRouting::default(), Vec::new(), b"half")
+        .expect("the incomplete frame is valid");
+    assembly
+        .accept_first_frame(input)
+        .expect("the first frame is buffered");
+    InboundFrames {
+        pending: None,
+        pipeline: FramePipeline::new(None),
+        message_assembly: Some(assembly),
+        read_deadline: None,
+    }
+}
+
+/// Number of incomplete assemblies still buffered.
+#[cfg(test)]
+pub(super) fn buffered_assemblies<T>(inbound: &InboundFrames<T>) -> Option<usize> {
+    inbound
+        .message_assembly
+        .as_ref()
+        .map(crate::message_assembler::MessageAssemblyState::buffered_count)
 }
 
 #[cfg(test)]

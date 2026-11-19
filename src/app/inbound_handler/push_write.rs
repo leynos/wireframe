@@ -8,12 +8,18 @@
 
 use std::{future::Future, io, pin::Pin};
 
-use futures::{Sink, Stream, StreamExt};
-use tokio::time::Instant;
+use futures::{
+    Sink,
+    Stream,
+    StreamExt,
+    future::{self, Either},
+};
+use tokio::time::{Instant, Sleep, sleep, sleep_until};
 use tokio_util::sync::CancellationToken;
 
 use super::{
     super::PushWriteDiagnostics,
+    frames::InboundExpiry,
     push_service::{PushBatch, PushTransport},
 };
 use crate::{
@@ -99,42 +105,66 @@ where
     let mut closed = peer_closed;
     if batch.pending_frame.is_none() && !closed {
         let started = Instant::now();
-        tokio::select! {
-            biased;
-            // A ready write is preferred: a frame the transport accepts
-            // without blocking is still delivered, and only a write that
-            // would block is abandoned.
-            result = &mut write => {
-                result?;
-                return Ok(FrameWrite::written(closed));
-            }
-            // This arm abandons the frame before `finish_write` sees it, so it
-            // records the abandonment itself; the bounded path below records
-            // once and must not be counted twice.
-            () = batch.shutdown.cancelled() => {
-                diagnostics.record_abandonment(
-                    PushWriteAbandonReason::Shutdown,
-                    started.elapsed(),
-                );
-                return Ok(FrameWrite::stopped(closed));
-            }
-            next = batch.reader.next() => match next {
-                Some(Ok(next_frame)) => *batch.pending_frame = Some(next_frame),
-                Some(Err(error)) => return Err(error),
-                None => {
-                    batch.peer_eof.cancel();
-                    closed = true;
+        loop {
+            let purge = purge_wait(Some(batch.expiry.due()));
+            tokio::pin!(purge);
+            tokio::select! {
+                biased;
+                // A ready write is preferred: a frame the transport accepts
+                // without blocking is still delivered, and only a write that
+                // would block is abandoned.
+                result = &mut write => {
+                    result?;
+                    return Ok(FrameWrite::written(closed));
                 }
-            },
+                // This arm abandons the frame before the bounded wait sees it,
+                // so it records the abandonment itself; the bounded path below
+                // records once and must not be counted twice.
+                () = batch.shutdown.cancelled() => {
+                    diagnostics.record_abandonment(
+                        PushWriteAbandonReason::Shutdown,
+                        started.elapsed(),
+                    );
+                    return Ok(FrameWrite::stopped(closed));
+                }
+                next = batch.reader.next() => match next {
+                    Some(Ok(next_frame)) => *batch.pending_frame = Some(next_frame),
+                    Some(Err(error)) => return Err(error),
+                    None => {
+                        batch.peer_eof.cancel();
+                        closed = true;
+                    }
+                },
+                // The deadline purges buffered state without cancelling the
+                // write: a partially written frame keeps its place on the wire.
+                () = &mut purge => batch.expiry.expire_silence(),
+            }
         }
     }
     Ok(
-        if finish_write(write.as_mut(), batch.shutdown, diagnostics).await? {
+        if finish_write_purging(write.as_mut(), batch, diagnostics).await? {
             FrameWrite::written(closed)
         } else {
             FrameWrite::stopped(closed)
         },
     )
+}
+
+/// Finish a delivery write, keeping the inbound expiry active.
+///
+/// The read half is no longer polled here, so `read_deadline` would otherwise
+/// never be observed and a partial assembly below the memory-pressure threshold
+/// could stay buffered past its timeout.
+async fn finish_write_purging<W, F, R>(
+    write: Pin<&mut W>,
+    batch: &mut PushBatch<'_, F, R>,
+    diagnostics: PushWriteDiagnostics,
+) -> io::Result<bool>
+where
+    W: Future<Output = io::Result<()>>,
+    F: FrameCodec,
+{
+    finish_write_with(write, batch.shutdown, diagnostics, Some(&mut batch.expiry)).await
 }
 
 /// Finish a push write under the shutdown token and the idle grace.
@@ -152,13 +182,34 @@ pub(super) async fn finish_write<W>(
 where
     W: Future<Output = io::Result<()>>,
 {
+    finish_write_with(write, shutdown, diagnostics, None).await
+}
+
+/// Await a write's bounds, optionally purging expired inbound state on the way.
+///
+/// The grace is armed once, from the first poll, and the purge interval never
+/// restarts it: a write is bounded by idleness, not by how many idle intervals
+/// a purge reported along the way. A purge wake-up leaves the write future
+/// untouched, so a frame already partly on the wire is finished rather than
+/// abandoned and restarted.
+async fn finish_write_with<W>(
+    write: Pin<&mut W>,
+    shutdown: &CancellationToken,
+    diagnostics: PushWriteDiagnostics,
+    mut expiry: Option<&mut InboundExpiry<'_>>,
+) -> io::Result<bool>
+where
+    W: Future<Output = io::Result<()>>,
+{
     let started = Instant::now();
-    let bound = write_before_bound(
-        write,
-        shutdown,
-        tokio::time::sleep(PEER_CLOSED_RESPONSE_GRACE),
-    )
-    .await?;
+    // The expiry state is folded into the grace future, so the write is raced
+    // against the same two bounds as every other app-layer write: the stop
+    // token and the idle grace. Purging is a wake-up inside the grace, not a
+    // third outcome.
+    let bound = match expiry.as_mut() {
+        Some(state) => write_before_bound(write, shutdown, grace_with_purges(state)).await?,
+        None => write_before_bound(write, shutdown, sleep(PEER_CLOSED_RESPONSE_GRACE)).await?,
+    };
     if bound.is_finished() {
         return Ok(true);
     }
@@ -169,4 +220,35 @@ where
     };
     diagnostics.record_abandonment(reason, started.elapsed());
     Ok(false)
+}
+
+/// Complete when the idle grace expires, purging expired inbound state first.
+///
+/// Every purge interval that passes while the write waits is observed here, so
+/// buffered state keeps expiring for as long as the transport stalls.
+async fn grace_with_purges(expiry: &mut InboundExpiry<'_>) {
+    let grace = sleep(PEER_CLOSED_RESPONSE_GRACE);
+    tokio::pin!(grace);
+    loop {
+        let purge = purge_wait(Some(expiry.due()));
+        tokio::pin!(purge);
+        tokio::select! {
+            biased;
+            // The grace is the bound, so it wins a tie with a purge that falls
+            // due at the same instant.
+            () = &mut grace => return,
+            () = &mut purge => expiry.expire_silence(),
+        }
+    }
+}
+
+/// Wake at the inbound read deadline, or never when none is armed.
+///
+/// Waking is only a signal: the caller purges and re-enters the wait, so the
+/// write it was awaiting is neither cancelled nor restarted.
+fn purge_wait(deadline: Option<Instant>) -> Either<Sleep, future::Pending<()>> {
+    match deadline {
+        Some(at) => Either::Left(sleep_until(at)),
+        None => Either::Right(future::pending()),
+    }
 }

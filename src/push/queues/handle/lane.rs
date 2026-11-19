@@ -81,6 +81,14 @@ impl<F: FrameLike> PushHandle<F> {
         if let Some(ref limiter) = self.0.limiter {
             self.wait_for_permit(limiter, tx).await?;
         }
+        // A clean peer close seals the lanes and takes only the frames already
+        // buffered, so a send after that seal would never be written. The wait
+        // above can be arbitrarily long, so re-check closure once it returns:
+        // reporting `Closed` here is what keeps a successful push a promise the
+        // connection can still keep.
+        if tx.is_closed() {
+            return Err(PushError::Closed);
+        }
         permit.send(frame);
         debug!("frame pushed: priority={priority:?}");
         Ok(())

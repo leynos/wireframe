@@ -156,6 +156,32 @@ proptest! {
     }
 }
 
+// A stop that is ready before the first poll outranks a grace that is ready at
+// the same instant. The generated cases exclude the tie because a stop
+// delivered by another task at the same instant depends on task scheduling;
+// here both bounds are ready before the write is polled at all, so reversing
+// the select's precedence would be caught.
+#[test]
+fn a_ready_stop_outranks_a_ready_grace() -> Result<(), TestCaseError> {
+    let runtime = paused_runtime()?;
+    let bound = runtime
+        .block_on(async {
+            let shutdown = CancellationToken::new();
+            shutdown.cancel();
+            write_before_bound(
+                std::future::pending::<io::Result<()>>(),
+                &shutdown,
+                std::future::ready(()),
+            )
+            .await
+        })
+        .map_err(|error| {
+            TestCaseError::fail(format!("a bounded write is not an error: {error:?}"))
+        })?;
+    prop_assert_eq!(bound, WriteBound::Stopped);
+    Ok(())
+}
+
 // A response whose frames are each accepted within one grace is delivered in
 // full even when the whole response takes longer than a grace, because every
 // accepted frame renews the deadline. A frame that outlasts the grace abandons

@@ -20,7 +20,7 @@ use super::{
         codec_driver::{ActorFrameSink, FramePipeline},
         envelope::Envelope,
     },
-    frames::{InboundFrames, NextFrame},
+    frames::{InboundExpiry, InboundFrames, NextFrame},
     push_write::{finish_write, write_frame},
 };
 use crate::{
@@ -74,10 +74,16 @@ where
 /// dropped the select degenerates to a plain read instead of spinning on a
 /// permanently ready `None`.
 ///
-/// The read is tried before the push lanes when a frame is buffered or when the
-/// previous wait was served from the queues. Without that, a continuously ready
-/// push lane would win every biased pass and an inbound frame could wait
-/// indefinitely behind pushes.
+/// The read is tried before the push lanes on the turn after a push batch, and
+/// only then. An always-ready push lane would otherwise win every biased pass
+/// and an inbound frame could wait indefinitely behind pushes. A frame
+/// buffered while the previous one was handled must not take that turn for
+/// itself: the select's read arm returns it without waiting, so it is served
+/// as soon as no push batch is ready, while a ready batch is served first and
+/// the buffered frame keeps its place for the next turn. Without that
+/// alternation a client that keeps its pipeline full — the peer watcher
+/// refills the buffered slot during every dispatch — would starve an accepted
+/// push indefinitely.
 ///
 /// # Errors
 ///
@@ -102,7 +108,11 @@ where
     // ready batches cancels it before it fires, so the command is what keeps
     // buffered state expiring on a push-only connection.
     inbound.expire_silence(read_timeout_ms);
-    let should_try_read = read_first || inbound.pending.is_some();
+    // The turn after a push batch is the reader's; a buffered frame waits for
+    // the select below instead, where a ready push batch outranks it. Probing
+    // on every buffered frame would hand the reader every pass, because the
+    // peer watcher can refill the slot while each frame is dispatched.
+    let should_try_read = read_first;
     if should_try_read {
         match inbound.try_next(reader).await? {
             NextFrame::Ready(frame) => return Ok(StreamStep::Frame(frame)),
@@ -165,6 +175,12 @@ where
         self.frame_sink().send_push(frame).await
     }
 
+    /// Drop fragment buffers whose reassembly deadline has passed.
+    ///
+    /// The pipeline is borrowed by a write for as long as the write is pending,
+    /// so the caller can only run this between frames.
+    pub(super) fn purge_expired_fragments(&mut self) { self.pipeline.purge_expired(); }
+
     /// Borrow the push-writing sink for the duration of one call.
     fn frame_sink(&mut self) -> ActorFrameSink<'_, S, K, F> {
         ActorFrameSink::new(
@@ -193,6 +209,8 @@ where
     pub(super) reader: &'a mut R,
     /// Frame read during the write, kept for the next dispatch.
     pub(super) pending_frame: &'a mut Option<F::Frame>,
+    /// Inbound state that keeps expiring while the write is stalled.
+    pub(super) expiry: InboundExpiry<'a>,
     /// Cancelled only by a clean EOF, which is permanent for the connection.
     pub(super) peer_eof: &'a CancellationToken,
     /// Cancels when the server stops or this connection ends.
@@ -210,7 +228,8 @@ where
 /// stopped reading: without it the loop would never observe the close, and the
 /// write would pin the connection, its registry entry, and the server drain
 /// until shutdown. A frame read here is buffered for the next dispatch rather
-/// than dropped.
+/// than dropped, and the read deadline keeps purging expired buffered state
+/// while the socket stays silent.
 ///
 /// Reports whether the connection may keep serving its peer. A peer that
 /// closed its write half has its remaining queued frames drained first, so a
@@ -232,6 +251,12 @@ where
 {
     let mut peer_closed = batch.peer_eof.is_cancelled();
     for frame in std::mem::take(&mut batch.frames) {
+        // A batch can take several idle intervals to write, so the deadline is
+        // observed between frames as well as inside each write. The pipeline is
+        // borrowed by the transport, so its expired fragment buffers are purged
+        // here rather than by the expiry state.
+        batch.expiry.expire_silence();
+        transport.purge_expired_fragments();
         let written = write_frame(transport, frame, &mut batch, peer_closed).await?;
         peer_closed = written.peer_closed();
         if !written.may_continue() {
@@ -248,25 +273,22 @@ where
 /// Deliver frames still queued when the peer closed its write half.
 ///
 /// A peer that closed its write half but stopped reading applies
-/// back-pressure that can hold a send pending forever. Collecting the lanes is
-/// therefore raced against the connection's shutdown token, and each write is
-/// bounded by that token and by the same grace that bounds a response whose
-/// peer can no longer be observed. Any of these bounds abandons the remaining
-/// frames instead of pinning the connection task and its registry entry.
+/// back-pressure that can hold a send pending forever, so each write is
+/// bounded by the connection's shutdown token and by the same grace that
+/// bounds a response whose peer can no longer be observed. Either bound
+/// abandons the remaining frames instead of pinning the connection task and
+/// its registry entry.
 ///
-/// The race prefers a collection that is ready now, because those frames are
-/// already buffered and no write is pending when the stop is observed: dropping
-/// them would abandon output a still-readable peer can take. The token cuts
-/// short only a collection that is still pending. That case needs bounding
-/// because a closed lane reports itself exhausted only once its buffer is empty
-/// and every permit taken before the close has been released, so a producer
-/// that never releases one would otherwise keep this await pending without ever
-/// reaching a write. Each selected frame is then written under its own bound,
-/// which is what limits an abandoned drain.
+/// Collecting the lanes does not wait for a producer. A lane reports itself
+/// exhausted only once its buffer is empty and every permit taken before the
+/// close has been released, so awaiting that would let a producer that never
+/// sends hold the drain before its first write, with nothing but a stop to end
+/// the wait. The lanes are sealed instead and only the frames they already
+/// hold are taken, which is exactly the set whose producers were told their
+/// pushes had been accepted.
 ///
 /// The grace restarts for every frame, so it measures idleness rather than the
-/// time the whole drain has taken. A lane can still hold per-frame
-/// reservations from a slow producer, and one deadline for the drain would
+/// time the whole drain has taken. A single deadline for the drain would
 /// abandon frames the peer was accepting within the grace.
 ///
 /// # Errors
@@ -282,14 +304,7 @@ where
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
 {
-    // A ready collection wins: its frames are already buffered, so a stop does
-    // not discard them. A collection still waiting on a producer is abandoned
-    // instead, which is what keeps that producer from pinning the connection.
-    let pending = tokio::select! {
-        biased;
-        pending = actor.take_pending_pushes() => pending,
-        () = shutdown.cancelled() => return Ok(()),
-    };
+    let pending = actor.take_pending_pushes();
     // Both lanes are drained here, so the batch has no single priority to
     // report and every write is labelled `mixed`.
     let diagnostics = transport.diagnostics.with_priority(pending.priority);

@@ -1,12 +1,26 @@
 //! Unit tests for the non-blocking read attempt and the idle expiry.
 
-use std::num::NonZeroUsize;
-
+use bytes::Bytes;
 use futures::stream;
 use tokio::time::{Duration, Instant, advance};
 
-use super::*;
-use crate::message_assembler::{EnvelopeRouting, FirstFrameHeader, FirstFrameInput, MessageKey};
+use super::{
+    super::push_service::{StreamStep, StreamWait, next_stream_step},
+    *,
+};
+use crate::{
+    app::Envelope,
+    codec::LengthDelimitedFrameCodec,
+    connection::{ConnectionActor, ConnectionChannels, UntrackedActorInit},
+    hooks::{ConnectionContext, ProtocolHooks},
+    push::{PushHandle, PushQueues},
+};
+
+/// Read timeout the expiry tests arm.
+const READ_TIMEOUT_MS: u64 = 400;
+
+/// Capacity of each push lane the scheduler test delivers from.
+const LANE_CAPACITY: usize = 4;
 
 /// The post-batch read probe must not wait for a timer tick.
 ///
@@ -65,45 +79,6 @@ where
     assert!(attempt.is_err(), "the reader stays silent throughout");
 }
 
-/// Reader state holding one incomplete assembly that any purge evicts.
-///
-/// The assembly timeout is zero so that a purge always drops it; the
-/// assertions then measure *when* the purge runs rather than the assembly
-/// clock, which is a `std::time::Instant` that a paused runtime does not
-/// advance.
-fn inbound_with_incomplete_assembly() -> InboundFrames<u8> {
-    let mut assembly = MessageAssemblyState::new(
-        NonZeroUsize::new(1024).unwrap_or(NonZeroUsize::MIN),
-        Duration::ZERO,
-    );
-    let first = FirstFrameHeader {
-        message_key: MessageKey(1),
-        metadata_len: 0,
-        body_len: 4,
-        total_body_len: Some(8),
-        is_last: false,
-    };
-    let input = FirstFrameInput::new(&first, EnvelopeRouting::default(), Vec::new(), b"half")
-        .expect("the incomplete frame is valid");
-    assembly
-        .accept_first_frame(input)
-        .expect("the first frame is buffered");
-    InboundFrames {
-        pending: None,
-        pipeline: FramePipeline::new(None),
-        message_assembly: Some(assembly),
-        read_deadline: None,
-    }
-}
-
-/// Number of incomplete assemblies still buffered.
-fn buffered(inbound: &InboundFrames<u8>) -> Option<usize> {
-    inbound
-        .message_assembly
-        .as_ref()
-        .map(MessageAssemblyState::buffered_count)
-}
-
 /// A client that only receives pushes must still expire its buffered state.
 ///
 /// Each push batch cancels the pending read before its timeout fires. A
@@ -114,7 +89,7 @@ fn buffered(inbound: &InboundFrames<u8>) -> Option<usize> {
 /// purge runs once it does.
 #[tokio::test(start_paused = true)]
 async fn pushes_do_not_postpone_the_inbound_expiry() {
-    let mut inbound = inbound_with_incomplete_assembly();
+    let mut inbound = incomplete_inbound::<u8>();
     let mut reader = stream::pending::<io::Result<u8>>();
 
     // Three cancelled waits keep the 400 ms read deadline in the future.
@@ -122,7 +97,7 @@ async fn pushes_do_not_postpone_the_inbound_expiry() {
         wait_cancelled_by_a_push(&mut inbound, &mut reader).await;
     }
     assert_eq!(
-        buffered(&inbound),
+        buffered_assemblies(&inbound),
         Some(1),
         "no purge may run before the read deadline passes"
     );
@@ -133,41 +108,151 @@ async fn pushes_do_not_postpone_the_inbound_expiry() {
         wait_cancelled_by_a_push(&mut inbound, &mut reader).await;
     }
     assert_eq!(
-        buffered(&inbound),
+        buffered_assemblies(&inbound),
         Some(0),
         "the incomplete assembly must expire despite the pushes"
     );
 }
 
-/// A push lane that is always ready must not defer the expiry either.
+/// Actor with an open push lane the scheduler test can take from.
 ///
-/// When a batch is ready on every pass the biased select serves pushes, so
-/// the read wait is never polled and only the loop's own pass runs. A
-/// deadline armed solely by the wait would therefore never start, and the
-/// buffered assembly would outlive the timeout it was given. The loop runs
-/// the expiry command on every pass, so the purge happens without the read
-/// ever being driven.
+/// The lane is the competitor the select must not let starve the expiry, so it
+/// is the actor's own queue rather than a stand-in.
+fn push_actor(
+    shutdown: &CancellationToken,
+) -> (ConnectionActor<Envelope, (), Bytes>, PushHandle<Bytes>) {
+    let (queues, handle) = PushQueues::<Bytes>::builder()
+        .high_capacity(LANE_CAPACITY)
+        .low_capacity(LANE_CAPACITY)
+        .build()
+        .expect("the test lane capacities are valid");
+    let actor = ConnectionActor::new_untracked(UntrackedActorInit {
+        channels: ConnectionChannels::new(queues, handle.clone()),
+        response: None,
+        shutdown: shutdown.clone(),
+        hooks: ProtocolHooks::default(),
+        ctx: ConnectionContext::default(),
+    });
+    (actor, handle)
+}
+
+/// Take one scheduled step with a freshly queued push waiting.
+///
+/// Each call consumes the batch it wins, so the lane is replenished first; the
+/// returned step must be the pushes, which is what proves the ready lane beat
+/// the read on this pass.
+async fn step_with_ready_push<R>(
+    actor: &mut ConnectionActor<Envelope, (), Bytes>,
+    handle: &PushHandle<Bytes>,
+    inbound: &mut InboundFrames<Bytes>,
+    reader: &mut R,
+    shutdown: &CancellationToken,
+) where
+    R: Stream<Item = io::Result<Bytes>> + Unpin,
+{
+    handle
+        .push_high_priority(Bytes::from_static(b"queued"))
+        .await
+        .expect("the lane has room for the next frame");
+    let step = next_stream_step::<LengthDelimitedFrameCodec, _>(
+        actor,
+        StreamWait {
+            inbound,
+            reader,
+            read_timeout_ms: READ_TIMEOUT_MS,
+            shutdown,
+            read_first: false,
+        },
+    )
+    .await
+    .expect("the wait must not fail");
+    assert!(
+        matches!(step, StreamStep::Pushes(_)),
+        "the ready push lane must win the pass"
+    );
+}
+
+/// A push lane that is always ready must not defer the inbound expiry.
+///
+/// When a batch is ready on every pass the biased select serves pushes, so the
+/// read wait is cancelled before its timeout fires. A deadline armed solely by
+/// the wait would therefore never start, and the buffered assembly would
+/// outlive the timeout it was given. `next_stream_step` runs the expiry command
+/// before it selects, so the purge happens on the scheduler path even though
+/// the read is never driven.
 #[tokio::test(start_paused = true)]
 async fn a_ready_push_lane_does_not_postpone_the_inbound_expiry() {
-    let mut inbound = inbound_with_incomplete_assembly();
+    let shutdown = CancellationToken::new();
+    let (mut actor, handle) = push_actor(&shutdown);
+    let mut inbound = incomplete_inbound::<Bytes>();
+    let mut reader = stream::pending::<io::Result<Bytes>>();
 
-    // Arming the deadline is not yet expiry: the assembly survives the
-    // first pass and the rest of the interval.
-    inbound.expire_silence(400);
-    advance(Duration::from_millis(399)).await;
-    inbound.expire_silence(400);
+    // Arming the deadline is not yet expiry: the assembly survives the first
+    // pass and the rest of the interval.
+    step_with_ready_push(&mut actor, &handle, &mut inbound, &mut reader, &shutdown).await;
+    advance(Duration::from_millis(READ_TIMEOUT_MS - 1)).await;
+    step_with_ready_push(&mut actor, &handle, &mut inbound, &mut reader, &shutdown).await;
     assert_eq!(
-        buffered(&inbound),
+        buffered_assemblies(&inbound),
         Some(1),
         "no purge may run before the armed deadline passes"
     );
 
     advance(Duration::from_millis(2)).await;
-    inbound.expire_silence(400);
+    step_with_ready_push(&mut actor, &handle, &mut inbound, &mut reader, &shutdown).await;
     assert_eq!(
-        buffered(&inbound),
+        buffered_assemblies(&inbound),
         Some(0),
         "the expiry command must purge once the deadline has passed"
+    );
+}
+
+/// A buffered frame must not take the turn a ready push batch owns.
+///
+/// The read arm returns a buffered frame without waiting, so probing for one on
+/// every pass would hand the reader every turn while an accepted push waited
+/// behind it. The buffered frame keeps its place and is served on the turn
+/// after the batch.
+#[tokio::test(start_paused = true)]
+async fn a_buffered_frame_does_not_starve_a_ready_push() {
+    use crate::app::codec_driver::FramePipeline;
+
+    let shutdown = CancellationToken::new();
+    let (mut actor, handle) = push_actor(&shutdown);
+    let buffered = Bytes::from_static(b"buffered");
+    let mut inbound = InboundFrames::<Bytes> {
+        pending: Some(buffered.clone()),
+        pipeline: FramePipeline::new(None),
+        message_assembly: None,
+        read_deadline: None,
+    };
+    let mut reader = stream::pending::<io::Result<Bytes>>();
+    handle
+        .push_high_priority(Bytes::from_static(b"queued"))
+        .await
+        .expect("the lane has room for one frame");
+
+    let step = next_stream_step::<LengthDelimitedFrameCodec, _>(
+        &mut actor,
+        StreamWait {
+            inbound: &mut inbound,
+            reader: &mut reader,
+            read_timeout_ms: READ_TIMEOUT_MS,
+            shutdown: &shutdown,
+            read_first: false,
+        },
+    )
+    .await
+    .expect("the wait must not fail");
+
+    assert!(
+        matches!(step, StreamStep::Pushes(_)),
+        "the ready push batch must win the pass"
+    );
+    assert_eq!(
+        inbound.pending,
+        Some(buffered),
+        "the buffered frame must keep its place for the next turn"
     );
 }
 
@@ -179,7 +264,7 @@ async fn a_ready_push_lane_does_not_postpone_the_inbound_expiry() {
 /// separate, and keeps the loop's explicit call the only thing that drops it.
 #[tokio::test(start_paused = true)]
 async fn the_read_probe_never_purges_buffered_state() {
-    let mut inbound = inbound_with_incomplete_assembly();
+    let mut inbound = incomplete_inbound::<u8>();
     let mut reader = stream::pending::<io::Result<u8>>();
 
     // Arm the deadline, then let it pass without running the command again.
@@ -190,14 +275,14 @@ async fn the_read_probe_never_purges_buffered_state() {
         Ok(NextFrame::TimedOut)
     ));
     assert_eq!(
-        buffered(&inbound),
+        buffered_assemblies(&inbound),
         Some(1),
         "the probe must not purge; only the expiry command may"
     );
 
     inbound.expire_silence(400);
     assert_eq!(
-        buffered(&inbound),
+        buffered_assemblies(&inbound),
         Some(0),
         "the same interval expires once the command runs"
     );

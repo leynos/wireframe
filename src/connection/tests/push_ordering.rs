@@ -7,6 +7,8 @@
 //! select, the fairness threshold, or the drain order cannot satisfy them by
 //! accident.
 
+use std::time::Duration;
+
 use proptest::prelude::*;
 use tokio_util::sync::CancellationToken;
 
@@ -19,6 +21,12 @@ use crate::{
 
 /// Consecutive urgent frames the default policy delivers before it yields.
 const FAIRNESS_THRESHOLD: usize = 8;
+
+/// How long a generated case may wait for the actor to produce its next batch.
+///
+/// A regression that drops a queued frame leaves the lanes open and empty, so
+/// an unbounded wait would hang the test binary instead of reporting the case.
+const COLLECTION_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// One queued frame: which lane it went to, and the byte that identifies it.
 type LaneFrame = (bool, u8);
@@ -67,17 +75,58 @@ fn frame_marker(frame: &Envelope) -> u8 {
 }
 
 /// Collect every queued frame through the actor's normal delivery path.
-fn collect_from_actor(actor: &mut ConnectionActor<Envelope, ()>, expected: usize) -> Vec<u8> {
-    futures::executor::block_on(async {
+///
+/// Every wait is bounded: the generated case fails when the actor stops
+/// delivering while the lanes it still polls are empty, rather than blocking
+/// the test binary.
+fn collect_from_actor(
+    actor: &mut ConnectionActor<Envelope, ()>,
+    expected: usize,
+) -> Result<Vec<u8>, TestCaseError> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .map_err(|error| TestCaseError::fail(format!("the runtime must build: {error}")))?;
+    runtime.block_on(async {
         let mut delivered = Vec::with_capacity(expected);
         while delivered.len() < expected {
-            let Some(batch) = actor.next_pushes().await else {
+            let next = tokio::time::timeout(COLLECTION_TIMEOUT, actor.next_pushes())
+                .await
+                .map_err(|_| {
+                    TestCaseError::fail(
+                        "the actor stopped delivering a queued frame while its lanes stayed open",
+                    )
+                })?;
+            let Some(batch) = next else {
                 break;
             };
             delivered.extend(batch.frames.iter().map(frame_marker));
         }
-        delivered
+        Ok(delivered)
     })
+}
+
+/// The order the fairness policy requires for one lane interleaving.
+///
+/// Urgent frames go first in bursts of [`FAIRNESS_THRESHOLD`], and one
+/// best-effort frame follows each full burst while that lane still has work.
+/// Once a lane is exhausted the remaining frames of the other lane follow in
+/// their queue order.
+fn expected_fair_order(frames: &[LaneFrame]) -> Vec<u8> {
+    let urgent = lane_markers(frames, true);
+    let best_effort = lane_markers(frames, false);
+    let mut expected = Vec::with_capacity(frames.len());
+    let (mut next_urgent, mut next_best_effort) = (0, 0);
+    while next_urgent < urgent.len() || next_best_effort < best_effort.len() {
+        let burst_end = (next_urgent + FAIRNESS_THRESHOLD).min(urgent.len());
+        expected.extend_from_slice(&urgent[next_urgent..burst_end]);
+        next_urgent = burst_end;
+        if let Some(marker) = best_effort.get(next_best_effort) {
+            expected.push(*marker);
+            next_best_effort += 1;
+        }
+    }
+    expected
 }
 
 /// Markers of one lane, in the order they were queued.
@@ -108,7 +157,7 @@ proptest! {
 
         let mut expected = lane_markers(&frames, true);
         expected.extend(lane_markers(&frames, false));
-        prop_assert_eq!(collect_from_actor(&mut actor, frames.len()), expected);
+        prop_assert_eq!(collect_from_actor(&mut actor, frames.len())?, expected);
     }
 }
 
@@ -129,7 +178,7 @@ proptest! {
         let (mut actor, handle) = actor_with_lanes()?;
         queue_all(&handle, &frames).map_err(|error| TestCaseError::fail(format!("queue: {error}")))?;
 
-        let output = collect_from_actor(&mut actor, frames.len());
+        let output = collect_from_actor(&mut actor, frames.len())?;
         prop_assert_eq!(output.len(), frames.len(), "every queued frame is delivered once");
 
         let mut sorted = output.clone();
@@ -148,48 +197,52 @@ proptest! {
             prop_assert_eq!(observed, expected, "one lane must keep its queue order");
         }
 
-        assert_overtaking_needs_a_burst(&frames, &output)?;
+        prop_assert_eq!(
+            output,
+            expected_fair_order(&frames),
+            "each full urgent burst must be followed by exactly one best-effort frame while that \
+             lane has work"
+        );
     }
 }
 
-/// Check that a best-effort frame overtakes an urgent one only after a burst.
+/// A fairness yield makes the batch mixed rather than urgent.
 ///
-/// Returns a failure when a best-effort frame appears ahead of a later urgent
-/// frame while fewer than [`FAIRNESS_THRESHOLD`] urgent frames have been
-/// delivered before it: that is the ordering guarantee, not a fairness yield.
-fn assert_overtaking_needs_a_burst(
-    frames: &[LaneFrame],
-    delivered: &[u8],
-) -> Result<(), TestCaseError> {
-    let urgent = lane_markers(frames, true);
-    let best_effort = lane_markers(frames, false);
-    for (position, marker) in delivered.iter().enumerate() {
-        if !best_effort.contains(marker) {
-            continue;
+/// The batch carries no single priority once it holds frames from both lanes,
+/// so a writer that abandons one of them cannot report the wrong lane.
+#[test]
+fn a_fairness_yield_reports_a_mixed_batch() {
+    let (mut actor, handle) = actor_with_lanes().expect("the actor should build");
+    let mut frames: Vec<LaneFrame> = (0..FAIRNESS_THRESHOLD as u8).map(|m| (true, m)).collect();
+    frames.push((false, FAIRNESS_THRESHOLD as u8));
+    queue_all(&handle, &frames).expect("the lanes have room for every frame");
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("the runtime should build");
+    for burst in 1..=FAIRNESS_THRESHOLD {
+        let batch = runtime
+            .block_on(actor.next_pushes())
+            .expect("every queued frame is delivered");
+        if burst < FAIRNESS_THRESHOLD {
+            assert_eq!(
+                batch.priority,
+                Some(PushPriority::High),
+                "a batch from one lane reports that lane"
+            );
+        } else {
+            assert_eq!(
+                batch.priority, None,
+                "the batch a fairness yield extends must report no single lane"
+            );
+            assert_eq!(
+                batch.frames.len(),
+                2,
+                "the yield appends one best-effort frame"
+            );
         }
-        // `position` comes from `enumerate` over `delivered`, so both slices
-        // exist; `unwrap_or_default` keeps the helper free of indexing panics.
-        let urgent_after = delivered
-            .get(position + 1..)
-            .unwrap_or_default()
-            .iter()
-            .any(|later| urgent.contains(later));
-        if !urgent_after {
-            continue;
-        }
-        let urgent_before = delivered
-            .get(..position)
-            .unwrap_or_default()
-            .iter()
-            .filter(|seen| urgent.contains(seen))
-            .count();
-        prop_assert!(
-            urgent_before >= FAIRNESS_THRESHOLD,
-            "best-effort frame {marker} overtook urgent traffic after only {urgent_before} urgent \
-             frames"
-        );
     }
-    Ok(())
 }
 
 // A close-time drain delivers every queued frame, urgent lane first, and then
@@ -208,7 +261,7 @@ proptest! {
         let (mut actor, handle) = actor_with_lanes()?;
         queue_all(&handle, &frames).map_err(|error| TestCaseError::fail(format!("queue: {error}")))?;
 
-        let pending = futures::executor::block_on(actor.take_pending_pushes());
+        let pending = actor.take_pending_pushes();
         let mut expected = lane_markers(&frames, true);
         expected.extend(lane_markers(&frames, false));
         let drained: Vec<u8> = pending.frames.iter().map(frame_marker).collect();

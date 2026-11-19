@@ -156,18 +156,29 @@ where
 
             let mut frames = Vec::new();
             self.compose_push(frame, &mut frames);
-            match kind {
+            let is_mixed = match kind {
                 PushKind::High => self.yield_to_low_after_high(&mut frames),
-                PushKind::Low => self.fairness.reset(),
-            }
+                PushKind::Low => {
+                    self.fairness.reset();
+                    false
+                }
+            };
+            // A fairness yield appends a low-priority frame to a high-priority
+            // batch, so the batch no longer belongs to one lane. Tagging it
+            // with the lane that started it would name the wrong priority for
+            // a frame the writer later abandons.
             return Some(PendingPushes {
-                priority: Some(kind.priority()),
+                priority: if is_mixed {
+                    None
+                } else {
+                    Some(kind.priority())
+                },
                 frames,
             });
         }
     }
 
-    /// Take every frame still queued when the peer stopped writing.
+    /// Seal both lanes and take every frame they already hold.
     ///
     /// The connection loop calls this after a clean end-of-stream so frames
     /// accepted before the close are still delivered. Frames are returned in
@@ -177,11 +188,21 @@ where
     /// polled again. Either way a push attempted after this returns is rejected
     /// with [`crate::push::PushError::Closed`].
     ///
+    /// Only frames a lane already holds are taken. A producer that has reserved
+    /// capacity but is still waiting for a rate permit has not been told its
+    /// frame was accepted, and one that is never polled again never sends: an
+    /// awaited reservation would therefore stall the drain before a single
+    /// accepted frame was written, with nothing but a stop to end the wait.
+    /// Sealing the lanes first is what makes taking only the buffered frames
+    /// safe, because a producer still holding a permit observes the closed
+    /// channel on its next poll and reports
+    /// [`crate::push::PushError::Closed`] instead of queueing into a lane this
+    /// drain has finished with.
+    ///
     /// Returning the frames rather than writing them lets the caller bound each
-    /// write by its own idle grace: a closed lane can hold a slow producer's
-    /// per-frame reservations, and one deadline for the whole drain would
+    /// write by its own idle grace: one deadline for the whole drain would
     /// abandon frames the peer was still accepting.
-    pub(crate) async fn take_pending_pushes(&mut self) -> PendingPushes<P> {
+    pub(crate) fn take_pending_pushes(&mut self) -> PendingPushes<P> {
         // Take both lanes before reading them. A frame pushed while the drain
         // runs is then rejected by the now-closed channel instead of being
         // accepted into a lane the actor has already stopped polling, which
@@ -190,15 +211,15 @@ where
         // Taking a lane out of the actor does not close it: the receiver is
         // still alive in `lanes`, so a concurrent push would be accepted into a
         // lane this drain has already read and then be discarded when `lanes`
-        // drops. Every lane is therefore closed before any is drained, so a
-        // push arriving during the high-priority drain is rejected rather than
-        // queued into a low lane that will never be read again.
+        // drops. Every lane is therefore closed before any is read, so a push
+        // arriving during the high-priority pass is rejected rather than queued
+        // into a low lane that will never be read again.
         for receiver in lanes.iter_mut().flatten() {
             receiver.close();
         }
         let mut frames = Vec::new();
         for receiver in lanes.iter_mut().flatten() {
-            self.drain_receiver(receiver, &mut frames).await;
+            self.collect_buffered(receiver, &mut frames);
         }
         PendingPushes::mixed(frames)
     }
@@ -210,15 +231,18 @@ where
     }
 
     /// Pull one low-priority frame forward after urgent traffic.
-    fn yield_to_low_after_high(&mut self, pushes: &mut Vec<P>) {
+    ///
+    /// Returns whether a low-priority frame joined the batch, which is what
+    /// makes the batch mixed rather than high-priority.
+    fn yield_to_low_after_high(&mut self, pushes: &mut Vec<P>) -> bool {
         self.fairness.record_high_priority();
         if !self.fairness.should_yield_to_low_priority() {
-            return;
+            return false;
         }
         // The temporary state only records closure, which the caller does not
         // observe here; lane closure is handled on the next poll.
         let mut state = ActorState::new(false, false);
-        self.try_opportunistic_low_drain(&mut state, pushes);
+        self.try_opportunistic_low_drain(&mut state, pushes)
     }
 
     /// Drop a push lane that reported closure.
@@ -229,16 +253,17 @@ where
         }
     }
 
-    /// Move every buffered frame from one closed lane into `pushes`.
+    /// Move every frame one sealed lane already holds into `pushes`.
     ///
-    /// The lane was closed before this call, so `recv` yields `None` once the
-    /// buffer is empty and every permit taken before the close has been
-    /// released. Reading until then matters: `try_recv` reports `Empty` while
-    /// a producer still holds a reservation, and a frame that producer then
-    /// sends would be lost when the receiver drops even though the producer
-    /// was told it was accepted.
-    async fn drain_receiver(&mut self, receiver: &mut mpsc::Receiver<P>, pushes: &mut Vec<P>) {
-        while let Some(frame) = receiver.recv().await {
+    /// `try_recv` is what makes this non-blocking: `Disconnected` ends the
+    /// pass once the buffer is empty, and `Empty` means a producer holds a
+    /// reservation this drain deliberately does not wait for. A frame sent
+    /// through that reservation after the receiver drops is lost, which is why
+    /// the producer checks the lane is still open before it sends and reports
+    /// [`crate::push::PushError::Closed`] rather than claiming an acceptance
+    /// the drain will never deliver.
+    fn collect_buffered(&mut self, receiver: &mut mpsc::Receiver<P>, pushes: &mut Vec<P>) {
+        while let Ok(frame) = receiver.try_recv() {
             self.compose_push(frame, pushes);
         }
     }

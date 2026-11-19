@@ -16,7 +16,13 @@ use std::{
 use futures::Sink;
 use tokio_util::sync::CancellationToken;
 
-use super::{super::response_pushes::run_handler_with_pushes, HandlerRig, queued_push};
+use super::{
+    super::response_pushes::run_handler_with_pushes,
+    BlockedRigFixture,
+    HandlerRig,
+    blocked_rig,
+    queued_push,
+};
 use crate::test_helpers::frame_codec::TestFrame;
 
 /// Sink that records every frame and requests shutdown after the first one.
@@ -106,36 +112,38 @@ async fn shutdown_between_push_batches_abandons_the_handler() {
     );
 }
 
-/// A stop wins over a batch that is already queued behind the delivered one.
+/// The push a second batch queues while the first one is still being written.
+fn second_push() -> TestFrame {
+    TestFrame {
+        tag: 8,
+        payload: vec![8],
+    }
+}
+
+/// A stop wins over a batch that is already queued behind the pending one.
 ///
-/// The sink keeps accepting writes, so a run that consulted the lanes before
-/// the stop token would deliver this batch as well. The stop is observed
-/// between batches, so the frame queued once the first batch was taken is
-/// discarded rather than written, even though it is ready.
+/// The first write is held open, so the handler can queue a second batch and
+/// only then request the stop. The stop is therefore observed between batches
+/// with the second batch already ready: a run that consulted the lanes before
+/// the stop token would deliver it too. Holding the write removes the race
+/// where the stop lands before the second send is even queued, which would let
+/// the test pass without ever exercising a ready batch.
+#[rstest::rstest]
 #[tokio::test]
-async fn shutdown_takes_precedence_over_a_queued_push_batch() {
-    let shutdown = CancellationToken::new();
-    let sink = StopAfterFirstWrite {
-        // The first write requests the stop, so it is pending by the time the
-        // loop looks for another batch.
-        shutdown: Some(shutdown.clone()),
-        written: Vec::new(),
-    };
-    let mut rig = HandlerRig::new(shutdown, sink).expect("actor queues build");
-    // The second push can only complete once the actor has taken the first
-    // batch, so it is queued while that batch is being written. The handler
-    // then never finishes, leaving the run to the stop token alone.
+async fn shutdown_takes_precedence_over_a_queued_push_batch(blocked_rig: BlockedRigFixture) {
+    let (mut rig, release) = blocked_rig.expect("the rig's queues build");
+    let shutdown = rig.shutdown.clone();
+    // The first batch is already queued by the fixture. The handler queues the
+    // second one once the actor has taken the first, then requests the stop and
+    // never finishes, leaving the run to the stop token alone.
     let call = {
         let producer = rig.handle.clone();
         async move {
             producer
-                .push_high_priority(queued_push())
-                .await
-                .expect("the lane has capacity");
-            producer
-                .push_high_priority(queued_push())
+                .push_high_priority(second_push())
                 .await
                 .expect("the drained lane has capacity");
+            shutdown.cancel();
             std::future::pending::<()>().await;
         }
     };
@@ -143,10 +151,17 @@ async fn shutdown_takes_precedence_over_a_queued_push_batch() {
     let response = {
         let mut ctx = rig.context();
         let running = run_handler_with_pushes(&mut ctx, call);
-        tokio::time::timeout(Duration::from_secs(5), running)
-            .await
-            .expect("the stop must end the run")
-            .expect("an abandoned run is not an error")
+        tokio::pin!(running);
+        assert!(
+            futures::poll!(running.as_mut()).is_pending(),
+            "the first write must still be waiting for the peer"
+        );
+        // The handler has now queued the second batch and requested the stop
+        // while the first write was pending.
+        release
+            .send(())
+            .expect("the handler run still holds the release channel");
+        running.await.expect("an abandoned run is not an error")
     };
 
     assert_eq!(
@@ -160,12 +175,12 @@ async fn shutdown_takes_precedence_over_a_queued_push_batch() {
     );
     assert_eq!(
         rig.sink.written.first().map(|frame| frame.tag),
-        Some(7),
+        Some(queued_push().tag),
         "the only frame written must be the first batch's push"
     );
     assert_eq!(
-        rig.handle.push_high_priority(queued_push()).await,
+        rig.try_queue_push(),
         Err(crate::push::PushError::Closed),
-        "the abandoned run must stop accepting pushes"
+        "the abandoned run must stop accepting pushes without waiting for room"
     );
 }

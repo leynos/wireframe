@@ -4,6 +4,8 @@
 #![cfg(not(loom))]
 #![forbid(unsafe_code)]
 
+#[path = "push/rate_budget.rs"]
+mod rate_budget;
 mod support;
 
 #[path = "common/fallible_assertions/check.rs"]
@@ -14,7 +16,6 @@ mod fallible_check_eq;
 use fallible_check::check;
 use fallible_check_eq::check_eq;
 use futures::FutureExt;
-use proptest::prelude::*;
 use rstest::{fixture, rstest};
 use tokio::time::{self, Duration};
 use wireframe::push::{
@@ -340,45 +341,4 @@ async fn rate_limiter_allows_burst_within_capacity_and_blocks_excess() -> TestRe
         check_eq(frame, expected, "frames drained in unexpected order")?;
     }
     Ok(())
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig {
-        cases: 32,
-        ..ProptestConfig::default()
-    })]
-
-    /// A rate budget admits exactly its initial allowance, however it is spent.
-    ///
-    /// The bucket starts full with one permit per configured unit per second,
-    /// so the first `rate` non-blocking pushes are admitted and every later
-    /// attempt is refused without spending budget. This pins the accounting for
-    /// every combination of rate and attempt count, including no attempts and a
-    /// rate above the number of attempts, which a table of named cases cannot
-    /// cover without repeating the same assertion for each row.
-    #[test]
-    fn try_push_admits_exactly_the_initial_rate_budget(
-        rate in 1usize..=16,
-        attempts in 0usize..=24,
-    ) {
-        // The lanes outgrow every generated attempt count, so capacity can
-        // never be the reason a push is refused.
-        let (_queues, handle) = support::builder::<u8>()
-            .high_capacity(32)
-            .low_capacity(32)
-            .rate(Some(rate))
-            .build()
-            .expect("a valid rate and capacity must build");
-
-        let mut admitted = 0;
-        for attempt in 0..attempts {
-            let frame = u8::try_from(attempt).expect("the attempt count fits in u8");
-            match handle.try_push(frame, PushPriority::High, PushPolicy::DropIfFull) {
-                Ok(()) => admitted += 1,
-                Err(PushError::RateLimited) => {}
-                Err(error) => prop_assert!(false, "unexpected refusal: {error:?}"),
-            }
-        }
-        prop_assert_eq!(admitted, attempts.min(rate));
-    }
 }
