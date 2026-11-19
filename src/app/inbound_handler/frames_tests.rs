@@ -136,40 +136,70 @@ fn push_actor(
     (actor, handle)
 }
 
-/// Take one scheduled step with a freshly queued push waiting.
+/// State one scheduler expiry test drives across several passes.
 ///
-/// Each call consumes the batch it wins, so the lane is replenished first; the
-/// returned step must be the pushes, which is what proves the ready lane beat
-/// the read on this pass.
-async fn step_with_ready_push<R>(
-    actor: &mut ConnectionActor<Envelope, (), Bytes>,
-    handle: &PushHandle<Bytes>,
-    inbound: &mut InboundFrames<Bytes>,
-    reader: &mut R,
-    shutdown: &CancellationToken,
-) where
+/// The regression takes repeated passes and reads the buffered state between
+/// them, so a single owner keeps the same read state, lane and stop token
+/// together instead of threading five references through every call.
+struct ReadyPushRig<R> {
+    /// Actor whose lanes each pass takes from.
+    actor: ConnectionActor<Envelope, (), Bytes>,
+    /// Handle used to replenish the lane before each pass.
+    handle: PushHandle<Bytes>,
+    /// Buffered inbound state each pass expires.
+    inbound: InboundFrames<Bytes>,
+    /// Reader each pass gives its non-blocking chance.
+    reader: R,
+    /// Server stop token.
+    shutdown: CancellationToken,
+}
+
+impl<R> ReadyPushRig<R>
+where
     R: Stream<Item = io::Result<Bytes>> + Unpin,
 {
-    handle
-        .push_high_priority(Bytes::from_static(b"queued"))
-        .await
-        .expect("the lane has room for the next frame");
-    let step = next_stream_step::<LengthDelimitedFrameCodec, _>(
-        actor,
-        StreamWait {
-            inbound,
+    /// Build a rig with an open lane, one incomplete assembly and `reader`.
+    fn new(shutdown: CancellationToken, reader: R) -> Self {
+        let (actor, handle) = push_actor(&shutdown);
+        Self {
+            actor,
+            handle,
+            inbound: incomplete_inbound::<Bytes>(),
             reader,
-            read_timeout_ms: READ_TIMEOUT_MS,
             shutdown,
-            read_first: false,
-        },
-    )
-    .await
-    .expect("the wait must not fail");
-    assert!(
-        matches!(step, StreamStep::Pushes(_)),
-        "the ready push lane must win the pass"
-    );
+        }
+    }
+
+    /// Take one scheduled step with a freshly queued push waiting.
+    ///
+    /// Each call consumes the batch it wins, so the lane is replenished first;
+    /// the returned step must be the pushes, which is what proves the ready
+    /// lane beat the read on this pass.
+    async fn step(&mut self) {
+        self.handle
+            .push_high_priority(Bytes::from_static(b"queued"))
+            .await
+            .expect("the lane has room for the next frame");
+        let step = next_stream_step::<LengthDelimitedFrameCodec, _>(
+            &mut self.actor,
+            StreamWait {
+                inbound: &mut self.inbound,
+                reader: &mut self.reader,
+                read_timeout_ms: READ_TIMEOUT_MS,
+                shutdown: &self.shutdown,
+                read_first: false,
+            },
+        )
+        .await
+        .expect("the wait must not fail");
+        assert!(
+            matches!(step, StreamStep::Pushes(_)),
+            "the ready push lane must win the pass"
+        );
+    }
+
+    /// Number of incomplete assemblies the rig still buffers.
+    fn buffered(&self) -> Option<usize> { buffered_assemblies(&self.inbound) }
 }
 
 /// A push lane that is always ready must not defer the inbound expiry.
@@ -182,26 +212,26 @@ async fn step_with_ready_push<R>(
 /// the read is never driven.
 #[tokio::test(start_paused = true)]
 async fn a_ready_push_lane_does_not_postpone_the_inbound_expiry() {
-    let shutdown = CancellationToken::new();
-    let (mut actor, handle) = push_actor(&shutdown);
-    let mut inbound = incomplete_inbound::<Bytes>();
-    let mut reader = stream::pending::<io::Result<Bytes>>();
+    let mut rig = ReadyPushRig::new(
+        CancellationToken::new(),
+        stream::pending::<io::Result<Bytes>>(),
+    );
 
     // Arming the deadline is not yet expiry: the assembly survives the first
     // pass and the rest of the interval.
-    step_with_ready_push(&mut actor, &handle, &mut inbound, &mut reader, &shutdown).await;
+    rig.step().await;
     advance(Duration::from_millis(READ_TIMEOUT_MS - 1)).await;
-    step_with_ready_push(&mut actor, &handle, &mut inbound, &mut reader, &shutdown).await;
+    rig.step().await;
     assert_eq!(
-        buffered_assemblies(&inbound),
+        rig.buffered(),
         Some(1),
         "no purge may run before the armed deadline passes"
     );
 
     advance(Duration::from_millis(2)).await;
-    step_with_ready_push(&mut actor, &handle, &mut inbound, &mut reader, &shutdown).await;
+    rig.step().await;
     assert_eq!(
-        buffered_assemblies(&inbound),
+        rig.buffered(),
         Some(0),
         "the expiry command must purge once the deadline has passed"
     );
