@@ -2222,14 +2222,15 @@ module without a matching feature, are reported as orphans.
 `syn` parser rather than matched as text, so a `#[path]` attribute resolves
 relative to the declaring file before the target is compared with the
 repository snapshot. `syn` is a dev-dependency whose `full` feature is required
-to parse whole Rust source files; `tests/common/bdd_wiring/syntax.rs` is its
-only consumer, so the dependency serves the wiring check alone. The check
-deliberately does not enforce step modules, step-text resolution, `#[cfg]`
-placement, fixture function or world names, scenario function names, or
-parameterless scenarios. Step modules keep the same-stem convention
-(`tests/steps/<stem>_steps.rs`), and the `rstest-bdd` strict compile-time
-validation already rejects a bound scenario whose steps are missing, so the
-wiring check adds no duplicate step inspection.
+to parse whole Rust source files. Only modules inside
+`tests/common/bdd_wiring/` consume it — `syntax.rs` for module declarations, and
+`bindings.rs` and `features.rs` for scenario attributes — so the dependency
+serves the wiring check alone. The check deliberately does not enforce step
+modules, step-text resolution, `#[cfg]` placement, fixture function or world
+names, scenario function names, or parameterless scenarios. Step modules keep
+the same-stem convention (`tests/steps/<stem>_steps.rs`), and the `rstest-bdd`
+strict compile-time validation already rejects a bound scenario whose steps are
+missing, so the wiring check adds no duplicate step inspection.
 
 ### Non-zero test values
 
