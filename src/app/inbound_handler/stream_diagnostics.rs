@@ -78,16 +78,53 @@ pub(super) fn terminal_delivery_timed_out(identity: BodyIdentity) {
     );
 }
 
-/// Report a body failure whose receiver had already gone away.
-pub(super) fn terminal_receiver_gone(identity: BodyIdentity, error: SendClosed) {
+/// A delivery the handler's closed channel ended.
+///
+/// The terminal failure and the refused final chunk differ only in what was
+/// being delivered and which error type reported the closure, so both are one
+/// value here rather than two copies of the same field list.
+#[derive(Clone, Copy, Debug)]
+enum ClosedDelivery {
+    /// The terminal failure could not be handed to the handler.
+    TerminalFailure,
+    /// The final chunk was refused, so the body is abandoned.
+    FinalChunk,
+}
+
+impl ClosedDelivery {
+    /// Operation, bounded category, and message for this closure.
+    const fn describe(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Self::TerminalFailure => (
+                TERMINAL_BODY,
+                RECEIVER_GONE,
+                "request body receiver gone before the failure was delivered",
+            ),
+            Self::FinalChunk => (
+                CHUNK_DELIVERY,
+                ABANDONED_BODY,
+                "final request-body chunk refused; the body is abandoned",
+            ),
+        }
+    }
+}
+
+/// Report a delivery the handler's closed channel ended.
+fn channel_closed(identity: BodyIdentity, delivery: ClosedDelivery, error: &dyn std::fmt::Debug) {
+    let (operation, category, message) = delivery.describe();
     debug!(
-        operation = TERMINAL_BODY,
+        operation,
         message_id = identity.message_id,
         correlation_id = ?identity.correlation_id,
-        error_category = RECEIVER_GONE,
-        ?error,
-        "request body receiver gone before the failure was delivered"
+        error_category = category,
+        error = ?error,
+        "{message}"
     );
+}
+
+/// Report a body failure whose receiver had already gone away.
+pub(super) fn terminal_receiver_gone(identity: BodyIdentity, error: SendClosed) {
+    channel_closed(identity, ClosedDelivery::TerminalFailure, &error);
 }
 
 /// Report a pre-filled body the handler's channel refused.
@@ -152,14 +189,7 @@ pub(super) fn abandoned_chunk(key: MessageKey) {
 /// increment recorded beside it are the whole signal. The level is `debug`
 /// because the handler abandoned the body by dropping its stream.
 pub(super) fn final_chunk_refused(identity: BodyIdentity, error: SendChunkError) {
-    debug!(
-        operation = CHUNK_DELIVERY,
-        message_id = identity.message_id,
-        correlation_id = ?identity.correlation_id,
-        error_category = ABANDONED_BODY,
-        ?error,
-        "final request-body chunk refused; the body is abandoned"
-    );
+    channel_closed(identity, ClosedDelivery::FinalChunk, &error);
 }
 
 /// Report a terminal body failure with no live handler to receive it.
