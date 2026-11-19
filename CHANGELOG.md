@@ -5,10 +5,13 @@ All notable changes to this project will be documented in this file.
 ## Unreleased
 
 - Consult `RecoveryPolicyHook` on decoder failures from live server
-  connections and emit `wireframe_codec_errors_total` once per failure,
-  labelled with the error type and the applied policy. With no hook installed
-  the applied policy remains disconnect. The built-in length-delimited codec
-  now classifies an oversized frame as `error_type="framing"` instead of `"io"`.
+  connections and, with the default `metrics` feature, emit
+  `wireframe_codec_errors_total` once per failure, labelled with the error type
+  and the applied policy. With no hook installed the applied policy remains
+  disconnect, and a failure buffered behind a response that ended the
+  connection is reported as that disconnect without consulting the hook. The
+  built-in length-delimited codec now classifies an oversized frame as
+  `error_type="framing"` instead of `"io"`.
   ([#878](https://github.com/leynos/wireframe/issues/878))
 
 - **Breaking:** Remove the `wireframe::extractor` module, `AppDataStore`, and

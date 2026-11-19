@@ -5,24 +5,14 @@
 //! loop-level tests that settle a dispatch live beside
 //! [`super::dispatch_tests`].
 
-use std::{io, net::SocketAddr, num::NonZeroUsize, time::Duration};
+use std::{io, net::SocketAddr, time::Duration};
 
 #[cfg(feature = "metrics")]
 use metrics_util::debugging::DebuggingRecorder;
 use rstest::rstest;
 
 use super::{test_support::*, *};
-use crate::{
-    app::Envelope,
-    codec::{ProtocolError, RecoveryPolicy},
-    fragment::{
-        FragmentHeader,
-        FragmentIndex,
-        FragmentationConfig,
-        MessageId,
-        encode_fragment_payload,
-    },
-};
+use crate::codec::{ProtocolError, RecoveryPolicy};
 
 #[test]
 fn no_hook_disconnects_without_reporting() {
@@ -172,27 +162,41 @@ fn untyped_error_keeps_its_kind_and_payload() {
     );
 }
 
-/// A decision is a query: it must leave the hook, the counter, and the metric
-/// untouched, and so must reach the same answer however often it is asked.
+/// A decision is a query: it must leave the hook and its own state untouched,
+/// emit nothing, and answer the same way however often it is asked.
+///
+/// The hook is stateful, so a single consultation would show up in its counter;
+/// the metric recorder is the injected observer, so any report would appear in
+/// the snapshot.
 #[cfg(feature = "metrics")]
 #[test]
 fn deciding_changes_no_metric_hook_or_counter_state() {
-    let hook = RecordingHook::new(RecoveryPolicy::Drop, Duration::from_millis(5));
+    let hook = ScriptedHook::new(vec![RecoveryPolicy::Drop; 3]);
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
     let coordinator = RecoveryCoordinator::new(Some(&hook), tight_config());
-    let error = CodecError::Protocol(ProtocolError::UnknownMessageType { type_id: 7 });
+    let selection = Selection {
+        selected: RecoveryPolicy::Drop,
+        applied: RecoveryPolicy::Drop,
+        quarantine: Duration::ZERO,
+        extends_streak: true,
+    };
 
     metrics::with_local_recorder(&recorder, || {
         for _ in 0..3 {
-            let decision = coordinator.decide(&error, DecodeOrigin::Decode, CONSUMED);
+            let decision = coordinator.decide(selection);
             assert_eq!(decision.action, RecoveryAction::Drop);
+            assert_eq!(
+                decision.consecutive_drops, 1,
+                "the decision reads the streak without storing it"
+            );
         }
     });
 
-    assert!(
-        hook.applied_policies().is_empty(),
-        "deciding must not report through on_error"
+    assert_eq!(
+        hook.consultations(),
+        0,
+        "deciding must not consult the hook"
     );
     assert_eq!(
         coordinator.consecutive_drops, 0,
@@ -240,117 +244,8 @@ fn no_hook_records_a_disconnect_for_each_failure() {
     assert_eq!(policy_count(&samples, "drop"), 0);
 }
 
-#[tokio::test]
-async fn shutdown_ends_a_quarantine_pause_early() {
-    let hook = RecordingHook::new(RecoveryPolicy::Quarantine, Duration::from_secs(3600));
-    let mut coordinator = RecoveryCoordinator::new(Some(&hook), RecoveryConfig::default());
-    let shutdown = CancellationToken::new();
-    shutdown.cancel();
-    let mut pipeline: FramePipeline<()> = FramePipeline::new(None);
-    let mut message_assembly = None;
-
-    let result = tokio::time::timeout(
-        Duration::from_secs(5),
-        coordinator.apply(
-            protocol_failure(),
-            RecoveryState {
-                pipeline: &mut pipeline,
-                message_assembly: &mut message_assembly,
-                shutdown: &shutdown,
-            },
-        ),
-    )
-    .await;
-
-    assert!(
-        matches!(result, Ok(None)),
-        "a cancelled shutdown must end the pause without a disconnect"
-    );
-}
-
-#[tokio::test]
-async fn quarantine_pause_completes_without_shutdown() {
-    let pause = Duration::from_millis(5);
-    let hook = RecordingHook::new(RecoveryPolicy::Quarantine, pause);
-    let mut coordinator = RecoveryCoordinator::new(Some(&hook), RecoveryConfig::default());
-    let shutdown = CancellationToken::new();
-    let mut pipeline: FramePipeline<()> = FramePipeline::new(None);
-    let mut message_assembly = None;
-
-    let result = coordinator
-        .apply(
-            protocol_failure(),
-            RecoveryState {
-                pipeline: &mut pipeline,
-                message_assembly: &mut message_assembly,
-                shutdown: &shutdown,
-            },
-        )
-        .await;
-
-    assert!(result.is_none(), "quarantine keeps the connection alive");
-}
-
-/// A pause must discard partial fragments that expired while it ran.
-///
-/// A buffer left over from before the pause would otherwise be reassembled
-/// with fragments read afterwards, so the connection would report a frame
-/// assembled from two different eras of the stream.
-#[tokio::test]
-async fn quarantine_pause_purges_expired_partial_fragments() {
-    let hook = RecordingHook::new(RecoveryPolicy::Quarantine, Duration::ZERO);
-    let mut coordinator = RecoveryCoordinator::new(Some(&hook), RecoveryConfig::default());
-    let shutdown = CancellationToken::new();
-    let mut pipeline: FramePipeline<Envelope> = FramePipeline::new(Some(fragment_config()));
-    buffer_partial_fragment(&mut pipeline);
-    assert!(
-        pipeline.fragmentation_buffered_bytes() > 0,
-        "the fixture must leave a partial fragment buffered"
-    );
-    let mut message_assembly = None;
-
-    let result = coordinator
-        .apply(
-            protocol_failure(),
-            RecoveryState {
-                pipeline: &mut pipeline,
-                message_assembly: &mut message_assembly,
-                shutdown: &shutdown,
-            },
-        )
-        .await;
-
-    assert!(result.is_none(), "a quarantine pause keeps reading");
-    assert_eq!(
-        pipeline.fragmentation_buffered_bytes(),
-        0,
-        "the pause must purge the expired partial fragment"
-    );
-}
-
-/// Fragmentation whose partial buffers expire immediately, so a purge is
-/// observable without waiting for a clock.
-fn fragment_config() -> FragmentationConfig {
-    FragmentationConfig::for_frame_budget(
-        1024,
-        NonZeroUsize::new(4096).expect("a non-zero message limit"),
-        Duration::ZERO,
-    )
-    .expect("the frame budget supports fragmentation")
-}
-
-/// Feed the pipeline the first fragment of a two-fragment message.
-fn buffer_partial_fragment(pipeline: &mut FramePipeline<Envelope>) {
-    let header = FragmentHeader::new(MessageId::new(9), FragmentIndex::zero(), false);
-    let payload = encode_fragment_payload(header, &[1_u8, 2]).expect("the fragment encodes");
-    let partial = Envelope::new(9, None, payload);
-    let state = pipeline
-        .fragmentation_mut()
-        .expect("the fixture enables fragmentation");
-    let _ = state
-        .reassemble(partial)
-        .expect("the first fragment is buffered");
-}
+#[path = "recovery_quarantine_tests.rs"]
+mod quarantine;
 
 #[path = "recovery_properties.rs"]
 mod properties;

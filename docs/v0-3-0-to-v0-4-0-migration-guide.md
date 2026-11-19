@@ -742,11 +742,17 @@ without consultation. Install a `RecoveryPolicyHook` with
 policy on each failure, applies the documented fallbacks, and reports the
 policy it actually applied.
 
-Every failure increments `wireframe_codec_errors_total` once, labelled with the
-error type and the applied policy, so a dashboard can separate framing,
-protocol, I/O, and EOF failures. With no hook installed, the applied policy is
-still `Disconnect`: an application that installs no hook keeps the previous
-behaviour.
+With the `metrics` feature enabled — it is a default feature — every decoder
+failure increments `wireframe_codec_errors_total` once, labelled with the error
+type and the applied policy, so a dashboard can separate framing, protocol,
+I/O, and EOF failures. With no hook installed, the applied policy is still
+`Disconnect`: an application that installs no hook keeps the previous behaviour.
+
+One failure is reported without consulting the hook. When a response ends the
+connection, reading stops with a failure still buffered behind it, and no
+selected policy can take effect on a closing connection. That failure is
+reported as the `Disconnect` it actually is, so `on_error` and the counter
+still observe it exactly once.
 
 The built-in length-delimited codec now classifies an oversized frame as
 `error_type="framing"` rather than `"io"`. A dashboard or alert that filtered on

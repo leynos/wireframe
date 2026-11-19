@@ -569,24 +569,36 @@ transport and its buffering state intact while it decides what the failure
 means.
 
 `RecoveryCoordinator`, in `src/app/inbound_handler/` (`recovery.rs`,
-`recovery_loop.rs`, and `frames.rs`), is the single place that consults
-`RecoveryPolicyHook` for a decoder failure. It applies the documented decision
-order and its fallbacks, reports the applied policy — which a fallback may have
-escalated from the hook's selection — to `on_error` and to the log, and emits
-`wireframe_codec_errors_total` once per failure, labelled with the error type
-and the applied policy. With no hook installed, the applied policy is
-`Disconnect`, and the decoder's original error reaches the teardown path
-unchanged.
+`recovery_decision.rs`, `recovery_loop.rs`, and `frames.rs`), is the single
+place that consults `RecoveryPolicyHook` for a decoder failure. It applies the
+documented decision order and its fallbacks, reports the applied policy — which
+a fallback may have escalated from the hook's selection — to `on_error` and to
+the log, and emits `wireframe_codec_errors_total` once per failure, labelled
+with the error type and the applied policy. With no hook installed, the applied
+policy is `Disconnect`, and the decoder's original error reaches the teardown
+path unchanged. Reporting a failure buffered when the connection stops reading
+is the one exception: no selected policy can take effect there, so
+`report_terminal` reports the applied disconnect without consulting the hook.
 
-Decision and reporting stay separate. `decide` is a pure query: it consults the
-hook, applies the fallbacks, and returns a `Decision` naming the selected and
-applied policies, the action, and the drop streak to store, without writing any
-of them. `record_failure` then records that streak and reports the decision
-through `publish`, the one command that calls `on_error`, increments the
-counter, and logs; `report_terminal` reports a failure the connection can no
-longer act on as the disconnect it actually is. Keeping the steps apart leaves
+Consultation, decision, recording, and reporting stay apart. `consider` is the
+only step that consults the hook: it asks for a policy, resolves the fallbacks,
+asks for a quarantine duration only when one will be applied, and describes the
+answer as a `Selection`. `decide` is then a pure query: it takes that
+`Selection` and the stored drop streak and returns a `Decision` naming the
+selected and applied policies, the action, and the streak to store, without
+reaching the hook or writing any of them. `record_failure` then records that
+streak and reports the decision through `publish`, the one command that calls
+`on_error`, increments the counter, and logs. Keeping the steps apart leaves
 `publish` as the only emitter, so a record cannot be made without naming the
-policy it applied, and a decision taken on its own emits nothing.
+policy it applied, and a decision taken on its own neither consults the hook
+nor emits anything.
+
+`crate::metrics` is the reporting sink rather than a trait threaded through the
+coordinator: an application installs the exporter's recorder once, and a test
+installs a `DebuggingRecorder` snapshotter, which is the same injection point
+for both. `deciding_changes_no_metric_hook_or_counter_state` uses a stateful
+hook and that recorder to prove the pure step consults nothing and emits
+nothing.
 
 The prepared application and the rebuild helpers are split to match. Prepared
 state lives in `src/app/prepared_app/mod.rs`, `connection.rs`, and

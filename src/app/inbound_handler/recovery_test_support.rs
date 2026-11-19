@@ -135,6 +135,12 @@ impl ScriptedHook {
             next: AtomicUsize::new(0),
         }
     }
+
+    /// Return how many times the hook has been asked for a policy.
+    ///
+    /// Lets a test prove that a step which must not consult the hook really
+    /// left its state untouched.
+    pub(super) fn consultations(&self) -> usize { self.next.load(Ordering::Relaxed) }
 }
 
 impl RecoveryPolicyHook for ScriptedHook {
