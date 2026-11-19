@@ -82,7 +82,7 @@ Primary code surfaces:
 - `src/app/builder/protocol.rs`;
 - `src/app/inbound_handler/mod.rs`;
 - `src/app/connection_runtime/`;
-- `src/app/prepared_app.rs`;
+- `src/app/prepared_app/`;
 - `src/server/mod.rs`;
 - `src/server/runtime/mod.rs`;
 - `src/server/runtime/accept.rs`;

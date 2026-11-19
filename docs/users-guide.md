@@ -3561,7 +3561,7 @@ directories (one per shard on full dispatch runs) for offline triage.
 [^3]: Implemented in `src/app/builder.rs` (lines 100-121, 347-360).
 [^4]: Implemented in `src/app/builder.rs` (lines 326-344).
 [^5]: Implemented in `src/error.rs` (lines 1-68).
-[^6]: Implemented in `src/app/prepared_app.rs` and
+[^6]: Implemented in `src/app/prepared_app/` and
       `src/app/inbound_handler/mod.rs`.
 [^7]: Implemented in `src/app/inbound_handler/core.rs`.
 [^8]: Implemented in `src/app/envelope.rs` (lines 11-172).

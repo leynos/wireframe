@@ -560,6 +560,39 @@ connection id or peer address, so those fields read as `None` there. The
 deadline source is injectable (`GraceTimer`), so tests fire it by hand instead
 of waiting on the clock.
 
+### Inbound recovery boundary
+
+The codec driver wraps each connection's codec in a recovery decoder, so
+`decode` and `decode_eof` errors arrive in band as `DecodedItem::Failure`
+rather than as a stream error. The read loop therefore keeps the framed
+transport and its buffering state intact while it decides what the failure
+means.
+
+`RecoveryCoordinator`, in `src/app/inbound_handler/` (`recovery.rs`,
+`recovery_loop.rs`, and `frames.rs`), is the single place that consults
+`RecoveryPolicyHook` for a decoder failure. It applies the documented decision
+order and its fallbacks, reports the applied policy — which a fallback may have
+escalated from the hook's selection — to `on_error` and to the log, and emits
+`wireframe_codec_errors_total` once per failure, labelled with the error type
+and the applied policy. With no hook installed, the applied policy is
+`Disconnect`, and the decoder's original error reaches the teardown path
+unchanged.
+
+Decision and reporting stay separate. `decide` is a pure query: it consults the
+hook, applies the fallbacks, and returns a `Decision` naming the selected and
+applied policies, the action, and the drop streak to store, without writing any
+of them. `record_failure` then records that streak and reports the decision
+through `publish`, the one command that calls `on_error`, increments the
+counter, and logs; `report_terminal` reports a failure the connection can no
+longer act on as the disconnect it actually is. Keeping the steps apart leaves
+`publish` as the only emitter, so a record cannot be made without naming the
+policy it applied, and a decision taken on its own emits nothing.
+
+The prepared application and the rebuild helpers are split to match. Prepared
+state lives in `src/app/prepared_app/mod.rs`, `connection.rs`, and
+`preparation.rs`; the shared type-parameter rebuild helpers live in
+`src/app/builder/rebuild.rs`.
+
 ## Runtime ownership model
 
 Three decision records govern runtime ownership and task-lifetime boundaries
@@ -834,7 +867,7 @@ decode work, not actual allocation for every container; see the
 the 16 MiB reassembly ceiling and the limits of bincode's resource accounting.
 
 Builder methods that change `WireframeApp` type parameters should route through
-the shared rebuild helpers in `app::builder::core`. Serializer and codec
+the shared rebuild helpers in `app::builder::rebuild`. Serializer and codec
 transitions use `rebuild_with_params`; connection-state transitions use
 `rebuild_with_connection_state`. A teardown hook is typed to the old connection
 state, so `on_connection_setup` clears any teardown hook registered before it.

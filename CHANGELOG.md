@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Consult `RecoveryPolicyHook` on decoder failures from live server
+  connections and emit `wireframe_codec_errors_total` once per failure,
+  labelled with the error type and the applied policy. With no hook installed
+  the applied policy remains disconnect. The built-in length-delimited codec
+  now classifies an oversized frame as `error_type="framing"` instead of `"io"`.
+  ([#878](https://github.com/leynos/wireframe/issues/878))
+
 - **Breaking:** Remove the `wireframe::extractor` module, `AppDataStore`, and
   `WireframeApp::app_data`. No dispatch path invoked the extractor traits, so
   handlers could never receive `SharedState<T>`, `Message<T>`,
@@ -56,10 +63,9 @@ All notable changes to this project will be documented in this file.
   `wireframe_testing`.
 
 - Correct rustdoc that overstated runtime integration: streaming request
-  bodies, extractors and `app_data` are not delivered to route handlers,
-  `RecoveryPolicyHook` and `on_eof` are not consulted by the connection loop,
-  the runtime does not emit `wireframe_codec_errors_total`, `read_timeout_ms`
-  does not close idle connections, and pool sockets open on first use. Mark
+  bodies, extractors and `app_data` are not delivered to route handlers, and
+  `on_eof` is not consulted by the connection loop. `read_timeout_ms` does not
+  close idle connections, and pool sockets open on first use. Mark
   `WireframeApp::handle_connection*` deprecated since 0.4.0, the release that
   deprecates them, and reopen roadmap item 8.1.4.
 

@@ -732,3 +732,26 @@ written without decoding or re-wrapping, so the adapter does not replace the
 identifier produced by `stream_end_frame` for either streamed or multi-packet
 responses (`before_send` can still rewrite the frame); see the
 [users' guide](users-guide.md#response-producing-routes) for the full contract.
+
+## Decoder recovery on live connections
+
+A decoder failure on a live connection no longer always ends the connection
+without consultation. Install a `RecoveryPolicyHook` with
+`WireframeApp::with_recovery_hook`, and tune the global recovery limits with
+`WireframeApp::recovery_config`. The connection loop then asks the hook for a
+policy on each failure, applies the documented fallbacks, and reports the
+policy it actually applied.
+
+Every failure increments `wireframe_codec_errors_total` once, labelled with the
+error type and the applied policy, so a dashboard can separate framing,
+protocol, I/O, and EOF failures. With no hook installed, the applied policy is
+still `Disconnect`: an application that installs no hook keeps the previous
+behaviour.
+
+The built-in length-delimited codec now classifies an oversized frame as
+`error_type="framing"` rather than `"io"`. A dashboard or alert that filtered on
+`error_type="io"` must also match `framing` to keep counting those failures.
+
+See [codec error handling](users-guide.md#codec-error-handling) in the users'
+guide for the error taxonomy, the default policy per error type, and the full
+decision order and fallbacks.
