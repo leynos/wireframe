@@ -1,4 +1,15 @@
 //! The per-connection owner of protocol hooks and their context.
+//!
+//! This module provides [`ConnectionProtocol`], the pair a connection keeps for
+//! its whole life: the hooks described by [`ProtocolHooks`] and the single
+//! [`ConnectionContext`] those callbacks observe. It exists so a connection
+//! cannot accidentally hold hooks and context separately and pass mismatched
+//! halves to different callbacks.
+//!
+//! The utility is a stable dispatch identity. Whichever path owns the value —
+//! the frame pipeline on the prepared server path, or the actor when driven
+//! directly — every callback on one connection sees the same context in the
+//! documented order, without an `Arc<Mutex<_>>` around it.
 
 use super::{ConnectionContext, ProtocolHooks};
 use crate::push::PushHandle;
