@@ -113,19 +113,25 @@ impl<F> SessionRegistry<F> {
     #[must_use]
     pub fn allocate_connection_id(&self) -> ConnectionId {
         loop {
-            let updated =
-                self.next_id
-                    .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-                        current.checked_add(1)
-                    });
-            let Ok(id) = updated else {
-                panic!("connection identifier space exhausted");
-            };
-            let candidate = ConnectionId::new(id);
+            let candidate = self.next_candidate();
             if !self.entries.contains_key(&candidate) {
                 return candidate;
             }
         }
+    }
+
+    /// Take the next identifier from the counter, occupied or not.
+    ///
+    /// Panics when the `u64` identifier space is exhausted.
+    fn next_candidate(&self) -> ConnectionId {
+        let bump = |id: u64| id.checked_add(1);
+        let Ok(id) = self
+            .next_id
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, bump)
+        else {
+            panic!("connection identifier space exhausted");
+        };
+        ConnectionId::new(id)
     }
 }
 
@@ -156,8 +162,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// };
     ///
     /// let (_queues, handle) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let registry = SessionRegistry::default();
@@ -197,8 +202,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// };
     ///
     /// let (_queues, handle) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let registry = SessionRegistry::default();
@@ -229,7 +233,8 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// Allocation and publication are a single claim, so a manual
     /// [`Self::insert`] racing this call cannot leave the connection addressing
-    /// a handle it does not own.
+    /// a handle it does not own. An identifier already holding a live handle is
+    /// refused rather than replaced, and the claim retries the next one.
     ///
     /// # Panics
     ///
@@ -250,7 +255,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     #[must_use]
     pub fn allocate_and_publish(&self, handle: &PushHandle<F>) -> ConnectionId {
         loop {
-            let candidate = self.allocate_connection_id();
+            let candidate = self.next_candidate();
             if self.insert(candidate, handle) {
                 return candidate;
             }
@@ -268,8 +273,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     /// };
     ///
     /// let (_queues, handle) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let registry = SessionRegistry::default();
@@ -307,8 +311,7 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// let registry = SessionRegistry::default();
     /// let (_queues, handle) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let id = ConnectionId::new(4);
@@ -335,13 +338,11 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// let registry = SessionRegistry::default();
     /// let (_q1, h1) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let (_q2, h2) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let id1 = ConnectionId::new(5);
@@ -374,13 +375,11 @@ impl<F: FrameLike> SessionRegistry<F> {
     ///
     /// let registry = SessionRegistry::default();
     /// let (_q1, h1) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let (_q2, h2) = PushQueues::<u8>::builder()
-    ///     .high_capacity(1)
-    ///     .low_capacity(1)
+    ///     .unlimited()
     ///     .build()
     ///     .expect("failed to build PushQueues");
     /// let id1 = ConnectionId::new(7);
