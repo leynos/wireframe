@@ -49,6 +49,8 @@ impl<S> RewindStream<S> {
 impl<S> RewindStream<S> {
     pub(crate) fn set_pos_for_tests(&mut self, pos: usize) { self.pos = pos; }
 
+    pub(crate) fn pos_for_tests(&self) -> usize { self.pos }
+
     pub(crate) fn leftover_len_for_tests(&self) -> usize { self.leftover.len() }
 }
 
@@ -109,13 +111,98 @@ impl<S: Unpin> Unpin for RewindStream<S> {}
 #[cfg(test)]
 mod tests {
     //! Coverage for rewind-buffer bounds and poll sequencing.
+    //!
+    //! Three `poll_read` mutants are equivalent and deliberately left
+    //! unannotated. Mutating the replay-completion guard's `<` to `<=` cannot
+    //! change behaviour because `pos == len` with `to_copy == 0` is
+    //! unreachable after a successful copy; the second disjunct already
+    //! covers the completing copy. Mutating its `>` to `>=` is equivalent
+    //! because `to_copy` is a `usize`, so `to_copy >= 0` always holds.
+    //! Mutating the cleanup guard's `&&` to `||` only clears an already empty
+    //! vector, because the cleanup guard is reached only with
+    //! `pos == len`.
 
-    use std::{pin::Pin, task::Context};
+    use std::{
+        io,
+        pin::Pin,
+        task::{Context, Poll},
+    };
 
     use futures::task::noop_waker_ref;
     use tokio::io::{AsyncRead, ReadBuf};
 
     use super::*;
+
+    /// Inner stream that records how often `poll_read` reaches it.
+    ///
+    /// The reader is always ready: it yields `data` until exhausted and then
+    /// reports end-of-file. Counting polls lets a test prove that
+    /// `RewindStream` did not fall through to the inner stream while replay
+    /// was still pending.
+    struct CountingReader {
+        data: &'static [u8],
+        polls: usize,
+    }
+
+    impl CountingReader {
+        const fn new(data: &'static [u8]) -> Self { Self { data, polls: 0 } }
+    }
+
+    impl AsyncRead for CountingReader {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            self.polls += 1;
+            Pin::new(&mut self.data).poll_read(cx, buf)
+        }
+    }
+
+    /// Poll `stream` once with a buffer of `capacity` bytes.
+    ///
+    /// Returns the bytes delivered by that single poll. Panics when the poll
+    /// is not immediately ready with `Ok`, because these tests model an
+    /// always-ready inner reader driven by a no-op waker.
+    fn poll_once(stream: &mut RewindStream<CountingReader>, capacity: usize) -> Vec<u8> {
+        let waker = noop_waker_ref();
+        let mut cx = Context::from_waker(waker);
+        let mut buffer = vec![0_u8; capacity];
+        let mut read_buf = ReadBuf::new(&mut buffer);
+
+        match RewindStream::poll_read(Pin::new(stream), &mut cx, &mut read_buf) {
+            Poll::Ready(Ok(())) => read_buf.filled().to_vec(),
+            other => panic!("expected a ready Ok poll, got {other:?}"),
+        }
+    }
+
+    /// Expected observable state after a single poll.
+    #[derive(Clone, Copy)]
+    struct PollExpectation {
+        /// Bytes delivered by the poll.
+        bytes: &'static [u8],
+        /// Total number of times the inner stream has been polled.
+        inner_polls: usize,
+        /// Cursor into the leftover buffer.
+        pos: usize,
+        /// Number of bytes still held in the leftover buffer.
+        leftover_len: usize,
+    }
+
+    /// Poll `stream` once and assert the delivered bytes and replay state.
+    ///
+    /// Grouping the expectations keeps each test focused on its scenario
+    /// while still checking every observable dimension of the replay state.
+    fn assert_poll(
+        stream: &mut RewindStream<CountingReader>,
+        capacity: usize,
+        expected: PollExpectation,
+    ) {
+        assert_eq!(poll_once(stream, capacity).as_slice(), expected.bytes);
+        assert_eq!(stream.inner().polls, expected.inner_polls);
+        assert_eq!(stream.pos_for_tests(), expected.pos);
+        assert_eq!(stream.leftover_len_for_tests(), expected.leftover_len);
+    }
 
     #[test]
     fn poll_read_returns_error_for_invalid_leftover_slice_bounds() {
@@ -138,5 +225,172 @@ mod tests {
             ),
             other => panic!("expected UnexpectedEof, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn poll_read_replays_leftover_across_split_reads() {
+        let mut stream = RewindStream::new(b"abcde".to_vec(), CountingReader::new(b"XYZ"));
+
+        // Successive small buffers split the leftover into `ab`, `c` and `de`
+        // without reaching the inner stream. Kills `||` -> `&&` on the
+        // replay-completion guard, and `>=` -> `<` and `!` deletion on the
+        // cleanup guard, each of which would either append inner bytes to the
+        // completing read or retain the cleared leftover.
+        assert_poll(
+            &mut stream,
+            2,
+            PollExpectation {
+                bytes: b"ab",
+                inner_polls: 0,
+                pos: 2,
+                leftover_len: 5,
+            },
+        );
+        assert_poll(
+            &mut stream,
+            1,
+            PollExpectation {
+                bytes: b"c",
+                inner_polls: 0,
+                pos: 3,
+                leftover_len: 5,
+            },
+        );
+        assert_poll(
+            &mut stream,
+            2,
+            PollExpectation {
+                bytes: b"de",
+                inner_polls: 0,
+                pos: 5,
+                leftover_len: 5,
+            },
+        );
+
+        // Replay is complete, so this poll clears it before reading the inner
+        // stream. A retained leftover or stale cursor fails here.
+        assert_poll(
+            &mut stream,
+            8,
+            PollExpectation {
+                bytes: b"XYZ",
+                inner_polls: 1,
+                pos: 0,
+                leftover_len: 0,
+            },
+        );
+
+        // The inner reader is now exhausted; a further poll reports EOF.
+        assert_poll(
+            &mut stream,
+            8,
+            PollExpectation {
+                bytes: b"",
+                inner_polls: 2,
+                pos: 0,
+                leftover_len: 0,
+            },
+        );
+    }
+
+    #[test]
+    fn poll_read_reports_completion_without_appending_inner_bytes() {
+        let mut stream = RewindStream::new(b"abc".to_vec(), CountingReader::new(b"XYZ"));
+
+        // A buffer larger than the leftover must deliver exactly the leftover.
+        // Kills `>` -> `==` and `||` -> `&&` on the replay-completion guard:
+        // both fall through when the copy exhausts the leftover, clearing it
+        // and polling the inner stream within the same read.
+        assert_poll(
+            &mut stream,
+            8,
+            PollExpectation {
+                bytes: b"abc",
+                inner_polls: 0,
+                pos: 3,
+                leftover_len: 3,
+            },
+        );
+        assert_poll(
+            &mut stream,
+            8,
+            PollExpectation {
+                bytes: b"XYZ",
+                inner_polls: 1,
+                pos: 0,
+                leftover_len: 0,
+            },
+        );
+    }
+
+    #[test]
+    fn poll_read_makes_no_progress_while_zero_capacity_replay_is_pending() {
+        let mut stream = RewindStream::new(b"abc".to_vec(), CountingReader::new(b"XYZ"));
+
+        // A zero-capacity poll cannot copy, so it must report readiness
+        // without touching the inner stream or the cursor. Kills `<` -> `==`
+        // and `<` -> `>` on the replay-completion guard, which would both fall
+        // through to the inner stream.
+        assert_poll(
+            &mut stream,
+            0,
+            PollExpectation {
+                bytes: b"",
+                inner_polls: 0,
+                pos: 0,
+                leftover_len: 3,
+            },
+        );
+        assert_poll(
+            &mut stream,
+            8,
+            PollExpectation {
+                bytes: b"abc",
+                inner_polls: 0,
+                pos: 3,
+                leftover_len: 3,
+            },
+        );
+    }
+
+    #[test]
+    fn poll_read_clears_replayed_leftover_before_polling_inner() {
+        let mut stream = RewindStream::new(b"abc".to_vec(), CountingReader::new(b"XYZ"));
+
+        assert_poll(
+            &mut stream,
+            3,
+            PollExpectation {
+                bytes: b"abc",
+                inner_polls: 0,
+                pos: 3,
+                leftover_len: 3,
+            },
+        );
+
+        // Replay is complete, so the next poll clears it before delegating.
+        // With no buffer space the inner read yields nothing, but it must be
+        // reached exactly once. Kills `>=` -> `<` and `!` deletion on the
+        // cleanup guard, which would retain the leftover and cursor.
+        assert_poll(
+            &mut stream,
+            0,
+            PollExpectation {
+                bytes: b"",
+                inner_polls: 1,
+                pos: 0,
+                leftover_len: 0,
+            },
+        );
+        assert_poll(
+            &mut stream,
+            8,
+            PollExpectation {
+                bytes: b"XYZ",
+                inner_polls: 2,
+                pos: 0,
+                leftover_len: 0,
+            },
+        );
     }
 }
