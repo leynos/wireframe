@@ -1,4 +1,15 @@
 //! Shared frame and stream processing for prepared application routes.
+//!
+//! [`process_stream`] prepares the framed transport, assembly state, and
+//! response actor for one connection, then hands the reader, sink, and actor
+//! to [`stream_dispatch::run`]. [`decode_outcome`] turns a raw frame into a
+//! [`FrameOutcome`] by decoding its envelope in [`parse_envelope`],
+//! reassembling fragments, and applying protocol-level assembly against the
+//! route tables carried by [`StreamProcessingContext`].
+//!
+//! The streaming loop reaches this module through
+//! [`stream_frame::dispatch_frame`], which calls [`decode_outcome`] for every
+//! inbound frame.
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 

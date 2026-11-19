@@ -1,4 +1,7 @@
 //! Core builder types for `WireframeApp`.
+//!
+//! [`WireframeApp`] holds the routes, streaming handlers, middleware and
+//! configuration the builder modules populate; see [`super::routing`].
 
 use std::{collections::HashMap, sync::Arc};
 

@@ -145,6 +145,23 @@ pub(super) fn abandoned_chunk(key: MessageKey) {
     );
 }
 
+/// Report a final chunk the handler's channel refused.
+///
+/// A final chunk is the last thing a body sends, so nothing follows it to
+/// report what became of the body: this event and the `abandoned` counter
+/// increment recorded beside it are the whole signal. The level is `debug`
+/// because the handler abandoned the body by dropping its stream.
+pub(super) fn final_chunk_refused(identity: BodyIdentity, error: SendChunkError) {
+    debug!(
+        operation = CHUNK_DELIVERY,
+        message_id = identity.message_id,
+        correlation_id = ?identity.correlation_id,
+        error_category = ABANDONED_BODY,
+        ?error,
+        "final request-body chunk refused; the body is abandoned"
+    );
+}
+
 /// Report a terminal body failure with no live handler to receive it.
 ///
 /// The handler may have finished and released the slot between the failure
@@ -171,3 +188,7 @@ pub(super) fn handler_deadline_exceeded(route_id: u32) {
         "streaming handler exceeded the connection wait; its reply is abandoned"
     );
 }
+
+#[cfg(test)]
+#[path = "stream_diagnostics_tests.rs"]
+mod tests;

@@ -1,4 +1,17 @@
 //! Immutable application data prepared for connection handling.
+//!
+//! [`PreparedApp`] holds route services whose middleware chains were built once
+//! by [`WireframeApp::prepare`], plus the streaming handlers, serializer,
+//! codec, hooks, assembler, and budgets that every connection from it shares.
+//! [`PreparedApp::handle_connection_result`] and
+//! [`PreparedApp::handle_connection`] drive an accepted connection over those
+//! services, and the accessors expose the protocol, its hooks, and the
+//! assembler.
+//!
+//! Connection processing itself is in
+//! [`crate::app::inbound_handler::process_connection`]. Streaming handlers are
+//! carried without middleware transformation, so a streaming route never
+//! enters a prepared service chain.
 
 use std::{
     collections::HashMap,

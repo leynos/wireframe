@@ -16,6 +16,7 @@ use metrics_util::{
     debugging::{DebugValue, DebuggingRecorder},
 };
 use rstest::{fixture, rstest};
+use tracing_test::traced_test;
 
 use super::{
     super::{
@@ -131,7 +132,10 @@ fn paused_block_on<F: future::Future>(future: F) -> io::Result<F::Output> {
 ///
 /// A final chunk is the last thing a body sends, so no later chunk can report
 /// what became of it. A handler that had already dropped its stream therefore
-/// has to be counted here, as the parked path counts the same case.
+/// has to be counted here, as the parked path counts the same case, and the
+/// diagnostic event recorded beside the counter is asserted here too: it is
+/// the only other trace the body leaves.
+#[traced_test]
 #[rstest]
 #[test]
 fn a_refused_final_chunk_is_counted_as_abandoned(
@@ -162,6 +166,15 @@ fn a_refused_final_chunk_is_counted_as_abandoned(
 
     settled.expect("the admission settles against the closed body");
     assert_eq!(abandoned, 1, "the refused final chunk is counted once");
+    logs_assert(|lines: &[&str]| {
+        lines
+            .iter()
+            .any(|line| {
+                line.contains("final request-body chunk refused") && line.contains("abandoned_body")
+            })
+            .then_some(())
+            .ok_or_else(|| "the refused final chunk is not reported".to_owned())
+    });
 }
 
 /// A handler that answers first leaves its body abandoned, counted once.

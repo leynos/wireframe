@@ -1,4 +1,12 @@
 //! `AsyncRead` adapter over a streaming request body.
+//!
+//! [`RequestBodyReader`] wraps a [`RequestBodyStream`] so a protocol crate can
+//! feed streaming bytes to parsers that consume readers rather than streams.
+//! [`RequestBodyReader::new`] takes ownership of the body and
+//! [`RequestBodyReader::into_inner`] gives it back, discarding any bytes the
+//! reader had buffered but not handed out. The [`AsyncRead`] implementation
+//! forwards polls to the underlying stream, so chunk order and backpressure
+//! carry through.
 
 use std::{
     io,

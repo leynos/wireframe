@@ -1,4 +1,12 @@
 //! Handler and middleware type aliases for `WireframeApp`.
+//!
+//! [`Handler`] and [`ResponseHandler`] are the buffered route handler shapes,
+//! and [`Route`] records which of the two a registration used.
+//! [`StreamingHandler`] is the opt-in shape for streaming routes: it receives
+//! [`RequestParts`] and a [`RequestBodyStream`], and returns an optional
+//! [`Bytes`] reply. Streaming handlers bypass the middleware chain, because
+//! middleware transforms a whole payload while a streaming handler owns its
+//! body incrementally.
 
 use std::{future::Future, pin::Pin, sync::Arc};
 

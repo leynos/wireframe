@@ -1,4 +1,15 @@
 //! Response forwarding helpers for frame handling.
+//!
+//! [`forward_response`] runs a buffered route's middleware service for one
+//! request envelope and installs the resulting [`Response`] on the connection
+//! actor, and [`forward_service_response`] does the same for a streaming
+//! handler's optional reply. [`Dispatch`] reports whether the loop may serve
+//! another inbound frame or must stop after a failed or cancelled stream.
+//!
+//! Responses travel through the actor's `FramePipeline`, which applies
+//! fragmentation, outbound metrics, serialization, codec wrapping, and the
+//! protocol `before_send` hook. The streaming dispatch modules reuse this path
+//! for every reply their handlers produce.
 
 use std::io;
 

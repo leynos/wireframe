@@ -1,4 +1,14 @@
 //! Test-only helpers for shared test utilities.
+//!
+//! [`TestAssembler`] parses the test protocol's frame headers through
+//! [`parse_frame_header`], and [`first_frame_payload`] and
+//! [`continuation_frame_payload`] build the matching payloads. The submodules
+//! supply a deliberately failing codec, a clone-counting codec,
+//! connection-startup instrumentation, retained-byte observation, and teardown
+//! doubles, which are re-exported here for test crates.
+//!
+//! The module is compiled only under `cfg(test)` or the `test-support`
+//! feature.
 #![cfg(any(test, feature = "test-support"))]
 
 use std::io;

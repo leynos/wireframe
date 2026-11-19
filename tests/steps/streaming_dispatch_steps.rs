@@ -1,4 +1,11 @@
 //! Step definitions for streaming request-body dispatch scenarios.
+//!
+//! Each step drives a [`StreamingDispatchWorld`]: the `given` steps start an
+//! app whose streaming handler consumes, holds, or abandons its body, the
+//! `when` steps send first frames, continuations, and buffered messages over
+//! an in-process duplex transport, and the `then` steps assert what the handler
+//! and the client observed. [`body_error_kind`] maps a scenario's body-error
+//! description onto the [`io::ErrorKind`] the runtime reports.
 
 use std::io;
 

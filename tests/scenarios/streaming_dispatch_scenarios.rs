@@ -1,4 +1,11 @@
 //! Scenario tests for streaming request-body dispatch.
+//!
+//! Each function binds one scenario from
+//! `tests/features/streaming_request_dispatch.feature` to the
+//! [`StreamingDispatchWorld`] fixture, whose step definitions drive the app and
+//! record what the handler and client received. Together the scenarios pin
+//! incremental delivery, buffered reassembly, parking order, body failures, and
+//! the idle-body timeout.
 
 use rstest_bdd_macros::scenario;
 use wireframe_testing::TestError;

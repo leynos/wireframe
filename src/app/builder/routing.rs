@@ -1,4 +1,16 @@
 //! Routing and middleware configuration for `WireframeApp`.
+//!
+//! [`WireframeApp::route`] and [`WireframeApp::route_response`] register
+//! buffered handlers, while [`WireframeApp::streaming_route`] registers a
+//! [`StreamingHandler`] that receives a request body as its frames arrive.
+//! [`WireframeApp::wrap`] appends a middleware component to the chain that the
+//! buffered routes run through.
+//!
+//! Buffered and streaming registrations share one identifier space, so either
+//! insertion rejects an identifier already present in the other map with
+//! [`WireframeError::DuplicateRoute`]. Streaming routes stay outside the
+//! middleware chain and are served by the dispatch slot in
+//! [`crate::app::inbound_handler`].
 
 #[cfg(test)]
 #[path = "routing_tests.rs"]

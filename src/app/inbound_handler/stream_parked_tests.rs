@@ -75,6 +75,11 @@ fn park_accepts_a_message_once_the_queue_drains() {
 }
 
 /// Bytes an earlier body never released must not block a pre-filled body.
+///
+/// The warning is asserted as well as the failure the handler observes: the
+/// handler sees only that its body was cut short, while the event names the
+/// connection budget as the cause.
+#[traced_test]
 #[tokio::test(start_paused = true)]
 async fn an_unaffordable_prefilled_body_becomes_a_terminal_error() {
     let queued = QueuedBytes::new();
@@ -99,6 +104,16 @@ async fn an_unaffordable_prefilled_body_becomes_a_terminal_error() {
         item.is_err(),
         "a body that cannot be admitted must fail, not queue silently"
     );
+    logs_assert(|lines: &[&str]| {
+        lines
+            .iter()
+            .any(|line| {
+                line.contains("pre-filled request body was not admitted")
+                    && line.contains("admission_timeout")
+            })
+            .then_some(())
+            .ok_or_else(|| "the refused pre-filled body is not reported".to_owned())
+    });
 }
 
 #[tokio::test(start_paused = true)]

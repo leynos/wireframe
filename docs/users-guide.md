@@ -3485,8 +3485,9 @@ rejected or abandoned.
 - `"terminal"` — the handler was told its body failed, so it can answer with a
   truncated-body error instead of waiting for chunks that will never arrive.
 - `"abandoned"` — the body, or a chunk of it, was dropped before it completed:
-  the handler replied early, the message's remaining frames were discarded, or
-  the hard memory cap ended the exchange.
+  the handler replied early, the handler dropped its stream before the final
+  chunk, the message's remaining frames were discarded, or the hard memory cap
+  ended the exchange.
 - `"admission_timeout"` — a chunk was still waiting for byte admission when a
   bounded wait expired. One body contributes one observation per expired wait,
   so a steadily rising value marks a body that cannot make progress.

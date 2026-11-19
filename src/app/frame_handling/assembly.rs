@@ -1,4 +1,17 @@
 //! Helpers for protocol-level message assembly on the inbound path.
+//!
+//! [`assemble_if_needed`] turns one complete post-fragment envelope into a
+//! [`FrameOutcome`]: `Pending` while an assembly is incomplete or a recoverable
+//! rejection was recorded, `Buffered` when a buffered route's message
+//! completes, the `Stream*` variants for a route registered with
+//! `streaming_route`, and `Discarded` for a continuation dropped after the
+//! consumer abandoned the message. [`new_message_assembly_state`] builds the
+//! connection's limits and timeout, and [`purge_expired_assemblies`] evicts
+//! assemblies that have expired.
+//!
+//! The per-header decision between continuing a live body, opening one, and
+//! completing a buffered message lives in [`assembly_dispatch`], and the
+//! budgets it enforces come from `MemoryBudgets`.
 
 use std::{collections::HashMap, io, num::NonZeroUsize, sync::Arc, time::Duration};
 

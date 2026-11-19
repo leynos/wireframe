@@ -1,4 +1,22 @@
 //! Inbound connection handling and route preparation utilities.
+//!
+//! [`process_connection`] drives one accepted connection through prepared
+//! routes, and [`build_route_chains`] folds registered middleware into the
+//! handler services it dispatches to. [`core`] holds the frame-processing
+//! entry points shared with the connection runtime, while [`frames`] and
+//! [`framing`] supply the inbound frame state and the framed transport.
+//!
+//! Streaming request-body delivery is split across the `stream_*` modules.
+//! [`stream_dispatch`] owns the connection loop and its state machine,
+//! [`stream_frame`] routes one decoded frame into the live slot or the parking
+//! queue, and [`stream_slot`], [`stream_active`], and [`stream_parked`] hold
+//! the slot, the live exchange, and the messages parked behind it.
+//! [`stream_actions`] carries the per-step maintenance actions,
+//! [`stream_observed`] the peer-observed replies, and
+//! [`stream_admission_watch`] the wait for chunk admission, while
+//! [`stream_terminal`] ends a body whose handler is still running.
+//! [`stream_handles`] and [`stream_types`] hold the shared handles and value
+//! types, and [`stream_diagnostics`] emits the structured events.
 
 mod actor;
 // The connection-local runtime drives the same frame loop from outside this

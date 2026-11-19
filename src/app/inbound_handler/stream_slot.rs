@@ -189,12 +189,14 @@ impl ConnectionStreams {
             // chunk is the last thing the body sends. A handler that had
             // already dropped its stream therefore leaves the body abandoned
             // rather than uncounted, which matches the parked path.
-            if result.is_ok() {
+            match result {
                 // The final chunk reached the handler, so the body is
                 // delivered whatever the handler does with it afterwards.
-                StreamingBodyOutcome::Delivered.record();
-            } else {
-                StreamingBodyOutcome::Abandoned.record();
+                Ok(()) => StreamingBodyOutcome::Delivered.record(),
+                Err(error) => {
+                    stream_diagnostics::final_chunk_refused(active.identity(), error);
+                    StreamingBodyOutcome::Abandoned.record();
+                }
             }
             active.sender = None;
         } else if result.is_err() {

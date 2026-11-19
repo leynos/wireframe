@@ -226,7 +226,7 @@ feature and are no-ops otherwise.
   `stream_start` event). Those three categories are defined from the outcome
   vocabulary rather than repeated as literals, so the counter and the event
   cannot drift apart. The other categories name something the counter does not:
-  `abandoned_body` reports the chunk-dropping event whose counter label is
+  `abandoned_body` reports the events that drop a chunk, whose counter label is
   `abandoned`, and `closed`, `receiver_gone` and `reply_abandoned` describe a
   delivery or reply outcome rather than a body decision.
 - `wireframe_streaming_body_bytes_queued` gauges the body bytes a process
