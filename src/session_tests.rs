@@ -1,5 +1,5 @@
-//! Unit and property coverage for connection identifier allocation and
-//! lazy dead-entry cleanup in the session registry.
+//! Unit and property coverage for connection identifier allocation,
+//! publication ownership, and lazy dead-entry cleanup in the session registry.
 
 use std::sync::Arc;
 
@@ -21,7 +21,7 @@ async fn get_evicts_dead_entry_from_registry() {
         .low_capacity(1)
         .build()
         .expect("failed to build PushQueues");
-    registry.insert(id, &handle);
+    assert!(registry.insert(id, &handle));
     drop(handle);
     drop(queues);
 
@@ -30,6 +30,76 @@ async fn get_evicts_dead_entry_from_registry() {
         registry.entries.is_empty(),
         "failed lookup must evict the dead entry rather than leave it to prune"
     );
+}
+
+/// Build a handle that keeps its registry entry live.
+fn live_handle() -> (PushQueues<u8>, crate::push::PushHandle<u8>) {
+    PushQueues::<u8>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .build()
+        .expect("failed to build PushQueues")
+}
+
+/// An application's own entry is never displaced by an allocation.
+///
+/// Identifier `1` is the first value a fresh registry hands out, so a manual
+/// entry there is exactly the overlap the registration API has to tolerate:
+/// the server connection moves past it and both handles stay addressable.
+#[tokio::test]
+async fn allocation_skips_an_identifier_a_live_entry_occupies() {
+    let registry = SessionRegistry::<u8>::default();
+    let manual_id = ConnectionId::new(1);
+    let (_manual_queues, manual_handle) = live_handle();
+    assert!(registry.insert(manual_id, &manual_handle));
+
+    let allocated = registry.allocate_connection_id();
+
+    assert_eq!(allocated, ConnectionId::new(2));
+    assert!(
+        registry.get(&manual_id).is_some(),
+        "the manual entry must survive the allocation"
+    );
+}
+
+/// A live handle cannot be replaced by a second publication.
+///
+/// Refusing the replacement is what stops a manual insert from taking over a
+/// server connection's identifier after the connection registered.
+#[tokio::test]
+async fn insert_refuses_to_replace_a_live_entry() {
+    let registry = SessionRegistry::<u8>::default();
+    let id = ConnectionId::new(7);
+    let (mut first_queues, first) = live_handle();
+    let (_second_queues, second) = live_handle();
+
+    assert!(registry.insert(id, &first));
+    assert!(!registry.insert(id, &second));
+
+    let published = registry.get(&id).expect("the first handle stays live");
+    published
+        .push_high_priority(11)
+        .await
+        .expect("the first lane has room");
+    let (_, value) = first_queues.recv().await.expect("recv failed");
+    assert_eq!(
+        value, 11,
+        "the published handle must still address the first connection"
+    );
+}
+
+/// A dead entry does not block publication of a new handle.
+#[tokio::test]
+async fn insert_replaces_a_dead_entry() {
+    let registry = SessionRegistry::<u8>::default();
+    let id = ConnectionId::new(9);
+    let (_dead_queues, dead) = live_handle();
+    assert!(registry.insert(id, &dead));
+    drop(dead);
+
+    let (_live_queues, live) = live_handle();
+    assert!(registry.insert(id, &live));
+    assert!(registry.get(&id).is_some());
 }
 
 #[test]

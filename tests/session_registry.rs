@@ -27,7 +27,7 @@ fn push_setup() -> Result<(PushQueues<u8>, PushHandle<u8>), PushConfigError> {
 async fn handle_retrieved_while_alive(registry: SessionRegistry<u8>) -> TestResult<()> {
     let (mut queues, handle) = push_setup()?;
     let id = ConnectionId::new(42);
-    registry.insert(id, &handle);
+    assert!(registry.insert(id, &handle));
 
     let retrieved = registry.get(&id).expect("handle should be present");
     retrieved.push_high_priority(7).await?;
@@ -42,7 +42,7 @@ async fn handle_retrieved_while_alive(registry: SessionRegistry<u8>) -> TestResu
 async fn get_returns_none_after_drop(registry: SessionRegistry<u8>) -> TestResult<()> {
     let (_queues, handle) = push_setup()?;
     let id = ConnectionId::new(1);
-    registry.insert(id, &handle);
+    assert!(registry.insert(id, &handle));
     drop(handle);
 
     assert!(registry.get(&id).is_none());
@@ -55,7 +55,7 @@ async fn get_returns_none_after_drop(registry: SessionRegistry<u8>) -> TestResul
 async fn get_prunes_dead_handle(registry: SessionRegistry<u8>) -> TestResult<()> {
     let (_queues, handle) = push_setup()?;
     let id = ConnectionId::new(11);
-    registry.insert(id, &handle);
+    assert!(registry.insert(id, &handle));
     drop(handle);
 
     assert!(registry.get(&id).is_none());
@@ -71,8 +71,8 @@ async fn active_handles_lists_live_connections(registry: SessionRegistry<u8>) ->
     let (_queues2, handle2) = push_setup()?;
     let id1 = ConnectionId::new(21);
     let id2 = ConnectionId::new(22);
-    registry.insert(id1, &handle1);
-    registry.insert(id2, &handle2);
+    assert!(registry.insert(id1, &handle1));
+    assert!(registry.insert(id2, &handle2));
     drop(handle1);
 
     let handles = registry.active_handles();
@@ -88,7 +88,7 @@ async fn active_handles_lists_live_connections(registry: SessionRegistry<u8>) ->
 async fn prune_removes_dead_entries(registry: SessionRegistry<u8>) -> TestResult<()> {
     let (_queues, handle) = push_setup()?;
     let id = ConnectionId::new(5);
-    registry.insert(id, &handle);
+    assert!(registry.insert(id, &handle));
     drop(handle);
     registry.prune();
 

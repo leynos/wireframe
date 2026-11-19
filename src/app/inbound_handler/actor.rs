@@ -13,7 +13,7 @@
 
 use std::{io, sync::Arc};
 
-use log::debug;
+use log::{debug, warn};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
@@ -145,8 +145,18 @@ where
     })?;
     // Published before setup so the callback can address this connection, and
     // before the actor starts so a push queued during setup is never dropped.
-    registry.insert(connection_id, &handle);
-    debug!("session registry entry published: connection_id={connection_id:?}");
+    // A refusal means an application inserted a live handle under the
+    // identifier this connection just allocated; the connection is still
+    // served, but producers addressing that identifier reach the other handle.
+    let published = registry.insert(connection_id, &handle);
+    if published {
+        debug!("session registry entry published: connection_id={connection_id:?}");
+    } else {
+        warn!(
+            "session registry identifier already owned by a live entry: \
+             connection_id={connection_id:?}"
+        );
+    }
     let registry_guard = RegistryGuard::new(Arc::clone(registry), connection_id);
 
     let mut connection_context = context;
