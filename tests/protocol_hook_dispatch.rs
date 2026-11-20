@@ -50,13 +50,13 @@ fn alternating_fairness() -> FairnessConfig {
     }
 }
 
-/// Assert no end-of-file event was produced automatically.
+/// Assert a run that completed cleanly reported no truncation.
 fn assert_no_eof_event<F: std::fmt::Debug>(events: &[HookEvent<F>]) {
     assert!(
         !events
             .iter()
             .any(|event| matches!(event, HookEvent::Eof { .. })),
-        "the connection loop must not dispatch on_eof automatically: {events:?}"
+        "a clean run must not report an end-of-file condition: {events:?}"
     );
 }
 
@@ -306,9 +306,8 @@ async fn custom_setup_callback_runs_once_per_hooks_value() -> TestResult<()> {
 /// partial bytes it received.
 ///
 /// This covers a caller that drives a `ConnectionActor` and reports
-/// end-of-file to it directly. It is not evidence of runtime EOF dispatch on
-/// the prepared path; `prepared_connection_dispatches_setup_once_and_no_eof_hook`
-/// pins that contract instead.
+/// end-of-file to it directly. Runtime EOF dispatch on the prepared path is
+/// pinned by `prepared_connection_runs_setup_then_reports_truncation` instead.
 #[rstest]
 fn explicit_eof_records_clean_and_partial_events() {
     let fixture = RecordingProtocolFixture::<Vec<u8>>::new(None);
