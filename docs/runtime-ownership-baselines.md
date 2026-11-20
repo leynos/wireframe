@@ -1023,9 +1023,13 @@ The reference-counting cost is *not* visible to the allocation counter. As the
 removed was an `Arc` clone per connection, so a before-and-after of the
 allocation count cannot show the removal; it would only have shown the change
 if a fresh `Arc` had been constructed per connection, which is the shape the
-control's `arc_fresh_per_item` probe does detect. What the figures below can
-show is that the collapse did not *add* allocation to the startup path, and
-what the configured workload adds at all.
+control's `arc_fresh_per_item` probe does detect. The figures below are
+post-change measurements: they state what the configured workload allocates,
+and their within-capture comparison with the plain prepared root shows what the
+four installed components add. They are not a before-and-after of #648, so they
+do not establish that this change added or removed an allocation — the
+toolchain and the #644/#879 connection-path changes between captures prevent
+that attribution.
 
 The configured startup scope, first. Every row installs a serializer, a message
 assembler, both lifecycle callbacks, and a protocol on top of the workload's
