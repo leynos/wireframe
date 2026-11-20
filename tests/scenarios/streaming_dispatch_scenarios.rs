@@ -1,7 +1,7 @@
 //! Scenario tests for streaming request-body dispatch.
 //!
 //! Each function binds one scenario from
-//! `tests/features/streaming_request_dispatch.feature` to the
+//! `tests/features/streaming_dispatch.feature` to the
 //! [`StreamingDispatchWorld`] fixture, whose step definitions drive the app and
 //! record what the handler and client received. Together the scenarios pin
 //! incremental delivery, buffered reassembly, parking order, body failures, and
@@ -13,7 +13,7 @@ use wireframe_testing::TestError;
 use crate::fixtures::streaming_dispatch::*;
 
 #[scenario(
-    path = "tests/features/streaming_request_dispatch.feature",
+    path = "tests/features/streaming_dispatch.feature",
     name = "A streaming body is delivered while its frames arrive"
 )]
 fn streaming_body_is_delivered_incrementally(
@@ -23,7 +23,7 @@ fn streaming_body_is_delivered_incrementally(
 }
 
 #[scenario(
-    path = "tests/features/streaming_request_dispatch.feature",
+    path = "tests/features/streaming_dispatch.feature",
     name = "A complete buffered message keeps its reassembly guarantees"
 )]
 fn buffered_message_keeps_reassembly(
@@ -33,7 +33,7 @@ fn buffered_message_keeps_reassembly(
 }
 
 #[scenario(
-    path = "tests/features/streaming_request_dispatch.feature",
+    path = "tests/features/streaming_dispatch.feature",
     name = "A paused frame header resumes without losing the message"
 )]
 fn paused_frame_header_resumes(
@@ -43,7 +43,7 @@ fn paused_frame_header_resumes(
 }
 
 #[scenario(
-    path = "tests/features/streaming_request_dispatch.feature",
+    path = "tests/features/streaming_dispatch.feature",
     name = "A held consumer parks later messages and replies in order"
 )]
 fn held_consumer_parks_later_messages(
@@ -53,7 +53,7 @@ fn held_consumer_parks_later_messages(
 }
 
 #[scenario(
-    path = "tests/features/streaming_request_dispatch.feature",
+    path = "tests/features/streaming_dispatch.feature",
     name = "An abandoned body does not block the next message"
 )]
 fn abandoned_body_does_not_block(
@@ -63,7 +63,7 @@ fn abandoned_body_does_not_block(
 }
 
 #[scenario(
-    path = "tests/features/streaming_request_dispatch.feature",
+    path = "tests/features/streaming_dispatch.feature",
     name = "A parked streaming message does not hold the connection open"
 )]
 fn parked_streaming_message_does_not_hold_the_connection_open(
@@ -73,7 +73,7 @@ fn parked_streaming_message_does_not_hold_the_connection_open(
 }
 
 #[scenario(
-    path = "tests/features/streaming_request_dispatch.feature",
+    path = "tests/features/streaming_dispatch.feature",
     name = "End of stream reports an unexpected end to the body"
 )]
 fn end_of_stream_reports_unexpected_eof(
@@ -83,7 +83,7 @@ fn end_of_stream_reports_unexpected_eof(
 }
 
 #[scenario(
-    path = "tests/features/streaming_request_dispatch.feature",
+    path = "tests/features/streaming_dispatch.feature",
     name = "A declared total overshoot fails the body"
 )]
 fn declared_total_overshoot_fails_body(
@@ -93,7 +93,7 @@ fn declared_total_overshoot_fails_body(
 }
 
 #[scenario(
-    path = "tests/features/streaming_request_dispatch.feature",
+    path = "tests/features/streaming_dispatch.feature",
     name = "A short final frame fails the body"
 )]
 fn short_final_frame_fails_body(
@@ -103,7 +103,7 @@ fn short_final_frame_fails_body(
 }
 
 #[scenario(
-    path = "tests/features/streaming_request_dispatch.feature",
+    path = "tests/features/streaming_dispatch.feature",
     name = "An idle body expires and reports a timeout"
 )]
 fn idle_body_expires(

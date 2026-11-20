@@ -283,8 +283,8 @@ abstraction, and standardized per-connection memory budgets.
   connection's dispatch slot. A message that completes while another body owns
   that slot is parked and delivered afterwards as a pre-filled body. See
   [ADR 018](adrs/adr-0018-streaming-request-body-dispatch.md) and the coverage
-  in `tests/features/streaming_request_dispatch.feature`. The extractor-based
-  form was removed before it was wired in; see
+  in `tests/features/streaming_dispatch.feature`. The extractor-based form was
+  removed before it was wired in; see
   [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md).
 - [x] 8.1.5. Write tests for buffered-to-streaming fallback and back-pressure
   propagation, including the connection-level dispatch slot exercised by
