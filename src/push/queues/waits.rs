@@ -17,7 +17,10 @@
 //! surface is [`PushHandle::wait_counters`](super::PushHandle), which returns a
 //! [`PushWaitCounters`] snapshot.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::{
+    sync::atomic::{AtomicU64, Ordering},
+    task::Poll,
+};
 
 /// Counters describing what one producer's awaited pushes had to wait for.
 ///
@@ -137,5 +140,20 @@ impl PushWaitCounts {
             awaited_capacity_waits: self.awaited_capacity_waits.load(Ordering::Relaxed),
             capacity_probes: self.capacity_probes.load(Ordering::Relaxed),
         }
+    }
+}
+
+/// Count one capacity wait the first time a send poll reports `Pending`.
+///
+/// Split out of the `poll_fn` closure so the closure stays a poll and a call,
+/// keeping it under the repository's nesting ceiling.
+pub(super) fn record_first_pending<Ok, Err>(
+    polled: &Poll<Result<Ok, Err>>,
+    is_wait_recorded: &mut bool,
+    waits: &PushWaitCounts,
+) {
+    if polled.is_pending() && !*is_wait_recorded {
+        *is_wait_recorded = true;
+        waits.record_capacity_wait();
     }
 }

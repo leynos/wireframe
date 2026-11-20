@@ -20,7 +20,9 @@ use crate::{
     codec::{FrameCodec, LengthDelimitedFrameCodec},
     hooks::WireframeProtocol,
     message_assembler::MessageAssembler,
+    push::PushQueuesBuilder,
     serializer::{BincodeSerializer, Serializer},
+    session::SessionRegistry,
 };
 
 /// Configures routing and middleware for a `WireframeServer`.
@@ -57,8 +59,19 @@ pub struct WireframeApp<
     /// Optional protocol hook used to customize frame-level processing.
     pub(in crate::app) protocol:
         Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
-    /// Optional dead-letter sink for pushes that cannot be delivered.
+    /// Legacy dead-letter sink for pushes that cannot be delivered.
+    ///
+    /// Superseded by [`Self::push_queues`], whose dead-letter queue carries
+    /// codec frames rather than serialized payloads (ADR 009).
     pub(in crate::app) push_dlq: Option<mpsc::Sender<Vec<u8>>>,
+    /// Template cloned to build each connection's push queues.
+    ///
+    /// `None` means every connection receives the default queue
+    /// configuration. A stored template is validated during preparation so a
+    /// misconfigured application fails before accepting connections.
+    pub(in crate::app) push_queues: Option<PushQueuesBuilder<F::Frame>>,
+    /// Registry shared by every connection built from this application.
+    pub(in crate::app) session_registry: Arc<SessionRegistry<F::Frame>>,
     /// Frame codec used by all connections from this application.
     pub(in crate::app) codec: F,
     /// Maximum interval to wait for the next inbound frame.
@@ -91,6 +104,8 @@ where
             on_disconnect: None,
             protocol: None,
             push_dlq: None,
+            push_queues: None,
+            session_registry: Arc::new(SessionRegistry::new()),
             codec,
             read_timeout_ms: DEFAULT_READ_TIMEOUT_MS,
             fragmentation: None,
@@ -149,6 +164,10 @@ pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     pub(super) codec: F2,
     /// Protocol hook whose frame type matches the replacement codec.
     pub(super) protocol: Option<Arc<dyn WireframeProtocol<Frame = F2::Frame, ProtocolError = ()>>>,
+    /// Push-queue template matching the replacement codec's frame type.
+    pub(super) push_queues: Option<PushQueuesBuilder<F2::Frame>>,
+    /// Registry matching the replacement codec's frame type.
+    pub(super) session_registry: Arc<SessionRegistry<F2::Frame>>,
     /// Fragmentation settings retained across a type transition.
     pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Message assembler retained across a type transition.
@@ -189,6 +208,8 @@ where
             on_disconnect: self.on_disconnect,
             protocol: params.protocol,
             push_dlq: self.push_dlq,
+            push_queues: params.push_queues,
+            session_registry: params.session_registry,
             codec: params.codec,
             read_timeout_ms: self.read_timeout_ms,
             fragmentation: params.fragmentation,
@@ -218,6 +239,8 @@ where
             on_disconnect: None,
             protocol: self.protocol,
             push_dlq: self.push_dlq,
+            push_queues: self.push_queues,
+            session_registry: self.session_registry,
             codec: self.codec,
             read_timeout_ms: self.read_timeout_ms,
             fragmentation: self.fragmentation,
@@ -228,172 +251,5 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    //! Coverage for core builder parameter propagation and defaults.
-
-    use std::{error::Error, io, num::NonZeroUsize};
-
-    use rstest::{fixture, rstest};
-
-    use super::WireframeApp;
-    use crate::{
-        app::{BudgetBytes, Envelope, MemoryBudgets},
-        codec::LengthDelimitedFrameCodec,
-        serializer::BincodeSerializer,
-    };
-
-    type TestApp = WireframeApp<BincodeSerializer, (), Envelope, LengthDelimitedFrameCodec>;
-
-    #[fixture]
-    fn app_builder() -> Result<TestApp, Box<dyn Error>> {
-        let app = TestApp::new()
-            .map_err(|error| io::Error::other(format!("failed to construct test app: {error}")))?;
-        if app.fragmentation.is_some() {
-            return Err(io::Error::other("fixture expects default fragmentation disabled").into());
-        }
-        if app.memory_budgets.is_some() {
-            return Err(io::Error::other("fixture expects default memory budgets disabled").into());
-        }
-        Ok(app)
-    }
-
-    #[fixture]
-    fn memory_budgets() -> Result<MemoryBudgets, Box<dyn Error>> {
-        let per_message = NonZeroUsize::new(1024).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "message budget must be non-zero",
-            )
-        })?;
-        let per_connection = NonZeroUsize::new(4096).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "connection budget must be non-zero",
-            )
-        })?;
-        let in_flight = NonZeroUsize::new(2048).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "in-flight budget must be non-zero",
-            )
-        })?;
-        Ok(MemoryBudgets::new(
-            BudgetBytes::new(per_message),
-            BudgetBytes::new(per_connection),
-            BudgetBytes::new(in_flight),
-        ))
-    }
-
-    #[rstest]
-    fn builder_defaults_fragmentation_to_disabled(
-        app_builder: Result<TestApp, Box<dyn Error>>,
-    ) -> Result<(), Box<dyn Error>> {
-        let app = app_builder?;
-        if app.fragmentation.is_some() {
-            return Err(io::Error::other("fragmentation should be disabled by default").into());
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    fn builder_defaults_memory_budgets_to_disabled(
-        app_builder: Result<TestApp, Box<dyn Error>>,
-    ) -> Result<(), Box<dyn Error>> {
-        let app = app_builder?;
-        if app.memory_budgets.is_some() {
-            return Err(io::Error::other("memory budgets should be disabled by default").into());
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    fn enable_fragmentation_requires_explicit_opt_in(
-        app_builder: Result<TestApp, Box<dyn Error>>,
-    ) -> Result<(), Box<dyn Error>> {
-        let app = app_builder?.enable_fragmentation();
-        if app.fragmentation.is_none() {
-            return Err(
-                io::Error::other("enable_fragmentation should configure fragmentation").into(),
-            );
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    fn with_codec_clears_fragmentation_to_require_reconfiguration(
-        app_builder: Result<TestApp, Box<dyn Error>>,
-    ) -> Result<(), Box<dyn Error>> {
-        let app = app_builder?
-            .enable_fragmentation()
-            .with_codec(LengthDelimitedFrameCodec::new(2048));
-        if app.fragmentation.is_some() {
-            return Err(
-                io::Error::other("with_codec should clear fragmentation configuration").into(),
-            );
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    fn buffer_capacity_clears_fragmentation_to_require_reconfiguration(
-        app_builder: Result<TestApp, Box<dyn Error>>,
-    ) -> Result<(), Box<dyn Error>> {
-        let app = app_builder?.enable_fragmentation().buffer_capacity(2048);
-        if app.fragmentation.is_some() {
-            return Err(io::Error::other(
-                "buffer_capacity should clear fragmentation configuration",
-            )
-            .into());
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    fn memory_budgets_builder_stores_configuration(
-        app_builder: Result<TestApp, Box<dyn Error>>,
-        memory_budgets: Result<MemoryBudgets, Box<dyn Error>>,
-    ) -> Result<(), Box<dyn Error>> {
-        let configured_budgets = memory_budgets?;
-        let app = app_builder?.memory_budgets(configured_budgets);
-        if app.memory_budgets != Some(configured_budgets) {
-            return Err(
-                io::Error::other("memory_budgets should store the configured value").into(),
-            );
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    fn with_codec_preserves_memory_budgets(
-        app_builder: Result<TestApp, Box<dyn Error>>,
-        memory_budgets: Result<MemoryBudgets, Box<dyn Error>>,
-    ) -> Result<(), Box<dyn Error>> {
-        let configured_budgets = memory_budgets?;
-        let app = app_builder?
-            .memory_budgets(configured_budgets)
-            .with_codec(LengthDelimitedFrameCodec::new(4096));
-        if app.memory_budgets != Some(configured_budgets) {
-            return Err(
-                io::Error::other("with_codec should preserve configured memory budgets").into(),
-            );
-        }
-        Ok(())
-    }
-
-    #[rstest]
-    fn serializer_preserves_memory_budgets(
-        app_builder: Result<TestApp, Box<dyn Error>>,
-        memory_budgets: Result<MemoryBudgets, Box<dyn Error>>,
-    ) -> Result<(), Box<dyn Error>> {
-        let configured_budgets = memory_budgets?;
-        let app = app_builder?
-            .memory_budgets(configured_budgets)
-            .serializer(BincodeSerializer);
-        if app.memory_budgets != Some(configured_budgets) {
-            return Err(
-                io::Error::other("serializer should preserve configured memory budgets").into(),
-            );
-        }
-        Ok(())
-    }
-}
+#[path = "core_tests.rs"]
+mod tests;

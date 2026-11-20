@@ -7,15 +7,22 @@
 //! connection, its gauge guard, and the server drain pending forever. Each wait
 //! and each write is therefore bounded by the actor's idle grace.
 //!
-//! The same bounded drive carries a response across a server `stop()` when the
+//! The same drain carries a response across a server `stop()` when the
 //! connection must not abandon it: progress still completes the response, and
-//! only a producer that stops yielding is cancelled.
+//! only a producer that stops yielding is cancelled. Its first shutdown is
+//! always observed, so no push lane can outlive `stop()`; afterwards it stops
+//! observing shutdown, because the response must still be delivered and an
+//! already-cancelled token would spin the biased select. Each wait and each
+//! write remains bounded, but the drain as a whole is not bounded in total
+//! duration while the response keeps progressing.
 
 use std::sync::Arc;
 
 use super::{
     ConnectionActor,
     FrameSink,
+    PushSink,
+    drain::ActorStep,
     drive::ResponseOutcome,
     event::{Event, EventWatch},
     state::ActorState,
@@ -29,10 +36,33 @@ use crate::{
     response::WireframeError,
 };
 
-impl<F, E> ConnectionActor<F, E>
+/// Output produced by one loop iteration, split by frame kind.
+///
+/// Responses are application frames the sink serializes; pushes arrive already
+/// encoded for the wire. Keeping them apart lets the actor flush pushes first
+/// without conflating the two frame types.
+struct PendingOutput<F, P> {
+    /// Response frames produced by the event.
+    frames: Vec<F>,
+    /// Push frames produced by the event.
+    pushes: Vec<P>,
+}
+
+impl<F, P> PendingOutput<F, P> {
+    /// Start an empty batch for one loop iteration.
+    const fn new() -> Self {
+        Self {
+            frames: Vec::new(),
+            pushes: Vec::new(),
+        }
+    }
+}
+
+impl<F, E, P> ConnectionActor<F, E, P>
 where
     F: FrameLike + CorrelatableFrame + Packet,
     E: std::fmt::Debug,
+    P: FrameLike,
 {
     /// Continue a response under the idle grace.
     ///
@@ -48,13 +78,26 @@ where
     /// while guaranteeing teardown after a stall. The bound comes from the
     /// actor's [`GraceTimer`](super::grace::GraceTimer), so production uses the
     /// ambient clock and a test can fire the deadline by hand.
+    ///
+    /// The first shutdown observed here always discards the push lanes, because
+    /// the connection is ending and a frame queued at that moment is dropped
+    /// rather than flushed. Only a connection configured to abandon the
+    /// response ends there; one that must still deliver its response continues
+    /// draining with the lanes closed, and later iterations stop watching
+    /// shutdown so the already-cancelled token cannot spin the loop.
     pub(super) async fn drive_bounded_drain<S>(
         &mut self,
         sink: &mut S,
     ) -> Result<ResponseOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
+        // Once the drain has closed the push lanes, shutdown is no longer
+        // watched: the response may still have frames to deliver, and a
+        // cancelled token would make the biased select return immediately on
+        // every iteration. Watching it until the first shutdown closes the lanes
+        // is what stops a push lane outliving `stop()` without spinning here.
+        let mut push_lanes_discarded = false;
         while self.active_output.is_response() || self.active_output.is_multi_packet() {
             let mut state = ActorState::new(
                 self.active_output.is_response(),
@@ -62,24 +105,45 @@ where
             );
             let timer = Arc::clone(&self.grace_timer);
             let mut grace = timer.elapse(self.peer_closed_grace);
+            let watch_shutdown = self.abandon_response_on_shutdown || !push_lanes_discarded;
             let event = tokio::select! {
                 biased;
                 // The peer is no longer observed here, and each wait is already
-                // bounded below, so only the drain policy decides whether a
-                // shutdown still preempts the wait.
-                event = self.next_event_in_bounded_drain(&state) => event,
+                // bounded below. The drain policy decides whether a shutdown
+                // still preempts the wait: always until it has closed the push
+                // lanes, and never afterwards.
+                event = self.next_event_in_bounded_drain(&state, watch_shutdown) => event,
                 () = grace.as_mut() => {
                     self.cancel_stalled_response();
                     return Ok(ResponseOutcome::Cancelled);
                 }
             };
-            if matches!(event, Event::Shutdown) {
+            // A shutdown observed here always closes the push lanes: the
+            // connection is ending, so a frame queued at this moment is dropped
+            // rather than flushed and later pushes are refused. The event itself
+            // is never dispatched, because a stop only closes push delivery.
+            let shutdown_observed = matches!(event, Event::Shutdown);
+            if shutdown_observed && self.abandon_response_on_shutdown {
                 ResponseCancellationReason::Shutdown.record();
+                self.discard_push_lanes();
                 return Ok(ResponseOutcome::Cancelled);
             }
-            let mut frames = Vec::new();
-            self.dispatch_event(event, &mut state, &mut frames)?;
-            if self.write_after_peer_close(frames, sink).await? == WriteOutcome::Cancelled {
+            if shutdown_observed {
+                // The response must still be delivered, so the drain continues
+                // with the lanes closed. Later iterations stop watching shutdown,
+                // which is what keeps the cancelled token from spinning the loop.
+                self.discard_push_lanes();
+                push_lanes_discarded = true;
+                continue;
+            }
+            let mut output = PendingOutput::new();
+            let mut step = ActorStep {
+                state: &mut state,
+                out: &mut output.frames,
+                pushes: &mut output.pushes,
+            };
+            self.dispatch_event(event, &mut step)?;
+            if self.write_after_peer_close(output, sink).await? == WriteOutcome::Cancelled {
                 return Ok(ResponseOutcome::Cancelled);
             }
             self.run_deferred_command_end();
@@ -100,7 +164,7 @@ where
     /// observing it, a producer that yields nothing would keep this wait
     /// pending past `stop()` and hold the connection, its gauge and the server
     /// drain open for as long as the peer stays connected.
-    pub(super) async fn next_event_while_draining(&mut self, state: &ActorState) -> Event<F, E> {
+    pub(super) async fn next_event_while_draining(&mut self, state: &ActorState) -> Event<F, E, P> {
         let watch = EventWatch {
             peer: true,
             shutdown: true,
@@ -110,19 +174,26 @@ where
 
     /// Await the next event in the bounded drain.
     ///
-    /// Each wait there is already bounded by the idle grace, so shutdown is
-    /// observed only when it must abandon the response. Watching a cancelled
-    /// token unconditionally would make the biased select return immediately on
-    /// every iteration and spin the loop.
-    pub(super) async fn next_event_in_bounded_drain(&mut self, state: &ActorState) -> Event<F, E> {
+    /// Each wait there is already bounded by the idle grace, so `watch_shutdown`
+    /// is supplied by the driver rather than derived here. The drain watches a
+    /// stop until it has closed the push lanes, which is what stops a push lane
+    /// outliving `stop()`; afterwards it must stop watching, because the
+    /// response still needs delivering and an already-cancelled token would make
+    /// the biased select return immediately on every iteration and spin the
+    /// loop.
+    pub(super) async fn next_event_in_bounded_drain(
+        &mut self,
+        state: &ActorState,
+        watch_shutdown: bool,
+    ) -> Event<F, E, P> {
         let watch = EventWatch {
             peer: false,
-            shutdown: self.abandon_response_on_shutdown,
+            shutdown: watch_shutdown,
         };
         self.next_event_inner(state, watch).await
     }
 
-    /// Write one event's frames, bounded by the idle grace and by shutdown.
+    /// Write one event's output, bounded by the idle grace and by shutdown.
     ///
     /// A peer that stopped reading applies back-pressure that can hold a send
     /// pending forever, so bounding only the wait for the next event would still
@@ -131,19 +202,30 @@ where
     /// is progress, so a peer that keeps reading must not be abandoned merely
     /// because writing the whole batch takes longer than one grace.
     ///
+    /// Queued pushes are written before the response frames produced with them,
+    /// matching the actor's own priority ordering.
+    ///
     /// # Errors
     ///
     /// Returns a [`WireframeError`] if the sink fails.
     async fn write_after_peer_close<S>(
         &mut self,
-        frames: Vec<F>,
+        output: PendingOutput<F, P>,
         sink: &mut S,
     ) -> Result<WriteOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
-        for frame in frames {
-            let outcome = self.write_one_after_peer_close(frame, sink).await?;
+        let PendingOutput { frames, pushes } = output;
+        let progress = sink.progress();
+        let lanes = pushes
+            .into_iter()
+            .map(writes::Output::Push)
+            .chain(frames.into_iter().map(writes::Output::Frame));
+        for item in lanes {
+            let outcome = self
+                .write_output_after_peer_close(progress.clone(), item, sink)
+                .await?;
             if outcome == WriteOutcome::Cancelled {
                 return Ok(WriteOutcome::Cancelled);
             }
@@ -151,30 +233,29 @@ where
         Ok(WriteOutcome::Written)
     }
 
-    /// Write a single frame, bounded by the idle grace and by shutdown.
-    ///
-    /// A sink that splits the frame into several physical writes renews the
-    /// grace per accepted fragment, so a peer that keeps reading is never
-    /// abandoned merely because the whole frame outlives one grace.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`WireframeError`] if the sink fails.
-    async fn write_one_after_peer_close<S>(
+    /// Write one piece of buffered output under the peer-close grace.
+    async fn write_output_after_peer_close<S>(
         &mut self,
-        frame: F,
+        progress: Option<Arc<super::ProgressSignal>>,
+        item: writes::Output<F, P>,
         sink: &mut S,
     ) -> Result<WriteOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         let limit = {
-            let progress = sink.progress();
             let bounds = self.write_bounds();
-            let mut writing = std::pin::pin!(sink.send_frame(frame));
-            writes::write_within_grace(writing.as_mut(), &bounds, progress.as_deref())
-                .await
-                .map_err(WireframeError::Io)?
+            match item {
+                writes::Output::Push(push) => {
+                    let mut pinned = std::pin::pin!(sink.send_push(push));
+                    writes::write_within_grace(pinned.as_mut(), &bounds, progress.as_deref()).await
+                }
+                writes::Output::Frame(frame) => {
+                    let mut pinned = std::pin::pin!(sink.send_frame(frame));
+                    writes::write_within_grace(pinned.as_mut(), &bounds, progress.as_deref()).await
+                }
+            }
+            .map_err(WireframeError::Io)?
         };
         Ok(self.record_write_limit(limit))
     }

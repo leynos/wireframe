@@ -685,3 +685,14 @@ passing. Phase 1 is complete.
 - [ADR-003: Replace Cucumber with
   rstest-bdd](../adrs/adr-0003-replace-cucumber-with-rstest-bdd-for-behavioural-tests.md)
 - [Plan Agent Output](https://claude.ai) – Agent ID: a9eb419
+
+## Addendum: feature file renames (2026-11-18)
+
+The snippets above record the layout as implemented at the time, so they keep
+the historical paths `tests/features/correlation_id.feature` and
+`tests/features/connection_panic.feature`. Issue #537, implemented in pull
+request [#887](https://github.com/leynos/wireframe/pull/887), renamed those
+files to `tests/features/correlation.feature` and
+`tests/features/panic.feature` so each feature stem matches its family. Read
+the snippet paths in this plan as superseded by that rename; the migration
+itself is unaffected.

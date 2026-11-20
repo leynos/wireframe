@@ -458,11 +458,12 @@ never serialized or hooked twice.
 
 Only `handle_error` is forwarded from the protocol to that actor: the actor
 registers no completion or terminator hook, and `before_send` stays with the
-pipeline. The prepared path does not invoke the protocol's
-`on_connection_setup` or `on_eof`; those callbacks remain unreached there, and
-the application-level connection setup and teardown callbacks registered on
-`WireframeApp` are separate hooks. Without a protocol the actor uses default,
-no-op hooks.
+pipeline. The prepared path invokes `on_connection_setup` once, with the
+connection's `PushHandle`, after the registry entry is published and before the
+actor starts, so setup can address its own connection or any other live one. The
+`on_eof` callback remains unreached there. The application-level connection
+setup and teardown callbacks registered on `WireframeApp` are separate hooks.
+Without a protocol the actor uses default, no-op hooks.
 
 `forward_response` owns the rest of the command lifecycle. Once the actor
 reports a completed `Stream` or `MultiPacket` response, it calls
@@ -555,10 +556,93 @@ gauge guard, and its teardown path. The actor increments
 `wireframe_response_cancellations_total` with the bounded label
 `reason="idle_grace_expired"` and logs the cause, the connection id, the peer
 address, and the request correlation, so a truncated response can be traced to
-the request that caused it. Prepared connections do not currently populate the
-connection id or peer address, so those fields read as `None` there. The
-deadline source is injectable (`GraceTimer`), so tests fire it by hand instead
-of waiting on the clock.
+the request that caused it. A connection built by the prepared application
+populates both the connection id and the peer address from its
+`ConnectionContext`; a standalone actor reports `None` for each. The deadline
+source is injectable (`GraceTimer`), so tests fire it by hand instead of
+waiting on the clock.
+
+A push write the inbound loop owns is bounded the same way and reports the same
+identity. That covers a batch taken while a handler runs and a batch delivered
+between inbound reads. An abandoned write increments
+`wireframe_push_writes_abandoned_total` with a bounded `reason` label of
+`idle_grace_expired` or `shutdown`, alongside the connection id, peer address,
+priority lane, and elapsed time. Only an exhausted grace logs a warning: every
+connection that stops with queued output would otherwise log one, so a shutdown
+abandonment is counted without a per-write alert. A push the rate limiter
+refuses increments the unlabelled `wireframe_push_rate_limited_total`, which is
+the only aggregate signal available when the producer discards the
+`PushError::RateLimited` it receives. Session-registry publication and removal
+are logged at `debug!` with the connection identifier, so a lookup that finds
+nothing can be told apart from a connection that never registered.
+
+## Server push path
+
+Each accepted connection has its own push path, from the stored template to the
+guard that removes the connection's registry entry. The
+[asynchronous outbound messaging design](asynchronous-outbound-messaging-design.md)
+owns the protocol-level contract, and the [ADR-014 addenda][adr-014-addenda]
+record why a write and a drain are both bounded. The implementation boundaries
+are:
+
+- **Template ownership** — `src/app/builder/push.rs` stores the
+  `PushQueuesBuilder` template. `validate_push_queues` rejects an unusable
+  capacity or rate during preparation as `PrepareError::InvalidPushConfig`, so
+  one bad template never becomes a failure repeated by every connection, and
+  `with_codec_frame_limit` applies the codec's frame limit to the template as a
+  ceiling.
+- **Per-connection construction** — `src/app/prepared_push.rs` exposes the
+  template and the `SessionRegistry` from a prepared application.
+  `PreparedApp::push_queues` always yields a template, because an application
+  that stored none gets the default configuration, still capped by the codec.
+- **Enqueue budget** — `src/push/queues/frame_limit.rs` holds `FrameLimits`. A
+  template limit and the codec limit stay two `FrameLimit` values with their
+  own payload measures, and both are checked: folding them into one numeric
+  bound would apply one side's measure to the other side's ceiling.
+  `PushError::FrameTooLarge` is raised at enqueue, before the producer is told
+  the push succeeded.
+- **Connection ownership** — `src/app/inbound_handler/actor.rs` builds one
+  connection's queues from the template, publishes the `PushHandle` in the
+  `SessionRegistry`, runs `on_connection_setup`, and creates the untracked
+  `ConnectionActor`. Its `RegistryGuard` removes the entry on drop, so a clean
+  EOF, an I/O error, a panic, and task cancellation all deregister the
+  connection. Publication and removal are logged at `debug!` with the
+  connection identifier.
+- **Lane polling** — `src/connection/pushes.rs` owns how the two lanes are
+  read. `PushKind` names the high and low lanes, and `PushComposer` decides
+  whether a frame is composed like a response (`Inline`) or handed to the sink
+  unchanged (`Deferred`, which is what the server uses because a push is
+  already encoded). `PendingPushes` carries frames together with the lane they
+  came from, so an abandoned write can name its priority. `next_pushes` biases
+  high before low. `take_pending_pushes` seals both lanes and returns the
+  frames they already hold without waiting: a producer that reserved capacity
+  but never sent would otherwise stall the drain, so the producer re-checks the
+  lane after any rate-limit wait and reports `PushError::Closed` instead of
+  sending into a lane the drain has finished with.
+- **Write bounds** — `src/connection/writes.rs` bounds every write.
+  `write_before_bound` races one write against the stop token and a
+  caller-supplied grace deadline and reports a `WriteBound` of `Finished`,
+  `Stopped`, or `GraceExpired`; a ready write is always preferred, so a stop
+  observed while the transport still accepts frames does not discard output it
+  would have taken. `write_within_grace` bounds the actor's own buffered output
+  the same way but re-arms the deadline on `next_progress`, so a peer that
+  keeps reading is never abandoned because one frame outlasted a grace.
+  `WriteBounds` groups the tokens, timer, and grace.
+- **Delivery between reads** — `src/app/inbound_handler/push_service.rs`
+  writes pushes between inbound reads. `deliver_pushes` keeps polling the read
+  half while a write is pending, because this is the last place that can notice
+  a peer which half-closed and then stopped reading, and `drain_queued` flushes
+  what is still queued after a clean EOF or a shutdown.
+  `src/app/inbound_handler/push_write.rs` owns the per-frame write: each frame
+  gets its own grace deadline, so the bound measures idleness rather than the
+  batch's elapsed time.
+- **Delivery during a handler** — `src/app/frame_handling/response_pushes.rs`
+  drains the same lanes while a handler runs, so a handler that pushes into a
+  full lane does not wait for itself. A run that has already written a batch
+  then observes shutdown before taking another, because its own writes would
+  otherwise renew it indefinitely.
+
+[adr-014-addenda]: adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md
 
 ## Runtime ownership model
 
@@ -1201,7 +1285,7 @@ introducing additional breaking changes.
 Use the Makefile targets as the contributor entrypoint for routine validation:
 
 - `make check-fmt` verifies workspace formatting.
-- `make lint` runs the three lint stages over every workspace package, target
+- `make lint` runs the four lint stages over every workspace package, target
   and feature, with warnings denied:
 
   - `lint-doc` builds rustdoc with
@@ -1211,7 +1295,9 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
     `--workspace --all-targets --all-features -- -D warnings`;
   - `lint-whitaker` runs
     `whitaker --all -- --workspace --all-targets --all-features` under
-    `RUSTFLAGS="-D warnings"`.
+    `RUSTFLAGS="-D warnings"`;
+  - `lint-python-docs` runs `interrogate` at a 100% threshold over
+    `tests/workflow_contracts`, the repository's only Python.
 
   `make lint` is a thin aggregate target, so each leaf can be run alone.
   `.NOTPARALLEL: lint` keeps the stages sequential even under `make -j lint`,
@@ -1222,8 +1308,21 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
   helper crates unchecked. `lint-doc` builds documentation for every member,
   including `wireframe_testing`. Ordinary workspace tests cover that crate's
   test targets, and the separate `test-doc` target covers its doctests.
+
+  `lint-python-docs` holds a docstring on every module, class and function in
+  the workflow contract tests; Ruff-style docstring wording is not enforced
+  there. It needs `uv` on `PATH`, which resolves the pinned
+  `interrogate>=1.7,<2` into an ephemeral environment, so no Python packages
+  need installing first. The required `build-test` job runs `make lint`, so a
+  missing docstring fails the pull-request lane even though the crate's own
+  Rust tests pass.
 - `make test` runs the main automated test suite with warnings treated as
   errors.
+- `make test-wireframe-testing` runs only the `wireframe_testing` companion
+  crate's tests
+  (`cargo test -p wireframe_testing --all-targets --all-features`). `make test`
+  already covers the crate as a workspace member; this is the shorter loop to
+  use while editing the test helpers themselves.
 - `make test-pool-no-metrics` checks the `pool,serializer-bincode` feature set
   with default features disabled and warnings denied. The required `build-test`
   CI job runs it in the `Pool without metrics compile check` step.
@@ -2265,6 +2364,27 @@ auto-discovers `tests/*.rs` and `tests/<name>/main.rs`, but not
 declaration the root is not built, so its tests stop running with no compile
 error to flag the loss.
 
+### Recursion limit for test crate roots
+
+Sixteen Rust crate roots carry `#![recursion_limit = "256"]`: the fifteen
+integration-test roots under `tests/` (`bdd/mod.rs`, `codec_test_harness.rs`,
+`frame_codec.rs`, `metadata.rs`, `partial_frame_feeding.rs`,
+`prepared_app/mod.rs`, `prepared_app_observability.rs`,
+`prepared_app_properties.rs`, `response/mod.rs`, `routes.rs`,
+`server_streaming_backpressure.rs`, `slow_io_backpressure.rs`,
+`test_codec_error_regressions.rs`, `testkit_exports.rs` and
+`wireframe_app_protocol_hooks.rs`) and `wireframe_testing/src/lib.rs`.
+
+The attribute exists because the connection pipeline's future nests deeply
+enough that the pinned nightly toolchain used for the dylint gate overflows the
+default query-depth limit while computing the layout of the async test bodies;
+each root repeats that rationale as a comment beside the attribute, and the
+compiler suggests the higher limit when the overflow occurs. Remove it only
+when that toolchain no longer overflows the default limit, or when the affected
+test bodies are flattened enough that it does not. It is not a general licence
+to raise the limit for new crates: a new crate needs the attribute only if the
+same gate fails in the same way.
+
 ### rstest and rstest-bdd
 
 The test suite uses [`rstest`](https://crates.io/crates/rstest) for
@@ -2337,6 +2457,67 @@ cover delivery while frames arrive, parking behind a held body, abandonment,
 and connection close. A handler that holds its body is released by
 `release_handler`, and `wait_millis` uses real time because assembly expiry
 reads `std::time::Instant` rather than the Tokio clock.
+
+#### BDD family naming and registration
+
+A behaviour family shares one stem across three locations under `tests/`:
+
+- `tests/features/<stem>.feature` holds the Gherkin scenarios.
+- `tests/scenarios/<stem>_scenarios.rs` binds each scenario title and imports
+  that family's world fixture.
+- The fixture is either `tests/fixtures/<stem>.rs` or a directory with
+  `tests/fixtures/<stem>/mod.rs`. Both layouts are equivalent.
+
+Each family is registered in exactly one harness. Most families register in the
+main harness, whose `tests/bdd/mod.rs` declares `tests/scenarios/mod.rs` and
+`tests/fixtures/mod.rs`; those registries declare the family as
+`mod <stem>_scenarios;` and `pub mod <stem>;` respectively. Pool families
+register in `tests/bdd_pool/`, whose `scenarios.rs` and `fixtures.rs` declare
+the family's files with harness-relative `#[path]` attributes. A family must
+not be registered in both harnesses, and a scenario module must be registered
+in the same harness as its fixture module.
+
+Scenario bindings take literal `path` and `name` arguments:
+
+<!-- tested-example: developers-guide-014 -->
+```rust,ignore
+#[scenario(
+    path = "tests/features/correlation.feature",
+    name = "Streamed frames reuse the request correlation id"
+)]
+```
+
+The `path` must name the family's own feature file. Titles are read with the
+same `gherkin` parser that `rstest-bdd` uses, so every standard heading counts:
+`Scenario`, `Example`, `Scenario Outline`, and `Scenario Template`. Scenarios
+grouped under a `Rule` count too, so each needs its own binding. Each title
+needs exactly one binding whose `name` matches the trimmed title. Text inside
+doc strings, data tables, or comments never counts as a title. The check
+rejects duplicate bindings, bindings for titles the feature does not contain,
+and titles without a binding. Scenario modules import their world as
+`use crate::fixtures::<stem>::*;` or a grouped explicit import such as
+`use crate::fixtures::<stem>::{World, world};`.
+
+Fixture registry declarations for a family are public (`pub mod <stem>;`).
+Modules under `tests/fixtures/` that support a family without defining its
+world stay private (`mod <support>;`), and a private module needs no feature of
+its own. A public fixture module without a matching feature, and a scenario
+module without a matching feature, are reported as orphans.
+
+`tests/bdd_wiring.rs` enforces these rules, and `make test` runs it.
+`make test-bdd` does not run the check. Module declarations are parsed with the
+`syn` parser rather than matched as text, so a `#[path]` attribute resolves
+relative to the declaring file before the target is compared with the
+repository snapshot. `syn` is a dev-dependency whose `full` feature is required
+to parse whole Rust source files. Only modules inside
+`tests/common/bdd_wiring/` consume it — `syntax.rs` for module declarations, and
+`bindings.rs` and `features.rs` for scenario attributes — so the dependency
+serves the wiring check alone. The check deliberately does not enforce step
+modules, step-text resolution, `#[cfg]` placement, fixture function or world
+names, scenario function names, or parameterless scenarios. Step modules keep
+the same-stem convention (`tests/steps/<stem>_steps.rs`), and the `rstest-bdd`
+strict compile-time validation already rejects a bound scenario whose steps are
+missing, so the wiring check adds no duplicate step inspection.
 
 ### Non-zero test values
 
@@ -2458,13 +2639,16 @@ failure into a pass.
 
 #### Serializer and response-handler bounds
 
-Three fixtures pin the type-level contracts around response streaming:
+Five fixtures pin the type-level contracts around response streaming and
+prepared applications:
 
 | Fixture                                                | Contract it pins                                                   |
 | ------------------------------------------------------ | ------------------------------------------------------------------ |
 | `tests/ui/codec_without_default_serializer.rs`         | `with_codec` needs no `S: Default` once a serializer is installed  |
 | `tests/ui/prepared_app_rejects_borrowed_serializer.rs` | `handle_connection_result` requires `S: 'static`                   |
 | `tests/ui/response_handler_borrows_request.rs`         | a response-handler future may borrow its request across an `await` |
+| `tests/ui/prepared_app_rejects_route.rs`               | `PreparedApp` has no `route` method                                |
+| `tests/ui/prepared_app_rejects_route_response.rs`      | `PreparedApp` has no `route_response` method                       |
 
 The first fixture prepares nothing; it only builds an application, so a
 regression that reintroduces the redundant `Default` bound fails to type check.
@@ -2472,7 +2656,11 @@ The second prepares successfully and fails at the connection boundary, which
 pins that the `'static` requirement belongs to the connection and not to
 preparation. The third passes, because the response handler's higher-ranked
 lifetime lets a handler read request data after an asynchronous step instead of
-copying it up front.
+copying it up front. The fourth and fifth fixtures prepare successfully and
+then call `route` and `route_response` on the result, which fails to type check
+because `PreparedApp` deliberately has no route-registration surface.
+Preparation fixes the route table, so a call that adds a route belongs on
+`WireframeApp` before `prepare()` rather than on the prepared application.
 
 ### Feature files and step definitions
 

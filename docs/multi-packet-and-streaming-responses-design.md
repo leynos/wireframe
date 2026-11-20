@@ -149,9 +149,14 @@ byte-preserved, because `before_send` may still rewrite it. `on_command_end`
 then runs after that final write. A shutdown or a clean peer half-close does
 not by itself suppress either hook: the prepared response keeps running under
 the idle grace, and if it completes, the terminator is written and
-`on_command_end` runs. Cancellation suppresses both: an idle grace that expires
-without the response completing, or an abandoned terminator write, leaves the
-response unfinished, so no terminator and no completion hook is emitted.
+`on_command_end` runs. Cancellation suppresses the completion hook in both
+cases, but the two are not the same. An idle grace that expires before the
+response completes abandons the response itself, so `stream_end_frame` is never
+asked for a terminator and neither the terminator nor `on_command_end` is
+emitted. An abandoned terminator write is reached only after the response
+completed and `stream_end_frame` supplied the frame: the write is abandoned
+mid-flight, so the terminator never reaches the peer and `on_command_end` is
+still suppressed, because a half-written terminator must not report completion.
 
 The terminator write is bounded for the same reason the response frames are. A
 peer that stopped reading can block the last frame as readily as any other, so
@@ -580,11 +585,15 @@ staying true to the architecture already in production use.
   `Vec` responses and the protocol terminator: one frame is enough to block on
   a peer that stopped reading. A write that is ready still proceeds, so a
   cancellation observed mid-drain does not abandon frames the sink has already
-  accepted. Once a request frame is buffered, the read half is no longer
-  polled, so a later disconnect cannot be observed directly; the grace then
-  bounds the response itself. A shutdown request takes the same route. Instead
-  of awaiting the next frame without a deadline, the actor switches to a
-  bounded drain in which every wait and every write is bounded separately by
+  accepted. The grace bounds a wait rather than the response's whole lifetime:
+  a response that keeps producing, and whose peer keeps accepting, renews the
+  grace and is allowed to finish. Only a stall — no event within one grace, or
+  a write the peer never accepts — ends the response. Once a request frame is
+  buffered, the read half is no longer polled, so a later disconnect cannot be
+  observed directly; the grace then bounds each wait of that response rather
+  than proving the peer is gone. A shutdown request takes the same route.
+  Instead of awaiting the next frame without a deadline, the actor switches to
+  a bounded drain in which every wait and every write is bounded separately by
   the grace, so a producer that yields nothing after the stop is cancelled at
   the grace rather than pinning the connection. Either way the pending response
   cannot keep the connection task, its gauge guard, teardown, and the server

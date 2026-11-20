@@ -19,7 +19,7 @@ use proptest::prelude::*;
 use super::{counting_hooks, test_actor};
 use crate::{
     app::Envelope,
-    connection::{FrameSink, ResponseOutcome},
+    connection::{FrameSink, PushSink, ResponseOutcome},
     response::{Response, WireframeError},
 };
 
@@ -50,15 +50,26 @@ impl FailingSink {
             fail_at: Some(position),
         }
     }
+
+    /// Record one frame, refusing it when the sink is failing at this point.
+    fn deliver(&mut self, frame: Envelope) -> io::Result<()> {
+        if self.fail_at == Some(self.written.len()) {
+            return Err(io::Error::other("sink refused the write"));
+        }
+        self.written.push(frame);
+        Ok(())
+    }
 }
 
 impl FrameSink<Envelope> for FailingSink {
     fn send_frame(&mut self, frame: Envelope) -> impl Future<Output = io::Result<()>> + Send {
-        if self.fail_at == Some(self.written.len()) {
-            return std::future::ready(Err(io::Error::other("sink refused the write")));
-        }
-        self.written.push(frame);
-        std::future::ready(Ok(()))
+        std::future::ready(self.deliver(frame))
+    }
+}
+
+impl PushSink<Envelope> for FailingSink {
+    fn send_push(&mut self, frame: Envelope) -> impl Future<Output = io::Result<()>> + Send {
+        std::future::ready(self.deliver(frame))
     }
 }
 

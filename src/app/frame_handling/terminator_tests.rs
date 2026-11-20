@@ -30,7 +30,7 @@ use super::ResponseContext;
 use crate::{
     app::{Envelope, codec_driver::FramePipeline},
     codec::FrameCodec,
-    connection::{ConnectionActor, ConnectionChannels},
+    connection::{ConnectionActor, ConnectionChannels, UntrackedActorInit},
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse},
     push::{PushConfigError, PushHandle, PushQueues},
@@ -40,8 +40,10 @@ use crate::{
 
 /// Marker the test's `before_send` hook appends to the terminator payload.
 const MARKER: u8 = 0x5a;
+
 /// Tag the protocol assigns to its terminator, distinct from codec wrapping.
 const TERMINATOR_TAG: u8 = 0xab;
+
 /// Tag [`TaggedCodec::wrap_payload`] assigns to application frames.
 const WRAPPED_TAG: u8 = 0x01;
 
@@ -180,22 +182,29 @@ impl Sink<TaggedFrame> for RecordingSink {
     }
 }
 
+/// Actor fixture paired with the push handle that keeps its queues open.
+type ActorFixture = (
+    ConnectionActor<Envelope, (), TaggedFrame>,
+    PushHandle<TaggedFrame>,
+);
+
 /// Build an untracked actor whose push queues stay open for the test.
 ///
 /// # Errors
 ///
 /// Returns [`PushConfigError`] if the queue capacities are rejected.
-fn build_actor() -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>), PushConfigError> {
-    let (queues, handle) = PushQueues::<Envelope>::builder()
+fn build_actor() -> Result<ActorFixture, PushConfigError> {
+    let (queues, handle) = PushQueues::<TaggedFrame>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()?;
-    let actor = ConnectionActor::new_untracked(
-        ConnectionChannels::new(queues, handle.clone()),
-        None,
-        CancellationToken::new(),
-        ProtocolHooks::default(),
-    );
+    let actor = ConnectionActor::new_untracked(UntrackedActorInit {
+        channels: ConnectionChannels::new(queues, handle.clone()),
+        response: None,
+        shutdown: CancellationToken::new(),
+        hooks: ProtocolHooks::default(),
+        ctx: ConnectionContext::default(),
+    });
     Ok((actor, handle))
 }
 

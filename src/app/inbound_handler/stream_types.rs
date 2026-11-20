@@ -22,6 +22,7 @@ use super::super::{
 };
 use crate::{
     codec::FrameCodec,
+    connection::PendingPushes,
     hooks::WireframeProtocol,
     message_assembler::MessageAssembler,
     middleware::HandlerService,
@@ -91,4 +92,12 @@ pub(super) enum Event<T> {
     Tick,
     /// The handler resolved while the loop was waiting.
     Handler(Option<Bytes>),
+    /// Frames the connection actor took from the push queues.
+    ///
+    /// The batch is owned rather than borrowed so the wait can end before the
+    /// sink is needed: a push write holds the sink and the reader together,
+    /// which the wait itself cannot.
+    Pushes(PendingPushes<T>),
+    /// Every push lane closed, so only the inbound read remains.
+    LanesIdle,
 }

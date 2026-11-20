@@ -5,10 +5,11 @@ use log::info;
 use super::{ConnectionActor, multi_packet::MultiPacketTerminationReason, state::ActorState};
 use crate::{app::Packet, correlation::CorrelatableFrame, push::FrameLike};
 
-impl<F, E> ConnectionActor<F, E>
+impl<F, E, P> ConnectionActor<F, E, P>
 where
     F: FrameLike + CorrelatableFrame + Packet,
     E: std::fmt::Debug,
+    P: FrameLike,
 {
     /// Begin shutdown once cancellation has been observed.
     pub(super) fn process_shutdown(&mut self, state: &mut ActorState) {
@@ -18,12 +19,7 @@ where
 
     /// Close all receivers and mark streaming sources as closed if present.
     pub(super) fn start_shutdown(&mut self, state: &mut ActorState) {
-        if let Some(rx) = &mut self.high_rx {
-            rx.close();
-        }
-        if let Some(rx) = &mut self.low_rx {
-            rx.close();
-        }
+        self.close_push_lanes();
 
         // Check if multi-packet is active before shutdown clears it
         let was_multi_packet = self.active_output.is_multi_packet();

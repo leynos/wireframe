@@ -1,0 +1,219 @@
+//! Counted and warned idle-grace abandonment of a push write.
+//!
+//! The graceful drain bounds each write separately, so a peer that stopped
+//! reading must be reported as the idle grace expiring rather than as a server
+//! stop. These cases hold the shutdown token open so only the grace can end the
+//! write, and then read what the operator would see.
+
+use std::net::SocketAddr;
+
+use metrics::{SharedString, Unit};
+use metrics_util::{
+    CompositeKey,
+    debugging::{DebugValue, DebuggingRecorder},
+};
+use wireframe_testing::{LoggerHandle, logger};
+
+use super::{transport::blocked_transport, *};
+use crate::{
+    app::{PushWriteDiagnostics, inbound_handler::push_write::write_frame},
+    metrics::PUSH_WRITES_ABANDONED,
+    push::PushPriority,
+    session::ConnectionId,
+};
+
+/// One recorded metric sample, as the debugging recorder reports it.
+type MetricSample = (CompositeKey, Option<Unit>, Option<SharedString>, DebugValue);
+
+/// Assert the abandonment counter and return the complete label set.
+///
+/// The counter's labels are part of its contract: exactly one sample, counted
+/// once, with `reason` as its only label so the series stays bounded. A helper
+/// that collected only `reason` would accept an extra per-connection label,
+/// which is the regression this pins.
+fn abandonment_labels(samples: &[MetricSample]) -> Vec<(String, String)> {
+    let recorded: Vec<&MetricSample> = samples
+        .iter()
+        .filter(|(key, ..)| key.key().name() == PUSH_WRITES_ABANDONED)
+        .collect();
+    let [(key, _, _, value)] = recorded.as_slice() else {
+        panic!("exactly one abandonment sample must be recorded");
+    };
+    assert!(
+        matches!(value, DebugValue::Counter(1)),
+        "the abandonment must be counted once; recorded: {value:?}"
+    );
+    key.key()
+        .labels()
+        .map(|label| (label.key().to_owned(), label.value().to_owned()))
+        .collect()
+}
+
+/// Collect the captured log records that name one connection.
+///
+/// The log buffer is process-wide, so only records naming this connection count
+/// as this test's abandonment.
+fn warnings_for(log: &mut LoggerHandle, connection_id: ConnectionId) -> Vec<String> {
+    std::iter::from_fn(|| log.pop())
+        .map(|record| record.args().to_owned())
+        .filter(|message| message.contains(&connection_id.to_string()))
+        .collect()
+}
+
+/// Assert the abandonment warning carries every operator-visible field.
+fn assert_warning_names(warning: &str, peer: SocketAddr, priority: &str) {
+    let peer_field = format!("peer_addr=Some({peer})");
+    let priority_field = format!(r#"priority="{priority}""#);
+    let elapsed_field = format!("elapsed_ms={}", PEER_CLOSED_RESPONSE_GRACE.as_millis());
+    for fragment in [
+        peer_field.as_str(),
+        priority_field.as_str(),
+        r#"reason="idle_grace_expired""#,
+        elapsed_field.as_str(),
+    ] {
+        assert!(
+            warning.contains(fragment),
+            "the abandonment warning must name {fragment}; captured: {warning}"
+        );
+    }
+}
+
+/// An idle grace that abandons a drain write is counted and warned about.
+///
+/// The peer closed its write half before the drain, so `finish_write` bounds
+/// the write by the grace from its first poll. The shutdown token is never
+/// cancelled, so only the grace can end it: the abandonment must be classified
+/// `idle_grace_expired` rather than `shutdown`, counted once, and reported with
+/// the warning naming the connection. Removing the recording call leaves both
+/// the counter and the warning unrecorded.
+#[cfg(feature = "metrics")]
+#[rstest::rstest]
+#[tokio::test(start_paused = true)]
+async fn an_idle_grace_abandoned_drain_write_is_counted_and_warned(
+    #[from(blocked_transport)] mut harness: TransportRig,
+) {
+    let connection_id = ConnectionId::new(4_301);
+    let peer = SocketAddr::from(([127, 0, 0, 1], 9_044));
+    let shutdown = CancellationToken::new();
+    let peer_eof = CancellationToken::new();
+    let mut inbound = empty_inbound();
+    let mut reader = stream::pending::<io::Result<Bytes>>();
+    let mut evicted = Vec::new();
+    let mut batch = PushBatch {
+        frames: Vec::new(),
+        priority: Some(PushPriority::High),
+        reader: &mut reader,
+        pending_frame: &mut inbound.pending,
+        expiry: InboundExpiry::new(
+            &mut inbound.message_assembly,
+            &mut inbound.read_deadline,
+            READ_TIMEOUT_MS,
+            &mut evicted,
+        ),
+        peer_eof: &peer_eof,
+        shutdown: &shutdown,
+    };
+    let mut log = logger();
+    log.clear();
+
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let outcome = {
+        let _recorder = ::metrics::set_default_local_recorder(&recorder);
+        // `peer_closed` skips the observation select, so the blocked write is
+        // handed straight to `finish_write` under the uncancelled token.
+        let mut transport =
+            harness.transport_with(PushWriteDiagnostics::new(Some(connection_id), Some(peer)));
+        write_frame(
+            &mut transport,
+            Bytes::from_static(b"stalled"),
+            &mut batch,
+            true,
+        )
+        .await
+    }
+    .expect("an idle-grace abandonment is not an error");
+    assert!(
+        harness.accepted_frames().is_empty(),
+        "a write abandoned under the idle grace must not reach the sink"
+    );
+    assert!(!outcome.may_continue(), "the connection must stop");
+    assert!(
+        outcome.peer_closed(),
+        "the abandonment must keep the peer-closed state it was given"
+    );
+
+    assert_eq!(
+        abandonment_labels(&snapshotter.snapshot().into_vec()),
+        [("reason".to_owned(), "idle_grace_expired".to_owned())],
+        "the grace, not the shutdown token, ended this write and the counter carries only its \
+         reason"
+    );
+
+    let warnings = warnings_for(&mut log, connection_id);
+    assert_eq!(
+        warnings.len(),
+        1,
+        "exactly one abandonment warning must be captured; captured: {warnings:#?}"
+    );
+    let warning = warnings
+        .first()
+        .expect("the single captured warning must be inspectable");
+    assert_warning_names(warning, peer, "high");
+}
+
+/// The EOF drain itself forwards the connection diagnostics it was given.
+///
+/// The single-lane case above calls `write_frame` with a synthetic batch. The
+/// real drain collects both lanes and writes through `drain_queued`, which
+/// labels the batch `mixed`; a drain that stopped forwarding the connection
+/// diagnostics would still pass the case above, so this one drives the drain.
+#[cfg(feature = "metrics")]
+#[rstest::rstest]
+#[tokio::test(start_paused = true)]
+async fn an_idle_grace_abandoned_drain_is_warned_as_mixed(
+    #[from(blocked_transport)] mut harness: TransportRig,
+) {
+    let connection_id = ConnectionId::new(4_302);
+    let peer = SocketAddr::from(([127, 0, 0, 1], 9_045));
+    let shutdown = CancellationToken::new();
+    let (mut actor, handle) = build_actor(&shutdown).expect("actor should build");
+    handle
+        .push_high_priority(Bytes::from_static(b"queued"))
+        .await
+        .expect("the lane has room for one frame");
+    let mut log = logger();
+    log.clear();
+
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    {
+        let _recorder = ::metrics::set_default_local_recorder(&recorder);
+        let mut transport =
+            harness.transport_with(PushWriteDiagnostics::new(Some(connection_id), Some(peer)));
+        drain_queued(&mut transport, &mut actor, &shutdown)
+            .await
+            .expect("an idle-grace abandonment is not an error");
+    }
+
+    assert!(
+        harness.accepted_frames().is_empty(),
+        "a drain abandoned under the idle grace must not reach the sink"
+    );
+    assert_eq!(
+        abandonment_labels(&snapshotter.snapshot().into_vec()),
+        [("reason".to_owned(), "idle_grace_expired".to_owned())],
+        "the drain must count one abandonment under the grace reason"
+    );
+
+    let warnings = warnings_for(&mut log, connection_id);
+    assert_eq!(
+        warnings.len(),
+        1,
+        "exactly one abandonment warning must be captured; captured: {warnings:#?}"
+    );
+    let warning = warnings
+        .first()
+        .expect("the single captured warning must be inspectable");
+    assert_warning_names(warning, peer, "mixed");
+}

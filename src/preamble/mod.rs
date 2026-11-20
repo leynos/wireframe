@@ -75,7 +75,9 @@ where
 /// This helper reads the exact number of bytes required by `T`, as
 /// indicated by [`DecodeError::UnexpectedEnd`]. Additional bytes are
 /// requested from `reader` until decoding succeeds or fails for some
-/// other reason.
+/// other reason. A preamble that encodes to no bytes, such as the
+/// default `()`, decodes without reading anything, so a connection
+/// whose client waits for an unsolicited frame still reaches setup.
 ///
 /// Attempts to decode a value of type `T` from the beginning of the
 /// byte stream, reading more bytes as needed until decoding succeeds or
@@ -128,10 +130,11 @@ where
     // Decode borrowed data for any lifetime without external context.
     for<'de> T: BorrowDecode<'de, ()>,
 {
-    // Start with a single byte to ensure we don't block on preambles smaller
-    // than an arbitrary initial chunk size.
+    // Decode before reading so a preamble that encodes to no bytes, such as
+    // the default `()`, completes without waiting for the peer to speak. A
+    // server otherwise blocks here before `on_connection_setup` runs, and a
+    // client that waits for an unsolicited frame is never served.
     let mut buf = Vec::new();
-    read_more(reader, &mut buf, 1).await?;
     // Bound container allocation as well as the bytes read into the buffer.
     let config = config::standard()
         .with_big_endian()
@@ -144,7 +147,9 @@ where
                 return Ok((value, leftover));
             }
             Err(DecodeError::UnexpectedEnd { additional }) => {
-                read_more(reader, &mut buf, additional).await?;
+                // Ask for at least one byte so a decoder that reports no
+                // shortfall cannot spin this loop.
+                read_more(reader, &mut buf, additional.max(1)).await?;
             }
             Err(e) => return Err(e),
         }

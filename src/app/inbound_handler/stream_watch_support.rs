@@ -116,6 +116,11 @@ where
         memory_budgets: prepared.memory_budgets,
         read_timeout_ms: prepared.read_timeout_ms,
         shutdown,
+        push_queues: prepared.push_queues(),
+        session_registry: std::sync::Arc::clone(&prepared.session_registry),
+        // The scenario talks to the server over an in-memory duplex, so there
+        // is no accepted socket and therefore no peer address to report.
+        peer_addr: None,
     }
 }
 

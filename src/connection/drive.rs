@@ -12,9 +12,10 @@ use log::info;
 use super::{
     ConnectionActor,
     FrameSink,
-    event::{Event, EventWatch},
-    output::{ActiveOutput, AvailableOutput, EventAvailability},
-    polling::EventSources,
+    PushSink,
+    drain::ActorStep,
+    event::Event,
+    output::ActiveOutput,
     state::ActorState,
     writes::WriteOutcome,
 };
@@ -74,7 +75,14 @@ where
     pub async fn run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>> {
         self.run_with_sink(out).await
     }
+}
 
+impl<F, E, P> ConnectionActor<F, E, P>
+where
+    F: FrameLike + CorrelatableFrame + Packet,
+    E: std::fmt::Debug,
+    P: FrameLike,
+{
     /// Drive the actor, awaiting `sink` for every emitted frame.
     ///
     /// Frames produced by a single loop iteration are buffered, then delivered
@@ -88,7 +96,7 @@ where
     /// error.
     pub(crate) async fn run_with_sink<S>(&mut self, sink: &mut S) -> Result<(), WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         // If cancellation has already been requested, exit immediately. Nothing
         // will be drained and any streaming response is abandoned. This mirrors
@@ -110,8 +118,16 @@ where
         while !state.is_done() {
             let event = self.next_event(&state).await;
             let mut frames = Vec::new();
-            self.dispatch_event(event, &mut state, &mut frames)?;
-            if self.flush_or_cancel(frames, sink).await? == WriteOutcome::Cancelled {
+            let mut pushes = Vec::new();
+            let mut step = ActorStep {
+                state: &mut state,
+                out: &mut frames,
+                pushes: &mut pushes,
+            };
+            self.dispatch_event(event, &mut step)?;
+            // Pushes are written before response frames, matching the order
+            // the sources produced them.
+            if self.flush_or_cancel(pushes, frames, sink).await? == WriteOutcome::Cancelled {
                 info!(
                     "connection aborted during write: id={:?}, peer={:?}",
                     self.connection_id, self.peer_addr
@@ -150,7 +166,7 @@ where
         sink: &mut S,
     ) -> Result<ResponseOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         // Diagnostics for a stalled response report the request it belonged to.
         self.response_correlation = correlation_id;
@@ -204,7 +220,7 @@ where
         sink: &mut S,
     ) -> Result<ResponseOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         while self.active_output.is_response() || self.active_output.is_multi_packet() {
             let mut state = ActorState::new(
@@ -218,7 +234,7 @@ where
                     return Ok(ResponseOutcome::Cancelled);
                 }
                 Some(ResponseInterruption::Bounded) => {
-                    return self.drive_bounded_drain(sink).await;
+                    return self.enter_bounded_drain(&event, sink).await;
                 }
                 None => {}
             }
@@ -227,6 +243,33 @@ where
             }
         }
         Ok(self.finish_outcome())
+    }
+
+    /// Switch to the bounded drain, dropping pushes if a stop caused it.
+    ///
+    /// A stop that starts the bounded drain ends push delivery: the documented
+    /// shutdown rule is that a frame still waiting in a push queue at that
+    /// moment is dropped rather than flushed. Discarding the lanes enforces
+    /// that rule and stops a producer from renewing the drain's idle grace with
+    /// a fresh push, which would let it hold the connection open indefinitely.
+    /// A peer close keeps the lanes open, because the connection still drains
+    /// the frames it accepted before the half-close.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`WireframeError`] if the sink fails while draining.
+    async fn enter_bounded_drain<S>(
+        &mut self,
+        event: &Event<F, E, P>,
+        sink: &mut S,
+    ) -> Result<ResponseOutcome, WireframeError<E>>
+    where
+        S: FrameSink<F> + PushSink<P> + Send,
+    {
+        if matches!(event, Event::Shutdown) {
+            self.discard_push_lanes();
+        }
+        self.drive_bounded_drain(sink).await
     }
 
     /// Map the response loop's terminal flags to an outcome.
@@ -273,7 +316,7 @@ where
         sink: &mut S,
     ) -> Result<WriteOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         ensure_output_idle(&self.active_output)?;
         let mut out = Vec::with_capacity(frames.len());
@@ -283,7 +326,7 @@ where
             }
             self.process_frame_with_hooks_and_metrics(frame, &mut out);
         }
-        self.flush_or_cancel(out, sink).await
+        self.flush_or_cancel(Vec::new(), out, sink).await
     }
 
     /// Finish an immediately emitted response.
@@ -297,88 +340,6 @@ where
         }
         self.hooks.on_command_end(&mut self.ctx);
         ResponseOutcome::Completed
-    }
-
-    /// Compute which event sources are currently available for polling.
-    const fn compute_availability(&self, state: &ActorState) -> EventAvailability {
-        EventAvailability {
-            high: self.high_rx.is_some(),
-            low: self.low_rx.is_some(),
-            output: self
-                .active_output
-                .available_output(state.is_shutting_down()),
-        }
-    }
-
-    /// Await the next ready event using biased priority ordering.
-    ///
-    /// Shutdown is observed first, followed by high-priority pushes, then
-    /// low-priority pushes, multi-packet channels, and finally the response
-    /// stream. This matches the design documentation. The final `else` branch
-    /// prevents `tokio::select!` from panicking if all guards are false.
-    ///
-    /// The `strict_priority_order` and `shutdown_signal_precedence` tests
-    /// assert that this ordering is preserved across refactors.
-    pub(super) async fn next_event(&mut self, state: &ActorState) -> Event<F, E> {
-        self.next_event_inner(
-            state,
-            EventWatch {
-                peer: false,
-                shutdown: true,
-            },
-        )
-        .await
-    }
-
-    /// Choose whether a shutdown signal abandons a response being driven.
-    ///
-    /// The default keeps the direct actor contract, where a cancelled shutdown
-    /// token stops the drive before the next frame is written. A server
-    /// connection disables it so that ADR-014's graceful drain still delivers a
-    /// response to a peer that is reading; shutdown then bounds only the writes
-    /// that cannot make progress.
-    pub(crate) const fn set_abandon_response_on_shutdown(&mut self, abandon: bool) {
-        self.abandon_response_on_shutdown = abandon;
-    }
-
-    /// Whether peer-close observation applies to the current actor state.
-    const fn should_watch_peer(watch: EventWatch, state: &ActorState) -> bool {
-        watch.peer && state.is_active()
-    }
-
-    /// Shared select loop for every observation mode.
-    pub(super) async fn next_event_inner(
-        &mut self,
-        state: &ActorState,
-        watch: EventWatch,
-    ) -> Event<F, E> {
-        let avail = self.compute_availability(state);
-        let can_poll_multi_packet = avail.output == AvailableOutput::MultiPacket;
-        let can_poll_response = avail.output == AvailableOutput::Response;
-        let EventSources {
-            high,
-            low,
-            multi_packet,
-            response,
-            shutdown,
-            peer_closed,
-        } = self.event_sources();
-
-        tokio::select! {
-            biased;
-
-            () = Self::wait_shutdown(shutdown), if watch.shutdown && state.is_active() => {
-                Event::Shutdown
-            }
-            () = Self::wait_peer_closed(peer_closed), if Self::should_watch_peer(watch, state) => {
-                Event::PeerClosed
-            }
-            res = Self::poll_queue(high), if avail.high => Event::High(res),
-            res = Self::poll_queue(low), if avail.low => Event::Low(res),
-            res = Self::poll_queue(multi_packet), if can_poll_multi_packet => Event::MultiPacket(res),
-            res = Self::poll_response(response), if can_poll_response => Event::Response(res),
-            else => Event::Idle,
-        }
     }
 }
 

@@ -56,7 +56,7 @@ where
     /// Write half the connection actor drives.
     pub(super) sink: &'a mut K,
     /// Actor that schedules and delivers every reply.
-    pub(super) actor: &'a mut ConnectionActor<Envelope, ()>,
+    pub(super) actor: &'a mut ConnectionActor<Envelope, (), F::Frame>,
     /// Connection-wide byte account, shared with every body on this
     /// connection so a pre-filled body is charged against the same budget as
     /// an incrementally delivered one.
@@ -196,6 +196,11 @@ pub(super) struct LoopState {
     pub(super) parked: ParkedQueue,
     /// Consecutive malformed-frame count.
     pub(super) deser_failures: u32,
+    /// Whether the next wait probes the reader before the push lanes.
+    ///
+    /// Set after a push batch so a continuously ready push lane cannot win
+    /// every biased pass and starve the client's frames.
+    pub(super) serve_read_first: bool,
 }
 
 impl LoopState {
@@ -205,6 +210,7 @@ impl LoopState {
             streams: ConnectionStreams::new(queued),
             parked: ParkedQueue::new(),
             deser_failures: 0,
+            serve_read_first: false,
         }
     }
 }

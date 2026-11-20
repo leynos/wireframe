@@ -81,6 +81,11 @@ where
         memory_budgets: prepared.memory_budgets,
         read_timeout_ms: prepared.read_timeout_ms,
         shutdown,
+        push_queues: prepared.push_queues(),
+        session_registry: Arc::clone(&prepared.session_registry),
+        // These cases drive a duplex stream rather than an accepted socket,
+        // so there is no peer address to report.
+        peer_addr: None,
     }
 }
 

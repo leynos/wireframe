@@ -22,10 +22,6 @@ pub enum SendError {
 }
 
 /// Errors produced while preparing an application for connection handling.
-///
-/// Preparation is currently infallible. The reserved middleware variant keeps
-/// the transition typed so future fallible transforms can preserve their
-/// source error without changing the public method signature.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum PrepareError {
@@ -35,6 +31,17 @@ pub enum PrepareError {
         /// The transform failure that prevented preparation.
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
+    },
+    /// The stored push-queue template is not a usable configuration.
+    ///
+    /// Preparation rejects the template before any connection exists, so an
+    /// invalid capacity or rate cannot surface later as a per-connection
+    /// failure.
+    #[error("invalid push queue configuration: {source}")]
+    InvalidPushConfig {
+        /// The capacity or rate problem reported by the push configuration.
+        #[source]
+        source: crate::push::PushConfigError,
     },
 }
 

@@ -33,6 +33,7 @@ use wireframe::{
 use wireframe_testing::TestResult;
 
 type TestApp = wireframe::app::WireframeApp<BincodeSerializer, (), Envelope, VecFrameCodec>;
+
 type QueueResult =
     Result<(PushQueues<Vec<u8>>, wireframe::push::PushHandle<Vec<u8>>), PushConfigError>;
 
@@ -166,11 +167,11 @@ async fn builder_produces_protocol_hooks(queues: QueueResult) -> TestResult<()> 
     let app = TestApp::new()?.with_protocol(protocol);
     let mut hooks = app.protocol_hooks();
     let (_queues, handle) = queues?;
-    hooks.on_connection_setup(handle, &mut ConnectionContext);
+    hooks.on_connection_setup(handle, &mut ConnectionContext::default());
 
     let mut frame = vec![1u8];
-    hooks.before_send(&mut frame, &mut ConnectionContext);
-    hooks.on_command_end(&mut ConnectionContext);
+    hooks.before_send(&mut frame, &mut ConnectionContext::default());
+    hooks.on_command_end(&mut ConnectionContext::default());
 
     assert_eq!(frame, vec![1, 1], "before_send did not mutate frame");
     assert_eq!(
@@ -295,7 +296,7 @@ async fn prepared_app_retains_runtime_protocol_accessors(queues: QueueResult) ->
 
     let (_queues, handle) = queues?;
     let mut hooks = prepared.protocol_hooks();
-    hooks.on_connection_setup(handle, &mut ConnectionContext);
+    hooks.on_connection_setup(handle, &mut ConnectionContext::default());
     assert_eq!(
         counter.load(Ordering::SeqCst),
         1,

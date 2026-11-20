@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use super::{
     ConnectionActor,
     ConnectionChannels,
-    drain::{DrainContext, QueueKind},
+    drain::ActorStep,
     multi_packet::MultiPacketTerminationReason,
     state::ActorState,
 };
@@ -141,14 +141,14 @@ impl ActorHarness {
 
     /// Process a multi-packet poll result.
     pub fn process_multi_packet(&mut self, res: Option<u8>) {
-        self.actor.process_queue(
-            QueueKind::Multi,
-            res,
-            DrainContext {
-                out: &mut self.out,
-                state: &mut self.state,
-            },
-        );
+        // The harness has no queued pushes, so the push buffer is scratch.
+        let mut pushes = Vec::new();
+        let mut step = ActorStep {
+            state: &mut self.state,
+            out: &mut self.out,
+            pushes: &mut pushes,
+        };
+        self.actor.process_multi_packet(res, &mut step);
         self.run_deferred_command_end();
     }
 
@@ -179,9 +179,7 @@ impl ActorHarness {
     pub fn try_drain_low(&mut self) -> bool {
         let state = &mut self.state;
         let out = &mut self.out;
-        let drained = self
-            .actor
-            .try_opportunistic_drain(QueueKind::Low, DrainContext { out, state });
+        let drained = self.actor.try_opportunistic_low_drain(state, out);
         self.run_deferred_command_end();
         drained
     }
@@ -190,9 +188,7 @@ impl ActorHarness {
     pub fn try_drain_multi(&mut self) -> bool {
         let state = &mut self.state;
         let out = &mut self.out;
-        let drained = self
-            .actor
-            .try_opportunistic_drain(QueueKind::Multi, DrainContext { out, state });
+        let drained = self.actor.try_opportunistic_multi_drain(state, out);
         self.run_deferred_command_end();
         drained
     }

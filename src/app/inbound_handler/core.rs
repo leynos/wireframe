@@ -1,17 +1,24 @@
 //! Shared frame and stream processing for prepared application routes.
 //!
-//! [`process_stream`] prepares the framed transport, assembly state, and
-//! response actor for one connection, then hands the reader, sink, and actor
-//! to [`stream_dispatch::run`]. [`decode_outcome`] turns a raw frame into a
-//! [`FrameOutcome`] by decoding its envelope in [`parse_envelope`],
-//! reassembling fragments, and applying protocol-level assembly against the
-//! route tables carried by [`StreamProcessingContext`].
+//! [`process_stream`] prepares the framed transport, assembly state, push
+//! queues, and response actor for one connection, then hands the reader, sink,
+//! and actor to [`stream_dispatch::run`]. [`decode_outcome`] turns a raw frame
+//! into a [`FrameOutcome`] by decoding its envelope in
+//! [`parse_envelope`](super::dispatch::parse_envelope), reassembling fragments,
+//! and applying protocol-level assembly against the route tables carried by
+//! [`StreamProcessingContext`].
 //!
 //! The streaming loop reaches this module through
-//! [`stream_frame::dispatch_frame`], which calls [`decode_outcome`] for every
-//! inbound frame.
+//! [`stream_frame::dispatch_frame`](super::stream_frame::dispatch_frame), which
+//! calls [`decode_outcome`] for every inbound frame.
+//!
+//! Push queues and the stop token arrive through [`StreamProcessingContext`]:
+//! the queue template the actor clones into these lanes, the server shutdown
+//! token, from which the loop derives a child token so its own exit cancels
+//! only this connection, the [`SessionRegistry`](crate::session::SessionRegistry)
+//! the actor registers with, and the peer address diagnostics report.
 
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
@@ -25,7 +32,8 @@ use super::{
         memory_budgets::MemoryBudgets,
     },
     MAX_DESER_FAILURES,
-    actor::build_connection_actor,
+    actor::{ConnectionActorInit, build_connection_actor},
+    dispatch::parse_envelope,
     frames::InboundFrames,
     framing::prepare_connection_framing,
     stream_dispatch::{self, DispatchContext},
@@ -33,11 +41,13 @@ use super::{
 use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
-    hooks::{ProtocolHooks, WireframeProtocol},
-    message::{DecodeWith, DeserializeContext, EncodeWith},
+    hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
+    message::{DecodeWith, EncodeWith},
     message_assembler::{MessageAssembler, MessageAssemblyState},
     middleware::HandlerService,
+    push::PushQueuesBuilder,
     serializer::Serializer,
+    session::SessionRegistry,
 };
 #[cfg(test)]
 #[path = "core_tests.rs"]
@@ -72,6 +82,12 @@ where
     pub(crate) read_timeout_ms: u64,
     /// Server shutdown signal; cancelling it stops this connection.
     pub(crate) shutdown: &'a CancellationToken,
+    /// Template cloned to build this connection's push queues.
+    pub(crate) push_queues: PushQueuesBuilder<F::Frame>,
+    /// Registry this connection publishes its push handle to.
+    pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
+    /// Peer address of the accepted socket, when the server reported one.
+    pub(crate) peer_addr: Option<SocketAddr>,
 }
 
 /// Read and process frames until the stream closes or an I/O error occurs.
@@ -86,40 +102,72 @@ where
     W: AsyncRead + AsyncWrite + Send + Unpin,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
+    let StreamProcessingContext {
+        routes,
+        streaming_routes,
+        serializer,
+        codec,
+        message_assembler,
+        fragmentation,
+        protocol_hooks,
+        protocol,
+        memory_budgets,
+        read_timeout_ms,
+        shutdown,
+        push_queues,
+        session_registry,
+        peer_addr,
+    } = context;
     let (mut sink, mut reader, connection_codec) =
-        prepare_connection_framing(stream, context.codec).split();
+        prepare_connection_framing(stream, codec).split();
     let requested_frame_length = connection_codec.max_frame_length();
     let effective_budgets =
-        frame_handling::resolve_effective_budgets(context.memory_budgets, requested_frame_length);
+        frame_handling::resolve_effective_budgets(memory_budgets, requested_frame_length);
     let mut inbound = InboundFrames {
         // A frame read while the previous one was still being handled, so the
         // loop never polls the read half twice for one inbound frame.
         pending: None,
-        pipeline: FramePipeline::with_hooks(context.fragmentation, context.protocol_hooks),
-        message_assembly: context.message_assembler.map(|_| {
+        pipeline: FramePipeline::with_hooks(fragmentation, protocol_hooks),
+        message_assembly: message_assembler.map(|_| {
             frame_handling::new_message_assembly_state(
-                context.fragmentation,
+                fragmentation,
                 requested_frame_length,
                 Some(effective_budgets),
             )
         }),
+        // Armed on the first silent read, so a fresh connection never starts by
+        // purging state it has not buffered.
+        read_deadline: None,
     };
     // A child token so the guard below cancels only this connection, while a
     // server shutdown still reaches it through the parent.
-    let connection_shutdown = context.shutdown.child_token();
+    let connection_shutdown = shutdown.child_token();
     // Cancelled only by a clean EOF, which is permanent for the connection.
     let peer_eof = CancellationToken::new();
-    let (mut response_actor, _cancel_on_exit) =
-        build_connection_actor::<F>(context.protocol.as_ref(), connection_shutdown)?;
+    let (mut response_actor, _cancel_on_exit) = build_connection_actor::<F>(ConnectionActorInit {
+        protocol: protocol.as_ref(),
+        shutdown: connection_shutdown,
+        registry: &session_registry,
+        push_queues: &push_queues,
+        context: ConnectionContext::default().with_peer_addr(peer_addr),
+    })?;
+    // The identifier is the one the actor claimed when it published its
+    // handle, so the sink's callbacks and the registry agree on it.
+    let connection_context =
+        ConnectionContext::with_connection_id(Some(response_actor.connection_id))
+            .with_peer_addr(peer_addr);
+    // The sink-owned pipeline runs `before_send` too, so it must know which
+    // connection the callback is running for.
+    inbound.pipeline.set_context(connection_context);
     let dispatch = DispatchContext {
-        routes: context.routes,
-        streaming_routes: context.streaming_routes,
-        serializer: context.serializer.as_ref(),
+        routes,
+        streaming_routes,
+        serializer: serializer.as_ref(),
         codec: &connection_codec,
-        message_assembler: context.message_assembler,
-        protocol: context.protocol.as_ref(),
+        message_assembler,
+        protocol: protocol.as_ref(),
         effective_budgets,
-        read_timeout_ms: context.read_timeout_ms,
+        read_timeout_ms,
     };
     stream_dispatch::run(stream_dispatch::Connection {
         reader: &mut reader,
@@ -127,62 +175,11 @@ where
         inbound: &mut inbound,
         actor: &mut response_actor.actor,
         ctx: &dispatch,
-        shutdown: context.shutdown,
+        shutdown,
         peer_eof: &peer_eof,
-        wait: Duration::from_millis(dispatch.read_timeout_ms),
+        wait: Duration::from_millis(read_timeout_ms),
     })
     .await
-}
-
-/// Detect a bincode budget failure so fallback decoding does not repeat the work.
-fn is_bincode_limit_exceeded(error: &(dyn std::error::Error + 'static)) -> bool {
-    error
-        .downcast_ref::<bincode::error::DecodeError>()
-        .is_some_and(|decode_error| {
-            matches!(decode_error, bincode::error::DecodeError::LimitExceeded)
-        })
-}
-
-/// Decode exactly one envelope, using metadata to select full deserialization.
-pub(super) fn parse_envelope<S>(
-    serializer: &S,
-    payload: &[u8],
-) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>>
-where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
-    Envelope: DecodeWith<S>,
-{
-    let (envelope, consumed) = match serializer.parse(payload) {
-        Ok((parsed_envelope, metadata_bytes_consumed)) => {
-            if serializer.should_deserialize_after_parse() {
-                let context = DeserializeContext {
-                    frame_metadata: payload.get(..metadata_bytes_consumed),
-                    message_id: Some(parsed_envelope.id),
-                    correlation_id: parsed_envelope.correlation_id,
-                    metadata_bytes_consumed: Some(metadata_bytes_consumed),
-                };
-                serializer.deserialize_with_context::<Envelope>(payload, &context)
-            } else {
-                Ok((parsed_envelope, metadata_bytes_consumed))
-            }
-        }
-        Err(error) if is_bincode_limit_exceeded(&error) => {
-            Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
-        }
-        Err(_) => serializer.deserialize::<Envelope>(payload),
-    }?;
-    if consumed != payload.len() {
-        crate::metrics::inc_decode_rejection(
-            crate::metrics::DecodeRejectionPath::Envelope,
-            crate::metrics::DecodeRejectionReason::TrailingBytes,
-        );
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "trailing bytes after envelope: frame must contain exactly one value",
-        )
-        .into());
-    }
-    Ok((envelope, consumed))
 }
 
 /// Borrowed inputs for turning one raw frame into a dispatch outcome.

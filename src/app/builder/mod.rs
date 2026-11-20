@@ -9,6 +9,7 @@ mod config;
 mod core;
 mod lifecycle;
 mod protocol;
+pub(in crate::app) mod push;
 mod routing;
 
 pub use core::WireframeApp;

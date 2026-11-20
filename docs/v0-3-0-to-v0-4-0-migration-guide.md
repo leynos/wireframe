@@ -317,9 +317,11 @@ configuration when:
   Call `preamble_timeout(Duration)` with a larger, explicit bound, or
   `disable_preamble_timeout()` when the wait must be unbounded.
 - A client waits for a server greeting before sending anything (server-first
-  protocols). Disabling the deadline does not make the server speak first: the
-  preamble is still read before the server writes, so the greeting must come
-  from an outer layer that runs before the preamble read.
+  protocols). Disabling the deadline does not by itself make the server speak
+  first: a non-empty preamble is still read before the server writes, so the
+  greeting must come from an outer layer that runs before the preamble read. A
+  preamble that encodes to no bytes, such as a unit `()`, reads nothing and
+  leaves the server free to greet from application code.
 
 The two setters override each other and the last call wins. `Duration::ZERO`
 still clamps to 1 ms, so use `disable_preamble_timeout()` rather than a zero
@@ -371,10 +373,12 @@ services and the runtime configuration. The builder's route-registration
 methods are therefore unavailable after the transition; register all routes and
 middleware before calling `prepare`.
 
-`prepare` returns `Result<PreparedApp, PrepareError>`. Preparation is currently
-infallible, but the typed error provides a stable place for callers to handle
-future fallible middleware or runtime preparation steps. A failed preparation
-does not expose a partially prepared application.
+`prepare` returns `Result<PreparedApp, PrepareError>`. Preparation can fail:
+`PrepareError::MiddlewareTransform` reports a route middleware transform that
+failed, and `PrepareError::InvalidPushConfig` reports a stored push-queue
+template whose capacity or rate is unusable, which is rejected before any
+connection exists rather than once per accepted connection. A failed
+preparation does not expose a partially prepared application.
 
 ## Reuse the prepared application
 
@@ -771,3 +775,61 @@ written without decoding or re-wrapping, so the adapter does not replace the
 identifier produced by `stream_end_frame` for either streamed or multi-packet
 responses (`before_send` can still rewrite the frame); see the
 [users' guide](users-guide.md#response-producing-routes) for the full contract.
+
+## Push queues on server connections
+
+Server connections now have a push path, so code that drove a `ConnectionActor`
+by hand only to push frames can configure the application instead.
+`WireframeApp::with_push_queues` takes a `PushQueuesBuilder` template that is
+cloned once per accepted connection, and
+`WireframeProtocol::on_connection_setup` receives that connection's
+`PushHandle` on the prepared server path. An invalid capacity or rate is
+reported when the application is prepared, so check that result rather than
+expecting a per-connection failure.
+
+`ConnectionContext` is no longer a unit struct. It is `#[non_exhaustive]`,
+built by the server, and exposes `connection_id()`. Replace `ConnectionContext`
+literals with `ConnectionContext::default()`, and read the connection's
+identifier from the context rather than allocating one.
+
+`WireframeApp::with_push_dlq` is deprecated since 0.4.0. Its sink receives
+serialized payloads, is not wired to connection queues, and only warns when
+configured. Pass a `dlq` sender to `PushQueues::builder()` inside
+`with_push_queues` instead, so dropped frames arrive as codec frames.
+
+`SessionRegistry` now allocates connection identifiers from `1`, increasing
+monotonically, and never reuses one. A server connection claims its identifier
+and publishes its handle in one step with `allocate_and_publish`, before its
+setup callback runs, and removes that entry when the connection task ends, so
+an application that shares a registry no longer inserts or removes entries
+itself. `allocate_connection_id` remains available for an application that
+needs an identifier of its own.
+
+An application that still needs entries of its own, as earlier releases
+required, should keep them in a separate registry. A shared registry also keeps
+the two sets apart: the claim skips an identifier a live entry occupies, so the
+first server connection receives `1` only when nothing else holds it, and
+`insert` refuses to replace a live entry, so a later manual insert cannot
+displace a server connection's handle. Because the claim is atomic, a
+connection is never published under an identifier that already holds another
+live handle. An application can still take one over deliberately, by removing
+the entry and inserting its own handle in its place: the connection then simply
+stops being addressable under that identifier. Teardown removes an entry only
+while it still holds that connection's own handle, so an identifier an
+application took over after a `remove` survives the connection's end. A
+producer that moves from a hand-picked identifier to the server registry must
+address connections by the identifier the connection publishes — read it from
+`ConnectionContext::connection_id` in the setup callback, or enumerate
+`active_handles` — rather than reusing the identifier it chose itself.
+
+A clean peer close attempts to drain frames still queued, high priority first,
+though a write that fails or is abandoned drops the frames behind it. On server
+shutdown a running handler keeps its push lanes open until it has delivered its
+first push batch, so a push accepted before then is queued rather than refused.
+Delivery is still only attempted: the run's write is raced against the stop
+token, so a write that is blocked when the server stops is abandoned, and a
+handler response that becomes ready first ends the run with the push still
+queued. After that batch, shutdown discards the queued frames and closes the
+lanes, and later pushes fail with `PushError::Closed`. See the
+[users' guide](users-guide.md#server-connections-and-push-queues) and
+[ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md).

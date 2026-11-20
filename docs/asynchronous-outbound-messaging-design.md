@@ -29,10 +29,18 @@ protocols.
 
 ### Implementation status
 
-An initial connection actor with its biased write loop is implemented in
-`src/connection.rs`. The remaining sections explain the rationale behind this
-design and possible refinements. See
-[Section 3](#3-core-architecture-the-connection-actor) for details.
+The connection actor with its biased write loop lives in `src/connection/`. A
+`WireframeServer` connection now has a complete push path: the application
+stores a `PushQueuesBuilder` template, each accepted connection builds its own
+queues from it, the handle reaches `WireframeProtocol::on_connection_setup`,
+and the connection registers with the shared `SessionRegistry` before setup
+runs and deregisters when its task ends. Pushed frames are written over the
+same transport as handler responses, subject to priority, fairness, rate
+limiting, and the dead-letter queue. The remainder of this document explains
+the rationale behind the design and possible refinements; see
+[Section 3](#3-core-architecture-the-connection-actor) for details, and the
+[users' guide](users-guide.md#server-connections-and-push-queues) for the
+application-facing behaviour.
 
 ## 2. Design goals & requirements
 
@@ -297,12 +305,12 @@ provides the capability to send frames to a specific connection.
 struct PushHandleInner<F> {
     high_prio_tx: mpsc::Sender<F>,
     low_prio_tx: mpsc::Sender<F>,
-    // Other shared state like rate limiters can be added here.
+    limiter: Option<RateLimiter>,
 }
 
-// The public, cloneable handle.
-#[derive(Clone)]
-  pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
+// The public, cloneable handle. `Clone` is written by hand so that cloning a
+// handle does not require the frame type itself to be `Clone`.
+pub struct PushHandle<F>(Arc<PushHandleInner<F>>);
 
 pub enum PushPolicy {
     ReturnErrorIfFull,
@@ -318,6 +326,9 @@ impl<F: FrameLike> PushHandle<F> {
     pub async fn push_low_priority(&self, frame: F) -> Result<(), PushError>;
 
     /// Push a frame according to a specific policy for when the queue is full.
+    ///
+    /// Never waits for the rate limiter: a missing permit is reported as
+    /// `PushError::RateLimited` instead of delaying the caller.
     pub fn try_push(
         &self,
         frame: F,
@@ -344,11 +355,15 @@ sequenceDiagram
     participant PushQueues
     participant DLQ
     Producer->>PushHandle: push_high_priority(frame)
-    alt Rate-limiting enabled
-        PushHandle->>RateLimiter: acquire token
-        RateLimiter-->>PushHandle: token granted
+    PushHandle->>PushQueues: try_reserve() a queue slot
+    alt Queue full
+        PushQueues-->>PushHandle: slot reserved once one frees
     end
-    PushHandle->>PushQueues: try_send(frame)
+    alt Rate-limiting enabled
+        PushHandle->>RateLimiter: try_acquire(1)
+        RateLimiter-->>PushHandle: permit granted on the next refill
+    end
+    PushHandle->>PushQueues: send the reserved frame
     alt Queue full
         alt DLQ configured
             PushHandle->>DLQ: try_send(frame)
@@ -364,6 +379,15 @@ sequenceDiagram
         PushQueues-->>PushHandle: frame queued
     end
 ```
+
+Capacity is reserved before a permit is drawn, in that order and not the
+reverse. A producer that took a permit first would hold it while it waited for
+a free slot, and those parked frames would enter the queue back-to-back as soon
+as the consumer drained it — more than the configured rate on the wire.
+Reserving first delays only the producers that have nowhere to put a frame, and
+every frame still reaches the queue at the configured rate. The corollary is
+that an awaited push holds its slot for as long as it waits, so abandoning the
+future is what releases the slot for another producer.
 
 The example below demonstrates pushing frames and returning a streamed
 response. The [`async-stream`](https://docs.rs/async-stream) crate is the
@@ -417,6 +441,8 @@ classDiagram
         <<enum>>
         QueueFull
         Closed
+        RateLimited
+        FrameTooLarge
     }
     class PushHandleInner {
         high_prio_tx: mpsc::Sender<F>
@@ -501,9 +527,7 @@ the advanced test workflow.
 ```rust
 #[cfg(loom)]
 {
-    use wireframe::push::queues::PushHandleProbe;
-
-    let probe: PushHandleProbe<_> = handle.probe();
+    let probe = handle.probe();
     let dlq_drops = probe.dlq_drop_count();
     assert_eq!(dlq_drops, 0);
 }
@@ -571,6 +595,19 @@ separately before iterating. `DashMap::retain` acquires per-bucket write locks,
 so pruning while collecting may contend more than the previous post-collection
 `remove_if` sweep. Maintenance tasks may instead invoke `prune()` to avoid this
 contention.
+
+The registry also owns identifier allocation. Identifiers start at `1` and
+increase monotonically, so an identifier freed by a closed connection is never
+reused. A server connection claims its identifier and publishes its handle in
+one atomic step with `allocate_and_publish`, and only then runs the protocol
+setup callback. The step is a claim rather than a separate allocation and
+insert, so a manual insert racing it cannot leave the connection serving under
+an identifier that addresses another handle: the claim skips an occupied one
+and retries with the next. A guard removes the entry when the connection task
+ends, whether that is a clean close, an I/O error, a panic, or cancellation,
+and removes it only while the entry still holds that connection's own handle,
+so an identifier an application took over is left alone. Sharing the registry
+with application code is what makes `SessionRegistry::get` useful after setup.
 
 The diagram below summarizes the data structures and how they interact when
 storing session handles. `SessionRegistry` maps `ConnectionId`s to weak
@@ -708,9 +745,11 @@ classDiagram
     WireframeProtocol <|.. ProtocolHooks : implemented by
 ```
 
-`ConnectionContext` is intentionally empty today. It offers a stable extension
-point for per-connection data without breaking existing protocol
-implementations.
+`ConnectionContext` is the extension point for per-connection data. It is
+`#[non_exhaustive]` and today carries the server-allocated `ConnectionId`,
+available through `connection_id()`; a standalone actor's context reports
+`None`. The identifier lets every protocol callback correlate its work with the
+connection's registry entry.
 
 ## 5. Error handling & resilience
 
@@ -891,9 +930,12 @@ features of the 1.0 release.
   completion hook runs only after that final write. `before_send` still
   observes the frame, so the adapter's bypass does not freeze its bytes. The
   actor receives no terminator or completion hook of its own, so one response
-  is terminated and completed exactly once. Protocol setup and end-of-file
-  callbacks are not invoked on the prepared path at all. The direct response
-  helpers that bypass the pipeline also bypass `before_send`.
+  is terminated and completed exactly once. Protocol setup runs once per
+  connection, after the connection's `PushHandle` is published in the session
+  registry and before the actor starts. The end-of-file callback is never
+  invoked on the prepared path, so a protocol must not rely on it for cleanup
+  or diagnostics. The direct response helpers that bypass the pipeline also
+  bypass `before_send`.
 
 ```rust,ignore
 // Codec stack with explicit frame-size limits and fragmentation.

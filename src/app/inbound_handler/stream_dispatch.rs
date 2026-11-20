@@ -30,10 +30,12 @@ use tokio_util::sync::CancellationToken;
 pub(super) use super::stream_types::{AdmissionWait, DispatchContext, Event, Step};
 use super::{
     super::{
+        PushWriteDiagnostics,
         envelope::{Envelope, Packet},
         frame_handling::Dispatch,
     },
-    frames::{InboundFrames, NextFrame},
+    frames::{InboundExpiry, InboundFrames, NextFrame},
+    push_service::{PushBatch, PushTransport, deliver_pushes, drain_queued},
     stream_actions::{apply_memory_pressure, expire_finished_assemblies, finish_step},
     stream_diagnostics,
     stream_handles::{DispatchHandles, LoopState},
@@ -41,7 +43,7 @@ use super::{
 };
 use crate::{
     codec::FrameCodec,
-    connection::ConnectionActor,
+    connection::{ConnectionActor, PendingPushes},
     frame::FrameMetadata,
     message::{DecodeWith, EncodeWith},
     request::QueuedBytes,
@@ -81,7 +83,7 @@ where
     /// one was handled.
     pub(super) inbound: &'a mut InboundFrames<F::Frame>,
     /// Actor that schedules and delivers every reply.
-    pub(super) actor: &'a mut ConnectionActor<Envelope, ()>,
+    pub(super) actor: &'a mut ConnectionActor<Envelope, (), F::Frame>,
     /// Immutable connection inputs.
     pub(super) ctx: &'a DispatchContext<'a, S, E, F>,
     /// Server shutdown signal; cancelling it stops this connection.
@@ -231,17 +233,68 @@ where
         }
     }
 
-    /// Await the next inbound frame, or the live handler resolving first.
+    /// Await the next unit of work for this connection.
+    ///
+    /// Three sources are raced in one biased select: queued pushes, the live
+    /// handler resolving, and the inbound read. Pushes win ties, matching the
+    /// connection actor's own priority ordering, so a queued push is not held
+    /// behind a client that keeps its socket busy. Two rules bound that bias: a
+    /// frame buffered during dispatch is served first, and after each push
+    /// batch the reader gets one non-blocking attempt, so an inbound frame
+    /// waits behind at most one batch.
     async fn next_event(&mut self, state: &mut LoopState) -> Event<F::Frame> {
         let read_timeout_ms = self.ctx.read_timeout_ms;
-        match state.streams.active.as_mut() {
-            Some(active) => {
-                tokio::select! {
-                    outcome = active.poll_handler() => Event::Handler(outcome),
-                    event = self.read_frame(read_timeout_ms) => event,
-                }
+        let shutdown = self.shutdown;
+        // The probe is the reader's turn, so it is spent whether or not it
+        // produces a frame.
+        if std::mem::take(&mut state.serve_read_first) {
+            return match self.inbound.try_next(self.reader).await {
+                Ok(NextFrame::TimedOut) => self.await_event(state, read_timeout_ms).await,
+                Ok(next) => frame_event(next, shutdown),
+                Err(error) => Event::Frame(Err(error)),
+            };
+        }
+        self.await_event(state, read_timeout_ms).await
+    }
+
+    /// Race the push lanes, the live handler, and the inbound read.
+    ///
+    /// The reader, the sink, and the actor are borrowed separately here, so a
+    /// push lane and the read half are polled by the same select without
+    /// borrowing the whole connection.
+    async fn await_event(
+        &mut self,
+        state: &mut LoopState,
+        read_timeout_ms: u64,
+    ) -> Event<F::Frame> {
+        let Connection {
+            reader,
+            inbound,
+            actor,
+            shutdown,
+            ..
+        } = self;
+        let shutdown = *shutdown;
+        let push_lanes_open = actor.has_open_push_lanes();
+        let read = async {
+            match inbound.next_frame(reader, read_timeout_ms, shutdown).await {
+                Ok(next) => frame_event(next, shutdown),
+                Err(error) => Event::Frame(Err(error)),
             }
-            None => self.read_frame(read_timeout_ms).await,
+        };
+        if let Some(active) = state.streams.active.as_mut() {
+            tokio::select! {
+                biased;
+                pushes = actor.next_pushes(), if push_lanes_open => push_event(pushes),
+                outcome = active.poll_handler() => Event::Handler(outcome),
+                event = read => event,
+            }
+        } else {
+            tokio::select! {
+                biased;
+                pushes = actor.next_pushes(), if push_lanes_open => push_event(pushes),
+                event = read => event,
+            }
         }
     }
 
@@ -249,15 +302,100 @@ where
     pub(super) async fn read_frame(&mut self, read_timeout_ms: u64) -> Event<F::Frame> {
         let read = self
             .inbound
-            .next(self.reader, read_timeout_ms, self.shutdown)
+            .next_frame(self.reader, read_timeout_ms, self.shutdown)
             .await;
         match read {
-            Ok(NextFrame::Ready(frame)) => Event::Frame(Ok(Some(frame))),
-            Ok(NextFrame::Closed) if self.shutdown.is_cancelled() => Event::Shutdown,
-            Ok(NextFrame::Closed) => Event::Frame(Ok(None)),
-            Ok(NextFrame::TimedOut) => Event::Tick,
+            Ok(next) => frame_event(next, self.shutdown),
             Err(error) => Event::Frame(Err(error)),
         }
+    }
+
+    /// Write one batch of queued pushes through the connection's transport.
+    ///
+    /// A write to a peer that stopped reading can stay pending indefinitely, so
+    /// it is bounded by the shutdown token and, once the peer can no longer be
+    /// observed, by the idle grace. The read half keeps being polled while the
+    /// write runs, because this is the last place that can notice a peer which
+    /// half-closed and then stopped reading.
+    ///
+    /// The write also keeps the inbound read deadline expiring, and an expired
+    /// streaming assembly is failed here rather than inside the write: the
+    /// write holds the reader, so the reply a failed body owes can only be
+    /// forwarded once the batch has been written.
+    async fn write_pushes(
+        &mut self,
+        state: &mut LoopState,
+        pushes: PendingPushes<F::Frame>,
+        queued: QueuedBytes,
+    ) -> io::Result<Step> {
+        let read_timeout_ms = self.ctx.read_timeout_ms;
+        let serializer = self.ctx.serializer;
+        let codec = self.ctx.codec;
+        let shutdown = self.shutdown;
+        let peer_eof = self.peer_eof;
+        let mut evicted = Vec::new();
+        {
+            let Connection {
+                reader,
+                sink,
+                inbound,
+                actor,
+                ..
+            } = self;
+            let mut transport = PushTransport {
+                serializer,
+                codec,
+                sink,
+                pipeline: &mut inbound.pipeline,
+                diagnostics: push_diagnostics::<F>(&**actor),
+            };
+            let batch = PushBatch {
+                frames: pushes.frames,
+                priority: pushes.priority,
+                reader,
+                pending_frame: &mut inbound.pending,
+                expiry: InboundExpiry::new(
+                    &mut inbound.message_assembly,
+                    &mut inbound.read_deadline,
+                    read_timeout_ms,
+                    &mut evicted,
+                ),
+                peer_eof,
+                shutdown,
+            };
+            deliver_pushes(&mut transport, &mut **actor, batch).await?;
+        }
+        // The reader is owed the next pass, so a continuously ready push lane
+        // cannot win every biased select and starve the client's frames.
+        state.serve_read_first = true;
+        if evicted.is_empty() {
+            return Ok(Step::Continue);
+        }
+        let dispatch = self
+            .dispatch_observed(state, queued, ObservedAction::Expire(evicted))
+            .await?;
+        Ok(finish_step(dispatch))
+    }
+
+    /// Deliver frames still queued when the peer stopped writing.
+    async fn drain_pushes(&mut self) -> io::Result<()> {
+        let serializer = self.ctx.serializer;
+        let codec = self.ctx.codec;
+        let shutdown = self.shutdown;
+        let Connection {
+            sink,
+            inbound,
+            actor,
+            ..
+        } = self;
+        let mut transport = PushTransport {
+            serializer,
+            codec,
+            sink,
+            pipeline: &mut inbound.pipeline,
+            diagnostics: push_diagnostics::<F>(&**actor),
+        };
+        drain_queued(&mut transport, &mut **actor, shutdown).await
     }
 
     /// Route one loop event to its handler.
@@ -274,6 +412,12 @@ where
             }
             Event::Tick => {
                 stream_diagnostics::read_timed_out();
+                Ok(Step::Continue)
+            }
+            Event::Pushes(pushes) => self.write_pushes(state, pushes, queued).await,
+            Event::LanesIdle => {
+                // Every push handle has been dropped, so only the inbound read
+                // can produce work from here on.
                 Ok(Step::Continue)
             }
             Event::Handler(outcome) => {
@@ -316,10 +460,13 @@ where
                 // The read half has ended, so the loop closes however the drain
                 // finished; its outcome only decides whether the writes below it
                 // were still permitted.
-                match self
+                let dispatch = self
                     .dispatch_observed(state, queued, ObservedAction::Drain)
-                    .await?
-                {
+                    .await?;
+                // Frames already queued are still delivered; anything pushed
+                // afterwards is rejected because the actor closes both lanes.
+                self.drain_pushes().await?;
+                match dispatch {
                     Dispatch::Continue | Dispatch::Stop => Ok(Step::Closed),
                 }
             }
@@ -338,4 +485,30 @@ where
             }
         }
     }
+}
+
+/// Classify one read outcome for the loop.
+///
+/// A shutdown that arrives during the read closes it, so it is reported as a
+/// stop rather than as a peer EOF: the peer may still be connected.
+fn frame_event<T>(next: NextFrame<T>, shutdown: &CancellationToken) -> Event<T> {
+    match next {
+        NextFrame::Ready(frame) => Event::Frame(Ok(Some(frame))),
+        NextFrame::Closed if shutdown.is_cancelled() => Event::Shutdown,
+        NextFrame::Closed => Event::Frame(Ok(None)),
+        NextFrame::TimedOut => Event::Tick,
+    }
+}
+
+/// Classify one push-lane poll for the loop.
+fn push_event<T>(pushes: Option<PendingPushes<T>>) -> Event<T> {
+    pushes.map_or(Event::LanesIdle, Event::Pushes)
+}
+
+/// Identity this connection reports when it abandons a push write.
+fn push_diagnostics<F>(actor: &ConnectionActor<Envelope, (), F::Frame>) -> PushWriteDiagnostics
+where
+    F: FrameCodec,
+{
+    PushWriteDiagnostics::new(actor.connection_id(), actor.peer_addr())
 }

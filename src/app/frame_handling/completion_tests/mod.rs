@@ -22,7 +22,7 @@ use super::{Dispatch, ResponseContext};
 use crate::{
     app::{Envelope, codec_driver::FramePipeline},
     codec::LengthDelimitedFrameCodec,
-    connection::{ConnectionActor, ConnectionChannels},
+    connection::{ConnectionActor, ConnectionChannels, UntrackedActorInit},
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
     middleware::{HandlerService, Service, ServiceRequest, ServiceResponse},
     push::{PushConfigError, PushHandle, PushQueues},
@@ -143,12 +143,15 @@ impl Service for StreamService {
     }
 }
 
+/// Actor fixture paired with the push handle that keeps its queues open.
+type ActorFixture = (ConnectionActor<Envelope, (), Bytes>, PushHandle<Bytes>);
+
 /// Build an untracked actor whose push queues stay open for the test.
 ///
 /// # Errors
 ///
 /// Returns [`PushConfigError`] if the queue capacities are rejected.
-fn build_actor() -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>), PushConfigError> {
+fn build_actor() -> Result<ActorFixture, PushConfigError> {
     build_actor_with(CancellationToken::new())
 }
 
@@ -157,19 +160,18 @@ fn build_actor() -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>)
 /// # Errors
 ///
 /// Returns [`PushConfigError`] if the queue capacities are rejected.
-fn build_actor_with(
-    shutdown: CancellationToken,
-) -> Result<(ConnectionActor<Envelope, ()>, PushHandle<Envelope>), PushConfigError> {
-    let (queues, handle) = PushQueues::<Envelope>::builder()
+fn build_actor_with(shutdown: CancellationToken) -> Result<ActorFixture, PushConfigError> {
+    let (queues, handle) = PushQueues::<Bytes>::builder()
         .high_capacity(1)
         .low_capacity(1)
         .build()?;
-    let actor = ConnectionActor::new_untracked(
-        ConnectionChannels::new(queues, handle.clone()),
-        None,
+    let actor = ConnectionActor::new_untracked(UntrackedActorInit {
+        channels: ConnectionChannels::new(queues, handle.clone()),
+        response: None,
         shutdown,
-        ProtocolHooks::default(),
-    );
+        hooks: ProtocolHooks::default(),
+        ctx: ConnectionContext::default(),
+    });
     Ok((actor, handle))
 }
 
@@ -206,7 +208,7 @@ async fn forward(
 /// Run one response through the prepared path with an already built actor.
 async fn run_forward<K>(
     sink: &mut K,
-    actor: &mut ConnectionActor<Envelope, ()>,
+    actor: &mut ConnectionActor<Envelope, (), Bytes>,
     response: Response<Envelope, ()>,
     log: &EventLog,
 ) -> io::Result<Dispatch>

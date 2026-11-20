@@ -1787,12 +1787,13 @@ bytes that reach the wire; the adapter itself does not. `on_command_end` runs
 only after the final frame has been written, and not at all when the response
 is cancelled before its terminator. A protocol error reported by a response
 stream is passed to `handle_error`, and the connection then closes without a
-terminator, so a request buffered behind the failed stream is not served. The
-connection setup and end-of-file callbacks are not invoked on the prepared
-server path; they remain available to callers that drive a `ConnectionActor`
-directly. The direct response helpers that write frames without the
-`FramePipeline` also bypass `before_send`; use `WireframeApp` routes when a
-response must traverse configured protocol hooks.
+terminator, so a request buffered behind the failed stream is not served.
+`on_connection_setup` runs once per prepared connection and receives that
+connection's `PushHandle`; the end-of-file callback is not invoked on the
+prepared server path, and both remain available to callers that drive a
+`ConnectionActor` directly. The direct response helpers that write frames
+without the `FramePipeline` also bypass `before_send`; use `WireframeApp`
+routes when a response must traverse configured protocol hooks.
 
 ## Running servers
 
@@ -1824,7 +1825,10 @@ before returning the error; the server writes nothing on the handler's behalf.
 The server bounds the read with `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) by
 default; `preamble_timeout` replaces that deadline and
 `disable_preamble_timeout` removes it. The deadline covers only the preamble
-read, and timeouts use the failure callback path.[^20]
+read, and timeouts use the failure callback path.[^20] A preamble that encodes
+to no bytes, such as the default `()`, decodes without reading at all, so an
+accepted connection reaches application setup even when its client sends
+nothing and waits for the first push.
 
 For an awaitable lifecycle outside the foreground task, call
 `WireframeServer::spawn().await`. It returns a cloneable `ServerShutdown`:
@@ -2746,25 +2750,165 @@ builder configures high- and low-priority capacities, optional rate limits, and
 an optional dead-letter queue with tunable logging cadence for dropped
 frames.[^23] Queue construction validates capacities and rate limits, clamping
 rates to the supported range.[^24] `PushHandle` exposes async
-`push_high_priority` and `push_low_priority` helpers that honour the rate
-limiter before awaiting channel capacity, while `try_push` implements
-policy-controlled drops with optional warnings and dead-letter forwarding.[^26]
-When the dead-letter queue is itself full or closed, the throttled
-`DLQ dropped frames` warning reports, as `dropped`, exactly the number of drops
-since the previous report; concurrent producers never make it count a drop
-twice or lose one, and a producer that finds nothing left to report emits no
-`dropped=0` line. `dlq_log_every_n` and `dlq_log_interval` set how often it
-fires. The warning names the dead-letter state, priority and policy of the
-frame that triggered it, along with its Rust type, but never its contents. Only
-frames the DLQ accepted reach its receiver, so an application must consume from
-that receiver to inspect or log them; a frame refused because the DLQ was full
-or closed is lost, with no copy available. Cloneable handles downgrade to
-`Weak` references for registration in a session registry.[^25]
+`push_high_priority` and `push_low_priority` helpers that reserve channel
+capacity before they draw a rate permit, while `try_push` shares that same
+limiter without waiting: it returns `PushError::RateLimited` when no permit is
+available and otherwise implements policy-controlled drops with optional
+warnings and dead-letter forwarding.[^26] A refused or rate-limited `try_push`
+spends no rate budget and leaves the queue unchanged. When the dead-letter
+queue is itself full or closed, the throttled `DLQ dropped frames` warning
+reports, as `dropped`, exactly the number of drops since the previous report;
+concurrent producers never make it count a drop twice or lose one, and a
+producer that finds nothing left to report emits no `dropped=0` line.
+`dlq_log_every_n` and `dlq_log_interval` set how often it fires. The warning
+names the dead-letter state, priority and policy of the frame that triggered
+it, along with its Rust type, but never its contents. Only frames the DLQ
+accepted reach its receiver, so an application must consume from that receiver
+to inspect or log them; a frame refused because the DLQ was full or closed is
+lost, with no copy available. Cloneable handles downgrade to `Weak` references
+for registration in a session registry.[^25]
 
 `PushQueues::recv` prefers high-priority frames but eventually drains the
 low-priority queue; `close` lets tests release resources when no actor is
 running.[^27] The connection actor consumes these queues, an optional streaming
 response, and a cancellation token.
+
+### Server connections and push queues
+
+A server connection now has a push path of its own.
+`WireframeApp::with_push_queues` stores a `PushQueuesBuilder` template, and
+every accepted connection clones it to build its own queues, rate limiter, and
+dead-letter routing:
+
+<!-- tested-example: users-guide-065 -->
+```rust,no_run
+use bytes::Bytes;
+use tokio::sync::mpsc;
+use wireframe::{app::WireframeApp, push::PushQueues};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let (dlq_tx, _dlq_rx) = mpsc::channel(16);
+let _app: WireframeApp = WireframeApp::new()?.with_push_queues(
+    PushQueues::<Bytes>::builder()
+        .high_capacity(8)
+        .low_capacity(8)
+        .rate(Some(64))
+        .dlq(Some(dlq_tx)),
+);
+# Ok(())
+# }
+```
+
+Each connection therefore has independent capacity and token accounting; one
+connection exhausting its queues never delays another. The template is
+validated when the application is prepared, so an invalid capacity or rate
+fails preparation rather than every connection in turn.
+
+Every connection's `PushHandle` is passed to
+`WireframeProtocol::on_connection_setup`, so a protocol can retain it, hand it
+to a background task, or publish it. Without an installed protocol there is no
+setup callback to observe the handle, so register a protocol — or use the
+registry below — when application code needs to push later.
+`ConnectionContext::connection_id` returns the identifier the server allocated:
+identifiers start at `1`, increase monotonically, and are never reused.
+
+The same context is available to `before_send`, `on_command_end`, and the other
+hook callbacks, so protocol code can correlate its work with the registry entry
+for that connection.
+
+#### Session registry wiring
+
+`WireframeApp::with_session_registry` supplies an
+`Arc<SessionRegistry<F::Frame>>` that every connection registers with. Without
+it the application creates its own registry, and `session_registry()` returns
+that same `Arc` from the builder or a prepared application, so calling it (and
+keeping the clone it returns) before handing the application to the server
+gives application code the registry the connections will use. A registry that
+is never obtained this way is populated by the connections but unreachable:
+
+<!-- tested-example: users-guide-066 -->
+```rust,no_run
+use std::sync::Arc;
+
+use bytes::Bytes;
+use wireframe::{app::WireframeApp, session::SessionRegistry};
+
+# fn main() -> Result<(), Box<dyn std::error::Error>> {
+let registry = Arc::new(SessionRegistry::<Bytes>::new());
+let _app: WireframeApp =
+    WireframeApp::new()?.with_session_registry(Arc::clone(&registry));
+
+// Later, from any task holding the same registry:
+// for (id, handle) in registry.active_handles() {
+//     let pushed = handle
+//         .push_low_priority(Bytes::from_static(b"tick"))
+//         .await;
+//     if let Err(error) = pushed {
+//         log::warn!("push failed for connection {id}: {error}");
+//     }
+// }
+# Ok(())
+# }
+```
+
+A connection's entry is inserted before its setup callback runs, so setup can
+already address its own connection, and it is removed when the connection's
+task ends — after a clean close, after an I/O error, after a panic, and after
+task cancellation. Lookups upgrade a weak reference, so an entry whose handle
+has been dropped never keeps a connection alive.
+
+#### Pushes, close, and shutdown
+
+Pushed frames are codec frames: they are written to the socket alongside
+handler responses, after the protocol `before_send` hook runs, and they
+interleave with a streaming or multi-packet response rather than waiting for it
+to finish. High-priority pushes are written ahead of low-priority ones, the
+queue rate limit applies across both lanes, and a frame a full queue refuses
+follows the configured `PushPolicy` and reaches the dead-letter queue when one
+is set. A frame whose encoded payload exceeds the connection codec's frame
+limit is refused with `PushError::FrameTooLarge` before it is queued, so an
+unencodable push is reported to its producer instead of failing the connection
+when the encoder sees it. A template that also sets
+`PushQueues::builder().max_frame_len` keeps that limit: both checks run, each
+with the measure it was configured with, so adding the codec ceiling never
+relaxes a template's own bound. That check measures the frame as queued: a
+`before_send` hook that enlarges it past the codec's `max_frame_length` is not
+re-checked afterwards, and the default codec then fails the connection when it
+encodes the frame.
+
+Two kinds of end of connection behave differently:
+
+- On a clean peer close, the connection loop attempts to drain both lanes
+  before it stops, writing the high-priority frames first, so frames a producer
+  queued while the connection was busy are usually delivered rather than
+  discarded. The drain seals both lanes and takes only the frames they already
+  hold, so a producer that still holds a capacity reservation is not waited
+  for: its push fails with `PushError::Closed` rather than delaying the drain.
+  Delivery is an attempt, not a guarantee: every drained write stays bounded,
+  so a write that fails, that is still blocked when the server stops, or that
+  an unobservable peer accepts nothing for during the 30-second grace ends the
+  drain and the frames still queued behind it are not sent.
+- On server shutdown the connection does not wait to flush what is still
+  buffered: a write that would block is abandoned rather than awaited, so the
+  server drain never blocks on a peer that has stopped reading. A handler run
+  that has not yet delivered a push batch is the exception: shutdown does not
+  close its lanes from inside the run, so a push accepted then is queued for
+  the run rather than refused. Delivery is still only attempted: the run's
+  write is raced against the stop token, so a write that is blocked when the
+  server stops is abandoned, and a handler response that becomes ready first
+  ends the run with the push still queued. Once that run has delivered a batch,
+  shutdown discards the queued frames and closes the lanes, and a push
+  attempted after that fails with `PushError::Closed`. A write the transport
+  still accepts completes, and only then is the stop observed, so a frame that
+  was queued but not yet written at that point is not guaranteed to arrive.
+  This bound is why accepted connections observe the server stop token;
+  [ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md)
+  records the decision and its addendum.
+
+`WireframeApp::with_push_dlq` is deprecated since 0.4.0. Its sink receives
+serialized payloads, is no longer consulted when connection queues are built,
+and logs a warning when configured; configure a `dlq` sender on the
+`PushQueuesBuilder` template instead.
 
 ### Compile-time queue and session configuration
 
@@ -2840,6 +2984,28 @@ formatting, and retrieval. `SessionRegistry` stores weak references to
 entries during lookups. Helpers insert and remove handles, bulk-prune stale
 entries, or return live handle/identifier pairs for background tasks that need
 to enumerate active sessions.[^40]
+
+The registry also allocates connection identifiers: the first is `1`, later
+ones increase monotonically, and a value the registry allocated is never reused
+after a closed connection frees it, so an identifier obtained that way cannot
+address a new session. An identifier a live entry occupies is skipped, so an
+application's own entry is never displaced by a server connection, and `insert`
+refuses to replace a live entry, so a later manual insert cannot take over a
+connection's identifier. Server connections claim their identifier and publish
+their handle in one step with `allocate_and_publish`, before their protocol
+setup callback runs, and deregister when the connection task ends; that claim
+is atomic, so a connection is never published under an identifier that already
+holds another live handle. An application can still take an identifier over
+deliberately, by removing the entry and inserting its own handle in its place:
+the connection then simply stops being addressable there, and teardown, which
+removes an entry only while it still holds the connection's own handle, leaves
+that newcomer in place. `allocate_connection_id` remains available for an
+application that needs an identifier of its own. Address a connection by the
+identifier it publishes — `ConnectionContext::connection_id` in the setup
+callback, or `active_handles` from a background task — rather than by one
+chosen by hand. See
+[Server connections and push queues](#server-connections-and-push-queues) for
+the application-side configuration.
 
 ## Streaming responses
 
@@ -3013,11 +3179,11 @@ connection's frame pipeline before the next inbound frame is dispatched:
   still polled for exactly one pending frame, so the connection never reads
   ahead arbitrarily and a pipelined request is served next. Responses are
   serial per connection: a long stream delays, but never interleaves with, the
-  next request on that connection. The actor still polls its internal high- and
-  low-priority push queues while a stream runs, but the server neither exposes
-  those queues nor installs server-initiated pushes on this actor, so that
-  polling is structural for now rather than an interleaving guarantee for
-  out-of-band pushes.
+  next request on that connection. The actor also polls the connection's high-
+  and low-priority push queues while the stream runs, so an out-of-band push is
+  written between stream frames under the same priority and fairness rules as
+  elsewhere; see
+  [Server connections and push queues](#server-connections-and-push-queues).
 - Every application envelope passes through fragmentation, outbound metrics,
   serialization, `wrap_payload`, and `before_send`, in that order, immediately
   before the transport write. A protocol terminator is already a complete codec
@@ -3059,9 +3225,15 @@ tracked by [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md) and roadmap item
 
 The protocol callbacks that run for application responses are `before_send`,
 `on_command_end`, `handle_error`, and `stream_end_frame`. A prepared connection
-does not invoke the protocol's connection-setup or end-of-file callbacks at
-all, so initialization or cleanup that must run belongs in the application's
-`on_connection_setup` and `on_connection_teardown` hooks instead. Those hooks
+also invokes the protocol's `on_connection_setup` once, after its session
+registry entry is published and before its push path starts, so setup receives
+that connection's `PushHandle` and can address any live connection through the
+registry. The end-of-file callback is not invoked on this path, so cleanup that
+must run belongs in the application's `on_connection_teardown` hook instead.
+Teardown is not guaranteed, though: a connection task that is cancelled or
+panics may never reach it, so a resource that must be released on those paths
+needs runtime-level finalization, such as a `Drop` guard or a value the task
+owns and releases when it ends. The application-level setup and teardown hooks
 are separate from the protocol and run once per connection, with teardown
 running only when setup produced state. Without an installed protocol the
 response callbacks are no-ops. The terminator is written without decoding, so a
@@ -3548,6 +3720,17 @@ responsible, so pair it with the `message_id` in the events above. A rejected
 assembly shows as a `prefilled_body` warning with the `admission_timeout`
 category and a matching counter increment.
 
+Queued server pushes have their own counters.
+`wireframe_push_writes_abandoned_total` counts push frames dropped before
+delivery, with a bounded `reason` label of `"idle_grace_expired"` when the peer
+could not be observed and accepted nothing within the idle grace, or
+`"shutdown"` when the server stopped while the write was still pending.
+`wireframe_push_rate_limited_total` counts pushes refused because the
+connection's rate limiter had no permit; that counter has no labels, and it is
+the only aggregate record of a refusal when the producer discards the
+`PushError::RateLimited` it receives. Only the exhausted grace emits a warning,
+so a shutdown with queued output does not flood the log.
+
 ## Benchmark allocation counting
 
 The `wireframe_testing::benchmark_alloc_support` module provides the counting
@@ -3676,8 +3859,10 @@ directories (one per shard on full dispatch runs) for offline triage.
 [^21]: Implemented in `src/server/error.rs` (lines 7-18).
 [^23]: Implemented in `src/push/queues/mod.rs` (lines 41-190).
 [^24]: Implemented in `src/push/queues/errors.rs` (lines 7-28).
-[^25]: Implemented in `src/push/queues/handle.rs` (lines 84-225).
-[^26]: Implemented in `src/push/queues/handle.rs` (lines 198-295).
+[^25]: Implemented in `src/push/queues/handle/mod.rs` (`push_high_priority`,
+    `push_low_priority`, `downgrade`) and `src/push/queues/handle/lane.rs`
+    (`push_with_priority`, `reserve_capacity`, `wait_for_permit`).
+[^26]: Implemented in `src/push/queues/handle/mod.rs` (`try_push`).
 [^27]: Implemented in `src/push/queues/mod.rs` (lines 255-318).
 [^28]: Implemented in `src/connection.rs` (lines 69-205).
 [^29]: Implemented in `src/fairness.rs` (lines 1-79).
