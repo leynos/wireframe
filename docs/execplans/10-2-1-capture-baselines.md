@@ -5,7 +5,7 @@ This execution plan (ExecPlan) is a living document. The sections `Constraints`,
 `Outcomes and retrospective`, `Conformance basis`, and `Verification plan`
 must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: APPROVED (2026-11-20)
 
 No `PLANS.md` exists in this repository as of 2026-11-20.
 
@@ -734,9 +734,21 @@ compatibility machinery is owed:
 - `wireframe::app::benchmark_decode_envelope`, `#[doc(hidden)]` and gated on
   `test-support`.
 
-New files: `wireframe_testing/tests/pipeline_allocation_invariants.rs`,
-`tests/features/zero_copy_baseline.feature` with its steps, and one probe
-source under `tests/feature_gate/src/`.
+New files: `wireframe_testing/tests/pipeline_allocation_invariants/` (a
+`harness = false` target with `main.rs`, `support.rs`, and `checks.rs`),
+`tests/features/zero_copy_baseline.feature` with its fixture, steps, and
+scenarios modules, `src/app/frame_handling/response_pointer_tests.rs`, and one
+probe source under `tests/feature_gate/src/`.
+
+Additive harness surface in the companion crate, needed by EP-M3 and unreleased
+like the counters it observes:
+
+- `wireframe_testing::codec_benchmarks::AccessMode::Copying`, the seeded fault.
+- `StageOutcome` with `is_payload_preserved`, and the
+  `middleware_payload_handoff` and `hook_payload_handoff` helpers that produce
+  it.
+- `measure_middleware_passthrough_buffer`, which takes a pre-built buffer so the
+  measurement window can exclude the payload allocation.
 
 ## Relevant documentation and skills
 
@@ -757,12 +769,23 @@ for the roadmap edit.
   request 838.
 - [x] (2026-11-20) Audited the delivered implementation against this plan and
   against thresholds `T1` to `T7`; rewrote the plan as revision 3.
-- [ ] Plan approved.
-- [ ] Stage A: three questions answered and recorded.
-- [ ] EP-M1: allocation window.
-- [ ] EP-M2: production seams.
-- [ ] EP-M3: read-only stages.
-- [ ] EP-M4: register and record.
+- [x] (2026-11-20) Plan approved; implementation begins.
+- [x] (2026-11-20) Stage A: three questions answered and recorded below.
+- [x] (2026-11-20) EP-M1: allocation window.
+      `counting_window_closes_after_panic`
+  failed against the old `count_allocations` and passes with the drop guard;
+  the shared self-check runs from both allocation benchmarks.
+- [x] (2026-11-20) EP-M2: production seams. `copied_bytes` reports 17 passing
+  cases; removing the `record_deserialized` call leaves the inbound case at
+  zero.
+- [x] (2026-11-20) EP-M3: read-only stages. The harness-free invariants binary
+  reports 15 passing checks, the production pointer test passes, and the three
+  behavioural scenarios pass.
+- [x] (2026-11-20) EP-M4: register and record. The baselines and plan documents
+  carry the inbound row, the corrected middleware wording, and the threshold
+  citations; the feature-gate script reports `feature-gate: ok` across six
+  runs, including the inert and accumulating recorder pair; roadmap `10.2.2`,
+  the ADR-0010 addendum, the developers' guide, and the changelog are updated.
 
 ## Surprises and discoveries
 
@@ -798,6 +821,64 @@ for the roadmap edit.
   the counts stay equal. Impact: threshold `T5`'s wording about the count not
   growing with payload class is necessary but not sufficient; V-4 adds the byte
   bound.
+
+### Stage A answers
+
+- **Noise floor.** Under the default harness, with every test in the binary
+  marked `#[serial]`, two of 1,000 idle windows reported one allocation of 394
+  bytes. The trial indices are recorded in the failing transcript at
+  `/tmp/test-wireframe-10-2-1-m3.out`. This is non-zero, so the plan's
+  pre-committed rule applies: the invariants moved to a `harness = false`
+  target. The cause is libtest spawning a test thread per test; the spawn's
+  parent-side allocation lands inside whichever window is open. Under the
+  harness-free binary the same 1,000-trial probe reports zero, and the probe is
+  kept as one of its checks so a future harness change cannot reintroduce the
+  interference unnoticed.
+- **Inbound recording site.** Every default-path inbound envelope leaves the
+  decoder through one return, and the default serializer takes the fallback
+  branch rather than the metadata branch. The recorder sits immediately before
+  that single `Ok((envelope, consumed))`, reading the envelope's own payload
+  length, so both branches would be covered by construction. The gate asserts
+  exactly `P` for both payload classes.
+- **Production-dispatch fixture.** The existing `forward_response` fixture is
+  `src/app/frame_handling/terminator_tests.rs` plus the completion and
+  delivery-span siblings; reaching an echo response through it needs the whole
+  actor, pipeline, codec, and protocol, and the fixture is already longer than
+  the 150-line threshold. Risk R-4 therefore governs: the new test asserts
+  pointer identity across `ServiceRequest::new` and `HandlerService::call`, the
+  two production steps that own the payload buffer, and the narrower scope is
+  recorded in its module documentation and below.
+
+### Implementation discoveries
+
+- Observation: `bincode` 2.0.1 sizes before allocating, so the default
+  serializer's vector really does satisfy `len == capacity`. Evidence:
+  `default_serializer_leaves_no_spare_capacity` passes for both payload
+  classes, and the hand-off counter records zero. Impact: axiom A-1 and the
+  withdrawn claim in revisions 1 and 2 are both confirmed against the
+  repository's own boundary, not only against the vendored source.
+
+- Observation: the middleware helpers build their payload buffer inside the
+  measurement, which makes a payload-sized allocation part of the window.
+  Evidence: the first version of the byte bound reported 134,800 bytes for a
+  65,536-byte payload. Impact: `measure_middleware_passthrough_buffer` was
+  added so the invariants can pass a pre-built buffer, and every window in the
+  new binary now builds its scenario outside itself.
+
+- Observation: `async_trait` boxes one future per middleware call, which costs
+  roughly 270 bytes per pass — payload-independent, but enough that a
+  16-iteration batch exceeds the 64 KiB payload class in total. Evidence: the
+  residual 69,264 bytes over 16 iterations once the buffer was excluded.
+  Impact: the byte bound is stated over a single pass, where the margin against
+  `P` is two orders of magnitude, and payload-independence is enforced
+  separately by the count-equality relation over a 16-iteration batch.
+
+- Observation: the behavioural layer cannot install the counting allocator for
+  one scenario. Evidence: `#[global_allocator]` is per binary, and the `bdd`
+  target carries 237 tests. Impact: the suggested feature's "no payload-sized
+  allocation is observed" step became "the read-only chain leaves the payload
+  unchanged", and the byte bound is cited to the invariants binary in the
+  feature's own preamble.
 
 ## Decision log
 
@@ -840,12 +921,59 @@ for the roadmap edit.
 
 ## Outcomes and retrospective
 
-Not yet started. To be completed at each milestone and at the end.
+Evidence gathered so far, milestone by milestone.
+
+- **EP-M1.** The window now closes on unwind through a `Drop` guard and reports
+  allocated bytes beside the operation count.
+  `counting_window_closes_after_panic` was written first and failed against the
+  old implementation ("a panicking measurement must still close the window"),
+  which is V-1's seeded fault; it passes with the guard. Ten window tests pass
+  (`/tmp/test-wireframe-10-2-1-m1-red.out`,
+  `/tmp/test-wireframe-10-2-1-m1-green.out`).
+- **EP-M2.** `CopiedBytes` gained `deserialized`, `record_deserialized` runs
+  once in the decoder, `serialize_and_send` hands off through `bytes_from_vec`,
+  and `copied_bytes` reports 17 passing cases
+  (`/tmp/test-wireframe-10-2-1-m2.out`). The red demonstration for the recorder
+  was run by deleting the call: both inbound cases then failed with `0` against
+  `32` and `65,536`, and the call was restored before the next gate.
+- **EP-M3.** Fifteen checks pass in the harness-free invariants binary
+  (`/tmp/test-wireframe-10-2-1-m3.out`), the production pointer test passes,
+  and the three behavioural scenarios pass
+  (`/tmp/test-wireframe-10-2-1-m3-bdd.out`). The seeded-fault checks are the
+  non-vacuity evidence: the copying hook and the copying middleware are each
+  observed to relocate the buffer and to break the byte bound.
+- **EP-M4.** `make test-feature-gate` reports `feature-gate: ok` across six
+  runs, two of them new: the recorders report zeros without
+  `benchmark-counters`, and the same calls accumulate with it
+  (`/tmp/test-feature-gate-wireframe-10-2-1-capture-baselines.out`). The
+  invariants binary still reports fifteen `ok` lines and `copied_bytes` still
+  reports 17 passing cases after the harness additions
+  (`/tmp/test-invariants-wireframe-10-2-1-capture-baselines.out`,
+  `/tmp/test-copied-wireframe-10-2-1-capture-baselines.out`). Documentation is
+  the rest of the milestone: the baselines document now states the inbound seam
+  and says plainly that the copied-byte counters do not observe middleware
+  traversal, the plan document closes four more gap rows, and ADR-0010's new
+  addendum names the three superseded sentences without editing them.
+
+What the work cost against the plan's budget is recorded in "Artefacts and
+notes" once the final gates have run.
 
 ## Artefacts and notes
 
-To be filled during implementation: the Stage A noise-floor result; the red and
-green transcripts for each seeded fault; and the final gate logs.
+- Stage A noise floor: 2 non-zero idle windows in 1,000 under the default
+  harness; 0 in 1,000 under the harness-free target. The decision rule's
+  outcome is a `harness = false` test target.
+- Red transcripts: `/tmp/test-wireframe-10-2-1-m1-red.out` (window unwind) and
+  the deleted-recorder run recorded in the outcomes above.
+- Green transcripts: `/tmp/test-wireframe-10-2-1-m1-green.out`,
+  `/tmp/test-wireframe-10-2-1-m2.out`, `/tmp/test-wireframe-10-2-1-m3.out`,
+  `/tmp/test-wireframe-10-2-1-m3-bdd.out`.
+- EP-M4 transcripts:
+  `/tmp/test-feature-gate-wireframe-10-2-1-capture-baselines.out`,
+  `/tmp/test-invariants-wireframe-10-2-1-capture-baselines.out`,
+  `/tmp/test-copied-wireframe-10-2-1-capture-baselines.out`,
+  `/tmp/test-bdd-zero-copy-wireframe-10-2-1-capture-baselines.out`.
+- Final gate logs: to be added after the commit gates run.
 
 ## Revision note
 

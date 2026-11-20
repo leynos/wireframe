@@ -46,10 +46,16 @@ layout, because the migration changes ownership at three separate boundaries.
 
 "Inbound decode" here means byte-buffer to frame: the codec decodes a wire
 buffer and hands out a payload. It does not include application deserialization
-into domain types, which the migration does not change. "Outbound encode" means
-the two-step `serialize` then `wrap_payload` hand-off performed by
-`src/app/outbound_encoding.rs`; the transport write that follows is outside the
-migration's boundary.
+into domain types, which the migration does not change in performance terms.
+"Outbound encode" means the two-step `serialize` then `wrap_payload` hand-off
+performed by `src/app/outbound_encoding.rs`; the transport write that follows
+is outside the migration's boundary.
+
+The timing stages and the copied-byte seams are different partitions of the
+same path. A timing stage is a region Criterion measures; a copy seam is a
+point where payload bytes move. The outbound stages contain two seams and the
+inbound stage contains one, which is why [copied bytes](#copied-bytes) lists
+four sites while this table lists four stages.
 
 ## Existing harnesses
 
@@ -206,7 +212,7 @@ even when the timing is stable.
 
 ### Copied bytes
 
-`src/benchmark_counters.rs` counts copied **bytes** at three seams, behind the
+`src/benchmark_counters.rs` counts copied **bytes** at four seams, behind the
 `benchmark-counters` feature, and the recorders compile to empty inline
 functions when the feature is off:
 
@@ -226,6 +232,19 @@ functions when the feature is off:
    buffer. `wrap_payload` builds a frame but writes no transport buffer, so
    this seam belongs to `Encoder::encode` and is probed by
    `measure_framed_copies`, not by the outbound wrap pass.
+4. `record_deserialized` — the inbound path copies the frame's payload into a
+   freshly deserialized envelope. It is recorded in the production
+   `parse_envelope` (`src/app/inbound_handler/dispatch.rs`), after the
+   trailing-bytes check and measured from the decoded payload's length, so a
+   rejected frame is not counted and the reading is the message's payload bytes
+   rather than the frame's metadata. This is the only seam on the receive path
+   and the one roadmap item `11.1.1` removes.
+
+The fourth seam is a copy site, not a timed stage: the matrix's "Inbound
+decode" rows time the codec's byte-buffer-to-frame step, and this counter
+observes the later application deserialization the migration inherits but does
+not change in performance terms. It was added because a copy that no counter
+observes is a copy the gate cannot protect.
 
 Copied bytes are a separate measurement kind from allocation counts, and the
 two are not interchangeable: an allocation counter cannot see a copy into an
@@ -233,7 +252,9 @@ already-allocated buffer, which is exactly what site 3 does. The assertion
 lives in `wireframe_testing/tests/copied_bytes.rs` rather than in a report, so
 a regression fails the build. It covers all four codec and payload-class
 workloads and states the pre-migration outbound total as two payload copies per
-message: one serializer materialization and one transport framing copy.
+message: one serializer materialization and one transport framing copy. The
+inbound assertion states one copy per decoded message; deleting the recorder
+makes it fail with a recorded count of `0`.
 
 ## Sampling and statistics
 
@@ -329,6 +350,8 @@ paired with the coverage below, and the migration must keep all of it green.
 | Hook behaviour        | `tests/features/client_request_hooks.feature` and its steps              |
 | Wire output           | `tests/frame_codec.rs`, serializer round-trip tests                      |
 | Copied bytes          | `wireframe_testing/tests/copied_bytes.rs` per-seam byte assertions       |
+| Buffer identity       | `wireframe_testing/tests/pipeline_allocation_invariants`                 |
+| Payload pass-through  | `tests/features/zero_copy_baseline.feature` and its steps                |
 
 The pointer-identity assertions are the model the new stages copy: they compare
 `as_ptr()` between the handed-in bytes and the frame payload, so a regression
@@ -358,6 +381,9 @@ repeated here. The rules they follow are:
 | Harnesses for the three non-codec stages          | Roadmap `1.2.2` could not be completed        | Closed by `pipeline_performance` and `_alloc` targets   |
 | No copied-byte metric                             | Copy regressions were invisible               | Closed by `benchmark-counters` and `copied_bytes.rs`    |
 | No `hotline` rows for the three new stages        | Codec-independence claim was untested         | Closed; both codecs are measured for every stage        |
+| No inbound copy seam                              | The receive path's one copy was unobserved    | Closed by `record_deserialized` and its assertion       |
+| Read-only and copying paths not distinguished     | A copy on a read-only path would pass         | Closed by the access-mode policies and the invariants   |
+| Byte bounds were only timed, never asserted       | A payload-sized copy could hide in timing     | Closed by `pipeline_allocation_invariants`              |
 | Thresholds need a performance reviewer's sign-off | A threshold cannot be "accepted" unilaterally | Open; recorded as a blocker in the baselines document   |
 | Baseline comparison against a migrated candidate  | The migration's delta is not yet measurable   | Deferred to roadmap `13.2.1`, after the migration lands |
 
