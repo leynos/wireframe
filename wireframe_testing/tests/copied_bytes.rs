@@ -20,6 +20,7 @@
 #![cfg(feature = "pipeline-benchmarks")]
 #![forbid(unsafe_code)]
 
+use proptest::prelude::*;
 use rstest::rstest;
 use serial_test::serial;
 use wireframe::{
@@ -267,6 +268,95 @@ fn default_serializer_leaves_no_spare_capacity(#[case] payload_class: PayloadCla
     );
 }
 
+/// Payload sizes the generated property draws from.
+///
+/// The fixed values are the boundaries the `#[case]` tests pin — no payload,
+/// one byte, and the two harness classes — and the range lets proptest pick
+/// sizes between them that no handwritten case covers.
+fn payload_lengths() -> impl Strategy<Value = usize> {
+    prop_oneof![
+        Just(0_usize),
+        Just(1_usize),
+        Just(SMALL_PAYLOAD_BYTES),
+        Just(LARGE_PAYLOAD_BYTES),
+        2_usize..=LARGE_PAYLOAD_BYTES,
+    ]
+}
+
+proptest! {
+    /// Each seam charges exactly the payload, at every payload size.
+    ///
+    /// The `#[case]` tests pin the two classes the harness measures. This
+    /// property covers the sizes between and around them, so a seam that
+    /// charged a header, rounded a length, or skipped an empty payload fails
+    /// here instead of being assumed away by the two sampled classes.
+    #[test]
+    #[serial]
+    fn seams_charge_one_payload_per_message_at_any_size(len in payload_lengths()) {
+        let payload = vec![0x3c_u8; len];
+        let envelope = Envelope::new(1, Some(7), payload.clone());
+
+        let framed = BincodeSerializer
+            .serialize(&envelope)
+            .expect("the default serializer must encode the envelope");
+        let encoded_len = framed.len() as u64;
+
+        benchmark_counters::reset();
+        let (decoded, consumed) = benchmark_decode_envelope(&BincodeSerializer, &framed)
+            .expect("the default serializer must decode its own encoding");
+        let inbound = benchmark_counters::snapshot();
+
+        prop_assert_eq!(
+            consumed,
+            framed.len(),
+            "decoding must consume the whole frame"
+        );
+        prop_assert_eq!(
+            decoded.payload_bytes(),
+            payload.as_slice(),
+            "the decoded envelope must carry the original payload"
+        );
+        prop_assert_eq!(
+            inbound.deserialized,
+            len as u64,
+            "inbound decode must copy exactly the payload"
+        );
+        prop_assert_eq!(
+            inbound.serialized,
+            0,
+            "an inbound decode must not serialize"
+        );
+        prop_assert_eq!(inbound.framed, 0, "an inbound decode must not frame");
+
+        let codec = LengthDelimitedFrameCodec::new(framed.len() + 1024);
+        benchmark_counters::reset();
+        let frame = benchmark_encode_message_frame(&BincodeSerializer, &codec, &envelope)
+            .expect("the default path must encode and frame the envelope");
+        let outbound = benchmark_counters::snapshot();
+
+        prop_assert_eq!(
+            outbound.serialized,
+            encoded_len,
+            "the production serializer must copy exactly its own output length"
+        );
+        prop_assert_eq!(
+            outbound.handoff,
+            0,
+            "the serializer vector must hand off to `Bytes` without copying"
+        );
+        prop_assert_eq!(
+            outbound.framed,
+            0,
+            "`wrap_payload` must build a frame without writing a transport buffer"
+        );
+        prop_assert_eq!(
+            LengthDelimitedFrameCodec::frame_payload(&frame).len() as u64,
+            encoded_len,
+            "the frame must carry the serializer's whole output"
+        );
+    }
+}
+
 /// Marker opening the machine-readable part of the inversion register.
 const REGISTER_START: &str = "<!-- inversion-register:start -->";
 /// Marker closing the machine-readable part of the inversion register.
@@ -281,34 +371,83 @@ struct Inversion {
     file: String,
 }
 
+/// Joins each `- ` list item in `body` with its wrapped continuation lines.
+///
+/// The register is wrapped at 80 columns, so a test name and its file usually
+/// sit on different lines. Joining them is what lets the span extraction below
+/// see both; reading a line at a time finds one span and silently drops the
+/// entry.
+fn register_items(body: &str) -> Vec<String> {
+    let mut items: Vec<String> = Vec::new();
+    for line in body.lines() {
+        if let Some(item) = line.strip_prefix("- ") {
+            items.push(item.to_owned());
+        } else if line.starts_with("  ")
+            && let Some(current) = items.last_mut()
+        {
+            current.push(' ');
+            current.push_str(line.trim());
+        }
+    }
+    items
+}
+
 /// Extract the register's entries.
 ///
 /// Each entry is a Markdown list item whose first two backticked spans are the
 /// test name and its file, so the prose after them can change without breaking
-/// the check.
-fn register_entries(register: &str) -> Vec<Inversion> {
+/// the check. Wrapped entries are joined before the spans are read.
+///
+/// # Errors
+///
+/// Returns an error when a marker is missing, when the register lists no
+/// entries, or when an entry does not carry both spans. A parser that dropped
+/// such an entry would let the check pass while enforcing nothing.
+fn register_entries(register: &str) -> Result<Vec<Inversion>, String> {
     let Some((_, after_start)) = register.split_once(REGISTER_START) else {
-        return Vec::new();
+        return Err(format!(
+            "the register is missing its `{REGISTER_START}` marker"
+        ));
     };
     let Some((body, _)) = after_start.split_once(REGISTER_END) else {
-        return Vec::new();
+        return Err(format!(
+            "the register is missing its `{REGISTER_END}` marker"
+        ));
     };
-    body.lines()
-        .filter(|line| line.trim_start().starts_with("- "))
-        .filter_map(|line| {
-            let spans: Vec<&str> = line.split('`').skip(1).step_by(2).collect();
-            let (test, file) = (spans.first()?, spans.get(1)?);
-            Some(Inversion {
-                test: (*test).to_owned(),
-                file: (*file).to_owned(),
-            })
+
+    let entries: Vec<Inversion> = register_items(body)
+        .into_iter()
+        .map(|item| {
+            let spans: Vec<&str> = item.split('`').skip(1).step_by(2).collect();
+            match (spans.first(), spans.get(1)) {
+                (Some(test), Some(file)) => Ok(Inversion {
+                    test: (*test).to_owned(),
+                    file: (*file).to_owned(),
+                }),
+                _ => Err(format!(
+                    "register entry `{item}` does not name a test and a file"
+                )),
+            }
         })
-        .collect()
+        .collect::<Result<_, _>>()?;
+
+    if entries.is_empty() {
+        return Err("the register lists no entries".to_owned());
+    }
+    Ok(entries)
 }
 
 /// Report every register entry whose test is missing from its named file.
-fn missing_register_entries(register: &str, sources: &[(&str, &str)]) -> Vec<String> {
-    register_entries(register)
+///
+/// # Errors
+///
+/// Returns the parse failure from [`register_entries`] rather than reporting an
+/// empty set of missing tests, which would read as a clean register.
+fn missing_register_entries(
+    register: &str,
+    sources: &[(&str, &str)],
+) -> Result<Vec<String>, String> {
+    let missing = register_entries(register)?
         .into_iter()
         .filter(|entry| {
             let defines_test = sources
@@ -318,7 +457,8 @@ fn missing_register_entries(register: &str, sources: &[(&str, &str)]) -> Vec<Str
             !defines_test
         })
         .map(|entry| format!("{} in {}", entry.test, entry.file))
-        .collect()
+        .collect();
+    Ok(missing)
 }
 
 /// The register's own file, read at compile time so deleting it is a build
@@ -331,7 +471,21 @@ const THIS_SOURCE: &str = include_str!("copied_bytes.rs");
 #[test]
 fn inversion_register_names_real_tests() {
     let sources = [("wireframe_testing/tests/copied_bytes.rs", THIS_SOURCE)];
-    let missing = missing_register_entries(BASELINES_DOC, &sources);
+    let entries = register_entries(BASELINES_DOC).expect("the register must parse");
+    assert_eq!(
+        entries.len(),
+        4,
+        "the register must list all four seams; a parser that drops entries would otherwise pass \
+         this check"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.test == "outbound_path_copies_the_payload_twice_per_message"),
+        "the register must name the outbound two-copy assertion"
+    );
+
+    let missing = missing_register_entries(BASELINES_DOC, &sources).expect("the register parses");
     assert!(
         missing.is_empty(),
         "the inversion register names tests that do not exist: {missing:?}"
@@ -347,9 +501,44 @@ fn a_register_entry_naming_a_missing_test_is_reported() {
     let sources = [("some/file.rs", "fn present_test() {}")];
 
     assert_eq!(
-        missing_register_entries(&register, &sources),
+        missing_register_entries(&register, &sources).expect("the register parses"),
         vec!["absent_test in some/file.rs".to_owned()],
         "a register entry naming a missing test must be reported"
+    );
+}
+
+#[test]
+fn a_wrapped_register_entry_is_parsed() {
+    // The baseline document wraps each entry after `in`, so this is the format
+    // the check actually has to read.
+    let register = format!(
+        "{REGISTER_START}\n- `present_test` in\n  `some/file.rs` — flips when the item \
+         lands\n{REGISTER_END}\n"
+    );
+    let sources = [("some/file.rs", "fn present_test() {}")];
+
+    assert!(
+        missing_register_entries(&register, &sources)
+            .expect("the register parses")
+            .is_empty(),
+        "a wrapped entry must be joined before its spans are read"
+    );
+}
+
+#[test]
+fn a_register_without_markers_is_rejected() {
+    assert!(
+        register_entries("- `present_test` in `some/file.rs`").is_err(),
+        "a register without markers must be an error, not an empty entry list"
+    );
+}
+
+#[test]
+fn an_entry_without_both_spans_is_rejected() {
+    let register = format!("{REGISTER_START}\n- `present_test` only\n{REGISTER_END}\n");
+    assert!(
+        register_entries(&register).is_err(),
+        "an entry that does not name a test and a file must be reported"
     );
 }
 

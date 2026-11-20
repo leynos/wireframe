@@ -578,11 +578,12 @@ allocations and zero new copied bytes between serialization and `wrap_payload`.
 This is evidenced by both an allocation count and a pointer-identity test
 comparing `as_ptr()` across the hand-off, modelled on the existing codec
 pointer-identity assertions. A timing improvement alone does not satisfy T4.
-The assertions that enforce it today are
-`harness_serializer_copies_the_payload_once_at_each_seam` and
-`default_serializer_and_handoff_copy_the_payload_once` in
+The assertion that states the outbound two-copy total today is
+`outbound_path_copies_the_payload_twice_per_message`, supported by the per-seam
+assertions `harness_serializer_copies_the_payload_once_at_each_seam` and
+`default_serializer_and_handoff_copy_the_payload_once`, all in
 `wireframe_testing/tests/copied_bytes.rs`, alongside the codec pointer-identity
-tests in `src/codec/tests/mod.rs`. Item `11.1.2` inverts them; until then they
+tests in `src/codec/tests/mod.rs`. Item `11.1.2` inverts them; until then, they
 state the two-copy total.
 
 T5. A read-only stage must add no payload-buffer allocation and no payload byte

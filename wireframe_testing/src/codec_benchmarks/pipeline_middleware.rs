@@ -173,7 +173,7 @@ pub async fn measure_middleware_passthrough(
         return empty_measurement();
     }
     let buffer = payload_for_class(workload.payload_class).to_vec();
-    measure_middleware_passthrough_buffer(workload, mode, buffer, iterations).await
+    measure_middleware_passthrough_buffer(mode, buffer, iterations).await
 }
 
 /// Measures middleware chain traversal over a buffer the caller already built.
@@ -182,9 +182,11 @@ pub async fn measure_middleware_passthrough(
 /// payload buffer's own allocation, so this entry point takes the buffer rather
 /// than building it. It exists for that assertion: a payload-sized allocation
 /// inside the window would be indistinguishable from the stage making a copy.
+/// Throughput is reported from the buffer's actual length, so a caller-supplied
+/// buffer of any size reports the bytes it processed rather than the size its
+/// payload class names.
 #[must_use]
 pub async fn measure_middleware_passthrough_buffer(
-    workload: BenchmarkWorkload,
     mode: AccessMode,
     buffer: Vec<u8>,
     iterations: u64,
@@ -192,7 +194,7 @@ pub async fn measure_middleware_passthrough_buffer(
     if iterations == 0 {
         return empty_measurement();
     }
-    let payload_len = workload.payload_class.len() as u64;
+    let payload_len = buffer.len() as u64;
     match mode {
         AccessMode::ReadOnly => {
             run_middleware_iterations(PassthroughPolicy, payload_len, buffer, iterations).await
@@ -256,6 +258,8 @@ pub async fn middleware_payload_handoff(
 mod tests {
     //! Tests for the middleware pass-through helper.
 
+    use rstest::{fixture, rstest};
+
     use super::*;
     use crate::codec_benchmarks::{CodecUnderTest, PayloadClass, SMALL_PAYLOAD_BYTES};
 
@@ -267,11 +271,16 @@ mod tests {
         }
     }
 
-    #[test]
-    fn middleware_batch_reports_its_operations_and_payload() {
-        let runtime = tokio::runtime::Builder::new_current_thread()
+    /// Current-thread runtime every helper test drives its future on.
+    #[fixture]
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
             .build()
-            .expect("tokio runtime");
+            .expect("tokio runtime")
+    }
+
+    #[rstest]
+    fn middleware_batch_reports_its_operations_and_payload(runtime: tokio::runtime::Runtime) {
         let measurement = runtime.block_on(measure_middleware_passthrough(
             small_workload(),
             AccessMode::Mutating,
@@ -288,64 +297,40 @@ mod tests {
         );
     }
 
-    /// The read-only policy must hand back the buffer it was given.
+    /// A read-only policy hands back the buffer it was given, and a copying
+    /// policy must not.
     ///
-    /// The batch measurement cannot see this: recycling through
+    /// The batch measurement cannot see the difference: recycling through
     /// `std::mem::take` looks the same whether the policy copied the frame or
-    /// not, so a copying policy would leave the counts untouched. Only the
-    /// address distinguishes the two.
-    #[test]
-    fn middleware_passthrough_preserves_the_frame_buffer() {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .expect("tokio runtime");
-        let outcome = runtime.block_on(middleware_payload_handoff(
-            small_workload(),
-            AccessMode::ReadOnly,
-        ));
+    /// not, so only the address distinguishes the two. The copying case is what
+    /// proves the read-only assertion rejects something.
+    #[rstest]
+    #[case::read_only(AccessMode::ReadOnly, true)]
+    #[case::copying(AccessMode::Copying, false)]
+    fn middleware_buffer_outcome_matches_the_policy(
+        runtime: tokio::runtime::Runtime,
+        #[case] mode: AccessMode,
+        #[case] is_preserved: bool,
+    ) {
+        let outcome = runtime.block_on(middleware_payload_handoff(small_workload(), mode));
 
-        assert!(
+        assert_eq!(
             outcome.is_payload_preserved(),
-            "the read-only policy must not move the frame buffer: {} -> {}",
+            is_preserved,
+            "a {mode:?} policy must {} the frame buffer: {} -> {}",
+            if is_preserved { "keep" } else { "relocate" },
             outcome.arrival_address,
             outcome.departure_address
         );
         assert_eq!(
             outcome.payload.as_slice(),
             payload_for_class(PayloadClass::Small),
-            "the read-only policy must not rewrite the frame"
+            "the {mode:?} policy must carry the same payload"
         );
     }
 
-    /// The seeded fault must be detectable, or the invariant above proves
-    /// nothing about a chain that does copy.
-    #[test]
-    fn a_copying_middleware_relocates_the_frame_buffer() {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .expect("tokio runtime");
-        let outcome = runtime.block_on(middleware_payload_handoff(
-            small_workload(),
-            AccessMode::Copying,
-        ));
-
-        assert!(
-            !outcome.is_payload_preserved(),
-            "a copying policy must allocate a new buffer; it reported {} on both sides",
-            outcome.departure_address
-        );
-        assert_eq!(
-            outcome.payload.as_slice(),
-            payload_for_class(PayloadClass::Small),
-            "the copy must carry the same payload"
-        );
-    }
-
-    #[test]
-    fn middleware_passthrough_reports_no_work_for_an_empty_batch() {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .expect("tokio runtime");
+    #[rstest]
+    fn middleware_passthrough_reports_no_work_for_an_empty_batch(runtime: tokio::runtime::Runtime) {
         let measurement = runtime.block_on(measure_middleware_passthrough(
             small_workload(),
             AccessMode::ReadOnly,
@@ -354,6 +339,21 @@ mod tests {
         assert_eq!(
             measurement.operations, 0,
             "measurement.operations should equal 0"
+        );
+    }
+
+    /// A caller-supplied buffer reports the bytes it actually holds.
+    #[rstest]
+    fn supplied_buffer_length_sets_the_reported_payload(runtime: tokio::runtime::Runtime) {
+        let buffer = vec![0_u8; 32];
+        let measurement = runtime.block_on(measure_middleware_passthrough_buffer(
+            AccessMode::ReadOnly,
+            buffer,
+            4,
+        ));
+        assert_eq!(
+            measurement.payload_bytes, 128,
+            "four iterations over 32 bytes must report 128 payload bytes, not the class size"
         );
     }
 }
