@@ -78,6 +78,67 @@ fn two_frame_multi_packet_handler() -> ResponseHandler<Envelope> {
     })
 }
 
+/// Append the recording protocol's mutation to one frame.
+fn marked(payload: &[u8]) -> Vec<u8> {
+    let mut frame = payload.to_vec();
+    frame.push(MARKER);
+    frame
+}
+
+/// Assert the prepared contract for a handler that emits exactly two frames.
+///
+/// A streamed body and a multi-packet channel reach the transport through the
+/// same pipeline, so both share one grammar: setup, one hook per frame, a
+/// stream end, the hooked terminator, then the deferred completion hook. Only
+/// the route, the handler and the failure message differ, so the shared
+/// assertion lives here.
+async fn assert_two_frame_source_is_hooked_once(
+    route_id: u32,
+    handler: ResponseHandler<Envelope>,
+    context: &str,
+) -> TestResult<()> {
+    const TERMINATOR_BYTES: &[u8] = b"END";
+    let fixture =
+        RecordingProtocolFixture::<Bytes>::new(Some(Bytes::from_static(TERMINATOR_BYTES)));
+    let app = ResponseApp::new()?
+        .route_response(route_id, handler)?
+        .with_protocol(fixture.protocol());
+
+    let bytes = prepare_and_drive_with_frames(app, vec![request_frame(route_id)?]).await?;
+
+    let events = fixture.events();
+    let [
+        HookEvent::Setup,
+        HookEvent::BeforeSend(first),
+        HookEvent::BeforeSend(second),
+        HookEvent::StreamEnd,
+        HookEvent::BeforeSend(terminator),
+        HookEvent::CommandEnd,
+    ] = events.as_slice()
+    else {
+        return Err(format!(
+            "expected setup, two hooked frames, a hooked terminator, then completion for \
+             {context}, got {events:?}"
+        )
+        .into());
+    };
+    assert_eq!(
+        &terminator[..],
+        TERMINATOR_BYTES,
+        "the terminator reaches the hook as the protocol supplied it"
+    );
+    let expected: Vec<Vec<u8>> = [first, second, terminator]
+        .into_iter()
+        .map(|frame| marked(frame))
+        .collect();
+    assert_eq!(
+        decode_frames(&bytes)?,
+        expected,
+        "{context}: each frame and the terminator are hooked exactly once"
+    );
+    Ok(())
+}
+
 /// Wait until the prepared connection has dispatched `on_connection_setup`.
 async fn wait_for_setup(fixture: &RecordingProtocolFixture<Bytes>) -> TestResult<()> {
     let deadline = Instant::now() + EVENT_TIMEOUT;
@@ -155,50 +216,7 @@ async fn prepared_response_runs_before_send_once_after_serialization() -> TestRe
 #[rstest]
 #[tokio::test]
 async fn prepared_stream_runs_before_send_once_per_frame_and_terminator() -> TestResult<()> {
-    const TERMINATOR_BYTES: &[u8] = b"END";
-    let fixture =
-        RecordingProtocolFixture::<Bytes>::new(Some(Bytes::from_static(TERMINATOR_BYTES)));
-    let app = ResponseApp::new()?
-        .route_response(2, two_frame_stream_handler())?
-        .with_protocol(fixture.protocol());
-
-    let bytes = prepare_and_drive_with_frames(app, vec![request_frame(2)?]).await?;
-
-    let events = fixture.events();
-    let [
-        HookEvent::Setup,
-        HookEvent::BeforeSend(first),
-        HookEvent::BeforeSend(second),
-        HookEvent::StreamEnd,
-        HookEvent::BeforeSend(terminator),
-        HookEvent::CommandEnd,
-    ] = events.as_slice()
-    else {
-        return Err(format!(
-            "expected setup, two hooked frames, a hooked terminator, then completion, got \
-             {events:?}"
-        )
-        .into());
-    };
-    assert_eq!(
-        &terminator[..],
-        TERMINATOR_BYTES,
-        "the terminator reaches the hook as the protocol supplied it"
-    );
-    let expected: Vec<Vec<u8>> = [first, second, terminator]
-        .into_iter()
-        .map(|frame| {
-            let mut marked = frame.to_vec();
-            marked.push(MARKER);
-            marked
-        })
-        .collect();
-    assert_eq!(
-        decode_frames(&bytes)?,
-        expected,
-        "each streamed frame and the terminator are hooked exactly once"
-    );
-    Ok(())
+    assert_two_frame_source_is_hooked_once(2, two_frame_stream_handler(), "streamed response").await
 }
 
 /// A prepared multi-packet response dispatches setup, then runs `before_send`
@@ -206,50 +224,12 @@ async fn prepared_stream_runs_before_send_once_per_frame_and_terminator() -> Tes
 #[rstest]
 #[tokio::test]
 async fn prepared_multi_packet_runs_before_send_once_per_frame_and_terminator() -> TestResult<()> {
-    const TERMINATOR_BYTES: &[u8] = b"END";
-    let fixture =
-        RecordingProtocolFixture::<Bytes>::new(Some(Bytes::from_static(TERMINATOR_BYTES)));
-    let app = ResponseApp::new()?
-        .route_response(3, two_frame_multi_packet_handler())?
-        .with_protocol(fixture.protocol());
-
-    let bytes = prepare_and_drive_with_frames(app, vec![request_frame(3)?]).await?;
-
-    let events = fixture.events();
-    let [
-        HookEvent::Setup,
-        HookEvent::BeforeSend(first),
-        HookEvent::BeforeSend(second),
-        HookEvent::StreamEnd,
-        HookEvent::BeforeSend(terminator),
-        HookEvent::CommandEnd,
-    ] = events.as_slice()
-    else {
-        return Err(format!(
-            "expected setup, two hooked channel frames, a hooked terminator, then completion, got \
-             {events:?}"
-        )
-        .into());
-    };
-    assert_eq!(
-        &terminator[..],
-        TERMINATOR_BYTES,
-        "the terminator reaches the hook as the protocol supplied it"
-    );
-    let expected: Vec<Vec<u8>> = [first, second, terminator]
-        .into_iter()
-        .map(|frame| {
-            let mut marked = frame.to_vec();
-            marked.push(MARKER);
-            marked
-        })
-        .collect();
-    assert_eq!(
-        decode_frames(&bytes)?,
-        expected,
-        "each multi-packet frame and the terminator are hooked exactly once"
-    );
-    Ok(())
+    assert_two_frame_source_is_hooked_once(
+        3,
+        two_frame_multi_packet_handler(),
+        "multi-packet response",
+    )
+    .await
 }
 
 /// Pushes queued through a prepared connection's published handle are written
@@ -284,11 +264,6 @@ async fn prepared_pushes_run_before_send_once_in_write_order() -> TestResult<()>
         .map_err(|error| format!("low-priority push should be accepted: {error:?}"))?;
     let low = timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
 
-    let marked = |payload: &[u8]| {
-        let mut frame = payload.to_vec();
-        frame.push(MARKER);
-        frame
-    };
     assert_eq!(
         high,
         marked(b"high"),
