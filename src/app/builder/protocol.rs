@@ -86,7 +86,7 @@ where
     #[must_use]
     pub fn with_message_assembler(self, assembler: impl MessageAssembler + 'static) -> Self {
         Self {
-            message_assembler: Some(Arc::new(assembler)),
+            message_assembler: Some(Box::new(assembler)),
             ..self
         }
     }
@@ -137,8 +137,16 @@ where
     ///     .with_message_assembler(DemoAssembler);
     /// assert!(app.message_assembler().is_some());
     /// ```
+    ///
+    /// The accessor borrows the application-owned assembler. It deliberately
+    /// does not hand out a cloneable handle: the assembler is immutable and
+    /// only called through `&self`, so a caller that needs to invoke it can do
+    /// so through the returned reference. This is the
+    /// [#598](https://github.com/leynos/wireframe/issues/598) disposition and
+    /// replaces the former `Option<&Arc<dyn MessageAssembler>>` return type in
+    /// the 0.4.0 release.
     #[must_use]
-    pub fn message_assembler(&self) -> Option<&Arc<dyn MessageAssembler>> {
-        self.message_assembler.as_ref()
+    pub fn message_assembler(&self) -> Option<&dyn MessageAssembler> {
+        self.message_assembler.as_deref()
     }
 }

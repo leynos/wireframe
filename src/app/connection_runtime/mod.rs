@@ -127,12 +127,12 @@ where
 {
     /// Immutable middleware chains used to dispatch decoded envelopes.
     pub(crate) routes: &'a HashMap<u32, HandlerService<E>>,
-    /// Serializer shared by all frames on the connection.
-    pub(crate) serializer: Arc<S>,
+    /// Serializer borrowed from the prepared root for the connection lifetime.
+    pub(crate) serializer: &'a S,
     /// Codec configuration shared by all frames on the connection.
     pub(crate) codec: &'a F,
     /// Optional assembly strategy for multi-frame protocol messages.
-    pub(crate) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    pub(crate) message_assembler: Option<&'a dyn MessageAssembler>,
     /// Fragmentation settings used to initialize the frame pipeline.
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks built for this connection from the installed protocol.
@@ -235,7 +235,7 @@ where
     /// directly below the lifecycle wrapper makes the compiler's layout queries
     /// for a test crate exceed their depth limit, and it would otherwise be
     /// duplicated into every caller that joins two connections.
-    pub(crate) async fn run(self, teardown: Option<&Arc<ConnectionTeardown<C>>>) -> io::Result<()> {
+    pub(crate) async fn run(self, teardown: Option<&ConnectionTeardown<C>>) -> io::Result<()> {
         let Self {
             stream,
             config,

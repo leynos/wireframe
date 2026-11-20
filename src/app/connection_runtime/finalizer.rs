@@ -1,9 +1,6 @@
 //! At-most-once connection finalization state.
 
-use std::{
-    panic::{AssertUnwindSafe, resume_unwind},
-    sync::Arc,
-};
+use std::panic::{AssertUnwindSafe, resume_unwind};
 
 use futures::FutureExt;
 use tracing::{debug, error};
@@ -102,7 +99,7 @@ impl<C> ConnectionFinalizer<C> {
     /// re-raised, so supervision still observes it and it is never retried.
     pub(super) async fn finalize(
         &mut self,
-        teardown: Option<&Arc<ConnectionTeardown<C>>>,
+        teardown: Option<&ConnectionTeardown<C>>,
         outcome: FinalizationOutcome,
     ) {
         let Some(state) = self.take_for_teardown() else {
@@ -126,11 +123,7 @@ impl<C> ConnectionFinalizer<C> {
 /// `catch_unwind`. A teardown closure that panics before it returns its future
 /// panics while the block is polled, not while the future is built, so it is
 /// covered by the same boundary as a panic during the awaited teardown.
-async fn run_teardown<C>(
-    callback: &Arc<ConnectionTeardown<C>>,
-    state: C,
-    outcome: FinalizationOutcome,
-) {
+async fn run_teardown<C>(callback: &ConnectionTeardown<C>, state: C, outcome: FinalizationOutcome) {
     log_teardown_started(outcome);
     if let Err(payload) = AssertUnwindSafe(async move { callback(state).await })
         .catch_unwind()
