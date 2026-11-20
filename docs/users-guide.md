@@ -3780,10 +3780,41 @@ std::hint::black_box(count);
 # Ok::<(), String>(())
 ```
 
+`count_allocations` reports the number of allocation operations. When the byte
+total matters as well — a test bounding a stage by its payload size, for
+instance — `count_allocation_traffic` runs the same window and returns an
+`AllocationTraffic` with both readings:
+
+<!-- tested-example: users-guide-067 -->
+```rust
+use wireframe_testing::benchmark_alloc_support::count_allocation_traffic;
+
+let traffic = count_allocation_traffic(|| {
+    let buffer: Vec<u8> = vec![0; 1024];
+    std::hint::black_box(buffer.len());
+    Ok(())
+})?;
+std::hint::black_box(traffic.operations);
+std::hint::black_box(traffic.bytes);
+# Ok::<(), String>(())
+```
+
+`AllocationTraffic::bytes` counts the memory a window requested, not the memory
+copied or freed: a reallocation that grows a buffer contributes only the
+growth, because that is what `stats_alloc` records. It is therefore not a
+copied-byte measure; use `wireframe::benchmark_counters` for payload copies.
+
 The window closes on the error path too, so a failed measurement cannot leave
 counting enabled for the rest of the process. `count_allocations_or_panic`
 wraps the same helper for benchmark binaries that treat a failed measurement as
 fatal.
+
+A benchmark binary should call `verify_allocation_harness` once before
+measuring. It proves the installed allocator reports what the invariants depend
+on: an allocation-free closure reports no traffic, a known allocation is
+observed, and growing a buffer reports more traffic than allocating it once. A
+binary whose counting gate never opened would otherwise record a silent zero
+for every baseline.
 
 The recorded value counts both fresh allocations and reallocations: a buffer
 that grows in place is still a buffer that asked the allocator for memory. It

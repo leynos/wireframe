@@ -159,9 +159,11 @@ All notable changes to this project will be documented in this file.
   frame materializes. The zero-copy copied-byte gate therefore covers four
   seams rather than three, including the inbound copy that roadmap item
   `11.1.1` removes. A `benchmark-counters` build that constructs `CopiedBytes`
-  exhaustively must name the new field. The same change adds a buffer-identity
-  and allocation-invariant gate to `wireframe_testing`, and a feature-gate
-  probe proving the recorders stay inert without the feature.
+  exhaustively must name the new field; see the
+  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#copied-byte-counters).
+  The same change adds a buffer-identity and allocation-invariant gate to
+  `wireframe_testing`, and a feature-gate probe proving the recorders stay
+  inert without the feature.
 
 - **Breaking:** Protocol `before_send` hooks now run for `WireframeApp`
   handler responses, not only actor-driven push and multi-packet frames. The
