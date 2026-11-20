@@ -82,6 +82,10 @@ mod stream_observed;
 
 mod stream_parked;
 
+mod stream_pushes;
+
+mod stream_reads;
+
 mod stream_slot;
 
 mod stream_terminal;

@@ -103,7 +103,9 @@ pub(crate) fn inc_streaming_body_outcome(_outcome: StreamingBodyOutcome) {}
 /// Kept as a small type rather than a bare static so the arithmetic can be
 /// exercised on a local instance: the statics below are shared with every
 /// concurrently running test, so asserting an absolute value on them would be
-/// racy.
+/// racy. The publisher is a parameter for the same reason: a test supplies its
+/// own sink, so two tests running concurrently cannot drain each other's
+/// recorded totals.
 ///
 /// The tally and its gauge are updated under one lock. Publishing a value
 /// computed outside the lock would let a stale observation land last: two
@@ -111,17 +113,20 @@ pub(crate) fn inc_streaming_body_outcome(_outcome: StreamingBodyOutcome) {}
 /// and `Gauge::set` assigns rather than advances, so the gauge would stay above
 /// the real total for good.
 #[cfg(feature = "metrics")]
-struct Occupancy {
+struct Occupancy<P> {
     /// Current total, guarded so a publish cannot be reordered against it.
     total: Mutex<usize>,
     /// Gauge publisher for this total.
-    publish: fn(usize),
+    publish: P,
 }
 
 #[cfg(feature = "metrics")]
-impl Occupancy {
+impl<P> Occupancy<P>
+where
+    P: Fn(usize),
+{
     /// Create an empty tally that publishes through `publish`.
-    const fn new(publish: fn(usize)) -> Self {
+    const fn new(publish: P) -> Self {
         Self {
             total: Mutex::new(0),
             publish,
@@ -161,15 +166,23 @@ impl Occupancy {
     /// Return the current total.
     #[cfg(test)]
     fn get(&self) -> usize { *self.lock() }
+
+    /// Return whether some thread currently holds this tally's lock.
+    ///
+    /// `std::sync::Mutex` is not reentrant, so this reports `true` from inside
+    /// the publisher only when the update that called it still holds the lock.
+    /// That is exactly the ordering the gauge depends on.
+    #[cfg(test)]
+    fn is_locked(&self) -> bool { self.total.try_lock().is_err() }
 }
 
 /// Bytes currently queued for streaming handlers, across all connections.
 #[cfg(feature = "metrics")]
-static QUEUED_BODY_BYTES: Occupancy = Occupancy::new(set_queued_body_bytes);
+static QUEUED_BODY_BYTES: Occupancy<fn(usize)> = Occupancy::new(set_queued_body_bytes);
 
 /// Messages currently parked behind live bodies, across all connections.
 #[cfg(feature = "metrics")]
-static PARKED_BODIES: Occupancy = Occupancy::new(set_parked_bodies);
+static PARKED_BODIES: Occupancy<fn(usize)> = Occupancy::new(set_parked_bodies);
 
 /// Add `len` bytes to the queued-body total.
 ///
@@ -246,138 +259,7 @@ fn set_queued_body_bytes(total: usize) { gauge!(STREAMING_BODY_BYTES_QUEUED).set
 )]
 fn set_parked_bodies(total: usize) { gauge!(STREAMING_BODIES_PARKED).set(total as f64); }
 
+/// Tests for the outcome labels and the occupancy totals.
 #[cfg(all(test, feature = "metrics", not(loom)))]
-mod tests {
-    //! Tests for the bounded streaming-body labels and the occupancy totals.
-
-    use metrics::{SharedString, Unit};
-    use metrics_util::{
-        CompositeKey,
-        debugging::{DebugValue, DebuggingRecorder},
-    };
-
-    use super::{
-        Occupancy,
-        STREAMING_BODY_OUTCOMES,
-        StreamingBodyOutcome,
-        inc_streaming_body_outcome,
-    };
-
-    type MetricSample = (CompositeKey, Option<Unit>, Option<SharedString>, DebugValue);
-
-    fn sample_matches_outcome(sample: &MetricSample, outcome: StreamingBodyOutcome) -> bool {
-        let (key, _, _, value) = sample;
-        if key.key().name() != STREAMING_BODY_OUTCOMES || key.key().labels().count() != 1 {
-            return false;
-        }
-        let has_outcome = key
-            .key()
-            .labels()
-            .any(|label| label.key() == "outcome" && label.value() == outcome.as_str());
-        has_outcome && matches!(value, DebugValue::Counter(count) if *count == 1)
-    }
-
-    #[test]
-    fn streaming_body_outcomes_use_a_fixed_label() {
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
-        let outcomes = [
-            StreamingBodyOutcome::Delivered,
-            StreamingBodyOutcome::Terminal,
-            StreamingBodyOutcome::Abandoned,
-            StreamingBodyOutcome::AdmissionTimeout,
-            StreamingBodyOutcome::DeliveryTimeout,
-            StreamingBodyOutcome::NoHandler,
-        ];
-
-        ::metrics::with_local_recorder(&recorder, || {
-            for outcome in outcomes {
-                inc_streaming_body_outcome(outcome);
-            }
-        });
-
-        let metric_samples = snapshotter.snapshot().into_vec();
-        assert_eq!(metric_samples.len(), outcomes.len());
-        for outcome in outcomes {
-            assert!(
-                metric_samples
-                    .iter()
-                    .any(|sample| sample_matches_outcome(sample, outcome)),
-                "missing sample for outcome {outcome:?}"
-            );
-        }
-    }
-
-    /// Every value a tally publishes, in the order it published it.
-    static PUBLISHED: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
-
-    /// Record one published total for the concurrency test.
-    fn capture(total: usize) {
-        let mut published = PUBLISHED
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        published.push(total);
-    }
-
-    /// Take the recorded publications.
-    fn published() -> Vec<usize> {
-        let mut published = PUBLISHED
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        std::mem::take(&mut *published)
-    }
-
-    /// The tally aggregates additions across connections and releases exactly
-    /// what was added, so concurrent connections share one total instead of
-    /// overwriting one another's occupancy.
-    #[test]
-    fn occupancy_totals_aggregate_and_release() {
-        let bytes = Occupancy::new(capture);
-        assert_eq!(bytes.add(3), 3);
-        assert_eq!(bytes.add(4), 7);
-        assert_eq!(bytes.release(3), 4);
-        assert_eq!(bytes.release(4), 0);
-
-        let parked = Occupancy::new(capture);
-        assert_eq!(parked.add(1), 1);
-        assert_eq!(parked.add(1), 2);
-        assert_eq!(parked.release(2), 0);
-        // A release that races teardown saturates instead of wrapping.
-        assert_eq!(parked.release(1), 0);
-        assert_eq!(parked.get(), 0);
-        published();
-    }
-
-    /// Take and release one reservation a hundred times.
-    ///
-    /// Kept out of the spawned closure so the concurrency test reads as one
-    /// action per thread rather than as nested loops.
-    fn churn(occupancy: &Occupancy) {
-        for _ in 0..100 {
-            occupancy.add(1);
-            occupancy.release(1);
-        }
-    }
-
-    /// A tally publishes the total it computed, in the order it computed it.
-    ///
-    /// Computing a total outside the lock and publishing it afterwards would
-    /// let two concurrent releases publish in the opposite order, leaving the
-    /// gauge above the real total once every reservation had gone.
-    #[test]
-    fn concurrent_updates_publish_their_own_total() {
-        let parked = Occupancy::new(capture);
-        std::thread::scope(|scope| {
-            for _ in 0..4 {
-                scope.spawn(|| churn(&parked));
-            }
-        });
-
-        assert_eq!(parked.get(), 0, "every reservation was released");
-        assert_eq!(
-            published().last().copied(),
-            Some(0),
-            "the last publication reports an empty total"
-        );
-    }
-}
+#[path = "streaming_bodies_tests.rs"]
+mod tests;
