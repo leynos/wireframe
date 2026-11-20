@@ -79,14 +79,23 @@ pub(crate) fn middleware_traffic(
     payload_class: PayloadClass,
     iterations: u64,
 ) -> AllocationTraffic {
+    middleware_traffic_with_buffer(mode, payload_for_class(payload_class).to_vec(), iterations)
+}
+
+/// Opens a window around a middleware batch for an arbitrary payload buffer.
+///
+/// Callers choose the size when a claim is stated across the payload range
+/// rather than at the sampled classes. The buffer is always built before the
+/// window opens, so its allocation cannot be mistaken for the stage's.
+pub(crate) fn middleware_traffic_with_buffer(
+    mode: AccessMode,
+    buffer: Vec<u8>,
+    iterations: u64,
+) -> AllocationTraffic {
     let runtime = test_runtime();
-    let buffer = payload_for_class(payload_class).to_vec();
     traffic("middleware batch", move || {
         let measurement = runtime.block_on(measure_middleware_passthrough_buffer(
-            workload(payload_class),
-            mode,
-            buffer,
-            iterations,
+            mode, buffer, iterations,
         ));
         let _measurement = black_box(measurement);
         Ok(())

@@ -26,6 +26,7 @@ use super::support::{
     copying_hook,
     hook_traffic,
     middleware_traffic,
+    middleware_traffic_with_buffer,
     read_only_hook,
     test_runtime,
     traffic,
@@ -106,9 +107,22 @@ pub(super) const CHECKS: [(&str, fn()); 15] = [
 /// this asserts the installed one before any bound depends on it.
 pub(super) fn harness_observes_real_traffic() { verify_allocation_harness(); }
 
-/// A window reports the bytes it asked for, at every payload scale.
+/// Payload sizes the byte-reporting probe sweeps.
+///
+/// A geometric sweep from the small class up to the large one, so the claim
+/// holds across the range of payloads the harness measures rather than at three
+/// sampled points.
+fn probe_sizes() -> impl Iterator<Item = usize> {
+    std::iter::successors(Some(SMALL_PAYLOAD_BYTES), |size| {
+        size.checked_mul(2)
+            .filter(|next| *next < LARGE_PAYLOAD_BYTES)
+    })
+    .chain(std::iter::once(LARGE_PAYLOAD_BYTES))
+}
+
+/// A window reports the bytes it asked for, across the payload range.
 pub(super) fn windows_report_their_bytes() {
-    for bytes in [SMALL_PAYLOAD_BYTES, 1_024, LARGE_PAYLOAD_BYTES] {
+    for bytes in probe_sizes() {
         let traffic = traffic("size probe", || {
             let block = vec![0_u8; bytes];
             black_box(&block);
@@ -135,21 +149,43 @@ pub(super) fn windows_report_their_bytes() {
     }
 }
 
+/// Bytes the growing-reallocation probe starts from.
+///
+/// Sixteen times [`WINDOW_SLACK_BYTES`], so charging a reallocation's whole new
+/// size overshoots the slack by far more than any control block could explain.
+const GROWTH_PROBE_BYTES: usize = 16 * WINDOW_SLACK_BYTES;
+
 /// A growing reallocation is charged its growth, not its new size.
+///
+/// Growth-only accounting charges the first allocation plus the capacity delta,
+/// which is exactly the vector's final capacity. Charging the full new size
+/// instead reports the final capacity twice and fails the upper bound.
 pub(super) fn growing_reallocation_reports_growth() {
-    let base = WINDOW_SLACK_BYTES;
+    let base = GROWTH_PROBE_BYTES;
+    let mut grown_capacity = 0;
     let traffic = traffic("growth probe", || {
         let mut block = vec![0_u8; base];
         block.reserve(base);
+        grown_capacity = block.capacity();
         black_box(&block);
         Ok(())
     });
 
     assert!(
-        traffic.bytes >= 2 * base,
-        "a vector grown from {base} to at least {} bytes reported {} bytes; a growth that is not \
+        grown_capacity > base,
+        "the probe must grow the vector: {base} bytes reported a capacity of {grown_capacity}"
+    );
+    assert!(
+        traffic.bytes >= grown_capacity,
+        "a vector grown to {grown_capacity} bytes reported only {} bytes; a growth that is not \
          charged would make every byte bound understate a copy",
-        2 * base,
+        traffic.bytes
+    );
+    assert!(
+        traffic.bytes <= grown_capacity + WINDOW_SLACK_BYTES,
+        "a vector grown to {grown_capacity} bytes reported {} bytes, beyond the \
+         {WINDOW_SLACK_BYTES}-byte slack; the reallocation is being charged its whole new size \
+         instead of its growth",
         traffic.bytes
     );
 }
@@ -278,16 +314,25 @@ pub(super) fn read_only_middleware_counts_match() {
     );
 }
 
-/// One read-only middleware pass allocates nothing payload-sized.
+/// One read-only middleware pass allocates nothing payload-sized, at either
+/// large payload scale.
+///
+/// Doubling the payload leaves the pass's byte cost unchanged, which is the
+/// property a copy would break. The bound is stated against large payloads
+/// because a small payload costs less than the per-call control blocks
+/// `async_trait` allocates, and those are plumbing, not copies.
 pub(super) fn read_only_middleware_pass_stays_below_payload() {
-    let traffic = middleware_traffic(AccessMode::ReadOnly, PayloadClass::Large, 1);
+    for payload_bytes in [LARGE_PAYLOAD_BYTES, 2 * LARGE_PAYLOAD_BYTES] {
+        let traffic =
+            middleware_traffic_with_buffer(AccessMode::ReadOnly, vec![0x5a; payload_bytes], 1);
 
-    assert!(
-        traffic.bytes < LARGE_PAYLOAD_BYTES,
-        "one read-only middleware pass allocated {} bytes for a {LARGE_PAYLOAD_BYTES}-byte \
-         payload; a single payload copy would already reach the bound",
-        traffic.bytes
-    );
+        assert!(
+            traffic.bytes < payload_bytes,
+            "one read-only middleware pass allocated {} bytes for a {payload_bytes}-byte payload; \
+             a single payload copy would already reach the bound",
+            traffic.bytes
+        );
+    }
 }
 
 /// A read-only hook batch allocates nothing payload-sized.
