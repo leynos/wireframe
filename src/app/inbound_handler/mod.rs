@@ -90,7 +90,8 @@ mod stream_slot;
 
 mod stream_terminal;
 
-#[cfg(all(test, feature = "metrics"))]
+#[cfg(test)]
+#[cfg(feature = "metrics")]
 #[path = "stream_outcome_support.rs"]
 mod stream_outcome_support;
 

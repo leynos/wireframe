@@ -99,18 +99,20 @@ async fn the_read_probe_never_purges_buffered_state() -> io::Result<()> {
     if !matches!(inbound.try_next(&mut reader).await?, NextFrame::TimedOut) {
         return Err(io::Error::other("the reader stays silent throughout"));
     }
-    assert_eq!(
-        buffered_assemblies(&inbound),
-        Some(1),
-        "the probe must not purge; only the expiry command may"
-    );
+    // Reported rather than asserted: this test returns a `Result`, so a
+    // failure belongs in the error it returns.
+    if buffered_assemblies(&inbound) != Some(1) {
+        return Err(io::Error::other(
+            "the probe must not purge; only the expiry command may",
+        ));
+    }
 
     run_expiry(&mut inbound, &mut Vec::new());
-    assert_eq!(
-        buffered_assemblies(&inbound),
-        Some(0),
-        "the same interval expires once the command runs"
-    );
+    if buffered_assemblies(&inbound) != Some(0) {
+        return Err(io::Error::other(
+            "the same interval expires once the command runs",
+        ));
+    }
     Ok(())
 }
 

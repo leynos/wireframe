@@ -23,8 +23,13 @@ use crate::{
     app::inbound_handler::{
         stream_active::{HandlerFuture, PendingSend},
         stream_outcome_support::{
-            identity, paused_block_on, queue_one_chunk, reading_handler, recorded,
-            truncated_failure, wait,
+            identity,
+            paused_block_on,
+            queue_one_chunk,
+            reading_handler,
+            recorded,
+            truncated_failure,
+            wait,
         },
     },
     metrics::StreamingBodyOutcome,

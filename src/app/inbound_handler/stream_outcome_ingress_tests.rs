@@ -33,7 +33,7 @@ fn keyed_first_chunk() -> FirstChunk {
 }
 
 /// A continuation for the keyed message.
-fn continuation() -> ChunkOffer {
+const fn continuation() -> ChunkOffer {
     ChunkOffer {
         key: MessageKey(1),
         chunk: Bytes::from_static(b"more"),
@@ -50,7 +50,7 @@ fn continuation() -> ChunkOffer {
 fn a_start_without_a_handler_is_counted_as_no_handler() {
     let mut state = LoopState::new(QueuedBytes::new());
 
-    let (_, no_handler) = counted(StreamingBodyOutcome::NoHandler, || {
+    let ((), no_handler) = counted(StreamingBodyOutcome::NoHandler, || {
         start_stream(&mut state, None, final_chunk());
     });
 
@@ -67,7 +67,7 @@ fn a_start_with_a_handler_registers_the_exchange() {
     let handler = reading_route();
     let mut state = LoopState::new(QueuedBytes::new());
 
-    let (_, counts) = recorded(|| {
+    let ((), counts) = recorded(|| {
         start_stream(&mut state, Some(&handler), final_chunk());
     });
 
@@ -94,7 +94,7 @@ fn a_continuation_for_an_abandoned_body_is_counted_as_abandoned() {
     let mut state = LoopState::new(QueuedBytes::new());
     let mut assembly: Option<MessageAssemblyState> = None;
 
-    let (_, abandoned) = counted(StreamingBodyOutcome::Abandoned, || {
+    let ((), abandoned) = counted(StreamingBodyOutcome::Abandoned, || {
         deliver_chunk(&mut state, &mut assembly, continuation());
     });
 
@@ -124,7 +124,7 @@ fn a_continuation_for_the_live_body_is_not_counted() {
     }
     let mut assembly: Option<MessageAssemblyState> = None;
 
-    let (_, counts) = recorded(|| {
+    let ((), counts) = recorded(|| {
         deliver_chunk(&mut state, &mut assembly, continuation());
     });
 

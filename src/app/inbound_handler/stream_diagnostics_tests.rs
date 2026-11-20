@@ -138,30 +138,39 @@ fn a_read_timeout_is_reported_without_a_body_category() {
             .ok_or_else(|| "the read timeout is not reported at debug level".to_owned())?;
         if timeout.contains("error_category") {
             return Err(format!(
-                "a read timeout has no body outcome to categorise: {timeout}"
+                "a read timeout has no body outcome to categorize: {timeout}"
             ));
         }
         Ok(())
     });
 }
 
-/// Return whether `lines` hold one event with the stated level and fields.
+/// One event a diagnostics test expects to find in the captured log.
+///
+/// The four fields travel together because they identify the same event, and a
+/// test that checked one without the others would let the rest drift.
+struct Expected<'a> {
+    /// Level the event must be logged at.
+    level: &'a str,
+    /// Text the event message must carry.
+    message: &'a str,
+    /// Value of the event's `operation` field.
+    operation: &'a str,
+    /// Value of the event's `error_category` field.
+    category: &'a str,
+}
+
+/// Return whether `lines` hold one event matching `expected`.
 ///
 /// The operation and category are quoted string fields, so they are matched
 /// with their quotes: filtering on the bare word would also match a message
 /// that merely mentions it.
-fn reports(
-    lines: &[&str],
-    level: &str,
-    message: &str,
-    operation: &str,
-    category: &str,
-) -> bool {
+fn reports(lines: &[&str], expected: &Expected<'_>) -> bool {
     lines.iter().any(|line| {
-        line.contains(level)
-            && line.contains(message)
-            && line.contains(&format!("operation=\"{operation}\""))
-            && line.contains(&format!("error_category=\"{category}\""))
+        line.contains(expected.level)
+            && line.contains(expected.message)
+            && line.contains(&format!("operation=\"{}\"", expected.operation))
+            && line.contains(&format!("error_category=\"{}\"", expected.category))
     })
 }
 
@@ -178,10 +187,12 @@ fn the_handler_deadline_warning_keeps_its_level_and_operation() {
     logs_assert(|lines: &[&str]| {
         reports(
             lines,
-            "WARN",
-            "streaming handler exceeded the connection wait",
-            "terminal_body",
-            "reply_abandoned",
+            &Expected {
+                level: "WARN",
+                message: "streaming handler exceeded the connection wait",
+                operation: "terminal_body",
+                category: "reply_abandoned",
+            },
         )
         .then_some(())
         .ok_or_else(|| "the abandoned reply is not a terminal-body warning".to_owned())
@@ -197,10 +208,12 @@ fn the_final_chunk_refusal_keeps_its_level_and_operation() {
     logs_assert(|lines: &[&str]| {
         reports(
             lines,
-            "DEBUG",
-            "final request-body chunk refused",
-            "chunk_delivery",
-            "abandoned_body",
+            &Expected {
+                level: "DEBUG",
+                message: "final request-body chunk refused",
+                operation: "chunk_delivery",
+                category: "abandoned_body",
+            },
         )
         .then_some(())
         .ok_or_else(|| "the refused final chunk is not a chunk-delivery event".to_owned())

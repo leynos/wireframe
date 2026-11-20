@@ -106,12 +106,11 @@ pub(super) fn reading_handler(mut body: RequestBodyStream) -> HandlerFuture {
 /// Route handler that reads its body through [`reading_handler`].
 ///
 /// The slot starts a body from a route handler rather than from a future, so a
-/// scenario that goes through [`ConnectionStreams::start`](super::stream_slot::ConnectionStreams::start)
-/// needs one of these to observe what the handler received.
+/// scenario that goes through
+/// [`ConnectionStreams::start`](super::stream_slot::ConnectionStreams::start) needs one of these to
+/// observe what the handler received.
 pub(super) fn reading_route() -> StreamingHandler {
-    Arc::new(|_parts: RequestParts, body: RequestBodyStream| {
-        reading_handler(body)
-    })
+    Arc::new(|_parts: RequestParts, body: RequestBodyStream| reading_handler(body))
 }
 
 /// The outcome counts one scenario recorded.
@@ -145,10 +144,7 @@ pub(super) fn recorded<T>(scenario: impl FnOnce() -> T) -> (T, Counts) {
 }
 
 /// Run `scenario` with a private recorder and count the `outcome` it recorded.
-pub(super) fn counted<T>(
-    outcome: StreamingBodyOutcome,
-    scenario: impl FnOnce() -> T,
-) -> (T, u64) {
+pub(super) fn counted<T>(outcome: StreamingBodyOutcome, scenario: impl FnOnce() -> T) -> (T, u64) {
     let (value, counts) = recorded(scenario);
     (value, counts.count(outcome))
 }
@@ -178,18 +174,15 @@ pub(super) fn paused_block_on<F: future::Future>(future: F) -> io::Result<F::Out
 }
 
 /// A wait short enough that a stalled exchange hands control back quickly.
-pub(super) fn wait() -> Duration {
-    // Kept as a binding so the function is a statement list; a bare expression
-    // body trips `unused_braces` through the macro expansion in some callers.
-    let millis = 50;
-    Duration::from_millis(millis)
-}
+pub(super) const fn wait() -> Duration { Duration::from_millis(50) }
 
 /// Fill a body channel that holds one value, so the next send must wait.
+///
+/// The queue is empty and its capacity is not reached, so the send cannot
+/// fail; the refusal is discarded only because the call has no other outcome.
 pub(super) async fn queue_one_chunk(sender: &AccountedBodySender) {
-    sender
+    let _refused_if_reached = sender
         .clone()
         .send_chunk(Bytes::from_static(b"chunk"), 0, usize::MAX)
-        .await
-        .expect("an empty queue admits one chunk");
+        .await;
 }

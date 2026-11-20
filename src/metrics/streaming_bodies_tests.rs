@@ -13,12 +13,7 @@ use metrics_util::{
     debugging::{DebugValue, DebuggingRecorder},
 };
 
-use super::{
-    Occupancy,
-    STREAMING_BODY_OUTCOMES,
-    StreamingBodyOutcome,
-    inc_streaming_body_outcome,
-};
+use super::{Occupancy, STREAMING_BODY_OUTCOMES, StreamingBodyOutcome, inc_streaming_body_outcome};
 
 type MetricSample = (CompositeKey, Option<Unit>, Option<SharedString>, DebugValue);
 
@@ -173,7 +168,7 @@ fn the_total_is_published_while_the_tally_is_locked() {
     let observed = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&observed);
     let publish: Publisher = Box::new(move |total| {
-        // The tally is initialised with this publisher, so it is present
+        // The tally is initialized with this publisher, so it is present
         // whenever the tally can call it.
         let locked = probe.get().is_some_and(Occupancy::is_locked);
         sink.lock()
@@ -185,17 +180,17 @@ fn the_total_is_published_while_the_tally_is_locked() {
     occupancy.add(2);
     occupancy.release(2);
 
-    let observed = observed
+    let published = observed
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .clone();
-    assert_eq!(observed.len(), 2, "each change publishes once");
+    assert_eq!(published.len(), 2, "each change publishes once");
     assert!(
-        observed.iter().all(|(_, locked)| *locked),
-        "a total must be published while the tally is still locked: {observed:?}"
+        published.iter().all(|(_, locked)| *locked),
+        "a total must be published while the tally is still locked: {published:?}"
     );
     assert_eq!(
-        observed.last(),
+        published.last(),
         Some(&(0, true)),
         "the emptied total is the last value published"
     );

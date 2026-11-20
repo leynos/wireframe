@@ -3689,10 +3689,10 @@ instead of overwriting one another:
 - `wireframe_streaming_bodies_parked` — completed messages waiting behind live
   bodies. The value covers every connection, so it counts the process's parked
   work; `MAX_PARKED_MESSAGES` (64) is the per-connection limit. The 64th
-  message is accepted, and a message that completes while 64 are already
-  parked ends that connection rather than being absorbed. A connection that
-  ends with messages still parked releases them, so the gauge cannot count
-  work nobody will dispatch.
+  message is accepted, and a message that completes while 64 are already parked
+  ends that connection rather than being absorbed. A connection that ends with
+  messages still parked releases them, so the gauge cannot count work nobody
+  will dispatch.
 
 The dispatch modules log one structured event per body decision. Each event
 carries an `operation` field (`stream_start`, `chunk_delivery`,

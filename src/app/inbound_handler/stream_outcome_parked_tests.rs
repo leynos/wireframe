@@ -26,7 +26,7 @@ use crate::{
 const PARKED_MESSAGE_ID: u32 = 10;
 
 /// The pre-filled body every scenario delivers.
-fn offer() -> PrefilledOffer {
+const fn offer() -> PrefilledOffer {
     PrefilledOffer {
         body: Bytes::from_static(b"abcd"),
         message_id: PARKED_MESSAGE_ID,
@@ -34,7 +34,7 @@ fn offer() -> PrefilledOffer {
 }
 
 /// A budget that admits the whole body into an empty account.
-fn open_budget() -> ChunkBudget {
+const fn open_budget() -> ChunkBudget {
     ChunkBudget {
         other_retained: 0,
         limit: usize::MAX,
@@ -42,7 +42,7 @@ fn open_budget() -> ChunkBudget {
 }
 
 /// A budget too small for the body beside the bytes an earlier body holds.
-fn tight_budget() -> ChunkBudget {
+const fn tight_budget() -> ChunkBudget {
     ChunkBudget {
         other_retained: 0,
         limit: 6,
@@ -83,10 +83,7 @@ fn a_prefilled_body_refused_by_a_dropped_handler_is_abandoned() {
         paused_block_on(deliver_prefilled(&sender, offer(), open_budget(), wait()))
     });
 
-    assert_eq!(
-        abandoned, 1,
-        "the body the handler refused is counted once"
-    );
+    assert_eq!(abandoned, 1, "the body the handler refused is counted once");
 }
 
 /// A body the connection cannot retain is counted as an admission timeout.

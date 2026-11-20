@@ -17,7 +17,8 @@ use super::{
 };
 use crate::{metrics::StreamingBodyOutcome, request::AccountedBodySender};
 
-#[cfg(all(test, feature = "metrics"))]
+#[cfg(test)]
+#[cfg(feature = "metrics")]
 #[path = "stream_outcome_delivery_tests.rs"]
 mod outcome_tests;
 
@@ -233,9 +234,9 @@ pub(super) fn body_close(
 ) -> BodyClose {
     match (pending, terminal, sender) {
         (Some(final_chunk), ..) if final_chunk.is_last() => BodyClose::FinalChunk(final_chunk),
-        (_, Some(error), Some(sender)) => BodyClose::Fail {
+        (_, Some(error), Some(open_sender)) => BodyClose::Fail {
             failure: TerminalFailure { identity, error },
-            sender,
+            sender: open_sender,
         },
         _ => BodyClose::AwaitReply,
     }

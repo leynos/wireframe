@@ -31,7 +31,8 @@ use crate::{
     serializer::Serializer,
 };
 
-#[cfg(all(test, feature = "metrics"))]
+#[cfg(test)]
+#[cfg(feature = "metrics")]
 #[path = "stream_outcome_ingress_tests.rs"]
 mod outcome_tests;
 

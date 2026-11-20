@@ -12,7 +12,11 @@
 //! one delivery contract for streaming handlers while preserving the ordering
 //! guarantee that motivated parking.
 
-use std::{collections::HashMap, collections::VecDeque, io, time::Duration};
+use std::{
+    collections::{HashMap, VecDeque},
+    io,
+    time::Duration,
+};
 
 use bytes::Bytes;
 use futures::Sink;
@@ -47,7 +51,8 @@ use crate::{
 #[path = "stream_parked_tests.rs"]
 mod tests;
 
-#[cfg(all(test, feature = "metrics"))]
+#[cfg(test)]
+#[cfg(feature = "metrics")]
 #[path = "stream_outcome_parked_tests.rs"]
 mod outcome_tests;
 

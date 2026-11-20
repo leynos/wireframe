@@ -42,7 +42,8 @@ mod tests;
 #[path = "stream_admission_tests.rs"]
 mod admission_tests;
 
-#[cfg(all(test, feature = "metrics"))]
+#[cfg(test)]
+#[cfg(feature = "metrics")]
 #[path = "stream_outcome_slot_tests.rs"]
 mod outcome_tests;
 
@@ -243,7 +244,14 @@ impl ConnectionStreams {
         // open body whose next chunk never arrived. The handler may still reply,
         // but nothing will read the bytes still to come, so the exchange is
         // recorded here rather than left uncounted.
-        record_unfinished(active.pending.take(), active.sender.take());
+        {
+            // Scoped so the abandoned chunk and body are released before the
+            // reply is written: holding them would keep their byte account
+            // charged while the reply waits on the peer.
+            let pending = active.pending.take();
+            let open_sender = active.sender.take();
+            record_unfinished(pending.as_ref(), open_sender.as_ref());
+        }
         discard_streaming(active.assembly, handles.assembly);
         forward_reply(active.route_id, active.correlation_id, outcome, handles).await
     }
@@ -265,10 +273,10 @@ impl ConnectionStreams {
             return Ok(Dispatch::Continue);
         };
         let pending = active.pending.take();
-        let sender = active.sender.take();
+        let open_sender = active.sender.take();
         discard_streaming(active.assembly, handles.assembly);
         let identity = active.identity();
-        let wait = match body_close(pending, terminal, sender, identity) {
+        let wait = match body_close(pending, terminal, open_sender, identity) {
             BodyClose::FinalChunk(final_chunk) => {
                 deliver_final_chunk_then_await(
                     handles.wait,
@@ -377,7 +385,7 @@ impl ConnectionStreams {
 /// a chunk still waiting for admission, or an open body whose next chunk never
 /// arrived because the handler resolved first. A body with neither is already
 /// complete, and counting it here would report a delivered body as abandoned.
-fn record_unfinished(pending: Option<PendingSend>, sender: Option<AccountedBodySender>) {
+fn record_unfinished(pending: Option<&PendingSend>, sender: Option<&AccountedBodySender>) {
     if pending.is_some() || sender.is_some() {
         StreamingBodyOutcome::Abandoned.record();
     }

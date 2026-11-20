@@ -1289,8 +1289,8 @@ whose first chunk alone exceeds the budget could never start. The hard-cap
 policy observes the queued bytes immediately afterwards, so the exception
 cannot hide an overrun. The snapshot is never reused across admissions: the
 loop measures again before every drive, so bytes released in between — an
-expired assembly, a drained parked message, a handler taking a chunk — are
-seen by the next one.
+expired assembly, a drained parked message, a handler taking a chunk — are seen
+by the next one.
 
 ### Streaming body metrics
 
@@ -2556,7 +2556,7 @@ handler.
 
 `tests/fixtures/streaming_dispatch/` drives a real `WireframeApp` over an
 in-process duplex stream for the scenarios in
-`tests/features/streaming_request_dispatch.feature`; the steps live in
+`tests/features/streaming_dispatch.feature`; the steps live in
 `tests/steps/streaming_dispatch_steps.rs`. The world registers one streaming
 route and one buffered route, and reports handler observations as
 `DispatchEvent` values, so a scenario can assert chunk order, body completion

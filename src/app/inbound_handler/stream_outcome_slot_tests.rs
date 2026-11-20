@@ -15,7 +15,6 @@ use rstest::rstest;
 use tracing_test::traced_test;
 
 use super::{
-    ConnectionStreams,
     super::stream_outcome_support::{
         counted,
         dropping_handler,
@@ -26,6 +25,7 @@ use super::{
         recorded,
         wait,
     },
+    ConnectionStreams,
     record_unfinished,
 };
 use crate::{
@@ -133,7 +133,7 @@ fn a_delivered_final_chunk_is_counted_as_delivered(
 #[rstest]
 #[test]
 fn aborting_counts_only_a_live_exchange(final_chunk: FirstChunk) {
-    let (_, counts) = recorded(|| {
+    let ((), counts) = recorded(|| {
         let mut idle = ConnectionStreams::new(QueuedBytes::new());
         idle.abort();
         let mut live = ConnectionStreams::new(QueuedBytes::new());
@@ -207,7 +207,7 @@ fn an_exchange_that_ended_before_its_body_is_counted_once(
     #[case] has_sender: bool,
     #[case] expected: u64,
 ) {
-    let (_, abandoned) = counted(StreamingBodyOutcome::Abandoned, || {
+    let ((), abandoned) = counted(StreamingBodyOutcome::Abandoned, || {
         let (sender, _body) = accounted_body_channel(1, QueuedBytes::new());
         let pending = has_pending.then(|| PendingSend {
             sender: sender.clone(),
@@ -215,7 +215,7 @@ fn an_exchange_that_ended_before_its_body_is_counted_once(
             is_last: false,
         });
         let open = has_sender.then(|| sender.clone());
-        record_unfinished(pending, open);
+        record_unfinished(pending.as_ref(), open.as_ref());
     });
 
     assert_eq!(
