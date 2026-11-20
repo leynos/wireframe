@@ -3722,10 +3722,13 @@ connection could not serve.
   evidence that the handler did not simply choose to stay silent.
 
 To diagnose a stalled upload, read `wireframe_streaming_body_bytes_queued`
-first: if it stays above the per-connection budget while `admission_timeout`
-climbs, some handler is not reading. If the byte gauge stays low and
-`wireframe_streaming_bodies_parked` climbs instead, peers are pipelining behind
-bodies that never complete. Neither gauge identifies which connection is
+first: a total that stays high while `admission_timeout` climbs is pressure
+from handlers that are not keeping up. That reading is a pressure signal rather
+than proof that one connection is over its own budget, because several slowly
+draining connections can hold the total up between them. If the byte gauge
+stays low and `wireframe_streaming_bodies_parked` climbs instead, peers are
+pipelining behind bodies that have not completed yet, which is not evidence
+that those bodies never will. Neither gauge identifies which connection is
 responsible, so pair it with the `message_id` in the events above. A rejected
 assembly shows as a `prefilled_body` warning with the `admission_timeout`
 category and a matching counter increment.
