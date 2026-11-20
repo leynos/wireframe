@@ -607,10 +607,14 @@ statement above implies a different representation, this addendum supersedes it.
 - **Application data.** ADR 017 removed `AppDataStore` and the shared-state
   slot, so there is no per-application store whose shared-value semantics need
   preserving, and no nested `Arc` left to collapse there.
-- **Drop timing.** Application-owned values are released when the last
-  `Arc<PreparedApp>` drops. A connection future borrows the template and holds
-  no independent reference to any of these values, so dropping a connection
-  releases only its own state.
+- **Drop timing.** The boxed components — serializer, lifecycle callbacks, and
+  message assembler — are released when the last `Arc<PreparedApp>` drops. A
+  connection future borrows them and holds no independent reference, so
+  dropping a connection releases only its own state. The shared `Arc`s follow
+  their own strong counts: a handler stays alive while a caller-retained clone
+  exists, and the protocol stays alive while a `PreparedApp::protocol` handle
+  or a live connection's `ProtocolHooks` reference exists. Each connection's
+  protocol reference is released when that connection drops.
 
 Verification lives in `tests/prepared_app/ownership.rs`: a live connection and
 a lingering root clone keep every probe alive; the final root drop releases
