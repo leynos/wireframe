@@ -887,3 +887,57 @@ connection. `Arc::strong_count` on the returned handle therefore measures
 owners, not connections: it includes the application root and every clone
 returned by `protocol()`, in addition to each live connection's single hook
 reference.
+
+## Application-owned values beneath `PreparedApp`
+
+`Arc<PreparedApp>` is the one shared root for every connection a server serves.
+A value that cannot outlive that root does not need a reference count of its
+own, so the prepared application now stores its serializer, its connection
+setup and teardown callbacks, and its message assembler directly: the
+serializer as `Box<S>`, each callback as `Box<ConnectionSetup<C>>` or
+`Box<ConnectionTeardown<C>>`, and the assembler as
+`Option<Box<dyn MessageAssembler>>`. A connection borrows them as `&S`,
+`&dyn Fn(..)`, and `Option<&dyn MessageAssembler>`.
+
+None of these fields is public, so the storage change alone does not affect
+callers. Two consequences are visible.
+
+The message assembler accessor now returns a borrow instead of a cloneable
+handle. `WireframeApp::message_assembler` and `PreparedApp::message_assembler`
+return `Option<&dyn MessageAssembler>`:
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-025 -->
+```rust,ignore
+// Before 0.4.0: an owned, reference-counted handle.
+let assembler: Option<Arc<dyn MessageAssembler>> = app.message_assembler().cloned();
+
+// From 0.4.0: a borrow that lives as long as the application value.
+let assembler: Option<&dyn MessageAssembler> = app.message_assembler();
+```
+
+Code that cloned the handle out of the app stops compiling with E0308. The
+error is reported where the clone result is used, so the assignment or function
+argument that expects `Option<Arc<dyn MessageAssembler>>` is the line to
+change. If the assembler must outlive the application, keep your own handle and
+let `with_message_assembler` consume a separate value; the hook trait has no
+`Clone` bound, so a caller that needs two owners should wrap its own value in
+`Arc` and implement `MessageAssembler` for a cheap forwarding newtype over it
+rather than expecting the application to hand one back. Code that only calls
+`parse_frame_header` through the returned reference needs no change beyond
+dropping the clone.
+
+The second consequence is a widened bound. `PreparedApp::handle_connection`,
+`handle_connection_result`, and the deprecated
+`WireframeApp::handle_connection*` methods no longer require `S: Clone`,
+because a connection borrows the prepared serializer instead of cloning it. A
+serializer with interior mutability, a non-`Clone` payload cache, or a pinned
+field now works unchanged; the requirement that remains is `S: 'static`, which
+the connection actor states. Combined with the associated-type bounds, a
+serializer no longer needs `Default` either, because the prepared application
+has already resolved every field the connection reads.
+
+A handler stays an `Arc`. The public `Handler` and `ResponseHandler` aliases
+are still reference-counted trait objects, and a caller may legitimately keep
+its own clone. What changed is that preparation moves the builder's existing
+`Arc` into the prepared service rather than cloning it, so registering one
+handler for two route ids costs one allocation, not two.

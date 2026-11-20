@@ -810,6 +810,38 @@ callers that still own an unprepared builder. Server connection tasks use
 `PreparedApp::handle_connection_with_shutdown` instead, preserving the
 once-per-run preparation boundary.
 
+### Application-owned values beneath `PreparedApp`
+
+`Arc<PreparedApp>` is the deliberate shared root: it outlives every connection
+task, so a value that cannot escape with an independent lifetime needs no
+reference count of its own
+([#648](https://github.com/leynos/wireframe/issues/648)). The rule is ADR
+011's "one owner, borrow the rest" applied inside the template. This table is
+the inventory that rule implies; a new field belongs in it before it is added.
+
+| Value                                              | Representation                                                                                  | Why                                                                                                                                                                                                                               |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Route chains                                       | `HashMap<u32, HandlerService<E>>`, one entry per route id                                       | Built once by preparation from the consumed builder. Duplicate route ids share one handler allocation.                                                                                                                            |
+| Handler                                            | `Arc<dyn Fn>` inside `HandlerService` (the public alias)                                        | The alias is public and a caller may retain a clone, so the `Arc` is part of the API. Preparation *moves* the existing `Arc` out of the consumed builder (`HandlerService::from_owned_route`) instead of cloning it.              |
+| Serializer                                         | `Box<S>`, borrowed as `&S`                                                                      | Owned outright by the root; connections borrow it for their own lifetime. Requires `Send + Sync + 'static`, not `Clone` or `Default`.                                                                                             |
+| Codec                                              | `F` by value, cloned per connection                                                             | A connection's framed transport needs its own codec state, so this is a genuine `Clone` template rather than a shared handle.                                                                                                     |
+| Setup and teardown callbacks                       | `Option<Box<ConnectionSetup<C>>>` / `Option<Box<ConnectionTeardown<C>>>`, borrowed as `&dyn Fn` | Registered once, invoked per connection by reference. Never cloned per connection.                                                                                                                                                |
+| Protocol                                           | `Option<Arc<dyn WireframeProtocol<..>>>`                                                        | `PreparedApp::protocol` hands out a cloneable handle, and [#644](https://github.com/leynos/wireframe/issues/644) gives each connection exactly one strong reference through `ProtocolHooks`. The `Arc` is therefore load-bearing. |
+| Message assembler                                  | `Option<Box<dyn MessageAssembler>>`, borrowed as `Option<&dyn MessageAssembler>`                | The assembler parses frame headers only; each connection keeps its own assembly state. The public accessors return a borrow, not a cloneable handle ([#598](https://github.com/leynos/wireframe/issues/598), 0.4.0).              |
+| Fragmentation config, read timeout, memory budgets | Plain `Copy` values                                                                             | Template configuration, copied per connection.                                                                                                                                                                                    |
+| Push dead-letter queue                             | `Option<mpsc::Sender<Vec<u8>>>`                                                                 | A Tokio channel sender is already a cheap cloneable handle, and [#643](https://github.com/leynos/wireframe/issues/643) keeps it template-owned until the connection runtime consumes it.                                          |
+
+Two former sources of nested sharing are gone rather than boxed:
+
+- **`AppDataStore` and the shared-state slot.** ADR 017 removed route
+  extractors and application data, so there is no per-application store and no
+  `SharedState<T>` to nest an `Arc` around. Insertion-order and shared-value
+  expectations no longer exist to preserve.
+- **A mutex around callbacks or the assembler.** Both are immutable after
+  preparation and shared only by reference, so neither needs interior
+  mutability. A future callback that requires mutable state must own that state
+  per connection, in `C`, rather than lock the template.
+
 ### Preamble handshake boundary
 
 A connection task completes the preamble handshake before dispatch to

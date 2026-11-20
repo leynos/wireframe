@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Breaking:** Collapse the avoidable inner sharing beneath `PreparedApp`.
+  `Arc<PreparedApp>` is the one shared root for every connection, so the
+  prepared application now boxes its serializer, lifecycle callbacks, and
+  message assembler, and route handlers move into the prepared services without
+  an extra clone. Connections borrow these values, which means the connection
+  path no longer requires `S: Clone`. The message assembler gets its own
+  reference-counting layer only if a caller clones it out of the app, which the
+  new borrowed accessor rules out: `WireframeApp::message_assembler` and
+  `PreparedApp::message_assembler` now return `Option<&dyn MessageAssembler>`
+  rather than a cloned `Option<Arc<dyn MessageAssembler>>`. A caller that needs
+  an assembler to outlive the application must keep its own handle — the trait
+  has no `Clone` bound, and an `Arc` is not installed as one — so wrap the
+  shared value in a forwarding newtype that implements `MessageAssembler` and
+  install a separate value. The installed protocol keeps its `Arc`, because a
+  connection holds exactly one strong reference to it. See the
+  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#application-owned-values-beneath-preparedapp).
+  ([#648](https://github.com/leynos/wireframe/issues/648), [#598](https://github.com/leynos/wireframe/issues/598))
+
 - Complete `WireframeProtocol` hook dispatch on prepared server connections.
   `on_eof` now runs when a peer disconnects mid-header or mid-frame, receiving
   the structured `EofError` and every byte the framed reader still held for the

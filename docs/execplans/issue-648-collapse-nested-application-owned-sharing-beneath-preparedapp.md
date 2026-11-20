@@ -44,8 +44,10 @@ owned values while keeping the layers whose independent lifetime is real:
 - [x] Boxed assembler + borrowed accessor (#598 disposition).
 - [x] Trybuild fixtures: non-`Clone`/`!Unpin` serializer passes the relaxed
       connection bounds; assembler accessors pin the borrowed return type.
-- [ ] Benchmark configured-startup workload and preparation bracket.
-- [ ] Docs: developers-guide ownership inventory, ADR 012 traceability,
+- [x] Benchmark configured-startup workload and preparation bracket. Capture
+      `dcce92e5`, 2026-11-20, toolchain `nightly-2026-11-17`; recorded in
+      `docs/runtime-ownership-baselines.md`.
+- [x] Docs: developers-guide ownership inventory, ADR 012 traceability,
       regression baselines, changelog, migration guide, users guide.
 - [ ] Gates, CodeRabbit review, draft PR.
 
@@ -78,6 +80,21 @@ owned values while keeping the layers whose independent lifetime is real:
 - The borrowed-serializer compile-fail fixture's stderr needed re-blessing
   because its module doc grew by two lines, shifting every reported line
   number. The diagnostic itself was unchanged.
+- The `module-max-lines` rule counts raw file lines, including test modules.
+  `tests/prepared_app/ownership.rs` had grown to 496 lines once the probes,
+  handler, protocol, and interleaving proofs were all in one file, so it was
+  split into `ownership.rs` (root survival and single-owner proofs) and
+  `ownership_interleaved.rs` (two-connection interleaving). The probe
+  identities moved to `ownership_support.rs` so both modules name the same
+  values.
+- The benchmark capture ran at a load average of 24–30 on 24 threads, so the
+  timing rows are only meaningful within the capture. The allocation counts are
+  the trustworthy part, and they show that #648 itself cannot move them: every
+  removed layer was an `Arc` clone, and the allocation harness's own control
+  records that a shared-`Arc` clone allocates nothing. The pool rows stayed at
+  2052/2053 across captures while the actor and startup rows moved by hundreds,
+  which attributes that drift to #644/#879 and the toolchain advance rather
+  than to this change.
 
 ## Validation strategy
 
