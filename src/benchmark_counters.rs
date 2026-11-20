@@ -168,6 +168,15 @@ static FRAMED_BYTES: Counter = Counter::new();
 /// Inbound deserialization counter.
 static DESERIALIZED_BYTES: Counter = Counter::new();
 
+/// Number of times the serializer-to-`Bytes` hand-off seam ran.
+///
+/// [`CopiedBytes::handoff`] counts bytes, and `bytes` 1.12.1 shares the vector
+/// at every hand-off, so that count stays zero whether the seam ran or was
+/// bypassed. This count distinguishes the two, which is what lets the client
+/// send path's regression test fail if it goes back to calling `Bytes::from`
+/// directly.
+static HANDOFF_SEAM_CALLS: Counter = Counter::new();
+
 /// Records bytes written into a serializer's returned vector.
 #[inline]
 pub fn record_serialized(bytes: usize) { SERIALIZED_BYTES.add(bytes); }
@@ -212,7 +221,20 @@ pub fn reset() {
     HANDOFF_BYTES.clear();
     FRAMED_BYTES.clear();
     DESERIALIZED_BYTES.clear();
+    HANDOFF_SEAM_CALLS.clear();
 }
+
+/// Number of times the serializer-to-`Bytes` hand-off seam has run since the
+/// last [`reset`].
+///
+/// A hand-off written directly as `Bytes::from` leaves this unchanged even
+/// though it copies just as few bytes, so the bench gate's regression test can
+/// assert that the send path went through the seam. It is empty
+/// instrumentation for that gate rather than an API, so it is hidden from the
+/// rendered documentation.
+#[doc(hidden)]
+#[must_use]
+pub fn handoff_seam_calls() -> u64 { HANDOFF_SEAM_CALLS.load() }
 
 /// Converts a serializer vector into the codec hand-off container.
 ///
@@ -221,7 +243,9 @@ pub fn reset() {
 /// small shared control block that still points at the vector's buffer. The
 /// pointer comparison therefore records zero, and the counter is a guard: a
 /// future `bytes` change, or a hand-off written some other way, would show up
-/// as a non-zero `handoff` instead of passing unmeasured.
+/// as a non-zero `handoff` instead of passing unmeasured. The seam also counts
+/// its own calls (see [`handoff_seam_calls`]), so a caller that bypasses it is
+/// detectable even while no copy is recorded.
 ///
 /// # Examples
 ///
@@ -235,6 +259,7 @@ pub fn reset() {
 /// ```
 #[must_use]
 pub fn bytes_from_vec(bytes: Vec<u8>) -> Bytes {
+    HANDOFF_SEAM_CALLS.add(1);
     #[cfg(feature = "benchmark-counters")]
     {
         let source = bytes.as_ptr();
