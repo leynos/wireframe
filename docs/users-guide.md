@@ -834,10 +834,74 @@ let ctx = CodecErrorContext::new()
     .with_codec_state("seq=5");
 ```
 
-**Protocol hooks for EOF:**
+**Protocol hooks for truncation:**
 
-The `WireframeProtocol` trait includes an `on_eof` hook for handling EOF
-conditions during frame decoding:
+The `WireframeProtocol` trait includes an `on_eof` hook that the server runs
+once when a peer disconnects part-way through a frame: `EofError::MidHeader`
+when the length prefix is incomplete, and `EofError::MidFrame` when the
+declared payload is incomplete. The hook receives the bytes that arrived for
+the incomplete frame, length prefix included, so an implementation can log or
+account for exactly what was lost. A clean close at a frame boundary is not a
+truncation, so it does not run the hook.
+
+The hook reports only truncation the connection actually observes. When a
+response ends the connection while a later request is still buffered, the peer
+may be mid-frame, but the error that stopped dispatch is not an end-of-file
+condition and the hook does not run for bytes the connection never read.
+
+**Codec requirement for `on_eof`:**
+
+The hook runs only when the connection's codec reports truncation as a
+structured end-of-file condition. A custom decoder opts in by returning
+`CodecError::Eof` from `decode_eof`, carrying `EofError::MidHeader` or
+`EofError::MidFrame`; the bundled `LengthDelimitedDecoder` already does, and the
+`FrameCodec` documentation in `src/codec/mod.rs` states the contract in full.
+A decoder that returns another error, or a plain I/O error, receives no
+`on_eof` call, and neither does one that reports a clean end of stream with
+nothing buffered.
+
+The decoder below leaves the incomplete bytes in place and returns the
+structured error, which is what lets the hook report exactly what arrived:
+
+<!-- tested-example: users-guide-067 -->
+```rust,ignore
+use std::io;
+
+use bytes::BytesMut;
+use tokio_util::codec::Decoder;
+use wireframe::codec::{CodecError, EofError};
+
+/// Number of bytes in the big-endian length prefix.
+const HEADER_SIZE: usize = 4;
+
+impl Decoder for MyDecoder {
+    type Item = MyFrame;
+    type Error = io::Error;
+
+    fn decode_eof(&mut self, buffer: &mut BytesMut) -> Result<Option<Self::Item>, io::Error> {
+        if let Some(frame) = self.decode(buffer)? {
+            return Ok(Some(frame));
+        }
+        if buffer.is_empty() {
+            // A clean close at a frame boundary: no hook call.
+            return Ok(None);
+        }
+        let condition = if buffer.len() < HEADER_SIZE {
+            EofError::MidHeader {
+                bytes_received: buffer.len(),
+                header_size: HEADER_SIZE,
+            }
+        } else {
+            EofError::MidFrame {
+                bytes_received: buffer.len() - HEADER_SIZE,
+                expected: self.declared_payload_len(buffer),
+            }
+        };
+        // The buffer still holds the bytes, so `on_eof` receives all of them.
+        Err(CodecError::Eof(condition).into())
+    }
+}
+```
 
 <!-- tested-example: users-guide-021 -->
 ```rust,ignore
@@ -848,12 +912,14 @@ use wireframe::{
 
 impl WireframeProtocol for MyProtocol {
     type Frame = Vec<u8>;
-    type ProtocolError = String;
+    type ProtocolError = ();
 
     fn on_eof(&self, error: &EofError, partial_data: &[u8], _ctx: &mut ConnectionContext) {
         match error {
-            EofError::CleanClose => tracing::info!("connection closed cleanly"),
-            EofError::MidFrame { bytes_received, expected } => {
+            EofError::MidFrame {
+                bytes_received,
+                expected,
+            } => {
                 tracing::warn!(
                     received = bytes_received,
                     expected = expected,
@@ -861,13 +927,19 @@ impl WireframeProtocol for MyProtocol {
                     "connection closed mid-frame"
                 );
             }
-            EofError::MidHeader { bytes_received, header_size } => {
+            EofError::MidHeader {
+                bytes_received,
+                header_size,
+            } => {
                 tracing::warn!(
                     received = bytes_received,
                     header_size = header_size,
                     "connection closed mid-header"
                 );
             }
+            // A clean close at a frame boundary does not call this hook; the
+            // arm exists only so the match stays exhaustive.
+            EofError::CleanClose => {}
         }
     }
 }
@@ -1685,26 +1757,28 @@ frame that exceeds that limit with an oversized-frame error, which fails the
 send and ends the connection. A custom codec defines its own behaviour for an
 oversized frame, so it must enforce `max_frame_length` itself.
 
-`on_connection_setup` runs at most once per hooks value, and command end,
-stream end, error, and end-of-file callbacks keep the ordering and cardinality
-they have on the `ConnectionActor` paths. A completed `Stream` or `MultiPacket`
-response is terminated by the frame `stream_end_frame` returns; that frame is a
-complete codec frame, so the prepared adapter neither decodes nor restamps it,
-and metadata a custom codec keeps outside the payload survives the adapter. A
-directly driven `ConnectionActor` instead stamps its stream terminator with the
-response correlation identifier before `before_send` runs, so a protocol must
-not assume the same terminator correlation on both paths. `before_send` still
-runs on that frame and may replace it, so the metadata is preserved only up to
-the hook, not necessarily on the wire. `on_command_end` runs only after the
-final frame has been written, and not at all when the response is cancelled
-before its terminator. A protocol error reported by a response stream is passed
-to `handle_error`, and the connection then closes without a terminator, so a
-request buffered behind the failed stream is not served. The prepared server
-path invokes `on_connection_setup` once, after the connection's push handle is
-published, so a protocol can address its own connection before the actor
-starts; it does not invoke the end-of-file callback, which remains available to
-callers that drive a `ConnectionActor` directly. There is no hook for transport
-frames; the packet boundary from
+`on_connection_setup` runs at most once per hooks value, before the first
+inbound frame is read, and receives the handle used for server-initiated
+pushes. Command end, stream end, and error callbacks keep the ordering and
+cardinality they have on the `ConnectionActor` paths. A completed `Stream` or
+`MultiPacket` response is terminated by the frame `stream_end_frame` returns;
+that frame is a complete codec frame, so the prepared adapter neither decodes
+nor restamps it, and metadata a custom codec keeps outside the payload survives
+the adapter. A directly driven `ConnectionActor` instead stamps its stream
+terminator with the response correlation identifier before `before_send` runs,
+so a protocol must not assume the same terminator correlation on both paths.
+`before_send` still runs on that frame and may replace it, so the metadata is
+preserved only up to the hook, not necessarily on the wire. `on_command_end`
+runs only after the final frame has been written, and not at all when the
+response is cancelled before its terminator. A protocol error reported by a
+response stream is passed to `handle_error`, and the connection then closes
+without a terminator, so a request buffered behind the failed stream is not
+served. An inbound frame the decoder rejects is a decode failure, not a
+protocol error: it ends the connection without reaching `handle_error`, because
+no response exists to report. `on_eof` runs only when the peer abandons a frame
+part-way through, with the bytes that arrived, and a clean close at a frame
+boundary does not run it. There is no hook for transport frames; the packet
+boundary from
 [ADR 010](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
 still applies. The direct response helpers that write frames without the
 `FramePipeline` bypass `before_send`; use `WireframeApp` routes when a response
@@ -2680,8 +2754,11 @@ names the dead-letter state, priority and policy of the frame that triggered
 it, along with its Rust type, but never its contents. Only frames the DLQ
 accepted reach its receiver, so an application must consume from that receiver
 to inspect or log them; a frame refused because the DLQ was full or closed is
-lost, with no copy available. Cloneable handles downgrade to `Weak` references
-for registration in a session registry.[^25]
+lost, with no copy available. Every such loss increments
+`wireframe_push_drops_total`, labelled by the discarding policy and by whether
+the dead-letter queue was full, closed, or absent, so an operator can alert on
+the drop rate even when no warning fires. Cloneable handles downgrade to `Weak`
+references for registration in a session registry.[^25]
 
 `PushQueues::recv` prefers high-priority frames but eventually drains the
 low-priority queue; `close` lets tests release resources when no actor is
@@ -3143,16 +3220,18 @@ The protocol callbacks that run for application responses are `before_send`,
 also invokes the protocol's `on_connection_setup` once, after its session
 registry entry is published and before its push path starts, so setup receives
 that connection's `PushHandle` and can address any live connection through the
-registry. The end-of-file callback is not invoked on this path, so cleanup that
-must run belongs in the application's `on_connection_teardown` hook instead.
-Teardown is not guaranteed, though: a connection task that is cancelled or
-panics may never reach it, so a resource that must be released on those paths
-needs runtime-level finalization, such as a `Drop` guard or a value the task
-owns and releases when it ends. The application-level setup and teardown hooks
-are separate from the protocol and run once per connection, with teardown
-running only when setup produced state. Without an installed protocol the
-response callbacks are no-ops. The terminator is written without decoding, so a
-write failure ends the connection like any other failed response write.
+registry. It invokes `on_eof` when the peer abandons a frame part-way through,
+and never for a clean close at a frame boundary. Cleanup that must run on every
+close still belongs in the application's `on_connection_teardown` hook, because
+a truncation is only one of the ways a connection ends. Teardown is not
+guaranteed, though: a connection task that is cancelled or panics may never
+reach it, so a resource that must be released on those paths needs
+runtime-level finalization, such as a `Drop` guard or a value the task owns and
+releases when it ends. The application-level setup and teardown hooks are
+separate from the protocol and run once per connection, with teardown running
+only when setup produced state. Without an installed protocol the response
+callbacks are no-ops. The terminator is written without decoding, so a write
+failure ends the connection like any other failed response write.
 
 #### Deferred response bodies and middleware
 
@@ -3568,6 +3647,16 @@ connection's rate limiter had no permit; that counter has no labels, and it is
 the only aggregate record of a refusal when the producer discards the
 `PushError::RateLimited` it receives. Only the exhausted grace emits a warning,
 so a shutdown with queued output does not flood the log.
+
+A frame a drop policy discards is counted by `wireframe_push_drops_total`,
+labelled by the policy that discarded it (`"drop_if_full"` or
+`"warn_and_drop_if_full"`) and by outcome: `"no_dlq"` when the queues have no
+dead-letter queue, `"dlq_full"` when one refused the frame for lack of
+capacity, and `"dlq_closed"` when its receiver was dropped. A frame the
+dead-letter queue accepted is not a loss and is not counted. Both labels draw
+from a fixed vocabulary, so application data never becomes a series. The
+counter is the only aggregate record of a drop that the producer was told
+succeeded, so an operator can alert on the drop rate even when no warning fires.
 
 ## Benchmark allocation counting
 

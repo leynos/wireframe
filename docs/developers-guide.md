@@ -492,10 +492,25 @@ The prepared actor receives no protocol hooks at all. Its value is
 completion hook all run through the pipeline's single owner as part of
 `forward_response`; no callback is dispatched twice. The prepared path invokes
 `on_connection_setup` once, with the connection's `PushHandle`, after the
-registry entry is published and before the actor starts, so setup can address
-its own connection or any other live one. The `on_eof` callback remains
-unreached there. The application-level connection setup and teardown callbacks
-registered on `WireframeApp` are separate hooks.
+registry entry is published and before the first inbound frame is read, so
+setup can address its own connection or any other live one and can queue a push
+ahead of the first request. `on_eof` runs once when the peer abandons a frame
+part-way through, and never for a clean close at a frame boundary. The
+application-level connection setup and teardown callbacks registered on
+`WireframeApp` are separate hooks.
+
+`on_eof` dispatch belongs to the connection loop in
+`src/app/inbound_handler/core.rs`; the actor never sees a read error. Framing
+is built per connection by `src/app/inbound_handler/framing.rs`, which keeps
+the read and write halves as separate `FramedRead` and `FramedWrite` values
+rather than two halves of one `Framed`, so the reader's leftover buffer stays
+reachable. When the read fails, `report_truncation` classifies the error through
+`eof_condition`: only `EofError::MidHeader` and `EofError::MidFrame` reach the
+protocol, with every byte the reader still held for the abandoned frame, length
+prefix included. A clean close, a decode failure, and any other read error
+reach no hook, because none of them describes a frame the peer abandoned. A
+custom decoder opts in by returning `CodecError::Eof` from `decode_eof` and
+leaving the incomplete bytes buffered.
 
 `forward_response` owns the rest of the command lifecycle. Once the actor
 reports a completed `Stream` or `MultiPacket` response, it calls
@@ -604,9 +619,14 @@ connection that stops with queued output would otherwise log one, so a shutdown
 abandonment is counted without a per-write alert. A push the rate limiter
 refuses increments the unlabelled `wireframe_push_rate_limited_total`, which is
 the only aggregate signal available when the producer discards the
-`PushError::RateLimited` it receives. Session-registry publication and removal
-are logged at `debug!` with the connection identifier, so a lookup that finds
-nothing can be told apart from a connection that never registered.
+`PushError::RateLimited` it receives. A frame a drop policy discards increments
+`wireframe_push_drops_total` at the loss site in `src/push/queues/dlq.rs`,
+labelled by the discarding policy and by the outcome `no_dlq`, `dlq_full`, or
+`dlq_closed`; a frame the dead-letter queue accepted is not a loss and is not
+counted, so the counter reports frames no consumer will ever see.
+Session-registry publication and removal are logged at `debug!` with the
+connection identifier, so a lookup that finds nothing can be told apart from a
+connection that never registered.
 
 ## Server push path
 

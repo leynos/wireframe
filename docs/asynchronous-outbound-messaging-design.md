@@ -801,6 +801,9 @@ application's own DLQ consumer. Only frames the DLQ accepted reach its
 receiver, so inspecting, logging or retrying those frames is the application's
 responsibility, since only it knows what the payload means. A frame refused
 because the queue was full or closed is lost, and the library keeps no copy.
+Every such loss increments `wireframe_push_drops_total`, labelled by the
+discarding policy and by whether the dead-letter queue was full, closed, or
+absent, so an operator can alert on the drop rate even when no warning fires.
 Payload length is not reported either: the generic frame bounds are
 `Send + 'static` and expose no size.
 
@@ -962,10 +965,12 @@ features of the 1.0 release.
   actor receives no terminator or completion hook of its own, so one response
   is terminated and completed exactly once. Protocol setup runs once per
   connection, after the connection's `PushHandle` is published in the session
-  registry and before the actor starts. The end-of-file callback is never
-  invoked on the prepared path, so a protocol must not rely on it for cleanup
-  or diagnostics. The direct response helpers that bypass the pipeline also
-  bypass `before_send`.
+  registry and before the first inbound frame is read, so a protocol can queue
+  server-initiated frames. `on_eof` runs when the peer abandons a frame
+  part-way through, with the structured `MidHeader` or `MidFrame` condition and
+  the bytes the framed reader still held; a clean close at a frame boundary
+  runs no end-of-file callback. The direct response helpers that bypass the
+  pipeline also bypass `before_send`.
 
 ```rust,ignore
 // Codec stack with explicit frame-size limits and fragmentation.

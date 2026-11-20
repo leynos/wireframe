@@ -832,3 +832,39 @@ keeps no hook context: it receives only the identifier and peer address it logs
 with, its hooks never dispatch, and the reference used for the setup call is
 not retained, so a live connection still holds exactly one strong protocol
 reference. `on_eof` remains unreached on the prepared path.
+
+## Addendum: 2026-11-20 — end-of-file dispatch on prepared connections
+
+Issue [#879](https://github.com/leynos/wireframe/issues/879) completes the
+prepared path's hook set, and supersedes three statements left in place above:
+the 2026-11-16 addendum's bullet "`on_connection_setup` runs once per
+connection … `on_eof` is never invoked on the prepared path, so a protocol must
+not rely on it for cleanup or diagnostics."; the same addendum's summary
+sentence that a prepared connection "never dispatches `on_eof`", together with
+the test it named, `prepared_connection_dispatches_setup_once_and_no_eof_hook`;
+and this file's closing sentence, "`on_eof` remains unreached on the prepared
+path." Those statements describe the boundary before this change, and their
+text is left unchanged.
+
+A prepared connection now builds its framing as separate `FramedRead` and
+`FramedWrite` halves, so the reader's leftover buffer is reachable when the
+read fails. `report_truncation` in `src/app/inbound_handler/framing.rs`
+classifies the error through `eof_condition` and calls `on_eof` only for
+`EofError::MidHeader` and `EofError::MidFrame`, with every byte the reader
+still held for the abandoned frame, length prefix included. A clean close at a
+frame boundary, a decode failure, and a transport error reach no hook: none of
+them describes a frame the peer abandoned. A custom decoder opts in by returning
+`CodecError::Eof` from `decode_eof` and leaving the incomplete bytes buffered.
+
+`prepared_connection_runs_setup_then_reports_truncation` replaces the test
+named above and pins the extended contract through a prepared connection.
+`tests/server_protocol_hooks` proves every hook's firing and order through a
+real `WireframeServer`: a streamed response, a clean close, a protocol error, a
+push queued during a stream, and a truncated frame in three shapes.
+
+Two consequences follow. `handle_error` runs for a protocol error reported by a
+driven response; an inbound frame the decoder rejects is a decode failure and
+reaches no protocol callback, because no response exists to report. And a frame
+a push policy discards is now counted by `wireframe_push_drops_total`, labelled
+by policy and by whether a dead-letter queue was absent, full, or closed, so a
+loss that its producer was told had succeeded stays observable.
