@@ -3683,9 +3683,11 @@ instead of overwriting one another:
   including a chunk that has reserved its bytes but is still waiting for
   channel capacity. The value covers every connection, so it is a pressure
   signal for the process rather than evidence that one connection reached its
-  own budget. A total that stays above the per-connection budget means some
-  handler has stopped reading; that connection then stops reading its socket,
-  which is the back-pressure this design relies on.
+  own budget. A total that keeps rising while traffic is steady means handlers
+  are not keeping up. Each connection whose handler stops reading eventually
+  stops reading its socket, which is the back-pressure this design relies on.
+  The gauge cannot name the connection, so identify the body from the
+  per-message diagnostics below.
 - `wireframe_streaming_bodies_parked` — completed messages waiting behind live
   bodies. The value covers every connection, so it counts the process's parked
   work; `MAX_PARKED_MESSAGES` (64) is the per-connection limit. The 64th

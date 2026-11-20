@@ -24,7 +24,7 @@ use crate::{
         inbound_handler::{
             stream_active::{BodyIdentity, HandlerFuture},
             stream_handles::{ChunkBudget, FirstChunk},
-            stream_terminal::TerminalFailure,
+            stream_terminal::{HandlerWait, TerminalFailure},
         },
     },
     metrics::{STREAMING_BODY_OUTCOMES, StreamingBodyOutcome},
@@ -148,6 +148,62 @@ pub(super) fn counted<T>(outcome: StreamingBodyOutcome, scenario: impl FnOnce() 
     let (value, counts) = recorded(scenario);
     (value, counts.count(outcome))
 }
+
+/// What one exchange should have settled with and counted.
+///
+/// Grouped rather than passed separately because the three travel together:
+/// every exchange settles with one reply and records one outcome, and the
+/// reason is what makes a failure readable.
+pub(super) struct Expectation {
+    /// Reply the exchange should settle with.
+    pub(super) reply: HandlerWait,
+    /// The one outcome the exchange should have recorded.
+    pub(super) recorded: StreamingBodyOutcome,
+    /// What the exchange was supposed to establish, for failure messages.
+    pub(super) why: &'static str,
+}
+
+/// Assert the reply an exchange settled with and the outcome it recorded.
+///
+/// A body records exactly one outcome, so the whole vocabulary is checked: the
+/// expected outcome was counted once and every other one never. Asserting only
+/// the expected pair would let a branch that also recorded a second outcome
+/// pass.
+pub(super) fn assert_exchange(
+    settled: io::Result<HandlerWait>,
+    counts: &Counts,
+    expected: &Expectation,
+) {
+    let reply = match settled {
+        Ok(wait) => wait,
+        Err(error) => panic!("the exchange must run on a paused runtime: {error}"),
+    };
+    let why = expected.why;
+    assert_eq!(reply, expected.reply, "{why}");
+    for outcome in OUTCOMES {
+        let count = u64::from(outcome == expected.recorded);
+        assert_eq!(
+            counts.count(outcome),
+            count,
+            "{} recorded {count} times: {why}",
+            outcome.as_str()
+        );
+    }
+}
+
+/// Every outcome a streaming body can record.
+///
+/// Listed here rather than read from the enum: the counter's vocabulary is
+/// production code, and a test-local list is what makes an unasserted outcome
+/// visible when one is added.
+const OUTCOMES: [StreamingBodyOutcome; 6] = [
+    StreamingBodyOutcome::Delivered,
+    StreamingBodyOutcome::Terminal,
+    StreamingBodyOutcome::Abandoned,
+    StreamingBodyOutcome::AdmissionTimeout,
+    StreamingBodyOutcome::DeliveryTimeout,
+    StreamingBodyOutcome::NoHandler,
+];
 
 /// Return whether `sample` is the counter for `outcome`.
 fn counts_outcome(sample: &Sample, outcome: StreamingBodyOutcome) -> bool {

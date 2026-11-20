@@ -12,8 +12,12 @@
 //! reader gets one non-blocking attempt after each push batch, so an inbound
 //! frame waits behind at most one batch.
 
-use std::{future::Future, io};
+use std::{
+    future::{self, Future},
+    io,
+};
 
+use bytes::Bytes;
 use futures::{Sink, Stream};
 use tokio_util::sync::CancellationToken;
 
@@ -86,10 +90,7 @@ where
         let shutdown = self.shutdown;
         let push_lanes_open = actor.has_open_push_lanes();
         let read = read_event(inbound, reader, read_timeout_ms, shutdown);
-        match state.streams.active.as_mut() {
-            Some(active) => race_live(actor, active, push_lanes_open, read).await,
-            None => race_idle(actor, push_lanes_open, read).await,
-        }
+        race_event(actor, state.streams.active.as_mut(), push_lanes_open, read).await
     }
 
     /// Read the next inbound frame and classify it for the loop.
@@ -104,10 +105,15 @@ where
     }
 }
 
-/// Race the live handler and the inbound read against queued pushes.
-async fn race_live<Fr, D>(
+/// Race queued pushes, the live handler, and the inbound read.
+///
+/// The handler branch is part of every race rather than a second select: with
+/// no live exchange its future never resolves, and the select waits on the
+/// other two exactly as it would with the branch omitted. Keeping one race
+/// means the ordering that favours pushes cannot drift between the two cases.
+async fn race_event<Fr, D>(
     actor: &mut ConnectionActor<Envelope, (), Fr>,
-    active: &mut ActiveStream,
+    active: Option<&mut ActiveStream>,
     push_lanes_open: bool,
     read: D,
 ) -> Event<Fr>
@@ -118,25 +124,20 @@ where
     tokio::select! {
         biased;
         pushes = actor.next_pushes(), if push_lanes_open => push_event(pushes),
-        outcome = active.poll_handler() => Event::Handler(outcome),
+        outcome = poll_live(active) => Event::Handler(outcome),
         event = read => event,
     }
 }
 
-/// Race the inbound read against queued pushes while no body is live.
-async fn race_idle<Fr, D>(
-    actor: &mut ConnectionActor<Envelope, (), Fr>,
-    push_lanes_open: bool,
-    read: D,
-) -> Event<Fr>
-where
-    Fr: Send + 'static,
-    D: Future<Output = Event<Fr>>,
-{
-    tokio::select! {
-        biased;
-        pushes = actor.next_pushes(), if push_lanes_open => push_event(pushes),
-        event = read => event,
+/// Poll the live handler, or wait forever when no body is live.
+///
+/// The never-ready future is what lets one race cover both cases: it occupies
+/// the handler branch so the select never reports an exchange that is not
+/// there.
+async fn poll_live(active: Option<&mut ActiveStream>) -> Option<Bytes> {
+    match active {
+        Some(active) => active.poll_handler().await,
+        None => future::pending().await,
     }
 }
 

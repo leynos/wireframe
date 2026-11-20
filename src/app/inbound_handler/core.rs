@@ -102,35 +102,19 @@ where
     W: AsyncRead + AsyncWrite + Send + Unpin,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    let StreamProcessingContext {
-        routes,
-        streaming_routes,
-        serializer,
-        codec,
-        message_assembler,
-        fragmentation,
-        protocol_hooks,
-        protocol,
-        memory_budgets,
-        read_timeout_ms,
-        shutdown,
-        push_queues,
-        session_registry,
-        peer_addr,
-    } = context;
     let (mut sink, mut reader, connection_codec) =
-        prepare_connection_framing(stream, codec).split();
+        prepare_connection_framing(stream, context.codec).split();
     let requested_frame_length = connection_codec.max_frame_length();
     let effective_budgets =
-        frame_handling::resolve_effective_budgets(memory_budgets, requested_frame_length);
+        frame_handling::resolve_effective_budgets(context.memory_budgets, requested_frame_length);
     let mut inbound = InboundFrames {
         // A frame read while the previous one was still being handled, so the
         // loop never polls the read half twice for one inbound frame.
         pending: None,
-        pipeline: FramePipeline::with_hooks(fragmentation, protocol_hooks),
-        message_assembly: message_assembler.map(|_| {
+        pipeline: FramePipeline::with_hooks(context.fragmentation, context.protocol_hooks),
+        message_assembly: context.message_assembler.map(|_| {
             frame_handling::new_message_assembly_state(
-                fragmentation,
+                context.fragmentation,
                 requested_frame_length,
                 Some(effective_budgets),
             )
@@ -141,33 +125,33 @@ where
     };
     // A child token so the guard below cancels only this connection, while a
     // server shutdown still reaches it through the parent.
-    let connection_shutdown = shutdown.child_token();
+    let connection_shutdown = context.shutdown.child_token();
     // Cancelled only by a clean EOF, which is permanent for the connection.
     let peer_eof = CancellationToken::new();
     let (mut response_actor, _cancel_on_exit) = build_connection_actor::<F>(ConnectionActorInit {
-        protocol: protocol.as_ref(),
+        protocol: context.protocol.as_ref(),
         shutdown: connection_shutdown,
-        registry: &session_registry,
-        push_queues: &push_queues,
-        context: ConnectionContext::default().with_peer_addr(peer_addr),
+        registry: &context.session_registry,
+        push_queues: &context.push_queues,
+        context: ConnectionContext::default().with_peer_addr(context.peer_addr),
     })?;
     // The identifier is the one the actor claimed when it published its
-    // handle, so the sink's callbacks and the registry agree on it.
-    let connection_context =
-        ConnectionContext::with_connection_id(Some(response_actor.connection_id))
-            .with_peer_addr(peer_addr);
-    // The sink-owned pipeline runs `before_send` too, so it must know which
+    // handle, so the sink's callbacks and the registry agree on it. The
+    // sink-owned pipeline runs `before_send` too, so it must know which
     // connection the callback is running for.
-    inbound.pipeline.set_context(connection_context);
+    inbound.pipeline.set_context(
+        ConnectionContext::with_connection_id(Some(response_actor.connection_id))
+            .with_peer_addr(context.peer_addr),
+    );
     let dispatch = DispatchContext {
-        routes,
-        streaming_routes,
-        serializer: serializer.as_ref(),
+        routes: context.routes,
+        streaming_routes: context.streaming_routes,
+        serializer: context.serializer.as_ref(),
         codec: &connection_codec,
-        message_assembler,
-        protocol: protocol.as_ref(),
+        message_assembler: context.message_assembler,
+        protocol: context.protocol.as_ref(),
         effective_budgets,
-        read_timeout_ms,
+        read_timeout_ms: context.read_timeout_ms,
     };
     stream_dispatch::run(stream_dispatch::Connection {
         reader: &mut reader,
@@ -175,9 +159,9 @@ where
         inbound: &mut inbound,
         actor: &mut response_actor.actor,
         ctx: &dispatch,
-        shutdown,
+        shutdown: context.shutdown,
         peer_eof: &peer_eof,
-        wait: Duration::from_millis(read_timeout_ms),
+        wait: Duration::from_millis(context.read_timeout_ms),
     })
     .await
 }
