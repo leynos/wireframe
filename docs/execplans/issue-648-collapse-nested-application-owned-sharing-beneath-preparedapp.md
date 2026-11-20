@@ -55,7 +55,8 @@ owned values while keeping the layers whose independent lifetime is real:
 - [x] Restacked the seven #648 commits onto the rewritten #879 parent
       (`fb3c9fe1`), resolving conflicts against the new inbound-handler split
       and the moved prepared-application modules. All gates green again.
-- [ ] Draft PR.
+- [x] Draft PR [#936](https://github.com/leynos/wireframe/pull/936), stacked
+      on #879 (#925) in GitHub stack #926 beneath #644 (#923).
 
 ## Decision log
 
