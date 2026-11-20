@@ -45,13 +45,16 @@ owned values while keeping the layers whose independent lifetime is real:
 - [x] Trybuild fixtures: non-`Clone`/`!Unpin` serializer passes the relaxed
       connection bounds; assembler accessors pin the borrowed return type.
 - [x] Benchmark configured-startup workload and preparation bracket. Capture
-      `dcce92e5`, 2026-11-20, toolchain `nightly-2026-11-17`; recorded in
-      `docs/runtime-ownership-baselines.md`.
+      `dcce92e5` (restacked as `62c28fc1`), 2026-11-20, toolchain
+      `nightly-2026-11-17`; recorded in `docs/runtime-ownership-baselines.md`.
 - [x] Docs: developers-guide ownership inventory, ADR 012 traceability,
       regression baselines, changelog, migration guide, users guide.
 - [x] CodeRabbit review round 1: four findings — the configured benchmark
       dispatch, an unbounded wait in the root-survival test, and two
       documentation corrections. All fixed and re-gated.
+- [x] Restacked the seven #648 commits onto the rewritten #879 parent
+      (`fb3c9fe1`), resolving conflicts against the new inbound-handler split
+      and the moved prepared-application modules. All gates green again.
 - [ ] Draft PR.
 
 ## Decision log
@@ -103,6 +106,17 @@ owned values while keeping the layers whose independent lifetime is real:
   2052/2053 across captures while the actor and startup rows moved by hundreds,
   which attributes that drift to #644/#879 and the toolchain advance rather
   than to this change.
+- The #879 parent branch was rebased after this branch was cut from it. The
+  old branch point (`e7f7c6c6`) is no longer an ancestor of the parent tip
+  (`fb3c9fe1`), and the merge base had fallen back to `a4064d27`, so a review
+  of the branch appeared to delete 212 files of newer parent work. The fix was
+  `git rebase --onto` from the old branch point, not a merge, because only the
+  seven #648 commits belong to this branch. Most of the replay conflicts came
+  from the parent's own refactors: `inbound_handler/decode.rs` was absorbed into
+  `dispatch.rs`, `prepared_app.rs` became `prepared_app/mod.rs` with the
+  accessors in their own module, and `ConnectionLoop` took a new constructor
+  and push/session fields. Re-applying the ownership changes to the new
+  structures was more reliable than reconciling the three-way hunks.
 
 ## Validation strategy
 

@@ -154,6 +154,12 @@ percentages against them describe the shared path rather than a regression in
 the per-connection topology. The correction was taken at a load average near 30
 on the same 24 hardware threads, so the within-capture rule still applies.
 
+Both #648 captures predate the restack onto the rewritten parent branch. Their
+revisions are the commits the runs measured; the equivalent restacked commits
+are `62c28fc1` and `72f0a9e2`. The restack changed merge resolution and the
+inherited parent work beneath the benchmark harness, not the harness itself, so
+the figures were not re-measured and remain historical within-capture evidence.
+
 The original capture is the first published set, taken before the review of
 [#756](https://github.com/leynos/wireframe/pull/756). The corrected capture
 answered four defects that review found in the measurement boundaries, so the
