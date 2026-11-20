@@ -75,6 +75,11 @@ use crate::{
 mod dispatch_steps;
 #[path = "core_pushes.rs"]
 mod push_steps;
+// The memory-pressure exit has to drive the loop's own `step`, because the
+// failure it reports never reaches the read or dispatch steps.
+#[cfg(test)]
+#[path = "core_pressure_tests.rs"]
+mod pressure_tests;
 
 pub(super) use super::{
     super::{PushWriteDiagnostics, frame_handling::Dispatch, recovery_codec::DecodedItem},

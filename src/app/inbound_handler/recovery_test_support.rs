@@ -49,6 +49,11 @@ pub(in crate::app::inbound_handler) struct RecordingHook {
     quarantine: Duration,
     /// Callbacks observed by `on_error`.
     calls: Mutex<Vec<HookCall>>,
+    /// How many times the hook was asked for a policy.
+    ///
+    /// Lets a test prove that a path which only observes a failure never
+    /// consulted the hook's decision.
+    consultations: AtomicUsize,
 }
 
 impl RecordingHook {
@@ -61,7 +66,13 @@ impl RecordingHook {
             selected,
             quarantine,
             calls: Mutex::new(Vec::new()),
+            consultations: AtomicUsize::new(0),
         }
+    }
+
+    /// Return how many times the hook was asked for a policy.
+    pub(in crate::app::inbound_handler) fn consultations(&self) -> usize {
+        self.consultations.load(Ordering::Relaxed)
     }
 
     /// Return the policies `on_error` was called with.
@@ -97,6 +108,7 @@ impl RecordingHook {
 
 impl RecoveryPolicyHook for RecordingHook {
     fn recovery_policy(&self, _error: &CodecError, _ctx: &CodecErrorContext) -> RecoveryPolicy {
+        self.consultations.fetch_add(1, Ordering::Relaxed);
         self.selected
     }
 
