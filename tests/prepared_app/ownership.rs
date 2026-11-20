@@ -151,7 +151,16 @@ async fn connection_and_root_clone_keep_every_probe_alive() -> TestResult<()> {
         connection_root.handle_connection(server).await;
     });
 
-    entered.notified().await;
+    // Bound the wait: a connection task that stops before dispatch would never
+    // notify, and an unbounded wait would hang the test rather than report it.
+    let entered_result = timeout(Duration::from_secs(2), entered.notified()).await;
+    if entered_result.is_err() {
+        connection.abort();
+        let joined = connection.await;
+        return Err(
+            format!("handler was not entered before the connection ended: {joined:?}").into(),
+        );
+    }
     check_equal(
         &ledger.is_empty(),
         &true,
@@ -181,6 +190,14 @@ async fn connection_and_root_clone_keep_every_probe_alive() -> TestResult<()> {
         "dropping the connection future must not drop the shared root's values",
     )?;
 
+    check_final_root_drop(&ledger, root)
+}
+
+/// Drop every root clone and assert each probe releases exactly once.
+///
+/// A second clone is held across the first drop, so a probe released by the
+/// connection rather than by the root would be caught before the last drop.
+fn check_final_root_drop(ledger: &DropLedger, root: Arc<ProbePrepared>) -> TestResult<()> {
     let lingering = Arc::clone(&root);
     drop(root);
     check_equal(

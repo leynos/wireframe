@@ -23,8 +23,10 @@
 //!
 //! # Phases
 //!
-//! [`ConfiguredPhase::PreparedThenServe`] prepares once and serves the
-//! workload's connections from that root. [`ConfiguredPhase::PreparationOnly`]
+//! [`ConfiguredPhase::PreparedThenServe`] follows the base workload's startup
+//! topology: a prepared-root workload prepares once and serves its connections
+//! from that root, while a per-connection-factory workload builds and prepares
+//! a fresh application for every connection. [`ConfiguredPhase::PreparationOnly`]
 //! builds, prepares, and drops the application without serving anything, which
 //! isolates the cost #648 actually changes. Preparation-only is restricted to
 //! the prepared-root topology: preparing per connection without connecting is
@@ -60,7 +62,7 @@ const CONFIGURATION_TAG: &str = "serializer_1_assembler_1_callbacks_2_protocol_1
 /// Which half of the configured workload a phase measures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConfiguredPhase {
-    /// Prepare once, serve every connection, then drop the root.
+    /// Serve every connection, following the base workload's startup topology.
     PreparedThenServe,
     /// Build, prepare, and drop the application without serving a connection.
     PreparationOnly,
@@ -268,6 +270,28 @@ async fn prepare_and_serve(
     Ok(())
 }
 
+/// Build, prepare, serve one connection, and drop the root again.
+///
+/// The per-connection topology exists so a baseline can compare a factory that
+/// runs for every connection with the shared-root topology; serving this
+/// workload from one root would measure the shared path under a label that
+/// claims per-connection counts.
+async fn prepare_per_connection(
+    workload: ConfiguredStartupWorkload,
+    instrumentation: &ConnectionStartupInstrumentation,
+) -> Result<(), String> {
+    for _ in 0..workload.base.connections {
+        let app = build_configured_app(instrumentation, workload)?;
+        let prepared = app
+            .prepare()
+            .await
+            .map_err(|error| format!("preparation failed: {error}"))?;
+        serve_connection(&prepared).await?;
+        drop(prepared);
+    }
+    Ok(())
+}
+
 /// Prepare once and drop the root without serving a connection.
 async fn prepare_only(
     workload: ConfiguredStartupWorkload,
@@ -283,13 +307,21 @@ async fn prepare_only(
 }
 
 /// Run one iteration of the configured workload against fresh counters.
+///
+/// The phase and the base path are both significant: the serving phase must
+/// dispatch to the topology the workload's label names.
 async fn configured_once(
     workload: ConfiguredStartupWorkload,
     instrumentation: &ConnectionStartupInstrumentation,
 ) -> Result<(), String> {
-    match workload.phase {
-        ConfiguredPhase::PreparedThenServe => prepare_and_serve(workload, instrumentation).await,
-        ConfiguredPhase::PreparationOnly => prepare_only(workload, instrumentation).await,
+    match (workload.phase, workload.base.path) {
+        (ConfiguredPhase::PreparationOnly, _) => prepare_only(workload, instrumentation).await,
+        (ConfiguredPhase::PreparedThenServe, StartupPath::PreparedRoot) => {
+            prepare_and_serve(workload, instrumentation).await
+        }
+        (ConfiguredPhase::PreparedThenServe, StartupPath::PerConnectionFactory) => {
+            prepare_per_connection(workload, instrumentation).await
+        }
     }
 }
 

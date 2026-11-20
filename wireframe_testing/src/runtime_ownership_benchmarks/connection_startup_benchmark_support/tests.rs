@@ -146,6 +146,8 @@ async fn configured_application_installs_every_labelled_component() {
 
 #[tokio::test]
 async fn configured_serving_prepares_once_for_every_connection() {
+    // The default base path is the prepared root, so one factory call serves
+    // all four connections.
     let measurement =
         measure_configured_startup(configured(ConfiguredPhase::PreparedThenServe, 4), 1)
             .await
@@ -163,6 +165,39 @@ async fn configured_serving_prepares_once_for_every_connection() {
     assert_eq!(
         measurement.transforms, 6,
         "one preparation should transform three routes through two layers"
+    );
+}
+
+#[tokio::test]
+async fn configured_per_connection_factory_builds_once_per_connection() {
+    let mut workload = configured(ConfiguredPhase::PreparedThenServe, 4);
+    workload.base.path = StartupPath::PerConnectionFactory;
+
+    assert_eq!(
+        workload.label(),
+        concat!(
+            "configured_serializer_1_assembler_1_callbacks_2_protocol_1_",
+            "per_connection_factory_routes_3_layers_2_connections_4_",
+            "factory_4_transforms_24",
+        ),
+        "the label should state the counts the measurement must record"
+    );
+
+    let measurement = measure_configured_startup(workload, 1)
+        .await
+        .expect("a valid configured workload must measure");
+
+    assert_eq!(
+        measurement.connections, 4,
+        "the serving phase should report the connections it served"
+    );
+    assert_eq!(
+        measurement.factory_calls, 4,
+        "the per-connection topology should build once per connection"
+    );
+    assert_eq!(
+        measurement.transforms, 24,
+        "four preparations should each transform three routes through two layers"
     );
 }
 
