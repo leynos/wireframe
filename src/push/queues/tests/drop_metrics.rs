@@ -59,87 +59,77 @@ fn sample_matches_drop(sample: &MetricSample, outcome: &str) -> bool {
         && matches!(value, DebugValue::Counter(count) if *count == 1)
 }
 
+/// Run `scenario` against a fresh recorder and return the samples it emitted.
+fn samples_from(scenario: impl FnOnce()) -> Vec<MetricSample> {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    ::metrics::with_local_recorder(&recorder, scenario);
+    snapshotter.snapshot().into_vec()
+}
+
+/// Require exactly one loss sample, carrying `outcome`.
+fn assert_single_loss(samples: &[MetricSample], outcome: &str) {
+    assert_eq!(
+        samples.len(),
+        1,
+        "exactly one frame may be lost, with outcome {outcome}: {samples:?}"
+    );
+    assert_eq!(
+        samples
+            .iter()
+            .filter(|sample| sample_matches_drop(sample, outcome))
+            .count(),
+        1,
+        "the lost frame must carry outcome {outcome}: {samples:?}"
+    );
+}
+
+/// Overflow a full lane backed by a one-slot dead-letter queue.
+///
+/// The first overflow is offered to the dead-letter queue; later ones find it
+/// occupied. Dropping the receiver first makes every overflow meet a closed
+/// queue instead. Returns the samples the scenario emitted.
+fn samples_from_dead_letter(overflows: u8, is_consumer_live: bool) -> Vec<MetricSample> {
+    samples_from(|| {
+        let (dlq_tx, dlq_rx) = mpsc::channel(1);
+        if !is_consumer_live {
+            drop(dlq_rx);
+        }
+        let (_queues, handle) = single_slot_queue(Some(dlq_tx));
+        fill_high_priority(&handle);
+        for frame in 2..2 + overflows {
+            drop_on_a_full_lane(&handle, frame);
+        }
+    })
+}
+
 /// A full lane with nowhere to reroute the frame loses it, and that loss must
 /// be visible to an operator even though the producer saw success.
 #[test]
 fn full_lane_without_a_dead_letter_queue_counts_the_loss() {
-    let recorder = DebuggingRecorder::new();
-    let snapshotter = recorder.snapshotter();
-
-    ::metrics::with_local_recorder(&recorder, || {
+    let samples = samples_from(|| {
         let (_queues, handle) = single_slot_queue(None);
         fill_high_priority(&handle);
         drop_on_a_full_lane(&handle, 2);
     });
 
-    let metric_samples = snapshotter.snapshot().into_vec();
-    assert_eq!(
-        metric_samples.len(),
-        1,
-        "only the discarded frame is a loss"
-    );
-    assert!(
-        metric_samples
-            .iter()
-            .any(|sample| sample_matches_drop(sample, "no_dlq")),
-        "a full lane with no dead-letter queue must count the loss"
-    );
+    assert_single_loss(&samples, "no_dlq");
 }
 
 /// The first overflow is rerouted, so it is not a loss; the second finds the
 /// dead-letter queue full and is. Only the second may be counted.
 #[test]
 fn full_dead_letter_queue_counts_the_loss() {
-    let recorder = DebuggingRecorder::new();
-    let snapshotter = recorder.snapshotter();
+    let samples = samples_from_dead_letter(2, true);
 
-    ::metrics::with_local_recorder(&recorder, || {
-        let (dlq_tx, _dlq_rx) = mpsc::channel(1);
-        let (_queues, handle) = single_slot_queue(Some(dlq_tx));
-        fill_high_priority(&handle);
-        drop_on_a_full_lane(&handle, 2);
-        drop_on_a_full_lane(&handle, 3);
-    });
-
-    let metric_samples = snapshotter.snapshot().into_vec();
-    assert_eq!(
-        metric_samples.len(),
-        1,
-        "a frame the dead-letter queue accepted is not a loss"
-    );
-    assert!(
-        metric_samples
-            .iter()
-            .any(|sample| sample_matches_drop(sample, "dlq_full")),
-        "an overflow refused by a full dead-letter queue must count the loss"
-    );
+    assert_single_loss(&samples, "dlq_full");
 }
 
 /// A dead-letter queue whose consumer has gone cannot take the frame, so the
 /// loss is counted with the refusal's own outcome.
 #[test]
 fn closed_dead_letter_queue_counts_the_loss() {
-    let recorder = DebuggingRecorder::new();
-    let snapshotter = recorder.snapshotter();
+    let samples = samples_from_dead_letter(1, false);
 
-    ::metrics::with_local_recorder(&recorder, || {
-        let (dlq_tx, dlq_rx) = mpsc::channel(1);
-        drop(dlq_rx);
-        let (_queues, handle) = single_slot_queue(Some(dlq_tx));
-        fill_high_priority(&handle);
-        drop_on_a_full_lane(&handle, 2);
-    });
-
-    let metric_samples = snapshotter.snapshot().into_vec();
-    assert_eq!(
-        metric_samples.len(),
-        1,
-        "only the discarded frame is a loss"
-    );
-    assert!(
-        metric_samples
-            .iter()
-            .any(|sample| sample_matches_drop(sample, "dlq_closed")),
-        "an overflow refused by a closed dead-letter queue must count the loss"
-    );
+    assert_single_loss(&samples, "dlq_closed");
 }
