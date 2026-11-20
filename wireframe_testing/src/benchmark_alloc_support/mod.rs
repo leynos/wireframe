@@ -28,55 +28,34 @@
 //! harness, the async runtime, closure captures, and anything else running in
 //! that window, not only the code under test. Compare values across runs of the
 //! same binary rather than treating them as absolute costs.
+//!
+//! A window reports two quantities: the number of allocation operations and the
+//! bytes requested. The operation count answers "did this stage allocate at
+//! all", while the byte total lets a test bound a stage by its payload size
+//! instead of an absolute count that moves with dependency churn.
+//!
+//! # Module layout
+//!
+//! The `gate` submodule owns the process-global state and the window that closes
+//! on every exit path, `traffic` owns the value a window reports, and `harness`
+//! owns the self-checks a benchmark binary must run before measuring. This
+//! module is the public surface; the submodules are an implementation detail.
 
 pub use std::alloc::System;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering, fence};
 
 pub use stats_alloc::{INSTRUMENTED_SYSTEM, StatsAlloc};
 
+mod gate;
+mod harness;
+mod traffic;
 mod window;
 
-use window::WindowState;
+#[cfg(test)]
+mod tests;
 
-/// Allocations observed by measurement windows that have already closed.
-static ACCUMULATED_ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
-/// Allocator total recorded when the current window opened, or at the last
-/// reset. The delta from here is the live window's contribution.
-static BASELINE_ALLOCATIONS: AtomicUsize = AtomicUsize::new(0);
-/// Gate keeping setup, teardown, and reporting allocations out of a count.
-static ALLOCATION_COUNTING_ENABLED: AtomicBool = AtomicBool::new(false);
-
-/// Total allocation operations the instrumenting allocator has observed.
-///
-/// `stats_alloc` counts `alloc` and `alloc_zeroed` in `allocations` and
-/// `realloc` in `reallocations`, so both fields are summed; otherwise a growing
-/// buffer would look allocation-free. Every read is an atomic snapshot, so this
-/// helper never allocates and is safe to call from inside a window.
-fn total_allocations() -> usize {
-    let stats = INSTRUMENTED_SYSTEM.stats();
-    stats.allocations.saturating_add(stats.reallocations)
-}
-
-/// Read the process-global window state as a value.
-fn snapshot() -> WindowState {
-    WindowState {
-        accumulated: ACCUMULATED_ALLOCATIONS.load(Ordering::SeqCst),
-        baseline: BASELINE_ALLOCATIONS.load(Ordering::SeqCst),
-        is_open: ALLOCATION_COUNTING_ENABLED.load(Ordering::SeqCst),
-    }
-}
-
-/// Fold a window's delta into the accumulated count.
-///
-/// `window_total` is the allocator total sampled while the gate was still open,
-/// so allocations that happen after the window closes cannot inflate the count.
-/// The baseline advances to that same total, so folding twice without an
-/// intervening window adds nothing the second time.
-fn accumulate_window_at(window_total: usize) {
-    let baseline = BASELINE_ALLOCATIONS.swap(window_total, Ordering::SeqCst);
-    let delta = WindowState::delta(baseline, window_total);
-    ACCUMULATED_ALLOCATIONS.fetch_add(delta, Ordering::SeqCst);
-}
+use gate::{CountingWindow, count as gate_count, is_open, reset as gate_reset};
+pub use harness::{count_allocations_or_panic, verify_allocation_harness};
+pub use traffic::AllocationTraffic;
 
 /// Reset the counter to zero without changing the gate.
 ///
@@ -92,11 +71,7 @@ fn accumulate_window_at(window_total: usize) {
 /// reset_allocation_count();
 /// assert_eq!(allocation_count(), 0);
 /// ```
-pub fn reset_allocation_count() {
-    let reset = snapshot().reset_at(total_allocations());
-    ACCUMULATED_ALLOCATIONS.store(reset.accumulated, Ordering::SeqCst);
-    BASELINE_ALLOCATIONS.store(reset.baseline, Ordering::SeqCst);
-}
+pub fn reset_allocation_count() { gate_reset(); }
 
 /// Read the current allocation count.
 ///
@@ -111,7 +86,7 @@ pub fn reset_allocation_count() {
 /// let _count = allocation_count();
 /// ```
 #[must_use]
-pub fn allocation_count() -> usize { snapshot().count_at(total_allocations()) }
+pub fn allocation_count() -> usize { gate_count() }
 
 /// Report whether a measurement window is currently open.
 ///
@@ -123,9 +98,7 @@ pub fn allocation_count() -> usize { snapshot().count_at(total_allocations()) }
 /// assert!(!is_allocation_counting_enabled());
 /// ```
 #[must_use]
-pub fn is_allocation_counting_enabled() -> bool {
-    ALLOCATION_COUNTING_ENABLED.load(Ordering::SeqCst)
-}
+pub fn is_allocation_counting_enabled() -> bool { is_open() }
 
 /// Run `operation` inside an allocation-counting window and return the count.
 ///
@@ -164,114 +137,45 @@ pub fn count_allocations<F>(operation: F) -> Result<usize, String>
 where
     F: FnOnce() -> Result<(), String>,
 {
-    // Open the gate before the baseline is sampled, and sample the closing
-    // total before the gate closes. Anything allocated by another thread
-    // outside that interval then falls on the far side of a boundary and stays
-    // out of the reported delta.
-    ALLOCATION_COUNTING_ENABLED.store(true, Ordering::SeqCst);
-    fence(Ordering::SeqCst);
-    let opened = WindowState::opened_at(total_allocations());
-    ACCUMULATED_ALLOCATIONS.store(opened.accumulated, Ordering::SeqCst);
-    BASELINE_ALLOCATIONS.store(opened.baseline, Ordering::SeqCst);
-
-    let outcome = operation();
-
-    fence(Ordering::SeqCst);
-    let window_total = total_allocations();
-    ALLOCATION_COUNTING_ENABLED.store(false, Ordering::SeqCst);
-    accumulate_window_at(window_total);
-
-    outcome.map(|()| ACCUMULATED_ALLOCATIONS.load(Ordering::SeqCst))
+    count_allocation_traffic(operation).map(|traffic| traffic.operations)
 }
 
-/// Run `operation` in a counting window, panicking with `context` on failure.
+/// Run `operation` inside an allocation-counting window and report both the
+/// operation count and the bytes requested.
 ///
-/// Benchmark binaries treat a failed measurement as fatal, but the panic must
-/// not fire while the window is open. This adapter therefore delegates to
-/// [`count_allocations`], which closes the window first, and only then reports
-/// the failure.
+/// The window is the same one [`count_allocations`] uses; the extra reading is
+/// the allocator's byte total, which lets a caller bound a stage by its payload
+/// size. The window closes on every exit path, including an unwind out of
+/// `operation`.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics with `context` and the operation's error when `operation` fails.
+/// Returns the error string produced by `operation` after closing the window.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use wireframe_testing::benchmark_alloc_support::count_allocations_or_panic;
+/// use wireframe_testing::benchmark_alloc_support::{
+///     count_allocation_traffic,
+///     is_allocation_counting_enabled,
+/// };
 ///
-/// let count = count_allocations_or_panic("no-op measurement", || Ok(()));
-/// assert_eq!(count, 0);
+/// let traffic = count_allocation_traffic(|| Ok(()))?;
+/// std::hint::black_box(traffic);
+///
+/// // Only a binary that installs `INSTRUMENTED_SYSTEM` observes non-zero
+/// // traffic. What holds either way is that the window closed.
+/// assert!(!is_allocation_counting_enabled(), "the window must close");
+/// # Ok::<(), String>(())
 /// ```
-#[must_use]
-pub fn count_allocations_or_panic<F>(context: &str, operation: F) -> usize
+pub fn count_allocation_traffic<F>(operation: F) -> Result<AllocationTraffic, String>
 where
     F: FnOnce() -> Result<(), String>,
 {
-    match count_allocations(operation) {
-        Ok(count) => count,
-        Err(err) => panic!("{context}: {err}"),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    //! Coverage for the counting window's boundaries.
-    //!
-    //! Unit-test builds do not install `INSTRUMENTED_SYSTEM`, so the counter
-    //! here stays at zero whatever runs inside a window. These tests therefore
-    //! cover only what is observable without the allocator: that the gate opens
-    //! for the operation and closes again on both the success and error paths.
-    //! The counting itself is checked where the allocator is actually installed
-    //! — `benches/runtime_ownership_baselines_alloc/probes.rs` runs a zero-window
-    //! and a positive-window self-check before measuring, so a gate that never
-    //! opens is a loud failure rather than a silent baseline of zeros.
-    //!
-    //! Both tests are `serial`: the flag they assert on is process-global, so
-    //! running them concurrently lets one test's open window be read by the
-    //! other's closing assertion. That race made
-    //! [`counting_window_closes_after_success`](counting_window_closes_after_success)
-    //! fail roughly one run in five even in isolation, which is a flake in the
-    //! test rather than a defect in the window.
-
-    use serial_test::serial;
-
-    use super::{allocation_count, count_allocations, is_allocation_counting_enabled};
-
-    #[test]
-    #[serial]
-    fn counting_window_closes_after_success() {
-        let _count = count_allocations(|| Ok(())).expect("no-op measurement must succeed");
-        assert!(
-            !is_allocation_counting_enabled(),
-            "a successful measurement must close the window"
-        );
-    }
-
-    #[test]
-    #[serial]
-    fn counting_window_closes_after_failure() {
-        let error = count_allocations(|| Err("deliberate failure".to_owned()))
-            .expect_err("a failing operation must surface its error");
-        assert_eq!(
-            error, "deliberate failure",
-            "error should equal \"deliberate failure\""
-        );
-        assert!(
-            !is_allocation_counting_enabled(),
-            "a failed measurement must still close the window"
-        );
-    }
-
-    #[test]
-    #[serial]
-    fn empty_window_counts_nothing() {
-        let count = count_allocations(|| Ok(())).expect("no-op measurement must succeed");
-        assert_eq!(count, 0, "an empty window must report exactly zero");
-        assert_eq!(
-            allocation_count(),
-            0,
-            "the accumulated count must match an empty window"
-        );
-    }
+    let mut window = CountingWindow::open();
+    let outcome = operation();
+    // Close before mapping the outcome, so a failed measurement still counts
+    // the traffic it produced and cannot leave the gate open.
+    let traffic = window.close().unwrap_or_default();
+    outcome.map(|()| traffic)
 }

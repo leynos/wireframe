@@ -23,6 +23,7 @@ use wireframe_testing::{
         StatsAlloc,
         System,
         count_allocations_or_panic,
+        verify_allocation_harness,
     },
     codec_benchmarks::{
         AllocationBaseline,
@@ -228,7 +229,11 @@ fn benchmark_allocations(c: &mut Criterion) {
 }
 
 /// Entrypoint for codec allocation baseline benchmarks.
+///
+/// The harness self-check runs first: every label below embeds a count, so a
+/// gate that never opened or never closed would make all of them meaningless.
 fn main() {
+    verify_allocation_harness();
     let mut criterion = Criterion::default().configure_from_args();
     benchmark_allocations(&mut criterion);
     criterion.final_summary();
