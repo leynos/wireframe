@@ -136,7 +136,7 @@ where
 /// there.
 async fn poll_live(active: Option<&mut ActiveStream>) -> Option<Bytes> {
     match active {
-        Some(active) => active.poll_handler().await,
+        Some(live) => live.poll_handler().await,
         None => future::pending().await,
     }
 }
