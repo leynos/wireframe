@@ -6,7 +6,8 @@
 //! time, then per-request policy application, continuation construction, and
 //! terminal dispatch. The frame vector is recycled through `std::mem::take` and
 //! the response, so no iteration allocates a payload and the number reflects
-//! chain traversal alone.
+//! chain traversal alone. That holds for the read-only and mutating policies;
+//! the [`AccessMode::Copying`] seeded fault allocates on purpose.
 //!
 //! The chain is not built with [`wireframe::middleware::from_fn`] because that
 //! adapter requires a single future type for every continuation lifetime
@@ -23,8 +24,8 @@ use async_trait::async_trait;
 use wireframe::middleware::{Next, Service, ServiceRequest, ServiceResponse, Transform};
 
 use super::{
-    codec_benchmark_support::{BenchmarkWorkload, Measurement, payload_for_class},
-    pipeline_benchmark_support::{AccessMode, empty_measurement},
+    codec_benchmark_support::{BenchmarkWorkload, Measurement, PayloadClass, payload_for_class},
+    pipeline_benchmark_support::{AccessMode, StageOutcome, empty_measurement},
 };
 
 /// Terminal service that returns the request frame unchanged.
@@ -64,6 +65,20 @@ impl Policy for MutatingPolicy {
         if let Some(first) = request.frame_mut().first_mut() {
             *first = first.wrapping_add(1);
         }
+    }
+}
+
+/// Seeded fault: replaces the frame with a copy of itself.
+///
+/// No captured row uses it. It exists so the read-only invariant can be shown
+/// to reject a copying middleware rather than merely never having met one.
+#[derive(Clone, Copy)]
+struct CopyingPolicy;
+
+impl Policy for CopyingPolicy {
+    fn apply(&self, request: &mut ServiceRequest) {
+        let copy = request.frame().to_vec();
+        *request.frame_mut() = copy;
     }
 }
 
@@ -157,8 +172,27 @@ pub async fn measure_middleware_passthrough(
     if iterations == 0 {
         return empty_measurement();
     }
-    let payload_len = workload.payload_class.len() as u64;
     let buffer = payload_for_class(workload.payload_class).to_vec();
+    measure_middleware_passthrough_buffer(workload, mode, buffer, iterations).await
+}
+
+/// Measures middleware chain traversal over a buffer the caller already built.
+///
+/// The allocation invariants need the measurement window to exclude the
+/// payload buffer's own allocation, so this entry point takes the buffer rather
+/// than building it. It exists for that assertion: a payload-sized allocation
+/// inside the window would be indistinguishable from the stage making a copy.
+#[must_use]
+pub async fn measure_middleware_passthrough_buffer(
+    workload: BenchmarkWorkload,
+    mode: AccessMode,
+    buffer: Vec<u8>,
+    iterations: u64,
+) -> Measurement {
+    if iterations == 0 {
+        return empty_measurement();
+    }
+    let payload_len = workload.payload_class.len() as u64;
     match mode {
         AccessMode::ReadOnly => {
             run_middleware_iterations(PassthroughPolicy, payload_len, buffer, iterations).await
@@ -166,6 +200,55 @@ pub async fn measure_middleware_passthrough(
         AccessMode::Mutating => {
             run_middleware_iterations(MutatingPolicy, payload_len, buffer, iterations).await
         }
+        AccessMode::Copying => {
+            run_middleware_iterations(CopyingPolicy, payload_len, buffer, iterations).await
+        }
+    }
+}
+
+/// Runs one pass through a chain with `policy`, reporting the buffer handoff.
+async fn run_stage_once<P: Policy>(policy: P, payload_class: PayloadClass) -> StageOutcome {
+    let service = PolicyMiddleware { policy }.transform(EchoService).await;
+    let request_buffer = payload_for_class(payload_class).to_vec();
+    let arrival_address = request_buffer.as_ptr() as usize;
+    let response = match service
+        .call(ServiceRequest::new(request_buffer, Some(1)))
+        .await
+    {
+        Ok(response) => response,
+        Err(never) => match never {},
+    };
+    let payload = response.into_inner();
+    StageOutcome {
+        arrival_address,
+        departure_address: payload.as_ptr() as usize,
+        payload,
+    }
+}
+
+/// Reports what one pass through the middleware chain did to the payload
+/// buffer.
+///
+/// Moving the frame keeps its address; copying it does not, because the
+/// original is still live when the copy is made. A read-only invariant asserts
+/// the preservation, and the [`AccessMode::Copying`] policy gives it a case
+/// that must fail.
+///
+/// # Examples
+///
+/// ```ignore
+/// let outcome = middleware_payload_handoff(workload, AccessMode::ReadOnly).await;
+/// assert!(outcome.is_payload_preserved());
+/// ```
+#[must_use]
+pub async fn middleware_payload_handoff(
+    workload: BenchmarkWorkload,
+    mode: AccessMode,
+) -> StageOutcome {
+    match mode {
+        AccessMode::ReadOnly => run_stage_once(PassthroughPolicy, workload.payload_class).await,
+        AccessMode::Mutating => run_stage_once(MutatingPolicy, workload.payload_class).await,
+        AccessMode::Copying => run_stage_once(CopyingPolicy, workload.payload_class).await,
     }
 }
 
@@ -185,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn middleware_passthrough_recycles_the_frame_buffer() {
+    fn middleware_batch_reports_its_operations_and_payload() {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .expect("tokio runtime");
@@ -202,6 +285,59 @@ mod tests {
             measurement.payload_bytes,
             4 * SMALL_PAYLOAD_BYTES as u64,
             "measurement.payload_bytes should equal 4 * SMALL_PAYLOAD_BYTES as u64"
+        );
+    }
+
+    /// The read-only policy must hand back the buffer it was given.
+    ///
+    /// The batch measurement cannot see this: recycling through
+    /// `std::mem::take` looks the same whether the policy copied the frame or
+    /// not, so a copying policy would leave the counts untouched. Only the
+    /// address distinguishes the two.
+    #[test]
+    fn middleware_passthrough_preserves_the_frame_buffer() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("tokio runtime");
+        let outcome = runtime.block_on(middleware_payload_handoff(
+            small_workload(),
+            AccessMode::ReadOnly,
+        ));
+
+        assert!(
+            outcome.is_payload_preserved(),
+            "the read-only policy must not move the frame buffer: {} -> {}",
+            outcome.arrival_address,
+            outcome.departure_address
+        );
+        assert_eq!(
+            outcome.payload.as_slice(),
+            payload_for_class(PayloadClass::Small),
+            "the read-only policy must not rewrite the frame"
+        );
+    }
+
+    /// The seeded fault must be detectable, or the invariant above proves
+    /// nothing about a chain that does copy.
+    #[test]
+    fn a_copying_middleware_relocates_the_frame_buffer() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("tokio runtime");
+        let outcome = runtime.block_on(middleware_payload_handoff(
+            small_workload(),
+            AccessMode::Copying,
+        ));
+
+        assert!(
+            !outcome.is_payload_preserved(),
+            "a copying policy must allocate a new buffer; it reported {} on both sides",
+            outcome.departure_address
+        );
+        assert_eq!(
+            outcome.payload.as_slice(),
+            payload_for_class(PayloadClass::Small),
+            "the copy must carry the same payload"
         );
     }
 

@@ -11,7 +11,7 @@ use wireframe::client::{BeforeSendHook, benchmark_run_before_send_hooks};
 
 use super::{
     codec_benchmark_support::{BenchmarkWorkload, Measurement, payload_for_class},
-    pipeline_benchmark_support::{AccessMode, empty_measurement},
+    pipeline_benchmark_support::{AccessMode, StageOutcome, empty_measurement},
 };
 
 /// Builds the single before-send hook a measured dispatch runs.
@@ -25,6 +25,39 @@ fn hook_for_mode(mode: AccessMode) -> BeforeSendHook {
                 *first = first.wrapping_add(1);
             }
         }),
+        // The seeded fault: a real hook that copies, so the invariants that
+        // require a read-only hook to leave the buffer in place have something
+        // to reject.
+        AccessMode::Copying => Arc::new(|bytes: &mut Vec<u8>| {
+            *bytes = bytes.to_vec();
+        }),
+    }
+}
+
+/// Reports what one pass through the before-send hooks did to the payload
+/// buffer.
+///
+/// The read-only invariant needs to know whether dispatch kept the buffer the
+/// caller built or replaced it, which a timing measurement cannot say. The
+/// returned payload lets a caller check that the hook ran without rewriting
+/// bytes.
+///
+/// # Examples
+///
+/// ```ignore
+/// let outcome = hook_payload_handoff(workload, AccessMode::ReadOnly);
+/// assert!(outcome.is_payload_preserved());
+/// ```
+#[must_use]
+pub fn hook_payload_handoff(workload: BenchmarkWorkload, mode: AccessMode) -> StageOutcome {
+    let hooks = [hook_for_mode(mode)];
+    let mut buffer = payload_for_class(workload.payload_class).to_vec();
+    let arrival_address = buffer.as_ptr() as usize;
+    benchmark_run_before_send_hooks(&hooks, &mut buffer);
+    StageOutcome {
+        arrival_address,
+        departure_address: buffer.as_ptr() as usize,
+        payload: buffer,
     }
 }
 

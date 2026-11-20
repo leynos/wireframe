@@ -35,11 +35,15 @@ pub use codec_fragmentation_benchmark_support::{
     measure_unfragmented_wrap,
 };
 #[cfg(feature = "pipeline-benchmarks")]
-pub use pipeline_benchmark_support::{AccessMode, pipeline_label, workload_label};
+pub use pipeline_benchmark_support::{AccessMode, StageOutcome, pipeline_label, workload_label};
 #[cfg(feature = "pipeline-benchmarks")]
-pub use pipeline_hooks::measure_hook_dispatch;
+pub use pipeline_hooks::{hook_payload_handoff, measure_hook_dispatch};
 #[cfg(feature = "pipeline-benchmarks")]
-pub use pipeline_middleware::measure_middleware_passthrough;
+pub use pipeline_middleware::{
+    measure_middleware_passthrough,
+    measure_middleware_passthrough_buffer,
+    middleware_payload_handoff,
+};
 #[cfg(feature = "pipeline-benchmarks")]
 pub use pipeline_outbound::{
     OutboundMeasurement,
