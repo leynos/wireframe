@@ -753,10 +753,12 @@ I/O, and EOF failures. With no hook installed, the applied policy is still
 `Disconnect`: an application that installs no hook keeps the previous behaviour.
 
 One failure is reported without consulting the hook. When a response ends the
-connection, reading stops with a failure still buffered behind it, and no
-selected policy can take effect on a closing connection. That failure is
-reported as the `Disconnect` it actually is, so `on_error` and the counter
-still observe it exactly once.
+connection, or the server shuts the connection down, reading stops with a
+failure still buffered behind it, and no selected policy can take effect on a
+connection that is already ending. That failure is reported as the `Disconnect`
+it actually is, so `on_error` and the counter still observe it exactly once.
+The same reporting runs when memory pressure ends the connection before the
+next read, so a buffered failure is never lost behind the pressure error.
 
 The built-in length-delimited codec now classifies an oversized frame as
 `error_type="framing"` rather than `"io"`. A dashboard or alert that filtered on

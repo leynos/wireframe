@@ -658,11 +658,15 @@ place that consults `RecoveryPolicyHook` for a decoder failure. It applies the
 documented decision order and its fallbacks, reports the applied policy — which
 a fallback may have escalated from the hook's selection — to `on_error` and to
 the log, and emits `wireframe_codec_errors_total` once per failure, labelled
-with the error type and the applied policy. With no hook installed, the applied
-policy is `Disconnect`, and the decoder's original error reaches the teardown
-path unchanged. Reporting a failure buffered when the connection stops reading
-is the one exception: no selected policy can take effect there, so
-`report_terminal` reports the applied disconnect without consulting the hook.
+with the error type and the applied policy. The counter is gated behind the
+`metrics` feature, which is on by default, and
+`crate::metrics::inc_codec_error` is a no-op without it, so the `on_error`
+callback and the log line are the reporting a build without the feature still
+makes. With no hook installed, the applied policy is `Disconnect`, and the
+decoder's original error reaches the teardown path unchanged. Reporting a
+failure buffered when the connection stops reading is the one exception: no
+selected policy can take effect there, so `report_terminal` reports the applied
+disconnect without consulting the hook.
 
 Consultation, decision, recording, and reporting stay apart. `consider` is the
 only step that consults the hook: it asks for a policy, resolves the fallbacks,
@@ -685,9 +689,9 @@ hook and that recorder to prove the pure step consults nothing and emits
 nothing.
 
 The prepared application and the rebuild helpers are split to match. Prepared
-state lives in `src/app/prepared_app/mod.rs`, `connection.rs`, and
-`preparation.rs`; the shared type-parameter rebuild helpers live in
-`src/app/builder/rebuild.rs`.
+state lives in `src/app/prepared_app/mod.rs`, with the read-only surface split
+into `src/app/prepared_app/accessors.rs`; the shared type-parameter rebuild
+helpers live in `src/app/builder/rebuild.rs`.
 
 ## Runtime ownership model
 
@@ -750,10 +754,41 @@ connection task. Deferring them means a pending setup cannot clone a custom
 codec or reserve the maximum frame buffer, and no codec is initialized before
 setup establishes its state.
 
-Peer addresses and connection identifiers are absent from the processing
-context: the entry points accept a generic `AsyncRead + AsyncWrite` stream, so
-the runtime owns none. Envelope correlation identifiers are per-frame state and
-stay on the decoded envelope; the connection-task span carries `peer_addr`.
+The processing context does carry the connection's identity. `InboundConfig`
+records the application-wide settings preparation resolved, and
+`ConnectionProcessingContext` adds the per-attempt values, including the
+optional peer address and the shutdown token. `StreamProcessingContext` is the
+subset the frame loop needs, so `ConnectionLoop` can name the peer in
+diagnostics and in the recovery hook's `CodecErrorContext`, and the actor can
+register its push handle under a connection identifier. Only the entry point
+decides whether a peer address exists: `handle_connection_with_shutdown`
+receives the one the accept loop resolved, while the public
+`handle_connection_result` and `handle_connection` have none to report and pass
+`None`. Envelope correlation identifiers remain per-frame state on the decoded
+envelope.
+
+The loop's own boundaries are worth knowing when reading or extending it:
+
+- `src/app/combined_codec.rs` — `connection_codec` builds the
+  `ConnectionCodec` that frames a stream, so the codec's own state stays
+  per-connection.
+- `src/app/recovery_codec.rs` — `RecoveryDecoder` turns decoder errors into
+  `DecodedItem::Failure` values instead of ending the stream.
+- `src/app/inbound_handler/framing.rs` — `prepare_connection_framing` splits a
+  stream into `TransportSink` and `TransportStream`, the two halves the loop
+  writes and reads through.
+- `src/app/inbound_handler/frames.rs` — `InboundFrames` holds the buffered item
+  and the timeout state, and `InboundExpiry` is the view a write uses to purge
+  it.
+- `src/app/inbound_handler/dispatch.rs` — `parse_envelope` and `handle_frame`
+  turn a decoded frame into middleware work.
+- `src/app/inbound_handler/push_service.rs` and `push_write.rs` —
+  `StreamStep`, `StreamWait`, `next_stream_step`, `PushBatch`, `PushTransport`,
+  `deliver_pushes`, and `drain_queued` are how a push batch competes with the
+  next inbound frame; `push_write.rs` owns the single-frame write.
+- `src/app/inbound_handler/peer_watch.rs` — `PeerObservation` and
+  `handle_watching_peer` notice a peer that disconnected while a frame was
+  being handled.
 
 `process_connection` is the single entry point and drives the runtime. `run`
 destructures the staged runtime and wraps initialization together with inbound

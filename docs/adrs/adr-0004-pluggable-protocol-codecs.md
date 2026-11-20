@@ -428,5 +428,25 @@ installation and metric emission to application code.
 The recovery implementation lives in `src/codec/recovery/`, which supersedes
 the stale `src/codec/recovery.rs` path quoted earlier in this record.
 
+## Addendum: where runtime consultation lives (2026-11-20)
+
+The addendum above places "the recovery implementation" in
+`src/codec/recovery/`. That module now holds only the vocabulary and extension
+points; the runtime half lives in the application layer:
+
+- `src/codec/recovery/` keeps `RecoveryPolicy`, `RecoveryConfig`,
+  `CodecErrorContext`, and `RecoveryPolicyHook`.
+- `src/app/recovery_codec.rs` wraps a frame decoder so a decode failure arrives
+  as a `DecodedItem::Failure` carrying the entry point it came from and the
+  bytes it consumed.
+- `src/app/inbound_handler/recovery.rs`, `recovery_decision.rs`, and
+  `recovery_loop.rs` hold `RecoveryCoordinator` and the loop helpers that
+  consult, decide, record, and report.
+
+A failure still buffered when reading stops for a reason other than itself — a
+response that ended the connection, a shutdown, or memory pressure — is
+reported as the `Disconnect` it is, without consulting the hook, so the
+once-per-failure counter stays true for every failure.
+
 [^adr-006]: See
             [adr-0006-test-observability-harness.md](adr-0006-test-observability-harness.md).

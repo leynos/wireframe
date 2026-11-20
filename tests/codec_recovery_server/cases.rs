@@ -213,6 +213,34 @@ async fn oversized_built_in_frame_case() -> TestResult {
     }
 }
 
+/// Close a connection mid-frame and assert the EOF failure disconnects.
+///
+/// The hook selects `Drop`, but an end-of-input failure can never be a
+/// budgeted drop: the frame boundary is unrecoverable, so the policy escalates
+/// to a disconnect.
+async fn truncated_frame_case() -> TestResult {
+    let (server, mut client, mut events) = connect_with_hook(RecoveryPolicy::Drop, 10).await?;
+    let client_addr = client.local_addr()?;
+    client.write_all(&truncated_frame()).await?;
+    client.shutdown().await?;
+    expect_closed(&mut client).await?;
+    drop(client);
+    server.stop().await?;
+
+    let recorded = drain_events(&mut events);
+    let event = exactly_one(&recorded)?;
+    expect_peer(event, client_addr)?;
+    if event.error_type == "eof" && event.policy == RecoveryPolicy::Disconnect {
+        Ok(())
+    } else {
+        Err(format!(
+            "a truncated frame should disconnect, saw {} with {:?}",
+            event.error_type, event.policy
+        )
+        .into())
+    }
+}
+
 /// Run `case` under the local recorder and assert its codec-error counts.
 fn assert_case_metrics<F>(case: F, expected: &[(&str, &str, u64)]) -> TestResult
 where
@@ -254,6 +282,11 @@ fn drop_budget_escalates_to_a_disconnect() -> TestResult {
         drop_budget_case(),
         &[("protocol", "drop", 1), ("protocol", "disconnect", 1)],
     )
+}
+
+#[test]
+fn truncated_frame_is_an_eof_failure() -> TestResult {
+    assert_case_metrics(truncated_frame_case(), &[("eof", "disconnect", 1)])
 }
 
 #[test]

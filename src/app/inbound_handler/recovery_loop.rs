@@ -47,9 +47,10 @@ pub(in crate::app::inbound_handler) async fn resolve_read_item<T>(
 
 /// Report a decoder failure buffered when the connection stops reading.
 ///
-/// The read half holds at most one item while a response runs. Two exits can
-/// leave that item unread: a response that ends the connection, and a shutdown
-/// that cancels the next read before the buffer is drained. Neither reaches
+/// The read half holds at most one item while a response runs. Three exits can
+/// leave that item unread: a response that ends the connection, a shutdown
+/// that cancels the next read before the buffer is drained, and memory
+/// pressure that ends the connection before the next read. None reaches
 /// [`resolve_read_item`], so its hook callback and metric would be lost.
 /// Nothing is applied here: the connection is already ending, so only the
 /// observation is owed, and it is reported as a disconnect because no selected

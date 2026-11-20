@@ -141,3 +141,7 @@ where
         ))),
     }
 }
+
+#[cfg(test)]
+#[path = "recovery_codec_tests.rs"]
+mod tests;
