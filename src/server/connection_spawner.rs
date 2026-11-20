@@ -200,7 +200,7 @@ async fn handle_app_connection<Ser, Ctx, E, Codec>(
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
     if let Err(error) = app
-        .handle_connection_with_shutdown(stream, peer_addr, shutdown)
+        .handle_connection_with_shutdown(stream, shutdown, peer_addr)
         .await
     {
         warn!("connection task error: {error:?}");

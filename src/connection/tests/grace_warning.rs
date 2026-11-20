@@ -33,12 +33,13 @@ use crate::{
 /// way the inbound loop fills it, so the warning text under test is the one an
 /// operator sees for a half-close or a buffered request.
 #[rstest::rstest]
-#[case::half_close(UnobservedCause::HalfClose, "a half-close")]
-#[case::buffered_request(UnobservedCause::BufferedRequest, "a buffered request")]
+#[case::half_close(UnobservedCause::HalfClose, "a half-close", 9_031)]
+#[case::buffered_request(UnobservedCause::BufferedRequest, "a buffered request", 9_032)]
 #[tokio::test(start_paused = true)]
 async fn an_idle_grace_cancellation_warns_with_the_recorded_cause(
     #[case] cause: UnobservedCause,
     #[case] expected_cause: &str,
+    #[case] correlation: u64,
 ) {
     let mut actor = test_actor(ProtocolHooks::default()).expect("actor should build");
     actor.set_peer_closed_grace(Duration::from_secs(5));
@@ -58,7 +59,7 @@ async fn an_idle_grace_cancellation_warns_with_the_recorded_cause(
     peer_closed.cancel();
     let outcome = timeout(
         Duration::from_secs(10),
-        actor.install_response(Response::Stream(stalled), Some(7), &mut sink),
+        actor.install_response(Response::Stream(stalled), Some(correlation), &mut sink),
     )
     .await
     .expect("the idle grace must bound the wait")
@@ -70,17 +71,26 @@ async fn an_idle_grace_cancellation_warns_with_the_recorded_cause(
         .map(|record| record.args().to_owned())
         .collect();
     // The `log` crate is process-global, so another test's cancellation can
-    // land in this window. Select the record naming this test's configured
-    // grace: no other scenario uses a five-second idle grace.
+    // land in this window. Each case uses a correlation id no other test
+    // installs, so selecting on it finds this case's own record rather than
+    // whichever warning happens to arrive first.
+    let correlation_field = format!("correlation=Some({correlation})");
     let warning = warnings
         .iter()
         .find(|message| {
-            message.contains("could not be observed")
-                && message.contains("accepted no frame for 5s")
+            message.contains("could not be observed") && message.contains(&correlation_field)
         })
         .unwrap_or_else(|| panic!("the grace cancellation must warn; captured: {warnings:#?}"));
 
-    for expected in [expected_cause, "correlation=Some(7)", "cancelling"] {
+    // The bound the grace actually applied is part of the diagnostic: an
+    // operator needs the interval that elapsed, not just the fact that one did.
+    // The fixture sets five seconds, so the rendered field is `5s`.
+    for expected in [
+        expected_cause,
+        correlation_field.as_str(),
+        "cancelling",
+        "accepted no frame for 5s",
+    ] {
         assert!(
             warning.contains(expected),
             "the cancellation warning must name {expected}; captured: {warning}"

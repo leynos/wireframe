@@ -14,11 +14,11 @@ use crate::{push::FrameLike, response::FrameStream};
 /// project's cognitive-complexity limit and puts the actor's sources in one
 /// place. At most one of `multi_packet` and `response` is `Some`, because
 /// [`ActiveOutput`] keeps the output sources mutually exclusive.
-pub(super) struct EventSources<'a, F, E> {
+pub(super) struct EventSources<'a, F, E, P> {
     /// Urgent push queue, polled ahead of the best-effort queue.
-    pub(super) high: Option<&'a mut mpsc::Receiver<F>>,
+    pub(super) high: Option<&'a mut mpsc::Receiver<P>>,
     /// Best-effort push queue.
-    pub(super) low: Option<&'a mut mpsc::Receiver<F>>,
+    pub(super) low: Option<&'a mut mpsc::Receiver<P>>,
     /// Active multi-packet channel, when that output source is active.
     pub(super) multi_packet: Option<&'a mut mpsc::Receiver<F>>,
     /// Active response stream, when that output source is active.
@@ -29,9 +29,9 @@ pub(super) struct EventSources<'a, F, E> {
     pub(super) peer_closed: &'a CancellationToken,
 }
 
-impl<F, E> ConnectionActor<F, E> {
+impl<F, E, P> ConnectionActor<F, E, P> {
     /// Borrow the event sources polled by the next select loop iteration.
-    pub(super) fn event_sources(&mut self) -> EventSources<'_, F, E> {
+    pub(super) fn event_sources(&mut self) -> EventSources<'_, F, E, P> {
         let (multi_packet, response) = match &mut self.active_output {
             ActiveOutput::MultiPacket(ctx) => (ctx.channel_mut(), None),
             ActiveOutput::Response(stream) => (None, Some(stream)),
@@ -48,7 +48,7 @@ impl<F, E> ConnectionActor<F, E> {
     }
 }
 
-impl<F, E> ConnectionActor<F, E>
+impl<F, E, P> ConnectionActor<F, E, P>
 where
     F: FrameLike,
 {
@@ -59,10 +59,6 @@ where
     /// Await the peer closing its input half.
     #[inline]
     pub(super) async fn wait_peer_closed(token: &CancellationToken) { token.cancelled().await; }
-
-    /// Receive the next frame from a push queue.
-    #[inline]
-    pub(super) async fn recv_push(rx: &mut mpsc::Receiver<F>) -> Option<F> { rx.recv().await }
 
     /// Poll `f` if `opt` is `Some`, returning `None` otherwise.
     pub(super) async fn poll_optional<'a, T, Fut, R>(
@@ -82,13 +78,21 @@ where
 
     /// Poll whichever receiver is provided, returning `None` when absent.
     ///
-    /// Multi-packet channels reuse this helper so they share back-pressure with queued frames.
-    pub(super) async fn poll_queue(rx: Option<&mut mpsc::Receiver<F>>) -> Option<F> {
-        Self::poll_optional(rx, Self::recv_push).await
+    /// Push queues and multi-packet channels reuse this helper so they share
+    /// back-pressure with queued frames. `Q` is the channel item type: pushes
+    /// and responses may differ when the server owns the connection.
+    pub(super) async fn poll_queue<Q>(rx: Option<&mut mpsc::Receiver<Q>>) -> Option<Q>
+    where
+        Q: Send,
+    {
+        match rx {
+            Some(receiver) => receiver.recv().await,
+            None => None,
+        }
     }
 }
 
-impl<F, E> ConnectionActor<F, E>
+impl<F, E, P> ConnectionActor<F, E, P>
 where
     F: FrameLike,
     E: std::fmt::Debug,

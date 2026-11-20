@@ -661,3 +661,50 @@ through `Arc<PreparedApp>`.
 - [hyper 1.x server guide](https://hyper.rs/guides/1/server/hello-world/)
 - [actix-web server model](https://actix.rs/docs/server/)
 - [axum `Router`](https://docs.rs/axum/latest/axum/struct.Router.html)
+
+## Addendum: 2026-11-16 — handler responses and push output route through the connection actor
+
+Issue [#875](https://github.com/leynos/wireframe/issues/875) completes the
+routing section 6 anticipated. This addendum supersedes the final sentence of
+that section — "The remaining protocol hooks stay on the `ConnectionActor` push
+and streaming paths; the direct response helpers bypass `before_send` by
+design." — and the original text is left unchanged.
+
+Every accepted connection now owns an untracked `ConnectionActor`, built by
+`build_connection_actor` in `src/app/inbound_handler/actor.rs` and driven by
+`process_stream`. Each handler response, including the streamed and
+multi-packet forms, is installed on that actor rather than written by the
+inbound handler, and the actor's sink borrows the connection's `FramePipeline`.
+The pipeline order for a handler response is therefore unchanged —
+fragmentation, serialization, `FrameCodec::wrap_payload`, `before_send`,
+transport write — and now applies uniformly to `Single`, `Vec`, streamed, and
+multi-packet output. Push output does not join that pipeline: a push is already
+encoded when it is enqueued, so it takes only `before_send` and the transport
+write. Fragmentation never runs for a push, because a frame larger than the
+codec's ceiling is refused at enqueue as `PushError::FrameTooLarge`.
+
+The hooks divide as follows:
+
+- `handle_error` is forwarded to the actor, which invokes it when a driven
+  response reports a protocol error.
+- `stream_end_frame` and `on_command_end` run in the inbound handler once the
+  actor has finished driving the response, so one response is terminated and
+  completed exactly once and the actor receives neither hook.
+- `before_send` stays with `FramePipeline` and consequently observes queued
+  pushes as well as response frames. The actor installs no `before_send` hook
+  of its own.
+- `on_connection_setup` runs once per connection from
+  `build_connection_actor`, after the connection's `PushHandle` is published in
+  the `SessionRegistry` and before the actor starts. `on_eof` is never invoked
+  on the prepared path, so a protocol must not rely on it for cleanup or
+  diagnostics.
+- The `WireframeApp` direct response helpers still bypass `before_send`,
+  because they write to a caller-supplied stream outside a prepared connection.
+
+Queued pushes reach the same sink. The inbound loop takes frames from the
+connection's high- and low-priority lanes and writes each one under the stop
+token and the idle grace, through `write_before_bound` in
+`src/connection/writes.rs`. The [developers' guide][push-path] names the
+module-level owner of each boundary and the enqueue-time frame budget.
+
+[push-path]: ../developers-guide.md#server-push-path

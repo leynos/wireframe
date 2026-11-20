@@ -3,6 +3,12 @@
 //! They validate handler invocation, echo responses, and sequential processing.
 #![cfg(not(loom))]
 #![forbid(unsafe_code)]
+#![recursion_limit = "256"]
+
+// The connection pipeline's future nests deeply enough that the pinned nightly
+// used for the dylint gate overflows the default query-depth limit while
+// computing the layout of the async test bodies. The compiler recommends a
+// higher limit for this crate.
 
 use std::sync::{
     Arc,

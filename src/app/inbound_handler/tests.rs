@@ -14,7 +14,10 @@ use tokio_util::codec::{Decoder, Encoder};
 use wireframe_testing::logger;
 
 use super::*;
-use crate::{app::frame_handling, serializer::BincodeSerializer};
+use crate::{
+    app::{frame_handling, inbound_handler::dispatch},
+    serializer::BincodeSerializer,
+};
 
 /// The three ways metadata parsing can lead to a fully decoded envelope.
 #[derive(Clone, Copy, Debug)]

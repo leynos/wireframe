@@ -109,7 +109,9 @@ use crate::{
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
+    push::PushQueuesBuilder,
     serializer::Serializer,
+    session::SessionRegistry,
 };
 
 /// Immutable configuration borrowed by one connection's runtime.
@@ -142,12 +144,16 @@ where
     pub(crate) read_timeout_ms: u64,
     /// Per-connection shutdown signal; cancelling it stops this connection.
     pub(crate) shutdown: &'a CancellationToken,
+    /// Template cloned to build this connection's push queues.
+    pub(crate) push_queues: PushQueuesBuilder<F::Frame>,
+    /// Registry this connection publishes its push handle to.
+    pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
+    /// Peer address of the accepted socket, when the server reported one.
+    pub(crate) peer_addr: Option<SocketAddr>,
     /// Optional hook consulted when a decoder fails on this connection.
     pub(crate) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
     /// Global recovery settings copied for this connection.
     pub(crate) recovery_config: RecoveryConfig,
-    /// Peer address of the accepted connection, when the transport reported one.
-    pub(crate) peer_address: Option<SocketAddr>,
 }
 
 /// Panic payload recovered by [`futures::FutureExt::catch_unwind`].
@@ -260,9 +266,11 @@ where
             memory_budgets,
             read_timeout_ms,
             shutdown,
+            push_queues,
+            session_registry,
+            peer_addr,
             recovery_hook,
             recovery_config,
-            peer_address,
         } = config;
         process_stream(
             stream,
@@ -277,9 +285,11 @@ where
                 memory_budgets,
                 read_timeout_ms,
                 shutdown,
+                push_queues,
+                session_registry,
+                peer_addr,
                 recovery_hook,
                 recovery_config,
-                peer_address,
             },
         )
         .await

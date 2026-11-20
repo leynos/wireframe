@@ -6,7 +6,7 @@
 //! preferring writes that can still complete so that a cancellation observed
 //! mid-drain does not discard output the sink would have accepted.
 
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{future::Future, io, pin::Pin, sync::Arc, time::Duration};
 
 use tokio_util::sync::CancellationToken;
 
@@ -14,6 +14,8 @@ use super::{
     ConnectionActor,
     FrameSink,
     ProgressSignal,
+    PushSink,
+    drain::ActorStep,
     drive::ResponseOutcome,
     event::Event,
     grace::GraceTimer,
@@ -27,6 +29,95 @@ use crate::{
     push::FrameLike,
     response::WireframeError,
 };
+
+/// How a write ended when it was raced against its bounds.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum WriteBound {
+    /// The write completed; its own result reports success or failure.
+    Finished,
+    /// The server stopped while the write was still pending.
+    Stopped,
+    /// The peer stayed unobservable for a whole grace interval.
+    GraceExpired,
+}
+
+impl WriteBound {
+    /// Whether the write reached the transport.
+    ///
+    /// Every caller treats both remaining outcomes as "abandon the write", so
+    /// they ask this rather than matching all three variants themselves.
+    #[must_use]
+    pub(crate) const fn is_finished(self) -> bool { matches!(self, Self::Finished) }
+
+    /// Whether the idle grace, rather than a shutdown, abandoned the write.
+    ///
+    /// Only this outcome means the peer stopped reading, which is what the
+    /// callers warn about.
+    #[must_use]
+    pub(crate) const fn is_grace_expired(self) -> bool { matches!(self, Self::GraceExpired) }
+}
+
+/// One piece of buffered output, tagged by the lane that produced it.
+///
+/// Pushes and frames travel through different sink methods, so the two lanes
+/// only form one write sequence when each item remembers which method it
+/// needs.
+pub(super) enum Output<F, P> {
+    /// A queued push, written before the frames produced with it.
+    Push(P),
+    /// A response frame for the event being dispatched.
+    Frame(F),
+}
+
+/// Await `write`, abandoning it if it cannot finish within its bounds.
+///
+/// The app layer drives writes the actor does not own — one pushed frame
+/// written while the inbound loop waits, and another written while a handler
+/// runs. Both face the same back-pressure, and both need the same bounds the
+/// actor applies to its own output: the server stop token, and the idle grace
+/// once the peer can no longer be observed. Callers rebuild the deadline for
+/// each frame so the grace measures idleness rather than a batch's duration.
+///
+/// A ready write is preferred, for the same reason
+/// [`ConnectionActor::flush_or_cancel`] prefers it: a cancellation observed
+/// while the transport is still accepting frames must not discard output it
+/// would have taken. Only a write that would block is raced against `shutdown`
+/// and `grace`.
+///
+/// `grace` is a deadline the caller has already started or is about to start,
+/// because when it begins depends on when the peer stopped being observable,
+/// not on this call.
+///
+/// # Errors
+///
+/// Returns the transport error reported by `write`.
+///
+/// # Examples
+///
+/// ```ignore
+/// let bound = write_before_bound(write_push(ctx, frame), &shutdown, grace).await?;
+/// if !bound.is_finished() {
+///     return Ok(None);
+/// }
+/// ```
+pub(crate) async fn write_before_bound<W, G>(
+    write: W,
+    shutdown: &CancellationToken,
+    grace: G,
+) -> io::Result<WriteBound>
+where
+    W: Future<Output = io::Result<()>>,
+    G: Future<Output = ()>,
+{
+    tokio::pin!(write);
+    tokio::pin!(grace);
+    tokio::select! {
+        biased;
+        result = &mut write => result.map(|()| WriteBound::Finished),
+        () = shutdown.cancelled() => Ok(WriteBound::Stopped),
+        () = &mut grace => Ok(WriteBound::GraceExpired),
+    }
+}
 
 /// Whether a bounded write finished before the connection was cancelled.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -63,10 +154,11 @@ pub(super) enum WriteLimit {
     Grace,
 }
 
-impl<F, E> ConnectionActor<F, E>
+impl<F, E, P> ConnectionActor<F, E, P>
 where
     F: FrameLike + CorrelatableFrame + Packet,
     E: std::fmt::Debug,
+    P: FrameLike,
 {
     /// Dispatch one event and write its frames.
     ///
@@ -78,24 +170,30 @@ where
     /// Returns a [`WireframeError`] from the event dispatch or the sink.
     pub(super) async fn dispatch_and_write<S>(
         &mut self,
-        event: Event<F, E>,
+        event: Event<F, E, P>,
         state: &mut ActorState,
         sink: &mut S,
     ) -> Result<Option<ResponseOutcome>, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
         let mut frames = Vec::new();
-        self.dispatch_event(event, state, &mut frames)?;
-        if self.flush_or_cancel(frames, sink).await? == WriteOutcome::Cancelled {
+        let mut pushes = Vec::new();
+        let mut step = ActorStep {
+            state,
+            out: &mut frames,
+            pushes: &mut pushes,
+        };
+        self.dispatch_event(event, &mut step)?;
+        if self.flush_or_cancel(pushes, frames, sink).await? == WriteOutcome::Cancelled {
             return Ok(Some(ResponseOutcome::Cancelled));
         }
         self.run_deferred_command_end();
         Ok(None)
     }
 
-    /// Write buffered frames, abandoning them if the connection can no longer
-    /// deliver them.
+    /// Write buffered output, abandoning it if the connection can no longer
+    /// deliver it.
     ///
     /// A peer that stops reading applies back-pressure that can hold a write
     /// pending indefinitely, so a graceful server drain would wait for a peer
@@ -122,23 +220,68 @@ where
     /// Returns a [`WireframeError`] if the sink fails.
     pub(super) async fn flush_or_cancel<S>(
         &mut self,
+        pushes: Vec<P>,
         frames: Vec<F>,
         sink: &mut S,
     ) -> Result<WriteOutcome, WireframeError<E>>
     where
-        S: FrameSink<F> + Send,
+        S: FrameSink<F> + PushSink<P> + Send,
     {
-        for frame in frames {
-            let progress = sink.progress();
-            let outcome = self
-                .write_frame_bounded(sink.send_frame(frame), progress.as_deref())
-                .await
-                .map_err(WireframeError::Io)?;
-            if outcome == WriteOutcome::Cancelled {
+        // Queued pushes go first because the actor produces them before any
+        // response frames from the same event.
+        let output = pushes
+            .into_iter()
+            .map(Output::Push)
+            .chain(frames.into_iter().map(Output::Frame));
+        for item in output {
+            if self.write_output(item, sink).await? == WriteOutcome::Cancelled {
                 return Ok(WriteOutcome::Cancelled);
             }
         }
         Ok(WriteOutcome::Written)
+    }
+
+    /// Write one piece of buffered output under this connection's bounds.
+    ///
+    /// The progress signal is sampled just before the write, so progress
+    /// reported by one frame renews the idle grace for the next.
+    async fn write_output<S>(
+        &mut self,
+        item: Output<F, P>,
+        sink: &mut S,
+    ) -> Result<WriteOutcome, WireframeError<E>>
+    where
+        S: FrameSink<F> + PushSink<P> + Send,
+    {
+        let progress = sink.progress();
+        match item {
+            Output::Push(push) => {
+                self.write_one(sink.send_push(push), progress.as_deref())
+                    .await
+            }
+            Output::Frame(frame) => {
+                self.write_one(sink.send_frame(frame), progress.as_deref())
+                    .await
+            }
+        }
+    }
+
+    /// Write one frame under this connection's bounds.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`WireframeError::Io`] if the sink fails.
+    async fn write_one<Writing>(
+        &mut self,
+        writing: Writing,
+        progress: Option<&ProgressSignal>,
+    ) -> Result<WriteOutcome, WireframeError<E>>
+    where
+        Writing: Future<Output = io::Result<()>>,
+    {
+        self.write_frame_bounded(writing, progress)
+            .await
+            .map_err(WireframeError::Io)
     }
 
     /// Await one write under this connection's write bounds.

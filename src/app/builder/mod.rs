@@ -11,6 +11,7 @@ mod lifecycle;
 mod protocol;
 mod rebuild;
 mod recovery;
+pub(in crate::app) mod push;
 mod routing;
 
 pub use core::WireframeApp;

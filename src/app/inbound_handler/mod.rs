@@ -1,4 +1,43 @@
 //! Inbound connection handling and route preparation utilities.
+//!
+//! Everything between an accepted socket and a dispatched envelope lives here.
+//! A prepared route calls [`process_connection`] with a
+//! [`ConnectionProcessingContext`], which carries the immutable application
+//! inputs for one connection: the middleware chains, serializer, codec,
+//! assembly and fragmentation settings, protocol hooks, read timeout, the
+//! server stop token, the push queue template, the [`SessionRegistry`], and the
+//! peer address. That function owns setup and teardown around the framed work,
+//! which it hands to `core`.
+//!
+//! [`process_connection`] and its inputs are split across the submodules by
+//! responsibility:
+//!
+//! - `core` drives one connection: it prepares framing, hands the response actor its connection
+//!   context, and then waits for pushes or inbound frames on each pass.
+//! - `actor` builds the response actor: `build_connection_actor` allocates the connection's
+//!   identifier and publishes its push handle in one step, and installs the guard that deregisters
+//!   that entry when the connection ends.
+//! - `frames` holds the buffered inbound frame and the read deadline, and runs the timeout's expiry
+//!   command.
+//! - `push_service` races queued pushes against the reader, writes the batch the actor hands over,
+//!   and drains the lanes once the peer closes.
+//! - `push_write` bounds each push write by the stop token and, when the peer can no longer be
+//!   observed, by the idle grace.
+//! - `dispatch` decodes an envelope and runs it through the middleware chain.
+//! - `framing` and `peer_watch` prepare the transport halves and observe the peer while a response
+//!   is written.
+//! - `tests` covers envelope decoding, decode-failure diagnostics, and the unprepared compatibility
+//!   path.
+//!
+//! Route preparation lives here too. The server spawner forwards the accepted
+//! socket's peer address through `PreparedApp::handle_connection_with_shutdown`,
+//! so the TCP path reaches [`process_connection`] with the peer the preamble
+//! hooks were given. The `WireframeApp` compatibility path calls
+//! [`process_connection`] directly from `handle_unprepared_connection_result`,
+//! which is handed a stream rather than an accepted socket, so it passes `None`
+//! and its diagnostics name no peer. Either way the connection's push handle is
+//! registered before the first frame is read and removed again when the loop
+//! ends.
 
 mod actor;
 // The connection-local runtime drives the same frame loop from outside this
@@ -8,6 +47,8 @@ mod dispatch;
 mod frames;
 mod framing;
 mod peer_watch;
+mod push_service;
+mod push_write;
 mod recovery;
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
@@ -18,7 +59,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     Route,
-    builder::WireframeApp,
+    builder::{WireframeApp, push::with_codec_frame_limit},
     connection_runtime::{ConnectionRuntime, InboundConfig},
     envelope::{Envelope, Packet},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
@@ -32,7 +73,9 @@ use crate::{
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
+    push::PushQueuesBuilder,
     serializer::Serializer,
+    session::SessionRegistry,
 };
 
 /// Maximum consecutive deserialization failures before closing a connection.
@@ -70,12 +113,16 @@ where
     pub(crate) read_timeout_ms: u64,
     /// Server shutdown signal; cancelling it stops this connection.
     pub(crate) shutdown: &'a CancellationToken,
+    /// Template cloned to build each connection's push queues.
+    pub(crate) push_queues: PushQueuesBuilder<F::Frame>,
+    /// Registry that each connection registers its push handle with.
+    pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
+    /// Peer address of the accepted socket, when the server reported one.
+    pub(crate) peer_addr: Option<SocketAddr>,
     /// Optional hook consulted when a decoder fails on this connection.
-    pub(crate) recovery_hook: Option<&'a Arc<dyn RecoveryPolicyHook>>,
+    pub(crate) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
     /// Global recovery settings copied for this connection.
     pub(crate) recovery_config: RecoveryConfig,
-    /// Peer address of the accepted connection, when the transport reported one.
-    pub(crate) peer_address: Option<SocketAddr>,
 }
 
 /// Drive a connection using immutable application inputs and prepared routes.
@@ -115,9 +162,11 @@ where
         memory_budgets,
         read_timeout_ms,
         shutdown,
+        push_queues,
+        session_registry,
+        peer_addr,
         recovery_hook,
         recovery_config,
-        peer_address,
     } = context;
 
     let mut runtime = ConnectionRuntime::new(
@@ -133,9 +182,11 @@ where
             memory_budgets,
             read_timeout_ms,
             shutdown,
-            recovery_hook: recovery_hook.map(Arc::as_ref),
+            push_queues,
+            session_registry,
+            peer_addr,
+            recovery_hook,
             recovery_config,
-            peer_address,
         },
     );
 
@@ -225,9 +276,16 @@ where
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
                 shutdown: &shutdown,
-                recovery_hook: self.recovery_hook.as_ref(),
+                push_queues: with_codec_frame_limit(
+                    self.push_queues.clone().unwrap_or_default(),
+                    &self.codec,
+                ),
+                session_registry: Arc::clone(&self.session_registry),
+                // This compatibility path is handed a stream rather than an
+                // accepted socket, so it has no peer address to report.
+                peer_addr: None,
+                recovery_hook: self.recovery_hook.as_deref(),
                 recovery_config: self.recovery_config.clone(),
-                peer_address: None,
             },
         )
         .await

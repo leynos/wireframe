@@ -1,10 +1,9 @@
-//! Dispatching one decoded inbound frame.
+//! Decode, reassemble, and dispatch one inbound application frame.
 //!
-//! Decoding an envelope, reassembling fragments, and handing the result to a
-//! route all describe a single frame, while the read loop in [`super::core`]
-//! owns everything that spans frames. Keeping the per-frame work here lets the
-//! loop name the recovery policy and shutdown rules without threading them
-//! through the dispatch steps.
+//! These helpers turn a codec frame into an [`Envelope`] the middleware chain
+//! can handle. Reassembly and message assembly failures are counted against the
+//! connection's malformed-input budget, which is why the failure counter is
+//! threaded through every stage rather than owned by any one of them.
 
 use std::{collections::HashMap, io, sync::Arc};
 
@@ -55,8 +54,8 @@ where
     pub(super) pipeline: &'a mut FramePipeline<F::Frame>,
     /// Connection-local state for assembling multi-frame messages.
     pub(super) message_assembly: &'a mut Option<MessageAssemblyState>,
-    /// Actor that schedules and delivers handler responses.
-    pub(super) actor: &'a mut ConnectionActor<Envelope, ()>,
+    /// Actor that schedules and delivers handler responses and pushes.
+    pub(super) actor: &'a mut ConnectionActor<Envelope, (), F::Frame>,
     /// Protocol whose terminator and completion hooks follow a response.
     pub(super) protocol:
         Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
@@ -75,57 +74,6 @@ where
     message_assembly: &'a mut Option<MessageAssemblyState>,
     /// Failure counter used to enforce the malformed-input limit.
     deser_failures: &'a mut u32,
-}
-
-/// Detect a bincode budget failure so fallback decoding does not repeat the work.
-fn is_bincode_limit_exceeded(error: &(dyn std::error::Error + 'static)) -> bool {
-    error
-        .downcast_ref::<bincode::error::DecodeError>()
-        .is_some_and(|decode_error| {
-            matches!(decode_error, bincode::error::DecodeError::LimitExceeded)
-        })
-}
-
-/// Decode exactly one envelope, using metadata to select full deserialization.
-pub(super) fn parse_envelope<S>(
-    serializer: &S,
-    payload: &[u8],
-) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>>
-where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
-    Envelope: DecodeWith<S>,
-{
-    let (envelope, consumed) = match serializer.parse(payload) {
-        Ok((parsed_envelope, metadata_bytes_consumed)) => {
-            if serializer.should_deserialize_after_parse() {
-                let context = DeserializeContext {
-                    frame_metadata: payload.get(..metadata_bytes_consumed),
-                    message_id: Some(parsed_envelope.id),
-                    correlation_id: parsed_envelope.correlation_id,
-                    metadata_bytes_consumed: Some(metadata_bytes_consumed),
-                };
-                serializer.deserialize_with_context::<Envelope>(payload, &context)
-            } else {
-                Ok((parsed_envelope, metadata_bytes_consumed))
-            }
-        }
-        Err(error) if is_bincode_limit_exceeded(&error) => {
-            Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
-        }
-        Err(_) => serializer.deserialize::<Envelope>(payload),
-    }?;
-    if consumed != payload.len() {
-        crate::metrics::inc_decode_rejection(
-            crate::metrics::DecodeRejectionPath::Envelope,
-            crate::metrics::DecodeRejectionReason::TrailingBytes,
-        );
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "trailing bytes after envelope: frame must contain exactly one value",
-        )
-        .into());
-    }
-    Ok((envelope, consumed))
 }
 
 /// Decode one frame, apply reassembly, and dispatch the resulting envelope.
@@ -241,4 +189,55 @@ where
     // accumulate towards the close threshold.
     *deser_failures = 0;
     Ok(Some(assembled_envelope))
+}
+
+/// Detect a bincode budget failure so fallback decoding does not repeat the work.
+fn is_bincode_limit_exceeded(error: &(dyn std::error::Error + 'static)) -> bool {
+    error
+        .downcast_ref::<bincode::error::DecodeError>()
+        .is_some_and(|decode_error| {
+            matches!(decode_error, bincode::error::DecodeError::LimitExceeded)
+        })
+}
+
+/// Decode exactly one envelope, using metadata to select full deserialization.
+pub(super) fn parse_envelope<S>(
+    serializer: &S,
+    payload: &[u8],
+) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>>
+where
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    Envelope: DecodeWith<S>,
+{
+    let (envelope, consumed) = match serializer.parse(payload) {
+        Ok((parsed_envelope, metadata_bytes_consumed)) => {
+            if serializer.should_deserialize_after_parse() {
+                let context = DeserializeContext {
+                    frame_metadata: payload.get(..metadata_bytes_consumed),
+                    message_id: Some(parsed_envelope.id),
+                    correlation_id: parsed_envelope.correlation_id,
+                    metadata_bytes_consumed: Some(metadata_bytes_consumed),
+                };
+                serializer.deserialize_with_context::<Envelope>(payload, &context)
+            } else {
+                Ok((parsed_envelope, metadata_bytes_consumed))
+            }
+        }
+        Err(error) if is_bincode_limit_exceeded(&error) => {
+            Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
+        }
+        Err(_) => serializer.deserialize::<Envelope>(payload),
+    }?;
+    if consumed != payload.len() {
+        crate::metrics::inc_decode_rejection(
+            crate::metrics::DecodeRejectionPath::Envelope,
+            crate::metrics::DecodeRejectionReason::TrailingBytes,
+        );
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "trailing bytes after envelope: frame must contain exactly one value",
+        )
+        .into());
+    }
+    Ok((envelope, consumed))
 }

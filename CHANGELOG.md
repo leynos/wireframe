@@ -23,6 +23,46 @@ All notable changes to this project will be documented in this file.
   [migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#removed-extractors-and-app_data).
   ([#877](https://github.com/leynos/wireframe/issues/877))
 
+- Give server connections a push path. `WireframeApp::with_push_queues` stores a
+  `PushQueuesBuilder` template that each accepted connection clones, so every
+  connection gets independent capacity, rate-limiter state, and dead-letter
+  routing, and the template is validated during preparation.
+  `WireframeProtocol::on_connection_setup` receives the connection's
+  `PushHandle`, and `ConnectionContext` now carries the server-allocated
+  `ConnectionId`. `WireframeApp::with_session_registry` shares a
+  `SessionRegistry` that each connection joins before setup and leaves when its
+  task ends; `SessionRegistry::allocate_and_publish` claims an identifier and
+  publishes the handle in one atomic step, from `1`, never reusing one, and
+  skipping an identifier a live entry occupies, and `SessionRegistry::insert`
+  now returns whether it published the handle and refuses to replace a live
+  entry. Deregistration removes an entry only while it still holds the ending
+  connection's own handle. Pushed frames reach the client over the same
+  transport as handler responses, subject to priority, fairness, rate limiting,
+  and the dead-letter queue, and interleave with streamed responses. A clean
+  peer close attempts to drain queued frames, but a write that fails or is
+  abandoned drops the frames still behind it; on shutdown, a handler run that
+  has not yet delivered a push batch keeps its lanes open until it does, after
+  which queued frames are discarded and later pushes fail with
+  `PushError::Closed`. A push whose encoded payload exceeds the connection
+  codec's frame limit is refused with `PushError::FrameTooLarge` before it is
+  queued, so a frame that is already unencodable cannot end the connection
+  after its producer was told the push succeeded. That check runs when the
+  frame is enqueued, before the protocol `before_send` hook; a hook that
+  enlarges a frame past the codec's limit is instead rejected when the frame is
+  written. A template's own `max_frame_len` and the codec's ceiling are both
+  enforced, each with the payload measure it was configured with, so adding the
+  codec limit never relaxes a template's bound. `PushError` gains `RateLimited`:
+  `try_push` draws on the same rate limit as the awaited helpers and refuses
+  rather than waiting when no permit is available. A preamble that encodes to
+  no bytes, including the default `()`, decodes without reading, so a client
+  that sends nothing still reaches connection setup and receives its first push.
+  `PushHandle` and `PushQueuesBuilder` gain `Clone` implementations that do
+  not require `F: Clone`. **Breaking:** `ConnectionContext` is
+  `#[non_exhaustive]` and no longer a unit struct, and
+  `WireframeApp::with_push_dlq` is deprecated since 0.4.0 in favour of a `dlq`
+  sender on the queue template.
+  ([#875](https://github.com/leynos/wireframe/issues/875))
+
 - Add `WireframeApp::route_response` and `ResponseHandler<E>` so a route can
   return a whole `Response`: a single frame, a vector, an empty reply, a
   stream, or a multi-packet channel. Each prepared server connection now owns a
@@ -43,8 +83,9 @@ All notable changes to this project will be documented in this file.
   prepared path no longer decodes that frame into an `Envelope` or restamps its
   correlation identifier. The frame is not byte-preserved: `before_send` still
   runs, and a hook that rewrites frames rewrites the terminator too. The
-  protocol's `on_connection_setup` and `on_eof` remain uninvoked on this path.
-  A peer that disconnects while a streamed response is idle no longer pins the
+  protocol's `on_eof` remains uninvoked on this path; `on_connection_setup` is
+  now invoked there with the connection's `PushHandle`, as described above. A
+  peer that disconnects while a streamed response is idle no longer pins the
   connection: the read half is watched during the response, and the response is
   bounded when a buffered request stops that observation. **Breaking:**
   `PreparedApp::handle_connection_result` and the deprecated

@@ -5,9 +5,10 @@ use crate::response::WireframeError;
 /// Events returned by [`ConnectionActor::next_event`][super::ConnectionActor::next_event].
 ///
 /// Only `Debug` is derived because `WireframeError<E>` does not implement
-/// `Clone` or `PartialEq`.
+/// `Clone` or `PartialEq`. `P` is the push frame type, which differs from the
+/// response frame type when the server owns the connection.
 #[derive(Debug)]
-pub(super) enum Event<F, E> {
+pub(super) enum Event<F, E, P = F> {
     /// Cancellation was observed and all sources must begin shutdown.
     Shutdown,
     /// The peer closed its input half while a response was still in flight.
@@ -16,9 +17,9 @@ pub(super) enum Event<F, E> {
     /// not truncated immediately; see the bounded idle grace in `drive`.
     PeerClosed,
     /// Result from polling the urgent push queue.
-    High(Option<F>),
+    High(Option<P>),
     /// Result from polling the best-effort push queue.
-    Low(Option<F>),
+    Low(Option<P>),
     /// Frames drained from the multi-packet response channel.
     /// Frames are forwarded in channel order after low-priority queues to
     /// preserve fairness and reuse the existing back-pressure.

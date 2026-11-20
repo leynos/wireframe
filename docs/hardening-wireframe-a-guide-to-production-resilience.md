@@ -246,13 +246,19 @@ This pattern entirely prevents the registry from causing memory leaks.
 Connections that never deliver a preamble can tie up sockets and worker tasks.
 `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) wraps `read_preamble` by default; use
 `preamble_timeout` for a different deadline or `disable_preamble_timeout` when
-a peer legitimately needs unbounded waiting. The opt-out does not make the
-server speak first: the preamble is read before the server writes, so
-server-first protocols need their greeting from an outer layer. Expiry routes
-through the failure callback. Because the failure handler is asynchronous and
-receives the `TcpStream`, it can emit a protocol-specific error before the
-socket closes. This keeps resource usage bounded while preserving custom
-handshake responses.
+a peer legitimately needs unbounded waiting. The opt-out does not by itself
+make the server speak first: a non-empty preamble is read before the server
+writes, so such a server-first protocol needs its greeting from an outer layer.
+A preamble that encodes to no bytes, such as a unit `()`, reads nothing and
+lets application code greet the peer. Expiry routes through the failure
+callback. Because the failure handler is asynchronous and receives the
+`TcpStream`, it can emit a protocol-specific error before the socket closes.
+The deadline therefore bounds the read alone, not the failure callback that
+follows it: the socket-holding read cannot outlast the configured interval,
+while custom handshake responses stay possible. The callback itself is not
+bounded by that interval, so each handshake step is also raced against the
+server's stop token: a stop releases the socket, the task and its guard without
+waiting for a callback that never finishes.
 
 ## 4. Denial-of-Service (DoS) Mitigation
 

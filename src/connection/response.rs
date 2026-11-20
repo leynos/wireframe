@@ -15,10 +15,11 @@ use crate::{
     response::WireframeError,
 };
 
-impl<F, E> ConnectionActor<F, E>
+impl<F, E, P> ConnectionActor<F, E, P>
 where
     F: FrameLike + CorrelatableFrame + Packet,
     E: std::fmt::Debug,
+    P: FrameLike,
 {
     /// Handle the next frame or error from the streaming response.
     pub(super) fn process_response(

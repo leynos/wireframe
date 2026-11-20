@@ -12,7 +12,9 @@ use crate::{
     codec::FrameCodec,
     hooks::WireframeProtocol,
     message_assembler::MessageAssembler,
+    push::PushQueuesBuilder,
     serializer::Serializer,
+    session::SessionRegistry,
 };
 
 /// Groups the type-changing parameters for [`WireframeApp::rebuild_with_params`].
@@ -27,6 +29,10 @@ pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     pub(super) codec: F2,
     /// Protocol hook whose frame type matches the replacement codec.
     pub(super) protocol: Option<Arc<dyn WireframeProtocol<Frame = F2::Frame, ProtocolError = ()>>>,
+    /// Push-queue template matching the replacement codec's frame type.
+    pub(super) push_queues: Option<PushQueuesBuilder<F2::Frame>>,
+    /// Registry matching the replacement codec's frame type.
+    pub(super) session_registry: Arc<SessionRegistry<F2::Frame>>,
     /// Fragmentation settings retained across a type transition.
     pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Message assembler retained across a type transition.
@@ -66,6 +72,8 @@ where
             on_disconnect: self.on_disconnect,
             protocol: params.protocol,
             push_dlq: self.push_dlq,
+            push_queues: params.push_queues,
+            session_registry: params.session_registry,
             codec: params.codec,
             read_timeout_ms: self.read_timeout_ms,
             fragmentation: params.fragmentation,
@@ -96,6 +104,8 @@ where
             on_disconnect: None,
             protocol: self.protocol,
             push_dlq: self.push_dlq,
+            push_queues: self.push_queues,
+            session_registry: self.session_registry,
             codec: self.codec,
             read_timeout_ms: self.read_timeout_ms,
             fragmentation: self.fragmentation,

@@ -682,11 +682,10 @@ cited section names the specific question it answers.
   the decision in an ADR and add tests for both conforming and violating
   inputs. Requires 15.1.1. See §"Is `total_body_len` authoritative or
   advisory?". Success criteria: an ADR records the decision, runtime code
-  enforces the chosen semantics, and tests verify both conforming and violating
-  inputs. See
-  [ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md); issue
-  [#544](https://github.com/leynos/wireframe/issues/544) added conformance and
-  violation coverage.
+  enforces the contract, and tests verify both conforming and violating inputs.
+  See [ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md);
+  issue [#544](https://github.com/leynos/wireframe/issues/544) added
+  conformance and violation coverage.
 - [ ] 15.2.3. Publish named fairness and priority guarantees for
   `ConnectionActor` and encode them as model properties for Stateright checks.
   Requires 15.1.1. See §"What fairness guarantee does `ConnectionActor`
@@ -894,7 +893,9 @@ ecosystem.
 ### 18.1. Alternative transports
 
 - [ ] 18.1.1. Abstract the transport layer to support protocols other than raw
-  TCP (e.g., WebSockets, QUIC).
+  TCP (e.g., WebSockets, QUIC). The supplied byte-stream/read-write-half slice
+  belongs to 21.8.5; negotiated transitions remain in 21.3.1 and parsed-frame
+  bridging in 21.6.1. Reuse those entry points rather than add another runtime.
 
 ### 18.2. Message versioning
 
@@ -965,11 +966,23 @@ parallel runtime.
 Idea: if the first vertical slice lets `mxd` serve Hotline through generic
 public Wireframe primitives while the same APIs serve Modbus TCP, then
 Wireframe has a useful native-protocol framework without making Hotline its
-sole purpose. Each slice delivers a named toy server with independent wire
-fixtures. Existing protocol libraries may be test-only oracles when licensed;
-production code uses Wireframe primitives. Pre-1.0 APIs may be replaced. See the
+sole purpose. Magitek adds a standalone bounded Agent Client Protocol (ACP)
+consumer that tests JSONL framing, retained ownership, and bilateral progress.
+Each slice delivers a named toy with independent wire fixtures. Existing
+protocol libraries may be test-only oracles when licensed; production code uses
+Wireframe primitives. Pre-1.0 APIs may be replaced. See the
 [gap survey](wire-protocol-gap-analysis-survey.md) and
 [RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md)–[RFC 0009](rfcs/rfc-0009-datagram-session-transport.md).
+
+These RFCs and unchecked tasks specify proposed work, not shipped guarantees.
+Task IDs organize scope rather than execution order: explicit prerequisites
+allow the ACP slice in 21.8 to run without database, datagram, or WebSocket
+completion. It strengthens the shared 20.1.3/21.2 runtime, not a parallel
+actor. Magitek's
+[pinned design](https://github.com/leynos/magitek/blob/bfef49cbf10912ccf8ed246d4760bbb21f96c01b/docs/magitek-design.md)
+provides consumer requirements, not an external release prerequisite. Preserve
+completed historical records while replacing their envelope/codec assumptions
+where the new contracts require it. Package extraction remains optional.
 
 ### 21.1. Prove the native adapter with mxd and Modbus
 
@@ -983,7 +996,9 @@ the shared connection-local lifecycle from 20.1.3 and test harness work from
   toy server and a Modbus TCP toy server. See
   [RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md).
   - Preserve Hotline's native header fields without a compulsory Envelope.
-  - Preserve Modbus transaction and unit identifiers.
+  - Preserve Modbus transaction and unit identifiers. Support independent
+    inbound/outbound frame and reply-context types without mandatory bincode,
+    numeric routes, or correlation casts; local tickets are not wire IDs.
   - Success: both server adapters use the same public API and pass independent
     fixtures. No server is called delivered until it is runnable.
 - [ ] 21.1.2. Implement configurable length framing required by both toy
@@ -997,7 +1012,10 @@ the shared connection-local lifecycle from 20.1.3 and test harness work from
   reads, writes, and time. See
   [RFC 0008](rfcs/rfc-0008-external-adapter-conformance-harness.md).
   - Requires 21.1.1.
-  - Success: raw peer fixtures can exercise the production public entry point.
+  - Success: raw peer fixtures exercise public entry points with controllable
+    split reads, short writes, byte-boundary failures, and clock advancement.
+    Scripts and counted ownership helpers also work with separately supplied
+    halves and an initiating client, without requiring a TCP server wrapper.
 
 ### 21.2. Integrate budgets, duplex sessions, and mxd
 
@@ -1006,16 +1024,26 @@ while bounding native message assembly. It consolidates work already named by
 20.1.3; that task owns the shared connection runtime, and this step validates
 it with consumers.
 
-- [ ] 21.2.1. Implement channel-aware budgets and bounded assembly for Hotline
-  and Modbus. See [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
-  - Requires 21.1.2 and 21.1.3.
-  - Success: oversized and incomplete messages stay within configured memory
-    and time limits; one channel cannot starve another.
-- [ ] 21.2.2. Implement the connection-local duplex driver for Hotline and
-  Modbus. See [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md).
-  - Requires 21.2.1 and 20.1.3.
-  - Success: a stalled handler cannot block control reads or an unrelated
-    connection; cancellation and close reclaim tasks and queued output.
+- [ ] 21.2.1. Implement the hierarchical reservation kernel and integrate
+  channel-aware bounded assembly for Hotline and Modbus. See
+  [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
+  - Requires 21.1.2, 21.1.3, and 21.8.1.
+  - Success: atomic shared-host/connection/key/stage reservations precede
+    retention, reject overflow, and roll back without holding partial permits
+    while waiting. Assembly completion transfers its payload charge; independent
+    lanes have finite control capacity and stated scheduling guarantees.
+- [ ] 21.2.2. Implement the full-duplex connection actor on the shared
+  connection-local runtime for Hotline, Modbus, and standalone consumers. See
+  [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md).
+  - Requires 21.2.1, 21.8.2, and 20.1.3.
+  - Success: reads, reply routing, admitted completions, deadlines, and
+    cancellation progress while a handler, response stream, or writer is
+    pending. One writer retains partial-write state; finite per-poll work and
+    bounded reorder lanes preserve declared causality without task-per-frame
+    growth. Saturation yields an explicit bounded failure, not an impossible
+    guarantee to bypass unread bytes. Close settles operations once while
+    outstanding ownership remains charged. Validate Hotline and Modbus here;
+    21.8.5–21.8.9 integrate and qualify the ACP consumer path.
 - [ ] 21.2.3. Validate mxd's migration against its pinned Hotline fixtures and
   deliver standalone Hotline and Modbus toy servers. See
   [RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md), [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md),
@@ -1152,16 +1180,134 @@ and sessions. OpenRA fan-out is validated in 21.4.4.
   linking runnable toy, independent oracle, licence, malformed corpus, bounds,
   and verified behaviour. See
   [RFC 0008](rfcs/rfc-0008-external-adapter-conformance-harness.md).
-  - Requires steps 21.1-21.6.
+  - Requires steps 21.1-21.6 and 21.8.10.
   - Include Hotline, Modbus, OSCAR, WebSocket, RTSP 1.0/2.0, AMQP 0-9-1/1.0,
     Kafka, MySQL, MariaDB, PostgreSQL, IEC 104, DNP3 IEEE Std 1815-2010,
-    OpenRA, and Quake 3.
+    OpenRA, Quake 3, and the mandatory ACP v1 JSONL/Magitek bounded profile.
   - Generate lifecycle, ordered-completion, setup-transition, reservation,
     scheduling, and datagram traces with `proptest`. Assert each operation
-    context is consumed on completion or released on termination exactly once,
-    and each reservation is released exactly once. Check ordering, byte
+    context settles exactly once, while retained ownership keeps its charge
+    until final release. Check ordering, byte
     conservation, finite budgets, and datagram boundaries under faults.
   - Success: every profile has a runnable server and independent peer, golden
     vectors, split/coalescing and malformed/truncation tests, budget and
     lifecycle checks, and offline execution. No protocol implementation appears
     in Wireframe production dependencies.
+
+### 21.8. Qualify bounded standalone consumers with ACP
+
+Idea: the same native frame, budget, and full-duplex APIs can serve Magitek
+without requiring the Wireframe server router or an embedded ACP engine. The
+idea fails if a codec adapter, SDK handoff, consumer lease, or reconnect hides
+retained work. These tasks extend the shared implementation, not a second
+budget library or connection actor. Use
+[RFC 0008's mandatory ACP corpus](rfcs/rfc-0008-external-adapter-conformance-harness.md#mandatory-acp-v1-and-jsonl-toy)
+for acceptance; the broader protocol matrix does not gate this slice.
+
+- [ ] 21.8.1. Implement immutable, expressive resource-policy validation.
+  - Requires 21.1.1 and 21.1.3.
+  - See [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
+  - Success: finite typed units distinguish input/output wire bytes, backing
+    capacity, decoded nodes/depth, metadata, actions, pending requests, routes,
+    handler/CPU jobs, waiters, issued events, and retained generations. Checked
+    cross-field rules reject overflow, impossible parent/child limits, and
+    reserves that exhaust ordinary capacity. Each class has a named enforcement
+    point; no unbounded peer-defined classes or silently clamped limits exist.
+- [ ] 21.8.2. Implement charged ownership transfer and generation retirement.
+  - Requires 21.2.1.
+  - See [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
+  - Success: move, copy, shared backing views, bounded destination transfer,
+    and cancelled transfer preserve the ledger. Issued empty/null events and
+    live workers retain item/node/byte charges after close; old generations
+    keep connection permits until retirement. Bounded FIFO admission has
+    explicit waiter deadlines and no hidden payload queue. Properties cover
+    rollback, final release, and repeated replacement without account reset.
+- [ ] 21.8.3. Implement bounded delimiter framing and a raw JSONL codec.
+  - Requires 21.1.2, 21.1.3, and 21.2.1.
+  - See [RFC 0006](rfcs/rfc-0006-configurable-framing-primitives.md).
+  - Success: independent directional limits include declared delimiter storage;
+    original bytes, payload spans, and LF/optional CRLF metadata survive
+    inspection. Receive capacity is reserved before read/growth. Exact-limit,
+    one-byte-over, every split point, coalescing, and incomplete-EOF fixtures
+    agree across chunk partitions. Incremental scans stay bounded and trickles
+    cannot reset the first-byte deadline. Framing does not parse JSON objects.
+- [ ] 21.8.4. Integrate admitted semantic decoding and bounded encoding.
+  - Requires 21.8.2 and 21.8.3.
+  - See [RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md),
+    [RFC 0006](rfcs/rfc-0006-configurable-framing-primitives.md), and
+    [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
+  - Success: public adapters reserve structural expansion and queued/running
+    work before materialization, bound output including temporary serialization,
+    and preserve ingress order through charged reorder storage. The external
+    JSON adapter rejects duplicate keys, unsupported batches, and excessive
+    nodes/depth. Control-envelope fit includes escaped IDs and delimiters;
+    already-encoded frames do not receive duplicate wrapping. No ACP parser or
+    SDK enters Wireframe's production dependency graph.
+- [ ] 21.8.5. Expose supplied transport halves and role-neutral driver APIs.
+  - Requires 21.2.2 and 21.8.4.
+  - See [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md) and
+    [RFC 0005](rfcs/rfc-0005-negotiated-transport-entry-points.md).
+  - Success: the same actor runs as initiating or accepting peer over an owned
+    stream or separately typed read/write halves, without a TCP listener,
+    compulsory preamble, private runtime, or server application. Qualify
+    transport buffering, flush, and half-close semantics; keep diagnostics and
+    external process status separate. Public examples cover stdio-style and
+    in-memory transports. Negotiated upgrades and durable reattachment remain
+    separate capabilities, not prerequisites or implied guarantees.
+- [ ] 21.8.6. Implement publication evidence and pressure-independent closure.
+  - Requires 21.8.5.
+  - See [RFC 0004](rfcs/rfc-0004-duplex-session-driver.md) and
+    [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md).
+  - Success: queued withdrawal is atomic with first possible publication;
+    partial writes preserve uncertainty and never replay. Reserve response
+    obligations before reverse handlers and terminal status at admission.
+    Admission, processing, writer queue/transmission, drain, and close deadlines
+    have tested start points. Causal control priority never interrupts a frame.
+    Saturated consumers can observe primary failure and outstanding cleanup;
+    close cannot reclaim still-owned worker or lease data.
+- [ ] 21.8.7. Deliver the mandatory runnable ACP v1 toy and independent peers.
+  - Requires 21.8.6.
+  - See [RFC 0008](rfcs/rfc-0008-external-adapter-conformance-harness.md).
+  - Success: pinned offline fixtures initialize, create a session, prompt,
+    stream updates, perform reverse permission request/reply, cancel, and
+    validate the terminal result. Both initiating-host and toy-agent roles use
+    public APIs over separate halves and stdio-style subprocess I/O. String and
+    numeric IDs, direction-scoped correlation, notifications, extension
+    fidelity, and stale replies survive the tests without envelope conversion.
+    Record independent provenance, licences, exact limits, and unsupported
+    capabilities. No paid inference or Magitek release gates delivery.
+- [ ] 21.8.8. Qualify byte-preserving enforced proxy use without ACP sessions.
+  - Requires 21.8.4 and 21.8.7.
+  - See [RFC 0006](rfcs/rfc-0006-configurable-framing-primitives.md) and
+    [RFC 0008](rfcs/rfc-0008-external-adapter-conformance-harness.md).
+  - Success: a standalone proxy inspects admitted frames and forwards allowed
+    bytes/line endings unchanged while retaining charges through short writes.
+    Oversize, malformed, unsupported, and partial-EOF input closes explicitly;
+    no path downgrades to uninspected forwarding. A transparent mode, if
+    offered, makes no enforcement claim. The proxy needs neither a server
+    router nor a second JSON-RPC correlation engine.
+- [ ] 21.8.9. Verify combined overload, ownership, and full-duplex invariants.
+  - Requires 21.8.7 and 21.8.8.
+  - See
+    [RFC 0002](rfcs/rfc-0002-model-checking-the-connection-actors-write-loop.md),
+    [RFC 0007](rfcs/rfc-0007-budgets-scheduling-and-assembly.md), and
+    [RFC 0008](rfcs/rfc-0008-external-adapter-conformance-harness.md).
+  - Success: generated traces and a bounded model exercise actual scheduling,
+    reservation, publication, and close decisions. Combine update floods,
+    permission waits, blocked writers, held leases, delayed workers, noisy/quiet
+    connections, and generation churn. Assert conservation, honest submission,
+    causal ordering, visible terminal failure, and conditional progress under
+    explicit service assumptions. Record executed-test/model counts and all
+    retained-after-close ownership; distinguish ledger usage from process RSS.
+- [ ] 21.8.10. Publish native API migration and consumer qualification evidence.
+  - Requires 21.8.9.
+  - See [RFC 0003](rfcs/rfc-0003-native-message-adapter-boundary.md) and
+    [RFC 0008](rfcs/rfc-0008-external-adapter-conformance-harness.md).
+  - Success: compile-time examples prove asymmetric frame types, opaque reply
+    contexts, non-numeric correlation, standalone reservations, and optional
+    envelope/serializer bridges across client and server paths. Update affected
+    ADRs and guides with removed assumptions, bounded-profile exclusions, and
+    migration steps; reconcile phases 11–12 rather than duplicate their byte
+    migration. Publish the ACP/proxy evidence and enforcement-point map, naming
+    any unqualified downstream SDK path without claiming it is bounded. Actual
+    Magitek adoption remains a separately recorded downstream result.

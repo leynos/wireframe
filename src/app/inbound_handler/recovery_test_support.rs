@@ -176,6 +176,7 @@ pub(super) fn inbound_with_pending_failure() -> InboundFrames<DecodedItem<u8>, u
         pending: Some(DecodedItem::Failure(protocol_failure())),
         pipeline: FramePipeline::new(None),
         message_assembly: None,
+        read_deadline: None,
     }
 }
 

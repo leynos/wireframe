@@ -8,6 +8,7 @@ mod core;
 mod decode;
 mod reassembly;
 mod response;
+mod response_pushes;
 
 pub(crate) use core::{DeserFailureTracker, ResponseContext};
 
@@ -34,6 +35,8 @@ mod backpressure_tests;
 mod completion_tests;
 #[cfg(all(test, not(loom)))]
 mod delivery_span_tests;
+#[cfg(all(test, not(loom)))]
+mod response_pushes_tests;
 #[cfg(all(test, not(loom)))]
 mod terminator_tests;
 #[cfg(all(test, not(loom)))]

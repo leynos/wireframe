@@ -80,9 +80,13 @@ where
         memory_budgets: prepared.memory_budgets,
         read_timeout_ms: prepared.read_timeout_ms,
         shutdown,
-        recovery_hook: prepared.recovery_hook.as_ref(),
+        push_queues: prepared.push_queues(),
+        session_registry: Arc::clone(&prepared.session_registry),
+        // These cases drive a duplex stream rather than an accepted socket,
+        // so there is no peer address to report.
+        peer_addr: None,
+        recovery_hook: prepared.recovery_hook.as_deref(),
         recovery_config: prepared.recovery_config.clone(),
-        peer_address: None,
     }
 }
 

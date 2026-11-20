@@ -1,11 +1,21 @@
 //! Unit tests for connection actor scheduling and response installation.
 
 mod completion;
+
 mod grace;
+
 mod grace_warning;
+
+mod push_ordering;
+
 mod shutdown_drain;
+
 mod stream_correlation;
+
 mod vec_delivery;
+
+mod write_bound_property;
+
 mod writes;
 
 use std::sync::{
@@ -19,7 +29,13 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::{ConnectionActor, ConnectionChannels, event::Event, state::ActorState};
+use super::{
+    ConnectionActor,
+    ConnectionChannels,
+    UntrackedActorInit,
+    event::Event,
+    state::ActorState,
+};
 use crate::{
     app::Envelope,
     hooks::ProtocolHooks,
@@ -42,12 +58,13 @@ fn test_actor_with_shutdown(
         .high_capacity(1)
         .low_capacity(1)
         .build()?;
-    Ok(ConnectionActor::new_untracked(
-        ConnectionChannels::new(queues, handle),
-        None,
+    Ok(ConnectionActor::new_untracked(UntrackedActorInit {
+        channels: ConnectionChannels::new(queues, handle),
+        response: None,
         shutdown,
         hooks,
-    ))
+        ctx: crate::hooks::ConnectionContext::default(),
+    }))
 }
 
 fn counting_hooks(calls: Arc<AtomicUsize>) -> ProtocolHooks<Envelope, ()> {
