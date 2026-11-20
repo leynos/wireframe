@@ -140,8 +140,10 @@ enum Reader {
 fn settle_admission<T>(settled: AdmissionStep, reader: Reader) -> AdmissionWait<T> {
     match (settled, reader) {
         (AdmissionStep::Handler(outcome), _) => AdmissionWait::Handler(outcome),
-        (AdmissionStep::Continue, _) => AdmissionWait::Continue,
-        (AdmissionStep::Stalled, Reader::Watched) => AdmissionWait::Continue,
+        // A stalled admission only ends the step when the loop has stopped
+        // observing the peer. Otherwise the next step resumes the wait, and a
+        // settled admission continues as well.
         (AdmissionStep::Stalled, Reader::Held) => AdmissionWait::Stalled,
+        _ => AdmissionWait::Continue,
     }
 }
