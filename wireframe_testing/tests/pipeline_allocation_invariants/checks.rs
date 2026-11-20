@@ -12,6 +12,7 @@ use wireframe_testing::{
         LARGE_PAYLOAD_BYTES,
         PayloadClass,
         SMALL_PAYLOAD_BYTES,
+        StageOutcome,
         VALIDATION_ITERATIONS,
         hook_payload_handoff,
         middleware_payload_handoff,
@@ -30,6 +31,74 @@ use super::support::{
     traffic,
     workload,
 };
+
+/// Every check, with the name the harness prints before running it.
+///
+/// The order matters: the harness self-check and the noise-floor probe come
+/// first, because every later bound is meaningless if the instrument is not
+/// observing the allocator.
+pub(super) const CHECKS: [(&str, fn()); 15] = [
+    (
+        "the allocation harness observes real traffic",
+        harness_observes_real_traffic,
+    ),
+    (
+        "a window reports the bytes it allocated",
+        windows_report_their_bytes,
+    ),
+    (
+        "a growing reallocation reports the growth",
+        growing_reallocation_reports_growth,
+    ),
+    (
+        "idle windows report no traffic",
+        idle_windows_report_no_traffic,
+    ),
+    (
+        "read-only middleware preserves the payload buffer",
+        middleware_preserves_buffer,
+    ),
+    (
+        "read-only hooks preserve the payload buffer",
+        hooks_preserve_buffer,
+    ),
+    (
+        "a mutating hook changes the buffer",
+        mutating_hook_changes_buffer,
+    ),
+    (
+        "a copying hook relocates the buffer",
+        copying_hook_relocates_buffer,
+    ),
+    (
+        "a copying middleware relocates the buffer",
+        copying_middleware_relocates_buffer,
+    ),
+    (
+        "read-only middleware batches allocate the same across payload classes",
+        read_only_middleware_counts_match,
+    ),
+    (
+        "one read-only middleware pass allocates less than the payload",
+        read_only_middleware_pass_stays_below_payload,
+    ),
+    (
+        "a read-only hook batch allocates less than the payload",
+        read_only_hooks_stay_below_payload,
+    ),
+    (
+        "the copying middleware keeps the count relation",
+        copying_middleware_counts_match,
+    ),
+    (
+        "one copying middleware pass exceeds the payload bound",
+        copying_middleware_pass_exceeds_payload,
+    ),
+    (
+        "a copying hook batch exceeds the payload bound",
+        copying_hooks_exceed_payload,
+    ),
+];
 
 /// The binary must be instrumented at all.
 ///
@@ -103,45 +172,63 @@ pub(super) fn idle_windows_report_no_traffic() {
     );
 }
 
-/// The read-only middleware returns the buffer it was handed.
-pub(super) fn middleware_preserves_buffer() {
+/// Drives one middleware payload pass and reports what it did to the buffer.
+fn middleware_pass(payload_class: PayloadClass, access_mode: AccessMode) -> StageOutcome {
+    test_runtime().block_on(middleware_payload_handoff(
+        workload(payload_class),
+        access_mode,
+    ))
+}
+
+/// Drives one hook payload pass and reports what it did to the buffer.
+fn hook_pass(payload_class: PayloadClass, access_mode: AccessMode) -> StageOutcome {
+    hook_payload_handoff(workload(payload_class), access_mode)
+}
+
+/// Asserts a read-only stage returns the buffer it was handed, unchanged.
+///
+/// `stage` names the row in the failure message, and `pass` runs the stage for
+/// one payload class, so both read-only rows assert the same two claims.
+fn assert_read_only_stage_preserves(stage: &str, pass: impl Fn(PayloadClass) -> StageOutcome) {
     for payload_class in [PayloadClass::Small, PayloadClass::Large] {
-        let outcome = test_runtime().block_on(middleware_payload_handoff(
-            workload(payload_class),
-            AccessMode::ReadOnly,
-        ));
+        let outcome = pass(payload_class);
 
         assert!(
             outcome.is_payload_preserved(),
-            "read-only middleware relocated the {payload_class:?} payload buffer: {} -> {}",
+            "read-only {stage} relocated the {payload_class:?} payload buffer: {} -> {}",
             outcome.arrival_address,
             outcome.departure_address
         );
         assert_eq!(
             outcome.payload.as_slice(),
             payload_for_class(payload_class),
-            "read-only middleware must not rewrite the {payload_class:?} payload"
+            "read-only {stage} must not rewrite the {payload_class:?} payload"
         );
     }
 }
 
+/// Asserts the seeded fault moved the buffer, which is what makes a row prove
+/// the pointer comparison runs at all.
+fn assert_copying_stage_relocates(stage: &str, outcome: &StageOutcome) {
+    assert!(
+        !outcome.is_payload_preserved(),
+        "a copying {stage} must allocate a new buffer; it reported {} on both sides",
+        outcome.departure_address
+    );
+}
+
+/// The read-only middleware returns the buffer it was handed.
+pub(super) fn middleware_preserves_buffer() {
+    assert_read_only_stage_preserves("middleware", |payload_class| {
+        middleware_pass(payload_class, AccessMode::ReadOnly)
+    });
+}
+
 /// The read-only hook returns the buffer it was handed.
 pub(super) fn hooks_preserve_buffer() {
-    for payload_class in [PayloadClass::Small, PayloadClass::Large] {
-        let outcome = hook_payload_handoff(workload(payload_class), AccessMode::ReadOnly);
-
-        assert!(
-            outcome.is_payload_preserved(),
-            "read-only hook dispatch relocated the {payload_class:?} payload buffer: {} -> {}",
-            outcome.arrival_address,
-            outcome.departure_address
-        );
-        assert_eq!(
-            outcome.payload.as_slice(),
-            payload_for_class(payload_class),
-            "read-only hook dispatch must not rewrite the {payload_class:?} payload"
-        );
-    }
+    assert_read_only_stage_preserves("hook dispatch", |payload_class| {
+        hook_pass(payload_class, AccessMode::ReadOnly)
+    });
 }
 
 /// A mutating hook must be seen to change the buffer, or the hook row proves
@@ -158,27 +245,16 @@ pub(super) fn mutating_hook_changes_buffer() {
 
 /// The seeded fault must break the pointer assertion for the hook row.
 pub(super) fn copying_hook_relocates_buffer() {
-    let outcome = hook_payload_handoff(workload(PayloadClass::Large), AccessMode::Copying);
+    let outcome = hook_pass(PayloadClass::Large, AccessMode::Copying);
 
-    assert!(
-        !outcome.is_payload_preserved(),
-        "a copying hook must allocate a new buffer; it reported {} on both sides",
-        outcome.departure_address
-    );
+    assert_copying_stage_relocates("hook", &outcome);
 }
 
 /// The seeded fault must break the pointer assertion for the middleware row.
 pub(super) fn copying_middleware_relocates_buffer() {
-    let outcome = test_runtime().block_on(middleware_payload_handoff(
-        workload(PayloadClass::Large),
-        AccessMode::Copying,
-    ));
+    let outcome = middleware_pass(PayloadClass::Large, AccessMode::Copying);
 
-    assert!(
-        !outcome.is_payload_preserved(),
-        "a copying middleware must allocate a new buffer; it reported {} on both sides",
-        outcome.departure_address
-    );
+    assert_copying_stage_relocates("middleware", &outcome);
 }
 
 /// Traversal allocates the same number of times whatever the payload size.
