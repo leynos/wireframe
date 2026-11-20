@@ -37,11 +37,7 @@ use wireframe_testing::benchmark_alloc_support::{INSTRUMENTED_SYSTEM, StatsAlloc
 #[global_allocator]
 static GLOBAL_ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 
-/// Runs every check in a fixed order.
-///
-/// The order matters: the harness self-check and the noise-floor probe come
-/// first, because every later bound is meaningless if the instrument is not
-/// observing the allocator.
+/// Runs every check in the order [`checks::CHECKS`] states.
 ///
 /// Progress goes to stdout through `Write` rather than `println!`, because the
 /// workspace denies `clippy::print_stdout` and this binary has no libtest
@@ -54,69 +50,7 @@ static GLOBAL_ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 /// harness itself can produce.
 fn main() -> io::Result<()> {
     let mut stdout = io::stdout().lock();
-    let checks: [(&'static str, fn()); 15] = [
-        (
-            "the allocation harness observes real traffic",
-            checks::harness_observes_real_traffic,
-        ),
-        (
-            "a window reports the bytes it allocated",
-            checks::windows_report_their_bytes,
-        ),
-        (
-            "a growing reallocation reports the growth",
-            checks::growing_reallocation_reports_growth,
-        ),
-        (
-            "idle windows report no traffic",
-            checks::idle_windows_report_no_traffic,
-        ),
-        (
-            "read-only middleware preserves the payload buffer",
-            checks::middleware_preserves_buffer,
-        ),
-        (
-            "read-only hooks preserve the payload buffer",
-            checks::hooks_preserve_buffer,
-        ),
-        (
-            "a mutating hook changes the buffer",
-            checks::mutating_hook_changes_buffer,
-        ),
-        (
-            "a copying hook relocates the buffer",
-            checks::copying_hook_relocates_buffer,
-        ),
-        (
-            "a copying middleware relocates the buffer",
-            checks::copying_middleware_relocates_buffer,
-        ),
-        (
-            "read-only middleware batches allocate the same across payload classes",
-            checks::read_only_middleware_counts_match,
-        ),
-        (
-            "one read-only middleware pass allocates less than the payload",
-            checks::read_only_middleware_pass_stays_below_payload,
-        ),
-        (
-            "a read-only hook batch allocates less than the payload",
-            checks::read_only_hooks_stay_below_payload,
-        ),
-        (
-            "the copying middleware keeps the count relation",
-            checks::copying_middleware_counts_match,
-        ),
-        (
-            "one copying middleware pass exceeds the payload bound",
-            checks::copying_middleware_pass_exceeds_payload,
-        ),
-        (
-            "a copying hook batch exceeds the payload bound",
-            checks::copying_hooks_exceed_payload,
-        ),
-    ];
-    for (name, check) in checks {
+    for (name, check) in checks::CHECKS {
         writeln!(stdout, "{name} ...")?;
         check();
         writeln!(stdout, "    ok")?;

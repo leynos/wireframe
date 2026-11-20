@@ -38,6 +38,15 @@ pub struct ZeroCopyBaselineWorld {
     decoded_payload_bytes: Option<u64>,
 }
 
+/// What a scenario expects a stage to do with the payload buffer.
+#[derive(Debug, Clone, Copy)]
+enum BufferExpectation {
+    /// The stage must hand on the buffer it received.
+    Preserved,
+    /// The stage must allocate a replacement buffer.
+    Relocated,
+}
+
 /// Build the zero-copy baseline world on a current-thread runtime.
 ///
 /// # Errors
@@ -85,24 +94,54 @@ impl ZeroCopyBaselineWorld {
         )));
     }
 
+    /// The last middleware pass, or the error a scenario without one reports.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when no pass has run, so a scenario cannot assert on a
+    /// stage it never drove.
+    fn last_stage(&self) -> TestResult<&StageOutcome> {
+        self.stage
+            .as_ref()
+            .ok_or("no middleware pass was performed")
+            .map_err(Into::into)
+    }
+
+    /// Asserts the stage did what `expectation` states with the payload buffer.
+    ///
+    /// Both buffer assertions are the same question with opposite answers, so
+    /// the error message reports the addresses the stage actually used rather
+    /// than only the outcome that was wanted.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the stage did the opposite of `expectation`.
+    fn assert_buffer_outcome(&self, expectation: BufferExpectation) -> TestResult {
+        let stage = self.last_stage()?;
+        let is_preserved = stage.is_payload_preserved();
+        match expectation {
+            BufferExpectation::Preserved if is_preserved => Ok(()),
+            BufferExpectation::Relocated if !is_preserved => Ok(()),
+            BufferExpectation::Preserved => Err(format!(
+                "the payload buffer moved: {} -> {}",
+                stage.arrival_address, stage.departure_address
+            )
+            .into()),
+            BufferExpectation::Relocated => Err(format!(
+                "a copying middleware kept the payload buffer at {}",
+                stage.departure_address
+            )
+            .into()),
+        }
+    }
+
     /// Asserts the stage returned the buffer it was handed.
     ///
     /// # Errors
     ///
     /// Returns an error if the stage relocated the payload buffer.
     pub fn assert_payload_buffer_preserved(&self) -> TestResult {
-        let stage = self
-            .stage
-            .as_ref()
-            .ok_or("no middleware pass was performed")?;
-        if !stage.is_payload_preserved() {
-            return Err(format!(
-                "the payload buffer moved: {} -> {}",
-                stage.arrival_address, stage.departure_address
-            )
-            .into());
-        }
-        Ok(())
+        self.assert_buffer_outcome(BufferExpectation::Preserved)
     }
 
     /// Asserts the payload bytes are unchanged after the pass.
@@ -111,10 +150,7 @@ impl ZeroCopyBaselineWorld {
     ///
     /// Returns an error if the stage rewrote the payload.
     pub fn assert_payload_unchanged(&self) -> TestResult {
-        let stage = self
-            .stage
-            .as_ref()
-            .ok_or("no middleware pass was performed")?;
+        let stage = self.last_stage()?;
         let expected = payload_for_class(self.payload_class);
         if stage.payload.as_slice() != expected {
             return Err("the read-only chain rewrote the payload".into());
@@ -128,18 +164,7 @@ impl ZeroCopyBaselineWorld {
     ///
     /// Returns an error if the stage kept the buffer it was handed.
     pub fn assert_payload_buffer_relocated(&self) -> TestResult {
-        let stage = self
-            .stage
-            .as_ref()
-            .ok_or("no middleware pass was performed")?;
-        if stage.is_payload_preserved() {
-            return Err(format!(
-                "a copying middleware kept the payload buffer at {}",
-                stage.departure_address
-            )
-            .into());
-        }
-        Ok(())
+        self.assert_buffer_outcome(BufferExpectation::Relocated)
     }
 
     /// Encodes an envelope, then decodes it through the production seam.
