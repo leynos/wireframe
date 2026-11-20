@@ -1930,6 +1930,20 @@ targets, direct unit tests, and BDD fixtures should import the workload matrix,
 measurement helpers, fragmentation helpers, and allocation-label helpers from
 that module instead of coupling to files under `tests/common` with `#[path]`.
 
+Two of the zero-copy gates assert rather than report, and neither belongs to
+`bench-codec`, because neither depends on host load. The first is
+`wireframe_testing/tests/copied_bytes.rs`, which checks the per-seam
+copied-byte counts in `src/benchmark_counters.rs`. The second is the
+`pipeline_allocation_invariants` target under the same `tests` directory. It
+installs its own counting allocator and checks payload-buffer identity plus
+per-operation allocation bounds for the middleware and hook stages. That target
+sets `harness = false` on purpose: a libtest worker thread allocates on its own
+often enough (two windows in a thousand trials at capture time) that a
+harnessed binary cannot assert an idle window of exactly zero. The binary
+therefore runs on one thread and prints one line per check.
+`AccessMode::Copying` in the same helper module is a seeded fault for those
+checks — it must relocate the buffer, and it is never timed.
+
 Run `connection_startup` on demand with
 `cargo bench --bench connection_startup`. It compares the former per-connection
 factory and preparation work with the shared prepared-root path across four
@@ -2432,6 +2446,13 @@ subscriber, that both cancellation events record `reason` through `record_str`.
 The workspace suite cannot make that check: its `wireframe_testing` dependency
 unifies `metrics` on for every root-package test, so only this isolated build
 observes the disabled configuration.
+
+The same unification hides the copied-byte recorders, so the consumer checks
+those in both directions too. Compiling without `benchmark-counters` must still
+compile every recorder and report zeros from `snapshot()`; compiling with it
+must make the same four calls accumulate their bytes. The second run is what
+keeps the first honest — an inert recorder and a recorder that never counted
+anything both satisfy a zeros-only assertion.
 
 One gated item has no trybuild fixture, and this is the documented exception.
 `ServerCancellationReason::as_str` is crate-private, so no downstream fixture

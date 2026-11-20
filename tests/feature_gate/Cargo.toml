@@ -74,6 +74,8 @@ required-features = []
 [features]
 # Mirrors the opt-in that adds the accessors to the published library.
 test-support = ["wireframe/test-support"]
+# Passed through so the copied-byte recorder check can run in both directions.
+benchmark-counters = ["wireframe/benchmark-counters"]
 
 # The lints are copied rather than inherited: `[workspace]` above gives this
 # package no parent table to inherit from, and an unresolved
