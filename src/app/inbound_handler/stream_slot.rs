@@ -27,6 +27,7 @@ use super::{
     stream_parked::forward_reply,
     stream_terminal::{
         BodyClose,
+        FinalDelivery,
         HandlerWait,
         await_handler,
         body_close,
@@ -55,6 +56,18 @@ use crate::{
     request::{DEFAULT_BODY_CHANNEL_CAPACITY, QueuedBytes, SendChunkError, accounted_body_channel},
     serializer::Serializer,
 };
+
+/// A body the frame layer ended with an error.
+///
+/// The key names the message whose body failed, and the error is what the
+/// handler is owed in place of the rest of its body. Grouped rather than passed
+/// separately so the failure travels through the close path as one value.
+pub(super) struct BodyFailure {
+    /// Message whose body failed.
+    pub(super) key: MessageKey,
+    /// Error the handler should observe instead of a clean end of stream.
+    pub(super) error: io::Error,
+}
 
 /// Connection-owned streaming state: the dispatch slot and byte account.
 pub(super) struct ConnectionStreams {
@@ -243,6 +256,7 @@ impl ConnectionStreams {
     pub(super) async fn close_active<S, E, K, F>(
         &mut self,
         terminal: Option<io::Error>,
+        budget: ChunkBudget,
         handles: DispatchHandles<'_, S, E, K, F>,
     ) -> io::Result<Dispatch>
     where
@@ -261,13 +275,12 @@ impl ConnectionStreams {
         let identity = active.identity();
         let wait = match body_close(pending, terminal, open_sender, identity) {
             BodyClose::FinalChunk(final_chunk) => {
-                deliver_final_chunk_then_await(
-                    handles.wait,
+                let delivery = FinalDelivery {
                     identity,
-                    final_chunk,
-                    &mut active.handler,
-                )
-                .await
+                    pending: final_chunk,
+                    budget,
+                };
+                deliver_final_chunk_then_await(handles.wait, delivery, &mut active.handler).await
             }
             BodyClose::Fail { failure, sender } => {
                 deliver_then_await(handles.wait, failure, sender, &mut active.handler).await
@@ -295,6 +308,7 @@ impl ConnectionStreams {
     pub(super) async fn expire<S, E, K, F>(
         &mut self,
         ids: &[StreamingAssemblyId],
+        budget: ChunkBudget,
         handles: DispatchHandles<'_, S, E, K, F>,
     ) -> io::Result<Dispatch>
     where
@@ -312,6 +326,7 @@ impl ConnectionStreams {
                 io::ErrorKind::TimedOut,
                 "request body assembly expired before completion",
             )),
+            budget,
             handles,
         )
         .await
@@ -320,8 +335,8 @@ impl ConnectionStreams {
     /// Fail the body for a terminal assembly rejection.
     pub(super) async fn fail<S, E, K, F>(
         &mut self,
-        key: MessageKey,
-        error: io::Error,
+        failure: BodyFailure,
+        budget: ChunkBudget,
         handles: DispatchHandles<'_, S, E, K, F>,
     ) -> io::Result<Dispatch>
     where
@@ -331,11 +346,12 @@ impl ConnectionStreams {
         K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
         Envelope: EncodeWith<S>,
     {
+        let BodyFailure { key, error } = failure;
         if !self.is_key_live(std::slice::from_ref(&key)) {
             stream_diagnostics::no_live_handler(key);
             return Ok(Dispatch::Continue);
         }
-        self.close_active(Some(error), handles).await
+        self.close_active(Some(error), budget, handles).await
     }
 
     /// Drop the live exchange immediately after a hard budget breach.

@@ -19,8 +19,9 @@ use super::{
     },
     core::{FrameBuildContext, decode_outcome},
     stream_diagnostics,
-    stream_handles::{ChunkOffer, DispatchHandles, FirstChunk, LoopState},
+    stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk, LoopState},
     stream_parked::{self, ParkedMessage, dispatch_parked},
+    stream_slot::BodyFailure,
 };
 use crate::{
     codec::FrameCodec,
@@ -152,7 +153,12 @@ where
             dispatch_parked(message, &state.parked, handles).await
         }
         FrameOutcome::StreamFailed { key, error } => {
-            state.streams.fail(key, error, handles.reborrow()).await
+            let budget = ChunkBudget::measure(&handles, &state.parked);
+            let failure = BodyFailure { key, error };
+            state
+                .streams
+                .fail(failure, budget, handles.reborrow())
+                .await
         }
     }
 }

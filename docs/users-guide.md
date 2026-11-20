@@ -3683,11 +3683,14 @@ instead of overwriting one another:
   including a chunk that has reserved its bytes but is still waiting for
   channel capacity. The value covers every connection, so it is a pressure
   signal for the process rather than evidence that one connection reached its
-  own budget. A total that keeps rising while traffic is steady means handlers
-  are not keeping up. Each connection whose handler stops reading eventually
-  stops reading its socket, which is the back-pressure this design relies on.
-  The gauge cannot name the connection, so identify the body from the
-  per-message diagnostics below.
+  own budget. A total that keeps rising while traffic is steady points at
+  bodies whose handlers are not keeping up, but handlers are not the only
+  holders of admitted bytes: admission also counts partially assembled
+  messages, fragmentation buffers and parked messages, so treat the gauge as a
+  pressure signal rather than a diagnosis. Each connection whose handler stops
+  reading eventually stops reading its socket, which is the back-pressure this
+  design relies on. The gauge cannot name the connection, so identify the body
+  from the per-message diagnostics below.
 - `wireframe_streaming_bodies_parked` — completed messages waiting behind live
   bodies. The value covers every connection, so it counts the process's parked
   work; `MAX_PARKED_MESSAGES` (64) is the per-connection limit. The 64th
@@ -3722,16 +3725,21 @@ connection could not serve.
   evidence that the handler did not simply choose to stay silent.
 
 To diagnose a stalled upload, read `wireframe_streaming_body_bytes_queued`
-first: a total that stays high while `admission_timeout` climbs is pressure
-from handlers that are not keeping up. That reading is a pressure signal rather
-than proof that one connection is over its own budget, because several slowly
-draining connections can hold the total up between them. If the byte gauge
-stays low and `wireframe_streaming_bodies_parked` climbs instead, peers are
-pipelining behind bodies that have not completed yet, which is not evidence
-that those bodies never will. Neither gauge identifies which connection is
-responsible, so pair it with the `message_id` in the events above. A rejected
-assembly shows as a `prefilled_body` warning with the `admission_timeout`
-category and a matching counter increment.
+first: a total that stays high while `admission_timeout` climbs marks sustained
+pressure, but it does not settle which bytes are holding admission back.
+Admission is measured against a budget that also counts partially assembled
+messages, fragmentation buffers and parked messages, so handlers that are not
+keeping up are one possible holder among several. That reading is a pressure
+signal rather than proof that one connection is over its own budget, because
+several slowly draining connections can hold the total up between them. If the
+byte gauge stays low and `wireframe_streaming_bodies_parked` climbs instead,
+peers are pipelining behind bodies that have not completed yet, which is not
+evidence that those bodies never will. Neither gauge identifies which
+connection is responsible: the events above carry the route's `message_id`,
+which every request to that route shares, and the request's `correlation_id`,
+which the client chooses and may reuse, so together they identify the message
+rather than the connection. A rejected assembly shows as a `prefilled_body`
+warning with the `admission_timeout` category and a matching counter increment.
 
 Queued server pushes have their own counters.
 `wireframe_push_writes_abandoned_total` counts push frames dropped before

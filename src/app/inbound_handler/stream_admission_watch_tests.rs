@@ -24,6 +24,8 @@ use futures::SinkExt;
 use tokio::sync::Notify;
 use wireframe_testing::{TestError, TestResult};
 
+#[cfg(feature = "metrics")]
+use super::super::stream_outcome_support::{paused_block_on, recorded};
 use super::watch_support::{
     App,
     STEP_WAIT,
@@ -36,6 +38,8 @@ use super::watch_support::{
     send_request,
     spawn_connection,
 };
+#[cfg(feature = "metrics")]
+use crate::metrics::StreamingBodyOutcome;
 use crate::{
     app::{BudgetBytes, Envelope, MemoryBudgets, ResponseHandler, StreamingHandler, WireframeApp},
     request::{RequestBodyStream, RequestParts},
@@ -168,6 +172,96 @@ async fn a_peer_leaving_while_a_chunk_waits_is_observed() -> TestResult {
     let joined = bounded_for(
         STEP_WAIT + END_WAIT,
         "the connection ending after the peer left",
+        connection,
+    )
+    .await?;
+    joined??;
+    ensure(
+        read.load(Ordering::SeqCst) == 0,
+        "the stalled handler must not be released",
+    )
+}
+
+/// A stalled final chunk must not carry the connection past its budget.
+///
+/// A pending chunk that ends the body is offered to the handler when the
+/// exchange closes, and that delivery is metered like any other. The first
+/// chunk is still charged and the final chunk would not fit, so the delivery
+/// waits; admitting it anyway would put the connection over its aggregate
+/// limit and report a body as delivered that the bounded wait then drops.
+///
+/// The connection keeps running after that close, because a further
+/// continuation is buffered behind the stalled chunk and the probe behind
+/// that. The loop must reach both frames and end cleanly rather than abort
+/// through a budget breach the delivery caused.
+///
+/// The outcome is read from a private recorder, because the abandoned chunk is
+/// dropped with the handler and leaves nothing on the wire to inspect.
+#[cfg(feature = "metrics")]
+#[test]
+fn a_stalled_final_chunk_ends_its_body_within_budget() -> TestResult {
+    let (scenario, counts) = recorded(|| paused_block_on(stalled_final_chunk_scenario()));
+    scenario??;
+    ensure(
+        counts.count(StreamingBodyOutcome::Delivered) == 0,
+        "a final chunk the budget refuses must not be counted as delivered",
+    )?;
+    ensure(
+        counts.count(StreamingBodyOutcome::Abandoned) > 0,
+        "the body the refused final chunk ended must be counted as abandoned",
+    )
+}
+
+/// Drive the stalled-final-chunk scenario on its recorded runtime.
+///
+/// The handler is never released, so the connection ends with the body it was
+/// still waiting on; the peer half-closes before the reply is due, which is
+/// what closes the exchange while the final chunk waits for admission.
+#[cfg(feature = "metrics")]
+async fn stalled_final_chunk_scenario() -> TestResult {
+    let started = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let read = Arc::new(AtomicUsize::new(0));
+    let Scenario {
+        mut client,
+        connection,
+    } = spawn_connection(stalled_app(stalled_handler(
+        Arc::clone(&started),
+        Arc::clone(&release),
+        Arc::clone(&read),
+    ))?)
+    .await?;
+
+    let chunk = vec![7_u8; CHUNK_BYTES];
+    send_request(
+        &mut client,
+        STALLED_ROUTE,
+        &first_frame_payload(STALLED_KEY.into(), &chunk, false, None)?,
+    )
+    .await?;
+    bounded("the live handler starting", started.notified()).await?;
+    // This chunk ends the body, and cannot be admitted while the first is
+    // charged, so closing the exchange has to decide its fate.
+    send_request(
+        &mut client,
+        STALLED_ROUTE,
+        &continuation_frame_payload(STALLED_KEY.into(), 1_u32.into(), &chunk, true)?,
+    )
+    .await?;
+    // Buffered while the final chunk waits, so a step still runs after the
+    // stalled body closes and the memory budget is checked again.
+    send_request(
+        &mut client,
+        STALLED_ROUTE,
+        &continuation_frame_payload(STALLED_KEY.into(), 2_u32.into(), &chunk, false)?,
+    )
+    .await?;
+    send_complete(&mut client, PROBE_ROUTE, PROBE_KEY, b"probe").await?;
+    SinkExt::<Bytes>::close(&mut client).await?;
+
+    let joined = bounded_for(
+        STEP_WAIT + END_WAIT,
+        "the connection ending after the stalled final chunk",
         connection,
     )
     .await?;

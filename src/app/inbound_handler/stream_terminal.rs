@@ -14,6 +14,7 @@ use tokio::time::timeout;
 use super::{
     stream_active::{BodyIdentity, HandlerFuture, PendingSend},
     stream_diagnostics,
+    stream_handles::ChunkBudget,
 };
 use crate::{metrics::StreamingBodyOutcome, request::AccountedBodySender};
 
@@ -91,19 +92,34 @@ pub(super) async fn deliver_then_await(
 /// error, and reporting one instead would turn a complete upload into a
 /// truncated body.
 ///
-/// The delivery is unmetered. Admission is what stalled before the close, and
-/// these bytes have no other destination, so the aggregate limit and the queue
-/// cap would only lose a body the handler is owed. The chunk still takes its
-/// place in the channel behind the chunks already queued, so the handler sees
-/// it in order.
+/// The delivery is metered like any other chunk, but the accounting exception
+/// for an empty account still applies, so a body whose only chunk is this one
+/// is delivered whatever its size. When the account is already charged, the
+/// chunk waits for the handler to make room and is abandoned if the wait
+/// expires. Admitting it regardless would leave the connection over its
+/// aggregate limit for as long as the handler held the chunk, and would report
+/// a body as delivered that the bounded wait then dropped.
 pub(super) async fn deliver_final_chunk_then_await(
     wait: Duration,
-    identity: BodyIdentity,
-    pending: PendingSend,
+    delivery: FinalDelivery,
     handler: &mut HandlerFuture,
 ) -> HandlerWait {
-    let sending = send_final_chunk(wait, identity, pending);
+    let sending = send_final_chunk(wait, delivery);
     race_delivery(wait, sending, handler).await
+}
+
+/// A completed final chunk on its way to its handler.
+///
+/// Grouped because the three travel together: the identity names the body in
+/// diagnostics, the pending send carries the chunk and its sender, and the
+/// budget is the admission measurement taken when the exchange closed.
+pub(super) struct FinalDelivery {
+    /// Body whose final chunk this is.
+    pub(super) identity: BodyIdentity,
+    /// Chunk that ends the body, with the sender it travels through.
+    pub(super) pending: PendingSend,
+    /// Admission measurement the chunk must fit before it is handed over.
+    pub(super) budget: ChunkBudget,
 }
 
 /// Race one delivery against the handler and the connection's wait.
@@ -150,13 +166,15 @@ where
 ///
 /// A final chunk is the last thing a body sends, so no later chunk can report
 /// its fate: the outcome recorded here is the whole record of the body.
-async fn send_final_chunk(
-    wait: Duration,
-    identity: BodyIdentity,
-    pending: PendingSend,
-) -> Delivery {
+async fn send_final_chunk(wait: Duration, delivery: FinalDelivery) -> Delivery {
+    let FinalDelivery {
+        identity,
+        pending,
+        budget,
+    } = delivery;
     let PendingSend { sender, chunk, .. } = pending;
-    match timeout(wait, sender.send_chunk(chunk, 0, usize::MAX)).await {
+    let admitted = sender.send_chunk(chunk, budget.other_retained, budget.limit);
+    match timeout(wait, admitted).await {
         Ok(Ok(())) => {
             StreamingBodyOutcome::Delivered.record();
             Delivery::Accepted

@@ -25,7 +25,7 @@ use super::{
     stream_actions::{drain_parked, fail_body_ending_with},
     stream_dispatch::Connection,
     stream_frame::dispatch_frame,
-    stream_handles::{DispatchHandles, LoopState},
+    stream_handles::{ChunkBudget, DispatchHandles, LoopState},
 };
 use crate::{
     codec::FrameCodec,
@@ -124,8 +124,9 @@ where
                 .await
             }
             ObservedAction::Expire(ids) => {
+                let budget = ChunkBudget::measure(&handles, &state.parked);
                 handle_watching_peer(
-                    state.streams.expire(&ids, handles.reborrow()),
+                    state.streams.expire(&ids, budget, handles.reborrow()),
                     self.reader,
                     observation,
                     pending,

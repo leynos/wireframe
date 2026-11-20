@@ -14,6 +14,7 @@ use rstest::rstest;
 
 use super::{
     BodyClose,
+    FinalDelivery,
     HandlerWait,
     body_close,
     deliver_final_chunk_then_await,
@@ -22,6 +23,7 @@ use super::{
 use crate::{
     app::inbound_handler::{
         stream_active::{HandlerFuture, PendingSend},
+        stream_handles::ChunkBudget,
         stream_outcome_support::{
             Expectation,
             assert_exchange,
@@ -37,6 +39,14 @@ use crate::{
     metrics::StreamingBodyOutcome,
     request::{QueuedBytes, accounted_body_channel},
 };
+
+/// A budget that admits any final chunk, so a case exercises channel capacity.
+fn unbounded_budget() -> ChunkBudget {
+    ChunkBudget {
+        other_retained: 0,
+        limit: usize::MAX,
+    }
+}
 
 /// A failure the handler observed is counted as terminal, not abandoned.
 #[rstest]
@@ -176,11 +186,15 @@ fn a_completed_final_chunk_is_delivered_whole_or_abandoned(
         is_last: true,
     };
 
+    let delivery = FinalDelivery {
+        identity: identity(),
+        pending,
+        budget: unbounded_budget(),
+    };
     let (settled, counts) = recorded(|| {
         paused_block_on(deliver_final_chunk_then_await(
             wait(),
-            identity(),
-            pending,
+            delivery,
             &mut handler,
         ))
     });
@@ -202,12 +216,16 @@ fn a_final_chunk_that_cannot_be_delivered_is_counted_as_abandoned() {
     let (settled, counts) = recorded(|| {
         paused_block_on(async {
             queue_one_chunk(&sender).await;
-            let pending = PendingSend {
-                sender,
-                chunk: Bytes::from_static(b"last"),
-                is_last: true,
+            let delivery = FinalDelivery {
+                identity: identity(),
+                pending: PendingSend {
+                    sender,
+                    chunk: Bytes::from_static(b"last"),
+                    is_last: true,
+                },
+                budget: unbounded_budget(),
             };
-            deliver_final_chunk_then_await(wait(), identity(), pending, &mut handler).await
+            deliver_final_chunk_then_await(wait(), delivery, &mut handler).await
         })
     });
     drop(body);
@@ -219,6 +237,51 @@ fn a_final_chunk_that_cannot_be_delivered_is_counted_as_abandoned() {
             reply: HandlerWait::Deadline,
             recorded: StreamingBodyOutcome::Abandoned,
             why: "an unresponsive handler must be bounded by the wait",
+        },
+    );
+}
+
+/// A final chunk that does not fit the budget is abandoned, not forced in.
+///
+/// The account already holds a queued chunk, and the final chunk would carry
+/// it past the aggregate limit. Handing it over anyway would leave the
+/// connection over budget for as long as the handler held it, so the chunk
+/// waits for room instead; the bounded wait is the only other exit, and the
+/// body is abandoned when it expires.
+#[rstest]
+#[test]
+fn a_final_chunk_that_does_not_fit_the_budget_is_abandoned() {
+    let (sender, body) = accounted_body_channel(2, QueuedBytes::new());
+    let mut handler: HandlerFuture = Box::pin(future::pending());
+    let room_for_one_chunk = ChunkBudget {
+        other_retained: 0,
+        limit: 4,
+    };
+
+    let (settled, counts) = recorded(|| {
+        paused_block_on(async {
+            queue_one_chunk(&sender).await;
+            let delivery = FinalDelivery {
+                identity: identity(),
+                pending: PendingSend {
+                    sender,
+                    chunk: Bytes::from_static(b"last"),
+                    is_last: true,
+                },
+                budget: room_for_one_chunk,
+            };
+            deliver_final_chunk_then_await(wait(), delivery, &mut handler).await
+        })
+    });
+    drop(body);
+
+    assert_exchange(
+        settled,
+        &counts,
+        &Expectation {
+            reply: HandlerWait::Deadline,
+            recorded: StreamingBodyOutcome::Abandoned,
+            why: "a final chunk over the budget was forced into the account",
         },
     );
 }

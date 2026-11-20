@@ -184,8 +184,9 @@ where
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: EncodeWith<S>,
 {
+    let budget = ChunkBudget::measure(handles, &state.parked);
     state
         .streams
-        .close_active(Some(reason), handles.reborrow())
+        .close_active(Some(reason), budget, handles.reborrow())
         .await
 }
