@@ -1,16 +1,19 @@
 //! Dead-letter drop accounting for the push handle.
 //!
 //! A non-blocking push policy that discards a frame first tries to hand it to
-//! a dead-letter queue. Only when *that* also fails — the dead-letter queue is
-//! full or closed — is the frame genuinely lost, and that loss is what the
-//! counter here records. The counter is deliberately narrow: a drop the
-//! dead-letter queue accepted is not a lost frame and counts nothing.
+//! a dead-letter queue. Only when there is no dead-letter queue, or *that*
+//! also fails because it is full or closed, is the frame genuinely lost. Each
+//! loss increments the exported [`PUSH_DROPS`] counter and the local count
+//! behind the throttled diagnostic. The accounting is deliberately narrow: a
+//! drop the dead-letter queue accepted is not a lost frame and counts nothing.
 //!
 //! Because producers share one handle, the count and the throttled diagnostic
 //! that flushes it are touched concurrently. [`DeadLetterState::route_or_count`]
 //! carries the increment-and-maybe-log sequence, and the Loom models in
 //! `crates/wireframe-loom/tests/push_dlq.rs` schedule it to check that the
 //! reported and remaining drops always sum to the drops produced.
+//!
+//! [`PUSH_DROPS`]: crate::metrics::PUSH_DROPS
 
 use std::time::{Duration, Instant};
 
@@ -22,6 +25,7 @@ use super::{
     PushPriority,
     sync::{AtomicUsize, Mutex, Ordering},
 };
+use crate::metrics::PushDropOutcome;
 
 /// Why the dead-letter queue refused a frame.
 ///
@@ -33,6 +37,16 @@ enum DlqState {
     Full,
     /// The dead-letter queue's receiver has been dropped.
     Closed,
+}
+
+impl DlqState {
+    /// Map the refusal to the exported loss outcome.
+    const fn outcome(self) -> PushDropOutcome {
+        match self {
+            Self::Full => PushDropOutcome::DeadLetterFull,
+            Self::Closed => PushDropOutcome::DeadLetterClosed,
+        }
+    }
 }
 
 /// Bounded description of a refused dead-letter send, safe to log.
@@ -104,8 +118,9 @@ impl<F> DeadLetterState<F> {
     ///
     /// A frame the dead-letter queue accepts is not a lost frame and is not
     /// counted, whatever the caller's drop policy was. With no dead-letter
-    /// queue configured there is nothing to fail to send to, so nothing is
-    /// counted either.
+    /// queue configured the policy's refusal is itself the loss, so it is
+    /// counted as [`PushDropOutcome::NoDeadLetterQueue`]. Every counted loss
+    /// also increments the exported `wireframe_push_drops_total` counter.
     ///
     /// A refused frame is dropped here without being inspected. The resulting
     /// diagnostic records only bounded metadata — the dead-letter state,
@@ -113,6 +128,7 @@ impl<F> DeadLetterState<F> {
     /// carry application payload or secrets.
     pub(crate) fn route_or_count(&self, frame: F, priority: PushPriority, policy: PushPolicy) {
         let Some(queue) = &self.sink else {
+            PushDropOutcome::NoDeadLetterQueue.record(policy);
             return;
         };
         // The frame is lost either way, so this is where it leaves ownership:
@@ -123,6 +139,7 @@ impl<F> DeadLetterState<F> {
             Err(mpsc::error::TrySendError::Full(_)) => DlqState::Full,
             Err(mpsc::error::TrySendError::Closed(_)) => DlqState::Closed,
         };
+        dlq_state.outcome().record(policy);
         let dropped = self.drops.fetch_add(1, Ordering::Relaxed) + 1;
         self.log_if_due(DropReport {
             dropped,

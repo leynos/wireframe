@@ -5,6 +5,10 @@ use tokio::sync::mpsc;
 use super::{MAX_PUSH_RATE, PushConfigError, PushQueues, PushQueuesBuilder};
 use crate::push::{PushError, PushPolicy, PushPriority};
 
+#[cfg(feature = "metrics")]
+#[path = "tests/drop_metrics.rs"]
+mod drop_metrics;
+
 #[path = "tests/rate_permits.rs"]
 mod rate_permits;
 
