@@ -663,7 +663,10 @@ than left implicit:
   is therefore a `harness = false` binary with a single thread, so every byte
   its windows report belongs to the code under test. The idle-window check is
   kept at a thousand trials so a regression to threaded execution is caught
-  rather than tolerated.
+  rather than tolerated. A harness-free binary is invisible to `cargo nextest`
+  unless it answers the discovery protocol, so the target lists itself as one
+  unit when nextest passes `--list` and runs every check on any other
+  invocation.
 
 ## Reproducing
 

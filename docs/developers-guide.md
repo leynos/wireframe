@@ -2069,9 +2069,12 @@ per-operation allocation bounds for the middleware and hook stages. That target
 sets `harness = false` on purpose: a libtest worker thread allocates on its own
 often enough (two windows in a thousand trials at capture time) that a
 harnessed binary cannot assert an idle window of exactly zero. The binary
-therefore runs on one thread and prints one line per check.
-`AccessMode::Copying` in the same helper module is a seeded fault for those
-checks — it must relocate the buffer, and it is never timed.
+therefore runs on one thread and prints one line per check. `cargo nextest`
+discovers tests by running each binary with `--list`, so the target also
+answers that protocol with a single listing line; without it the coverage job
+fails before running any test. `AccessMode::Copying` in the same helper module
+is a seeded fault for those checks — it must relocate the buffer, and it is
+never timed.
 
 Run `connection_startup` on demand with
 `cargo bench --bench connection_startup`. It compares the former per-connection
