@@ -121,16 +121,17 @@ reports a point estimate with confidence-interval bounds; those bounds do not
 represent the observed spread between runs.
 
 A baseline without its revision is not reproducible, so each capture is named
-with the commit that produced it. Three captures are recorded here, and a table
+with the commit that produced it. Four captures are recorded here, and a table
 belongs to whichever one its section names.
 
 ### Captures
 
-| Capture            | Revision                                                | Date       | Covers                                   |
-| ------------------ | ------------------------------------------------------- | ---------- | ---------------------------------------- |
-| Original           | `d28b54e`                                               | 2026-10-11 | Every table except those noted           |
-| Corrected          | PR [#756](https://github.com/leynos/wireframe/pull/756) | 2026-10-12 | Push, startup, allocation, pool          |
-| Prepared ownership | `dcce92e5`                                              | 2026-11-20 | Startup, configured startup, preparation |
+| Capture             | Revision                                                | Date       | Covers                                   |
+| ------------------- | ------------------------------------------------------- | ---------- | ---------------------------------------- |
+| Original            | `d28b54e`                                               | 2026-10-11 | Every table except those noted           |
+| Corrected           | PR [#756](https://github.com/leynos/wireframe/pull/756) | 2026-10-12 | Push, startup, allocation, pool          |
+| Prepared ownership  | `dcce92e5`                                              | 2026-11-20 | Startup, configured startup, preparation |
+| Configured dispatch | `0221dfa5`                                              | 2026-11-20 | Configured startup rows only             |
 
 The third capture was taken for
 [#648](https://github.com/leynos/wireframe/issues/648), on the branch that
@@ -143,6 +144,15 @@ the #644 and #879 connection-path changes, and the run happened at a load
 average of 24–30 on 24 hardware threads. Every figure in it is therefore only
 comparable with another figure from the same capture; see
 [Issue #648: prepared ownership](#issue-648-prepared-ownership).
+
+The fourth capture re-measures only the configured startup scope. In the
+prepared-ownership capture the configured workload ignored its base path, so
+every configured row — including the `per_connection_factory` rows — was
+measured through the shared prepared root. Those earlier per-connection timings
+are therefore not comparable with the corrected table, and Criterion's change
+percentages against them describe the shared path rather than a regression in
+the per-connection topology. The correction was taken at a load average near 30
+on the same 24 hardware threads, so the within-capture rule still applies.
 
 The original capture is the first published set, taken before the review of
 [#756](https://github.com/leynos/wireframe/pull/756). The corrected capture
@@ -1020,22 +1030,22 @@ what the configured workload adds at all.
 The configured startup scope, first. Every row installs a serializer, a message
 assembler, both lifecycle callbacks, and a protocol on top of the workload's
 route and middleware topology; `served_connections` is the connection count.
-Prepared ownership capture (`dcce92e5`):
+Configured startup capture, re-run on the corrected dispatch (`0221dfa5`):
 
 | Workload                                                                                          | Lower     | Estimate  | Upper     |
 | ------------------------------------------------------------------------------------------------- | --------- | --------- | --------- |
-| `configured_..._per_connection_factory_routes_1_layers_2_connections_1_factory_1_transforms_2`    | 5.6309 µs | 6.0253 µs | 6.3203 µs |
-| `configured_..._per_connection_factory_routes_1_layers_2_connections_4_factory_4_transforms_8`    | 25.118 µs | 26.337 µs | 27.658 µs |
-| `configured_..._per_connection_factory_routes_1_layers_2_connections_16_factory_16_transforms_32` | 71.151 µs | 76.573 µs | 83.394 µs |
-| `configured_..._per_connection_factory_routes_2_layers_2_connections_1_factory_1_transforms_4`    | 4.3994 µs | 4.5944 µs | 4.8925 µs |
-| `configured_..._per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16`   | 15.396 µs | 17.048 µs | 18.956 µs |
-| `configured_..._per_connection_factory_routes_2_layers_2_connections_16_factory_16_transforms_64` | 52.325 µs | 54.847 µs | 57.901 µs |
-| `configured_..._prepared_root_routes_1_layers_2_connections_1_factory_1_transforms_2`             | 4.4996 µs | 4.5960 µs | 4.6956 µs |
-| `configured_..._prepared_root_routes_1_layers_2_connections_4_factory_1_transforms_2`             | 14.615 µs | 15.130 µs | 15.738 µs |
-| `configured_..._prepared_root_routes_1_layers_2_connections_16_factory_1_transforms_2`            | 57.944 µs | 59.380 µs | 60.896 µs |
-| `configured_..._prepared_root_routes_2_layers_2_connections_1_factory_1_transforms_4`             | 7.5672 µs | 7.8988 µs | 8.2249 µs |
-| `configured_..._prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`             | 22.877 µs | 24.397 µs | 26.203 µs |
-| `configured_..._prepared_root_routes_2_layers_2_connections_16_factory_1_transforms_4`            | 55.171 µs | 56.919 µs | 59.369 µs |
+| `configured_..._per_connection_factory_routes_1_layers_2_connections_1_factory_1_transforms_2`    | 4.2108 µs | 4.6384 µs | 5.1534 µs |
+| `configured_..._per_connection_factory_routes_1_layers_2_connections_4_factory_4_transforms_8`    | 15.817 µs | 16.976 µs | 18.113 µs |
+| `configured_..._per_connection_factory_routes_1_layers_2_connections_16_factory_16_transforms_32` | 61.798 µs | 62.766 µs | 63.893 µs |
+| `configured_..._per_connection_factory_routes_2_layers_2_connections_1_factory_1_transforms_4`    | 4.3194 µs | 4.4361 µs | 4.5238 µs |
+| `configured_..._per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16`   | 16.502 µs | 17.456 µs | 18.948 µs |
+| `configured_..._per_connection_factory_routes_2_layers_2_connections_16_factory_16_transforms_64` | 69.406 µs | 71.168 µs | 72.836 µs |
+| `configured_..._prepared_root_routes_1_layers_2_connections_1_factory_1_transforms_2`             | 5.2375 µs | 5.3980 µs | 5.5392 µs |
+| `configured_..._prepared_root_routes_1_layers_2_connections_4_factory_1_transforms_2`             | 14.572 µs | 14.818 µs | 15.128 µs |
+| `configured_..._prepared_root_routes_1_layers_2_connections_16_factory_1_transforms_2`            | 52.863 µs | 56.462 µs | 59.419 µs |
+| `configured_..._prepared_root_routes_2_layers_2_connections_1_factory_1_transforms_4`             | 4.2886 µs | 4.3866 µs | 4.4894 µs |
+| `configured_..._prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`             | 13.372 µs | 13.982 µs | 14.787 µs |
+| `configured_..._prepared_root_routes_2_layers_2_connections_16_factory_1_transforms_4`            | 70.843 µs | 79.379 µs | 89.551 µs |
 
 The labels are abbreviated here for width: `configured_...` stands for
 `configured_serializer_1_assembler_1_callbacks_2_protocol_1_`. The full id is
@@ -1047,14 +1057,17 @@ The counts behind those rows are the part to trust. The prepared-root topology
 evaluates its factory once and runs its middleware transforms once regardless
 of connection count — 1 factory call and 4 transforms for the two-route
 workload — whereas the per-connection topology evaluates a factory per
-connection and runs 4 transforms for each. Those equalities are asserted in
-`tests/runtime_ownership_benchmark_helpers/startup.rs`, so the configured
-workload's accounting is a test result rather than an inference from the
-timings. The timings themselves carry the load confound stated for the other
-tables: this run took place at 24–30 load average on 24 threads, and the two
-prepared-root rows at four connections read 15.130 µs and 24.397 µs for
-topologies that differ only in route count. Treat the columns as order-of-
-magnitude, and the counts as exact.
+connection and runs 4 transforms for each. Those equalities are asserted for
+the bare workload in `tests/runtime_ownership_benchmark_helpers/startup.rs` and
+for the configured workload in the support crate's
+`configured_per_connection_factory_builds_once_per_connection` test, so the
+configured workload's accounting is a test result rather than an inference from
+the timings. The timings themselves carry the load confound stated for the
+other tables: this run also took place at a load average near 30 on 24 threads,
+and the per-connection rows now scale with connection count as the topology
+implies — 4.6384 µs at one connection, 16.976 µs at four, and 62.766 µs at
+sixteen for the one-route workload. Treat the columns as order-of-magnitude,
+and the counts as exact.
 
 The preparation-only phase removes connections from the window entirely, so it
 times `prepare()` and the drop of the prepared root:

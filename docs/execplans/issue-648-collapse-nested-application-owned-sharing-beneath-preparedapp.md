@@ -49,7 +49,10 @@ owned values while keeping the layers whose independent lifetime is real:
       `docs/runtime-ownership-baselines.md`.
 - [x] Docs: developers-guide ownership inventory, ADR 012 traceability,
       regression baselines, changelog, migration guide, users guide.
-- [ ] Gates, CodeRabbit review, draft PR.
+- [x] CodeRabbit review round 1: four findings — the configured benchmark
+      dispatch, an unbounded wait in the root-survival test, and two
+      documentation corrections. All fixed and re-gated.
+- [ ] Draft PR.
 
 ## Decision log
 
@@ -80,6 +83,11 @@ owned values while keeping the layers whose independent lifetime is real:
 - The borrowed-serializer compile-fail fixture's stderr needed re-blessing
   because its module doc grew by two lines, shifting every reported line
   number. The diagnostic itself was unchanged.
+- The configured startup benchmark's serving phase ignored the base path, so
+  its `per_connection_factory` rows measured one shared preparation under a
+  label claiming one factory call per connection. The dispatch now follows the
+  path, and the affected rows were re-captured; the earlier per-connection
+  timings are recorded as incomparable rather than reused.
 - The `module-max-lines` rule counts raw file lines, including test modules.
   `tests/prepared_app/ownership.rs` had grown to 496 lines once the probes,
   handler, protocol, and interleaving proofs were all in one file, so it was
