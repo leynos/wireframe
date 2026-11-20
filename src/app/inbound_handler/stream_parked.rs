@@ -12,7 +12,7 @@
 //! one delivery contract for streaming handlers while preserving the ordering
 //! guarantee that motivated parking.
 
-use std::{collections::VecDeque, io, time::Duration};
+use std::{collections::HashMap, collections::VecDeque, io, time::Duration};
 
 use bytes::Bytes;
 use futures::Sink;
@@ -21,6 +21,7 @@ use tracing::warn;
 
 use super::{
     super::{
+        StreamingHandler,
         envelope::{Envelope, Packet},
         frame_handling::{self, Dispatch, ResponseContext},
     },
@@ -45,6 +46,10 @@ use crate::{
 #[cfg(test)]
 #[path = "stream_parked_tests.rs"]
 mod tests;
+
+#[cfg(all(test, feature = "metrics"))]
+#[path = "stream_outcome_parked_tests.rs"]
+mod outcome_tests;
 
 /// Maximum number of completed messages parked behind a live streaming body.
 ///
@@ -206,6 +211,24 @@ where
     .await
 }
 
+/// Resolve the streaming handler a parked message is addressed to.
+///
+/// A route with no streaming handler cannot answer, so the miss is reported and
+/// counted here rather than by every caller: the message is dropped with the
+/// same bounded `no_handler` outcome the live start path records, and an
+/// operator sees one vocabulary for both.
+pub(super) fn resolve_handler(
+    streaming_routes: &HashMap<u32, StreamingHandler>,
+    route_id: u32,
+) -> Option<StreamingHandler> {
+    let handler = streaming_routes.get(&route_id).cloned();
+    if handler.is_none() {
+        stream_diagnostics::no_streaming_handler(route_id);
+        StreamingBodyOutcome::NoHandler.record();
+    }
+    handler
+}
+
 /// One assembled body waiting to reach a parked streaming handler.
 pub(super) struct PrefilledOffer {
     /// The whole assembled request body.
@@ -229,9 +252,7 @@ where
     Envelope: EncodeWith<S>,
 {
     let route_id = parts.id();
-    let Some(streaming_handler) = handles.ctx.streaming_routes.get(&route_id) else {
-        stream_diagnostics::no_streaming_handler(route_id);
-        StreamingBodyOutcome::NoHandler.record();
+    let Some(streaming_handler) = resolve_handler(handles.ctx.streaming_routes, route_id) else {
         return Ok(Dispatch::Continue);
     };
     let correlation_id = parts.correlation_id();

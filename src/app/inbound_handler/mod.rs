@@ -86,6 +86,10 @@ mod stream_slot;
 
 mod stream_terminal;
 
+#[cfg(all(test, feature = "metrics"))]
+#[path = "stream_outcome_support.rs"]
+mod stream_outcome_support;
+
 mod stream_types;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 

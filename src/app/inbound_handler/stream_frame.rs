@@ -31,6 +31,10 @@ use crate::{
     serializer::Serializer,
 };
 
+#[cfg(all(test, feature = "metrics"))]
+#[path = "stream_outcome_ingress_tests.rs"]
+mod outcome_tests;
+
 /// Decode one frame and route its outcome through the dispatch slot.
 pub(super) async fn dispatch_frame<S, E, K, F>(
     frame: &F::Frame,

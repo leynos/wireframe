@@ -81,6 +81,15 @@ pub(super) struct PendingSend {
     pub(super) is_last: bool,
 }
 
+impl PendingSend {
+    /// Return whether this chunk also completes the message.
+    ///
+    /// A caller that has to decide the body's fate without admitting the chunk
+    /// needs this: a chunk that ends the body leaves it whole, while any other
+    /// chunk leaves it truncated.
+    pub(super) const fn is_last(&self) -> bool { self.is_last }
+}
+
 impl ActiveStream {
     /// Return the identity of the message this exchange is serving.
     pub(super) const fn identity(&self) -> BodyIdentity {

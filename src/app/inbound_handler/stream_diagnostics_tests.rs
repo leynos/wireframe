@@ -122,16 +122,87 @@ fn every_diagnostic_carries_its_documented_message_and_category() {
 }
 
 /// A read that timed out reports the wait rather than a body outcome.
+///
+/// No body reached a verdict here, so the event must carry no
+/// `error_category`: one would let an operator count a healthy read timeout as
+/// a body failure.
 #[traced_test]
 #[test]
 fn a_read_timeout_is_reported_without_a_body_category() {
     read_timed_out();
 
     logs_assert(|lines: &[&str]| {
-        lines
+        let timeout = lines
             .iter()
-            .any(|line| line.contains("read timeout elapsed"))
-            .then_some(())
-            .ok_or_else(|| "the read timeout is not reported".to_owned())
+            .find(|line| line.contains("DEBUG") && line.contains("read timeout elapsed"))
+            .ok_or_else(|| "the read timeout is not reported at debug level".to_owned())?;
+        if timeout.contains("error_category") {
+            return Err(format!(
+                "a read timeout has no body outcome to categorise: {timeout}"
+            ));
+        }
+        Ok(())
+    });
+}
+
+/// Return whether `lines` hold one event with the stated level and fields.
+///
+/// The operation and category are quoted string fields, so they are matched
+/// with their quotes: filtering on the bare word would also match a message
+/// that merely mentions it.
+fn reports(
+    lines: &[&str],
+    level: &str,
+    message: &str,
+    operation: &str,
+    category: &str,
+) -> bool {
+    lines.iter().any(|line| {
+        line.contains(level)
+            && line.contains(message)
+            && line.contains(&format!("operation=\"{operation}\""))
+            && line.contains(&format!("error_category=\"{category}\""))
+    })
+}
+
+/// The deadline warning keeps both its level and its operation.
+///
+/// The level is what an operator's alerting filters on, and the operation
+/// separates a body failure from the reply wait that follows it, so neither
+/// may drift with the message text.
+#[traced_test]
+#[test]
+fn the_handler_deadline_warning_keeps_its_level_and_operation() {
+    handler_deadline_exceeded(7);
+
+    logs_assert(|lines: &[&str]| {
+        reports(
+            lines,
+            "WARN",
+            "streaming handler exceeded the connection wait",
+            "terminal_body",
+            "reply_abandoned",
+        )
+        .then_some(())
+        .ok_or_else(|| "the abandoned reply is not a terminal-body warning".to_owned())
+    });
+}
+
+/// A refused final chunk keeps its debug level and chunk-delivery operation.
+#[traced_test]
+#[test]
+fn the_final_chunk_refusal_keeps_its_level_and_operation() {
+    final_chunk_refused(identity(), SendChunkError::Closed);
+
+    logs_assert(|lines: &[&str]| {
+        reports(
+            lines,
+            "DEBUG",
+            "final request-body chunk refused",
+            "chunk_delivery",
+            "abandoned_body",
+        )
+        .then_some(())
+        .ok_or_else(|| "the refused final chunk is not a chunk-delivery event".to_owned())
     });
 }
