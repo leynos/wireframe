@@ -20,9 +20,12 @@ use bytes::Bytes;
 use futures::StreamExt;
 use rstest::{fixture, rstest};
 
-use super::super::{
-    stream_active::{ActiveStream, BodyIdentity, HandlerFuture, PendingEvent, PendingSend},
-    stream_terminal::{HandlerWait, TerminalFailure, await_handler, deliver_then_await},
+use super::{
+    super::{
+        stream_active::{ActiveStream, BodyIdentity, HandlerFuture, PendingEvent, PendingSend},
+        stream_terminal::{HandlerWait, TerminalFailure, await_handler, deliver_then_await},
+    },
+    ConnectionStreams,
 };
 use crate::{
     app::inbound_handler::stream_handles::ChunkBudget,
@@ -113,6 +116,49 @@ async fn a_stalled_admission_returns_control_after_the_read_timeout(
     assert!(
         matches!(event, PendingEvent::Idle),
         "a stalled admission should hand control back to the loop"
+    );
+}
+
+/// A stall is measured across drives, and a settled send ends it.
+///
+/// Each drive is bounded so the loop can re-check shutdown, expiry and the
+/// memory budget, so one expired wait must not be mistaken for the whole
+/// stall: the slot accumulates the interval instead. A send that settles,
+/// however it settles, ends that interval, so a handler that catches up is
+/// never charged for the time it was busy.
+#[rstest]
+#[tokio::test(start_paused = true)]
+async fn a_stall_accumulates_across_drives_until_an_admission_settles(
+    short_wait: Duration,
+    blocked_budget: ChunkBudget,
+) {
+    let (active, body) = stalled_stream().await;
+    let mut streams = ConnectionStreams::new(QueuedBytes::new());
+    streams.active = Some(active);
+
+    assert!(
+        !streams.stall_expired(short_wait),
+        "a body that has not waited yet cannot have stalled"
+    );
+    let stalled = streams.drive_pending(short_wait, blocked_budget).await;
+    assert!(
+        matches!(stalled, PendingEvent::Idle),
+        "the blocked chunk should hand control back to the loop"
+    );
+    assert!(
+        streams.stall_expired(short_wait),
+        "the expired wait should count toward the body's stall"
+    );
+
+    drop(body);
+    let settled = streams.drive_pending(short_wait, blocked_budget).await;
+    assert!(
+        matches!(settled, PendingEvent::Send(Err(_))),
+        "a dropped body refuses the queued chunk"
+    );
+    assert!(
+        !streams.stall_expired(short_wait),
+        "a settled admission should clear the stall interval"
     );
 }
 

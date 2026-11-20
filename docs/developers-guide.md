@@ -1166,9 +1166,10 @@ component that owns it:
 
 Streaming request bodies are dispatched by one slot per connection. The loop
 lives in `src/app/inbound_handler/stream_dispatch.rs`, the slot in
-`stream_slot.rs`, and the parking queue in `stream_parked.rs`. These modules
-are separate because the three concerns change for different reasons: the loop
-owns the event `select!`, the slot owns one exchange's lifecycle, and the
+`stream_slot.rs` with its teardown paths in `stream_close.rs`, and the parking
+queue in `stream_parked.rs`. These modules are separate because the concerns
+change for different reasons: the loop owns the event `select!`, the slot owns
+one exchange's lifecycle, its teardown owns freeing that lifecycle, and the
 parking queue owns completion order.
 
 Three properties follow from keeping the slot inside the connection loop rather
@@ -1263,12 +1264,25 @@ The step therefore races the admission against the read half. A read event that
 settles first is handed back to the loop unchanged as `AdmissionWait::Peer`,
 and the loop handles it exactly as a read outside an admission would be; a
 settled admission becomes `AdmissionWait::Handler`, or `Continue` when the
-chunk is still waiting. The module is separate from `stream_dispatch.rs`
-because the loop's state machine and the actions it schedules together outgrew
-the module limit, and because watching a wait changes for different reasons
-from deciding what a settled event means. The wait that produces an event lives
-in `stream_reads.rs` and the push-batch write in `stream_pushes.rs`, for the
-same reason.
+chunk is still waiting. A frame read during the wait is buffered for the next
+step rather than dispatched, because a continuation offered while its own chunk
+is queued would be refused as an abandoned body; the reader is then not polled
+again until that frame is dispatched.
+
+That buffered frame is why the wait needs a bound of its own. With no reader to
+observe, nothing else can end a chunk the handler never takes, so each drive
+stays bounded by the read timeout and `ConnectionStreams` accumulates how long
+the chunk has gone unadmitted. Once that reaches `STALLED_BODY_BOUND`, thirty
+seconds in `stream_types.rs`, `stream_dispatch.rs` fails the body, and the
+buffered frame is dispatched by a later step once the slot has been freed. The
+interval is cleared whenever an admission settles, so a handler that pauses for
+a slow downstream call keeps its upload.
+
+The module is separate from `stream_dispatch.rs` because the loop's state
+machine and the actions it schedules together outgrew the module limit, and
+because watching a wait changes for different reasons from deciding what a
+settled event means. The wait that produces an event lives in `stream_reads.rs`
+and the push-batch write in `stream_pushes.rs`, for the same reason.
 
 ### Chunk budgets and the empty-account exception
 

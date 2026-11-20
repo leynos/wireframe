@@ -154,7 +154,20 @@ pub(super) async fn send_complete(
 
 /// Read one reply frame and return its payload.
 pub(super) async fn read_reply(client: &mut Client, step: &str) -> TestResult<Vec<u8>> {
-    let frame = bounded(step, client.next())
+    read_reply_within(STEP_WAIT, client, step).await
+}
+
+/// Read one reply frame that is only due once a longer bound has passed.
+///
+/// A reply held back by the stall bound cannot arrive within [`STEP_WAIT`], so
+/// the caller supplies its own bound instead of letting the read time out
+/// first.
+pub(super) async fn read_reply_within(
+    wait: Duration,
+    client: &mut Client,
+    step: &str,
+) -> TestResult<Vec<u8>> {
+    let frame = bounded_for(wait, step, client.next())
         .await?
         .ok_or_else(|| format!("the connection closed before {step} arrived"))??;
     let (envelope, _): (Envelope, usize) = BincodeSerializer.deserialize(&frame)?;

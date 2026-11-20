@@ -274,8 +274,21 @@ frame that arrives meanwhile is buffered for the step after admission rather
 than dispatched, because a continuation offered while its own chunk is still
 queued would be refused as an abandoned body. The buffer holds one frame, which
 is the same bound the reply-observation path uses.
-`src/app/inbound_handler/stream_admission_watch_tests.rs` pins that
-observation: without it the stalled connection never ends.
+
+A buffered frame leaves no reader to observe, so the peer can no longer end the
+stall: the frame cannot be dispatched until the chunk settles, and the chunk
+cannot settle while the handler declines to take it. The body is therefore
+failed once its admission has made no progress for `STALLED_BODY_BOUND`, thirty
+seconds in `stream_types.rs`, which matches the default message-assembly
+timeout. The interval is accumulated in `ConnectionStreams` rather than taken
+from a single wait: each drive stays bounded by the connection's read timeout
+so shutdown, expiry and the memory budget are re-checked every step, and the
+recorded start is cleared as soon as an admission settles. A handler that is
+merely slow therefore keeps its upload — its chunk is admitted as soon as it
+reads — while a handler that never reads is ended within the bound.
+`src/app/inbound_handler/stream_admission_watch_tests.rs` pins both
+observations: the peer-observed end of a stalled connection, and the bound that
+ends a chunk stalled behind a buffered frame.
 
 `src/metrics/streaming_bodies.rs` holds the series and its tests, and
 `src/app/inbound_handler/stream_diagnostics.rs` holds the event vocabulary.

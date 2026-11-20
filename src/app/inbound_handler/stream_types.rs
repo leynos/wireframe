@@ -11,7 +11,7 @@
 //! is in [`super::stream_dispatch`], and the actions it schedules are in
 //! [`super::stream_actions`].
 
-use std::{collections::HashMap, io, sync::Arc};
+use std::{collections::HashMap, io, sync::Arc, time::Duration};
 
 use bytes::Bytes;
 
@@ -67,6 +67,18 @@ pub(super) enum Step {
     Failed(io::Error),
 }
 
+/// How long a body chunk may wait for admission before its body is abandoned.
+///
+/// A chunk that cannot clear admission is retried on every step, so the loop
+/// stays responsive, but nothing inside the connection ends the wait when the
+/// handler never reads: the reader is held so the peer cannot push past the
+/// byte budget, and no later frame can be dispatched until the chunk settles.
+/// The bound is that exit. It matches the default message-assembly timeout, so
+/// an abandoned body is bounded by the same interval as the partial messages
+/// it arrived with, and it is long enough that a handler pausing for a slow
+/// downstream call still keeps its upload.
+pub(super) const STALLED_BODY_BOUND: Duration = Duration::from_secs(30);
+
 /// What the loop learned while a chunk waited for admission.
 ///
 /// The wait normally ends with either a settled admission or the handler
@@ -78,13 +90,6 @@ pub(super) enum AdmissionWait<T> {
     Continue,
     /// The handler resolved first, so its reply is owed.
     Handler(Option<Bytes>),
-    /// The bounded wait expired while a frame was already buffered.
-    ///
-    /// A buffered frame keeps the loop off the reader, so the peer's close
-    /// would never be observed, and the chunk cannot settle while the handler
-    /// declines to read. The wait is then the only exit, and the body it
-    /// belonged to has to fail so the loop can reach the peer again.
-    Stalled,
     /// The read half ended, failed, or the server stopped.
     Peer(Event<T>),
 }

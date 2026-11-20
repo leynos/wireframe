@@ -29,7 +29,13 @@ use tokio_util::sync::CancellationToken;
 
 // Re-exported so the loop's callers keep naming these through the module that
 // owns the state machine, while their definitions stay in `stream_types`.
-pub(super) use super::stream_types::{AdmissionWait, DispatchContext, Event, Step};
+pub(super) use super::stream_types::{
+    AdmissionWait,
+    DispatchContext,
+    Event,
+    STALLED_BODY_BOUND,
+    Step,
+};
 use super::{
     super::{
         envelope::{Envelope, Packet},
@@ -140,6 +146,9 @@ where
             return Ok(Step::Closed);
         }
         let queued = state.streams.queued();
+        if self.fail_stalled_body(state, queued.clone()).await? {
+            return Ok(Step::Closed);
+        }
         if self.expire_bodies(state, queued.clone()).await? {
             return Ok(Step::Closed);
         }
@@ -156,22 +165,6 @@ where
             // The read half settled the step, so it is handled exactly as an
             // event read outside an admission would be.
             AdmissionWait::Peer(event) => return self.handle_event(state, event, queued).await,
-            // A buffered frame holds the loop off the reader, so an admission
-            // that makes no progress leaves the connection with nothing to
-            // observe. Failing the stalled body abandons its chunk, which lets
-            // the step fall through and dispatch the buffered frame.
-            AdmissionWait::Stalled => {
-                let reason = io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "request body admission made no progress while the peer sent more work",
-                );
-                let dispatch = self
-                    .dispatch_observed(state, queued.clone(), ObservedAction::FailBody(reason))
-                    .await?;
-                if dispatch == Dispatch::Stop {
-                    return Ok(Step::Closed);
-                }
-            }
             AdmissionWait::Continue => {}
         }
         if state.streams.has_pending_send() {
@@ -187,6 +180,38 @@ where
         }
         let event = self.next_event(state).await;
         self.handle_event(state, event, queued).await
+    }
+
+    /// Fail a body whose chunk admission has been stalled past the bound.
+    ///
+    /// A chunk that cannot clear admission keeps the loop off the reader, so
+    /// nothing else ends the wait when the handler never reads: the buffered
+    /// frame cannot be dispatched until the chunk settles, and the chunk
+    /// cannot settle while the handler declines to take it. Abandoning the
+    /// body is what lets the loop reach the peer again, and it is bounded by
+    /// [`STALLED_BODY_BOUND`] rather than by one admission wait, so a handler
+    /// that pauses keeps its upload.
+    ///
+    /// The reply the abandoned body may still produce is forwarded through the
+    /// peer-observed path, because it can stream for an unbounded time.
+    ///
+    /// Returns `true` when the connection must stop.
+    async fn fail_stalled_body(
+        &mut self,
+        state: &mut LoopState,
+        queued: QueuedBytes,
+    ) -> io::Result<bool> {
+        if !state.streams.stall_expired(STALLED_BODY_BOUND) {
+            return Ok(false);
+        }
+        let reason = io::Error::new(
+            io::ErrorKind::TimedOut,
+            "request body admission made no progress within the stall bound",
+        );
+        let dispatch = self
+            .dispatch_observed(state, queued, ObservedAction::FailBody(reason))
+            .await?;
+        Ok(dispatch == Dispatch::Stop)
     }
 
     /// Apply the memory budget, then act on any assembly that has expired.

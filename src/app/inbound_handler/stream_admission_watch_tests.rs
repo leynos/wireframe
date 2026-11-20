@@ -26,17 +26,20 @@ use wireframe_testing::{TestError, TestResult};
 
 #[cfg(feature = "metrics")]
 use super::super::stream_outcome_support::{paused_block_on, recorded};
-use super::watch_support::{
-    App,
-    STEP_WAIT,
-    Scenario,
-    bounded,
-    bounded_for,
-    ensure,
-    read_reply,
-    send_complete,
-    send_request,
-    spawn_connection,
+use super::{
+    STALLED_BODY_BOUND,
+    watch_support::{
+        App,
+        STEP_WAIT,
+        Scenario,
+        bounded,
+        bounded_for,
+        ensure,
+        read_reply_within,
+        send_complete,
+        send_request,
+        spawn_connection,
+    },
 };
 #[cfg(feature = "metrics")]
 use crate::metrics::StreamingBodyOutcome;
@@ -72,6 +75,13 @@ const CONNECTION_BUDGET: usize = 500;
 /// The teardown bound is a whole read timeout, so a little slack is allowed on
 /// top for scheduling at one virtual instant.
 const END_WAIT: Duration = Duration::from_millis(200);
+
+/// Bound for a scenario that only settles once the stall bound has passed.
+///
+/// The clock is paused, so reaching the bound costs no real time, and the
+/// slack lets the reply and the close arrive at the same virtual instant as
+/// the body that was abandoned for them.
+fn past_stall_bound() -> Duration { STALLED_BODY_BOUND + STEP_WAIT }
 
 /// Handler that announces itself and then never touches its body.
 ///
@@ -260,7 +270,7 @@ async fn stalled_final_chunk_scenario() -> TestResult {
     SinkExt::<Bytes>::close(&mut client).await?;
 
     let joined = bounded_for(
-        STEP_WAIT + END_WAIT,
+        past_stall_bound() + END_WAIT,
         "the connection ending after the stalled final chunk",
         connection,
     )
@@ -280,10 +290,13 @@ async fn stalled_final_chunk_scenario() -> TestResult {
 /// dispatched, and the peer's later close would never be observed, while the
 /// chunk cannot settle as long as the handler declines to read.
 ///
-/// The admission wait is the only exit left. Expiring it fails the stalled
-/// body, which abandons the queued chunk and leaves the buffered continuation
+/// The stall bound is the only exit left. Reaching it fails the stalled body,
+/// which abandons the queued chunk and leaves the buffered continuation
 /// belonging to no body. The step then falls through to dispatch that frame and
 /// serve the probe behind it, proving the loop recovered rather than spinning.
+/// The bound is what makes that exit safe for a handler that is merely slow:
+/// a single expired admission wait leaves the body alone, and the peer's own
+/// back-pressure keeps the upload alive until the bound is reached.
 #[tokio::test(start_paused = true)]
 async fn a_chunk_stalled_behind_a_buffered_frame_ends_its_body() -> TestResult {
     let started = Arc::new(Notify::new());
@@ -324,7 +337,7 @@ async fn a_chunk_stalled_behind_a_buffered_frame_ends_its_body() -> TestResult {
     .await?;
     send_complete(&mut client, PROBE_ROUTE, PROBE_KEY, b"probe").await?;
 
-    let reply = read_reply(&mut client, "the probe reply").await?;
+    let reply = read_reply_within(past_stall_bound(), &mut client, "the probe reply").await?;
     ensure(
         reply == PROBE_REPLY,
         format!("the probe must be served once the stalled body fails, got {reply:?}"),

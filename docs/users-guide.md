@@ -1513,6 +1513,7 @@ The handler observes exactly one termination of its body:
 | Event                                    | Body outcome                        |
 | ---------------------------------------- | ----------------------------------- |
 | Assembly expiry                          | `TimedOut`                          |
+| Chunk admission stalled for 30 s         | `TimedOut`                          |
 | Connection end of stream                 | `UnexpectedEof`                     |
 | Inbound decode failure                   | the decoder's error kind            |
 | Per-message cap or declared-total breach | `InvalidData`                       |
@@ -1536,6 +1537,14 @@ When the queue and the budget are both full, the connection stops reading until
 the handler consumes a chunk. The peer therefore blocks in `write` instead of
 the server accepting frames it cannot pass on, so a slow handler slows its own
 upload rather than growing server memory without limit.
+
+A handler that never reads its body cannot keep its connection forever. Once a
+chunk has waited thirty seconds without being admitted, the body is failed with
+`TimedOut` and the connection resumes reading, so a frame already waiting
+behind the stalled chunk is still served. The wait is accumulated across reads
+and cleared as soon as a chunk is admitted, so a handler that pauses for a slow
+downstream call keeps its upload: its chunk is admitted as soon as it reads
+again.
 
 `RequestBodyReader` adapts the stream to `AsyncRead`, allowing protocol crates
 to reuse existing parsers:

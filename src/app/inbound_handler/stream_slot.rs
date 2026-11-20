@@ -8,32 +8,20 @@
 //!
 //! The exchange itself, with its pending chunk admission, is in
 //! [`stream_active`](super::stream_active); this module owns the slot that
-//! holds it and the terminal paths that free it.
+//! holds it, its admission bookkeeping — including the stall clock that bounds
+//! a chunk the handler never takes — and the paths that start and advance it.
+//! The terminal paths that free the slot are in
+//! [`stream_close`](super::stream_close).
 
 use std::{io, time::Duration};
 
-use bytes::Bytes;
-use futures::Sink;
+use tokio::time::Instant;
 
 use super::{
-    super::{
-        StreamingHandler,
-        envelope::{Envelope, Packet},
-        frame_handling::Dispatch,
-    },
+    super::StreamingHandler,
     stream_active::{ActiveStream, PendingEvent, PendingSend},
     stream_diagnostics,
-    stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk},
-    stream_parked::forward_reply,
-    stream_terminal::{
-        BodyClose,
-        FinalDelivery,
-        HandlerWait,
-        await_handler,
-        body_close,
-        deliver_final_chunk_then_await,
-        deliver_then_await,
-    },
+    stream_handles::{ChunkBudget, ChunkOffer, FirstChunk},
 };
 #[cfg(test)]
 #[path = "stream_slot_tests.rs"]
@@ -49,12 +37,9 @@ mod admission_tests;
 mod outcome_tests;
 
 use crate::{
-    codec::FrameCodec,
-    message::EncodeWith,
-    message_assembler::{MessageAssemblyState, MessageKey, StreamingAssemblyId},
+    message_assembler::{MessageKey, StreamingAssemblyId},
     metrics::StreamingBodyOutcome,
     request::{DEFAULT_BODY_CHANNEL_CAPACITY, QueuedBytes, SendChunkError, accounted_body_channel},
-    serializer::Serializer,
 };
 
 /// A body the frame layer ended with an error.
@@ -75,6 +60,14 @@ pub(super) struct ConnectionStreams {
     queued: QueuedBytes,
     /// The single live streaming exchange, if any.
     pub(super) active: Option<ActiveStream>,
+    /// When the live body's chunk admission first failed to make progress.
+    ///
+    /// A chunk that cannot be admitted is retried on every step for as long as
+    /// its handler declines to read, so without a record of when the wait
+    /// started nothing in the loop can bound it. The stamp survives the
+    /// individual waits and is cleared as soon as an admission settles, so it
+    /// measures one stall rather than the body's whole life.
+    stalled_since: Option<Instant>,
 }
 
 impl ConnectionStreams {
@@ -83,6 +76,7 @@ impl ConnectionStreams {
         Self {
             queued,
             active: None,
+            stalled_since: None,
         }
     }
 
@@ -95,8 +89,45 @@ impl ConnectionStreams {
     /// Return whether a streaming body currently owns the slot.
     pub(super) const fn is_live(&self) -> bool { self.active.is_some() }
 
+    /// Return whether the live body's admission has stalled past `bound`.
+    ///
+    /// A body whose chunk cannot clear admission has no other exit when its
+    /// handler never reads it: the reader is held so the peer cannot push past
+    /// the byte budget, and no frame can be dispatched until the chunk
+    /// settles. The bound is what keeps such a connection from being pinned
+    /// for the life of the server.
+    pub(super) fn stall_expired(&self, bound: Duration) -> bool {
+        self.stalled_since
+            .is_some_and(|since| since.elapsed() >= bound)
+    }
+
+    /// Record whether the last admission drive made progress.
+    ///
+    /// Only a drive that timed out with the chunk still queued counts as a
+    /// stall: a settled send, a refused channel, and a handler that resolved
+    /// first all end the wait, so the next stall starts its own interval.
+    ///
+    /// The interval starts when the drive began waiting, not when it gave up,
+    /// because a wait that expires is itself the time the chunk went
+    /// unadmitted. Recording the later instant would restart the bound on
+    /// every drive and no stall would ever reach it.
+    fn note_admission(&mut self, event: &PendingEvent, started: Instant) {
+        if matches!(event, PendingEvent::Idle) {
+            self.stalled_since.get_or_insert(started);
+        } else {
+            self.stalled_since = None;
+        }
+    }
+
     /// Return the bytes queued for the consumer.
     pub(super) fn retained_bytes(&self) -> usize { self.queued.queued() }
+
+    /// Forget the stall interval recorded for the live body.
+    ///
+    /// Called when an exchange ends: the body that accumulated the stall is
+    /// gone, so the next one must start its own interval rather than inherit
+    /// a wait it never performed.
+    pub(super) const fn forget_stall(&mut self) { self.stalled_since = None; }
 
     /// Return the bytes of the chunk still waiting for admission, if any.
     ///
@@ -119,15 +150,24 @@ impl ConnectionStreams {
     }
 
     /// Drive the in-flight chunk admission on the live exchange.
+    ///
+    /// Each drive is bounded so the step can re-check shutdown, expiry and the
+    /// memory budget, and the stall it reports is accumulated across drives:
+    /// bounding one drive alone would let a body wait forever, while bounding
+    /// the drive for the whole stall would withhold those checks for as long
+    /// as the stall lasts.
     pub(super) async fn drive_pending(
         &mut self,
         wait: Duration,
         budget: ChunkBudget,
     ) -> PendingEvent {
-        match self.active.as_mut() {
-            Some(active) => active.drive_pending(wait, budget).await,
-            None => PendingEvent::Send(Ok(())),
-        }
+        let Some(active) = self.active.as_mut() else {
+            return PendingEvent::Send(Ok(()));
+        };
+        let started = Instant::now();
+        let event = active.drive_pending(wait, budget).await;
+        self.note_admission(&event, started);
+        event
     }
 
     /// Start a streaming exchange and queue its first chunk.
@@ -158,6 +198,7 @@ impl ConnectionStreams {
         // The final chunk still has to reach the handler, so the admission owns
         // its own sender clone until the loop records the result.
         let live_sender = (!is_last).then(|| sender.clone());
+        self.stalled_since = None;
         self.active = Some(ActiveStream {
             key,
             assembly,
@@ -227,142 +268,16 @@ impl ConnectionStreams {
         }
     }
 
-    /// Finish the exchange after the handler resolved on its own.
-    pub(super) async fn finish_active<S, E, K, F>(
-        &mut self,
-        outcome: Option<Bytes>,
-        handles: DispatchHandles<'_, S, E, K, F>,
-    ) -> io::Result<Dispatch>
-    where
-        S: Serializer + Send + Sync,
-        E: Packet,
-        F: FrameCodec,
-        K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-        Envelope: EncodeWith<S>,
-    {
-        let Some(mut active) = self.active.take() else {
-            return Ok(Dispatch::Continue);
-        };
-        // Cancelling the admission is safe: a reserved permit that never sent
-        // releases itself, and a queued chunk is dropped with its guard. The
-        // body is counted before the reply is written, because the handler may
-        // still answer while nothing will read the bytes still to come.
-        active.record_unfinished();
-        discard_streaming(active.assembly, handles.assembly);
-        forward_reply(active.route_id, active.correlation_id, outcome, handles).await
-    }
-
-    /// Fail the live body, await its handler, and forward any reply.
-    pub(super) async fn close_active<S, E, K, F>(
-        &mut self,
-        terminal: Option<io::Error>,
-        budget: ChunkBudget,
-        handles: DispatchHandles<'_, S, E, K, F>,
-    ) -> io::Result<Dispatch>
-    where
-        S: Serializer + Send + Sync,
-        E: Packet,
-        F: FrameCodec,
-        K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-        Envelope: EncodeWith<S>,
-    {
-        let Some(mut active) = self.active.take() else {
-            return Ok(Dispatch::Continue);
-        };
-        let pending = active.pending.take();
-        let open_sender = active.sender.take();
-        discard_streaming(active.assembly, handles.assembly);
-        let identity = active.identity();
-        let wait = match body_close(pending, terminal, open_sender, identity) {
-            BodyClose::FinalChunk(final_chunk) => {
-                let delivery = FinalDelivery {
-                    identity,
-                    pending: final_chunk,
-                    budget,
-                };
-                deliver_final_chunk_then_await(handles.wait, delivery, &mut active.handler).await
-            }
-            BodyClose::Fail { failure, sender } => {
-                deliver_then_await(handles.wait, failure, sender, &mut active.handler).await
-            }
-            BodyClose::AwaitReply => await_handler(handles.wait, &mut active.handler).await,
-        };
-        let reply = match wait {
-            HandlerWait::Replied(reply) => reply,
-            HandlerWait::Deadline => {
-                // The handler outlived the wait and its reply is abandoned.
-                // Recording it keeps a hung handler distinguishable from one
-                // that deliberately chose not to reply.
-                stream_diagnostics::handler_deadline_exceeded(active.route_id);
-                None
-            }
-        };
-        forward_reply(active.route_id, active.correlation_id, reply, handles).await
-    }
-
-    /// Fail the body for an expired streaming assembly.
-    ///
-    /// The evicted assemblies are matched by identity, not by key: a
-    /// replacement may already have reused the key, and it must keep its
-    /// own body.
-    pub(super) async fn expire<S, E, K, F>(
-        &mut self,
-        ids: &[StreamingAssemblyId],
-        budget: ChunkBudget,
-        handles: DispatchHandles<'_, S, E, K, F>,
-    ) -> io::Result<Dispatch>
-    where
-        S: Serializer + Send + Sync,
-        E: Packet,
-        F: FrameCodec,
-        K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-        Envelope: EncodeWith<S>,
-    {
-        if !self.owns_assembly(ids) {
-            return Ok(Dispatch::Continue);
-        }
-        self.close_active(
-            Some(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "request body assembly expired before completion",
-            )),
-            budget,
-            handles,
-        )
-        .await
-    }
-
-    /// Fail the body for a terminal assembly rejection.
-    pub(super) async fn fail<S, E, K, F>(
-        &mut self,
-        failure: BodyFailure,
-        budget: ChunkBudget,
-        handles: DispatchHandles<'_, S, E, K, F>,
-    ) -> io::Result<Dispatch>
-    where
-        S: Serializer + Send + Sync,
-        E: Packet,
-        F: FrameCodec,
-        K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
-        Envelope: EncodeWith<S>,
-    {
-        let BodyFailure { key, error } = failure;
-        if !self.is_key_live(std::slice::from_ref(&key)) {
-            stream_diagnostics::no_live_handler(key);
-            return Ok(Dispatch::Continue);
-        }
-        self.close_active(Some(error), budget, handles).await
-    }
-
     /// Drop the live exchange immediately after a hard budget breach.
     pub(super) fn abort(&mut self) {
+        self.forget_stall();
         if self.active.take().is_some() {
             StreamingBodyOutcome::Abandoned.record();
         }
     }
 
     /// Return whether the slot owns one of the evicted assemblies.
-    fn owns_assembly(&self, ids: &[StreamingAssemblyId]) -> bool {
+    pub(super) fn owns_assembly(&self, ids: &[StreamingAssemblyId]) -> bool {
         self.active
             .as_ref()
             .and_then(|active| active.assembly)
@@ -370,20 +285,10 @@ impl ConnectionStreams {
     }
 
     /// Return whether the slot is live for one of `keys`.
-    fn is_key_live(&self, keys: &[MessageKey]) -> bool {
+    pub(super) fn is_key_live(&self, keys: &[MessageKey]) -> bool {
         self.active
             .as_ref()
             .and_then(|active| active.key)
             .is_some_and(|key| keys.contains(&key))
-    }
-}
-
-/// Switch one streaming assembly to discard mode if state is present.
-///
-/// The exchange names the assembly it owns, so an assembly that reused the key
-/// after this one expired keeps receiving its frames.
-fn discard_streaming(id: Option<StreamingAssemblyId>, assembly: &mut Option<MessageAssemblyState>) {
-    if let (Some(owned), Some(assembly_state)) = (id, assembly.as_mut()) {
-        assembly_state.discard_streaming_if(owned);
     }
 }

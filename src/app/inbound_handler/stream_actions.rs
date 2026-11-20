@@ -43,15 +43,13 @@ pub(super) const fn finish_step(dispatch: Dispatch) -> Step {
 /// What one drive of the pending chunk admission decided.
 pub(super) enum AdmissionStep {
     /// The admission settled, or stayed queued with the slot still live.
+    ///
+    /// An expired wait belongs here too: the slot records how long the chunk
+    /// has been unadmitted, and the loop consults that record before the next
+    /// drive, so resuming never loses the stall.
     Continue,
     /// The handler resolved first, so its reply is now owed.
     Handler(Option<Bytes>),
-    /// The bounded wait expired with the chunk still queued.
-    ///
-    /// Whether that is an exit depends on the caller: a loop that still
-    /// observes the reader can resume the admission next step, while one
-    /// whose reader is held off the socket cannot.
-    Stalled,
 }
 
 /// Advance the in-flight chunk admission, or report the handler if it resolves
@@ -71,10 +69,10 @@ pub(super) async fn drive_pending_admission(
     match state.streams.drive_pending(wait, budget).await {
         PendingEvent::Send(result) => state.streams.complete_send(result),
         PendingEvent::Handler(outcome) => return AdmissionStep::Handler(outcome),
-        // The wait ended with the chunk still queued. The caller decides
-        // whether that is resumable: it depends on whether anything else is
-        // still watching the peer.
-        PendingEvent::Idle => return AdmissionStep::Stalled,
+        // The wait ended with the chunk still queued. The slot has recorded
+        // the stall, so the caller only has to keep looping; the loop's own
+        // bound is what ends a body the handler never reads.
+        PendingEvent::Idle => return AdmissionStep::Continue,
     }
     AdmissionStep::Continue
 }

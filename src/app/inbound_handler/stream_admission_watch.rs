@@ -85,11 +85,13 @@ where
         let wait = self.wait;
         // A frame already buffered ends direct observation: the reader is
         // deliberately not polled again until that frame is dispatched, so
-        // only the admission itself can settle this step.
+        // only the admission itself can settle this step. A stall that lasts
+        // past the connection's whole bound is reported by
+        // `ConnectionStreams::stall_expired`, which the loop checks before it
+        // drives the admission, so nothing here has to end it.
         if self.inbound.pending.is_some() {
             return Ok(settle_admission(
                 drive_pending_admission(state, wait, budget).await,
-                Reader::Held,
             ));
         }
         let settled = {
@@ -105,7 +107,7 @@ where
         Ok(match settled {
             // The admission won the race, so no read was in flight and the
             // buffered frame cannot have changed.
-            Watch::Admission(step) => settle_admission(step, Reader::Watched),
+            Watch::Admission(step) => settle_admission(step),
             Watch::Read(Event::Frame(Ok(Some(frame)))) => {
                 self.inbound.pending = Some(frame);
                 AdmissionWait::Continue
@@ -118,32 +120,19 @@ where
     }
 }
 
-/// Whether the read half was still watched while the admission waited.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Reader {
-    /// The admission raced the read half, so the next step polls it again.
-    Watched,
-    /// A buffered frame held the loop off the reader for this step.
-    Held,
-}
-
 /// Translate a settled chunk admission into the loop's next action.
 ///
-/// A chunk still queued when the wait expired does not end the step while the
-/// reader was watched: the next step polls the reader again and resumes the
-/// wait. With a frame already buffered the loop does not read, so the stall is
-/// the only way back: the buffered frame cannot be dispatched until the chunk
-/// settles, and the chunk cannot settle while the handler declines to read.
+/// A chunk still queued when the wait expired resumes the wait: the next step
+/// drives the admission again, after re-checking shutdown, expiry and the
+/// memory budget, and the stall it accumulates is what eventually ends a body
+/// whose handler never reads.
 ///
 /// Not a `const fn`: `AdmissionStep` carries an owned reply, whose destructor
 /// cannot be evaluated at compile time.
-fn settle_admission<T>(settled: AdmissionStep, reader: Reader) -> AdmissionWait<T> {
-    match (settled, reader) {
-        (AdmissionStep::Handler(outcome), _) => AdmissionWait::Handler(outcome),
-        // A stalled admission only ends the step when the loop has stopped
-        // observing the peer. Otherwise the next step resumes the wait, and a
-        // settled admission continues as well.
-        (AdmissionStep::Stalled, Reader::Held) => AdmissionWait::Stalled,
-        _ => AdmissionWait::Continue,
+fn settle_admission<T>(settled: AdmissionStep) -> AdmissionWait<T> {
+    match settled {
+        AdmissionStep::Handler(outcome) => AdmissionWait::Handler(outcome),
+        // A settled admission and an expired wait both continue the loop.
+        AdmissionStep::Continue => AdmissionWait::Continue,
     }
 }
