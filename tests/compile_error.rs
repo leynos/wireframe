@@ -36,7 +36,7 @@ fn compile_tests() {
     t.compile_fail("tests/ui/client_error_exhaustive_match.rs");
     t.compile_fail("tests/ui/message_assembly_error_exhaustive_match.rs");
     t.pass("tests/ui/wireframe_testing_exports.rs");
-t.pass("tests/ui/connection_context_default_construction.rs");
+    t.pass("tests/ui/connection_context_default_construction.rs");
     t.compile_fail("tests/ui/connection_context_is_non_exhaustive.rs");
     t.pass("tests/ui/protocol_hooks_construction.rs");
     // Trybuild forwards this build's features to the fixture, so the pool

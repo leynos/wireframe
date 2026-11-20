@@ -245,7 +245,6 @@ where
     fn compose_inline_push(actor: &mut Self, frame: F, pushes: &mut Vec<F>) {
         actor.process_frame_with_hooks_and_metrics(frame, pushes);
     }
-
 }
 
 impl<F, E, P> ConnectionActor<F, E, P>

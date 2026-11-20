@@ -794,6 +794,7 @@ queued. After that batch, shutdown discards the queued frames and closes the
 lanes, and later pushes fail with `PushError::Closed`. See the
 [users' guide](users-guide.md#server-connections-and-push-queues) and
 [ADR 014](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md).
+
 ## Protocol hook ownership and dispatch
 
 `ProtocolHooks` is no longer a struct of optional callbacks. It is an enum with

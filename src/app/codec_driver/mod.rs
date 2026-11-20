@@ -118,7 +118,7 @@ impl<T> FramePipeline<T> {
     /// this pipeline exists, so the pipeline is told the identity rather than
     /// inventing one. The hook owner holds the only copy, so every callback on
     /// the connection observes it.
-    pub(crate) fn set_context(&mut self, context: ConnectionContext) {
+    pub(crate) const fn set_context(&mut self, context: ConnectionContext) {
         self.protocol.set_context(context);
     }
 

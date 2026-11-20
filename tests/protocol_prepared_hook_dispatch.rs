@@ -54,7 +54,8 @@ fn two_frame_stream_handler() -> ResponseHandler<Envelope> {
 ///
 /// That is the boundary ADR 012's 2026-11-18 addendum records: the hook takes
 /// `&mut F::Frame`, so it cannot see the `Envelope` before serialization, and
-/// moving it there would reopen ADR 010.
+/// moving it there would reopen ADR 010. Setup is dispatched once before the
+/// response, so it leads the observed order.
 #[rstest]
 #[tokio::test]
 async fn prepared_response_runs_before_send_once_after_serialization() -> TestResult<()> {
@@ -71,9 +72,14 @@ async fn prepared_response_runs_before_send_once_after_serialization() -> TestRe
         return Err(format!("expected exactly one response frame, got {}", frames.len()).into());
     };
     let events = fixture.events();
-    let [HookEvent::BeforeSend(observed), HookEvent::CommandEnd] = events.as_slice() else {
+    let [
+        HookEvent::Setup,
+        HookEvent::BeforeSend(observed),
+        HookEvent::CommandEnd,
+    ] = events.as_slice()
+    else {
         return Err(format!(
-            "expected before_send then command end on the prepared path, got {events:?}"
+            "expected setup, before_send, then command end on the prepared path, got {events:?}"
         )
         .into());
     };
@@ -92,8 +98,8 @@ async fn prepared_response_runs_before_send_once_after_serialization() -> TestRe
     Ok(())
 }
 
-/// A prepared stream runs `before_send` once per frame and once on the
-/// terminator, in emission order.
+/// A prepared stream dispatches setup, then runs `before_send` once per frame
+/// and once on the terminator, in emission order.
 #[rstest]
 #[tokio::test]
 async fn prepared_stream_runs_before_send_once_per_frame_and_terminator() -> TestResult<()> {
@@ -108,6 +114,7 @@ async fn prepared_stream_runs_before_send_once_per_frame_and_terminator() -> Tes
 
     let events = fixture.events();
     let [
+        HookEvent::Setup,
         HookEvent::BeforeSend(first),
         HookEvent::BeforeSend(second),
         HookEvent::StreamEnd,
@@ -116,7 +123,8 @@ async fn prepared_stream_runs_before_send_once_per_frame_and_terminator() -> Tes
     ] = events.as_slice()
     else {
         return Err(format!(
-            "expected two hooked frames, a hooked terminator, then completion, got {events:?}"
+            "expected setup, two hooked frames, a hooked terminator, then completion, got \
+             {events:?}"
         )
         .into());
     };
