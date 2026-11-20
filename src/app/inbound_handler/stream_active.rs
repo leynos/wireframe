@@ -151,4 +151,20 @@ impl ActiveStream {
     /// so a handler that finishes while its body is still arriving is not
     /// delayed behind a peer that sends nothing.
     pub(super) async fn poll_handler(&mut self) -> Option<Bytes> { (&mut self.handler).await }
+
+    /// Take both open halves and count the exchange abandoned if either lived.
+    ///
+    /// A chunk still waiting for admission, or an open body whose next chunk
+    /// never arrived because the handler resolved first, both mean the handler
+    /// will never read the rest of its body. A body with neither is already
+    /// complete, and counting it here would report a delivered body as
+    /// abandoned. Taking the halves is also what releases them, so the caller
+    /// holds no byte account while it writes the reply.
+    pub(super) fn record_unfinished(&mut self) {
+        let pending = self.pending.take();
+        let sender = self.sender.take();
+        if pending.is_some() || sender.is_some() {
+            StreamingBodyOutcome::Abandoned.record();
+        }
+    }
 }

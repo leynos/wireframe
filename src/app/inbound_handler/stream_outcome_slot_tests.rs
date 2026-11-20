@@ -8,7 +8,7 @@
 //! that is finishing or aborting owns the only remaining state — so each is
 //! proved here by reading the recorded outcome.
 
-use std::time::Duration;
+use std::{future, time::Duration};
 
 use bytes::Bytes;
 use rstest::rstest;
@@ -26,11 +26,10 @@ use super::{
         wait,
     },
     ConnectionStreams,
-    record_unfinished,
 };
 use crate::{
     app::inbound_handler::{
-        stream_active::{PendingEvent, PendingSend},
+        stream_active::{ActiveStream, PendingEvent, PendingSend},
         stream_handles::{ChunkBudget, FirstChunk},
     },
     metrics::StreamingBodyOutcome,
@@ -215,7 +214,16 @@ fn an_exchange_that_ended_before_its_body_is_counted_once(
             is_last: false,
         });
         let open = has_sender.then(|| sender.clone());
-        record_unfinished(pending.as_ref(), open.as_ref());
+        ActiveStream {
+            key: None,
+            assembly: None,
+            route_id: 7,
+            correlation_id: None,
+            sender: open,
+            handler: Box::pin(future::pending()),
+            pending,
+        }
+        .record_unfinished();
     });
 
     assert_eq!(

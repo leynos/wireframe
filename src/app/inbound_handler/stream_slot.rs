@@ -52,13 +52,7 @@ use crate::{
     message::EncodeWith,
     message_assembler::{MessageAssemblyState, MessageKey, StreamingAssemblyId},
     metrics::StreamingBodyOutcome,
-    request::{
-        AccountedBodySender,
-        DEFAULT_BODY_CHANNEL_CAPACITY,
-        QueuedBytes,
-        SendChunkError,
-        accounted_body_channel,
-    },
+    request::{DEFAULT_BODY_CHANNEL_CAPACITY, QueuedBytes, SendChunkError, accounted_body_channel},
     serializer::Serializer,
 };
 
@@ -237,21 +231,10 @@ impl ConnectionStreams {
             return Ok(Dispatch::Continue);
         };
         // Cancelling the admission is safe: a reserved permit that never sent
-        // releases itself, and a queued chunk is dropped with its guard.
-        //
-        // The body is abandoned whenever it had not completed, which is either
-        // state the slot can be in: a chunk still waiting for admission, or an
-        // open body whose next chunk never arrived. The handler may still reply,
-        // but nothing will read the bytes still to come, so the exchange is
-        // recorded here rather than left uncounted.
-        {
-            // Scoped so the abandoned chunk and body are released before the
-            // reply is written: holding them would keep their byte account
-            // charged while the reply waits on the peer.
-            let pending = active.pending.take();
-            let open_sender = active.sender.take();
-            record_unfinished(pending.as_ref(), open_sender.as_ref());
-        }
+        // releases itself, and a queued chunk is dropped with its guard. The
+        // body is counted before the reply is written, because the handler may
+        // still answer while nothing will read the bytes still to come.
+        active.record_unfinished();
         discard_streaming(active.assembly, handles.assembly);
         forward_reply(active.route_id, active.correlation_id, outcome, handles).await
     }
@@ -376,18 +359,6 @@ impl ConnectionStreams {
             .as_ref()
             .and_then(|active| active.key)
             .is_some_and(|key| keys.contains(&key))
-    }
-}
-
-/// Record an exchange that ended before its body completed.
-///
-/// Either open state means the handler will never read the rest of its body:
-/// a chunk still waiting for admission, or an open body whose next chunk never
-/// arrived because the handler resolved first. A body with neither is already
-/// complete, and counting it here would report a delivered body as abandoned.
-fn record_unfinished(pending: Option<&PendingSend>, sender: Option<&AccountedBodySender>) {
-    if pending.is_some() || sender.is_some() {
-        StreamingBodyOutcome::Abandoned.record();
     }
 }
 
