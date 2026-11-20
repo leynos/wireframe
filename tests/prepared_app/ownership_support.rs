@@ -29,6 +29,19 @@ use wireframe::{
     test_helpers::TestAssembler,
 };
 
+/// Identity of the serializer probe.
+pub(super) const SERIALIZER_ID: u64 = 100;
+/// Identity of the message assembler probe.
+pub(super) const ASSEMBLER_ID: u64 = 101;
+/// Identity of the setup callback probe.
+pub(super) const SETUP_ID: u64 = 102;
+/// Identity of the teardown callback probe.
+pub(super) const TEARDOWN_ID: u64 = 103;
+/// Identity of the handler probe.
+pub(super) const HANDLER_ID: u64 = 104;
+/// Identity of the protocol probe.
+pub(super) const PROTOCOL_ID: u64 = 105;
+
 /// Shared ledger recording which identities have been dropped.
 ///
 /// A mutex is acceptable here because the ledger observes the application from
@@ -97,7 +110,7 @@ impl Drop for DropProbe {
 /// The first observed address doubles as the "unset" marker, so an observed
 /// address of zero would be indistinguishable from no call at all. Zero is
 /// never a live object's address, so the recorder documents that assumption
-/// rather than carrying a separate initialised flag.
+/// rather than carrying a separate initialized flag.
 #[derive(Clone, Default)]
 pub(super) struct CallRecorder {
     calls: Arc<AtomicUsize>,
