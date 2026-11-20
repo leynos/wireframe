@@ -1,15 +1,23 @@
 //! `ZeroCopyBaselineWorld` fixture for the zero-copy baseline gate.
 //!
 //! The world drives the same harness helpers the allocation invariants use, so
-//! the behavioural scenarios and the allocator-level checks cannot disagree
-//! about which stage they measure. It deliberately asserts only what a scenario
-//! can observe without an instrumented allocator; byte bounds live in
-//! `wireframe_testing/tests/pipeline_allocation_invariants`.
+//! the scenarios and the allocator-level checks cannot disagree about which
+//! stage they measure. These are harness-level checks, not application-boundary
+//! tests: the chain is the benchmark chain built from the library's own
+//! `Transform` and `Service` traits, and the decode drives the same seam the
+//! copied-byte counter observes. The end-to-end application boundary,
+//! including `forward_response`, is roadmap item `13.2.2`.
+//!
+//! The scenarios deliberately assert only what they can observe without an
+//! instrumented allocator or a quiet process. Byte bounds live in
+//! `wireframe_testing/tests/pipeline_allocation_invariants`, and the copied-byte
+//! counts live in `wireframe_testing/tests/copied_bytes.rs`: those counters are
+//! process-global, and the `bdd` binary runs its tests in parallel, so a
+//! counter read here would race every other scenario that decodes a message.
 
 use rstest::fixture;
 use wireframe::{
     app::{Envelope, benchmark_decode_envelope},
-    benchmark_counters,
     serializer::{BincodeSerializer, Serializer},
 };
 /// Shared result type used by the baseline fixture and steps.
@@ -32,10 +40,18 @@ pub struct ZeroCopyBaselineWorld {
     payload_class: PayloadClass,
     /// What the last middleware pass did to the payload buffer.
     stage: Option<StageOutcome>,
-    /// Deserialized bytes the last decode recorded.
-    deserialized_bytes: Option<u64>,
-    /// Payload length the last decode produced.
-    decoded_payload_bytes: Option<u64>,
+    /// Payload, consumed length and frame length from the last decode.
+    decoded: Option<DecodedFrame>,
+}
+
+/// What one pass through the benchmark decode seam returned.
+struct DecodedFrame {
+    /// Payload bytes the decoded envelope carries.
+    payload: Vec<u8>,
+    /// Bytes of the frame the decoder reports it consumed.
+    consumed: usize,
+    /// Length of the frame the decoder was handed.
+    frame_len: usize,
 }
 
 /// What a scenario expects a stage to do with the payload buffer.
@@ -61,8 +77,7 @@ pub fn zero_copy_baseline_world() -> TestResult<ZeroCopyBaselineWorld> {
         runtime,
         payload_class: PayloadClass::Large,
         stage: None,
-        deserialized_bytes: None,
-        decoded_payload_bytes: None,
+        decoded: None,
     })
 }
 
@@ -167,7 +182,7 @@ impl ZeroCopyBaselineWorld {
         self.assert_buffer_outcome(BufferExpectation::Relocated)
     }
 
-    /// Encodes an envelope, then decodes it through the production seam.
+    /// Encodes an envelope, then decodes it through the benchmark decode seam.
     ///
     /// # Errors
     ///
@@ -175,30 +190,62 @@ impl ZeroCopyBaselineWorld {
     pub fn decode_framed_message(&mut self) -> TestResult {
         let envelope = Envelope::new(1, Some(7), payload_for_class(self.payload_class).to_vec());
         let framed = BincodeSerializer.serialize(&envelope)?;
+        let frame_len = framed.len();
 
-        benchmark_counters::reset();
-        let (decoded, _consumed) = benchmark_decode_envelope(&BincodeSerializer, &framed)?;
-
-        self.deserialized_bytes = Some(benchmark_counters::snapshot().deserialized);
-        self.decoded_payload_bytes = Some(decoded.payload_bytes().len() as u64);
+        let (decoded, consumed) = benchmark_decode_envelope(&BincodeSerializer, &framed)?;
+        self.decoded = Some(DecodedFrame {
+            payload: decoded.payload_bytes().to_vec(),
+            consumed,
+            frame_len,
+        });
         Ok(())
     }
 
-    /// Asserts one payload copy was recorded for the decoded length.
+    /// The last decode, or the error a scenario without one reports.
     ///
     /// # Errors
     ///
-    /// Returns an error if no decode ran, or if the recorded count differs from
-    /// the payload length the decode produced.
-    pub fn assert_deserialized_equals_payload(&self) -> TestResult {
-        let recorded = self.deserialized_bytes.ok_or("no decode was performed")?;
-        let payload = self
-            .decoded_payload_bytes
-            .ok_or("no decode was performed")?;
-        if recorded != payload {
-            return Err(
-                format!("expected {payload} deserialized bytes, recorded {recorded}").into(),
-            );
+    /// Returns an error when no decode has run, so a scenario cannot assert on
+    /// a frame it never decoded.
+    fn last_decode(&self) -> TestResult<&DecodedFrame> {
+        self.decoded
+            .as_ref()
+            .ok_or("no decode was performed")
+            .map_err(Into::into)
+    }
+
+    /// Asserts the decoded payload is the payload the frame carried.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no decode ran, or if the payload differs.
+    pub fn assert_decoded_payload_matches(&self) -> TestResult {
+        let decoded = self.last_decode()?;
+        let expected = payload_for_class(self.payload_class);
+        if decoded.payload.as_slice() != expected {
+            return Err(format!(
+                "the decoded payload is {} bytes; the frame carried {}",
+                decoded.payload.len(),
+                expected.len()
+            )
+            .into());
+        }
+        Ok(())
+    }
+
+    /// Asserts the decoder consumed the whole frame it was handed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if no decode ran, or if bytes were left unconsumed.
+    pub fn assert_consumed_whole_frame(&self) -> TestResult {
+        let decoded = self.last_decode()?;
+        if decoded.consumed != decoded.frame_len {
+            return Err(format!(
+                "the decoder consumed {} of {} frame bytes",
+                decoded.consumed, decoded.frame_len
+            )
+            .into());
         }
         Ok(())
     }

@@ -39,14 +39,19 @@ fn given_framed_message(zero_copy_baseline_world: &mut ZeroCopyBaselineWorld) {
     zero_copy_baseline_world.arrive_with_large_payload();
 }
 
-#[when("the message is decoded into an envelope")]
+#[when("the message is decoded through the benchmark decode seam")]
 fn when_message_decoded(zero_copy_baseline_world: &mut ZeroCopyBaselineWorld) -> TestResult {
     zero_copy_baseline_world.decode_framed_message()
 }
 
-#[then("the deserialized copied-byte count equals the payload length")]
-fn then_deserialized_equals_payload(
+#[then("the decoded payload is the payload the frame carried")]
+fn then_decoded_payload_matches(
     zero_copy_baseline_world: &mut ZeroCopyBaselineWorld,
 ) -> TestResult {
-    zero_copy_baseline_world.assert_deserialized_equals_payload()
+    zero_copy_baseline_world.assert_decoded_payload_matches()
+}
+
+#[then("the whole frame is consumed")]
+fn then_whole_frame_consumed(zero_copy_baseline_world: &mut ZeroCopyBaselineWorld) -> TestResult {
+    zero_copy_baseline_world.assert_consumed_whole_frame()
 }

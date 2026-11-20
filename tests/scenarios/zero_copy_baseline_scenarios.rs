@@ -7,7 +7,7 @@ use crate::fixtures::zero_copy_baseline::*;
 
 #[scenario(
     path = "tests/features/zero_copy_baseline.feature",
-    name = "A pass-through middleware leaves the payload in place"
+    name = "The harness read-only chain leaves the payload in place"
 )]
 fn pass_through_middleware_preserves_payload(
     zero_copy_baseline_world: Result<ZeroCopyBaselineWorld, TestError>,
@@ -17,7 +17,7 @@ fn pass_through_middleware_preserves_payload(
 
 #[scenario(
     path = "tests/features/zero_copy_baseline.feature",
-    name = "A copying middleware is detected"
+    name = "The harness copying chain is detected"
 )]
 fn copying_middleware_is_detected(
     zero_copy_baseline_world: Result<ZeroCopyBaselineWorld, TestError>,
@@ -27,9 +27,9 @@ fn copying_middleware_is_detected(
 
 #[scenario(
     path = "tests/features/zero_copy_baseline.feature",
-    name = "Inbound decode copies the payload exactly once"
+    name = "The harness decode seam returns the framed payload"
 )]
-fn inbound_decode_copies_once(
+fn inbound_decode_returns_the_framed_payload(
     zero_copy_baseline_world: Result<ZeroCopyBaselineWorld, TestError>,
 ) -> Result<(), TestError> {
     Ok(())
