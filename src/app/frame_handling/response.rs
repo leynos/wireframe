@@ -173,6 +173,10 @@ where
 /// so it passes through the same pipeline, fragmentation, and outbound hooks as
 /// a buffered route's response. It completes immediately and therefore owes no
 /// stream terminator.
+///
+/// A silent handler still completes the request/response cycle, so it runs the
+/// completion hook exactly as a buffered [`Response::Empty`] does. Nothing was
+/// written for it, so no terminator and no delivery span apply.
 pub(crate) async fn forward_service_response<S, K, F>(
     route_id: u32,
     correlation_id: Option<u64>,
@@ -186,6 +190,10 @@ where
     Envelope: EncodeWith<S>,
 {
     let Some(payload) = reply else {
+        if let Some(protocol) = ctx.protocol {
+            let mut context = ctx.pipeline.context();
+            protocol.on_command_end(&mut context);
+        }
         return Ok(Dispatch::Continue);
     };
     // The envelope reply path still carries `Vec<u8>` pending the ADR 009
