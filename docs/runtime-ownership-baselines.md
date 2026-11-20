@@ -1064,14 +1064,14 @@ workload — whereas the per-connection topology evaluates a factory per
 connection and runs 4 transforms for each. Those equalities are asserted for
 the bare workload in `tests/runtime_ownership_benchmark_helpers/startup.rs` and
 for the configured workload in the support crate's
-`configured_per_connection_factory_builds_once_per_connection` test, so the
-configured workload's accounting is a test result rather than an inference from
-the timings. The timings themselves carry the load confound stated for the
-other tables: this run also took place at a load average near 30 on 24 threads,
-and the per-connection rows now scale with connection count as the topology
-implies — 4.6384 µs at one connection, 16.976 µs at four, and 62.766 µs at
-sixteen for the one-route workload. Treat the columns as order-of-magnitude,
-and the counts as exact.
+`configured_serving_records_the_topology_accounting` cases, so the configured
+workload's accounting is a test result rather than an inference from the
+timings. The timings themselves carry the load confound stated for the other
+tables: this run also took place at a load average near 30 on 24 threads, and
+the per-connection rows now scale with connection count as the topology implies
+— 4.6384 µs at one connection, 16.976 µs at four, and 62.766 µs at sixteen for
+the one-route workload. Treat the columns as order-of-magnitude, and the counts
+as exact.
 
 The preparation-only phase removes connections from the window entirely, so it
 times `prepare()` and the drop of the prepared root:
