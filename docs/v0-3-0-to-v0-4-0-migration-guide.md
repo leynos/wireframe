@@ -915,16 +915,17 @@ let assembler: Option<Arc<dyn MessageAssembler>> = app.message_assembler().clone
 let assembler: Option<&dyn MessageAssembler> = app.message_assembler();
 ```
 
-Code that cloned the handle out of the app stops compiling with E0308. The
-error is reported where the clone result is used, so the assignment or function
-argument that expects `Option<Arc<dyn MessageAssembler>>` is the line to
-change. If the assembler must outlive the application, keep your own handle and
-let `with_message_assembler` consume a separate value; the hook trait has no
-`Clone` bound, so a caller that needs two owners should wrap its own value in
-`Arc` and implement `MessageAssembler` for a cheap forwarding newtype over it
-rather than expecting the application to hand one back. Code that only calls
-`parse_frame_header` through the returned reference needs no change beyond
-dropping the clone.
+Code that cloned the handle out of the app stops compiling at the `.cloned()`
+call, not at the assignment that consumes its result: `Option::cloned` requires
+`T: Clone`, and `dyn MessageAssembler` does not implement `Clone`, so the
+compiler reports an unsatisfied trait bound. Remove `.cloned()` and use the
+returned `Option<&dyn MessageAssembler>` directly. If the assembler must
+outlive the application, keep your own handle and let `with_message_assembler`
+consume a separate value; the hook trait has no `Clone` bound, so a caller that
+needs two owners should wrap its own value in `Arc` and implement
+`MessageAssembler` for a cheap forwarding newtype over it rather than expecting
+the application to hand one back. Code that only calls `parse_frame_header`
+through the returned reference needs no change beyond dropping the clone.
 
 The second consequence is a widened bound. `PreparedApp::handle_connection`,
 `handle_connection_result`, and the deprecated
