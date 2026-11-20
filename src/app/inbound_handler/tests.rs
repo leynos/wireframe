@@ -1,5 +1,7 @@
 //! Tests for Wireframe inbound connection handling.
 
+use std::sync::{Arc, Mutex};
+
 use bytes::{Bytes, BytesMut};
 #[cfg(feature = "metrics")]
 use metrics::{SharedString, Unit};
@@ -16,6 +18,8 @@ use wireframe_testing::logger;
 use super::*;
 use crate::{
     app::{frame_handling, inbound_handler::dispatch},
+    codec::EofError,
+    hooks::{ConnectionContext, WireframeProtocol},
     serializer::BincodeSerializer,
 };
 
@@ -313,5 +317,82 @@ async fn unprepared_connection_preserves_stream_errors_and_diagnostics() {
     assert!(
         found,
         "connection error must retain its warning and context"
+    );
+}
+
+/// One end-of-file report: the condition and the bytes that arrived.
+type EofReport = (EofError, Vec<u8>);
+
+/// Protocol double recording the end-of-file reports it observes.
+#[derive(Clone, Default)]
+struct EofRecorder {
+    reports: Arc<Mutex<Vec<EofReport>>>,
+}
+
+impl EofRecorder {
+    /// Take the reports observed so far.
+    fn take(&self) -> Vec<EofReport> {
+        std::mem::take(&mut *self.reports.lock().expect("eof recorder poisoned"))
+    }
+}
+
+impl WireframeProtocol for EofRecorder {
+    type Frame = Bytes;
+    type ProtocolError = ();
+
+    fn on_eof(&self, error: &EofError, partial_data: &[u8], _ctx: &mut ConnectionContext) {
+        self.reports
+            .lock()
+            .expect("eof recorder poisoned")
+            .push((*error, partial_data.to_vec()));
+    }
+}
+
+#[rstest]
+#[case::payload(&[0, 0, 0, 10, 1, 2, 3], EofError::MidFrame { bytes_received: 3, expected: 10 })]
+#[case::header(&[0, 1], EofError::MidHeader { bytes_received: 2, header_size: 4 })]
+#[tokio::test]
+async fn truncated_input_reports_the_eof_condition_with_partial_data(
+    #[case] input: &[u8],
+    #[case] expected: EofError,
+) {
+    let recorder = EofRecorder::default();
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
+        .expect("build app")
+        .with_protocol(recorder.clone());
+    let (mut client, server) = tokio::io::duplex(64);
+    client
+        .write_all(input)
+        .await
+        .expect("write truncated input");
+    drop(client);
+
+    app.handle_unprepared_connection_result(server)
+        .await
+        .expect_err("a truncated frame must fail the connection");
+
+    assert_eq!(
+        recorder.take(),
+        vec![(expected, input.to_vec())],
+        "on_eof must receive the condition and every received byte"
+    );
+}
+
+#[tokio::test]
+async fn clean_close_does_not_report_an_eof_condition() {
+    let recorder = EofRecorder::default();
+    let app = WireframeApp::<BincodeSerializer, (), Envelope>::new()
+        .expect("build app")
+        .with_protocol(recorder.clone());
+    let (client, server) = tokio::io::duplex(64);
+    drop(client);
+
+    app.handle_unprepared_connection_result(server)
+        .await
+        .expect("a close at a frame boundary must end the connection normally");
+
+    assert!(
+        recorder.take().is_empty(),
+        "a clean close must not run on_eof"
     );
 }

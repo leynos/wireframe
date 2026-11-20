@@ -12,7 +12,7 @@
 //! documented order, without an `Arc<Mutex<_>>` around it.
 
 use super::{ConnectionContext, ProtocolHooks};
-use crate::push::PushHandle;
+use crate::{codec::EofError, push::PushHandle};
 
 /// One connection's protocol hooks and the context they share.
 ///
@@ -70,6 +70,11 @@ impl<F, E> ConnectionProtocol<F, E> {
     /// Run the outbound frame hook against this connection's context.
     pub(crate) fn before_send(&mut self, frame: &mut F) {
         self.hooks.before_send(frame, &mut self.context);
+    }
+
+    /// Run the end-of-file hook against this connection's context.
+    pub(crate) fn on_eof(&mut self, error: &EofError, partial_data: &[u8]) {
+        self.hooks.on_eof(error, partial_data, &mut self.context);
     }
 
     /// Run the command-completion hook against this connection's context.
