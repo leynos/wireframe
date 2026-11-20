@@ -65,17 +65,28 @@ fn a_delivered_failure_is_counted_as_terminal() {
     );
 }
 
+/// How a case leaves the body's channel before the failure is delivered.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BodyEnd {
+    /// The handler holds the body, with its one slot already taken.
+    Queued,
+    /// The handler dropped the body, so the failure has no receiver.
+    Dropped,
+}
+
 /// A failure competing with its handler is counted by which one won.
 ///
 /// The channel is full, so the failure needs a slot only the handler can free,
 /// and the bounded wait is the only other way out. A handler that never reads
-/// lets the wait expire; a handler that answers first leaves the body
-/// abandoned, counted once. The body stays open until the receiver is dropped
-/// afterwards, which proves the wait was spent on channel capacity rather than
-/// on a closed channel.
+/// lets the wait expire, and a handler that answers first leaves the body
+/// abandoned, counted once. A handler that dropped its body outright refuses
+/// the failure before either race starts, which is still one abandonment: the
+/// body stays open until the receiver is dropped afterwards, which proves the
+/// wait was spent on channel capacity rather than on a closed channel.
 #[rstest]
 #[case::wait_expires(
     Box::pin(future::pending()),
+    BodyEnd::Queued,
     Expectation {
         reply: HandlerWait::Deadline,
         recorded: StreamingBodyOutcome::DeliveryTimeout,
@@ -84,26 +95,40 @@ fn a_delivered_failure_is_counted_as_terminal() {
 )]
 #[case::reply_wins(
     Box::pin(future::ready(Some(Bytes::from_static(b"reply")))),
+    BodyEnd::Queued,
     Expectation {
         reply: HandlerWait::Replied(Some(Bytes::from_static(b"reply"))),
         recorded: StreamingBodyOutcome::Abandoned,
         why: "the reply settles before the full channel can accept the failure",
     },
 )]
+#[case::receiver_gone(
+    Box::pin(future::ready(Some(Bytes::from_static(b"reply")))),
+    BodyEnd::Dropped,
+    Expectation {
+        reply: HandlerWait::Replied(Some(Bytes::from_static(b"reply"))),
+        recorded: StreamingBodyOutcome::Abandoned,
+        why: "a failure the channel refused was not delivered",
+    },
+)]
 #[test]
 fn a_failure_competing_with_its_handler_is_counted_by_which_won(
     #[case] mut handler: HandlerFuture,
+    #[case] end: BodyEnd,
     #[case] expected: Expectation,
 ) {
     let (sender, body) = accounted_body_channel(1, QueuedBytes::new());
+    let held_body = (end == BodyEnd::Queued).then_some(body);
 
     let (settled, counts) = recorded(|| {
         paused_block_on(async {
-            queue_one_chunk(&sender).await;
+            if end == BodyEnd::Queued {
+                queue_one_chunk(&sender).await;
+            }
             deliver_then_await(wait(), truncated_failure(), sender, &mut handler).await
         })
     });
-    drop(body);
+    drop(held_body);
 
     assert_exchange(settled, &counts, &expected);
 }
