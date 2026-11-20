@@ -27,6 +27,8 @@
 mod checks;
 mod support;
 
+use std::io::{self, Write};
+
 use wireframe_testing::benchmark_alloc_support::{INSTRUMENTED_SYSTEM, StatsAlloc, System};
 
 /// Process allocator for this binary, so the counting window sees the same
@@ -40,7 +42,18 @@ static GLOBAL_ALLOCATOR: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
 /// The order matters: the harness self-check and the noise-floor probe come
 /// first, because every later bound is meaningless if the instrument is not
 /// observing the allocator.
-fn main() {
+///
+/// Progress goes to stdout through `Write` rather than `println!`, because the
+/// workspace denies `clippy::print_stdout` and this binary has no libtest
+/// harness to report through instead. A failing check panics, so the process
+/// exits non-zero and CI sees the failure without a summary line.
+///
+/// # Errors
+///
+/// Returns the write failure when stdout is closed, which is the only error the
+/// harness itself can produce.
+fn main() -> io::Result<()> {
+    let mut stdout = io::stdout().lock();
     let checks: [(&'static str, fn()); 15] = [
         (
             "the allocation harness observes real traffic",
@@ -104,8 +117,9 @@ fn main() {
         ),
     ];
     for (name, check) in checks {
-        println!("{name} ...");
+        writeln!(stdout, "{name} ...")?;
         check();
-        println!("    ok");
+        writeln!(stdout, "    ok")?;
     }
+    Ok(())
 }

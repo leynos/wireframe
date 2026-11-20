@@ -58,7 +58,7 @@ pub(crate) fn read_only_hook() -> BeforeSendHook {
 /// Builds the copying hook the byte bound must reject.
 pub(crate) fn copying_hook() -> BeforeSendHook {
     Arc::new(|bytes: &mut Vec<u8>| {
-        *bytes = bytes.to_vec();
+        *bytes = bytes.clone();
     })
 }
 

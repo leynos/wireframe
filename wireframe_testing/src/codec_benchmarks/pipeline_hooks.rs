@@ -29,7 +29,7 @@ fn hook_for_mode(mode: AccessMode) -> BeforeSendHook {
         // require a read-only hook to leave the buffer in place have something
         // to reject.
         AccessMode::Copying => Arc::new(|bytes: &mut Vec<u8>| {
-            *bytes = bytes.to_vec();
+            *bytes = bytes.clone();
         }),
     }
 }
