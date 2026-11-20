@@ -105,6 +105,17 @@ impl<T> FramePipeline<T> {
     /// Run the configured `before_send` hook for one outbound frame.
     pub(crate) fn before_send_frame(&mut self, frame: &mut T) { self.protocol.before_send(frame); }
 
+    /// Run the protocol's end-of-file hook for a truncated frame.
+    ///
+    /// `partial_data` is whatever the framed reader still held for the frame
+    /// the peer abandoned, including its length prefix. Every built-in codec
+    /// leaves an incomplete frame unconsumed, so for them it is every byte
+    /// that arrived; a custom decoder that consumes bytes before reporting its
+    /// end-of-file condition yields only the bytes it left behind.
+    pub(crate) fn on_eof(&mut self, error: &crate::codec::EofError, partial_data: &[u8]) {
+        self.protocol.on_eof(error, partial_data);
+    }
+
     /// Run the protocol's error hook against this connection's context.
     ///
     /// The prepared connection dispatches a protocol error here rather than

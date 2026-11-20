@@ -30,7 +30,6 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     super::{
-        PushWriteDiagnostics,
         codec_driver::FramePipeline,
         envelope::{Envelope, Packet},
         frame_handling::{self, Dispatch},
@@ -45,7 +44,7 @@ use super::{
     },
     dispatch::{FrameHandlingContext, handle_frame},
     frames::{InboundExpiry, InboundFrames},
-    framing::{TransportSink, TransportStream, prepare_connection_framing},
+    framing::{TransportSink, TransportStream, prepare_connection_framing, report_truncation},
     peer_watch::{PeerObservation, handle_watching_peer},
     push_service::{
         PushBatch,
@@ -246,7 +245,13 @@ where
     /// Perform one unit of inbound work, reporting whether to continue.
     async fn step(&mut self) -> io::Result<bool> {
         self.inbound.relieve_pressure(self.budgets).await?;
-        let Some(step) = self.wait_for_step().await? else {
+        let waited = self.wait_for_step().await;
+        if let Err(error) = &waited {
+            // The reader still holds the bytes the peer abandoned, so the
+            // truncation report has to run before the error unwinds.
+            report_truncation::<W, F>(&*self.reader, &mut self.inbound.pipeline, error);
+        }
+        let Some(step) = waited? else {
             return Ok(false);
         };
         self.serve_read_first = matches!(&step, StreamStep::Pushes(_));
@@ -333,7 +338,7 @@ where
     /// the write runs, because this is the last place that can notice a peer
     /// which half-closed and then stopped reading.
     async fn write_pushes(&mut self, pending: PendingPushes<F::Frame>) -> io::Result<bool> {
-        let diagnostics = self.push_diagnostics();
+        let diagnostics = self.response_actor.push_diagnostics();
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,
@@ -357,15 +362,9 @@ where
         deliver_pushes(&mut transport, &mut self.response_actor.actor, batch).await
     }
 
-    /// Identity this connection reports when it abandons a push write.
-    const fn push_diagnostics(&self) -> PushWriteDiagnostics {
-        let actor = &self.response_actor.actor;
-        PushWriteDiagnostics::new(actor.connection_id(), actor.peer_addr())
-    }
-
     /// Deliver frames still queued when the peer stopped writing.
     async fn drain_pushes(&mut self) -> io::Result<()> {
-        let diagnostics = self.push_diagnostics();
+        let diagnostics = self.response_actor.push_diagnostics();
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,
