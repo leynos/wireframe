@@ -87,8 +87,9 @@ where
         // deliberately not polled again until that frame is dispatched, so
         // only the admission itself can settle this step.
         if self.inbound.pending.is_some() {
-            return Ok(settle_buffered(
+            return Ok(settle_admission(
                 drive_pending_admission(state, wait, budget).await,
+                Reader::Held,
             ));
         }
         let settled = {
@@ -104,7 +105,7 @@ where
         Ok(match settled {
             // The admission won the race, so no read was in flight and the
             // buffered frame cannot have changed.
-            Watch::Admission(step) => settle_admission(step),
+            Watch::Admission(step) => settle_admission(step, Reader::Watched),
             Watch::Read(Event::Frame(Ok(Some(frame)))) => {
                 self.inbound.pending = Some(frame);
                 AdmissionWait::Continue
@@ -117,30 +118,30 @@ where
     }
 }
 
-/// Translate a chunk admission that won the race with the reader.
+/// Whether the read half was still watched while the admission waited.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Reader {
+    /// The admission raced the read half, so the next step polls it again.
+    Watched,
+    /// A buffered frame held the loop off the reader for this step.
+    Held,
+}
+
+/// Translate a settled chunk admission into the loop's next action.
 ///
-/// A chunk still queued when the wait expired only ends the step: the reader
-/// was in the race, so the next step polls it again and the wait is resumed.
+/// A chunk still queued when the wait expired does not end the step while the
+/// reader was watched: the next step polls the reader again and resumes the
+/// wait. With a frame already buffered the loop does not read, so the stall is
+/// the only way back: the buffered frame cannot be dispatched until the chunk
+/// settles, and the chunk cannot settle while the handler declines to read.
 ///
 /// Not a `const fn`: `AdmissionStep` carries an owned reply, whose destructor
 /// cannot be evaluated at compile time.
-fn settle_admission<T>(settled: AdmissionStep) -> AdmissionWait<T> {
-    match settled {
-        AdmissionStep::Handler(outcome) => AdmissionWait::Handler(outcome),
-        AdmissionStep::Continue | AdmissionStep::Stalled => AdmissionWait::Continue,
-    }
-}
-
-/// Translate a chunk admission driven with a frame already buffered.
-///
-/// The loop does not read while a frame is buffered, so an expired wait has
-/// nothing left to observe: the buffered frame cannot be dispatched until the
-/// chunk settles, and the chunk cannot settle while the handler declines to
-/// read. Reporting the stall is the only way back to the reader.
-fn settle_buffered<T>(settled: AdmissionStep) -> AdmissionWait<T> {
-    match settled {
-        AdmissionStep::Handler(outcome) => AdmissionWait::Handler(outcome),
-        AdmissionStep::Continue => AdmissionWait::Continue,
-        AdmissionStep::Stalled => AdmissionWait::Stalled,
+fn settle_admission<T>(settled: AdmissionStep, reader: Reader) -> AdmissionWait<T> {
+    match (settled, reader) {
+        (AdmissionStep::Handler(outcome), _) => AdmissionWait::Handler(outcome),
+        (AdmissionStep::Continue, _) => AdmissionWait::Continue,
+        (AdmissionStep::Stalled, Reader::Watched) => AdmissionWait::Continue,
+        (AdmissionStep::Stalled, Reader::Held) => AdmissionWait::Stalled,
     }
 }
