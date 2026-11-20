@@ -233,5 +233,10 @@ where
         )
         .into());
     }
+    // The envelope owns a freshly allocated payload vector, which is the
+    // inbound copy. Recording from the decoded payload's length measures the
+    // bytes the message holds, not the frame's metadata, and it sits after the
+    // trailing-bytes check so a rejected frame is not counted as decoded.
+    crate::benchmark_counters::record_deserialized(envelope.payload_bytes().len());
     Ok((envelope, consumed))
 }

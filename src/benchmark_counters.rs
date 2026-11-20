@@ -3,8 +3,9 @@
 //! Allocation counters cannot see a copy into an already-allocated buffer, so
 //! the zero-copy programme needs a byte-level metric as well. The seams that
 //! copy are the serializer materialization, the `Bytes::from` hand-off in
-//! `src/app/outbound_encoding.rs`, and the codec write into the transport
-//! buffer. Each seam reports through this module.
+//! `src/app/outbound_encoding.rs`, the codec write into the transport buffer,
+//! and the inbound deserialization that materializes an envelope's payload.
+//! Each seam reports through this module.
 //!
 //! The counters are compiled only when the `benchmark-counters` feature is
 //! enabled. Without it every recorder is an empty inline function that the
@@ -45,6 +46,8 @@ pub struct CopiedBytes {
     pub handoff: u64,
     /// Bytes copied into the codec write buffer while framing.
     pub framed: u64,
+    /// Bytes copied while an inbound frame became an owned envelope payload.
+    pub deserialized: u64,
 }
 
 impl CopiedBytes {
@@ -59,14 +62,16 @@ impl CopiedBytes {
     ///     serialized: 4,
     ///     handoff: 4,
     ///     framed: 4,
+    ///     deserialized: 4,
     /// };
-    /// assert_eq!(copied.total(), 12);
+    /// assert_eq!(copied.total(), 16);
     /// ```
     #[must_use]
     pub const fn total(&self) -> u64 {
         self.serialized
             .saturating_add(self.handoff)
             .saturating_add(self.framed)
+            .saturating_add(self.deserialized)
     }
 
     /// Per-operation copy count for a measured batch.
@@ -83,6 +88,7 @@ impl CopiedBytes {
     ///     serialized: 64,
     ///     handoff: 0,
     ///     framed: 64,
+    ///     deserialized: 0,
     /// };
     /// let per_operation = copied.per_operation(2).expect("two operations");
     /// assert_eq!(per_operation.framed, 32);
@@ -94,10 +100,12 @@ impl CopiedBytes {
         let serialized = self.serialized.checked_div(operations)?;
         let handoff = self.handoff.checked_div(operations)?;
         let framed = self.framed.checked_div(operations)?;
+        let deserialized = self.deserialized.checked_div(operations)?;
         Some(Self {
             serialized,
             handoff,
             framed,
+            deserialized,
         })
     }
 }
@@ -157,6 +165,9 @@ static HANDOFF_BYTES: Counter = Counter::new();
 /// Codec framing counter.
 static FRAMED_BYTES: Counter = Counter::new();
 
+/// Inbound deserialization counter.
+static DESERIALIZED_BYTES: Counter = Counter::new();
+
 /// Records bytes written into a serializer's returned vector.
 #[inline]
 pub fn record_serialized(bytes: usize) { SERIALIZED_BYTES.add(bytes); }
@@ -169,6 +180,15 @@ pub fn record_handoff(bytes: usize) { HANDOFF_BYTES.add(bytes); }
 #[inline]
 pub fn record_framed(bytes: usize) { FRAMED_BYTES.add(bytes); }
 
+/// Records bytes copied into a decoded envelope's owned payload.
+///
+/// The inbound path materializes a frame's payload into its own `Vec<u8>`, so
+/// an inbound message copies its payload once even though the reader's frame
+/// borrowed it. Recording from the decoded envelope's payload length keeps the
+/// count independent of the frame's metadata bytes.
+#[inline]
+pub fn record_deserialized(bytes: usize) { DESERIALIZED_BYTES.add(bytes); }
+
 /// Returns the counters accumulated since the last [`reset`].
 ///
 /// Every field is zero when the `benchmark-counters` feature is disabled, so a
@@ -179,6 +199,7 @@ pub fn snapshot() -> CopiedBytes {
         serialized: SERIALIZED_BYTES.load(),
         handoff: HANDOFF_BYTES.load(),
         framed: FRAMED_BYTES.load(),
+        deserialized: DESERIALIZED_BYTES.load(),
     }
 }
 
@@ -190,6 +211,7 @@ pub fn reset() {
     SERIALIZED_BYTES.clear();
     HANDOFF_BYTES.clear();
     FRAMED_BYTES.clear();
+    DESERIALIZED_BYTES.clear();
 }
 
 /// Converts a serializer vector into the codec hand-off container.
@@ -249,6 +271,7 @@ mod tests {
             serialized: 96,
             handoff: 48,
             framed: 32,
+            deserialized: 64,
         };
         let per_operation = copied.per_operation(4).expect("four operations");
         assert_eq!(
@@ -257,8 +280,10 @@ mod tests {
                 serialized: 24,
                 handoff: 12,
                 framed: 8,
+                deserialized: 16,
             },
-            "per_operation should equal CopiedBytes {{ serialized: 24, handoff: 12, framed: 8, }}"
+            "per_operation should equal CopiedBytes {{ serialized: 24, handoff: 12, framed: 8, \
+             deserialized: 16, }}"
         );
     }
 

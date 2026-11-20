@@ -44,7 +44,7 @@ mod actor;
 // module, so the processing entry point is crate-visible.
 pub(crate) mod core;
 
-mod dispatch;
+pub(crate) mod dispatch;
 
 mod frames;
 
@@ -74,7 +74,7 @@ use super::{
 use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
-    hooks::ProtocolHooks,
+    hooks::{ProtocolHooks, WireframeProtocol},
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
@@ -82,6 +82,46 @@ use crate::{
     serializer::Serializer,
     session::SessionRegistry,
 };
+
+/// Benchmark entry point for the inbound decode seam.
+///
+/// Mirrors the crate-internal envelope decoder for harnesses that live outside
+/// the crate. It exists only with the `test-support` feature and returns the
+/// decoded envelope rather than any internal state, so a caller cannot depend
+/// on how the decode is staged.
+///
+/// # Errors
+///
+/// Returns the decoder's error when `payload` is not a complete envelope, or
+/// when trailing bytes follow it.
+///
+/// # Examples
+///
+/// ```ignore
+/// let (envelope, consumed) = benchmark_decode_envelope(&BincodeSerializer, &frame_payload)?;
+/// assert_eq!(envelope.payload_bytes().len(), payload_len);
+/// ```
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn benchmark_decode_envelope<S>(
+    serializer: &S,
+    payload: &[u8],
+) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>>
+where
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    Envelope: DecodeWith<S>,
+{
+    dispatch::parse_envelope(serializer, payload)
+}
+
+
+
+use super::{
+};
+use crate::{
+    hooks::ProtocolHooks,
+};
+
 
 /// Maximum consecutive deserialization failures before closing a connection.
 pub(super) const MAX_DESER_FAILURES: u32 = 10;
