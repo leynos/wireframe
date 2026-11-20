@@ -558,6 +558,16 @@ Feature: Zero-copy baseline gate
     Then the deserialized copied-byte count equals the payload length
 ```
 
+**Superseded during implementation.** The shipped feature,
+`tests/features/zero_copy_baseline.feature`, keeps the first two scenarios and
+changes the third. The allocator step cannot run in the `bdd` binary, and the
+copied-byte counters are process-global, so a scenario reading them would race
+every other scenario that decodes a message. The third scenario therefore
+checks the decode seam's payload and consumed length, and the copied-byte
+equalities live in the serialized `wireframe_testing/tests/copied_bytes.rs`.
+The allocation bound lives in the harness-free invariants binary. This is
+recorded under "Implementation discoveries" below.
+
 ## Plan of work
 
 ### Stage A: confirm and decide (no production change)
@@ -880,6 +890,37 @@ for the roadmap edit.
   unchanged", and the byte bound is cited to the invariants binary in the
   feature's own preamble.
 
+- Observation: the copied-byte counters cannot be read from the `bdd` binary at
+  all, not even in a `#[serial]` scenario. Evidence: the counters are
+  process-global, the `bdd` target runs its tests in parallel, and `serial`
+  serializes only the tests that use it, so any other scenario decoding a
+  message would land inside the window. Impact: the inbound scenario asserts
+  the decode seam's payload and consumed length instead, and the copied-byte
+  equalities live only in `wireframe_testing/tests/copied_bytes.rs` and the
+  single-test `tests/client_send_counters.rs`.
+
+- Observation: `Bytes::from` never copies, so a byte counter cannot prove which
+  call a send path used. Evidence: `bytes` 1.12.1's `From<Vec<u8>>` takes an
+  exact-capacity vector in place and shares a spare-capacity one through a
+  control block at the same buffer pointer, so `record_handoff` records zero
+  either way. Impact: `HANDOFF_SEAM_CALLS` and `handoff_seam_calls()` were
+  added, and `tests/client_send_counters.rs` asserts that the client send path
+  runs the seam exactly once; reverting `src/client/send_pipeline.rs` to
+  `Bytes::from` fails it with `left: 0, right: 1`.
+
+- Observation: the inversion-register check was vacuous for wrapped entries.
+  Evidence: the document wraps each entry after `in`, so a line-at-a-time
+  parser found one span per line and dropped every entry, and the test passed
+  with an empty set. Impact: `register_items` joins continuation lines and
+  `register_entries` rejects a malformed entry; the test also asserts the
+  register lists all four seams and names the outbound two-copy assertion.
+
+- Observation: the growth check had only a lower bound, so an allocator that
+  charged the whole new size on a growing reallocation would pass. Evidence:
+  `growing_reallocation_reports_growth` asserted `bytes >= grown_capacity`,
+  while `stats_alloc` records growth only. Impact: the probe buffer is 16× the
+  window slack and the check now bounds both sides of the reading.
+
 ## Decision log
 
 - **D-1.** Adopt the delivered instrument and plan only its gaps. The
@@ -955,6 +996,18 @@ Evidence gathered so far, milestone by milestone.
   traversal, the plan document closes four more gap rows, and ADR-0010's new
   addendum names the three superseded sentences without editing them.
 
+- **EP-M5 (review follow-up).** The first review round found six substantive
+  gaps. The inversion register now parses wrapped entries and asserts all four
+  entries; the growth check bounds both sides of its reading; the middleware
+  helper takes a pre-built buffer, its tests use `rstest` fixtures and cases,
+  and the read-only byte bound is checked at two large payload scales; the
+  client send path gained a single-test counter guard plus seam-call
+  instrumentation; the behavioural feature is relabelled as harness-level with
+  the process-global counter reads removed; a proptest covers payload lengths
+  from zero to the large class on both the decode and encode seams; and the
+  plan, baselines, migration, users', and developers' guides were corrected.
+  Gate evidence is in "Artefacts and notes".
+
 What the work cost against the plan's budget is recorded in "Artefacts and
 notes" once the final gates have run.
 
@@ -973,7 +1026,21 @@ notes" once the final gates have run.
   `/tmp/test-invariants-wireframe-10-2-1-capture-baselines.out`,
   `/tmp/test-copied-wireframe-10-2-1-capture-baselines.out`,
   `/tmp/test-bdd-zero-copy-wireframe-10-2-1-capture-baselines.out`.
-- Final gate logs: to be added after the commit gates run.
+- Final gate logs, all green on the committed tree:
+  `make check-fmt` (`/tmp/check-fmt-wireframe-10-2-1-capture-baselines-4.out`);
+  `make lint`, all four leaves including Whitaker and the Python docstring check
+  (`/tmp/lint-wireframe-10-2-1-capture-baselines-5.out`); `make typecheck`
+  (`/tmp/typecheck-wireframe-10-2-1-capture-baselines-3.out`); `make test`,
+  2,026 tests in 100 suites, 0 failures
+  (`/tmp/test-wireframe-10-2-1-capture-baselines-5.out`); `make test-bdd`, 237
+  passed (`/tmp/test-bdd-wireframe-10-2-1-capture-baselines.out`);
+  `make test-feature-gate`
+  (`/tmp/test-feature-gate-wireframe-10-2-1-capture-baselines-2.out`);
+  `make markdownlint`
+  (`/tmp/markdownlint-wireframe-10-2-1-capture-baselines-4.out`); and
+  `make nixie` (`/tmp/nixie-wireframe-10-2-1-capture-baselines-2.out`). The
+  lint log's only warning is the Whitaker toolchain's pre-existing
+  `unused config key 'unstable.embed-metadata'`, which is not a finding.
 
 ## Revision note
 

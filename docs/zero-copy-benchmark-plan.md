@@ -46,16 +46,22 @@ layout, because the migration changes ownership at three separate boundaries.
 
 "Inbound decode" here means byte-buffer to frame: the codec decodes a wire
 buffer and hands out a payload. It does not include application deserialization
-into domain types, which the migration does not change in performance terms.
-"Outbound encode" means the two-step `serialize` then `wrap_payload` hand-off
-performed by `src/app/outbound_encoding.rs`; the transport write that follows
-is outside the migration's boundary.
+into domain types. The inbound timing stops at the codec, so it does not
+measure the payload copy `parse_envelope` performs; roadmap item `11.1.1`
+removes that copy and changes the inbound application path without appearing in
+this timing. "Outbound encode" means the two-step `serialize` then
+`wrap_payload` hand-off performed by `src/app/outbound_encoding.rs`; the
+transport write that follows is outside the migration's boundary.
 
 The timing stages and the copied-byte seams are different partitions of the
 same path. A timing stage is a region Criterion measures; a copy seam is a
-point where payload bytes move. The outbound stages contain two seams and the
-inbound stage contains one, which is why [copied bytes](#copied-bytes) lists
-four sites while this table lists four stages.
+point where payload bytes move. Four seams carry the payload: serialization,
+hand-off, transport framing, and inbound deserialization. The outbound timing
+stages contain the first two. Transport framing happens in `Encoder::encode`
+after the outbound wrap pass, outside the outbound timing boundary, and inbound
+deserialization happens in `parse_envelope`, after the codec step the inbound
+timing measures. That is why [copied bytes](#copied-bytes) lists four sites
+while this table lists four stages.
 
 ## Existing harnesses
 
@@ -221,13 +227,15 @@ functions when the feature is off:
    `serialize_and_send`, not in `EncodeWith::encode_with`: a Serde-backed
    serializer never reaches that method, so recording there would miss those
    messages and double-count a harness that calls `serialize` itself.
-2. `record_handoff` — `Bytes::from(Vec<u8>)` had to relocate the payload. It
-   is recorded by `bytes_from_vec`, which compares `as_ptr()` before and after.
-   With `bytes` 1.12.1 neither an exact-capacity vector nor one with spare
-   capacity copies the payload: the second case allocates a shared control
-   block that still points at the vector's buffer. The seam therefore measures
-   zero today and exists as a guard against a later `bytes` change or a
-   hand-off written some other way.
+2. `record_handoff` — the serializer vector becomes a `Bytes` hand-off. It is
+   recorded by `bytes_from_vec`, which compares `as_ptr()` before and after.
+   Revisions 1 and 2 expected this seam to relocate the payload; with `bytes`
+   1.12.1 neither an exact-capacity vector nor one with spare capacity copies
+   it: the second case allocates a shared control block that still points at
+   the vector's buffer. The seam therefore measures zero today and exists as a
+   guard against a later `bytes` change or a hand-off written some other way.
+   `bytes_from_vec` also counts its own calls (`handoff_seam_calls`), so a call
+   site that bypasses it is detectable even while no copy is recorded.
 3. `record_framed` — the codec copies the payload into the transport write
    buffer. `wrap_payload` builds a frame but writes no transport buffer, so
    this seam belongs to `Encoder::encode` and is probed by
@@ -242,9 +250,10 @@ functions when the feature is off:
 
 The fourth seam is a copy site, not a timed stage: the matrix's "Inbound
 decode" rows time the codec's byte-buffer-to-frame step, and this counter
-observes the later application deserialization the migration inherits but does
-not change in performance terms. It was added because a copy that no counter
-observes is a copy the gate cannot protect.
+observes the later application deserialization into an envelope. Roadmap item
+`11.1.1` removes that copy, so the inbound application path does change; the
+codec-only timing does not measure it, which is why the counter exists. It was
+added because a copy that no counter observes is a copy the gate cannot protect.
 
 Copied bytes are a separate measurement kind from allocation counts, and the
 two are not interchangeable: an allocation counter cannot see a copy into an
