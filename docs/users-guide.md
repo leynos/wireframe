@@ -1490,6 +1490,13 @@ delivered with its assembled body as a single chunk. Replies are written when
 each exchange finishes, so a parked message's reply always follows the reply of
 the body that was live before it.
 
+Parking is bounded at 64 messages per connection. The 64th message is accepted,
+and a message that completes while 64 are already parked is rejected with an
+`InvalidData` error that ends the connection. The bound exists because the
+byte-based budget cannot see a queue of small or empty payloads grow, and a
+peer that pipelines behind a body it never finishes must not be able to
+accumulate work indefinitely.
+
 #### Limits and lifecycle
 
 The per-message cap and the declared total body length are enforced on each
@@ -3681,10 +3688,11 @@ instead of overwriting one another:
   which is the back-pressure this design relies on.
 - `wireframe_streaming_bodies_parked` — completed messages waiting behind live
   bodies. The value covers every connection, so it counts the process's parked
-  work; `MAX_PARKED_MESSAGES` (64) is the per-connection limit, and reaching it
-  ends that connection rather than absorbing more. A connection that ends with
-  messages still parked releases them, so the gauge cannot count work nobody
-  will dispatch.
+  work; `MAX_PARKED_MESSAGES` (64) is the per-connection limit. The 64th
+  message is accepted, and a message that completes while 64 are already
+  parked ends that connection rather than being absorbed. A connection that
+  ends with messages still parked releases them, so the gauge cannot count
+  work nobody will dispatch.
 
 The dispatch modules log one structured event per body decision. Each event
 carries an `operation` field (`stream_start`, `chunk_delivery`,

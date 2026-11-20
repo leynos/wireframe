@@ -1249,6 +1249,116 @@ await a connection. Both the prepared and the compatibility entry points reach
 the loop through that runtime, so a single allocation per connection bounds the
 depth every caller sees.
 
+### Admission wait with the read half observed
+
+`src/app/inbound_handler/stream_admission_watch.rs` holds
+`Connection::drive_admission`, the step that drives the slot's in-flight chunk
+admission. Only the handler can free the channel capacity or byte budget an
+admission needs, so the wait is unbounded in principle. Waiting without reading
+would leave the loop blind to a peer that has already gone away, and the
+connection would then outlive it while still holding its handler, its queued
+bytes, and its share of the server drain.
+
+The step therefore races the admission against the read half. A read event that
+settles first is handed back to the loop unchanged as `AdmissionWait::Peer`,
+and the loop handles it exactly as a read outside an admission would be; a
+settled admission becomes `AdmissionWait::Handler`, or `Continue` when the
+chunk is still waiting. The module is separate from `stream_dispatch.rs`
+because the loop's state machine and the actions it schedules together outgrew
+the module limit, and because watching a wait changes for different reasons
+from deciding what a settled event means. The wait that produces an event lives
+in `stream_reads.rs` and the push-batch write in `stream_pushes.rs`, for the
+same reason.
+
+### Chunk budgets and the empty-account exception
+
+`ChunkBudget::measure` in `stream_handles.rs` snapshots the two numbers one
+admission needs: `limit`, the connection's aggregate byte limit, and
+`other_retained`, every byte the connection holds outside the chunk queue.
+Those holders are the assembler's buffered bytes, the outbound pipeline's
+fragmentation buffers, and the messages parked behind the live body. The parked
+queue is the easy one to forget and the expensive one to omit: a chunk admitted
+without it would pass admission only to trip the hard cap on the next loop
+step, which aborts the connection instead of holding the chunk back.
+
+Admission requires the queued bytes, `other_retained`, and the chunk to fit
+within `limit`, with one documented exception in
+`AccountedBodySender::send_chunk`: a single chunk is admitted into an empty
+account whatever its size or `other_retained`. Without that exception a body
+whose first chunk alone exceeds the budget could never start. The hard-cap
+policy observes the queued bytes immediately afterwards, so the exception
+cannot hide an overrun. The snapshot is never reused across admissions: the
+loop measures again before every drive, so bytes released in between — an
+expired assembly, a drained parked message, a handler taking a chunk — are
+seen by the next one.
+
+### Streaming body metrics
+
+`src/metrics/streaming_bodies.rs` defines three series and the `metrics`
+feature gate around them:
+
+- `wireframe_streaming_body_outcomes_total` — a counter whose single `outcome`
+  label takes a value from `StreamingBodyOutcome` (`delivered`, `terminal`,
+  `abandoned`, `admission_timeout`, `delivery_timeout`, `no_handler`), so
+  application data cannot create new series;
+- `wireframe_streaming_body_bytes_queued` — a gauge of body bytes queued for
+  handlers, including a chunk that has reserved its bytes but is still waiting
+  for channel capacity; and
+- `wireframe_streaming_bodies_parked` — a gauge of completed messages waiting
+  behind live bodies.
+
+`StreamingBodyOutcome::record` is the only write path for the counter, and
+`as_str` is the single source of the labels the diagnostics reuse, so a
+recorded series and the event beside it cannot name one case two ways. Both
+gauges are process-wide totals kept in `Occupancy`, a mutex-guarded count that
+publishes the total it computed while it still holds the lock. Publishing after
+the guard is dropped would let two concurrent releases publish in the opposite
+order and leave the gauge above the real total for good, because `Gauge::set`
+assigns rather than advances. A build without the feature compiles the tallies
+out entirely: every entry point has a `#[cfg(not(feature = "metrics"))]` no-op,
+so a disabled build spends nothing per chunk.
+
+### Streaming body diagnostics
+
+`stream_diagnostics.rs` owns the tracing vocabulary for body delivery. Each
+helper emits exactly one event and carries identifiers as fields rather than in
+the message: `operation` (`stream_start`, `chunk_delivery`, `prefilled_body`,
+`terminal_body`), the `message_id` or `key` of the message, and a bounded
+`error_category`. Five of the categories name a recorded outcome and are
+derived from `StreamingBodyOutcome::as_str`; `closed`, `receiver_gone`,
+`abandoned_body`, and `reply_abandoned` describe cases no counter series
+covers. Payload bytes are never logged, so the identifiers and the category
+carry the whole diagnosis. The users' guide lists the operator-facing meaning
+of each gauge and event.
+
+The helpers exist for two reasons: a tracing macro expands to a level check
+plus field handling that counts against Clippy's cognitive-complexity budget,
+so a function that both branches and logs would exceed it; and naming each
+event in one place keeps the wording and field names consistent across the
+dispatch modules that raise it.
+
+### Streaming dispatch test harnesses
+
+- `tests/streaming_request_server/` drives a real `WireframeServer` over a
+  socket for every streaming body scenario — delivery, back-pressure, parking,
+  and middleware bypass — so the suite covers accept, prepare, frame, dispatch,
+  and reply rather than calling a connection API directly. It frames with
+  `LengthDelimitedCodec`, so the client speaks exactly the wire format the
+  runtime decodes.
+- `tests/common/tagging.rs` supplies the middleware double those tests share.
+  It tags the frames that pass through the chain and counts the one-time
+  transforms performed during preparation, so a scenario can tell a route that
+  ran the chain from one that never entered it. It is a separate module so a
+  test target that needs only the double does not compile the
+  prepared-application helpers beside it.
+- `src/test_helpers/retained_bytes.rs` records the highest byte total one
+  connection retained against an armed aggregate limit. A socket-level
+  back-pressure test can show that a peer blocks without showing what the
+  server held when it did; this lets the assertion name the budget it checks
+  instead of inferring it from timing. Recording is scoped to the armed limit,
+  so a concurrently running scenario with its own budgets cannot contribute to
+  the peak.
+
 ### `fill_buf_with_prefix`
 
 The private helper `fill_buf_with_prefix(buf, prefix, endianness)` in
