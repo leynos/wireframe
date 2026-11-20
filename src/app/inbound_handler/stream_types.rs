@@ -78,6 +78,13 @@ pub(super) enum AdmissionWait<T> {
     Continue,
     /// The handler resolved first, so its reply is owed.
     Handler(Option<Bytes>),
+    /// The bounded wait expired while a frame was already buffered.
+    ///
+    /// A buffered frame keeps the loop off the reader, so the peer's close
+    /// would never be observed, and the chunk cannot settle while the handler
+    /// declines to read. The wait is then the only exit, and the body it
+    /// belonged to has to fail so the loop can reach the peer again.
+    Stalled,
     /// The read half ended, failed, or the server stopped.
     Peer(Event<T>),
 }

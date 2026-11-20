@@ -156,6 +156,22 @@ where
             // The read half settled the step, so it is handled exactly as an
             // event read outside an admission would be.
             AdmissionWait::Peer(event) => return self.handle_event(state, event, queued).await,
+            // A buffered frame holds the loop off the reader, so an admission
+            // that makes no progress leaves the connection with nothing to
+            // observe. Failing the stalled body abandons its chunk, which lets
+            // the step fall through and dispatch the buffered frame.
+            AdmissionWait::Stalled => {
+                let reason = io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "request body admission made no progress while the peer sent more work",
+                );
+                let dispatch = self
+                    .dispatch_observed(state, queued.clone(), ObservedAction::FailBody(reason))
+                    .await?;
+                if dispatch == Dispatch::Stop {
+                    return Ok(Step::Closed);
+                }
+            }
             AdmissionWait::Continue => {}
         }
         if state.streams.has_pending_send() {

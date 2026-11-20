@@ -46,6 +46,12 @@ pub(super) enum AdmissionStep {
     Continue,
     /// The handler resolved first, so its reply is now owed.
     Handler(Option<Bytes>),
+    /// The bounded wait expired with the chunk still queued.
+    ///
+    /// Whether that is an exit depends on the caller: a loop that still
+    /// observes the reader can resume the admission next step, while one
+    /// whose reader is held off the socket cannot.
+    Stalled,
 }
 
 /// Advance the in-flight chunk admission, or report the handler if it resolves
@@ -65,9 +71,10 @@ pub(super) async fn drive_pending_admission(
     match state.streams.drive_pending(wait, budget).await {
         PendingEvent::Send(result) => state.streams.complete_send(result),
         PendingEvent::Handler(outcome) => return AdmissionStep::Handler(outcome),
-        // The admission stays queued; the next step re-checks expiry and the
-        // memory budget before resuming it.
-        PendingEvent::Idle => {}
+        // The wait ended with the chunk still queued. The caller decides
+        // whether that is resumable: it depends on whether anything else is
+        // still watching the peer.
+        PendingEvent::Idle => return AdmissionStep::Stalled,
     }
     AdmissionStep::Continue
 }

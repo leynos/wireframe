@@ -87,7 +87,7 @@ where
         // deliberately not polled again until that frame is dispatched, so
         // only the admission itself can settle this step.
         if self.inbound.pending.is_some() {
-            return Ok(settle_admission(
+            return Ok(settle_buffered(
                 drive_pending_admission(state, wait, budget).await,
             ));
         }
@@ -117,13 +117,30 @@ where
     }
 }
 
-/// Translate a settled chunk admission into the loop's next action.
+/// Translate a chunk admission that won the race with the reader.
+///
+/// A chunk still queued when the wait expired only ends the step: the reader
+/// was in the race, so the next step polls it again and the wait is resumed.
 ///
 /// Not a `const fn`: `AdmissionStep` carries an owned reply, whose destructor
 /// cannot be evaluated at compile time.
 fn settle_admission<T>(settled: AdmissionStep) -> AdmissionWait<T> {
     match settled {
         AdmissionStep::Handler(outcome) => AdmissionWait::Handler(outcome),
+        AdmissionStep::Continue | AdmissionStep::Stalled => AdmissionWait::Continue,
+    }
+}
+
+/// Translate a chunk admission driven with a frame already buffered.
+///
+/// The loop does not read while a frame is buffered, so an expired wait has
+/// nothing left to observe: the buffered frame cannot be dispatched until the
+/// chunk settles, and the chunk cannot settle while the handler declines to
+/// read. Reporting the stall is the only way back to the reader.
+fn settle_buffered<T>(settled: AdmissionStep) -> AdmissionWait<T> {
+    match settled {
+        AdmissionStep::Handler(outcome) => AdmissionWait::Handler(outcome),
         AdmissionStep::Continue => AdmissionWait::Continue,
+        AdmissionStep::Stalled => AdmissionWait::Stalled,
     }
 }

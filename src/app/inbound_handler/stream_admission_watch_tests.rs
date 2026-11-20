@@ -31,12 +31,15 @@ use super::watch_support::{
     bounded,
     bounded_for,
     ensure,
+    read_reply,
+    send_complete,
     send_request,
     spawn_connection,
 };
 use crate::{
-    app::{BudgetBytes, MemoryBudgets, StreamingHandler, WireframeApp},
+    app::{BudgetBytes, Envelope, MemoryBudgets, ResponseHandler, StreamingHandler, WireframeApp},
     request::{RequestBodyStream, RequestParts},
+    response::Response,
     test_helpers::{TestAssembler, continuation_frame_payload, first_frame_payload},
 };
 
@@ -44,6 +47,12 @@ use crate::{
 const STALLED_ROUTE: u32 = 75;
 /// Message key of the stalled streaming body.
 const STALLED_KEY: u64 = 62;
+/// Buffered route that answers at once, proving the loop still serves.
+const PROBE_ROUTE: u32 = 76;
+/// Message key of the probe request.
+const PROBE_KEY: u64 = 63;
+/// Reply the probe route returns.
+const PROBE_REPLY: &[u8] = b"served";
 /// Size of each body chunk, small enough to fit the default frame budget.
 const CHUNK_BYTES: usize = 256;
 /// Per-message cap, generous enough that the message never trips it.
@@ -85,6 +94,16 @@ fn stalled_handler(
     })
 }
 
+/// Buffered route whose handler answers at once.
+///
+/// The reply is the probe: it can only be written once the stalled body has
+/// been failed and the frame buffered behind it dispatched.
+fn probe_reply() -> ResponseHandler<Envelope> {
+    Arc::new(|_request: &Envelope| {
+        Box::pin(async { Response::Single(Envelope::new(PROBE_ROUTE, None, PROBE_REPLY.to_vec())) })
+    })
+}
+
 /// Convert a byte count into a budget.
 fn budget(bytes: usize) -> TestResult<BudgetBytes> {
     NonZeroUsize::new(bytes)
@@ -102,6 +121,7 @@ fn stalled_app(handler: StreamingHandler) -> TestResult<App> {
     WireframeApp::new()
         .map(|app| app.with_message_assembler(TestAssembler))
         .and_then(|app| app.streaming_route(STALLED_ROUTE, handler))
+        .and_then(|app| app.route_response(PROBE_ROUTE, probe_reply()))
         .map(|app| app.memory_budgets(budgets))
         .map_err(|error| TestError::Msg(format!("build the application: {error}")))
 }
@@ -156,4 +176,77 @@ async fn a_peer_leaving_while_a_chunk_waits_is_observed() -> TestResult {
         read.load(Ordering::SeqCst) == 0,
         "the stalled handler must not be released",
     )
+}
+
+/// A frame buffered behind a stalled chunk cannot leave the connection blind.
+///
+/// The first chunk stays charged, so the second is refused admission and stays
+/// queued. A third continuation is then read while that admission waits, and a
+/// buffered frame keeps the loop off the reader: the third frame would never be
+/// dispatched, and the peer's later close would never be observed, while the
+/// chunk cannot settle as long as the handler declines to read.
+///
+/// The admission wait is the only exit left. Expiring it fails the stalled
+/// body, which abandons the queued chunk and leaves the buffered continuation
+/// belonging to no body. The step then falls through to dispatch that frame and
+/// serve the probe behind it, proving the loop recovered rather than spinning.
+#[tokio::test(start_paused = true)]
+async fn a_chunk_stalled_behind_a_buffered_frame_ends_its_body() -> TestResult {
+    let started = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let read = Arc::new(AtomicUsize::new(0));
+    let Scenario {
+        mut client,
+        connection,
+    } = spawn_connection(stalled_app(stalled_handler(
+        Arc::clone(&started),
+        Arc::clone(&release),
+        Arc::clone(&read),
+    ))?)
+    .await?;
+
+    let chunk = vec![7_u8; CHUNK_BYTES];
+    send_request(
+        &mut client,
+        STALLED_ROUTE,
+        &first_frame_payload(STALLED_KEY.into(), &chunk, false, None)?,
+    )
+    .await?;
+    bounded("the live handler starting", started.notified()).await?;
+    send_request(
+        &mut client,
+        STALLED_ROUTE,
+        &continuation_frame_payload(STALLED_KEY.into(), 1_u32.into(), &chunk, false)?,
+    )
+    .await?;
+    // Read while the second chunk waits for admission, so it is buffered
+    // rather than dispatched. The probe behind it stays in the socket until
+    // the loop reaches the reader again.
+    send_request(
+        &mut client,
+        STALLED_ROUTE,
+        &continuation_frame_payload(STALLED_KEY.into(), 2_u32.into(), &chunk, false)?,
+    )
+    .await?;
+    send_complete(&mut client, PROBE_ROUTE, PROBE_KEY, b"probe").await?;
+
+    let reply = read_reply(&mut client, "the probe reply").await?;
+    ensure(
+        reply == PROBE_REPLY,
+        format!("the probe must be served once the stalled body fails, got {reply:?}"),
+    )?;
+    ensure(
+        read.load(Ordering::SeqCst) == 0,
+        "the stalled handler must not be released",
+    )?;
+
+    SinkExt::<Bytes>::close(&mut client).await?;
+    let joined = bounded_for(
+        STEP_WAIT + END_WAIT,
+        "the connection ending after the peer left",
+        connection,
+    )
+    .await?;
+    joined??;
+    Ok(())
 }
