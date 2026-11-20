@@ -91,7 +91,7 @@ proptest! {
             match op {
                 FinalizerOp::Arm(value) => finalizer.arm(value),
                 FinalizerOp::Finalize => {
-                    block_on(finalizer.finalize(Some(&teardown), FinalizationOutcome::Clean));
+                    block_on(finalizer.finalize(Some(teardown.as_ref()), FinalizationOutcome::Clean));
                 }
             }
             if let Some(taken) = model.apply(op) {

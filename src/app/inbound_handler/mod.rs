@@ -96,16 +96,16 @@ where
 {
     /// Immutable middleware chains used to dispatch decoded envelopes.
     pub(crate) routes: &'a HashMap<u32, HandlerService<E>>,
-    /// Serializer shared by all frames on the connection.
-    pub(crate) serializer: Arc<S>,
+    /// Serializer borrowed from the prepared root for the connection lifetime.
+    pub(crate) serializer: &'a S,
     /// Codec configuration shared by all frames on the connection.
     pub(crate) codec: &'a F,
     /// Optional hook that creates per-connection state.
-    pub(crate) on_connect: Option<&'a Arc<ConnectionSetup<C>>>,
+    pub(crate) on_connect: Option<&'a ConnectionSetup<C>>,
     /// Optional hook that releases per-connection state after processing.
-    pub(crate) on_disconnect: Option<&'a Arc<ConnectionTeardown<C>>>,
+    pub(crate) on_disconnect: Option<&'a ConnectionTeardown<C>>,
     /// Optional assembly strategy for multi-frame protocol messages.
-    pub(crate) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    pub(crate) message_assembler: Option<&'a dyn MessageAssembler>,
     /// Fragmentation settings used to initialize the frame pipeline.
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks built for this connection from the installed protocol.
@@ -217,10 +217,12 @@ where
     Ok(())
 }
 
-/// Construct each route's middleware chain from registered builder inputs.
+/// Construct each route's middleware chain from borrowed builder inputs.
 ///
 /// Middleware is folded in reverse registration order, preserving the first
-/// registered middleware as the outermost service layer.
+/// registered middleware as the outermost service layer. This is the
+/// compatibility path, which still owns an unprepared builder and therefore
+/// clones each route's handler `Arc`.
 pub(crate) async fn build_route_chains<E>(
     handlers: &HashMap<u32, Route<E>>,
     middleware: &[Box<dyn Middleware<E>>],
@@ -228,15 +230,50 @@ pub(crate) async fn build_route_chains<E>(
 where
     E: Packet,
 {
-    let mut routes = HashMap::new();
+    let mut routes = HashMap::with_capacity(handlers.len());
     for (&id, route) in handlers {
-        let mut service = HandlerService::from_route(id, route);
-        for mw in middleware.iter().rev() {
-            service = mw.transform(service).await;
-        }
-        routes.insert(id, service);
+        let service = HandlerService::from_route(id, route);
+        routes.insert(id, fold_middleware(service, middleware).await);
     }
     routes
+}
+
+/// Construct each route's middleware chain by consuming the builder's routes.
+///
+/// Preparation owns the builder, so each handler's `Arc` moves into its service
+/// instead of being cloned. The middleware list is borrowed for the whole fold,
+/// so it stays alive through every transform.
+pub(crate) async fn build_route_chains_owned<E>(
+    handlers: HashMap<u32, Route<E>>,
+    middleware: &[Box<dyn Middleware<E>>],
+) -> HashMap<u32, HandlerService<E>>
+where
+    E: Packet,
+{
+    let mut routes = HashMap::with_capacity(handlers.len());
+    for (id, route) in handlers {
+        let service = HandlerService::from_owned_route(id, route);
+        routes.insert(id, fold_middleware(service, middleware).await);
+    }
+    routes
+}
+
+/// Apply every middleware layer to one route service.
+///
+/// Folded in reverse registration order so the first registered middleware is
+/// the outermost layer. Shared by both preparation entry points so the ordering
+/// cannot drift between the compatibility path and the prepared path.
+async fn fold_middleware<E>(
+    mut service: HandlerService<E>,
+    middleware: &[Box<dyn Middleware<E>>],
+) -> HandlerService<E>
+where
+    E: Packet,
+{
+    for mw in middleware.iter().rev() {
+        service = mw.transform(service).await;
+    }
+    service
 }
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
@@ -267,11 +304,11 @@ where
             stream,
             ConnectionProcessingContext {
                 routes: &routes,
-                serializer: Arc::clone(&self.serializer),
+                serializer: self.serializer.as_ref(),
                 codec: &self.codec,
-                on_connect: self.on_connect.as_ref(),
-                on_disconnect: self.on_disconnect.as_ref(),
-                message_assembler: self.message_assembler.as_ref(),
+                on_connect: self.on_connect.as_deref(),
+                on_disconnect: self.on_disconnect.as_deref(),
+                message_assembler: self.message_assembler.as_deref(),
                 fragmentation: self.fragmentation,
                 protocol_hooks: self.protocol_hooks(),
                 protocol: self.protocol.clone(),

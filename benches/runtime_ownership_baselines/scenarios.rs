@@ -12,6 +12,8 @@ use wireframe_testing::runtime_ownership_benchmarks::{
     AcquisitionMode,
     ActorWorkload,
     CancellationMode,
+    ConfiguredPhase,
+    ConfiguredStartupWorkload,
     DEFAULT_MIDDLEWARE_LAYERS,
     DEFAULT_PUSH_QUEUE_CAPACITY,
     POOL_SIZES,
@@ -222,6 +224,44 @@ pub(crate) fn startup_workloads() -> Vec<StartupWorkload> {
                         connections,
                     })
             })
+        })
+        .collect()
+}
+
+/// The configured connection-startup workloads the startup group times.
+///
+/// Every bare workload is re-measured on an application that also installs a
+/// serializer, message assembler, lifecycle callbacks, and a protocol. The base
+/// workload stays untouched, so the bare rows keep the labels the recorded
+/// baseline already uses while these rows show what the configured components
+/// cost on the same topology.
+pub(crate) fn configured_startup_workloads() -> Vec<ConfiguredStartupWorkload> {
+    startup_workloads()
+        .into_iter()
+        .map(|base| ConfiguredStartupWorkload {
+            base,
+            phase: ConfiguredPhase::PreparedThenServe,
+        })
+        .collect()
+}
+
+/// Configured preparation-only workloads, one per route count.
+///
+/// Restricted to the prepared-root topology because that is the shape #648
+/// changes: one preparation serves every connection. Connection count is zero
+/// because none are served; the label states that rather than borrowing the
+/// base label's connection figure.
+pub(crate) fn configured_preparation_workloads() -> Vec<ConfiguredStartupWorkload> {
+    STARTUP_ROUTE_COUNTS
+        .into_iter()
+        .map(|routes| ConfiguredStartupWorkload {
+            base: StartupWorkload {
+                path: StartupPath::PreparedRoot,
+                routes,
+                middleware_layers: DEFAULT_MIDDLEWARE_LAYERS,
+                connections: 0,
+            },
+            phase: ConfiguredPhase::PreparationOnly,
         })
         .collect()
 }

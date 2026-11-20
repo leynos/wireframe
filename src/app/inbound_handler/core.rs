@@ -78,12 +78,12 @@ where
 {
     /// Immutable middleware chains used to dispatch decoded envelopes.
     pub(crate) routes: &'a HashMap<u32, HandlerService<E>>,
-    /// Serializer shared by all frames on the connection.
-    pub(crate) serializer: Arc<S>,
+    /// Serializer borrowed from the prepared root for the connection lifetime.
+    pub(crate) serializer: &'a S,
     /// Codec configuration shared by all frames on the connection.
     pub(crate) codec: &'a F,
     /// Optional assembly strategy for multi-frame protocol messages.
-    pub(crate) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    pub(crate) message_assembler: Option<&'a dyn MessageAssembler>,
     /// Fragmentation settings used to initialize the frame pipeline.
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks applied to every outbound frame on this connection.
@@ -127,12 +127,12 @@ where
     inbound: InboundFrames<F::Frame>,
     /// Consecutive deserialization failures seen on this connection.
     deser_failures: u32,
-    /// Serializer shared with the actor and the transport sink.
-    serializer: Arc<S>,
+    /// Serializer borrowed for the connection lifetime.
+    serializer: &'a S,
     /// Middleware chains applied to decoded envelopes.
     routes: &'a HashMap<u32, HandlerService<E>>,
     /// Optional assembler consulted while handling frames.
-    message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    message_assembler: Option<&'a dyn MessageAssembler>,
     /// Byte budgets enforced while reading.
     budgets: MemoryBudgets,
     /// Maximum interval to wait for the next inbound frame.
@@ -316,7 +316,7 @@ where
                 sink: &mut self.sink,
                 deser_failures: &mut self.deser_failures,
                 routes: self.routes,
-                serializer: self.serializer.as_ref(),
+                serializer: self.serializer,
                 codec: &self.codec,
                 message_assembler: self.message_assembler,
                 message_assembly: &mut self.inbound.message_assembly,
@@ -342,7 +342,7 @@ where
     /// which half-closed and then stopped reading.
     async fn write_pushes(&mut self, pending: PendingPushes<F::Frame>) -> io::Result<bool> {
         let mut transport = PushTransport {
-            serializer: self.serializer.as_ref(),
+            serializer: self.serializer,
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,
@@ -367,7 +367,7 @@ where
     /// Deliver frames still queued when the peer stopped writing.
     async fn drain_pushes(&mut self) -> io::Result<()> {
         let mut transport = PushTransport {
-            serializer: self.serializer.as_ref(),
+            serializer: self.serializer,
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,

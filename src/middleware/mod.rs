@@ -291,6 +291,9 @@ impl<E: Packet> HandlerService<E> {
     }
 
     /// Construct a `HandlerService` for whichever route kind is registered.
+    ///
+    /// Used by the compatibility path, which still owns an unprepared builder
+    /// and therefore clones each route's handler `Arc`.
     #[must_use]
     pub(crate) fn from_route(id: u32, route: &Route<E>) -> Self {
         match route {
@@ -300,6 +303,27 @@ impl<E: Packet> HandlerService<E> {
                 ResponseRouteService {
                     id,
                     handler: Arc::clone(handler),
+                    _marker: std::marker::PhantomData,
+                },
+            ),
+        }
+    }
+
+    /// Construct a `HandlerService` by consuming a registered route.
+    ///
+    /// Preparation owns the builder, so the handler `Arc` moves into the
+    /// service instead of being cloned. The public `Handler` and
+    /// `ResponseHandler` aliases stay `Arc`-shaped because a caller may
+    /// legitimately retain a clone of a handler it supplied.
+    #[must_use]
+    pub(crate) fn from_owned_route(id: u32, route: Route<E>) -> Self {
+        match route {
+            Route::Unit(handler) => Self::new(id, handler),
+            Route::Response(handler) => Self::from_service(
+                id,
+                ResponseRouteService {
+                    id,
+                    handler,
                     _marker: std::marker::PhantomData,
                 },
             ),
