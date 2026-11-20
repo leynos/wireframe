@@ -106,13 +106,13 @@ use super::{
 use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
+    hooks::{ProtocolHooks, WireframeProtocol},
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
     push::PushQueuesBuilder,
     serializer::Serializer,
     session::SessionRegistry,
-    hooks::{ProtocolHooks, WireframeProtocol},
 };
 
 /// Immutable configuration borrowed by one connection's runtime.

@@ -792,8 +792,8 @@ module-level owner of each boundary and the enqueue-time frame budget.
 Issue [#644](https://github.com/leynos/wireframe/issues/644) finishes the
 ownership collapse section 6 describes, and supersedes two bullets of the
 2026-11-16 addendum: "`handle_error` is forwarded to the actor, which invokes
-it when a driven response reports a protocol error." and "`stream_end_frame`
-and `on_command_end` run in the inbound handler once the actor has finished
+it when a driven response reports a protocol error." and "`stream_end_frame` and
+`on_command_end` run in the inbound handler once the actor has finished
 driving the response, so one response is terminated and completed exactly once
 and the actor receives neither hook." — those bullets name the dispatch site as
 it stood before this change, and the text is left unchanged.

@@ -115,7 +115,7 @@ where
     }
 
     /// Borrow the rig's fields as the context a handler run takes.
-    fn context(&mut self) -> ResponseContext<'_, BincodeSerializer, S, TestCodec> {
+    const fn context(&mut self) -> ResponseContext<'_, BincodeSerializer, S, TestCodec> {
         ResponseContext {
             serializer: &self.serializer,
             sink: &mut self.sink,

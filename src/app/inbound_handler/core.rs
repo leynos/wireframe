@@ -91,11 +91,10 @@ where
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
     /// Installed protocol, used only to dispatch `on_connection_setup`.
     ///
-    /// Setup has to run at the connection boundary, before the actor starts,
-    /// because that is where the push handle and registry entry come into
-    /// existence. Every other callback runs through the pipeline's hook owner,
-    /// so this reference is dropped once setup has run: the connection keeps
-    /// exactly one strong protocol reference for its lifetime.
+    /// Setup runs at the connection boundary, where the push handle and
+    /// registry entry come into existence. Every other callback runs through
+    /// the pipeline's hook owner, so this reference is dropped once setup has
+    /// run and the connection keeps exactly one strong protocol reference.
     pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,

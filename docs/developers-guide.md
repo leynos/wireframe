@@ -443,17 +443,17 @@ completion hook that follow a response. The actor built for that path holds a
 `ProtocolHooks::None` value instead, so it keeps no second protocol reference
 and invokes no callback. Its own `ConnectionProtocol` still constructs an inert
 `ConnectionContext`, but nothing dispatches against it: only the pipeline's
-context reaches callbacks. When a caller drives a `ConnectionActor`
-directly with `with_hooks`, the actor's own value is the single owner. Either
-way the owner is built once and its context reused for the connection's
-lifetime, so dispatching needs no `Arc<Mutex<_>>`; the context carries the
-connection identifier and peer address and remains the designated place for
-connection-local state. A
-`ProtocolHooks::Protocol` value owns exactly one strong reference to the
-installed protocol and dispatches every callback through it; the enum's
-`Custom` form holds handwritten callbacks instead. State held by a shared
-`WireframeProtocol` implementation is still shared by every connection that
-installs it, but a connection never clones the protocol per callback.
+context reaches callbacks. When a caller drives a `ConnectionActor` directly
+with `with_hooks`, the actor's own value is the single owner. Either way the
+owner is built once and its context reused for the connection's lifetime, so
+dispatching needs no `Arc<Mutex<_>>`; the context carries the connection
+identifier and peer address and remains the designated place for
+connection-local state. A `ProtocolHooks::Protocol` value owns exactly one
+strong reference to the installed protocol and dispatches every callback
+through it; the enum's `Custom` form holds handwritten callbacks instead. State
+held by a shared `WireframeProtocol` implementation is still shared by every
+connection that installs it, but a connection never clones the protocol per
+callback.
 
 The hook therefore receives the exact frame that will be written, and its
 mutation reaches the wire. It is the pre-transport boundary, not a
