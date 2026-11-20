@@ -694,6 +694,27 @@ cancelled by the peer-close grace skips it, and a terminator write that fails
 returns before it, so per-request state that must always be released needs a
 separate fallback.
 
+A prepared server connection now runs the remaining protocol hooks. Setup runs
+once before the first inbound frame and receives the handle used for
+server-initiated pushes; the connection drains those queues while it waits for
+input or for a handler, so a protocol may push at any time and each push still
+passes through `before_send` exactly once. A push may be written between the
+frames of a streaming response, under the same priority and fairness rules as
+any other push, so the relative order of a push and a response frame is a
+scheduling decision rather than a guarantee.
+
+`on_eof` runs when the peer abandons a frame part-way through, with the
+structured `MidHeader` or `MidFrame` condition and the bytes that arrived; a
+clean close at a frame boundary does not run it. Code that relied on neither
+hook running on this path should remove any application-level substitute.
+
+`on_eof` depends on the codec. A custom codec must return `CodecError::Eof` with
+`EofError::MidHeader` or `EofError::MidFrame` from `decode_eof` to receive the
+hook; a decoder that returns another error, or a plain I/O error, ends the
+connection without it. The bundled `LengthDelimitedFrameCodec` already reports
+the structured error. A malformed frame is a decode failure rather than a
+protocol error, so it ends the connection without reaching `handle_error`.
+
 Prepared connections also require `S: 'static` on the serializer.
 `PreparedApp::handle_connection_result` and the deprecated
 `WireframeApp::handle_connection*` methods now carry this bound, so a

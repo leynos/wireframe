@@ -246,7 +246,9 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     ///
     ///     fn on_eof(&self, error: &EofError, partial_data: &[u8], _ctx: &mut ConnectionContext) {
     ///         match error {
-    ///             EofError::CleanClose => tracing::info!("connection closed cleanly"),
+    ///             // A clean close at a frame boundary does not call this hook;
+    ///             // the arm exists only so the match stays exhaustive.
+    ///             EofError::CleanClose => {}
     ///             EofError::MidFrame { .. } => {
     ///                 tracing::warn!(
     ///                     partial_bytes = partial_data.len(),
