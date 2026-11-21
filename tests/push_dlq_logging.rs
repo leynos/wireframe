@@ -1,21 +1,32 @@
-//! Regression tests for the content of dead-letter queue drop warnings.
+//! Regression tests for dead-letter queue drop warnings.
 //!
-//! The DLQ loss warning must describe *why* a frame was lost without
-//! disclosing the frame itself. These tests plant a secret marker in a frame
-//! whose derived `Debug` would print it verbatim and assert that no captured
-//! log record ever contains that marker.
+//! Two properties are covered. The *content* of a warning must describe why a
+//! frame was lost without disclosing the frame itself: these tests plant a
+//! secret marker in a frame whose derived `Debug` would print it verbatim and
+//! assert that no captured log record ever contains it. The *cadence* — the
+//! count threshold and the minimum interval — decides when the aggregated loss
+//! is reported and how many losses each report stands for.
 #![cfg(not(loom))]
 #![forbid(unsafe_code)]
 
 mod support;
 
-use std::io;
+use std::{io, time::Duration};
 
 use rstest::rstest;
 use serial_test::serial;
 use tokio::sync::mpsc;
 use wireframe::push::{PushHandle, PushPolicy, PushPriority, PushQueues};
 use wireframe_testing::{LoggerHandle, TestResult, logger};
+
+/// The builder's default interval, kept so the content tests log every drop.
+const DEFAULT_LOG_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Long enough that interval-based logging cannot fire during a test.
+const LONG_INTERVAL: Duration = Duration::from_secs(3600);
+
+/// Comfortably longer than the one-millisecond interval the reset test sets.
+const PAST_SHORT_INTERVAL: Duration = Duration::from_millis(20);
 
 /// Marker carried by the dropped frame; it must never reach a log record.
 const DROPPED_SECRET: &str = "dlq-dropped-secret-7f3c1a";
@@ -74,8 +85,14 @@ fn drain_records(logger: &mut LoggerHandle) -> Vec<(log::Level, String)> {
 /// Build queues and arrange for the DLQ to refuse the next dropped frame.
 ///
 /// The push queue selected by `priority` is filled first, so a dropping policy
-/// reaches the dead-letter hand-off instead of succeeding.
-async fn refusing_dlq(failure: DlqFailure, priority: PushPriority) -> io::Result<RefusingDlq> {
+/// reaches the dead-letter hand-off instead of succeeding. `every_n` and
+/// `interval` are the drop-log cadence the caller wants observed.
+async fn refusing_dlq(
+    failure: DlqFailure,
+    priority: PushPriority,
+    every_n: usize,
+    interval: Duration,
+) -> io::Result<RefusingDlq> {
     let (dlq_tx, dlq_rx) = mpsc::channel(1);
     let dlq_receiver = match failure {
         DlqFailure::Full => {
@@ -94,6 +111,8 @@ async fn refusing_dlq(failure: DlqFailure, priority: PushPriority) -> io::Result
     let (queues, handle) = support::builder::<SecretFrame>()
         .unlimited()
         .dlq(Some(dlq_tx))
+        .dlq_log_every_n(every_n)
+        .dlq_log_interval(interval)
         .build()
         .map_err(|e| io::Error::other(format!("build queues failed: {e}")))?;
     fill_target_queue(&handle, priority).await?;
@@ -224,11 +243,127 @@ fn dlq_loss_warning_omits_frame_contents(
         .enable_all()
         .build()?;
     rt.block_on(async move {
-        while logger.pop().is_some() {}
-        let refusing = refusing_dlq(failure, priority).await?;
+        logger.clear();
+        let refusing = refusing_dlq(failure, priority, 1, DEFAULT_LOG_INTERVAL).await?;
         push_secret_frame(&refusing.handle, priority, policy)?;
         let records = drain_records(&mut logger);
         assert_single_safe_warning(&records, failure, priority, policy)
+    })?;
+    Ok(())
+}
+
+/// Push one frame the full queue cannot accept, losing it to the full DLQ.
+fn lose_frame(handle: &PushHandle<SecretFrame>, priority: PushPriority) -> io::Result<()> {
+    push_secret_frame(handle, priority, PushPolicy::DropIfFull)
+}
+
+/// Extract the `dropped=` count from every DLQ loss warning, in capture order.
+///
+/// Parsing rather than substring matching proves the diagnostic reports how
+/// many losses its trigger stood for. A warning missing the field is an error
+/// to surface, not a record to skip.
+fn drop_counts(records: &[(log::Level, String)]) -> io::Result<Vec<usize>> {
+    records
+        .iter()
+        .filter(|(level, text)| *level == log::Level::Warn && text.contains("DLQ dropped frames"))
+        .map(|(_, text)| {
+            text.split("dropped=")
+                .nth(1)
+                .and_then(|rest| rest.split(',').next())
+                .ok_or_else(|| io::Error::other(format!("DLQ warning lacks dropped: {text}")))?
+                .trim()
+                .parse::<usize>()
+                .map_err(|e| io::Error::other(format!("unparsable dropped count: {e}")))
+        })
+        .collect()
+}
+
+/// Require the logger to hold exactly the expected sequence of drop counts.
+fn require_drop_counts(logger: &mut LoggerHandle, expected: &[usize]) -> io::Result<()> {
+    let actual = drop_counts(&drain_records(logger))?;
+    if actual == expected {
+        return Ok(());
+    }
+    Err(io::Error::other(format!(
+        "expected DLQ drop counts {expected:?}, found {actual:?}"
+    )))
+}
+
+/// Count-based logging waits for the cadence and reports every loss it
+/// aggregated, whether the dead-letter queue is full or closed.
+#[rstest]
+#[case::full(DlqFailure::Full)]
+#[case::closed(DlqFailure::Closed)]
+#[serial(push_policies)]
+fn dlq_drop_logging_waits_for_the_count_threshold(
+    mut logger: LoggerHandle,
+    #[case] failure: DlqFailure,
+) -> TestResult {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(async move {
+        let refusing = refusing_dlq(failure, PushPriority::High, 3, LONG_INTERVAL).await?;
+        logger.clear();
+
+        lose_frame(&refusing.handle, PushPriority::High)?;
+        lose_frame(&refusing.handle, PushPriority::High)?;
+        require_drop_counts(&mut logger, &[])?;
+
+        lose_frame(&refusing.handle, PushPriority::High)?;
+        require_drop_counts(&mut logger, &[3])?;
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    })?;
+    Ok(())
+}
+
+/// A zero cadence disables count-based logging, and a long interval leaves the
+/// diagnostic silent however many frames are lost.
+#[rstest]
+#[serial(push_policies)]
+fn dlq_drop_logging_can_be_silenced(mut logger: LoggerHandle) -> TestResult {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(async move {
+        let refusing = refusing_dlq(DlqFailure::Full, PushPriority::High, 0, LONG_INTERVAL).await?;
+        logger.clear();
+        for _ in 0..3 {
+            lose_frame(&refusing.handle, PushPriority::High)?;
+        }
+        require_drop_counts(&mut logger, &[])?;
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    })?;
+    Ok(())
+}
+
+/// Interval-based logging reports each interval's losses and then resets, so
+/// the next interval reports only its own.
+///
+/// The `>` versus `>=` boundary between `elapsed()` and the configured
+/// interval has no test. Separating them needs an elapsed time equal to the
+/// interval to nanosecond precision, which no real clock yields on demand, so
+/// every observable duration sits strictly on one side. The mutant is an
+/// accepted survivor, not an equivalence.
+#[rstest]
+#[serial(push_policies)]
+fn dlq_drop_logging_reports_each_interval(mut logger: LoggerHandle) -> TestResult {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(async move {
+        let interval = Duration::from_millis(1);
+        let refusing = refusing_dlq(DlqFailure::Full, PushPriority::High, 0, interval).await?;
+        logger.clear();
+
+        tokio::time::sleep(PAST_SHORT_INTERVAL).await;
+        lose_frame(&refusing.handle, PushPriority::High)?;
+        require_drop_counts(&mut logger, &[1])?;
+
+        tokio::time::sleep(PAST_SHORT_INTERVAL).await;
+        lose_frame(&refusing.handle, PushPriority::High)?;
+        require_drop_counts(&mut logger, &[1])?;
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     })?;
     Ok(())
 }
