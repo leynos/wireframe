@@ -2,7 +2,7 @@
 //!
 //! Both the warning-content tests in `push_dlq_logging` and the cadence tests
 //! in `push_dlq_cadence` need a queue whose dead-letter sink refuses a dropped
-//! frame, and a dropped frame whose `Debug` output is recognisable. Keeping
+//! frame, and a dropped frame whose `Debug` output is recognizable. Keeping
 //! that setup here stops the two suites from drifting apart while leaving each
 //! test module within the repository's file-length limit.
 //!
