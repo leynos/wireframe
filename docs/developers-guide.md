@@ -3042,15 +3042,38 @@ silently discarded on the happy path. See `ClientLifecycleWorld::finish_server`
 in `tests/fixtures/client_lifecycle.rs` and the precedent in
 `tests/fixtures/client_preamble/mod.rs`.
 
-**The server-task cleanup contract**, as implemented by
-`run_hook_test_with_server` in `src/client/tests/request_hooks_support.rs`: on
-success the client is dropped first so the serve loop ends, then the server
-task is joined and its result propagated; on failure the task is aborted and
-reaped instead, because the client may never have connected and the server may
-be parked in `accept`, where joining would hang rather than report the original
-failure. The rule: **await the server handle on the success path; reserve
-`abort` for the failure path where the aborted task's result is explicitly
-discarded.**
+**The server-task cleanup contract**, as implemented by `ServerTaskGuard` in
+`src/test_helpers/server_task.rs`: a helper that spawns a server moves the
+handle into the guard *before* it builds a client, so every exit path owns the
+task. `run_and_join` covers a server whose loop ends with the client: on
+success it joins the task and returns both the body and the server outcomes, so
+a `JoinError` or the server's own I/O error reaches the caller. `run_and_abort`
+covers a long-lived sample server: on success it aborts and awaits the task,
+treating the cancellation as clean.
+
+Both runners abort and await the task *before* propagating a body error or
+resuming a body panic, so the body outcome takes precedence over anything
+cleanup observes. Connection setup, the test's assertions, and the client's
+last use belong inside the guarded body; that is what puts their errors and
+panics under the guard.
+
+Dropping a guard that never reached a runner aborts the task. That is the
+fallback for a cleanup future that is itself cancelled: cancellation cannot
+await, so the task stops but its outcome is discarded. It is not a substitute
+for the runners, because it observes nothing.
+
+The rule: **await the server handle on the success path; reserve `abort` for
+the failure and panic paths, and always await the aborted handle.**
+
+The contract covers `with_echo_client` in `src/client/tests/tracing.rs`,
+`run_hook_test_with_server` in `src/client/tests/request_hooks_support.rs`, the
+messaging unit tests in `src/client/tests/messaging.rs`, the sample-server
+integration tests in `tests/client_runtime.rs`, and the `ClientMessagingWorld`
+and `ClientTracingWorld` BDD fixtures. Streaming `TestServer` guards, the
+send-streaming, streaming, and request-hooks BDD worlds,
+`src/test_helpers/pool_client.rs`, and the bounded drop cleanup in
+`WireframePair` still own their tasks directly; migrating them is tracked by
+[#942](https://github.com/leynos/wireframe/issues/942).
 
 **Loopback server helpers** in `src/client/tests/helpers.rs` — `bind_loopback`,
 `spawn_listener`, `spawn_frame_server`, and `is_expected_disconnect` — provide

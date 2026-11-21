@@ -8,7 +8,7 @@ use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use log::warn;
 use rstest::fixture;
-use tokio::{net::TcpListener, task::JoinHandle};
+use tokio::net::TcpListener;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     app::{Envelope, Packet},
@@ -16,6 +16,7 @@ use wireframe::{
     correlation::CorrelatableFrame,
     rewind_stream::RewindStream,
     serializer::BincodeSerializer,
+    test_helpers::ServerTaskGuard,
 };
 /// `TestResult` for step definitions.
 pub use wireframe_testing::TestResult;
@@ -25,7 +26,7 @@ use wireframe_testing::{ServerMode, process_frame};
 #[derive(Debug)]
 pub struct ClientMessagingWorld {
     addr: Option<SocketAddr>,
-    server: Option<JoinHandle<()>>,
+    server: Option<ServerTaskGuard<()>>,
     client: Option<WireframeClient<BincodeSerializer, RewindStream<tokio::net::TcpStream>>>,
     envelope: Option<Envelope>,
     sent_correlation_ids: Vec<u64>,
@@ -40,9 +41,19 @@ pub struct ClientMessagingWorld {
 }
 
 impl Drop for ClientMessagingWorld {
+    /// Tear the scenario down: release the client, then stop and await the
+    /// server on the world's own runtime.
+    ///
+    /// `Drop` cannot report a panicking server, so the abort-and-join outcome
+    /// is discarded; the await still runs so the task never outlives the world.
+    /// Scenarios that need the server's outcome call [`Self::abort_server`]
+    /// from a step, where the error can be returned.
     fn drop(&mut self) {
         self.client.take();
-        self.abort_server();
+        let Some(server) = self.server.take() else {
+            return;
+        };
+        let _cleanup = self.runtime.block_on(server.abort_and_join());
     }
 }
 
@@ -100,7 +111,7 @@ impl ClientMessagingWorld {
         });
 
         self.addr = Some(addr);
-        self.server = Some(handle);
+        self.server = Some(ServerTaskGuard::new(handle));
         Ok(())
     }
 
@@ -299,11 +310,17 @@ impl ClientMessagingWorld {
         Ok(())
     }
 
-    /// Abort the server task.
-    pub fn abort_server(&mut self) {
-        if let Some(handle) = self.server.take() {
-            handle.abort();
-        }
+    /// Abort the server task and await its termination.
+    ///
+    /// # Errors
+    /// Returns an error if the server task panicked before the abort took
+    /// effect, so a server failure is never mistaken for a clean shutdown.
+    pub async fn abort_server(&mut self) -> TestResult {
+        let Some(server) = self.server.take() else {
+            return Ok(());
+        };
+        server.abort_and_join().await?;
+        Ok(())
     }
 }
 

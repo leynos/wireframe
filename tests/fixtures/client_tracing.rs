@@ -16,13 +16,14 @@ use std::{
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use rstest::fixture;
-use tokio::{net::TcpListener, task::JoinHandle};
+use tokio::net::TcpListener;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     app::Envelope,
     client::{TracingConfig, WireframeClient},
     rewind_stream::RewindStream,
     serializer::BincodeSerializer,
+    test_helpers::ServerTaskGuard,
 };
 /// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
@@ -64,7 +65,7 @@ pub struct ClientTracingWorld {
     runtime: Option<tokio::runtime::Runtime>,
     runtime_error: Option<String>,
     addr: Option<SocketAddr>,
-    server: Option<JoinHandle<()>>,
+    server: Option<ServerTaskGuard<()>>,
     client: Option<TestClient>,
     tracing_config: TracingConfig,
     captured: Arc<Mutex<Vec<u8>>>,
@@ -72,10 +73,24 @@ pub struct ClientTracingWorld {
 }
 
 impl Drop for ClientTracingWorld {
+    /// Stop the echo server and await its termination.
+    ///
+    /// `Drop` cannot report a panicking server, so the abort-and-join outcome
+    /// is discarded; the await still guarantees the task is reaped before the
+    /// runtime it belongs to goes away. Without a runtime there is nothing to
+    /// drive the await on, and the guard's abort-on-drop fallback stops the
+    /// task instead.
     fn drop(&mut self) {
-        if let (Some(runtime), Some(handle)) = (self.runtime.as_ref(), self.server.take()) {
-            runtime.block_on(async move { handle.abort() });
-        }
+        let Some(server) = self.server.take() else {
+            return;
+        };
+        // Without a runtime there is nothing to drive the await on, so
+        // returning here drops the guard and its abort-on-drop fallback stops
+        // the task.
+        let Some(runtime) = self.runtime.as_ref() else {
+            return;
+        };
+        let _cleanup = runtime.block_on(server.abort_and_join());
     }
 }
 
@@ -141,7 +156,7 @@ impl ClientTracingWorld {
         });
 
         self.addr = Some(addr);
-        self.server = Some(handle);
+        self.server = Some(ServerTaskGuard::new(handle));
         Ok(())
     }
 

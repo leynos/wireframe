@@ -37,9 +37,11 @@ fn given_envelope_with_payload(
 
 #[given("a server that returns mismatched correlation IDs")]
 fn given_mismatch_server(client_messaging_world: &mut ClientMessagingWorld) -> TestResult {
-    client_messaging_world.abort_server();
     let runtime = client_messaging_world.handle();
     runtime.block_on(async {
+        // Reap the previous server before replacing it, so its failure is
+        // reported rather than lost with the dropped handle.
+        client_messaging_world.abort_server().await?;
         client_messaging_world.start_mismatch_server().await?;
         client_messaging_world.connect_client().await
     })

@@ -15,6 +15,7 @@ use wireframe::{
     client::{ClientCodecConfig, ClientError, ClientProtocolError, WireframeClient},
     correlation::CorrelatableFrame,
     message::Message,
+    test_helpers::ServerTaskGuard,
 };
 
 #[path = "../examples/support/echo_login_contract.rs"]
@@ -55,34 +56,49 @@ async fn spawn_sample_echo_server() -> io::Result<(std::net::SocketAddr, JoinHan
     Ok((addr, task))
 }
 
+/// Error type used by the guarded bodies in these tests.
+type BodyError = Box<dyn std::error::Error + Send + Sync>;
+
 #[tokio::test]
 async fn client_round_trips_multiple_message_types_through_sample_server() {
     let (addr, server) = spawn_sample_echo_server()
         .await
         .expect("spawn sample echo server");
 
-    let mut client = WireframeClient::builder()
-        .connect(addr)
+    // The sample server serves until its client disconnects, so it is aborted
+    // and joined rather than awaited. Connection setup and every assertion run
+    // inside the guarded body: a failed round-trip still reaps the server, and
+    // its panic is resumed afterwards.
+    let ((), server_outcome) = ServerTaskGuard::new(server)
+        .run_and_abort(async move {
+            let mut client = WireframeClient::builder().connect(addr).await?;
+
+            let login = LoginRequest {
+                username: "guest".to_owned(),
+            };
+            let login_resp: LoginRequest = client.call(&login).await?;
+            assert_eq!(login_resp, login, "login_resp should equal login");
+
+            let ping = Ping(42);
+            let ping_resp: Ping = client.call(&ping).await?;
+            assert_eq!(ping_resp, ping, "ping_resp should equal ping");
+
+            let metrics = Metrics {
+                values: vec![1, 3, 5, 8],
+            };
+            let metrics_resp: Metrics = client.call(&metrics).await?;
+            assert_eq!(metrics_resp, metrics, "metrics_resp should equal metrics");
+
+            drop(client);
+            Ok::<(), BodyError>(())
+        })
         .await
-        .expect("connect client");
+        .expect("the guarded sample server body must not fail");
 
-    let login = LoginRequest {
-        username: "guest".to_owned(),
-    };
-    let login_resp: LoginRequest = client.call(&login).await.expect("login round-trip");
-    assert_eq!(login_resp, login, "login_resp should equal login");
-
-    let ping = Ping(42);
-    let ping_resp: Ping = client.call(&ping).await.expect("ping round-trip");
-    assert_eq!(ping_resp, ping, "ping_resp should equal ping");
-
-    let metrics = Metrics {
-        values: vec![1, 3, 5, 8],
-    };
-    let metrics_resp: Metrics = client.call(&metrics).await.expect("metrics round-trip");
-    assert_eq!(metrics_resp, metrics, "metrics_resp should equal metrics");
-
-    server.abort();
+    assert!(
+        server_outcome.is_ok(),
+        "the sample server must not panic: {server_outcome:?}"
+    );
 }
 
 #[rstest]
@@ -94,32 +110,32 @@ async fn client_decodes_echoed_login_acknowledgement(#[case] username: &str) {
         .await
         .expect("spawn sample echo server");
 
-    let mut client = WireframeClient::builder()
-        .connect(addr)
-        .await
-        .expect("connect client");
+    let ((), server_outcome) = ServerTaskGuard::new(server)
+        .run_and_abort(async move {
+            let mut client = WireframeClient::builder().connect(addr).await?;
 
-    let login = LoginRequest {
-        username: username.to_owned(),
-    };
-    let request = Envelope::new(
-        LOGIN_ROUTE_ID,
-        None,
-        login.to_bytes().expect("serialize login request"),
-    );
-    let response: Envelope = client
-        .call_correlated(request)
+            let login = LoginRequest {
+                username: username.to_owned(),
+            };
+            let request = Envelope::new(LOGIN_ROUTE_ID, None, login.to_bytes()?);
+            let response: Envelope = client.call_correlated(request).await?;
+            let (ack, _) = LoginAck::from_bytes(response.payload_bytes())?;
+            assert_eq!(ack.username, username, "ack.username should equal username");
+            assert!(
+                response.correlation_id().is_some(),
+                "assertion failed: response.correlation_id().is_some()"
+            );
+
+            drop(client);
+            Ok::<(), BodyError>(())
+        })
         .await
-        .expect("login acknowledgement envelope");
-    let (ack, _) = LoginAck::from_bytes(response.payload_bytes())
-        .expect("decode login acknowledgement payload");
-    assert_eq!(ack.username, username, "ack.username should equal username");
+        .expect("the guarded login acknowledgement body must not fail");
+
     assert!(
-        response.correlation_id().is_some(),
-        "assertion failed: response.correlation_id().is_some()"
+        server_outcome.is_ok(),
+        "the sample server must not panic: {server_outcome:?}"
     );
-
-    server.abort();
 }
 
 #[tokio::test]
