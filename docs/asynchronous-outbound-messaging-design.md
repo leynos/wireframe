@@ -707,14 +707,30 @@ classDiagram
         +on_command_end(&mut ConnectionContext)
     }
     class ProtocolHooks {
-        -before_send: Option<BeforeSendHook<F>>
-        -on_command_end: Option<OnCommandEndHook>
-        +before_send(&mut self, &mut F, &mut ConnectionContext)
-        +on_command_end(&mut self, &mut ConnectionContext)
-        +from_protocol(protocol: Arc<P>)
+        <<enum>>
+        +None
+        +Protocol(ProtocolDispatch)
+        +Custom(CustomProtocolHooks)
+        +before_send(&mut F, &mut ConnectionContext)
+        +on_command_end(&mut ConnectionContext)
+        +from_protocol(protocol: &Arc<P>)
+    }
+    class ProtocolDispatch {
+        <<struct>>
+        -operations: Box<dyn ProtocolOperations<F, E> + Send>
+    }
+    class CustomProtocolHooks {
+        <<struct>>
+        +before_send: Option<BeforeSendHook<F>>
+        +on_command_end: Option<OnCommandEndHook>
     }
     class ConnectionContext {
         <<struct>>
+    }
+    class ConnectionProtocol {
+        <<crate-private>>
+        -hooks: ProtocolHooks
+        -context: ConnectionContext
     }
     class WireframeApp {
         -protocol: Option<Arc<dyn WireframeProtocol<Frame=Vec<u8>, ProtocolError=()>>>
@@ -723,26 +739,24 @@ classDiagram
         +protocol_hooks()
     }
     class FramePipeline {
-        -hooks: ProtocolHooks<F.Frame>
-        -context: ConnectionContext
+        -protocol: ConnectionProtocol
         +process(&mut self, Envelope)
         +before_send(&mut self, &mut F.Frame)
     }
     class ConnectionActor {
-        -hooks: ProtocolHooks<F>
-        -ctx: ConnectionContext
+        -protocol: ConnectionProtocol
     }
-    WireframeApp --> "1" WireframeProtocol : uses
+    WireframeApp --> "1" WireframeProtocol : stores in one Arc
     WireframeApp --> "1" ProtocolHooks : creates per connection
-    ProtocolHooks --> "1" WireframeProtocol : from_protocol
-    FramePipeline --> "1" ProtocolHooks : uses
-    FramePipeline --> "1" ConnectionContext : owns
-    ConnectionActor --> "1" ProtocolHooks : uses
-    ConnectionActor --> "1" ConnectionContext : owns
-    ProtocolHooks --> "1" ConnectionContext : passes to hooks
+    ProtocolHooks --> "0..1" ProtocolDispatch : Protocol
+    ProtocolHooks --> "0..1" CustomProtocolHooks : Custom
+    ProtocolDispatch --> "1" WireframeProtocol : one strong reference
+    FramePipeline --> "1" ConnectionProtocol : owns
+    ConnectionActor --> "1" ConnectionProtocol : owns
+    ConnectionProtocol --> "1" ProtocolHooks : dispatches
+    ConnectionProtocol --> "1" ConnectionContext : owns
     WireframeProtocol --> "1" ConnectionContext : uses
     WireframeProtocol --> "1" PushHandle : uses
-    WireframeProtocol <|.. ProtocolHooks : implemented by
 ```
 
 `ConnectionContext` is the extension point for per-connection data. It is
@@ -837,27 +851,43 @@ classDiagram
     }
 
     class ProtocolHooks {
-        +on_connection_setup : Option<OnConnectionSetupHook<F>>
-        +before_send        : Option<BeforeSendHook<F>>
-        +on_command_end     : Option<OnCommandEndHook>
-        +handle_error       : Option<HandleErrorHook<E>>
+        <<enum>>
+        +None
+        +Protocol(ProtocolDispatch)
+        +Custom(CustomProtocolHooks)
         +on_connection_setup(PushHandle<F>, &mut ConnectionContext)
         +before_send       (&mut F, &mut ConnectionContext)
         +on_command_end    (&mut ConnectionContext)
         +handle_error      (E, &mut ConnectionContext)
-        +from_protocol     (protocol: Arc<P>)
+        +from_protocol     (protocol: &Arc<P>)
         <<generic<F, E>>
     }
 
-    class ConnectionActor {
+    class CustomProtocolHooks {
+        +on_connection_setup : Option<OnConnectionSetupHook<F>>
+        +before_send        : Option<BeforeSendHook<F>>
+        +on_command_end     : Option<OnCommandEndHook>
+        +handle_error       : Option<HandleErrorHook<E>>
+        <<generic<F, E>>
+    }
+
+    class ConnectionProtocol {
         -hooks: ProtocolHooks<F, E>
+        -context: ConnectionContext
+        <<crate-private, generic<F, E>>
+    }
+
+    class ConnectionActor {
+        -protocol: ConnectionProtocol<F, E>
         +run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>>
         +handle_response(res: Option<Result<F, WireframeError<E>>>, out: &mut Vec<F>, state: &mut State) -> Result<(), WireframeError<E>>
         <<generic<F, E>>
     }
 
-    WireframeProtocol <|.. ProtocolHooks : uses
-    ProtocolHooks <|-- ConnectionActor : member
+    ProtocolHooks --> "0..1" CustomProtocolHooks : Custom
+    ConnectionProtocol --> "1" ProtocolHooks : dispatches
+    ConnectionProtocol --> "1" ConnectionContext : owns
+    ConnectionActor --> "1" ConnectionProtocol : owns
 
     class WireframeError {
         <<enum<E=()>>

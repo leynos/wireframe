@@ -60,7 +60,7 @@ where
             }
             Some(Err(WireframeError::Protocol(e))) => {
                 warn!("protocol error: error={e:?}");
-                self.hooks.handle_error(e, &mut self.ctx);
+                self.protocol.handle_error(e);
                 state.mark_closed();
                 // Stop polling the response after a protocol error to avoid
                 // double-closing and duplicate `on_command_end` signalling.
@@ -72,7 +72,7 @@ where
             Some(Err(e)) => return Err(e),
             None => {
                 state.mark_closed();
-                if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+                if let Some(mut frame) = self.protocol.stream_end_frame() {
                     self.stamp_response_correlation(&mut frame);
                     self.process_frame_with_hooks_and_metrics(frame, out);
                     produced = true;

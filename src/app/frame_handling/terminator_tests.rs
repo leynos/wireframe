@@ -110,6 +110,13 @@ impl FrameCodec for TaggedCodec {
 /// Observer the delivery-span test installs on the completion hook.
 pub(super) type CompletionProbe = Arc<dyn Fn() + Send + Sync>;
 
+/// Observer the tests install on the outbound-frame hook.
+///
+/// The forwarding path dispatches `before_send` through the connection's single
+/// hook owner, so a test that needs to observe or rewrite an outbound frame
+/// supplies a protocol carrying the probe rather than a separate custom hook.
+pub(super) type BeforeSendProbe = Arc<dyn Fn(&mut TaggedFrame) + Send + Sync>;
+
 /// Protocol that terminates streams with a frame carrying its own metadata.
 struct TaggingProtocol {
     /// Optional observer run from the completion hook.
@@ -118,11 +125,19 @@ struct TaggingProtocol {
     /// completion, which the forwarding path would otherwise only expose to a
     /// real connection.
     completion_probe: Option<CompletionProbe>,
+    /// Optional observer run from the outbound-frame hook.
+    before_send_probe: Option<BeforeSendProbe>,
 }
 
 impl WireframeProtocol for TaggingProtocol {
     type Frame = TaggedFrame;
     type ProtocolError = ();
+
+    fn before_send(&self, frame: &mut Self::Frame, _ctx: &mut ConnectionContext) {
+        if let Some(probe) = &self.before_send_probe {
+            probe(frame);
+        }
+    }
 
     fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> {
         Some(TaggedFrame {
@@ -221,34 +236,36 @@ type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 ///
 /// Returns the push-queue configuration failure, or the transport error that
 /// [`super::forward_response`] reports.
-pub(super) async fn forward_finished_stream(
-    hooks: ProtocolHooks<TaggedFrame, ()>,
-) -> Result<Vec<TaggedFrame>, Box<dyn std::error::Error + Send + Sync>> {
-    forward_finished_stream_with(hooks, None).await
+pub(super) async fn forward_finished_stream()
+-> Result<Vec<TaggedFrame>, Box<dyn std::error::Error + Send + Sync>> {
+    forward_finished_stream_with(None, None).await
 }
 
-/// Forward a finished stream, observing the completion hook if asked.
+/// Forward a finished stream, observing the protocol hooks if asked.
 ///
-/// The completion hook belongs to the protocol rather than to
-/// [`ProtocolHooks`] on this path, so a test that needs to observe it supplies
-/// a probe here.
+/// Every callback on this path runs through the connection's single hook
+/// owner, so both probes are carried by the protocol rather than by a separate
+/// [`ProtocolHooks`] value.
 ///
 /// # Errors
 ///
 /// Returns the push-queue configuration failure, or the transport error that
 /// [`super::forward_response`] reports.
 pub(super) async fn forward_finished_stream_with(
-    hooks: ProtocolHooks<TaggedFrame, ()>,
     completion_probe: Option<CompletionProbe>,
+    before_send_probe: Option<BeforeSendProbe>,
 ) -> Result<Vec<TaggedFrame>, Box<dyn std::error::Error + Send + Sync>> {
     let (mut actor, _handle) = build_actor()?;
     let codec = TaggedCodec;
     let serializer = BincodeSerializer;
     let mut sink = RecordingSink::default();
-    let mut pipeline: FramePipeline<TaggedFrame> = FramePipeline::with_hooks(None, hooks);
     let service = HandlerService::<Envelope>::from_service(7, FinishedStreamService);
-    let protocol: Arc<dyn WireframeProtocol<Frame = TaggedFrame, ProtocolError = ()>> =
-        Arc::new(TaggingProtocol { completion_probe });
+    let protocol: Arc<TaggingProtocol> = Arc::new(TaggingProtocol {
+        completion_probe,
+        before_send_probe,
+    });
+    let mut pipeline: FramePipeline<TaggedFrame> =
+        FramePipeline::with_hooks(None, ProtocolHooks::from_protocol(&protocol));
 
     super::forward_response(
         Envelope::new(7, Some(3), Vec::new()),
@@ -259,30 +276,22 @@ pub(super) async fn forward_finished_stream_with(
             pipeline: &mut pipeline,
             codec: &codec,
             actor: &mut actor,
-            protocol: Some(&protocol),
         },
     )
     .await?;
     Ok(sink.frames)
 }
 
-/// Hooks that append [`MARKER`] to every frame the pipeline sends.
-fn marking_hooks() -> ProtocolHooks<TaggedFrame, ()> {
-    ProtocolHooks {
-        before_send: Some(Box::new(
-            |frame: &mut TaggedFrame, _ctx: &mut ConnectionContext| {
-                frame.payload.push(MARKER);
-            },
-        )),
-        ..ProtocolHooks::default()
-    }
+/// Probe that appends [`MARKER`] to every frame the connection sends.
+fn marking_probe() -> BeforeSendProbe {
+    Arc::new(|frame: &mut TaggedFrame| frame.payload.push(MARKER))
 }
 
 /// The protocol terminator reaches the sink with its original metadata.
 #[rstest]
 #[tokio::test]
 async fn stream_terminator_is_written_without_decoding() -> TestResult {
-    let frames = forward_finished_stream(ProtocolHooks::default()).await?;
+    let frames = forward_finished_stream().await?;
 
     assert_eq!(
         frames,
@@ -299,7 +308,7 @@ async fn stream_terminator_is_written_without_decoding() -> TestResult {
 #[rstest]
 #[tokio::test]
 async fn stream_terminator_passes_through_before_send() -> TestResult {
-    let frames = forward_finished_stream(marking_hooks()).await?;
+    let frames = forward_finished_stream_with(None, Some(marking_probe())).await?;
 
     assert_eq!(
         frames,

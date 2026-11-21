@@ -6,10 +6,17 @@
 //! that returns `Response::Stream` or `Response::MultiPacket` is driven to
 //! completion while server pushes keep flowing.
 //!
-//! The actor deliberately receives no fragmenter and no `before_send` hook.
-//! Fragmentation, codec wrapping, and protocol hooks for application frames
-//! all happen in the transport sink owned by the caller, which keeps a single
-//! ordering for serialization, hooks, and write metrics.
+//! The actor deliberately receives no fragmenter and no protocol hooks.
+//! Fragmentation, codec wrapping, and every protocol callback for application
+//! frames — `before_send`, the stream terminator, the error hook and
+//! completion — run through the connection's [`FramePipeline`] in the
+//! transport sink owned by the caller, which keeps a single ordering for
+//! serialization, hooks, and write metrics.
+//!
+//! Connection setup does run at this boundary, because the connection's push
+//! handle and registry entry come into existence here.
+//!
+//! [`FramePipeline`]: crate::app::codec_driver::FramePipeline
 
 use std::{io, sync::Arc};
 
@@ -166,12 +173,17 @@ where
         setup_protocol.on_connection_setup(handle.clone(), &mut connection_context);
     }
 
-    let hooks = protocol.map_or_else(ProtocolHooks::default, actor_hooks::<F>);
+    // The actor is built without protocol hooks. Every prepared-path callback
+    // except setup runs through the connection's [`FramePipeline`] owner, which
+    // holds the connection's single protocol reference and context. Installing
+    // the protocol here as well would give the connection a second strong
+    // reference, and dispatching through both would run `before_send` twice on
+    // the same frame.
     let mut actor = ConnectionActor::new_untracked(UntrackedActorInit {
         channels: ConnectionChannels::new(queues, handle.clone()),
         response: None,
         shutdown: shutdown.clone(),
-        hooks,
+        hooks: ProtocolHooks::default(),
         ctx: connection_context,
     });
     // The connection boundary owns the idle-grace policy; the actor only needs
@@ -213,33 +225,4 @@ where
     let cause = Arc::new(std::sync::OnceLock::new());
     actor.set_peer_observation(unobserved.clone(), Arc::clone(&cause));
     (unobserved, cause)
-}
-
-/// Adapt a protocol into the hooks the actor needs for response frames.
-///
-/// Only the error callback is forwarded. Terminator emission and completion
-/// run in the response writer after the actor has finished driving the
-/// response: the protocol returns a complete codec frame, and writing that
-/// frame unchanged is the only way to preserve metadata a custom codec adds
-/// outside the payload. `before_send` stays unset because the transport sink
-/// runs it after serialization. The protocol's setup and EOF callbacks are not
-/// invoked on the prepared path through this actor, so they are deliberately
-/// absent here; setup runs in [`build_connection_actor`].
-fn actor_hooks<F>(
-    protocol: &Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>,
-) -> ProtocolHooks<Envelope, ()>
-where
-    F: FrameCodec,
-{
-    let handle_error = {
-        let error_protocol = Arc::clone(protocol);
-        Box::new(move |error: (), ctx: &mut ConnectionContext| {
-            error_protocol.handle_error(error, ctx);
-        })
-    };
-
-    ProtocolHooks {
-        handle_error: Some(handle_error),
-        ..ProtocolHooks::default()
-    }
 }

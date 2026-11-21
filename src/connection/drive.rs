@@ -185,7 +185,7 @@ where
             }
             Response::Empty => {
                 ensure_output_idle(&self.active_output)?;
-                self.hooks.on_command_end(&mut self.ctx);
+                self.protocol.on_command_end();
                 Ok(ResponseOutcome::Completed)
             }
             Response::Stream(stream) => {
@@ -295,7 +295,7 @@ where
     /// Run a deferred completion hook once the final frame has been written.
     pub(super) fn run_deferred_command_end(&mut self) {
         if std::mem::take(&mut self.command_end_pending) {
-            self.hooks.on_command_end(&mut self.ctx);
+            self.protocol.on_command_end();
         }
     }
 
@@ -338,7 +338,7 @@ where
         if outcome == WriteOutcome::Cancelled {
             return ResponseOutcome::Cancelled;
         }
-        self.hooks.on_command_end(&mut self.ctx);
+        self.protocol.on_command_end();
         ResponseOutcome::Completed
     }
 }

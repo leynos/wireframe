@@ -164,18 +164,21 @@ where
 {
     let outcome = drive_through_actor(ctx, delivery, response).await?;
 
-    let Some(protocol) = ctx.protocol else {
-        return Ok(outcome);
-    };
-    // The pipeline owns the connection's context, so the completion hooks see
+    // A failed stream stopped on a protocol error. Reporting it here, before
+    // the completion hook, keeps both callbacks on the connection's single hook
+    // owner and context; the actor cannot dispatch it because it deliberately
+    // holds no protocol reference of its own.
+    if outcome == ResponseOutcome::Failed {
+        ctx.pipeline.handle_error();
+    }
+    // The pipeline owns the connection's context, so every callback below sees
     // the same connection identifier as `before_send`.
-    let mut context = ctx.pipeline.context();
     if owes_terminator(outcome, delivery.is_streaming) {
         // The protocol terminator is a complete codec frame. Writing it
         // unchanged preserves metadata a custom codec adds outside the payload,
         // and running it through the sink's `before_send` hook matches
         // application frames.
-        let abandoned = match protocol.stream_end_frame(&mut context) {
+        let abandoned = match ctx.pipeline.stream_end_frame() {
             Some(frame) => !write_terminator::<S, K, F>(ctx, frame).await?,
             None => false,
         };
@@ -188,7 +191,7 @@ where
     // A cancelled response belongs to a closing connection: its completion
     // hook must not run, matching the actor's own shutdown behaviour.
     if outcome != ResponseOutcome::Cancelled {
-        protocol.on_command_end(&mut context);
+        ctx.pipeline.on_command_end();
     }
     Ok(outcome)
 }

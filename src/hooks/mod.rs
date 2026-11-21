@@ -1,10 +1,31 @@
 //! Internal protocol hooks invoked by the connection actor.
 //!
-//! [`ProtocolHooks`] stores optional callbacks executed during output, while
-//! [`WireframeProtocol`] exposes the public interface applications implement to
-//! configure those callbacks.
+//! [`ProtocolHooks`] is an explicit representation of where a connection's
+//! callbacks come from. It either installs one [`WireframeProtocol`] as a
+//! single shared owner, carries a set of independently registered callbacks
+//! ([`CustomProtocolHooks`]), or runs no callbacks at all.
+//!
+//! A protocol-backed value owns exactly one strong reference to the installed
+//! protocol, rather than one clone per hook. The protocol object may be shared
+//! by independent connections, so a protocol implementation must not treat its
+//! own fields as per-connection state. The crate-private `ConnectionProtocol`
+//! pairs the hooks with the single [`ConnectionContext`] a connection reuses
+//! for its whole lifetime; that context is the designated home for such state.
 
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
+
+mod connection;
+
+mod custom;
+
+mod dispatch;
+
+mod protocol;
+
+pub(crate) use connection::ConnectionProtocol;
+pub use custom::CustomProtocolHooks;
+pub use dispatch::ProtocolDispatch;
+pub use protocol::ProtocolHooks;
 
 use crate::{
     codec::EofError,
@@ -233,146 +254,4 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// }
     /// ```
     fn on_eof(&self, _error: &EofError, _partial_data: &[u8], _ctx: &mut ConnectionContext) {}
-}
-
-/// Type alias for the `before_send` callback.
-type BeforeSendHook<F> = Box<dyn FnMut(&mut F, &mut ConnectionContext) + Send + 'static>;
-
-/// Type alias for the `on_connection_setup` callback.
-type OnConnectionSetupHook<F> =
-    Box<dyn FnOnce(PushHandle<F>, &mut ConnectionContext) + Send + 'static>;
-
-/// Type alias for the `on_command_end` callback.
-type OnCommandEndHook = Box<dyn FnMut(&mut ConnectionContext) + Send + 'static>;
-
-/// Type alias for the `handle_error` callback.
-type HandleErrorHook<E> = Box<dyn FnMut(E, &mut ConnectionContext) + Send + 'static>;
-
-/// Type alias for the `stream_end_frame` callback.
-type StreamEndHook<F> = Box<dyn FnMut(&mut ConnectionContext) -> Option<F> + Send + 'static>;
-
-/// Type alias for the `on_eof` callback.
-type OnEofHook = Box<dyn FnMut(&EofError, &[u8], &mut ConnectionContext) + Send + 'static>;
-
-/// Callbacks used by the connection actor.
-pub struct ProtocolHooks<F, E> {
-    /// Invoked when a connection is established.
-    pub on_connection_setup: Option<OnConnectionSetupHook<F>>,
-    /// Invoked before a frame is written to the socket.
-    pub before_send: Option<BeforeSendHook<F>>,
-    /// Invoked once a command completes.
-    pub on_command_end: Option<OnCommandEndHook>,
-    /// Invoked when a handler returns a protocol error.
-    pub handle_error: Option<HandleErrorHook<E>>,
-    /// Invoked to construct an end-of-stream frame.
-    pub stream_end: Option<StreamEndHook<F>>,
-    /// Callback for an EOF condition, run by [`ProtocolHooks::on_eof`].
-    pub on_eof: Option<OnEofHook>,
-}
-
-impl<F, E> Default for ProtocolHooks<F, E> {
-    fn default() -> Self {
-        Self {
-            on_connection_setup: None,
-            before_send: None,
-            on_command_end: None,
-            handle_error: None,
-            stream_end: None,
-            on_eof: None,
-        }
-    }
-}
-
-impl<F, E> ProtocolHooks<F, E> {
-    /// Run the `on_connection_setup` hook if registered.
-    pub fn on_connection_setup(&mut self, handle: PushHandle<F>, ctx: &mut ConnectionContext) {
-        if let Some(hook) = self.on_connection_setup.take() {
-            hook(handle, ctx);
-        }
-    }
-    /// Run the `before_send` hook if registered.
-    pub fn before_send(&mut self, frame: &mut F, ctx: &mut ConnectionContext) {
-        if let Some(hook) = &mut self.before_send {
-            hook(frame, ctx);
-        }
-    }
-
-    /// Run the `on_command_end` hook if registered.
-    pub fn on_command_end(&mut self, ctx: &mut ConnectionContext) {
-        if let Some(hook) = &mut self.on_command_end {
-            hook(ctx);
-        }
-    }
-
-    /// Run the `handle_error` hook if registered.
-    pub fn handle_error(&mut self, error: E, ctx: &mut ConnectionContext) {
-        if let Some(hook) = &mut self.handle_error {
-            hook(error, ctx);
-        }
-    }
-
-    /// Run the `stream_end_frame` hook if registered.
-    pub fn stream_end_frame(&mut self, ctx: &mut ConnectionContext) -> Option<F> {
-        self.stream_end.as_mut().and_then(|hook| hook(ctx))
-    }
-
-    /// Run the `on_eof` hook if registered.
-    pub fn on_eof(&mut self, error: &EofError, partial_data: &[u8], ctx: &mut ConnectionContext) {
-        if let Some(hook) = &mut self.on_eof {
-            hook(error, partial_data, ctx);
-        }
-    }
-
-    /// Construct hooks from a [`WireframeProtocol`] implementation.
-    ///
-    /// Each callback is a fresh wrapper that captures a clone of the same
-    /// `Arc`-backed protocol. Fresh hooks and a fresh [`ConnectionContext`]
-    /// therefore isolate per-connection context and callback state, but they
-    /// do **not** isolate mutable state stored inside the protocol: every
-    /// connection that installs the same protocol shares that state.
-    pub fn from_protocol<P>(protocol: &Arc<P>) -> Self
-    where
-        P: WireframeProtocol<Frame = F, ProtocolError = E> + ?Sized,
-    {
-        let protocol_before = Arc::clone(protocol);
-        let before = Box::new(move |frame: &mut F, ctx: &mut ConnectionContext| {
-            protocol_before.before_send(frame, ctx);
-        }) as BeforeSendHook<F>;
-
-        let protocol_end = Arc::clone(protocol);
-        let end = Box::new(move |ctx: &mut ConnectionContext| {
-            protocol_end.on_command_end(ctx);
-        }) as OnCommandEndHook;
-
-        let protocol_setup = Arc::clone(protocol);
-        let setup = Box::new(move |handle: PushHandle<F>, ctx: &mut ConnectionContext| {
-            protocol_setup.on_connection_setup(handle, ctx);
-        }) as OnConnectionSetupHook<F>;
-
-        let protocol_error = Arc::clone(protocol);
-        let err = Box::new(move |e: P::ProtocolError, ctx: &mut ConnectionContext| {
-            protocol_error.handle_error(e, ctx);
-        }) as HandleErrorHook<P::ProtocolError>;
-
-        let protocol_stream_end = Arc::clone(protocol);
-        let stream_end =
-            Box::new(move |ctx: &mut ConnectionContext| protocol_stream_end.stream_end_frame(ctx))
-                as StreamEndHook<F>;
-
-        let protocol_eof = Arc::clone(protocol);
-        let on_eof = Box::new(
-            move |error: &EofError, partial_data: &[u8], ctx: &mut ConnectionContext| {
-                protocol_eof.on_eof(error, partial_data, ctx);
-            },
-        ) as OnEofHook;
-
-        Self {
-            on_connection_setup: Some(setup),
-            before_send: Some(before),
-            on_command_end: Some(end),
-            handle_error: Some(err),
-            stream_end: Some(stream_end),
-            on_eof: Some(on_eof),
-        }
-    }
 }
