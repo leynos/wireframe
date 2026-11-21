@@ -147,10 +147,11 @@ fn dlq_drop_logging_can_be_silenced(mut logger: LoggerHandle) -> TestResult {
 /// cannot turn the test red.
 ///
 /// The `>` versus `>=` boundary between `elapsed()` and the configured
-/// interval has no test. Separating them needs an elapsed time equal to the
-/// interval to nanosecond precision, which no real clock yields on demand, so
-/// every observable duration sits strictly on one side. The mutant is an
-/// accepted survivor, not an equivalence.
+/// interval has no test. Equality is possible in principle, but forcing an
+/// elapsed time exactly equal to the interval to nanosecond precision needs a
+/// controllable clock this test does not have, so the two operators are
+/// indistinguishable in any runnable run. The mutant is an accepted limitation
+/// of the test clock, not an equivalence.
 #[rstest]
 #[serial(push_policies)]
 fn dlq_drop_logging_reports_each_interval(mut logger: LoggerHandle) -> TestResult {

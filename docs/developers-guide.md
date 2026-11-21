@@ -1268,9 +1268,10 @@ and its rationale). Key points for contributors:
 The drop accounting moved from `PushHandle` into `src/push/queues/dlq.rs`, so a
 survivor reported against the old `handle.rs` line numbers maps to
 `DeadLetterState::route_or_count` and `DeadLetterState::log_if_due`. Ordinary
-captured-warning tests in `tests/push_dlq_logging.rs` kill the cadence,
+captured-warning tests in `tests/push_dlq_cadence.rs` kill the cadence,
 arithmetic and interval mutants there: they set the count threshold and the
 interval explicitly and parse the `dropped=` field of each emitted warning.
+`tests/push_dlq_logging.rs` covers the warning's content, and
 `tests/push_policies.rs` covers the `dlq=` field of the full-queue warning.
 
 Two groups still show as survivors in the ordinary lane because they are
@@ -1296,11 +1297,11 @@ RUSTFLAGS="--cfg loom" cargo mutants --in-place --file 'src/push/queues/*.rs' \
 ```
 
 One survivor is accepted rather than annotated: replacing `>` with `>=` in the
-`elapsed() > log_interval` test of `DeadLetterState::log_if_due`. Separating
-the two needs an elapsed time exactly equal to the interval, to nanosecond
-precision, which no test clock yields on demand. It is an accepted unreachable
-boundary, not an equivalence: every observable duration lies strictly to one
-side of it.
+`elapsed() > log_interval` test of `DeadLetterState::log_if_due`. Equality is
+possible in principle, but the real-clock test cannot reliably force an elapsed
+time exactly equal to the interval to nanosecond precision, so the two
+operators are indistinguishable in any runnable test. It is an accepted
+limitation of the test clock, not an equivalence.
 
 ### Workflow contract tests
 
