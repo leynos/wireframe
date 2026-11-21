@@ -10,9 +10,67 @@ Status: BLOCKED — upstream dependencies landed; re-derivation required
 As of the 2026-10-30 rebase onto `main`, every upstream change this plan
 depends on has merged. The blocking issues below are therefore discharged, but
 the plan was written against the pre-#642, pre-#657 server and has not yet been
-re-derived against the code now on `main`. See
-`Post-rebase status (2026-10-30)` immediately below. EP-M0 must perform that
-re-derivation before EP-M1 begins.
+re-derived against the code now on `main`. The 2026-11-21 rebase then brought
+in roadmap 17.3.5, a workspace-wide lint gate, and a documentation relocation,
+which settle several of this plan's constraints and decisions. See the two
+`Post-rebase status` sections immediately below, newest first. EP-M0 must
+perform the re-derivation before EP-M1 begins.
+
+## Post-rebase status (2026-11-21)
+
+Rebased onto `main` at `a7eecaff`. Facts verified against that tree:
+
+- **Roadmap 17.3.5 landed** in `531d05cf` (#869), closing
+  [#578](https://github.com/leynos/wireframe/issues/578). `wireframe_testing`'s
+  doctests compile; `make test-doc` runs `--workspace --doc --all-features` and
+  CI runs it unconditionally, held there by a workflow contract; and a new
+  `make test-wireframe-testing` target runs the companion crate's tests in CI.
+- **The lint gate is workspace-wide** (#813, #856).
+  `wireframe_testing/Cargo.toml` now has `[lints] workspace = true`, and
+  `make lint` runs rustdoc, Clippy, and Whitaker over every workspace member.
+- **`make test` is workspace-wide.** It runs
+  `test --workspace --all-targets --all-features`, so `default-members = ["."]`
+  no longer hides the companion crate's targets from it.
+- **CI bounds hung tests** (#857). `build-test` sets `timeout-minutes: 60`, its
+  test steps 30, and `.config/nextest.toml` terminates slow tests. That
+  discharges D11.
+- **Documents moved** under the shared documentation style guide (#853). RFC
+  0001 is now `docs/rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md`
+  (a pure rename; content unchanged), and ADRs live in `docs/adrs/` as
+  `adr-nnnn-title-slug.md`. ADR 014 is now
+  [`adr-0014-server-shutdown-ownership-and-terminal-observation.md`](../adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md),
+  still Proposed. ADRs 0015, 0016, and 0017 are taken, so the contingent ADR
+  in Stage E step 5 becomes 0018.
+- **`rstest-bdd` moved to 0.6.0** (#811), with a repository-specific
+  `docs/wireframe-rstest-bdd-users-guide.md`. Stage B's BDD suite must follow
+  it.
+- **Server connections were restructured** by #643, #874, and #875 (a
+  connection-local runtime, `ConnectionActor`-driven connections, and push
+  queues). This adds to the stale `file:line` citations noted below. The
+  `ServerShutdown` surface this plan should build on is unchanged:
+  `WireframeServer::spawn()`, `ServerShutdown::stop()`, and
+  `ServerShutdown::drained()` are as recorded on 2026-10-30.
+
+Plan elements superseded by these facts, each retained below as a dated record
+rather than rewritten:
+
+<!-- markdownlint-disable MD013 -->
+
+| Plan element                                                        | Was                                                 | Now                                                                                                 |
+| ------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Constraint 7, Risks on #578, gap 7 of `Facts that shape the design` | 17.3.5 work is out of scope and pending             | 17.3.5 is complete; leave its targets alone because they are finished, not because they are pending |
+| D10, and the `make lint` observation                                | Lint does not reach `wireframe_testing`             | It does; new harness code must pass the workspace lints                                             |
+| The tests-location decision citing `default-members`                | Companion-crate tests are invisible to `make test`  | They are visible; EP-M0 decides afresh whether harness tests belong in `wireframe_testing/tests/`   |
+| `Validation and acceptance`, companion-crate checks                 | Filter doctests to `server_harness` because of #578 | Use `make test-wireframe-testing` and an unfiltered `make test-doc`                                 |
+| D11                                                                 | Add `timeout-minutes`                               | Already present; withdrawn                                                                          |
+
+<!-- markdownlint-enable MD013 -->
+
+*Table 4: plan elements superseded by the 2026-11-21 rebase.*
+
+Still true: `scripts/doctest-benchmark.sh` defaults its search root to `src`,
+and `ci.yml` runs the workspace tests through its coverage step rather than
+through `make test`.
 
 ## Post-rebase status (2026-10-30)
 
@@ -26,15 +84,17 @@ re-derivation before EP-M1 begins.
   `ServerError::FactoryBuild` and `ServerError::Prepare`, not the `AppBuild`
   name that Table 3 quotes from the proposed ADR 012.
 - [#657](https://github.com/leynos/wireframe/issues/657) landed in `ef858aa0`
-  (PR #696) with [ADR 014](../adr-014-server-shutdown-ownership.md) (Status
-  Proposed). `WireframeServer::spawn() -> Result<ServerShutdown, ServerError>`
-  now returns a cloneable control with a non-blocking `stop()` and an awaitable
-  `drained()` that reports `ServerError::AbnormalTermination`. This is a
-  synchronous drain guarantee, so the `Abandoned` terminal outcome, AXIOM-6,
-  the residual gap on the bound-elapsed path, and the Stage E wording for RFC
-  0001 sections 5.3 and 6 must all be revisited. The harness should probably
-  wrap `ServerShutdown` rather than a raw `JoinHandle` and `oneshot` sender;
-  that is a design change requiring acceptance, not a mechanical edit.
+  (PR #696) with
+  [ADR 014](../adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md)
+  (Status Proposed).
+  `WireframeServer::spawn() -> Result<ServerShutdown, ServerError>` now returns
+  a cloneable control with a non-blocking `stop()` and an awaitable `drained()`
+  that reports `ServerError::AbnormalTermination`. This is a synchronous drain
+  guarantee, so the `Abandoned` terminal outcome, AXIOM-6, the residual gap on
+  the bound-elapsed path, and the Stage E wording for RFC 0001 sections 5.3 and
+  6 must all be revisited. The harness should probably wrap `ServerShutdown`
+  rather than a raw `JoinHandle` and `oneshot` sender; that is a design change
+  requiring acceptance, not a mechanical edit.
 - ADRs 011 to 013 merged via
   [PR #653](https://github.com/leynos/wireframe/pull/653), and ADR 014 now
   exists. The contingent ADR in Stage E step 5 is renumbered to 015.
@@ -190,6 +250,9 @@ Stop and escalate when any of these is reached.
 
 - [x] (2026-10-30) Rebased onto `main` at `e5d01b54`; #656, #642, and #657
       confirmed merged. See `Post-rebase status (2026-10-30)`.
+- [x] (2026-11-21) Rebased onto `main` at `a7eecaff`; 17.3.5, workspace-wide
+      gates, and the documentation relocation recorded. See
+      `Post-rebase status (2026-11-21)` and D16.
 - [ ] EP-M0 Plan re-derived against the post-#657 server; escalations
       accepted; green baseline recorded.
 - [ ] EP-M1 `RunningWireframeServer`, options, spawn helpers, rstest and BDD
@@ -545,13 +608,15 @@ Load `leta` (run `leta workspace add .`), `rust-router` and from it
 `rust-async-and-concurrency`, `proptest`, `execplans`, and `en-gb-oxendict`.
 Load `firecrawl` for any external lookup.
 
-Read `docs/rfcs/0001-protocol-agnostic-test-harness-lifecycle.md` (§5.2, §5.3,
-§5.5, §5.6, §6, §7.1, §7.5 are in scope), `docs/wireframe-testing-crate.md` (the
+Read `docs/rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md` (§5.2,
+§5.3, §5.5, §5.6, §6, §7.1, §7.5 are in scope),
+`docs/wireframe-testing-crate.md` (the
 `## In-process server/client pair harness` section), and
 `docs/documentation-style-guide.md`. Consult `docs/rstest-bdd-users-guide.md`
-before writing the BDD suite — step functions are synchronous and fixture names
-must match step parameter names exactly — and `docs/rust-doctest-dry-guide.md`
-before writing doctests. The predecessor plan
+and `docs/wireframe-rstest-bdd-users-guide.md` before writing the BDD suite —
+step functions are synchronous and fixture names must match step parameter
+names exactly — and `docs/rust-doctest-dry-guide.md` before writing doctests.
+The predecessor plan
 `docs/execplans/17-3-2-in-process-server-and-client-pair-test-harness.md`
 explains why the pair harness has its current shape.
 
@@ -562,7 +627,7 @@ explains why the pair harness has its current shape.
 
 Upstream artefacts at the revisions in the working tree:
 
-- `docs/rfcs/0001-protocol-agnostic-test-harness-lifecycle.md`, Status
+- `docs/rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md`, Status
   Proposed, Created 2026-07-18. The governing technical design. There is **no**
   separate Terms of Reference document; do not invent one.
 - `docs/roadmap.md` item 17.3.3, with 17.3.4 and 17.3.5 out of scope.
@@ -1423,12 +1488,14 @@ output is a Constraint 1 breach: stop and escalate.
 5. Do **not** add an ADR. The RFC is the governing artefact for this feature and
    amending it is clearer than an ADR that qualifies it. If the reviewer
    disagrees, the file is
-   `docs/adr-015-server-lifecycle-shutdown-contract.md` — 011 to 014 are taken,
-   014 by the server shutdown-ownership ADR that
-   [#657](https://github.com/leynos/wireframe/issues/657) introduced —
-   following the Status/Date/Context template, and gains a line in
-   `docs/contents.md`. Check first whether ADR 014 already covers the contract,
-   in which case amend or cite it rather than adding 015.
+   `docs/adrs/adr-0018-server-lifecycle-shutdown-contract.md` — 0011 to 0017
+   are taken, 0014 by the server shutdown-ownership ADR that
+   [#657](https://github.com/leynos/wireframe/issues/657) introduced — named
+   and structured per the `Architectural decision records (ADRs)` section of
+   `docs/documentation-style-guide.md`, and gains a line in `docs/contents.md`.
+   Recheck the next free number before writing it. Check first whether ADR 0014
+   already covers the contract, in which case amend or cite it rather than
+   adding a new ADR.
 6. Tick roadmap 17.3.3 with `mapsplice`, preserving its inline links verbatim.
 7. Check `CHANGELOG.md`'s conventions and add an entry if it covers unreleased
    test-support changes.
@@ -1466,21 +1533,19 @@ set -o pipefail && cargo test --test client_pair_harness --all-features 2>&1 \
   | tee "${LOG_PREFIX}-pair.log"
 ```
 
-Companion-crate checks, which `make test` does not cover until 17.3.5:
+Companion-crate checks. Since 17.3.5 landed, these are Make targets that CI
+also runs:
 
 ```bash
-set -o pipefail && cargo test -p wireframe_testing --all-targets 2>&1 \
+set -o pipefail && make test-wireframe-testing 2>&1 \
   | tee "${LOG_PREFIX}-testing-crate.log"
-set -o pipefail && cargo test -p wireframe_testing --doc server_harness 2>&1 \
-  | tee "${LOG_PREFIX}-testing-doc.log"
+set -o pipefail && make test-doc 2>&1 | tee "${LOG_PREFIX}-testing-doc.log"
 ```
 
-`--all-features` is omitted deliberately: `wireframe_testing` has no
-`[features]` table, so the flag is a no-op there. The doc run is filtered to
-`server_harness` because the crate's pre-existing doctests do not compile
-(issue #578), so an unfiltered run cannot tell you whether your doctest is
-sound. Record both the filtered pass and the unfiltered pre-existing failure,
-so a reader can see #578 was not made worse.
+An earlier revision filtered the doc run to `server_harness` because the
+crate's doctests did not compile (issue #578). #578 is fixed, so the unfiltered
+`make test-doc` is now the evidence, and a new failure there is a regression
+this plan introduced.
 
 Flakiness check, once at the end of EP-M2, using the **full** suite rather than
 a focused target — an isolated loop removes the contention that surfaces timing
@@ -1569,6 +1634,15 @@ which handle never reached `Stopped`. Do not add a sleep; use
 If a run is interrupted, check `ss -ltn | grep 127.0.0.1` before re-running.
 
 ## Surprises & discoveries
+
+- Observation: by the 2026-11-21 rebase, 17.3.5 had landed and the lint and
+  test gates had become workspace-wide, so three gaps this plan worked around
+  (lint not reaching `wireframe_testing`, its doctests not compiling, and no
+  bound on a hung CI test) no longer exist. Evidence: `531d05cf`, `Makefile`
+  targets `lint`, `test`, `test-doc`, and `test-wireframe-testing`;
+  `wireframe_testing/Cargo.toml` `[lints] workspace = true`; `ci.yml`
+  `timeout-minutes`. Impact: D10 and D11 are superseded and validation is
+  simpler; see Table 4.
 
 - Observation: by the 2026-10-30 rebase, all three server-side dependencies
   (#656, #642, #657) had merged, and #657 shipped a synchronous drain guarantee
@@ -1674,6 +1748,20 @@ If a run is interrupted, check `ss -ltn | grep 127.0.0.1` before re-running.
   upstream change: an amendment to RFC 0001 §5.3 and §6 in either case; the
   wording depends on #657's disposition. Date/Author: 2026-08-23, planning
   agent. **Requires acceptance.**
+
+- Decision (D16): adopt `main`'s state at the 2026-11-21 rebase rather than
+  replanning around it. Repoint RFC 0001 and ADR 0014 to their relocated paths;
+  rename the contingent ADR to 0018 under `docs/adrs/`, following the style
+  guide's naming and template; withdraw D11, whose CI timeouts and nextest
+  termination now exist on `main`; record D10 and the tests-location rationale
+  as superseded, because `make lint` and `make test` are now workspace-wide;
+  and switch the companion-crate validation to `make test-wireframe-testing`
+  and an unfiltered `make test-doc`. Rationale: each change follows directly
+  from a fact verified on `a7eecaff` and listed in
+  `Post-rebase status (2026-11-21)`, and none alters the harness design that
+  EP-M0 must still re-derive against `ServerShutdown`. Superseded entries are
+  left in place, so the log keeps its history. Date/Author: 2026-11-21,
+  planning agent.
 
 - Decision (D14): depend on #656 and #657 rather than absorbing either into
   this plan. Rationale: both are server-runtime changes in `src/server/`, which
