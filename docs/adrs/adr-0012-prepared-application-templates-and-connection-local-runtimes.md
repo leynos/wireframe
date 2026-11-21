@@ -11,10 +11,11 @@ implements the connection-local inbound runtime — framed codec state, inbound
 pipeline, fragment reassembly, message-assembly state, the deserialization
 failure counter, resolved budgets, the read timeout, and connection setup state
 — together with the centralized lifecycle finalization described in section 5.
-Other ownership listed under `ConnectionRuntime` in section 1, including
-`ConnectionContext`, outbound connection-actor state, peer metadata, and the
-teardown guard, remains sequenced work. The broader ownership decision remains
-proposed while that work continues.
+[#644](https://github.com/leynos/wireframe/issues/644) implements the protocol
+ownership and hook-dispatch consolidation in section 6. Other ownership listed
+under `ConnectionRuntime` in section 1, including outbound connection-actor
+state, peer metadata, and the teardown guard, remains sequenced work. The
+broader ownership decision remains proposed while that work continues.
 
 First proposed on 2026-08-08 in issue
 [#637](https://github.com/leynos/wireframe/issues/637); imported and refined on
@@ -96,7 +97,7 @@ Related issues and decisions:
 - [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md),
   whose packet/transport-frame boundary remains unchanged;
 - [#547](https://github.com/leynos/wireframe/issues/547), normal app
-  responses bypass configured protocol hooks;
+  responses bypass configured protocol hooks (delivered);
 - [#549](https://github.com/leynos/wireframe/issues/549), returned
   stream-processing errors reach a registered teardown hook; completed together
   with panic and cancellation finalization by
@@ -115,7 +116,7 @@ Implementation of this ADR is sequenced through:
 - [#643](https://github.com/leynos/wireframe/issues/643), the
   connection-local runtime and centralized lifecycle finalization (implemented);
 - [#644](https://github.com/leynos/wireframe/issues/644), consolidated
-  protocol ownership and hook dispatch;
+  protocol ownership and hook dispatch (implemented);
 - [#648](https://github.com/leynos/wireframe/issues/648), collapse of
   nested application-owned sharing beneath `PreparedApp`.
 
@@ -487,9 +488,39 @@ serialized and codec-wrapped handler-response frame, including each fragment of
 a fragmented response, immediately before the transport write. Hooks are never
 shared between connections. Because the hook may change the frame, it is
 responsible for keeping it within the codec's `max_frame_length`; growing it
-past that limit fails the send and ends the connection. The remaining protocol
-hooks stay on the `ConnectionActor` push and streaming paths; the direct
-response helpers bypass `before_send` by design.
+past that limit fails the send and ends the connection. Every protocol callback
+other than setup is dispatched by that same pipeline owner: push and streaming
+frames pass through its transport sink, and the error, terminator, and
+completion hooks follow a handler response. The direct response helpers bypass
+`before_send` by design.
+
+[#547](https://github.com/leynos/wireframe/issues/547) delivered the
+handler-response dispatch.
+[#644](https://github.com/leynos/wireframe/issues/644) then consolidated
+ownership: `ProtocolHooks` is an enum whose `Protocol` form wraps a
+`ProtocolDispatch`, and that dispatch erases a possibly-`?Sized` protocol
+behind a single `Arc` instead of the six per-operation forwarding closures the
+old representation built. A protocol-backed connection therefore holds exactly
+one strong reference once setup has completed — during setup the caller's
+reference is still alive alongside the pipeline's — and `on_connection_setup`
+runs at most once per hooks value. The frame pipeline holds a crate-private
+`ConnectionProtocol` pairing that hooks value with the connection's single
+`ConnectionContext`; it is the only hook owner on the prepared path, so the
+connection actor built there is handed `ProtocolHooks::None`. The actor's own
+`ConnectionProtocol` field then holds an inert snapshot of that context that no
+callback receives, and it holds no protocol reference; the pipeline's context
+is the only one the prepared path dispatches against, and setup receives that
+same value before it is installed. An actor driven directly through
+`with_hooks` is the single owner instead. That pairing is the input the
+ownership collapse under [#648](https://github.com/leynos/wireframe/issues/648)
+needs: the actor and pipeline can be folded into one runtime without revisiting
+hook semantics. Every packet-oriented outbound path now runs `before_send`
+exactly once per emitted packet — handler responses, push frames, streamed
+responses, multi-packet channel frames, and stream-end terminators — and no
+transport-frame hook is introduced, so the
+[ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+packet boundary is unchanged. Section 8 records that boundary against #644's
+"before serialization" wording and the prepared path's lifecycle contract.
 
 ### 7. Unify examples with the production runtime
 
@@ -497,6 +528,51 @@ Examples should stop maintaining a separate `Arc<WireframeApp>` bootstrap
 topology. They should exercise the same preparation and server runtime used by
 library consumers, unless an example deliberately demonstrates a lower-level
 API.
+
+### 8. Hook boundary and prepared lifecycle addendum — 2026-11-18
+
+This addendum settles two questions section 6 left implicit and supersedes the
+"before serialization" wording in
+[#644](https://github.com/leynos/wireframe/issues/644)'s dispatch requirement.
+Section 6 otherwise stands unchanged.
+
+`before_send` observes the packet as the connection will write it: the
+serializer has produced the payload and `FrameCodec::wrap_payload` has wrapped
+it into `F::Frame`. The hook therefore runs after the application packet
+(`Envelope`) has been serialized, not before it. Two constraints force that
+boundary:
+
+- the hook's signature is
+  `before_send(&self, frame: &mut Self::Frame, ctx: &mut ConnectionContext)`,
+  so it cannot see the `Envelope`; a pre-serialization hook would need a
+  differently shaped callback and a public API break;
+- [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+  fixes the packet boundary at the codec frame, and changing that boundary is
+  an explicit non-goal of #644.
+
+"Before serialization" is therefore read as "before the packet is serialized
+onto the transport", that is, immediately before the codec driver writes the
+frame. A protocol-supplied frame such as a stream terminator is already a
+complete codec frame, so the hook runs on it unchanged before emission.
+`prepared_response_runs_before_send_once_after_serialization` and
+`prepared_stream_runs_before_send_once_per_frame_and_terminator` pin the
+boundary through a prepared connection, and
+`push_and_streamed_frames_run_before_send_once` pins it for an actor-driven one.
+
+The same addendum records the prepared path's lifecycle contract. A prepared
+connection dispatches `before_send`, `handle_error`, `stream_end_frame`, and
+`on_command_end` through its hook owner, dispatches `on_connection_setup`
+exactly once per connection, and never dispatches `on_eof`. Setup runs from
+`build_connection_actor`, after the connection's `PushHandle` is published in
+the `SessionRegistry` and before the actor starts, so a protocol can address
+its own connection; the reference used for that call is not retained.
+Application-level initialization and cleanup for a prepared connection remain
+the `on_connection_setup` and `on_connection_teardown` lifecycle hooks, which
+the runtime finalizer drives once per connection. The protocol's own
+end-of-file callback remains available only to callers that drive a
+`ConnectionActor` directly.
+`prepared_connection_dispatches_setup_once_and_no_eof_hook` pins that contract
+through a prepared connection, including a mid-frame end-of-file.
 
 ## Consequences
 
@@ -568,7 +644,11 @@ notification. Thread one prepared root into connection tasks
 Replace application-owned `Arc` callback/assembler layers with direct or boxed
 ownership where they cannot escape independently
 ([#648](https://github.com/leynos/wireframe/issues/648)). Consolidate protocol
-ownership under [#644](https://github.com/leynos/wireframe/issues/644).
+ownership under [#644](https://github.com/leynos/wireframe/issues/644)
+(implemented): each connection now holds one strong protocol reference once
+setup has completed, and one hook context, and the remaining collapse under
+[#648](https://github.com/leynos/wireframe/issues/648) can build on that
+`ConnectionProtocol` pairing.
 
 ### Phase 5: settle public API and documentation
 
@@ -708,3 +788,36 @@ token and the idle grace, through `write_before_bound` in
 module-level owner of each boundary and the enqueue-time frame budget.
 
 [push-path]: ../developers-guide.md#server-push-path
+
+## Addendum: 2026-11-20 — one hook owner per connection on every prepared path
+
+Issue [#644](https://github.com/leynos/wireframe/issues/644) finishes the
+ownership collapse section 6 describes, and supersedes two bullets of the
+2026-11-16 addendum: "`handle_error` is forwarded to the actor, which invokes
+it when a driven response reports a protocol error." and "`stream_end_frame` and
+`on_command_end` run in the inbound handler once the actor has finished
+driving the response, so one response is terminated and completed exactly once
+and the actor receives neither hook." — those bullets name the dispatch site as
+it stood before this change, and the text is left unchanged.
+
+The connection's `FramePipeline` is the only hook owner for a prepared
+connection. `forward_response` dispatches the protocol error through the
+pipeline, then asks the same owner for the stream terminator and runs the
+completion hook, so every callback that follows a frame shares one context and
+one strong reference to the installed protocol. The actor built for a prepared
+connection is handed `ProtocolHooks::None` and keeps neither a protocol
+reference nor a context of its own; an actor driven directly through
+`with_hooks` owns its own value instead.
+
+`on_connection_setup` is the one callback that does not run through the
+pipeline's dispatch methods: it runs once per connection from
+`build_connection_actor`, after the connection's `PushHandle` is published in
+the `SessionRegistry` and before the actor starts, because the push handle and
+registry entry come into existence there. It receives the connection's one hook
+context, carrying the identifier the actor just published and the peer address,
+and that same value is then installed in the pipeline, so any state setup
+leaves in the context is what every other callback observes. The actor itself
+keeps no hook context: it holds an inert snapshot of the same value for its
+connection-scoped logging, its hooks never dispatch, and the reference used for
+the setup call is not retained, so a live connection still holds exactly one
+strong protocol reference. `on_eof` remains unreached on the prepared path.

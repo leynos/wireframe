@@ -30,7 +30,7 @@ use tokio::io;
 use super::{envelope::Envelope, fragmentation_state::FragmentationState};
 use crate::{
     fragment::{FragmentationConfig, FragmentationError},
-    hooks::{ConnectionContext, ProtocolHooks},
+    hooks::{ConnectionContext, ConnectionProtocol, ProtocolHooks},
 };
 
 /// Outbound frame processing pipeline mirroring the connection actor's
@@ -42,19 +42,19 @@ use crate::{
 /// transmission.
 ///
 /// The pipeline owns the per-connection [`ProtocolHooks`] and
-/// [`ConnectionContext`], so `before_send` runs exactly where the encoded
-/// frame is written and connection-local hook state is retained for the
-/// lifetime of the connection. Hooks are never shared between connections.
+/// [`ConnectionContext`](crate::hooks::ConnectionContext), so `before_send`
+/// runs exactly where the encoded frame is written and connection-local hook
+/// state is retained for the lifetime of the connection. Hooks are never
+/// shared between connections.
 pub(crate) struct FramePipeline<T = Envelope> {
     /// State shared by outbound envelope fragmentation and inbound fragment
     /// reassembly.
     fragmentation: Option<FragmentationState>,
     /// Envelopes waiting to be serialized and written to the transport.
     out: Vec<Envelope>,
-    /// Protocol hooks applied to each outbound codec frame.
-    hooks: ProtocolHooks<T, ()>,
-    /// Per-connection state passed to protocol hooks.
-    context: ConnectionContext,
+    /// Protocol hooks and the single context shared by every hook on this
+    /// connection.
+    protocol: ConnectionProtocol<T, ()>,
 }
 
 impl<T> FramePipeline<T> {
@@ -70,21 +70,22 @@ impl<T> FramePipeline<T> {
 
     /// Create a pipeline with per-connection protocol hooks.
     ///
-    /// The pipeline owns both the hooks and a fresh [`ConnectionContext`], so
+    /// The pipeline owns both the hooks and a fresh
+    /// [`ConnectionContext`](crate::hooks::ConnectionContext), so
     /// connection-local hook state never leaks into another connection. Each
     /// buffered envelope is serialized part-way through flushing; the hook
     /// then runs on the encoded frame while the frame is still in memory.
     ///
     /// ```text
-    /// let hooks = ProtocolHooks {
+    /// let hooks = CustomProtocolHooks {
     ///     before_send: Some(Box::new(|frame: &mut Bytes, _ctx| {
     ///         let mut bytes = frame.to_vec();
     ///         bytes.push(MARKER);
     ///         *frame = Bytes::from(bytes);
     ///     })),
-    ///     ..ProtocolHooks::default()
+    ///     ..CustomProtocolHooks::default()
     /// };
-    /// let mut pipeline = FramePipeline::with_hooks(fragmentation, hooks);
+    /// let mut pipeline = FramePipeline::with_hooks(fragmentation, hooks.into());
     /// pipeline.process(envelope)?;
     /// // Every frame drained by `flush_pipeline_output` now carries the
     /// // marker appended by the hook, including each fragment.
@@ -97,30 +98,38 @@ impl<T> FramePipeline<T> {
         Self {
             fragmentation: fragmentation.map(FragmentationState::new),
             out: Vec::new(),
-            hooks,
-            context: ConnectionContext::default(),
+            protocol: ConnectionProtocol::new(hooks),
         }
     }
 
     /// Run the configured `before_send` hook for one outbound frame.
-    pub(crate) fn before_send_frame(&mut self, frame: &mut T) {
-        self.hooks.before_send(frame, &mut self.context);
-    }
+    pub(crate) fn before_send_frame(&mut self, frame: &mut T) { self.protocol.before_send(frame); }
+
+    /// Run the protocol's error hook against this connection's context.
+    ///
+    /// The prepared connection dispatches a protocol error here rather than
+    /// through the response actor, so the connection keeps one hook owner and
+    /// one context for every protocol callback.
+    pub(crate) fn handle_error(&mut self) { self.protocol.handle_error(()); }
 
     /// Replace the per-connection context passed to protocol hooks.
     ///
-    /// The connection actor and this pipeline both run `before_send`, so they
-    /// must agree on which connection the callbacks are running for.
+    /// The context is decided when the server publishes the connection, after
+    /// this pipeline exists, so the pipeline is told the identity rather than
+    /// inventing one. The value installed here is the one the setup callback
+    /// observed, so state setup leaves in it is visible to every later
+    /// callback. The response actor holds only an inert snapshot for its own
+    /// connection-scoped logging; its hooks never dispatch, so the pipeline's
+    /// context is the connection's one hook context.
     pub(crate) const fn set_context(&mut self, context: ConnectionContext) {
-        self.context = context;
+        self.protocol.set_context(context);
     }
 
-    /// Copy the per-connection context used for protocol hooks.
-    ///
-    /// Completion hooks that run outside the pipeline need the same context as
-    /// `before_send`, so a protocol observes one connection identity across all
-    /// of its callbacks for the connection's lifetime.
-    pub(crate) fn context(&self) -> ConnectionContext { self.context.clone() }
+    /// Ask the protocol for the end-of-stream frame for this connection.
+    pub(crate) fn stream_end_frame(&mut self) -> Option<T> { self.protocol.stream_end_frame() }
+
+    /// Run the protocol's completion hook against this connection's context.
+    pub(crate) fn on_command_end(&mut self) { self.protocol.on_command_end(); }
 
     /// Process an envelope through the pipeline: fragment → metrics.
     ///

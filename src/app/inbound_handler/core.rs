@@ -89,7 +89,12 @@ where
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks applied to every outbound frame on this connection.
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
-    /// Protocol whose response hooks drive the connection actor.
+    /// Installed protocol, used only to dispatch `on_connection_setup`.
+    ///
+    /// Setup runs at the connection boundary, where the push handle and
+    /// registry entry come into existence. Every other callback runs through
+    /// the pipeline's hook owner, so this reference is dropped once setup has
+    /// run and the connection keeps exactly one strong protocol reference.
     pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
@@ -129,8 +134,6 @@ where
     routes: &'a HashMap<u32, HandlerService<E>>,
     /// Optional assembler consulted while handling frames.
     message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
-    /// Protocol whose response and terminator hooks follow each response.
-    protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Byte budgets enforced while reading.
     budgets: MemoryBudgets,
     /// Maximum interval to wait for the next inbound frame.
@@ -200,20 +203,18 @@ where
         let connection_shutdown = shutdown.child_token();
         let read_shutdown = connection_shutdown.clone();
         let peer_eof = CancellationToken::new();
-        let (response_actor, cancel_on_exit) = build_connection_actor(ConnectionActorInit {
-            protocol: protocol.as_ref(),
-            shutdown: connection_shutdown,
-            registry: &session_registry,
-            push_queues: &push_queues,
-            context: ConnectionContext::default().with_peer_addr(peer_addr),
-        })?;
-        // The identifier is the one the actor claimed when it published its
-        // handle, so the sink's callbacks and the registry agree on it.
-        let connection_context =
-            ConnectionContext::with_connection_id(Some(response_actor.connection_id))
-                .with_peer_addr(peer_addr);
+        let (response_actor, cancel_on_exit, connection_context) =
+            build_connection_actor(ConnectionActorInit {
+                protocol: protocol.as_ref(),
+                shutdown: connection_shutdown,
+                registry: &session_registry,
+                push_queues: &push_queues,
+                context: ConnectionContext::default().with_peer_addr(peer_addr),
+            })?;
         // The sink-owned pipeline runs `before_send` too, so it must know
-        // which connection the callback is running for.
+        // which connection the callback is running for. Installing the value
+        // setup observed — rather than rebuilding an equal one — means state
+        // setup leaves in the context carries into every later callback.
         inbound.pipeline.set_context(connection_context);
         Ok(Self {
             sink,
@@ -224,7 +225,6 @@ where
             serializer,
             routes,
             message_assembler,
-            protocol,
             budgets,
             read_timeout_ms,
             shutdown: read_shutdown,
@@ -314,7 +314,6 @@ where
                 message_assembly: &mut self.inbound.message_assembly,
                 pipeline: &mut self.inbound.pipeline,
                 actor: &mut self.response_actor.actor,
-                protocol: self.protocol.as_ref(),
             },
         );
         handle_watching_peer(

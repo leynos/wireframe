@@ -52,7 +52,7 @@ where
         let result = self.active_output.close_multi_packet();
         self.log_multi_packet_closure(reason, result.correlation_id);
         state.mark_closed();
-        if let Some(frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+        if let Some(frame) = self.protocol.stream_end_frame() {
             self.emit_multi_packet_frame(frame, out);
             self.after_low();
         }

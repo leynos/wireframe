@@ -43,11 +43,17 @@ mod actor;
 // The connection-local runtime drives the same frame loop from outside this
 // module, so the processing entry point is crate-visible.
 pub(crate) mod core;
+
 mod dispatch;
+
 mod frames;
+
 mod framing;
+
 mod peer_watch;
+
 mod push_service;
+
 mod push_write;
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
@@ -104,7 +110,12 @@ where
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks built for this connection from the installed protocol.
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
-    /// Protocol whose response hooks drive the connection actor.
+    /// Installed protocol, used only to dispatch `on_connection_setup`.
+    ///
+    /// Setup runs at the connection boundary because that is where the push
+    /// handle and registry entry come into existence. Every other callback runs
+    /// through the pipeline's hook owner, and this reference is dropped once
+    /// setup has run, so a live connection holds one strong reference.
     pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,

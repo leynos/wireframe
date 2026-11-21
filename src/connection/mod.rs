@@ -67,7 +67,7 @@ use crate::{
     correlation::CorrelatableFrame,
     fairness::FairnessTracker,
     fragment::Fragmenter,
-    hooks::{ConnectionContext, ProtocolHooks},
+    hooks::{ConnectionContext, ConnectionProtocol, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueues},
     response::FrameStream,
     session::ConnectionId,
@@ -126,10 +126,8 @@ pub struct ConnectionActor<F, E = NoProtocolError, P = F> {
     shutdown: CancellationToken,
     /// RAII registration keeping the global active-connection gauge accurate.
     counter: Option<ActiveConnection>,
-    /// Protocol callbacks invoked around frame and stream lifecycle events.
-    hooks: ProtocolHooks<F, E>,
-    /// Per-connection context passed to protocol callbacks.
-    ctx: ConnectionContext,
+    /// Protocol hooks and the single context they share for this connection.
+    protocol: ConnectionProtocol<F, E>,
     /// Scheduler state preventing high-priority traffic from starving low traffic.
     fairness: FairnessTracker,
     /// Optional fragmenter applied immediately before outbound emission.
@@ -240,7 +238,7 @@ where
 
     /// Run the protocol setup callback with this actor's push handle.
     fn run_connection_setup(&mut self, handle: PushHandle<F>) {
-        self.hooks.on_connection_setup(handle, &mut self.ctx);
+        self.protocol.on_connection_setup(handle);
     }
 
     /// Compose a queued frame exactly like a response frame.
@@ -297,8 +295,7 @@ where
             active_output,
             shutdown,
             counter,
-            hooks,
-            ctx,
+            protocol: ConnectionProtocol::with_context(hooks, ctx),
             fairness: FairnessTracker::new(FairnessConfig::default()),
             fragmenter: None,
             composer,

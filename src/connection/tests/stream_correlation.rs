@@ -10,7 +10,7 @@ use rstest::rstest;
 use super::test_actor;
 use crate::{
     app::Envelope,
-    hooks::ProtocolHooks,
+    hooks::{CustomProtocolHooks, ProtocolHooks},
     response::{FrameStream, Response},
 };
 
@@ -21,12 +21,13 @@ const TERMINATOR_ROUTE: u32 = 9;
 
 /// Hooks supplying one protocol terminator.
 fn terminating_hooks() -> ProtocolHooks<Envelope, ()> {
-    ProtocolHooks {
+    CustomProtocolHooks {
         stream_end: Some(Box::new(|_ctx| {
             Some(Envelope::new(TERMINATOR_ROUTE, None, vec![]))
         })),
-        ..ProtocolHooks::default()
+        ..CustomProtocolHooks::default()
     }
+    .into()
 }
 
 /// Drive a one-frame stream and return the frames that reached the sink.

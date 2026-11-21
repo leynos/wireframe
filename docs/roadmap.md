@@ -960,6 +960,10 @@ parallel runtime.
   consumption is no longer part of this item because
   [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md) removed
   `app_data` from the prepared application.
+- [x] 20.1.4. Consolidate protocol ownership and hook dispatch per connection,
+  so one installed protocol is one strong owner and every packet-oriented
+  outbound path runs `before_send` exactly once. See issue
+  [#644](https://github.com/leynos/wireframe/issues/644).
 
 ## 21. Protocol-neutral adapters for the first consumers
 
