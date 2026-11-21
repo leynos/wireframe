@@ -202,15 +202,14 @@ fn a_completed_final_chunk_is_delivered_whole_or_abandoned(
     assert_exchange(settled, &counts, &expected);
 }
 
-/// A final chunk whose channel never drains is counted as abandoned.
+/// Drive a final chunk that cannot be handed over and assert its abandonment.
 ///
-/// The handler never reads, so the chunk cannot take a channel slot and the
-/// bounded wait expires. The body it was owed is lost, which is an
-/// abandonment rather than a delivery.
-#[rstest]
-#[test]
-fn a_final_chunk_that_cannot_be_delivered_is_counted_as_abandoned() {
-    let (sender, body) = accounted_body_channel(1, QueuedBytes::new());
+/// The channel is pre-filled by [`queue_one_chunk`], so the final chunk can
+/// neither take a slot nor fit the account. The bounded wait is then the only
+/// exit, and a body whose last chunk never arrived must be counted as
+/// abandoned rather than delivered.
+fn assert_final_chunk_abandoned(capacity: usize, budget: ChunkBudget, why: &'static str) {
+    let (sender, body) = accounted_body_channel(capacity, QueuedBytes::new());
     let mut handler: HandlerFuture = Box::pin(future::pending());
 
     let (settled, counts) = recorded(|| {
@@ -223,7 +222,7 @@ fn a_final_chunk_that_cannot_be_delivered_is_counted_as_abandoned() {
                     chunk: Bytes::from_static(b"last"),
                     is_last: true,
                 },
-                budget: unbounded_budget(),
+                budget,
             };
             deliver_final_chunk_then_await(wait(), delivery, &mut handler).await
         })
@@ -236,8 +235,23 @@ fn a_final_chunk_that_cannot_be_delivered_is_counted_as_abandoned() {
         &Expectation {
             reply: HandlerWait::Deadline,
             recorded: StreamingBodyOutcome::Abandoned,
-            why: "an unresponsive handler must be bounded by the wait",
+            why,
         },
+    );
+}
+
+/// A final chunk whose channel never drains is counted as abandoned.
+///
+/// The handler never reads, so the chunk cannot take the channel's only slot
+/// and the bounded wait expires. The body it was owed is lost, which is an
+/// abandonment rather than a delivery.
+#[rstest]
+#[test]
+fn a_final_chunk_that_cannot_be_delivered_is_counted_as_abandoned() {
+    assert_final_chunk_abandoned(
+        1,
+        unbounded_budget(),
+        "an unresponsive handler must be bounded by the wait",
     );
 }
 
@@ -251,38 +265,13 @@ fn a_final_chunk_that_cannot_be_delivered_is_counted_as_abandoned() {
 #[rstest]
 #[test]
 fn a_final_chunk_that_does_not_fit_the_budget_is_abandoned() {
-    let (sender, body) = accounted_body_channel(2, QueuedBytes::new());
-    let mut handler: HandlerFuture = Box::pin(future::pending());
-    let room_for_one_chunk = ChunkBudget {
-        other_retained: 0,
-        limit: 4,
-    };
-
-    let (settled, counts) = recorded(|| {
-        paused_block_on(async {
-            queue_one_chunk(&sender).await;
-            let delivery = FinalDelivery {
-                identity: identity(),
-                pending: PendingSend {
-                    sender,
-                    chunk: Bytes::from_static(b"last"),
-                    is_last: true,
-                },
-                budget: room_for_one_chunk,
-            };
-            deliver_final_chunk_then_await(wait(), delivery, &mut handler).await
-        })
-    });
-    drop(body);
-
-    assert_exchange(
-        settled,
-        &counts,
-        &Expectation {
-            reply: HandlerWait::Deadline,
-            recorded: StreamingBodyOutcome::Abandoned,
-            why: "a final chunk over the budget was forced into the account",
+    assert_final_chunk_abandoned(
+        2,
+        ChunkBudget {
+            other_retained: 0,
+            limit: 4,
         },
+        "a final chunk over the budget was forced into the account",
     );
 }
 
