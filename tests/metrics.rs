@@ -15,11 +15,16 @@ fn debugging_recorder_setup() -> (Snapshotter, DebuggingRecorder) {
     (snapshotter, recorder)
 }
 
-#[test]
-fn outbound_frame_metric_increments() {
+#[rstest]
+#[case::outbound(wireframe::metrics::Direction::Outbound, "outbound")]
+#[case::inbound(wireframe::metrics::Direction::Inbound, "inbound")]
+fn frame_metric_increments_for_direction(
+    #[case] direction: wireframe::metrics::Direction,
+    #[case] label: &str,
+) {
     let (snapshotter, recorder) = debugging_recorder_setup();
     metrics::with_local_recorder(&recorder, || {
-        wireframe::metrics::inc_frames(wireframe::metrics::Direction::Outbound);
+        wireframe::metrics::inc_frames(direction);
     });
 
     let metrics = snapshotter.snapshot().into_vec();
@@ -27,28 +32,10 @@ fn outbound_frame_metric_increments() {
         k.key().name() == wireframe::metrics::FRAMES_PROCESSED
             && k.key()
                 .labels()
-                .any(|l| l.key() == "direction" && l.value() == "outbound")
+                .any(|l| l.key() == "direction" && l.value() == label)
             && matches!(v, DebugValue::Counter(c) if *c > 0)
     });
-    assert!(found, "outbound frames metric not recorded");
-}
-
-#[test]
-fn inbound_frame_metric_increments() {
-    let (snapshotter, recorder) = debugging_recorder_setup();
-    metrics::with_local_recorder(&recorder, || {
-        wireframe::metrics::inc_frames(wireframe::metrics::Direction::Inbound);
-    });
-    let metrics = snapshotter.snapshot().into_vec();
-    let found = metrics.iter().any(|(k, _, _, v)| {
-        k.key().name() == wireframe::metrics::FRAMES_PROCESSED
-            && k.key()
-                .labels()
-                .any(|l| l.key() == "direction" && l.value() == "inbound")
-            && matches!(v, DebugValue::Counter(c) if *c > 0)
-    });
-
-    assert!(found, "inbound frames metric not recorded");
+    assert!(found, "{label} frames metric not recorded");
 }
 
 #[test]
