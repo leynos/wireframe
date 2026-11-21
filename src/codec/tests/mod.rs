@@ -14,6 +14,8 @@ use super::{
 };
 use crate::byte_order::write_network_u32;
 
+mod oversized;
+
 #[test]
 fn length_delimited_codec_clamps_max_frame_length() {
     let codec = LengthDelimitedFrameCodec::new(MAX_FRAME_LENGTH.saturating_add(1));
@@ -67,46 +69,6 @@ fn length_delimited_codec_rejects_oversized_payloads() {
         err.kind(),
         io::ErrorKind::InvalidData,
         "err.kind() should equal io::ErrorKind::InvalidData"
-    );
-}
-
-#[test]
-fn decoding_an_oversized_length_prefix_reports_a_framing_error() {
-    let limit = 128;
-    let codec = LengthDelimitedFrameCodec::new(limit);
-    let mut decoder = codec.decoder();
-    // Only the length prefix is needed: tokio-util rejects the frame before
-    // any payload has to arrive.
-    let declared = limit.saturating_add(1);
-    let prefix = u32::try_from(declared).expect("frame length should fit in u32");
-    let mut buf = BytesMut::new();
-    buf.extend_from_slice(&write_network_u32(prefix));
-
-    let err = decoder
-        .decode(&mut buf)
-        .expect_err("expected decode to fail for an oversized length prefix");
-
-    assert_eq!(
-        err.kind(),
-        io::ErrorKind::InvalidData,
-        "an oversized frame should remain an invalid-data error"
-    );
-    assert_eq!(
-        buf.len(),
-        4,
-        "the rejected frame must stay buffered so recovery sees zero consumption"
-    );
-    let classified = err
-        .get_ref()
-        .and_then(|inner| inner.downcast_ref::<CodecError>())
-        .expect("the decoder should report a structured codec error");
-    assert!(
-        matches!(
-            classified,
-            CodecError::Framing(FramingError::OversizedFrame { size, max })
-                if *size == declared && *max == limit
-        ),
-        "expected an oversized framing error for {declared} bytes, got {classified:?}"
     );
 }
 

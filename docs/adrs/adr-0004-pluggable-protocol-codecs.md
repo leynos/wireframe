@@ -274,7 +274,7 @@ design:
 - **Observability**: The `wireframe_codec_errors_total` metric tracks codec
   errors by type and recovery policy when the `metrics` feature is enabled.
 
-See `src/codec/error.rs` and `src/codec/recovery/` for implementation details.
+See `src/codec/error.rs` and `src/codec/recovery.rs` for implementation details.
 
 ### Zero-copy payload extraction (resolved 2026-01-19)
 
