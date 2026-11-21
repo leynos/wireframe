@@ -365,10 +365,11 @@ fn multi_packet_correlation_stamping_matches_the_active_output(
     let mut frame = Envelope::new(1, Some(99), vec![42]);
     actor.apply_multi_packet_correlation(&mut frame);
 
-    assert_eq!(
-        frame.correlation_id(),
-        expected,
-        "the frame must keep or receive the expected correlation id"
-    );
+    let actual = frame.correlation_id();
+    if actual != expected {
+        return Err(
+            format!("frame correlation mismatch: expected {expected:?}, got {actual:?}").into(),
+        );
+    }
     Ok(())
 }
