@@ -26,6 +26,15 @@ pub mod frame_codec;
 // through feature unification, so the Loom lane selects it without asking.
 #[cfg(all(feature = "pool", not(loom)))]
 pub mod pool_builders;
+// A `JoinHandle` is a real runtime task, and the spawned server helpers this
+// guard wraps are compiled out under `cfg(loom)` for the same reason the
+// client and server runtime are.
+#[cfg(not(loom))]
+pub mod server_task;
+// `pool_client` drives a real TCP client, and both `crate::client` and
+// `tokio::net` are compiled out under `cfg(loom)`. The feature alone is not
+// enough: the crate's self dev-dependency enables `pool` in every test build
+// through feature unification, so the Loom lane selects it without asking.
 #[cfg(all(feature = "pool", not(loom)))]
 pub mod pool_client;
 
@@ -62,6 +71,8 @@ pub use pool_client::{
     TestClientPool,
     acquire_and_record,
 };
+#[cfg(not(loom))]
+pub use server_task::ServerTaskGuard;
 pub use teardown::{UnitFuture, counting_teardown};
 
 /// Test-friendly message assembler implementation that shares parsing logic.
