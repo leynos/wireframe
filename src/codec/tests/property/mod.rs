@@ -6,3 +6,4 @@ mod default_codec;
 mod mock_codec;
 mod mock_stateful_codec;
 mod shared;
+mod truncation;

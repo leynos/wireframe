@@ -211,17 +211,24 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     /// this frame if registered.
     fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> { None }
 
-    /// Handles an EOF condition when invoked.
+    /// Called when a connection's input ends part-way through a frame.
     ///
-    /// An EOF condition is an unexpected close (mid-frame or mid-header) or a
-    /// clean close at a frame boundary. The inbound connection loop does not
-    /// call this hook yet: a decoder error or end of stream simply ends the
-    /// connection, so implementations cannot rely on it for cleanup or
-    /// diagnostics. The hook runs only when a caller invokes it, either
-    /// directly on this trait method or through [`ProtocolHooks::on_eof`].
+    /// A prepared server connection calls this hook once when its decoder
+    /// reports that the peer closed mid-header or mid-frame, passing the
+    /// structured [`EofError`] and the bytes that had arrived for the frame
+    /// that never completed. A close at a frame boundary is a clean close and
+    /// does not invoke the hook, so a call is evidence that data was lost.
+    /// Transport failures and decode errors end the connection through their
+    /// own paths and do not reach this hook either.
     ///
-    /// The `partial_data` parameter contains any bytes that were received
-    /// before EOF. For clean closes, this will be empty.
+    /// Code that drives a [`ConnectionActor`][crate::connection::ConnectionActor]
+    /// directly invokes the callback itself, either on this trait method or
+    /// through [`ProtocolHooks::on_eof`].
+    ///
+    /// The `partial_data` parameter contains every byte the framed reader
+    /// still held for the abandoned frame, including its length prefix. A
+    /// custom decoder that consumes bytes before reporting its end-of-file
+    /// condition yields only the bytes it left behind.
     ///
     /// # Examples
     ///
@@ -239,7 +246,9 @@ pub trait WireframeProtocol: Send + Sync + 'static {
     ///
     ///     fn on_eof(&self, error: &EofError, partial_data: &[u8], _ctx: &mut ConnectionContext) {
     ///         match error {
-    ///             EofError::CleanClose => tracing::info!("connection closed cleanly"),
+    ///             // A clean close at a frame boundary does not call this hook;
+    ///             // the arm exists only so the match stays exhaustive.
+    ///             EofError::CleanClose => {}
     ///             EofError::MidFrame { .. } => {
     ///                 tracing::warn!(
     ///                     partial_bytes = partial_data.len(),

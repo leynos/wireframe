@@ -54,6 +54,13 @@ pub(super) struct ConnectionResponseActor<F: FrameCodec> {
     _registry: RegistryGuard<F::Frame>,
 }
 
+impl<F: FrameCodec> ConnectionResponseActor<F> {
+    /// Identity this connection reports when it abandons a push write.
+    pub(super) const fn push_diagnostics(&self) -> crate::app::PushWriteDiagnostics {
+        crate::app::PushWriteDiagnostics::new(self.actor.connection_id(), self.actor.peer_addr())
+    }
+}
+
 /// Removes a connection's registry entry on drop.
 ///
 /// Teardown is a drop guard rather than an explicit call so every exit path

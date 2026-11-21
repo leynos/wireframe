@@ -33,6 +33,7 @@ use tokio::{
 };
 use wireframe::{
     app::{Envelope, Handler, ResponseHandler},
+    codec::EofError,
     push::PushHandle,
     response::{FrameStream, Response},
     serializer::BincodeSerializer,
@@ -288,24 +289,23 @@ async fn prepared_pushes_run_before_send_once_in_write_order() -> TestResult<()>
     stop(&shutdown).await
 }
 
-/// A prepared connection dispatches `on_connection_setup` exactly once and
-/// never `on_eof`, including when the peer closes mid-frame.
+/// A prepared connection dispatches `on_connection_setup` exactly once, then
+/// reports a mid-header truncation to `on_eof`.
 ///
 /// Setup runs at the connection boundary, because that is where the push
 /// handle and the registry entry come into existence; the reference used for
 /// that call is not retained, so the connection still holds exactly one strong
-/// protocol reference. The end-of-file callback is outside the prepared
-/// contract: a mid-frame close is reported to the caller as an I/O error.
-/// ADR 012's 2026-11-20 addendum records that split.
+/// protocol reference. A peer that closes mid-header abandons a frame, so the
+/// protocol is told, with the byte that arrived, before the caller sees the
+/// I/O error.
 #[rstest]
 #[tokio::test]
-async fn prepared_connection_dispatches_setup_once_and_no_eof_hook() -> TestResult<()> {
+async fn prepared_connection_runs_setup_then_reports_truncation() -> TestResult<()> {
     let fixture = RecordingProtocolFixture::<Bytes>::new(None);
     let app = ResponseApp::new()?.with_protocol(fixture.protocol());
 
-    // One byte is a truncated length header, so the peer's close is a mid-frame
-    // end-of-file while the protocol is installed. The runtime reports it to the
-    // caller as an I/O error; the protocol must not be told about it.
+    // One byte is a truncated length header, so the peer's close is a
+    // mid-header end-of-file while the protocol is installed.
     let outcome = prepare_and_drive_with_frames(app, vec![vec![0x00]]).await;
     assert!(
         outcome.is_err(),
@@ -313,10 +313,19 @@ async fn prepared_connection_dispatches_setup_once_and_no_eof_hook() -> TestResu
     );
 
     let events = fixture.events();
+    let expected = vec![
+        HookEvent::Setup,
+        HookEvent::Eof {
+            error: EofError::MidHeader {
+                bytes_received: 1,
+                header_size: 4,
+            },
+            partial: vec![0x00],
+        },
+    ];
     assert_eq!(
-        events,
-        vec![HookEvent::Setup],
-        "a prepared connection dispatches setup once and never EOF: {events:?}"
+        events, expected,
+        "a prepared connection dispatches setup once and reports the truncation: {events:?}"
     );
     Ok(())
 }
