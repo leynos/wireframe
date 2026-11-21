@@ -16,7 +16,7 @@ use wireframe::{push::PushHandle, session::SessionRegistry};
 use wireframe_testing::TestResult;
 
 use super::{
-    recording_protocol::{HookKind, MARKER, RecordingProtocolFixture},
+    recording_protocol::{HookEvent, HookKind, MARKER, RecordingProtocolFixture},
     recording_protocol_contexts::contexts,
     server_harness::EVENT_TIMEOUT,
 };
@@ -49,6 +49,51 @@ pub fn only_registered_handle(registry: &SessionRegistry<Bytes>) -> TestResult<P
     registry
         .get(id)
         .ok_or_else(|| "the live connection should publish its push handle".into())
+}
+
+/// Assert the hook log records setup, both frames, the terminator and the
+/// completion hook, and that the two frames are the handler's own.
+///
+/// The expected frames are passed as bytes the caller serialized independently
+/// of the hook log, so a dispatch that duplicates one frame in place of the
+/// other fails the comparison.
+pub fn assert_two_frame_event_log(
+    fixture: &RecordingProtocolFixture<Bytes>,
+    expected: [&[u8]; 2],
+    terminator: &[u8],
+    context: &str,
+) {
+    let events = fixture.events();
+    let [
+        HookEvent::Setup,
+        HookEvent::BeforeSend(first),
+        HookEvent::BeforeSend(second),
+        HookEvent::StreamEnd,
+        HookEvent::BeforeSend(observed_terminator),
+        HookEvent::CommandEnd,
+    ] = events.as_slice()
+    else {
+        panic!(
+            "expected setup, two hooked frames, a hooked terminator, then completion for \
+             {context}, got {events:?}"
+        );
+    };
+    let [expected_first, expected_second] = expected;
+    assert_eq!(
+        first.as_ref(),
+        expected_first,
+        "{context}: the hook observes the handler's first frame"
+    );
+    assert_eq!(
+        second.as_ref(),
+        expected_second,
+        "{context}: the hook observes the handler's second frame"
+    );
+    assert_eq!(
+        &observed_terminator[..],
+        terminator,
+        "the terminator reaches the hook as the protocol supplied it"
+    );
 }
 
 /// Assert every callback on this connection observed the same context state.
