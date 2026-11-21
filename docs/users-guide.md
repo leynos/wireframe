@@ -378,7 +378,7 @@ let frames = decode_frames_with_codec(&codec, &wire).unwrap();
 let wire = oversized_hotline_wire(4096);
 assert!(decode_frames_with_codec(&codec, &wire).is_err());
 
-// Truncated header — rejected with "bytes remaining on stream".
+// Truncated header — rejected as a premature end of file.
 let wire = truncated_hotline_header();
 assert!(decode_frames_with_codec(&codec, &wire).is_err());
 
@@ -839,10 +839,14 @@ let ctx = CodecErrorContext::new()
 The `WireframeProtocol` trait includes an `on_eof` hook that the server runs
 once when a peer disconnects part-way through a frame: `EofError::MidHeader`
 when the length prefix is incomplete, and `EofError::MidFrame` when the
-declared payload is incomplete. The hook receives the bytes that arrived for
-the incomplete frame, length prefix included, so an implementation can log or
-account for exactly what was lost. A clean close at a frame boundary is not a
-truncation, so it does not run the hook.
+declared payload is incomplete. It runs wherever the connection observes the
+truncation, including while a handler's response or a queued push write is
+pending, and it receives the bytes that arrived for the incomplete frame so an
+implementation can log or account for exactly what was lost. The built-in
+codecs leave the length prefix in place, so it is included; a custom decoder
+that consumes bytes before reporting its condition yields only the bytes it
+left behind. A clean close at a frame boundary is not a truncation, so it does
+not run the hook.
 
 The hook reports only truncation the connection actually observes. When a
 response ends the connection while a later request is still buffered, the peer
@@ -854,11 +858,11 @@ condition and the hook does not run for bytes the connection never read.
 The hook runs only when the connection's codec reports truncation as a
 structured end-of-file condition. A custom decoder opts in by returning
 `CodecError::Eof` from `decode_eof`, carrying `EofError::MidHeader` or
-`EofError::MidFrame`; the bundled `LengthDelimitedDecoder` already does, and the
-`FrameCodec` documentation in `src/codec/mod.rs` states the contract in full.
-A decoder that returns another error, or a plain I/O error, receives no
-`on_eof` call, and neither does one that reports a clean end of stream with
-nothing buffered.
+`EofError::MidFrame`; the bundled `LengthDelimitedDecoder` and the example
+adapters in `codec::examples` already do, and the `FrameCodec` documentation in
+`src/codec/mod.rs` states the contract in full. A decoder that returns another
+error, or a plain I/O error, receives no `on_eof` call, and neither does one
+that reports a clean end of stream with nothing buffered.
 
 The decoder below leaves the incomplete bytes in place and returns the
 structured error, which is what lets the hook report exactly what arrived:

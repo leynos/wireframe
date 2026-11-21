@@ -8,11 +8,24 @@ use std::io;
 
 use rstest::fixture;
 use wireframe::codec::{
+    CodecError,
+    EofError,
     FrameCodec,
     examples::{HotlineFrame, HotlineFrameCodec},
 };
 /// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
+
+/// Extract the structured end-of-file condition a decode error carries.
+fn eof_condition(error: &io::Error) -> Option<EofError> {
+    error
+        .get_ref()?
+        .downcast_ref::<CodecError>()
+        .and_then(|codec_error| match codec_error {
+            CodecError::Eof(eof) => Some(*eof),
+            _ => None,
+        })
+}
 
 /// BDD world holding the codec, decoded frames, and any decode error.
 #[derive(Debug, Default)]
@@ -128,14 +141,21 @@ impl CodecFixturesWorld {
         self.verify_error_message_contains("payload too large")
     }
 
-    /// Verify the decoder produced a "bytes remaining" error for truncated
-    /// frames.
+    /// Verify the decoder reported a truncated header as a structured
+    /// end-of-file condition.
     ///
     /// # Errors
-    /// Returns an error if no decode error was captured or it does not
-    /// contain the expected message.
-    pub fn verify_bytes_remaining_error(&self) -> TestResult {
-        self.verify_error_message_contains("bytes remaining")
+    /// Returns an error if no decode error was captured or it is not a
+    /// mid-header truncation.
+    pub fn verify_truncation_error(&self) -> TestResult {
+        let err = self
+            .decode_error
+            .as_ref()
+            .ok_or("expected a decode error but decoding succeeded")?;
+        match eof_condition(err) {
+            Some(EofError::MidHeader { .. }) => Ok(()),
+            other => Err(format!("expected a mid-header truncation, got: {other:?}").into()),
+        }
     }
 
     /// Verify the captured decode error contains `expected_substring`.
