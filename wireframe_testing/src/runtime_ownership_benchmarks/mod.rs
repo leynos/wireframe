@@ -71,12 +71,18 @@ pub use connection_actor_benchmark_support::{
     measure_actor_drain,
 };
 pub use connection_startup_benchmark_support::{
+    ConfiguredConnectionState,
+    ConfiguredPhase,
+    ConfiguredStartupTestApp,
+    ConfiguredStartupWorkload,
     DEFAULT_CONNECTIONS,
     DEFAULT_MIDDLEWARE_LAYERS,
     DEFAULT_ROUTES,
     StartupMeasurement,
     StartupPath,
     StartupWorkload,
+    build_configured_app,
+    measure_configured_startup,
     measure_startup,
 };
 pub use push_benchmark_support::{
@@ -120,6 +126,10 @@ impl RuntimeOwnershipWorkload for push_benchmark_support::PushWorkload {
 }
 
 impl RuntimeOwnershipWorkload for connection_startup_benchmark_support::StartupWorkload {
+    fn label(&self) -> String { (*self).label() }
+}
+
+impl RuntimeOwnershipWorkload for connection_startup_benchmark_support::ConfiguredStartupWorkload {
     fn label(&self) -> String { (*self).label() }
 }
 

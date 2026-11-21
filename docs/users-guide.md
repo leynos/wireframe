@@ -1209,8 +1209,14 @@ body stream at handler dispatch.
 Message-assembly parsing and continuity failures are treated as inbound
 deserialization failures and follow the existing failure threshold policy.
 
-`WireframeApp::message_assembler` returns the configured hook as an
-`Option<&Arc<dyn MessageAssembler>>` if direct access is required.
+`WireframeApp::message_assembler` and `PreparedApp::message_assembler` return
+the configured hook as an `Option<&dyn MessageAssembler>` if direct access is
+required. The accessor borrows the application-owned assembler rather than
+handing out a cloneable handle: the hook is immutable and is only called through
+`&self`, and the prepared application already owns it for the lifetime of
+every connection it serves. Bind the reference to the application value; a
+caller that needs an assembler to outlive the application must keep its own
+`Arc` instead of cloning one out of the app.
 
 ### Per-connection memory budgets
 

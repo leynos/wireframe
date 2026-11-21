@@ -39,18 +39,22 @@ pub struct WireframeApp<
     pub(in crate::app) middleware: Vec<Box<dyn Middleware<E>>>,
     /// Serializer retained by every connection built from this application.
     ///
-    /// The handle is shared because the connection actor's protocol hooks are
-    /// `'static` and need to decode terminator frames without copying the
-    /// serializer.
-    pub(in crate::app) serializer: Arc<S>,
+    /// The builder owns the serializer outright. Preparation moves it into
+    /// [`PreparedApp`](crate::app::PreparedApp), whose shared root keeps it
+    /// alive, so a connection borrows `&S` instead of carrying its own
+    /// reference count.
+    pub(in crate::app) serializer: Box<S>,
     /// Optional asynchronous hook that creates per-connection state.
-    pub(in crate::app) on_connect: Option<Arc<ConnectionSetup<C>>>,
+    ///
+    /// Owned directly rather than through an `Arc`: the prepared root already
+    /// keeps the callback definition alive for the connection that borrows it.
+    pub(in crate::app) on_connect: Option<Box<ConnectionSetup<C>>>,
     /// Optional asynchronous hook that releases state after processing once
     /// setup has produced it. It runs for clean completion, returned
     /// stream-processing errors, a caught handler panic, and cooperative
     /// cancellation observed at a read boundary; see
     /// [`ConnectionTeardown`](crate::app::ConnectionTeardown) for the gaps.
-    pub(in crate::app) on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
+    pub(in crate::app) on_disconnect: Option<Box<ConnectionTeardown<C>>>,
     /// Optional protocol hook used to customize frame-level processing.
     pub(in crate::app) protocol:
         Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
@@ -74,7 +78,10 @@ pub struct WireframeApp<
     /// Optional limits and timeout for transparent frame fragmentation.
     pub(in crate::app) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Optional assembler for protocol messages spread across several frames.
-    pub(in crate::app) message_assembler: Option<Arc<dyn MessageAssembler>>,
+    ///
+    /// Boxed and owned by the application; a connection borrows
+    /// `&dyn MessageAssembler` and keeps only its own assembly state.
+    pub(in crate::app) message_assembler: Option<Box<dyn MessageAssembler>>,
     /// Optional byte caps protecting message and connection memory usage.
     pub(in crate::app) memory_budgets: Option<MemoryBudgets>,
 }
@@ -93,7 +100,7 @@ where
         Self {
             handlers: HashMap::new(),
             middleware: Vec::new(),
-            serializer: Arc::new(S::default()),
+            serializer: Box::new(S::default()),
             on_connect: None,
             on_disconnect: None,
             protocol: None,
@@ -140,7 +147,7 @@ where
     /// forward compatibility.
     pub fn with_serializer(serializer: S) -> Result<Self> {
         Ok(Self {
-            serializer: Arc::new(serializer),
+            serializer: Box::new(serializer),
             ..Self::default()
         })
     }
@@ -153,7 +160,7 @@ where
 /// concise.
 pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     /// Serializer to carry into the rebuilt application type.
-    pub(super) serializer: Arc<S2>,
+    pub(super) serializer: Box<S2>,
     /// Codec to carry into the rebuilt application type.
     pub(super) codec: F2,
     /// Protocol hook whose frame type matches the replacement codec.
@@ -165,7 +172,7 @@ pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     /// Fragmentation settings retained across a type transition.
     pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Message assembler retained across a type transition.
-    pub(super) message_assembler: Option<Arc<dyn MessageAssembler>>,
+    pub(super) message_assembler: Option<Box<dyn MessageAssembler>>,
     /// Memory limits retained across a type transition.
     pub(super) memory_budgets: Option<MemoryBudgets>,
 }
@@ -218,7 +225,7 @@ where
     /// `on_connection_setup` when both hooks are needed for the same state.
     pub(super) fn rebuild_with_connection_state<C2>(
         self,
-        on_connect: Option<Arc<ConnectionSetup<C2>>>,
+        on_connect: Option<Box<ConnectionSetup<C2>>>,
     ) -> WireframeApp<S, C2, E, F>
     where
         C2: Send + 'static,

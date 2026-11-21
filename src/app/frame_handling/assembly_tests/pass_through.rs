@@ -59,7 +59,7 @@ fn assemble_if_needed_passes_through_when_state_is_none(
     );
     let result = ok(
         super::assemble_if_needed(
-            AssemblyRuntime::new(Some(&message_assembler), &mut state),
+            AssemblyRuntime::new(Some(message_assembler.as_ref()), &mut state),
             &mut deser_failures,
             envelope.clone(),
             10,

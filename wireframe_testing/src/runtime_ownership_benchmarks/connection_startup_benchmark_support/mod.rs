@@ -10,7 +10,10 @@
 //! asserted exactly by the companion test suite.
 //!
 //! Route and middleware counts are workload parameters, so a run with a
-//! different application shape needs no code change.
+//! different application shape needs no code change. `configured` adds a second
+//! workload whose application also installs a serializer, message assembler,
+//! lifecycle callbacks, and a protocol, so the ownership change #648 makes to
+//! those components has a baseline of its own.
 //!
 //! # Paths
 //!
@@ -41,12 +44,21 @@
 //! contract a comparison rests on, and it does not move when the implementation
 //! does.
 
+mod configured;
 mod measurement;
 mod workload;
 
 #[cfg(test)]
 mod tests;
 
+pub use configured::{
+    ConfiguredConnectionState,
+    ConfiguredPhase,
+    ConfiguredStartupTestApp,
+    ConfiguredStartupWorkload,
+    build_configured_app,
+    measure_configured_startup,
+};
 pub use measurement::measure_startup;
 pub use workload::{
     DEFAULT_CONNECTIONS,

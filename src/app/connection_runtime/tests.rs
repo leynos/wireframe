@@ -69,11 +69,11 @@ where
 {
     ConnectionProcessingContext {
         routes: &prepared.routes,
-        serializer: Arc::clone(&prepared.serializer),
+        serializer: prepared.serializer.as_ref(),
         codec: &prepared.codec,
-        on_connect: prepared.on_connect.as_ref(),
-        on_disconnect: prepared.on_disconnect.as_ref(),
-        message_assembler: prepared.message_assembler.as_ref(),
+        on_connect: prepared.on_connect.as_deref(),
+        on_disconnect: prepared.on_disconnect.as_deref(),
+        message_assembler: prepared.message_assembler.as_deref(),
         fragmentation: prepared.fragmentation,
         protocol_hooks: prepared.protocol_hooks(),
         protocol: prepared.protocol.clone(),
@@ -281,7 +281,7 @@ async fn finalizer_skips_teardown_without_setup_state() {
     let mut finalizer = ConnectionFinalizer::<u32>::not_set_up();
 
     finalizer
-        .finalize(Some(&teardown), FinalizationOutcome::Clean)
+        .finalize(Some(teardown.as_ref()), FinalizationOutcome::Clean)
         .await;
 
     assert_eq!(calls.load(Ordering::SeqCst), 0);
@@ -296,10 +296,10 @@ async fn finalizer_invokes_teardown_once() {
     finalizer.arm(5);
 
     finalizer
-        .finalize(Some(&teardown), FinalizationOutcome::Clean)
+        .finalize(Some(teardown.as_ref()), FinalizationOutcome::Clean)
         .await;
     finalizer
-        .finalize(Some(&teardown), FinalizationOutcome::Clean)
+        .finalize(Some(teardown.as_ref()), FinalizationOutcome::Clean)
         .await;
 
     assert_eq!(
@@ -327,7 +327,7 @@ async fn teardown_callback_construction_panic_is_not_retried() {
     finalizer.arm(3);
 
     let panic_payload =
-        AssertUnwindSafe(finalizer.finalize(Some(&teardown), FinalizationOutcome::Clean))
+        AssertUnwindSafe(finalizer.finalize(Some(teardown.as_ref()), FinalizationOutcome::Clean))
             .catch_unwind()
             .await
             .expect_err("the construction panic should propagate");
@@ -343,7 +343,7 @@ async fn teardown_callback_construction_panic_is_not_retried() {
     );
 
     finalizer
-        .finalize(Some(&teardown), FinalizationOutcome::Clean)
+        .finalize(Some(teardown.as_ref()), FinalizationOutcome::Clean)
         .await;
     assert_eq!(
         calls.load(Ordering::SeqCst),

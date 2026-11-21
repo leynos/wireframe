@@ -26,19 +26,38 @@ where
     /// new frame budget.
     #[must_use]
     pub fn with_codec<F2: FrameCodec>(mut self, codec: F2) -> WireframeApp<S, C, E, F2> {
-        let serializer = std::sync::Arc::clone(&self.serializer);
         let message_assembler = self.message_assembler.take();
         let memory_budgets = self.memory_budgets.take();
-        self.rebuild_with_params(RebuildParams {
+        // The serializer is owned directly, so it moves out of `self` rather
+        // than being cloned. Destructuring keeps the remaining fields
+        // constructible while the old codec, protocol, and fragmentation
+        // configuration are deliberately dropped.
+        let Self {
+            handlers,
+            middleware,
             serializer,
-            codec,
+            on_connect,
+            on_disconnect,
+            push_dlq,
+            read_timeout_ms,
+            ..
+        } = self;
+        WireframeApp {
+            handlers,
+            middleware,
+            serializer,
+            on_connect,
+            on_disconnect,
             protocol: None,
+            push_dlq,
             push_queues: None,
             session_registry: std::sync::Arc::new(SessionRegistry::new()),
+            codec,
+            read_timeout_ms,
             fragmentation: None,
             message_assembler,
             memory_budgets,
-        })
+        }
     }
 
     /// Replace the serializer used for messages.
@@ -56,7 +75,7 @@ where
         let message_assembler = self.message_assembler.take();
         let memory_budgets = self.memory_budgets.take();
         self.rebuild_with_params(RebuildParams {
-            serializer: std::sync::Arc::new(serializer),
+            serializer: Box::new(serializer),
             codec,
             protocol,
             push_queues,
