@@ -25,7 +25,13 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use futures::stream;
-use prepared_support::{assert_context_continuity, marked, only_registered_handle, wait_for_setup};
+use prepared_support::{
+    assert_context_continuity,
+    assert_two_frame_event_log,
+    marked,
+    only_registered_handle,
+    wait_for_setup,
+};
 use protocol_request::request_frame;
 use recording_protocol::{HookEvent, MARKER, RecordingProtocolFixture};
 use rstest::rstest;
@@ -85,6 +91,48 @@ fn single_frame_handler() -> ResponseHandler<Envelope> {
     })
 }
 
+/// The two serialized response frames a two-frame handler emits.
+///
+/// The frames are built from the handler payloads and the request correlation
+/// the actor stamps onto every response, not from what the hook observed, so a
+/// dispatch that duplicates one frame in place of the other still fails the
+/// comparison.
+struct ExpectedFrames {
+    /// First serialized response envelope.
+    first: Vec<u8>,
+    /// Second serialized response envelope.
+    second: Vec<u8>,
+}
+
+impl ExpectedFrames {
+    /// Serialize the two payloads the two-frame handlers emit.
+    fn new() -> TestResult<Self> {
+        // The request carries correlation 7; the handlers supply the payloads.
+        const REQUEST_CORRELATION: Option<u64> = Some(7);
+        const RESPONSE_ID: u32 = 2;
+        Ok(Self {
+            first: BincodeSerializer.serialize(&Envelope::new(
+                RESPONSE_ID,
+                REQUEST_CORRELATION,
+                vec![1_u8],
+            ))?,
+            second: BincodeSerializer.serialize(&Envelope::new(
+                RESPONSE_ID,
+                REQUEST_CORRELATION,
+                vec![2_u8],
+            ))?,
+        })
+    }
+
+    /// The hooked frames and terminator the peer must decode, in order.
+    fn hooked_wire_frames(&self, terminator: &[u8]) -> Vec<Vec<u8>> {
+        [self.first.as_slice(), self.second.as_slice(), terminator]
+            .into_iter()
+            .map(marked)
+            .collect()
+    }
+}
+
 /// Assert the prepared contract for a handler that emits exactly two frames.
 ///
 /// A streamed body and a multi-packet channel reach the transport through the
@@ -98,10 +146,6 @@ async fn assert_two_frame_source_is_hooked_once(
     context: &str,
 ) -> TestResult<()> {
     const TERMINATOR_BYTES: &[u8] = b"END";
-    // The request carries correlation 7, which the actor stamps onto every
-    // response frame; the handlers below supply the two payloads.
-    const REQUEST_CORRELATION: Option<u64> = Some(7);
-    const RESPONSE_ID: u32 = 2;
     let fixture =
         RecordingProtocolFixture::<Bytes>::new(Some(Bytes::from_static(TERMINATOR_BYTES)));
     let app = ResponseApp::new()?
@@ -109,59 +153,16 @@ async fn assert_two_frame_source_is_hooked_once(
         .with_protocol(fixture.protocol());
 
     let bytes = prepare_and_drive_with_frames(app, vec![request_frame(route_id)?]).await?;
-    let expected_first = BincodeSerializer.serialize(&Envelope::new(
-        RESPONSE_ID,
-        REQUEST_CORRELATION,
-        vec![1_u8],
-    ))?;
-    let expected_second = BincodeSerializer.serialize(&Envelope::new(
-        RESPONSE_ID,
-        REQUEST_CORRELATION,
-        vec![2_u8],
-    ))?;
-
-    let events = fixture.events();
-    let [
-        HookEvent::Setup,
-        HookEvent::BeforeSend(first),
-        HookEvent::BeforeSend(second),
-        HookEvent::StreamEnd,
-        HookEvent::BeforeSend(terminator),
-        HookEvent::CommandEnd,
-    ] = events.as_slice()
-    else {
-        return Err(format!(
-            "expected setup, two hooked frames, a hooked terminator, then completion for \
-             {context}, got {events:?}"
-        )
-        .into());
-    };
-    assert_eq!(
-        first.as_ref(),
-        expected_first,
-        "{context}: the hook observes the handler's first frame"
-    );
-    assert_eq!(
-        second.as_ref(),
-        expected_second,
-        "{context}: the hook observes the handler's second frame"
-    );
-    assert_eq!(
-        &terminator[..],
+    let expected = ExpectedFrames::new()?;
+    assert_two_frame_event_log(
+        &fixture,
+        [&expected.first, &expected.second],
         TERMINATOR_BYTES,
-        "the terminator reaches the hook as the protocol supplied it"
+        context,
     );
-    let expected: Vec<Vec<u8>> = [
-        expected_first.as_slice(),
-        expected_second.as_slice(),
-        TERMINATOR_BYTES,
-    ]
-    .into_iter()
-    .map(marked)
-    .collect();
     assert_eq!(
         decode_frames(&bytes)?,
-        expected,
+        expected.hooked_wire_frames(TERMINATOR_BYTES),
         "{context}: each frame and the terminator are hooked exactly once"
     );
     Ok(())
