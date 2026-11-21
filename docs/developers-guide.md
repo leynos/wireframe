@@ -1191,7 +1191,8 @@ caught. Reproduce both lanes with:
 <!-- tested-example: developers-guide-015 -->
 ```sh
 cargo mutants --in-place --file src/push/queues/dlq.rs
-RUSTFLAGS="--cfg loom" cargo mutants --in-place --file src/push/queues/handle.rs \
+RUSTFLAGS="--cfg loom" cargo mutants --in-place --file 'src/push/queues/*.rs' \
+  --re 'dlq_drop_count|dlq_reported_count|reported_count|pending_count|PushHandle<F>::probe' \
   --test-package wireframe-loom
 ```
 
