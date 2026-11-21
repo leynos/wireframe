@@ -25,8 +25,9 @@ const DEFAULT_LOG_INTERVAL: Duration = Duration::from_secs(10);
 /// Long enough that interval-based logging cannot fire during a test.
 const LONG_INTERVAL: Duration = Duration::from_secs(3600);
 
-/// Comfortably longer than the one-millisecond interval the reset test sets.
-const PAST_SHORT_INTERVAL: Duration = Duration::from_millis(20);
+/// Comfortably longer than the fifty-millisecond interval the cadence test
+/// sets, so the check cannot depend on how quickly the test reaches it.
+const PAST_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Marker carried by the dropped frame; it must never reach a log record.
 const DROPPED_SECRET: &str = "dlq-dropped-secret-7f3c1a";
@@ -340,6 +341,14 @@ fn dlq_drop_logging_can_be_silenced(mut logger: LoggerHandle) -> TestResult {
 /// Interval-based logging reports each interval's losses and then resets, so
 /// the next interval reports only its own.
 ///
+/// Two properties share one run. The first loss reports, a loss immediately
+/// after it is suppressed rather than logged a second time, and the next loss
+/// after the interval reports again — proving the interval is measured from
+/// the last report, not from some earlier instant. The second report
+/// aggregates the suppressed loss with its own trigger, so a counter the first
+/// report failed to clear would show up as three. Interval 50 ms against
+/// 100 ms of sleep leaves a 2:1 margin on both sides of each boundary.
+///
 /// The `>` versus `>=` boundary between `elapsed()` and the configured
 /// interval has no test. Separating them needs an elapsed time equal to the
 /// interval to nanosecond precision, which no real clock yields on demand, so
@@ -352,17 +361,27 @@ fn dlq_drop_logging_reports_each_interval(mut logger: LoggerHandle) -> TestResul
         .enable_all()
         .build()?;
     rt.block_on(async move {
-        let interval = Duration::from_millis(1);
+        let interval = Duration::from_millis(50);
         let refusing = refusing_dlq(DlqFailure::Full, PushPriority::High, 0, interval).await?;
         logger.clear();
 
-        tokio::time::sleep(PAST_SHORT_INTERVAL).await;
+        // First loss: the timestamp starts at construction, so one interval of
+        // sleep is well past it and the report fires.
+        tokio::time::sleep(PAST_INTERVAL).await;
         lose_frame(&refusing.handle, PushPriority::High)?;
         require_drop_counts(&mut logger, &[1])?;
 
-        tokio::time::sleep(PAST_SHORT_INTERVAL).await;
+        // Second loss, immediately after the first report: only a fresh
+        // timestamp suppresses it, since the counter would otherwise be due.
         lose_frame(&refusing.handle, PushPriority::High)?;
-        require_drop_counts(&mut logger, &[1])?;
+        require_drop_counts(&mut logger, &[])?;
+
+        // Third loss after another full interval: the report stands for both
+        // the suppressed loss and this trigger, so the count of two also shows
+        // the first report cleared the counter instead of leaving one behind.
+        tokio::time::sleep(PAST_INTERVAL).await;
+        lose_frame(&refusing.handle, PushPriority::High)?;
+        require_drop_counts(&mut logger, &[2])?;
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     })?;
     Ok(())
