@@ -796,6 +796,24 @@ for the roadmap edit.
   citations; the feature-gate script reports `feature-gate: ok` across six
   runs, including the inert and accumulating recorder pair; roadmap `10.2.2`,
   the ADR-0010 addendum, the developers' guide, and the changelog are updated.
+- [x] (2026-11-20) EP-M5 (first review round). Six findings closed: wrapped
+  register entries parse, the growth bound is two-sided, the middleware helper
+  takes a pre-built buffer, the client send path has a counter guard, the BDD
+  feature is relabelled harness-level, and a proptest covers payload lengths.
+- [x] (2026-11-20) EP-M6 (assessment round). V-3's allocation oracle, V-5's
+  exact- and spare-capacity hand-off pair, V-4's hook count relation, and the
+  payload-size sweeps are implemented; the register gains its fifth entry; the
+  developers' and users' guides carry the corrections. The invariants binary
+  reports 20 passing checks. The code-size and public-interface tolerances are
+  exceeded and await a recorded owner decision.
+- [x] (2026-11-21) EP-M7 (second review round). Five findings: four were
+  answered by the EP-M6 work already staged (the registered decode property,
+  the V-5 hand-off allocation pair, the V-3 outbound oracle, and the V-4 hook
+  count relation), and the fifth was actioned by splitting the 574-line
+  `copied_bytes.rs` into a 387-line root and a 199-line `inversion_register`
+  module, reached through `#[path]` because a test-file crate root resolves
+  `mod` beside itself. The split target reports 21 passing tests. Gate evidence
+  for this round is recorded under Artefacts below.
 
 ## Surprises and discoveries
 
@@ -1008,6 +1026,24 @@ Evidence gathered so far, milestone by milestone.
   plan, baselines, migration, users', and developers' guides were corrected.
   Gate evidence is in "Artefacts and notes".
 
+- **EP-M6 (assessment follow-up).** The completeness assessment found four
+  remaining plan gates and two documentation corrections. The invariants binary
+  now reports twenty checks. Added: V-3's independent allocation oracle (one
+  outbound message allocates at least `P` and fewer than `2P`, for both payload
+  classes); V-5's exact-capacity hand-off (zero allocator traffic) and its
+  spare-capacity control (one operation, payload pointer preserved, tens of
+  bytes); V-4's read-only hook count relation across payload classes; and a
+  geometric payload sweep for the middleware and hook byte bounds and hook
+  identity. The inversion register gains
+  `seams_charge_one_payload_per_message_at_any_size`, and the register test now
+  asserts five entries. The developers' guide documents
+  `benchmark_decode_envelope` and attributes window closure to
+  `gate::CountingWindow` rather than to `window`. The users' guide documents
+  the copied-byte counters and the pipeline-benchmarks helpers, and states that
+  the helpers exercise the benchmark harness rather than an application
+  boundary. The plan's code-size and public-interface tolerances are exceeded;
+  the escalation and its pending decision are recorded in "Artefacts and notes".
+
 What the work cost against the plan's budget is recorded in "Artefacts and
 notes" once the final gates have run.
 
@@ -1041,6 +1077,39 @@ notes" once the final gates have run.
   `make nixie` (`/tmp/nixie-wireframe-10-2-1-capture-baselines-2.out`). The
   lint log's only warning is the Whitaker toolchain's pre-existing
   `unused config key 'unstable.embed-metadata'`, which is not a finding.
+- EP-M7 gate logs on the staged EP-M7 candidate. `make check-fmt`
+  (`/tmp/check-fmt-wireframe-10-2-1-capture-baselines-epm7.out`); `make lint`
+  (`/tmp/lint-wireframe-10-2-1-capture-baselines-epm7.out`); `make typecheck`
+  (`/tmp/typecheck-wireframe-10-2-1-capture-baselines-epm7.out`);
+  `make test-bdd`, 237 passed
+  (`/tmp/test-bdd-wireframe-10-2-1-capture-baselines-epm7.out`);
+  `make test-feature-gate`
+  (`/tmp/test-feature-gate-wireframe-10-2-1-capture-baselines-epm7.out`);
+  `make markdownlint`
+  (`/tmp/markdownlint-wireframe-10-2-1-capture-baselines-epm7.out`);
+  `make nixie` (`/tmp/nixie-wireframe-10-2-1-capture-baselines-epm7.out`); and
+  `make unsafe-boundary`
+  (`/tmp/unsafe-boundary-wireframe-10-2-1-capture-baselines-epm7.out`). The
+  first `make test` attempt
+  (`/tmp/test-wireframe-10-2-1-capture-baselines-epm7.out`) was stopped by its
+  runner's two-hour cap mid-trybuild with no failure recorded: 14 harnesses,
+  1,233 tests, 0 failed. The re-run completed the aggregate gate, 2,026 tests
+  in 100 suites, 0 failures, including all 20 invariants checks and the split
+  `copied_bytes` target
+  (`/tmp/test-wireframe-10-2-1-capture-baselines-epm7b.out`).
+- Tolerance accounting at EP-M7 against base
+  `7ddba3224b58a60b127fcc13990e3858ed87ecd0`, net lines with ExecPlans
+  excluded: code and tests 2,571 across 37 files (limit 900 across 16);
+  documentation 362 (limit 300); configuration 14 (limit 40); the feature-gate
+  script adds 19 lines, outside the three named categories. The interface
+  category also escalates: besides the three permitted public changes,
+  `benchmark_counters::handoff_seam_calls` is a new `#[doc(hidden)]` accessor,
+  used by `tests/client_send_counters.rs` to prove the client send path reaches
+  `bytes_from_vec`; the EP-M7 `copied_bytes` split adds no public item. The
+  plan requires a recorded owner decision for both overages. The decision is
+  pending and is not self-approved; the merge proceeds under the owner's
+  standing goal of 2026-11-21, with the overage disclosed in the pull-request
+  comment.
 
 ## Revision note
 

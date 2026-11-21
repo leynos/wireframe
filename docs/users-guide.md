@@ -3832,6 +3832,54 @@ exported. Install `INSTRUMENTED_SYSTEM` as shown above instead; see the
 [v0.3.0 to v0.4.0 migration guide](v0-3-0-to-v0-4-0-migration-guide.md) for the
 change.
 
+## Copied-byte counters
+
+The `benchmark-counters` feature exposes the copy-site instrumentation behind
+the repository's zero-copy baselines. It is a harness facility, not an
+application feature: each recorder is an atomic increment on a hot path, so
+enable the feature only in benchmarks and tests. The
+`wireframe::benchmark_counters` API is available either way and reports zero
+while the feature is disabled, so a caller compiles with or without it.
+
+`CopiedBytes` reports the bytes copied at each seam since the last `reset`:
+
+| Field          | Records                                                |
+| -------------- | ------------------------------------------------------ |
+| `serialized`   | Bytes a serializer wrote into the vector it returns.   |
+| `handoff`      | Bytes copied when a serializer vector became `Bytes`.  |
+| `framed`       | Bytes copied into a codec write buffer while framing.  |
+| `deserialized` | Bytes copied when an inbound frame became an envelope. |
+
+`snapshot` reads the counters, `reset` clears them, and `record_serialized`,
+`record_handoff`, `record_framed`, and `record_deserialized` record bytes
+directly. Call `reset` before a measurement and `snapshot` after it: the
+counters are process-global and accumulate across every thread.
+`CopiedBytes::total` sums the seams, and `per_operation` divides each field by
+a message count for a per-message figure.
+
+The `handoff` field counts payload bytes copied when the hand-off cannot keep
+the buffer in place. With `bytes` 1.12.x, `bytes_from_vec` moves a vector whose
+length equals its capacity in place, so `handoff` stays zero and the hand-off
+allocates nothing. A vector with spare capacity keeps its payload pointer but
+allocates one small control block, which `handoff` does not charge.
+
+## Pipeline benchmark harness
+
+`wireframe_testing`'s `pipeline-benchmarks` feature adds helpers that drive the
+benchmark harness's own pipeline, so a benchmark and a test measure the same
+scenario. `middleware_payload_handoff` and `hook_payload_handoff` return a
+`StageOutcome` holding the payload's arrival and departure addresses, the
+returned bytes, and `is_payload_preserved`, which reports whether the stage
+moved the buffer or copied it. `measure_middleware_passthrough_buffer` times a
+chain over a buffer the caller built, which keeps the buffer's own allocation
+outside an allocation window.
+
+These helpers select access through `AccessMode`: `ReadOnly` inspects the
+payload, `Mutating` rewrites it, and `Copying` is a seeded fault that must
+relocate the buffer. They do not construct a `wireframe::App`, so their results
+describe the benchmark harness chain rather than an application's middleware
+stack.
+
 ## Mutation testing
 
 Wireframe's test suite is continuously assessed with mutation testing: small

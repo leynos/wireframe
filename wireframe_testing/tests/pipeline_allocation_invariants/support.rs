@@ -7,13 +7,19 @@
 
 use std::{hint::black_box, sync::Arc};
 
-use wireframe::client::{BeforeSendHook, benchmark_run_before_send_hooks};
+use wireframe::{
+    app::{Envelope, benchmark_encode_message_frame},
+    client::{BeforeSendHook, benchmark_run_before_send_hooks},
+    codec::LengthDelimitedFrameCodec,
+    serializer::BincodeSerializer,
+};
 use wireframe_testing::{
     benchmark_alloc_support::{AllocationTraffic, count_allocation_traffic},
     codec_benchmarks::{
         AccessMode,
         BenchmarkWorkload,
         CodecUnderTest,
+        LARGE_PAYLOAD_BYTES,
         PayloadClass,
         measure_middleware_passthrough_buffer,
         payload_for_class,
@@ -104,16 +110,66 @@ pub(crate) fn middleware_traffic_with_buffer(
 
 /// Opens a window around a hook batch whose buffer was built outside it.
 ///
-/// The buffer is always the large class: the byte bounds are stated against it,
-/// and the count relation is asserted for the middleware alone.
+/// The buffer is always the large class: the byte bounds are stated against it.
+/// Callers that compare payload classes use [`hook_traffic_for_class`].
 pub(crate) fn hook_traffic(hook: BeforeSendHook, iterations: u64) -> AllocationTraffic {
+    hook_traffic_for_class(hook, PayloadClass::Large, iterations)
+}
+
+/// Opens a window around a hook batch for one payload class.
+pub(crate) fn hook_traffic_for_class(
+    hook: BeforeSendHook,
+    payload_class: PayloadClass,
+    iterations: u64,
+) -> AllocationTraffic {
+    hook_traffic_with_buffer(hook, payload_for_class(payload_class).to_vec(), iterations)
+}
+
+/// Opens a window around one hook pass over an arbitrary payload buffer.
+///
+/// The buffer is built before the window opens, so a byte bound cannot charge
+/// the caller's own allocation to the hook.
+pub(crate) fn hook_traffic_with_buffer(
+    hook: BeforeSendHook,
+    mut buffer: Vec<u8>,
+    iterations: u64,
+) -> AllocationTraffic {
     let hooks = [hook];
-    let mut buffer = payload_for_class(PayloadClass::Large).to_vec();
     traffic("hook batch", move || {
         for _ in 0..iterations {
             benchmark_run_before_send_hooks(&hooks, &mut buffer);
             let _len = black_box(buffer.len());
         }
+        Ok(())
+    })
+}
+
+/// Runs one read-only hook pass over `buffer`, reporting its identity claims.
+///
+/// This is the synchronous counterpart of `hook_payload_handoff` for an
+/// arbitrary buffer size, so a sweep can assert that a read-only hook neither
+/// relocates nor rewrites the payload at sizes between the sampled classes.
+pub(crate) fn read_only_hook_pass(mut buffer: Vec<u8>) -> (usize, usize, Vec<u8>) {
+    let hooks = [read_only_hook()];
+    let arrival_address = buffer.as_ptr() as usize;
+    benchmark_run_before_send_hooks(&hooks, &mut buffer);
+    (arrival_address, buffer.as_ptr() as usize, buffer)
+}
+
+/// Opens a window around the production serialize-then-wrap operation.
+///
+/// The envelope, its payload, and the codec are all built before the window
+/// opens. `wrap_payload` for the length-delimited codec hands the `Bytes` on
+/// without copying, so the window sees exactly the serializer's own allocation
+/// and the optional `Bytes` control block — never the framing copy, which
+/// happens later in the codec's transport write.
+pub(crate) fn outbound_traffic(payload_class: PayloadClass) -> AllocationTraffic {
+    let envelope = Envelope::new(1, Some(7), payload_for_class(payload_class).to_vec());
+    let codec = LengthDelimitedFrameCodec::new(LARGE_PAYLOAD_BYTES + 4096);
+    traffic("production outbound", move || {
+        let frame = benchmark_encode_message_frame(&BincodeSerializer, &codec, &envelope)
+            .map_err(|err| format!("the production outbound path must encode: {err}"))?;
+        let _len = black_box(frame.len());
         Ok(())
     })
 }

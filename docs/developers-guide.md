@@ -2072,30 +2072,41 @@ changes; the seam also counts its own invocations, exposed as
 `handoff_seam_calls`, so a send path that reverts to `Bytes::from` fails a test
 even though the byte counter would not move. `record_deserialized` is measured
 from the decoded payload's length, so a rejected frame is not counted and the
-reading excludes the frame's metadata. The second gate is the
-`pipeline_allocation_invariants` target under the same `tests` directory. It
-installs its own counting allocator and checks payload-buffer identity plus
-per-operation allocation bounds for the middleware and hook stages. That target
-sets `harness = false` on purpose: a libtest worker thread allocates on its own
-often enough (two windows in a thousand trials at capture time) that a
-harnessed binary cannot assert an idle window of exactly zero. The binary
-therefore runs on one thread and prints one line per check. `cargo nextest`
-discovers tests by running each binary with `--list`, so the target also
-answers that protocol with a single listing line; without it the coverage job
-fails before running any test. `AccessMode::Copying` in the same helper module
-is a seeded fault for those checks — it must relocate the buffer, and it is
-never timed.
+reading excludes the frame's metadata. Harnesses outside the crate reach the
+same seams through two `#[doc(hidden)]`, `test-support`-gated entry points:
+`benchmark_decode_envelope` mirrors `parse_envelope`, returning the decoded
+envelope and the consumed length (and rejecting trailing bytes), while
+`benchmark_encode_message_frame` mirrors the outbound serialize-then-wrap path
+and returns the codec's frame. Both return only their public result, so a
+caller cannot depend on how either stage is interned.
+
+The second gate is the `pipeline_allocation_invariants` target under the same
+`tests` directory. It installs its own counting allocator and checks
+payload-buffer identity plus per-operation allocation bounds for the middleware
+and hook stages. It also runs the production outbound encode as an independent
+allocator oracle: one message must allocate at least the payload size `P` and
+fewer than `2P` bytes, which is what the recorder's `P`-byte reading claims.
+That target sets `harness = false` on purpose: a libtest worker thread
+allocates on its own often enough (two windows in a thousand trials at capture
+time) that a harnessed binary cannot assert an idle window of exactly zero. The
+binary therefore runs on one thread and prints one line per check.
+`cargo nextest` discovers tests by running each binary with `--list`, so the
+target also answers that protocol with a single listing line; without it the
+coverage job fails before running any test. `AccessMode::Copying` in the same
+helper module is a seeded fault for those checks — it must relocate the buffer,
+and it is never timed.
 
 `wireframe_testing::benchmark_alloc_support` is split by responsibility: `gate`
-owns the process-global counters and the measurement window, `traffic` owns the
-`AllocationTraffic` value a window reports, `harness` owns
-`verify_allocation_harness` and `count_allocations_or_panic`, and `window` owns
-the bookkeeping that closes a window on every exit path — including an unwind
-out of the measured closure — so a panicking measurement cannot leave counting
-enabled for the rest of the process. `count_allocations` reports the operation
-count and `count_allocation_traffic` adds the byte total; the byte total is
-allocator growth, not bytes copied, so it is not a substitute for the
-copied-byte counters above.
+owns the process-global counters and `CountingWindow`, which closes the gate
+from `Drop` on every exit path — including an unwind out of the measured
+closure — so a panicking measurement cannot leave counting enabled for the rest
+of the process; `traffic` owns the `AllocationTraffic` value a window reports;
+`harness` owns `verify_allocation_harness` and `count_allocations_or_panic`; and
+`window` owns `WindowState`, the pure bookkeeping model whose open, reset, and
+close transitions are tested without touching process globals.
+`count_allocations` reports the operation count and `count_allocation_traffic`
+adds the byte total; the byte total is allocator growth, not bytes copied, so
+it is not a substitute for the copied-byte counters above.
 
 Run `connection_startup` on demand with
 `cargo bench --bench connection_startup`. It compares the former per-connection

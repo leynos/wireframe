@@ -463,9 +463,10 @@ Some assertions in the gate state a pre-migration total on purpose. They are
 meant to fail once the roadmap item that removes the copy lands, so a failure
 there is the migration's success signal rather than a regression. Every such
 assertion is registered below with the item that flips it. The test
-`inversion_register_names_real_tests` in
-`wireframe_testing/tests/copied_bytes.rs` fails when an entry names a test that
-no longer exists, so this list and the gate cannot drift apart.
+`inversion_register_names_real_tests`, in the `inversion_register` module
+compiled from `wireframe_testing/tests/copied_bytes/inversion_register.rs`,
+fails when an entry names a test that no longer exists, so this list and the
+gate cannot drift apart.
 
 <!-- inversion-register:start -->
 
@@ -483,6 +484,10 @@ no longer exists, so this list and the gate cannot drift apart.
 - `inbound_decode_copies_the_payload_once` in
   `wireframe_testing/tests/copied_bytes.rs` — states the inbound decode copy;
   flips when item `11.1.1` shares the frame's payload with the envelope.
+- `seams_charge_one_payload_per_message_at_any_size` in
+  `wireframe_testing/tests/copied_bytes.rs` — states one payload charge per
+  message at both seams for any payload length; flips when items `11.1.1` and
+  `11.1.2` stop materializing the decoded and encoded buffers.
 
 <!-- inversion-register:end -->
 
