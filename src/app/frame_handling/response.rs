@@ -1,7 +1,19 @@
 //! Response forwarding helpers for frame handling.
+//!
+//! [`forward_response`] runs a buffered route's middleware service for one
+//! request envelope and installs the resulting [`Response`] on the connection
+//! actor, and [`forward_service_response`] does the same for a streaming
+//! handler's optional reply. [`Dispatch`] reports whether the loop may serve
+//! another inbound frame or must stop after a failed or cancelled stream.
+//!
+//! Responses travel through the actor's `FramePipeline`, which applies
+//! fragmentation, outbound metrics, serialization, codec wrapping, and the
+//! protocol `before_send` hook. The streaming dispatch modules reuse this path
+//! for every reply their handlers produce.
 
 use std::io;
 
+use bytes::Bytes;
 use futures::{Sink, StreamExt};
 use log::warn;
 use tracing::Instrument;
@@ -148,6 +160,53 @@ where
         |outcome| span.record("outcome", tracing::field::debug(outcome)),
     );
     result
+}
+
+/// Forward the reply produced by a streaming route handler.
+///
+/// A streaming handler receives [`RequestParts`](crate::request::RequestParts)
+/// rather than an [`Envelope`], so the reply is rebuilt from the original route
+/// identifier and correlation identifier. An absent reply means the handler
+/// chose not to answer and nothing is written.
+///
+/// The reply is installed on the connection actor as one [`Response::Single`],
+/// so it passes through the same pipeline, fragmentation, and outbound hooks as
+/// a buffered route's response. It completes immediately and therefore owes no
+/// stream terminator.
+///
+/// A silent handler still completes the request/response cycle, so it runs the
+/// completion hook exactly as a buffered [`Response::Empty`] does. Nothing was
+/// written for it, so no terminator and no delivery span apply.
+pub(crate) async fn forward_service_response<S, K, F>(
+    route_id: u32,
+    correlation_id: Option<u64>,
+    reply: Option<Bytes>,
+    mut ctx: super::ResponseContext<'_, S, K, F>,
+) -> io::Result<Dispatch>
+where
+    S: Serializer + Send + Sync,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
+    F: FrameCodec,
+    Envelope: EncodeWith<S>,
+{
+    let Some(payload) = reply else {
+        if let Some(protocol) = ctx.protocol {
+            let mut context = ctx.pipeline.context();
+            protocol.on_command_end(&mut context);
+        }
+        return Ok(Dispatch::Continue);
+    };
+    // The envelope reply path still carries `Vec<u8>` pending the ADR 009
+    // migration, so the handler's `Bytes` is converted once at this boundary.
+    let envelope =
+        Envelope::from_parts(PacketParts::new(route_id, correlation_id, payload.to_vec()));
+    let delivery = DeliverySpan {
+        request_id: route_id,
+        correlation_id,
+        is_streaming: false,
+    };
+    let outcome = deliver(&mut ctx, delivery, Response::Single(envelope)).await?;
+    Ok(dispatch_after(outcome))
 }
 
 /// Write `response`, then the protocol terminator and completion hook it owes.

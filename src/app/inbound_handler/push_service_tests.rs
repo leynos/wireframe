@@ -207,6 +207,7 @@ async fn a_closed_batch_renews_the_grace_for_every_frame(
     peer_eof.cancel();
     let mut inbound = empty_inbound();
     let mut reader = stream::pending::<io::Result<Bytes>>();
+    let mut evicted = Vec::new();
 
     let started = tokio::time::Instant::now();
     let may_continue = deliver_pushes(
@@ -221,6 +222,7 @@ async fn a_closed_batch_renews_the_grace_for_every_frame(
                 &mut inbound.message_assembly,
                 &mut inbound.read_deadline,
                 READ_TIMEOUT_MS,
+                &mut evicted,
             ),
             peer_eof: &peer_eof,
             shutdown: &shutdown,

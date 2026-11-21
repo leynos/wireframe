@@ -41,7 +41,6 @@ pub mod panic;
 pub mod preamble;
 pub mod prelude;
 pub mod push;
-#[cfg(not(loom))]
 pub mod request;
 pub mod response;
 pub mod rewind_stream;

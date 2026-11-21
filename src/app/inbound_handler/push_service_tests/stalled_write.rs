@@ -46,6 +46,7 @@ async fn a_stalled_push_write_purges_expired_inbound_state(
     let peer_eof = CancellationToken::new();
     let mut inbound = incomplete_inbound::<Bytes>();
     let mut reader = stream::pending::<io::Result<Bytes>>();
+    let mut evicted = Vec::new();
     let mut batch = PushBatch {
         frames: Vec::new(),
         priority: Some(PushPriority::High),
@@ -55,6 +56,7 @@ async fn a_stalled_push_write_purges_expired_inbound_state(
             &mut inbound.message_assembly,
             &mut inbound.read_deadline,
             STALLED_READ_TIMEOUT_MS,
+            &mut evicted,
         ),
         peer_eof: &peer_eof,
         shutdown: &shutdown,
@@ -115,6 +117,7 @@ async fn a_shutdown_abandoned_fast_path_write_is_counted(
     let mut inbound = empty_inbound();
     let mut reader = stream::pending::<io::Result<Bytes>>();
     let frame = Bytes::from_static(b"abandoned");
+    let mut evicted = Vec::new();
     let mut batch = PushBatch {
         frames: Vec::new(),
         // A single lane, so the diagnostics would name `high` in a warning.
@@ -127,6 +130,7 @@ async fn a_shutdown_abandoned_fast_path_write_is_counted(
             &mut inbound.message_assembly,
             &mut inbound.read_deadline,
             READ_TIMEOUT_MS,
+            &mut evicted,
         ),
         peer_eof: &peer_eof,
         shutdown: &shutdown,

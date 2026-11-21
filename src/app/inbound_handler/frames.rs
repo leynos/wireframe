@@ -7,16 +7,21 @@
 //! would wait for a peer that keeps its socket open without sending anything.
 //! That would pin the connection task, its gauge guard, and the server drain
 //! for as long as the peer stayed connected.
+//!
+//! Two reads are offered. [`InboundFrames::try_next`] is the single
+//! non-blocking probe the loop owes the reader after each push batch.
+//! [`InboundFrames::next_frame`] reports a read timeout instead of absorbing
+//! it, because the streaming loop is what purges expired fragmentation and
+//! assembly state and what fails a streaming body whose assembly it evicted.
 
 use std::{io, task::Poll, time::Duration};
 
 use futures::{Stream, StreamExt};
-use log::debug;
-use tokio::time::{Instant, timeout, timeout_at};
+use tokio::time::{Instant, timeout};
 use tokio_util::sync::CancellationToken;
 
-use super::super::{codec_driver::FramePipeline, frame_handling, memory_budgets::MemoryBudgets};
-use crate::message_assembler::MessageAssemblyState;
+use super::super::codec_driver::FramePipeline;
+use crate::message_assembler::{MessageAssemblyState, StreamingAssemblyId};
 
 /// Outcome of waiting for the next inbound frame.
 pub(super) enum NextFrame<F> {
@@ -62,15 +67,6 @@ where
     }
 }
 
-/// Drop expired fragmentation buffers and message assemblies.
-pub(super) fn purge_expired<T>(
-    pipeline: &mut FramePipeline<T>,
-    message_assembly: &mut Option<MessageAssemblyState>,
-) {
-    pipeline.purge_expired();
-    frame_handling::purge_expired_assemblies(message_assembly);
-}
-
 /// Deadline for the current silence, armed on first use.
 fn arm_deadline(deadline: &mut Option<Instant>, read_timeout_ms: u64) -> Instant {
     *deadline.get_or_insert_with(|| Instant::now() + Duration::from_millis(read_timeout_ms))
@@ -85,10 +81,11 @@ fn restart_deadline(deadline: &mut Option<Instant>, read_timeout_ms: u64) {
 ///
 /// A push write stops running the loop's expiry command while it waits, and it
 /// holds the transport's fragmentation pipeline for the whole write, so it
-/// borrows the remaining expiry state directly: the reassembled messages and
-/// the silence deadline. Sealing a partially written frame is worse than
-/// letting this state expire a few frames later, and the pipeline's expired
-/// fragment buffers are purged at each frame boundary instead.
+/// borrows the remaining expiry state directly: the reassembled messages, the
+/// silence deadline, and the list of streaming bodies the loop must still
+/// fail. Sealing a partially written frame is worse than letting this state
+/// expire a few frames later, and the pipeline's expired fragment buffers are
+/// purged at each frame boundary instead.
 pub(super) struct InboundExpiry<'a> {
     /// Reassembled messages the read deadline purges.
     assembly: &'a mut Option<MessageAssemblyState>,
@@ -96,6 +93,13 @@ pub(super) struct InboundExpiry<'a> {
     deadline: &'a mut Option<Instant>,
     /// Maximum interval to wait for the next inbound frame.
     read_timeout_ms: u64,
+    /// Streaming bodies whose assembly this write evicted.
+    ///
+    /// A write cannot answer a handler, so the ids are collected for the loop
+    /// to fail through its peer-observed path once the batch is written.
+    /// Dropping them would leave the handler waiting for chunks that can never
+    /// arrive, holding the one streaming slot for the rest of the connection.
+    evicted_streams: &'a mut Vec<StreamingAssemblyId>,
 }
 
 impl<'a> InboundExpiry<'a> {
@@ -104,11 +108,13 @@ impl<'a> InboundExpiry<'a> {
         assembly: &'a mut Option<MessageAssemblyState>,
         deadline: &'a mut Option<Instant>,
         read_timeout_ms: u64,
+        evicted_streams: &'a mut Vec<StreamingAssemblyId>,
     ) -> Self {
         Self {
             assembly,
             deadline,
             read_timeout_ms,
+            evicted_streams,
         }
     }
 
@@ -119,10 +125,13 @@ impl<'a> InboundExpiry<'a> {
     ///
     /// The deadline is shared with the read path, so a purge here is the same
     /// event that path would have performed; the next silence starts from now
-    /// rather than from whenever the write finishes.
+    /// rather than from whenever the write finishes. Evicted streaming bodies
+    /// are recorded for the loop rather than failed here, because forwarding
+    /// their replies needs the reader this write is holding.
     pub(super) fn expire_silence(&mut self) {
         if arm_deadline(self.deadline, self.read_timeout_ms) <= Instant::now() {
-            frame_handling::purge_expired_assemblies(self.assembly);
+            let purged = super::super::frame_handling::purge_expired_assemblies(self.assembly);
+            self.evicted_streams.extend_from_slice(purged.streaming());
             restart_deadline(self.deadline, self.read_timeout_ms);
         }
     }
@@ -151,38 +160,6 @@ pub(super) struct InboundFrames<T> {
 }
 
 impl<T> InboundFrames<T> {
-    /// Apply memory pressure before reading the next inbound frame.
-    ///
-    /// The read pauses for the configured interval while soft limits are
-    /// exceeded, and expired outbound and assembly state is purged on every
-    /// pass.
-    pub(super) async fn relieve_pressure(&mut self, budgets: MemoryBudgets) -> io::Result<()> {
-        let pressure = frame_handling::evaluate_memory_pressure(
-            self.message_assembly.as_ref(),
-            Some(budgets),
-            self.pipeline.fragmentation_buffered_bytes(),
-        );
-        frame_handling::apply_memory_pressure(pressure, || {
-            purge_expired(&mut self.pipeline, &mut self.message_assembly);
-        })
-        .await
-    }
-
-    /// Expire buffered state once the current silence has lasted the timeout.
-    ///
-    /// This is the read timeout as an explicit command. The read wait below
-    /// arms and observes the same deadline, but the connection loop polls
-    /// pushes and the reader in one biased select, so an always-ready push
-    /// lane wins every pass and the wait is cancelled before its timeout
-    /// fires. Running this command on each pass keeps the deadline measured
-    /// from the last observed frame rather than from the last wait, so a
-    /// client that only receives pushes still expires its buffered state.
-    pub(super) fn expire_silence(&mut self, read_timeout_ms: u64) {
-        if self.arm_deadline(read_timeout_ms) <= Instant::now() {
-            self.purge_after_timeout(read_timeout_ms);
-        }
-    }
-
     /// Poll once for a frame the buffered slot or the reader already holds.
     ///
     /// The connection loop polls pushes and the reader in one biased select, so
@@ -206,81 +183,35 @@ impl<T> InboundFrames<T> {
         Ok(next)
     }
 
-    /// Read the next frame, or `None` once reading must stop.
+    /// Read the next frame, reporting a read timeout instead of retrying.
     ///
-    /// Reading stops when the peer closes its input half, which ends the
-    /// connection, and when the server stops.
-    ///
-    /// A read timeout only retries the read, so a shutdown that were not
-    /// observed here would wait for a peer that keeps its socket open without
-    /// sending anything. That would pin the connection task, its gauge guard,
-    /// and the server drain for as long as the peer stayed connected.
-    ///
-    /// The wait is cancelled whenever a push batch has frames to deliver, so
-    /// the deadline it arms lives in the reader's state rather than in this
-    /// call: the silence is measured across batches, not restarted by them.
-    pub(super) async fn next<R>(
+    /// The streaming loop is what purges expired state and what fails a
+    /// streaming body whose assembly it evicted, so a timeout must return
+    /// control to that loop rather than being absorbed here. A frame, EOF, or
+    /// error still ends the current silence, so the next timeout is measured
+    /// from this frame rather than from the previous one.
+    pub(super) async fn next_frame<R>(
         &mut self,
         reader: &mut R,
         read_timeout_ms: u64,
         shutdown: &CancellationToken,
-    ) -> io::Result<Option<T>>
+    ) -> io::Result<NextFrame<T>>
     where
         R: Stream<Item = io::Result<T>> + Unpin,
     {
-        tokio::select! {
+        let next = tokio::select! {
             biased;
-            () = shutdown.cancelled() => Ok(None),
-            frame = self.await_frame(reader, read_timeout_ms) => frame,
+            () = shutdown.cancelled() => NextFrame::Closed,
+            frame = poll_frame(
+                &mut self.pending,
+                reader,
+                Duration::from_millis(read_timeout_ms),
+            ) => frame?,
+        };
+        if !matches!(next, NextFrame::TimedOut) {
+            self.read_deadline = None;
         }
-    }
-
-    /// Await one frame, purging expired state when the read deadline fires.
-    async fn await_frame<R>(
-        &mut self,
-        reader: &mut R,
-        read_timeout_ms: u64,
-    ) -> io::Result<Option<T>>
-    where
-        R: Stream<Item = io::Result<T>> + Unpin,
-    {
-        loop {
-            if self.pending.is_some() {
-                self.read_deadline = None;
-                return Ok(self.pending.take());
-            }
-            match timeout_at(self.arm_deadline(read_timeout_ms), reader.next()).await {
-                Ok(Some(Ok(frame))) => {
-                    self.read_deadline = None;
-                    return Ok(Some(frame));
-                }
-                Ok(Some(Err(error))) => return Err(error),
-                Ok(None) => return Ok(None),
-                Err(_) => {
-                    debug!("read timeout elapsed; continuing to wait for next frame");
-                    self.purge_after_timeout(read_timeout_ms);
-                }
-            }
-        }
-    }
-
-    /// Deadline for the current silence, armed on first use.
-    ///
-    /// This reads Tokio's ambient clock rather than an injected timer seam.
-    /// The clock *is* this loop's injection point: every test that exercises
-    /// the deadline runs on a paused Tokio runtime, which `Instant::now` and
-    /// `timeout_at` already follow, so a test advances the deadline
-    /// deterministically without a custom trait. The connection layer's
-    /// `GraceTimer` exists for the opposite case: those tests fire one
-    /// deadline by hand and never advance a clock at all.
-    fn arm_deadline(&mut self, read_timeout_ms: u64) -> Instant {
-        arm_deadline(&mut self.read_deadline, read_timeout_ms)
-    }
-
-    /// Purge expired state and start the next idle interval.
-    fn purge_after_timeout(&mut self, read_timeout_ms: u64) {
-        purge_expired(&mut self.pipeline, &mut self.message_assembly);
-        restart_deadline(&mut self.read_deadline, read_timeout_ms);
+        Ok(next)
     }
 }
 

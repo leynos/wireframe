@@ -66,8 +66,8 @@ impl<'a> PeerObservation<'a> {
 ///
 /// At most one inbound frame is buffered while `handling` runs, so the
 /// connection task never reads ahead arbitrarily. Once EOF or a read error is
-/// observed, later calls dispatch the buffered frame without polling the
-/// reader again.
+/// observed, later calls dispatch without polling the reader again, and they
+/// still mark the peer unobservable so every later response stays bounded.
 pub(super) async fn handle_watching_peer<H, R, F>(
     handling: H,
     reader: &mut R,
@@ -78,45 +78,80 @@ where
     H: Future<Output = io::Result<Dispatch>>,
     R: Stream<Item = io::Result<F>> + Unpin,
 {
-    let PeerObservation {
-        eof,
-        unobserved,
-        cause,
-    } = observation;
     tokio::pin!(handling);
-    // A buffered frame means the read half is no longer polled, and a previous
-    // EOF means it never will be again. Either way the actor already bounds
-    // idle waits for this response.
-    if pending_frame.is_some() || eof.is_cancelled() {
-        return handling.await;
+    // A buffered frame means the read half is not polled again while it waits,
+    // so this dispatch cannot observe a later disconnect. The token to signal is
+    // the one installed for *this* dispatch, which is fresh: the dispatch that
+    // read the frame cancelled its own token, not this one.
+    if pending_frame.is_some() {
+        return await_unobserved_peer(
+            handling.as_mut(),
+            observation.unobserved,
+            observation.cause,
+            UnobservedCause::BufferedRequest,
+        )
+        .await;
+    }
+    // An EOF seen earlier is permanent, but it still has to be signalled for
+    // *this* response: a drain entered after the EOF would otherwise wait on a
+    // producer nobody can interrupt. Signalling is idempotent, so a dispatch
+    // that follows the EOF-driven drain re-cancels a token that is already
+    // cancelled.
+    if observation.eof.is_cancelled() {
+        return await_unobserved_peer(
+            handling.as_mut(),
+            observation.unobserved,
+            observation.cause,
+            UnobservedCause::HalfClose,
+        )
+        .await;
     }
 
     tokio::select! {
         biased;
         result = &mut handling => result,
-        next = reader.next() => match next {
-            Some(Ok(frame)) => {
-                *pending_frame = Some(frame);
-                await_unobserved_peer(
-                    handling.as_mut(),
-                    unobserved,
-                    cause,
-                    UnobservedCause::BufferedRequest,
-                )
-                .await
-            }
-            Some(Err(error)) => Err(error),
-            None => {
-                eof.cancel();
-                await_unobserved_peer(
-                    handling.as_mut(),
-                    unobserved,
-                    cause,
-                    UnobservedCause::HalfClose,
-                )
-                .await
-            }
-        },
+        next = reader.next() => {
+            settle_read(next, pending_frame, handling.as_mut(), observation).await
+        }
+    }
+}
+
+/// Decide what the read half's outcome means for the in-flight response.
+///
+/// A buffered frame ends direct observation, because the read half is not
+/// polled again while that frame waits. A clean EOF is recorded connection-wide
+/// first, so every later response inherits it. Both then bound the response
+/// wait through the actor; a read error simply fails the connection.
+async fn settle_read<H, F>(
+    next: Option<io::Result<F>>,
+    pending_frame: &mut Option<F>,
+    handling: Pin<&mut H>,
+    observation: PeerObservation<'_>,
+) -> io::Result<Dispatch>
+where
+    H: Future<Output = io::Result<Dispatch>>,
+{
+    let PeerObservation {
+        eof,
+        unobserved,
+        cause,
+    } = observation;
+    match next {
+        Some(Ok(frame)) => {
+            *pending_frame = Some(frame);
+            await_unobserved_peer(
+                handling,
+                unobserved,
+                cause,
+                UnobservedCause::BufferedRequest,
+            )
+            .await
+        }
+        Some(Err(error)) => Err(error),
+        None => {
+            eof.cancel();
+            await_unobserved_peer(handling, unobserved, cause, UnobservedCause::HalfClose).await
+        }
     }
 }
 
@@ -157,165 +192,5 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    //! Unit tests for peer observation while a response is driven.
-
-    use std::time::Duration;
-
-    use futures::stream;
-    use tokio::time::timeout;
-
-    use super::*;
-
-    /// Require `condition`, reporting `message` as the test failure otherwise.
-    ///
-    /// These tests return `io::Result` so that a failed expectation is a
-    /// returned error rather than a panic inside a `Result`-returning function.
-    fn ensure(condition: bool, message: &str) -> io::Result<()> {
-        if condition {
-            Ok(())
-        } else {
-            Err(io::Error::other(message.to_owned()))
-        }
-    }
-
-    /// A buffered frame stops the read half being polled, so the actor must be
-    /// told to bound the response instead of waiting for a peer that cannot be
-    /// observed. The connection-wide EOF token must stay live, because the next
-    /// response can be observed again.
-    #[tokio::test(start_paused = true)]
-    async fn buffered_frame_signals_an_unobserved_peer() -> io::Result<()> {
-        let peer_eof = CancellationToken::new();
-        let unobserved = peer_eof.child_token();
-        let cause = OnceLock::new();
-        let watcher = unobserved.clone();
-        let handling = async move {
-            watcher.cancelled().await;
-            Ok(Dispatch::Continue)
-        };
-        let mut reader = stream::iter([Ok(1_u8)]);
-        let mut pending = None;
-
-        let waited = timeout(
-            Duration::from_secs(120),
-            handle_watching_peer(
-                handling,
-                &mut reader,
-                PeerObservation {
-                    eof: &peer_eof,
-                    unobserved: &unobserved,
-                    cause: &cause,
-                },
-                &mut pending,
-            ),
-        )
-        .await
-        .map_err(|_| io::Error::other("a buffered frame pinned the response wait"))?;
-        waited?;
-
-        ensure(pending == Some(1), "the pipelined frame stays buffered")?;
-        ensure(
-            cause.get() == Some(&UnobservedCause::BufferedRequest),
-            "the cancellation warning must name the buffered request",
-        )?;
-        ensure(
-            unobserved.is_cancelled(),
-            "the peer is unobservable for this response",
-        )?;
-        ensure(
-            !peer_eof.is_cancelled(),
-            "a buffered request must not end peer observation for the connection",
-        )?;
-        ensure(
-            !peer_eof.child_token().is_cancelled(),
-            "a later response must be observable again",
-        )?;
-        Ok(())
-    }
-
-    /// A clean EOF also stops observation so the response wait is bounded, and
-    /// it is permanent: later responses inherit the cancelled token.
-    #[tokio::test(start_paused = true)]
-    async fn clean_eof_signals_an_unobserved_peer() -> io::Result<()> {
-        let peer_eof = CancellationToken::new();
-        let unobserved = peer_eof.child_token();
-        let cause = OnceLock::new();
-        let watcher = unobserved.clone();
-        let handling = async move {
-            watcher.cancelled().await;
-            Ok(Dispatch::Continue)
-        };
-        let mut reader = stream::iter([]);
-        let mut pending: Option<u8> = None;
-
-        let waited = timeout(
-            Duration::from_secs(120),
-            handle_watching_peer(
-                handling,
-                &mut reader,
-                PeerObservation {
-                    eof: &peer_eof,
-                    unobserved: &unobserved,
-                    cause: &cause,
-                },
-                &mut pending,
-            ),
-        )
-        .await
-        .map_err(|_| io::Error::other("EOF pinned the response wait"))?;
-        waited?;
-
-        ensure(pending.is_none(), "EOF buffers no frame")?;
-        ensure(
-            cause.get() == Some(&UnobservedCause::HalfClose),
-            "the cancellation warning must name the half-close",
-        )?;
-        ensure(unobserved.is_cancelled(), "the response is bounded")?;
-        ensure(peer_eof.is_cancelled(), "the peer is marked closed")?;
-        ensure(
-            peer_eof.child_token().is_cancelled(),
-            "a response after EOF inherits the closed peer",
-        )?;
-        Ok(())
-    }
-
-    /// A read error fails the connection without marking the peer unobservable;
-    /// the error itself is what ends the connection.
-    #[tokio::test(start_paused = true)]
-    async fn read_error_fails_the_connection() -> io::Result<()> {
-        let peer_eof = CancellationToken::new();
-        let unobserved = peer_eof.child_token();
-        let cause = OnceLock::new();
-        let handling = std::future::pending::<io::Result<Dispatch>>();
-        let mut reader = stream::iter([Err(io::Error::other("peer read failed"))]);
-        let mut pending: Option<u8> = None;
-
-        let error = handle_watching_peer(
-            handling,
-            &mut reader,
-            PeerObservation {
-                eof: &peer_eof,
-                unobserved: &unobserved,
-                cause: &cause,
-            },
-            &mut pending,
-        )
-        .await
-        .expect_err("a read error must fail the connection");
-
-        ensure(
-            error.to_string().contains("peer read failed"),
-            "the read error must be propagated",
-        )?;
-        ensure(
-            cause.get().is_none(),
-            "a read error is not a peer-observation cause",
-        )?;
-        ensure(
-            !unobserved.is_cancelled(),
-            "no response token was cancelled",
-        )?;
-        ensure(!peer_eof.is_cancelled(), "the peer is not marked closed")?;
-        Ok(())
-    }
-}
+#[path = "peer_watch_tests.rs"]
+mod tests;

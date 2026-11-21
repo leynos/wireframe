@@ -1,0 +1,22 @@
+error: future cannot be sent between threads safely
+  --> tests/ui/streaming_route_rejects_non_send_handler.rs:14:13
+   |
+14 | /             Box::pin(async move {
+15 | |                 let shared = Rc::new(());
+16 | |                 let _body = body;
+17 | |                 future::ready(()).await;
+18 | |                 let _keep = Rc::clone(&shared);
+19 | |                 None
+20 | |             })
+   | |______________^ future created by async block is not `Send`
+   |
+   = help: within `{async block@$DIR/tests/ui/streaming_route_rejects_non_send_handler.rs:14:22: 14:32}`, the trait `Send` is not implemented for `Rc<()>`
+note: future is not `Send` as this value is used across an await
+  --> tests/ui/streaming_route_rejects_non_send_handler.rs:17:35
+   |
+15 |                 let shared = Rc::new(());
+   |                     ------ has type `Rc<()>` which is not `Send`
+16 |                 let _body = body;
+17 |                 future::ready(()).await;
+   |                                   ^^^^^ await occurs here, with `shared` maybe used later
+   = note: required for the cast from `Pin<Box<{async block@$DIR/tests/ui/streaming_route_rejects_non_send_handler.rs:14:22: 14:32}>>` to `Pin<Box<dyn Future<Output = Option<bytes::bytes::Bytes>> + Send>>`

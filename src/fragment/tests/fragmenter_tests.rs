@@ -86,7 +86,11 @@ fn fragmenter_handles_empty_payload() {
         .fragments()
         .first()
         .expect("batch should contain at least one fragment");
-    assert_eq!(fragment.payload(), [], "fragment.payload() should equal []");
+    assert_eq!(
+        fragment.payload(),
+        [0u8; 0],
+        "fragment.payload() should equal []"
+    );
     assert!(
         fragment.header().is_last_fragment(),
         "assertion failed: fragment.header().is_last_fragment()"

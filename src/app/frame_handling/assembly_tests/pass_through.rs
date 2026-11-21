@@ -1,11 +1,12 @@
 //! Pass-through tests for `assemble_if_needed`.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use rstest::rstest;
 
 use super::{
     AssemblyRuntime,
+    buffered_envelope,
     inbound_envelope,
     load_message_assembly_state,
     message_assembler,
@@ -31,7 +32,7 @@ fn assemble_if_needed_passes_through_when_assembler_is_none(
     );
     let result = ok(
         super::assemble_if_needed(
-            AssemblyRuntime::new(None, &mut state),
+            AssemblyRuntime::new(None, &mut state, &HashMap::new(), false),
             &mut deser_failures,
             envelope.clone(),
             10,
@@ -39,7 +40,7 @@ fn assemble_if_needed_passes_through_when_assembler_is_none(
         "assemble_if_needed should succeed",
     );
 
-    assert_eq!(result.as_ref(), Some(&envelope));
+    assert_eq!(buffered_envelope(result).as_ref(), Some(&envelope));
     assert_eq!(deser_failures, 0, "no failures when assembler is absent");
 }
 
@@ -59,7 +60,7 @@ fn assemble_if_needed_passes_through_when_state_is_none(
     );
     let result = ok(
         super::assemble_if_needed(
-            AssemblyRuntime::new(Some(&message_assembler), &mut state),
+            AssemblyRuntime::new(Some(&message_assembler), &mut state, &HashMap::new(), false),
             &mut deser_failures,
             envelope.clone(),
             10,
@@ -67,6 +68,6 @@ fn assemble_if_needed_passes_through_when_state_is_none(
         "assemble_if_needed should succeed",
     );
 
-    assert_eq!(result.as_ref(), Some(&envelope));
+    assert_eq!(buffered_envelope(result).as_ref(), Some(&envelope));
     assert_eq!(deser_failures, 0, "no failures when state is absent");
 }

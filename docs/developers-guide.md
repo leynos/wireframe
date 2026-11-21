@@ -899,11 +899,18 @@ an app path needs to turn an `EncodeWith<S>` message into a
   serialized message to `LengthDelimitedCodec`; do not wrap that payload with
   the app codec first, because `framed.send` supplies the length prefix.
 
-Inbound connection handling should also preserve the phase boundary:
-`build_dispatchable_envelope` owns decode, fragment reassembly, message
-assembly, and the successful deserialization-counter reset. Individual failure
-policy remains in `DeserFailureTracker`, so logging, metrics, and threshold
-decisions do not drift across inbound call sites.
+Inbound connection handling should also preserve the phase boundary.
+`decode_outcome` in `src/app/inbound_handler/core.rs` owns turning one raw
+frame into a dispatchable outcome: it decodes the envelope, reassembles
+fragments, runs message assembly, and resets the consecutive
+deserialization-failure counter only when the outcome completes a logical
+message. `src/app/frame_handling/assembly_dispatch.rs` routes that outcome once
+assembly has decided what to do with it, and
+`src/app/frame_handling/stream_assembly.rs` holds the streaming assembly
+helpers that turn a validated streaming result into a `FrameOutcome` without
+buffering body bytes. Individual failure policy remains in
+`DeserFailureTracker`, so logging, metrics, and threshold decisions do not
+drift across inbound call sites.
 
 Peer-controlled message decoding uses the shared internal
 `message::bounded_bincode_config`, which applies `MAX_FRAME_LENGTH` to
@@ -1097,6 +1104,274 @@ that boundary over values near `usize::MAX`, and
 `tests/ui/message_assembly_error_exhaustive_match.rs` pins the compile-time
 break caused by the three new variants, matching the existing `ClientError`
 fixture.
+
+### Streaming assembly state
+
+`MessageAssemblyState` keeps streaming partials in their own map, so a
+streaming message contributes nothing to `total_buffered_bytes` or the
+aggregate assembly budgets. The streaming API is:
+
+- `accept_streaming_first_frame` admits a first frame for immediate delivery.
+  A single-frame message inserts no partial; a multi-frame message inserts a
+  `StreamingAssembly` that retains ordering and byte-count state only. It
+  rejects a duplicate key, a message over the per-message cap, and a first
+  frame that contradicts its declared total.
+- `accept_streaming_continuation` returns a `StreamingContinuation::Chunk` or
+  `Discarded`, and removes the partial on a terminal `StreamingFailure`, so a
+  failed message cannot linger under its key.
+- `is_streaming_key` routes a continuation to the live body, while
+  `discard_streaming` and `discard_streaming_if` mark an abandoned body's
+  remaining frames for validation without delivery. The `_if` form compares the
+  `StreamingAssemblyId`, so a key reused by a replacement assembly is left
+  untouched.
+- `streaming_count` reports the number of tracked streaming partials.
+
+Expiry is reported by `purge_expired_detailed` and `purge_expired_detailed_at`,
+which return `PurgedAssemblies`. That value reports evicted buffered keys and
+streaming identities separately, through its `buffered` and `streaming`
+accessors, and `is_empty` reports no eviction. An evicted streaming partial
+leaves a handler waiting on a body that will never complete, so only the
+connection loop can fail it, and the identity names the assembly it evicted
+even after its key has been reused. Admission purges through
+`purge_deferring_streaming`, which queues streaming evictions for the next
+detailed purge instead of dropping them.
+
+### Inbound frame outcomes
+
+`process_stream` in `src/app/inbound_handler/core.rs` builds the per-connection
+framing state, the response actor, and the `DispatchContext`, then delegates
+the exchange to `stream_dispatch::run`. Each raw frame becomes one
+`FrameOutcome`, which `src/app/inbound_handler/stream_frame.rs` routes to the
+component that owns it:
+
+- `Pending` — more frames are required, or a recoverable rejection was
+  recorded; the loop continues without dispatching anything.
+- `Buffered` — a complete message for a buffered route, produced by
+  `assembly_dispatch::buffered_outcome` or, with no assembler or assembly
+  state, by `fallback_outcome`; it runs through the middleware chain.
+- `StreamStarted` — produced by `stream_assembly::accept_streaming_first`, or
+  by `fallback_outcome`; it opens the slot's handler and admits the first chunk.
+- `StreamChunk` — produced by `stream_assembly::accept_streaming_continuation`;
+  it is delivered to the live body.
+- `StreamFallback` — a complete message for a streaming route, produced by
+  `buffered_outcome` when assembly completes it or by `fallback_outcome` when
+  another stream is live; it is parked, or delivered as a pre-filled body when
+  the slot is free.
+- `Discarded` — produced when a continuation is validated after its consumer
+  abandoned the message; the loop continues without dispatch.
+- `StreamFailed` — produced when a streaming continuation fails terminally and
+  its assembly is removed; the handler's body is failed.
+
+### Streaming dispatch slot architecture
+
+Streaming request bodies are dispatched by one slot per connection. The loop
+lives in `src/app/inbound_handler/stream_dispatch.rs`, the slot in
+`stream_slot.rs` with its teardown paths in `stream_close.rs`, and the parking
+queue in `stream_parked.rs`. These modules are separate because the concerns
+change for different reasons: the loop owns the event `select!`, the slot owns
+one exchange's lifecycle, its teardown owns freeing that lifecycle, and the
+parking queue owns completion order.
+
+Three properties follow from keeping the slot inside the connection loop rather
+than in a spawned task:
+
+- dropping the connection drops the handler, its body, and any in-flight
+  admission, so no detached work outlives the socket;
+- at most one admission is in flight per slot, so chunks cannot reorder; and
+- the handler and the socket are polled from the same place, so a slow consumer
+  suspends inbound reading for that body instead of starving the handler.
+
+`ActiveStream` holds the message key, route and correlation identifiers, the
+byte-accounted sender, the handler future, and an optional `PendingSend`. The
+sender is optional because the body closes when the final chunk is admitted or
+an admission fails; every later push is refused. `push_chunk()` refuses when
+there is no active stream, the key differs, or an admission is already pending,
+which keeps the ordering guarantee local to one predicate.
+
+Terminal paths converge on `close_active()`: expiry, assembly failure, and end
+of stream each deliver one terminal error through the sender, drop it, remove
+the message from the assembler's streaming map, await the handler under a
+timeout, and forward whatever reply it produced. `finish_active()` is the
+non-error path and additionally cancels a pending admission, because a handler
+that resolved on its own has no obligation to drain chunks already queued for
+it.
+
+Chunk accounting is the other half of the design. `src/request/accounted.rs`
+wraps the bounded channel so each queued chunk carries its byte length, and the
+guard releases those bytes when the chunk is taken or the queue is dropped.
+`frame_handling::evaluate_memory_pressure_with_retained` sums the assembly
+state's buffered bytes, the pipeline's fragmentation buffers, and the bytes
+retained by the slot and the parking queue. It returns `Abort` above the hard
+cap and `Pause` at or above 80% of the aggregate limit, so one soft-pause and
+hard-cap policy covers delivered-but-unread bodies and parked messages as well
+as buffered assembly. `stream_actions::apply_memory_pressure` aborts the slot
+before returning the invalid-data error, and otherwise applies the pause.
+
+Parking is bounded by entry count as well as bytes. `MAX_PARKED_MESSAGES` caps
+the queue at 64 entries, because small or empty parked payloads would barely
+move the byte-based budget; `park()` returns an invalid-data error once the cap
+is reached, and the connection ends rather than absorbing messages from a peer
+that never completes the body holding the slot. `parked_bytes()` counts an
+envelope's payload and a parked streaming message's metadata plus body, so the
+queue's retained bytes enter the same pressure evaluation. The queue drains in
+arrival order when the slot frees, and the bytes still queued behind a message
+stay reserved while it is answered. A parked streaming message is delivered as
+a pre-filled, single-chunk body on a byte-accounted body channel; a body the
+connection cannot retain within the budget is failed terminally instead of
+being split.
+
+The per-step maintenance actions the loop schedules live in
+`stream_actions.rs`: admission, assembly expiry, memory pressure, parked
+delivery, and the terminal paths. `stream_dispatch.rs` reads as the decision of
+what happens next, and `stream_actions.rs` as the work each decision does.
+
+The actions that write, drain, or close a reply run through
+`stream_observed.rs`, as `ObservedAction` values, rather than being awaited
+directly. They are frame dispatch, the parked drain, a handler's reply, failure
+of the live body at end of stream or on a decode error, and expiry of finished
+assemblies. A reply may stream for an unbounded time, and forwarding it blocks
+for as long as the peer declines to read, so the reader is polled alongside the
+write. A peer that half-closes is then observed during the write, which arms
+the actor's peer-close grace and bounds the connection instead of leaving it
+waiting on a producer nobody can interrupt. The delivery outcome decides
+whether anything else may be written: a `Dispatch::Stop` from failing a body
+suppresses the parked drain that follows the peer's end of stream, because a
+cancelled reply can leave a partial frame behind and each later message would
+be read as part of the broken stream.
+
+The frame-processing future is boxed at exactly one boundary.
+`ConnectionRuntime::run` drives `ConnectionRuntime::process` behind a pinned
+`BoxFuture`, so the runtime's own state machine holds a pointer rather than the
+whole frame-processing tree. A connection nests one `async` layer per stage —
+decoding, assembly, dispatch, the response actor, and the reply pipeline — and
+the streaming dispatch work left it deep enough that rustc's layout query
+exceeded its recursion limit (128) in the `async` blocks of crates that merely
+await a connection. Both the prepared and the compatibility entry points reach
+the loop through that runtime, so a single allocation per connection bounds the
+depth every caller sees.
+
+### Admission wait with the read half observed
+
+`src/app/inbound_handler/stream_admission_watch.rs` holds
+`Connection::drive_admission`, the step that drives the slot's in-flight chunk
+admission. Only the handler can free the channel capacity or byte budget an
+admission needs, so the wait is unbounded in principle. Waiting without reading
+would leave the loop blind to a peer that has already gone away, and the
+connection would then outlive it while still holding its handler, its queued
+bytes, and its share of the server drain.
+
+The step therefore races the admission against the read half. A read event that
+settles first is handed back to the loop unchanged as `AdmissionWait::Peer`,
+and the loop handles it exactly as a read outside an admission would be; a
+settled admission becomes `AdmissionWait::Handler`, or `Continue` when the
+chunk is still waiting. A frame read during the wait is buffered for the next
+step rather than dispatched, because a continuation offered while its own chunk
+is queued would be refused as an abandoned body; the reader is then not polled
+again until that frame is dispatched.
+
+That buffered frame is why the wait needs a bound of its own. With no reader to
+observe, nothing else can end a chunk the handler never takes, so each drive
+stays bounded by the read timeout and `ConnectionStreams` accumulates how long
+the chunk has gone unadmitted. Once that reaches `STALLED_BODY_BOUND`, thirty
+seconds in `stream_types.rs`, `stream_dispatch.rs` fails the body, and the
+buffered frame is dispatched by a later step once the slot has been freed. The
+interval is cleared whenever an admission settles, so a handler that pauses for
+a slow downstream call keeps its upload.
+
+The module is separate from `stream_dispatch.rs` because the loop's state
+machine and the actions it schedules together outgrew the module limit, and
+because watching a wait changes for different reasons from deciding what a
+settled event means. The wait that produces an event lives in `stream_reads.rs`
+and the push-batch write in `stream_pushes.rs`, for the same reason.
+
+### Chunk budgets and the empty-account exception
+
+`ChunkBudget::measure` in `stream_handles.rs` snapshots the two numbers one
+admission needs: `limit`, the connection's aggregate byte limit, and
+`other_retained`, every byte the connection holds outside the chunk queue.
+Those holders are the assembler's buffered bytes, the outbound pipeline's
+fragmentation buffers, and the messages parked behind the live body. The parked
+queue is the easy one to forget and the expensive one to omit: a chunk admitted
+without it would pass admission only to trip the hard cap on the next loop
+step, which aborts the connection instead of holding the chunk back.
+
+Admission requires the queued bytes, `other_retained`, and the chunk to fit
+within `limit`, with one documented exception in
+`AccountedBodySender::send_chunk`: a single chunk is admitted into an empty
+account whatever its size or `other_retained`. Without that exception a body
+whose first chunk alone exceeds the budget could never start. The hard-cap
+policy observes the queued bytes immediately afterwards, so the exception
+cannot hide an overrun. The snapshot is never reused across admissions: the
+loop measures again before every drive, so bytes released in between — an
+expired assembly, a drained parked message, a handler taking a chunk — are seen
+by the next one.
+
+### Streaming body metrics
+
+`src/metrics/streaming_bodies.rs` defines three series and the `metrics`
+feature gate around them:
+
+- `wireframe_streaming_body_outcomes_total` — a counter whose single `outcome`
+  label takes a value from `StreamingBodyOutcome` (`delivered`, `terminal`,
+  `abandoned`, `admission_timeout`, `delivery_timeout`, `no_handler`), so
+  application data cannot create new series;
+- `wireframe_streaming_body_bytes_queued` — a gauge of body bytes queued for
+  handlers, including a chunk that has reserved its bytes but is still waiting
+  for channel capacity; and
+- `wireframe_streaming_bodies_parked` — a gauge of completed messages waiting
+  behind live bodies.
+
+`StreamingBodyOutcome::record` is the only write path for the counter, and
+`as_str` is the single source of the labels the diagnostics reuse, so a
+recorded series and the event beside it cannot name one case two ways. Both
+gauges are process-wide totals kept in `Occupancy`, a mutex-guarded count that
+publishes the total it computed while it still holds the lock. Publishing after
+the guard is dropped would let two concurrent releases publish in the opposite
+order and leave the gauge above the real total for good, because `Gauge::set`
+assigns rather than advances. A build without the feature compiles the tallies
+out entirely: every entry point has a `#[cfg(not(feature = "metrics"))]` no-op,
+so a disabled build spends nothing per chunk.
+
+### Streaming body diagnostics
+
+`stream_diagnostics.rs` owns the tracing vocabulary for body delivery. Each
+helper emits exactly one event and carries identifiers as fields rather than in
+the message: `operation` (`stream_start`, `chunk_delivery`, `prefilled_body`,
+`terminal_body`), the `message_id` or `key` of the message, and a bounded
+`error_category`. Five of the categories name a recorded outcome and are
+derived from `StreamingBodyOutcome::as_str`; `closed`, `receiver_gone`,
+`abandoned_body`, and `reply_abandoned` describe cases no counter series
+covers. Payload bytes are never logged, so the identifiers and the category
+carry the whole diagnosis. The users' guide lists the operator-facing meaning
+of each gauge and event.
+
+The helpers exist for two reasons: a tracing macro expands to a level check
+plus field handling that counts against Clippy's cognitive-complexity budget,
+so a function that both branches and logs would exceed it; and naming each
+event in one place keeps the wording and field names consistent across the
+dispatch modules that raise it.
+
+### Streaming dispatch test harnesses
+
+- `tests/streaming_request_server/` drives a real `WireframeServer` over a
+  socket for every streaming body scenario — delivery, back-pressure, parking,
+  and middleware bypass — so the suite covers accept, prepare, frame, dispatch,
+  and reply rather than calling a connection API directly. It frames with
+  `LengthDelimitedCodec`, so the client speaks exactly the wire format the
+  runtime decodes.
+- `tests/common/tagging.rs` supplies the middleware double those tests share.
+  It tags the frames that pass through the chain and counts the one-time
+  transforms performed during preparation, so a scenario can tell a route that
+  ran the chain from one that never entered it. It is a separate module so a
+  test target that needs only the double does not compile the
+  prepared-application helpers beside it.
+- `src/test_helpers/retained_bytes.rs` records the highest byte total one
+  connection retained against an armed aggregate limit. A socket-level
+  back-pressure test can show that a peer blocks without showing what the
+  server held when it did; this lets the assertion name the budget it checks
+  instead of inferring it from timing. Recording is scoped to the armed limit,
+  so a concurrently running scenario with its own budgets cannot contribute to
+  the peak.
 
 ### `fill_buf_with_prefix`
 
@@ -2291,6 +2566,22 @@ inbound assembly helpers await the signal with a timeout. The signal marks
 header parsing only; it does not mean the complete message has reached its
 handler.
 
+### Streaming dispatch fixture
+
+`tests/fixtures/streaming_dispatch/` drives a real `WireframeApp` over an
+in-process duplex stream for the scenarios in
+`tests/features/streaming_dispatch.feature`; the steps live in
+`tests/steps/streaming_dispatch_steps.rs`. The world registers one streaming
+route and one buffered route, and reports handler observations as
+`DispatchEvent` values, so a scenario can assert chunk order, body completion
+or terminal error, a buffered payload, and the reply frames in arrival order.
+`HandlerMode` selects a handler that consumes its body, holds it behind a
+semaphore, or returns without reading it, which is what lets the scenarios
+cover delivery while frames arrive, parking behind a held body, abandonment,
+and connection close. A handler that holds its body is released by
+`release_handler`, and `wait_millis` uses real time because assembly expiry
+reads `std::time::Instant` rather than the Tokio clock.
+
 #### BDD family naming and registration
 
 A behaviour family shares one stem across three locations under `tests/`:
@@ -2412,6 +2703,22 @@ argument. `PushQueuesBuilder`'s frame parameter is the exception worth
 remembering: `FrameLike` is crate-visible, but its blanket implementation makes
 the callable bound `Send + 'static`, so a fixture writes a generic parameter
 and never names the trait.
+
+#### The streaming-route handler bound
+
+`WireframeApp::streaming_route` accepts a `StreamingHandler`, whose boxed
+future must be `Send` because the connection actor may move it between tasks.
+Two fixtures pin that bound:
+
+| Fixture                                                | Surface it pins                         |
+| ------------------------------------------------------ | --------------------------------------- |
+| `tests/ui/streaming_route_const_api.rs`                | a handler whose future is `Send` builds |
+| `tests/ui/streaming_route_rejects_non_send_handler.rs` | a non-`Send` handler future is rejected |
+
+The compile-fail fixture holds an `Rc` across an `await` inside the handler
+future, so the committed `.stderr` names the `Send` requirement on the cast to
+`Pin<Box<dyn Future<...> + Send>>` rather than reporting an unrelated type
+error.
 
 Trybuild cannot show that a feature-gated item is *absent*. It forwards the
 harness's own feature list to the generated fixture, and this workspace's

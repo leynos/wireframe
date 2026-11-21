@@ -98,6 +98,7 @@ async fn an_idle_grace_abandoned_drain_write_is_counted_and_warned(
     let peer_eof = CancellationToken::new();
     let mut inbound = empty_inbound();
     let mut reader = stream::pending::<io::Result<Bytes>>();
+    let mut evicted = Vec::new();
     let mut batch = PushBatch {
         frames: Vec::new(),
         priority: Some(PushPriority::High),
@@ -107,6 +108,7 @@ async fn an_idle_grace_abandoned_drain_write_is_counted_and_warned(
             &mut inbound.message_assembly,
             &mut inbound.read_deadline,
             READ_TIMEOUT_MS,
+            &mut evicted,
         ),
         peer_eof: &peer_eof,
         shutdown: &shutdown,

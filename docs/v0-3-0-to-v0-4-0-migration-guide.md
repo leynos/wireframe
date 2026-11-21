@@ -82,9 +82,48 @@ the target type through `DecodeWith`.
 ### Inbound streaming
 
 `RequestParts`, `RequestBodyStream`, and `RequestBodyReader` remain available,
-but the connection runtime does not create a body channel. Code that wants an
-incremental body owns both ends of `body_channel` and wraps the receiving end
-with `RequestBodyReader::new`.
+and route handlers can now receive an incremental body. Register the message
+identifier with `WireframeApp::streaming_route` instead of `route`; the
+connection runtime creates the body channel, feeds it from the inbound frames,
+and passes the receiving end to your handler.
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-022 -->
+```rust,no_run
+use std::sync::Arc;
+
+use futures::StreamExt;
+use wireframe::app::{StreamingHandler, WireframeApp};
+use wireframe::request::{RequestBodyStream, RequestParts};
+
+/// Message identifier the upload route is registered under.
+const UPLOAD: u32 = 42;
+
+fn upload_handler() -> StreamingHandler {
+    Arc::new(|parts: RequestParts, mut body: RequestBodyStream| {
+        Box::pin(async move {
+            while let Some(chunk) = body.next().await {
+                if chunk.is_err() {
+                    // A body that stopped early was never acknowledged.
+                    return None;
+                }
+            }
+            let _ = parts.id();
+            None
+        })
+    })
+}
+
+fn main() -> wireframe::Result<()> {
+    let _app: WireframeApp =
+        WireframeApp::new()?.streaming_route(UPLOAD, upload_handler())?;
+    Ok(())
+}
+```
+
+Streaming routes do not run the middleware chain, and a handler that wants to
+own both ends of `body_channel` itself can still do so with `route`: the
+runtime only creates a channel for identifiers registered with
+`streaming_route`.
 
 ## Fragment reassembly limits
 

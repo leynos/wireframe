@@ -42,6 +42,7 @@ mod serializer_boundaries_steps;
 mod server_streaming_steps;
 mod slow_io_backpressure_steps;
 mod stream_end_steps;
+mod streaming_dispatch_steps;
 mod streaming_request_steps;
 mod test_observability_steps;
 mod tested_examples_steps;

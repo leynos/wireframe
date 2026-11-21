@@ -3,17 +3,17 @@
 //! Everything between an accepted socket and a dispatched envelope lives here.
 //! A prepared route calls [`process_connection`] with a
 //! [`ConnectionProcessingContext`], which carries the immutable application
-//! inputs for one connection: the middleware chains, serializer, codec,
-//! assembly and fragmentation settings, protocol hooks, read timeout, the
-//! server stop token, the push queue template, the [`SessionRegistry`], and the
-//! peer address. That function owns setup and teardown around the framed work,
-//! which it hands to `core`.
+//! inputs for one connection: the middleware chains and streaming handlers,
+//! serializer, codec, assembly and fragmentation settings, protocol hooks, read
+//! timeout, the server stop token, the push queue template, the
+//! [`SessionRegistry`], and the peer address. That function owns setup and
+//! teardown around the framed work, which it hands to `core`.
 //!
 //! [`process_connection`] and its inputs are split across the submodules by
 //! responsibility:
 //!
-//! - `core` drives one connection: it prepares framing, hands the response actor its connection
-//!   context, and then waits for pushes or inbound frames on each pass.
+//! - `core` prepares framing and the response actor for one connection, then hands the transport to
+//!   the streaming dispatch loop.
 //! - `actor` builds the response actor: `build_connection_actor` allocates the connection's
 //!   identifier and publishes its push handle in one step, and installs the guard that deregisters
 //!   that entry when the connection ends.
@@ -23,11 +23,23 @@
 //!   and drains the lanes once the peer closes.
 //! - `push_write` bounds each push write by the stop token and, when the peer can no longer be
 //!   observed, by the idle grace.
-//! - `dispatch` decodes an envelope and runs it through the middleware chain.
+//! - `dispatch` decodes one frame's payload into an envelope.
 //! - `framing` and `peer_watch` prepare the transport halves and observe the peer while a response
 //!   is written.
 //! - `tests` covers envelope decoding, decode-failure diagnostics, and the unprepared compatibility
 //!   path.
+//!
+//! Streaming request-body delivery is split across the `stream_*` modules.
+//! [`stream_dispatch`] owns the connection loop and its state machine,
+//! [`stream_frame`] routes one decoded frame into the live slot or the parking
+//! queue, and [`stream_slot`], [`stream_active`], and [`stream_parked`] hold the
+//! slot, the live exchange, and the messages parked behind it.
+//! [`stream_actions`] carries the per-step maintenance actions,
+//! [`stream_observed`] the peer-observed replies, and
+//! [`stream_admission_watch`] the wait for chunk admission, while
+//! [`stream_terminal`] ends a body whose handler is still running.
+//! [`stream_handles`] and [`stream_types`] hold the shared handles and value
+//! types, and [`stream_diagnostics`] emits the structured events.
 //!
 //! Route preparation lives here too. The server spawner forwards the accepted
 //! socket's peer address through `PreparedApp::handle_connection_with_shutdown`,
@@ -45,11 +57,47 @@ mod actor;
 pub(crate) mod core;
 mod dispatch;
 mod frames;
+
 mod framing;
+
 mod peer_watch;
 mod push_service;
 mod push_write;
 
+mod stream_actions;
+
+mod stream_active;
+
+mod stream_admission_watch;
+
+mod stream_close;
+
+mod stream_diagnostics;
+
+mod stream_dispatch;
+
+mod stream_frame;
+
+mod stream_handles;
+
+mod stream_observed;
+
+mod stream_parked;
+
+mod stream_pushes;
+
+mod stream_reads;
+
+mod stream_slot;
+
+mod stream_terminal;
+
+#[cfg(test)]
+#[cfg(feature = "metrics")]
+#[path = "stream_outcome_support.rs"]
+mod stream_outcome_support;
+
+mod stream_types;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use log::warn;
@@ -63,7 +111,7 @@ use super::{
     envelope::{Envelope, Packet},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
     memory_budgets::MemoryBudgets,
-    middleware_types::Middleware,
+    middleware_types::{Middleware, StreamingHandler},
 };
 use crate::{
     codec::FrameCodec,
@@ -90,6 +138,8 @@ where
 {
     /// Immutable middleware chains used to dispatch decoded envelopes.
     pub(crate) routes: &'a HashMap<u32, HandlerService<E>>,
+    /// Streaming handlers keyed by message identifier.
+    pub(crate) streaming_routes: &'a HashMap<u32, StreamingHandler>,
     /// Serializer shared by all frames on the connection.
     pub(crate) serializer: Arc<S>,
     /// Codec configuration shared by all frames on the connection.
@@ -146,6 +196,7 @@ where
 {
     let ConnectionProcessingContext {
         routes,
+        streaming_routes,
         serializer,
         codec,
         on_connect,
@@ -166,6 +217,7 @@ where
         stream,
         InboundConfig {
             routes,
+            streaming_routes,
             serializer,
             codec,
             message_assembler,
@@ -256,6 +308,7 @@ where
             stream,
             ConnectionProcessingContext {
                 routes: &routes,
+                streaming_routes: &self.streaming_handlers,
                 serializer: Arc::clone(&self.serializer),
                 codec: &self.codec,
                 on_connect: self.on_connect.as_ref(),

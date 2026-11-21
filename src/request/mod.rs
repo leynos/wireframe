@@ -2,14 +2,21 @@
 //!
 //! These types model consuming a request payload incrementally rather than
 //! waiting for full reassembly. See ADR 0002 for the design rationale and
-//! composition with transport-level fragmentation.
+//! composition with transport-level fragmentation, and
+//! [ADR 018](../../docs/adrs/adr-0018-streaming-request-body-dispatch.md) for how the
+//! connection runtime delivers a body to a route handler.
 //!
-//! # Integration status
+//! # Where a body comes from
 //!
-//! The connection runtime does not deliver streaming bodies yet: a route
-//! handler receives only a reference to its envelope, and the server creates no
-//! body channel. Code wanting this shape owns both ends of [`body_channel`].
-//! Wrap the stream with [`RequestBodyReader::new`] for an [`AsyncRead`] parser.
+//! A route registered with `WireframeApp::streaming_route` receives
+//! [`RequestParts`] and a [`RequestBodyStream`] from the connection runtime;
+//! buffered routes are unchanged. Each live body is paired with a
+//! byte-accounted channel, so the chunks queued for a handler are covered by
+//! the same memory budgets as message assembly.
+//!
+//! Code outside the runtime that wants this shape owns both ends of
+//! [`body_channel`]. Wrap the stream with [`RequestBodyReader::new`] for an
+//! [`AsyncRead`](tokio::io::AsyncRead) parser.
 //!
 //! ```
 //! use tokio::io::AsyncReadExt;
@@ -23,16 +30,23 @@
 //! }
 //! ```
 
-use std::{
-    io,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::{io, pin::Pin};
 
 use bytes::Bytes;
 use futures::Stream;
-use tokio::{io::AsyncRead, sync::mpsc};
-use tokio_util::io::StreamReader;
+use tokio::sync::mpsc;
+
+mod accounted;
+mod reader;
+
+pub(crate) use accounted::{
+    AccountedBodySender,
+    QueuedBytes,
+    SendChunkError,
+    SendClosed,
+    accounted_body_channel,
+};
+pub use reader::RequestBodyReader;
 
 /// Streaming request body.
 ///
@@ -118,76 +132,6 @@ pub fn body_channel(
     let (tx, rx) = mpsc::channel(capacity);
     let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
     (tx, Box::pin(stream))
-}
-/// Adapter wrapping a [`RequestBodyStream`] as [`AsyncRead`].
-///
-/// Protocol crates can use this to feed streaming bytes into parsers
-/// that operate on readers rather than streams. The adapter consumes
-/// chunks from the underlying stream and presents them as a contiguous
-/// byte sequence.
-///
-/// # Examples
-///
-/// ```
-/// use bytes::Bytes;
-/// use tokio::io::AsyncReadExt;
-/// use wireframe::request::{RequestBodyReader, RequestBodyStream};
-///
-/// async fn read_all(body: RequestBodyStream) -> std::io::Result<Vec<u8>> {
-///     let mut reader = RequestBodyReader::new(body);
-///     let mut buf = Vec::new();
-///     reader.read_to_end(&mut buf).await?;
-///     Ok(buf)
-/// }
-/// ```
-pub struct RequestBodyReader {
-    /// Owns ordered chunks so `AsyncRead` preserves backpressure and cancellation semantics.
-    inner: StreamReader<RequestBodyStream, Bytes>,
-}
-impl RequestBodyReader {
-    /// Create a new reader from a streaming body.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use bytes::Bytes;
-    /// use wireframe::request::{RequestBodyReader, RequestBodyStream};
-    ///
-    /// fn wrap_stream(stream: RequestBodyStream) -> RequestBodyReader {
-    ///     RequestBodyReader::new(stream)
-    /// }
-    /// ```
-    #[must_use]
-    pub fn new(stream: RequestBodyStream) -> Self {
-        Self {
-            inner: StreamReader::new(stream),
-        }
-    }
-    /// Consume the reader and return the underlying stream.
-    ///
-    /// # Data loss warning
-    ///
-    /// Any bytes that have been read from the stream but not yet consumed
-    /// from the reader's internal buffer are **permanently discarded** when
-    /// this method is called. This can occur when:
-    ///
-    /// - A partial read left buffered bytes (for example, `read(&mut [u8; 4])` when the chunk
-    ///   contained more than 4 bytes)
-    /// - The reader was used with `BufRead` methods that prefetch data
-    ///
-    /// **Safe to call when:** the reader has been fully drained (all reads
-    /// returned zero bytes or an error), or when deliberately abandoning
-    /// any remaining buffered content.
-    pub fn into_inner(self) -> RequestBodyStream { self.inner.into_inner() }
-}
-impl AsyncRead for RequestBodyReader {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_read(cx, buf)
-    }
 }
 /// Request metadata extracted outwith the request body.
 ///
@@ -394,6 +338,11 @@ impl CorrelationResult {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod accounted_property_tests;
+#[cfg(test)]
+mod accounted_tests;
 
 #[cfg(test)]
 mod stream_tests;

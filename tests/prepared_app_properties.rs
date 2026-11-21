@@ -15,12 +15,9 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use common::prepared_app::{
-    TestApp,
-    TransformCountingMiddleware,
-    build_frame,
-    handler,
-    response_payload,
+use common::{
+    prepared_app::{TestApp, build_frame, handler, response_payload},
+    tagging::TransformCountingMiddleware,
 };
 use proptest::{
     prelude::*,

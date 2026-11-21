@@ -97,6 +97,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::error;
 
 use super::{
+    StreamingHandler,
     envelope::{Envelope, Packet},
     inbound_handler::core::{StreamProcessingContext, process_stream},
     lifecycle::ConnectionTeardown,
@@ -126,6 +127,8 @@ where
 {
     /// Immutable middleware chains used to dispatch decoded envelopes.
     pub(crate) routes: &'a HashMap<u32, HandlerService<E>>,
+    /// Streaming handlers keyed by message identifier.
+    pub(crate) streaming_routes: &'a HashMap<u32, StreamingHandler>,
     /// Serializer shared by all frames on the connection.
     pub(crate) serializer: Arc<S>,
     /// Codec configuration shared by all frames on the connection.
@@ -253,6 +256,7 @@ where
     async fn process(stream: W, config: InboundConfig<'a, S, E, F>) -> io::Result<()> {
         let InboundConfig {
             routes,
+            streaming_routes,
             serializer,
             codec,
             message_assembler,
@@ -270,6 +274,7 @@ where
             stream,
             StreamProcessingContext {
                 routes,
+                streaming_routes,
                 serializer,
                 codec,
                 message_assembler,

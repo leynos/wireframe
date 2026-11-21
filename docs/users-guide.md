@@ -1055,9 +1055,18 @@ streaming request payloads.[^45]
 - `RequestParts::metadata()` returns protocol-defined header bytes.
 
 This type pairs with `RequestBodyStream` for incremental consumption of large
-request payloads. The connection runtime does not create or deliver a body
-stream: a route handler receives only a reference to its envelope, so code
-wanting this shape owns both ends of `body_channel`.
+request payloads. Register the route with `WireframeApp::streaming_route` and
+the connection runtime owns the body channel: it creates the byte-accounted
+sender, delivers each arriving chunk as it is decoded, and hands the receiving
+end to the handler together with `RequestParts`.
+
+A streaming route delivers at most one body at a time per connection. Messages
+that complete while a body is live are held and answered afterwards, in arrival
+order. Once the first frame completes the whole message, the handler still
+receives a single-chunk body, so a handler never needs a separate whole-payload
+path. Streaming routes are also outside the middleware chain: middleware
+inspects a whole payload, whereas a streaming handler owns the body
+incrementally.
 
 <!-- tested-example: users-guide-025 -->
 ```rust
@@ -1408,28 +1417,150 @@ cheapest way to fail early on an oversized message. The decision is recorded in
 
 ### Streaming request body consumption
 
-`wireframe::request` provides the building blocks for consuming a request body
-incrementally: `RequestParts` carries routing metadata, and `RequestBodyStream`
-yields body chunks. The connection runtime does not create a body channel or
-hand these values to a route handler; a handler receives only its envelope.
-Code that owns the producer can pair both ends with `body_channel` and adapt
-the receiving end with `RequestBodyReader` when a parser wants `AsyncRead`.
+A route registered with `WireframeApp::streaming_route` receives `RequestParts`
+and a `RequestBodyStream` while the message's frames are still arriving.
+Buffered routes registered with `WireframeApp::route` are unchanged: their
+payload is reassembled before the handler runs, and their reply is the
+reassembled request payload unless middleware replaces it.
 
 <!-- tested-example: users-guide-030 -->
+```rust,no_run
+use std::sync::Arc;
+
+use bytes::Bytes;
+use futures::StreamExt;
+use wireframe::app::StreamingHandler;
+use wireframe::request::{RequestBodyStream, RequestParts};
+
+fn upload_handler() -> StreamingHandler {
+    Arc::new(|parts: RequestParts, mut body: RequestBodyStream| {
+        Box::pin(async move {
+            while let Some(chunk) = body.next().await {
+                match chunk {
+                    Ok(bytes) => log::debug!("request {}: {} bytes", parts.id(), bytes.len()),
+                    Err(error) => {
+                        log::error!("request {} failed: {error}", parts.id());
+                        // A body that stopped early was never acknowledged.
+                        return None;
+                    }
+                }
+            }
+            // Returning `None` sends no reply frame.
+            Some(Bytes::from_static(b"accepted"))
+        })
+    })
+}
+```
+
+The example acknowledges a request only once its body ends cleanly. A body
+error means the message never arrived whole, so it returns no reply rather than
+reporting success for an incomplete upload.
+
+Register it with `app.streaming_route(42, upload_handler())?`. The route
+identifier must be unused by both buffered and streaming routes; reusing one
+fails with `WireframeError::DuplicateRoute`.
+
+`RequestParts` carries the route identifier, the correlation identifier, and
+any protocol metadata the handler needs to interpret the body. A message whose
+first frame completes it still reaches a streaming handler, as a body that
+yields exactly one chunk, so a handler never has to distinguish the two shapes.
+
+#### Replies, middleware, and ordering
+
+A streaming handler returns `Option<Bytes>`. The zero-copy container is the
+public payload type for new handler hand-offs (see
+[ADR 008](adrs/adr-0008-zero-copy-public-byte-container.md)), while the
+middleware and envelope reply path still carries `Vec<u8>` until the staged
+migration in
+[ADR 009](adrs/adr-0009-rollout-strategy-for-the-vec-u8-to-zero-copy-migration.md)
+lands. The payload becomes an ordinary response envelope carrying the
+request's route and correlation identifiers and passes through the outbound
+codec pipeline, so it is framed exactly like a buffered reply. Returning `None`
+sends no frame.
+
+Middleware does not run for streaming routes. Middleware transforms a whole
+payload, while a streaming handler owns its body incrementally and may never
+materialize it. Apply authentication or logging inside the handler, or keep the
+route buffered.
+
+A connection delivers at most one streaming body at a time. Complete messages
+that arrive while a body is live are parked, and they are dispatched in
+completion order once the body ends. A parked message for a streaming route is
+delivered with its assembled body as a single chunk. Replies are written when
+each exchange finishes, so a parked message's reply always follows the reply of
+the body that was live before it.
+
+Parking is bounded at 64 messages per connection. The 64th message is accepted,
+and a message that completes while 64 are already parked is rejected with an
+`InvalidData` error that ends the connection. The bound exists because the
+byte-based budget cannot see a queue of small or empty payloads grow, and a
+peer that pipelines behind a body it never finishes must not be able to
+accumulate work indefinitely.
+
+#### Limits and lifecycle
+
+The per-message cap and the declared total body length are enforced on each
+continuation before its bytes reach the handler. Continuity errors such as a
+duplicate or a gap keep the partial assembly, so a retransmission can still
+complete the message. A terminal breach removes the partial and fails the body:
+
+- a continuation that would exceed the per-message cap;
+- a continuation that would exceed the declared total;
+- a final frame whose accumulated body differs from the declared total.
+
+The handler observes exactly one termination of its body:
+
+| Event                                    | Body outcome                        |
+| ---------------------------------------- | ----------------------------------- |
+| Assembly expiry                          | `TimedOut`                          |
+| Chunk admission stalled for 30 s         | `TimedOut`                          |
+| Connection end of stream                 | `UnexpectedEof`                     |
+| Inbound decode failure                   | the decoder's error kind            |
+| Per-message cap or declared-total breach | `InvalidData`                       |
+| Handler drops the body                   | remaining frames validated, dropped |
+| Aggregate hard cap breached              | connection closed, handler dropped  |
+
+Dropping the body stream switches the message to discard mode: later frames are
+still validated for continuity and size, so framing is preserved, but nothing
+is delivered. This is how a handler rejects a request early without
+desynchronizing the connection.
+
+Body chunks queued for a handler are charged against the connection's
+`bytes_per_connection` and `bytes_in_flight` budgets, so a slow consumer cannot
+grow an unbounded queue. A chunk larger than the remaining budget is still
+admitted to an empty queue; otherwise the producer would wait for room that
+only the consumer could create while the consumer had nothing to take. The
+hard-cap policy observes the queued bytes immediately afterwards, so the
+exception cannot hide an overrun.
+
+When the queue and the budget are both full, the connection stops reading until
+the handler consumes a chunk. The peer therefore blocks in `write` instead of
+the server accepting frames it cannot pass on, so a slow handler slows its own
+upload rather than growing server memory without limit.
+
+A handler that never reads its body cannot keep its connection forever. Once a
+chunk has waited thirty seconds without being admitted, the body is failed with
+`TimedOut` and the connection resumes reading, so a frame already waiting
+behind the stalled chunk is still served. The wait is accumulated across reads
+and cleared as soon as a chunk is admitted, so a handler that pauses for a slow
+downstream call keeps its upload: its chunk is admitted as soon as it reads
+again.
+
+`RequestBodyReader` adapts the stream to `AsyncRead`, allowing protocol crates
+to reuse existing parsers:
+
+<!-- tested-example: users-guide-031 -->
 ```rust,no_run
 use tokio::io::AsyncReadExt;
 use wireframe::request::{RequestBodyReader, RequestBodyStream, RequestParts};
 
 async fn read_upload(parts: RequestParts, body: RequestBodyStream) {
     let mut reader = RequestBodyReader::new(body);
-    let mut buf = Vec::new();
-    reader.read_to_end(&mut buf).await.expect("read body");
-
-    log::info!(
-        "received {} bytes for request {}",
-        buf.len(),
-        parts.id()
-    );
+    let mut buffer = Vec::new();
+    match reader.read_to_end(&mut buffer).await {
+        Ok(_) => log::info!("received {} bytes for request {}", buffer.len(), parts.id()),
+        Err(error) => log::error!("request {} failed: {error}", parts.id()),
+    }
 }
 ```
 
@@ -1437,7 +1568,7 @@ async fn read_upload(parts: RequestParts, body: RequestBodyStream) {
 existing parsers. For raw stream access, use `RequestBodyStream` directly with
 `StreamExt` methods:
 
-<!-- tested-example: users-guide-031 -->
+<!-- tested-example: users-guide-032 -->
 ```rust,no_run
 use bytes::Bytes;
 use futures::StreamExt;
@@ -1454,11 +1585,8 @@ async fn read_chunks(parts: RequestParts, mut body: RequestBodyStream) {
 }
 ```
 
-Back-pressure is enforced by the bounded channel that producer and consumer
-share: when the channel fills, the sender awaits capacity until the consumer
-drains pending chunks. The framework cannot pause socket reads on a handler's
-behalf because it owns neither end. The `body_channel` helper creates channels
-with configurable capacity:
+Code outside the connection runtime that owns both ends can still pair them with
+`body_channel`. Capacity is set when the channel is created:
 
 <!-- tested-example: users-guide-033 -->
 ```rust
@@ -1470,9 +1598,10 @@ let (tx, rx) = body_channel(8);
 // rx: consumer reads the stream
 ```
 
-See [ADR 0002][adr-0002-ref] for the original design rationale and
-[ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md) for the
-decision to remove the extractor wrapper that was never wired to dispatch.
+See [ADR 0002][adr-0002-ref] for the original primitives,
+[ADR 018](adrs/adr-0018-streaming-request-body-dispatch.md) for streaming
+dispatch, and [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md)
+for the decision to remove the extractor wrapper.
 
 ## Working with requests and middleware
 
@@ -3529,6 +3658,97 @@ when the `metrics` feature is disabled. A failed response send also logs a
 warning carrying a stable `stage` (`serialize` or `write`) and a `category`
 that matches the outcome label, so log records and metric series can be
 correlated.
+
+### Streaming request bodies
+
+Streaming request bodies record their own signals when the `metrics` feature is
+enabled, so an operator can tell a body that was delivered from one that was
+rejected or abandoned.
+
+`wireframe_streaming_body_outcomes_total` counts each body outcome with a fixed
+`outcome` label:
+
+- `"delivered"` — the final chunk, or a whole pre-filled body, reached its
+  handler.
+- `"terminal"` — the handler was told its body failed, so it can answer with a
+  truncated-body error instead of waiting for chunks that will never arrive.
+- `"abandoned"` — the body, or a chunk of it, was dropped before it completed:
+  the handler replied early, the handler dropped its stream before the final
+  chunk, the message's remaining frames were discarded, or the hard memory cap
+  ended the exchange.
+- `"admission_timeout"` — a chunk was still waiting for byte admission when a
+  bounded wait expired. One body contributes one observation per expired wait,
+  so a steadily rising value marks a body that cannot make progress.
+- `"delivery_timeout"` — a terminal failure could not be handed to the handler
+  within the bounded wait, usually because the handler stopped reading.
+- `"no_handler"` — a frame arrived for a streaming route with no registered
+  handler.
+
+Two gauges report the work the process holds for its bodies. Both are totals
+across every connection, so concurrent connections add to the same series
+instead of overwriting one another:
+
+- `wireframe_streaming_body_bytes_queued` — body bytes queued for handlers,
+  including a chunk that has reserved its bytes but is still waiting for
+  channel capacity. The value covers every connection, so it is a pressure
+  signal for the process rather than evidence that one connection reached its
+  own budget. A total that keeps rising while traffic is steady points at
+  bodies whose handlers are not keeping up, but handlers are not the only
+  holders of admitted bytes: admission also counts partially assembled
+  messages, fragmentation buffers and parked messages, so treat the gauge as a
+  pressure signal rather than a diagnosis. Each connection whose handler stops
+  reading eventually stops reading its socket, which is the back-pressure this
+  design relies on. The gauge cannot name the connection, so identify the body
+  from the per-message diagnostics below.
+- `wireframe_streaming_bodies_parked` — completed messages waiting behind live
+  bodies. The value covers every connection, so it counts the process's parked
+  work; `MAX_PARKED_MESSAGES` (64) is the per-connection limit. The 64th
+  message is accepted, and a message that completes while 64 are already parked
+  ends that connection rather than being absorbed. A connection that ends with
+  messages still parked releases them, so the gauge cannot count work nobody
+  will dispatch.
+
+The dispatch modules log one structured event per body decision. Each event
+carries an `operation` field (`stream_start`, `chunk_delivery`,
+`prefilled_body`, or `terminal_body`), the `message_id` or `key` of the
+message, and an `error_category` drawn from the `outcome` label vocabulary plus
+`closed`, `receiver_gone`, `abandoned_body`, and `reply_abandoned`. Payload
+bytes are never logged. Five events are warnings: each marks a message the
+connection could not serve.
+
+- `pre-filled request body was not admitted within the read timeout`
+  (`prefilled_body`, `admission_timeout`) — an assembled body did not fit the
+  connection budget in time, and is failed terminally so the handler learns the
+  upload was incomplete.
+- `timed out delivering the request body failure`
+  (`terminal_body`, `delivery_timeout`) — the handler's channel would not
+  accept the terminal error, so a truncated body may reach it as a clean end of
+  stream.
+- `no streaming handler for message id` and
+  `streaming failure for a message with no live handler` (`stream_start` /
+  `terminal_body`, `no_handler`) — the route is unregistered, or the handler
+  released the slot before the failure was decoded.
+- `streaming handler exceeded the connection wait; its reply is abandoned`
+  (`terminal_body`, `reply_abandoned`) — the handler outlived the connection's
+  wait for its reply. The reply is not sent, and the warning is the only
+  evidence that the handler did not simply choose to stay silent.
+
+To diagnose a stalled upload, read `wireframe_streaming_body_bytes_queued`
+first: a total that stays high while `admission_timeout` climbs marks sustained
+pressure, but it does not settle which bytes are holding admission back.
+Admission is measured against a budget that also counts partially assembled
+messages, fragmentation buffers and parked messages, so handlers that are not
+keeping up are one possible holder among several. That reading is a pressure
+signal rather than proof that one connection is over its own budget, because
+several slowly draining connections can hold the total up between them. If the
+byte gauge stays low and `wireframe_streaming_bodies_parked` climbs instead,
+peers are pipelining behind bodies that have not completed yet, which is not
+evidence that those bodies never will. Neither gauge identifies which
+connection is responsible: the events above carry the route's `message_id`,
+which every request to that route shares, and the request's `correlation_id`,
+which the client chooses and may reuse, so together they identify the message
+rather than the connection. A rejected assembly shows as a `prefilled_body`
+warning with the `admission_timeout` category and a matching counter increment.
 
 Queued server pushes have their own counters.
 `wireframe_push_writes_abandoned_total` counts push frames dropped before

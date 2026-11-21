@@ -17,12 +17,12 @@ pub use crate::{
     app::{Envelope, Handler, Middleware, WireframeApp},
     error::{NoProtocolError, Result, WireframeError},
     message::{DecodeWith, DeserializeContext, EncodeWith, Message},
+    request::{RequestBodyStream, RequestParts},
     response::Response,
     serializer::{BincodeSerializer, MessageCompatibilitySerializer, Serializer},
 };
 #[cfg(not(loom))]
 pub use crate::{
     client::{ClientError, WireframeClient},
-    request::{RequestBodyStream, RequestParts},
     server::{ServerError, WireframeServer},
 };
