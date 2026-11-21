@@ -32,6 +32,9 @@ use crate::{
     push::{PushConfigError, PushHandle, PushQueues},
 };
 
+#[path = "push_service_tests/buffered_read.rs"]
+mod buffered_read;
+
 #[cfg(feature = "metrics")]
 #[path = "push_service_tests/idle_grace.rs"]
 mod idle_grace;

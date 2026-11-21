@@ -128,7 +128,16 @@ where
                     return Ok(FrameWrite::stopped(closed));
                 }
                 next = batch.reader.next() => match next {
-                    Some(Ok(next_frame)) => *batch.pending_frame = Some(next_frame),
+                    Some(Ok(next_frame)) => {
+                        *batch.pending_frame = Some(next_frame);
+                        // One buffered item is the whole contract: a second
+                        // read would overwrite it, and when the first item is
+                        // a decoder failure its recovery decision, callback and
+                        // metric would never happen. The write still has to
+                        // finish, so leave the loop and let the shared finish
+                        // below bound it.
+                        break;
+                    }
                     Some(Err(error)) => return Err(error),
                     None => {
                         batch.peer_eof.cancel();
