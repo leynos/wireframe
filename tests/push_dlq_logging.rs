@@ -11,7 +11,10 @@
 
 mod support;
 
-use std::{io, time::Duration};
+use std::{
+    io,
+    time::{Duration, Instant},
+};
 
 use rstest::rstest;
 use serial_test::serial;
@@ -338,16 +341,36 @@ fn dlq_drop_logging_can_be_silenced(mut logger: LoggerHandle) -> TestResult {
     Ok(())
 }
 
+/// Whether the second loss's reports are consistent with the measured gap.
+///
+/// Inside the interval the only correct outcome is silence. A descheduled run
+/// may instead have reported that loss on its own, which must then be its only
+/// report.
+fn is_plausible_second_loss(counts: &[usize], is_inside_interval: bool) -> bool {
+    if is_inside_interval {
+        return counts.is_empty();
+    }
+    counts.is_empty() || counts == [1]
+}
+
 /// Interval-based logging reports each interval's losses and then resets, so
 /// the next interval reports only its own.
 ///
-/// Two properties share one run. The first loss reports, a loss immediately
-/// after it is suppressed rather than logged a second time, and the next loss
-/// after the interval reports again — proving the interval is measured from
-/// the last report, not from some earlier instant. The second report
-/// aggregates the suppressed loss with its own trigger, so a counter the first
-/// report failed to clear would show up as three. Interval 50 ms against
+/// Three properties share one run. The first loss reports; a loss arriving
+/// while the interval has not expired is held back rather than logged; and the
+/// next loss after the interval reports again — proving the interval is
+/// measured from the last report, not from some earlier instant. The second
+/// report aggregates the held-back loss with its own trigger, so a counter the
+/// first report failed to clear would show up as three. Interval 50 ms against
 /// 100 ms of sleep leaves a 2:1 margin on both sides of each boundary.
+///
+/// The suppression check is the one observation a descheduled run cannot make:
+/// if the process pauses for most of an interval between the first report and
+/// the second loss, that loss correctly reports and the check would fail a
+/// correct implementation. The test measures the gap itself and only asserts
+/// suppression when it is provably inside the interval; otherwise it records
+/// what happened and derives the next expectation from it, so a busy host
+/// cannot turn the test red.
 ///
 /// The `>` versus `>=` boundary between `elapsed()` and the configured
 /// interval has no test. Separating them needs an elapsed time equal to the
@@ -370,18 +393,34 @@ fn dlq_drop_logging_reports_each_interval(mut logger: LoggerHandle) -> TestResul
         tokio::time::sleep(PAST_INTERVAL).await;
         lose_frame(&refusing.handle, PushPriority::High)?;
         require_drop_counts(&mut logger, &[1])?;
+        let reported_at = Instant::now();
 
-        // Second loss, immediately after the first report: only a fresh
-        // timestamp suppresses it, since the counter would otherwise be due.
+        // Second loss with the interval still running. Half an interval of
+        // slack covers the few microseconds between the report and this
+        // measurement, so a gap below the threshold proves suppression.
         lose_frame(&refusing.handle, PushPriority::High)?;
-        require_drop_counts(&mut logger, &[])?;
+        let second = drop_counts(&drain_records(&mut logger))?;
+        let is_inside_interval = reported_at.elapsed() < interval / 2;
+        let was_suppressed = second.is_empty();
+        if !is_plausible_second_loss(&second, is_inside_interval) {
+            return Err(io::Error::other(format!(
+                "second loss reported {second:?} with the interval {}",
+                if is_inside_interval {
+                    "still running"
+                } else {
+                    "already expired"
+                }
+            ))
+            .into());
+        }
 
-        // Third loss after another full interval: the report stands for both
-        // the suppressed loss and this trigger, so the count of two also shows
-        // the first report cleared the counter instead of leaving one behind.
+        // Third loss after another full interval: the report stands for every
+        // loss the first report left in the counter plus this trigger, so a
+        // counter the first report failed to clear would show up as three.
         tokio::time::sleep(PAST_INTERVAL).await;
         lose_frame(&refusing.handle, PushPriority::High)?;
-        require_drop_counts(&mut logger, &[2])?;
+        let pending = usize::from(was_suppressed);
+        require_drop_counts(&mut logger, &[pending + 1])?;
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
     })?;
     Ok(())
