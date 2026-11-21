@@ -42,9 +42,9 @@ fn then_invalid_data(codec_fixtures_world: &mut CodecFixturesWorld) -> TestResul
     codec_fixtures_world.verify_invalid_data_error()
 }
 
-#[then("the decoder reports bytes remaining on stream")]
-fn then_bytes_remaining(codec_fixtures_world: &mut CodecFixturesWorld) -> TestResult {
-    codec_fixtures_world.verify_bytes_remaining_error()
+#[then("the decoder reports a premature end of file")]
+fn then_truncation_reported(codec_fixtures_world: &mut CodecFixturesWorld) -> TestResult {
+    codec_fixtures_world.verify_truncation_error()
 }
 
 #[then("all frames have the expected transaction identifier")]

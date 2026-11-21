@@ -7,7 +7,7 @@
 
 use std::io;
 
-use wireframe::codec::examples::HotlineFrameCodec;
+use wireframe::codec::{CodecError, EofError, examples::HotlineFrameCodec};
 use wireframe_testing::{
     correlated_hotline_wire,
     decode_frames_with_codec,
@@ -34,6 +34,33 @@ fn assert_decode_fails_with(wire: &[u8], expected_error_substring: &str) -> io::
     if !err.to_string().contains(expected_error_substring) {
         return Err(io::Error::other(format!(
             "expected error containing '{expected_error_substring}', got: {err}"
+        )));
+    }
+    Ok(())
+}
+
+/// Extract the structured end-of-file condition a decode error carries.
+fn eof_condition(error: &io::Error) -> Option<EofError> {
+    error
+        .get_ref()?
+        .downcast_ref::<CodecError>()
+        .and_then(|codec_error| match codec_error {
+            CodecError::Eof(eof) => Some(*eof),
+            _ => None,
+        })
+}
+
+/// Decode `wire` and verify that the decoder reports `expected` truncation.
+fn assert_decode_reports(wire: &[u8], expected: EofError) -> io::Result<()> {
+    let codec = hotline_codec();
+    let result = decode_frames_with_codec(&codec, wire);
+
+    let err = result
+        .err()
+        .ok_or_else(|| io::Error::other("expected decode to fail but it succeeded"))?;
+    if eof_condition(&err) != Some(expected) {
+        return Err(io::Error::other(format!(
+            "expected {expected:?}, got: {err}"
         )));
     }
     Ok(())
@@ -112,13 +139,25 @@ fn mismatched_total_size_rejected_by_decoder() -> io::Result<()> {
 #[test]
 fn truncated_header_produces_decode_error() -> io::Result<()> {
     let wire = truncated_hotline_header();
-    assert_decode_fails_with(&wire, "bytes remaining")
+    assert_decode_reports(
+        &wire,
+        EofError::MidHeader {
+            bytes_received: 10,
+            header_size: 20,
+        },
+    )
 }
 
 #[test]
 fn truncated_payload_produces_decode_error() -> io::Result<()> {
     let wire = truncated_hotline_payload(100);
-    assert_decode_fails_with(&wire, "bytes remaining")
+    assert_decode_reports(
+        &wire,
+        EofError::MidFrame {
+            bytes_received: 50,
+            expected: 100,
+        },
+    )
 }
 
 #[test]

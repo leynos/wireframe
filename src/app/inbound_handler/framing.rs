@@ -64,12 +64,15 @@ where
 
 /// Report a read error to the protocol's end-of-file hook.
 ///
-/// Only a structured mid-header or mid-frame codec error describes a
-/// truncation; transport failures, decode failures, and a clean close at a
-/// frame boundary are reported by their own paths or not at all. The partial
-/// data is every byte the framed reader still held for the incomplete frame,
-/// including its length prefix, so a protocol can log or account for exactly
-/// what arrived.
+/// Every error that ends the connection loop is passed here, whichever step
+/// observed it, so a truncation seen while a handler or a push write is pending
+/// is reported exactly once. Only a structured mid-header or mid-frame codec
+/// error describes a truncation; transport failures, decode failures, and a
+/// clean close at a frame boundary are reported by their own paths or not at
+/// all. The partial data is every byte the framed reader still held for the
+/// incomplete frame: the built-in codecs leave the length prefix in place, so
+/// it is included, while a decoder that consumes bytes before reporting its
+/// condition yields only what it left behind.
 pub(super) fn report_truncation<W, F>(
     reader: &FramedRead<ReadHalf<W>, F::Decoder>,
     pipeline: &mut FramePipeline<F::Frame>,

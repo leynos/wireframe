@@ -166,8 +166,8 @@ pub fn mismatched_total_size_wire(payload: &[u8]) -> Vec<u8> {
 /// The Hotline decoder returns `Ok(None)` for this input (not enough bytes
 /// to parse the header). When passed to
 /// [`decode_frames_with_codec`](super::decode_frames_with_codec), the
-/// `decode_eof` call detects unconsumed bytes and produces an
-/// `InvalidData` error containing "bytes remaining".
+/// `decode_eof` call reports the truncation as a structured end-of-file
+/// error naming the missing header bytes.
 ///
 /// # Examples
 ///
@@ -179,7 +179,7 @@ pub fn mismatched_total_size_wire(payload: &[u8]) -> Vec<u8> {
 /// let codec = HotlineFrameCodec::new(4096);
 /// let err = decode_frames_with_codec(&codec, &wire)
 ///     .expect_err("truncated header should cause a decode error");
-/// assert!(err.to_string().contains("bytes remaining"));
+/// assert!(err.to_string().contains("premature EOF during header"));
 /// ```
 #[must_use]
 pub fn truncated_hotline_header() -> Vec<u8> {
@@ -194,8 +194,8 @@ pub fn truncated_hotline_header() -> Vec<u8> {
 /// The Hotline decoder returns `Ok(None)` because the buffer is shorter than
 /// `total_size`. When passed to
 /// [`decode_frames_with_codec`](super::decode_frames_with_codec), the
-/// `decode_eof` call detects unconsumed bytes and produces an
-/// `InvalidData` error containing "bytes remaining".
+/// `decode_eof` call reports the truncation as a structured end-of-file
+/// error naming the payload bytes that never arrived.
 ///
 /// # Examples
 ///
@@ -207,7 +207,10 @@ pub fn truncated_hotline_header() -> Vec<u8> {
 /// let codec = HotlineFrameCodec::new(4096);
 /// let err = decode_frames_with_codec(&codec, &wire)
 ///     .expect_err("truncated payload should cause a decode error");
-/// assert!(err.to_string().contains("bytes remaining"));
+/// assert!(
+///     err.to_string()
+///         .contains("premature EOF: 50 bytes of 100 byte frame")
+/// );
 /// ```
 #[must_use]
 pub fn truncated_hotline_payload(payload_len: impl Into<PayloadLength>) -> Vec<u8> {

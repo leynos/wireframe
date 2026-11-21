@@ -7,6 +7,7 @@
 //! - [`lifecycle`] covers hook order for a streamed response, a clean close, and a rejected inbound
 //!   frame.
 //! - [`eof`] covers the three shapes a peer can abandon a frame in.
+//! - [`pending_eof`] covers a truncation read while another wait is in flight.
 //! - [`consuming_decoder`] covers what a custom decoder leaves for `on_eof`.
 //! - [`pushes`] covers server-initiated pushes and handle closure.
 //! - [`stream_push`] covers a push queued while a streamed response is in flight.
@@ -30,6 +31,8 @@ mod eof;
 mod harness;
 #[path = "server_protocol_hooks/lifecycle.rs"]
 mod lifecycle;
+#[path = "server_protocol_hooks/pending_eof.rs"]
+mod pending_eof;
 #[path = "server_protocol_hooks/pushes.rs"]
 mod pushes;
 #[path = "server_protocol_hooks/setup.rs"]

@@ -237,9 +237,20 @@ where
     }
 
     /// Read and process frames until the stream closes or an I/O error occurs.
+    ///
+    /// Every error that ends the connection passes this one boundary, whichever
+    /// step observed it; that is where a truncation is reported.
     async fn run(mut self) -> io::Result<()> {
-        // Each iteration performs one unit of work, so the loop body is empty;
-        // `step` reports whether the connection may continue.
+        let outcome = self.run_steps().await;
+        if let Err(error) = &outcome {
+            // The reader still holds what the peer abandoned; report it first.
+            report_truncation::<W, F>(&*self.reader, &mut self.inbound.pipeline, error);
+        }
+        outcome
+    }
+
+    /// Perform one unit of work at a time until the connection is finished.
+    async fn run_steps(&mut self) -> io::Result<()> {
         while self.step().await? {}
         Ok(())
     }
@@ -247,13 +258,7 @@ where
     /// Perform one unit of inbound work, reporting whether to continue.
     async fn step(&mut self) -> io::Result<bool> {
         self.inbound.relieve_pressure(self.budgets).await?;
-        let waited = self.wait_for_step().await;
-        if let Err(error) = &waited {
-            // The reader still holds the bytes the peer abandoned, so the
-            // truncation report has to run before the error unwinds.
-            report_truncation::<W, F>(&*self.reader, &mut self.inbound.pipeline, error);
-        }
-        let Some(step) = waited? else {
+        let Some(step) = self.wait_for_step().await? else {
             return Ok(false);
         };
         self.serve_read_first = matches!(&step, StreamStep::Pushes(_));
@@ -262,11 +267,9 @@ where
 
     /// Wait for the next unit of work, or `None` once the server has stopped.
     ///
-    /// The wait is raced against the connection's shutdown token. The read
-    /// observes shutdown itself, but the push arm is polled first and a ready
-    /// lane wins every biased pass, so without this arm a busy push stream
-    /// would hide the stop from the connection task and the server drain
-    /// waiting on it.
+    /// The read observes shutdown itself, but a ready push lane wins every
+    /// biased pass, so the race below keeps a busy push stream from hiding
+    /// the stop from the server drain waiting on this connection task.
     async fn wait_for_step(&mut self) -> io::Result<Option<StreamStep<F>>> {
         tokio::select! {
             biased;
@@ -340,13 +343,12 @@ where
     /// the write runs, because this is the last place that can notice a peer
     /// which half-closed and then stopped reading.
     async fn write_pushes(&mut self, pending: PendingPushes<F::Frame>) -> io::Result<bool> {
-        let diagnostics = self.response_actor.push_diagnostics();
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,
-            diagnostics,
+            diagnostics: self.response_actor.push_diagnostics(),
         };
         let batch = PushBatch {
             frames: pending.frames,
@@ -366,13 +368,12 @@ where
 
     /// Deliver frames still queued when the peer stopped writing.
     async fn drain_pushes(&mut self) -> io::Result<()> {
-        let diagnostics = self.response_actor.push_diagnostics();
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,
-            diagnostics,
+            diagnostics: self.response_actor.push_diagnostics(),
         };
         drain_queued(
             &mut transport,
