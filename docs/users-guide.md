@@ -3722,8 +3722,9 @@ connection could not serve.
   upload was incomplete.
 - `timed out delivering the request body failure`
   (`terminal_body`, `delivery_timeout`) — the handler's channel would not
-  accept the terminal error, so a truncated body may reach it as a clean end of
-  stream.
+  accept the terminal error within the connection's wait. The wait then ends,
+  the handler and its reply are dropped, and a body it had not finished reading
+  never learns why it stopped.
 - `no streaming handler for message id` and
   `streaming failure for a message with no live handler` (`stream_start` /
   `terminal_body`, `no_handler`) — the route is unregistered, or the handler
@@ -3744,11 +3745,14 @@ several slowly draining connections can hold the total up between them. If the
 byte gauge stays low and `wireframe_streaming_bodies_parked` climbs instead,
 peers are pipelining behind bodies that have not completed yet, which is not
 evidence that those bodies never will. Neither gauge identifies which
-connection is responsible: the events above carry the route's `message_id`,
-which every request to that route shares, and the request's `correlation_id`,
-which the client chooses and may reuse, so together they identify the message
-rather than the connection. A rejected assembly shows as a `prefilled_body`
-warning with the `admission_timeout` category and a matching counter increment.
+connection is responsible. The events above carry the route's `message_id`,
+which every request to that route shares, and, for the delivery events, the
+request's `correlation_id`, which the client chooses, may omit and may reuse.
+Those fields help to correlate events with a message, but they do not guarantee
+that a message or a connection is identified, and the events that report a
+pre-filled body carry only the `message_id`. A rejected assembly shows as a
+`prefilled_body` warning with the `admission_timeout` category and a matching
+counter increment.
 
 Queued server pushes have their own counters.
 `wireframe_push_writes_abandoned_total` counts push frames dropped before
