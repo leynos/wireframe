@@ -478,6 +478,40 @@ Counting semantics are unchanged: both fresh allocations and reallocations are
 counted, exactly as the removed allocator counted them, so an existing baseline
 stays comparable across the upgrade.
 
+## Copied-byte counters
+
+The `benchmark-counters` feature now reports the inbound copy as well as the
+three outbound seams. `wireframe::benchmark_counters::CopiedBytes` gains a
+`deserialized` field, and `record_deserialized` records the payload a decoded
+frame materializes. The copied-byte gate therefore covers four seams, including
+the inbound copy that roadmap item `11.1.1` removes.
+
+Code that reads fields from a `benchmark_counters::snapshot` needs no change. A
+build that constructs `CopiedBytes` by naming every field must add the new one:
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-022 -->
+```rust,ignore
+// Before
+let copied = CopiedBytes {
+    serialized: 0,
+    handoff: 0,
+    framed: 0,
+};
+```
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-023 -->
+```rust
+// After
+use wireframe::benchmark_counters::CopiedBytes;
+
+let copied = CopiedBytes {
+    serialized: 0,
+    handoff: 0,
+    framed: 0,
+    deserialized: 0,
+};
+```
+
 ## Install your own tracing subscriber
 
 `tracing-subscriber` is no longer a runtime dependency of Wireframe; it is a

@@ -277,3 +277,34 @@ open for the rest of the actor and codec-driver boundary. Roadmap items
 `11.2.2` and `11.2.3` also remain open, including the guard against new
 non-driver production `wrap_payload` callers under `11.2.3`. This amendment
 changes hook invocation only; it does not claim any of that work.
+
+## Addendum: naming the serializer materialization (2026-11-20)
+
+This amendment supersedes the outbound-copy wording in the Status,
+Traceability, and Known Risks and Limitations sections above. It names the copy
+precisely; it does not change the boundary decision or move any work.
+
+The Status sentence "The remaining final outbound copy is removed under roadmap
+item `11.1.2`", the Traceability bullet describing item `11.1.2` as removing
+"the final default-path `Vec<u8>` copy between serialization and
+`FrameCodec::wrap_payload`", and the Known Risks sentence "The final
+serializer-to-codec bridge still materializes `Vec<u8>` before converting to
+`Bytes`" all place the copy ambiguously between the two steps. The measurement
+now shows where it is.
+
+The copy is the serializer materialization itself: `Serializer::serialize`
+returns a payload-sized `Vec<u8>`, and `FrameCodec::wrap_payload` then wraps
+the handed-in `Bytes` without copying it. The `Bytes::from(Vec<u8>)` hand-off
+between them is also copy-free with `bytes` 1.12.1, for both exact-capacity and
+spare-capacity vectors. Item `11.1.2` therefore removes one allocation and one
+copy on the outbound default path, and the removal is observed at the
+serializer, not at `wrap_payload`.
+
+`src/benchmark_counters.rs` records the copied bytes behind the
+`benchmark-counters` feature at four seams: serializer materialization, `Bytes`
+hand-off, transport framing in `Encoder::encode`, and inbound deserialization in
+`parse_envelope`. The inbound seam is the receive-path counterpart of this
+decision; it is the copy roadmap item `11.1.1` removes, and it does not alter
+the transport-frame boundary. The per-seam counts and their assertions are
+recorded in
+[`zero-copy-benchmark-baselines.md`](../zero-copy-benchmark-baselines.md).
