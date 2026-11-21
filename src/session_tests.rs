@@ -43,9 +43,9 @@ fn live_handle() -> (PushQueues<u8>, crate::push::PushHandle<u8>) {
 
 /// `prune` must evict dead entries and keep live ones. The assertions
 /// inspect the private backing map because [`SessionRegistry::get`] and
-/// [`SessionRegistry::active_ids`] prune on their own, which would mask
-/// both mutants at `SessionRegistry::prune`: `replace > with ==` would
-/// evict live sessions, and `replace prune with ()` would leave dead ones.
+/// [`SessionRegistry::active_ids`] prune on their own: a self-healing
+/// lookup masks a `replace prune with ()` no-op, but it cannot restore a
+/// live entry evicted by `replace > with ==`.
 ///
 /// Length alone cannot tell the two failures apart, so the test also
 /// checks membership of both IDs.
