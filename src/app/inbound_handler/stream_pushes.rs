@@ -69,7 +69,7 @@ where
         let shutdown = self.shutdown;
         let peer_eof = self.peer_eof;
         let mut evicted = Vec::new();
-        {
+        let written = {
             let Connection {
                 reader,
                 sink,
@@ -98,11 +98,18 @@ where
                 peer_eof,
                 shutdown,
             };
-            deliver_pushes(&mut transport, &mut **actor, batch).await?;
-        }
+            deliver_pushes(&mut transport, &mut **actor, batch).await?
+        };
         // The reader is owed the next pass, so a continuously ready push lane
         // cannot win every biased select and starve the client's frames.
         state.serve_read_first = true;
+        if !written {
+            // A push abandoned mid-frame leaves a partial frame on the wire, so
+            // the exchange cannot be resumed: abort the live body and close
+            // instead of writing an expiry reply after the broken frame.
+            state.streams.abort();
+            return Ok(Step::Closed);
+        }
         if evicted.is_empty() {
             return Ok(Step::Continue);
         }

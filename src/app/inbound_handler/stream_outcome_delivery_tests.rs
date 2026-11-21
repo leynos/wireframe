@@ -11,14 +11,17 @@ use std::future;
 
 use bytes::Bytes;
 use rstest::rstest;
+use tokio::time::Instant;
 
 use super::{
     BodyClose,
+    Delivery,
     FinalDelivery,
     HandlerWait,
     body_close,
     deliver_final_chunk_then_await,
     deliver_then_await,
+    race_delivery,
 };
 use crate::{
     app::inbound_handler::{
@@ -200,6 +203,41 @@ fn a_completed_final_chunk_is_delivered_whole_or_abandoned(
     });
 
     assert_exchange(settled, &counts, &expected);
+}
+
+/// A delivery still pending at the connection's deadline is counted once.
+///
+/// The delivery future here never resolves, so the connection's own deadline is
+/// necessarily the first to fire and the delivery is dropped unsettled. That
+/// drop must still record the outcome the delivery owed, exactly once, rather
+/// than leaving the body uncounted: the deadline and the delivery share one
+/// instant, and nothing would report for the dropped future afterwards.
+#[rstest]
+#[test]
+fn a_delivery_still_pending_at_the_deadline_is_counted_once() {
+    let (settled, counts) = recorded(|| {
+        paused_block_on(async {
+            let mut handler: HandlerFuture = Box::pin(future::pending());
+            let deadline = Instant::now() + wait();
+            race_delivery(
+                deadline,
+                future::pending::<Delivery>(),
+                &mut handler,
+                StreamingBodyOutcome::Abandoned,
+            )
+            .await
+        })
+    });
+
+    assert_exchange(
+        settled,
+        &counts,
+        &Expectation {
+            reply: HandlerWait::Deadline,
+            recorded: StreamingBodyOutcome::Abandoned,
+            why: "a delivery dropped at the deadline must be counted exactly once",
+        },
+    );
 }
 
 /// Drive a final chunk that cannot be handed over and assert its abandonment.

@@ -19,7 +19,7 @@ use super::{
     stream_actions::{AdmissionStep, drive_pending_admission},
     stream_dispatch::Connection,
     stream_handles::{ChunkBudget, LoopState},
-    stream_types::{AdmissionWait, Event},
+    stream_types::{AdmissionWait, Event, STALLED_BODY_BOUND},
 };
 use crate::{
     codec::FrameCodec,
@@ -82,17 +82,30 @@ where
             let handles = self.handles(queued);
             ChunkBudget::measure(&handles, &state.parked)
         };
-        let wait = self.wait;
+        // A single drive is capped by what remains of the stall bound as well
+        // as by the connection wait: the bound is checked between drives, so a
+        // long read timeout would otherwise let one drive hide a body whose
+        // handler never reads.
+        let remaining = state.streams.stall_remaining(STALLED_BODY_BOUND);
+        let wait = self.wait.min(remaining);
         // A frame already buffered ends direct observation: the reader is
         // deliberately not polled again until that frame is dispatched, so
-        // only the admission itself can settle this step. A stall that lasts
-        // past the connection's whole bound is reported by
+        // only the admission or a server shutdown can settle this step. A
+        // stall that lasts past the bound is reported by
         // `ConnectionStreams::stall_expired`, which the loop checks before it
-        // drives the admission, so nothing here has to end it.
+        // drives the admission.
         if self.inbound.pending.is_some() {
-            return Ok(settle_admission(
-                drive_pending_admission(state, wait, budget).await,
-            ));
+            let shutdown = self.shutdown;
+            let settled = tokio::select! {
+                biased;
+                settled = drive_pending_admission(state, wait, budget) => settled,
+                // The read half cannot observe a shutdown while a frame is
+                // buffered, so the token is raced here rather than waited out.
+                () = shutdown.cancelled() => {
+                    return Ok(AdmissionWait::Peer(Event::Shutdown));
+                }
+            };
+            return Ok(settle_admission(settled));
         }
         let settled = {
             let read_timeout_ms = self.ctx.read_timeout_ms;

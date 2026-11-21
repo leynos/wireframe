@@ -101,6 +101,17 @@ impl ConnectionStreams {
             .is_some_and(|since| since.elapsed() >= bound)
     }
 
+    /// Return how much of the stall bound one more drive may consume.
+    ///
+    /// A drive that is already stalled must not run past the point where the
+    /// body should be failed, so the caller caps its wait by what remains. A
+    /// body with no stall yet is offered a whole interval, because the drive
+    /// that starts is the one that begins measuring it.
+    pub(super) fn stall_remaining(&self, bound: Duration) -> Duration {
+        self.stalled_since
+            .map_or(bound, |since| bound.saturating_sub(since.elapsed()))
+    }
+
     /// Record whether the last admission drive made progress.
     ///
     /// Only a drive that timed out with the chunk still queued counts as a

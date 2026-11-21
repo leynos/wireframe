@@ -123,9 +123,11 @@ async fn a_stalled_admission_returns_control_after_the_read_timeout(
 ///
 /// Each drive is bounded so the loop can re-check shutdown, expiry and the
 /// memory budget, so one expired wait must not be mistaken for the whole
-/// stall: the slot accumulates the interval instead. A send that settles,
-/// however it settles, ends that interval, so a handler that catches up is
-/// never charged for the time it was busy.
+/// stall: the slot accumulates the interval instead. The one-and-a-half-wait
+/// bound is only reachable once two waits have accumulated, so re-stamping the
+/// clock at the start of each drive fails here. A send that settles, however
+/// it settles, ends the interval, so a handler that catches up is never
+/// charged for the time it was busy.
 #[rstest]
 #[tokio::test(start_paused = true)]
 async fn a_stall_accumulates_across_drives_until_an_admission_settles(
@@ -135,19 +137,34 @@ async fn a_stall_accumulates_across_drives_until_an_admission_settles(
     let (active, body) = stalled_stream().await;
     let mut streams = ConnectionStreams::new(QueuedBytes::new());
     streams.active = Some(active);
+    let one_and_a_half_waits = short_wait * 3 / 2;
 
     assert!(
         !streams.stall_expired(short_wait),
         "a body that has not waited yet cannot have stalled"
     );
-    let stalled = streams.drive_pending(short_wait, blocked_budget).await;
+    let first = streams.drive_pending(short_wait, blocked_budget).await;
     assert!(
-        matches!(stalled, PendingEvent::Idle),
+        matches!(first, PendingEvent::Idle),
         "the blocked chunk should hand control back to the loop"
     );
     assert!(
         streams.stall_expired(short_wait),
         "the expired wait should count toward the body's stall"
+    );
+    assert!(
+        !streams.stall_expired(one_and_a_half_waits),
+        "one expired wait alone must not reach a longer bound"
+    );
+
+    let second = streams.drive_pending(short_wait, blocked_budget).await;
+    assert!(
+        matches!(second, PendingEvent::Idle),
+        "each blocked drive should hand control back to the loop"
+    );
+    assert!(
+        streams.stall_expired(one_and_a_half_waits),
+        "two stalled drives must accumulate into one longer interval"
     );
 
     drop(body);
@@ -157,8 +174,8 @@ async fn a_stall_accumulates_across_drives_until_an_admission_settles(
         "a dropped body refuses the queued chunk"
     );
     assert!(
-        !streams.stall_expired(short_wait),
-        "a settled admission should clear the stall interval"
+        !streams.stall_expired(one_and_a_half_waits),
+        "a settled admission should clear the accumulated interval"
     );
 }
 

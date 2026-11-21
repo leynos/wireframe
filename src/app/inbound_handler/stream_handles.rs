@@ -213,4 +213,14 @@ impl LoopState {
             serve_read_first: false,
         }
     }
+
+    /// Release the messages this connection still holds when it ends.
+    ///
+    /// The parked-bodies gauge is a process-wide total, so a connection that
+    /// stops with messages still parked must report them before its state is
+    /// dropped. The queue itself no longer reports anything; this is the
+    /// loop's own teardown step.
+    pub(super) fn release_parked(&mut self) {
+        crate::metrics::release_parked_bodies(self.parked.len());
+    }
 }

@@ -117,13 +117,19 @@ where
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
     let mut state = LoopState::new(QueuedBytes::new());
-    loop {
-        match connection.step(&mut state).await? {
-            Step::Continue => {}
-            Step::Closed => return Ok(()),
-            Step::Failed(error) => return Err(error),
+    let outcome = loop {
+        match connection.step(&mut state).await {
+            Ok(Step::Continue) => {}
+            Ok(Step::Closed) => break Ok(()),
+            // A failed step and a failed connection both end the loop with
+            // the error they carry.
+            Ok(Step::Failed(error)) | Err(error) => break Err(error),
         }
-    }
+    };
+    // A connection that stops with messages still parked drops them with its
+    // state, so the process-wide gauge is released before that happens.
+    state.release_parked();
+    outcome
 }
 
 impl<S, E, R, K, F> Connection<'_, S, E, R, K, F>
@@ -339,12 +345,15 @@ where
                 let dispatch = self
                     .dispatch_observed(state, queued, ObservedAction::Drain)
                     .await?;
+                if dispatch == Dispatch::Stop {
+                    // A reply abandoned mid-frame leaves a partial frame on the
+                    // wire, so queued pushes must not be written after it.
+                    return Ok(Step::Closed);
+                }
                 // Frames already queued are still delivered; anything pushed
                 // afterwards is rejected because the actor closes both lanes.
                 self.drain_pushes().await?;
-                match dispatch {
-                    Dispatch::Continue | Dispatch::Stop => Ok(Step::Closed),
-                }
+                Ok(Step::Closed)
             }
             Event::Frame(Err(error)) => {
                 let reason = io::Error::new(

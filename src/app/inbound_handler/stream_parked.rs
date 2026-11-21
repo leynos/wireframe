@@ -15,12 +15,11 @@
 use std::{
     collections::{HashMap, VecDeque},
     io,
-    time::Duration,
 };
 
 use bytes::Bytes;
 use futures::Sink;
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout_at};
 use tracing::warn;
 
 use super::{
@@ -29,15 +28,14 @@ use super::{
         envelope::{Envelope, Packet},
         frame_handling::{self, Dispatch, ResponseContext},
     },
-    stream_active::HandlerFuture,
     stream_diagnostics,
     stream_handles::{ChunkBudget, DispatchHandles},
-    stream_terminal::{HandlerWait, await_handler},
+    stream_terminal::{Delivery, HandlerWait, race_delivery},
 };
 use crate::{
     codec::FrameCodec,
     message::EncodeWith,
-    metrics::{StreamingBodyOutcome, add_parked_body, release_parked_bodies, release_parked_body},
+    metrics::{StreamingBodyOutcome, add_parked_body},
     request::{
         AccountedBodySender,
         DEFAULT_BODY_CHANNEL_CAPACITY,
@@ -79,10 +77,11 @@ pub(super) enum ParkedMessage {
 
 /// Completed messages waiting for the dispatch slot.
 ///
-/// The queue reports its length to the process-wide parked-bodies gauge on
-/// every change, and releases the messages a connection still holds when it
-/// drops, so the gauge totals every connection rather than showing one
-/// connection's occupancy.
+/// The queue is pure storage. It neither publishes the process-wide
+/// parked-bodies gauge nor releases anything when it drops: the commands that
+/// park, drain and tear down messages own that accounting, so the effect is
+/// visible at the operation that causes it rather than hidden inside a
+/// collection.
 #[derive(Default)]
 pub(super) struct ParkedQueue {
     /// Messages in arrival order.
@@ -103,25 +102,14 @@ impl ParkedQueue {
     /// Iterate over the queued messages in arrival order.
     pub(super) fn iter(&self) -> impl Iterator<Item = &ParkedMessage> { self.messages.iter() }
 
-    /// Remove the oldest message, releasing it from the gauge.
-    pub(super) fn pop_front(&mut self) -> Option<ParkedMessage> {
-        let message = self.messages.pop_front();
-        if message.is_some() {
-            release_parked_body();
-        }
-        message
-    }
+    /// Remove the oldest message.
+    ///
+    /// The caller reports the removal to the parked-bodies gauge, because only
+    /// it knows whether the message was dispatched or dropped.
+    pub(super) fn pop_front(&mut self) -> Option<ParkedMessage> { self.messages.pop_front() }
 
-    /// Append one message, charging it to the gauge.
-    fn push_back(&mut self, message: ParkedMessage) {
-        self.messages.push_back(message);
-        add_parked_body();
-    }
-}
-
-impl Drop for ParkedQueue {
-    /// Release the messages a connection still holds when it ends.
-    fn drop(&mut self) { release_parked_bodies(self.messages.len()); }
+    /// Append one message.
+    fn push_back(&mut self, message: ParkedMessage) { self.messages.push_back(message); }
 }
 
 /// Park one completed message, refusing to grow the queue past its cap.
@@ -140,6 +128,9 @@ pub(super) fn park(parked: &mut ParkedQueue, message: ParkedMessage) -> io::Resu
         ));
     }
     parked.push_back(message);
+    // Parking is the command that grows the queue, so it is the boundary that
+    // reports the new total to the process-wide gauge.
+    add_parked_body();
     Ok(())
 }
 
@@ -216,22 +207,25 @@ where
     .await
 }
 
-/// Resolve the streaming handler a parked message is addressed to.
+/// Look up the streaming handler a parked message is addressed to.
 ///
-/// A route with no streaming handler cannot answer, so the miss is reported and
-/// counted here rather than by every caller: the message is dropped with the
-/// same bounded `no_handler` outcome the live start path records, and an
-/// operator sees one vocabulary for both.
-pub(super) fn resolve_handler(
+/// The lookup is pure: a miss reports nothing and counts nothing, so the
+/// caller that drops the message is the one place the refusal is recorded.
+pub(super) fn lookup_streaming_handler(
     streaming_routes: &HashMap<u32, StreamingHandler>,
     route_id: u32,
 ) -> Option<StreamingHandler> {
-    let handler = streaming_routes.get(&route_id).cloned();
-    if handler.is_none() {
-        stream_diagnostics::no_streaming_handler(route_id);
-        StreamingBodyOutcome::NoHandler.record();
-    }
-    handler
+    streaming_routes.get(&route_id).cloned()
+}
+
+/// Refuse a parked message whose route has no streaming handler.
+///
+/// The refusal is a command in its own right: the message is dropped, the
+/// event and the counter carry one `no_handler` vocabulary shared with the live
+/// start path, and the pure lookup above stays free of both.
+pub(super) fn refuse_unrouted(route_id: u32) {
+    stream_diagnostics::no_streaming_handler(route_id);
+    StreamingBodyOutcome::NoHandler.record();
 }
 
 /// One assembled body waiting to reach a parked streaming handler.
@@ -257,7 +251,11 @@ where
     Envelope: EncodeWith<S>,
 {
     let route_id = parts.id();
-    let Some(streaming_handler) = resolve_handler(handles.ctx.streaming_routes, route_id) else {
+    let Some(streaming_handler) = lookup_streaming_handler(handles.ctx.streaming_routes, route_id)
+    else {
+        // A route with no streaming handler cannot answer, so the message is
+        // refused rather than left waiting for a handler that does not exist.
+        refuse_unrouted(route_id);
         return Ok(Dispatch::Continue);
     };
     let correlation_id = parts.correlation_id();
@@ -269,28 +267,28 @@ where
         body,
         message_id: route_id,
     };
-    deliver_prefilled(&sender, offer, budget, handles.wait).await;
-    drop(sender);
-    let payload = await_parked_reply(handles.wait, &mut response, route_id).await;
+    // The delivery and the reply share one deadline, and the handler is polled
+    // while the delivery waits: only the handler can release capacity that the
+    // shared account is missing, so awaiting the delivery alone would time out
+    // a body the handler was about to make room for.
+    let deadline = Instant::now() + handles.wait;
+    let settled = race_delivery(
+        deadline,
+        deliver_prefilled(sender, offer, budget, deadline),
+        &mut response,
+        StreamingBodyOutcome::Abandoned,
+    )
+    .await;
+    let payload = parked_reply(settled, route_id);
     forward_reply(route_id, correlation_id, payload, handles).await
 }
 
-/// Await a parked handler's reply, bounded by the connection's read wait.
+/// Turn a settled parked race into the reply the connection may forward.
 ///
-/// Parked messages are drained while the slot frees during normal operation and
-/// again at end of connection, so this await runs on the teardown path. The
-/// live slot bounds its equivalent wait in
-/// [`ConnectionStreams::close_active`](super::stream_slot::ConnectionStreams::close_active);
-/// without the same bound here, one handler that never completes would keep the
-/// connection closing and its resources allocated indefinitely. A handler that
-/// outlived the wait produces no reply, and is reported rather than being
-/// mistaken for one that chose to stay silent.
-async fn await_parked_reply(
-    wait: Duration,
-    response: &mut HandlerFuture,
-    route_id: u32,
-) -> Option<Bytes> {
-    match await_handler(wait, response).await {
+/// A handler that outlived the wait produced no answer, and the warning is the
+/// only evidence that it did not simply choose to stay silent.
+fn parked_reply(settled: HandlerWait, route_id: u32) -> Option<Bytes> {
+    match settled {
         HandlerWait::Replied(reply) => reply,
         HandlerWait::Deadline => {
             stream_diagnostics::handler_deadline_exceeded(route_id);
@@ -301,6 +299,10 @@ async fn await_parked_reply(
 
 /// Queue a fully assembled body as the only chunk of its stream.
 ///
+/// The sender is owned rather than borrowed: finishing this future drops it,
+/// which is what closes the body, so a handler polled alongside the delivery
+/// observes the end of its stream and can reply.
+///
 /// The queue starts empty, so the empty-queue exception admits the whole body
 /// even when it exceeds the remaining aggregate budget; assembly already
 /// enforced the per-message cap. The wait is still bounded, because the shared
@@ -310,26 +312,33 @@ async fn await_parked_reply(
 /// error, so the handler learns the upload was incomplete instead of waiting
 /// for a chunk that will never arrive.
 async fn deliver_prefilled(
-    sender: &AccountedBodySender,
+    sender: AccountedBodySender,
     offer: PrefilledOffer,
     budget: ChunkBudget,
-    wait: Duration,
-) {
+    deadline: Instant,
+) -> Delivery {
     let PrefilledOffer { body, message_id } = offer;
-    let sent = timeout(
-        wait,
+    let sent = timeout_at(
+        deadline,
         sender
             .clone()
             .send_chunk(body, budget.other_retained, budget.limit),
     )
     .await;
     match sent {
-        Ok(Ok(())) => StreamingBodyOutcome::Delivered.record(),
+        Ok(Ok(())) => {
+            StreamingBodyOutcome::Delivered.record();
+            Delivery::Accepted
+        }
         Ok(Err(error)) => {
             stream_diagnostics::prefilled_not_delivered(message_id, error);
             StreamingBodyOutcome::Abandoned.record();
+            Delivery::ReceiverGone
         }
-        Err(_) => refuse_prefilled(sender, message_id).await,
+        Err(_) => {
+            refuse_prefilled(&sender, message_id).await;
+            Delivery::TimedOut
+        }
     }
 }
 

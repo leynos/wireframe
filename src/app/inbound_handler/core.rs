@@ -2,7 +2,7 @@
 //!
 //! [`process_stream`] prepares the framed transport, assembly state, push
 //! queues, and response actor for one connection, then hands the reader, sink,
-//! and actor to [`stream_dispatch::run`]. [`decode_outcome`] turns a raw frame
+//! and actor to [`stream_dispatch::run`]. [`decode_and_assemble`] turns a raw frame
 //! into a [`FrameOutcome`] by decoding its envelope in
 //! [`parse_envelope`](super::dispatch::parse_envelope), reassembling fragments,
 //! and applying protocol-level assembly against the route tables carried by
@@ -10,7 +10,7 @@
 //!
 //! The streaming loop reaches this module through
 //! [`stream_frame::dispatch_frame`](super::stream_frame::dispatch_frame), which
-//! calls [`decode_outcome`] for every inbound frame.
+//! calls [`decode_and_assemble`] for every inbound frame.
 //!
 //! Push queues and the stop token arrive through [`StreamProcessingContext`]:
 //! the queue template the actor clones into these lanes, the server shutdown
@@ -195,7 +195,9 @@ where
 /// A frame that completes a logical message resets the consecutive-failure
 /// counter; a frame that merely validates does not. See
 /// [`clear_deser_failures_after`] for why each outcome is classified that way.
-pub(super) fn decode_outcome<S, F>(context: FrameBuildContext<'_, S, F>) -> io::Result<FrameOutcome>
+pub(super) fn decode_and_assemble<S, F>(
+    context: FrameBuildContext<'_, S, F>,
+) -> io::Result<FrameOutcome>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
     F: FrameCodec,

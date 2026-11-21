@@ -17,7 +17,7 @@ use super::{
         envelope::{Envelope, Packet},
         frame_handling::{self, Dispatch, FrameOutcome, ResponseContext},
     },
-    core::{FrameBuildContext, decode_outcome},
+    core::{FrameBuildContext, decode_and_assemble},
     stream_diagnostics,
     stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk, LoopState},
     stream_parked::{self, ParkedMessage, dispatch_parked},
@@ -77,7 +77,7 @@ where
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
     let stream_live = state.streams.is_live();
-    let outcome = decode_outcome(FrameBuildContext::<S, F> {
+    let outcome = decode_and_assemble(FrameBuildContext::<S, F> {
         frame,
         serializer: handles.ctx.serializer,
         message_assembler: handles.ctx.message_assembler,

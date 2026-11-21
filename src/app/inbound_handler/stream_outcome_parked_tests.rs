@@ -11,8 +11,15 @@ use std::collections::HashMap;
 
 use bytes::Bytes;
 use futures::StreamExt;
+use tokio::time::Instant;
 
-use super::{PrefilledOffer, deliver_prefilled, refuse_prefilled, resolve_handler};
+use super::{
+    PrefilledOffer,
+    deliver_prefilled,
+    lookup_streaming_handler,
+    refuse_prefilled,
+    refuse_unrouted,
+};
 use crate::{
     app::inbound_handler::{
         stream_handles::ChunkBudget,
@@ -32,6 +39,12 @@ const fn offer() -> PrefilledOffer {
         message_id: PARKED_MESSAGE_ID,
     }
 }
+
+/// The deadline one delivery runs under.
+///
+/// Paused time makes the length irrelevant to the assertion; the delivery and
+/// the handler simply share one instant.
+fn deadline() -> Instant { Instant::now() + wait() }
 
 /// A budget that admits the whole body into an empty account.
 const fn open_budget() -> ChunkBudget {
@@ -56,7 +69,7 @@ fn an_affordable_prefilled_body_is_counted_as_delivered() {
 
     let (observed, counts) = recorded(|| {
         paused_block_on(async {
-            deliver_prefilled(&sender, offer(), open_budget(), wait()).await;
+            deliver_prefilled(sender, offer(), open_budget(), deadline()).await;
             body.next().await
         })
     });
@@ -80,7 +93,12 @@ fn a_prefilled_body_refused_by_a_dropped_handler_is_abandoned() {
     drop(body);
 
     let (_, abandoned) = counted(StreamingBodyOutcome::Abandoned, || {
-        paused_block_on(deliver_prefilled(&sender, offer(), open_budget(), wait()))
+        paused_block_on(deliver_prefilled(
+            sender,
+            offer(),
+            open_budget(),
+            deadline(),
+        ))
     });
 
     assert_eq!(abandoned, 1, "the body the handler refused is counted once");
@@ -102,7 +120,7 @@ fn an_unaffordable_prefilled_body_is_counted_as_an_admission_timeout() {
                 .await
                 .expect("an empty queue admits one chunk");
             let (sender, mut body) = accounted_body_channel(1, queued);
-            deliver_prefilled(&sender, offer(), tight_budget(), wait()).await;
+            deliver_prefilled(sender, offer(), tight_budget(), deadline()).await;
             body.next().await
         })
     });
@@ -149,23 +167,51 @@ fn a_refused_body_whose_failure_is_not_delivered_is_also_abandoned() {
 }
 
 /// A parked message for a route with no handler is counted as no handler.
+///
+/// The count belongs to the refusal command, not to the lookup: the message is
+/// dropped at the decision, and an operator sees the same `no_handler`
+/// vocabulary the live start path records.
 #[test]
 fn a_missing_parked_handler_is_counted_as_no_handler() {
-    let mut routes = HashMap::new();
+    let routes: HashMap<u32, _> = HashMap::new();
 
-    let (missing, no_handler) = counted(StreamingBodyOutcome::NoHandler, || {
-        resolve_handler(&routes, PARKED_MESSAGE_ID)
+    let (missing, counts) = recorded(|| {
+        refuse_unrouted(PARKED_MESSAGE_ID);
+        lookup_streaming_handler(&routes, PARKED_MESSAGE_ID)
     });
 
     assert!(missing.is_none(), "no handler was registered");
-    assert_eq!(no_handler, 1, "the missing handler is counted once");
+    assert_eq!(
+        counts.count(StreamingBodyOutcome::NoHandler),
+        1,
+        "the refusal is counted once"
+    );
+}
+
+/// The lookup alone records nothing, whatever it finds.
+///
+/// A read-named helper that counted a miss would make every caller record the
+/// outcome a second time and would report a refusal where no message was
+/// dropped.
+#[test]
+fn the_lookup_alone_does_not_count_a_miss() {
+    let mut routes = HashMap::new();
+
+    let (missing, counts) = recorded(|| lookup_streaming_handler(&routes, PARKED_MESSAGE_ID));
+
+    assert!(missing.is_none(), "no handler was registered");
+    assert_eq!(
+        counts.count(StreamingBodyOutcome::NoHandler),
+        0,
+        "a lookup must not record the outcome its caller owns"
+    );
 
     routes.insert(PARKED_MESSAGE_ID, reading_route());
-    let (found, counts) = recorded(|| resolve_handler(&routes, PARKED_MESSAGE_ID));
+    let (found, resolved) = recorded(|| lookup_streaming_handler(&routes, PARKED_MESSAGE_ID));
 
     assert!(found.is_some(), "the registered handler is resolved");
     assert_eq!(
-        counts.count(StreamingBodyOutcome::NoHandler),
+        resolved.count(StreamingBodyOutcome::NoHandler),
         0,
         "a resolved handler is not a missing one"
     );

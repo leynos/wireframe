@@ -1,10 +1,11 @@
 //! Unit tests for the parked-message queue bounds.
 
-use std::{collections::VecDeque, future, time::Duration};
+use std::{collections::VecDeque, time::Duration};
 
 use bytes::Bytes;
 use futures::StreamExt;
 use proptest::prelude::*;
+use tokio::time::Instant;
 use tracing_test::traced_test;
 
 use super::{
@@ -12,16 +13,22 @@ use super::{
     ParkedMessage,
     ParkedQueue,
     PrefilledOffer,
-    await_parked_reply,
     deliver_prefilled,
     park,
     parked_bytes,
+    parked_reply,
+    race_delivery,
 };
 use crate::{
     app::{
         Envelope,
-        inbound_handler::{stream_active::HandlerFuture, stream_handles::ChunkBudget},
+        inbound_handler::{
+            stream_active::HandlerFuture,
+            stream_handles::ChunkBudget,
+            stream_terminal::HandlerWait,
+        },
     },
+    metrics::StreamingBodyOutcome,
     request::{QueuedBytes, RequestParts, accounted_body_channel},
 };
 
@@ -94,7 +101,7 @@ async fn an_unaffordable_prefilled_body_becomes_a_terminal_error() {
         body: Bytes::from_static(b"abcd"),
         message_id: PARKED_MESSAGE_ID,
     };
-    deliver_prefilled(&sender, offer, tight_budget(), wait()).await;
+    deliver_prefilled(sender, offer, tight_budget(), deadline()).await;
 
     let item = body
         .next()
@@ -124,7 +131,7 @@ async fn an_affordable_prefilled_body_arrives_whole() {
         body: Bytes::from_static(b"abcd"),
         message_id: PARKED_MESSAGE_ID,
     };
-    deliver_prefilled(&sender, offer, tight_budget(), wait()).await;
+    deliver_prefilled(sender, offer, tight_budget(), deadline()).await;
 
     let item = body
         .next()
@@ -145,9 +152,7 @@ async fn an_affordable_prefilled_body_arrives_whole() {
 #[traced_test]
 #[tokio::test(start_paused = true)]
 async fn an_unresponsive_prefilled_handler_is_bounded_by_the_wait() {
-    let mut response: HandlerFuture = Box::pin(future::pending());
-
-    let payload = await_parked_reply(wait(), &mut response, 7).await;
+    let payload = parked_reply(HandlerWait::Deadline, 7);
 
     assert_eq!(
         payload, None,
@@ -164,16 +169,63 @@ async fn an_unresponsive_prefilled_handler_is_bounded_by_the_wait() {
 
 #[tokio::test(start_paused = true)]
 async fn a_completed_prefilled_handler_reply_is_returned() {
-    let mut response: HandlerFuture = Box::pin(async { Some(Bytes::from_static(b"reply")) });
-
-    let payload = await_parked_reply(wait(), &mut response, 7).await;
+    let reply = HandlerWait::Replied(Some(Bytes::from_static(b"reply")));
 
     assert_eq!(
-        payload.as_deref(),
+        parked_reply(reply, 7).as_deref(),
         Some(b"reply".as_slice()),
         "a reply produced within the wait must still be forwarded"
     );
 }
+
+/// A parked handler is polled while its body waits for admission.
+///
+/// The handler can be the only thing that frees the account the delivery waits
+/// on: here it drops a stream an earlier body retained, and the pre-filled body
+/// is then admitted instead of timing out. Awaiting the delivery on its own
+/// would deadlock on capacity only the handler can release.
+#[tokio::test(start_paused = true)]
+async fn a_parked_handler_frees_the_capacity_its_body_waits_for() {
+    let queued = QueuedBytes::new();
+    let (holder, mut held) = accounted_body_channel(1, queued.clone());
+    holder
+        .send_chunk(Bytes::from_static(b"held"), 0, usize::MAX)
+        .await
+        .expect("an empty queue admits one chunk");
+    let (sender, mut body) = accounted_body_channel(1, queued);
+
+    let mut response: HandlerFuture = Box::pin(async move {
+        // Reading the held chunk releases the bytes the delivery waits for.
+        let _released = held.next().await;
+        let mut received = Vec::new();
+        while let Some(chunk) = body.next().await {
+            received.extend_from_slice(&chunk.ok()?);
+        }
+        Some(Bytes::from(received))
+    });
+
+    let offer = PrefilledOffer {
+        body: Bytes::from_static(b"abcd"),
+        message_id: PARKED_MESSAGE_ID,
+    };
+    let deadline = deadline();
+    let settled = race_delivery(
+        deadline,
+        deliver_prefilled(sender, offer, tight_budget(), deadline),
+        &mut response,
+        StreamingBodyOutcome::Abandoned,
+    )
+    .await;
+
+    assert_eq!(
+        settled,
+        HandlerWait::Replied(Some(Bytes::from_static(b"abcd"))),
+        "the handler freed room, so the whole body should reach it"
+    );
+}
+
+/// The deadline one delivery and its handler share.
+fn deadline() -> Instant { Instant::now() + wait() }
 
 /// Allow less room than four body bytes plus the held ones need.
 fn tight_budget() -> ChunkBudget {

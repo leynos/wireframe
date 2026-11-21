@@ -1,7 +1,7 @@
 //! Decoding one inbound frame's payload into an [`Envelope`].
 //!
 //! The frame loop hands each raw frame to
-//! [`core::decode_outcome`](super::core::decode_outcome), which decodes its
+//! [`core::decode_and_assemble`](super::core::decode_and_assemble), which decodes its
 //! envelope here, then reassembles and assembles it. Decoding is separated
 //! from those later stages because it is the only one that depends on the
 //! serializer's metadata layout rather than on connection-local buffering.

@@ -9,7 +9,7 @@
 use std::{future::Future, io, time::Duration};
 
 use bytes::Bytes;
-use tokio::time::timeout;
+use tokio::time::{Instant, sleep_until, timeout, timeout_at};
 
 use super::{
     stream_active::{BodyIdentity, HandlerFuture, PendingSend},
@@ -48,7 +48,7 @@ pub(super) struct TerminalFailure {
 
 /// What became of an attempt to deliver a body failure to its handler.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Delivery {
+pub(super) enum Delivery {
     /// The handler's channel accepted the failure.
     Accepted,
     /// The channel did not accept it within the wait.
@@ -81,7 +81,14 @@ pub(super) async fn deliver_then_await(
     sender: AccountedBodySender,
     handler: &mut HandlerFuture,
 ) -> HandlerWait {
-    race_delivery(wait, deliver_terminal(wait, failure, sender), handler).await
+    let deadline = Instant::now() + wait;
+    race_delivery(
+        deadline,
+        deliver_terminal(deadline, failure, sender),
+        handler,
+        StreamingBodyOutcome::DeliveryTimeout,
+    )
+    .await
 }
 
 /// Deliver a body's completed final chunk, then await the handler.
@@ -104,8 +111,9 @@ pub(super) async fn deliver_final_chunk_then_await(
     delivery: FinalDelivery,
     handler: &mut HandlerFuture,
 ) -> HandlerWait {
-    let sending = send_final_chunk(wait, delivery);
-    race_delivery(wait, sending, handler).await
+    let deadline = Instant::now() + wait;
+    let sending = send_final_chunk(deadline, delivery);
+    race_delivery(deadline, sending, handler, StreamingBodyOutcome::Abandoned).await
 }
 
 /// A completed final chunk on its way to its handler.
@@ -122,18 +130,29 @@ pub(super) struct FinalDelivery {
     pub(super) budget: ChunkBudget,
 }
 
-/// Race one delivery against the handler and the connection's wait.
+/// Race one delivery against the handler under one connection deadline.
 ///
 /// Racing rather than sequencing is what lets a delivery that needs a channel
 /// slot make progress: only the handler can free one, and it is not running
 /// while a delivery is awaited on its own.
-async fn race_delivery<D>(wait: Duration, delivery: D, handler: &mut HandlerFuture) -> HandlerWait
+///
+/// The delivery and the handler share one deadline. Giving the delivery its own
+/// wait would arm it one poll later than the outer bound, so the outer bound
+/// could fire first and drop the delivery before it recorded anything. When the
+/// deadline expires with the delivery still pending, the outcome it still owed
+/// is therefore recorded here, exactly once.
+pub(super) async fn race_delivery<D>(
+    deadline: Instant,
+    delivery: D,
+    handler: &mut HandlerFuture,
+    unsettled: StreamingBodyOutcome,
+) -> HandlerWait
 where
     D: Future<Output = Delivery>,
 {
     tokio::pin!(delivery);
-    let deadline = tokio::time::sleep(wait);
-    tokio::pin!(deadline);
+    let timer = sleep_until(deadline);
+    tokio::pin!(timer);
     let mut delivered: Option<Delivery> = None;
     loop {
         tokio::select! {
@@ -157,7 +176,15 @@ where
                 }
                 return HandlerWait::Replied(outcome);
             }
-            () = &mut deadline => return HandlerWait::Deadline,
+            () = &mut timer => {
+                // The deadline expired with the delivery unsettled, so this
+                // future drops it. Nothing else will report for it, so the
+                // outcome it owed is recorded once before returning.
+                if delivered.is_none() {
+                    unsettled.record();
+                }
+                return HandlerWait::Deadline;
+            }
         }
     }
 }
@@ -166,7 +193,7 @@ where
 ///
 /// A final chunk is the last thing a body sends, so no later chunk can report
 /// its fate: the outcome recorded here is the whole record of the body.
-async fn send_final_chunk(wait: Duration, delivery: FinalDelivery) -> Delivery {
+async fn send_final_chunk(deadline: Instant, delivery: FinalDelivery) -> Delivery {
     let FinalDelivery {
         identity,
         pending,
@@ -174,7 +201,7 @@ async fn send_final_chunk(wait: Duration, delivery: FinalDelivery) -> Delivery {
     } = delivery;
     let PendingSend { sender, chunk, .. } = pending;
     let admitted = sender.send_chunk(chunk, budget.other_retained, budget.limit);
-    match timeout(wait, admitted).await {
+    match timeout_at(deadline, admitted).await {
         Ok(Ok(())) => {
             StreamingBodyOutcome::Delivered.record();
             Delivery::Accepted
@@ -198,12 +225,12 @@ async fn send_final_chunk(wait: Duration, delivery: FinalDelivery) -> Delivery {
 /// The outcome is returned rather than only logged, because it decides whether
 /// waiting for the handler can still produce a reply worth forwarding.
 async fn deliver_terminal(
-    wait: Duration,
+    deadline: Instant,
     failure: TerminalFailure,
     sender: AccountedBodySender,
 ) -> Delivery {
     let TerminalFailure { identity, error } = failure;
-    match timeout(wait, sender.send_terminal(error)).await {
+    match timeout_at(deadline, sender.send_terminal(error)).await {
         Ok(Ok(())) => {
             StreamingBodyOutcome::Terminal.record();
             Delivery::Accepted
