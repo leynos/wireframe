@@ -7,6 +7,7 @@
 use std::{
     future::Future,
     net::SocketAddr,
+    panic::AssertUnwindSafe,
     sync::{
         Arc,
         Mutex,
@@ -14,13 +15,15 @@ use std::{
         PoisonError,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 
+use futures::FutureExt as _;
 use rstest::fixture;
 use wireframe_testing::ServerMode;
 
 use super::helpers::{TestResult, bind_loopback, spawn_frame_server, spawn_serving_task};
-use crate::{app::Envelope, client::WireframeClient};
+use crate::{app::Envelope, client::WireframeClient, test_helpers::ServerTaskGuard};
 
 /// Spawn a server that captures each received frame payload for inspection.
 ///
@@ -104,10 +107,13 @@ where
 ///
 /// The server task is accounted for on every exit path. On success the client
 /// is already dropped, so the serve loop ends and the join yields its result,
-/// propagating both the `JoinError` and the server's own I/O error. On failure
-/// the task is aborted and reaped instead: the client may never have connected,
-/// leaving the server parked in `accept`, so waiting for a loop that cannot end
-/// would hang the test rather than report the original error.
+/// propagating both the `JoinError` and the server's own I/O error. On a
+/// returned error or a panicking body the task is aborted and awaited instead:
+/// the client may never have connected, leaving the server parked in `accept`,
+/// so waiting for a loop that cannot end would hang the test rather than report
+/// the original outcome. Cancelling the harness future itself is the remaining
+/// path; the guard's abort-on-drop fallback stops the task there without
+/// awaiting it.
 async fn run_hook_test_with_server<F, T, R, S>(
     configure_hooks: F,
     test_body: T,
@@ -122,14 +128,11 @@ where
 {
     let (addr, server_task) = server.await?;
 
-    match drive_client(addr, configure_hooks, test_body).await {
-        Ok(()) => Ok(server_task.await??),
-        Err(error) => {
-            server_task.abort();
-            drop(server_task.await);
-            Err(error)
-        }
-    }
+    let ((), server_result) = ServerTaskGuard::new(server_task)
+        .run_and_join(drive_client(addr, configure_hooks, test_body))
+        .await?;
+
+    Ok(server_result?)
 }
 
 /// Connects a client, runs the body against it, and drops it before returning.
@@ -298,5 +301,67 @@ async fn server_task_panic_reaches_the_caller() {
     assert!(
         result.is_err(),
         "a panicking server task must fail the harness through its JoinError"
+    );
+}
+
+/// The harness must return the body's own connection error unchanged, and must
+/// not wait for a server that is parked where no client can reach it.
+///
+/// The listener is dropped before the client connects, so the connection is
+/// refused. The spawned task never accepts, so a natural join would block
+/// forever; the timeout turns that into a clear failure instead of a hung test.
+#[tokio::test]
+async fn body_error_is_returned_without_waiting_for_the_server() {
+    let server = async {
+        let (listener, addr) = bind_loopback().await?;
+        drop(listener);
+        let handle: tokio::task::JoinHandle<std::io::Result<()>> =
+            tokio::spawn(async { std::future::pending().await });
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>((addr, handle))
+    };
+
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(10),
+        run_hook_test_with_server(
+            |builder| builder,
+            |_client| Box::pin(async { Ok(()) }),
+            server,
+        ),
+    )
+    .await
+    .expect("the harness must not wait for a server that cannot finish");
+
+    let error = outcome.expect_err("a failed connection must be reported");
+    assert!(
+        error.downcast_ref::<crate::client::ClientError>().is_some(),
+        "expected the body's own connection error, got: {error}"
+    );
+}
+
+/// A panicking body must resume its original payload once the server is reaped.
+#[tokio::test]
+async fn body_panic_is_resumed_after_the_server_is_reaped() {
+    let server = async {
+        let (listener, addr) = bind_loopback().await?;
+        let handle: tokio::task::JoinHandle<std::io::Result<()>> = tokio::spawn(async move {
+            let _accepted = listener.accept().await?;
+            std::future::pending().await
+        });
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>((addr, handle))
+    };
+
+    let harness = run_hook_test_with_server(
+        |builder| builder,
+        |_client| Box::pin(async { panic!("body panicked") }),
+        server,
+    );
+
+    let outcome = AssertUnwindSafe(harness).catch_unwind().await;
+    let payload = outcome.expect_err("the body panic must be resumed");
+    let message = payload.downcast_ref::<&str>().copied();
+    assert_eq!(
+        message,
+        Some("body panicked"),
+        "the original panic payload must be resumed"
     );
 }

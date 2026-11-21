@@ -16,6 +16,7 @@ use crate::{
     client::{ClientError, TracingConfig, WireframeClient},
     rewind_stream::RewindStream,
     serializer::BincodeSerializer,
+    test_helpers::ServerTaskGuard,
 };
 
 /// Concrete client type returned by `builder().connect()` in tests.
@@ -26,20 +27,30 @@ type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::Tc
 ///
 /// The closure takes ownership of the client so that operations such as
 /// `close()` (which consumes `self`) work without lifetime gymnastics.
+///
+/// Client construction lives inside the guarded body, so a failed connection
+/// or a panicking closure still aborts and reaps the server. On success the
+/// server is joined before the body's values are used, and both the join
+/// failure and the server's own I/O error reach the caller.
 async fn with_echo_client<F, Fut>(config: TracingConfig, f: F) -> TestResult
 where
     F: FnOnce(TestClient, std::net::SocketAddr) -> Fut,
     Fut: std::future::Future<Output = ()>,
 {
     let (addr, server) = spawn_frame_server(ServerMode::Echo).await?;
-    let client = WireframeClient::builder()
-        .tracing_config(config)
-        .connect(addr)
+
+    let ((), server_result) = ServerTaskGuard::new(server)
+        .run_and_join(async move {
+            let client = WireframeClient::builder()
+                .tracing_config(config)
+                .connect(addr)
+                .await?;
+            f(client, addr).await;
+            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        })
         .await?;
-    f(client, addr).await;
-    // `f` owns the client, so it is dropped by now and the serve loop has ended;
-    // joining surfaces the server's own failure instead of discarding it.
-    server.await??;
+
+    server_result?;
     Ok(())
 }
 
