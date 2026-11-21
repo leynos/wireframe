@@ -23,6 +23,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+use rstest::{fixture, rstest};
 use tokio::{
     sync::mpsc,
     time::{Duration, timeout},
@@ -34,12 +35,16 @@ use super::{
     ConnectionChannels,
     UntrackedActorInit,
     event::Event,
+    multi_packet::MultiPacketContext,
+    output::ActiveOutput,
     state::ActorState,
 };
 use crate::{
+    NoProtocolError,
     app::Envelope,
+    correlation::CorrelatableFrame,
     hooks::ProtocolHooks,
-    push::PushQueues,
+    push::{PushConfigError, PushQueues},
     response::{FrameStream, Response, WireframeError},
 };
 
@@ -286,4 +291,84 @@ async fn drive_response_without_output_is_immediate() {
 
     assert!(sink.is_empty(), "no frames should be emitted");
     assert_eq!(calls.load(Ordering::SeqCst), 0, "no command should end");
+}
+
+/// Active-output configurations exercised by the correlation-stamping matrix.
+enum StampingSetup {
+    /// No active output source is installed.
+    NoOutput,
+    /// A multi-packet context exists but stamping is disabled.
+    DisabledContext,
+    /// A multi-packet channel stamps the supplied identifier.
+    EnabledWithCorrelation(u64),
+    /// A multi-packet channel is active but no identifier was supplied.
+    EnabledWithoutCorrelation,
+}
+
+/// Build an actor with rate-unlimited push queues for correlation tests.
+#[fixture]
+fn correlation_actor() -> Result<ConnectionActor<Envelope, NoProtocolError>, PushConfigError> {
+    let (queues, handle) = PushQueues::<Envelope>::builder()
+        .high_capacity(1)
+        .low_capacity(1)
+        .unlimited()
+        .build()?;
+    Ok(ConnectionActor::new(
+        queues,
+        handle,
+        None,
+        CancellationToken::new(),
+    ))
+}
+
+/// Correlation stamping replaces a frame's identifier only when an enabled
+/// context has an identifier to stamp; every other output state preserves the
+/// identifier the producer supplied.
+#[rstest]
+#[case::no_active_output_preserves_existing_id(StampingSetup::NoOutput, Some(99))]
+#[case::disabled_context_preserves_existing_id(StampingSetup::DisabledContext, Some(99))]
+#[case::enabled_stamps_configured_id(StampingSetup::EnabledWithCorrelation(7), Some(7))]
+#[case::enabled_without_id_preserves_existing_id(
+    StampingSetup::EnabledWithoutCorrelation,
+    Some(99)
+)]
+fn multi_packet_correlation_stamping_matches_the_active_output(
+    #[case] setup: StampingSetup,
+    #[case] expected: Option<u64>,
+    correlation_actor: Result<ConnectionActor<Envelope, NoProtocolError>, PushConfigError>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut actor = correlation_actor?;
+    // A bounded channel's receiver stays open only while its sender lives, so
+    // hold every sender until after the helper call under test.
+    let mut keep_alive = Vec::new();
+    match setup {
+        StampingSetup::NoOutput => {}
+        StampingSetup::DisabledContext => {
+            // Through the actor API `is_stamping_enabled` is only ever true,
+            // so install a disabled context directly. This pins the helper's
+            // early return; the predicate's own both-polarity coverage lives
+            // in `multi_packet::tests`.
+            actor.active_output = ActiveOutput::MultiPacket(MultiPacketContext::new());
+        }
+        StampingSetup::EnabledWithCorrelation(correlation_id) => {
+            let (tx, rx) = mpsc::channel(1);
+            keep_alive.push(tx);
+            actor.set_multi_packet_with_correlation(Some(rx), Some(correlation_id))?;
+        }
+        StampingSetup::EnabledWithoutCorrelation => {
+            let (tx, rx) = mpsc::channel(1);
+            keep_alive.push(tx);
+            actor.set_multi_packet(Some(rx))?;
+        }
+    }
+
+    let mut frame = Envelope::new(1, Some(99), vec![42]);
+    actor.apply_multi_packet_correlation(&mut frame);
+
+    assert_eq!(
+        frame.correlation_id(),
+        expected,
+        "the frame must keep or receive the expected correlation id"
+    );
+    Ok(())
 }

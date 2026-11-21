@@ -2,17 +2,20 @@
 #![cfg(not(loom))]
 #![forbid(unsafe_code)]
 
+use rstest::rstest;
 use wireframe::app::{Envelope, Packet, PacketParts};
 
-#[test]
-fn plain_envelope_is_not_a_stream_terminator() {
-    // `Envelope` does not override the `Packet::is_stream_terminator` default,
-    // so a plain data envelope must report `false`. Terminator tests all use
-    // types that override the method, leaving the default's false case unguarded.
-    let env = Envelope::new(1, None, vec![42]);
+/// `Envelope` does not override the `Packet::is_stream_terminator` default, so
+/// every envelope shape must report `false`, including an id-0 frame that a
+/// protocol using id 0 for its terminator could otherwise mistake.
+#[rstest]
+#[case::data_envelope(Envelope::new(1, None, vec![42]))]
+#[case::id_zero_frame(Envelope::new(0, None, vec![]))]
+#[case::correlated_envelope(Envelope::new(1, Some(7), vec![42]))]
+fn plain_envelope_is_not_a_stream_terminator(#[case] env: Envelope) {
     assert!(
         !env.is_stream_terminator(),
-        "assertion failed: !env.is_stream_terminator()"
+        "a plain Envelope must never report itself as a stream terminator"
     );
 }
 
