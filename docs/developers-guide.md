@@ -2617,9 +2617,11 @@ and drains any buffered log records, so the next test starts from a clean state.
 `DebuggingRecorder` reports and resets in one step: a snapshot swaps every
 counter and gauge back to zero. A test that asserts a gauge must therefore take
 exactly one snapshot at the lifecycle point it describes. A second snapshot
-reports only the change since the first, so an increment followed by a
-decrement reads as zero and no longer proves either happened. Where a later
-reading is unavoidable, treat it as a delta rather than an absolute value.
+reports only the updates made since the first: increments and decrements apply
+to the drained zero, so an increment followed by a decrement reads as zero and
+no longer proves either happened. Where a later reading is unavoidable, treat
+it as a delta only when the intervening updates are increments or decrements;
+an absolute `set` reports its latest value instead.
 
 `ObservabilityHandle` wraps the same recorder but exposes assertions for
 counters and histograms only. A gauge assertion reads `DebugValue::Gauge` from
