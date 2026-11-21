@@ -15,6 +15,8 @@
 
 #[path = "common/dispatch_fixtures.rs"]
 mod dispatch_fixtures;
+#[path = "common/hook_event_grammar.rs"]
+mod hook_event_grammar;
 #[path = "common/mixed_dispatch_property.rs"]
 mod mixed_dispatch_property;
 #[path = "common/recording_protocol.rs"]
@@ -23,6 +25,7 @@ mod recording_protocol;
 use std::sync::Arc;
 
 use dispatch_fixtures::{actor_with_hooks, queues, run_error};
+use hook_event_grammar::{TERMINATOR_TAG, before_send_order};
 use mixed_dispatch_property::{
     push_strategy,
     response_strategy,
@@ -132,4 +135,48 @@ async fn exercise_push_property_case(frames: &[Vec<u8>]) -> TestResult<()> {
         "the peer receives each frame with exactly one hook mutation"
     );
     Ok(())
+}
+
+/// A second terminator copy is a duplicate dispatch, not an ordinary frame.
+///
+/// The mixed-source grammar consumes the configured terminator immediately
+/// after the stream end. A terminator-tagged frame anywhere else must fail the
+/// grammar, rather than passing it and then being dropped by
+/// `non_terminator_frames`.
+#[test]
+fn duplicate_terminator_after_completion_is_rejected() {
+    let terminator = vec![TERMINATOR_TAG, 0];
+    let events = vec![
+        HookEvent::Setup,
+        HookEvent::StreamEnd,
+        HookEvent::BeforeSend(terminator.clone()),
+        HookEvent::CommandEnd,
+        HookEvent::BeforeSend(terminator.clone()),
+    ];
+    assert!(
+        before_send_order(&events, Some(&terminator)).is_err(),
+        "an extra terminator must not pass the grammar: {events:?}"
+    );
+}
+
+/// An ordinary push queued after completion still parses.
+///
+/// Completion ends the response source, not the connection's push lanes, so a
+/// push emitted after `CommandEnd` is a legal event between completions.
+#[test]
+fn push_after_completion_is_accepted() {
+    let terminator = vec![TERMINATOR_TAG, 0];
+    // First byte differs from the terminator tag, so this is an ordinary push.
+    let push = vec![0x01, 0, 0xaa];
+    let events = vec![
+        HookEvent::Setup,
+        HookEvent::StreamEnd,
+        HookEvent::BeforeSend(terminator.clone()),
+        HookEvent::CommandEnd,
+        HookEvent::BeforeSend(push.clone()),
+    ];
+    let Ok(frames) = before_send_order(&events, Some(&terminator)) else {
+        panic!("an ordinary push after completion keeps the grammar: {events:?}");
+    };
+    assert_eq!(frames, vec![terminator, push]);
 }

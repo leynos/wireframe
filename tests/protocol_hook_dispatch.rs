@@ -14,6 +14,8 @@
 mod dispatch_fixtures;
 #[path = "common/recording_protocol.rs"]
 mod recording_protocol;
+#[path = "common/recording_protocol_contexts.rs"]
+mod recording_protocol_contexts;
 #[path = "common/recording_protocol_ownership.rs"]
 mod recording_protocol_ownership;
 
@@ -25,6 +27,7 @@ use std::sync::{
 use dispatch_fixtures::{actor_with_hooks, queues, run_error};
 use futures::stream;
 use recording_protocol::{HookEvent, MARKER, RecordingProtocolFixture};
+use recording_protocol_contexts::contexts;
 use recording_protocol_ownership::{drop_count, is_alive, shared, strong_count, weak_handle};
 use rstest::rstest;
 use tokio::sync::mpsc;
@@ -104,6 +107,48 @@ async fn push_and_streamed_frames_run_before_send_once() -> TestResult<()> {
         "hook order must match emission order with no duplicate dispatch"
     );
     assert_no_eof_event(&events);
+    Ok(())
+}
+
+/// Every callback on a directly driven actor reuses the actor's one context.
+///
+/// A standalone actor has no server-assigned identity, so its context reports
+/// no connection identifier and no peer address. What matters is that every
+/// callback observes that one value rather than a freshly built context: the
+/// actor constructs its `ConnectionProtocol` once and dispatches setup and
+/// every later callback through it.
+#[rstest]
+#[tokio::test]
+async fn actor_callbacks_reuse_one_context() -> TestResult<()> {
+    let fixture = RecordingProtocolFixture::<Vec<u8>>::new(None);
+    let (queues, handle) = queues()?;
+    handle.push_high_priority(vec![1]).await?;
+    let mut actor = actor_with_hooks(
+        queues,
+        handle,
+        None,
+        ProtocolHooks::from_protocol(&shared(&fixture)),
+    );
+
+    let mut out = Vec::new();
+    actor
+        .run(&mut out)
+        .await
+        .map_err(|error| run_error(&error))?;
+
+    let observed = contexts(&fixture);
+    assert_eq!(
+        observed.len(),
+        2,
+        "setup and the pushed frame each observed a context: {observed:?}"
+    );
+    assert!(
+        observed
+            .iter()
+            .all(|observation| observation.connection_id.is_none()
+                && observation.peer_addr.is_none()),
+        "a standalone actor has no server-assigned identity: {observed:?}"
+    );
     Ok(())
 }
 

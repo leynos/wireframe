@@ -12,6 +12,7 @@
 
 use std::{
     fmt::Debug,
+    net::SocketAddr,
     sync::{
         Arc,
         Mutex,
@@ -25,7 +26,40 @@ use wireframe::{
     codec::EofError,
     hooks::{ConnectionContext, WireframeProtocol},
     push::PushHandle,
+    session::ConnectionId,
 };
+
+/// The callback that observed a [`ConnectionContext`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HookKind {
+    /// `on_connection_setup`.
+    Setup,
+    /// `before_send`.
+    BeforeSend,
+    /// `on_command_end`.
+    CommandEnd,
+    /// `handle_error`.
+    ProtocolError,
+    /// `stream_end_frame`.
+    StreamEnd,
+    /// `on_eof`.
+    Eof,
+}
+
+/// One callback's view of the connection context it received.
+///
+/// Tests compare these observations to prove that setup and every later
+/// callback on a connection agree on the connection's identity, which is what
+/// makes setup's context mutations visible to the rest of the connection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ObservedContext {
+    /// Callback that received the context.
+    pub hook: HookKind,
+    /// Connection identifier the context carried.
+    pub connection_id: Option<ConnectionId>,
+    /// Peer address the context carried.
+    pub peer_addr: Option<SocketAddr>,
+}
 
 /// Byte appended by [`RecordingProtocol::before_send`] to mark a frame.
 pub const MARKER: u8 = 0xb7;
@@ -80,6 +114,8 @@ impl MarkFrame for Bytes {
 pub struct RecordingProtocol<F> {
     /// Ordered hook events, shared with the fixture that created this value.
     events: Arc<Mutex<Vec<HookEvent<F>>>>,
+    /// Context state observed by each callback, in call order.
+    contexts: Arc<Mutex<Vec<ObservedContext>>>,
     /// Counts drops of installed protocol instances.
     drops: Arc<AtomicUsize>,
     /// Frame returned by `stream_end_frame`, if any.
@@ -101,6 +137,18 @@ where
             .unwrap_or_else(PoisonError::into_inner)
             .push(event);
     }
+
+    /// Record the connection state one callback observed.
+    fn observe(&self, hook: HookKind, ctx: &ConnectionContext) {
+        self.contexts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(ObservedContext {
+                hook,
+                connection_id: ctx.connection_id(),
+                peer_addr: ctx.peer_addr(),
+            });
+    }
 }
 
 impl<F> WireframeProtocol for RecordingProtocol<F>
@@ -110,27 +158,35 @@ where
     type Frame = F;
     type ProtocolError = ();
 
-    fn on_connection_setup(&self, _handle: PushHandle<Self::Frame>, _ctx: &mut ConnectionContext) {
+    fn on_connection_setup(&self, _handle: PushHandle<Self::Frame>, ctx: &mut ConnectionContext) {
+        self.observe(HookKind::Setup, ctx);
         self.record(HookEvent::Setup);
     }
 
-    fn before_send(&self, frame: &mut Self::Frame, _ctx: &mut ConnectionContext) {
+    fn before_send(&self, frame: &mut Self::Frame, ctx: &mut ConnectionContext) {
+        self.observe(HookKind::BeforeSend, ctx);
         self.record(HookEvent::BeforeSend(frame.clone()));
         frame.mark(MARKER);
     }
 
-    fn on_command_end(&self, _ctx: &mut ConnectionContext) { self.record(HookEvent::CommandEnd); }
+    fn on_command_end(&self, ctx: &mut ConnectionContext) {
+        self.observe(HookKind::CommandEnd, ctx);
+        self.record(HookEvent::CommandEnd);
+    }
 
-    fn handle_error(&self, (): Self::ProtocolError, _ctx: &mut ConnectionContext) {
+    fn handle_error(&self, (): Self::ProtocolError, ctx: &mut ConnectionContext) {
+        self.observe(HookKind::ProtocolError, ctx);
         self.record(HookEvent::ProtocolError);
     }
 
-    fn stream_end_frame(&self, _ctx: &mut ConnectionContext) -> Option<Self::Frame> {
+    fn stream_end_frame(&self, ctx: &mut ConnectionContext) -> Option<Self::Frame> {
+        self.observe(HookKind::StreamEnd, ctx);
         self.record(HookEvent::StreamEnd);
         self.terminator.clone()
     }
 
-    fn on_eof(&self, error: &EofError, partial_data: &[u8], _ctx: &mut ConnectionContext) {
+    fn on_eof(&self, error: &EofError, partial_data: &[u8], ctx: &mut ConnectionContext) {
+        self.observe(HookKind::Eof, ctx);
         self.record(HookEvent::Eof {
             error: *error,
             partial: partial_data.to_vec(),
@@ -145,6 +201,9 @@ where
 pub struct RecordingProtocolFixture<F> {
     /// Ordered hook events recorded by every instance built from this fixture.
     events: Arc<Mutex<Vec<HookEvent<F>>>>,
+    /// Context observations recorded by every instance built from this
+    /// fixture, in call order.
+    pub(super) contexts: Arc<Mutex<Vec<ObservedContext>>>,
     /// Drops of installed instances built from this fixture.
     pub(crate) drops: Arc<AtomicUsize>,
     /// Frame returned by `stream_end_frame`, if any.
@@ -160,6 +219,7 @@ where
     pub fn new(terminator: Option<F>) -> Self {
         Self {
             events: Arc::new(Mutex::new(Vec::new())),
+            contexts: Arc::new(Mutex::new(Vec::new())),
             drops: Arc::new(AtomicUsize::new(0)),
             terminator,
         }
@@ -170,6 +230,7 @@ where
     pub fn protocol(&self) -> RecordingProtocol<F> {
         RecordingProtocol {
             events: Arc::clone(&self.events),
+            contexts: Arc::clone(&self.contexts),
             drops: Arc::clone(&self.drops),
             terminator: self.terminator.clone(),
         }

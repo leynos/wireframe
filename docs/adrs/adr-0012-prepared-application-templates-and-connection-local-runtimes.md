@@ -501,20 +501,22 @@ ownership: `ProtocolHooks` is an enum whose `Protocol` form wraps a
 `ProtocolDispatch`, and that dispatch erases a possibly-`?Sized` protocol
 behind a single `Arc` instead of the six per-operation forwarding closures the
 old representation built. A protocol-backed connection therefore holds exactly
-one strong reference, and `on_connection_setup` runs at most once per hooks
-value. The frame pipeline holds a crate-private `ConnectionProtocol` pairing
-that hooks value with the connection's single `ConnectionContext`; it is the
-only hook owner on the prepared path, so the connection actor built there is
-handed `ProtocolHooks::None`. The actor's own `ConnectionProtocol` field then
-holds an inert `ConnectionContext` that no callback receives, and it holds no
-protocol reference; the pipeline's context is the only one the prepared path
-dispatches against. An actor driven directly through `with_hooks` is the single
-owner instead. That pairing is the input the ownership collapse under
-[#648](https://github.com/leynos/wireframe/issues/648) needs: the actor and
-pipeline can be folded into one runtime without revisiting hook semantics.
-Every packet-oriented outbound path now runs `before_send` exactly once per
-emitted packet — handler responses, push frames, streamed responses,
-multi-packet channel frames, and stream-end terminators — and no
+one strong reference once setup has completed — during setup the caller's
+reference is still alive alongside the pipeline's — and `on_connection_setup`
+runs at most once per hooks value. The frame pipeline holds a crate-private
+`ConnectionProtocol` pairing that hooks value with the connection's single
+`ConnectionContext`; it is the only hook owner on the prepared path, so the
+connection actor built there is handed `ProtocolHooks::None`. The actor's own
+`ConnectionProtocol` field then holds an inert snapshot of that context that no
+callback receives, and it holds no protocol reference; the pipeline's context
+is the only one the prepared path dispatches against, and setup receives that
+same value before it is installed. An actor driven directly through
+`with_hooks` is the single owner instead. That pairing is the input the
+ownership collapse under [#648](https://github.com/leynos/wireframe/issues/648)
+needs: the actor and pipeline can be folded into one runtime without revisiting
+hook semantics. Every packet-oriented outbound path now runs `before_send`
+exactly once per emitted packet — handler responses, push frames, streamed
+responses, multi-packet channel frames, and stream-end terminators — and no
 transport-frame hook is introduced, so the
 [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
 packet boundary is unchanged. Section 8 records that boundary against #644's
@@ -643,8 +645,8 @@ Replace application-owned `Arc` callback/assembler layers with direct or boxed
 ownership where they cannot escape independently
 ([#648](https://github.com/leynos/wireframe/issues/648)). Consolidate protocol
 ownership under [#644](https://github.com/leynos/wireframe/issues/644)
-(implemented): each connection now holds one strong protocol reference and one
-hook context, and the remaining collapse under
+(implemented): each connection now holds one strong protocol reference once
+setup has completed, and one hook context, and the remaining collapse under
 [#648](https://github.com/leynos/wireframe/issues/648) can build on that
 `ConnectionProtocol` pairing.
 
@@ -808,11 +810,14 @@ reference nor a context of its own; an actor driven directly through
 `with_hooks` owns its own value instead.
 
 `on_connection_setup` is the one callback that does not run through the
-pipeline: it runs once per connection from `build_connection_actor`, after the
-connection's `PushHandle` is published in the `SessionRegistry` and before the
-actor starts, because the push handle and registry entry come into existence
-there. It receives a context carrying the identifier the actor just published
-and the peer address; the pipeline's context carries the same pair and is the
-one every other callback sees. The reference used for that call is not
-retained, so a live connection still holds exactly one strong protocol
-reference. `on_eof` remains unreached on the prepared path.
+pipeline's dispatch methods: it runs once per connection from
+`build_connection_actor`, after the connection's `PushHandle` is published in
+the `SessionRegistry` and before the actor starts, because the push handle and
+registry entry come into existence there. It receives the connection's one hook
+context, carrying the identifier the actor just published and the peer address,
+and that same value is then installed in the pipeline, so any state setup
+leaves in the context is what every other callback observes. The actor itself
+keeps no hook context: it holds an inert snapshot of the same value for its
+connection-scoped logging, its hooks never dispatch, and the reference used for
+the setup call is not retained, so a live connection still holds exactly one
+strong protocol reference. `on_eof` remains unreached on the prepared path.
