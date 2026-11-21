@@ -4,15 +4,19 @@
 
 use std::io;
 
-use wireframe::codec::{
-    CodecError,
-    CodecErrorContext,
-    EofError,
-    FramingError,
-    ProtocolError,
-    RecoveryConfig,
-    RecoveryPolicy,
-    RecoveryPolicyHook,
+use rstest::rstest;
+use wireframe::{
+    WireframeError,
+    codec::{
+        CodecError,
+        CodecErrorContext,
+        EofError,
+        FramingError,
+        ProtocolError,
+        RecoveryConfig,
+        RecoveryPolicy,
+        RecoveryPolicyHook,
+    },
 };
 
 // ============================================================================
@@ -166,54 +170,47 @@ fn custom_hook_overrides_default_policy() {
 // WireframeError integration tests
 // ============================================================================
 
-#[test]
-fn wireframe_error_from_codec_method() {
-    use wireframe::WireframeError;
-
-    let codec_err = CodecError::Eof(EofError::CleanClose);
-    let wf_err: WireframeError<()> = WireframeError::from_codec(codec_err);
-
-    assert!(wf_err.is_clean_close());
-}
-
-#[test]
-fn wireframe_error_io_is_not_clean_close() {
-    use wireframe::WireframeError;
-
-    // The Io wrapper never represents a clean close, so `is_clean_close`
-    // forced to a constant `true` must fail here.
-    let wf_err: WireframeError<()> = WireframeError::from_io(io::Error::other("reset"));
-
-    assert!(!wf_err.is_clean_close());
-}
-
-#[test]
-fn wireframe_error_from_mid_frame_codec_is_not_clean_close() {
-    use wireframe::WireframeError;
-
-    // A non-EOF codec error wrapped at the `WireframeError` level must
-    // still report `false`, guarding the wrapper's own polarity.
-    let codec_err = CodecError::Framing(FramingError::InvalidLengthEncoding);
-    let wf_err: WireframeError<()> = WireframeError::from_codec(codec_err);
-
-    assert!(!wf_err.is_clean_close());
-}
-
-#[test]
-fn wireframe_error_protocol_is_not_clean_close() {
-    use wireframe::WireframeError;
-
-    // The Protocol variant carries no codec error, so the `matches!`
-    // guard must reject it.
-    let wf_err: WireframeError<&str> = WireframeError::from("boom");
-
-    assert!(!wf_err.is_clean_close());
+/// The wrapper's own polarity is what is under test here: only a codec clean
+/// close may report a clean close, while every other variant must report
+/// `false`. Covering only the `true` case would let a wrapper that always
+/// answers `true` pass the suite.
+#[rstest]
+#[case::clean_close(
+    WireframeError::<()>::from_codec(CodecError::Eof(EofError::CleanClose)),
+    true
+)]
+#[case::mid_frame(
+    WireframeError::<()>::from_codec(CodecError::Eof(EofError::MidFrame {
+        bytes_received: 100,
+        expected: 200,
+    })),
+    false
+)]
+#[case::mid_header(
+    WireframeError::<()>::from_codec(CodecError::Eof(EofError::MidHeader {
+        bytes_received: 2,
+        header_size: 4,
+    })),
+    false
+)]
+#[case::framing(
+    WireframeError::<()>::from_codec(CodecError::Framing(
+        FramingError::InvalidLengthEncoding,
+    )),
+    false
+)]
+#[case::io(WireframeError::<()>::from_io(io::Error::other("reset")), false)]
+#[case::protocol(WireframeError::<()>::from(()), false)]
+fn wireframe_error_is_clean_close(#[case] error: WireframeError<()>, #[case] expected: bool) {
+    assert_eq!(
+        error.is_clean_close(),
+        expected,
+        "unexpected clean-close classification for {error}"
+    );
 }
 
 #[test]
 fn wireframe_error_codec_variant_displays_correctly() {
-    use wireframe::WireframeError;
-
     let codec_err = CodecError::Framing(FramingError::OversizedFrame {
         size: 2000,
         max: 1024,
