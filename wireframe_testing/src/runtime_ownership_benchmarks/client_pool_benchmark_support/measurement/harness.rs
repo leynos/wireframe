@@ -81,7 +81,7 @@ impl PoolHarness {
 
         let started = Instant::now();
         let (server, pool, _preamble) =
-            wireframe::test_helpers::pool_client::build_preamble_pool(pool_config(workload))
+            wireframe::test_helpers::build_preamble_pool(pool_config(workload))
                 .await
                 .map_err(|err| format!("failed to build pooled client: {err}"))?;
         let construction = started.elapsed();
