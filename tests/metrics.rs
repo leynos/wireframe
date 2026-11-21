@@ -233,52 +233,47 @@ mod connection_and_handler_metrics {
         )
     }
 
-    /// Constructing an actor registers one active connection.
+    /// The gauge reports exactly the tracked actors alive at snapshot time.
     #[rstest]
-    fn constructing_an_actor_increments_the_active_connection_gauge(
+    #[case::while_alive(1.0, false)]
+    #[case::after_drop(0.0, true)]
+    fn active_connection_gauge_follows_actor_lifetime(
         push_queues: Result<(PushQueues<u8>, PushHandle<u8>), PushConfigError>,
+        #[case] expected: f64,
+        #[case] is_dropped_before_snapshot: bool,
     ) -> TestResult {
         let (queues, handle) = push_queues?;
         let recorder = DebuggingRecorder::new();
         let snapshotter = recorder.snapshotter();
 
         let entries = run_in_recorder(&recorder, async move {
-            let actor: ConnectionActor<u8, NoProtocolError> =
-                ConnectionActor::new(queues, handle, None, CancellationToken::new());
-            // Take the only snapshot while the actor still owns its guard.
+            let mut actor = Some(ConnectionActor::<u8, NoProtocolError>::new(
+                queues,
+                handle,
+                None,
+                CancellationToken::new(),
+            ));
+            if is_dropped_before_snapshot {
+                drop(actor.take());
+            }
+            // Take the only snapshot before the guard leaves scope, so a later
+            // drop cannot turn the reading into a delta.
             let snapshot = snapshotter.snapshot().into_vec();
             drop(actor);
             snapshot
         })?;
 
-        check_gauge(&entries, CONNECTIONS_ACTIVE, 1.0)?;
-        Ok(())
-    }
-
-    /// Dropping an unrun actor releases its active connection.
-    #[rstest]
-    fn dropping_an_unrun_actor_decrements_the_active_connection_gauge(
-        push_queues: Result<(PushQueues<u8>, PushHandle<u8>), PushConfigError>,
-    ) -> TestResult {
-        let (queues, handle) = push_queues?;
-        let recorder = DebuggingRecorder::new();
-        let snapshotter = recorder.snapshotter();
-
-        let entries = run_in_recorder(&recorder, async move {
-            let actor: ConnectionActor<u8, NoProtocolError> =
-                ConnectionActor::new(queues, handle, None, CancellationToken::new());
-            drop(actor);
-            snapshotter.snapshot().into_vec()
-        })?;
-
-        check_gauge(&entries, CONNECTIONS_ACTIVE, 0.0)?;
+        check_gauge(&entries, CONNECTIONS_ACTIVE, expected)?;
         Ok(())
     }
 
     /// A run driven to completion releases the active connection exactly once.
     #[rstest]
+    #[case::before_drop(false)]
+    #[case::after_drop(true)]
     fn completed_run_releases_the_active_connection_gauge(
         push_queues: Result<(PushQueues<u8>, PushHandle<u8>), PushConfigError>,
+        #[case] is_dropped_before_snapshot: bool,
     ) -> TestResult {
         let (queues, handle) = push_queues?;
         let recorder = DebuggingRecorder::new();
@@ -302,9 +297,14 @@ mod connection_and_handler_metrics {
                 &[1u8][..],
                 "the response frame must be emitted",
             )?;
-            // The actor still exists, but `run` released its connection guard.
+            // `run` has released the guard; the after-drop case also proves
+            // that destroying the actor does not release it a second time.
+            let mut tracked_actor = Some(actor);
+            if is_dropped_before_snapshot {
+                drop(tracked_actor.take());
+            }
             let snapshot = snapshotter.snapshot().into_vec();
-            drop(actor);
+            drop(tracked_actor);
             Ok::<_, String>(snapshot)
         })??;
 
