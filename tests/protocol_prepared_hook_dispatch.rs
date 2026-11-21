@@ -8,34 +8,34 @@
 #![cfg(not(loom))]
 #![forbid(unsafe_code)]
 
+#[path = "common/prepared_support.rs"]
+mod prepared_support;
 #[path = "common/protocol_request.rs"]
 mod protocol_request;
 #[path = "common/recording_protocol.rs"]
 mod recording_protocol;
+#[path = "common/recording_protocol_contexts.rs"]
+mod recording_protocol_contexts;
 #[path = "common/server_harness.rs"]
 mod server_harness;
 #[path = "common/tagging_codec.rs"]
 mod tagging_codec;
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use bytes::Bytes;
 use futures::stream;
+use prepared_support::{assert_context_continuity, marked, only_registered_handle, wait_for_setup};
 use protocol_request::request_frame;
 use recording_protocol::{HookEvent, MARKER, RecordingProtocolFixture};
 use rstest::rstest;
 use server_harness::{EVENT_TIMEOUT, read_frame, spawn_server, stop};
 use tagging_codec::{TaggingCodec, WRAP_TAG};
-use tokio::{
-    net::TcpStream,
-    sync::mpsc,
-    time::{Instant, sleep, timeout},
-};
+use tokio::{io::AsyncWriteExt, net::TcpStream, sync::mpsc, time::timeout};
 use wireframe::{
     app::{Envelope, Handler, ResponseHandler},
-    push::PushHandle,
     response::{FrameStream, Response},
-    serializer::BincodeSerializer,
+    serializer::{BincodeSerializer, Serializer},
     session::SessionRegistry,
 };
 use wireframe_testing::{TestResult, decode_frames, prepare_and_drive_with_frames};
@@ -78,11 +78,11 @@ fn two_frame_multi_packet_handler() -> ResponseHandler<Envelope> {
     })
 }
 
-/// Append the recording protocol's mutation to one frame.
-fn marked(payload: &[u8]) -> Vec<u8> {
-    let mut frame = payload.to_vec();
-    frame.push(MARKER);
-    frame
+/// Handler that returns one explicit response frame.
+fn single_frame_handler() -> ResponseHandler<Envelope> {
+    Arc::new(|_request: &Envelope| {
+        Box::pin(async { Response::Single(Envelope::new(1, None, b"resp".to_vec())) })
+    })
 }
 
 /// Assert the prepared contract for a handler that emits exactly two frames.
@@ -98,6 +98,10 @@ async fn assert_two_frame_source_is_hooked_once(
     context: &str,
 ) -> TestResult<()> {
     const TERMINATOR_BYTES: &[u8] = b"END";
+    // The request carries correlation 7, which the actor stamps onto every
+    // response frame; the handlers below supply the two payloads.
+    const REQUEST_CORRELATION: Option<u64> = Some(7);
+    const RESPONSE_ID: u32 = 2;
     let fixture =
         RecordingProtocolFixture::<Bytes>::new(Some(Bytes::from_static(TERMINATOR_BYTES)));
     let app = ResponseApp::new()?
@@ -105,6 +109,16 @@ async fn assert_two_frame_source_is_hooked_once(
         .with_protocol(fixture.protocol());
 
     let bytes = prepare_and_drive_with_frames(app, vec![request_frame(route_id)?]).await?;
+    let expected_first = BincodeSerializer.serialize(&Envelope::new(
+        RESPONSE_ID,
+        REQUEST_CORRELATION,
+        vec![1_u8],
+    ))?;
+    let expected_second = BincodeSerializer.serialize(&Envelope::new(
+        RESPONSE_ID,
+        REQUEST_CORRELATION,
+        vec![2_u8],
+    ))?;
 
     let events = fixture.events();
     let [
@@ -123,43 +137,34 @@ async fn assert_two_frame_source_is_hooked_once(
         .into());
     };
     assert_eq!(
+        first.as_ref(),
+        expected_first,
+        "{context}: the hook observes the handler's first frame"
+    );
+    assert_eq!(
+        second.as_ref(),
+        expected_second,
+        "{context}: the hook observes the handler's second frame"
+    );
+    assert_eq!(
         &terminator[..],
         TERMINATOR_BYTES,
         "the terminator reaches the hook as the protocol supplied it"
     );
-    let expected: Vec<Vec<u8>> = [first, second, terminator]
-        .into_iter()
-        .map(|frame| marked(frame))
-        .collect();
+    let expected: Vec<Vec<u8>> = [
+        expected_first.as_slice(),
+        expected_second.as_slice(),
+        TERMINATOR_BYTES,
+    ]
+    .into_iter()
+    .map(marked)
+    .collect();
     assert_eq!(
         decode_frames(&bytes)?,
         expected,
         "{context}: each frame and the terminator are hooked exactly once"
     );
     Ok(())
-}
-
-/// Wait until the prepared connection has dispatched `on_connection_setup`.
-async fn wait_for_setup(fixture: &RecordingProtocolFixture<Bytes>) -> TestResult<()> {
-    let deadline = Instant::now() + EVENT_TIMEOUT;
-    while fixture.events().is_empty() {
-        if Instant::now() >= deadline {
-            return Err("the prepared connection did not complete setup in time".into());
-        }
-        sleep(Duration::from_millis(5)).await;
-    }
-    Ok(())
-}
-
-/// Return the push handle of the single live connection.
-fn only_registered_handle(registry: &SessionRegistry<Bytes>) -> TestResult<PushHandle<Bytes>> {
-    let ids = registry.active_ids();
-    let [id] = ids.as_slice() else {
-        return Err(format!("expected exactly one live connection, got {}", ids.len()).into());
-    };
-    registry
-        .get(id)
-        .ok_or_else(|| "the live connection should publish its push handle".into())
 }
 
 /// The hook observes the codec-wrapped frame, after the serializer and the
@@ -283,6 +288,61 @@ async fn prepared_pushes_run_before_send_once_in_write_order() -> TestResult<()>
         ],
         "the prepared push path dispatches setup, then one before_send per frame in write order"
     );
+    assert_context_continuity(&fixture, &registry);
+
+    drop(client);
+    stop(&shutdown).await
+}
+
+/// A prepared connection shares one context between setup, a push, a handler
+/// response, and the completion hook.
+///
+/// The push is read before the request is sent, so the observed order does not
+/// depend on scheduler timing. Setup runs at the connection boundary and is
+/// the callback that learns the identity, so every later callback must report
+/// the identifier and peer address it saw.
+#[rstest]
+#[tokio::test]
+async fn prepared_connection_shares_one_context_across_push_and_response() -> TestResult<()> {
+    const REQUEST_CORRELATION: Option<u64> = Some(7);
+    let fixture = RecordingProtocolFixture::<Bytes>::new(None);
+    let registry = Arc::new(SessionRegistry::<Bytes>::new());
+    let app = ResponseApp::new()?
+        .route_response(1, single_frame_handler())?
+        .with_protocol(fixture.protocol())
+        .with_session_registry(Arc::clone(&registry));
+    let (addr, shutdown) = spawn_server(app).await?;
+    let mut client = TcpStream::connect(addr).await?;
+
+    wait_for_setup(&fixture).await?;
+    let handle = only_registered_handle(&registry)?;
+    handle
+        .push_high_priority(Bytes::from_static(b"push"))
+        .await
+        .map_err(|error| format!("the push should be accepted: {error:?}"))?;
+    let pushed = timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
+    client.write_all(&request_frame(1)?).await?;
+    let response = timeout(EVENT_TIMEOUT, read_frame(&mut client)).await??;
+
+    let expected_response =
+        BincodeSerializer.serialize(&Envelope::new(1, REQUEST_CORRELATION, b"resp".to_vec()))?;
+    assert_eq!(pushed, marked(b"push"), "the push carries one hook marker");
+    assert_eq!(
+        response,
+        marked(&expected_response),
+        "the handler response carries one hook marker"
+    );
+    assert_eq!(
+        fixture.events(),
+        vec![
+            HookEvent::Setup,
+            HookEvent::BeforeSend(Bytes::from_static(b"push")),
+            HookEvent::BeforeSend(Bytes::from(expected_response)),
+            HookEvent::CommandEnd,
+        ],
+        "setup, the push, the response and the completion hook share one order"
+    );
+    assert_context_continuity(&fixture, &registry);
 
     drop(client);
     stop(&shutdown).await
