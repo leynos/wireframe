@@ -22,7 +22,7 @@ use crate::{
     app::{
         Envelope,
         codec_driver::{FramePipeline, OutboundTransport, send_envelope},
-        combined_codec::CombinedCodec,
+        combined_codec::{ConnectionCodec, connection_codec},
     },
     codec::FrameCodec,
     connection::{ConnectionActor, ConnectionChannels, UntrackedActorInit},
@@ -150,7 +150,7 @@ impl FrameCodec for TestCodec {
 
 struct TestHarness {
     codec: TestCodec,
-    framed: tokio_util::codec::Framed<DuplexStream, CombinedCodec<TestAdapter, TestAdapter>>,
+    framed: tokio_util::codec::Framed<DuplexStream, ConnectionCodec<TestCodec>>,
     client: DuplexStream,
 }
 
@@ -169,8 +169,7 @@ fn small_harness() -> TestHarness {
 fn build_harness(max_frame_length: usize) -> TestHarness {
     let codec = TestCodec::new(max_frame_length);
     let (client, server) = tokio::io::duplex(256);
-    let combined = CombinedCodec::new(codec.decoder(), codec.encoder());
-    let framed = tokio_util::codec::Framed::new(server, combined);
+    let framed = tokio_util::codec::Framed::new(server, connection_codec(&codec));
 
     TestHarness {
         codec,
@@ -202,13 +201,13 @@ async fn send_envelope_wraps_with_codec(harness: TestHarness) {
 
     drop(framed);
 
-    let combined_client = CombinedCodec::new(codec.decoder(), codec.encoder());
-    let mut client_framed = tokio_util::codec::Framed::new(client, combined_client);
+    let mut client_framed = tokio_util::codec::Framed::new(client, connection_codec(&codec));
     let frame = client_framed
         .next()
         .await
         .expect("expected a frame")
-        .expect("decode should succeed");
+        .expect("decode should succeed")
+        .expect_frame();
 
     assert_eq!(frame.tag, 0x42, "wrap_payload should set tag to 0x42");
     assert_eq!(codec.wraps(), 1, "wrap_payload should advance codec state");
@@ -253,13 +252,13 @@ async fn before_send_observes_codec_wrapped_frame(harness: TestHarness) {
 
     drop(framed);
 
-    let combined_client = CombinedCodec::new(codec.decoder(), codec.encoder());
-    let mut client_framed = tokio_util::codec::Framed::new(client, combined_client);
+    let mut client_framed = tokio_util::codec::Framed::new(client, connection_codec(&codec));
     let frame = client_framed
         .next()
         .await
         .expect("expected a frame")
-        .expect("decode should succeed");
+        .expect("decode should succeed")
+        .expect_frame();
 
     assert_eq!(
         observed_tag.load(Ordering::SeqCst),

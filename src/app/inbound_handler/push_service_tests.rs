@@ -32,6 +32,9 @@ use crate::{
     push::{PushConfigError, PushHandle, PushQueues},
 };
 
+#[path = "push_service_tests/buffered_read.rs"]
+mod buffered_read;
+
 #[cfg(feature = "metrics")]
 #[path = "push_service_tests/idle_grace.rs"]
 mod idle_grace;
@@ -50,7 +53,7 @@ const LANE_CAPACITY: usize = 4;
 const READ_TIMEOUT_MS: u64 = 30_000;
 
 /// Inbound read state with nothing buffered and no silence under way.
-fn empty_inbound() -> InboundFrames<Bytes> {
+fn empty_inbound() -> InboundFrames<Bytes, Bytes> {
     InboundFrames {
         pending: None,
         pipeline: FramePipeline::new(None),

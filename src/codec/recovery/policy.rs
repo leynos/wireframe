@@ -4,6 +4,15 @@
 ///
 /// Each policy defines how the framework responds to a codec error.
 ///
+/// A hook selects a policy, but the connection loop records and applies the
+/// policy that survives its fallbacks. It escalates the selection to
+/// [`Self::Disconnect`] for end-of-file failures, for a non-disconnecting
+/// policy that would discard a frame the decoder did not consume, and for a
+/// [`Self::Drop`] beyond
+/// [`RecoveryConfig::max_consecutive_drops`](crate::codec::RecoveryConfig::max_consecutive_drops).
+/// The `wireframe_codec_errors_total` metric and the `on_error` callback both
+/// report the applied policy.
+///
 /// # Default Behaviour
 ///
 /// [`CodecError::default_recovery_policy`](crate::codec::CodecError::default_recovery_policy)

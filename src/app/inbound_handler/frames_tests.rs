@@ -67,7 +67,7 @@ async fn the_read_probe_returns_a_ready_frame() -> io::Result<()> {
 }
 
 /// Drive one read wait that a push batch cancels after 100 ms.
-async fn wait_cancelled_by_a_push<T, R>(inbound: &mut InboundFrames<T>, reader: &mut R)
+async fn wait_cancelled_by_a_push<T, R>(inbound: &mut InboundFrames<T, T>, reader: &mut R)
 where
     R: Stream<Item = io::Result<T>> + Unpin,
 {
@@ -147,7 +147,7 @@ struct ReadyPushRig<R> {
     /// Handle used to replenish the lane before each pass.
     handle: PushHandle<Bytes>,
     /// Buffered inbound state each pass expires.
-    inbound: InboundFrames<Bytes>,
+    inbound: InboundFrames<Bytes, Bytes>,
     /// Reader each pass gives its non-blocking chance.
     reader: R,
     /// Server stop token.
@@ -180,7 +180,7 @@ where
             .push_high_priority(Bytes::from_static(b"queued"))
             .await
             .expect("the lane has room for the next frame");
-        let step = next_stream_step::<LengthDelimitedFrameCodec, _>(
+        let step = next_stream_step::<LengthDelimitedFrameCodec, _, _>(
             &mut self.actor,
             StreamWait {
                 inbound: &mut self.inbound,
@@ -250,7 +250,7 @@ async fn a_buffered_frame_does_not_starve_a_ready_push() {
     let shutdown = CancellationToken::new();
     let (mut actor, handle) = push_actor(&shutdown);
     let buffered = Bytes::from_static(b"buffered");
-    let mut inbound = InboundFrames::<Bytes> {
+    let mut inbound = InboundFrames::<Bytes, Bytes> {
         pending: Some(buffered.clone()),
         pipeline: FramePipeline::new(None),
         message_assembly: None,
@@ -262,7 +262,7 @@ async fn a_buffered_frame_does_not_starve_a_ready_push() {
         .await
         .expect("the lane has room for one frame");
 
-    let step = next_stream_step::<LengthDelimitedFrameCodec, _>(
+    let step = next_stream_step::<LengthDelimitedFrameCodec, _, _>(
         &mut actor,
         StreamWait {
             inbound: &mut inbound,

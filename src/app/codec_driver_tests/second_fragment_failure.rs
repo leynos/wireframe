@@ -15,7 +15,10 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_util::codec::Framed;
 
 use super::*;
-use crate::{app::combined_codec::ConnectionCodec, connection::FrameSink};
+use crate::{
+    app::combined_codec::{ConnectionCodec, connection_codec},
+    connection::FrameSink,
+};
 
 /// Writer that accepts whole writes until a chosen attempt, then fails.
 ///
@@ -104,10 +107,7 @@ fn fragmented_pipeline() -> FramePipeline<Bytes> {
 
 /// Framed transport whose second write fails.
 fn failing_framed(codec: &TestCodec) -> Framed<FailingWriter, ConnectionCodec<TestCodec>> {
-    Framed::new(
-        FailingWriter::new(1),
-        CombinedCodec::new(codec.decoder(), codec.encoder()),
-    )
+    Framed::new(FailingWriter::new(1), connection_codec(codec))
 }
 
 /// A failure on the second fragment is reported and abandons the rest.

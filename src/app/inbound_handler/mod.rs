@@ -49,6 +49,7 @@ mod framing;
 mod peer_watch;
 mod push_service;
 mod push_write;
+mod recovery;
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
@@ -66,7 +67,7 @@ use super::{
     middleware_types::Middleware,
 };
 use crate::{
-    codec::FrameCodec,
+    codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
     frame::FrameMetadata,
     hooks::{ProtocolHooks, WireframeProtocol},
     message::{DecodeWith, EncodeWith},
@@ -118,6 +119,10 @@ where
     pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
     /// Peer address of the accepted socket, when the server reported one.
     pub(crate) peer_addr: Option<SocketAddr>,
+    /// Optional hook consulted when a decoder fails on this connection.
+    pub(crate) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
+    /// Global recovery settings copied for this connection.
+    pub(crate) recovery_config: RecoveryConfig,
 }
 
 /// Drive a connection using immutable application inputs and prepared routes.
@@ -160,6 +165,8 @@ where
         push_queues,
         session_registry,
         peer_addr,
+        recovery_hook,
+        recovery_config,
     } = context;
 
     let mut runtime = ConnectionRuntime::new(
@@ -178,6 +185,8 @@ where
             push_queues,
             session_registry,
             peer_addr,
+            recovery_hook,
+            recovery_config,
         },
     );
 
@@ -275,6 +284,8 @@ where
                 // This compatibility path is handed a stream rather than an
                 // accepted socket, so it has no peer address to report.
                 peer_addr: None,
+                recovery_hook: self.recovery_hook.as_deref(),
+                recovery_config: self.recovery_config.clone(),
             },
         )
         .await

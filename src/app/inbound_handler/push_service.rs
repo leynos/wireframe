@@ -35,11 +35,15 @@ use crate::{
 mod tests;
 
 /// Outcome of waiting for the next unit of work on a connection.
-pub(super) enum StreamStep<F: FrameCodec> {
+///
+/// `I` is the item the framed reader yields. The recovery-aware decoder yields
+/// a frame or a captured decode failure, while `F::Frame` is still the type the
+/// shared state buffers.
+pub(super) enum StreamStep<F: FrameCodec, I> {
     /// Frames taken from the connection's push queues, in priority order.
     Pushes(PendingPushes<F::Frame>),
-    /// One inbound frame read from the client.
-    Frame(F::Frame),
+    /// One item read from the client: a frame, or a captured decode failure.
+    Frame(I),
     /// Every push lane closed, so only the inbound read remains.
     Idle,
     /// The client closed its write half at a frame boundary, or the server
@@ -52,12 +56,12 @@ pub(super) enum StreamStep<F: FrameCodec> {
 /// Grouped because the wait needs the buffered frame, the reader, and the
 /// shutdown token together, and a positional list of that length is easy to
 /// pass in the wrong order.
-pub(super) struct StreamWait<'a, F, R>
+pub(super) struct StreamWait<'a, F, R, I>
 where
     F: FrameCodec,
 {
-    /// Buffered inbound frame and the state its read timeout purges.
-    pub(super) inbound: &'a mut InboundFrames<F::Frame>,
+    /// Buffered inbound item and the state its read timeout purges.
+    pub(super) inbound: &'a mut InboundFrames<I, F::Frame>,
     /// Read half of the connection's framed transport.
     pub(super) reader: &'a mut R,
     /// Maximum interval to wait for the next inbound frame.
@@ -88,13 +92,13 @@ where
 /// # Errors
 ///
 /// Returns the transport error reported by the reader.
-pub(super) async fn next_stream_step<F, R>(
+pub(super) async fn next_stream_step<F, R, I>(
     actor: &mut ConnectionActor<Envelope, (), F::Frame>,
-    wait: StreamWait<'_, F, R>,
-) -> io::Result<StreamStep<F>>
+    wait: StreamWait<'_, F, R, I>,
+) -> io::Result<StreamStep<F, I>>
 where
     F: FrameCodec,
-    R: Stream<Item = io::Result<F::Frame>> + Unpin,
+    R: Stream<Item = io::Result<I>> + Unpin,
 {
     let StreamWait {
         inbound,
@@ -197,7 +201,7 @@ where
 /// Grouped because a push write keeps polling the read half while it is
 /// pending, so the frames and the observation state travel together; a
 /// positional list of five arguments is easy to pass in the wrong order.
-pub(super) struct PushBatch<'a, F, R>
+pub(super) struct PushBatch<'a, F, R, I>
 where
     F: FrameCodec,
 {
@@ -207,8 +211,8 @@ where
     pub(super) priority: Option<PushPriority>,
     /// Read half of the connection's framed transport.
     pub(super) reader: &'a mut R,
-    /// Frame read during the write, kept for the next dispatch.
-    pub(super) pending_frame: &'a mut Option<F::Frame>,
+    /// Item read during the write, kept for the next dispatch.
+    pub(super) pending_frame: &'a mut Option<I>,
     /// Inbound state that keeps expiring while the write is stalled.
     pub(super) expiry: InboundExpiry<'a>,
     /// Cancelled only by a clean EOF, which is permanent for the connection.
@@ -238,16 +242,16 @@ where
 /// # Errors
 ///
 /// Returns the transport error raised by the write or by the read half.
-pub(super) async fn deliver_pushes<S, K, F, R>(
+pub(super) async fn deliver_pushes<S, K, F, R, I>(
     transport: &mut PushTransport<'_, S, K, F>,
     actor: &mut ConnectionActor<Envelope, (), F::Frame>,
-    mut batch: PushBatch<'_, F, R>,
+    mut batch: PushBatch<'_, F, R, I>,
 ) -> io::Result<bool>
 where
     S: Serializer + Send + Sync,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
-    R: Stream<Item = io::Result<F::Frame>> + Unpin,
+    R: Stream<Item = io::Result<I>> + Unpin,
 {
     let mut peer_closed = batch.peer_eof.is_cancelled();
     for frame in std::mem::take(&mut batch.frames) {

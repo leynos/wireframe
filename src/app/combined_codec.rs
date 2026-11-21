@@ -3,6 +3,7 @@
 use bytes::BytesMut;
 use tokio_util::codec::{Decoder, Encoder};
 
+use super::recovery_codec::RecoveryDecoder;
 use crate::codec::FrameCodec;
 
 /// Adapter combining independent decoder and encoder halves for `Framed`.
@@ -19,8 +20,21 @@ impl<D, E> CombinedCodec<D, E> {
 }
 
 /// Codec type selected from a [`FrameCodec`] implementation.
+///
+/// The decoder half is wrapped by [`RecoveryDecoder`], so the stream item is a
+/// [`DecodedItem`](super::recovery_codec::DecodedItem) carrying either a real
+/// frame or a recovery failure. The encoder half is unchanged, so the sink
+/// still accepts `F::Frame`.
 pub(super) type ConnectionCodec<F> =
-    CombinedCodec<<F as FrameCodec>::Decoder, <F as FrameCodec>::Encoder>;
+    CombinedCodec<RecoveryDecoder<<F as FrameCodec>::Decoder>, <F as FrameCodec>::Encoder>;
+
+/// Build the recovery-aware connection codec from a codec template.
+///
+/// Cloning and constructing happen per connection so stateful decoders and
+/// encoders start from the template's initial state.
+pub(super) fn connection_codec<F: FrameCodec>(codec: &F) -> ConnectionCodec<F> {
+    CombinedCodec::new(RecoveryDecoder::new(codec.decoder()), codec.encoder())
+}
 
 impl<D, E> Decoder for CombinedCodec<D, E>
 where

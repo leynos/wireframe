@@ -12,7 +12,9 @@ use log::warn;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::codec::Framed;
 
-use super::super::combined_codec::{CombinedCodec, ConnectionCodec};
+// The decoder half is recovery-aware, so a decoder failure arrives as a
+// stream item rather than terminating the stream.
+use super::super::combined_codec::{ConnectionCodec, connection_codec};
 use crate::codec::{FrameCodec, MAX_FRAME_LENGTH, clamp_frame_length};
 
 /// Per-connection framing state shared by the inbound reader and response
@@ -24,7 +26,7 @@ where
     /// Codec clone that carries per-connection framing state.
     pub(super) codec: F,
     /// Framed stream built from the codec's decoder and encoder.
-    pub(super) framed: Framed<W, CombinedCodec<F::Decoder, F::Encoder>>,
+    pub(super) framed: Framed<W, ConnectionCodec<F>>,
 }
 
 /// Write half of a framed connection transport.
@@ -55,10 +57,9 @@ where
 {
     // Each connection needs isolated framing state: cloning resets the
     // counters `SeqFrameCodec` and `TaggedFrameCodec::wrap_payload` consume.
-    let connection_codec = codec.clone();
-    let combined = CombinedCodec::new(connection_codec.decoder(), connection_codec.encoder());
-    let mut framed = Framed::new(stream, combined);
-    let requested_frame_length = connection_codec.max_frame_length();
+    let session_codec = codec.clone();
+    let mut framed = Framed::new(stream, connection_codec(&session_codec));
+    let requested_frame_length = session_codec.max_frame_length();
     let max_frame_length = clamp_frame_length(requested_frame_length);
     if requested_frame_length > MAX_FRAME_LENGTH {
         warn!(
@@ -68,7 +69,7 @@ where
     }
     framed.read_buffer_mut().reserve(max_frame_length);
     ConnectionFraming {
-        codec: connection_codec,
+        codec: session_codec,
         framed,
     }
 }

@@ -59,7 +59,6 @@ impl PacedSink {
     fn immediate() -> (Self, Arc<Mutex<Vec<Bytes>>>) { Self::with_pacing(None) }
 
     /// Share a sink whose writes stay pending, so a write never completes.
-    #[cfg(feature = "metrics")]
     fn blocked() -> (Self, Arc<Mutex<Vec<Bytes>>>) {
         let (mut sink, accepted) = Self::with_pacing(None);
         sink.never_ready = true;
@@ -203,7 +202,6 @@ pub(super) fn immediate_transport() -> TransportRig {
 }
 
 /// A rig whose sink never accepts a write, so a pending write is abandoned.
-#[cfg(feature = "metrics")]
 #[fixture]
 pub(super) fn blocked_transport() -> TransportRig {
     let (sink, accepted) = PacedSink::blocked();

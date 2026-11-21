@@ -21,19 +21,28 @@
 //! the peer address diagnostics report. The loop observes shutdown between
 //! units, so a handler kept alive by its own pushes still ends when the server
 //! stops.
+//!
+//! A decoder failure is not an end of stream. The framed transport reports it
+//! as an in-band [`DecodedItem::Failure`], and the loop's
+//! [`RecoveryCoordinator`] asks the application's recovery hook what to do:
+//! discard the frame, quarantine the connection briefly, or disconnect with the
+//! decoder's own error. A failure buffered behind a response that ends the
+//! connection is reported by [`settle_dispatch`], and one still buffered when
+//! reading stops by [`report_pending_failure`], so every failure is observed
+//! exactly once even when no policy can act on it.
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
-use log::debug;
 use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 
+// The modules below re-export the names their sibling steps use, so the loop's
+// own file imports only what its definition, construction and read wait need.
 use super::{
     super::{
-        PushWriteDiagnostics,
         codec_driver::FramePipeline,
         envelope::{Envelope, Packet},
-        frame_handling::{self, Dispatch},
+        frame_handling,
         memory_budgets::MemoryBudgets,
     },
     actor::{
@@ -43,31 +52,46 @@ use super::{
         build_connection_actor,
         observe_peer,
     },
-    dispatch::{FrameHandlingContext, handle_frame},
-    frames::{InboundExpiry, InboundFrames},
+    frames::InboundFrames,
     framing::{TransportSink, TransportStream, prepare_connection_framing},
-    peer_watch::{PeerObservation, handle_watching_peer},
-    push_service::{
-        PushBatch,
-        PushTransport,
-        StreamStep,
-        StreamWait,
-        deliver_pushes,
-        drain_queued,
-        next_stream_step,
-    },
+    push_service::{StreamStep, StreamWait, next_stream_step},
+    recovery::{RecoveryCoordinator, report_pending_failure},
 };
 use crate::{
-    codec::FrameCodec,
-    connection::PendingPushes,
+    codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
     frame::FrameMetadata,
     hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
-    message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
     push::PushQueuesBuilder,
     serializer::Serializer,
     session::SessionRegistry,
+};
+// The sibling step modules are inherent methods on the loop and reach its
+// private state, so they live in sibling files to keep this module within the
+// size limit. They import the shared vocabulary below rather than repeating
+// its crate paths.
+#[path = "core_dispatch.rs"]
+mod dispatch_steps;
+#[path = "core_pushes.rs"]
+mod push_steps;
+// The memory-pressure exit has to drive the loop's own `step`, because the
+// failure it reports never reaches the read or dispatch steps.
+#[cfg(test)]
+#[path = "core_pressure_tests.rs"]
+mod pressure_tests;
+
+pub(super) use super::{
+    super::{PushWriteDiagnostics, frame_handling::Dispatch, recovery_codec::DecodedItem},
+    dispatch::{FrameHandlingContext, handle_frame},
+    frames::InboundExpiry,
+    peer_watch::{PeerObservation, handle_watching_peer},
+    push_service::{PushBatch, PushTransport, deliver_pushes, drain_queued},
+    recovery::{resolve_read_item, settle_dispatch},
+};
+pub(super) use crate::{
+    connection::PendingPushes,
+    message::{DecodeWith, EncodeWith},
 };
 
 /// Immutable stream-wide configuration shared by all inbound frames.
@@ -103,6 +127,10 @@ where
     pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
     /// Peer address of the accepted socket, when the server reported one.
     pub(crate) peer_addr: Option<SocketAddr>,
+    /// Optional hook consulted when a decoder fails on this connection.
+    pub(crate) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
+    /// Global recovery settings copied for this connection.
+    pub(crate) recovery_config: RecoveryConfig,
 }
 
 /// Per-connection state driven by the inbound read loop.
@@ -119,8 +147,8 @@ where
     reader: TransportStream<W, F>,
     /// Per-connection codec clone retaining framing state.
     codec: F,
-    /// Buffered inbound frame and the state a read timeout purges.
-    inbound: InboundFrames<F::Frame>,
+    /// Buffered inbound item and the state a read timeout purges.
+    inbound: InboundFrames<DecodedItem<F::Frame>, F::Frame>,
     /// Consecutive deserialization failures seen on this connection.
     deser_failures: u32,
     /// Serializer shared with the actor and the transport sink.
@@ -137,6 +165,8 @@ where
     read_timeout_ms: u64,
     /// Token whose cancellation stops this connection's inbound read.
     shutdown: CancellationToken,
+    /// Hook consultation and drop accounting for decoder failures.
+    recovery: RecoveryCoordinator<'a>,
     /// Whether the next wait should poll the inbound read before the queues.
     ///
     /// Set after a push batch so a continuously ready push lane cannot win
@@ -174,6 +204,8 @@ where
             push_queues,
             session_registry,
             peer_addr,
+            recovery_hook,
+            recovery_config,
         } = context;
         let (sink, reader, connection_codec) = prepare_connection_framing(stream, codec).split();
         let requested_frame_length = connection_codec.max_frame_length();
@@ -228,6 +260,8 @@ where
             budgets,
             read_timeout_ms,
             shutdown: read_shutdown,
+            recovery: RecoveryCoordinator::new(recovery_hook, recovery_config)
+                .with_peer_address(peer_addr),
             serve_read_first: false,
             response_actor,
             peer_eof,
@@ -237,6 +271,22 @@ where
 
     /// Read and process frames until the stream closes or an I/O error occurs.
     async fn run(mut self) -> io::Result<()> {
+        let result = self.drive().await;
+        self.report_buffered_failure();
+        result
+    }
+
+    /// Report a failure still buffered when reading stops.
+    ///
+    /// Reading can stop for a reason that is not the failure itself: memory
+    /// pressure, a cancelled read, or a response that ends the connection.
+    /// Reporting it here is the only observation such a failure receives.
+    fn report_buffered_failure(&mut self) {
+        report_pending_failure(&mut self.inbound, &self.recovery);
+    }
+
+    /// Perform inbound work until the connection ends.
+    async fn drive(&mut self) -> io::Result<()> {
         // Each iteration performs one unit of work, so the loop body is empty;
         // `step` reports whether the connection may continue.
         while self.step().await? {}
@@ -245,7 +295,14 @@ where
 
     /// Perform one unit of inbound work, reporting whether to continue.
     async fn step(&mut self) -> io::Result<bool> {
-        self.inbound.relieve_pressure(self.budgets).await?;
+        if let Err(error) = self.inbound.relieve_pressure(self.budgets).await {
+            // Memory pressure ends the connection before another read, so a
+            // failure buffered from an earlier pass would otherwise be lost
+            // behind the pressure error. Reporting it first keeps the
+            // once-per-failure counter true for every failure.
+            self.report_buffered_failure();
+            return Err(error);
+        }
         let Some(step) = self.wait_for_step().await? else {
             return Ok(false);
         };
@@ -260,7 +317,7 @@ where
     /// lane wins every biased pass, so without this arm a busy push stream
     /// would hide the stop from the connection task and the server drain
     /// waiting on it.
-    async fn wait_for_step(&mut self) -> io::Result<Option<StreamStep<F>>> {
+    async fn wait_for_step(&mut self) -> io::Result<Option<StreamStep<F, DecodedItem<F::Frame>>>> {
         tokio::select! {
             biased;
             () = self.shutdown.cancelled() => Ok(None),
@@ -275,111 +332,6 @@ where
                 },
             ) => step.map(Some),
         }
-    }
-
-    /// Act on one unit of work, reporting whether the connection continues.
-    async fn handle_step(&mut self, step: StreamStep<F>) -> io::Result<bool> {
-        match step {
-            StreamStep::Pushes(pending) => self.write_pushes(pending).await,
-            StreamStep::Idle => {
-                debug!("push lanes closed; continuing to wait for the next frame");
-                Ok(true)
-            }
-            StreamStep::Closed => {
-                // Frames already queued are still delivered; anything pushed
-                // afterwards is rejected because the actor closes both lanes.
-                self.drain_pushes().await?;
-                Ok(false)
-            }
-            // A failed or cancelled response leaves its stream without a
-            // terminator, so a later response would be read as part of the
-            // truncated stream. Stop instead.
-            StreamStep::Frame(frame) => Ok(self.dispatch(frame).await? == Dispatch::Continue),
-        }
-    }
-
-    /// Decode, reassemble, and dispatch one inbound frame while watching the
-    /// peer for a disconnect.
-    async fn dispatch(&mut self, frame: F::Frame) -> io::Result<Dispatch> {
-        let (unobserved, cause) = observe_peer(&mut self.response_actor.actor, &self.peer_eof);
-        let handling = handle_frame(
-            &frame,
-            FrameHandlingContext {
-                sink: &mut self.sink,
-                deser_failures: &mut self.deser_failures,
-                routes: self.routes,
-                serializer: self.serializer.as_ref(),
-                codec: &self.codec,
-                message_assembler: self.message_assembler,
-                message_assembly: &mut self.inbound.message_assembly,
-                pipeline: &mut self.inbound.pipeline,
-                actor: &mut self.response_actor.actor,
-                protocol: self.protocol.as_ref(),
-            },
-        );
-        handle_watching_peer(
-            handling,
-            &mut self.reader,
-            PeerObservation::new(&self.peer_eof, &unobserved, &cause),
-            &mut self.inbound.pending,
-        )
-        .await
-    }
-
-    /// Write queued push frames through the connection's transport sink.
-    ///
-    /// A write to a peer that stopped reading can stay pending indefinitely,
-    /// so it is bounded by the shutdown token and, once the peer can no longer
-    /// be observed, by the idle grace. The read half keeps being polled while
-    /// the write runs, because this is the last place that can notice a peer
-    /// which half-closed and then stopped reading.
-    async fn write_pushes(&mut self, pending: PendingPushes<F::Frame>) -> io::Result<bool> {
-        let diagnostics = self.push_diagnostics();
-        let mut transport = PushTransport {
-            serializer: self.serializer.as_ref(),
-            codec: &self.codec,
-            sink: &mut self.sink,
-            pipeline: &mut self.inbound.pipeline,
-            diagnostics,
-        };
-        let batch = PushBatch {
-            frames: pending.frames,
-            priority: pending.priority,
-            reader: &mut self.reader,
-            pending_frame: &mut self.inbound.pending,
-            expiry: InboundExpiry::new(
-                &mut self.inbound.message_assembly,
-                &mut self.inbound.read_deadline,
-                self.read_timeout_ms,
-            ),
-            peer_eof: &self.peer_eof,
-            shutdown: &self.shutdown,
-        };
-        deliver_pushes(&mut transport, &mut self.response_actor.actor, batch).await
-    }
-
-    /// Identity this connection reports when it abandons a push write.
-    const fn push_diagnostics(&self) -> PushWriteDiagnostics {
-        let actor = &self.response_actor.actor;
-        PushWriteDiagnostics::new(actor.connection_id(), actor.peer_addr())
-    }
-
-    /// Deliver frames still queued when the peer stopped writing.
-    async fn drain_pushes(&mut self) -> io::Result<()> {
-        let diagnostics = self.push_diagnostics();
-        let mut transport = PushTransport {
-            serializer: self.serializer.as_ref(),
-            codec: &self.codec,
-            sink: &mut self.sink,
-            pipeline: &mut self.inbound.pipeline,
-            diagnostics,
-        };
-        drain_queued(
-            &mut transport,
-            &mut self.response_actor.actor,
-            &self.shutdown,
-        )
-        .await
     }
 }
 

@@ -48,7 +48,7 @@
 mod assertions;
 mod labels;
 
-use assertions::find_counter;
+use assertions::{find_counter, label_value};
 pub use labels::Labels;
 use metrics::{SharedString, Unit};
 use metrics_util::{
@@ -267,6 +267,38 @@ impl ObservabilityHandle {
                 ("recovery_policy", recovery_policy),
             ],
         )
+    }
+
+    /// List every recorded `wireframe_codec_errors_total` counter series.
+    ///
+    /// Each entry is `(error_type, recovery_policy, count)`. Exposing the whole
+    /// set lets a test reject an unexpected label pair, which asserting known
+    /// pairs one at a time cannot detect.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use wireframe_testing::ObservabilityHandle;
+    ///
+    /// let mut obs = ObservabilityHandle::new();
+    /// obs.snapshot();
+    /// let series = obs.codec_error_series();
+    /// assert!(series.is_empty());
+    /// ```
+    #[must_use]
+    pub fn codec_error_series(&self) -> Vec<(String, String, u64)> {
+        self.captured
+            .iter()
+            .filter(|(key, ..)| key.key().name() == wireframe::metrics::CODEC_ERRORS)
+            .filter_map(|(key, _, _, value)| match value {
+                DebugValue::Counter(count) => Some((
+                    label_value(key.key(), "error_type"),
+                    label_value(key.key(), "recovery_policy"),
+                    *count,
+                )),
+                _ => None,
+            })
+            .collect()
     }
 }
 

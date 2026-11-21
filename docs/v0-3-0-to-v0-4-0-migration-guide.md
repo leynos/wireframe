@@ -737,6 +737,37 @@ identifier produced by `stream_end_frame` for either streamed or multi-packet
 responses (`before_send` can still rewrite the frame); see the
 [users' guide](users-guide.md#response-producing-routes) for the full contract.
 
+## Decoder recovery on live connections
+
+A decoder failure on a live connection no longer always ends the connection
+without consultation. Install a `RecoveryPolicyHook` with
+`WireframeApp::with_recovery_hook`, and tune the global recovery limits with
+`WireframeApp::recovery_config`. The connection loop then asks the hook for a
+policy on each failure, applies the documented fallbacks, and reports the
+policy it actually applied.
+
+With the `metrics` feature enabled — it is a default feature — every decoder
+failure increments `wireframe_codec_errors_total` once, labelled with the error
+type and the applied policy, so a dashboard can separate framing, protocol,
+I/O, and EOF failures. With no hook installed, the applied policy is still
+`Disconnect`: an application that installs no hook keeps the previous behaviour.
+
+One failure is reported without consulting the hook. When a response ends the
+connection, or the server shuts the connection down, reading stops with a
+failure still buffered behind it, and no selected policy can take effect on a
+connection that is already ending. That failure is reported as the `Disconnect`
+it actually is, so `on_error` and the counter still observe it exactly once.
+The same reporting runs when memory pressure ends the connection before the
+next read, so a buffered failure is never lost behind the pressure error.
+
+The built-in length-delimited codec now classifies an oversized frame as
+`error_type="framing"` rather than `"io"`. A dashboard or alert that filtered on
+`error_type="io"` must also match `framing` to keep counting those failures.
+
+See [codec error handling](users-guide.md#codec-error-handling) in the users'
+guide for the error taxonomy, the default policy per error type, and the full
+decision order and fallbacks.
+
 ## Push queues on server connections
 
 Server connections now have a push path, so code that drove a `ConnectionActor`
