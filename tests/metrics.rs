@@ -123,7 +123,7 @@ mod connection_and_handler_metrics {
     use wireframe::{
         NoProtocolError,
         connection::{ConnectionActor, ConnectionChannels},
-        hooks::{ConnectionContext, ProtocolHooks},
+        hooks::{ConnectionContext, CustomProtocolHooks},
         metrics::{CONNECTIONS_ACTIVE, ERRORS_TOTAL},
         push::{PushConfigError, PushHandle, PushQueues},
         response::WireframeError,
@@ -321,7 +321,7 @@ mod connection_and_handler_metrics {
                 Ok(2u8),
                 Err(WireframeError::Protocol(TestError::Kaboom)),
             ]);
-            let hooks = ProtocolHooks {
+            let hooks = CustomProtocolHooks {
                 handle_error: Some(Box::new(
                     move |error: TestError, _ctx: &mut ConnectionContext| {
                         if matches!(error, TestError::Kaboom) {
@@ -329,8 +329,9 @@ mod connection_and_handler_metrics {
                         }
                     },
                 )),
-                ..ProtocolHooks::<u8, TestError>::default()
-            };
+                ..CustomProtocolHooks::<u8, TestError>::default()
+            }
+            .into();
             let mut actor: ConnectionActor<u8, TestError> = ConnectionActor::with_hooks(
                 ConnectionChannels::new(queues, handle),
                 Some(Box::pin(response)),
