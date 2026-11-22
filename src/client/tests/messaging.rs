@@ -49,6 +49,9 @@ where
     Ok(value)
 }
 
+/// Record one error-hook invocation.
+async fn count_error(count: Arc<AtomicUsize>) { count.fetch_add(1, Ordering::SeqCst); }
+
 #[tokio::test]
 async fn next_correlation_id_generates_sequential_unique_ids() {
     let (addr, accept) = spawn_listener().await.expect("spawn listener");
@@ -234,12 +237,7 @@ async fn call_correlated_invokes_error_hook_on_mismatch() {
         let count = error_count.clone();
 
         let mut client = WireframeClient::builder()
-            .on_error(move |_err| {
-                let callback_count = count.clone();
-                async move {
-                    callback_count.fetch_add(1, Ordering::SeqCst);
-                }
-            })
+            .on_error(move |_err| count_error(count.clone()))
             .connect(addr)
             .await?;
 

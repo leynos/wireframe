@@ -246,6 +246,27 @@ mod tests {
         (ServerTaskGuard::new(handle), receiver)
     }
 
+    /// Whether the task holding the channel's sender has been dropped.
+    fn is_reaped(receiver: &mut oneshot::Receiver<()>) -> bool {
+        matches!(
+            receiver.try_recv(),
+            Err(oneshot::error::TryRecvError::Closed)
+        )
+    }
+
+    /// Yield until an abort has taken effect and its task has been dropped.
+    ///
+    /// `abort` only marks the task, so the scheduler needs a turn before the
+    /// task's future, and the sender it holds, are dropped.
+    async fn wait_until_reaped(receiver: &mut oneshot::Receiver<()>) {
+        for _ in 0..64 {
+            if is_reaped(receiver) {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    }
+
     /// Assert that the guarded server task has finished and released its state.
     fn assert_reaped(receiver: &mut oneshot::Receiver<()>, context: &str) {
         let outcome = receiver.try_recv();
@@ -353,16 +374,7 @@ mod tests {
         let (guard, mut receiver) = spawn_pending_server();
 
         drop(guard);
-        // `abort` only marks the task; yield until the scheduler drops it.
-        for _ in 0..64 {
-            if matches!(
-                receiver.try_recv(),
-                Err(oneshot::error::TryRecvError::Closed)
-            ) {
-                break;
-            }
-            tokio::task::yield_now().await;
-        }
+        wait_until_reaped(&mut receiver).await;
 
         assert_reaped(&mut receiver, "dropped guard");
     }
