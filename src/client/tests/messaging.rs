@@ -50,7 +50,13 @@ where
 }
 
 /// Record one error-hook invocation.
-async fn count_error(count: Arc<AtomicUsize>) { count.fetch_add(1, Ordering::SeqCst); }
+///
+/// Returns a ready future rather than borrowing the counter, so the hook's
+/// future stays `'static` without taking ownership of the `Arc`.
+fn count_error(count: &Arc<AtomicUsize>) -> std::future::Ready<()> {
+    count.fetch_add(1, Ordering::SeqCst);
+    std::future::ready(())
+}
 
 #[tokio::test]
 async fn next_correlation_id_generates_sequential_unique_ids() {
@@ -237,7 +243,7 @@ async fn call_correlated_invokes_error_hook_on_mismatch() {
         let count = error_count.clone();
 
         let mut client = WireframeClient::builder()
-            .on_error(move |_err| count_error(count.clone()))
+            .on_error(move |_err| count_error(&count))
             .connect(addr)
             .await?;
 
