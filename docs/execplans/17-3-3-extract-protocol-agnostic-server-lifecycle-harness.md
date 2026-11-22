@@ -1,130 +1,22 @@
 # Extract a protocol-agnostic server lifecycle harness (17.3.3)
 
 This ExecPlan (execution plan) is a living document. The sections `Constraints`,
-`Tolerances`, `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`,
-`Outcomes & retrospective`, `Conformance basis`, and `Verification plan` must
-be kept up to date as work proceeds.
+`Tolerances (exception triggers)`, `Risks`, `Progress`,
+`Surprises & discoveries`, `Decision log`, `Outcomes & retrospective`,
+`Conformance basis`, and `Verification plan` must be kept up to date as work
+proceeds.
 
-Status: BLOCKED — upstream dependencies landed; re-derivation required
+Status: DRAFT — re-derived on 2026-11-22 against `main` at `a7eecaff`; every
+decision accepted; awaiting approval to begin implementation.
 
-As of the 2026-10-30 rebase onto `main`, every upstream change this plan
-depends on has merged. The blocking issues below are therefore discharged, but
-the plan was written against the pre-#642, pre-#657 server and has not yet been
-re-derived against the code now on `main`. The 2026-11-21 rebase then brought
-in roadmap 17.3.5, a workspace-wide lint gate, and a documentation relocation,
-which settle several of this plan's constraints and decisions. See the two
-`Post-rebase status` sections immediately below, newest first. EP-M0 must
-perform the re-derivation before EP-M1 begins.
-
-## Post-rebase status (2026-11-21)
-
-Rebased onto `main` at `a7eecaff`. Facts verified against that tree:
-
-- **Roadmap 17.3.5 landed** in `531d05cf` (#869), closing
-  [#578](https://github.com/leynos/wireframe/issues/578). `wireframe_testing`'s
-  doctests compile; `make test-doc` runs `--workspace --doc --all-features` and
-  CI runs it unconditionally, held there by a workflow contract; and a new
-  `make test-wireframe-testing` target runs the companion crate's tests in CI.
-- **The lint gate is workspace-wide** (#813, #856).
-  `wireframe_testing/Cargo.toml` now has `[lints] workspace = true`, and
-  `make lint` runs rustdoc, Clippy, and Whitaker over every workspace member.
-- **`make test` is workspace-wide.** It runs
-  `test --workspace --all-targets --all-features`, so `default-members = ["."]`
-  no longer hides the companion crate's targets from it.
-- **CI bounds hung tests** (#857). `build-test` sets `timeout-minutes: 60`, its
-  test steps 30, and `.config/nextest.toml` terminates slow tests. That
-  discharges D11.
-- **Documents moved** under the shared documentation style guide (#853). RFC
-  0001 is now `docs/rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md`
-  (a pure rename; content unchanged), and ADRs live in `docs/adrs/` as
-  `adr-nnnn-title-slug.md`. ADR 014 is now
-  [`adr-0014-server-shutdown-ownership-and-terminal-observation.md`](../adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md),
-  still Proposed. ADRs 0015, 0016, and 0017 are taken, so the contingent ADR
-  in Stage E step 5 becomes 0018.
-- **`rstest-bdd` moved to 0.6.0** (#811), with a repository-specific
-  `docs/wireframe-rstest-bdd-users-guide.md`. Stage B's BDD suite must follow
-  it.
-- **Server connections were restructured** by #643, #874, and #875 (a
-  connection-local runtime, `ConnectionActor`-driven connections, and push
-  queues). This adds to the stale `file:line` citations noted below. The
-  `ServerShutdown` surface this plan should build on is unchanged:
-  `WireframeServer::spawn()`, `ServerShutdown::stop()`, and
-  `ServerShutdown::drained()` are as recorded on 2026-10-30.
-
-Plan elements superseded by these facts, each retained below as a dated record
-rather than rewritten:
-
-<!-- markdownlint-disable MD013 -->
-
-| Plan element                                                        | Was                                                 | Now                                                                                                 |
-| ------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| Constraint 7, Risks on #578, gap 7 of `Facts that shape the design` | 17.3.5 work is out of scope and pending             | 17.3.5 is complete; leave its targets alone because they are finished, not because they are pending |
-| D10, and the `make lint` observation                                | Lint does not reach `wireframe_testing`             | It does; new harness code must pass the workspace lints                                             |
-| The tests-location decision citing `default-members`                | Companion-crate tests are invisible to `make test`  | They are visible; EP-M0 decides afresh whether harness tests belong in `wireframe_testing/tests/`   |
-| `Validation and acceptance`, companion-crate checks                 | Filter doctests to `server_harness` because of #578 | Use `make test-wireframe-testing` and an unfiltered `make test-doc`                                 |
-| D11                                                                 | Add `timeout-minutes`                               | Already present; withdrawn                                                                          |
-
-<!-- markdownlint-enable MD013 -->
-
-*Table 4: plan elements superseded by the 2026-11-21 rebase.*
-
-Still true: `scripts/doctest-benchmark.sh` defaults its search root to `src`,
-and `ci.yml` runs the workspace tests through its coverage step rather than
-through `make test`.
-
-## Post-rebase status (2026-10-30)
-
-- [#656](https://github.com/leynos/wireframe/issues/656) landed in `684a2e86`
-  (PR #658). The supervisor now holds `worker_shutdown_token.drop_guard_ref()`,
-  so AXIOM-6's precondition holds.
-- [#641](https://github.com/leynos/wireframe/issues/641) and
-  [#642](https://github.com/leynos/wireframe/issues/642) landed in `450c5f4a`
-  and `28920810`. `run_with_shutdown` is now fallible, so every row of Table 3
-  in `Known expiry` has expired and must be re-derived. The startup variants are
-  `ServerError::FactoryBuild` and `ServerError::Prepare`, not the `AppBuild`
-  name that Table 3 quotes from the proposed ADR 012.
-- [#657](https://github.com/leynos/wireframe/issues/657) landed in `ef858aa0`
-  (PR #696) with
-  [ADR 014](../adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md)
-  (Status Proposed).
-  `WireframeServer::spawn() -> Result<ServerShutdown, ServerError>` now returns
-  a cloneable control with a non-blocking `stop()` and an awaitable `drained()`
-  that reports `ServerError::AbnormalTermination`. This is a synchronous drain
-  guarantee, so the `Abandoned` terminal outcome, AXIOM-6, the residual gap on
-  the bound-elapsed path, and the Stage E wording for RFC 0001 sections 5.3 and
-  6 must all be revisited. The harness should probably wrap `ServerShutdown`
-  rather than a raw `JoinHandle` and `oneshot` sender; that is a design change
-  requiring acceptance, not a mechanical edit.
-- ADRs 011 to 013 merged via
-  [PR #653](https://github.com/leynos/wireframe/pull/653), and ADR 014 now
-  exists. The contingent ADR in Stage E step 5 is renumbered to 015.
-- Module layout moved under #710 and #798: the supervisor that this plan cites
-  as `src/server/runtime.rs` now lives in `src/server/runtime/server/mod.rs` and
-  `src/server/runtime/supervisor.rs`, with the control in
-  `src/server/shutdown.rs`. `wireframe_testing/src/client_pair.rs` was also
-  edited by lint and fixture clean-ups. Treat every `file:line` citation in
-  this plan as stale until EP-M0 re-verifies it.
-- RFC 0001 changed only by Markdown rewrapping (#687), so the conformance
-  basis is unaffected.
-
-The original blocking analysis follows, retained as the record of why these
-dependencies were raised.
-
-Blocking issues, both raised from this plan's design review:
-
-- [#656](https://github.com/leynos/wireframe/issues/656) — cancel server accept
-  loops when the `run_with_shutdown` future is dropped. **Must land before
-  EP-M1.** Until it does, `JoinHandle::abort()` does not stop a Wireframe
-  server, and RFC 0001's abort-after-timeout cleanup guarantee is not
-  implementable. See `Escalation: abort does not stop the server` and decision
-  D8.
-- [#657](https://github.com/leynos/wireframe/issues/657) — make server shutdown
-  awaitable and report abnormal termination. **Must land, or be explicitly
-  deferred, before this plan reaches `COMPLETE`**, because the wording of the
-  RFC §5.3 amendment in Stage E depends on whether a synchronous drain
-  guarantee exists. See decision D14.
-
-Blocking decisions: D2, D3, D5, and D11.
+This revision replaces the 2026-08-23 design wholesale. That design wrapped a
+raw `JoinHandle` and a `oneshot` shutdown sender, ran a detached cleanup task
+from `Drop`, and carried an `Abandoned` outcome because aborting a server task
+did not stop the server. Every upstream change it was waiting for has since
+landed, and `main` now provides `WireframeServer::spawn()` and its
+`ServerShutdown` control, which make most of that machinery unnecessary. The
+harness below is a thin, protocol-neutral wrapper over `ServerShutdown`.
+`Revision history` at the end records what changed and why.
 
 ## Purpose / big picture
 
@@ -132,303 +24,168 @@ Today the only way to get a running Wireframe server inside a test is
 `wireframe_testing::spawn_wireframe_pair`. That helper builds the server for
 you and hands back a client whose type is fixed to
 `WireframeClient<BincodeSerializer, RewindStream<TcpStream>, ()>`. A downstream
-crate that speaks a different protocol — one with its own frame codec, its own
-typed handshake preamble, or its own client type — cannot use it, and must
-hand-roll listener reservation, readiness waiting, task ownership, shutdown
-signalling, and defensive cleanup. That is the code most likely to produce port
-races, orphaned Tokio tasks, and hanging test suites.
+crate that speaks a different protocol — its own frame codec, its own typed
+handshake preamble, or its own client type — cannot use it. It must hand-roll
+listener reservation, address capture, readiness waiting, shutdown, and
+cleanup, which is where port races and hanging suites come from.
 
 After this change a test author configures a `WireframeServer` however they
-like — any serializer, any codec, any preamble, any worker count — hands the
-still-unbound server to `wireframe_testing::spawn_wireframe_server`, and gets
-back a `RunningWireframeServer`: a small, non-generic handle that knows the
-bound address and can be stopped safely and repeatedly.
+like — any serializer, codec, preamble, or worker count — hands the still
+unbound server to `wireframe_testing::spawn_wireframe_server`, and gets back a
+`RunningWireframeServer`: a small, non-generic handle that knows its bound
+address, has already observed readiness, and can be stopped safely and
+repeatedly.
 
 Observable success, stated as behaviour a person can check:
 
 1. `make test` passes, and the new integration test
    `server_harness_lifecycle::spawn_then_connect_round_trip` fails before the
    change and passes after it.
-2. A test can call `handle.shutdown().await` twice and the second call returns
-   `Ok(())` immediately, without re-signalling and without joining again.
-   `handle.shutdown_outcome()` reports the same classification both times, and
-   `handle.shutdown_error()` still lends the original typed failure if there
-   was one.
-3. A test can drop a `RunningWireframeServer` without ever calling `shutdown`,
-   inside or outside a Tokio runtime, and the test process still exits.
-4. The existing suites `tests/client_pair_harness.rs`,
-   `tests/features/client_pair_harness.feature`, and
-   `wireframe_testing/tests/integration_helpers.rs` pass unmodified:
-   `spawn_wireframe_pair` and `spawn_wireframe_pair_default` keep their exact
-   signatures and their exact per-path error variants.
-5. `cargo test --test server_harness_lifecycle_props` enumerates every
-   `(Phase, Op)` pair of the lifecycle transition function and every operation
-   sequence up to length six, and reports them exhausted.
+2. After `handle.shutdown().await` returns `Ok(())`, a TCP connect to
+   `handle.local_addr()` is refused immediately, with no polling.
+3. Calling `shutdown()` twice returns `Ok(())` both times, and
+   `handle.shutdown_outcome()` reports `Some(ShutdownOutcome::Completed)` after
+   each call.
+4. A test can drop a `RunningWireframeServer` without calling `shutdown`, on a
+   thread that has no Tokio runtime, and the listener is still released.
+5. A server whose application factory returns an error fails
+   `spawn_wireframe_server` with
+   `TestError::Server(ServerError::FactoryBuild(_))` and leaves no listener
+   bound.
+6. The existing suites `tests/client_pair_harness.rs` and
+   `tests/features/client_pair_harness.feature` pass unmodified after
+   `spawn_wireframe_pair` delegates to the new helper.
+7. `make test-wireframe-testing` reports the exhaustive tests of the pure
+   outcome functions, and `make test` reports the four property tests.
 
 ## Constraints
 
 Hard invariants. Violating one requires escalation, not a workaround.
 
 1. `spawn_wireframe_pair` and `spawn_wireframe_pair_default` keep their exact
-   signatures, their return type `TestResult<WireframePair>`, and their exact
-   per-path failure variants. `WireframePair` stays concrete and must not gain
-   a generic parameter. This is a real external-compatibility obligation:
-   `wireframe_testing` is published at 0.3.0, and RFC §3.1 commits to it.
-
-   The variants to preserve are *not* uniformly `TestError::Msg`. Verified
-   against the tree:
-
-   <!-- markdownlint-disable MD013 -->
-
-   | Failure path          | Source                                              | Variant today       |
-   | --------------------- | --------------------------------------------------- | ------------------- |
-   | listener reservation  | `client_pair.rs:286` `unused_listener()?`           | `TestError::Io`     |
-   | binding               | `client_pair.rs:289` `bind_existing_listener(..)?`  | `TestError::Server` |
-   | address readback      | `client_pair.rs:292` `local_addr()` is `None`       | `TestError::Msg`    |
-   | readiness, three arms | `client_pair.rs:316-324`                            | `TestError::Msg`    |
-   | client connect        | `client_pair.rs:330` `builder.connect(addr).await?` | `TestError::Client` |
-   | shutdown join         | `client_pair.rs:146-150`                            | `TestError::Msg`    |
-
-   <!-- markdownlint-enable MD013 -->
-
-   *Table 1: the failure variants `spawn_wireframe_pair` and
-   `WireframePair::shutdown` produce today, each of which EP-M3 must preserve
-   individually.*
-
+   signatures and return type `TestResult<WireframePair>`, and every
+   *reachable* failure path keeps its `TestError` variant and message shape
+   (Table 1). `WireframePair` stays concrete. The commitment is RFC 0001 §5.5
+   and roadmap 17.3.3, which require the pair helpers to stay as additive,
+   source-compatible wrappers for the existing harness audience;
+   `wireframe_testing` is at 0.3.0 and has no `publish = false`
+   (`wireframe_testing/Cargo.toml:3`). This is retained existing API, not a
+   compatibility shim.
 2. Do not add default type parameters to the new helpers, and do not narrow any
-   bound below the `where` clause quoted in `Context and orientation`. Every
-   valid `WireframeServer` configuration must be accepted.
-3. `ready_signal` must be *documented* as reserved for the harness. It cannot
-   be *enforced*: `ready_signal` is an unconditional setter
-   (`src/server/config/mod.rs:121-135`) and `WireframeServer` exposes no
-   accessor that would let the harness detect a caller-set sender. A caller who
-   sets it gets a receiver that never fires. Record the footgun; do not pretend
+   bound below the `where` clause quoted in `Context and orientation`.
+3. `ready_signal` is reserved for the harness. It cannot be *enforced*:
+   `ready_signal` is an unconditional builder setter
+   (`src/server/config/mod.rs:172`) and the server exposes no accessor that
+   would reveal a caller-set sender. The harness overwrites it, so a
+   caller-installed receiver never fires. Document the footgun; do not pretend
    it is prevented.
-4. No source file may exceed 400 lines (`AGENTS.md`). Per-file budgets are in
-   `Plan of work`. Note that the strict `clippy.toml` thresholds are *not*
-   enforced on this code — see decision D10 — so this is authoring discipline
-   verified by review, not by a gate.
-5. `Drop`, and everything it calls synchronously, must be panic-free: no
-   `unwrap`, no `expect`, no indexing, no locking, no fallible arithmetic. A
-   panic in `Drop` during unwind aborts the process with no test output.
-6. Test-only lifecycle API stays in `wireframe_testing`. Do not modify
-   `src/server/` or `src/client/` behaviour.
-7. Do not touch the Makefile or CI test targets; that is roadmap 17.3.5. The
-   one CI change this plan makes is adding `timeout-minutes` to the existing
-   jobs, because today a hung test burns the six-hour GitHub default. See
-   decision D11.
-8. Every new module begins with a `//!` comment. Every new public item carries
-   a `///` comment with `# Errors` where it returns `Result`.
-9. All prose, comments, and identifiers use en-GB-oxendict spelling.
-10. Red-Green-Refactor, with each test failing on its own assertion rather than
-    on a shared compile error. See `Plan of work`, Stage B0.
-11. No new entry in any `[dependencies]` or `[dev-dependencies]` table.
+4. No source file may exceed 400 lines (`AGENTS.md`).
+   `wireframe_testing/src/client_pair.rs` is already 387 lines, so EP-M3 must
+   leave it shorter than it found it.
+5. `Drop` for `RunningWireframeServer` performs no I/O, spawns nothing, takes
+   no lock, and cannot panic. With this design it only drops fields.
+6. Do not modify anything under `src/`. The harness is a consumer of the
+   server's lifecycle API, as ADR 0014's migration plan states
+   (`docs/adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md:254`).
+   If a server change appears necessary, stop and escalate.
+7. Do not touch the Makefile or CI workflows. Roadmap 17.3.5 has already made
+   the companion crate a gated target; this plan needs nothing more.
+8. No new entry in any `[dependencies]` or `[dev-dependencies]` table. The
+   harness emits no log or trace events, so it needs neither `log` nor
+   `tracing`.
+9. Every new module begins with a `//!` comment, and every item, public or
+   private, carries a `///` comment: the workspace lints deny `missing_docs` and
+   `missing_docs_in_private_items` (`Cargo.toml:206`, `Cargo.toml:193`).
+   Public functions returning `Result` carry `# Errors`.
+10. No `unwrap` or `expect` outside test code; the workspace denies both
+    (`Cargo.toml:154-155`), and `wireframe_testing` inherits the workspace
+    lints (`wireframe_testing/Cargo.toml:25-26`).
+11. All prose, comments, and identifiers use en-GB-oxendict spelling.
+12. Red-Green-Refactor, with each test failing on its own assertion rather than
+    on a shared compile error. See Stage B0.
 
 ## Tolerances (exception triggers)
 
-Stop and escalate when any of these is reached.
+Stop and escalate when any of these is reached. Counts exclude this ExecPlan
+file. The comparison base is `origin/main`; count net lines with
+`git diff --numstat origin/main...HEAD` and file counts with
+`git diff --name-only origin/main...HEAD`.
 
-- **Scope**: more than 28 files changed, or more than 1 800 net added lines.
-  These numbers are derived from the file list in `Plan of work`, not guessed;
-  the first draft of this plan set them at 14 and 1 200 and breached both
-  before its second milestone.
+- **Code** (Rust sources and tests, including BDD feature files): more than
+  1 500 net added lines. The estimate in `Plan of work` is about 1 250.
+- **Configuration** (`Cargo.toml` files, lockfile, workflows, Makefile): any
+  change at all. Constraints 7 and 8 make the budget zero.
+- **Documentation** (Markdown other than this plan): more than 450 net added
+  lines. The estimate is about 330.
+- **Files**: more than 26 changed files. The estimate is 22.
 - **Interface**: the public surface must grow beyond
   `Interfaces and dependencies`, or any existing public signature must change.
-- **Dependencies**: any new manifest dependency entry.
-- **Constraint 1**: any change to a cell of Table 1.
+- **Constraint 1**: any change to a reachable cell of Table 1.
 - **Iterations**: a single test still failing after four corrective attempts.
-- **Flakiness**: any new test failing more than once in ten consecutive runs of
-  the full `make test`, run as `make test` — not as an isolated focused target,
-  which removes the very contention that surfaces timing races.
+- **Flakiness**: any new test failing more than once in ten consecutive full
+  `make test` runs. Run the full suite, not a focused target, because isolation
+  removes the contention that surfaces timing races.
 - **Case duration**: any property case exceeding its ten-second internal
   timeout. That is a hang, not slowness; do not raise the bound.
-- **Time**: any milestone exceeding four hours of wall-clock work.
+- **Time**: any milestone exceeding four hours of wall-clock work, excluding
+  time spent queued for the shared compile pool.
 - **Ambiguity**: two readings of RFC 0001 that would produce materially
   different public API.
 
-## Progress
-
-- [x] (2026-10-30) Rebased onto `main` at `e5d01b54`; #656, #642, and #657
-      confirmed merged. See `Post-rebase status (2026-10-30)`.
-- [x] (2026-11-21) Rebased onto `main` at `a7eecaff`; 17.3.5, workspace-wide
-      gates, and the documentation relocation recorded. See
-      `Post-rebase status (2026-11-21)` and D16.
-- [ ] EP-M0 Plan re-derived against the post-#657 server; escalations
-      accepted; green baseline recorded.
-- [ ] EP-M1 `RunningWireframeServer`, options, spawn helpers, rstest and BDD
-      coverage.
-- [ ] EP-M1a Throwaway delegation spike, then revert.
-- [ ] EP-M2 Exhaustive transition-table tests and the property suite.
-- [ ] EP-M3 `WireframePair` delegates; duplicated machinery removed.
-- [ ] EP-M4 Documentation, RFC amendment, roadmap tick.
-
-Timestamp each completion as `- [x] (2026-08-23 14:05Z) …` so the four-hour
-per-milestone tolerance can be checked.
-
-## Escalation: abort does not stop the server
-
-**This blocks EP-M1 and requires an explicit decision.**
-
-RFC 0001 §5.3 says explicit shutdown "bounds the join and aborts the task only
-after timeout", and §6 requires every cleanup path to "join the server task".
-Both assume that aborting the spawned `run_with_shutdown` future tears the
-server down. It does not.
-
-`run_with_shutdown` is a supervisor, not the server. It creates a
-`CancellationToken` and a `TaskTracker` locally, then spawns one `accept_loop`
-task per worker, giving each its own token clone and its own `Arc` to the
-listener:
-
-```rust
-// src/server/runtime.rs:157-181
-let shutdown_token = CancellationToken::new();
-let tracker = TaskTracker::new();
-for _ in 0..workers {
-    let listener = Arc::clone(&listener);
-    let token = shutdown_token.clone();
-    tracker.spawn(accept_loop(listener, factory, AcceptLoopOptions { shutdown: token, .. }));
-}
-```
-
-The token is cancelled in exactly one place, the graceful arm of the `select!`
-at `src/server/runtime.rs:191`. Aborting the supervisor never reaches it, and
-neither type cleans up on drop:
-
-- `tokio-util-0.7.17/src/task/task_tracker.rs:56`: "Note that unlike
-  `JoinSet`, dropping a `TaskTracker` does not abort the tasks."
-- `tokio-util-0.7.17/src/sync/cancellation_token.rs:125-129`: `Drop` only calls
-  `decrease_handle_refcount`; it does not cancel.
-
-An accept loop terminates only on `handles.shutdown.cancelled()`
-(`src/server/runtime/accept.rs:213`). So after `abort()`, every accept loop is
-still running and still holding an `Arc` to the listener. **The port stays
-bound for the remaining lifetime of the runtime.**
-
-This is not a defect this plan introduces. `WireframePair::Drop` already relies
-on the same ineffective abort (`wireframe_testing/src/client_pair.rs:167` and
-`:226`). It is a pre-existing defect that RFC 0001 turns into a guarantee, and
-that this plan would have propagated into a public API and a verification claim.
-
-### Blast radius
-
-Inside `#[tokio::test]` the runtime is torn down at the end of the test and
-takes the accept loops with it, so the leak is invisible. The pattern where it
-bites is a long-lived runtime: the behaviour-driven world at
-`tests/fixtures/client_pair_harness.rs` owns a `tokio::runtime::Runtime` for a
-whole feature file and drives it with synchronous steps. A downstream crate
-adopting this harness in that shape — which RFC §2 names mxd as the first
-candidate to do — accumulates bound listeners until `unused_listener()` starts
-failing in unrelated tests.
-
-### Resolution
-
-An earlier revision of this plan offered three options and recommended merely
-documenting the leak, on the grounds that the upstream fix was expensive.
-Re-scoping it against the source showed that estimate was wrong, and the fix
-splits into two independent pieces, now tracked as issues.
-
-**[#656](https://github.com/leynos/wireframe/issues/656) — cancel on drop.**
-Holding a cancellation drop guard in the supervisor's frame makes a dropped or
-aborted future cancel its workers, so the accept loops exit and the listener is
-released. Two lines plus a test. `CancellationToken::drop_guard_ref` borrows
-rather than clones, which is the ADR 011 R3 shape; the binding must be named,
-because `let _ = token.drop_guard_ref();` would cancel at construction. This
-converts the defect from a permanent leak into one bounded by scheduler
-latency, which is enough for this plan to make an honest, testable guarantee
-through `await_port_released`. **EP-M1 depends on it.**
-
-**[#657](https://github.com/leynos/wireframe/issues/657) — awaitable drain.**
-For `shutdown()` to *prove* the listener is released, the harness must drain
-the tracker itself, which needs `run_with_shutdown` to accept a caller-supplied
-`CancellationToken` or return a handle exposing one. That is a public API
-change, and it is the server-side mirror of the pattern ADR 013 sections 9 and
-10 already adopt for the client pool: non-blocking shutdown delivery, a retained
-`JoinHandle` so a panic is observed rather than swallowed, and a dedicated
-error variant distinguishing a crash from a clean stop. **This plan depends on
-it for the Stage E wording, not for implementation.**
-
-Rejected: accepting the defect silently. It would make the no-orphaned-task
-invariant vacuous, and a harness whose purpose is diagnosable cleanup must not
-lie about cleaning up.
-
-### What each issue buys this plan
-
-With #656 alone the graceful path is fully correct — `run_with_shutdown`
-already cancels and then drains before returning `Ok(())`
-(`src/server/runtime.rs:191-197`) — and the bound-elapsed path becomes
-eventually correct. This plan can be delivered honestly on that basis, keeping
-the `Abandoned` terminal outcome and its logged warning.
-
-With #657 as well, the bound-elapsed path becomes synchronously observable and
-the residual gap disappears, at which point `Abandoned` could be narrowed or
-retired.
-
-RFC 0001 sections 5.3 and 6 need amending either way, because their current
-wording describes behaviour that no implementation provides today. The
-amendment's wording differs depending on whether #657 has landed, which is why
-this plan cannot reach `COMPLETE` until #657 lands or its deferral is accepted.
+Budget history: the 2026-08-23 first draft set 14 files and 1 200 lines and
+breached both on paper before its second milestone; the expert review raised
+them to 28 files and 1 800 lines for the `JoinHandle` design. This
+re-derivation lowers them because `ServerShutdown` removes the detached cleanup
+task, the drop-grace option, the transition table, and the diagnostics module,
+and because `client_pair.rs` now shrinks. No other plan in `docs/execplans/`
+touches this surface, so there is no further history to draw on.
 
 ## Risks
 
-- Risk: readiness fires when accept-loop workers have been *spawned*, not when
-  `accept()` is being polled (`src/server/runtime.rs:184-188`). Severity:
-  medium. Likelihood: medium. Mitigation: the listener is bound before the task
-  is spawned, so the kernel queues the connection in the listen backlog; the
-  existing pair harness relies on this today. Do not add a sleep. If a
-  connect-after-ready flake appears, escalate — the fix is upstream, and
-  sanding it down by reducing generated cases would suppress exactly the signal
-  that detects a readiness regression.
+- Risk: `ServerShutdown`'s auto traits are unverified. Its fields suggest
+  `Send + Sync`, but that depends on every payload of `ServerError`, including
+  `PrepareError`, being `Send + Sync`, and no static assertion exists in the
+  repository. If `WireframePair` is `Sync` today and `ServerShutdown` is not,
+  delegation would silently remove a public auto trait. Severity: high.
+  Likelihood: low. Mitigation: Stage A adds a compile-time probe recording
+  `WireframePair`'s current `Send`, `Sync`, and `Unpin` status and asserting
+  the same of `RunningWireframeServer` before any design work proceeds; EP-M3
+  keeps the assertions permanently.
 
-- Risk: a hung test has no timeout anywhere in the stack. `proptest`'s
-  `max_shrink_time` defaults to unlimited, there is no nextest configuration,
-  and `.github/workflows/ci.yml` sets no `timeout-minutes`, so GitHub's
-  360-minute default applies. libtest buffers per-test output, so the log ends
-  at `running N tests` with no indication of which test hung. Severity: high.
-  Likelihood: medium. Mitigation: three layers. Wrap every property case body in
-  `tokio::time::timeout(Duration::from_secs(10), …)` *inside* the `block_on`,
-  so a hang becomes a shrinkable, printable failure; set
-  `max_shrink_time: 30_000`; and add `timeout-minutes` to the CI jobs (D11).
-  The internal timeout must not use `ServerHarnessOptions`, because those are
-  the thing under test.
+- Risk: `wait_for_listener_release` has a fixed one-second budget
+  (`wireframe_testing/src/integration_helpers.rs:79-80`). On a heavily loaded
+  host the drop-path tests could time out. Severity: medium. Likelihood: low.
+  Mitigation: the drop path's release is driven by a synchronous cancellation,
+  so one second is generous; `tests/server_shutdown.rs:47` already relies on
+  the same helper for the same mechanism. If the flakiness tolerance trips,
+  escalate rather than adding a second helper with a longer budget.
 
-- Risk: the property tests default to `available_parallelism()` workers per
-  server, so a pool of four handles is 96 accept-loop tasks on this machine and
-  16 on a four-vCPU runner — a machine-dependent cost that makes the flakiness
-  protocol unreproducible. Severity: medium. Likelihood: high. Mitigation: pin
-  `.workers(1)` in every harness test, as `spawn_wireframe_pair` already does at
-  `client_pair.rs:288`.
+- Risk: the readiness-timeout test relies on a zero-duration timeout elapsing
+  before the supervisor task first runs. On a `current_thread` runtime the
+  supervisor cannot run until the test yields, and `tokio::time::timeout` polls
+  its inner future before its delay, so the outcome is deterministic (AXIOM-6).
+  Severity: medium. Likelihood: low. Mitigation: run that test on the default
+  `current_thread` flavour only, and record the reasoning beside it. If it
+  proves non-deterministic, stop and escalate; do not add a sleep.
 
-- Risk: the plan's new module lands outwith every automated lint. `make lint`
-  runs `cargo clippy --all-targets --all-features` with no `-p` or
-  `--workspace`, and `default-members = ["."]`; `wireframe_testing` has no
-  `[lints]` table, so even a manual `-p` run gets none of the root package's
-  `pedantic`, `unwrap_used = "deny"`, or `missing_docs` configuration.
-  Severity: medium. Likelihood: certain. Mitigation: recorded as decision D10.
-  Treat the limits as authoring discipline verified in review; hoisting
-  `[workspace.lints]` belongs to 17.3.5, which owns companion-crate gating.
+- Risk: `drained()` waits for in-flight connection tasks as well as accept
+  loops (`src/server/runtime/server/mod.rs:157-165`;
+  `src/server/connection_spawner.rs:74`). A test that leaves a request in
+  flight and shuts down with no bound will hang. Severity: medium. Likelihood:
+  medium. Mitigation: the harness default bounds the drain at five seconds; the
+  pair, which keeps an unbounded drain, closes its client first. The bound test
+  uses a 200 ms handler deliberately.
 
-- Risk: the CodeScene and Codecov patch-coverage ratchet (`codecov.yml`,
-  `patch: target: 80%`) sees ~400 new lines in a module whose error arms are
-  deliberately unexercised. Severity: medium. Likelihood: medium. Mitigation:
-  keep unreachable arms to a minimum, extract the pure functions so they are
-  directly testable, and if the ratchet still fails, report it rather than
-  adding hollow tests.
+- Risk: the patch-coverage target is 80 % (`codecov.yml:4`), and two paths
+  are reachable only defensively (Residual gaps). Severity: low. Likelihood:
+  medium. Mitigation: the pure outcome functions carry those cases under
+  exhaustive unit tests; if the ratchet still fails, report it rather than
+  writing hollow tests.
 
-- Risk: `proptest!` does not accept `async fn`, and `prop_assert!` returns
-  early with `Err(TestCaseError)`. Severity: low. Likelihood: certain.
-  Mitigation: use the documented workaround — an ordinary `#[test] fn` that
-  builds a runtime and calls `block_on` on an `async` block returning
-  `Result<(), TestCaseError>`, then applies `?`. Upstream issue
-  `proptest-rs/proptest#179` confirms there is no better option without a new
-  dependency, which Constraint 11 forbids.
-
-- Risk: `wireframe_testing`'s existing doctests do not compile (issue #578), so
-  `cargo test -p wireframe_testing --doc` fails wholesale. Severity: low.
-  Likelihood: certain. Mitigation: validate the new module's doctests with a
-  filtered invocation and record the transcript. Note that
-  `make doctest-benchmark` cannot help: `scripts/doctest-benchmark.sh:13`
-  defaults its search root to `src`, the root crate only, so it never sees
-  `wireframe_testing/src/server_harness/`. Repairing #578 belongs to 17.3.5.
+- Risk: `proptest!` cannot take an `async fn`. Severity: low. Likelihood:
+  certain. Mitigation: follow the compiled precedent at
+  `tests/server_shutdown.rs:144-185` — a synchronous property body that builds a
+  `current_thread` runtime and calls `block_on`, returning `TestCaseResult`.
 
 ## Context and orientation
 
@@ -437,52 +194,35 @@ Read this section first if you have never worked in this repository.
 ### What Wireframe is
 
 Wireframe is a Rust library for building servers and clients that speak custom
-binary protocols over TCP. The root package is `wireframe` (`Cargo.toml` at the
-repository root, sources under `src/`). A companion package `wireframe_testing`
-(`wireframe_testing/Cargo.toml`) ships test helpers.
+binary protocols over TCP. The root package is `wireframe` (sources under
+`src/`). The companion package `wireframe_testing` (`wireframe_testing/`) ships
+test helpers. The workspace has four members: `.`, `crates/wireframe-loom`,
+`crates/wireframe-verification`, and `wireframe_testing` (`Cargo.toml:15`).
 
 ### Vocabulary
 
 - **Frame**: one codec-defined unit of bytes on the wire.
-- **Envelope**: Wireframe's built-in framed message type.
 - **Preamble**: an optional typed handshake value exchanged once, before any
   framed traffic.
-- **Serializer**: turns a Rust value into payload bytes; default
-  `BincodeSerializer`.
-- **Codec**: splits a byte stream into frames; default
-  `LengthDelimitedFrameCodec`.
 - **Typestate**: a marker type parameter encoding a compile-time phase.
-  `WireframeServer` uses `Unbound` before it owns a listener and `Bound`
-  afterwards. The `ServerState` trait admitting them is *sealed*, so no third
-  typestate can be added from outside the root crate.
+  `WireframeServer` is `Unbound` before it owns a listener and `Bound`
+  afterwards (`src/server/mod.rs:336`, `:340`).
 - **Readiness signal**: a `tokio::sync::oneshot::Sender<()>` the server fires
   once, after spawning its accept-loop workers.
+- **Server control**: `wireframe::server::ServerShutdown`, the cloneable handle
+  `WireframeServer::spawn()` returns. `stop()` requests shutdown; `drained()`
+  waits for the terminal outcome.
+- **Drain**: the server's graceful stop — accept loops exit, the listener is
+  released, and in-flight connection tasks finish.
 - **Plateau**: a milestone end state that is correct, coherent, and safe to
-  stop at if later work is postponed.
+  stop at.
 - **Non-vacuity**: evidence that a passing check *could* have failed had the
-  implementation been wrong. A test whose precondition is never satisfied, or
-  whose assertion holds regardless of the code, is vacuous and proves nothing.
-- **Whitaker**: a Dylint lint suite installed by CI and run by `make lint`. Its
-  `no_expect_outside_tests` rule forbids `.expect()` outwith test contexts.
-- **Nixie**: the Mermaid-diagram validator run by `make nixie`.
-- **Mapsplice**: the structural editor used for `docs/roadmap.md`. Its grammar
-  rejects footnote references, so the roadmap cites with inline links.
+  implementation been wrong.
 
-### The existing code
+### The server API the harness drives
 
-`wireframe_testing/src/client_pair.rs` (379 lines) is the whole of the current
-lifecycle machinery. Read it in full; it is the single most useful preparation
-for this work. It contains `WireframePair`, the private `Running` bundle,
-`spawn_wireframe_pair` (line 274), `spawn_wireframe_pair_default` (line 371),
-an unbounded `shutdown` (line 125), a defensive `Drop` (line 160),
-`spawn_bounded_shutdown` (line 183), and the `PendingServer` RAII guard (line
-205). The bounded-shutdown machinery already appears twice in that one file;
-RFC §5.6 asks for it to appear once, in a new `server_harness` module.
-
-### Server-side API this harness drives
-
-Verified against the current tree. The declaration at `src/server/mod.rs:188`
-is:
+Verified on `a7eecaff`. `WireframeServer` is declared at
+`src/server/mod.rs:274-294`:
 
 ```rust
 pub struct WireframeServer<
@@ -499,450 +239,434 @@ pub struct WireframeServer<
 The methods the harness drives:
 
 ```rust
-// src/server/config/binding.rs:172, on the Unbound typestate
-pub fn bind_existing_listener(
-    self,
-    std_listener: StdTcpListener,
-) -> Result<BoundServer<F, T, Ser, Ctx, E, Codec>, ServerError>;
+// src/server/config/binding.rs:141-146, on Unbound
+pub fn bind_existing_listener(self, std_listener: StdTcpListener)
+    -> Result<BoundServer<F, T, Ser, Ctx, E, Codec>, ServerError>;
 
-// src/server/config/binding.rs:210, on the Bound typestate
-pub fn local_addr(&self) -> Option<SocketAddr>;
-
-// src/server/config/mod.rs:135
+// src/server/config/mod.rs:172, on any typestate
 pub fn ready_signal(self, tx: tokio::sync::oneshot::Sender<()>) -> Self;
 
-// src/server/runtime.rs:142, on the Bound typestate only
-pub async fn run_with_shutdown<S>(self, shutdown: S) -> Result<(), ServerError>
-where
-    S: Future<Output = ()> + Send;
+// src/server/runtime/server/mod.rs:338, on Bound
+pub async fn spawn(self) -> Result<ServerShutdown, ServerError>;
+
+// src/server/shutdown.rs:87 and :119
+pub fn stop(&self);
+pub async fn drained(&self) -> Result<(), ServerError>;
 ```
 
-The `where` clause on the impl block providing `run_with_shutdown`
-(`src/server/runtime.rs:29-36`) is exactly:
+The impl block providing `spawn` (`src/server/runtime/server/mod.rs:170-179`)
+has exactly this `where` clause. Copy it verbatim onto the new helpers:
 
 ```rust
-impl<F, T, Ser, Ctx, E, Codec> WireframeServer<F, T, Bound, Ser, Ctx, E, Codec>
 where
     F: AppFactory<Ser, Ctx, E, Codec>,
     T: Preamble,
     Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     Ctx: Send + 'static,
-    E: Packet,
+    E: Packet + 'static,
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 ```
 
-Copy that clause verbatim onto the new helpers.
-
-**You will not need to add `Send + 'static` bounds.** `tokio::spawn` requires
-them, but every supertrait already supplies them:
-`AppFactory: Send + Sync + Clone + 'static` (`src/server/mod.rs:122`),
-`Preamble: … + Send + Sync + 'static` (`src/preamble.rs:23`),
-`Packet: … + Send + Sync + 'static` (`src/app/envelope.rs:62`),
-`FrameCodec: Send + Sync + Clone + 'static` (`src/codec.rs:63`), plus
-`Ctx: Send + 'static` and `Ser: … + 'static` in the clause above. Construct the
-shutdown future as an owned `async move { let _ = shutdown_rx.await; }` block
-so it is trivially `Send + 'static`, exactly as `client_pair.rs:301` does.
+Note that it now reads `E: Packet + 'static`; RFC 0001 §5.2 still lists
+`E: Packet`.
 
 ### Facts that shape the design
 
-Each of these was verified against the tree and each one changed a decision.
+Each was verified on `a7eecaff` and each one drives a decision.
 
-1. **`run_with_shutdown` cannot fail.** It destructures, spawns workers, fires
-   `ready_tx`, `select!`s, drains the tracker, and returns `Ok(())`
-   (`src/server/runtime.rs:142-198`). `accept_loop` returns `()`
-   (`src/server/runtime/accept.rs:149`) and `ServerError::Accept` is
-   constructed nowhere in `src/`. App-factory failures are `warn!`-logged per
-   connection (`src/server/connection_spawner.rs:99-108`). So
-   `ShutdownOutcome::ServerFailed` is unreachable today; its arm exists only
-   because the task's type is `JoinHandle<Result<(), ServerError>>`.
-2. **A panicking `Clone` is the reachable pre-readiness fault.** `AppFactory`
-   requires `Clone`, and `run_with_shutdown` calls `factory.clone()` once per
-   worker before firing `ready_tx`; the default worker count is at least one. A
-   test factory whose `Clone` panics therefore yields `JoinError` and
-   `ShutdownOutcome::Panicked`.
-3. **Read the address before binding.** `bind_to_listener` calls
-   `set_nonblocking` then `TcpListener::from_std`
-   (`src/server/config/binding.rs:77-79`) — the same file descriptor, so the
-   address is unchanged. Calling `listener.local_addr()?` on the std listener
-   *before* handing it over removes the `Option::None` case entirely and
-   preserves the real `io::Error`, which `local_addr()` on the bound server
-   discards with `.ok()`.
-4. **`unused_listener()` binds the string `"localhost:0"`**
-   (`wireframe_testing/src/integration_helpers.rs:44`), which resolves through
-   `ToSocketAddrs` and may yield `::1`. Assert `addr.ip().is_loopback()`, never
-   an IPv4 range.
-5. **`shutdown` takes `&mut self`,** so the borrow checker already excludes
-   concurrent operations on one handle. The lifecycle is a sequential decision
-   table, not a concurrency problem. This is why the verification strategy is
-   exhaustive enumeration of a pure transition function rather than a
-   concurrency model checker.
-6. **`TestError::Server` is `#[cfg(not(loom))]`** (`src/testkit/result.rs:41`).
-   Irrelevant today, since `wireframe_testing` is never built under
-   `--cfg loom`, but do not assume the variant is unconditional.
-7. **`ci.yml` does not run `make test`.** Test execution happens inside the
-   shared `generate-coverage` action, on pull requests only. Do not write
-   documentation claiming `make test` is the CI gate.
-8. **`echo_app_factory` takes an argument**: `echo_app_factory(&counter)` where
-   `counter: &Arc<AtomicUsize>`
-   (`wireframe_testing/src/integration_helpers.rs`).
+1. **`spawn()` returns after preparation, not after readiness.** It builds and
+   prepares the application, spawns the supervisor and an observer task, and
+   returns the control (`src/server/runtime/server/mod.rs:338-364`). Readiness
+   is sent later, inside the supervisor, after the accept loops are spawned
+   (`:125-155`). So the harness must still install and await a readiness signal;
+   `ready_signal` is honoured on the `spawn()` path (`:68-69`, `:151-155`).
+2. **`spawn()` reports startup failures before returning a control.** The
+   reachable errors are `ServerError::FactoryBuild`, when the application
+   factory returns `Err` (`src/server/runtime/startup.rs:101-107`), and
+   `ServerError::Prepare` (`startup.rs:131-137`). A factory returning
+   `Result<WireframeApp, E>` is accepted through the closure blanket impl
+   (`src/server/mod.rs:91-128`, `:226-240`).
+3. **Nothing fails between `spawn()` returning and readiness.** The prepared
+   path clones only `Arc`s, spawns onto the task tracker, records a metric, and
+   sends readiness (`src/server/runtime/server/mod.rs:125-155`). The readiness
+   receiver therefore observes a dropped sender only if the supervisor dies,
+   which no public input can cause. That arm is defensive.
+4. **`stop()` is synchronous and idempotent** — a `CancellationToken::cancel`
+   (`src/server/shutdown.rs:87`).
+5. **`drained()` is repeatable.** Each call reads the same `watch`-published
+   terminal descriptor and returns an equivalent result
+   (`src/server/shutdown.rs:119-150`). `ServerError` is not `Clone`
+   (`src/server/error.rs:11`), but `drained()` rebuilds an equivalent error on
+   every call, sharing the original through `Arc` in `source`.
+6. **`drained()` returning `Ok` guarantees the listener is released.** Its
+   documentation says so (`src/server/shutdown.rs:91-95`), and
+   `tests/server_shutdown.rs:34` asserts a refused connection immediately after
+   it, without polling.
+7. **`drained()` never completes on its own.** It needs `stop()` or the drop
+   of the last control (`src/server/runtime/accept.rs:263-266`).
+8. **Dropping the last control cancels the server synchronously.** The shared
+   inner state holds a `DropGuard` on the stop token
+   (`src/server/shutdown.rs:43`, `:54`); dropping it calls `cancel()` without
+   spawning, so no runtime is needed on the dropping thread.
+   `tests/server_shutdown.rs:47` asserts the listener is released afterwards.
+9. **`ServerError::AbnormalTermination` is unreachable through a real
+   server.** The supervisor's prepared path always returns `Ok(())`, a panic
+   before readiness is impossible (fact 3), and cancellation requires aborting a
+   `JoinHandle` that only the server's observer task owns. It is still
+   constructible, with public fields `message` and `source`
+   (`src/server/error.rs:31-37`): `source` is `Some` for a returned error and
+   `None` for a panic or cancellation
+   (`src/server/runtime/server/observer.rs:30-47`).
+10. **`ServerShutdown` exposes no address and is not `Debug`**
+    (`src/server/shutdown.rs:32-36`). The harness must capture the address
+    itself and write a manual `Debug`.
+11. **Read the address before binding.** `bind_to_listener` calls
+    `set_nonblocking` then `TcpListener::from_std` on the same socket
+    (`src/server/config/binding.rs:50-53`), so the address cannot change.
+    Reading `local_addr()` from the std listener first yields a real
+    `io::Error` instead of the `Option` that `Bound::local_addr` returns
+    (`binding.rs:174`).
+12. **`unused_listener()` binds `"localhost:0"`**
+    (`wireframe_testing/src/integration_helpers.rs:52`), which may resolve to
+    `::1`. Assert `addr.ip().is_loopback()`, never an IPv4 range.
+13. **The pair still uses the pre-#657 machinery.** `client_pair.rs` spawns
+    `run_with_shutdown` in a task with a `oneshot` shutdown sender
+    (`:302-312`), awaits readiness without a bound (`:318`), joins without a
+    bound (`:152`), and runs a detached 100 ms abort from `Drop` and from a
+    `PendingServer` guard (`:167-237`). Both `abort()` call sites (`:202`,
+    `:208`) disappear under this plan.
 
 ### Where tests live
 
-- Root-package integration tests, `tests/*.rs`, are compiled by `make test`
-  (`cargo test --all-targets --all-features`). The root package dev-depends on
-  `wireframe_testing`, `rstest`, `rstest-bdd`, `proptest`, `googletest`, and
-  `pretty_assertions`.
+Since 17.3.5, `make test` runs `test --workspace --all-targets --all-features`
+(`Makefile:136`), so both the root package's `tests/` and `wireframe_testing`'s
+own tests are gated locally. CI runs `make test-wireframe-testing`
+(`.github/workflows/ci.yml:99`) and `make test-doc` (`:94`), and runs the root
+package's tests inside the shared coverage action on pull requests
+(`:176-186`); it does not run `make test` itself.
+
+- Integration, behavioural, and property tests go in the root `tests/` tree,
+  beside `tests/client_pair_harness.rs`, `tests/server_shutdown.rs`, and the
+  BDD infrastructure.
 - Behaviour-driven tests: features in `tests/features/`, worlds in
-  `tests/fixtures/`, steps in `tests/steps/`, bindings in `tests/scenarios/`.
-  They compile into the `bdd` target, gated on `advanced-tests`, which
-  `--all-features` enables.
-- Companion-crate tests are **not** run by `make test`, because
-  `default-members = ["."]`. Wiring them in is roadmap 17.3.5. This plan
-  therefore puts everything that must be gated today in the root `tests/` tree
-  and runs the companion-crate command explicitly at each milestone.
+  `tests/fixtures/`, steps in `tests/steps/`, bindings in `tests/scenarios/`,
+  all compiled into the `bdd` target, which requires `advanced-tests`
+  (`Cargo.toml:280-283`); `--all-features` enables it. Registration lines:
+  `tests/fixtures/mod.rs:12`, `tests/steps/mod.rs:11`,
+  `tests/scenarios/mod.rs:15`.
+- Unit tests of the harness's pure functions go in `#[cfg(test)]` modules
+  inside `wireframe_testing`, where they can stay `pub(crate)`.
 
 ### Skills and documents
 
 Load `leta` (run `leta workspace add .`), `rust-router` and from it
-`rust-async-and-concurrency`, `proptest`, `execplans`, and `en-gb-oxendict`.
-Load `firecrawl` for any external lookup.
-
-Read `docs/rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md` (§5.2,
-§5.3, §5.5, §5.6, §6, §7.1, §7.5 are in scope),
+`rust-async-and-concurrency`, `rust-unit-testing`, `proptest`, `execplans`, and
+`en-gb-oxendict`. Read
+`docs/rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md` (§5.2, §5.3,
+§5.5, §5.6, §6, §7.1, §7.5, §11),
+`docs/adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md`,
 `docs/wireframe-testing-crate.md` (the
-`## In-process server/client pair harness` section), and
-`docs/documentation-style-guide.md`. Consult `docs/rstest-bdd-users-guide.md`
-and `docs/wireframe-rstest-bdd-users-guide.md` before writing the BDD suite —
-step functions are synchronous and fixture names must match step parameter
-names exactly — and `docs/rust-doctest-dry-guide.md` before writing doctests.
-The predecessor plan
-`docs/execplans/17-3-2-in-process-server-and-client-pair-test-harness.md`
-explains why the pair harness has its current shape.
-
-`kani` and `verus` are deliberately not used; the reasoning is in
-`Verification plan` and needs no further reading.
+`## In-process server/client pair harness` section at line 555), and
+`docs/documentation-style-guide.md`. Read `docs/rstest-bdd-users-guide.md` and
+`docs/wireframe-rstest-bdd-users-guide.md` before writing the BDD suite; step
+functions are synchronous and fixture names must match step parameter names
+exactly. Read `docs/rust-doctest-dry-guide.md` before writing doctests.
 
 ## Conformance basis
 
-Upstream artefacts at the revisions in the working tree:
+Upstream artefacts at `a7eecaff`:
 
 - `docs/rfcs/rfc-0001-protocol-agnostic-test-harness-lifecycle.md`, Status
-  Proposed, Created 2026-07-18. The governing technical design. There is **no**
-  separate Terms of Reference document; do not invent one.
-- `docs/roadmap.md` item 17.3.3, with 17.3.4 and 17.3.5 out of scope.
+  Proposed, Created 2026-07-18, no revisions. The governing technical design.
+  There is no separate Terms of Reference document.
+- `docs/roadmap.md` item 17.3.3 (lines 839-858). 17.3.4 is out of scope;
+  17.3.5 is complete.
+- `docs/adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md`,
+  Status Proposed. Its `Outstanding decisions` say "The testing harness
+  migration is tracked separately and may choose its own convenience wrapper
+  over `ServerShutdown`" (`:272-273`). This plan is that migration.
+- ADRs 0011, 0012, and 0013, Status Proposed. ADR 0012's Phase 1 testkit
+  drive helper, which an earlier revision feared would duplicate this work,
+  shipped separately as `drive_prepared_with_frames`
+  (`wireframe_testing/src/helpers/drive.rs:275`); it drives a prepared
+  application over a duplex stream and does not overlap this harness.
 - `AGENTS.md` and `docs/documentation-style-guide.md`.
-- ADRs 011, 012, and 013, all Status Proposed, on branch
-  `runtime-ownership-adrs` under
-  [PR #653](https://github.com/leynos/wireframe/pull/653). ADR 011 names
-  `src/server/runtime.rs` as a governed surface and ADR 012 restructures
-  `run_with_shutdown`, so this plan sits inside their remit even though none is
-  yet Accepted. See `Known expiry` below.
-- Epic [#635](https://github.com/leynos/wireframe/issues/635) and its work
-  breakdown, in particular
-  [#642](https://github.com/leynos/wireframe/issues/642).
 
-### Upstream dependencies
-
-```plaintext
-#656 (cancel on drop)  -> EP-M1  [hard block]
-#657 (awaitable drain) -> EP-M4  [blocks COMPLETE, or an accepted deferral]
-```
-
-Neither existed when this plan was drafted; both were raised from its design
-review after confirming no epic #635 issue covers them.
-[#640](https://github.com/leynos/wireframe/issues/640) explicitly excludes
-"Redesigning `CancellationToken` use across independent tasks" in its
-non-goals, and #642 explicitly requires that `run_with_shutdown` "retain
-current shutdown and panic-isolation behaviour". No other epic issue mentions
-abort or drop guards.
-
-### Known expiry
-
-ADR 012 §2 makes `run_with_shutdown` fallible, adding `ServerError::AppBuild`
-and `ServerError::Prepare`. That expires several findings this plan relies on.
-Whoever implements 17.3.3 after
-[#642](https://github.com/leynos/wireframe/issues/642) lands **must re-derive
-these rather than trusting them**:
-
-<!-- markdownlint-disable MD013 -->
-
-| Plan element                                                           | True today                             | After #642                                                                                                        |
-| ---------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| "`run_with_shutdown` cannot fail"                                      | Verified                               | False                                                                                                             |
-| `ShutdownOutcome::ServerFailed` documented as reserved and unreachable | Accurate                               | Reachable and testable                                                                                            |
-| Stage B case 3 using a factory whose `Clone` panics                    | The only reachable pre-readiness fault | Unnecessary, and possibly unwritable — ADR 012 §3 calls `AppFactory`'s `Clone` bound vestigial and up for removal |
-| Stage B case 3 as an app factory returning an error                    | Vacuous                                | Valid, and the preferred formulation                                                                              |
-| `await_readiness` inferring failure from a dropped sender              | Correct                                | Readiness is "resolved or observably closed" carrying a typed error                                               |
-
-<!-- markdownlint-enable MD013 -->
-
-*Table 3: findings with a known expiry date, and the upstream change that
-expires them.*
-
-Two further couplings, neither fatal:
-
-- **Testkit overlap.** ADR 012 Phase 1 requires shipping "a
-  `wireframe_testing`/testkit drive helper (builder, then `prepare().await`,
-  then a connection runtime over a duplex stream)" alongside
-  [#641](https://github.com/leynos/wireframe/issues/641), and lists as an
-  outstanding decision "How testkit helpers expose preparation without making
-  tests depend on private internals". That is the same crate and an adjacent
-  surface to `server_harness`. Unless the two are cross-referenced, #641 will
-  design a second harness entry point in the same module tree. `server_harness`
-  is arguably its natural home, which is an argument for sequencing 17.3.3
-  before #641.
-- **Constraint 1 tension.** `spawn_wireframe_pair(app_factory, …)` takes a
-  factory whose semantics ADR 012 §3 contemplates deprecating in favour of
-  `from_app` or `from_prepared_app`. This plan freezes that signature as an
-  external compatibility promise. `spawn_wireframe_server(server)` is
-  insulated, because it takes an already-configured server.
+The RFC predates `ServerShutdown`. Several of its sentences describe a
+`JoinHandle`-and-`abort` mechanism this plan does not use; each is a recorded
+deviation (D17 to D21) with a Stage E amendment. Trace links:
 
 ```plaintext
 ROADMAP-17.3.3 -> RFC-5.2 -> EP-M1 -> tests/server_harness_lifecycle.rs::spawn_then_connect_round_trip
 ROADMAP-17.3.3 -> RFC-5.2 -> EP-M1 -> tests/server_harness_lifecycle.rs::caller_listener_keeps_its_address
-ROADMAP-17.3.3 -> RFC-5.3 -> EP-M1 -> tests/server_harness_lifecycle.rs::panicking_factory_is_reported
+ROADMAP-17.3.3 -> RFC-5.3 -> EP-M1 -> tests/server_harness_lifecycle.rs::factory_error_fails_spawn_and_releases_listener
+ROADMAP-17.3.3 -> RFC-5.3 -> EP-M1 -> tests/server_harness_lifecycle.rs::readiness_timeout_releases_listener
 ROADMAP-17.3.3 -> RFC-5.3 -> EP-M1 -> tests/server_harness_lifecycle.rs::shutdown_is_idempotent
-ROADMAP-17.3.3 -> RFC-5.3 -> EP-M1 -> tests/server_harness_lifecycle.rs::cancelled_shutdown_then_drop
-ROADMAP-17.3.3 -> RFC-5.3 -> EP-M1 -> tests/server_harness_lifecycle.rs::drop_inside_runtime
-ROADMAP-17.3.3 -> RFC-5.3 -> EP-M1 -> tests/server_harness_lifecycle.rs::drop_outside_runtime
+ROADMAP-17.3.3 -> RFC-5.3 -> EP-M1 -> tests/server_harness_lifecycle.rs::cancelled_shutdown_then_shutdown_completes
+ROADMAP-17.3.3 -> RFC-5.3 -> EP-M1 -> tests/server_harness_lifecycle.rs::drop_inside_runtime_releases_listener
+ROADMAP-17.3.3 -> RFC-5.3 -> EP-M1 -> tests/server_harness_lifecycle.rs::drop_outside_runtime_releases_listener
 ROADMAP-17.3.3 -> RFC-5.3 -> EP-M1 -> tests/server_harness_lifecycle.rs::shutdown_bound_is_reported
-ROADMAP-17.3.3 -> RFC-6   -> EP-M1 -> wireframe_testing/src/server_harness/diagnostics.rs (stage strings)
-ROADMAP-17.3.3 -> RFC-5.3 -> INV-1 -> EP-M2 -> tests/server_harness_lifecycle_props.rs::every_transition_is_total
-ROADMAP-17.3.3 -> RFC-5.3 -> INV-2 -> EP-M2 -> tests/server_harness_lifecycle_props.rs::all_traces_converge
-ROADMAP-17.3.3 -> RFC-6   -> INV-3 -> EP-M2 -> wireframe_testing/src/server_harness/state.rs (Step::disposes_task)
-ROADMAP-17.3.3 -> RFC-5.3 -> INV-4 -> EP-M2 -> tests/server_harness_lifecycle_props.rs::repeated_shutdown_converges
-ROADMAP-17.3.3 -> RFC-6   -> INV-5 -> EP-M2 -> tests/server_harness_lifecycle_props.rs::parallel_handles_are_independent
-ROADMAP-17.3.3 -> RFC-5.5 -> INV-6 -> EP-M3 -> wireframe_testing/src/client_pair.rs (map_pair_error unit tests)
-ROADMAP-17.3.3 -> RFC-5.6 -> EP-M3 -> wireframe_testing/src/server_harness/ (single copy of the machinery)
+ROADMAP-17.3.3 -> RFC-6   -> EP-M1 -> tests/server_harness_lifecycle.rs::parallel_handles_use_distinct_listeners
+ROADMAP-17.3.3 -> RFC-5.3 -> INV-1 -> EP-M2 -> wireframe_testing/src/server_harness/outcome.rs (merge_outcome tests)
+ROADMAP-17.3.3 -> RFC-6   -> INV-2 -> EP-M2 -> wireframe_testing/src/server_harness/outcome.rs (classify_drain tests)
+ROADMAP-17.3.3 -> RFC-5.3 -> INV-3 -> EP-M2 -> wireframe_testing/src/server_harness/outcome.rs (drain_bound tests)
+ROADMAP-17.3.3 -> RFC-6   -> INV-4 -> EP-M1 -> drop tests plus the seeded leaked-control fault
+ROADMAP-17.3.3 -> RFC-7.5 -> INV-5 -> EP-M2 -> tests/server_harness_lifecycle_props.rs::shutdown_traces_converge
+ROADMAP-17.3.3 -> RFC-7.5 -> INV-6 -> EP-M2 -> tests/server_harness_lifecycle_props.rs::connect_schedules_leave_nothing_behind
+ROADMAP-17.3.3 -> RFC-7.5 -> INV-7 -> EP-M2 -> tests/server_harness_lifecycle_props.rs::parallel_handles_are_independent
+ROADMAP-17.3.3 -> RFC-5.5 -> INV-8 -> EP-M3 -> wireframe_testing/src/client_pair.rs (pair error-mapping tests)
+ROADMAP-17.3.3 -> RFC-5.6 -> EP-M3 -> wireframe_testing/src/server_harness/ (one copy of the lifecycle code)
 ```
 
 RFC sections deliberately not discharged here:
 
-- §5.4 (`spawn_wireframe_server_and_connect`) → 17.3.4.
-- §7.1's last two bullets (connector-failure cleanup, simultaneous connector
-  and cleanup failure) → 17.3.4, because both presuppose the connector.
-- §7.2 (protocol-generic proof) and §7.3 (`trybuild`) → 17.3.4.
-- §7.4 (companion-crate gates, issue #578) → 17.3.5.
+- §5.4 (`spawn_wireframe_server_and_connect`) and §7.1's two connector bullets
+  go to 17.3.4, because both presuppose the connector.
+- §7.2 (protocol-generic proof) and §7.3 (`trybuild`) go to 17.3.4.
+- §7.4 (companion-crate gates, issue #578) was discharged by 17.3.5 in
+  `531d05cf`.
 
 ## Verification plan
 
 ### Axioms (assumed, not verified here)
 
-- **AXIOM-1**: Tokio's `oneshot` delivers at most one value, and
-  `JoinHandle::await` resolves exactly once with the task's output or a
-  `JoinError`.
+- **AXIOM-1**: Tokio's `oneshot` delivers at most one value, and its receiver
+  resolves `Err(RecvError)` if the sender is dropped unsent.
 - **AXIOM-2**: `tokio::time::timeout` resolves `Err(Elapsed)` no earlier than
-  the supplied duration when the inner future has not completed.
-- **AXIOM-3**: `run_with_shutdown` fires `ready_tx` exactly once before
-  awaiting shutdown, and returns once its shutdown future resolves and its
-  worker tracker drains (`src/server/runtime.rs:165-197`). Repository-owned, so
-  EP-M1's rstest cases exercise it against the real server.
-- **AXIOM-4**: binding `"localhost:0"` yields a listener on a free ephemeral
-  loopback port, and `bind_existing_listener` transfers the same file
-  descriptor without releasing it.
-- **AXIOM-5**: `Handle::try_current()` returns `Err` exactly when no runtime is
-  entered on the current thread.
-- **AXIOM-6** (from the escalation): with
-  [#656](https://github.com/leynos/wireframe/issues/656) merged, dropping or
-  aborting the supervisor cancels its workers, so the accept loops exit and the
-  listener is released — but asynchronously, on scheduler latency rather than
-  before `abort()` returns. Everything below therefore treats an elapsed bound
-  as abandonment with an eventual release, not as synchronous cleanup. Without
-  #656 the listener is never released and this axiom is false, which is why
-  EP-M0 gates on it.
+  its duration when the inner future has not completed.
+- **AXIOM-3** (repository-owned, outside this plan's code): `stop()` is
+  idempotent; every `drained()` call returns an equivalent result once the
+  terminal outcome is published; `Ok` from `drained()` implies the listener is
+  released; and dropping the last `ServerShutdown` clone requests shutdown.
+  Evidence: ADR 0014 and `tests/server_shutdown.rs:34`, `:47`, `:88`, `:144`.
+  This plan does not re-verify the server; it verifies that the harness relies
+  on these properties correctly.
+- **AXIOM-4**: binding `"localhost:0"` yields a free ephemeral loopback port,
+  and `bind_existing_listener` keeps the same socket.
+- **AXIOM-5**: `spawn()` requires an entered Tokio runtime because it calls
+  `tokio::spawn`; the spawn helpers are `async` and therefore always run inside
+  one.
+- **AXIOM-6**: on a `current_thread` runtime, a task spawned by `spawn()` does
+  not run until the caller yields, and `tokio::time::timeout` polls its inner
+  future before its delay, so `timeout(Duration::ZERO, ready_rx)` elapses
+  deterministically when awaited immediately after `spawn()` returns.
 
 ### The design decision that makes verification tractable
 
-Because `shutdown` takes `&mut self`, the handle's lifecycle is sequential. The
-implementation therefore separates the *decision* from the *effect*:
+The harness's own logic is small, and almost all of it is a decision about a
+value, not an effect. The implementation therefore isolates three pure, total
+functions in `wireframe_testing/src/server_harness/outcome.rs`, which the
+handle calls and which are tested exhaustively:
 
 ```rust
-// wireframe_testing/src/server_harness/state.rs — pure, total, no I/O
-pub enum Phase { Live, Signalled, Stopped(ShutdownOutcome) }
-pub enum Op { Shutdown, Drop }
-pub enum Step { SignalThenJoin, JoinOnly, ReportTerminal, DetachedCleanup, Nothing }
+/// How a handle's shutdown attempts have concluded so far.
+pub enum ShutdownOutcome { Completed, AbnormalTermination, TimedOut }
 
-pub const fn plan(phase: &Phase, op: Op) -> (Phase, Step);
+/// Classify one bounded drain into an outcome and the caller-facing result.
+pub(crate) fn classify_drain(
+    drained: Result<Result<(), ServerError>, Elapsed>,
+) -> (ShutdownOutcome, TestResult<()>);
 
-impl Step {
-    /// Every step must either dispose of the server task or provably not hold one.
-    pub const fn disposes_task(self) -> bool {
-        match self {
-            Self::SignalThenJoin | Self::JoinOnly | Self::DetachedCleanup => true,
-            Self::ReportTerminal | Self::Nothing => false,
-        }
-    }
-}
+/// Fold a newly observed outcome into the handle's record.
+pub(crate) const fn merge_outcome(
+    previous: Option<ShutdownOutcome>,
+    observed: ShutdownOutcome,
+) -> ShutdownOutcome;
+
+/// Choose the bound for the next drain.
+pub(crate) const fn drain_bound(
+    previous: Option<ShutdownOutcome>,
+    configured: Option<Duration>,
+) -> Option<Duration>;
 ```
 
-`handle.rs` calls `plan()` and executes the returned `Step`; it contains no
-lifecycle decisions of its own. This is what makes the verification
-non-vacuous: the thing enumerated is the thing that runs. An earlier draft
-proposed a separate Stateright model in `crates/wireframe-verification`; that
-crate cannot depend on `wireframe_testing`, so the model could only ever be a
-transcribed copy whose correspondence was enforced by a comment. See D5.
+The effectful parts — `stop()`, awaiting `drained()`, dropping the control —
+are each a single call into the server API whose behaviour is AXIOM-3.
+`shutdown()` is then four lines: stop, await the drain under `drain_bound`,
+`classify_drain`, `merge_outcome`. The thing enumerated is the thing that runs.
 
 ### Invariants
 
-**INV-1 — totality and monotonicity.** `plan` is total over `Phase × Op`, and
-`Stopped` is absorbing: no `(Stopped(o), _)` transition yields a phase other
-than `Stopped(o)`.
+**INV-1 — the outcome record is monotone.** `merge_outcome` is total, and
+`Completed` and `AbnormalTermination` are absorbing: once recorded, no later
+observation replaces them. `TimedOut` is replaced by any later observation.
 
-- Method: exhaustive enumeration. Both domains are finite and small.
-- Rationale: with a closed finite domain, enumeration is not a sample of the
-  truth — it is the truth. Nothing weaker is warranted, and nothing stronger is
-  available.
-- Domain: all `Phase` values, including one `Stopped(o)` per `ShutdownOutcome`,
-  crossed with both `Op` values. Twelve pairs.
+- Method: exhaustive enumeration of
+  `Option<ShutdownOutcome> × ShutdownOutcome`, twelve pairs.
+- Rationale: a closed finite domain, so enumeration is the truth rather than a
+  sample of it.
+- Artefact: `#[cfg(test)]` module in `server_harness/outcome.rs`, test
+  `merge_outcome_is_monotone`.
+- Evidence: `make test-wireframe-testing`.
+- Non-vacuity: assert the enumeration visited twelve pairs. Negative control:
+  let `TimedOut` overwrite `Completed`; the absorption assertion must fail.
+
+**INV-2 — failures are classified distinctly.** `classify_drain` maps a clean
+drain to `(Completed, Ok(()))`, a server error to
+`(AbnormalTermination, Err(TestError::Server(_)))` preserving the original
+error, and an elapsed bound to `(TimedOut, Err(TestError::Timeout(_)))`.
+
+- Method: exhaustive over the three input classes, with constructed inputs:
+  `Ok(Ok(()))`, `Ok(Err(ServerError::AbnormalTermination { message, source }))`
+  for both `source: None` and `source: Some(_)`, and an `Elapsed` obtained from
+  `tokio::time::timeout(Duration::ZERO, std::future::pending::<()>()).await`.
+- Rationale: the abnormal path is unreachable through a real server (fact 9),
+  so this is the only place it can be exercised.
+- Artefact: `server_harness/outcome.rs`, test
+  `classify_drain_distinguishes_every_class`.
+- Evidence: `make test-wireframe-testing`.
+- Non-vacuity: assert the variant and the preserved `message`. Negative
+  control: map the server error to `TestError::Msg`; the test must fail.
+
+**INV-3 — a repeated shutdown after a timeout does not block.** `drain_bound`
+returns `Some(Duration::ZERO)` when the previous outcome is `TimedOut`, and the
+configured bound otherwise.
+
+- Method: exhaustive over four previous outcomes times two configured classes
+  (`None`, `Some(d)`), eight cases.
+- Rationale: this is the harness's implementation of RFC §5.3's "after a
+  timeout, a later call reports the same timeout failure rather than blocking
+  again" (see D18).
+- Artefact: `server_harness/outcome.rs`, test
+  `drain_bound_never_blocks_after_timeout`.
+- Evidence: `make test-wireframe-testing`, plus the runtime half in
+  `shutdown_bound_is_reported`, which asserts the repeated call returns within
+  50 ms.
+- Non-vacuity: negative control — return the configured bound after
+  `TimedOut`; the runtime test's 50 ms assertion must fail.
+
+**INV-4 — no handle leaves a server running.** Each `RunningWireframeServer`
+owns exactly one `ServerShutdown`, never clones it, and never exposes it, so
+dropping the handle drops the last control and requests shutdown (AXIOM-3).
+
+- Method: structural — the `control` field is private and the module contains
+  no `.clone()` of it, checked in review with
+  `rg -n 'control\.clone|&self\.control' wireframe_testing/src/server_harness` —
+  plus runtime tests on every way a handle can end: explicit shutdown, drop
+  inside a runtime, drop on a thread without a runtime, drop after a cancelled
+  shutdown future, and a failed spawn.
+- Rationale: the failure mode is a leaked clone, which is not observable from
+  a single call but is observable as a listener that never releases.
+- Artefact: `tests/server_harness_lifecycle.rs` drop and failure cases.
+- Evidence: `make test`.
+- Non-vacuity: seeded fault — in a scratch commit, leak a clone with
+  `std::mem::forget(control.clone())` in the spawn helper; every drop test must
+  then fail with `wait_for_listener_release`'s "remained bound for one second"
+  error. Record the transcript and discard the commit.
+
+**INV-5 — shutdown traces converge.** Any generated trace of completed and
+cancelled `shutdown()` calls, followed by either a final `shutdown()` or
+`Drop`, leaves the listener released; every completed call after the first
+returns the same result as the first; and `shutdown_outcome()` never changes
+once it is `Completed`.
+
+- Method: property test. Operations: `Shutdown`, and `CancelledShutdown` (poll
+  the future once with `futures::poll!`, then drop it); trace length `0..=5`;
+  terminal action `Shutdown` or `Drop`.
+- Rationale: covers RFC §7.5's first two bullets across orderings, against a
+  real server, socket, and runtime.
+- Artefact: `tests/server_harness_lifecycle_props.rs::shutdown_traces_converge`.
+- Evidence: `make test`.
+- Non-vacuity: generation alone does not guarantee that the material classes
+  occur, so three named witness traces run as `#[rstest]` cases through the same
+  `exercise_shutdown_trace` function: `Drop` with an empty trace (drop without
+  shutdown), `[Shutdown]` then `Drop` (drop after shutdown), and
+  `[CancelledShutdown]` then `Shutdown`. Negative control: make `shutdown()`
+  skip `stop()` when the previous outcome is `None`; the drain then never
+  finishes and every witness fails on the drain bound.
+
+**INV-6 — connect schedules leave nothing behind.** After readiness, a
+generated schedule of zero to three connections, each either closed by the
+client or left open idle, followed by `shutdown()`, returns `Ok(())` within the
+default bound, and a connect to the address is then refused.
+
+- Method: property test.
+- Rationale: RFC §7.5's third bullet; exercises the graceful drain with idle
+  peers, which `tests/server_shutdown_idle_peer.rs:69` shows the server
+  releases.
 - Artefact:
-  `tests/server_harness_lifecycle_props.rs::every_transition_is_total`.
+  `tests/server_harness_lifecycle_props.rs::connect_schedules_leave_nothing_behind`.
 - Evidence: `make test`.
-- Non-vacuity: assert the enumeration visited twelve pairs, so a generator bug
-  that silently produced none fails. Negative control: add a `Stopped → Live`
-  edge; the absorption assertion must fail.
+- Non-vacuity: the connection count range includes zero and three; assert at
+  least one generated case held an idle connection open across `shutdown()`.
 
-**INV-2 — trace convergence.** Every operation sequence of length up to six
-ending in `Drop` leaves the same terminal phase as a single `Shutdown` followed
-by `Drop`.
+**INV-7 — handles are independent.** A generated pool of two to four handles
+binds distinct addresses; shutting down one, chosen by generated index, leaves
+every other handle accepting connections.
 
-- Method: exhaustive fold of `plan` over all `Op` sequences up to length six —
-  126 traces.
-- Rationale: covers ordering exhaustively at negligible cost, and subsumes what
-  the earlier draft asked a bounded model checker to do.
-- Artefact: `tests/server_harness_lifecycle_props.rs::all_traces_converge`.
-- Evidence: `make test`.
-- Non-vacuity: assert both the "drop after shutdown" and "drop without
-  shutdown" classes are present in the enumeration. Negative control: make the
-  `Signalled` arm re-signal; convergence must fail.
-
-**INV-3 — no orphaned task.** No reachable `Step` discards the server task
-without joining or abandoning it.
-
-- Method: exhaustive `match` in `Step::disposes_task`, plus an enumeration
-  asserting every `Step` reachable from a non-`Stopped` phase disposes of the
-  task.
-- Rationale: this is the invariant that is *not* observable from a test. Making
-  it an exhaustive `match` makes it a compile-time obligation — adding a `Step`
-  variant without classifying it is a compile error. That is stronger than any
-  assertion, and it cannot drift.
-- Artefact: `wireframe_testing/src/server_harness/state.rs` plus
-  `tests/server_harness_lifecycle_props.rs::every_transition_is_total`.
-- Evidence: `make test`, and a deliberate `cargo build` failure.
-- Non-vacuity: add a `Step` variant without a `disposes_task` arm and confirm
-  the crate fails to compile; record that transcript.
-
-**INV-4 — idempotence in the running system.** On a real handle, repeated
-`shutdown()` converges to one joined task, and the reported classification does
-not change between calls.
-
-- Method: property test over a generated call count.
-- Rationale: INV-1 and INV-2 verify the *decision*; this verifies that the
-  execution of each `Step` matches it against a real server, real sockets, and
-  a real runtime.
-- Domain: call count generated in `1..=4`; 16 cases.
-- Artefact:
-  `tests/server_harness_lifecycle_props.rs::repeated_shutdown_converges`.
-- Evidence: `make test`.
-- Non-vacuity: the range excludes zero, so at least one `shutdown` always runs.
-  Assert with `prop_assert_eq!` on `shutdown_outcome()` rather than
-  `prop_assert!` on a boolean, so the shrunk counter-example prints actual
-  against expected. Negative control: remove the phase update in the `Live` arm
-  so the signal is re-sent; the property must fail.
-
-**INV-5 — handle isolation.** Concurrently spawned handles bind distinct
-addresses and share no state; stopping one does not affect another.
-
-- Method: property test over a generated pool size.
-- Rationale: concerns a set of independently allocated OS resources, which no
-  abstraction can model.
-- Domain: pool size generated in `2..=4`, each server pinned to
-  `.workers(1)`; 16 cases.
+- Method: property test, every server pinned to `.workers(1)`.
 - Artefact:
   `tests/server_harness_lifecycle_props.rs::parallel_handles_are_independent`.
 - Evidence: `make test`.
-- Non-vacuity: the shut-down index is generated, so first, middle, and last
-  positions are all reachable; assert at least one handle survives. Negative
-  control: give every handle the same listener; the distinct-address assertion
+- Non-vacuity: the index is generated, so first, middle, and last positions are
+  reachable; assert at least one handle survives. Negative control: give every
+  handle a clone of one listener via `try_clone`; the distinct-address
+  assertion must fail.
+
+**INV-8 — pair compatibility.** Every reachable cell of Table 1 holds after
+EP-M3.
+
+- Method: the existing pair suites unchanged, plus exhaustive unit tests of the
+  two extracted mapping functions.
+- Artefact: `#[cfg(test)]` module in `wireframe_testing/src/client_pair.rs`;
+  `tests/client_pair_harness.rs`; `tests/features/client_pair_harness.feature`.
+- Evidence: `make test-wireframe-testing` and `make test`.
+- Non-vacuity: each case asserts the variant and the message prefix. Negative
+  control: return the typed variant instead of re-wrapping; every mapping case
   must fail.
 
-**INV-6 — pair compatibility.** Every cell of Table 1 still holds after EP-M3.
-
-- Method: the existing suites unchanged, plus exhaustive unit tests of the
-  extracted error-mapping function.
-- Rationale: a finite, enumerable surface. The compatibility obligation cannot
-  be tested end-to-end, because none of the `Msg`-producing paths is reachable
-  through the public API — `run_with_shutdown` cannot fail, readiness always
-  fires, and `local_addr()` never returns `None` once the address is read from
-  the std listener. Extracting the mapping into a pure function makes the
-  obligation testable with constructed inputs.
-- Domain: the pure mapping function
-
-  ```rust
-  pub(crate) fn map_pair_shutdown_error(Result<Result<(), ServerError>, JoinError>) -> TestResult<()>
-  ```
-
-  exercised with `Ok(Ok(()))`, a constructed
-  `ServerError::Bind(io::Error::other(..))`, and a real `JoinError` obtained
-  from `tokio::spawn(async { panic!() }).await.unwrap_err()`.
-- Artefact: `#[cfg(test)]` module in `wireframe_testing/src/client_pair.rs`,
-  plus the four existing cases in `tests/client_pair_harness.rs`.
-- Evidence: `cargo test -p wireframe_testing --all-targets`, and `make test`.
-- Non-vacuity: each case asserts the variant *and* the message prefix, so a
-  silent switch from `Msg` to `Join` fails. Negative control: return the typed
-  variant instead of wrapping; every case must fail.
+All property tests use `cases: 16`, `max_shrink_time: 30_000`, and wrap each
+case body in a ten-second `tokio::time::timeout` inside `block_on`, so a hang
+becomes a printable, shrinkable failure. That internal timeout must not use
+`ServerHarnessOptions`, which is the thing under test.
 
 ### Methods deliberately not used
 
-- **Kani** sequentialises concurrency and cannot see task interleaving. It is
-  also the wrong shape for a finite decision table that plain enumeration
-  covers exhaustively at compile-and-run cost of milliseconds.
-- **Verus** addresses unbounded induction over pure functions. `plan` has a
-  twelve-element domain; there is no induction to do.
-- **Stateright** was in an earlier draft and was withdrawn; see D5.
-- **`insta`** is not a dependency and there is no multivariant output to
-  snapshot. Error text is asserted semantically with `contains_substring`, per
-  RFC §7.3.
+- **A transition table over `Phase × Op`.** The previous revision's central
+  verification device. With `ServerShutdown`, the handle has no lifecycle
+  phases of its own: `stop()` and `drained()` are idempotent, so the only state
+  the harness keeps is the outcome record, which INV-1 covers.
+- **Stateright, Kani, Verus.** No concurrent protocol is introduced, and the
+  pure functions have domains of twelve or fewer cases. RFC §7.5 says a model
+  checker is not warranted in the first release.
+  `crates/wireframe-verification` also cannot see `wireframe_testing`
+  (`crates/wireframe-verification/Cargo.toml:11`).
+- **`insta`.** There is no multivariant output to snapshot.
 
 ### Residual gaps
 
-- `ShutdownOutcome::ServerFailed` is unreachable through a real server and has
-  no runtime test. It is exercised only through `map_pair_shutdown_error`'s
-  constructed input.
-- The `LifecycleStage::Bind` path is reachable only if `set_nonblocking` or
-  `TcpListener::from_std` fails, which cannot be forced from a test. Documented
-  as defensive.
-- Per AXIOM-6, an elapsed bound abandons rather than synchronously cleans up.
-  With [#656](https://github.com/leynos/wireframe/issues/656) merged the
-  listener is released within scheduler latency, so `await_port_released` can
-  assert it with a deadline; without #656 it is never released. Only
-  [#657](https://github.com/leynos/wireframe/issues/657) makes the release
-  synchronously observable, at which point this gap closes.
-- If `Drop` runs while the runtime is shutting down, the detached cleanup task
-  is cancelled before it executes and the server task is neither joined nor
-  abandoned by us; it dies with the runtime. Benign in-process, but INV-3's
-  guarantee is about the `Step` we choose, not about the runtime honouring it.
+- `ShutdownOutcome::AbnormalTermination` is unreachable through a real server
+  (fact 9) and is exercised only by INV-2's constructed inputs.
+- The readiness arm in which the supervisor drops its sender unsent is
+  unreachable (fact 3). It is implemented defensively and documented as such;
+  no test reaches it.
+- `ServerError::Bind` from `bind_existing_listener` is reachable only if
+  `set_nonblocking` or `TcpListener::from_std` fails, which a test cannot force.
+- An `AbnormalTermination` from `drained()` "does not by itself prove that the
+  drain completed" (`src/server/shutdown.rs:93-95`). If it ever occurs, the
+  harness reports it but cannot claim the listener is released; `Drop` still
+  releases the control.
 
 ## Interfaces and dependencies
 
-At the end of EP-M3 the following exists, exactly. The submodules are
-**private**; only `server_harness` itself is `pub`, so the file split stays a
-private implementation detail.
+At the end of EP-M3 the following exists, exactly. Submodules are private; only
+`server_harness` is `pub`.
 
 ```rust
 // wireframe_testing/src/server_harness/mod.rs
 //! Protocol-agnostic server lifecycle harness.
 
-mod diagnostics;
 mod handle;
 mod lifecycle;
 mod options;
-mod state;
+mod outcome;
 
 pub use self::{
-    handle::{RunningWireframeServer, ShutdownOutcome},
+    handle::RunningWireframeServer,
     lifecycle::{spawn_wireframe_server, spawn_wireframe_server_on, spawn_wireframe_server_with_options},
     options::ServerHarnessOptions,
+    outcome::ShutdownOutcome,
 };
 ```
 
@@ -953,83 +677,73 @@ pub use self::{
 pub struct ServerHarnessOptions { /* private fields */ }
 
 impl Default for ServerHarnessOptions {
-    /// Five seconds for readiness, five seconds for the shutdown join, and a
-    /// one-second grace period for defensive `Drop` cleanup.
+    /// Five seconds to observe readiness and five seconds to drain on shutdown.
     fn default() -> Self;
 }
 
 impl ServerHarnessOptions {
-    #[must_use] pub const fn with_readiness_timeout(self, timeout: Duration) -> Self;
+    /// `None` waits indefinitely.
+    #[must_use] pub const fn with_readiness_timeout(self, timeout: Option<Duration>) -> Self;
     /// `None` waits indefinitely, matching `WireframePair::shutdown`.
     #[must_use] pub const fn with_shutdown_timeout(self, timeout: Option<Duration>) -> Self;
-    #[must_use] pub const fn with_drop_grace(self, grace: Duration) -> Self;
-    #[must_use] pub const fn readiness_timeout(&self) -> Duration;
+    #[must_use] pub const fn readiness_timeout(&self) -> Option<Duration>;
     #[must_use] pub const fn shutdown_timeout(&self) -> Option<Duration>;
-    #[must_use] pub const fn drop_grace(&self) -> Duration;
+}
+```
+
+```rust
+// outcome.rs
+/// How a [`RunningWireframeServer`]'s shutdown attempts have concluded.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ShutdownOutcome {
+    /// The server drained: accept loops exited and the listener is released.
+    Completed,
+    /// The server reported `ServerError::AbnormalTermination`.
+    AbnormalTermination,
+    /// Shutdown was requested but the drain did not finish within the bound.
+    /// Not terminal: a later `shutdown` call may still observe completion.
+    TimedOut,
 }
 ```
 
 ```rust
 // handle.rs
-/// How a [`RunningWireframeServer`] reached its terminal state.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[non_exhaustive]
-pub enum ShutdownOutcome {
-    /// The server task returned and was joined.
-    Completed,
-    /// The server task panicked or was cancelled.
-    Panicked,
-    /// Reserved. The server task returned an error. Unreachable today, because
-    /// `run_with_shutdown` has no failure path; retained because the task's
-    /// type admits one.
-    ServerFailed,
-    /// The join bound elapsed. Per the escalation, the server was **not**
-    /// stopped: its accept loops survive and the listener stays bound until
-    /// the runtime is dropped.
-    Abandoned,
-}
-
 /// A bound, ready, running Wireframe server owned by a test.
 ///
-/// Dropping this handle stops the server, so binding it to `_` discards a
-/// server you probably meant to keep.
+/// Dropping this handle requests shutdown, so binding it to `_` stops a server
+/// you probably meant to keep.
 #[must_use]
-pub struct RunningWireframeServer { /* private fields */ }
+pub struct RunningWireframeServer { /* local_addr, control, options, outcome */ }
 
 impl RunningWireframeServer {
     /// The address the server was bound to.
     #[must_use] pub const fn local_addr(&self) -> SocketAddr;
 
-    /// The terminal classification, or `None` while the handle is still live.
-    #[must_use] pub fn shutdown_outcome(&self) -> Option<ShutdownOutcome>;
+    /// The most recent shutdown outcome, or `None` before any shutdown call
+    /// has concluded.
+    #[must_use] pub const fn shutdown_outcome(&self) -> Option<ShutdownOutcome>;
 
-    /// The typed failure that produced the terminal state, if any.
-    ///
-    /// Lent rather than returned by value, because none of `Elapsed`,
-    /// `JoinError`, or `ServerError` is `Clone`. This is how a caller
-    /// distinguishes failures without parsing message text.
-    #[must_use] pub fn shutdown_error(&self) -> Option<&TestError>;
-
-    /// Stop the server and join its task. Idempotent.
+    /// Request shutdown and wait, under the configured bound, for the drain.
     ///
     /// # Errors
     ///
-    /// On its first call from a live handle, returns `TestError::Join` if the
-    /// task panicked or was cancelled, `TestError::Server` if it returned an
-    /// error, or `TestError::Timeout` if the join bound elapsed. Once the
-    /// handle is terminal this method is a no-op returning `Ok(())`; query
-    /// [`Self::shutdown_outcome`] and [`Self::shutdown_error`] for the
-    /// terminal status.
+    /// Returns `TestError::Server` carrying `ServerError::AbnormalTermination`
+    /// if the server terminated abnormally, or `TestError::Timeout` if the
+    /// drain did not finish within the bound. A call after a timeout re-checks
+    /// without waiting.
     pub async fn shutdown(&mut self) -> TestResult<()>;
 }
 
-impl Debug for RunningWireframeServer { /* redacts live resources */ }
-impl Drop for RunningWireframeServer { /* panic-free, bounded, non-blocking */ }
+impl Debug for RunningWireframeServer { /* local_addr and outcome only */ }
 ```
 
+There is deliberately no `impl Drop`: dropping the `control` field is the whole
+of the cleanup (D20).
+
 ```rust
-// lifecycle.rs — the where clause is elided here; it is the verbatim block
-// quoted in Context and orientation.
+// lifecycle.rs — the where clause is the verbatim block quoted in
+// `Context and orientation`.
 pub async fn spawn_wireframe_server<F, T, Ser, Ctx, E, Codec>(
     server: WireframeServer<F, T, Unbound, Ser, Ctx, E, Codec>,
 ) -> TestResult<RunningWireframeServer>;
@@ -1046,232 +760,231 @@ pub async fn spawn_wireframe_server_with_options<F, T, Ser, Ctx, E, Codec>(
 ) -> TestResult<RunningWireframeServer>;
 ```
 
-Crate-internal, not re-exported: `state::{Phase, Op, Step, plan}` are `pub` for
-the root-package enumeration tests but `#[doc(hidden)]`, and
-`diagnostics::{LifecycleStage, stage_message}` are `pub(crate)`.
-`LifecycleStage` stays crate-private in 17.3.3 because nothing public produces
-or consumes it; 17.3.4 should promote it when it gains a `Connect` variant and
-a public producer.
+The four re-exports are added to `wireframe_testing/src/lib.rs` beside the
+`client_pair` re-exports at `:45-46`, under the same `#[cfg(not(loom))]`.
 
-The three re-exports are added to `wireframe_testing/src/lib.rs` alongside the
-existing `client_pair` re-exports.
+No new dependency in any manifest. `futures` (for `poll!`) is already a
+`wireframe_testing` dependency (`wireframe_testing/Cargo.toml:39`) and a root
+dependency (`Cargo.toml:44`).
 
-No new dependency in any manifest.
+### Startup sequence
 
-### Exact diagnostic strings
+`spawn_wireframe_server_with_options` runs these steps, each mapping its
+failure onto one `TestError` variant:
 
-`stage_message` is the single site of message construction, and the strings are
-part of the contract that the `contains_substring` assertions rely on:
+1. Use the supplied listener, or reserve one with `unused_listener()`
+   (`TestError::Io`).
+2. Read `local_addr()` from the std listener (`TestError::Io`).
+3. Install a harness-owned readiness sender with `ready_signal` and call
+   `bind_existing_listener` (`TestError::Server` carrying `Bind`).
+4. Call `spawn().await` (`TestError::Server` carrying `FactoryBuild` or
+   `Prepare`). From here the harness owns the control.
+5. Await readiness under the readiness bound. On success, return the handle.
+   On an elapsed bound, call `stop()`, await `drained()` under the shutdown
+   bound, and return `TestError::Timeout` with the readiness `Elapsed`; if that
+   cleanup also fails, return one `TestError::Msg` naming both failures, as RFC
+   §5.4 prescribes for combined failures. On a dropped sender (defensive), await
+   `drained()` and return its error as `TestError::Server`, or a
+   `TestError::Msg` stating that the server exited before signalling readiness
+   if the drain was clean.
 
-```rust
-pub(crate) fn stage_message(stage: LifecycleStage, detail: &str) -> String {
-    format!("wireframe_testing server harness: {} stage failed: {detail}", stage.label())
-}
-```
+### Table 3: how a caller identifies the failing stage
 
-with `label()` an exhaustive `match` returning `"bind"`, `"readiness"`,
-`"shutdown"`, `"join"`, or `"abandon-after-timeout"`. A parameterized rstest
-asserts that every variant renders a distinct, non-empty label, so adding a
-variant without a label fails.
+RFC §6 asks that errors identify the lifecycle stage. With typed variants, the
+stage is identified by the operation and the variant together, without parsing
+text (D19):
+
+<!-- markdownlint-disable MD013 -->
+
+| Operation  | Variant                                         | Stage                           |
+| ---------- | ----------------------------------------------- | ------------------------------- |
+| `spawn_*`  | `TestError::Io`                                 | listener reservation or address |
+| `spawn_*`  | `TestError::Server(ServerError::Bind(_))`       | bind                            |
+| `spawn_*`  | `TestError::Server(FactoryBuild or Prepare)`    | application startup             |
+| `spawn_*`  | `TestError::Timeout(_)`                         | readiness                       |
+| `spawn_*`  | `TestError::Msg(_)`                             | readiness, with cleanup failure |
+| `shutdown` | `TestError::Timeout(_)`                         | drain bound                     |
+| `shutdown` | `TestError::Server(AbnormalTermination { .. })` | server termination              |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Milestones and plateaus
 
-### EP-M0 — dependencies landed, escalations accepted, green baseline
+### EP-M0 — re-derived plan, accepted decisions, green baseline
 
-- Outcome: [#656](https://github.com/leynos/wireframe/issues/656) is merged to
-  `main`; D2, D3, D5, D8, D11, and D14 accepted or amended; `make check-fmt`,
-  `make lint`, and `make test` recorded green on an unmodified tree.
-- Acceptance evidence: transcripts under `/tmp`; a note in `Decision log`
-  recording who accepted what; `git log origin/main` showing #656.
-- Conformance check: confirm RFC 0001 has not changed since this plan was
-  written, and re-read `Known expiry` against the current state of
-  [#642](https://github.com/leynos/wireframe/issues/642). If #642 has landed,
-  every row of Table 3 must be re-derived before EP-M1.
+- Outcome: this plan re-derived against `a7eecaff` (done 2026-11-22); every
+  decision accepted (done 2026-11-22); `make check-fmt`, `make lint`, and
+  `make test` recorded green on an unmodified tree; the Stage A auto-trait
+  probe recorded.
+- Acceptance evidence: gate transcripts under `/tmp`; the probe's outcome in
+  `Surprises & discoveries`.
+- Conformance check: confirm RFC 0001, ADR 0014, and the cited server API are
+  unchanged since `a7eecaff`. If `main` has moved, re-verify every
+  `Facts that shape the design` entry before EP-M1; a path-only check is not
+  enough (see `Surprises & discoveries`, 2026-11-22).
 - Recovery: nothing to undo.
-- Compatibility decision: none.
 
 ### EP-M1 — the harness exists and is proven by example
 
 - Outcome: `wireframe_testing::server_harness` exists with the handle, the
-  options type, the pure transition function, and the three spawn helpers.
-  `client_pair.rs` is untouched, so two live implementations coexist. That is
-  intentional and matches RFC §8 stage 1; it is not compatibility machinery,
-  because both are real implementations and one is deleted in EP-M3.
-- Requirements: RFC §5.2, §5.3, §6, §7.1 (excluding its two connector bullets).
-- Acceptance evidence: `tests/server_harness_lifecycle.rs` passes with the
-  eight cases listed in Stage B, and the three scenarios in
-  `tests/features/server_harness_lifecycle.feature` pass.
+  options type, the pure outcome functions, and the three spawn helpers.
+  `client_pair.rs` is untouched, so two implementations coexist; that matches
+  RFC §8 stage 1 and is not compatibility machinery, because EP-M3 deletes the
+  old one.
+- Requirements: RFC §5.2, §5.3, §6, and §7.1 except its two connector bullets.
+- Acceptance evidence: the ten cases in `tests/server_harness_lifecycle.rs`
+  pass; the four scenarios in `tests/features/server_harness_lifecycle.feature`
+  pass; INV-4's seeded fault is recorded.
 - Conformance check: the `where` clause matches verbatim; no default type
-  parameter added; no file over its budget; submodules are private.
+  parameter; no file over its budget; submodules private; no `impl Drop`.
 - Recovery: additive; revert the milestone's commits.
-- Remaining gaps: no exhaustive or property coverage; the pair still duplicates
-  the machinery, so RFC §5.6 is **not** discharged here.
-- Compatibility decision: none; the new module has no consumers yet.
-
-### EP-M1a — delegation spike, then revert
-
-- Outcome: a throwaway commit wires `spawn_wireframe_pair` to the new helper,
-  runs `tests/client_pair_harness.rs` and the pair BDD scenarios, and is then
-  reverted. Nothing is kept but the knowledge.
-- Rationale: EP-M2 invests substantial test code in a design whose only real
-  consumer arrives in EP-M3. If the delegation is blocked — most plausibly on
-  the Table 1 error shapes — it is far cheaper to discover that now.
-- Acceptance evidence: a note in `Surprises & discoveries` recording whether
-  the delegation was clean, and the revert commit.
-- Recovery: the revert is the recovery.
-- Compatibility decision: none; the spike is discarded.
+- Remaining gaps: no exhaustive or property coverage; RFC §5.6 not yet
+  discharged.
 
 ### EP-M2 — the invariants are discharged
 
-- Outcome: the exhaustive transition tests and the three property tests exist
-  and pass, and each has been seen to fail against its negative control.
-- Requirements: RFC §7.5; INV-1 through INV-5.
-- Acceptance evidence: `make test` green; five recorded negative-control
-  transcripts, including the deliberate compile failure for INV-3.
+- Outcome: the exhaustive unit tests (INV-1 to INV-3) and the three property
+  tests (INV-5 to INV-7) exist and pass, and each has been seen to fail against
+  its negative control.
+- Requirements: RFC §7.5.
+- Acceptance evidence: `make test` and `make test-wireframe-testing` green;
+  six negative-control transcripts; one classification run for INV-5.
 - Conformance check: ten consecutive full `make test` runs with no
-  intermittent failure; every property case bounded by its internal ten-second
-  timeout.
+  intermittent failure.
 - Recovery: additive.
-- Remaining gaps: the pair still duplicates the machinery.
-- Compatibility decision: none.
 
 ### EP-M3 — the pair delegates and the duplication goes
 
-- Outcome: `client_pair.rs` builds its default server, calls
-  `spawn_wireframe_server_with_options` with an unbounded shutdown timeout, and
-  keeps its own client-close-then-signal ordering. `spawn_bounded_shutdown` and
-  `PendingServer` are gone from `client_pair.rs`; one copy lives in
-  `server_harness`. RFC §5.6 is discharged here.
-- Requirements: RFC §5.5, §5.6; INV-6.
+- Outcome: `spawn_wireframe_pair` builds its default server, calls
+  `spawn_wireframe_server_with_options` with both bounds set to `None`, and
+  maps failures through two extracted functions so that every reachable cell of
+  Table 1 holds. `WireframePair::shutdown` closes the client, then calls the
+  inner handle's `shutdown()`. `spawn_bounded_shutdown`, `PendingServer`, the
+  `ServerShutdownHandle` alias, the `oneshot` shutdown sender, both `abort()`
+  call sites, and `WireframePair`'s `impl Drop` are deleted. RFC §5.6 is
+  discharged.
+- Requirements: RFC §5.5, §5.6; INV-8.
 - Acceptance evidence: every pre-existing pair test passes unmodified; the
-  `map_pair_shutdown_error` unit tests pass;
-  `cargo test -p wireframe_testing --all-targets` passes.
-- Conformance check: `WireframePair` still concrete; both constructor
-  signatures byte-identical under `git diff`; every cell of Table 1 unchanged;
-  auto-trait assertions still hold.
-- Recovery: the only milestone that changes existing behaviour, so revert this
-  first if a regression appears. Reverting restores the EP-M2 plateau, in which
-  both implementations coexist and everything is green.
-- Remaining gaps: documentation.
-- Compatibility decision: **required**. The named consumer is the published
-  `wireframe_testing` 0.3.0 crate and any downstream suite using
-  `spawn_wireframe_pair`. The façade is retained existing API, not a new shim.
+  mapping unit tests pass; the auto-trait assertions hold.
+- Conformance check: `git diff` shows both constructor signatures
+  byte-identical; `client_pair.rs` is shorter than 387 lines.
+- Recovery: the only milestone that changes existing behaviour; reverting it
+  restores the EP-M2 plateau, where both implementations coexist and pass.
+- Compatibility decision: required by Constraint 1; the named consumers are
+  existing callers of `spawn_wireframe_pair`, including the repository's own
+  suites.
 
 ### EP-M4 — documentation, RFC amendment, roadmap
 
 - Outcome: the design record matches the code and roadmap 17.3.3 is ticked.
-- Requirements: resolution of
-  [#657](https://github.com/leynos/wireframe/issues/657), either merged or with
-  an accepted deferral, because the RFC §5.3 amendment says different things in
-  the two cases.
-- Acceptance evidence: `make markdownlint` and `make nixie` pass; the roadmap
-  checkbox is `[x]`.
-- Conformance check: every deviation in `Decision log` has a corresponding RFC
-  amendment. The plan moves to `COMPLETE` only when none remains unaccepted and
-  #657 is resolved one way or the other.
-- Recovery: documentation-only.
-- Compatibility decision: none.
+- Acceptance evidence: `make fmt`, `make markdownlint`, and `make nixie`
+  pass; the roadmap checkbox is `[x]`.
+- Conformance check: every deviation D17 to D21 has a matching RFC amendment.
+  The plan moves to `COMPLETE` only then.
+- Recovery: documentation only.
 
 ## Plan of work
 
 ### Per-file budget
 
-`AGENTS.md` caps files at 400 lines. Planned budgets, which together with the
-test files give roughly 1 500 net added lines across roughly 26 files:
-
 <!-- markdownlint-disable MD013 -->
 
-| File                            | Budget | Contents                                                      |
-| ------------------------------- | ------ | ------------------------------------------------------------- |
-| `server_harness/mod.rs`         | 60     | module docs, private `mod`s, re-exports, one runnable doctest |
-| `server_harness/state.rs`       | 120    | `Phase`, `Op`, `Step`, `plan`, `disposes_task`                |
-| `server_harness/options.rs`     | 130    | `ServerHarnessOptions`, `Default`, builders, getters          |
-| `server_harness/diagnostics.rs` | 90     | `LifecycleStage`, `label`, `stage_message`                    |
-| `server_harness/handle.rs`      | 260    | the handle, `Debug`, `Drop`, accessors, step execution        |
-| `server_harness/lifecycle.rs`   | 220    | three entry points plus `bind_and_address`, `await_readiness` |
+| File                                                | Budget   | Contents                                                       |
+| --------------------------------------------------- | -------- | -------------------------------------------------------------- |
+| `wireframe_testing/src/server_harness/mod.rs`       | 70       | module docs, private `mod`s, re-exports, one runnable doctest  |
+| `wireframe_testing/src/server_harness/options.rs`   | 110      | `ServerHarnessOptions`, `Default`, builders, getters, doctests |
+| `wireframe_testing/src/server_harness/outcome.rs`   | 240      | `ShutdownOutcome`, three pure functions, their unit tests      |
+| `wireframe_testing/src/server_harness/handle.rs`    | 150      | the handle, `Debug`, accessors, `shutdown`                     |
+| `wireframe_testing/src/server_harness/lifecycle.rs` | 220      | three entry points, readiness and cleanup helpers              |
+| `wireframe_testing/src/client_pair.rs`              | net −130 | delegation, two mapping functions and their tests              |
+| `tests/server_harness_lifecycle.rs`                 | 380      | the ten rstest cases and shared helpers                        |
+| `tests/server_harness_lifecycle_props.rs`           | 300      | three property tests                                           |
+| BDD feature, world, steps, scenarios                | 230      | four scenarios                                                 |
 
 <!-- markdownlint-enable MD013 -->
 
-*Table 2: per-file line budgets. `handle.rs` is the file at risk; if it
-approaches 400, move step execution into a sibling module rather than letting
-it grow.*
+*Table 2: per-file line budgets. Code total is about 1 250 net lines across 13
+code files; documentation adds about 330 lines across 6 files; with the three
+`mod.rs` registrations and `lib.rs`, 22 files change.*
 
-### Stage A — understand and propose (no code changes)
+If `outcome.rs` approaches 400 lines, move its tests to a sibling
+`outcome_tests.rs` included with `#[cfg(test)] #[path = …] mod tests;`.
 
-Load the skills. Run `leta workspace add .`. Read `client_pair.rs` in full and
-`src/server/runtime.rs:29-198`. Record a green baseline. Confirm
-[#656](https://github.com/leynos/wireframe/issues/656) is merged. Obtain
-acceptance for D2, D3, D5, D8, D11, and D14. Check whether
-[#642](https://github.com/leynos/wireframe/issues/642) has landed and, if so,
-re-derive every row of Table 3 in `Known expiry` before writing a single test.
-Stage A ends when the baseline is green, #656 is in, and the escalations are
-resolved.
+### Stage A — baseline and probes (no production code)
 
-### Stage B0 — compiling stubs, so each test can fail on its own assertion
+Load the skills. Run `leta workspace add .`. Read `client_pair.rs`,
+`src/server/shutdown.rs`, and `src/server/runtime/server/mod.rs:100-394` in
+full. Record a green baseline of `make check-fmt`, `make lint`, and
+`make test`. Then add a scratch test that asserts, by handwritten generic
+functions, whether `WireframePair` is `Send`, `Sync`, and `Unpin` today, and
+whether `wireframe::server::ServerShutdown` is `Send` and `Sync`:
 
-Land `server_harness/` with every public item present and every body `todo!()`,
-plus the real `state.rs` (which is pure and trivial). Nothing else. This exists
-so that Stage B's tests fail on their own assertions rather than all sharing one
-`unresolved import` error — the first draft of this plan made that mistake and
-its red evidence covered thirteen behaviours with a single compiler message.
+```rust
+const _: fn() = || {
+    fn assert_send<T: Send>() {}
+    fn assert_sync<T: Sync>() {}
+    assert_send::<wireframe::server::ServerShutdown>();
+    assert_sync::<wireframe::server::ServerShutdown>();
+};
+```
+
+Record which assertions compile in `Surprises & discoveries`. If
+`WireframePair` is `Sync` and `ServerShutdown` is not, stop and escalate: the
+design cannot preserve the pair's auto traits. Otherwise discard the scratch
+test; EP-M3 adds the permanent assertions.
+
+### Stage B0 — compiling stubs
+
+Land `server_harness/` with every public item present, `outcome.rs` real (it is
+pure and small), and every other body `todo!()`. This exists so that Stage B's
+tests fail on their own assertions rather than all sharing one
+`unresolved import` error.
 
 ### Stage B — red tests
 
-Write these and observe each failing for its own reason.
+`tests/server_harness_lifecycle.rs`, one `#[rstest]` per case, all
+`#[tokio::test]` on the default `current_thread` flavour except case 8. Pin
+`.workers(1)` on every server. Reuse `wait_for_listener_release` from
+`wireframe_testing`; copy the small `assert_connection_refused` helper from
+`tests/server_shutdown.rs:318` rather than adding a polling loop.
 
-`tests/server_harness_lifecycle.rs`, one `#[rstest]` per bullet, all
-`#[tokio::test]` except case 7. Pin `.workers(1)` on every server.
-
-1. `spawn_then_connect_round_trip` — build an echo server with
-   `echo_app_factory(&counter)` where `counter: Arc<AtomicUsize>`, spawn it,
-   connect a `tokio::net::TcpStream`, and assert
-   `handle.local_addr().ip() .is_loopback()` with a non-zero port. Do not
-   assert an IPv4 range.
+1. `spawn_then_connect_round_trip` — build a server from
+   `echo_app_factory(&counter)`, spawn it, connect a `TcpStream`, and assert
+   `handle.local_addr().ip().is_loopback()` with a non-zero port.
 2. `caller_listener_keeps_its_address` — reserve with `unused_listener()`,
-   record `local_addr()`, pass it to `spawn_wireframe_server_on`, assert the
+   record its address, pass it to `spawn_wireframe_server_on`, and assert the
    handle reports the recorded address.
-3. `panicking_factory_is_reported` — use a test factory whose `Clone` panics.
-   `run_with_shutdown` calls `factory.clone()` before firing `ready_tx`, so the
-   task panics pre-readiness. Assert the spawn fails with `TestError::Join` and
-   that the message contains `"readiness"` via
-   `googletest::matchers::contains_substring`. Note: an app factory that
-   *returns* an error cannot be used here — those errors are logged per
-   connection and never reach startup.
-4. `shutdown_is_idempotent` — call `shutdown().await` twice; assert both return
-   `Ok(())`, and that `shutdown_outcome()` is
-   `Some(ShutdownOutcome::Completed)` after each.
-5. `cancelled_shutdown_then_drop` — pin the shutdown future, poll it once with
-   `futures::poll!`, drop the future, drop the handle, then
-   `await_port_released(addr, deadline)`.
-6. `drop_inside_runtime_returns_immediately` — assert `drop(handle)` returns in
-   well under the grace period, then `await_port_released(addr, deadline)`.
-7. `drop_outside_runtime` — build the runtime in a `#[test] fn`, move the
-   handle to a `std::thread::spawn`, drop it there. Assert the *effect*, not
-   merely that nothing hangs: keep the runtime alive across the assertion and
-   record what actually happens to the listener. Per AXIOM-6 this path abandons
-   rather than cleans up, so the honest assertion is that the handle reports
-   `Abandoned` before it is dropped, and the test documents that the port
-   survives until runtime teardown.
-8. `shutdown_bound_is_reported` — one `#[rstest]` with two `#[case]`s. Hold a
-   connection open against a handler that sleeps for 200 ms, then shut down
-   with a 1 ms bound (expect `Abandoned` and `TestError::Timeout`) and with a 5
-   s bound (expect `Completed`). The 200 ms figure is what makes both cases
-   deterministic: comfortably above the short bound, comfortably below the long
-   one. This pair is INV-4's clock-side non-vacuity control.
-
-Add one shared helper, used by cases 5, 6, and the third BDD scenario, which
-removes the plan's only sleep and its only timing race:
-
-```rust
-/// Poll until nothing accepts on `addr`, or the deadline passes.
-async fn await_port_released(addr: SocketAddr, deadline: Duration) -> TestResult<()>;
-```
-
-It retries `TcpStream::connect` on a short interval and returns an error naming
-the address if the deadline elapses. Note the caveat: on a busy run the port
-may be re-bound by another test, so treat a successful connect as inconclusive
-rather than as proof the server is alive, and assert `shutdown_outcome()`
-alongside.
+3. `factory_error_fails_spawn_and_releases_listener` — a factory returning
+   `Err(io::Error::other("refused"))`. Assert the spawn fails with
+   `TestError::Server(ServerError::FactoryBuild(_))`, then
+   `wait_for_listener_release` on the reserved address.
+4. `readiness_timeout_releases_listener` —
+   `with_readiness_timeout(Some(Duration::ZERO))`. Per AXIOM-6 the readiness
+   wait elapses before the supervisor runs. Assert `TestError::Timeout(_)`,
+   then that a connect is refused.
+5. `shutdown_is_idempotent` — call `shutdown()` twice; assert both return
+   `Ok(())`, that a connect is refused immediately after the first, and that
+   `shutdown_outcome()` is `Some(ShutdownOutcome::Completed)` after each.
+6. `cancelled_shutdown_then_shutdown_completes` — pin a `shutdown()` future,
+   poll it once with `futures::poll!`, drop it, then call `shutdown()` again
+   and assert `Ok(())` and a refused connect.
+7. `drop_inside_runtime_releases_listener` — record the address, drop the
+   handle, assert the drop returned without awaiting, then
+   `wait_for_listener_release`.
+8. `drop_outside_runtime_releases_listener` — a plain `#[test]` that builds a
+   runtime, spawns inside it, moves the handle to a `std::thread::spawn` with
+   no runtime, drops it there, joins the thread, then calls
+   `wait_for_listener_release` inside the runtime.
+9. `shutdown_bound_is_reported` — one `#[rstest]` with two `#[case]`s, using a
+   test app whose handler sleeps for 200 ms. Send one request so a response is
+   in flight, then shut down. With a 1 ms bound: expect `TestError::Timeout(_)`
+   and `TimedOut`; call `shutdown()` again at once and assert it returns
+   `TestError::Timeout(_)` within 50 ms (INV-3); wait for the handler, call
+   `shutdown()` once more, and assert `Ok(())` and `Completed`. With a 5 s
+   bound: expect `Ok(())` and `Completed`. The 200 ms figure keeps both cases
+   deterministic.
+10. `parallel_handles_use_distinct_listeners` — spawn three handles, assert
+    distinct addresses, shut one down, and assert the other two still accept.
 
 `tests/features/server_harness_lifecycle.feature`:
 
@@ -1291,265 +1004,254 @@ Feature: Protocol-agnostic server lifecycle harness
     And the harness is stopped twice
     Then both stop attempts succeed
     And the harness reports that it completed
+    And the address refuses new connections
 
   Scenario: Dropping the harness without stopping it releases the port
     Given a configured Wireframe echo server that has not been bound
     When the server lifecycle harness starts the server
     And the harness is dropped without being stopped
-    Then the address stops accepting connections within the grace period
+    Then the address stops accepting connections within one second
+
+  Scenario: A failing application factory is reported at startup
+    Given a configured Wireframe server whose application factory fails
+    When the server lifecycle harness starts the server
+    Then starting the server fails with an application startup error
 ```
 
-The third scenario's `Then` is deliberately worded as a bounded wait, because
-`Drop` schedules detached cleanup and returns immediately; asserting an
-instantaneous refusal would be a race. The step calls `await_port_released`.
+The third scenario's `Then` is a bounded wait because the listener is released
+once the supervisor observes cancellation, not at the instant of the drop; its
+step calls `wait_for_listener_release`.
 
 Add `tests/fixtures/server_harness_lifecycle.rs` with a
-`ServerHarnessLifecycleWorld` holding a `tokio::runtime::Runtime`, an
-`Option<RunningWireframeServer>`, the recorded address, and the recorded stop
-results. **Declare the handle field before the runtime field**, or write an
-explicit `Drop` that clears the handle first: fields drop in declaration order,
-and a handle dropped after its runtime finds no runtime to schedule cleanup on.
-`tests/fixtures/client_pair_harness.rs` gets this right with an explicit `Drop`
-that blocks on cleanup; follow it. Steps in
-`tests/steps/server_harness_lifecycle_steps.rs` are synchronous and delegate to
-world methods; the fixture parameter name must be
-`server_harness_lifecycle_world` throughout, matching the `#[fixture]` function
-name, because `strict-compile-time-validation` turns a mismatch into a compile
-error. Bindings go in `tests/scenarios/server_harness_lifecycle_scenarios.rs`.
-Register all four in the corresponding `mod.rs` files.
+`ServerHarnessLifecycleWorld` owning a `tokio::runtime::Runtime`, an
+`Option<RunningWireframeServer>`, the recorded address, the start result, and
+the stop results, following `tests/fixtures/client_pair_harness.rs:21-55`: the
+fixture function is `server_harness_lifecycle_world`, returns
+`TestResult<ServerHarnessLifecycleWorld>`, and world methods use
+`runtime.block_on`. Give the world an explicit `Drop` that takes the handle and
+blocks on its `shutdown()`, discarding the result, as
+`tests/fixtures/client_pair_harness.rs:125-131` does; a world dropped
+mid-scenario must not leave a server for the next scenario. Steps in
+`tests/steps/server_harness_lifecycle_steps.rs` are synchronous, delegate to
+world methods, and name their parameter `server_harness_lifecycle_world`
+throughout, because `strict-compile-time-validation` turns a mismatch into a
+compile error. Scenario bindings in
+`tests/scenarios/server_harness_lifecycle_scenarios.rs` take
+`server_harness_lifecycle_world: Result<ServerHarnessLifecycleWorld, TestError>`,
+as `tests/scenarios/client_pair_harness_scenarios.rs:13` does. Register each
+in its `mod.rs`.
 
-`tests/server_harness_lifecycle_props.rs` holds the two exhaustive enumerations
-(INV-1, INV-2) as plain `#[rstest]` loops over `Phase × Op` and over `Op`
-sequences, and the three property tests (INV-3's runtime half, INV-4, INV-5).
-The property idiom:
+`tests/server_harness_lifecycle_props.rs` follows `tests/server_shutdown.rs`
+for structure:
 
 ```rust
 proptest! {
     #![proptest_config(ProptestConfig { cases: 16, max_shrink_time: 30_000, ..ProptestConfig::default() })]
 
     #[test]
-    fn repeated_shutdown_converges(calls in 1usize..=4) {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|e| TestCaseError::fail(e.to_string()))?;
-        runtime.block_on(async move {
-            tokio::time::timeout(Duration::from_secs(10), async {
-                // spawn with .workers(1), call shutdown `calls` times,
-                // assert with prop_assert_eq! on shutdown_outcome()
-                Ok(())
-            })
+    fn shutdown_traces_converge(
+        trace in prop::collection::vec(trace_operation_strategy(), 0..=5),
+        terminal in terminal_action_strategy(),
+    ) {
+        run_bounded_case(exercise_shutdown_trace(trace, terminal))?;
+    }
+}
+
+/// Run one property case on a fresh runtime, failing instead of hanging.
+fn run_bounded_case(case: impl Future<Output = TestCaseResult>) -> TestCaseResult {
+    let runtime = Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| TestCaseError::fail(error.to_string()))?;
+    runtime.block_on(async {
+        tokio::time::timeout(Duration::from_secs(10), case)
             .await
             .map_err(|_| TestCaseError::fail("case exceeded 10 s"))?
-        })?;
-    }
+    })
 }
 ```
 
-`proptest!` cannot take an `async fn`, so the body is synchronous, builds a
-`current_thread` runtime, and `block_on`s an `async` block returning
-`Result<(), TestCaseError>` so `prop_assert!` works and `?` propagates. The
-ten-second internal timeout is what turns a hang into a printable failure; it
-must not be expressed with `ServerHarnessOptions`, which is the thing under
-test. Use `prop_assert_eq!` on `shutdown_outcome()` rather than `prop_assert!`
-on a boolean, so a shrunk counter-example prints actual against expected. Do
-not use `unwrap` or `expect`.
-
-Commit the `tests/server_harness_lifecycle_props.proptest-regressions` file
-that proptest writes on failure, so a reproduction replays deterministically.
+Use `prop_assert_eq!` on `shutdown_outcome()` and on results' variants rather
+than `prop_assert!` on booleans, so a shrunk counter-example prints actual
+against expected. Commit any `.proptest-regressions` file proptest writes.
 
 Stage B ends when every new test fails for a reason you have written down and
 no pre-existing test has changed.
 
 ### Stage C — implementation
 
-Replace the Stage B0 `todo!()` bodies, file by file, running the focused tests
-after each.
+Replace the `todo!()` bodies file by file, running the focused tests after each.
 
-`state.rs` is already real from Stage B0. `diagnostics.rs` holds
-`LifecycleStage`, its exhaustive `label()`, and `stage_message`. `options.rs`
-holds the options type. `handle.rs` holds the handle and executes the `Step`
-that `plan()` returns:
+`handle.rs`:
 
 ```rust
 pub async fn shutdown(&mut self) -> TestResult<()> {
-    let phase = self.phase.take_current();          // leaves a placeholder, never moves out of self
-    let (next, step) = state::plan(&phase, Op::Shutdown);
-    self.phase.set(next);                            // installed BEFORE awaiting, so a cancelled
-                                                     // future leaves recoverable state
-    match step {
-        Step::SignalThenJoin => { self.signal(); self.join_bounded().await }
-        Step::JoinOnly => self.join_bounded().await,
-        Step::ReportTerminal | Step::Nothing => Ok(()),
-        Step::DetachedCleanup => Ok(()),             // unreachable for Op::Shutdown
-    }
+    self.control.stop();
+    let bound = outcome::drain_bound(self.outcome, self.options.shutdown_timeout());
+    let drained = match bound {
+        Some(bound) => timeout(bound, self.control.drained()).await,
+        None => Ok(self.control.drained().await),
+    };
+    let (observed, result) = outcome::classify_drain(drained);
+    self.outcome = Some(outcome::merge_outcome(self.outcome, observed));
+    result
 }
 ```
 
-Installing the next phase before awaiting is what makes a cancelled shutdown
-recoverable, mirroring the reasoning at `client_pair.rs:118`. Because the type
-implements `Drop`, the state machine must go through `Option::take` or
-`mem::replace`; it can never move out of `self`.
+Nothing is mutated before the `await` except the idempotent `stop()`, so a
+cancelled `shutdown()` future leaves the handle exactly as a fresh call would
+find it; that is how RFC §5.3's cancellation guarantee is met without a state
+machine. The handle derives nothing in `Drop`; dropping `control` is the
+cleanup.
 
-`join_bounded` maps the join result onto a terminal `ShutdownOutcome` and
-retains the `TestError` for `shutdown_error()` to lend. On an elapsed bound it
-sets `Abandoned`, calls `abort()`, emits
+`lifecycle.rs` implements `Startup sequence` with three small private helpers
+so the entry point stays short: `bind_with_readiness` (steps 1 to 3),
+`await_readiness` (step 5's wait), and `clean_up_after_failed_readiness` (step
+5's cleanup). `spawn_wireframe_server` passes `None` for the listener and
+default options; `spawn_wireframe_server_on` passes the listener and default
+options.
 
-```rust
-log::warn!(
-    "{}",
-    stage_message(LifecycleStage::AbandonAfterTimeout,
-                  &format!("server at {addr} did not stop within {bound:?}; its accept loops \
-                            survive and the listener stays bound until the runtime is dropped"))
-);
-```
-
-and returns `TestError::Timeout`. `wireframe_testing` already depends on `log`
-and `logtest`, so a `logtest`-based test asserts the warning fires. This is the
-only diagnostic available on the `Drop` path, where no error can be returned to
-anyone.
-
-`Drop` calls `plan(&phase, Op::Drop)`, executes `DetachedCleanup` or `Nothing`,
-and does nothing else. It must satisfy Constraint 5: no `unwrap`, no `expect`,
-no locking. Note that the accessors take `&self` and `shutdown` takes
-`&mut self`, so no lock is needed; if one appears, a panicking test body would
-poison it and `Drop` would double-panic.
-
-`lifecycle.rs` holds three named helpers so
-`spawn_wireframe_server_with_options` stays small: `bind_and_address` (read
-`local_addr()` from the **std** listener first, then bind — this removes the
-`Option::None` case and preserves the real `io::Error`), `await_readiness`
-(bounded, with the pending-server RAII guard held across it), and
-`diagnose_early_exit`. `spawn_wireframe_server` calls `unused_listener()` and
-delegates; `spawn_wireframe_server_on` delegates with default options.
-
-Add the three re-exports to `wireframe_testing/src/lib.rs`.
+Add the four re-exports to `wireframe_testing/src/lib.rs`.
 
 ### Stage D — the pair delegates
 
-Extract `pub(crate) fn map_pair_shutdown_error` from `WireframePair::shutdown`
-and unit-test it exhaustively (INV-6). Then rewrite `spawn_wireframe_pair`'s
-body to build the default server as today, call
-`spawn_wireframe_server_with_options(server, Some(listener),
-ServerHarnessOptions::default().with_shutdown_timeout(None))`,
-connect the default client, and store the `RunningWireframeServer` in
-`Running`. Delete `spawn_bounded_shutdown` and `PendingServer` from
-`client_pair.rs`.
+Extract two `pub(crate)` functions in `client_pair.rs` and unit-test each
+exhaustively over the variants in Table 1:
 
-Three details that are easy to get wrong:
+- `map_pair_startup_error(TestError) -> TestError` re-wraps
+  `TestError::Server(e)` as
+  `TestError::Msg(format!("server failed to start: {e}"))` and passes every
+  other variant through unchanged. Binding errors are also `TestError::Server`,
+  and Table 1 keeps them typed, so the pair must not map them. Make that
+  structural rather than conditional: `lifecycle.rs` exposes its two halves as
+  `pub(crate)` functions — `bind_with_readiness` (steps 1 to 3, returning the
+  bound server, its address, and the readiness receiver) and `start_bound`
+  (steps 4 and 5) — and the pair calls them in turn, applying the mapping only
+  to `start_bound`'s error. The defensive "exited before signalling readiness"
+  message in `start_bound` must be exactly today's text,
+  `server exited before signalling ready` (`client_pair.rs:330-332`).
+- `map_pair_shutdown_error(TestError) -> TestError` re-wraps
+  `TestError::Server(ServerError::AbnormalTermination { source: None, .. })` as
+  `Msg("server task join error: …")` and any other `TestError::Server` as
+  `Msg("server error: …")`, matching today's two shapes at
+  `client_pair.rs:153-156`.
 
-- **Declare `server` before `client` in `Running`**, or `take()` explicitly in
-  `Drop`. Today `Drop` signals the server before the client socket closes;
-  naive field ordering would invert that.
-- **Preserve every cell of Table 1 individually.** Do not blanket-wrap into
-  `TestError::Msg` — three of the six paths are already typed, and wrapping
-  them would itself be the breach.
-- **Add auto-trait assertions** to `tests/client_pair_harness.rs`. Swapping
-  `Running`'s fields changes what `Send`, `Sync`, and `Unpin` are inferred
-  from, and those are public API. `static_assertions` is not a dependency, so
-  write them by hand:
-
-  ```rust
-  const _: fn() = || {
-      fn assert_send<T: Send>() {}
-      fn assert_sync<T: Sync>() {}
-      assert_send::<WireframePair>();
-      assert_sync::<WireframePair>();
-  };
-  ```
+Then rewrite the pair: `Running` holds the client and a
+`RunningWireframeServer`, client first; `shutdown` closes the client, then
+awaits the inner `shutdown()` and maps its error; `Drop` is deleted, because
+dropping `Running` drops the client and then the server handle, which requests
+shutdown. Add the permanent auto-trait assertions from Stage A to
+`tests/client_pair_harness.rs`, asserting exactly the traits Stage A recorded.
 
 Run the full pre-existing suite. Any change to a pre-existing test's expected
 output is a Constraint 1 breach: stop and escalate.
+
+### Table 1: the pair's failure paths
+
+Re-derived from `wireframe_testing/src/client_pair.rs` at `a7eecaff`.
+
+<!-- markdownlint-disable MD013 -->
+
+| Failure path                   | Today (`client_pair.rs`)                           | Reachable | After EP-M3                                    |
+| ------------------------------ | -------------------------------------------------- | --------- | ---------------------------------------------- |
+| listener reservation           | `:294` `TestError::Io`                             | yes       | `TestError::Io` (unchanged)                    |
+| binding                        | `:295-297` `TestError::Server`                     | no        | `TestError::Server` (unchanged)                |
+| address readback               | `:298-300` `Msg` on `None`                         | no        | `TestError::Io` from the std listener          |
+| application startup error      | `:327-329` `Msg("server failed to start: …")`      | yes       | `Msg("server failed to start: …")` (unchanged) |
+| readiness: task join error     | `:323-326` `Msg("server task failed to start: …")` | no        | removed; no task handle exists                 |
+| readiness: exited before ready | `:330-332` `Msg`                                   | no        | `Msg` (defensive arm, same text)               |
+| readiness: guard already taken | `:320-322` `Msg`                                   | no        | removed with `PendingServer`                   |
+| client connect                 | `:337-338` `TestError::Client`                     | yes       | `TestError::Client` (unchanged)                |
+| shutdown: server error         | `:156` `Msg("server error: …")`                    | no        | `Msg("server error: …")` (same text)           |
+| shutdown: join error           | `:153-155` `Msg("server task join error: …")`      | no        | `Msg("server task join error: …")` (same text) |
+
+<!-- markdownlint-enable MD013 -->
+
+Every reachable cell is unchanged. The unreachable cells that change do so
+because the machinery that produced them — a `JoinHandle`, a pending-server
+guard, the `Option` from `Bound::local_addr` — no longer exists (D21).
 
 ### Stage E — documentation
 
 1. Add `## Protocol-agnostic server lifecycle harness` to
    `docs/wireframe-testing-crate.md`, after
-   `## In-process server/client pair harness`, with `### Public API`,
+   `## In-process server/client pair harness` (line 555), with `### Public API`,
    `### Lifecycle`, `### Timeout policy`, `### Usage`, and `### Rationale`.
-   Update the `## Crate layout` bullet list. State plainly that an elapsed
-   bound abandons rather than stops the server.
-2. Add a subsection to `docs/users-guide.md` under `## Running servers`
-   (line 1460) covering the `ready_signal` reservation, the difference between
-   explicit `shutdown` and defensive `Drop`, and the abandonment caveat.
+   Update `## Crate layout` (line 26). Include Table 3.
+2. Expand the `spawn`/`stop`/`drained` paragraph in `docs/users-guide.md`
+   under `## Running servers` (lines 1685, 1720-1728) with a pointer to the
+   harness for tests, the `ready_signal` reservation, and the fact that the
+   harness's `Drop` is a synchronous shutdown request.
 3. Add a subsection to `docs/developers-guide.md` under
-   `## Test infrastructure and framework` (line 394) recording the
-   async-proptest idiom, the pure-transition-function verification pattern, the
-   `await_port_released` helper, and the rule that lifecycle behaviour the root
-   package can observe stays in root `tests/` while crate-internal seams stay in
-   `#[cfg(test)]` — including that 17.3.5 does not move them.
-4. Amend RFC 0001: resolve §11.1 in favour of `ServerHarnessOptions`; record
-   the `shutdown_error` lending contract and strict idempotence in §5.3;
-   correct §5.5's claim that pair startup failures are uniformly
-   `TestError::Msg`; correct §5.3 and §6 for the abandonment reality per D8; add
-   `state.rs`, `diagnostics.rs`, `handle.rs`, and `options.rs` to §5.6; note
-   that §5.5's "call the new server-and-connector helper" is deferred to
-   17.3.4. Append a revision note. Leave §11.2 open.
-5. Do **not** add an ADR. The RFC is the governing artefact for this feature and
-   amending it is clearer than an ADR that qualifies it. If the reviewer
-   disagrees, the file is
-   `docs/adrs/adr-0018-server-lifecycle-shutdown-contract.md` — 0011 to 0017
-   are taken, 0014 by the server shutdown-ownership ADR that
-   [#657](https://github.com/leynos/wireframe/issues/657) introduced — named
-   and structured per the `Architectural decision records (ADRs)` section of
-   `docs/documentation-style-guide.md`, and gains a line in `docs/contents.md`.
-   Recheck the next free number before writing it. Check first whether ADR 0014
-   already covers the contract, in which case amend or cite it rather than
-   adding a new ADR.
+   `## Test infrastructure and framework` (line 2204) recording the async
+   proptest idiom with a citation to `tests/server_shutdown.rs:144`, the
+   pure-outcome-function pattern, and the rule that a test lifecycle helper
+   wraps `ServerShutdown` rather than spawning `run_with_shutdown` itself.
+4. Amend RFC 0001, appending a dated revision note:
+   - §5.2: the handle holds the address, a `ServerShutdown`, the timeout
+     policy, and the outcome record; step 4 becomes "start the server with
+     `WireframeServer::spawn`"; the `Send + 'static` paragraph and the
+     100 ms `Drop` grace period are removed; the bound list gains
+     `E: Packet + 'static`.
+   - §5.3: replace "bounds the join and aborts the task only after timeout"
+     with a bounded drain after `stop()` and no abort (D18); describe a
+     repeated call after a timeout as a non-blocking re-check; replace the
+     detached-cleanup `Drop` paragraph with D20's synchronous release; restate
+     startup failure handling per `Startup sequence`.
+   - §5.5: the pair calls `spawn_wireframe_server_with_options` with no
+     bounds until 17.3.4 supplies the connector; cite Table 1.
+   - §5.6: list `handle.rs`, `lifecycle.rs`, `options.rs`, and `outcome.rs`;
+     `connector.rs` arrives with 17.3.4.
+   - §6: replace the "one shutdown sender and one task handle" invariant with
+     "exactly one `ServerShutdown`, never cloned or exposed"; replace "join
+     the server task" with "await the drain"; replace the stage-text
+     requirement with Table 3 (D19); note that a panic now surfaces as
+     `ServerError::AbnormalTermination` with `source: None` rather than as a
+     `JoinError` (D21).
+   - §7.1: replace the drop bullet's detached-task clauses with "`Drop`
+     returns without waiting and the listener is released inside and outside
+     a runtime".
+   - §7.5: replace "exactly one joined task" with "one shutdown request and
+     one released listener".
+   - §11: record question 1 as resolved in favour of `ServerHarnessOptions`
+     (D2); leave question 2 for 17.3.4.
+5. Add no ADR. RFC 0001 is the governing design for this feature, and ADR
+   0014 already anticipates a harness-owned wrapper. If a reviewer requires
+   one, the next free number at `a7eecaff` is 0018 (`docs/adrs/adr-0018-…`),
+   named and structured per `docs/documentation-style-guide.md` (lines
+   515-620); recheck before writing.
 6. Tick roadmap 17.3.3 with `mapsplice`, preserving its inline links verbatim.
-7. Check `CHANGELOG.md`'s conventions and add an entry if it covers unreleased
-   test-support changes.
+7. Add an entry under `## Unreleased` in `CHANGELOG.md` (line 5), following
+   the existing `wireframe_testing` entries at lines 88-109.
 
 ## Concrete steps
 
-Run everything from the repository root. Note that the focused commands set
-`RUSTFLAGS="-D warnings"` to match `make test`: alternating between the two
-fingerprints costs about twenty seconds of rebuild each way.
+Run everything from the repository root. Gates:
 
 ```bash
 export LOG_PREFIX="/tmp/17-3-3-$(git branch --show-current)"
-export RUSTFLAGS="-D warnings"
 set -o pipefail && make check-fmt 2>&1 | tee "${LOG_PREFIX}-check-fmt.log"
 set -o pipefail && make lint      2>&1 | tee "${LOG_PREFIX}-lint.log"
 set -o pipefail && make test      2>&1 | tee "${LOG_PREFIX}-test.log"
+set -o pipefail && make test-wireframe-testing 2>&1 | tee "${LOG_PREFIX}-testing-crate.log"
+set -o pipefail && make test-doc  2>&1 | tee "${LOG_PREFIX}-doc.log"
 ```
 
-Expected at the tail of a green test log:
+Expected at the tail of each green test log:
 
 ```plaintext
-test result: ok. <N> passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+test result: ok. <N> passed; 0 failed; 0 ignored; 0 measured; <M> filtered out
 ```
 
-Focused loops during Stages B to D:
+For focused loops, reuse `make test`'s exact flags so the build fingerprint
+matches and nothing recompiles: print the invocation with `make -n test` and
+append `--test server_harness_lifecycle`,
+`--test server_harness_lifecycle_props`, `--test client_pair_harness`, or
+`--test bdd -- server_harness`. On this machine every compile waits for a slot
+in the shared build-limits pool; a `waiting for a compile slot` line is
+queueing, not a hang.
 
-```bash
-set -o pipefail && cargo test --test server_harness_lifecycle --all-features 2>&1 \
-  | tee "${LOG_PREFIX}-lifecycle.log"
-set -o pipefail && cargo test --test server_harness_lifecycle_props --all-features 2>&1 \
-  | tee "${LOG_PREFIX}-props.log"
-set -o pipefail && cargo test --test bdd --all-features server_harness 2>&1 \
-  | tee "${LOG_PREFIX}-bdd.log"
-set -o pipefail && cargo test --test client_pair_harness --all-features 2>&1 \
-  | tee "${LOG_PREFIX}-pair.log"
-```
-
-Companion-crate checks. Since 17.3.5 landed, these are Make targets that CI
-also runs:
-
-```bash
-set -o pipefail && make test-wireframe-testing 2>&1 \
-  | tee "${LOG_PREFIX}-testing-crate.log"
-set -o pipefail && make test-doc 2>&1 | tee "${LOG_PREFIX}-testing-doc.log"
-```
-
-An earlier revision filtered the doc run to `server_harness` because the
-crate's doctests did not compile (issue #578). #578 is fixed, so the unfiltered
-`make test-doc` is now the evidence, and a new failure there is a regression
-this plan introduced.
-
-Flakiness check, once at the end of EP-M2, using the **full** suite rather than
-a focused target — an isolated loop removes the contention that surfaces timing
-races:
+Flakiness check, once at the end of EP-M2, using the full suite:
 
 ```bash
 for i in $(seq 1 10); do
@@ -1557,429 +1259,338 @@ for i in $(seq 1 10); do
 done
 ```
 
-Documentation gates, at EP-M4:
+Documentation gates at EP-M4:
 
 ```bash
+make fmt
 set -o pipefail && make markdownlint 2>&1 | tee "${LOG_PREFIX}-markdownlint.log"
 set -o pipefail && make nixie        2>&1 | tee "${LOG_PREFIX}-nixie.log"
 ```
 
-`make doctest-benchmark` is **not** listed: `scripts/doctest-benchmark.sh:13`
-searches `src` only, so it cannot see the new doctests and would be evidence of
-nothing.
+`make doctest-benchmark` is not used: `scripts/doctest-benchmark.sh:13` searches
+`src` only and cannot see `wireframe_testing`. `make test-doc` is the doctest
+evidence.
 
 Commit after each milestone and gate each commit. Delegate full gate runs to the
-`scrutineer` sub-agent rather than running them inline, and read the cited log
-on failure rather than re-running.
+`scrutineer` sub-agent, and read the cited log on failure rather than
+re-running.
 
 ## Validation and acceptance
 
 ### Red-Green-Refactor evidence
 
-- **Red**: after Stage B0, each of the eight rstest cases fails on its own
-  assertion or on a `todo!()` panic naming the function it reached. Paste the
-  eight distinct failure lines. A single shared `unresolved import` error is
-  not acceptable red evidence.
-- **Green**: `cargo test --test server_harness_lifecycle --all-features`
-  reports eight passing cases after Stage C.
-- **Refactor**: after the Stage C tidy-up and again after Stage D, both the
-  focused command and `make test` pass.
+- **Red**: after Stage B0, each of the ten rstest cases fails on its own
+  assertion or on a `todo!()` naming the function it reached. Paste the ten
+  distinct failure lines.
+- **Green**: the focused `server_harness_lifecycle` run reports ten passing
+  cases after Stage C.
+- **Refactor**: after the Stage C tidy-up and again after Stage D, the focused
+  runs and `make test` pass.
 
 ### BDD evidence
 
-`cargo test --test bdd --all-features server_harness` fails before Stage C and
-reports three passing scenarios after.
+The focused `bdd` run filtered to `server_harness` fails before Stage C and
+reports four passing scenarios after it.
 
 ### Verification evidence
 
-For each of INV-1 through INV-6 record the command, the passing result, the
-negative-control mutation applied, and the failure it produced. An invariant
-whose negative control still passes has not been verified. INV-3's control is a
-deliberate compile failure, not a test failure; record the compiler message.
+For each of INV-1 to INV-8 record the command, the passing result, the negative
+control or seeded fault applied, and the failure it produced. An invariant
+whose control still passes has not been verified.
 
 ### Quality criteria
 
-- Tests: `make test` green with no new failures and no `#[ignore]`;
-  `cargo test -p wireframe_testing --all-targets` green.
-- Verification: INV-1 through INV-6 discharged with non-vacuity evidence.
-- Lint and format: `make check-fmt` and `make lint` clean. Note per D10 that
-  neither reaches `wireframe_testing`; the new module's hygiene rests on
-  review. If `no_expect_outside_tests` fires elsewhere, consult the
-  `addressing-whitaker-findings` skill and check whether `main` is red first.
+- Tests: `make test`, `make test-wireframe-testing`, and `make test-doc` green
+  with no `#[ignore]`.
+- Lint and format: `make check-fmt` and `make lint` clean. Both now cover
+  `wireframe_testing`, so the workspace lints apply to every new line.
 - Documentation: `make markdownlint` and `make nixie` pass.
-- Performance: the new tests add no more than ten seconds to `make test`, of
-  which roughly nine will be compilation of two new test targets. Measured
-  reference: an existing full pair-harness cycle — bind, spawn, await
-  readiness, connect, round-trip, shut down, join — runs in under one
-  millisecond, so the roughly eighty spawns this plan adds cost well under a
-  second. If the budget is ever breached the lever is target consolidation,
-  **not** reducing generated case counts, which would save milliseconds and
-  cost coverage.
+- Performance: the new tests add no more than ten seconds of test execution to
+  `make test`. A full spawn-ready-connect-shutdown cycle on loopback runs in
+  milliseconds; if the budget is breached, consolidate targets rather than
+  reducing generated case counts.
 - Security: none applicable; test-only scaffolding on loopback.
 
 ## Idempotence and recovery
 
-Every stage is re-runnable and every gate is a pure read. EP-M1, EP-M1a, and
-EP-M2 are additive; reverting them restores the previous plateau. EP-M3 is the
-only milestone that changes existing behaviour, and reverting it alone returns
-the repository to the EP-M2 plateau, where the new harness and the old pair
-implementation coexist and both work. That coexistence is a deliberate,
-temporary duplication of live code, not a compatibility shim.
+Every stage is re-runnable and every gate is a pure read. EP-M1 and EP-M2 are
+additive. EP-M3 is the only milestone that changes existing behaviour;
+reverting it alone returns the repository to the EP-M2 plateau, where the new
+harness and the old pair implementation coexist and both pass.
 
-If a test hangs, it is an unjoined task or an unreleased listener. Reproduce
-with `cargo test --test <target> -- --nocapture --test-threads=1` and inspect
-which handle never reached `Stopped`. Do not add a sleep; use
-`await_port_released`.
+If a test hangs, it is almost always a drain waiting on an in-flight request
+with no bound. Reproduce with the focused invocation plus
+`-- --nocapture --test-threads=1`. Do not add a sleep.
 
-If a run is interrupted, check `ss -ltn | grep 127.0.0.1` before re-running.
+If a run is interrupted, check `ss -ltn` for stray loopback listeners before
+re-running.
 
 ## Surprises & discoveries
 
-- Observation: by the 2026-11-21 rebase, 17.3.5 had landed and the lint and
-  test gates had become workspace-wide, so three gaps this plan worked around
-  (lint not reaching `wireframe_testing`, its doctests not compiling, and no
-  bound on a hung CI test) no longer exist. Evidence: `531d05cf`, `Makefile`
-  targets `lint`, `test`, `test-doc`, and `test-wireframe-testing`;
-  `wireframe_testing/Cargo.toml` `[lints] workspace = true`; `ci.yml`
-  `timeout-minutes`. Impact: D10 and D11 are superseded and validation is
-  simpler; see Table 4.
+All entries below were re-verified on `a7eecaff` on 2026-11-22 unless marked
+historical.
 
-- Observation: by the 2026-10-30 rebase, all three server-side dependencies
-  (#656, #642, #657) had merged, and #657 shipped a synchronous drain guarantee
-  through `WireframeServer::spawn()` and `ServerShutdown`. Evidence: `git log`
-  on `main` shows `684a2e86`, `28920810`, and `ef858aa0`;
-  `src/server/shutdown.rs` defines `stop()` and `drained()`. Impact: several
-  observations below, including the first, describe the pre-#642 server and are
-  now historical. Retained unedited as the record of what the plan was derived
-  from; EP-M0 re-derives them.
+- Observation: a rebase audit that checked only that the plan's cited paths
+  still existed missed a false claim: the plan said `docs/repository-layout.md`
+  did not exist, but it was added on 2026-09-27 in #705 (`1dadc1cc`). Evidence:
+  the file is present and linked from `docs/contents.md:158`. Impact: EP-M0's
+  conformance check now requires re-verifying every fact, not just every path.
+  The file itself omits `crates/wireframe-loom`, raised as
+  [#944](https://github.com/leynos/wireframe/issues/944).
 
-- Observation: `run_with_shutdown` cannot fail. It returns `Ok(())` on every
-  path; `accept_loop` returns `()`; `ServerError::Accept` is constructed
-  nowhere in `src/`; app-factory failures are logged per connection. Evidence:
-  `src/server/runtime.rs:142-198`; `src/server/runtime/accept.rs:149`;
-  `src/server/connection_spawner.rs:99-108`;
-  `grep -rn "ServerError::Accept" src/` returns nothing. Impact:
-  `ShutdownOutcome::ServerFailed` is unreachable; an early draft's "app factory
-  returns an error" test was vacuous and is replaced by a panicking-`Clone`
-  factory; the only reachable pre-readiness faults are a panicking task and a
-  readiness timeout.
+- Observation: `WireframeServer::spawn()` and `ServerShutdown` remove the
+  need for a harness-owned task handle, detached cleanup, and abort. Evidence:
+  `Facts that shape the design`, items 4 to 8. Impact: D17 and D20; the
+  previous revision's transition table, drop-grace option, and diagnostics
+  module are withdrawn.
 
-- Observation: the reachable pre-readiness fault is a panicking `Clone`.
-  `AppFactory` requires `Clone`, `run_with_shutdown` clones once per worker
-  before firing `ready_tx`, and the default worker count is at least one.
-  Evidence: `src/server/mod.rs:122-139`; `src/server/runtime.rs:166-188`;
-  `src/server/config/mod.rs:76-90`.
+- Observation: `spawn()` does not wait for readiness. Evidence:
+  `src/server/runtime/server/mod.rs:338-364` against `:151-155`. Impact: the
+  harness still installs and awaits `ready_signal`.
 
-- Observation: `shutdown` takes `&mut self`, so the borrow checker already
-  excludes concurrency on one handle. Impact: the lifecycle is a sequential
-  decision table. This is why the verification is exhaustive enumeration of a
-  pure function rather than a concurrency model checker.
+- Observation: `FactoryBuild` is now the reachable pre-readiness fault, and
+  nothing between `spawn()` returning and readiness can fail. Evidence: facts 2
+  and 3. Impact: the previous revision's panicking-`Clone` test is replaced by
+  a factory returning `Err`; the dropped-sender readiness arm is defensive.
 
-- Observation: `crates/wireframe-verification` cannot depend on
-  `wireframe_testing`. Evidence:
-  `crates/wireframe-verification/Cargo.toml:7-12` lists only `stateright` and
-  `wireframe`. Impact: decisive against an earlier draft's Stateright model,
-  which could only have been a transcribed copy with correspondence enforced by
-  a comment.
+- Observation: `ServerError::AbnormalTermination` is unreachable through a
+  real server, but its `source` field distinguishes a returned error (`Some`)
+  from a panic or cancellation (`None`). Evidence: fact 9. Impact: D21; INV-2
+  uses constructed inputs.
 
-- Observation: `crates/wireframe-verification` is run by no Makefile target or
-  CI job, so its existing placeholder model has never executed. Evidence: no
-  `-p wireframe-verification` in the Makefile or `.github/workflows/`. Impact:
-  corroborates the previous entry. A model nobody runs is not evidence.
+- Observation: RFC 0001 has no §11.1 or §11.2; §11 holds two numbered
+  questions. Its §6 says "Explicit shutdown and connector-failure cleanup join
+  the server task" (`:363`); earlier revisions of this plan misquoted it as
+  "every cleanup path". Impact: citations corrected.
 
-- Observation: `make lint` never reaches `wireframe_testing`, and the crate has
-  no `[lints]` table, so the root package's `pedantic`, `unwrap_used = "deny"`,
-  and `missing_docs` settings do not apply to it. Evidence: `Makefile:82-85`
-  has no `-p` or `--workspace`; `Cargo.toml:15` sets `default-members = ["."]`;
-  `Cargo.toml:108` is `[lints.clippy]`, not `[workspace.lints]`. Impact:
-  decision D10.
+- Observation: `make lint` and `make test` are workspace-wide and
+  `wireframe_testing` inherits the workspace lints. Evidence: `Makefile:136`,
+  `Makefile:216-234`; `wireframe_testing/Cargo.toml:25-26`. Impact: the
+  previous D10 is superseded; every new line is linted.
 
-- Observation: `ci.yml` does not run `make test`. Tests execute inside the
-  shared `generate-coverage` action, on pull requests only, under
-  `cargo-llvm-cov`. Evidence: `.github/workflows/ci.yml:67-73`. Impact: a hung
-  test appears as a coverage-action failure, not a test failure; documentation
-  must not claim `make test` is the CI gate.
+- Observation: CI does not run `make test`; it runs `make test-doc`,
+  `make test-wireframe-testing`, and the root package's tests inside the shared
+  coverage action on pull requests. Jobs and test steps carry `timeout-minutes`
+  (`.github/workflows/ci.yml:61`, `:87`, `:93`, `:98`), and
+  `.config/nextest.toml:9-10` terminates slow tests. Impact: the previous D11
+  is superseded; documentation must not call `make test` the CI gate.
 
-- Observation: neither `ci.yml` nor `coverage-main.yml` sets `timeout-minutes`,
-  so a hung job runs for GitHub's 360-minute default, and libtest's buffering
-  means the log ends at `running N tests` with no indication of which test.
-  Impact: decision D11.
+- Observation: `crates/wireframe-verification` still depends only on
+  `stateright` (`crates/wireframe-verification/Cargo.toml:11`). It now has a
+  `make test-verification` target (`Makefile:279-280`), which no workflow runs.
+  Impact: D5 stands.
 
-- Observation: `scripts/doctest-benchmark.sh:13` defaults its search root to
-  `src`, the root crate only. Impact: `make doctest-benchmark` cannot see the
-  new doctests and was removed from the acceptance evidence.
+- Observation: `scripts/doctest-benchmark.sh:13` still defaults to `src`.
+  Impact: `make test-doc`, not `make doctest-benchmark`, is the doctest
+  evidence.
 
-- Observation: `tests/advanced/interaction_fuzz.rs` is referenced by no
-  `[[test]]` target and matches no Cargo auto-discovery rule, so the
-  repository's only async-proptest example is never compiled. Impact: treat it
-  as a style reference only. Reporting the dead target is outwith this plan.
+- Observation: a compiled async-proptest precedent exists at
+  `tests/server_shutdown.rs:144-185`, and another at
+  `src/connection/tests/vec_delivery.rs:126-141`.
+  `tests/advanced/interaction_fuzz.rs` is still compiled by no target. Impact:
+  follow `tests/server_shutdown.rs`; reporting the dead file is outwith this
+  plan.
 
-- Observation: `unused_listener()` binds `"localhost:0"`, which may resolve to
-  `::1`. Evidence: `wireframe_testing/src/integration_helpers.rs:44`. Impact:
-  assert `is_loopback()`, never an IPv4 range.
+- Observation: `wireframe_testing` already exports
+  `wait_for_listener_release` (`wireframe_testing/src/lib.rs:107-108`,
+  `integration_helpers.rs:79`). Impact: the previous revision's planned
+  `await_port_released` helper is unnecessary.
 
-- Observation: `bind_to_listener` reuses the same file descriptor.
-  Evidence: `src/server/config/binding.rs:77-79`. Impact: reading the address
-  from the std listener before binding removes the `Option::None` case and
-  preserves the real `io::Error`.
+- Observation: `unused_listener()` binds `"localhost:0"`, which may resolve
+  to `::1` (`wireframe_testing/src/integration_helpers.rs:52`). Impact: assert
+  `is_loopback()`.
 
-- Observation: `docs/repository-layout.md` is referenced by `AGENTS.md` and the
-  style guide but does not exist. Impact: none here; recorded so a reader does
-  not hunt for it.
+- Observation: `client_pair.rs` is 387 lines (Constraint 4). Impact: EP-M3
+  must shrink it, which the deletions in Stage D do.
 
-- Observation: the readiness signal fires after workers are spawned, not after
-  `accept()` is first polled. Evidence: `src/server/runtime.rs:184-188`.
-  Impact: "ready" means "workers launched onto a bound listener"; the listen
-  backlog is what makes an immediate connect safe. Document it that way.
+- Observation (historical, 2026-08-23): `JoinHandle::abort()` did not stop a
+  Wireframe server, because aborting the supervisor neither cancelled its
+  workers' token nor stopped its tracker. Resolved upstream by #656 (a drop
+  guard in the supervisor) and #657 (`ServerShutdown`). Retained because it
+  explains why this plan depends on `ServerShutdown` rather than on task abort.
 
 ## Decision log
 
-- Decision (D8): **ESCALATED, BLOCKING.** `JoinHandle::abort()` does not stop a
-  Wireframe server, so RFC §5.3's abort-after-timeout guarantee and §6's "every
-  cleanup path joins the server task" are not implementable. Evidence and blast
-  radius are in `Escalation: abort does not stop the server`. Resolution: raise
-  the fix upstream rather than document around it. Re-scoping showed the
-  earlier "plausibly its own roadmap item" estimate was wrong — the
-  cancel-on-drop half is two lines. Split into
-  [#656](https://github.com/leynos/wireframe/issues/656) (blocks EP-M1) and
-  [#657](https://github.com/leynos/wireframe/issues/657) (blocks `COMPLETE`).
-  Affected identifiers: RFC-5.3, RFC-6, INV-3, AXIOM-6, Constraint 6, and the
-  `ShutdownOutcome` vocabulary (`TimedOut` becomes `Abandoned`). Required
-  upstream change: an amendment to RFC 0001 §5.3 and §6 in either case; the
-  wording depends on #657's disposition. Date/Author: 2026-08-23, planning
-  agent. **Requires acceptance.**
+Every decision below was accepted by leynos on 2026-11-22, by instruction to
+mark all outstanding decisions accepted. Decisions introduced by this
+re-derivation (D17 to D22) were accepted under the same instruction.
 
-- Decision (D16): adopt `main`'s state at the 2026-11-21 rebase rather than
-  replanning around it. Repoint RFC 0001 and ADR 0014 to their relocated paths;
-  rename the contingent ADR to 0018 under `docs/adrs/`, following the style
-  guide's naming and template; withdraw D11, whose CI timeouts and nextest
-  termination now exist on `main`; record D10 and the tests-location rationale
-  as superseded, because `make lint` and `make test` are now workspace-wide;
-  and switch the companion-crate validation to `make test-wireframe-testing`
-  and an unfiltered `make test-doc`. Rationale: each change follows directly
-  from a fact verified on `a7eecaff` and listed in
-  `Post-rebase status (2026-11-21)`, and none alters the harness design that
-  EP-M0 must still re-derive against `ServerShutdown`. Superseded entries are
-  left in place, so the log keeps its history. Date/Author: 2026-11-21,
-  planning agent.
+- Decision (D1): scope to RFC §5.2, §5.3, §5.5, §5.6, §6, §7.1 except its
+  connector bullets, and §7.5. The connector, the protocol-generic proof, and
+  `trybuild` go to 17.3.4. Known cost: RFC §5.5 has the pair call the connector
+  helper, so 17.3.4 rewrites `spawn_wireframe_pair`'s body again and re-runs
+  INV-8. Date/Author: 2026-08-23, planning agent. Accepted 2026-11-22.
 
-- Decision (D14): depend on #656 and #657 rather than absorbing either into
-  this plan. Rationale: both are server-runtime changes in `src/server/`, which
-  Constraint 6 puts outwith this plan's scope, and both sit inside epic
-  [#635](https://github.com/leynos/wireframe/issues/635)'s remit. Confirmed
-  that no existing epic issue covers either:
-  [#640](https://github.com/leynos/wireframe/issues/640)'s non-goals exclude
-  "Redesigning `CancellationToken` use across independent tasks",
-  [#642](https://github.com/leynos/wireframe/issues/642) requires
-  `run_with_shutdown` to "retain current shutdown and panic-isolation
-  behaviour", and no issue in the epic mentions abort or drop guards. Both new
-  issues are written against the governing ADRs — #656 against ADR 011 R3 and
-  its no-leaked-task verification obligation, #657 against ADR 013 sections 9
-  and 10 — so the epic gains two consistent slices rather than two orphans.
-  Alternative rejected: fixing either inside `wireframe_testing`. Neither is
-  fixable from there; the token and tracker are locals of `run_with_shutdown`.
-  Alternative rejected: shipping 17.3.3 with the leak documented. That was the
-  earlier recommendation and it is no longer justified now that #656 is known
-  to be two lines. Date/Author: 2026-08-23, planning agent. **Requires
-  acceptance.**
+- Decision (D2): introduce a public `ServerHarnessOptions`, resolving RFC §11
+  question 1 in the affirmative, now with two fields. Rationale: without an
+  injectable drain bound the timeout path in RFC §7.1 is testable only with
+  five-second sleeps, the readiness-timeout test is impossible, and the pair
+  cannot express its unbounded waits. Both fields are `Option<Duration>` so the
+  pair passes `None`. `Copy` and `Eq` are deliberately not derived, as
+  permanent commitments a future field could break. The previous third field, a
+  `Drop` grace period, is withdrawn with D20. Date/Author: 2026-08-23, revised
+  2026-11-22. Accepted 2026-11-22.
 
-- Decision (D15): record ADRs 011-013 as conformance basis despite their
-  Proposed status, and carry an explicit `Known expiry` table. Rationale: ADR
-  011 names `src/server/runtime.rs` as governed and ADR 012 restructures
-  `run_with_shutdown`, so this plan is inside their remit whether or not they
-  are Accepted when it is implemented. ADR 012 §2 in particular makes
-  `run_with_shutdown` fallible, which flips five of this plan's verified
-  findings. Recording them as a dated table, gated at EP-M0, is more honest
-  than either ignoring proposed ADRs or pretending the findings are permanent.
-  Date/Author: 2026-08-23, planning agent.
+- Decision (D3): `shutdown()` is idempotent in effect and stable in result.
+  Every call issues the idempotent `stop()`; once the drain has concluded,
+  every later call returns an equivalent result, because `drained()` itself
+  does (AXIOM-3); after a timeout, a later call re-checks without blocking
+  (D18). `shutdown_outcome()` exposes the record without awaiting. This
+  replaces the previous revision's "return `Ok(())` on every later call, and
+  lend the error through `shutdown_error()`", which existed only because a
+  joined `JoinHandle` cannot be joined twice and `ServerError` is not `Clone`.
+  `drained()` rebuilds an equivalent error on every call, so the typed error is
+  simply returned again and `shutdown_error()` is withdrawn. This matches RFC
+  §5.3's "returns the outcome of the terminal state already reached" more
+  closely than the previous design did. Date/Author: 2026-08-23, revised
+  2026-11-22. Accepted 2026-11-22.
 
-- Decision (D9): correct the compatibility premise. An earlier draft's claim
-  that `spawn_wireframe_pair` startup failures "surface as `TestError::Msg`" is
-  false; only two of six paths produce `Msg` today, and
-  `WireframePair::shutdown` produces `Msg` for both of its failure modes. The
-  obligation is Table 1, cell by cell. RFC §5.5 has the same error and needs
-  the same amendment. Rationale: a blanket re-wrap in EP-M3 would have broken
-  the `Io`, `Server`, and `Client` paths in the name of preserving
-  compatibility. Date/Author: 2026-08-23, planning agent.
+- Decision (D4): split RFC §5.6's `lifecycle.rs` into private submodules
+  `handle.rs`, `lifecycle.rs`, `options.rs`, and `outcome.rs` under one
+  `pub mod server_harness`. Rationale: the 400-line limit, and keeping the file
+  layout out of the public API. Date/Author: 2026-08-23, revised 2026-11-22.
+  Accepted 2026-11-22.
 
-- Decision (D1): scope to RFC §5.2, §5.3, §5.5, §5.6, §6, most of §7.1, and
-  §7.5. The connector (§5.4), its two §7.1 bullets, the protocol-generic proof
-  (§7.2), and `trybuild` (§7.3) go to 17.3.4; the companion-crate gates and
-  issue #578 (§7.4) go to 17.3.5. Rationale: those are the boundaries the
-  roadmap draws and RFC §8 sequences. Known cost: RFC §5.5 says the pair should
-  call the connector helper, so 17.3.4 will rewrite `spawn_wireframe_pair`'s
-  body a second time and re-run the INV-6 argument. Accepted, and recorded so
-  17.3.4 is not surprised. Date/Author: 2026-08-23, planning agent.
-
-- Decision (D2): introduce a public `ServerHarnessOptions`, resolving RFC §11.1
-  in the affirmative. Rationale: RFC §5.2 permits it "if the implementation
-  spike proves that fixed defaults are insufficient". They are. With fixed
-  five-second timeouts the shutdown-bound path in RFC §7.1 can only be
-  exercised by five-second sleeps, and INV-4's non-vacuity control — showing
-  the assertion is sensitive to the bound — is impossible. Injectable timeouts
-  also let the pair façade express its required unbounded join as
-  `with_shutdown_timeout(None)` rather than needing a second code path. Three
-  fields, no builder ceremony, per the RFC's warning that timeout configuration
-  must not become a second server builder. Rejected alternative: `pub(crate)`
-  timeouts with a `#[cfg(test)]` setter. `cfg(test)` is set only when compiling
-  the crate's own harness, and D7 puts the gated tests in the root package,
-  where `wireframe_testing` is an ordinary dependency. The setter would be
-  invisible to every test that needs it. Rejected alternative:
-  `tokio::time::pause()`. Available — the root package enables `test-util` —
-  but it interacts badly with real loopback I/O and does not give the pair its
-  unbounded join. Note: `Copy` and `Eq` are deliberately **not** derived. Both
-  are permanent commitments, and a future non-`Copy` field such as a label
-  would make removing them a breaking change. Date/Author: 2026-08-23, planning
-  agent. **Requires acceptance.**
-
-- Decision (D3): `shutdown()` is strictly idempotent — it performs the work
-  once and returns `Ok(())` on every later call — and the terminal status is
-  exposed by `shutdown_outcome()` and `shutdown_error()`. Rationale: RFC §5.3
-  asks a repeated call to report the same failure, and §6 asks callers to
-  distinguish failures without parsing message text. An earlier draft tried to
-  satisfy the first by replaying a `TestError::Msg`, which contradicted this
-  plan's own stated success criterion that a second call returns `Ok(())`, and
-  created a real hazard: the repository's BDD world pattern calls `shutdown()`
-  defensively from `Drop`, so a replayed `Err` would surface during unwind. The
-  key realization is that D3's original premise was too narrow. None of
-  `Elapsed`, `JoinError`, or `ServerError` is `Clone`, so the typed error
-  cannot be *returned by value* twice — but it can be *lent*.
-  `shutdown_error(&self) -> Option<&TestError>` retains the original, gives the
-  caller the full `source()` chain, and satisfies §6 properly.
-  `f(f(x)) == f(x)` now holds for both effect and result. Rejected alternative:
-  `Result<(), Arc<TestError>>`, which breaks `?` at every call site and
-  contradicts RFC §5.2's signature. Rejected alternative: a new `Clone`
-  `TestError::Lifecycle` variant in `src/testkit/result.rs`. Viable —
-  `TestError` is `#[non_exhaustive]` and test-facing — but unnecessary once the
-  error is lent rather than returned, and it would widen the root crate's
-  surface for no gain. Impacts: RFC §5.3 needs amending to describe lending
-  rather than replay. Date/Author: 2026-08-23, planning agent. **Requires
-  acceptance.**
-
-- Decision (D4): split RFC §5.6's `lifecycle.rs` into `state.rs`,
-  `diagnostics.rs`, `options.rs`, `handle.rs`, and `lifecycle.rs`, all private
-  submodules of a single `pub mod server_harness`. Rationale: `AGENTS.md` caps
-  files at 400 lines and the machinery does not fit in two. Keeping the
-  submodules private means the split stays an implementation detail and can be
-  re-cut later; `client_pair` is `pub mod`, so the precedent would otherwise
-  have frozen the file layout as public API. The boundary RFC §5.6 cares about
-  — protocol-neutral lifecycle in `server_harness`, default-client façade in
-  `client_pair` — is unchanged. Date/Author: 2026-08-23, planning agent.
-
-- Decision (D5): **withdraw the Stateright model.** An earlier draft added a
-  bounded state-machine model in `crates/wireframe-verification`, plus a
-  `test-verification` Make target and a CI step. All three are withdrawn.
-  Rationale: four reasons, in descending weight. First, the model could not
-  reference the code it modelled — `crates/wireframe-verification` depends on
-  `wireframe` and `stateright`, not on `wireframe_testing`, and adding that
-  dependency would breach Constraint 11 — so its correspondence would have been
-  enforced by a comment in two crates. Second, Stateright's checker cannot
-  prove it searched exhaustively: states beyond `target_max_depth` are skipped
-  without evaluation, and `is_done()` returns true even when workers stopped on
-  the state budget, so a truncated search passes silently. Third, the shared
-  `assert_model_properties` returns `()` and cannot yield the explored-state
-  count the milestone required as evidence. Fourth, RFC §7.5 explicitly says a
-  model checker is not warranted in the first release, and the roadmap asks for
-  proptest. What replaces it is stronger, not weaker: extracting the lifecycle
-  decision into a pure, total `plan(Phase, Op) -> (Phase, Step)` that the real
-  handle calls, then enumerating `Phase × Op` and every operation sequence up
-  to length six. The correspondence is by construction rather than by comment,
-  the enumeration is genuinely exhaustive rather than bounded-and-possibly-
-  truncated, and `Step::disposes_task`'s exhaustive `match` makes the
-  no-orphaned-task obligation a compile error rather than an assertion.
-  Consequences: the Makefile and CI stay untouched (restoring Constraint 7);
-  `docs/developers-guide.md:294-296`, which says formal-verification targets
-  belong to later roadmap items, is no longer contradicted; and the coverage
-  ratchet does not gain a new crate. Date/Author: 2026-08-23, planning agent.
-  **Requires acceptance.**
+- Decision (D5): withdraw the Stateright model. Rationale: a model in
+  `crates/wireframe-verification` could not reference `wireframe_testing`;
+  Stateright cannot prove an exhaustive search when the depth bound truncates
+  it; and RFC §7.5 says a model checker is not warranted in the first release.
+  With `ServerShutdown` the case is stronger still: the harness has no
+  concurrent protocol to model. Date/Author: 2026-08-23. Accepted 2026-11-22.
 
 - Decision (D6): do not use Kani, Verus, or `insta`. Reasoning in
-  `Verification plan` under "Methods deliberately not used". Date/Author:
-  2026-08-23, planning agent.
+  `Methods deliberately not used`. Date/Author: 2026-08-23. Accepted 2026-11-22.
 
-- Decision (D7): put gated behavioural coverage in the root package's `tests/`
-  tree, not `wireframe_testing/tests/`. Rationale: `default-members = ["."]`
-  makes the companion crate's targets invisible to `make test` until 17.3.5,
-  and tests that do not run are not evidence. The root package already
-  dev-depends on everything needed, and `tests/client_pair_harness.rs` sets the
-  precedent. The exceptions are the `map_pair_shutdown_error` unit tests and the
-  `logtest` assertion, which need crate-internal access; they run under the
-  explicit `-p` command. Note this is a permanent boundary, not a scheduling
-  artefact: 17.3.5 does not move them. Date/Author: 2026-08-23, planning agent.
+- Decision (D7): put integration, property, and behavioural tests in the root
+  `tests/` tree, and pure-function unit tests in `#[cfg(test)]` modules inside
+  `wireframe_testing`. Rationale: the BDD infrastructure, the pair suites, and
+  the closest precedent (`tests/server_shutdown.rs`) all live in root `tests/`,
+  and CI's coverage action runs them; in-crate unit tests keep the pure
+  functions `pub(crate)` rather than `#[doc(hidden)] pub`, and
+  `make test-wireframe-testing` runs them in CI. The previous rationale, that
+  companion-crate tests were invisible to `make test`, no longer holds.
+  Date/Author: 2026-08-23, revised 2026-11-22. Accepted 2026-11-22.
 
-- Decision (D10): accept that `make lint` does not reach `wireframe_testing`,
-  and treat the size and complexity limits as authoring discipline verified in
-  review. Rationale: `Makefile:82-85` passes neither `-p` nor `--workspace` and
-  `default-members = ["."]`; the crate has no `[lints]` table, so even a manual
-  `-p` run gets none of the root package's configuration. The fix — hoisting
-  `[workspace.lints]` and adding `lints.workspace = true` — would newly subject
-  the crate's existing code to `unwrap_used = "deny"` and `missing_docs`, which
-  is a large and unrelated change. It belongs to 17.3.5, which owns
-  companion-crate gating. Consequence: statements like "clippy denies
-  `unwrap_used` here" are false for this crate. Only whitaker's
-  `no_expect_outside_tests` applies, and only via the root-package run.
-  Date/Author: 2026-08-23, planning agent.
+- Decision (D9): Table 1 is the compatibility obligation, cell by cell, and
+  applies to reachable paths. Rationale: an early draft claimed the pair's
+  startup failures were uniformly `TestError::Msg`, which was false; a blanket
+  re-wrap would have broken the typed `Io` and `Client` paths. Unreachable
+  cells may change only where their producing machinery is deleted (D21).
+  Date/Author: 2026-08-23, revised 2026-11-22. Accepted 2026-11-22.
 
-- Decision (D11): add `timeout-minutes` to the `build-test` and coverage jobs
-  in `.github/workflows/`, notwithstanding Constraint 7. Rationale: nothing in
-  the stack bounds a hung test. `proptest`'s `max_shrink_time` is unlimited by
-  default, there is no nextest configuration, and no workflow sets a job
-  timeout, so GitHub's 360-minute default applies. Because libtest buffers
-  per-test output, the surviving log ends at `running N tests` with no
-  indication of which test hung. A harness whose purpose is to stop test suites
-  hanging should not ship without this. The change is two lines and touches no
-  test target, so it does not encroach on 17.3.5. Date/Author: 2026-08-23,
-  planning agent. **Requires acceptance.**
+- Decision (D12): keep three free spawn functions rather than a builder.
+  Rationale: RFC §5.2 names two of them, and the options variant is the minimum
+  addition. Recommendation for 17.3.4: introduce a builder then, rather than a
+  fourth function at the argument-count ceiling. Date/Author: 2026-08-23.
+  Accepted 2026-11-22.
 
-- Decision (D12): keep the three free spawn functions rather than introducing a
-  harness builder now. Rationale: RFC §5.2 names exactly
-  `spawn_wireframe_server` and `spawn_wireframe_server_on`, and the options
-  variant is the minimum addition that makes the timeout paths testable. A
-  `WireframeServerHarness` builder with `on_listener`, `with_options`, `spawn`,
-  and later `spawn_and_connect` would cap the argument count at two forever and
-  give 17.3.4 a natural slot, which is a genuinely better long-term shape. But
-  it is a fourth public type introduced ahead of the consumer that needs it.
-  Recommendation for 17.3.4: adopt the builder then, and reduce these three
-  functions to thin wrappers, rather than adding a fifth function
-  (`spawn_wireframe_server_and_connect_with_options`) that would sit on the
-  four-argument clippy ceiling. Date/Author: 2026-08-23, planning agent.
+- Decision (D13): `shutdown` takes `&mut self`, not `self`. Rationale: RFC
+  §5.3 requires a later call after a cancelled shutdown future, impossible if
+  the handle moved into it, and `WireframePair::shutdown(&mut self)` is frozen
+  by Constraint 1. `&mut self` is needed only to update the outcome record.
+  Date/Author: 2026-08-23. Accepted 2026-11-22.
 
-- Decision (D13): `shutdown` takes `&mut self`, not `self`.
-  Rationale: a consuming signature would make double-shutdown a compile error
-  and delete most of the state machine, which is attractive. It is rejected
-  because RFC §5.3 requires that "after a cancelled shutdown future, a later
-  call completes the outstanding join" — impossible if the handle was moved
-  into the cancelled future — and because `WireframePair::shutdown(&mut self)`
-  is signature-frozen by Constraint 1 and must drive the inner handle through a
-  `&mut`. The honest price: the type system cannot prevent use-after-shutdown,
-  which is precisely why `shutdown_outcome()` exists as a runtime query. Also
-  rejected: `tokio_util::task::AbortOnDropHandle`, whose `Drop` aborts
-  immediately, the opposite of the signal-then-grace-then-abandon sequence RFC
-  §5.3 requires — and which is behind the `rt` feature, a manifest change. Also
-  considered: replacing the `oneshot` with a `CancellationToken`, which
-  `tokio-util` exposes ungated. It would remove the shutdown-future adaptor,
-  but the server builds its own token internally so it does not fix D8, and it
-  would lose the property that dropping the `oneshot` sender closes the channel
-  and stops the server. Not worth the churn. Date/Author: 2026-08-23, planning
-  agent.
+- Decision (D17): the harness wraps `WireframeServer::spawn()` and its
+  `ServerShutdown`, rather than spawning `run_with_shutdown` in its own task
+  with a `oneshot` and a `JoinHandle`. Rationale: `ServerShutdown` already
+  provides an idempotent stop, a repeatable terminal observation, a
+  listener-release guarantee, and runtime-free drop cancellation (facts 4 to
+  8), with its own test suite; reimplementing them in the harness would
+  duplicate the server's contract and its bugs. ADR 0014's outstanding
+  decisions anticipate exactly this wrapper. Affected: RFC §5.2 step 4, §5.3,
+  §6. Date/Author: 2026-11-22, planning agent. Accepted 2026-11-22.
+
+- Decision (D18): on an elapsed drain bound the harness does not abort
+  anything, and a later call re-checks with a zero bound. Rationale: there is
+  no task handle to abort, and none is needed — `stop()` has already been
+  issued, so accept loops exit and the listener is released promptly; only
+  in-flight connection tasks may outlive the bound. A zero-bound re-check
+  satisfies RFC §5.3's "rather than blocking again", and reports the real
+  outcome if the drain has since finished, which is more accurate than
+  replaying a stale timeout. Affected: RFC §5.3 bullets 4 and 6, §5.3's
+  repeated-call list. Date/Author: 2026-11-22. Accepted 2026-11-22.
+
+- Decision (D19): identify the failing stage by operation and variant (Table
+  3) rather than by error text. Rationale: `TestError` has no field for
+  context, so stage text and a distinct typed variant cannot coexist without a
+  new `TestError` variant in `src/testkit/result.rs`, which Constraint 6
+  excludes and which RFC §11 question 2 reserves for 17.3.4 to decide. Table 3
+  gives callers the stage without parsing text, which is the purpose of RFC
+  §6's requirement. Affected: RFC §6 bullet 7. Date/Author: 2026-11-22.
+  Accepted 2026-11-22.
+
+- Decision (D20): `RunningWireframeServer` has no `impl Drop`. Dropping its
+  `ServerShutdown` cancels the server synchronously through the control's own
+  drop guard, so `Drop` needs no runtime, no detached task, no grace period,
+  and no abort, and behaves identically inside and outside a runtime. Affected:
+  RFC §5.2's grace period, §5.3's `Drop` paragraph, §7.1's drop bullet.
+  Date/Author: 2026-11-22. Accepted 2026-11-22.
+
+- Decision (D21): accept the type changes on unreachable paths that follow
+  from D17. A supervisor panic now surfaces as
+  `ServerError::AbnormalTermination { source: None, .. }` rather than a
+  `JoinError`, so the new API's "panic" and "server error" classes are
+  distinguished by `source` rather than by `TestError::Join` versus
+  `TestError::Server`; and the pair's unreachable address-readback cell becomes
+  `TestError::Io`. Every reachable cell of Table 1 is unchanged. Affected: RFC
+  §6 bullet 8. Date/Author: 2026-11-22. Accepted 2026-11-22.
+
+- Decision (D22): the pair passes `None` for both bounds. Rationale: today
+  the pair awaits readiness and the join without bounds (`client_pair.rs:318`,
+  `:152`), and RFC §5.5 forbids adding a failure mode existing callers do not
+  expect. Date/Author: 2026-11-22. Accepted 2026-11-22.
+
+Superseded or discharged decisions, retained by identifier so earlier
+references resolve:
+
+- D8 (abort does not stop the server; escalated 2026-08-23): discharged by
+  #656 and #657, both merged. Accepted as resolved 2026-11-22.
+- D10 (lint does not reach `wireframe_testing`): superseded by #813 and #856.
+- D11 (add CI `timeout-minutes`): superseded; `main` has them (#857).
+- D14 (depend on #656 and #657): discharged; both merged.
+- D15 (carry a known-expiry table for ADR 012): superseded by this
+  re-derivation, which re-derived every expiring finding.
+- D16 (2026-11-21 rebase bookkeeping): superseded by this re-derivation.
 
 ## Outcomes & retrospective
 
 To be completed at EP-M4. Before setting the status to `COMPLETE`, reconcile
-every entry in `Surprises & discoveries` and `Decision log` against RFC 0001,
-and confirm that D2, D3, D5, D8, and D11 have been accepted and that the RFC
-amendments in Stage E step 4 have landed. An unaccepted deviation blocks
-completion.
+every entry in `Surprises & discoveries` and `Decision log` against RFC 0001
+and confirm the Stage E amendments for D17 to D21 have landed.
+
+Lesson recorded early, from the 2026-11-22 re-derivation: when `main` moves
+under a plan, re-verify the plan's claims, not only its links. Two rebases
+passed every gate while the plan still described a server API that no longer
+existed and a file that had since been created.
 
 ## Artefacts and notes
 
 Reserved for transcripts. At minimum, capture:
 
-1. The eight distinct red failures after Stage B0.
-2. The green `test result: ok` line for each new test target.
-3. One negative-control result per invariant, INV-1 through INV-6, including
-   INV-3's deliberate compile error.
-4. The filtered `-p wireframe_testing --doc server_harness` pass alongside the
-   unfiltered pre-existing failure.
-5. The `logtest` transcript showing the abandonment warning.
+1. The Stage A auto-trait probe result.
+2. The ten distinct red failures after Stage B0.
+3. The green `test result: ok` line for each new test target.
+4. One negative-control or seeded-fault result per invariant, INV-1 to INV-8.
+5. The INV-5 classification counts.
 6. The ten full `make test` runs from the flakiness check.
+
+## Revision history
+
+- 2026-08-23: first draft around a harness-owned `JoinHandle` and `oneshot`
+  sender. An expert design review withdrew a Stateright model in favour of an
+  enumerated pure transition table, corrected the pair-compatibility premise,
+  and found that `JoinHandle::abort()` did not stop a Wireframe server. That
+  escalation was resolved by raising #656 and #657 upstream.
+- 2026-10-30: rebased; #656, #641, #642, and #657 confirmed merged; the plan
+  recorded that its design needed re-deriving.
+- 2026-11-21: rebased; recorded 17.3.5, the workspace-wide gates, and the
+  documentation relocation.
+- 2026-11-22: re-derived against `a7eecaff`. The harness now wraps
+  `ServerShutdown` (D17). Withdrawn: the `Phase`/`Op`/`Step` transition table,
+  the detached-cleanup `Drop`, the `Abandoned` outcome, the drop-grace option,
+  the diagnostics module and its stage strings, `shutdown_error()`, and the
+  `await_port_released` helper. Every fact and observation was re-verified with
+  fresh citations; a false observation about `docs/repository-layout.md` was
+  corrected. All decisions were marked accepted. Effect on remaining work:
+  smaller code budget (1 500 lines, 26 files, down from 1 800 and 28), no
+  configuration changes, and no remaining upstream dependency.
