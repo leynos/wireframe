@@ -7,6 +7,7 @@
 
 use std::io;
 
+use rstest::rstest;
 use wireframe::codec::{CodecError, EofError, examples::HotlineFrameCodec};
 use wireframe_testing::{
     correlated_hotline_wire,
@@ -22,21 +23,11 @@ use wireframe_testing::{
 
 fn hotline_codec() -> HotlineFrameCodec { HotlineFrameCodec::new(4096) }
 
-/// Decode `wire` with a fresh `HotlineFrameCodec` and verify that decoding
-/// fails with an error message containing `expected_error_substring`.
-fn assert_decode_fails_with(wire: &[u8], expected_error_substring: &str) -> io::Result<()> {
-    let codec = hotline_codec();
-    let result = decode_frames_with_codec(&codec, wire);
-
-    let err = result
+/// Decode `wire` and return the error the decoder must report.
+fn decode_error(wire: &[u8]) -> io::Result<io::Error> {
+    decode_frames_with_codec(&hotline_codec(), wire)
         .err()
-        .ok_or_else(|| io::Error::other("expected decode to fail but it succeeded"))?;
-    if !err.to_string().contains(expected_error_substring) {
-        return Err(io::Error::other(format!(
-            "expected error containing '{expected_error_substring}', got: {err}"
-        )));
-    }
-    Ok(())
+        .ok_or_else(|| io::Error::other("expected decode to fail but it succeeded"))
 }
 
 /// Extract the structured end-of-file condition a decode error carries.
@@ -50,20 +41,17 @@ fn eof_condition(error: &io::Error) -> Option<EofError> {
         })
 }
 
-/// Decode `wire` and verify that the decoder reports `expected` truncation.
-fn assert_decode_reports(wire: &[u8], expected: EofError) -> io::Result<()> {
-    let codec = hotline_codec();
-    let result = decode_frames_with_codec(&codec, wire);
-
-    let err = result
-        .err()
-        .ok_or_else(|| io::Error::other("expected decode to fail but it succeeded"))?;
-    if eof_condition(&err) != Some(expected) {
-        return Err(io::Error::other(format!(
-            "expected {expected:?}, got: {err}"
-        )));
+/// Verify that decoding `wire` fails with an error satisfying `matches`.
+fn assert_decode_fails(
+    wire: &[u8],
+    expected: &str,
+    matches: impl Fn(&io::Error) -> bool,
+) -> io::Result<()> {
+    let err = decode_error(wire)?;
+    if matches(&err) {
+        return Ok(());
     }
-    Ok(())
+    Err(io::Error::other(format!("expected {expected}, got: {err}")))
 }
 
 /// Assert that `frames` contains exactly `expected` elements.
@@ -122,42 +110,37 @@ fn valid_hotline_frame_has_correct_metadata() {
 
 // ── Invalid frame fixtures ──────────────────────────────────────────────
 
-#[test]
-fn oversized_hotline_wire_rejected_by_decoder() -> io::Result<()> {
-    let wire = oversized_hotline_wire(4096);
-    assert_decode_fails_with(&wire, "payload too large")
-}
-
-#[test]
-fn mismatched_total_size_rejected_by_decoder() -> io::Result<()> {
-    let wire = mismatched_total_size_wire(b"test");
-    assert_decode_fails_with(&wire, "invalid total size")
+#[rstest]
+#[case::oversized(oversized_hotline_wire(4096), "payload too large")]
+#[case::mismatched(mismatched_total_size_wire(b"test"), "invalid total size")]
+fn invalid_fixture_is_rejected(#[case] wire: Vec<u8>, #[case] expected: &str) -> io::Result<()> {
+    assert_decode_fails(&wire, expected, |err| err.to_string().contains(expected))
 }
 
 // ── Incomplete frame fixtures ───────────────────────────────────────────
 
-#[test]
-fn truncated_header_produces_decode_error() -> io::Result<()> {
-    let wire = truncated_hotline_header();
-    assert_decode_reports(
-        &wire,
-        EofError::MidHeader {
-            bytes_received: 10,
-            header_size: 20,
-        },
-    )
-}
-
-#[test]
-fn truncated_payload_produces_decode_error() -> io::Result<()> {
-    let wire = truncated_hotline_payload(100);
-    assert_decode_reports(
-        &wire,
-        EofError::MidFrame {
-            bytes_received: 50,
-            expected: 100,
-        },
-    )
+#[rstest]
+#[case::header(
+    truncated_hotline_header(),
+    EofError::MidHeader {
+        bytes_received: 10,
+        header_size: 20,
+    }
+)]
+#[case::payload(
+    truncated_hotline_payload(100),
+    EofError::MidFrame {
+        bytes_received: 50,
+        expected: 100,
+    }
+)]
+fn truncated_fixture_reports_a_structured_eof(
+    #[case] wire: Vec<u8>,
+    #[case] expected: EofError,
+) -> io::Result<()> {
+    assert_decode_fails(&wire, &format!("{expected:?}"), |err| {
+        eof_condition(err) == Some(expected)
+    })
 }
 
 #[test]

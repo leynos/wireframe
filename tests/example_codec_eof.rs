@@ -15,6 +15,7 @@
 use std::io;
 
 use bytes::{BufMut, Bytes, BytesMut};
+use rstest::rstest;
 use tokio_util::codec::{Decoder, Encoder};
 use wireframe::codec::{
     CodecError,
@@ -22,6 +23,93 @@ use wireframe::codec::{
     FrameCodec,
     examples::{HotlineFrame, HotlineFrameCodec, MysqlFrame, MysqlFrameCodec},
 };
+
+/// Maximum frame length the success cases allow.
+const MAX_FRAME_LENGTH: usize = 64;
+
+/// Which bundled example codec a case exercises.
+#[derive(Clone, Copy, Debug)]
+enum BundledCodec {
+    Hotline,
+    Mysql,
+}
+
+impl BundledCodec {
+    /// Decoder presenting each frame's payload in place of the frame.
+    fn decoder(self, max_frame_length: usize) -> Box<dyn Decoder<Item = Bytes, Error = io::Error>> {
+        match self {
+            Self::Hotline => Box::new(PayloadDecoder(
+                HotlineFrameCodec::new(max_frame_length).decoder(),
+            )),
+            Self::Mysql => Box::new(PayloadDecoder(
+                MysqlFrameCodec::new(max_frame_length).decoder(),
+            )),
+        }
+    }
+
+    /// Number of bytes in this codec's frame header.
+    const fn header_len(self) -> usize {
+        match self {
+            Self::Hotline => 20,
+            Self::Mysql => 4,
+        }
+    }
+
+    /// Encode one frame whose payload is `payload_len` bytes of `0x7`.
+    fn wire(self, payload_len: usize) -> BytesMut {
+        let payload = Bytes::from(vec![7_u8; payload_len]);
+        match self {
+            Self::Hotline => encode(
+                HotlineFrameCodec::new(MAX_FRAME_LENGTH).encoder(),
+                HotlineFrame {
+                    transaction_id: 1,
+                    payload,
+                },
+            ),
+            Self::Mysql => encode(
+                MysqlFrameCodec::new(MAX_FRAME_LENGTH).encoder(),
+                MysqlFrame {
+                    sequence_id: 1,
+                    payload,
+                },
+            ),
+        }
+    }
+}
+
+/// A decoded example frame whose payload a case can inspect.
+trait Payload {
+    /// Borrow the decoded payload.
+    fn payload(&self) -> &Bytes;
+}
+
+impl Payload for HotlineFrame {
+    fn payload(&self) -> &Bytes { &self.payload }
+}
+
+impl Payload for MysqlFrame {
+    fn payload(&self) -> &Bytes { &self.payload }
+}
+
+/// Adapts an example decoder to yield only each frame's payload.
+struct PayloadDecoder<D>(D);
+
+impl<D, F> Decoder for PayloadDecoder<D>
+where
+    D: Decoder<Item = F, Error = io::Error>,
+    F: Payload,
+{
+    type Item = Bytes;
+    type Error = io::Error;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        Ok(self.0.decode(src)?.map(|frame| frame.payload().clone()))
+    }
+
+    fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        Ok(self.0.decode_eof(src)?.map(|frame| frame.payload().clone()))
+    }
+}
 
 /// Extract the structured end-of-file condition a decode error carries.
 fn eof_condition(error: &io::Error) -> Option<EofError> {
@@ -34,94 +122,115 @@ fn eof_condition(error: &io::Error) -> Option<EofError> {
         })
 }
 
-/// Encode one Hotline frame whose payload is `payload_len` bytes of `0x7`.
-fn hotline_wire(payload_len: usize) -> BytesMut {
-    let mut encoder = HotlineFrameCodec::new(64).encoder();
+/// Encode one frame and return its wire bytes.
+fn encode<F>(mut encoder: impl Encoder<F, Error = io::Error>, frame: F) -> BytesMut {
     let mut buffer = BytesMut::new();
     encoder
-        .encode(
-            HotlineFrame {
-                transaction_id: 1,
-                payload: Bytes::from(vec![7_u8; payload_len]),
-            },
-            &mut buffer,
-        )
-        .expect("encode a complete Hotline frame");
+        .encode(frame, &mut buffer)
+        .expect("encode a complete frame");
     buffer
 }
 
-/// Encode one `MySQL` frame whose payload is `payload_len` bytes of `0x7`.
-fn mysql_wire(payload_len: usize) -> BytesMut {
-    let mut encoder = MysqlFrameCodec::new(64).encoder();
+/// A Hotline header whose declared frame length contradicts its payload length.
+/// A Hotline header whose declared frame length contradicts its payload length.
+fn hotline_bad_header() -> BytesMut {
     let mut buffer = BytesMut::new();
-    encoder
-        .encode(
-            MysqlFrame {
-                sequence_id: 1,
-                payload: Bytes::from(vec![7_u8; payload_len]),
-            },
-            &mut buffer,
-        )
-        .expect("encode a complete MySQL frame");
+    buffer.put_u32(1);
+    buffer.put_u32(1);
+    buffer.put_u32(7);
+    buffer.extend_from_slice(&[0_u8; 8]);
     buffer
 }
 
-#[test]
-fn hotline_decode_eof_reports_a_partial_header() {
-    let mut decoder = HotlineFrameCodec::new(64).decoder();
-    let mut buffer = BytesMut::from(&[0_u8; 7][..]);
-
+/// Run an incomplete decode and assert that `decode_eof` reports `expected`.
+fn assert_truncation(
+    decoder: &mut dyn Decoder<Item = Bytes, Error = io::Error>,
+    buffer: &mut BytesMut,
+    expected: EofError,
+) {
     assert!(
         decoder
-            .decode(&mut buffer)
-            .expect("an incomplete header is not an error")
+            .decode(buffer)
+            .expect("an incomplete frame is not an error")
             .is_none()
     );
     let error = decoder
-        .decode_eof(&mut buffer)
-        .expect_err("a truncated header must be an error");
-    assert_eq!(
-        eof_condition(&error),
-        Some(EofError::MidHeader {
-            bytes_received: 7,
-            header_size: 20,
-        })
-    );
-    assert_eq!(buffer.len(), 7, "the partial header must not be consumed");
+        .decode_eof(buffer)
+        .expect_err("a truncated frame must be an error");
+    assert_eq!(eof_condition(&error), Some(expected));
 }
 
-#[test]
-fn hotline_decode_eof_reports_a_partial_payload() {
-    let mut decoder = HotlineFrameCodec::new(64).decoder();
-    let mut buffer = hotline_wire(8);
-    buffer.truncate(20 + 3);
+/// How a case leaves a frame incomplete.
+#[derive(Clone, Copy, Debug)]
+enum Incomplete {
+    /// Only part of the header arrived.
+    Header { received: usize },
+    /// The whole header arrived but part of the payload did not.
+    Payload { received: usize },
+}
 
-    assert!(
-        decoder
-            .decode(&mut buffer)
-            .expect("an incomplete payload is not an error")
-            .is_none()
-    );
-    let error = decoder
-        .decode_eof(&mut buffer)
-        .expect_err("a truncated payload must be an error");
-    assert_eq!(
-        eof_condition(&error),
-        Some(EofError::MidFrame {
-            bytes_received: 3,
-            expected: 8,
-        })
-    );
+#[rstest]
+#[case::hotline_header(
+    BundledCodec::Hotline,
+    Incomplete::Header { received: 7 },
+    EofError::MidHeader {
+        bytes_received: 7,
+        header_size: 20,
+    }
+)]
+#[case::mysql_header(
+    BundledCodec::Mysql,
+    Incomplete::Header { received: 3 },
+    EofError::MidHeader {
+        bytes_received: 3,
+        header_size: 4,
+    }
+)]
+#[case::hotline_payload(
+    BundledCodec::Hotline,
+    Incomplete::Payload { received: 3 },
+    EofError::MidFrame {
+        bytes_received: 3,
+        expected: 8,
+    }
+)]
+#[case::mysql_payload(
+    BundledCodec::Mysql,
+    Incomplete::Payload { received: 5 },
+    EofError::MidFrame {
+        bytes_received: 5,
+        expected: 8,
+    }
+)]
+fn decode_eof_reports_a_partial_frame(
+    #[case] codec: BundledCodec,
+    #[case] incomplete: Incomplete,
+    #[case] expected: EofError,
+) {
+    let mut decoder = codec.decoder(MAX_FRAME_LENGTH);
+    let mut buffer = match incomplete {
+        Incomplete::Header { received } => BytesMut::from(vec![0_u8; received].as_slice()),
+        Incomplete::Payload { received } => {
+            let mut wire = codec.wire(8);
+            wire.truncate(codec.header_len() + received);
+            wire
+        }
+    };
+    let partial_len = buffer.len();
+
+    assert_truncation(decoder.as_mut(), &mut buffer, expected);
     assert_eq!(
         buffer.len(),
-        20 + 3,
+        partial_len,
         "the partial frame must not be consumed"
     );
 }
 
-#[test]
-fn hotline_decode_eof_is_clean_at_a_frame_boundary() {
-    let mut decoder = HotlineFrameCodec::new(64).decoder();
+#[rstest]
+#[case::hotline(BundledCodec::Hotline)]
+#[case::mysql(BundledCodec::Mysql)]
+fn decode_eof_is_clean_at_a_frame_boundary(#[case] codec: BundledCodec) {
+    let mut decoder = codec.decoder(MAX_FRAME_LENGTH);
     let mut buffer = BytesMut::new();
 
     assert!(
@@ -132,128 +241,34 @@ fn hotline_decode_eof_is_clean_at_a_frame_boundary() {
     );
 }
 
-#[test]
-fn hotline_decode_eof_decodes_a_complete_frame() {
-    let mut decoder = HotlineFrameCodec::new(64).decoder();
-    let mut buffer = hotline_wire(5);
+#[rstest]
+#[case::hotline(BundledCodec::Hotline)]
+#[case::mysql(BundledCodec::Mysql)]
+fn decode_eof_decodes_a_complete_frame(#[case] codec: BundledCodec) {
+    let mut decoder = codec.decoder(MAX_FRAME_LENGTH);
+    let mut buffer = codec.wire(5);
 
-    let frame = decoder
+    let payload = decoder
         .decode_eof(&mut buffer)
         .expect("a complete frame decodes")
         .expect("the frame is present");
-    assert_eq!(frame.payload, Bytes::from(vec![7_u8; 5]));
+    assert_eq!(payload, Bytes::from(vec![7_u8; 5]));
     assert!(buffer.is_empty(), "a complete frame is consumed");
 }
 
-#[test]
-fn hotline_decode_eof_keeps_framing_errors() {
-    let mut decoder = HotlineFrameCodec::new(64).decoder();
-    let mut buffer = BytesMut::new();
-    buffer.put_u32(1);
-    // The declared frame length is not the payload plus the header.
-    buffer.put_u32(1);
-    buffer.put_u32(7);
-    buffer.extend_from_slice(&[0_u8; 8]);
+#[rstest]
+#[case::hotline(BundledCodec::Hotline, MAX_FRAME_LENGTH, hotline_bad_header())]
+#[case::mysql(BundledCodec::Mysql, 3, BytesMut::from(&[4_u8, 0, 0, 1][..]))]
+fn decode_eof_keeps_framing_errors(
+    #[case] codec: BundledCodec,
+    #[case] max_frame_length: usize,
+    #[case] mut buffer: BytesMut,
+) {
+    let mut decoder = codec.decoder(max_frame_length);
 
     let error = decoder
         .decode_eof(&mut buffer)
         .expect_err("a malformed header must fail");
-    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
-    assert_eq!(
-        eof_condition(&error),
-        None,
-        "a framing error must not be reported as a truncation"
-    );
-}
-
-#[test]
-fn mysql_decode_eof_reports_a_partial_header() {
-    let mut decoder = MysqlFrameCodec::new(64).decoder();
-    let mut buffer = BytesMut::from(&[0_u8; 3][..]);
-
-    assert!(
-        decoder
-            .decode(&mut buffer)
-            .expect("an incomplete header is not an error")
-            .is_none()
-    );
-    let error = decoder
-        .decode_eof(&mut buffer)
-        .expect_err("a truncated header must be an error");
-    assert_eq!(
-        eof_condition(&error),
-        Some(EofError::MidHeader {
-            bytes_received: 3,
-            header_size: 4,
-        })
-    );
-    assert_eq!(buffer.len(), 3, "the partial header must not be consumed");
-}
-
-#[test]
-fn mysql_decode_eof_reports_a_partial_payload() {
-    let mut decoder = MysqlFrameCodec::new(64).decoder();
-    let mut buffer = mysql_wire(8);
-    buffer.truncate(4 + 5);
-
-    assert!(
-        decoder
-            .decode(&mut buffer)
-            .expect("an incomplete payload is not an error")
-            .is_none()
-    );
-    let error = decoder
-        .decode_eof(&mut buffer)
-        .expect_err("a truncated payload must be an error");
-    assert_eq!(
-        eof_condition(&error),
-        Some(EofError::MidFrame {
-            bytes_received: 5,
-            expected: 8,
-        })
-    );
-    assert_eq!(
-        buffer.len(),
-        4 + 5,
-        "the partial frame must not be consumed"
-    );
-}
-
-#[test]
-fn mysql_decode_eof_is_clean_at_a_frame_boundary() {
-    let mut decoder = MysqlFrameCodec::new(64).decoder();
-    let mut buffer = BytesMut::new();
-
-    assert!(
-        decoder
-            .decode_eof(&mut buffer)
-            .expect("a clean close is not an error")
-            .is_none()
-    );
-}
-
-#[test]
-fn mysql_decode_eof_decodes_a_complete_frame() {
-    let mut decoder = MysqlFrameCodec::new(64).decoder();
-    let mut buffer = mysql_wire(5);
-
-    let frame = decoder
-        .decode_eof(&mut buffer)
-        .expect("a complete frame decodes")
-        .expect("the frame is present");
-    assert_eq!(frame.payload, Bytes::from(vec![7_u8; 5]));
-    assert!(buffer.is_empty(), "a complete frame is consumed");
-}
-
-#[test]
-fn mysql_decode_eof_keeps_framing_errors() {
-    // A codec with a three-byte limit rejects the four-byte header at once.
-    let mut decoder = MysqlFrameCodec::new(3).decoder();
-    let mut buffer = BytesMut::from(&[4_u8, 0, 0, 1][..]);
-
-    let error = decoder
-        .decode_eof(&mut buffer)
-        .expect_err("an oversized header must fail");
     assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     assert_eq!(
         eof_condition(&error),

@@ -4,12 +4,15 @@
 //! custom framing. They are compiled for tests and for the `examples` feature
 //! to avoid duplicating codec logic across example binaries.
 
+mod framing;
+
 use std::io;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use framing::{FrameExtent, FrameLayout, decode_one, finish_decoding};
 use tokio_util::codec::{Decoder, Encoder};
 
-use super::{CodecError, EofError, FrameCodec};
+use super::FrameCodec;
 
 /// Bytes in a Hotline frame header.
 const HOTLINE_HEADER_LEN: usize = 20;
@@ -68,8 +71,22 @@ pub struct HotlineAdapter {
 impl HotlineAdapter {
     const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 
-    /// Parse and validate a complete Hotline header.
-    fn parse_header(&self, src: &[u8]) -> Result<HotlineHeader, io::Error> {
+    /// Take one validated frame off the front of the buffer.
+    fn take_frame(src: &mut BytesMut, header: HotlineHeader) -> HotlineFrame {
+        let mut frame_bytes = src.split_to(header.frame_len);
+        frame_bytes.advance(HOTLINE_HEADER_LEN);
+        HotlineFrame {
+            transaction_id: header.transaction_id,
+            payload: frame_bytes.freeze(),
+        }
+    }
+}
+
+impl FrameLayout for HotlineAdapter {
+    type Header = HotlineHeader;
+    const HEADER_LEN: usize = HOTLINE_HEADER_LEN;
+
+    fn parse_header(&self, src: &[u8]) -> io::Result<HotlineHeader> {
         let mut header = src;
         let payload_len = header.get_u32() as usize;
         let frame_len = header.get_u32() as usize;
@@ -92,6 +109,10 @@ impl HotlineAdapter {
             transaction_id,
         })
     }
+
+    fn extent(header: &HotlineHeader) -> FrameExtent {
+        FrameExtent::new(HOTLINE_HEADER_LEN, header.payload_len)
+    }
 }
 
 impl Decoder for HotlineAdapter {
@@ -99,23 +120,7 @@ impl Decoder for HotlineAdapter {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < HOTLINE_HEADER_LEN {
-            return Ok(None);
-        }
-
-        let header = self.parse_header(src.as_ref())?;
-        if src.len() < header.frame_len {
-            return Ok(None);
-        }
-
-        let mut frame_bytes = src.split_to(header.frame_len);
-        frame_bytes.advance(HOTLINE_HEADER_LEN);
-        let payload = frame_bytes.freeze();
-
-        Ok(Some(HotlineFrame {
-            transaction_id: header.transaction_id,
-            payload,
-        }))
+        decode_one(self, src, Self::take_frame)
     }
 
     /// Classify an incomplete buffer now that the peer has closed.
@@ -124,25 +129,8 @@ impl Decoder for HotlineAdapter {
     /// truncation, and the buffer is never consumed, so the connection can pass
     /// every received byte to the `on_eof` hook.
     fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.is_empty() {
-            return Ok(None);
-        }
-        if src.len() < HOTLINE_HEADER_LEN {
-            return Err(CodecError::Eof(EofError::MidHeader {
-                bytes_received: src.len(),
-                header_size: HOTLINE_HEADER_LEN,
-            })
-            .into());
-        }
-        let header = self.parse_header(src.as_ref())?;
-        if src.len() >= header.frame_len {
-            return self.decode(src);
-        }
-        Err(CodecError::Eof(EofError::MidFrame {
-            bytes_received: src.len() - HOTLINE_HEADER_LEN,
-            expected: header.payload_len,
-        })
-        .into())
+        let extent = self.buffered_extent(src)?;
+        finish_decoding::<Self, _>(src, extent, |buffer| self.decode(buffer))
     }
 }
 
@@ -250,8 +238,22 @@ struct MysqlHeader {
 impl MysqlAdapter {
     const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 
-    /// Parse and validate a complete `MySQL` header.
-    fn parse_header(&self, src: &[u8]) -> Result<MysqlHeader, io::Error> {
+    /// Take one validated frame off the front of the buffer.
+    fn take_frame(src: &mut BytesMut, header: MysqlHeader) -> MysqlFrame {
+        let mut frame_bytes = src.split_to(MYSQL_HEADER_LEN + header.payload_len);
+        frame_bytes.advance(MYSQL_HEADER_LEN);
+        MysqlFrame {
+            sequence_id: header.sequence_id,
+            payload: frame_bytes.freeze(),
+        }
+    }
+}
+
+impl FrameLayout for MysqlAdapter {
+    type Header = MysqlHeader;
+    const HEADER_LEN: usize = MYSQL_HEADER_LEN;
+
+    fn parse_header(&self, src: &[u8]) -> io::Result<MysqlHeader> {
         let mut header = src;
         let payload_len = (header.get_u8() as usize)
             | ((header.get_u8() as usize) << 8)
@@ -268,6 +270,10 @@ impl MysqlAdapter {
             sequence_id,
         })
     }
+
+    fn extent(header: &MysqlHeader) -> FrameExtent {
+        FrameExtent::new(MYSQL_HEADER_LEN, header.payload_len)
+    }
 }
 
 impl Decoder for MysqlAdapter {
@@ -275,24 +281,7 @@ impl Decoder for MysqlAdapter {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.len() < MYSQL_HEADER_LEN {
-            return Ok(None);
-        }
-
-        let header = self.parse_header(src.as_ref())?;
-        let frame_len = MYSQL_HEADER_LEN + header.payload_len;
-        if src.len() < frame_len {
-            return Ok(None);
-        }
-
-        let mut frame_bytes = src.split_to(frame_len);
-        frame_bytes.advance(MYSQL_HEADER_LEN);
-        let payload = frame_bytes.freeze();
-
-        Ok(Some(MysqlFrame {
-            sequence_id: header.sequence_id,
-            payload,
-        }))
+        decode_one(self, src, Self::take_frame)
     }
 
     /// Classify an incomplete buffer now that the peer has closed.
@@ -301,25 +290,8 @@ impl Decoder for MysqlAdapter {
     /// truncation, and the buffer is never consumed, so the connection can pass
     /// every received byte to the `on_eof` hook.
     fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        if src.is_empty() {
-            return Ok(None);
-        }
-        if src.len() < MYSQL_HEADER_LEN {
-            return Err(CodecError::Eof(EofError::MidHeader {
-                bytes_received: src.len(),
-                header_size: MYSQL_HEADER_LEN,
-            })
-            .into());
-        }
-        let header = self.parse_header(src.as_ref())?;
-        if src.len() >= MYSQL_HEADER_LEN + header.payload_len {
-            return self.decode(src);
-        }
-        Err(CodecError::Eof(EofError::MidFrame {
-            bytes_received: src.len() - MYSQL_HEADER_LEN,
-            expected: header.payload_len,
-        })
-        .into())
+        let extent = self.buffered_extent(src)?;
+        finish_decoding::<Self, _>(src, extent, |buffer| self.decode(buffer))
     }
 }
 
