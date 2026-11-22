@@ -11,8 +11,11 @@ All notable changes to this project will be documented in this file.
   disconnect, and a failure buffered when reading stops for a reason other than
   that failure — a response that ended the connection, a server shutdown, or
   memory pressure — is reported as that disconnect without consulting the hook.
-  The built-in length-delimited codec now classifies an oversized frame as
-  `error_type="framing"` instead of `"io"`.
+  An end-of-stream (`decode_eof`) failure read while a response or a queued
+  push write is still pending also ends the connection, rather than waiting for
+  a frame that can never arrive, so the protocol's `on_eof` hook still observes
+  a peer that truncates mid-frame. The built-in length-delimited codec now
+  classifies an oversized frame as `error_type="framing"` instead of `"io"`.
   ([#878](https://github.com/leynos/wireframe/issues/878))
 - Complete `WireframeProtocol` hook dispatch on prepared server connections.
   `on_eof` now runs when a peer disconnects mid-header or mid-frame, receiving

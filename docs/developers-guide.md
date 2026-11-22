@@ -740,6 +740,18 @@ for both. `deciding_changes_no_metric_hook_or_counter_state` uses a stateful
 hook and that recorder to prove the pure step consults nothing and emits
 nothing.
 
+An end-of-stream failure is the one case the loop cannot buffer and decide
+later. `recovery_loop::hold_or_end` ends the connection on a `decode_eof`
+failure read while a response or a push write is pending, reporting it as the
+disconnect it is first: the peer has stopped sending, so no later frame can
+justify continuing, and buffering it would leave the connection waiting on a
+read that can never yield anything. Every other in-band failure is held in
+`InboundFrames::pending` for the next dispatch, which is where its policy is
+applied. Truncation reporting is separate and still runs at the loop's single
+error boundary: `report_truncation` hands the whole abandoned frame — length
+prefix included — to the protocol's `on_eof` hook, so a peer that vanishes
+mid-frame is observed whichever step noticed it.
+
 The prepared application and the rebuild helpers are split to match. Prepared
 state lives in `src/app/prepared_app/mod.rs`, with the read-only surface split
 into `src/app/prepared_app/accessors.rs`; the shared type-parameter rebuild

@@ -889,6 +889,13 @@ keeps reading. An applied `Disconnect` returns the original error and ends the
 connection. A clean close at a frame boundary is not a failure: it ends the
 connection without a recovery decision.
 
+A `decode_eof` failure ends the connection even when it is read while a
+response or a queued push write is still pending. That read is normally
+buffered for the next frame, but the peer has already stopped sending, so there
+is no next frame to buffer it for; the failure is reported as the disconnect it
+is and the connection ends. This is what lets the protocol's `on_eof` hook
+observe a peer that truncates mid-frame while a handler is still running.
+
 Recovery only works when the decoder consumes the malformed frame and leaves
 its framing state valid before returning the error. A decoder that returns an
 error without consuming any bytes would be offered the same input again, so the
