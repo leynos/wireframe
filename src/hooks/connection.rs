@@ -23,12 +23,10 @@ use crate::push::PushHandle;
 /// order. The value is deliberately not `Clone` and does not wrap the context
 /// in `Arc<Mutex<_>>`: the owning path invokes hooks one at a time.
 ///
-/// A prepared connection hands its actor [`ProtocolHooks::default`], so the
-/// actor holds no second protocol reference and invokes no callback. The actor
-/// still constructs a `ConnectionProtocol` around those inert hooks with an
-/// empty context that no callback receives; the connection's hook context
-/// lives only in the pipeline, which is the only hook owner that dispatches
-/// for that connection.
+/// A prepared connection's actor holds no `ConnectionProtocol` at all: it is
+/// built in a no-hook mode, so it keeps no protocol reference and no copy of
+/// the connection's context. The connection's hook context lives only in the
+/// pipeline, which is the only hook owner that dispatches for that connection.
 pub(crate) struct ConnectionProtocol<F, E> {
     /// Hooks invoked for this connection.
     hooks: ProtocolHooks<F, E>,

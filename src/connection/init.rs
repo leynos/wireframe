@@ -5,6 +5,11 @@
 //! setup callback, and how queued push frames are composed. Bundling the inputs
 //! keeps those distinctions visible instead of duplicating a long parameter
 //! list.
+//!
+//! Hook ownership is part of those inputs. A caller that drives the actor
+//! itself supplies [`ProtocolHooks`]; a prepared connection supplies `None`,
+//! because its `FramePipeline` owns every callback. The actor's own dispatch
+//! points are then compiled out rather than skipped at runtime.
 
 use tokio_util::sync::CancellationToken;
 
@@ -23,20 +28,24 @@ pub(super) struct ActorInit<F, E, P> {
     pub(super) response: Option<FrameStream<F, E>>,
     /// Cancellation token observed by the actor loop.
     pub(super) shutdown: CancellationToken,
-    /// Protocol hooks applied to outbound frames.
-    pub(super) hooks: ProtocolHooks<F, E>,
+    /// Protocol hooks applied to outbound frames, or `None` when another owner
+    /// dispatches them for this connection.
+    pub(super) hooks: Option<ProtocolHooks<F, E>>,
     /// Connection-local state handed to protocol callbacks.
+    ///
+    /// Ignored when `hooks` is `None`: an actor with no hook owner has no
+    /// callback that could observe a context.
     pub(super) ctx: ConnectionContext,
     /// Composition applied to frames taken from the push queues.
     pub(super) composer: pushes::PushComposer<F, E, P>,
 }
 
-/// Construction inputs for an untracked actor built by the server loop.
+/// Construction inputs for an untracked actor a test builds directly.
 ///
-/// The server has already allocated the connection identifier, published the
-/// push handle, and run the protocol setup callback, so the context arrives
-/// populated and queued frames are composed by the connection's transport sink
-/// rather than by the actor.
+/// The production server builds its actors through the prepared constructor,
+/// which installs the no-hook mode; this input exists for tests that supply
+/// their own hooks and context.
+#[cfg(test)]
 pub(crate) struct UntrackedActorInit<F, E, P> {
     /// Push queues and the handle that keeps them open.
     pub(crate) channels: ConnectionChannels<P>,

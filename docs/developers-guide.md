@@ -434,30 +434,32 @@ application handler response, `FramePipeline` runs the hook on the
 codec-wrapped frame after serialization and `wrap_payload`, immediately before
 `Framed::send`.
 
-`FramePipeline` and `ConnectionActor` each hold a crate-private
-`ConnectionProtocol`, which pairs one `ProtocolHooks` value with one
-`ConnectionContext`. On the prepared server path the pipeline's value is the
-connection's only hook owner: it carries the installed protocol and the
+A `ConnectionProtocol` pairs one `ProtocolHooks` value with one
+`ConnectionContext`. On the prepared server path the frame pipeline's value is
+the connection's only hook owner: it carries the installed protocol and the
 context, and it dispatches every callback, including the protocol error and the
-completion hook that follow a response. The actor built for that path holds a
-`ProtocolHooks::None` value instead, so it keeps no second protocol reference
-and invokes no callback. It is built by a named prepared constructor that
-installs inert hooks and an empty context, and it receives only the identifier
-and peer address it logs with, so nothing dispatches against it. Setup is the
-one callback dispatched before the pipeline is told its context: it receives
-the connection's context value, and that same value is then installed in the
+completion hook that follow a response. The actor built for that path holds no
+`ConnectionProtocol` at all — it is built by a named prepared constructor that
+installs the actor's no-hook mode, and it receives only the identifier and peer
+address it logs with, so its dispatch points are compiled out. Setup is the one
+callback dispatched before the pipeline is told its context: it receives the
+connection's context value, and that same value is then installed in the
 pipeline, so only the pipeline's context reaches callbacks and anything setup
-leaves in it is what every later callback observes. When a caller drives a
-`ConnectionActor` directly with `with_hooks`, the actor's own value is the
-single owner. Either way the owner is built once and its context reused for the
-connection's lifetime, so dispatching needs no `Arc<Mutex<_>>`; the context
-carries the connection identifier and peer address and remains the designated
-place for connection-local state. A `ProtocolHooks::Protocol` value owns
-exactly one strong reference to the installed protocol and dispatches every
-callback through it; the enum's `Custom` form holds handwritten callbacks
-instead. State held by a shared `WireframeProtocol` implementation is still
-shared by every connection that installs it, but a connection never clones the
-protocol per callback.
+leaves in it is what every later callback observes. Terminator correlation is
+the named `TerminatorCorrelation` policy (`ACTOR` stamps an envelope terminator,
+`PREPARED` preserves a codec frame), and the error, terminator and completion
+order a prepared response owes is derived by `CompletionSequence` and executed
+by `complete_response`. When a caller drives a `ConnectionActor` directly with
+`with_hooks`, the actor's own value is the single owner. Either way the owner
+is built once and its context reused for the connection's lifetime, so
+dispatching needs no `Arc<Mutex<_>>`; the context carries the connection
+identifier and peer address and remains the designated place for
+connection-local state. A `ProtocolHooks::Protocol` value owns exactly one
+strong reference to the installed protocol and dispatches every callback
+through it; the enum's `Custom` form holds handwritten callbacks instead. State
+held by a shared `WireframeProtocol` implementation is still shared by every
+connection that installs it, but a connection never clones the protocol per
+callback.
 
 The hook therefore receives the exact frame that will be written, and its
 mutation reaches the wire. It is the pre-transport boundary, not a

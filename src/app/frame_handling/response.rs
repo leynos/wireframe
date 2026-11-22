@@ -6,7 +6,7 @@ use futures::{Sink, StreamExt};
 use log::warn;
 use tracing::Instrument;
 
-use super::response_pushes::run_handler_with_pushes;
+use super::{CompletionSequence, response_pushes::run_handler_with_pushes};
 use crate::{
     app::{
         Envelope,
@@ -15,7 +15,7 @@ use crate::{
         codec_driver::{ActorFrameSink, send_native_frame},
     },
     codec::FrameCodec,
-    connection::{ResponseOutcome, WriteOutcome},
+    connection::{ResponseOutcome, TerminatorCorrelation, WriteOutcome},
     message::EncodeWith,
     middleware::{HandlerService, Service, ServiceRequest},
     response::{FrameStream, Response, WireframeError},
@@ -163,34 +163,59 @@ where
     Envelope: EncodeWith<S>,
 {
     let outcome = drive_through_actor(ctx, delivery, response).await?;
+    complete_response(ctx, delivery, outcome).await
+}
 
-    // A failed stream stopped on a protocol error. Reporting it here, before
-    // the completion hook, keeps both callbacks on the connection's single hook
+/// Run the completion sequence a delivered response owes.
+///
+/// [`CompletionSequence`] names the order — error, terminator, completion —
+/// and this unit executes it against the pipeline that owns the connection's
+/// callbacks. A terminator abandoned by shutdown suppresses the completion
+/// hook, because the connection is closing and half a response must not
+/// report completion.
+async fn complete_response<S, K, F>(
+    ctx: &mut super::ResponseContext<'_, S, K, F>,
+    delivery: &DeliverySpan,
+    outcome: ResponseOutcome,
+) -> io::Result<ResponseOutcome>
+where
+    S: Serializer + Send + Sync,
+    K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
+    F: FrameCodec,
+    Envelope: EncodeWith<S>,
+{
+    let sequence = CompletionSequence::for_outcome(outcome, delivery.is_streaming);
+    // A failed stream stopped on a protocol error. Reporting it before the
+    // completion hook keeps both callbacks on the connection's single hook
     // owner and context; the actor cannot dispatch it because it deliberately
     // holds no protocol reference of its own.
-    if outcome == ResponseOutcome::Failed {
+    if sequence.reports_error() {
         ctx.pipeline.handle_error();
     }
     // The pipeline owns the connection's context, so every callback below sees
     // the same connection identifier as `before_send`.
-    if owes_terminator(outcome, delivery.is_streaming) {
+    if sequence.writes_terminator() {
         // The protocol terminator is a complete codec frame. Writing it
         // unchanged preserves metadata a custom codec adds outside the payload,
         // and running it through the sink's `before_send` hook matches
-        // application frames.
+        // application frames. `CompletionSequence::terminator_correlation`
+        // states that policy for this path.
+        debug_assert_eq!(
+            CompletionSequence::terminator_correlation(),
+            TerminatorCorrelation::PREPARED,
+            "a prepared connection never restamps a codec-frame terminator"
+        );
         let abandoned = match ctx.pipeline.stream_end_frame() {
             Some(frame) => !write_terminator::<S, K, F>(ctx, frame).await?,
             None => false,
         };
         if abandoned {
-            // Shutdown abandoned the terminator, so the connection is closing
-            // and the completion hook must not run for a half-written response.
             return Ok(ResponseOutcome::Cancelled);
         }
     }
     // A cancelled response belongs to a closing connection: its completion
     // hook must not run, matching the actor's own shutdown behaviour.
-    if outcome != ResponseOutcome::Cancelled {
+    if sequence.completes() {
         ctx.pipeline.on_command_end();
     }
     Ok(outcome)
@@ -256,7 +281,7 @@ where
 /// the completion hook.
 async fn write_terminator<S, K, F>(
     ctx: &mut super::ResponseContext<'_, S, K, F>,
-    frame: F::Frame,
+    mut frame: F::Frame,
 ) -> io::Result<bool>
 where
     S: Serializer + Send + Sync,
@@ -264,22 +289,14 @@ where
     F: FrameCodec,
     Envelope: EncodeWith<S>,
 {
+    // A prepared connection's terminator is a complete codec frame, so the
+    // prepared policy applies: it is written unchanged and never restamped.
+    TerminatorCorrelation::PREPARED.apply_codec_frame(&mut frame);
     let writing = send_native_frame::<K, F>(&mut *ctx.sink, &mut *ctx.pipeline, frame);
     // A terminator is one physical frame written straight to the transport, so
     // it has no finer progress to report than the write itself completing.
     let outcome = ctx.actor.write_frame_bounded(writing, None).await?;
     Ok(outcome == WriteOutcome::Written)
-}
-
-/// Whether a completed streamed response is owed a protocol terminator.
-///
-/// Only a stream or multi-packet response that ran to completion ends with a
-/// terminator; a failed or cancelled one must not emit another frame.
-const fn owes_terminator(outcome: ResponseOutcome, is_streaming: bool) -> bool {
-    match outcome {
-        ResponseOutcome::Completed => is_streaming,
-        ResponseOutcome::Failed | ResponseOutcome::Cancelled => false,
-    }
 }
 
 /// Stamp the request correlation identifier onto lazily polled stream items.

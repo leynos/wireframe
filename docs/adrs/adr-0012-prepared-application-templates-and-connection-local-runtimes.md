@@ -806,10 +806,19 @@ connection. `forward_response` dispatches the protocol error through the
 pipeline, then asks the same owner for the stream terminator and runs the
 completion hook, so every callback that follows a frame shares one context and
 one strong reference to the installed protocol. The actor built for a prepared
-connection uses a named prepared constructor that installs inert hooks and an
-empty context, and it keeps neither a protocol reference nor a copy of the
-connection's context; an actor driven directly through `with_hooks` owns its
+connection uses a named prepared constructor that installs the actor's no-hook
+mode: the actor holds no `ConnectionProtocol` at all, so its dispatch points
+are compiled out and it keeps neither a protocol reference nor any copy of the
+connection's context. An actor driven directly through `with_hooks` owns its
 own value instead.
+
+Two further units make the remaining differences explicit. Terminator
+correlation is a named policy (`TerminatorCorrelation`): the directly driven
+actor stamps the request correlation onto its envelope terminator, while the
+prepared path preserves the complete codec frame it is given. The completion
+order a prepared response owes — protocol error, terminator, completion hook —
+is derived by `CompletionSequence` and executed by `complete_response`, so the
+ordering is a named unit rather than the call order of the response helper.
 
 `on_connection_setup` is the one callback that does not run through the
 pipeline's dispatch methods: it runs once per connection from

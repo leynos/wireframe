@@ -27,6 +27,7 @@ mod setters;
 mod shutdown;
 mod sink;
 mod state;
+mod terminator;
 #[cfg(all(test, not(loom)))]
 mod tests;
 mod writes;
@@ -44,12 +45,14 @@ pub use counter::active_connection_count;
 pub(crate) use drive::{PEER_CLOSED_RESPONSE_GRACE, ResponseOutcome};
 use grace::{GraceTimer, TokioGraceTimer};
 use init::ActorInit;
+#[cfg(test)]
 pub(crate) use init::UntrackedActorInit;
 use log::info;
 pub(crate) use observation::UnobservedCause;
 use output::ActiveOutput;
 pub(crate) use pushes::PendingPushes;
 pub(crate) use sink::{FrameSink, ProgressSignal, PushSink};
+pub(crate) use terminator::TerminatorCorrelation;
 use thiserror::Error;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -127,7 +130,11 @@ pub struct ConnectionActor<F, E = NoProtocolError, P = F> {
     /// RAII registration keeping the global active-connection gauge accurate.
     counter: Option<ActiveConnection>,
     /// Protocol hooks and the single context they share for this connection.
-    protocol: ConnectionProtocol<F, E>,
+    ///
+    /// `None` is the prepared connection's no-hook mode: every callback for
+    /// that connection is dispatched by its `FramePipeline`, so this actor
+    /// holds no hook owner and every dispatch point below is skipped.
+    protocol: Option<ConnectionProtocol<F, E>>,
     /// Scheduler state preventing high-priority traffic from starving low traffic.
     fairness: FairnessTracker,
     /// Optional fragmenter applied immediately before outbound emission.
@@ -226,7 +233,7 @@ where
                 channels,
                 response,
                 shutdown,
-                hooks,
+                hooks: Some(hooks),
                 ctx: ConnectionContext::default(),
                 composer: pushes::PushComposer::Inline(Self::compose_inline_push),
             },
@@ -237,8 +244,13 @@ where
     }
 
     /// Run the protocol setup callback with this actor's push handle.
+    ///
+    /// Only a directly driven actor owns a hook owner, so this is a no-op for
+    /// an actor in the prepared connection's no-hook mode.
     fn run_connection_setup(&mut self, handle: PushHandle<F>) {
-        self.protocol.on_connection_setup(handle);
+        if let Some(protocol) = self.protocol.as_mut() {
+            protocol.on_connection_setup(handle);
+        }
     }
 
     /// Compose a queued frame exactly like a response frame.
@@ -253,13 +265,14 @@ where
     E: std::fmt::Debug,
     P: FrameLike,
 {
-    /// Create an actor without registering it in the active-connection gauge.
+    /// Create an untracked actor with a caller-supplied hook owner.
     ///
-    /// The server creates one untracked actor per accepted connection because
-    /// the accept loop already holds an [`ActiveConnection`] guard for the
-    /// whole connection lifetime. That avoids counting a connection twice. The
-    /// server has already published the push handle and run the protocol setup
-    /// callback, so the actor must not repeat either.
+    /// The production server uses [`Self::new_prepared_untracked`] instead,
+    /// because its connection's pipeline owns every callback. This entry point
+    /// exists for tests that drive an untracked actor with their own hooks and
+    /// context; it does not register with the active-connection gauge, so a
+    /// test can drive a connection without moving it.
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn new_untracked(init: UntrackedActorInit<F, E, P>) -> Self {
         Self::build(
@@ -267,7 +280,7 @@ where
                 channels: init.channels,
                 response: init.response,
                 shutdown: init.shutdown,
-                hooks: init.hooks,
+                hooks: Some(init.hooks),
                 ctx: init.ctx,
                 composer: pushes::PushComposer::Deferred,
             },
@@ -278,10 +291,11 @@ where
     /// Create the untracked actor a prepared connection drives.
     ///
     /// The prepared path dispatches every protocol callback through the
-    /// connection's `FramePipeline`, so this actor is built with inert hooks
-    /// and an empty context and never invokes a hook. It receives the
-    /// connection's logging identity explicitly, which keeps the pipeline's
-    /// context the only copy of the connection's hook state.
+    /// connection's `FramePipeline`, so this constructor installs the
+    /// no-hook mode: the actor holds no hook owner at all, every dispatch
+    /// point is compiled out, and the pipeline's context is the connection's
+    /// only hook context. It receives the connection's logging identity
+    /// explicitly, so it needs no context of its own.
     #[must_use]
     pub(crate) fn new_prepared_untracked(
         channels: ConnectionChannels<P>,
@@ -289,13 +303,17 @@ where
         connection_id: Option<ConnectionId>,
         peer_addr: Option<SocketAddr>,
     ) -> Self {
-        let mut actor = Self::new_untracked(UntrackedActorInit {
-            channels,
-            response: None,
-            shutdown,
-            hooks: ProtocolHooks::default(),
-            ctx: ConnectionContext::default(),
-        });
+        let mut actor = Self::build(
+            ActorInit {
+                channels,
+                response: None,
+                shutdown,
+                hooks: None,
+                ctx: ConnectionContext::default(),
+                composer: pushes::PushComposer::Deferred,
+            },
+            None,
+        );
         actor.connection_id = connection_id;
         actor.peer_addr = peer_addr;
         actor
@@ -321,7 +339,7 @@ where
             active_output,
             shutdown,
             counter,
-            protocol: ConnectionProtocol::with_context(hooks, ctx),
+            protocol: hooks.map(|installed| ConnectionProtocol::with_context(installed, ctx)),
             fairness: FairnessTracker::new(FairnessConfig::default()),
             fragmenter: None,
             composer,

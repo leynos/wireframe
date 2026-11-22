@@ -4,6 +4,7 @@
 
 mod assembly;
 mod backpressure;
+mod completion_sequence;
 mod core;
 mod decode;
 mod reassembly;
@@ -23,6 +24,7 @@ pub(crate) use backpressure::{
     evaluate_memory_pressure,
     resolve_effective_budgets,
 };
+pub(crate) use completion_sequence::CompletionSequence;
 pub(crate) use decode::decode_envelope;
 pub(crate) use reassembly::reassemble_if_needed;
 pub(crate) use response::{Dispatch, forward_response};
