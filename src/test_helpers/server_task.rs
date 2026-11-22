@@ -47,7 +47,6 @@ pub struct ServerTaskGuard<T> {
 
 impl<T> ServerTaskGuard<T> {
     /// Take ownership of a spawned server task.
-    #[must_use]
     pub const fn new(handle: JoinHandle<T>) -> Self {
         Self {
             handle,
