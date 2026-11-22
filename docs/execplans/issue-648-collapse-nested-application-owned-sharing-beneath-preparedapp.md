@@ -63,10 +63,16 @@ owned values while keeping the layers whose independent lifetime is real:
       connections prove distinct lifecycle state and one teardown each; the
       four CodeScene duplications and the large method are refactored away.
 - [x] Controlled before-and-after allocation capture on the parent tree
-      (`fb3c9fe1` with this branch's harness) and on `e6552afc`. The configured
+      (`3376f734` with this branch's harness) and on `cfc7d2a7`. The configured
       scopes lose exactly four allocations per preparation, the plain prepared
       root one per iteration, and the actor and pool controls do not move.
       Recorded in `docs/runtime-ownership-baselines.md`.
+- [x] Restacked onto the rewritten #879 parent (`3376f734`), whose new
+      context-sharing commit changed the setup boundary this branch reworks.
+      Setup still dispatches through the one hooks owner, and the setup-mutated
+      context the parent now returns is the one installed in the pipeline.
+      The controlled pair was re-run on the new parent and head: the parent
+      still records 116/500/696/424 and the branch 100/483/680/420.
 - [ ] Push the follow-up round and renew hosted checks and review.
 
 ## Decision log

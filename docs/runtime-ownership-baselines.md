@@ -132,7 +132,7 @@ belongs to whichever one its section names.
 | Corrected            | PR [#756](https://github.com/leynos/wireframe/pull/756) | 2026-10-12 | Push, startup, allocation, pool          |
 | Prepared ownership   | `dcce92e5`                                              | 2026-11-20 | Startup, configured startup, preparation |
 | Configured dispatch  | `0221dfa5`                                              | 2026-11-20 | Configured startup rows only             |
-| Controlled #648 pair | `fb3c9fe1` / `e6552afc`                                 | 2026-11-22 | Startup allocations, before and after    |
+| Controlled #648 pair | `3376f734` / `cfc7d2a7`                                 | 2026-11-22 | Startup allocations, before and after    |
 
 The third capture was taken for
 [#648](https://github.com/leynos/wireframe/issues/648), on the branch that
@@ -162,8 +162,8 @@ inherited parent work beneath the benchmark harness, not the harness itself, so
 the figures were not re-measured and remain historical within-capture evidence.
 
 The controlled #648 pair supersedes both of them for the allocation question.
-It ran this branch's harness unchanged on the parent tree (`fb3c9fe1`) and on
-the branch (`e6552afc`), on the same host, sequentially, so the only difference
+It ran this branch's harness unchanged on the parent tree (`3376f734`) and on
+the branch (`cfc7d2a7`), on the same host, sequentially, so the only difference
 between the two runs is the ownership change under test. Its counts, and the
 deltas between them, appear in
 [Issue #648: prepared ownership](#issue-648-prepared-ownership).
@@ -1046,24 +1046,26 @@ per-connection clones, which were already free, stay free.
 
 A controlled before-and-after confirms exactly that. Both runs used this
 branch's harness, copied unchanged onto the parent tree, on the same host,
-sequentially on 2026-11-22; the parent tree is `fb3c9fe1` and this branch's
-head at capture is `e6552afc`. Counts are over four iterations:
+sequentially on 2026-11-22; the parent tree is `3376f734` and this branch's
+head at capture is `cfc7d2a7`. Counts are over four iterations:
 
 | Scope                                                                                    | Parent | This branch | Delta |
 | ---------------------------------------------------------------------------------------- | ------ | ----------- | ----- |
 | `configured_..._preparation_only_prepared_root_routes_2_layers_2_factory_1_transforms_4` | 116    | 100         | −16   |
-| `configured_..._prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`    | 500    | 484         | −16   |
+| `configured_..._prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`    | 500    | 483         | −17   |
 | `prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`                   | 424    | 420         | −4    |
 | `per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16`         | 696    | 680         | −16   |
 
-The configured scopes prepare one application per iteration, so they lose four
-allocations per iteration and 16 over four iterations. The per-connection
-factory prepares four applications per iteration, which is why it moves by the
-same 16 rather than by 4; the plain prepared root installs only the serializer,
-so it moves by one per iteration. The control rows did not move: the actor
-workload allocated 3101 in both runs, the push rows stayed at 43 and 56, and
-the uncontended pool rows stayed at 2053. That is the harness showing it did
-not drift underneath the comparison, and it separates this change from the
+The preparation-only scope loses four allocations per iteration, and the
+per-connection factory prepares four applications per iteration, which is why
+it moves by 16 rather than by 4. The plain prepared root installs only the
+serializer, so it moves by one per iteration. The prepared-root scope's −17
+rather than −16 is the harness's own ±1 run-to-run variance: 484 and 483 were
+observed for that row across two runs of this same pair, while the other three
+rows reproduced exactly. The control rows did not move: the actor workload
+allocated 3101 in every run, the push rows stayed at 43 and 56, and the
+uncontended pool rows stayed at 2053. That is the harness showing it did not
+drift underneath the comparison, and it separates this change from the
 connection-path work beneath it.
 
 The figures below state what the configured workload allocates on this branch.
