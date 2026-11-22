@@ -2096,6 +2096,15 @@ coverage job fails before running any test. `AccessMode::Copying` in the same
 helper module is a seeded fault for those checks — it must relocate the buffer,
 and it is never timed.
 
+The helpers behind those checks are public through
+`wireframe_testing::codec_benchmarks`: `StageOutcome` reports the buffer
+addresses before and after a stage together with the resulting payload,
+`middleware_payload_handoff` and `hook_payload_handoff` drive one pass in a
+given `AccessMode`, and `measure_middleware_passthrough_buffer` runs a batch
+over a caller-built buffer. Benchmarks, the invariants target and the BDD
+fixtures call these helpers rather than rebuilding the chain, so a change to
+what a stage does reaches every gate at once.
+
 `wireframe_testing::benchmark_alloc_support` is split by responsibility: `gate`
 owns the process-global counters and `CountingWindow`, which closes the gate
 from `Drop` on every exit path — including an unwind out of the measured

@@ -1,4 +1,11 @@
 //! Step definitions for the zero-copy baseline gate.
+//!
+//! The steps translate the scenarios' Given/When/Then phrases into calls on
+//! `ZeroCopyBaselineWorld` in `tests/fixtures/zero_copy_baseline.rs`, which
+//! drives the benchmark harness for a read-only, mutating or copying stage.
+//! Keeping the world in the fixtures module lets the scenarios, these steps and
+//! the allocator invariants share one definition of what a stage did; no step
+//! asserts a byte figure of its own.
 
 use rstest_bdd_macros::{given, then, when};
 

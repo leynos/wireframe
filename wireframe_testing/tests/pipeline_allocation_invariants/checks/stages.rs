@@ -169,9 +169,9 @@ fn stage_probe_sizes() -> impl Iterator<Item = usize> {
 /// payload range.
 ///
 /// A copy costs at least the payload at every size, while the pass's own byte
-/// cost stays roughly constant, so the sweep catches a copy at any size rather
-/// than at two sampled points. The bound is stated against large payloads
-/// because a small payload costs less than the per-call control blocks
+/// cost stays roughly constant, so the sweep catches a copy at every size it
+/// samples rather than at two fixed points. The bound is stated against large
+/// payloads because a small payload costs less than the per-call control blocks
 /// `async_trait` allocates, and those are plumbing, not copies.
 pub(super) fn read_only_middleware_pass_stays_below_payload() {
     for payload_bytes in stage_probe_sizes() {

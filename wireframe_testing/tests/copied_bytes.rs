@@ -19,13 +19,15 @@
 #![cfg(feature = "pipeline-benchmarks")]
 #![forbid(unsafe_code)]
 
+use bytes::BytesMut;
 use proptest::prelude::*;
 use rstest::rstest;
 use serial_test::serial;
+use tokio_util::codec::Encoder;
 use wireframe::{
     app::{Envelope, benchmark_decode_envelope, benchmark_encode_message_frame},
     benchmark_counters::{self, CopiedBytes},
-    codec::{FrameCodec, LengthDelimitedFrameCodec},
+    codec::{FrameCodec, LENGTH_HEADER_SIZE, LengthDelimitedFrameCodec},
     serializer::{BincodeSerializer, Serializer},
 };
 use wireframe_testing::codec_benchmarks::{
@@ -357,6 +359,51 @@ proptest! {
             LengthDelimitedFrameCodec::frame_payload(&frame).len() as u64,
             encoded_len,
             "the frame must carry the serializer's whole output"
+        );
+    }
+
+    /// The transport encoder charges the framed length once, at any size.
+    ///
+    /// The `#[case]` matrix frames the two harness payload classes. This
+    /// property drives the production encoder over arbitrary sizes, so a
+    /// framing pass that rounded a length, charged a header, or skipped an
+    /// empty payload fails here instead of being assumed away by two sampled
+    /// classes. The transport copy is the one the migration keeps, so `P` is
+    /// the pre-migration total for this seam.
+    #[test]
+    #[serial]
+    fn framing_charges_the_framed_length_once_at_any_size(len in payload_lengths()) {
+        let envelope = Envelope::new(1, Some(7), vec![0x3c_u8; len]);
+        let encoded_len = BincodeSerializer
+            .serialize(&envelope)
+            .expect("the default serializer must encode the envelope")
+            .len();
+        let codec = LengthDelimitedFrameCodec::new(encoded_len + 4096);
+        let frame = benchmark_encode_message_frame(&BincodeSerializer, &codec, &envelope)
+            .expect("the default path must encode and frame the envelope");
+
+        benchmark_counters::reset();
+        let mut encoder = codec.encoder();
+        let mut wire = BytesMut::new();
+        encoder
+            .encode(frame, &mut wire)
+            .expect("the production encoder must frame the encoded message");
+        let framed = benchmark_counters::snapshot();
+
+        prop_assert_eq!(
+            framed.framed,
+            encoded_len as u64,
+            "the transport encoder must charge the serializer output once"
+        );
+        prop_assert_eq!(
+            framed.serialized + framed.handoff,
+            0,
+            "framing must not reach the serializer or its hand-off"
+        );
+        prop_assert_eq!(
+            wire.len(),
+            encoded_len + LENGTH_HEADER_SIZE,
+            "the wire form must be the payload plus its length prefix"
         );
     }
 }

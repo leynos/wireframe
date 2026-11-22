@@ -463,6 +463,14 @@ Trusted, not verified here:
   `src/codec/tests/mod.rs:72-88`, plus V-2's accounting, parameterized over
   codec, payload class, and access mode. An in-crate test asserts the same
   identity across the production dispatch seam.
+- **Measurement of the byte bound**: the batch bound applies to hooks, whose
+  dispatch is synchronous. For middleware the bound is measured over a single
+  pass, because `async_trait` boxes one future per call at a
+  payload-independent cost of about 270 bytes, so a sixteen-pass `Large` batch
+  sums to roughly 69 KiB and exceeds `P` without copying anything, while one
+  pass sits two orders of magnitude below `P`. Payload independence for
+  middleware is enforced over the batch by the count-equality relation, so no
+  claim rests on the fixed cost.
 - **Artefact**: `wireframe_testing/tests/pipeline_allocation_invariants.rs`
   and a test in `src/app/frame_handling/`.
 - **Non-vacuity**: a test-only `CopyingPolicy` that replaces the frame with
@@ -822,6 +830,15 @@ for the roadmap edit.
   outbound allocation oracle is registered as the sixth inversion entry, with
   the register checker extended to the allocation target's hand-off file. The
   tolerance escalation remains recorded and pending the owner's decision.
+- [x] (2026-11-22) EP-M9 (second assessment follow-up). V-4's byte-bound
+  measurement is stated precisely for hooks (batch) and middleware (single
+  pass, with the count relation carrying payload independence over the batch);
+  the BDD scenario and step modules describe their purpose and relationships;
+  the developers' guide documents the pipeline harness helpers; the `stages.rs`
+  sweep no longer claims coverage "at any size"; a production-encoder property
+  covers transport framing at arbitrary payload lengths; and the tolerance
+  figures are recomputed at this head (code and tests 2,596 across 37 files,
+  documentation 366).
 
 ## Surprises and discoveries
 
@@ -1062,6 +1079,17 @@ Evidence gathered so far, milestone by milestone.
   with the register checker extended to that source file. The tolerance
   escalation is unchanged and still awaits the owner's decision.
 
+- **EP-M9 (second assessment follow-up).** The follow-up reply asked for V-4's
+  batch wording to be reconciled, the tolerance figures to be recomputed, the
+  EP-M1 evidence to name the exact command, and the property-coverage claim to
+  match what the sweep does. V-4 now states that hooks measure the bound over a
+  batch while middleware measures one pass, because `async_trait`'s fixed
+  per-call cost makes a sixteen-pass `Large` batch exceed `P` without a copy. A
+  new generated property drives the production encoder at arbitrary lengths and
+  asserts the framed length is charged once. The scenario and step modules and
+  the developers' guide were expanded, and the tolerance figures were
+  recomputed from `git diff --numstat` at this head.
+
 What the work cost against the plan's budget is recorded in "Artefacts and
 notes" once the final gates have run.
 
@@ -1115,13 +1143,18 @@ notes" once the final gates have run.
   in 100 suites, 0 failures, including all 20 invariants checks and the split
   `copied_bytes` target
   (`/tmp/test-wireframe-10-2-1-capture-baselines-epm7b.out`).
-- EP-M1 acceptance evidence, captured on 2026-11-22 with the `bench-codec`
-  benches in criterion test mode
-  (`/tmp/bench-codec-wireframe-10-2-1-capture-baselines-epm7.out`, exit 0):
-  every allocation label is unchanged from
-  `docs/zero-copy-benchmark-baselines.md`, including codec
-  `wrap_allocs_3_decode_allocs_48` (and `_32` for hotline), middleware
-  `_allocs_35`, hook `_allocs_3`, and outbound `_allocs_18`.
+- EP-M1 acceptance evidence, captured on 2026-11-22 with the exact bench set
+  `make bench-codec` runs, in criterion test mode:
+  `RUSTFLAGS="-D warnings" cargo bench --bench codec_performance --bench
+  codec_performance_alloc --bench pipeline_performance --bench
+  pipeline_performance_alloc --features test-support,benchmark-counters --
+  --test`.
+  Test mode prints each benchmark's registration label without timing, so the
+  run is deterministic and quick; it exited 0
+  (`/tmp/bench-codec-wireframe-10-2-1-capture-baselines-epm7.out`). Every
+  allocation label is unchanged from `docs/zero-copy-benchmark-baselines.md`,
+  including codec `wrap_allocs_3_decode_allocs_48` (and `_32` for hotline),
+  middleware `_allocs_35`, hook `_allocs_3`, and outbound `_allocs_18`.
 - EP-M8 gate logs on the final repair. `make check-fmt`, `make typecheck`,
   `make test-bdd` (237 passed), `make markdownlint` and `make nixie` passed in
   the runner session (`/tmp/*-wireframe-10-2-1-capture-baselines-epm8.out`).
@@ -1132,19 +1165,18 @@ notes" once the final gates have run.
   (`/tmp/test-wireframe-10-2-1-capture-baselines-epm8b.out`). The targeted
   `copied_bytes` and `pipeline_allocation_invariants` runs report 21 passing
   tests and 20 passing checks (`/tmp/test-epm8-targeted.out`).
-- Tolerance accounting at EP-M7 against base
-  `7ddba3224b58a60b127fcc13990e3858ed87ecd0`, net lines with ExecPlans
-  excluded: code and tests 2,571 across 37 files (limit 900 across 16);
-  documentation 362 (limit 300); configuration 14 (limit 40); the feature-gate
-  script adds 19 lines, outside the three named categories. The interface
-  category also escalates: besides the three permitted public changes,
-  `benchmark_counters::handoff_seam_calls` is a new `#[doc(hidden)]` accessor,
-  used by `tests/client_send_counters.rs` to prove the client send path reaches
-  `bytes_from_vec`; the EP-M7 `copied_bytes` split adds no public item. The
-  plan requires a recorded owner decision for both overages. The decision is
-  pending and is not self-approved; the merge proceeds under the owner's
-  standing goal of 2026-11-21, with the overage disclosed in the pull-request
-  comment.
+- Tolerance accounting at EP-M9 against base
+  `7ddba3224b58a60b127fcc13990e3858ed87ecd0`, recomputed with
+  `git diff --numstat` and ExecPlans excluded: code and tests 2,596 across 37
+  files (limit 900 across 16); documentation 366 (limit 300); configuration 14
+  (limit 40); the feature-gate script adds 19 lines, outside the three named
+  categories. The interface category also escalates: besides the three
+  permitted public changes, `benchmark_counters::handoff_seam_calls` is a new
+  `#[doc(hidden)]` accessor, used by `tests/client_send_counters.rs` to prove
+  the client send path reaches `bytes_from_vec`; later splits add no public
+  item. The plan requires a recorded owner decision for both overages. The
+  decision is pending and is not self-approved; GitHub's own numstat comparison
+  at this head agrees with these figures.
 
 ## Revision note
 
