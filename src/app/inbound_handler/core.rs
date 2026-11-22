@@ -30,7 +30,6 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     super::{
-        PushWriteDiagnostics,
         codec_driver::FramePipeline,
         envelope::{Envelope, Packet},
         frame_handling::{self, Dispatch},
@@ -45,7 +44,7 @@ use super::{
     },
     dispatch::{FrameHandlingContext, handle_frame},
     frames::{InboundExpiry, InboundFrames},
-    framing::{TransportSink, TransportStream, prepare_connection_framing},
+    framing::{TransportSink, TransportStream, prepare_connection_framing, report_truncation},
     peer_watch::{PeerObservation, handle_watching_peer},
     push_service::{
         PushBatch,
@@ -236,9 +235,20 @@ where
     }
 
     /// Read and process frames until the stream closes or an I/O error occurs.
+    ///
+    /// Every error that ends the connection passes this one boundary, whichever
+    /// step observed it; that is where a truncation is reported.
     async fn run(mut self) -> io::Result<()> {
-        // Each iteration performs one unit of work, so the loop body is empty;
-        // `step` reports whether the connection may continue.
+        let outcome = self.run_steps().await;
+        if let Err(error) = &outcome {
+            // The reader still holds what the peer abandoned; report it first.
+            report_truncation::<W, F>(&*self.reader, &mut self.inbound.pipeline, error);
+        }
+        outcome
+    }
+
+    /// Perform one unit of work at a time until the connection is finished.
+    async fn run_steps(&mut self) -> io::Result<()> {
         while self.step().await? {}
         Ok(())
     }
@@ -255,11 +265,9 @@ where
 
     /// Wait for the next unit of work, or `None` once the server has stopped.
     ///
-    /// The wait is raced against the connection's shutdown token. The read
-    /// observes shutdown itself, but the push arm is polled first and a ready
-    /// lane wins every biased pass, so without this arm a busy push stream
-    /// would hide the stop from the connection task and the server drain
-    /// waiting on it.
+    /// The read observes shutdown itself, but a ready push lane wins every
+    /// biased pass, so the race below keeps a busy push stream from hiding
+    /// the stop from the server drain waiting on this connection task.
     async fn wait_for_step(&mut self) -> io::Result<Option<StreamStep<F>>> {
         tokio::select! {
             biased;
@@ -333,13 +341,12 @@ where
     /// the write runs, because this is the last place that can notice a peer
     /// which half-closed and then stopped reading.
     async fn write_pushes(&mut self, pending: PendingPushes<F::Frame>) -> io::Result<bool> {
-        let diagnostics = self.push_diagnostics();
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,
-            diagnostics,
+            diagnostics: self.response_actor.push_diagnostics(),
         };
         let batch = PushBatch {
             frames: pending.frames,
@@ -357,21 +364,14 @@ where
         deliver_pushes(&mut transport, &mut self.response_actor.actor, batch).await
     }
 
-    /// Identity this connection reports when it abandons a push write.
-    const fn push_diagnostics(&self) -> PushWriteDiagnostics {
-        let actor = &self.response_actor.actor;
-        PushWriteDiagnostics::new(actor.connection_id(), actor.peer_addr())
-    }
-
     /// Deliver frames still queued when the peer stopped writing.
     async fn drain_pushes(&mut self) -> io::Result<()> {
-        let diagnostics = self.push_diagnostics();
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,
-            diagnostics,
+            diagnostics: self.response_actor.push_diagnostics(),
         };
         drain_queued(
             &mut transport,
