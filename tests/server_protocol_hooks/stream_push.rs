@@ -157,8 +157,24 @@ fn observed_before_send(events: &[Event]) -> TestResult<(StreamedPayloads, usize
     Ok((streamed, pushes))
 }
 
-/// Require the terminator to follow every streamed frame and precede completion.
+/// Require exactly one terminator and one completion, in that order.
 fn assert_terminator_order(events: &[Event]) -> TestResult {
+    ensure(
+        events
+            .iter()
+            .filter(|event| matches!(event, Event::StreamEnd))
+            .count()
+            == 1,
+        format!("the response must end with exactly one terminator: {events:?}"),
+    )?;
+    ensure(
+        events
+            .iter()
+            .filter(|event| matches!(event, Event::CommandEnd))
+            .count()
+            == 1,
+        format!("the command must complete exactly once: {events:?}"),
+    )?;
     let stream_end =
         position(events, |event| matches!(event, Event::StreamEnd)).ok_or_else(|| {
             TestError::Msg(format!(

@@ -9,7 +9,7 @@
 
 use std::pin::Pin;
 
-use log::{debug, warn};
+use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
 use tokio_util::codec::{FramedRead, FramedWrite};
 
@@ -84,9 +84,10 @@ pub(super) fn report_truncation<W, F>(
     let partial = truncated_frame::<W, F>(reader);
     match eof_condition(error) {
         Some(eof @ (EofError::MidHeader { .. } | EofError::MidFrame { .. })) => {
-            debug!(
-                "reporting a truncated frame to the protocol: condition={eof:?}, partial_bytes={}",
-                partial.as_bytes().len()
+            tracing::debug!(
+                condition = ?eof,
+                partial_bytes = partial.as_bytes().len(),
+                "reporting a truncated frame to the protocol"
             );
             pipeline.on_eof(&eof, partial.as_bytes());
         }

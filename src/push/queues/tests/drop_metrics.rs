@@ -11,7 +11,7 @@ use metrics_util::{
 };
 use tokio::sync::mpsc;
 
-use super::super::{PushQueues, PushQueuesBuilder};
+use super::super::{PushConfigError, PushQueues, PushQueuesBuilder};
 use crate::{
     metrics::PUSH_DROPS,
     push::{PushHandle, PushPolicy, PushPriority},
@@ -20,14 +20,15 @@ use crate::{
 type MetricSample = (CompositeKey, Option<Unit>, Option<SharedString>, DebugValue);
 
 /// Build a queue whose high-priority lane holds exactly one frame.
-fn single_slot_queue(dlq: Option<mpsc::Sender<u8>>) -> (PushQueues<u8>, PushHandle<u8>) {
+fn single_slot_queue(
+    dlq: Option<mpsc::Sender<u8>>,
+) -> Result<(PushQueues<u8>, PushHandle<u8>), PushConfigError> {
     PushQueuesBuilder::<u8>::default()
         .high_capacity(1)
         .low_capacity(1)
         .unlimited()
         .dlq(dlq)
         .build()
-        .expect("queue builds")
 }
 
 /// Fill the high-priority lane so the next push meets a full queue.
@@ -89,47 +90,53 @@ fn assert_single_loss(samples: &[MetricSample], outcome: &str) {
 /// The first overflow is offered to the dead-letter queue; later ones find it
 /// occupied. Dropping the receiver first makes every overflow meet a closed
 /// queue instead. Returns the samples the scenario emitted.
-fn samples_from_dead_letter(overflows: u8, is_consumer_live: bool) -> Vec<MetricSample> {
-    samples_from(|| {
-        let (dlq_tx, dlq_rx) = mpsc::channel(1);
-        if !is_consumer_live {
-            drop(dlq_rx);
-        }
-        let (_queues, handle) = single_slot_queue(Some(dlq_tx));
+fn samples_from_dead_letter(
+    overflows: u8,
+    is_consumer_live: bool,
+) -> Result<Vec<MetricSample>, PushConfigError> {
+    let (dlq_tx, dlq_rx) = mpsc::channel(1);
+    if !is_consumer_live {
+        drop(dlq_rx);
+    }
+    let (_queues, handle) = single_slot_queue(Some(dlq_tx))?;
+    Ok(samples_from(move || {
         fill_high_priority(&handle);
         for frame in 2..2 + overflows {
             drop_on_a_full_lane(&handle, frame);
         }
-    })
+    }))
 }
 
 /// A full lane with nowhere to reroute the frame loses it, and that loss must
 /// be visible to an operator even though the producer saw success.
 #[test]
-fn full_lane_without_a_dead_letter_queue_counts_the_loss() {
-    let samples = samples_from(|| {
-        let (_queues, handle) = single_slot_queue(None);
+fn full_lane_without_a_dead_letter_queue_counts_the_loss() -> Result<(), PushConfigError> {
+    let (_queues, handle) = single_slot_queue(None)?;
+    let samples = samples_from(move || {
         fill_high_priority(&handle);
         drop_on_a_full_lane(&handle, 2);
     });
 
     assert_single_loss(&samples, "no_dlq");
+    Ok(())
 }
 
 /// The first overflow is rerouted, so it is not a loss; the second finds the
 /// dead-letter queue full and is. Only the second may be counted.
 #[test]
-fn full_dead_letter_queue_counts_the_loss() {
-    let samples = samples_from_dead_letter(2, true);
+fn full_dead_letter_queue_counts_the_loss() -> Result<(), PushConfigError> {
+    let samples = samples_from_dead_letter(2, true)?;
 
     assert_single_loss(&samples, "dlq_full");
+    Ok(())
 }
 
 /// A dead-letter queue whose consumer has gone cannot take the frame, so the
 /// loss is counted with the refusal's own outcome.
 #[test]
-fn closed_dead_letter_queue_counts_the_loss() {
-    let samples = samples_from_dead_letter(1, false);
+fn closed_dead_letter_queue_counts_the_loss() -> Result<(), PushConfigError> {
+    let samples = samples_from_dead_letter(1, false)?;
 
     assert_single_loss(&samples, "dlq_closed");
+    Ok(())
 }

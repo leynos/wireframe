@@ -868,19 +868,50 @@ The decoder below leaves the incomplete bytes in place and returns the
 structured error, which is what lets the hook report exactly what arrived:
 
 <!-- tested-example: users-guide-067 -->
-```rust,ignore
+```rust
 use std::io;
 
-use bytes::BytesMut;
+use bytes::{Buf, BytesMut};
 use tokio_util::codec::Decoder;
 use wireframe::codec::{CodecError, EofError};
 
 /// Number of bytes in the big-endian length prefix.
 const HEADER_SIZE: usize = 4;
 
+/// A frame carrying one length-prefixed payload.
+#[derive(Debug)]
+struct MyFrame {
+    payload: Vec<u8>,
+}
+
+/// Decoder for `MyFrame` frames.
+struct MyDecoder;
+
+impl MyDecoder {
+    /// Payload length the buffered header declares.
+    fn declared_payload_len(&self, buffer: &[u8]) -> usize {
+        let mut header = buffer;
+        header.get_u32() as usize
+    }
+}
+
 impl Decoder for MyDecoder {
     type Item = MyFrame;
     type Error = io::Error;
+
+    fn decode(&mut self, buffer: &mut BytesMut) -> Result<Option<Self::Item>, io::Error> {
+        if buffer.len() < HEADER_SIZE {
+            return Ok(None);
+        }
+        let payload_len = self.declared_payload_len(buffer);
+        if buffer.len() < HEADER_SIZE + payload_len {
+            return Ok(None);
+        }
+        buffer.advance(HEADER_SIZE);
+        Ok(Some(MyFrame {
+            payload: buffer.split_to(payload_len).to_vec(),
+        }))
+    }
 
     fn decode_eof(&mut self, buffer: &mut BytesMut) -> Result<Option<Self::Item>, io::Error> {
         if let Some(frame) = self.decode(buffer)? {
@@ -905,6 +936,27 @@ impl Decoder for MyDecoder {
         Err(CodecError::Eof(condition).into())
     }
 }
+
+// A complete frame decodes, and a truncated one reports its condition.
+let mut decoder = MyDecoder;
+let mut complete = BytesMut::from(&[0_u8, 0, 0, 3, 7, 7, 7][..]);
+let frame = decoder
+    .decode_eof(&mut complete)
+    .expect("a complete frame decodes")
+    .expect("the frame is present");
+assert_eq!(frame.payload, vec![7_u8; 3]);
+
+let mut partial = BytesMut::from(&[0_u8, 0, 0, 5, 7][..]);
+let error = decoder
+    .decode_eof(&mut partial)
+    .expect_err("a truncated payload must fail");
+let codec_error = error
+    .get_ref()
+    .and_then(|inner| inner.downcast_ref::<CodecError>());
+assert!(matches!(
+    codec_error,
+    Some(CodecError::Eof(EofError::MidFrame { .. }))
+));
 ```
 
 <!-- tested-example: users-guide-021 -->
