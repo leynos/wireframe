@@ -2,10 +2,14 @@
 //!
 //! Each test here exists to kill a specific surviving mutant from the first
 //! full mutation-testing run (issue #593): shutdown refusal, round-robin slot
-//! rotation, and draining waiters that are queued when the pool closes.
+//! rotation, draining waiters that are queued when the pool closes, and
+//! lifecycle hooks that must survive the per-connection build-parts clone.
 
 use std::{
-    sync::{Arc, atomic::AtomicUsize},
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::Duration,
 };
 
@@ -14,7 +18,17 @@ use tokio::time::timeout;
 
 use crate::{
     client::{ClientError, ClientPoolConfig, PoolTaskChurnObserver},
-    test_helpers::{Ping, Pong, PoolTestServer, TestClientPool, build_pooled_client},
+    test_helpers::{
+        LifecycleCounters,
+        LifecycleTestClientPool,
+        Ping,
+        Pong,
+        PoolServerBehavior,
+        PoolTestServer,
+        TestClientPool,
+        build_lifecycle_pool,
+        build_pooled_client,
+    },
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -220,4 +234,124 @@ async fn shutdown_drains_a_queued_waiter(client_pool_config: ClientPoolConfig) -
 
     drop(held_lease);
     Ok(())
+}
+
+/// Outer bound for the reconnect scenario: longer than every inner wait, so a
+/// stalled callback fails this test instead of hanging the suite.
+const RECONNECT_WATCHDOG: Duration = Duration::from_secs(5);
+
+/// Wait for the next teardown generation, failing rather than hanging.
+async fn receive_teardown_generation(
+    counters: &mut LifecycleCounters,
+) -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
+    let received = timeout(PROMPT, counters.teardown_generations.recv())
+        .await
+        .map_err(|_| "teardown callback did not run within the grace period")?
+        .ok_or("teardown channel closed without reporting a generation")?;
+    Ok(received)
+}
+
+/// Fail one operation on a malformed response and assert the connection is
+/// marked for recycling.
+///
+/// Dropping the lease returns the broken socket to the pool, which discards it
+/// and triggers the first teardown.
+async fn fail_first_lease(pool: &LifecycleTestClientPool) -> TestResult {
+    let lease = pool.acquire().await?;
+    let error = lease
+        .call::<Ping, Pong>(&Ping(1))
+        .await
+        .expect_err("malformed response should fail decoding");
+    assert!(
+        error.should_recycle_connection(),
+        "a decode error must recycle the pooled connection"
+    );
+    drop(lease);
+    Ok(())
+}
+
+/// Acquire a replacement connection, use it, and assert a second socket was
+/// opened rather than the broken one being reused.
+async fn use_replacement_connection(
+    pool: &LifecycleTestClientPool,
+    server: &PoolTestServer,
+) -> TestResult {
+    let lease = pool.acquire().await?;
+    let reply: Pong = lease.call(&Ping(2)).await?;
+    assert_eq!(reply, Pong(2), "reply should equal Pong(2)");
+    drop(lease);
+
+    assert_eq!(
+        server.connection_count(),
+        2,
+        "reconnect must open a replacement connection rather than reuse the broken one"
+    );
+    Ok(())
+}
+
+/// Assert the hooks observed both connections.
+fn assert_hooks_observed(counters: &LifecycleCounters) {
+    assert_eq!(
+        counters.setup_count.load(Ordering::SeqCst),
+        2,
+        "setup must run on both the original and the replacement connection"
+    );
+    assert!(
+        counters.error_count.load(Ordering::SeqCst) >= 1,
+        "the decode failure must invoke the error hook"
+    );
+}
+
+/// Assert the next teardown report carries `expected`, naming whose it is.
+async fn assert_next_teardown(
+    counters: &mut LifecycleCounters,
+    expected: usize,
+    connection: &str,
+) -> TestResult {
+    assert_eq!(
+        receive_teardown_generation(counters).await?,
+        expected,
+        "{connection} teardown must receive generation {expected}"
+    );
+    Ok(())
+}
+
+/// Drive one decode failure, a reconnect, and both teardown reports.
+async fn run_lifecycle_reconnect_scenario(config: ClientPoolConfig) -> TestResult {
+    let server =
+        PoolTestServer::start_with_behavior(PoolServerBehavior::MalformedFirstResponse).await?;
+    let (pool, mut counters) = build_lifecycle_pool(server.addr, config.pool_size(1)).await?;
+
+    fail_first_lease(&pool).await?;
+
+    // The broken socket is discarded as it returns to the pool, so the first
+    // connection is torn down and reports the generation its setup produced.
+    assert_next_teardown(&mut counters, 1, "first connection").await?;
+
+    use_replacement_connection(&pool, &server).await?;
+    assert_hooks_observed(&counters);
+
+    pool.close().await;
+    assert_next_teardown(&mut counters, 2, "replacement connection").await?;
+    Ok(())
+}
+
+/// Kills the `LifecycleHooks::clone` default-value mutant: cloning the build
+/// parts for a pooled reconnect must preserve the configured hooks.
+///
+/// `Default` produces all-`None` hooks, so a mutant that returns it on clone
+/// silently drops every callback. This scenario proves the setup, teardown and
+/// error hooks survive the clone on both the original and the replacement
+/// connection.
+#[rstest]
+#[tokio::test]
+async fn lifecycle_hooks_survive_pooled_reconnect(
+    client_pool_config: ClientPoolConfig,
+) -> TestResult {
+    timeout(
+        RECONNECT_WATCHDOG,
+        run_lifecycle_reconnect_scenario(client_pool_config),
+    )
+    .await
+    .map_err(|_| "lifecycle reconnect scenario exceeded its watchdog")?
 }
