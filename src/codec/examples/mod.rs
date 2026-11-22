@@ -4,12 +4,20 @@
 //! custom framing. They are compiled for tests and for the `examples` feature
 //! to avoid duplicating codec logic across example binaries.
 
+mod framing;
+
 use std::io;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
+use framing::{FrameExtent, FrameLayout, decode_one, finish_decoding};
 use tokio_util::codec::{Decoder, Encoder};
 
 use super::FrameCodec;
+
+/// Bytes in a Hotline frame header.
+const HOTLINE_HEADER_LEN: usize = 20;
+/// Bytes in a `MySQL` frame header.
+const MYSQL_HEADER_LEN: usize = 4;
 
 /// A Hotline frame with a 20-byte big-endian header and transaction identifier.
 #[derive(Clone, Debug)]
@@ -42,6 +50,17 @@ impl HotlineFrameCodec {
     pub const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
 }
 
+/// Fields a Hotline header supplies once the whole header is buffered.
+#[derive(Clone, Copy, Debug)]
+struct HotlineHeader {
+    /// Declared payload length.
+    payload_len: usize,
+    /// Declared length of the header and payload together.
+    frame_len: usize,
+    /// Transaction identifier from the header.
+    transaction_id: u32,
+}
+
 /// Adapter that encodes and decodes Hotline frames.
 #[derive(Clone, Debug)]
 #[doc(hidden)]
@@ -51,6 +70,49 @@ pub struct HotlineAdapter {
 
 impl HotlineAdapter {
     const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+
+    /// Take one validated frame off the front of the buffer.
+    fn take_frame(src: &mut BytesMut, header: HotlineHeader) -> HotlineFrame {
+        let mut frame_bytes = src.split_to(header.frame_len);
+        frame_bytes.advance(HOTLINE_HEADER_LEN);
+        HotlineFrame {
+            transaction_id: header.transaction_id,
+            payload: frame_bytes.freeze(),
+        }
+    }
+}
+
+impl FrameLayout for HotlineAdapter {
+    type Header = HotlineHeader;
+    const HEADER_LEN: usize = HOTLINE_HEADER_LEN;
+
+    fn parse_header(&self, src: &[u8]) -> io::Result<HotlineHeader> {
+        let mut header = src;
+        let payload_len = header.get_u32() as usize;
+        let frame_len = header.get_u32() as usize;
+        let transaction_id = header.get_u32();
+        if payload_len > self.max_frame_length {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "payload too large",
+            ));
+        }
+        if frame_len != payload_len + HOTLINE_HEADER_LEN {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid total size",
+            ));
+        }
+        Ok(HotlineHeader {
+            payload_len,
+            frame_len,
+            transaction_id,
+        })
+    }
+
+    fn extent(header: &HotlineHeader) -> FrameExtent {
+        FrameExtent::new(HOTLINE_HEADER_LEN, header.payload_len)
+    }
 }
 
 impl Decoder for HotlineAdapter {
@@ -58,39 +120,17 @@ impl Decoder for HotlineAdapter {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        const HEADER_LEN: usize = 20;
-        if src.len() < HEADER_LEN {
-            return Ok(None);
-        }
+        decode_one(self, src, Self::take_frame)
+    }
 
-        let mut header = src.as_ref();
-        let data_size = header.get_u32() as usize;
-        let total_size = header.get_u32() as usize;
-        let transaction_id = header.get_u32();
-        if data_size > self.max_frame_length {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "payload too large",
-            ));
-        }
-        if total_size != data_size + HEADER_LEN {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "invalid total size",
-            ));
-        }
-        if src.len() < total_size {
-            return Ok(None);
-        }
-
-        let mut frame_bytes = src.split_to(total_size);
-        frame_bytes.advance(HEADER_LEN);
-        let payload = frame_bytes.freeze();
-
-        Ok(Some(HotlineFrame {
-            transaction_id,
-            payload,
-        }))
+    /// Classify an incomplete buffer now that the peer has closed.
+    ///
+    /// A malformed header still reports its framing error rather than a
+    /// truncation, and the buffer is never consumed, so the connection can pass
+    /// every received byte to the `on_eof` hook.
+    fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        let extent = self.buffered_extent(src)?;
+        finish_decoding::<Self, _>(src, extent, |buffer| self.decode(buffer))
     }
 }
 
@@ -98,7 +138,6 @@ impl Encoder<HotlineFrame> for HotlineAdapter {
     type Error = io::Error;
 
     fn encode(&mut self, item: HotlineFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        const HEADER_LEN: usize = 20;
         let payload_size = item.payload.len();
         if payload_size > self.max_frame_length {
             return Err(io::Error::new(
@@ -106,7 +145,7 @@ impl Encoder<HotlineFrame> for HotlineAdapter {
                 "payload too large",
             ));
         }
-        let frame_size = payload_size + HEADER_LEN;
+        let frame_size = payload_size + HOTLINE_HEADER_LEN;
         let wire_payload_size = u32::try_from(payload_size)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "payload too large"))?;
         let wire_frame_size = u32::try_from(frame_size)
@@ -187,8 +226,54 @@ pub struct MysqlAdapter {
     max_frame_length: usize,
 }
 
+/// Fields a `MySQL` header supplies once the whole header is buffered.
+#[derive(Clone, Copy, Debug)]
+struct MysqlHeader {
+    /// Declared payload length.
+    payload_len: usize,
+    /// Sequence number from the header.
+    sequence_id: u8,
+}
+
 impl MysqlAdapter {
     const fn new(max_frame_length: usize) -> Self { Self { max_frame_length } }
+
+    /// Take one validated frame off the front of the buffer.
+    fn take_frame(src: &mut BytesMut, header: MysqlHeader) -> MysqlFrame {
+        let mut frame_bytes = src.split_to(MYSQL_HEADER_LEN + header.payload_len);
+        frame_bytes.advance(MYSQL_HEADER_LEN);
+        MysqlFrame {
+            sequence_id: header.sequence_id,
+            payload: frame_bytes.freeze(),
+        }
+    }
+}
+
+impl FrameLayout for MysqlAdapter {
+    type Header = MysqlHeader;
+    const HEADER_LEN: usize = MYSQL_HEADER_LEN;
+
+    fn parse_header(&self, src: &[u8]) -> io::Result<MysqlHeader> {
+        let mut header = src;
+        let payload_len = (header.get_u8() as usize)
+            | ((header.get_u8() as usize) << 8)
+            | ((header.get_u8() as usize) << 16);
+        let sequence_id = header.get_u8();
+        if payload_len > self.max_frame_length {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "payload too large",
+            ));
+        }
+        Ok(MysqlHeader {
+            payload_len,
+            sequence_id,
+        })
+    }
+
+    fn extent(header: &MysqlHeader) -> FrameExtent {
+        FrameExtent::new(MYSQL_HEADER_LEN, header.payload_len)
+    }
 }
 
 impl Decoder for MysqlAdapter {
@@ -196,34 +281,17 @@ impl Decoder for MysqlAdapter {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        const HEADER_LEN: usize = 4;
-        if src.len() < HEADER_LEN {
-            return Ok(None);
-        }
+        decode_one(self, src, Self::take_frame)
+    }
 
-        let mut header = src.as_ref();
-        let len = (header.get_u8() as usize)
-            | ((header.get_u8() as usize) << 8)
-            | ((header.get_u8() as usize) << 16);
-        let sequence_id = header.get_u8();
-        if len > self.max_frame_length {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "payload too large",
-            ));
-        }
-        if src.len() < HEADER_LEN + len {
-            return Ok(None);
-        }
-
-        let mut frame_bytes = src.split_to(HEADER_LEN + len);
-        frame_bytes.advance(HEADER_LEN);
-        let payload = frame_bytes.freeze();
-
-        Ok(Some(MysqlFrame {
-            sequence_id,
-            payload,
-        }))
+    /// Classify an incomplete buffer now that the peer has closed.
+    ///
+    /// A malformed header still reports its framing error rather than a
+    /// truncation, and the buffer is never consumed, so the connection can pass
+    /// every received byte to the `on_eof` hook.
+    fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        let extent = self.buffered_extent(src)?;
+        finish_decoding::<Self, _>(src, extent, |buffer| self.decode(buffer))
     }
 }
 
@@ -231,7 +299,6 @@ impl Encoder<MysqlFrame> for MysqlAdapter {
     type Error = io::Error;
 
     fn encode(&mut self, item: MysqlFrame, dst: &mut BytesMut) -> Result<(), Self::Error> {
-        const HEADER_LEN: usize = 4;
         let payload_len = item.payload.len();
         if payload_len > self.max_frame_length {
             return Err(io::Error::new(
@@ -252,7 +319,7 @@ impl Encoder<MysqlFrame> for MysqlAdapter {
         let len_mid = ((payload_len_u32 >> 8) & 0xff) as u8;
         let len_hi = ((payload_len_u32 >> 16) & 0xff) as u8;
 
-        dst.reserve(HEADER_LEN + payload_len);
+        dst.reserve(MYSQL_HEADER_LEN + payload_len);
         dst.put_u8(len_lo);
         dst.put_u8(len_mid);
         dst.put_u8(len_hi);

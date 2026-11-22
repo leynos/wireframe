@@ -6,10 +6,17 @@
 //! that returns `Response::Stream` or `Response::MultiPacket` is driven to
 //! completion while server pushes keep flowing.
 //!
-//! The actor deliberately receives no fragmenter and no `before_send` hook.
-//! Fragmentation, codec wrapping, and protocol hooks for application frames
-//! all happen in the transport sink owned by the caller, which keeps a single
-//! ordering for serialization, hooks, and write metrics.
+//! The actor deliberately receives no fragmenter and no protocol hooks.
+//! Fragmentation, codec wrapping, and every protocol callback for application
+//! frames — `before_send`, the stream terminator, the error hook and
+//! completion — run through the connection's [`FramePipeline`] in the
+//! transport sink owned by the caller, which keeps a single ordering for
+//! serialization, hooks, and write metrics.
+//!
+//! Connection setup does run at this boundary, because the connection's push
+//! handle and registry entry come into existence here.
+//!
+//! [`FramePipeline`]: crate::app::codec_driver::FramePipeline
 
 use std::{io, sync::Arc};
 
@@ -19,13 +26,8 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     app::Envelope,
     codec::FrameCodec,
-    connection::{
-        ConnectionActor,
-        ConnectionChannels,
-        PEER_CLOSED_RESPONSE_GRACE,
-        UntrackedActorInit,
-    },
-    hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
+    connection::{ConnectionActor, ConnectionChannels, PEER_CLOSED_RESPONSE_GRACE},
+    hooks::{ConnectionContext, WireframeProtocol},
     push::{FrameLike, PushHandle, PushQueuesBuilder},
     session::{ConnectionId, SessionRegistry},
 };
@@ -41,10 +43,15 @@ pub(super) struct ConnectionResponseActor<F: FrameCodec> {
     pub(super) actor: ConnectionActor<Envelope, (), F::Frame>,
     /// Strong handle keeping the high- and low-priority queues open.
     _push_handle: PushHandle<F::Frame>,
-    /// Identifier the connection published to the session registry.
-    pub(super) connection_id: ConnectionId,
     /// Removes the registry entry when the connection ends.
     _registry: RegistryGuard<F::Frame>,
+}
+
+impl<F: FrameCodec> ConnectionResponseActor<F> {
+    /// Identity this connection reports when it abandons a push write.
+    pub(super) const fn push_diagnostics(&self) -> crate::app::PushWriteDiagnostics {
+        crate::app::PushWriteDiagnostics::new(self.actor.connection_id(), self.actor.peer_addr())
+    }
 }
 
 /// Removes a connection's registry entry on drop.
@@ -133,11 +140,21 @@ where
 /// protocol setup callback runs, so setup can address its own connection — or
 /// any other live one — through [`SessionRegistry::get`].
 ///
-/// Returns the actor bundle and the guard that cancels the connection token
-/// when processing ends.
+/// Returns the actor bundle, the guard that cancels the connection token when
+/// processing ends, and the connection context the setup callback observed.
+///
+/// The returned context is the value the caller installs in the frame
+/// pipeline, so the state setup leaves in it is the state every later callback
+/// sees. The actor holds no copy of it: it receives only the connection
+/// identifier and peer address it logs with, and its hooks are inert, so the
+/// pipeline's context is the connection's one hook context.
 pub(super) fn build_connection_actor<F>(
     init: ConnectionActorInit<'_, F>,
-) -> io::Result<(ConnectionResponseActor<F>, CancellationGuard)>
+) -> io::Result<(
+    ConnectionResponseActor<F>,
+    CancellationGuard,
+    ConnectionContext,
+)>
 where
     F: FrameCodec,
 {
@@ -166,14 +183,20 @@ where
         setup_protocol.on_connection_setup(handle.clone(), &mut connection_context);
     }
 
-    let hooks = protocol.map_or_else(ProtocolHooks::default, actor_hooks::<F>);
-    let mut actor = ConnectionActor::new_untracked(UntrackedActorInit {
-        channels: ConnectionChannels::new(queues, handle.clone()),
-        response: None,
-        shutdown: shutdown.clone(),
-        hooks,
-        ctx: connection_context,
-    });
+    // The prepared constructor builds the actor with inert hooks and an empty
+    // context: every prepared-path callback runs through the connection's
+    // [`FramePipeline`] owner, which holds the connection's single protocol
+    // reference and context. Installing the protocol here as well would give
+    // the connection a second strong reference, and dispatching through both
+    // would run `before_send` twice on the same frame. The actor receives only
+    // the identity it logs with, so no copy of the connection's hook context
+    // exists outside the pipeline.
+    let mut actor = ConnectionActor::new_prepared_untracked(
+        ConnectionChannels::new(queues, handle.clone()),
+        shutdown.clone(),
+        connection_context.connection_id(),
+        connection_context.peer_addr(),
+    );
     // The connection boundary owns the idle-grace policy; the actor only needs
     // a bound, not an opinion about how long a vanished peer may hold a
     // response open.
@@ -186,10 +209,13 @@ where
     let response_actor = ConnectionResponseActor {
         actor,
         _push_handle: handle,
-        connection_id,
         _registry: registry_guard,
     };
-    Ok((response_actor, CancellationGuard::new(shutdown)))
+    Ok((
+        response_actor,
+        CancellationGuard::new(shutdown),
+        connection_context,
+    ))
 }
 
 /// Install the per-dispatch peer signal and return the token and cause cell.
@@ -213,33 +239,4 @@ where
     let cause = Arc::new(std::sync::OnceLock::new());
     actor.set_peer_observation(unobserved.clone(), Arc::clone(&cause));
     (unobserved, cause)
-}
-
-/// Adapt a protocol into the hooks the actor needs for response frames.
-///
-/// Only the error callback is forwarded. Terminator emission and completion
-/// run in the response writer after the actor has finished driving the
-/// response: the protocol returns a complete codec frame, and writing that
-/// frame unchanged is the only way to preserve metadata a custom codec adds
-/// outside the payload. `before_send` stays unset because the transport sink
-/// runs it after serialization. The protocol's setup and EOF callbacks are not
-/// invoked on the prepared path through this actor, so they are deliberately
-/// absent here; setup runs in [`build_connection_actor`].
-fn actor_hooks<F>(
-    protocol: &Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>,
-) -> ProtocolHooks<Envelope, ()>
-where
-    F: FrameCodec,
-{
-    let handle_error = {
-        let error_protocol = Arc::clone(protocol);
-        Box::new(move |error: (), ctx: &mut ConnectionContext| {
-            error_protocol.handle_error(error, ctx);
-        })
-    };
-
-    ProtocolHooks {
-        handle_error: Some(handle_error),
-        ..ProtocolHooks::default()
-    }
 }

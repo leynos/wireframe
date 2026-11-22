@@ -9,6 +9,8 @@
 
 use std::io;
 
+use futures::StreamExt;
+
 use super::{
     AsyncRead,
     AsyncWrite,
@@ -23,10 +25,10 @@ use super::{
     PendingPushes,
     PushBatch,
     PushTransport,
-    PushWriteDiagnostics,
     Serializer,
     deliver_pushes,
     drain_queued,
+    hold_or_end,
 };
 
 impl<S, E, F, W> ConnectionLoop<'_, S, E, F, W>
@@ -48,7 +50,7 @@ where
         &mut self,
         pending: PendingPushes<F::Frame>,
     ) -> io::Result<bool> {
-        let diagnostics = self.push_diagnostics();
+        let diagnostics = self.response_actor.push_diagnostics();
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,
@@ -56,10 +58,16 @@ where
             pipeline: &mut self.inbound.pipeline,
             diagnostics,
         };
+        // A push write keeps reading so a half-closed peer is noticed. A read
+        // that reports the end of the stream ends the connection instead of
+        // being buffered, so a truncation during a stalled write is reported.
+        let recovery = &self.recovery;
+        let mut watched = (&mut self.reader)
+            .map(|item: io::Result<_>| item.and_then(|it| hold_or_end(it, recovery)));
         let batch = PushBatch {
             frames: pending.frames,
             priority: pending.priority,
-            reader: &mut self.reader,
+            reader: &mut watched,
             pending_frame: &mut self.inbound.pending,
             expiry: InboundExpiry::new(
                 &mut self.inbound.message_assembly,
@@ -72,15 +80,9 @@ where
         deliver_pushes(&mut transport, &mut self.response_actor.actor, batch).await
     }
 
-    /// Identity this connection reports when it abandons a push write.
-    const fn push_diagnostics(&self) -> PushWriteDiagnostics {
-        let actor = &self.response_actor.actor;
-        PushWriteDiagnostics::new(actor.connection_id(), actor.peer_addr())
-    }
-
     /// Deliver frames still queued when the peer stopped writing.
     pub(super) async fn drain_pushes(&mut self) -> io::Result<()> {
-        let diagnostics = self.push_diagnostics();
+        let diagnostics = self.response_actor.push_diagnostics();
         let mut transport = PushTransport {
             serializer: self.serializer.as_ref(),
             codec: &self.codec,

@@ -960,6 +960,15 @@ parallel runtime.
   consumption is no longer part of this item because
   [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md) removed
   `app_data` from the prepared application.
+- [x] 20.1.4. Consolidate protocol ownership and hook dispatch per connection,
+  so one installed protocol is one strong owner and every packet-oriented
+  outbound path runs `before_send` exactly once. See issue
+  [#644](https://github.com/leynos/wireframe/issues/644).
+- [x] 20.1.5. Prove every `WireframeProtocol` hook runs on prepared server
+  connections at a documented point, and report a truncated frame to `on_eof`
+  with the bytes that arrived. A lost push is counted by
+  `wireframe_push_drops_total` so the loss is observable. See issue
+  [#879](https://github.com/leynos/wireframe/issues/879).
 
 ## 21. Protocol-neutral adapters for the first consumers
 

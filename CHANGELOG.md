@@ -14,6 +14,18 @@ All notable changes to this project will be documented in this file.
   The built-in length-delimited codec now classifies an oversized frame as
   `error_type="framing"` instead of `"io"`.
   ([#878](https://github.com/leynos/wireframe/issues/878))
+- Complete `WireframeProtocol` hook dispatch on prepared server connections.
+  `on_eof` now runs when a peer disconnects mid-header or mid-frame, receiving
+  the structured `EofError` and every byte the framed reader still held for the
+  abandoned frame, length prefix included; a clean close at a frame boundary, a
+  malformed frame, and a transport error reach no hook. A decoder opts in by
+  returning `CodecError::Eof` from `decode_eof`; the bundled
+  `LengthDelimitedFrameCodec` already does. A frame a push policy discards is
+  counted by the new `wireframe_push_drops_total` counter, labelled by policy
+  and by whether a dead-letter queue was absent, full, or closed, so a loss its
+  producer was told had succeeded stays observable. An end-to-end suite now
+  proves each hook's firing and order through a real `WireframeServer`.
+  ([#879](https://github.com/leynos/wireframe/issues/879))
 
 - **Breaking:** Remove the `wireframe::extractor` module, `AppDataStore`, and
   `WireframeApp::app_data`. No dispatch path invoked the extractor traits, so
@@ -83,18 +95,29 @@ All notable changes to this project will be documented in this file.
   decoding or re-wrapping so codec metadata outside the payload survives; the
   prepared path no longer decodes that frame into an `Envelope` or restamps its
   correlation identifier. The frame is not byte-preserved: `before_send` still
-  runs, and a hook that rewrites frames rewrites the terminator too. The
-  protocol's `on_eof` remains uninvoked on this path; `on_connection_setup` is
-  now invoked there with the connection's `PushHandle`, as described above. A
-  peer that disconnects while a streamed response is idle no longer pins the
-  connection: the read half is watched during the response, and the response is
-  bounded when a buffered request stops that observation. **Breaking:**
-  `PreparedApp::handle_connection_result` and the deprecated
+  runs, and a hook that rewrites frames rewrites the terminator too.
+  `on_connection_setup` is invoked there with the connection's `PushHandle`, as
+  described above. A peer that disconnects while a streamed response is idle no
+  longer pins the connection: the read half is watched during the response, and
+  the response is bounded when a buffered request stops that observation.
+  **Breaking:** `PreparedApp::handle_connection_result` and the deprecated
   `WireframeApp::handle_connection*` methods now require `S: 'static` so the
   connection actor can retain the serializer in its protocol hooks. The
   active-connection gauge now covers the preamble handshake, application
   processing, and teardown.
   ([#874](https://github.com/leynos/wireframe/issues/874))
+
+- **Breaking:** Protocol hooks are now one owner per connection rather than six
+  cloned forwarding closures. `ProtocolHooks` is an enum of `None`, `Protocol`,
+  and `Custom`; replace a `ProtocolHooks { .. }` struct literal with
+  `CustomProtocolHooks { .. }.into()`. A protocol-backed connection holds
+  exactly one strong reference to the installed protocol once setup has
+  completed, and `on_connection_setup` runs at most once per hooks value, while
+  every packet-oriented outbound path — handler responses, push queues,
+  streamed responses, multi-packet channels, and stream-end terminators — runs
+  `before_send` exactly once per emitted packet. See the
+  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#protocol-hook-ownership-and-dispatch).
+  ([#644](https://github.com/leynos/wireframe/issues/644))
 
 - Make `wireframe_testing` compile against `tokio-util` 0.7.20, whose extra
   `Encoder` implementations made `.into()` conversions ambiguous. The lock file

@@ -17,6 +17,7 @@ mod request_hooks_support;
 mod send_streaming;
 mod send_streaming_config;
 mod send_streaming_infra;
+mod send_streaming_timeout;
 mod streaming;
 mod streaming_helpers;
 mod streaming_helpers_support;

@@ -54,6 +54,9 @@ impl DecodeFailure {
     pub(super) fn into_parts(self) -> (io::Error, DecodeOrigin, usize) {
         (self.error, self.origin, self.consumed)
     }
+
+    /// Entry point that produced this failure.
+    pub(super) const fn origin(&self) -> DecodeOrigin { self.origin }
 }
 
 /// One decoder result: either a real frame or a captured failure.

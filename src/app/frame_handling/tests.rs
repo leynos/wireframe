@@ -26,7 +26,7 @@ use crate::{
     },
     codec::FrameCodec,
     connection::{ConnectionActor, ConnectionChannels, UntrackedActorInit},
-    hooks::{ConnectionContext, ProtocolHooks},
+    hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks},
     push::PushQueues,
     serializer::BincodeSerializer,
 };
@@ -230,15 +230,16 @@ async fn before_send_observes_codec_wrapped_frame(harness: TestHarness) {
 
     let observed_tag = Arc::new(AtomicUsize::new(usize::MAX));
     let hook_tag = Arc::clone(&observed_tag);
-    let hooks = ProtocolHooks {
+    let hooks = CustomProtocolHooks {
         before_send: Some(Box::new(
             move |frame: &mut TestFrame, _ctx: &mut ConnectionContext| {
                 hook_tag.store(usize::from(frame.tag), Ordering::SeqCst);
                 frame.payload.push(MARKER);
             },
         )),
-        ..ProtocolHooks::default()
-    };
+        ..CustomProtocolHooks::default()
+    }
+    .into();
     let mut pipeline: FramePipeline<TestFrame> = FramePipeline::with_hooks(None, hooks);
     let envelope = Envelope::new(1, Some(99), vec![1, 2, 3, 4]);
     let mut transport = OutboundTransport {
@@ -302,7 +303,6 @@ async fn response_context_holds_references(harness: TestHarness) {
         pipeline: &mut pipeline,
         codec: &codec,
         actor: &mut actor,
-        protocol: None,
     };
 
     // Verify fields are accessible (compile-time check)

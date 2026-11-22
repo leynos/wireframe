@@ -15,7 +15,7 @@ Feature: Codec test fixtures
   Scenario: Truncated fixture produces a decode error
     Given a Hotline codec allowing fixtures up to 4096 bytes
     When a truncated fixture frame is decoded
-    Then the decoder reports bytes remaining on stream
+    Then the decoder reports a premature end of file
 
   Scenario: Correlated fixtures share the same transaction identifier
     Given a Hotline codec allowing fixtures up to 4096 bytes

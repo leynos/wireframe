@@ -7,10 +7,11 @@
 
 use log::warn;
 
-use super::{ConnectionActor, state::ActorState};
+use super::{ConnectionActor, TerminatorCorrelation, state::ActorState};
 use crate::{
     app::Packet,
     correlation::CorrelatableFrame,
+    hooks::ConnectionProtocol,
     push::FrameLike,
     response::WireframeError,
 };
@@ -54,13 +55,15 @@ where
         let mut produced = false;
         match res {
             Some(Ok(mut frame)) => {
-                self.stamp_response_correlation(&mut frame);
+                TerminatorCorrelation::ACTOR.apply(&mut frame, self.response_correlation);
                 self.process_frame_with_hooks_and_metrics(frame, out);
                 produced = true;
             }
             Some(Err(WireframeError::Protocol(e))) => {
                 warn!("protocol error: error={e:?}");
-                self.hooks.handle_error(e, &mut self.ctx);
+                if let Some(protocol) = self.protocol.as_mut() {
+                    protocol.handle_error(e);
+                }
                 state.mark_closed();
                 // Stop polling the response after a protocol error to avoid
                 // double-closing and duplicate `on_command_end` signalling.
@@ -72,8 +75,12 @@ where
             Some(Err(e)) => return Err(e),
             None => {
                 state.mark_closed();
-                if let Some(mut frame) = self.hooks.stream_end_frame(&mut self.ctx) {
-                    self.stamp_response_correlation(&mut frame);
+                let terminator = self
+                    .protocol
+                    .as_mut()
+                    .and_then(ConnectionProtocol::stream_end_frame);
+                if let Some(mut frame) = terminator {
+                    TerminatorCorrelation::ACTOR.apply(&mut frame, self.response_correlation);
                     self.process_frame_with_hooks_and_metrics(frame, out);
                     produced = true;
                 }
@@ -84,26 +91,5 @@ where
         }
 
         Ok(produced)
-    }
-
-    /// Stamp the active response's request correlation onto a frame.
-    ///
-    /// Single, vector, and multi-packet responses already inherit the request's
-    /// identifier, so a streamed frame and its terminator follow the same rule
-    /// rather than going out uncorrelated. A request that supplied no
-    /// identifier leaves the frame's own identifier untouched, so a producer
-    /// that stamps its own frames is not overridden by an absent request id.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let mut frame = Envelope::new(route, None, payload);
-    /// actor.stamp_response_correlation(&mut frame);
-    /// ```
-    fn stamp_response_correlation(&self, frame: &mut F) {
-        let Some(correlation_id) = self.response_correlation else {
-            return;
-        };
-        frame.set_correlation_id(Some(correlation_id));
     }
 }

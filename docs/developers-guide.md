@@ -426,25 +426,56 @@ actor remains packet-oriented and works with `Envelope` or another
 packet-shaped type; it does not become responsible for codec frame buffers.
 
 The codec driver owns the `packet -> bytes -> transport frame` transition,
-including serialization and `FrameCodec::wrap_payload`. Most protocol hooks
-remain packet-oriented and run on the connection actor's path before
-serialization. The exception is `before_send` for application handler responses:
-`FramePipeline` owns the per-connection `ProtocolHooks` and
-`ConnectionContext`, and runs `before_send` on the codec-wrapped frame after
-serialization and `wrap_payload`, immediately before `Framed::send`. Each
-connection constructs fresh `ProtocolHooks` and a fresh `ConnectionContext`, so
-per-connection context and callback instances are not shared. State held by a
-shared `WireframeProtocol` implementation is still shared by every connection
-that installs it.
+including serialization and `FrameCodec::wrap_payload`. Protocol hooks remain
+packet-oriented, and every packet-oriented outbound path runs `before_send`
+exactly once per emitted packet: handler responses, push frames, streamed
+responses, multi-packet channel frames, and stream-end terminators. For an
+application handler response, `FramePipeline` runs the hook on the
+codec-wrapped frame after serialization and `wrap_payload`, immediately before
+`Framed::send`.
+
+A `ConnectionProtocol` pairs one `ProtocolHooks` value with one
+`ConnectionContext`. On the prepared server path the frame pipeline's value is
+the connection's only hook owner: it carries the installed protocol and the
+context, and it dispatches every callback, including the protocol error and the
+completion hook that follow a response. The actor built for that path holds no
+`ConnectionProtocol` at all — it is built by a named prepared constructor that
+installs the actor's no-hook mode, and it receives only the identifier and peer
+address it logs with, so its dispatch points are compiled out. Setup is the one
+callback dispatched before the pipeline is told its context: it receives the
+connection's context value, and that same value is then installed in the
+pipeline, so only the pipeline's context reaches callbacks and anything setup
+leaves in it is what every later callback observes. Terminator correlation is
+the named `TerminatorCorrelation` policy (`ACTOR` stamps an envelope terminator,
+`PREPARED` preserves a codec frame), and the error, terminator and completion
+order a prepared response owes is derived by `CompletionSequence` and executed
+by `complete_response`. When a caller drives a `ConnectionActor` directly with
+`with_hooks`, the actor's own value is the single owner. Either way the owner
+is built once and its context reused for the connection's lifetime, so
+dispatching needs no `Arc<Mutex<_>>`; the context carries the connection
+identifier and peer address and remains the designated place for
+connection-local state. A `ProtocolHooks::Protocol` value owns exactly one
+strong reference to the installed protocol and dispatches every callback
+through it; the enum's `Custom` form holds handwritten callbacks instead. State
+held by a shared `WireframeProtocol` implementation is still shared by every
+connection that installs it, but a connection never clones the protocol per
+callback.
 
 The hook therefore receives the exact frame that will be written, and its
-mutation reaches the wire. Hook output must still fit the codec's
-`max_frame_length`. The pipeline does not check this limit: the default
-`LengthDelimitedFrameCodec` rejects an oversized frame, so the send fails and
-ends the connection, while a custom encoder must enforce `max_frame_length`
-itself. Only the direct response helpers, which write to a stream the caller
-supplies rather than through the prepared application, bypass `before_send`. The
-[users' guide](users-guide.md) states the user-facing contract.
+mutation reaches the wire. It is the pre-transport boundary, not a
+pre-serialization one: `before_send` takes `&mut F::Frame`, so it cannot see the
+`Envelope`, and moving it ahead of serialization would reopen
+[ADR 010](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md).
+The 2026-11-18 addendum to
+[ADR 012](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
+records that reading and the prepared path's lifecycle contract. Hook output
+must still fit the codec's `max_frame_length`. The pipeline does not check this
+limit: the default `LengthDelimitedFrameCodec` rejects an oversized frame, so
+the send fails and ends the connection, while a custom encoder must enforce
+`max_frame_length` itself. Only the direct response helpers, which write to a
+stream the caller supplies rather than through the prepared application, bypass
+`before_send`. The [users' guide](users-guide.md) states the user-facing
+contract.
 
 Every prepared server connection now owns an untracked `ConnectionActor` built
 by `src/app/inbound_handler/actor.rs`. Handler responses — including
@@ -456,14 +487,30 @@ fragmentation, outbound metrics, serialization, `wrap_payload`, and
 receives no fragmenter and no `before_send` hook, so application frames are
 never serialized or hooked twice.
 
-Only `handle_error` is forwarded from the protocol to that actor: the actor
-registers no completion or terminator hook, and `before_send` stays with the
-pipeline. The prepared path invokes `on_connection_setup` once, with the
-connection's `PushHandle`, after the registry entry is published and before the
-actor starts, so setup can address its own connection or any other live one. The
-`on_eof` callback remains unreached there. The application-level connection
-setup and teardown callbacks registered on `WireframeApp` are separate hooks.
-Without a protocol the actor uses default, no-op hooks.
+The prepared actor receives no protocol hooks at all. Its value is
+`ProtocolHooks::None`, so the error hook, the stream terminator, and the
+completion hook all run through the pipeline's single owner as part of
+`forward_response`; no callback is dispatched twice. The prepared path invokes
+`on_connection_setup` once, with the connection's `PushHandle`, after the
+registry entry is published and before the first inbound frame is read, so
+setup can address its own connection or any other live one and can queue a push
+ahead of the first request. `on_eof` runs once when the peer abandons a frame
+part-way through, and never for a clean close at a frame boundary. The
+application-level connection setup and teardown callbacks registered on
+`WireframeApp` are separate hooks.
+
+`on_eof` dispatch belongs to the connection loop in
+`src/app/inbound_handler/core.rs`; the actor never sees a read error. Framing
+is built per connection by `src/app/inbound_handler/framing.rs`, which keeps
+the read and write halves as separate `FramedRead` and `FramedWrite` values
+rather than two halves of one `Framed`, so the reader's leftover buffer stays
+reachable. When the read fails, `report_truncation` classifies the error through
+`eof_condition`: only `EofError::MidHeader` and `EofError::MidFrame` reach the
+protocol, with every byte the reader still held for the abandoned frame, length
+prefix included. A clean close, a decode failure, and any other read error
+reach no hook, because none of them describes a frame the peer abandoned. A
+custom decoder opts in by returning `CodecError::Eof` from `decode_eof` and
+leaving the incomplete bytes buffered.
 
 `forward_response` owns the rest of the command lifecycle. Once the actor
 reports a completed `Stream` or `MultiPacket` response, it calls
@@ -572,9 +619,14 @@ connection that stops with queued output would otherwise log one, so a shutdown
 abandonment is counted without a per-write alert. A push the rate limiter
 refuses increments the unlabelled `wireframe_push_rate_limited_total`, which is
 the only aggregate signal available when the producer discards the
-`PushError::RateLimited` it receives. Session-registry publication and removal
-are logged at `debug!` with the connection identifier, so a lookup that finds
-nothing can be told apart from a connection that never registered.
+`PushError::RateLimited` it receives. A frame a drop policy discards increments
+`wireframe_push_drops_total` at the loss site in `src/push/queues/dlq.rs`,
+labelled by the discarding policy and by the outcome `no_dlq`, `dlq_full`, or
+`dlq_closed`; a frame the dead-letter queue accepted is not a loss and is not
+counted, so the counter reports frames no consumer will ever see.
+Session-registry publication and removal are logged at `debug!` with the
+connection identifier, so a lookup that finds nothing can be told apart from a
+connection that never registered.
 
 ## Server push path
 
@@ -2699,6 +2751,22 @@ a fresh handle without explicitly calling the constructor.
 `LoggerHandle::new()` tolerates a poisoned mutex: if a prior test panicked
 while holding the logger lock, `new()` recovers the guard via `into_inner()`
 and drains any buffered log records, so the next test starts from a clean state.
+
+### Metrics snapshots in tests
+
+`DebuggingRecorder` reports and resets in one step: a snapshot swaps every
+counter and gauge back to zero. A test that asserts a gauge must therefore take
+exactly one snapshot at the lifecycle point it describes. A second snapshot
+reports only the updates made since the first: increments and decrements apply
+to the drained zero, so an increment followed by a decrement reads as zero and
+no longer proves either happened. Where a later reading is unavoidable, treat
+it as a delta only when the intervening updates are increments or decrements;
+an absolute `set` reports its latest value instead.
+
+`ObservabilityHandle` wraps the same recorder but exposes assertions for
+counters and histograms only. A gauge assertion reads `DebugValue::Gauge` from
+a drained snapshot directly, as `tests/metrics.rs` does for the
+active-connection gauge and the handler-error counter.
 
 ## Roadmap editing with mapsplice
 

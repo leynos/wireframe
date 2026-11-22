@@ -41,6 +41,68 @@ fn live_handle() -> (PushQueues<u8>, crate::push::PushHandle<u8>) {
         .expect("failed to build PushQueues")
 }
 
+/// `prune` must evict dead entries and keep live ones. The assertions
+/// inspect the private backing map because [`SessionRegistry::get`] and
+/// [`SessionRegistry::active_ids`] prune on their own: a self-healing
+/// lookup masks a `replace prune with ()` no-op, but it cannot restore a
+/// live entry evicted by `replace > with ==`.
+///
+/// Length alone cannot tell the two failures apart, so the test also
+/// checks membership of both IDs.
+#[tokio::test]
+async fn prune_retains_live_and_evicts_dead_entries() {
+    let registry = SessionRegistry::<u8>::default();
+    let live_id = ConnectionId::new(11);
+    let dead_id = ConnectionId::new(12);
+
+    let (_live_queues, live) = live_handle();
+    assert!(registry.insert(live_id, &live));
+    let (dead_queues, dead) = live_handle();
+    assert!(registry.insert(dead_id, &dead));
+    drop(dead);
+    drop(dead_queues);
+
+    assert_eq!(
+        registry.entries.len(),
+        2,
+        "both entries must be present before pruning"
+    );
+    assert!(
+        registry.entries.contains_key(&live_id),
+        "live entry must be registered"
+    );
+    assert!(
+        registry.entries.contains_key(&dead_id),
+        "dead entry must be registered"
+    );
+
+    registry.prune();
+
+    assert_eq!(
+        registry.entries.len(),
+        1,
+        concat!(
+            "prune must leave exactly one entry: an inverted predicate would ",
+            "also leave one"
+        )
+    );
+    assert!(
+        registry.entries.contains_key(&live_id),
+        "prune must retain the live entry"
+    );
+    assert!(
+        !registry.entries.contains_key(&dead_id),
+        "prune must evict the dead entry"
+    );
+
+    // The public accessors must agree with the verified backing map.
+    assert!(
+        registry.get(&live_id).is_some(),
+        "live handle must still upgrade after pruning"
+    );
+    assert_eq!(registry.active_ids(), vec![live_id]);
+}
+
 /// An application's own entry is never displaced by an allocation.
 ///
 /// Identifier `1` is the first value a fresh registry hands out, so a manual

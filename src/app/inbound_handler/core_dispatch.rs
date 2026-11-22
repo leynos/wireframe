@@ -7,6 +7,7 @@
 
 use std::io;
 
+use futures::StreamExt;
 use log::debug;
 
 use super::{
@@ -27,6 +28,7 @@ use super::{
     StreamStep,
     handle_frame,
     handle_watching_peer,
+    hold_or_end,
     observe_peer,
     resolve_read_item,
     settle_dispatch,
@@ -94,12 +96,18 @@ where
                 message_assembly: &mut self.inbound.message_assembly,
                 pipeline: &mut self.inbound.pipeline,
                 actor: &mut self.response_actor.actor,
-                protocol: self.protocol.as_ref(),
             },
         );
+        // A read made while the response is pending is buffered for the next
+        // dispatch, unless it reports the end of the stream: that ends the
+        // connection now, which is the only way a truncation is observed while
+        // a response is still running.
+        let recovery = &self.recovery;
+        let mut watched = (&mut self.reader)
+            .map(|item: io::Result<_>| item.and_then(|it| hold_or_end(it, recovery)));
         let dispatch = handle_watching_peer(
             handling,
-            &mut self.reader,
+            &mut watched,
             PeerObservation::new(&self.peer_eof, &unobserved, &cause),
             &mut self.inbound.pending,
         )

@@ -338,6 +338,7 @@ fn mysql_decode_produces_zero_copy_payload() {
     assert_decode_zero_copy(payload_ptr, frame.payload.as_ptr(), "mysql");
 }
 
+mod eof;
 mod property;
 
 /// The inherent `max_frame_length` shadows the `FrameCodec` trait method in

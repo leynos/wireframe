@@ -3,7 +3,12 @@
 use log::info;
 
 use super::{ConnectionActor, multi_packet::MultiPacketTerminationReason, state::ActorState};
-use crate::{app::Packet, correlation::CorrelatableFrame, push::FrameLike};
+use crate::{
+    app::Packet,
+    correlation::CorrelatableFrame,
+    hooks::ConnectionProtocol,
+    push::FrameLike,
+};
 
 impl<F, E, P> ConnectionActor<F, E, P>
 where
@@ -52,7 +57,11 @@ where
         let result = self.active_output.close_multi_packet();
         self.log_multi_packet_closure(reason, result.correlation_id);
         state.mark_closed();
-        if let Some(frame) = self.hooks.stream_end_frame(&mut self.ctx) {
+        let terminator = self
+            .protocol
+            .as_mut()
+            .and_then(ConnectionProtocol::stream_end_frame);
+        if let Some(frame) = terminator {
             self.emit_multi_packet_frame(frame, out);
             self.after_low();
         }

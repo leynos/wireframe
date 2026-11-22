@@ -11,7 +11,13 @@ use std::io;
 use tokio_util::sync::CancellationToken;
 
 use super::{super::frames::InboundFrames, RecoveryCoordinator, RecoveryState};
-use crate::app::{frame_handling::Dispatch, recovery_codec::DecodedItem};
+use crate::{
+    app::{
+        frame_handling::Dispatch,
+        recovery_codec::{DecodeFailure, DecodeOrigin, DecodedItem},
+    },
+    codec::{CodecError, eof_condition},
+};
 
 /// Resolve one read item into the frame the loop must dispatch.
 ///
@@ -42,6 +48,36 @@ pub(in crate::app::inbound_handler) async fn resolve_read_item<T>(
             )
             .await
             .map_or(Ok(None), Err),
+    }
+}
+
+/// Keep an item read while another step is pending, or end the connection.
+///
+/// A `decode_eof` failure is terminal by definition: the peer has stopped
+/// sending, so no later frame can arrive and no selected policy can keep the
+/// connection useful. Returning the decoder's own error ends the connection
+/// here, which is what lets a pending response or a stalled push write observe
+/// a truncated peer at all; the failure is reported first, as the disconnect it
+/// is, so `on_error` and the counter still see it exactly once.
+pub(in crate::app::inbound_handler) fn hold_or_end<T>(
+    item: DecodedItem<T>,
+    recovery: &RecoveryCoordinator<'_>,
+) -> io::Result<DecodedItem<T>> {
+    match item {
+        DecodedItem::Failure(failure) if failure.origin() == DecodeOrigin::DecodeEof => {
+            // `report_terminal` consumes the failure, and `CodecError` is not
+            // `Clone`, so the error the caller receives is rebuilt from the
+            // copyable EOF condition the original carries. Everything else
+            // about a decoder error is terminal for this connection anyway.
+            let (error, origin, consumed) = failure.into_parts();
+            let rebuilt = match eof_condition(&error) {
+                Some(eof) => CodecError::Eof(eof).into(),
+                None => io::Error::new(error.kind(), error.to_string()),
+            };
+            recovery.report_terminal(DecodeFailure::new(error, origin, consumed));
+            Err(rebuilt)
+        }
+        other => Ok(other),
     }
 }
 

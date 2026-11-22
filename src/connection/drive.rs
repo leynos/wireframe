@@ -185,7 +185,7 @@ where
             }
             Response::Empty => {
                 ensure_output_idle(&self.active_output)?;
-                self.hooks.on_command_end(&mut self.ctx);
+                self.run_completion_hook();
                 Ok(ResponseOutcome::Completed)
             }
             Response::Stream(stream) => {
@@ -295,7 +295,7 @@ where
     /// Run a deferred completion hook once the final frame has been written.
     pub(super) fn run_deferred_command_end(&mut self) {
         if std::mem::take(&mut self.command_end_pending) {
-            self.hooks.on_command_end(&mut self.ctx);
+            self.run_completion_hook();
         }
     }
 
@@ -338,8 +338,18 @@ where
         if outcome == WriteOutcome::Cancelled {
             return ResponseOutcome::Cancelled;
         }
-        self.hooks.on_command_end(&mut self.ctx);
+        self.run_completion_hook();
         ResponseOutcome::Completed
+    }
+
+    /// Run the completion hook when this actor owns one.
+    ///
+    /// A prepared connection's actor is built in no-hook mode, so completion
+    /// belongs to its `FramePipeline` and this is a no-op.
+    fn run_completion_hook(&mut self) {
+        if let Some(protocol) = self.protocol.as_mut() {
+            protocol.on_command_end();
+        }
     }
 }
 

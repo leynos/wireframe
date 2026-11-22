@@ -21,7 +21,7 @@ use super::streaming_infra::{
 };
 use crate::{
     connection::{ConnectionActor, ConnectionChannels, FairnessConfig},
-    hooks::{ConnectionContext, ProtocolHooks},
+    hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks},
     push::PushQueues,
 };
 
@@ -36,12 +36,13 @@ fn stream_terminator() -> TestStreamEnvelope {
 }
 
 fn hooks_with_stream_end() -> ProtocolHooks<TestStreamEnvelope, crate::NoProtocolError> {
-    ProtocolHooks {
+    CustomProtocolHooks {
         stream_end: Some(Box::new(|_ctx: &mut ConnectionContext| {
             Some(stream_terminator())
         })),
-        ..ProtocolHooks::default()
+        ..CustomProtocolHooks::default()
     }
+    .into()
 }
 
 struct PausedTimeGuard;

@@ -707,14 +707,30 @@ classDiagram
         +on_command_end(&mut ConnectionContext)
     }
     class ProtocolHooks {
-        -before_send: Option<BeforeSendHook<F>>
-        -on_command_end: Option<OnCommandEndHook>
-        +before_send(&mut self, &mut F, &mut ConnectionContext)
-        +on_command_end(&mut self, &mut ConnectionContext)
-        +from_protocol(protocol: Arc<P>)
+        <<enum>>
+        +None
+        +Protocol(ProtocolDispatch)
+        +Custom(CustomProtocolHooks)
+        +before_send(&mut F, &mut ConnectionContext)
+        +on_command_end(&mut ConnectionContext)
+        +from_protocol(protocol: &Arc<P>)
+    }
+    class ProtocolDispatch {
+        <<struct>>
+        -operations: Box<dyn ProtocolOperations<F, E> + Send>
+    }
+    class CustomProtocolHooks {
+        <<struct>>
+        +before_send: Option<BeforeSendHook<F>>
+        +on_command_end: Option<OnCommandEndHook>
     }
     class ConnectionContext {
         <<struct>>
+    }
+    class ConnectionProtocol {
+        <<crate-private>>
+        -hooks: ProtocolHooks
+        -context: ConnectionContext
     }
     class WireframeApp {
         -protocol: Option<Arc<dyn WireframeProtocol<Frame=Vec<u8>, ProtocolError=()>>>
@@ -723,26 +739,24 @@ classDiagram
         +protocol_hooks()
     }
     class FramePipeline {
-        -hooks: ProtocolHooks<F.Frame>
-        -context: ConnectionContext
+        -protocol: ConnectionProtocol
         +process(&mut self, Envelope)
         +before_send(&mut self, &mut F.Frame)
     }
     class ConnectionActor {
-        -hooks: ProtocolHooks<F>
-        -ctx: ConnectionContext
+        -protocol: ConnectionProtocol
     }
-    WireframeApp --> "1" WireframeProtocol : uses
+    WireframeApp --> "1" WireframeProtocol : stores in one Arc
     WireframeApp --> "1" ProtocolHooks : creates per connection
-    ProtocolHooks --> "1" WireframeProtocol : from_protocol
-    FramePipeline --> "1" ProtocolHooks : uses
-    FramePipeline --> "1" ConnectionContext : owns
-    ConnectionActor --> "1" ProtocolHooks : uses
-    ConnectionActor --> "1" ConnectionContext : owns
-    ProtocolHooks --> "1" ConnectionContext : passes to hooks
+    ProtocolHooks --> "0..1" ProtocolDispatch : Protocol
+    ProtocolHooks --> "0..1" CustomProtocolHooks : Custom
+    ProtocolDispatch --> "1" WireframeProtocol : one strong reference
+    FramePipeline --> "1" ConnectionProtocol : owns
+    ConnectionActor --> "1" ConnectionProtocol : owns
+    ConnectionProtocol --> "1" ProtocolHooks : dispatches
+    ConnectionProtocol --> "1" ConnectionContext : owns
     WireframeProtocol --> "1" ConnectionContext : uses
     WireframeProtocol --> "1" PushHandle : uses
-    WireframeProtocol <|.. ProtocolHooks : implemented by
 ```
 
 `ConnectionContext` is the extension point for per-connection data. It is
@@ -787,6 +801,9 @@ application's own DLQ consumer. Only frames the DLQ accepted reach its
 receiver, so inspecting, logging or retrying those frames is the application's
 responsibility, since only it knows what the payload means. A frame refused
 because the queue was full or closed is lost, and the library keeps no copy.
+Every such loss increments `wireframe_push_drops_total`, labelled by the
+discarding policy and by whether the dead-letter queue was full, closed, or
+absent, so an operator can alert on the drop rate even when no warning fires.
 Payload length is not reported either: the generic frame bounds are
 `Send + 'static` and expose no size.
 
@@ -837,27 +854,43 @@ classDiagram
     }
 
     class ProtocolHooks {
-        +on_connection_setup : Option<OnConnectionSetupHook<F>>
-        +before_send        : Option<BeforeSendHook<F>>
-        +on_command_end     : Option<OnCommandEndHook>
-        +handle_error       : Option<HandleErrorHook<E>>
+        <<enum>>
+        +None
+        +Protocol(ProtocolDispatch)
+        +Custom(CustomProtocolHooks)
         +on_connection_setup(PushHandle<F>, &mut ConnectionContext)
         +before_send       (&mut F, &mut ConnectionContext)
         +on_command_end    (&mut ConnectionContext)
         +handle_error      (E, &mut ConnectionContext)
-        +from_protocol     (protocol: Arc<P>)
+        +from_protocol     (protocol: &Arc<P>)
         <<generic<F, E>>
     }
 
-    class ConnectionActor {
+    class CustomProtocolHooks {
+        +on_connection_setup : Option<OnConnectionSetupHook<F>>
+        +before_send        : Option<BeforeSendHook<F>>
+        +on_command_end     : Option<OnCommandEndHook>
+        +handle_error       : Option<HandleErrorHook<E>>
+        <<generic<F, E>>
+    }
+
+    class ConnectionProtocol {
         -hooks: ProtocolHooks<F, E>
+        -context: ConnectionContext
+        <<crate-private, generic<F, E>>
+    }
+
+    class ConnectionActor {
+        -protocol: ConnectionProtocol<F, E>
         +run(&mut self, out: &mut Vec<F>) -> Result<(), WireframeError<E>>
         +handle_response(res: Option<Result<F, WireframeError<E>>>, out: &mut Vec<F>, state: &mut State) -> Result<(), WireframeError<E>>
         <<generic<F, E>>
     }
 
-    WireframeProtocol <|.. ProtocolHooks : uses
-    ProtocolHooks <|-- ConnectionActor : member
+    ProtocolHooks --> "0..1" CustomProtocolHooks : Custom
+    ConnectionProtocol --> "1" ProtocolHooks : dispatches
+    ConnectionProtocol --> "1" ConnectionContext : owns
+    ConnectionActor --> "1" ConnectionProtocol : owns
 
     class WireframeError {
         <<enum<E=()>>
@@ -932,10 +965,12 @@ features of the 1.0 release.
   actor receives no terminator or completion hook of its own, so one response
   is terminated and completed exactly once. Protocol setup runs once per
   connection, after the connection's `PushHandle` is published in the session
-  registry and before the actor starts. The end-of-file callback is never
-  invoked on the prepared path, so a protocol must not rely on it for cleanup
-  or diagnostics. The direct response helpers that bypass the pipeline also
-  bypass `before_send`.
+  registry and before the first inbound frame is read, so a protocol can queue
+  server-initiated frames. `on_eof` runs when the peer abandons a frame
+  part-way through, with the structured `MidHeader` or `MidFrame` condition and
+  the bytes the framed reader still held; a clean close at a frame boundary
+  runs no end-of-file callback. The direct response helpers that bypass the
+  pipeline also bypass `before_send`.
 
 ```rust,ignore
 // Codec stack with explicit frame-size limits and fragmentation.

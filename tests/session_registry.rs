@@ -82,16 +82,27 @@ async fn active_handles_lists_live_connections(registry: SessionRegistry<u8>) ->
     Ok(())
 }
 
-/// Test that `prune` removes entries whose handles have been dropped.
+/// Test that `prune` removes entries whose handles have been dropped and
+/// retains entries whose handles are still alive.
 #[rstest]
 #[tokio::test]
 async fn prune_removes_dead_entries(registry: SessionRegistry<u8>) -> TestResult<()> {
-    let (_queues, handle) = push_setup()?;
-    let id = ConnectionId::new(5);
-    assert!(registry.insert(id, &handle));
-    drop(handle);
+    let (_dead_queues, dead) = push_setup()?;
+    let dead_id = ConnectionId::new(5);
+    assert!(registry.insert(dead_id, &dead));
+    drop(dead);
+
+    let (_live_queues, live) = push_setup()?;
+    let live_id = ConnectionId::new(6);
+    assert!(registry.insert(live_id, &live));
+
     registry.prune();
 
-    assert!(registry.get(&id).is_none());
+    // `get` self-heals dead entries, so the `src/session_tests.rs` unit test
+    // proves physical removal from the backing map; this checks the public
+    // outcome.
+    assert!(registry.get(&dead_id).is_none());
+    assert!(registry.get(&live_id).is_some());
+    assert_eq!(registry.active_ids(), vec![live_id]);
     Ok(())
 }

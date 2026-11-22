@@ -40,7 +40,12 @@ pub(super) use decision::{
     action_for,
     is_budgeted_drop,
 };
-pub(super) use recovery_loop::{report_pending_failure, resolve_read_item, settle_dispatch};
+pub(super) use recovery_loop::{
+    hold_or_end,
+    report_pending_failure,
+    resolve_read_item,
+    settle_dispatch,
+};
 
 /// The applied action paired with the error that produced it.
 pub(super) struct RecoveryOutcome {

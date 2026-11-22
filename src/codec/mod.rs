@@ -61,17 +61,6 @@ pub mod examples;
 ///
 /// Implementors define their own `Frame` type (for example, a struct carrying
 /// transaction identifiers) and provide decoder/encoder instances.
-///
-/// # Recovery contract
-///
-/// Wireframe consults the installed
-/// [`RecoveryPolicyHook`] when a decoder returns an error on a live connection,
-/// and can then keep reading from that connection. A decoder that supports
-/// recovery must therefore consume the malformed frame and leave its framing
-/// state valid before returning the error. A decoder that returns an error
-/// without consuming any bytes would be offered the same input again, so the
-/// connection loop escalates that case to [`RecoveryPolicy::Disconnect`]
-/// instead.
 pub trait FrameCodec: Send + Sync + Clone + 'static {
     /// Frame type produced by decoding.
     type Frame: Send + Sync + 'static;
@@ -81,9 +70,6 @@ pub trait FrameCodec: Send + Sync + Clone + 'static {
     type Encoder: Encoder<Self::Frame, Error = io::Error> + Send;
 
     /// Create a Tokio decoder for this codec.
-    ///
-    /// The decoder should consume a malformed frame before returning an error
-    /// so the connection can survive it; see the trait's recovery contract.
     fn decoder(&self) -> Self::Decoder;
 
     /// Create a Tokio encoder for this codec.
@@ -160,11 +146,22 @@ impl Default for LengthDelimitedFrameCodec {
 pub const LENGTH_HEADER_SIZE: usize = 4;
 
 /// Decoder half of [`LengthDelimitedFrameCodec`].
+///
+/// The decoder is deliberately peek-based: an incomplete frame stays in the
+/// read buffer untouched, so the connection loop can report the exact bytes
+/// that were received when the peer disconnects. Only a buffer holding a
+/// complete frame, or one whose declared length exceeds the configured
+/// maximum, is handed to the inner decoder.
+///
+/// A truncated frame is reported as [`CodecError::Eof`] carrying
+/// [`EofError::MidHeader`] or [`EofError::MidFrame`], which is the signal a
+/// connection uses to run the protocol `on_eof` hook.
 #[doc(hidden)]
 pub struct LengthDelimitedDecoder {
     /// Stateful length-delimited decoder used for one stream.
     inner: LengthDelimitedCodec,
-    /// Largest payload this decoder accepts, used to report oversize errors.
+    /// Maximum payload length, mirrored here to classify a buffer without
+    /// decoding it.
     max_frame_length: usize,
 }
 
@@ -173,69 +170,115 @@ impl Decoder for LengthDelimitedDecoder {
     type Error = io::Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        match self.inner.decode(src) {
-            Ok(frame) => Ok(frame.map(BytesMut::freeze)),
-            Err(error) => Err(as_framing_error(error, src, self.max_frame_length)),
+        match BufferState::classify(src, self.max_frame_length) {
+            BufferState::HeaderIncomplete { bytes_received } => {
+                src.reserve(LENGTH_HEADER_SIZE - bytes_received);
+                Ok(None)
+            }
+            BufferState::PayloadIncomplete {
+                bytes_received,
+                expected,
+            } => {
+                src.reserve(expected - bytes_received);
+                Ok(None)
+            }
+            // A complete frame is available, or the declared length is too
+            // large. Delegating the oversized case preserves the framing error
+            // and its `Drop` recovery policy instead of reporting truncation.
+            BufferState::Complete | BufferState::Oversized => self
+                .inner
+                .decode(src)
+                .map(|opt| opt.map(BytesMut::freeze))
+                .map_err(|error| as_framing_error(error, src, self.max_frame_length)),
         }
     }
 
     fn decode_eof(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        // Clean close: no data remaining at frame boundary
-        if src.is_empty() {
-            return Ok(None);
-        }
-
-        let eof_context = EofContext::from_buffer(src);
-
-        // Try to decode any remaining data
-        match self.inner.decode_eof(src) {
-            Ok(Some(frame)) => Ok(Some(BytesMut::freeze(frame))),
-            // Inner decoder returns Ok(None) for incomplete data at EOF - synthesize
-            // our structured EOF error with context about what was received.
-            Ok(None) => Err(build_eof_error(eof_context)),
-            // Inner decoder returned an error. Preserve framing errors (InvalidData)
-            // like oversized frames to maintain correct recovery policy (Drop vs
-            // Disconnect). For all other errors (typically incomplete data indicated
-            // by Other kind), convert to our structured EOF error.
-            Err(e) if e.kind() == io::ErrorKind::InvalidData => {
-                Err(as_framing_error(e, src, self.max_frame_length))
+        match BufferState::classify(src, self.max_frame_length) {
+            // Clean close: no data remains at a frame boundary.
+            BufferState::HeaderIncomplete { bytes_received: 0 } => Ok(None),
+            BufferState::HeaderIncomplete { bytes_received } => {
+                Err(CodecError::Eof(EofError::MidHeader {
+                    bytes_received,
+                    header_size: LENGTH_HEADER_SIZE,
+                })
+                .into())
             }
-            Err(e) => {
-                // Log inner error for diagnostics before replacing with structured EOF error
-                tracing::debug!(
-                    inner_error = %e,
-                    "inner decoder error at EOF, converting to structured EOF error"
-                );
-                Err(build_eof_error(eof_context))
-            }
+            BufferState::PayloadIncomplete {
+                bytes_received,
+                expected,
+            } => Err(CodecError::Eof(EofError::MidFrame {
+                bytes_received,
+                expected,
+            })
+            .into()),
+            // Only a complete frame is decoded here, so the inner decoder
+            // never has to guess why its input ended. An oversized frame is
+            // still delegated, so its framing error survives to the caller.
+            BufferState::Complete | BufferState::Oversized => self
+                .inner
+                .decode_eof(src)
+                .map(|opt| opt.map(BytesMut::freeze))
+                .map_err(|error| as_framing_error(error, src, self.max_frame_length)),
         }
     }
 }
 
-/// Buffer measurements used to classify clean EOF versus truncation.
-#[derive(Clone, Copy, Debug)]
-struct EofContext {
-    /// Number of bytes still present when EOF was observed.
-    bytes_received: usize,
-    /// Declared payload length when a complete prefix was available.
-    expected: Option<usize>,
+/// How much of the next frame the read buffer holds.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BufferState {
+    /// Fewer than [`LENGTH_HEADER_SIZE`] bytes are buffered.
+    HeaderIncomplete {
+        /// Header bytes received so far.
+        bytes_received: usize,
+    },
+    /// The header is complete but the declared payload is not.
+    PayloadIncomplete {
+        /// Payload bytes received so far.
+        bytes_received: usize,
+        /// Payload length the header declares.
+        expected: usize,
+    },
+    /// A complete frame is buffered.
+    Complete,
+    /// The declared payload exceeds the configured maximum.
+    Oversized,
 }
 
-impl EofContext {
-    /// Inspect buffered bytes without consuming them before EOF classification.
-    fn from_buffer(src: &BytesMut) -> Self {
-        Self {
-            bytes_received: src.len(),
-            expected: declared_frame_length(src),
+impl BufferState {
+    /// Classify `src` without consuming any of it.
+    fn classify(src: &BytesMut, max_frame_length: usize) -> Self {
+        if src.len() < LENGTH_HEADER_SIZE {
+            return Self::HeaderIncomplete {
+                bytes_received: src.len(),
+            };
         }
+        let Some(declared) = declared_payload_length(src) else {
+            // The header slice is present, so this is unreachable in practice;
+            // treat it as an incomplete header rather than guessing.
+            return Self::HeaderIncomplete {
+                bytes_received: src.len(),
+            };
+        };
+        if declared > max_frame_length {
+            return Self::Oversized;
+        }
+        let received = src.len() - LENGTH_HEADER_SIZE;
+        if received < declared {
+            return Self::PayloadIncomplete {
+                bytes_received: received,
+                expected: declared,
+            };
+        }
+        Self::Complete
     }
 }
 
-/// Read the payload length declared by the length prefix, when it is present.
-fn declared_frame_length(src: &BytesMut) -> Option<usize> {
-    src.get(..LENGTH_HEADER_SIZE)
-        .and_then(|slice| <[u8; LENGTH_HEADER_SIZE]>::try_from(slice).ok())
-        .and_then(|bytes| usize::try_from(read_network_u32(bytes)).ok())
+/// Read the big-endian length prefix without consuming it.
+fn declared_payload_length(src: &BytesMut) -> Option<usize> {
+    let header = src.get(..LENGTH_HEADER_SIZE)?;
+    let bytes = <[u8; LENGTH_HEADER_SIZE]>::try_from(header).ok()?;
+    usize::try_from(read_network_u32(bytes)).ok()
 }
 
 /// Reclassify `tokio_util`'s oversize error as a structured framing error.
@@ -243,9 +286,9 @@ fn declared_frame_length(src: &BytesMut) -> Option<usize> {
 /// The inner codec reports a length prefix beyond `max` as an [`io::Error`] of
 /// kind `InvalidData` whose source is [`LengthDelimitedCodecError`]. Reported
 /// unchanged, the recovery coordinator would present it to a
-/// [`RecoveryPolicyHook`] as [`CodecError::Io`] and record
-/// `error_type="io"`, so an operator could not tell a framing failure apart
-/// from a transport failure.
+/// [`RecoveryPolicyHook`] as [`CodecError::Io`] and record `error_type="io"`,
+/// so an operator could not tell a framing failure apart from a transport
+/// failure.
 ///
 /// The declared length is still in `src` because the inner decoder returns
 /// before it consumes the header. If it cannot be read, the error is passed
@@ -260,38 +303,24 @@ fn as_framing_error(error: io::Error, src: &BytesMut, max: usize) -> io::Error {
         return error;
     }
 
-    declared_frame_length(src).map_or(error, |size| {
+    declared_payload_length(src).map_or(error, |size| {
         CodecError::Framing(FramingError::OversizedFrame { size, max }).into()
     })
 }
 
-/// Build the appropriate EOF error based on remaining buffer state.
+/// Recover the structured EOF condition from a decoder's I/O error.
 ///
-/// Determines whether the connection closed mid-header or mid-frame:
-///
-/// - [`EofError::MidHeader`]: Fewer than 4 bytes received (incomplete length prefix). The
-///   connection closed before the full frame header could be read.
-/// - [`EofError::MidFrame`]: Header complete but payload truncated. The length prefix was
-///   successfully read but the connection closed before the full payload arrived.
-fn build_eof_error(context: EofContext) -> io::Error {
-    context.expected.map_or_else(
-        || {
-            // EOF during header read
-            CodecError::Eof(EofError::MidHeader {
-                bytes_received: context.bytes_received,
-                header_size: LENGTH_HEADER_SIZE,
-            })
-            .into()
-        },
-        |expected| {
-            // EOF during payload read - we have a header but incomplete payload
-            CodecError::Eof(EofError::MidFrame {
-                bytes_received: context.bytes_received.saturating_sub(LENGTH_HEADER_SIZE),
-                expected,
-            })
-            .into()
-        },
-    )
+/// The default [`LengthDelimitedDecoder`] reports truncation as
+/// [`CodecError::Eof`]. A custom decoder opts in to `on_eof` dispatch by
+/// returning the same error from its `decode_eof` implementation.
+pub(crate) fn eof_condition(error: &io::Error) -> Option<EofError> {
+    error
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<CodecError>())
+        .and_then(|codec_error| match codec_error {
+            CodecError::Eof(eof) => Some(*eof),
+            _ => None,
+        })
 }
 
 /// Encoder half of [`LengthDelimitedFrameCodec`].
