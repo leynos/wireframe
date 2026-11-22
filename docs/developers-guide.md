@@ -1259,7 +1259,15 @@ and its rationale). Key points for contributors:
   ignores the attribute on `const` and `static` value declarations, and on a
   binary-expression initializer. Move such a value into a skipped `const fn`
   instead; `initial_read_buffer_capacity` in `src/client/connect_parts.rs`
-  shows the workaround. Upstream
+  shows the workaround.
+- Only item scopes are usable here. Rust rejects inner attributes and
+  expression attributes on procedural macros without unstable feature gates,
+  which this workspace does not enable, so the whole-file `#![mutants::skip]`
+  form and expression-level skips do not compile (an expression-level
+  `#[cfg_attr(test, mutants::skip)]` fails in test builds). Apply the attribute
+  to functions, `impl`, `trait`, or `mod` items, and use an inline `mod` block
+  for a module-wide skip.
+- Upstream
   [PR #622](https://github.com/sourcefrog/cargo-mutants/pull/622) adds
   `const`/`static` support after 27.1.0; revisit this guidance once the pinned
   executable includes that change.
