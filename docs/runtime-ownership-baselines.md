@@ -1068,6 +1068,12 @@ uncontended pool rows stayed at 2053. That is the harness showing it did not
 drift underneath the comparison, and it separates this change from the
 connection-path work beneath it.
 
+The pair's revisions are the ones the runs measured. The parent has since
+gained connection-runtime commits that do not touch preparation, the builder,
+or the benchmark harness, so the preparation rows remain the evidence for the
+four-allocation claim; the prepared-root serving row is reported for the pair's
+revisions, where both ends were measured.
+
 The figures below state what the configured workload allocates on this branch.
 Their within-capture comparison with the plain prepared root shows what the
 four installed components add.

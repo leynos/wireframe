@@ -73,6 +73,12 @@ owned values while keeping the layers whose independent lifetime is real:
       context the parent now returns is the one installed in the pipeline.
       The controlled pair was re-run on the new parent and head: the parent
       still records 116/500/696/424 and the branch 100/483/680/420.
+- [x] Restacked again onto the parent's next rewrite (`70df9586`), which
+      replaced the prepared actor's copied context with a named constructor.
+      Setup still dispatches through the one hooks owner, and the new
+      constructor receives only the connection identity it logs with. The
+      controlled pair's revisions are unchanged because the parent's new
+      commits do not touch preparation, the builder, or the harness.
 - [ ] Push the follow-up round and renew hosted checks and review.
 
 ## Decision log
