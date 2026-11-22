@@ -201,6 +201,17 @@ fn custom_hook_overrides_default_policy() {
 )]
 #[case::io(WireframeError::<()>::from_io(io::Error::other("reset")), false)]
 #[case::protocol(WireframeError::<()>::from(()), false)]
+#[case::duplicate_route(WireframeError::<()>::DuplicateRoute(7), false)]
+#[case::codec_io(
+    WireframeError::<()>::from_codec(CodecError::Io(io::Error::other("reset"))),
+    false
+)]
+#[case::codec_protocol(
+    WireframeError::<()>::from_codec(CodecError::Protocol(ProtocolError::UnknownMessageType {
+        type_id: 99,
+    })),
+    false
+)]
 fn wireframe_error_is_clean_close(#[case] error: WireframeError<()>, #[case] expected: bool) {
     assert_eq!(
         error.is_clean_close(),
