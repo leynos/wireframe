@@ -1549,6 +1549,16 @@ If a workflow's behaviour genuinely depends on a feature only present from a
 particular commit onwards, express that as a comment or a changelog note, not
 as a test assertion on the SHA string.
 
+`tests/workflow_contracts/action_pinning_test.py` applies the shape rule to
+every third-party action and reusable workflow, not only to
+`leynos/shared-actions`. A `uses:` ref on an owner CodeQL does not trust
+(`actions`, `github` and `advanced-security` are trusted) must be a full commit
+hash, so a mutable tag fails review instead of waiting for the default-setup
+CodeQL run after merge. The rule mirrors CodeQL's `actions/unpinned-tag` query,
+which reported alert 13 against the `delayed-pr-comment.yml` lane. The pin
+carries its release in a comment, as in `# v3.0.1`, so a Dependabot bump stays
+reviewable.
+
 ## Development builds
 
 The repository pins `nightly-2026-11-13` with `rustfmt`, `clippy`, and
