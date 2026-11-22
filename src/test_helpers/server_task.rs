@@ -356,8 +356,16 @@ mod tests {
 
     #[tokio::test]
     async fn run_and_abort_surfaces_a_server_panic() {
+        // An abort can pre-empt a task that has not run yet, in which case the
+        // panic never happens and the outcome is a clean cancellation. Wait for
+        // the task to start so the panic is guaranteed to precede the abort.
         // The panic is deliberate and the runtime reports it to stderr.
-        let handle = tokio::spawn(async { panic!("server panicked") });
+        let (started, has_started) = oneshot::channel();
+        let handle = tokio::spawn(async move {
+            let _signalled = started.send(());
+            panic!("server panicked");
+        });
+        has_started.await.expect("the server task must start");
 
         let outcome = ServerTaskGuard::new(handle)
             .run_and_abort(async { Ok::<_, BodyError>(()) })
