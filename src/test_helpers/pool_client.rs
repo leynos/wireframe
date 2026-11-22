@@ -17,6 +17,10 @@ use tokio::{
 };
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
+// The builder recipes now live in `pool_builders`, but external test-support
+// consumers address them through this module's original public path. Keep
+// that path working so the move stays source-compatible.
+pub use super::pool_builders::{build_pooled_client, build_preamble_pool};
 use crate::{
     client::{ClientError, WireframeClientPool},
     preamble::{read_preamble, write_preamble},

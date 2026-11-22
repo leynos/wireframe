@@ -128,7 +128,7 @@ async fn uncontended_acquisition_records_no_capacity_waits(
 #[case(16)]
 #[tokio::test]
 async fn a_pool_starts_exactly_one_scheduler_task(#[case] pool_size: usize) {
-    let (_server, pool, _preamble) = wireframe::test_helpers::build_preamble_pool(
+    let (_server, pool, _preamble) = wireframe::test_helpers::pool_client::build_preamble_pool(
         wireframe::client::ClientPoolConfig::default().pool_size(pool_size),
     )
     .await
