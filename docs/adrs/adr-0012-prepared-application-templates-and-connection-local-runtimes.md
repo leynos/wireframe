@@ -506,17 +506,18 @@ reference is still alive alongside the pipeline's — and `on_connection_setup`
 runs at most once per hooks value. The frame pipeline holds a crate-private
 `ConnectionProtocol` pairing that hooks value with the connection's single
 `ConnectionContext`; it is the only hook owner on the prepared path, so the
-connection actor built there is handed `ProtocolHooks::None`. The actor's own
-`ConnectionProtocol` field then holds an inert snapshot of that context that no
-callback receives, and it holds no protocol reference; the pipeline's context
-is the only one the prepared path dispatches against, and setup receives that
-same value before it is installed. An actor driven directly through
-`with_hooks` is the single owner instead. That pairing is the input the
-ownership collapse under [#648](https://github.com/leynos/wireframe/issues/648)
-needs: the actor and pipeline can be folded into one runtime without revisiting
-hook semantics. Every packet-oriented outbound path now runs `before_send`
-exactly once per emitted packet — handler responses, push frames, streamed
-responses, multi-packet channel frames, and stream-end terminators — and no
+connection actor built there is constructed with inert hooks and an empty
+context. The actor's own `ConnectionProtocol` field therefore holds no copy of
+the connection's context and no protocol reference; it receives only the
+connection identifier and peer address it logs with. The pipeline's context is
+the only one the prepared path dispatches against, and setup receives that same
+value before it is installed. An actor driven directly through `with_hooks` is
+the single owner instead. That pairing is the input the ownership collapse under
+[#648](https://github.com/leynos/wireframe/issues/648) needs: the actor and
+pipeline can be folded into one runtime without revisiting hook semantics.
+Every packet-oriented outbound path now runs `before_send` exactly once per
+emitted packet — handler responses, push frames, streamed responses,
+multi-packet channel frames, and stream-end terminators — and no
 transport-frame hook is introduced, so the
 [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
 packet boundary is unchanged. Section 8 records that boundary against #644's
@@ -805,9 +806,10 @@ connection. `forward_response` dispatches the protocol error through the
 pipeline, then asks the same owner for the stream terminator and runs the
 completion hook, so every callback that follows a frame shares one context and
 one strong reference to the installed protocol. The actor built for a prepared
-connection is handed `ProtocolHooks::None` and keeps neither a protocol
-reference nor a context of its own; an actor driven directly through
-`with_hooks` owns its own value instead.
+connection uses a named prepared constructor that installs inert hooks and an
+empty context, and it keeps neither a protocol reference nor a copy of the
+connection's context; an actor driven directly through `with_hooks` owns its
+own value instead.
 
 `on_connection_setup` is the one callback that does not run through the
 pipeline's dispatch methods: it runs once per connection from
@@ -817,7 +819,7 @@ registry entry come into existence there. It receives the connection's one hook
 context, carrying the identifier the actor just published and the peer address,
 and that same value is then installed in the pipeline, so any state setup
 leaves in the context is what every other callback observes. The actor itself
-keeps no hook context: it holds an inert snapshot of the same value for its
-connection-scoped logging, its hooks never dispatch, and the reference used for
-the setup call is not retained, so a live connection still holds exactly one
-strong protocol reference. `on_eof` remains unreached on the prepared path.
+keeps no hook context: it receives only the identifier and peer address it logs
+with, its hooks never dispatch, and the reference used for the setup call is
+not retained, so a live connection still holds exactly one strong protocol
+reference. `on_eof` remains unreached on the prepared path.

@@ -118,8 +118,8 @@ impl<T> FramePipeline<T> {
     /// this pipeline exists, so the pipeline is told the identity rather than
     /// inventing one. The value installed here is the one the setup callback
     /// observed, so state setup leaves in it is visible to every later
-    /// callback. The response actor holds only an inert snapshot for its own
-    /// connection-scoped logging; its hooks never dispatch, so the pipeline's
+    /// callback. The response actor holds no copy: it receives only the
+    /// identity it logs with, and its hooks never dispatch, so the pipeline's
     /// context is the connection's one hook context.
     pub(crate) const fn set_context(&mut self, context: ConnectionContext) {
         self.protocol.set_context(context);

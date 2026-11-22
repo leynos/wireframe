@@ -26,13 +26,8 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     app::Envelope,
     codec::FrameCodec,
-    connection::{
-        ConnectionActor,
-        ConnectionChannels,
-        PEER_CLOSED_RESPONSE_GRACE,
-        UntrackedActorInit,
-    },
-    hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
+    connection::{ConnectionActor, ConnectionChannels, PEER_CLOSED_RESPONSE_GRACE},
+    hooks::{ConnectionContext, WireframeProtocol},
     push::{FrameLike, PushHandle, PushQueuesBuilder},
     session::{ConnectionId, SessionRegistry},
 };
@@ -143,9 +138,9 @@ where
 ///
 /// The returned context is the value the caller installs in the frame
 /// pipeline, so the state setup leaves in it is the state every later callback
-/// sees. The actor receives a snapshot of the same value for its
-/// connection-scoped logging only: its hooks are inert, so no callback ever
-/// observes that copy.
+/// sees. The actor holds no copy of it: it receives only the connection
+/// identifier and peer address it logs with, and its hooks are inert, so the
+/// pipeline's context is the connection's one hook context.
 pub(super) fn build_connection_actor<F>(
     init: ConnectionActorInit<'_, F>,
 ) -> io::Result<(
@@ -181,21 +176,20 @@ where
         setup_protocol.on_connection_setup(handle.clone(), &mut connection_context);
     }
 
-    // The actor is built without protocol hooks. Every prepared-path callback
-    // runs through the connection's [`FramePipeline`] owner, which holds the
-    // connection's single protocol reference and context. Installing the
-    // protocol here as well would give the connection a second strong
-    // reference, and dispatching through both would run `before_send` twice on
-    // the same frame. The actor still carries a context for its own
-    // connection-scoped logging, so it receives a snapshot taken after setup;
-    // its hooks never dispatch, so that copy is not a second hook context.
-    let mut actor = ConnectionActor::new_untracked(UntrackedActorInit {
-        channels: ConnectionChannels::new(queues, handle.clone()),
-        response: None,
-        shutdown: shutdown.clone(),
-        hooks: ProtocolHooks::default(),
-        ctx: connection_context.clone(),
-    });
+    // The prepared constructor builds the actor with inert hooks and an empty
+    // context: every prepared-path callback runs through the connection's
+    // [`FramePipeline`] owner, which holds the connection's single protocol
+    // reference and context. Installing the protocol here as well would give
+    // the connection a second strong reference, and dispatching through both
+    // would run `before_send` twice on the same frame. The actor receives only
+    // the identity it logs with, so no copy of the connection's hook context
+    // exists outside the pipeline.
+    let mut actor = ConnectionActor::new_prepared_untracked(
+        ConnectionChannels::new(queues, handle.clone()),
+        shutdown.clone(),
+        connection_context.connection_id(),
+        connection_context.peer_addr(),
+    );
     // The connection boundary owns the idle-grace policy; the actor only needs
     // a bound, not an opinion about how long a vanished peer may hold a
     // response open.

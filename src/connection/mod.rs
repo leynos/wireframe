@@ -275,6 +275,32 @@ where
         )
     }
 
+    /// Create the untracked actor a prepared connection drives.
+    ///
+    /// The prepared path dispatches every protocol callback through the
+    /// connection's `FramePipeline`, so this actor is built with inert hooks
+    /// and an empty context and never invokes a hook. It receives the
+    /// connection's logging identity explicitly, which keeps the pipeline's
+    /// context the only copy of the connection's hook state.
+    #[must_use]
+    pub(crate) fn new_prepared_untracked(
+        channels: ConnectionChannels<P>,
+        shutdown: CancellationToken,
+        connection_id: Option<ConnectionId>,
+        peer_addr: Option<SocketAddr>,
+    ) -> Self {
+        let mut actor = Self::new_untracked(UntrackedActorInit {
+            channels,
+            response: None,
+            shutdown,
+            hooks: ProtocolHooks::default(),
+            ctx: ConnectionContext::default(),
+        });
+        actor.connection_id = connection_id;
+        actor.peer_addr = peer_addr;
+        actor
+    }
+
     /// Shared constructor used by the tracked and untracked entry points.
     fn build(init: ActorInit<F, E, P>, counter: Option<ActiveConnection>) -> Self {
         let ActorInit {
