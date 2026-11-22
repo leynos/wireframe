@@ -8,6 +8,8 @@ use std::{
     error::Error,
     sync::{
         Arc,
+        Mutex,
+        PoisonError,
         atomic::{AtomicU64, Ordering},
     },
     time::Duration,
@@ -247,12 +249,57 @@ fn boxed_error(error: impl Error + Send + Sync + 'static) -> Box<dyn Error + Sen
     Box::new(error)
 }
 
-/// Receive one lifecycle identifier with a bounded wait.
-async fn recv_id(receiver: &mut mpsc::UnboundedReceiver<u64>) -> TestResult<u64> {
-    timeout(Duration::from_secs(2), receiver.recv())
-        .await
-        .map_err(|_| "lifecycle event did not arrive")?
-        .ok_or_else(|| "lifecycle channel closed".into())
+/// Snapshot a lifecycle log.
+fn events(log: &Arc<Mutex<Vec<u64>>>) -> Vec<u64> {
+    log.lock().unwrap_or_else(PoisonError::into_inner).clone()
+}
+
+/// Wait until a lifecycle log holds at least `expected` entries.
+async fn wait_for_events(log: &Arc<Mutex<Vec<u64>>>, expected: usize) -> TestResult<()> {
+    timeout(Duration::from_secs(2), async {
+        while events(log).len() < expected {
+            sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .map_err(|_| {
+        format!(
+            "expected {expected} lifecycle events, saw {:?}",
+            events(log)
+        )
+    })?;
+    Ok(())
+}
+
+/// Build the setup hook that gives each connection its own state.
+///
+/// The identifier is assigned when setup runs, and the same call records it so
+/// both setups can be observed before either client closes.
+fn connection_setup(
+    next_id: Arc<AtomicU64>,
+    setups: Arc<Mutex<Vec<u64>>>,
+) -> impl Fn() -> std::future::Ready<ConnectionState> + Send + Sync + 'static {
+    move || {
+        let id = next_id.fetch_add(1, Ordering::SeqCst);
+        setups
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(id);
+        std::future::ready(ConnectionState { id })
+    }
+}
+
+/// Build the teardown hook that records the state it was given.
+fn connection_teardown(
+    teardowns: Arc<Mutex<Vec<u64>>>,
+) -> impl Fn(ConnectionState) -> std::future::Ready<()> + Send + Sync + 'static {
+    move |state| {
+        teardowns
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(state.id);
+        std::future::ready(())
+    }
 }
 
 /// Two live connections receive distinct setup state, each torn down once.
@@ -263,32 +310,13 @@ async fn recv_id(receiver: &mut mpsc::UnboundedReceiver<u64>) -> TestResult<u64>
 /// once, rather than sharing one state or running a teardown twice.
 #[tokio::test]
 async fn overlapping_connections_receive_distinct_setup_state() -> TestResult<()> {
-    let (setup_tx, mut setup_rx) = mpsc::unbounded_channel::<u64>();
-    let (teardown_tx, mut teardown_rx) = mpsc::unbounded_channel::<u64>();
+    let setups = Arc::new(Mutex::new(Vec::new()));
+    let teardowns = Arc::new(Mutex::new(Vec::new()));
     let next_id = Arc::new(AtomicU64::new(1));
     let prepared = WireframeApp::<BincodeSerializer, (), Envelope>::new()?
-        .on_connection_setup({
-            let next_id = Arc::clone(&next_id);
-            let setup_tx = setup_tx.clone();
-            move || {
-                let id = next_id.fetch_add(1, Ordering::SeqCst);
-                let setup_tx = setup_tx.clone();
-                async move {
-                    let _ = setup_tx.send(id);
-                    ConnectionState { id }
-                }
-            }
-        })
+        .on_connection_setup(connection_setup(Arc::clone(&next_id), Arc::clone(&setups)))
         .map_err(boxed_error)?
-        .on_connection_teardown({
-            let teardown_tx = teardown_tx.clone();
-            move |state: ConnectionState| {
-                let teardown_tx = teardown_tx.clone();
-                async move {
-                    let _ = teardown_tx.send(state.id);
-                }
-            }
-        })
+        .on_connection_teardown(connection_teardown(Arc::clone(&teardowns)))
         .map_err(boxed_error)?
         .route(1, no_op_handler())?
         .prepare()
@@ -301,31 +329,30 @@ async fn overlapping_connections_receive_distinct_setup_state() -> TestResult<()
     let task_a = spawn_connection(Arc::clone(&root), server_a);
     let task_b = spawn_connection(Arc::clone(&root), server_b);
 
-    let first = recv_id(&mut setup_rx).await?;
-    let second = recv_id(&mut setup_rx).await?;
+    wait_for_events(&setups, 2).await?;
+    let setup_ids = events(&setups);
+    let mut distinct_setup_ids = sorted(setup_ids.clone());
+    distinct_setup_ids.dedup();
     check_equal(
-        &(first != second),
-        &true,
+        &distinct_setup_ids.len(),
+        &setup_ids.len(),
         "each connection received its own setup state",
     )?;
 
     client_a.shutdown().await?;
     finish_connection(task_a).await?;
-    let teardown_a = recv_id(&mut teardown_rx).await?;
+    wait_for_events(&teardowns, 1).await?;
     client_b.shutdown().await?;
     finish_connection(task_b).await?;
-    let teardown_b = recv_id(&mut teardown_rx).await?;
+    wait_for_events(&teardowns, 2).await?;
 
+    let teardown_ids = events(&teardowns);
     check_equal(
-        &sorted(vec![teardown_a, teardown_b]),
-        &sorted(vec![first, second]),
+        &sorted(teardown_ids.clone()),
+        &sorted(setup_ids),
         "teardown received each setup state exactly once",
     )?;
-    check_equal(
-        &teardown_rx.try_recv().is_err(),
-        &true,
-        "no connection tore down twice",
-    )?;
+    check_equal(&teardown_ids.len(), &2, "no connection tore down twice")?;
     Ok(())
 }
 

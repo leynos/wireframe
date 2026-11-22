@@ -9,7 +9,10 @@
 #![cfg(not(loom))]
 #![forbid(unsafe_code)]
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, PoisonError},
+    time::Duration,
+};
 
 use bytes::Bytes;
 use tokio::time::timeout;
@@ -30,6 +33,18 @@ type InstalledProtocol = Arc<dyn WireframeProtocol<Frame = Bytes, ProtocolError 
 /// A handler that ignores every request; this probe only needs a live route.
 fn no_op_handler() -> Handler<Envelope> { Arc::new(|_env: &Envelope| Box::pin(async {})) }
 
+/// Compare two values, returning a test error rather than panicking.
+fn check_equal<T>(actual: &T, expected: &T, message: &str) -> TestResult<()>
+where
+    T: PartialEq + std::fmt::Debug,
+{
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!("{message}: expected {expected:?}, got {actual:?}").into())
+    }
+}
+
 /// Protocol that pauses inside setup so the test can read the live count.
 struct PausingSetupProtocol {
     /// Signals the test that setup has started.
@@ -46,14 +61,16 @@ impl WireframeProtocol for PausingSetupProtocol {
     type ProtocolError = ();
 
     fn on_connection_setup(&self, _handle: PushHandle<Self::Frame>, _ctx: &mut ConnectionContext) {
-        let _ = self.entered.send(());
-        // Bounded so a scheduling mistake fails the assertion below instead of
-        // hanging the suite. The test releases setup as soon as it has read
-        // the count.
-        let _ = self
+        // A closed observer means the test has already stopped waiting; the
+        // count it reads afterwards reports that failure.
+        let _notified = self.entered.send(());
+        // Bounded so a scheduling mistake fails the test's own wait rather
+        // than hanging the suite. The test releases setup as soon as it has
+        // read the count.
+        let _resumed = self
             .resume
             .lock()
-            .expect("resume lock")
+            .unwrap_or_else(PoisonError::into_inner)
             .recv_timeout(Duration::from_secs(5));
     }
 }
@@ -73,42 +90,44 @@ async fn prepared_setup_holds_one_protocol_reference() -> TestResult<()> {
             entered: entered_tx,
             resume: std::sync::Mutex::new(resume_rx),
         });
-    let prepared = app
+    let template = app
         .prepare()
         .await
         .map_err(|error| -> Box<dyn std::error::Error + Send + Sync> { Box::new(error) })?;
-    let prepared = Arc::new(prepared);
-    let probe: InstalledProtocol = prepared.protocol().expect("protocol should be installed");
-    assert_eq!(
-        Arc::strong_count(&probe),
-        2,
-        "the prepared template holds one reference and this probe adds one"
-    );
+    let root = Arc::new(template);
+    let probe: InstalledProtocol = root.protocol().ok_or("protocol should be installed")?;
+    check_equal(
+        &Arc::strong_count(&probe),
+        &2,
+        "the prepared template holds one reference and this probe adds one",
+    )?;
 
     let (client, server) = tokio::io::duplex(64);
     let connection = tokio::spawn({
-        let prepared = Arc::clone(&prepared);
-        async move { prepared.handle_connection_result(server).await }
+        let driven = Arc::clone(&root);
+        async move { driven.handle_connection_result(server).await }
     });
 
-    entered_rx.recv().await.expect("setup should start");
-    assert_eq!(
-        Arc::strong_count(&probe),
-        3,
+    entered_rx.recv().await.ok_or("setup should start")?;
+    check_equal(
+        &Arc::strong_count(&probe),
+        &3,
         "setup holds the template's reference, this probe, and the connection's single hooks \
-         reference"
-    );
-    resume_tx.send(()).expect("resume setup");
+         reference",
+    )?;
+    resume_tx
+        .send(())
+        .map_err(|_| "the test still holds the resume receiver")?;
 
     drop(client);
-    timeout(Duration::from_secs(2), connection)
+    let joined = timeout(Duration::from_secs(2), connection)
         .await
-        .expect("the connection should finish")?
-        .expect("the connection should exit cleanly");
-    assert_eq!(
-        Arc::strong_count(&probe),
-        2,
-        "the finished connection released its single reference"
-    );
+        .map_err(|_| "the connection should finish")?;
+    joined??;
+    check_equal(
+        &Arc::strong_count(&probe),
+        &2,
+        "the finished connection released its single reference",
+    )?;
     Ok(())
 }

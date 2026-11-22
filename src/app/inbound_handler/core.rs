@@ -165,7 +165,7 @@ where
             codec,
             message_assembler,
             fragmentation,
-            protocol_hooks,
+            mut protocol_hooks,
             memory_budgets,
             read_timeout_ms,
             shutdown,
@@ -186,7 +186,6 @@ where
         // connection's single protocol reference, then that same value moves
         // into the pipeline below. Cloning the protocol for setup would give
         // the connection a second strong reference while setup is pending.
-        let mut protocol_hooks = protocol_hooks;
         let (response_actor, cancel_on_exit, connection_context) =
             build_connection_actor(ConnectionActorInit {
                 protocol_hooks: &mut protocol_hooks,
