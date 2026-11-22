@@ -17,14 +17,14 @@ mod tests;
 use parsing::{
     Fence,
     SourceLine,
+    advance_open_example,
     fence_info,
     fence_source,
-    is_closing_fence,
     is_marker_like,
     opening_fence,
     parse_marker,
-    reject_block_quote_example,
     reject_list_container_example,
+    scan_top_level_line,
     valid_identifier,
 };
 
@@ -231,20 +231,12 @@ pub fn parse_document(
     let mut open: Option<OpenExample> = None;
 
     for (index, line) in document.lines().iter().copied().enumerate() {
-        if let Some(active) = open.as_ref() {
-            if is_closing_fence(SourceLine::new(line), active.fence) {
-                parsed
-                    .examples
-                    .push(finish_example(document, active, index)?);
-                open = None;
-            }
+        if let Some(active) = open.take() {
+            open = advance_open_example(document, active, line, index, &mut parsed)?;
             continue;
         }
 
-        reject_block_quote_example(document, index)?;
-        reject_list_container_example(document, index)?;
-        validate_marker_line(document, index)?;
-        open = parse_open_example(document, index, known, &mut parsed)?;
+        open = scan_top_level_line(document, index, known, &mut parsed)?;
     }
 
     if let Some(active) = open {

@@ -7,7 +7,16 @@
 //! the parent free to walk the document and keeps both files within the
 //! repository's module size limit.
 
-use super::PublishedDocument;
+use std::collections::HashSet;
+
+use super::{
+    OpenExample,
+    ParsedDocument,
+    PublishedDocument,
+    finish_example,
+    parse_open_example,
+    validate_marker_line,
+};
 
 /// One line of published Markdown, as the parser sees it.
 ///
@@ -62,6 +71,41 @@ pub(super) fn opening_fence(line: SourceLine<'_>) -> Option<Fence> {
         .take_while(|character| *character == marker)
         .count();
     (length >= 3).then_some(Fence { marker, length })
+}
+
+/// Close `active` when `line` carries its closing fence, or return it open.
+///
+/// Keeping this branch out of the walk avoids nested conditionals while the
+/// open example's body stays opaque to the container checks.
+pub(super) fn advance_open_example(
+    document: &PublishedDocument<'_>,
+    active: OpenExample,
+    line: &str,
+    index: usize,
+    parsed: &mut ParsedDocument,
+) -> Result<Option<OpenExample>, String> {
+    if !is_closing_fence(SourceLine::new(line), active.fence) {
+        return Ok(Some(active));
+    }
+    parsed
+        .examples
+        .push(finish_example(document, &active, index)?);
+    Ok(None)
+}
+
+/// Reject a hidden example and record the one a top-level line opens.
+///
+/// Grouping the checks leaves the walk with one fallible call per line.
+pub(super) fn scan_top_level_line(
+    document: &PublishedDocument<'_>,
+    index: usize,
+    known: &HashSet<String>,
+    parsed: &mut ParsedDocument,
+) -> Result<Option<OpenExample>, String> {
+    reject_block_quote_example(document, index)?;
+    reject_list_container_example(document, index)?;
+    validate_marker_line(document, index)?;
+    parse_open_example(document, index, known, parsed)
 }
 
 /// Return whether `line` closes `fence`.
