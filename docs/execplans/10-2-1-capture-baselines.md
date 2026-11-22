@@ -464,14 +464,14 @@ Trusted, not verified here:
   `src/codec/tests/mod.rs:72-88`, plus V-2's accounting, parameterized over
   codec, payload class, and access mode. An in-crate test asserts the same
   identity across the production dispatch seam.
-- **Measurement of the byte bound**: the bound is enforced over a bounded batch
-  of four passes for middleware and sixteen for hooks. `async_trait` boxes one
-  future per middleware call at a payload-independent cost of about 270 bytes,
-  so a sixteen-pass `Large` batch sums to roughly 69 KiB and exceeds `P`
-  without copying anything; four passes keep that fixed cost far below `P`,
-  while a single payload copy anywhere in the batch still exceeds the bound.
-  The sixteen-pass run is kept for the count-equality relation, which is what
-  proves payload independence.
+- **Measurement of the byte bound**: the bound is enforced over the standard
+  sixteen-pass batch for middleware and hooks. `async_trait` boxes one future
+  per middleware call at a payload-independent cost of roughly 235 bytes, so a
+  sixteen-pass `Large` batch allocates about 3.7 KiB and stays two orders of
+  magnitude below `P`, while a single payload copy anywhere in the batch would
+  exceed the bound. The earlier 69,264-byte reading on the same batch included
+  the payload buffer itself, which the pre-built-buffer change moved outside
+  the window; the two figures are not comparable.
 - **Artefact**: `wireframe_testing/tests/pipeline_allocation_invariants.rs`
   and a test in `src/app/frame_handling/`.
 - **Non-vacuity**: a test-only `CopyingPolicy` that replaces the frame with
@@ -840,12 +840,13 @@ for the roadmap edit.
   covers transport framing at arbitrary payload lengths; and the tolerance
   figures are recomputed (superseded by the EP-M10 figures below).
 - [x] (2026-11-22) EP-M10 (third assessment follow-up). V-4's byte bound is
-  now enforced for middleware over a four-pass batch, with the sixteen-pass run
-  retained for the count relation, so the invariants binary reports 21 checks
-  and the obligation's invariant and method agree. The tolerance figures are
-  reconciled to GitHub's comparison: 2,692 code/test lines across 37 files and
-  375 documentation lines. The literal `make bench-codec` run is recorded as
-  the EP-M1 evidence.
+  now enforced for middleware over the standard sixteen-pass batch, which
+  allocates 3,728 bytes for the large class, so the invariants binary reports
+  21 checks and the obligation's invariant and method agree. The earlier
+  69,264-byte reason for a single-pass bound had included the payload buffer
+  itself and predated the pre-built-buffer change. The tolerance figures are
+  reconciled to GitHub's comparison, and the literal `make bench-codec` run is
+  recorded as the EP-M1 evidence.
 
 ## Surprises and discoveries
 
@@ -926,12 +927,15 @@ for the roadmap edit.
   new binary now builds its scenario outside itself.
 
 - Observation: `async_trait` boxes one future per middleware call, which costs
-  roughly 270 bytes per pass — payload-independent, but enough that a
-  16-iteration batch exceeds the 64 KiB payload class in total. Evidence: the
-  residual 69,264 bytes over 16 iterations once the buffer was excluded.
-  Impact: the byte bound is stated over a single pass, where the margin against
-  `P` is two orders of magnitude, and payload-independence is enforced
-  separately by the count-equality relation over a 16-iteration batch.
+  roughly 235 bytes per pass — payload-independent. Evidence: a 16-iteration
+  batch over the large class now reports 3,728 bytes (four passes report 944),
+  measured on 2026-11-22. The earlier 69,264-byte reading on the same batch
+  included the payload buffer itself; the pre-built-buffer change moved that
+  allocation outside the window, so the two readings are not comparable.
+  Impact: the byte bound is stated over the full 16-iteration batch, where the
+  margin against `P` is more than an order of magnitude, and
+  payload-independence is enforced by the count-equality relation over the same
+  batch.
 
 - Observation: the behavioural layer cannot install the counting allocator for
   one scenario. Evidence: `#[global_allocator]` is per binary, and the `bdd`
@@ -1099,12 +1103,13 @@ Evidence gathered so far, milestone by milestone.
 
 - **EP-M10 (third assessment follow-up).** The reply accepted the clarification
   only as a clarification and asked for the batch invariant to be enforced or
-  the plan amended by its owner. Four-pass middleware batches now enforce the
-  invariant: the fixed `async_trait` cost is a small fraction of `P` over four
-  passes, and any payload copy in the batch still exceeds the bound. The
-  tolerance figures were recomputed at this head and match GitHub's own
-  base-to-head comparison, and the literal `make bench-codec` command is the
-  EP-M1 evidence.
+  the plan amended by its owner. Re-measuring the batch showed why the earlier
+  single-pass rationale was wrong: the 69,264-byte reading had included the
+  payload buffer, which the pre-built-buffer change moved outside the window.
+  Over the standard sixteen-pass batch the middleware allocates 3,728 bytes, so
+  the batch bound now holds directly, with the count relation over the same
+  batch. The tolerance figures were recomputed at this head, and the literal
+  `make bench-codec` command is the EP-M1 evidence.
 
 What the work cost against the plan's budget is recorded in "Artefacts and
 notes" once the final gates have run.
@@ -1180,7 +1185,7 @@ notes" once the final gates have run.
   tests and 20 passing checks (`/tmp/test-epm8-targeted.out`).
 - Tolerance accounting at EP-M10 against base
   `7ddba3224b58a60b127fcc13990e3858ed87ecd0`, recomputed with
-  `git diff --numstat` and ExecPlans excluded: code and tests 2,692 across 37
+  `git diff --numstat` and ExecPlans excluded: code and tests 2,686 across 37
   files (limit 900 across 16); documentation 375 (limit 300); configuration 14
   (limit 40); the feature-gate script adds 19 lines, outside the three named
   categories. The interface category also escalates: besides the three

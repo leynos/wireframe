@@ -187,29 +187,23 @@ pub(super) fn read_only_middleware_pass_stays_below_payload() {
     }
 }
 
-/// Middleware passes in the batch the byte bound measures.
-///
-/// `async_trait` boxes one future per middleware call at a fixed cost of about
-/// 270 bytes, so sixteen passes sum to more than the large payload without
-/// copying anything. Four passes keep that fixed cost far below `P`, while one
-/// payload copy anywhere in the batch still exceeds the bound outright.
-const MIDDLEWARE_BOUND_ITERATIONS: u64 = 4;
-
 /// A read-only middleware batch allocates less than `P`.
 ///
-/// V-4 states the byte bound over a batch. The count relation over sixteen
-/// passes proves payload independence; this bound proves the batch carries no
-/// payload-sized traffic at all.
+/// V-4 states the byte bound over a batch. `async_trait` boxes one future per
+/// call at a payload-independent cost, so a sixteen-pass batch costs a few
+/// kilobytes and stays two orders of magnitude below the large class, while a
+/// single payload copy in the batch would exceed the bound. The count relation
+/// over the same batch proves the cost does not scale with the payload.
 pub(super) fn read_only_middleware_batch_stays_below_payload() {
     let traffic = middleware_traffic(
         AccessMode::ReadOnly,
         PayloadClass::Large,
-        MIDDLEWARE_BOUND_ITERATIONS,
+        VALIDATION_ITERATIONS,
     );
 
     assert!(
         traffic.bytes < LARGE_PAYLOAD_BYTES,
-        "a {MIDDLEWARE_BOUND_ITERATIONS}-pass read-only middleware batch allocated {} bytes for a \
+        "a {VALIDATION_ITERATIONS}-pass read-only middleware batch allocated {} bytes for a \
          {LARGE_PAYLOAD_BYTES}-byte payload; one payload copy would exceed the bound",
         traffic.bytes
     );
