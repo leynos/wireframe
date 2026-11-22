@@ -1315,6 +1315,50 @@ and its rationale). Key points for contributors:
   `wireframe_testing` are mostly false survivors because that crate's logic is
   exercised chiefly by the root crate's suite; treat its table as advisory.
 
+### Dead-letter drop accounting survivors
+
+The drop accounting moved from `PushHandle` into `src/push/queues/dlq.rs`, so a
+survivor reported against the old `handle.rs` line numbers maps to
+`DeadLetterState::route_or_count` and `DeadLetterState::log_if_due`. Ordinary
+captured-warning tests in `tests/push_dlq_cadence.rs` kill the cadence,
+arithmetic and interval mutants there: they set the count threshold and the
+interval explicitly and parse the `dropped=` field of each emitted warning.
+`tests/push_dlq_logging.rs` covers the warning's content, and
+`tests/push_policies.rs` covers the `dlq=` field of the full-queue warning.
+
+Two groups still show as survivors in the ordinary lane because they are
+compiled only under `cfg(loom)`, so no ordinary test can reach them:
+
+- `PushHandle::probe` in `src/push/queues/handle/mod.rs`, and
+  `PushHandleProbe::dlq_drop_count` and `PushHandleProbe::dlq_reported_count` in
+  `src/push/queues/probe.rs`.
+- `DeadLetterState::reported_count` and `DeadLetterState::pending_count` in
+  `src/push/queues/dlq.rs`.
+
+The `push_dlq` Loom models kill the count replacements: a probe returning a
+constant cannot satisfy the models' two-drop assertion or their
+reported-plus-remaining total. The four `probe` constructor replacements do not
+compile under `--cfg loom`, so that lane reports them as unviable rather than
+caught. Reproduce both lanes with:
+
+<!-- tested-example: developers-guide-015 -->
+```sh
+cargo mutants --in-place --file src/push/queues/dlq.rs
+RUSTFLAGS="--cfg loom" cargo mutants --in-place \
+  --file src/push/queues/dlq.rs \
+  --file src/push/queues/probe.rs \
+  --file src/push/queues/handle/mod.rs \
+  --re 'dlq_drop_count|dlq_reported_count|reported_count|pending_count|PushHandle<F>::probe' \
+  --test-package wireframe-loom
+```
+
+One survivor is accepted rather than annotated: replacing `>` with `>=` in the
+`elapsed() > log_interval` test of `DeadLetterState::log_if_due`. Equality is
+possible in principle, but a real-clock test cannot reliably force an elapsed
+time exactly equal to the interval to nanosecond precision, so this test cannot
+distinguish the two operators. It is an accepted limitation of this test, not
+an equivalence.
+
 ### Workflow contract tests
 
 Because the caller is configuration rather than code, a contract test pins the
@@ -2118,15 +2162,15 @@ that depend on runtime facilities outside the model.
 
 What Loom schedules, and what it cannot, decides what the models may assert:
 
-| Field of `PushHandleInner`    | Type under `cfg(loom)`              | Scheduled by Loom |
-| ----------------------------- | ----------------------------------- | ----------------- |
-| `dlq_drops`                   | `loom::sync::atomic::AtomicUsize`   | yes               |
-| `dlq_last_log`                | `loom::sync::Mutex<Instant>`        | yes               |
-| `dlq_reported` (Loom only)    | `loom::sync::atomic::AtomicUsize`   | yes               |
-| `high_prio_tx`, `low_prio_tx` | `tokio::sync::mpsc::Sender`         | no                |
-| `dlq_tx`                      | `Option<tokio::sync::mpsc::Sender>` | no                |
-| `limiter`                     | `Option<leaky_bucket::RateLimiter>` | no                |
-| the handle's own `Arc`        | `std::sync::Arc`                    | no                |
+| Shared push-path state                  | Type under `cfg(loom)`              | Scheduled by Loom |
+| --------------------------------------- | ----------------------------------- | ----------------- |
+| `DeadLetterState::drops`                | `loom::sync::atomic::AtomicUsize`   | yes               |
+| `DeadLetterState::last_log`             | `loom::sync::Mutex<Instant>`        | yes               |
+| `DeadLetterState::reported` (Loom only) | `loom::sync::atomic::AtomicUsize`   | yes               |
+| `high_prio_tx`, `low_prio_tx`           | `tokio::sync::mpsc::Sender`         | no                |
+| `DeadLetterState::sink`                 | `Option<tokio::sync::mpsc::Sender>` | no                |
+| `limiter`                               | `Option<leaky_bucket::RateLimiter>` | no                |
+| the handle's own `Arc`                  | `std::sync::Arc`                    | no                |
 
 *Table 2: What the Loom models can observe on the push path.*
 
@@ -2166,12 +2210,13 @@ is covered by the deterministic ordering tests and the Stateright model;
 proposes the rest.
 
 Every assertion in the models was shown able to fail by a mutation of
-`route_to_dlq`, `log_dlq_drop` or the gauge guard. The ones that matter most
-replace a `fetch_add` or `fetch_sub` with a separate load and store; the models
-reject it, which is the evidence that Loom is exploring interleavings rather
-than running one schedule. `tests/workflow_contracts/loom_lane_test.py` holds
-the lane to `make test-loom` and the target to its command, read through
-`make --dry-run`. That command passes when it runs zero tests, so
+`DeadLetterState::route_or_count`, `DeadLetterState::log_if_due` or the gauge
+guard. The ones that matter most replace a `fetch_add` or `fetch_sub` with a
+separate load and store; the models reject it, which is the evidence that Loom
+is exploring interleavings rather than running one schedule.
+`tests/workflow_contracts/loom_lane_test.py` holds the lane to `make test-loom`
+and the target to its command, read through `make --dry-run`. That command
+passes when it runs zero tests, so
 `tests/workflow_contracts/loom_models_test.py` holds the package to having
 models to run: every file in `crates/wireframe-loom/tests/` carries
 `#![cfg(loom)]` as its only `cfg` attribute, declares a test, calls
