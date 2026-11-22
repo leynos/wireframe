@@ -58,35 +58,39 @@ const SPARE_HANDOFF_BYTES: usize = 256;
 ///
 /// `bytes` materializes a boxed slice without reallocating when the vector's
 /// length equals its capacity, so a `Bytes` built from the serializer's own
-/// buffer must cost no allocator traffic at all.
+/// buffer must cost no allocator traffic at all. Both payload classes are
+/// measured, because the small class is the one whose control blocks could
+/// otherwise hide a payload allocation.
 pub(super) fn exact_capacity_handoff_allocates_nothing() {
-    let serialized = match BincodeSerializer.serialize(&Envelope::new(
-        1,
-        Some(7),
-        payload_for_class(PayloadClass::Large).to_vec(),
-    )) {
-        Ok(serialized) => serialized,
-        Err(err) => panic!("the default serializer must encode its own envelope: {err}"),
-    };
-    assert_eq!(
-        serialized.len(),
-        serialized.capacity(),
-        "the default serializer must return an exact-capacity buffer; a spare-capacity buffer \
-         would take the control-block path and make this check vacuous"
-    );
+    for payload_class in [PayloadClass::Small, PayloadClass::Large] {
+        let serialized = match BincodeSerializer.serialize(&Envelope::new(
+            1,
+            Some(7),
+            payload_for_class(payload_class).to_vec(),
+        )) {
+            Ok(serialized) => serialized,
+            Err(err) => panic!("the default serializer must encode its own envelope: {err}"),
+        };
+        assert_eq!(
+            serialized.len(),
+            serialized.capacity(),
+            "the default serializer must return an exact-capacity buffer; a spare-capacity buffer \
+             would take the control-block path and make this check vacuous"
+        );
 
-    let traffic = traffic("exact-capacity hand-off", move || {
-        let bytes = bytes_from_vec(serialized);
-        let _len = black_box(bytes.len());
-        Ok(())
-    });
+        let traffic = traffic("exact-capacity hand-off", move || {
+            let bytes = bytes_from_vec(serialized);
+            let _len = black_box(bytes.len());
+            Ok(())
+        });
 
-    assert_eq!(
-        traffic,
-        AllocationTraffic::default(),
-        "an exact-capacity vector must hand off with no allocator traffic; the window reported \
-         {traffic:?}"
-    );
+        assert_eq!(
+            traffic,
+            AllocationTraffic::default(),
+            "an exact-capacity {payload_class:?} vector must hand off with no allocator traffic; \
+             the window reported {traffic:?}"
+        );
+    }
 }
 
 /// A spare-capacity hand-off allocates one control block, and keeps the payload.

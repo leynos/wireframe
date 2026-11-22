@@ -118,15 +118,24 @@ const BASELINES_DOC: &str = include_str!("../../../docs/zero-copy-benchmark-base
 /// The copied-byte test file, as the register names it.
 const THIS_SOURCE: &str = include_str!("../copied_bytes.rs");
 
+/// The allocation target's hand-off checks, as the register names them.
+const HANDOFF_SOURCE: &str = include_str!("../pipeline_allocation_invariants/checks/handoff.rs");
+
 #[test]
 fn inversion_register_names_real_tests() {
-    let sources = [("wireframe_testing/tests/copied_bytes.rs", THIS_SOURCE)];
+    let sources = [
+        ("wireframe_testing/tests/copied_bytes.rs", THIS_SOURCE),
+        (
+            "wireframe_testing/tests/pipeline_allocation_invariants/checks/handoff.rs",
+            HANDOFF_SOURCE,
+        ),
+    ];
     let entries = register_entries(BASELINES_DOC).expect("the register must parse");
     assert_eq!(
         entries.len(),
-        5,
-        "the register must list all five seam assertions; a parser that drops entries would \
-         otherwise pass this check"
+        6,
+        "the register must list all six migration-sensitive assertions; a parser that drops \
+         entries would otherwise pass this check"
     );
     assert!(
         entries
@@ -139,6 +148,12 @@ fn inversion_register_names_real_tests() {
             .iter()
             .any(|entry| entry.test == "seams_charge_one_payload_per_message_at_any_size"),
         "the register must name the generated per-message seam assertion"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.test == "production_outbound_allocates_one_payload"),
+        "the register must name the outbound allocation oracle"
     );
 
     let missing = missing_register_entries(BASELINES_DOC, &sources).expect("the register parses");

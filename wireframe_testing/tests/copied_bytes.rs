@@ -10,8 +10,8 @@
 //! items `11.1.1` and `11.1.2` remove the copies they count, so their failure
 //! is the signal that the migration arrived. The register in
 //! `docs/zero-copy-benchmark-baselines.md` records which test each item flips;
-//! the [`inversion_register`] module checks that it names tests in this file
-//! that still exist.
+//! the [`inversion_register`] module checks that it names tests that still
+//! exist in this file and in the allocation target.
 //!
 //! The counters are process-global, so every test that measures them runs under
 //! `#[serial]`.

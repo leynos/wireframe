@@ -817,6 +817,11 @@ for the roadmap edit.
   extracting `assert_batch_counts_match` removes the duplication, and
   `cs delta main --file` reports no issues in the changed file. Gate evidence
   for this round is recorded under Artefacts below.
+- [x] (2026-11-22) EP-M8 (assessment follow-up). V-5's exact-capacity hand-off
+  now measures both payload classes in the instrumented target, and the
+  outbound allocation oracle is registered as the sixth inversion entry, with
+  the register checker extended to the allocation target's hand-off file. The
+  tolerance escalation remains recorded and pending the owner's decision.
 
 ## Surprises and discoveries
 
@@ -1038,14 +1043,24 @@ Evidence gathered so far, milestone by milestone.
   bytes); V-4's read-only hook count relation across payload classes; and a
   geometric payload sweep for the middleware and hook byte bounds and hook
   identity. The inversion register gains
-  `seams_charge_one_payload_per_message_at_any_size`, and the register test now
-  asserts five entries. The developers' guide documents
-  `benchmark_decode_envelope` and attributes window closure to
+  `seams_charge_one_payload_per_message_at_any_size`, and the register test
+  asserted five entries at that point (six after EP-M8). The developers' guide
+  documents `benchmark_decode_envelope` and attributes window closure to
   `gate::CountingWindow` rather than to `window`. The users' guide documents
   the copied-byte counters and the pipeline-benchmarks helpers, and states that
   the helpers exercise the benchmark harness rather than an application
   boundary. The plan's code-size and public-interface tolerances are exceeded;
   the escalation and its pending decision are recorded in "Artefacts and notes".
+
+- **EP-M8 (assessment follow-up).** The follow-up completeness assessment for
+  head `272ec1a3` found two remaining defects: V-5's exact-capacity hand-off
+  measured only the large payload class, and the new outbound allocation oracle
+  was migration-sensitive without being registered. The hand-off check now
+  loops over both classes, and the register gained a sixth entry naming
+  `production_outbound_allocates_one_payload` in
+  `wireframe_testing/tests/pipeline_allocation_invariants/checks/handoff.rs`,
+  with the register checker extended to that source file. The tolerance
+  escalation is unchanged and still awaits the owner's decision.
 
 What the work cost against the plan's budget is recorded in "Artefacts and
 notes" once the final gates have run.
@@ -1107,6 +1122,16 @@ notes" once the final gates have run.
   `docs/zero-copy-benchmark-baselines.md`, including codec
   `wrap_allocs_3_decode_allocs_48` (and `_32` for hotline), middleware
   `_allocs_35`, hook `_allocs_3`, and outbound `_allocs_18`.
+- EP-M8 gate logs on the final repair. `make check-fmt`, `make typecheck`,
+  `make test-bdd` (237 passed), `make markdownlint` and `make nixie` passed in
+  the runner session (`/tmp/*-wireframe-10-2-1-capture-baselines-epm8.out`).
+  Two gates were stopped by runner limits with no diagnostic, then completed in
+  detached re-runs: `make lint` exit 0
+  (`/tmp/lint-wireframe-10-2-1-capture-baselines-epm8b.out`) and `make test`,
+  2,026 tests in 100 suites, 0 failures
+  (`/tmp/test-wireframe-10-2-1-capture-baselines-epm8b.out`). The targeted
+  `copied_bytes` and `pipeline_allocation_invariants` runs report 21 passing
+  tests and 20 passing checks (`/tmp/test-epm8-targeted.out`).
 - Tolerance accounting at EP-M7 against base
   `7ddba3224b58a60b127fcc13990e3858ed87ecd0`, net lines with ExecPlans
   excluded: code and tests 2,571 across 37 files (limit 900 across 16);

@@ -488,6 +488,10 @@ gate cannot drift apart.
   `wireframe_testing/tests/copied_bytes.rs` — states one payload charge per
   message at both seams for any payload length; flips when items `11.1.1` and
   `11.1.2` stop materializing the decoded and encoded buffers.
+- `production_outbound_allocates_one_payload` in
+  `wireframe_testing/tests/pipeline_allocation_invariants/checks/handoff.rs` —
+  states that one outbound message allocates between `P` and `2P` bytes; flips
+  when item `11.1.2` shares the serializer output instead of materializing it.
 
 <!-- inversion-register:end -->
 
