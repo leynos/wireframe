@@ -1245,14 +1245,32 @@ and its rationale). Key points for contributors:
   extra-args, and the shard count.
 - Mutants proven equivalent (incapable of changing observable
   behaviour) are annotated in source with `#[cfg_attr(test, mutants::skip)]`
-  plus a one-line justification. The attribute comes from the
+  plus a justification comment. The attribute comes from the
   [`mutants`](https://docs.rs/mutants) crate, a dev-dependency of no-op
   decorator attributes; keep skips rare, justified, and reserved for stateless
-  equivalences — prefer a killing test wherever the mutation is observable.
+  equivalences — prefer a killing test wherever the mutation is observable. The
+  justification must describe the actual equivalence, not merely why the mutant
+  survives.
+- A skip applies only at the scopes `cargo-mutants` 27.1.0 recognizes:
+  functions (including `const fn`), `impl` blocks, `trait` blocks, `mod`
+  blocks, whole files (with the inner `#![mutants::skip]` form), and
+  expressions that can carry an outer attribute — `match`, struct literals,
+  calls, method calls, and unary expressions. The pinned version silently
+  ignores the attribute on `const` and `static` value declarations, and on a
+  binary-expression initializer. Move such a value into a skipped `const fn`
+  instead; `initial_read_buffer_capacity` in `src/client/connect_parts.rs`
+  shows the workaround. Upstream
+  [PR #622](https://github.com/sourcefrog/cargo-mutants/pull/622) adds
+  `const`/`static` support after 27.1.0; revisit this guidance once the pinned
+  executable includes that change.
+- Verify a new skip locally before pushing:
+  `cargo mutants --list --all-features --file <path>` should no longer list the
+  suppressed mutations, while the file's other candidates remain.
 - [`cargo-mutants`](https://mutants.rs/) is a CI-runtime dependency
   only, installed by the shared workflow at a pinned version; it is not a Cargo
-  dependency and is not required locally. To reproduce a run locally, install
-  it with `cargo install cargo-mutants` and run, for example,
+  dependency. To reproduce a run locally, install the matching version with
+  `cargo install cargo-mutants --version 27.1.0 --locked` (the shared workflow
+  default, so local candidate lists match CI) and run, for example,
   `cargo mutants --in-place --all-features --file src/frame/mod.rs`.
 - Results appear in the run's merged job summary (caught/missed/timeout
   counts plus a table of surviving mutants per target) and as downloadable
