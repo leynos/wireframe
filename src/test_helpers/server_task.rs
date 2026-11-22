@@ -226,7 +226,6 @@ impl<T> Drop for ServerTaskGuard<T> {
 mod tests {
     //! Behavioural tests for the guard's success, error, panic, and drop paths.
 
-    use futures::FutureExt as _;
     use tokio::sync::oneshot;
 
     use super::*;
