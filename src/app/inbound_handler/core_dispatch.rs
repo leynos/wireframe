@@ -104,7 +104,7 @@ where
         // a response is still running.
         let recovery = &self.recovery;
         let mut watched = (&mut self.reader)
-            .map(|item: io::Result<_>| item.and_then(|it| hold_or_end(it, recovery)));
+            .map(|read: io::Result<_>| read.and_then(|it| hold_or_end(it, recovery)));
         let dispatch = handle_watching_peer(
             handling,
             &mut watched,

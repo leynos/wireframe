@@ -63,7 +63,7 @@ where
         // being buffered, so a truncation during a stalled write is reported.
         let recovery = &self.recovery;
         let mut watched = (&mut self.reader)
-            .map(|item: io::Result<_>| item.and_then(|it| hold_or_end(it, recovery)));
+            .map(|read: io::Result<_>| read.and_then(|it| hold_or_end(it, recovery)));
         let batch = PushBatch {
             frames: pending.frames,
             priority: pending.priority,

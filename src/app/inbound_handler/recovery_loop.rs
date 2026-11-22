@@ -70,10 +70,10 @@ pub(in crate::app::inbound_handler) fn hold_or_end<T>(
             // copyable EOF condition the original carries. Everything else
             // about a decoder error is terminal for this connection anyway.
             let (error, origin, consumed) = failure.into_parts();
-            let rebuilt = match eof_condition(&error) {
-                Some(eof) => CodecError::Eof(eof).into(),
-                None => io::Error::new(error.kind(), error.to_string()),
-            };
+            let rebuilt = eof_condition(&error).map_or_else(
+                || io::Error::new(error.kind(), error.to_string()),
+                |eof| CodecError::Eof(eof).into(),
+            );
             recovery.report_terminal(DecodeFailure::new(error, origin, consumed));
             Err(rebuilt)
         }
