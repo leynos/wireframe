@@ -940,5 +940,6 @@ has already resolved every field the connection reads.
 A handler stays an `Arc`. The public `Handler` and `ResponseHandler` aliases
 are still reference-counted trait objects, and a caller may legitimately keep
 its own clone. What changed is that preparation moves the builder's existing
-`Arc` into the prepared service rather than cloning it, so registering one
-handler for two route ids costs one allocation, not two.
+`Arc` into the prepared service rather than cloning it: registering one handler
+for two route ids still shares that one handler allocation, and preparation no
+longer performs an extra reference-count increment and decrement on it.
