@@ -27,6 +27,7 @@ use stages::{
     read_only_hook_counts_match,
     read_only_hooks_hold_across_payload_sizes,
     read_only_hooks_stay_below_payload,
+    read_only_middleware_batch_stays_below_payload,
     read_only_middleware_counts_match,
     read_only_middleware_pass_stays_below_payload,
 };
@@ -42,7 +43,7 @@ use windows::{
 /// The order matters: the harness self-check and the noise-floor probe come
 /// first, because every later bound is meaningless if the instrument is not
 /// observing the allocator.
-pub(super) const CHECKS: [(&str, fn()); 20] = [
+pub(super) const CHECKS: [(&str, fn()); 21] = [
     (
         "the allocation harness observes real traffic",
         harness_observes_real_traffic,
@@ -94,6 +95,10 @@ pub(super) const CHECKS: [(&str, fn()); 20] = [
     (
         "read-only middleware batches allocate the same across payload classes",
         read_only_middleware_counts_match,
+    ),
+    (
+        "a read-only middleware batch allocates less than the payload",
+        read_only_middleware_batch_stays_below_payload,
     ),
     (
         "one read-only middleware pass allocates less than the payload",

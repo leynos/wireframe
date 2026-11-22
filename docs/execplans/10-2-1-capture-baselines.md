@@ -458,19 +458,20 @@ Trusted, not verified here:
 - **Invariant**: for middleware pass-through and read-only hook dispatch, the
   payload buffer's pointer is unchanged across the stage; the allocation count
   for a batch is equal across the two payload classes; and the allocated bytes
-  for a `Large` batch are below `P`.
+  for a `Large` batch are below `P`. The batch sizes that satisfy the byte
+  bound are stated under "Measurement of the byte bound".
 - **Method**: pointer-identity assertions, modelled on
   `src/codec/tests/mod.rs:72-88`, plus V-2's accounting, parameterized over
   codec, payload class, and access mode. An in-crate test asserts the same
   identity across the production dispatch seam.
-- **Measurement of the byte bound**: the batch bound applies to hooks, whose
-  dispatch is synchronous. For middleware the bound is measured over a single
-  pass, because `async_trait` boxes one future per call at a
-  payload-independent cost of about 270 bytes, so a sixteen-pass `Large` batch
-  sums to roughly 69 KiB and exceeds `P` without copying anything, while one
-  pass sits two orders of magnitude below `P`. Payload independence for
-  middleware is enforced over the batch by the count-equality relation, so no
-  claim rests on the fixed cost.
+- **Measurement of the byte bound**: the bound is enforced over a bounded batch
+  of four passes for middleware and sixteen for hooks. `async_trait` boxes one
+  future per middleware call at a payload-independent cost of about 270 bytes,
+  so a sixteen-pass `Large` batch sums to roughly 69 KiB and exceeds `P`
+  without copying anything; four passes keep that fixed cost far below `P`,
+  while a single payload copy anywhere in the batch still exceeds the bound.
+  The sixteen-pass run is kept for the count-equality relation, which is what
+  proves payload independence.
 - **Artefact**: `wireframe_testing/tests/pipeline_allocation_invariants.rs`
   and a test in `src/app/frame_handling/`.
 - **Non-vacuity**: a test-only `CopyingPolicy` that replaces the frame with
@@ -837,8 +838,14 @@ for the roadmap edit.
   the developers' guide documents the pipeline harness helpers; the `stages.rs`
   sweep no longer claims coverage "at any size"; a production-encoder property
   covers transport framing at arbitrary payload lengths; and the tolerance
-  figures are recomputed at this head (code and tests 2,596 across 37 files,
-  documentation 366).
+  figures are recomputed (superseded by the EP-M10 figures below).
+- [x] (2026-11-22) EP-M10 (third assessment follow-up). V-4's byte bound is
+  now enforced for middleware over a four-pass batch, with the sixteen-pass run
+  retained for the count relation, so the invariants binary reports 21 checks
+  and the obligation's invariant and method agree. The tolerance figures are
+  reconciled to GitHub's comparison: 2,692 code/test lines across 37 files and
+  375 documentation lines. The literal `make bench-codec` run is recorded as
+  the EP-M1 evidence.
 
 ## Surprises and discoveries
 
@@ -1090,6 +1097,15 @@ Evidence gathered so far, milestone by milestone.
   the developers' guide were expanded, and the tolerance figures were
   recomputed from `git diff --numstat` at this head.
 
+- **EP-M10 (third assessment follow-up).** The reply accepted the clarification
+  only as a clarification and asked for the batch invariant to be enforced or
+  the plan amended by its owner. Four-pass middleware batches now enforce the
+  invariant: the fixed `async_trait` cost is a small fraction of `P` over four
+  passes, and any payload copy in the batch still exceeds the bound. The
+  tolerance figures were recomputed at this head and match GitHub's own
+  base-to-head comparison, and the literal `make bench-codec` command is the
+  EP-M1 evidence.
+
 What the work cost against the plan's budget is recorded in "Artefacts and
 notes" once the final gates have run.
 
@@ -1143,18 +1159,15 @@ notes" once the final gates have run.
   in 100 suites, 0 failures, including all 20 invariants checks and the split
   `copied_bytes` target
   (`/tmp/test-wireframe-10-2-1-capture-baselines-epm7b.out`).
-- EP-M1 acceptance evidence, captured on 2026-11-22 with the exact bench set
-  `make bench-codec` runs, in criterion test mode:
-  `RUSTFLAGS="-D warnings" cargo bench --bench codec_performance --bench
-  codec_performance_alloc --bench pipeline_performance --bench
-  pipeline_performance_alloc --features test-support,benchmark-counters --
-  --test`.
-  Test mode prints each benchmark's registration label without timing, so the
-  run is deterministic and quick; it exited 0
-  (`/tmp/bench-codec-wireframe-10-2-1-capture-baselines-epm7.out`). Every
-  allocation label is unchanged from `docs/zero-copy-benchmark-baselines.md`,
-  including codec `wrap_allocs_3_decode_allocs_48` (and `_32` for hotline),
-  middleware `_allocs_35`, hook `_allocs_3`, and outbound `_allocs_18`.
+- EP-M1 acceptance evidence, captured on 2026-11-22 with the literal target
+  `make bench-codec` (exit 0,
+  `/tmp/bench-codec-wireframe-10-2-1-capture-baselines-epm9.out`; 256 benchmark
+  phases, 67 timing rows). Every allocation label is unchanged from
+  `docs/zero-copy-benchmark-baselines.md`, including codec
+  `wrap_allocs_3_decode_allocs_48` (and `_32` for hotline), middleware
+  `_allocs_35`, hook `_allocs_3`, and outbound `_allocs_18`. An earlier
+  criterion test-mode run of the same bench set corroborates the labels without
+  timing (`/tmp/bench-codec-wireframe-10-2-1-capture-baselines-epm7.out`).
 - EP-M8 gate logs on the final repair. `make check-fmt`, `make typecheck`,
   `make test-bdd` (237 passed), `make markdownlint` and `make nixie` passed in
   the runner session (`/tmp/*-wireframe-10-2-1-capture-baselines-epm8.out`).
@@ -1165,10 +1178,10 @@ notes" once the final gates have run.
   (`/tmp/test-wireframe-10-2-1-capture-baselines-epm8b.out`). The targeted
   `copied_bytes` and `pipeline_allocation_invariants` runs report 21 passing
   tests and 20 passing checks (`/tmp/test-epm8-targeted.out`).
-- Tolerance accounting at EP-M9 against base
+- Tolerance accounting at EP-M10 against base
   `7ddba3224b58a60b127fcc13990e3858ed87ecd0`, recomputed with
-  `git diff --numstat` and ExecPlans excluded: code and tests 2,596 across 37
-  files (limit 900 across 16); documentation 366 (limit 300); configuration 14
+  `git diff --numstat` and ExecPlans excluded: code and tests 2,692 across 37
+  files (limit 900 across 16); documentation 375 (limit 300); configuration 14
   (limit 40); the feature-gate script adds 19 lines, outside the three named
   categories. The interface category also escalates: besides the three
   permitted public changes, `benchmark_counters::handoff_seam_calls` is a new
