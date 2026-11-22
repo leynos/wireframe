@@ -33,6 +33,48 @@ use crate::{
     request::{QueuedBytes, RequestBodyStream, RequestParts, accounted_body_channel},
 };
 
+/// The stall policy decides against the instant it is given.
+///
+/// The loop reads the clock once per step and passes that reading to both the
+/// stall check and the drive cap, so a test can pin the decision to fixed
+/// instants instead of the paused runtime's own.
+#[rstest]
+#[test]
+fn the_stall_policy_decides_against_the_instant_it_is_given() {
+    let short_wait = Duration::from_millis(50);
+    let start = tokio::time::Instant::now();
+    let mut streams = ConnectionStreams::new(QueuedBytes::new());
+    streams.stalled_since = Some(start);
+
+    assert!(
+        !streams.stall_expired_at(short_wait, start),
+        "a stall that has not started cannot have expired"
+    );
+    assert_eq!(
+        streams.stall_remaining_at(short_wait, start),
+        short_wait,
+        "an untouched interval offers the whole bound"
+    );
+    assert!(
+        !streams.stall_expired_at(short_wait, start + short_wait / 2),
+        "half the bound is not past the bound"
+    );
+    assert_eq!(
+        streams.stall_remaining_at(short_wait, start + short_wait / 2),
+        short_wait / 2,
+        "the remaining interval is the part not yet spent"
+    );
+    assert!(
+        streams.stall_expired_at(short_wait, start + short_wait),
+        "the bound itself has expired"
+    );
+    assert_eq!(
+        streams.stall_remaining_at(short_wait, start + short_wait * 2),
+        Duration::ZERO,
+        "a passed bound leaves nothing to spend"
+    );
+}
+
 /// Handler that holds its body open without ever consuming a chunk.
 #[fixture]
 fn stalled_handler() -> StreamingHandler {

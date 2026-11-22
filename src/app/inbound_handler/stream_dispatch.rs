@@ -117,20 +117,18 @@ where
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
+    // Dropping the loop state on any return from here releases the
+    // parked-body gauge for whatever the connection still holds.
     let mut state = LoopState::new(QueuedBytes::new());
-    let outcome = loop {
+    loop {
         match connection.step(&mut state).await {
             Ok(Step::Continue) => {}
-            Ok(Step::Closed) => break Ok(()),
+            Ok(Step::Closed) => return Ok(()),
             // A failed step and a failed connection both end the loop with
             // the error they carry.
-            Ok(Step::Failed(error)) | Err(error) => break Err(error),
+            Ok(Step::Failed(error)) | Err(error) => return Err(error),
         }
-    };
-    // A connection that stops with messages still parked drops them with its
-    // state, so the process-wide gauge is released before that happens.
-    state.release_parked();
-    outcome
+    }
 }
 
 impl<S, E, R, K, F> Connection<'_, S, E, R, K, F>

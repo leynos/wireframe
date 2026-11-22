@@ -3698,8 +3698,9 @@ instead of overwriting one another:
   messages, fragmentation buffers and parked messages, so treat the gauge as a
   pressure signal rather than a diagnosis. Each connection whose handler stops
   reading eventually stops reading its socket, which is the back-pressure this
-  design relies on. The gauge cannot name the connection, so identify the body
-  from the per-message diagnostics below.
+  design relies on. The gauge cannot name the connection, so the per-message
+  diagnostics below are what to correlate against: they can help locate the
+  body, but they do not guarantee that a body or a connection is identified.
 - `wireframe_streaming_bodies_parked` — completed messages waiting behind live
   bodies. The value covers every connection, so it counts the process's parked
   work; `MAX_PARKED_MESSAGES` (64) is the per-connection limit. The 64th
@@ -3750,9 +3751,11 @@ which every request to that route shares, and, for the delivery events, the
 request's `correlation_id`, which the client chooses, may omit and may reuse.
 Those fields help to correlate events with a message, but they do not guarantee
 that a message or a connection is identified, and the events that report a
-pre-filled body carry only the `message_id`. A rejected assembly shows as a
-`prefilled_body` warning with the `admission_timeout` category and a matching
-counter increment.
+pre-filled body carry only the `message_id`. A completed pre-filled body that
+cannot be admitted within the connection budget is the case behind the
+`prefilled_body` warning with the `admission_timeout` category and its matching
+counter increment; a continuation that overruns its declared total fails during
+assembly, before the message completes, and never reaches that path.
 
 Queued server pushes have their own counters.
 `wireframe_push_writes_abandoned_total` counts push frames dropped before
