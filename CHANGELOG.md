@@ -155,6 +155,21 @@ All notable changes to this project will be documented in this file.
   for the three new variants. See
   [ADR 015](docs/adrs/adr-0015-declared-total-body-length-is-authoritative.md).
   ([#544](https://github.com/leynos/wireframe/issues/544))
+
+- **Breaking:** `MessageAssemblyState` now measures the per-message size cap on
+  everything a message retains — the first frame's metadata plus the
+  accumulated body — instead of the body alone. A metadata-bearing message that
+  previously completed at or below the body-only reading of the cap and above
+  the real one is now rejected with `MessageTooLarge`. `MessageTooLarge`'s
+  `attempted` field reports that metadata-inclusive total, and a first frame
+  whose metadata plus body cannot be represented in `usize` is rejected even
+  when the configured limit is `usize::MAX`. Because the cap is checked before
+  the declared-total overrun on a continuation, a frame that violates both is
+  now reported as `MessageTooLarge` rather than `DeclaredTotalExceeded`. Close
+  the gap by lowering metadata or body sizes, or by raising `bytes_per_message`
+  / the fragmentation `max_message_size`; see
+  [ADR 002](docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md).
+  ([#825](https://github.com/leynos/wireframe/issues/825))
 - Added scheduler and slot poison-recovery coverage, and extracted
   `scheduler_tests.rs` to keep `scheduler.rs` below 400 lines. (#539)
 - Added client-pool lifecycle and slot-rotation coverage that kills the

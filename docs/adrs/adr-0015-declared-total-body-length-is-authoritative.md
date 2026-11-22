@@ -181,8 +181,29 @@ buffered length and the declaration are read together.
   same paths through the public API.
 - `make check-fmt`, `make lint`, and `make test` pass.
 
+## Addendum (2026-11-22): scope of the `None` opt-out
+
+Issue [#825](https://github.com/leynos/wireframe/issues/825) closes a gap in
+the per-message size cap that this decision's wording did not distinguish.
+Nothing in the decision outcome changes; this addendum narrows how two of its
+statements should be read.
+
+- Superseded wording: "Protocols that leave `total_body_len` as `None` are
+  unaffected; they retain the previous behaviour with no equality requirement."
+  Read it as an opt-out from the equality requirement only. A message with no
+  declaration is still subject to the per-message size cap, which now counts
+  the first frame's metadata plus the accumulated body.
+- Added detail: the "first frame check runs before the size-limit check" order
+  is unchanged for the first frame. On a _continuation_, the size cap is
+  checked before the declaration's overrun check, so a frame that violates both
+  is reported as `MessageTooLarge` rather than `DeclaredTotalExceeded`.
+
+See [ADR 002](adr-0002-streaming-requests-and-shared-message-assembly.md) for
+the metadata-inclusive cap itself.
+
 ## References
 
 - [Issue #544](https://github.com/leynos/wireframe/issues/544)
+- [Issue #825](https://github.com/leynos/wireframe/issues/825)
 - [ADR 002: streaming requests and shared message assembly](adr-0002-streaming-requests-and-shared-message-assembly.md)
 - [Formal verification methods in Wireframe](../formal-verification-methods-in-wireframe.md)

@@ -13,7 +13,7 @@ use std::{
 use super::{
     ContinuationFrameHeader,
     MessageKey,
-    budget::{AggregateBudgets, ContinuationLimits, check_aggregate_budgets},
+    budget::{AggregateBudgets, ContinuationLimits, check_aggregate_budgets, check_size_limit},
     error::{MessageAssemblyError, MessageSeriesError, MessageSeriesStatus},
     partial::PartialAssembly,
     types::{AssembledMessage, FirstFrameInput},
@@ -80,7 +80,10 @@ use super::{
 /// ```
 #[derive(Debug)]
 pub struct MessageAssemblyState {
-    /// Maximum body size permitted for one logical message.
+    /// Maximum bytes retained for one logical message.
+    ///
+    /// Counts the first frame's metadata plus the body bytes, so the two
+    /// cannot be traded against each other to exceed the cap.
     max_message_size: NonZeroUsize,
     /// Age after which incomplete assemblies are removed.
     timeout: Duration,
@@ -94,7 +97,9 @@ impl MessageAssemblyState {
     ///
     /// # Arguments
     ///
-    /// * `max_message_size` - Maximum allowed size for a single assembled message.
+    /// * `max_message_size` - Maximum bytes retained for one logical message, counting the first
+    ///   frame's metadata plus its body. A declared `total_body_len` larger than the body is
+    ///   counted in place of the body.
     /// * `timeout` - Duration after which partial assemblies are purged.
     #[must_use]
     pub fn new(max_message_size: NonZeroUsize, timeout: Duration) -> Self {
@@ -126,14 +131,15 @@ impl MessageAssemblyState {
     ///
     /// Returns `Ok(Some(msg))` if the first frame is also the last (single-
     /// frame message), `Ok(None)` if assembly is in progress, or an error if
-    /// the key already has an active assembly or the body exceeds the size
+    /// the key already has an active assembly or the frame exceeds the size
     /// limit.
     ///
     /// # Errors
     ///
     /// Returns [`MessageAssemblyError::DuplicateFirstFrame`] if an assembly
     /// for this key is already in progress,
-    /// [`MessageAssemblyError::MessageTooLarge`] if the body exceeds the
+    /// [`MessageAssemblyError::MessageTooLarge`] if the retained metadata plus
+    /// the larger of the frame's body and its declared total exceeds the
     /// configured limit, or a declared-total error when the declaration is
     /// unsatisfiable or not honoured.
     pub fn accept_first_frame(
@@ -150,7 +156,8 @@ impl MessageAssemblyState {
     ///
     /// Returns [`MessageAssemblyError::DuplicateFirstFrame`] if an assembly
     /// for this key is already in progress,
-    /// [`MessageAssemblyError::MessageTooLarge`] if the body exceeds the
+    /// [`MessageAssemblyError::MessageTooLarge`] if the retained metadata plus
+    /// the larger of the frame's body and its declared total exceeds the
     /// configured limit, or a declared-total error when the declaration is
     /// unsatisfiable or not honoured.
     pub fn accept_first_frame_at(
@@ -170,17 +177,21 @@ impl MessageAssemblyState {
         // the first frame already contradicts before consulting size limits.
         validation::validate_first_frame(input.header, input.body.len())?;
 
-        // Validate message size (prefer declared total body length, include metadata)
-        let declared_body_len = input.header.total_body_len.unwrap_or(input.body.len());
-        let total_message_size = declared_body_len.saturating_add(input.metadata.len());
-
-        if total_message_size > self.max_message_size.get() {
-            return Err(MessageAssemblyError::MessageTooLarge {
-                key,
-                attempted: total_message_size,
-                limit: self.max_message_size,
-            });
-        }
+        // Validate message size. The cap counts what the assembly retains —
+        // metadata plus body — and a declared total may only tighten it: a
+        // larger declaration is counted in place of the actual body so that
+        // an undersized first frame cannot understate the message.
+        let counted_body_len = input
+            .header
+            .total_body_len
+            .unwrap_or(0)
+            .max(input.body.len());
+        check_size_limit(
+            self.max_message_size,
+            key,
+            input.metadata.len(),
+            counted_body_len,
+        )?;
 
         // If this is a single-frame message, return immediately
         if input.header.is_last {
@@ -220,7 +231,10 @@ impl MessageAssemblyState {
     /// # Errors
     ///
     /// Returns an error if no assembly exists for this key, if continuity
-    /// validation fails, or if the size limit would be exceeded. Returns
+    /// validation fails, or if the size limit would be exceeded. The limit
+    /// counts the retained first-frame metadata plus the body, so
+    /// [`MessageAssemblyError::MessageTooLarge`] takes precedence over the
+    /// declared-total checks when both would fire. Returns
     /// [`MessageAssemblyError::DeclaredTotalExceeded`] when the frame would
     /// carry the body past its declared total, or
     /// [`MessageAssemblyError::DeclaredTotalMismatch`] when the completing
@@ -257,7 +271,10 @@ impl MessageAssemblyState {
     /// # Errors
     ///
     /// Returns an error if no assembly exists for this key, if continuity
-    /// validation fails, or if the size limit would be exceeded. Returns
+    /// validation fails, or if the size limit would be exceeded. The limit
+    /// counts the retained first-frame metadata plus the body, so
+    /// [`MessageAssemblyError::MessageTooLarge`] takes precedence over the
+    /// declared-total checks when both would fire. Returns
     /// [`MessageAssemblyError::DeclaredTotalExceeded`] when the frame would
     /// carry the body past its declared total, or
     /// [`MessageAssemblyError::DeclaredTotalMismatch`] when the completing

@@ -395,6 +395,23 @@ Precedence is:
   which drops the internal `HashMap<MessageKey, PartialAssembly>`, freeing all
   partial body and metadata buffers. No custom `Drop` implementation is needed.
 
+#### Implementation decisions (2026-11-22)
+
+- The per-message cap now measures the bytes a message retains rather than its
+  body alone. `max_message_size` (and the `bytes_per_message` budget it is
+  narrowed by) counts the first frame's metadata plus the accumulated body, so
+  a message cannot reach the cap with a body and then exceed it by carrying
+  metadata as well. Metadata is retained state until dispatch, so excluding it
+  understated what the cap bounded.
+- Both admission paths use the same checked helper, `check_size_limit`, rather
+  than one measuring metadata and the other not.
+- The declared-total contract in ADR 015 is unchanged: `total_body_len` counts
+  body bytes only. A declaration larger than the first frame's body is counted
+  in place of the actual body when the cap is measured, so a declaration can
+  only tighten the size limit, never relax it.
+- See [ADR 015](adr-0015-declared-total-body-length-is-authoritative.md) for the
+  declaration's own enforcement points and the stage order between them.
+
 #### Budget enforcement
 
 - Budgets MUST cover: bytes buffered per message, bytes buffered per

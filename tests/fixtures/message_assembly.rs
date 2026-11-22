@@ -35,6 +35,7 @@ use wireframe_testing::reassembly::{
     assert_message_assembly_error,
     assert_message_assembly_evicted,
     assert_message_assembly_incomplete,
+    assert_message_assembly_total_buffered_bytes,
 };
 
 /// Configuration for message assembly state initialization.
@@ -318,5 +319,70 @@ impl MessageAssemblyWorld {
     /// Returns an error if `key` is not in the recorded eviction list.
     pub fn assert_evicted(&self, key: MessageKey) -> TestResult {
         assert_message_assembly_evicted(self.snapshot(), key)
+    }
+
+    /// Assert that the last error reported exactly `attempted` against `limit`.
+    ///
+    /// The shared error expectation matches on the key alone, so this reads the
+    /// recorded error directly to pin the byte counts the limit is measured
+    /// in.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the last result is not a `MessageTooLarge` error, or
+    /// if either byte count differs.
+    pub fn assert_message_too_large(&self, attempted: usize, limit: usize) -> TestResult {
+        let Some(Err(MessageAssemblyError::MessageTooLarge {
+            attempted: actual_attempted,
+            limit: actual_limit,
+            ..
+        })) = &self.last_result
+        else {
+            return Err(format!(
+                "expected a MessageTooLarge error, got {:?}",
+                self.last_result
+            )
+            .into());
+        };
+        if *actual_attempted != attempted {
+            return Err(format!(
+                "expected an attempted size of {attempted}, got {actual_attempted}"
+            )
+            .into());
+        }
+        if actual_limit.get() != limit {
+            return Err(format!("expected a limit of {limit}, got {actual_limit}").into());
+        }
+        Ok(())
+    }
+
+    /// Assert that the most recently completed message carried `expected`
+    /// metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the last result did not complete or the metadata
+    /// differs.
+    pub fn assert_completed_metadata(&self, expected: &[u8]) -> TestResult {
+        let Some(message) = self.snapshot().last_completed() else {
+            return Err(format!("expected a completed message, got {:?}", self.last_result).into());
+        };
+        if message.metadata() == expected {
+            return Ok(());
+        }
+        Err(format!(
+            "expected completed metadata {expected:?}, got {:?}",
+            message.metadata()
+        )
+        .into())
+    }
+
+    /// Assert that the state retains exactly `expected` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the retained byte count differs.
+    pub fn assert_total_buffered_bytes(&self, expected: usize) -> TestResult {
+        assert_message_assembly_total_buffered_bytes(self.snapshot(), expected)
     }
 }

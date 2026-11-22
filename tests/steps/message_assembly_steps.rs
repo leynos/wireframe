@@ -1,11 +1,9 @@
 //! Step definitions for message assembly multiplexing and continuity validation.
 
-use std::str::FromStr;
-
 use rstest_bdd_macros::{given, then, when};
-use wireframe::message_assembler::{FrameSequence, MessageKey};
 use wireframe_testing::reassembly::MessageAssemblyErrorExpectation;
 
+use super::message_assembly_params::{CountParam, MessageKeyParam, SequenceParam, TimeoutParam};
 use crate::fixtures::message_assembly::{
     AssemblyConfig,
     ContinuationFrameParams,
@@ -13,54 +11,6 @@ use crate::fixtures::message_assembly::{
     MessageAssemblyWorld,
     TestResult,
 };
-
-/// Wrapper for message key parameters in BDD steps.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MessageKeyParam(pub u64);
-
-impl FromStr for MessageKeyParam {
-    type Err = std::num::ParseIntError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse::<u64>().map(MessageKeyParam) }
-}
-
-impl MessageKeyParam {
-    pub fn to_key(self) -> MessageKey { MessageKey(self.0) }
-}
-
-/// Wrapper for sequence number parameters in BDD steps.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SequenceParam(pub u32);
-
-impl FromStr for SequenceParam {
-    type Err = std::num::ParseIntError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse::<u32>().map(SequenceParam) }
-}
-
-impl SequenceParam {
-    pub fn to_seq(self) -> FrameSequence { FrameSequence(self.0) }
-}
-
-/// Wrapper for count/size parameters in BDD steps.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CountParam(pub usize);
-
-impl FromStr for CountParam {
-    type Err = std::num::ParseIntError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse::<usize>().map(CountParam) }
-}
-
-/// Wrapper for timeout duration parameters in BDD steps.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TimeoutParam(pub u64);
-
-impl FromStr for TimeoutParam {
-    type Err = std::num::ParseIntError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> { s.parse::<u64>().map(TimeoutParam) }
-}
 
 // =============================================================================
 // Given steps
@@ -396,4 +346,30 @@ fn then_key_evicted(
     key: MessageKeyParam,
 ) -> TestResult {
     message_assembly_world.assert_evicted(key.to_key())
+}
+
+#[rustfmt::skip]
+#[then("the attempted size is {attempted:CountParam} and the limit is {limit:CountParam}")]
+fn then_attempted_and_limit(
+    message_assembly_world: &mut MessageAssemblyWorld,
+    attempted: CountParam,
+    limit: CountParam,
+) -> TestResult {
+    message_assembly_world.assert_message_too_large(attempted.0, limit.0)
+}
+
+#[then("the completed metadata is {metadata:string}")]
+fn then_completed_metadata(
+    message_assembly_world: &mut MessageAssemblyWorld,
+    metadata: String,
+) -> TestResult {
+    message_assembly_world.assert_completed_metadata(metadata.as_bytes())
+}
+
+#[then("the buffered bytes are {count:CountParam}")]
+fn then_buffered_bytes(
+    message_assembly_world: &mut MessageAssemblyWorld,
+    count: CountParam,
+) -> TestResult {
+    message_assembly_world.assert_total_buffered_bytes(count.0)
 }

@@ -102,7 +102,9 @@ pub enum MessageAssemblyError {
     MessageTooLarge {
         /// Message key that exceeded the limit.
         key: MessageKey,
-        /// Total size that triggered the guard.
+        /// Total size that triggered the guard, counting retained metadata
+        /// plus body bytes. An unrepresentable sum is reported as
+        /// `usize::MAX`.
         attempted: usize,
         /// Configured size cap.
         limit: NonZeroUsize,

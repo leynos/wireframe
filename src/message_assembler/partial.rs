@@ -68,6 +68,11 @@ impl PartialAssembly {
     /// Apply size, budget, and declared-total admission checks to a
     /// continuation body before it is buffered.
     ///
+    /// The per-message cap measures everything the assembly retains: the
+    /// first frame's metadata plus the body accumulated so far. The declared
+    /// total measures body bytes only, because that is what the protocol
+    /// declares.
+    ///
     /// # Errors
     ///
     /// Returns [`MessageAssemblyError::MessageTooLarge`] or an aggregate
@@ -82,14 +87,20 @@ impl PartialAssembly {
         limits: ContinuationLimits,
     ) -> Result<(), MessageAssemblyError> {
         let key = self.series.message_key();
-        let accumulated = self.body_len();
-        check_size_limit(limits.max_message_size, key, accumulated, body_len)?;
+        // Size first: it is the only check that also counts retained metadata,
+        // so it must win when both it and the declaration are violated.
+        check_size_limit(
+            limits.max_message_size,
+            key,
+            self.buffered_bytes(),
+            body_len,
+        )?;
         check_aggregate_budgets(key, buffered_total, body_len, &limits.budgets)?;
 
         // Enforce the declared total before buffering so an oversized
         // continuation cannot be retained even briefly.
         if let Some(declared) = self.declared_total() {
-            validation::validate_continuation(key, declared, accumulated, body_len)?;
+            validation::validate_continuation(key, declared, self.body_len(), body_len)?;
         }
         Ok(())
     }

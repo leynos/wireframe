@@ -69,6 +69,26 @@ Feature: Message assembly multiplexing and continuity validation
     Then the error is message too large for key 1
     And the buffered count is 0
 
+  Scenario: Metadata counts towards the per-message size limit
+    Given a message assembly state with max size 10 and timeout 30 seconds
+    And a first frame for key 1 with metadata "ABCD" and body "123"
+    When the first frame is accepted
+    And a final continuation for key 1 with sequence 1 and body "4567" arrives
+    Then the error is message too large for key 1
+    And the attempted size is 11 and the limit is 10
+    And the buffered count is 0
+    And the buffered bytes are 0
+
+  Scenario: Metadata and body may exactly fill the per-message limit
+    Given a message assembly state with max size 10 and timeout 30 seconds
+    And a first frame for key 1 with metadata "ABCD" and body "123"
+    When the first frame is accepted
+    And a final continuation for key 1 with sequence 1 and body "456" arrives
+    Then the assembly completes with body "123456"
+    And the completed metadata is "ABCD"
+    And the buffered count is 0
+    And the buffered bytes are 0
+
   Scenario: Under-declared single-frame total is rejected
     Given a final first frame for key 1 with body "hello" declaring total 3
     When the first frame is accepted

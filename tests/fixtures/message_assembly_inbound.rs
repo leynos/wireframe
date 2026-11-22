@@ -7,7 +7,7 @@ use rstest::fixture;
 use tokio::{io::DuplexStream, sync::mpsc, task::JoinHandle, time::timeout};
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
-    app::{Envelope, Handler, WireframeApp},
+    app::{Envelope, Handler, MemoryBudgets, WireframeApp},
     fragment::FragmentationConfig,
     message_assembler::{FrameSequence, MessageKey},
     serializer::{BincodeSerializer, Serializer},
@@ -16,6 +16,9 @@ use wireframe::{
 pub use wireframe_testing::TestResult;
 
 use super::frame_processing_assembler::FrameProcessingAssembler;
+
+#[path = "message_assembly_inbound_cap.rs"]
+mod cap;
 
 const ROUTE_ID: u32 = 77;
 const CORRELATION_ID: Option<u64> = Some(5);
@@ -119,20 +122,32 @@ impl MessageAssemblyInboundWorld {
 
     /// Build and start a `WireframeApp` with message assembly enabled.
     ///
+    /// # Errors
+    ///
+    /// Returns an error if the app fails to initialize.
+    pub fn start_app(&mut self, timeout_ms: u64) -> TestResult {
+        self.start_app_with_budgets(timeout_ms, None)
+    }
+
+    /// Build and start a `WireframeApp`, optionally capping retained bytes.
+    ///
     /// Pauses Tokio's clock for server timers. `wait_millis` sleeps in
-    /// wall-clock time because assembly expiry uses `std::time::Instant`.
-    /// The handler forwards received payloads to an internal channel for later
-    /// assertion.
+    /// wall-clock time because assembly expiry uses `std::time::Instant`. The
+    /// handler forwards received payloads to an internal channel, and
+    /// `budgets` narrows the per-message limit when supplied.
     ///
     /// # Errors
     ///
-    /// Returns an error if the fragmentation config, app builder, or runtime
-    /// initialization fails.
+    /// Returns an error if the app fails to initialize.
     #[expect(
         deprecated,
         reason = "fixture covers the legacy builder connection API"
     )]
-    pub fn start_app(&mut self, timeout_ms: u64) -> TestResult {
+    pub fn start_app_with_budgets(
+        &mut self,
+        timeout_ms: u64,
+        budgets: Option<MemoryBudgets>,
+    ) -> TestResult {
         let message_limit =
             NonZeroUsize::new(BUFFER_CAPACITY.saturating_mul(16)).unwrap_or(NonZeroUsize::MIN);
         let config = FragmentationConfig::for_frame_budget(
@@ -152,11 +167,14 @@ impl MessageAssemblyInboundWorld {
             })
         });
 
-        let app: WireframeApp = WireframeApp::new()?
+        let mut app: WireframeApp = WireframeApp::new()?
             .buffer_capacity(BUFFER_CAPACITY)
             .fragmentation(Some(config))
             .with_message_assembler(assembler)
             .route(ROUTE_ID, handler)?;
+        if let Some(configured) = budgets {
+            app = app.memory_budgets(configured);
+        }
 
         let codec = app.length_codec();
         let (client_stream, server_stream) = tokio::io::duplex(2048);

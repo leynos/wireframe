@@ -212,7 +212,26 @@ fn invalid_data(message: &'static str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
-/// Build a first-frame payload for the test protocol.
+/// Contents of a first frame the test protocol should encode.
+///
+/// The payload fields travel together because the encoded header and payload
+/// must agree: `metadata_len` and `body_len` are derived from the slices here,
+/// so a caller cannot describe a frame whose header contradicts its payload.
+#[derive(Clone, Copy, Debug)]
+pub struct FirstFrameSpec<'a> {
+    /// Message key the frame belongs to.
+    pub key: MessageKey,
+    /// Metadata bytes placed ahead of the body, possibly empty.
+    pub metadata: &'a [u8],
+    /// Body bytes following the metadata.
+    pub body: &'a [u8],
+    /// Whether this frame completes its message.
+    pub is_last: bool,
+    /// Declared total body length, when the protocol supplies one.
+    pub total: Option<u32>,
+}
+
+/// Build a first-frame payload for the test protocol with no metadata.
 ///
 /// # Errors
 ///
@@ -223,6 +242,33 @@ pub fn first_frame_payload(
     is_last: bool,
     total: Option<u32>,
 ) -> Result<Vec<u8>, io::Error> {
+    first_frame_payload_with_metadata(FirstFrameSpec {
+        key,
+        metadata: &[],
+        body,
+        is_last,
+        total,
+    })
+}
+
+/// Build a first-frame payload carrying metadata ahead of its body.
+///
+/// The encoded payload places the metadata bytes before the body bytes, which
+/// is the split the inbound adapter performs using `metadata_len`.
+///
+/// # Errors
+///
+/// Returns an error if the metadata length exceeds `u16::MAX` or the body
+/// length exceeds `u32::MAX`.
+pub fn first_frame_payload_with_metadata(spec: FirstFrameSpec<'_>) -> Result<Vec<u8>, io::Error> {
+    let FirstFrameSpec {
+        key,
+        metadata,
+        body,
+        is_last,
+        total,
+    } = spec;
+
     let mut payload = BytesMut::new();
     payload.put_u8(0x01);
     let mut flags = 0u8;
@@ -234,12 +280,15 @@ pub fn first_frame_payload(
     }
     payload.put_u8(flags);
     payload.put_u64(u64::from(key));
-    payload.put_u16(0);
+    let metadata_len =
+        u16::try_from(metadata.len()).map_err(|_| invalid_data("metadata length too large"))?;
+    payload.put_u16(metadata_len);
     let body_len = u32::try_from(body.len()).map_err(|_| invalid_data("body length too large"))?;
     payload.put_u32(body_len);
     if let Some(total_body_len) = total {
         payload.put_u32(total_body_len);
     }
+    payload.extend_from_slice(metadata);
     payload.extend_from_slice(body);
     Ok(payload.to_vec())
 }
