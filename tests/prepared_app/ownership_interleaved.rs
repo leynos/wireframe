@@ -4,7 +4,14 @@
 //! connection's reassembly state must stay its own while both connections
 //! reach the one prepared serializer and the one prepared assembler.
 
-use std::{error::Error, sync::Arc, time::Duration};
+use std::{
+    error::Error,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
 
 use tokio::{
     io::{AsyncWriteExt, duplex},
@@ -13,8 +20,10 @@ use tokio::{
 };
 use wireframe::{
     app::{Envelope, Handler, PreparedApp, WireframeApp},
+    frame::FrameMetadata,
+    message::{DecodeWith, EncodeWith},
     message_assembler::{FrameSequence, MessageKey},
-    serializer::BincodeSerializer,
+    serializer::{BincodeSerializer, Serializer},
     test_helpers::{continuation_frame_payload, first_frame_payload},
 };
 use wireframe_testing::TestResult;
@@ -120,6 +129,39 @@ impl Interleaved {
     }
 }
 
+/// One prepared root plus the recorders that observe its shared components.
+struct ProbedRoot {
+    /// Shared root both connections are driven from.
+    root: Arc<PreparedApp<ProbeSerializer, (), Envelope>>,
+    /// Recorder attached to the one prepared serializer.
+    serializer_recorder: CallRecorder,
+    /// Recorder attached to the one prepared assembler.
+    assembler_recorder: CallRecorder,
+}
+
+/// Build one prepared root whose serializer and assembler are probes.
+async fn prepare_probed_root(
+    handler: Handler<Envelope>,
+    ledger: &DropLedger,
+) -> TestResult<ProbedRoot> {
+    let serializer = ProbeSerializer::new(SERIALIZER_ID, ledger.clone());
+    let assembler = ProbeAssembler::new(ASSEMBLER_ID, ledger.clone());
+    let serializer_recorder = serializer.recorder();
+    let assembler_recorder = assembler.recorder();
+    let prepared = WireframeApp::<BincodeSerializer, (), Envelope>::new()?
+        .serializer(serializer)
+        .with_message_assembler(assembler)
+        .route(1, handler)?
+        .prepare()
+        .await
+        .map_err(|error| -> Box<dyn Error + Send + Sync> { Box::new(error) })?;
+    Ok(ProbedRoot {
+        root: Arc::new(prepared),
+        serializer_recorder,
+        assembler_recorder,
+    })
+}
+
 /// Two connections interleave the same message key on one assembler.
 #[tokio::test]
 async fn overlapping_connections_share_one_assembler_and_serializer() -> TestResult<()> {
@@ -133,18 +175,11 @@ async fn overlapping_connections_share_one_assembler_and_serializer() -> TestRes
         })
     });
 
-    let serializer = ProbeSerializer::new(SERIALIZER_ID, ledger.clone());
-    let assembler = ProbeAssembler::new(ASSEMBLER_ID, ledger.clone());
-    let serializer_recorder = serializer.recorder();
-    let assembler_recorder = assembler.recorder();
-    let prepared = WireframeApp::<BincodeSerializer, (), Envelope>::new()?
-        .serializer(serializer)
-        .with_message_assembler(assembler)
-        .route(1, handler)?
-        .prepare()
-        .await
-        .map_err(|error| -> Box<dyn Error + Send + Sync> { Box::new(error) })?;
-    let root = Arc::new(prepared);
+    let ProbedRoot {
+        root,
+        serializer_recorder,
+        assembler_recorder,
+    } = prepare_probed_root(handler, &ledger).await?;
 
     let (client_a, server_a) = duplex(4096);
     let (client_b, server_b) = duplex(4096);
@@ -198,13 +233,111 @@ async fn overlapping_connections_share_one_assembler_and_serializer() -> TestRes
     Ok(())
 }
 
+/// Per-connection state identified so its teardown can be matched.
+struct ConnectionState {
+    /// Identifier assigned by the setup hook.
+    id: u64,
+}
+
+/// Handler that ignores every request; this test only needs live routes.
+fn no_op_handler() -> Handler<Envelope> { Arc::new(|_env: &Envelope| Box::pin(async {})) }
+
+/// Box a preparation or lifecycle error for the test result.
+fn boxed_error(error: impl Error + Send + Sync + 'static) -> Box<dyn Error + Send + Sync> {
+    Box::new(error)
+}
+
+/// Receive one lifecycle identifier with a bounded wait.
+async fn recv_id(receiver: &mut mpsc::UnboundedReceiver<u64>) -> TestResult<u64> {
+    timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .map_err(|_| "lifecycle event did not arrive")?
+        .ok_or_else(|| "lifecycle channel closed".into())
+}
+
+/// Two live connections receive distinct setup state, each torn down once.
+///
+/// Both setup hooks finish before either client closes, so the two
+/// connections and their lifecycle states genuinely overlap. Teardown for
+/// each connection must then observe that connection's own state exactly
+/// once, rather than sharing one state or running a teardown twice.
+#[tokio::test]
+async fn overlapping_connections_receive_distinct_setup_state() -> TestResult<()> {
+    let (setup_tx, mut setup_rx) = mpsc::unbounded_channel::<u64>();
+    let (teardown_tx, mut teardown_rx) = mpsc::unbounded_channel::<u64>();
+    let next_id = Arc::new(AtomicU64::new(1));
+    let prepared = WireframeApp::<BincodeSerializer, (), Envelope>::new()?
+        .on_connection_setup({
+            let next_id = Arc::clone(&next_id);
+            let setup_tx = setup_tx.clone();
+            move || {
+                let id = next_id.fetch_add(1, Ordering::SeqCst);
+                let setup_tx = setup_tx.clone();
+                async move {
+                    let _ = setup_tx.send(id);
+                    ConnectionState { id }
+                }
+            }
+        })
+        .map_err(boxed_error)?
+        .on_connection_teardown({
+            let teardown_tx = teardown_tx.clone();
+            move |state: ConnectionState| {
+                let teardown_tx = teardown_tx.clone();
+                async move {
+                    let _ = teardown_tx.send(state.id);
+                }
+            }
+        })
+        .map_err(boxed_error)?
+        .route(1, no_op_handler())?
+        .prepare()
+        .await
+        .map_err(boxed_error)?;
+    let root = Arc::new(prepared);
+
+    let (mut client_a, server_a) = duplex(64);
+    let (mut client_b, server_b) = duplex(64);
+    let task_a = spawn_connection(Arc::clone(&root), server_a);
+    let task_b = spawn_connection(Arc::clone(&root), server_b);
+
+    let first = recv_id(&mut setup_rx).await?;
+    let second = recv_id(&mut setup_rx).await?;
+    check_equal(
+        &(first != second),
+        &true,
+        "each connection received its own setup state",
+    )?;
+
+    client_a.shutdown().await?;
+    finish_connection(task_a).await?;
+    let teardown_a = recv_id(&mut teardown_rx).await?;
+    client_b.shutdown().await?;
+    finish_connection(task_b).await?;
+    let teardown_b = recv_id(&mut teardown_rx).await?;
+
+    check_equal(
+        &sorted(vec![teardown_a, teardown_b]),
+        &sorted(vec![first, second]),
+        "teardown received each setup state exactly once",
+    )?;
+    check_equal(
+        &teardown_rx.try_recv().is_err(),
+        &true,
+        "no connection tore down twice",
+    )?;
+    Ok(())
+}
+
 /// Spawn one connection task that owns a clone of the shared root.
-fn spawn_connection<C>(
-    root: Arc<PreparedApp<ProbeSerializer, C, Envelope>>,
+fn spawn_connection<S, C>(
+    root: Arc<PreparedApp<S, C, Envelope>>,
     stream: tokio::io::DuplexStream,
 ) -> tokio::task::JoinHandle<()>
 where
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
     C: Send + 'static,
+    Envelope: DecodeWith<S> + EncodeWith<S>,
 {
     tokio::spawn(async move {
         root.handle_connection(stream).await;
