@@ -88,7 +88,9 @@ where
 
     /// Push a single frame to the current output buffer after applying hooks.
     pub(super) fn push_frame(&mut self, mut frame: F, out: &mut Vec<F>) {
-        self.hooks.before_send(&mut frame, &mut self.ctx);
+        if let Some(protocol) = self.protocol.as_mut() {
+            protocol.before_send(&mut frame);
+        }
         out.push(frame);
     }
 }

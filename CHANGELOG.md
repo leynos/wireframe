@@ -85,6 +85,18 @@ All notable changes to this project will be documented in this file.
   processing, and teardown.
   ([#874](https://github.com/leynos/wireframe/issues/874))
 
+- **Breaking:** Protocol hooks are now one owner per connection rather than six
+  cloned forwarding closures. `ProtocolHooks` is an enum of `None`, `Protocol`,
+  and `Custom`; replace a `ProtocolHooks { .. }` struct literal with
+  `CustomProtocolHooks { .. }.into()`. A protocol-backed connection holds
+  exactly one strong reference to the installed protocol once setup has
+  completed, and `on_connection_setup` runs at most once per hooks value, while
+  every packet-oriented outbound path — handler responses, push queues,
+  streamed responses, multi-packet channels, and stream-end terminators — runs
+  `before_send` exactly once per emitted packet. See the
+  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#protocol-hook-ownership-and-dispatch).
+  ([#644](https://github.com/leynos/wireframe/issues/644))
+
 - Make `wireframe_testing` compile against `tokio-util` 0.7.20, whose extra
   `Encoder` implementations made `.into()` conversions ambiguous. The lock file
   held 0.7.19, so a fresh install failed while CI passed. The lock file now
