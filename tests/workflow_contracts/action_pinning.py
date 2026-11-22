@@ -179,17 +179,20 @@ def pinning_problem(uses: str) -> str | None:
     if reference.startswith("docker://"):
         return _container_problem(reference)
     callee, separator, ref = reference.rpartition("@")
-    if not separator or not callee or not ref:
+    if not _has_ref(callee, separator, ref):
         return f"{reference!r} declares no ref"
     owner = callee.split("/", 1)[0]
-    if owner in TRUSTED_OWNERS:
-        return None
-    if COMMIT_REF_RE.fullmatch(ref):
+    if owner in TRUSTED_OWNERS or COMMIT_REF_RE.fullmatch(ref):
         return None
     return (
         f"{reference!r} uses the mutable ref {ref!r} on the untrusted owner "
         f"{owner!r}; pin it to a full commit hash"
     )
+
+
+def _has_ref(callee: str, separator: str, ref: str) -> bool:
+    """Report whether a ``uses:`` value names both a callee and a ref."""
+    return bool(separator and callee and ref)
 
 
 def _container_problem(reference: str) -> str | None:
