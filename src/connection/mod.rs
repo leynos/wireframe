@@ -135,6 +135,13 @@ pub struct ConnectionActor<F, E = NoProtocolError, P = F> {
     /// that connection is dispatched by its `FramePipeline`, so this actor
     /// holds no hook owner and every dispatch point below is skipped.
     protocol: Option<ConnectionProtocol<F, E>>,
+    /// Correlation policy this actor applies to the terminators it dispatches.
+    ///
+    /// Selected with the hook mode at construction: a directly driven actor
+    /// stamps the response correlation onto its terminator envelope, while an
+    /// actor in no-hook mode leaves terminators to the pipeline, which
+    /// preserves complete codec frames.
+    terminator_correlation: TerminatorCorrelation,
     /// Scheduler state preventing high-priority traffic from starving low traffic.
     fairness: FairnessTracker,
     /// Optional fragmenter applied immediately before outbound emission.
@@ -339,6 +346,11 @@ where
             active_output,
             shutdown,
             counter,
+            terminator_correlation: if hooks.is_some() {
+                TerminatorCorrelation::ACTOR
+            } else {
+                TerminatorCorrelation::PREPARED
+            },
             protocol: hooks.map(|installed| ConnectionProtocol::with_context(installed, ctx)),
             fairness: FairnessTracker::new(FairnessConfig::default()),
             fragmenter: None,

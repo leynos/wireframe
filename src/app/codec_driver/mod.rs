@@ -29,6 +29,7 @@ use tokio::io;
 
 use super::{envelope::Envelope, fragmentation_state::FragmentationState};
 use crate::{
+    connection::TerminatorCorrelation,
     fragment::{FragmentationConfig, FragmentationError},
     hooks::{ConnectionContext, ConnectionProtocol, ProtocolHooks},
 };
@@ -55,6 +56,11 @@ pub(crate) struct FramePipeline<T = Envelope> {
     /// Protocol hooks and the single context shared by every hook on this
     /// connection.
     protocol: ConnectionProtocol<T, ()>,
+    /// Correlation policy this pipeline applies to protocol terminators.
+    ///
+    /// A prepared connection's terminator is a complete codec frame, so the
+    /// pipeline selects the preserving policy when it is constructed.
+    terminator_correlation: TerminatorCorrelation,
 }
 
 impl<T> FramePipeline<T> {
@@ -99,6 +105,7 @@ impl<T> FramePipeline<T> {
             fragmentation: fragmentation.map(FragmentationState::new),
             out: Vec::new(),
             protocol: ConnectionProtocol::new(hooks),
+            terminator_correlation: TerminatorCorrelation::PREPARED,
         }
     }
 
@@ -142,6 +149,11 @@ impl<T> FramePipeline<T> {
 
     /// Run the protocol's completion hook against this connection's context.
     pub(crate) fn on_command_end(&mut self) { self.protocol.on_command_end(); }
+
+    /// Correlation policy this pipeline applies to protocol terminators.
+    pub(crate) const fn terminator_correlation(&self) -> TerminatorCorrelation {
+        self.terminator_correlation
+    }
 
     /// Process an envelope through the pipeline: fragment → metrics.
     ///

@@ -487,10 +487,11 @@ fragmentation, outbound metrics, serialization, `wrap_payload`, and
 receives no fragmenter and no `before_send` hook, so application frames are
 never serialized or hooked twice.
 
-The prepared actor receives no protocol hooks at all. Its value is
-`ProtocolHooks::None`, so the error hook, the stream terminator, and the
-completion hook all run through the pipeline's single owner as part of
-`forward_response`; no callback is dispatched twice. The prepared path invokes
+The prepared actor receives no protocol hooks at all: it is built in the
+actor's no-hook mode, so it holds no `ProtocolHooks` value and no
+`ConnectionProtocol`. The error hook, the stream terminator, and the completion
+hook all run through the pipeline's single owner as part of `forward_response`;
+no callback is dispatched twice. The prepared path invokes
 `on_connection_setup` once, with the connection's `PushHandle`, after the
 registry entry is published and before the first inbound frame is read, so
 setup can address its own connection or any other live one and can queue a push

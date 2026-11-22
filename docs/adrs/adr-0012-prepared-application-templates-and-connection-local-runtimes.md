@@ -505,10 +505,10 @@ one strong reference once setup has completed — during setup the caller's
 reference is still alive alongside the pipeline's — and `on_connection_setup`
 runs at most once per hooks value. The frame pipeline holds a crate-private
 `ConnectionProtocol` pairing that hooks value with the connection's single
-`ConnectionContext`; it is the only hook owner on the prepared path, so the
-connection actor built there is constructed with inert hooks and an empty
-context. The actor's own `ConnectionProtocol` field therefore holds no copy of
-the connection's context and no protocol reference; it receives only the
+`ConnectionContext`; it is the only hook owner on the prepared path. The
+connection actor built there uses the actor's no-hook mode: its
+`ConnectionProtocol` is absent, so it keeps neither a context nor a protocol
+reference and every dispatch point is compiled out; it receives only the
 connection identifier and peer address it logs with. The pipeline's context is
 the only one the prepared path dispatches against, and setup receives that same
 value before it is installed. An actor driven directly through `with_hooks` is

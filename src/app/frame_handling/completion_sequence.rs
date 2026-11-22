@@ -8,7 +8,7 @@
 //! `write_response`, and it keeps every callback on the connection's single
 //! hook owner.
 
-use crate::connection::{ResponseOutcome, TerminatorCorrelation};
+use crate::connection::ResponseOutcome;
 
 /// The callbacks that follow a response body, in dispatch order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,14 +47,6 @@ impl CompletionSequence {
 
     /// Whether the completion hook runs for this response.
     pub(crate) const fn completes(self) -> bool { self.completes }
-
-    /// The correlation policy a prepared connection's terminator carries.
-    ///
-    /// A prepared connection's terminator is a complete codec frame, so it is
-    /// written exactly as the protocol supplied it.
-    pub(crate) const fn terminator_correlation() -> TerminatorCorrelation {
-        TerminatorCorrelation::PREPARED
-    }
 }
 
 #[cfg(test)]
