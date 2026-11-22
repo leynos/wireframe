@@ -19,6 +19,7 @@ use super::*;
 use crate::{
     app::combined_codec::CombinedCodec,
     codec::{FrameCodec, LengthDelimitedFrameCodec, MIN_FRAME_LENGTH},
+    fragment::{FragmentHeader, FragmentIndex, MessageId, encode_fragment_payload},
     serializer::{BincodeSerializer, Serializer},
 };
 
@@ -145,6 +146,59 @@ fn drain_clears_buffer(mut pipeline: FramePipeline) {
 #[rstest]
 fn pipeline_without_fragmentation(pipeline: FramePipeline) {
     assert!(!pipeline.has_fragmentation());
+}
+
+/// Fragmentation-enabled pipeline whose zero reassembly timeout makes any
+/// buffered partial immediately stale.
+#[fixture]
+fn zero_timeout_fragmentation_pipeline() -> FramePipeline {
+    let config = FragmentationConfig {
+        fragment_payload_cap: NonZeroUsize::new(64).expect("fragment payload cap must be non-zero"),
+        max_message_size: NonZeroUsize::new(1024).expect("message size limit must be non-zero"),
+        max_concurrent_partials: None,
+        max_buffered_bytes: None,
+        reassembly_timeout: Duration::ZERO,
+    };
+    FramePipeline::new(Some(config))
+}
+
+/// `FramePipeline::purge_expired` must delegate its sweep to the fragmentation
+/// adapter.
+///
+/// A zero reassembly timeout makes the buffered partial stale immediately, so
+/// a delegated sweep evicts it and the adapter then reports nothing left. A
+/// pipeline whose `purge_expired` is a no-op — the `()` mutant at
+/// `FramePipeline::purge_expired` — leaves the partial for the explicit
+/// adapter call to evict, so this test fails.
+#[rstest]
+fn pipeline_purge_expired_delegates_to_fragmentation(
+    #[from(zero_timeout_fragmentation_pipeline)] mut pipeline: FramePipeline,
+) {
+    let header = FragmentHeader::new(MessageId::new(7), FragmentIndex::zero(), false);
+    let payload =
+        encode_fragment_payload(header, b"partial").expect("fragment payload should encode");
+    let envelope = Envelope::new(1, None, payload);
+
+    let reassembled = pipeline
+        .fragmentation_mut()
+        .expect("pipeline must have fragmentation enabled")
+        .reassemble(envelope)
+        .expect("one valid fragment should not fail reassembly");
+    assert!(
+        reassembled.is_none(),
+        "a single non-final fragment must not complete a message"
+    );
+
+    pipeline.purge_expired();
+
+    let remaining = pipeline
+        .fragmentation_mut()
+        .expect("pipeline must have fragmentation enabled")
+        .purge_expired();
+    assert!(
+        remaining.is_empty(),
+        "pipeline purge must evict the expired partial, remaining: {remaining:?}"
+    );
 }
 
 /// `before_send` mutates every frame flushed from the pipeline.
