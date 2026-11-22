@@ -126,12 +126,13 @@ belongs to whichever one its section names.
 
 ### Captures
 
-| Capture             | Revision                                                | Date       | Covers                                   |
-| ------------------- | ------------------------------------------------------- | ---------- | ---------------------------------------- |
-| Original            | `d28b54e`                                               | 2026-10-11 | Every table except those noted           |
-| Corrected           | PR [#756](https://github.com/leynos/wireframe/pull/756) | 2026-10-12 | Push, startup, allocation, pool          |
-| Prepared ownership  | `dcce92e5`                                              | 2026-11-20 | Startup, configured startup, preparation |
-| Configured dispatch | `0221dfa5`                                              | 2026-11-20 | Configured startup rows only             |
+| Capture              | Revision                                                | Date       | Covers                                   |
+| -------------------- | ------------------------------------------------------- | ---------- | ---------------------------------------- |
+| Original             | `d28b54e`                                               | 2026-10-11 | Every table except those noted           |
+| Corrected            | PR [#756](https://github.com/leynos/wireframe/pull/756) | 2026-10-12 | Push, startup, allocation, pool          |
+| Prepared ownership   | `dcce92e5`                                              | 2026-11-20 | Startup, configured startup, preparation |
+| Configured dispatch  | `0221dfa5`                                              | 2026-11-20 | Configured startup rows only             |
+| Controlled #648 pair | `fb3c9fe1` / `e6552afc`                                 | 2026-11-22 | Startup allocations, before and after    |
 
 The third capture was taken for
 [#648](https://github.com/leynos/wireframe/issues/648), on the branch that
@@ -159,6 +160,13 @@ revisions are the commits the runs measured; the equivalent restacked commits
 are `62c28fc1` and `72f0a9e2`. The restack changed merge resolution and the
 inherited parent work beneath the benchmark harness, not the harness itself, so
 the figures were not re-measured and remain historical within-capture evidence.
+
+The controlled #648 pair supersedes both of them for the allocation question.
+It ran this branch's harness unchanged on the parent tree (`fb3c9fe1`) and on
+the branch (`e6552afc`), on the same host, sequentially, so the only difference
+between the two runs is the ownership change under test. Its counts, and the
+deltas between them, appear in
+[Issue #648: prepared ownership](#issue-648-prepared-ownership).
 
 The original capture is the first published set, taken before the review of
 [#756](https://github.com/leynos/wireframe/pull/756). The corrected capture
@@ -1011,7 +1019,9 @@ and the message assembler are boxed and borrowed per connection instead of
 wrapped in their own `Arc`, and a handler's `Arc` moves out of the consumed
 builder rather than being cloned during preparation. The installed protocol
 keeps its `Arc`, because #644 already gives each connection exactly one strong
-reference through `ProtocolHooks`.
+reference through `ProtocolHooks`. Setup dispatches through that same hooks
+value, so the one-reference guarantee holds while setup is pending rather than
+only during handler dispatch.
 
 Three kinds of evidence exist for a change like this, and only one of them is a
 benchmark number.
@@ -1023,19 +1033,42 @@ root drop, that one handler allocation serves two route ids, and that two
 connections interleaving fragments reach one assembler and one serializer
 allocation. Those are exact properties and they run in the ordinary suite.
 
-The reference-counting cost is *not* visible to the allocation counter. As the
-[allocation harness](#allocation-harness) control records, cloning a shared
-`Arc` costs an atomic increment and no allocation. Every layer this change
-removed was an `Arc` clone per connection, so a before-and-after of the
-allocation count cannot show the removal; it would only have shown the change
-if a fresh `Arc` had been constructed per connection, which is the shape the
-control's `arc_fresh_per_item` probe does detect. The figures below are
-post-change measurements: they state what the configured workload allocates,
-and their within-capture comparison with the plain prepared root shows what the
-four installed components add. They are not a before-and-after of #648, so they
-do not establish that this change added or removed an allocation — the
-toolchain and the #644/#879 connection-path changes between captures prevent
-that attribution.
+The reference-counting cost of a shared handle is invisible to the allocation
+counter: as the [allocation harness](#allocation-harness) control records,
+cloning a shared `Arc` costs an atomic increment and no allocation. What the
+counter does see is the *construction* of each `Arc`, and that is where this
+change is measurable. The values the configured workload installs are
+zero-sized — `BincodeSerializer`, `TestAssembler`, and the two non-capturing
+lifecycle closures — so `Arc::new(value)` allocated a control block for a value
+with no bytes of its own, while `Box::new(value)` allocates nothing at all.
+Preparation therefore loses one allocation for each of the four values, and the
+per-connection clones, which were already free, stay free.
+
+A controlled before-and-after confirms exactly that. Both runs used this
+branch's harness, copied unchanged onto the parent tree, on the same host,
+sequentially on 2026-11-22; the parent tree is `fb3c9fe1` and this branch's
+head at capture is `e6552afc`. Counts are over four iterations:
+
+| Scope                                                                                    | Parent | This branch | Delta |
+| ---------------------------------------------------------------------------------------- | ------ | ----------- | ----- |
+| `configured_..._preparation_only_prepared_root_routes_2_layers_2_factory_1_transforms_4` | 116    | 100         | −16   |
+| `configured_..._prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`    | 500    | 484         | −16   |
+| `prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`                   | 424    | 420         | −4    |
+| `per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16`         | 696    | 680         | −16   |
+
+The configured scopes prepare one application per iteration, so they lose four
+allocations per iteration and 16 over four iterations. The per-connection
+factory prepares four applications per iteration, which is why it moves by the
+same 16 rather than by 4; the plain prepared root installs only the serializer,
+so it moves by one per iteration. The control rows did not move: the actor
+workload allocated 3101 in both runs, the push rows stayed at 43 and 56, and
+the uncontended pool rows stayed at 2053. That is the harness showing it did
+not drift underneath the comparison, and it separates this change from the
+connection-path work beneath it.
+
+The figures below state what the configured workload allocates on this branch.
+Their within-capture comparison with the plain prepared root shows what the
+four installed components add.
 
 The configured startup scope, first. Every row installs a serializer, a message
 assembler, both lifecycle callbacks, and a protocol on top of the workload's
@@ -1098,30 +1131,29 @@ Allocation counts for the same capture, over four iterations:
 
 | Scope                                                                                    | Iterations | Allocations |
 | ---------------------------------------------------------------------------------------- | ---------- | ----------- |
-| `configured_..._prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`    | 4          | 588         |
-| `configured_..._preparation_only_prepared_root_routes_2_layers_2_factory_1_transforms_4` | 4          | 92          |
-| `prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`                   | 4          | 520         |
-| `per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16`         | 4          | 760         |
+| `configured_..._prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`    | 4          | 484         |
+| `configured_..._preparation_only_prepared_root_routes_2_layers_2_factory_1_transforms_4` | 4          | 100         |
+| `prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`                   | 4          | 420         |
+| `per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16`         | 4          | 680         |
 | `frames_256_capacity_128_cancel_disabled`                                                | 4          | 3101        |
-| `drained_high_capacity_64_sends_256`                                                     | 4          | 44          |
+| `drained_high_capacity_64_sends_256`                                                     | 4          | 43          |
 | `overflow_drop_capacity_8_sends_256`                                                     | 4          | 56          |
 | `uncontended_pool_1_acquisitions_256_contenders_1`                                       | 4          | 2053        |
 | `uncontended_pool_4_acquisitions_256_contenders_1`                                       | 4          | 2053        |
 | `uncontended_pool_16_acquisitions_256_contenders_1`                                      | 4          | 2053        |
 
-Installing the four extra application-owned components costs 68 allocations
+Installing the four extra application-owned components costs 64 allocations
 over the plain prepared root across four iterations — one preparation plus four
-connections each. The preparation-only phase attributes 92 of that to preparing
-and dropping the configured application four times, but the two scopes do not
-partition the total: the plain prepared root's own preparation allocates too,
-so the 68 is the difference between two sums rather than the cost of the
-components. Do not subtract one from the other. The pool rows are stable
-against the corrected capture (2052 there, 2053 here) and are included only to
-show the harness did not drift underneath this run; the startup and actor rows
-moved by several hundred, which belongs to the #644 and #879 connection-path
-changes and the toolchain advance between the captures, not to #648. The actor
-row's rise (2133 → 3101) is the clearest example: #648 does not touch the
-actor's drain loop at all.
+connections each. The preparation-only phase records 100 allocations for four
+preparations and drops, but the two scopes do not partition the total: the
+plain prepared root's own preparation allocates too, so the 64 is the
+difference between two sums rather than the cost of the components. Do not
+subtract one from the other. The pool rows were 2053 in both runs of the
+controlled pair and are included only to show the harness did not drift
+underneath it. The actor row is also identical in both runs (3101), which is
+the clearest evidence that the 16-allocation movement belongs to preparation
+and not to the connection loop: #648 does not touch the actor's drain loop at
+all.
 
 ## Instrumentation sensitivity
 

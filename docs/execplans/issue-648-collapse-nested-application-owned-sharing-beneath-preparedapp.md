@@ -57,6 +57,17 @@ owned values while keeping the layers whose independent lifetime is real:
       and the moved prepared-application modules. All gates green again.
 - [x] Draft PR [#936](https://github.com/leynos/wireframe/pull/936), stacked
       on #879 (#925) in GitHub stack #926 beneath #644 (#923).
+- [x] Follow-up review round: protocol setup now dispatches through the hooks
+      value that owns the connection's single reference, measured while setup
+      is paused (`tests/prepared_protocol_setup_ownership.rs`); two overlapping
+      connections prove distinct lifecycle state and one teardown each; the
+      four CodeScene duplications and the large method are refactored away.
+- [x] Controlled before-and-after allocation capture on the parent tree
+      (`fb3c9fe1` with this branch's harness) and on `e6552afc`. The configured
+      scopes lose exactly four allocations per preparation, the plain prepared
+      root one per iteration, and the actor and pool controls do not move.
+      Recorded in `docs/runtime-ownership-baselines.md`.
+- [ ] Push the follow-up round and renew hosted checks and review.
 
 ## Decision log
 
@@ -72,6 +83,10 @@ owned values while keeping the layers whose independent lifetime is real:
   the consumed builder rather than cloning it.
 - **`AppDataStore` is gone.** ADR 017 removed it before 0.4.0, so the
   store-semantics criterion needs no code change; record that in the guide.
+- **Setup dispatches through `ProtocolHooks`, not a second owned clone.** The
+  connection's hooks value already owns its one strong reference and already
+  runs setup at most once, so the processing context carries no protocol field.
+  Setup borrows the hooks, then the same value moves into the frame pipeline.
 
 ## Surprises
 
@@ -118,6 +133,18 @@ owned values while keeping the layers whose independent lifetime is real:
   accessors in their own module, and `ConnectionLoop` took a new constructor
   and push/session fields. Re-applying the ownership changes to the new
   structures was more reliable than reconciling the three-way hunks.
+
+- The shared test-support modules under `tests/common/` are compiled into
+  every test binary that includes them, and `-D warnings` makes each binary see
+  any helper it does not call as dead code. Adding a probe helper to the
+  recording protocol fixture therefore broke unrelated test targets. The
+  setup-boundary probe is a standalone test target instead, so its helpers are
+  used by exactly one binary.
+- CodeScene's duplication rule compares functions within one module, so the
+  borrowed and owned route-folding loops and the two route constructors were
+  duplicates even though they expressed two real paths. Sharing the fold and
+  cloning the route handle at the borrowed boundary removed the duplication
+  without changing which path clones.
 
 ## Validation strategy
 
