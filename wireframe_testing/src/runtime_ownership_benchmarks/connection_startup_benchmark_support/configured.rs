@@ -35,7 +35,7 @@
 
 use bytes::Bytes;
 use wireframe::{
-    app::{Envelope, WireframeApp},
+    app::{Envelope, PreparedApp, WireframeApp},
     hooks::{ConnectionContext, WireframeProtocol},
     push::PushHandle,
     serializer::BincodeSerializer,
@@ -239,10 +239,22 @@ pub fn build_configured_app(
         .map_err(|error| format!("teardown registration failed: {error}"))
 }
 
+/// The prepared application every configured topology drives.
+type ConfiguredPreparedApp = PreparedApp<BincodeSerializer, ConfiguredConnectionState, Envelope>;
+
+/// Build and prepare one application with every configured component installed.
+async fn prepare_configured(
+    workload: ConfiguredStartupWorkload,
+    instrumentation: &ConnectionStartupInstrumentation,
+) -> Result<ConfiguredPreparedApp, String> {
+    let app = build_configured_app(instrumentation, workload)?;
+    app.prepare()
+        .await
+        .map_err(|error| format!("preparation failed: {error}"))
+}
+
 /// Serve one connection with an immediate clean end-of-stream.
-async fn serve_connection(
-    prepared: &wireframe::app::PreparedApp<BincodeSerializer, ConfiguredConnectionState, Envelope>,
-) -> Result<(), String> {
+async fn serve_connection(prepared: &ConfiguredPreparedApp) -> Result<(), String> {
     let (client, server) = tokio::io::duplex(64);
     // Dropping the client half first turns the connection into an immediate
     // clean end-of-stream, so no frame handling is timed here.
@@ -258,11 +270,7 @@ async fn prepare_and_serve(
     workload: ConfiguredStartupWorkload,
     instrumentation: &ConnectionStartupInstrumentation,
 ) -> Result<(), String> {
-    let app = build_configured_app(instrumentation, workload)?;
-    let prepared = app
-        .prepare()
-        .await
-        .map_err(|error| format!("preparation failed: {error}"))?;
+    let prepared = prepare_configured(workload, instrumentation).await?;
     for _ in 0..workload.base.connections {
         serve_connection(&prepared).await?;
     }
@@ -281,11 +289,7 @@ async fn prepare_per_connection(
     instrumentation: &ConnectionStartupInstrumentation,
 ) -> Result<(), String> {
     for _ in 0..workload.base.connections {
-        let app = build_configured_app(instrumentation, workload)?;
-        let prepared = app
-            .prepare()
-            .await
-            .map_err(|error| format!("preparation failed: {error}"))?;
+        let prepared = prepare_configured(workload, instrumentation).await?;
         serve_connection(&prepared).await?;
         drop(prepared);
     }
@@ -297,12 +301,7 @@ async fn prepare_only(
     workload: ConfiguredStartupWorkload,
     instrumentation: &ConnectionStartupInstrumentation,
 ) -> Result<(), String> {
-    let app = build_configured_app(instrumentation, workload)?;
-    let prepared = app
-        .prepare()
-        .await
-        .map_err(|error| format!("preparation failed: {error}"))?;
-    drop(prepared);
+    drop(prepare_configured(workload, instrumentation).await?);
     Ok(())
 }
 
