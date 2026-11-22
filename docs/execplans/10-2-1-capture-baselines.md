@@ -812,7 +812,10 @@ for the roadmap edit.
   count relation), and the fifth was actioned by splitting the 574-line
   `copied_bytes.rs` into a 387-line root and a 199-line `inversion_register`
   module, reached through `#[path]` because a test-file crate root resolves
-  `mod` beside itself. The split target reports 21 passing tests. Gate evidence
+  `mod` beside itself. The split target reports 21 passing tests. CodeScene
+  flagged the two payload-class count checks as duplicated on the new head;
+  extracting `assert_batch_counts_match` removes the duplication, and
+  `cs delta main --file` reports no issues in the changed file. Gate evidence
   for this round is recorded under Artefacts below.
 
 ## Surprises and discoveries
@@ -1097,6 +1100,13 @@ notes" once the final gates have run.
   in 100 suites, 0 failures, including all 20 invariants checks and the split
   `copied_bytes` target
   (`/tmp/test-wireframe-10-2-1-capture-baselines-epm7b.out`).
+- EP-M1 acceptance evidence, captured on 2026-11-22 with the `bench-codec`
+  benches in criterion test mode
+  (`/tmp/bench-codec-wireframe-10-2-1-capture-baselines-epm7.out`, exit 0):
+  every allocation label is unchanged from
+  `docs/zero-copy-benchmark-baselines.md`, including codec
+  `wrap_allocs_3_decode_allocs_48` (and `_32` for hotline), middleware
+  `_allocs_35`, hook `_allocs_3`, and outbound `_allocs_18`.
 - Tolerance accounting at EP-M7 against base
   `7ddba3224b58a60b127fcc13990e3858ed87ecd0`, net lines with ExecPlans
   excluded: code and tests 2,571 across 37 files (limit 900 across 16);

@@ -4,16 +4,19 @@
 //! claim. The seeded copying faults are what prove each half runs at all, and
 //! the payload sweeps keep the byte bounds from resting on two sampled sizes.
 
-use wireframe_testing::codec_benchmarks::{
-    AccessMode,
-    LARGE_PAYLOAD_BYTES,
-    PayloadClass,
-    SMALL_PAYLOAD_BYTES,
-    StageOutcome,
-    VALIDATION_ITERATIONS,
-    hook_payload_handoff,
-    middleware_payload_handoff,
-    payload_for_class,
+use wireframe_testing::{
+    benchmark_alloc_support::AllocationTraffic,
+    codec_benchmarks::{
+        AccessMode,
+        LARGE_PAYLOAD_BYTES,
+        PayloadClass,
+        SMALL_PAYLOAD_BYTES,
+        StageOutcome,
+        VALIDATION_ITERATIONS,
+        hook_payload_handoff,
+        middleware_payload_handoff,
+        payload_for_class,
+    },
 };
 
 use crate::support::{
@@ -114,6 +117,20 @@ pub(super) fn copying_middleware_relocates_buffer() {
     assert_copying_stage_relocates("middleware", &outcome);
 }
 
+/// Asserts a stage allocates the same number of times for either payload class.
+///
+/// Both batches run the same number of iterations, so a count that grows with
+/// the payload is the signature of a copy; the byte bounds are what then reject
+/// it.
+fn assert_batch_counts_match(stage: &str, small: AllocationTraffic, large: AllocationTraffic) {
+    assert_eq!(
+        small.operations, large.operations,
+        "a {stage} batch allocated {} times for a {SMALL_PAYLOAD_BYTES}-byte payload and {} times \
+         for a {LARGE_PAYLOAD_BYTES}-byte payload; {stage} must not scale with the payload",
+        small.operations, large.operations
+    );
+}
+
 /// Traversal allocates the same number of times whatever the payload size.
 pub(super) fn read_only_middleware_counts_match() {
     let small = middleware_traffic(
@@ -127,12 +144,7 @@ pub(super) fn read_only_middleware_counts_match() {
         VALIDATION_ITERATIONS,
     );
 
-    assert_eq!(
-        small.operations, large.operations,
-        "a read-only batch allocated {} times for a {SMALL_PAYLOAD_BYTES}-byte payload and {} \
-         times for a {LARGE_PAYLOAD_BYTES}-byte payload; traversal must not scale with the payload",
-        small.operations, large.operations
-    );
+    assert_batch_counts_match("read-only middleware", small, large);
 }
 
 /// Smallest payload the stage byte probes sweep.
@@ -186,13 +198,7 @@ pub(super) fn read_only_hook_counts_match() {
     let large =
         hook_traffic_for_class(read_only_hook(), PayloadClass::Large, VALIDATION_ITERATIONS);
 
-    assert_eq!(
-        small.operations, large.operations,
-        "a read-only hook batch allocated {} times for a {SMALL_PAYLOAD_BYTES}-byte payload and \
-         {} times for a {LARGE_PAYLOAD_BYTES}-byte payload; dispatch must not scale with the \
-         payload",
-        small.operations, large.operations
-    );
+    assert_batch_counts_match("read-only hook", small, large);
 }
 
 /// A read-only hook batch allocates nothing payload-sized.
