@@ -6,12 +6,12 @@ Feature: Budget pressure transitions and dimension interactions
   enforcement when per-connection and in-flight limits differ.
 
   Scenario: Soft pressure escalates to connection termination
-    Given a transition app configured as 200/2048/10/10
+    Given a transition app configured as 200/2048/74/74
     When transition first frames for keys 1 to 15 each with body "aa" arrive
     Then the transition connection terminates with an error
 
   Scenario: Recovery from soft limit after assembly completion
-    Given a transition app configured as 200/2048/10/10
+    Given a transition app configured as 200/2048/86/86
     When a transition first frame for key 20 with body "aaaaaaaa" arrives
     And the transition server processes the first frame
     And a transition final continuation for key 20 sequence 1 with body "b" arrives
@@ -26,6 +26,6 @@ Feature: Budget pressure transitions and dimension interactions
     And no transition connection error is recorded
 
   Scenario: Tightest aggregate dimension controls enforcement
-    Given a transition app configured as 200/2048/20/10
+    Given a transition app configured as 200/2048/84/74
     When transition first frames for keys 30 to 44 each with body "aa" arrive
     Then the transition connection terminates with an error

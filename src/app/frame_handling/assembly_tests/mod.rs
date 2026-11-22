@@ -346,6 +346,7 @@ fn inbound_assembly_timeout_purges_partial_state(
     );
 }
 
+mod concurrency_cap;
 mod declared_total;
 mod pass_through;
 mod routing_metadata;

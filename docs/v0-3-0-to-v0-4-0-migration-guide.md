@@ -138,6 +138,61 @@ If either configured aggregate cap is exceeded, the connection closes
 immediately. Per-message size violations retain their existing counted
 deserialization-failure behaviour.
 
+## Message assembly concurrency and entry charges
+
+`MessageAssemblyState` now caps the number of assemblies that may be in flight
+at once and charges each one a fixed 64-byte overhead against the aggregate
+budgets. The server path defaults to 64 concurrent assemblies per connection.
+Raise or lower it on the builder; `NonZeroUsize::MAX` is effectively unbounded:
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-022 -->
+```rust
+use std::num::NonZeroUsize;
+use wireframe::{app::WireframeApp, serializer::BincodeSerializer};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cap = NonZeroUsize::new(16).ok_or("assembly cap must be non-zero")?;
+    let _app = WireframeApp::<BincodeSerializer>::new()?.max_concurrent_assemblies(cap);
+    Ok(())
+}
+```
+
+A directly constructed `MessageAssemblyState::new` or
+`MessageAssemblyState::with_budgets` remains uncapped, preserving its previous
+behaviour, unless `with_max_concurrent_assemblies` is called:
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-023 -->
+```rust
+use std::{num::NonZeroUsize, time::Duration};
+use wireframe::message_assembler::MessageAssemblyState;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cap = NonZeroUsize::new(16).ok_or("assembly cap must be non-zero")?;
+    let _state = MessageAssemblyState::new(
+        NonZeroUsize::new(1024).ok_or("message size must be non-zero")?,
+        Duration::from_secs(30),
+    )
+    .with_max_concurrent_assemblies(Some(cap));
+    Ok(())
+}
+```
+
+Aggregate-budget errors now report charged `attempted` values: retained payload
+plus one overhead per live assembly, with a new first frame also charged one
+overhead for the entry it would create. A budget must exceed 64 bytes to admit
+any multi-frame assembly, and a frame that exactly filled a budget in an
+earlier release may now exceed it. `total_buffered_bytes` still reports exact
+payload bytes; use `total_charged_bytes` when comparing against a configured
+budget.
+
+A first frame beyond the cap fails with the new
+`MessageAssemblyError::TooManyConcurrentAssemblies`, which carries the key, the
+attempted count, and the limit. `MessageAssemblyError` is not
+`#[non_exhaustive]`, so adding the variant is a compile-time break for
+exhaustive downstream matches; add an arm for it. The variant is also reported
+through the inbound deserialization-failure policy, like other assembly
+rejections. See [ADR 018](adrs/adr-0018-bound-concurrent-message-assemblies.md).
+
 ## Client error matching
 
 `ClientError` is now marked `#[non_exhaustive]`, and pooled acquisitions can

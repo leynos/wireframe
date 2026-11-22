@@ -54,6 +54,9 @@ impl PartialAssembly {
     /// Body bytes buffered so far, excluding metadata.
     pub(super) const fn body_len(&self) -> usize { self.body.len() }
 
+    /// Clock reading at which this assembly began.
+    pub(super) const fn started_at(&self) -> Instant { self.started_at }
+
     /// Declared total body length, if the first frame supplied one.
     pub(super) const fn declared_total(&self) -> Option<usize> { self.series.expected_total() }
 

@@ -55,3 +55,11 @@ fn reclaim_headroom_after_purge(budget_enforcement_world: BudgetEnforcementWorld
 fn single_frame_bypasses_budgets(budget_enforcement_world: BudgetEnforcementWorld) {
     let _ = budget_enforcement_world;
 }
+
+#[scenario(
+    path = "tests/features/budget_enforcement.feature",
+    name = "Reject empty first frames beyond the concurrent-assembly cap"
+)]
+fn reject_empty_frames_beyond_concurrency_cap(budget_enforcement_world: BudgetEnforcementWorld) {
+    let _ = budget_enforcement_world;
+}

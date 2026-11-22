@@ -5,7 +5,7 @@ Feature: Budget cleanup and reclamation semantics
   When a connection closes, all partial assemblies are freed via RAII.
 
   Scenario: Timeout purge reclaims budget for subsequent frames
-    Given a cleanup app configured as 200/2048/12/12
+    Given a cleanup app configured as 200/2048/120/120
     When a cleanup first frame for key 1 with body "aaaaaaaaa" arrives
     And the cleanup server processes the first frame
     And cleanup waits 201 milliseconds
@@ -15,7 +15,7 @@ Feature: Budget cleanup and reclamation semantics
     And no cleanup connection error is recorded
 
   Scenario: Completed assembly reclaims budget for subsequent frames
-    Given a cleanup app configured as 200/2048/12/12
+    Given a cleanup app configured as 200/2048/120/120
     When a cleanup first frame for key 3 with body "ccccccccc" arrives
     And a cleanup final continuation for key 3 sequence 1 with body "d" arrives
     Then cleanup payload "cccccccccd" is eventually received
@@ -25,7 +25,7 @@ Feature: Budget cleanup and reclamation semantics
     And no cleanup connection error is recorded
 
   Scenario: Connection close frees all partial assemblies
-    Given a cleanup app configured as 200/2048/100/100
+    Given a cleanup app configured as 200/2048/200/200
     When a cleanup first frame for key 5 with body "aaa" arrives
     And a cleanup first frame for key 6 with body "bbb" arrives
     And the cleanup client disconnects

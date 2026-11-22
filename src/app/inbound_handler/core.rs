@@ -5,9 +5,9 @@
 //! setup hook has run. The server's TCP path reaches it through
 //! `PreparedApp::handle_connection_with_shutdown`, which runs
 //! `process_connection` for the accepted socket. The connection spawner's own
-//! `process_stream` is a different function: it completes the preamble
-//! handshake and hands the socket to the prepared application, so it never
-//! calls the frame loop directly. This function builds a [`ConnectionLoop`],
+//! `process_stream` completes the preamble handshake and then hands the socket
+//! to the prepared application, so it never calls the frame loop directly.
+//! This function builds a [`ConnectionLoop`],
 //! which owns the read half, the buffered inbound state and the response actor,
 //! and runs it until the peer closes, the server stops, or a transport error
 //! ends the connection. Each iteration applies memory pressure, waits for a
@@ -15,14 +15,13 @@
 //! in the parent overview own each of those steps.
 //!
 //! Push queues and the stop token arrive through [`StreamProcessingContext`]:
-//! the queue template the actor clones into these lanes, the server shutdown
-//! token, from which the loop derives a child token so its own exit cancels
-//! only this connection, the [`SessionRegistry`] the actor registers with, and
-//! the peer address diagnostics report. The loop observes shutdown between
-//! units, so a handler kept alive by its own pushes still ends when the server
-//! stops.
+//! the queue template, the server shutdown token (the loop derives a child
+//! token so its own exit cancels only this connection), the
+//! [`SessionRegistry`], and the peer address diagnostics report. Shutdown is
+//! observed between units, so a handler kept alive by its own pushes still
+//! ends when the server stops.
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, num::NonZeroUsize, sync::Arc};
 
 use log::debug;
 use tokio::io::{self, AsyncRead, AsyncWrite};
@@ -91,8 +90,10 @@ where
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
     /// Protocol whose response hooks drive the connection actor.
     pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
-    /// Optional byte budgets enforced while processing the connection.
+    /// Optional byte budgets and concurrent-assembly cap for this connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
+    /// Optional cap on concurrently in-flight message assemblies.
+    pub(crate) max_concurrent_assemblies: Option<NonZeroUsize>,
     /// Maximum interval to wait for the next inbound frame.
     pub(crate) read_timeout_ms: u64,
     /// Server shutdown signal; cancelling it stops this connection.
@@ -169,6 +170,7 @@ where
             protocol_hooks,
             protocol,
             memory_budgets,
+            max_concurrent_assemblies,
             read_timeout_ms,
             shutdown,
             push_queues,
@@ -189,6 +191,7 @@ where
                     fragmentation,
                     requested_frame_length,
                     Some(budgets),
+                    max_concurrent_assemblies,
                 )
             }),
             // Armed on the first silent read, so a fresh connection never
@@ -255,11 +258,9 @@ where
 
     /// Wait for the next unit of work, or `None` once the server has stopped.
     ///
-    /// The wait is raced against the connection's shutdown token. The read
-    /// observes shutdown itself, but the push arm is polled first and a ready
-    /// lane wins every biased pass, so without this arm a busy push stream
-    /// would hide the stop from the connection task and the server drain
-    /// waiting on it.
+    /// A ready push lane otherwise wins every biased pass and hides the stop
+    /// from the connection task and the server drain, so the wait is raced
+    /// against the shutdown token.
     async fn wait_for_step(&mut self) -> io::Result<Option<StreamStep<F>>> {
         tokio::select! {
             biased;

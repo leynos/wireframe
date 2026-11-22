@@ -1,8 +1,9 @@
 //! Memory budget pressure helpers for inbound read pacing.
 //!
-//! These helpers detect when buffered assembly bytes approach or exceed
-//! configured aggregate memory budgets. The module provides two tiers of
-//! protection:
+//! These helpers detect when charged assembly bytes approach or exceed
+//! configured aggregate memory budgets. Assembly bytes are charged with a
+//! fixed per-entry overhead, so the pressure figures match what admission
+//! enforces. The module provides two tiers of protection:
 //!
 //! - **Soft limit** (80% of aggregate cap): paces reads with a short pause.
 //! - **Hard cap** (100% of aggregate cap): signals immediate connection abort.
@@ -88,7 +89,7 @@ pub(crate) async fn apply_memory_pressure(
     }
 }
 
-/// Return `true` when buffered assembly bytes strictly exceed the aggregate
+/// Return `true` when charged assembly bytes strictly exceed the aggregate
 /// budget cap, indicating the connection must be aborted immediately.
 ///
 /// This is a defence-in-depth safety net. Under normal operation, per-frame
@@ -103,7 +104,7 @@ pub(super) fn has_hard_cap_been_breached(
         return false;
     };
     let buffered_bytes = state
-        .map_or(0, MessageAssemblyState::total_buffered_bytes)
+        .map_or(0, MessageAssemblyState::total_charged_bytes)
         .saturating_add(fragment_bytes);
     let aggregate_limit = active_aggregate_limit_bytes(memory_budgets);
     buffered_bytes > aggregate_limit
@@ -121,7 +122,7 @@ pub(super) fn should_pause_inbound_reads(
     };
 
     let buffered_bytes = state
-        .map_or(0, MessageAssemblyState::total_buffered_bytes)
+        .map_or(0, MessageAssemblyState::total_charged_bytes)
         .saturating_add(fragment_bytes);
     let aggregate_limit = active_aggregate_limit_bytes(memory_budgets);
     is_at_or_above_soft_limit(buffered_bytes, aggregate_limit)

@@ -11,6 +11,7 @@ use rstest::{fixture, rstest};
 use crate::message_assembler::{
     EnvelopeRouting,
     FirstFrameInput,
+    MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES,
     MessageAssemblyError,
     MessageAssemblyState,
     test_helpers::{continuation_header, first_header},
@@ -21,6 +22,13 @@ use crate::message_assembler::{
 // ---------------------------------------------------------------------------
 
 include!("../../tests/support/non_zero.rs");
+
+/// Payload bytes an aggregate budget must admit alongside one entry's charge.
+const SINGLE_ENTRY_PAYLOAD: usize = 20;
+/// Budget that exactly fits one entry carrying [`SINGLE_ENTRY_PAYLOAD`] bytes.
+const SINGLE_ENTRY_BUDGET: usize = MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + SINGLE_ENTRY_PAYLOAD;
+/// Budget that exactly fits two entries carrying 20 payload bytes in total.
+const TWO_ENTRY_BUDGET: usize = 2 * MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 20;
 
 /// Build a [`FirstFrameHeader`] and [`FirstFrameInput`] in the caller's
 /// scope from a key, body slice, and finality flag.
@@ -68,26 +76,37 @@ fn unbounded_state() -> MessageAssemblyState {
     MessageAssemblyState::new(nz!(1024), Duration::from_secs(30))
 }
 
-/// State with a 20-byte connection budget and 1024-byte per-message limit.
+/// State whose connection budget fits exactly one 20-byte entry.
 #[fixture]
 fn connection_budgeted_state() -> MessageAssemblyState {
-    MessageAssemblyState::with_budgets(nz!(1024), Duration::from_secs(30), Some(nz!(20)), None)
+    MessageAssemblyState::with_budgets(
+        nz!(1024),
+        Duration::from_secs(30),
+        Some(nz!(SINGLE_ENTRY_BUDGET)),
+        None,
+    )
 }
 
-/// State with a 20-byte in-flight budget and 1024-byte per-message limit.
+/// State whose in-flight budget fits exactly one 20-byte entry.
 #[fixture]
 fn in_flight_budgeted_state() -> MessageAssemblyState {
-    MessageAssemblyState::with_budgets(nz!(1024), Duration::from_secs(30), None, Some(nz!(20)))
+    MessageAssemblyState::with_budgets(
+        nz!(1024),
+        Duration::from_secs(30),
+        None,
+        Some(nz!(SINGLE_ENTRY_BUDGET)),
+    )
 }
 
-/// State with both connection (30) and in-flight (20) budgets.
+/// State with connection headroom for 30 payload bytes and in-flight headroom
+/// for 20, each alongside one entry's fixed charge.
 #[fixture]
 fn dual_budgeted_state() -> MessageAssemblyState {
     MessageAssemblyState::with_budgets(
         nz!(1024),
         Duration::from_secs(30),
-        Some(nz!(30)),
-        Some(nz!(20)),
+        Some(nz!(MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 30)),
+        Some(nz!(MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 20)),
     )
 }
 
@@ -164,3 +183,10 @@ fn single_frame_message_not_counted_in_buffered_bytes(
 
 #[path = "budget_enforcement_tests.rs"]
 mod enforcement;
+
+// =============================================================================
+// Concurrent-assembly cap tests — see concurrency_cap_tests.rs
+// =============================================================================
+
+#[path = "concurrency_cap_tests.rs"]
+mod concurrency_cap;

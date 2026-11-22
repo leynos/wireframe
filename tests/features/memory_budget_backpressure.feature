@@ -4,7 +4,7 @@ Feature: Soft-limit memory budget back-pressure
   aggregate memory budgets.
 
   Scenario: Soft pressure delays completion until virtual time advances
-    Given a back-pressure inbound app configured as 200/2048/10/10
+    Given a back-pressure inbound app configured as 200/2048/74/74
     When a budgeted first frame for key 1 with body "aaaaaaaa" arrives
     And the budgeted server processes the first frame
     And a budgeted final continuation frame for key 1 sequence 1 with body "bb" arrives

@@ -29,6 +29,7 @@ where
         let serializer = std::sync::Arc::clone(&self.serializer);
         let message_assembler = self.message_assembler.take();
         let memory_budgets = self.memory_budgets.take();
+        let max_concurrent_assemblies = self.max_concurrent_assemblies.take();
         self.rebuild_with_params(RebuildParams {
             serializer,
             codec,
@@ -38,6 +39,7 @@ where
             fragmentation: None,
             message_assembler,
             memory_budgets,
+            max_concurrent_assemblies,
         })
     }
 
@@ -55,6 +57,7 @@ where
         let fragmentation = self.fragmentation.take();
         let message_assembler = self.message_assembler.take();
         let memory_budgets = self.memory_budgets.take();
+        let max_concurrent_assemblies = self.max_concurrent_assemblies.take();
         self.rebuild_with_params(RebuildParams {
             serializer: std::sync::Arc::new(serializer),
             codec,
@@ -64,6 +67,7 @@ where
             fragmentation,
             message_assembler,
             memory_budgets,
+            max_concurrent_assemblies,
         })
     }
 }

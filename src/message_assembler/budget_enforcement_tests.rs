@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use rstest::rstest;
 
 use super::{
+    TWO_ENTRY_BUDGET,
     connection_budgeted_state,
     dual_budgeted_state,
     in_flight_budgeted_state,
@@ -16,6 +17,7 @@ use super::{
 use crate::message_assembler::{
     EnvelopeRouting,
     FirstFrameInput,
+    MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES,
     MessageAssemblyError,
     MessageAssemblyState,
     MessageKey,
@@ -26,22 +28,33 @@ use crate::message_assembler::{
 // Helpers for parameterized budget-dimension tests
 // =============================================================================
 
-/// Build a `MessageAssemblyState` with only the named budget dimension
-/// set to 20 bytes.
-fn state_for_dimension(dimension: &str) -> MessageAssemblyState {
-    match dimension {
-        "connection" => connection_budgeted_state(),
-        "in_flight" => in_flight_budgeted_state(),
-        _ => panic!("unknown budget dimension: {dimension}"),
-    }
+/// Which aggregate budget dimension a case exercises.
+///
+/// An enum rather than a string keeps the parameterized cases type-checked and
+/// keeps the helper arguments free of stringly typed selectors.
+#[derive(Clone, Copy, Debug)]
+enum BudgetDimension {
+    /// The per-connection byte budget.
+    Connection,
+    /// The in-flight assembly byte budget.
+    InFlight,
 }
 
-/// Assert that `err` is the expected budget-exceeded variant for
-/// `dimension`, matching the given `key` and `attempted` values.
-fn assert_budget_exceeded(err: &MessageAssemblyError, dimension: &str, key: u64, attempted: usize) {
-    match dimension {
-        "connection" => assert!(
-            matches!(
+impl BudgetDimension {
+    /// Build a state whose named dimension fits one entry's charge plus 20
+    /// payload bytes.
+    fn state(self) -> MessageAssemblyState {
+        match self {
+            Self::Connection => connection_budgeted_state(),
+            Self::InFlight => in_flight_budgeted_state(),
+        }
+    }
+
+    /// Whether `err` is this dimension's budget-exceeded variant for `key` and
+    /// `attempted`, ignoring the configured limit.
+    fn matches_exceeded(self, err: &MessageAssemblyError, key: u64, attempted: usize) -> bool {
+        match self {
+            Self::Connection => matches!(
                 err,
                 MessageAssemblyError::ConnectionBudgetExceeded {
                     key: k,
@@ -49,10 +62,7 @@ fn assert_budget_exceeded(err: &MessageAssemblyError, dimension: &str, key: u64,
                     ..
                 } if k == &MessageKey(key) && *a == attempted
             ),
-            "connection budget must reject the attempted size"
-        ),
-        "in_flight" => assert!(
-            matches!(
+            Self::InFlight => matches!(
                 err,
                 MessageAssemblyError::InFlightBudgetExceeded {
                     key: k,
@@ -60,25 +70,17 @@ fn assert_budget_exceeded(err: &MessageAssemblyError, dimension: &str, key: u64,
                     ..
                 } if k == &MessageKey(key) && *a == attempted
             ),
-            "in-flight budget must reject the attempted size"
-        ),
-        _ => panic!("unknown budget dimension: {dimension}"),
+        }
     }
-}
 
-/// Assert that `err` matches the budget-exceeded variant for `dimension`
-/// without inspecting field values.
-fn assert_budget_exceeded_any(err: &MessageAssemblyError, dimension: &str) {
-    match dimension {
-        "connection" => assert!(
-            matches!(err, MessageAssemblyError::ConnectionBudgetExceeded { .. }),
-            "connection budget must be exceeded"
-        ),
-        "in_flight" => assert!(
-            matches!(err, MessageAssemblyError::InFlightBudgetExceeded { .. }),
-            "in-flight budget must be exceeded"
-        ),
-        _ => panic!("unknown budget dimension: {dimension}"),
+    /// Whether `err` is this dimension's budget-exceeded variant at all.
+    fn is_exceeded(self, err: &MessageAssemblyError) -> bool {
+        match self {
+            Self::Connection => {
+                matches!(err, MessageAssemblyError::ConnectionBudgetExceeded { .. })
+            }
+            Self::InFlight => matches!(err, MessageAssemblyError::InFlightBudgetExceeded { .. }),
+        }
     }
 }
 
@@ -87,31 +89,35 @@ fn assert_budget_exceeded_any(err: &MessageAssemblyError, dimension: &str) {
 // =============================================================================
 
 #[rstest]
-#[case::connection("connection")]
-#[case::in_flight("in_flight")]
-fn budget_allows_frames_within_limit(#[case] dimension: &str) {
-    let mut state = state_for_dimension(dimension);
+#[case::connection(BudgetDimension::Connection)]
+#[case::in_flight(BudgetDimension::InFlight)]
+fn budget_allows_frames_within_limit(#[case] dimension: BudgetDimension) {
+    let mut state = dimension.state();
     // 10 bytes fits within 20-byte budget
     submit_first(&mut state, 1, &[0u8; 10], false).expect("within budget");
     assert_eq!(state.total_buffered_bytes(), 10, "total buffered bytes");
 }
 
 #[rstest]
-#[case::connection("connection")]
-#[case::in_flight("in_flight")]
-fn budget_rejects_first_frame_exceeding_limit(#[case] dimension: &str) {
-    let mut state = state_for_dimension(dimension);
-    // 21 bytes exceeds 20-byte budget
+#[case::connection(BudgetDimension::Connection)]
+#[case::in_flight(BudgetDimension::InFlight)]
+fn budget_rejects_first_frame_exceeding_limit(#[case] dimension: BudgetDimension) {
+    let mut state = dimension.state();
+    // 21 payload bytes plus the entry charge exceeds the 20-byte payload
+    // headroom.
     let err = submit_first(&mut state, 1, &[0u8; 21], false).expect_err("should reject");
-    assert_budget_exceeded(&err, dimension, 1, 21);
+    assert!(
+        dimension.matches_exceeded(&err, 1, MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 21),
+        "{dimension:?} budget must reject the attempted size, got {err:?}"
+    );
     assert_eq!(state.buffered_count(), 0, "no message left buffered");
 }
 
 #[rstest]
-#[case::connection("connection")]
-#[case::in_flight("in_flight")]
-fn budget_rejects_continuation_exceeding_limit(#[case] dimension: &str) {
-    let mut state = state_for_dimension(dimension);
+#[case::connection(BudgetDimension::Connection)]
+#[case::in_flight(BudgetDimension::InFlight)]
+fn budget_rejects_continuation_exceeding_limit(#[case] dimension: BudgetDimension) {
+    let mut state = dimension.state();
     // First frame: 10 bytes (within 20-byte budget)
     submit_first(&mut state, 1, &[0u8; 10], false).expect("first frame");
 
@@ -120,7 +126,10 @@ fn budget_rejects_continuation_exceeding_limit(#[case] dimension: &str) {
     let err = state
         .accept_continuation_frame(&cont, &[0u8; 11])
         .expect_err("should reject");
-    assert_budget_exceeded_any(&err, dimension);
+    assert!(
+        dimension.is_exceeded(&err),
+        "{dimension:?} budget must be exceeded, got {err:?}"
+    );
     // Partial assembly should be freed on budget violation
     assert_eq!(state.buffered_count(), 0, "partial assembly freed");
 }
@@ -130,15 +139,21 @@ fn budget_rejects_continuation_exceeding_limit(#[case] dimension: &str) {
 // =============================================================================
 
 #[rstest]
-fn connection_budget_frees_partial_on_violation(
-    #[from(connection_budgeted_state)] mut state: MessageAssemblyState,
-) {
-    // Start two assemblies: 8 + 8 = 16 (within 20)
+fn connection_budget_frees_partial_on_violation() {
+    let mut state = MessageAssemblyState::with_budgets(
+        nz!(1024),
+        Duration::from_secs(30),
+        Some(nz!(TWO_ENTRY_BUDGET)),
+        None,
+    );
+
+    // Start two assemblies: two fixed charges plus 8 + 8 payload bytes fit.
     submit_first(&mut state, 1, &[0u8; 8], false).expect("first");
     submit_first(&mut state, 2, &[0u8; 8], false).expect("second");
     assert_eq!(state.buffered_count(), 2, "two assemblies buffered");
 
-    // Continuation on key 1: 5 bytes would bring total to 21
+    // Continuation on key 1: 5 bytes would bring the charged total to 149,
+    // one byte past the 148-byte budget.
     let cont = continuation_header(1, 1, 5, false);
     let err = state
         .accept_continuation_frame(&cont, &[0u8; 5])
@@ -172,12 +187,13 @@ fn dual_budget_in_flight_triggers_before_connection(
 
 #[test]
 fn dual_budget_connection_triggers_when_in_flight_not_exceeded() {
-    // connection=15 < in_flight=20, so connection triggers first.
+    // Connection headroom is 15 payload bytes and in-flight headroom is 20,
+    // so connection triggers first.
     let mut state = MessageAssemblyState::with_budgets(
         nz!(1024),
         Duration::from_secs(30),
-        Some(nz!(15)),
-        Some(nz!(20)),
+        Some(nz!(MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 15)),
+        Some(nz!(MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 20)),
     );
     let err = submit_first(&mut state, 1, &[0u8; 16], false).expect_err("should reject");
     assert!(
@@ -242,14 +258,19 @@ fn budget_violation_does_not_affect_other_assemblies(
 
 #[test]
 fn headroom_reclaimed_after_purge_allows_new_assembly() {
-    let mut state =
-        MessageAssemblyState::with_budgets(nz!(1024), Duration::from_secs(30), Some(nz!(20)), None);
+    let mut state = MessageAssemblyState::with_budgets(
+        nz!(1024),
+        Duration::from_secs(30),
+        Some(nz!(MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 20)),
+        None,
+    );
 
     let now = Instant::now();
     submit_first_at(&mut state, 1, &[0u8; 15], now).expect("first");
     assert_eq!(state.total_buffered_bytes(), 15, "bytes buffered so far");
 
-    // A 6-byte frame would exceed budget (15 + 6 = 21 > 20)
+    // A new entry charging 64 + 6 exceeds the 84-byte budget once the 79
+    // charged for key 1 is counted.
     let err = submit_first(&mut state, 2, &[0u8; 6], false).expect_err("over budget");
     assert!(
         matches!(err, MessageAssemblyError::ConnectionBudgetExceeded { .. }),
@@ -268,8 +289,12 @@ fn headroom_reclaimed_after_purge_allows_new_assembly() {
 
 #[test]
 fn headroom_reclaimed_after_completion_allows_new_frame() {
-    let mut state =
-        MessageAssemblyState::with_budgets(nz!(1024), Duration::from_secs(30), None, Some(nz!(20)));
+    let mut state = MessageAssemblyState::with_budgets(
+        nz!(1024),
+        Duration::from_secs(30),
+        None,
+        Some(nz!(MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 20)),
+    );
 
     submit_first(&mut state, 1, &[0u8; 15], false).expect("first");
 

@@ -5,7 +5,7 @@ Feature: Memory budget enforcement during message assembly
   three budget dimensions — per-message, per-connection, and in-flight.
 
   Background:
-    Given a budgeted assembly state configured as 1024/30/50/40
+    Given a budgeted assembly state configured as 1024/30/105/104
 
   Scenario: Accept frames within all budget limits
     When a first frame for key 1 with 10 body bytes is accepted
@@ -47,3 +47,11 @@ Feature: Memory budget enforcement during message assembly
     When a single-frame message for key 2 with 100 body bytes is accepted
     Then the single-frame message completes immediately
     And total buffered bytes is 35
+
+  Scenario: Reject empty first frames beyond the concurrent-assembly cap
+    Given a budgeted assembly state configured as 1024/30/1024/1024/2
+    When a first frame for key 1 with 0 body bytes is accepted
+    And a first frame for key 2 with 0 body bytes is accepted
+    When a first frame for key 3 with 0 body bytes is rejected
+    Then the error is "TooManyConcurrentAssemblies"
+    And the active assembly count is 2

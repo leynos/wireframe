@@ -20,6 +20,7 @@
 //! - Duplicate frames (already-processed sequences)
 //! - Frames arriving after the series is complete
 
+mod accounting;
 mod budget;
 pub mod error;
 mod header;
@@ -31,6 +32,7 @@ mod validation;
 
 use std::io;
 
+pub use budget::MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES;
 pub use error::{MessageAssemblyError, MessageSeriesError, MessageSeriesStatus};
 pub use header::{
     ContinuationFrameHeader,

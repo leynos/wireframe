@@ -1,6 +1,6 @@
 //! Core builder types for `WireframeApp`.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
 
 use tokio::sync::mpsc;
 
@@ -77,6 +77,11 @@ pub struct WireframeApp<
     pub(in crate::app) message_assembler: Option<Arc<dyn MessageAssembler>>,
     /// Optional byte caps protecting message and connection memory usage.
     pub(in crate::app) memory_budgets: Option<MemoryBudgets>,
+    /// Optional cap on concurrently in-flight message assemblies.
+    ///
+    /// `None` means the application has not overridden the derived default of
+    /// `DEFAULT_MAX_CONCURRENT_ASSEMBLIES`.
+    pub(in crate::app) max_concurrent_assemblies: Option<NonZeroUsize>,
 }
 
 impl<S, C, E, F> Default for WireframeApp<S, C, E, F>
@@ -105,6 +110,7 @@ where
             fragmentation: None,
             message_assembler: None,
             memory_budgets: None,
+            max_concurrent_assemblies: None,
         }
     }
 }
@@ -149,8 +155,8 @@ where
 /// Groups the type-changing parameters for [`WireframeApp::rebuild_with_params`].
 ///
 /// Consolidates serializer, codec, protocol, fragmentation, message assembler,
-/// and memory budgets into a single value to keep the rebuild signature
-/// concise.
+/// memory budgets, and the concurrent-assembly cap into a single value to keep
+/// the rebuild signature concise.
 pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     /// Serializer to carry into the rebuilt application type.
     pub(super) serializer: Arc<S2>,
@@ -168,6 +174,8 @@ pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     pub(super) message_assembler: Option<Arc<dyn MessageAssembler>>,
     /// Memory limits retained across a type transition.
     pub(super) memory_budgets: Option<MemoryBudgets>,
+    /// Concurrent-assembly cap retained across a type transition.
+    pub(super) max_concurrent_assemblies: Option<NonZeroUsize>,
 }
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
@@ -208,6 +216,7 @@ where
             fragmentation: params.fragmentation,
             message_assembler: params.message_assembler,
             memory_budgets: params.memory_budgets,
+            max_concurrent_assemblies: params.max_concurrent_assemblies,
         }
     }
 
@@ -238,6 +247,7 @@ where
             fragmentation: self.fragmentation,
             message_assembler: self.message_assembler,
             memory_budgets: self.memory_budgets,
+            max_concurrent_assemblies: self.max_concurrent_assemblies,
         }
     }
 }
