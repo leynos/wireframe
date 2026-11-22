@@ -148,6 +148,8 @@ impl<'a> PublishedDocument<'a> {
     fn line(&self, index: usize) -> Option<&'a str> { self.lines.get(index).copied() }
 
     fn lines(&self) -> &[&'a str] { &self.lines }
+
+    fn line_count(&self) -> usize { self.lines.len() }
 }
 
 /// A document's examples together with the identifiers it claimed.
@@ -230,9 +232,9 @@ pub fn parse_document(
     let mut parsed = ParsedDocument::default();
     let mut open: Option<OpenExample> = None;
 
-    for (index, line) in document.lines().iter().copied().enumerate() {
+    for index in 0..document.line_count() {
         if let Some(active) = open.take() {
-            open = advance_open_example(document, active, line, index, &mut parsed)?;
+            open = advance_open_example(document, active, index, &mut parsed)?;
             continue;
         }
 

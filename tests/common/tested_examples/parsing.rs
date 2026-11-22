@@ -73,18 +73,19 @@ pub(super) fn opening_fence(line: SourceLine<'_>) -> Option<Fence> {
     (length >= 3).then_some(Fence { marker, length })
 }
 
-/// Close `active` when `line` carries its closing fence, or return it open.
+/// Close `active` when the line at `index` carries its closing fence.
 ///
-/// Keeping this branch out of the walk avoids nested conditionals while the
-/// open example's body stays opaque to the container checks.
+/// Keeping this branch out of the walk avoids nested conditionals.
 pub(super) fn advance_open_example(
     document: &PublishedDocument<'_>,
     active: OpenExample,
-    line: &str,
     index: usize,
     parsed: &mut ParsedDocument,
 ) -> Result<Option<OpenExample>, String> {
-    if !is_closing_fence(SourceLine::new(line), active.fence) {
+    let is_closed = document
+        .line(index)
+        .is_some_and(|line| is_closing_fence(SourceLine::new(line), active.fence));
+    if !is_closed {
         return Ok(Some(active));
     }
     parsed
@@ -278,10 +279,9 @@ pub(super) fn is_marker_like(text: &str) -> bool {
 
 /// Strip interleaved quote markers, list markers and indentation from `line`.
 ///
-/// CommonMark lets those containers nest in any order before a block, so each
-/// pass measures the whitespace run, then removes one quote or list marker and
-/// repeats. Whitespace after a quote marker is measured after its one optional
-/// space, because the remaining indentation belongs to the quoted content.
+/// Containers nest in any order before a block, so each pass measures the
+/// whitespace run, then removes one quote or list marker and repeats. The
+/// optional space after a quote marker is not measured as content indentation.
 fn strip_container_prefix(line: &str) -> ContainerPrefix<'_> {
     let mut remainder = line;
     let mut hides_example = false;
