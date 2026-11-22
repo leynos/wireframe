@@ -19,6 +19,7 @@ use std::{
 use bytes::Bytes;
 use futures::StreamExt;
 use rstest::{fixture, rstest};
+use tokio::time::Instant;
 
 use super::{
     super::{
@@ -31,6 +32,52 @@ use crate::{
     app::inbound_handler::stream_handles::ChunkBudget,
     request::{AccountedBodySender, QueuedBytes, RequestBodyStream, accounted_body_channel},
 };
+
+/// Return whether the slot reports a stall past `bound` at this instant.
+fn is_stalled(streams: &ConnectionStreams, bound: Duration) -> bool {
+    streams.stall_expired_at(bound, Instant::now())
+}
+
+/// The stall policy decides against the instant it is given.
+///
+/// The loop reads the clock once per step and passes that reading to both the
+/// stall check and the drive cap, so a test can pin the decision to fixed
+/// instants instead of the paused runtime's own.
+#[rstest]
+#[test]
+fn the_stall_policy_decides_against_the_instant_it_is_given(short_wait: Duration) {
+    let start = Instant::now();
+    let mut streams = ConnectionStreams::new(QueuedBytes::new());
+    streams.stalled_since = Some(start);
+
+    assert!(
+        !streams.stall_expired_at(short_wait, start),
+        "a stall that has not started cannot have expired"
+    );
+    assert_eq!(
+        streams.stall_remaining_at(short_wait, start),
+        short_wait,
+        "an untouched interval offers the whole bound"
+    );
+    assert!(
+        !streams.stall_expired_at(short_wait, start + short_wait / 2),
+        "half the bound is not past the bound"
+    );
+    assert_eq!(
+        streams.stall_remaining_at(short_wait, start + short_wait / 2),
+        short_wait / 2,
+        "the remaining interval is the part not yet spent"
+    );
+    assert!(
+        streams.stall_expired_at(short_wait, start + short_wait),
+        "the bound itself has expired"
+    );
+    assert_eq!(
+        streams.stall_remaining_at(short_wait, start + short_wait * 2),
+        Duration::ZERO,
+        "a passed bound leaves nothing to spend"
+    );
+}
 
 /// Identity of the message a test's body belongs to.
 fn identity() -> BodyIdentity {
@@ -140,7 +187,7 @@ async fn a_stall_accumulates_across_drives_until_an_admission_settles(
     let one_and_a_half_waits = short_wait * 3 / 2;
 
     assert!(
-        !streams.stall_expired(short_wait),
+        !is_stalled(&streams, short_wait),
         "a body that has not waited yet cannot have stalled"
     );
     let first = streams.drive_pending(short_wait, blocked_budget).await;
@@ -149,11 +196,11 @@ async fn a_stall_accumulates_across_drives_until_an_admission_settles(
         "the blocked chunk should hand control back to the loop"
     );
     assert!(
-        streams.stall_expired(short_wait),
+        is_stalled(&streams, short_wait),
         "the expired wait should count toward the body's stall"
     );
     assert!(
-        !streams.stall_expired(one_and_a_half_waits),
+        !is_stalled(&streams, one_and_a_half_waits),
         "one expired wait alone must not reach a longer bound"
     );
 
@@ -163,7 +210,7 @@ async fn a_stall_accumulates_across_drives_until_an_admission_settles(
         "each blocked drive should hand control back to the loop"
     );
     assert!(
-        streams.stall_expired(one_and_a_half_waits),
+        is_stalled(&streams, one_and_a_half_waits),
         "two stalled drives must accumulate into one longer interval"
     );
 
@@ -174,7 +221,7 @@ async fn a_stall_accumulates_across_drives_until_an_admission_settles(
         "a dropped body refuses the queued chunk"
     );
     assert!(
-        !streams.stall_expired(one_and_a_half_waits),
+        !is_stalled(&streams, one_and_a_half_waits),
         "a settled admission should clear the accumulated interval"
     );
 }

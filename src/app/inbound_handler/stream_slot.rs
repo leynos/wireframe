@@ -96,9 +96,13 @@ impl ConnectionStreams {
     /// the byte budget, and no frame can be dispatched until the chunk
     /// settles. The bound is what keeps such a connection from being pinned
     /// for the life of the server.
-    pub(super) fn stall_expired(&self, bound: Duration) -> bool {
+    ///
+    /// The instant is a parameter rather than read here, so the loop that
+    /// decides once per step passes the same reading to every check, and a
+    /// test can drive the policy with fixed instants.
+    pub(super) fn stall_expired_at(&self, bound: Duration, now: Instant) -> bool {
         self.stalled_since
-            .is_some_and(|since| since.elapsed() >= bound)
+            .is_some_and(|since| now.saturating_duration_since(since) >= bound)
     }
 
     /// Return how much of the stall bound one more drive may consume.
@@ -107,9 +111,10 @@ impl ConnectionStreams {
     /// body should be failed, so the caller caps its wait by what remains. A
     /// body with no stall yet is offered a whole interval, because the drive
     /// that starts is the one that begins measuring it.
-    pub(super) fn stall_remaining(&self, bound: Duration) -> Duration {
-        self.stalled_since
-            .map_or(bound, |since| bound.saturating_sub(since.elapsed()))
+    pub(super) fn stall_remaining_at(&self, bound: Duration, now: Instant) -> Duration {
+        self.stalled_since.map_or(bound, |since| {
+            bound.saturating_sub(now.saturating_duration_since(since))
+        })
     }
 
     /// Record whether the last admission drive made progress.

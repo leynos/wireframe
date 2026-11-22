@@ -34,21 +34,74 @@ use tokio::sync::{Notify, mpsc};
 
 use super::RequestBodyStream;
 
+/// Publication of the body bytes a process holds.
+///
+/// The account's two process-wide effects — charging a reservation and
+/// releasing a consumed chunk — go through this pair of function pointers
+/// rather than calling the `metrics` statics directly. Production wires them
+/// once, in [`Self::process_wide`]; a test can build an account whose effects
+/// land in its own tally.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ByteAccounting {
+    /// Charge `len` bytes to the process-wide queued total.
+    add: fn(usize),
+    /// Release `len` bytes from the process-wide queued total.
+    release: fn(usize),
+}
+
+impl ByteAccounting {
+    /// Report through the `metrics` crate's process-wide occupancy tally.
+    pub(crate) const fn process_wide() -> Self {
+        Self {
+            add: crate::metrics::add_queued_body_bytes,
+            release: crate::metrics::release_queued_body_bytes,
+        }
+    }
+
+    /// Report through a caller's own charge and release pair.
+    ///
+    /// Only a test builds one of these; production always reports through
+    /// [`Self::process_wide`], so the constructor is not compiled into a
+    /// non-test build.
+    #[cfg(test)]
+    pub(crate) const fn new(add: fn(usize), release: fn(usize)) -> Self { Self { add, release } }
+}
+
 /// Bytes currently queued for one connection's streaming request bodies.
 ///
 /// Cloning shares the same counter, so the connection can read it while a
 /// sender admits another chunk.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(crate) struct QueuedBytes {
     /// Total bytes held by queued [`BodyChunk`] values.
     bytes: Arc<AtomicUsize>,
     /// Wakes a producer after the consumer releases queued bytes.
     released: Arc<Notify>,
+    /// Sink the account reports its charges and releases to.
+    accounting: ByteAccounting,
+}
+
+impl Default for QueuedBytes {
+    /// Create an account that reports to the process-wide tally.
+    fn default() -> Self { Self::with_accounting(ByteAccounting::process_wide()) }
 }
 
 impl QueuedBytes {
-    /// Create an empty account.
+    /// Create an empty account that reports to the process-wide tally.
     pub(crate) fn new() -> Self { Self::default() }
+
+    /// Create an empty account that reports through `accounting`.
+    ///
+    /// The sink is a construction argument rather than a hidden call, so the
+    /// channel primitive has no process-wide side effect a caller did not
+    /// choose.
+    pub(crate) fn with_accounting(accounting: ByteAccounting) -> Self {
+        Self {
+            bytes: Arc::new(AtomicUsize::new(0)),
+            released: Arc::new(Notify::new()),
+            accounting,
+        }
+    }
 
     /// Return the number of bytes currently queued.
     pub(crate) fn queued(&self) -> usize { self.bytes.load(Ordering::SeqCst) }
@@ -85,7 +138,7 @@ impl QueuedBytes {
                     // Charged here, where the reservation is installed, so the
                     // process-wide total includes bytes that are waiting for
                     // channel capacity and not only queued ones.
-                    crate::metrics::add_queued_body_bytes(len);
+                    (self.accounting.add)(len);
                     return Some(self.guard(len));
                 }
                 // Another producer charged or released bytes between the read
@@ -104,6 +157,7 @@ impl QueuedBytes {
         QueuedBytesGuard {
             bytes: Arc::clone(&self.bytes),
             released: Arc::clone(&self.released),
+            accounting: self.accounting,
             len,
         }
     }
@@ -133,6 +187,8 @@ struct QueuedBytesGuard {
     bytes: Arc<AtomicUsize>,
     /// Waker used to resume a producer waiting for capacity.
     released: Arc<Notify>,
+    /// Sink the released bytes are reported to.
+    accounting: ByteAccounting,
     /// Byte count charged by this guard.
     len: usize,
 }
@@ -140,7 +196,7 @@ struct QueuedBytesGuard {
 impl Drop for QueuedBytesGuard {
     fn drop(&mut self) {
         self.bytes.fetch_sub(self.len, Ordering::SeqCst);
-        crate::metrics::release_queued_body_bytes(self.len);
+        (self.accounting.release)(self.len);
         self.released.notify_waiters();
     }
 }

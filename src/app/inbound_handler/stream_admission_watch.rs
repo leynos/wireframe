@@ -13,6 +13,7 @@
 use std::io;
 
 use futures::{Sink, Stream};
+use tokio::time::Instant;
 
 use super::{
     super::envelope::{Envelope, Packet},
@@ -71,6 +72,7 @@ where
         &mut self,
         state: &mut LoopState,
         queued: QueuedBytes,
+        now: Instant,
     ) -> io::Result<AdmissionWait<F::Frame>> {
         // A pending admission means the slot is live, so the parked drain
         // cannot run in this step. Driving it first keeps the drain outside
@@ -86,7 +88,7 @@ where
         // as by the connection wait: the bound is checked between drives, so a
         // long read timeout would otherwise let one drive hide a body whose
         // handler never reads.
-        let remaining = state.streams.stall_remaining(STALLED_BODY_BOUND);
+        let remaining = state.streams.stall_remaining_at(STALLED_BODY_BOUND, now);
         let wait = self.wait.min(remaining);
         // A frame already buffered ends direct observation: the reader is
         // deliberately not polled again until that frame is dispatched, so

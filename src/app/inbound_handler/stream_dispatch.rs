@@ -25,6 +25,7 @@
 use std::{io, time::Duration};
 
 use futures::{Sink, Stream};
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 // Re-exported so the loop's callers keep naming these through the module that
@@ -152,13 +153,16 @@ where
             return Ok(Step::Closed);
         }
         let queued = state.streams.queued();
-        if self.fail_stalled_body(state, queued.clone()).await? {
+        // One reading of the clock per step: the stall check and the drive cap
+        // then decide against the same instant.
+        let now = Instant::now();
+        if self.fail_stalled_body(state, queued.clone(), now).await? {
             return Ok(Step::Closed);
         }
         if self.expire_bodies(state, queued.clone()).await? {
             return Ok(Step::Closed);
         }
-        match self.drive_admission(state, queued.clone()).await? {
+        match self.drive_admission(state, queued.clone(), now).await? {
             AdmissionWait::Handler(outcome) => {
                 // The handler's reply may stream for an unbounded time, so it is
                 // forwarded through the same peer-observed path as a frame's
@@ -206,8 +210,9 @@ where
         &mut self,
         state: &mut LoopState,
         queued: QueuedBytes,
+        now: Instant,
     ) -> io::Result<bool> {
-        if !state.streams.stall_expired(STALLED_BODY_BOUND) {
+        if !state.streams.stall_expired_at(STALLED_BODY_BOUND, now) {
             return Ok(false);
         }
         let reason = io::Error::new(

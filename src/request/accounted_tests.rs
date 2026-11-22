@@ -5,13 +5,16 @@
 //! really retains. The empty-queue exception is also pinned here: without it a
 //! chunk larger than the remaining budget could never make progress.
 
-use std::time::Duration;
+use std::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 
 use bytes::Bytes;
 use futures::StreamExt;
 use tokio::time::timeout;
 
-use super::{QueuedBytes, SendChunkError, accounted_body_channel};
+use super::{QueuedBytes, SendChunkError, accounted::ByteAccounting, accounted_body_channel};
 
 /// Bound used for every admission in these tests.
 const LIMIT: usize = 8;
@@ -41,6 +44,49 @@ async fn yielding_a_chunk_releases_its_queued_bytes() {
         0,
         "taking the chunk must release its bytes"
     );
+}
+
+/// The account reports through the sink it was built with.
+///
+/// The channel primitive has no hidden process-wide effect: an account built
+/// with a local sink charges the reservation and releases the consumed chunk
+/// through that sink, so this test asserts the accounting without touching the
+/// shared tally.
+#[tokio::test]
+async fn the_account_reports_through_its_injected_sink() {
+    static ADDED: AtomicUsize = AtomicUsize::new(0);
+    static RELEASED: AtomicUsize = AtomicUsize::new(0);
+    fn add(len: usize) { ADDED.fetch_add(len, Ordering::SeqCst); }
+    fn release(len: usize) { RELEASED.fetch_add(len, Ordering::SeqCst); }
+    ADDED.store(0, Ordering::SeqCst);
+    RELEASED.store(0, Ordering::SeqCst);
+
+    let queued = QueuedBytes::with_accounting(ByteAccounting::new(add, release));
+    let (sender, mut stream) = accounted_body_channel(4, queued.clone());
+
+    sender
+        .send_chunk(Bytes::from_static(b"hello"), 0, LIMIT)
+        .await
+        .expect("an empty account admits the chunk");
+    assert_eq!(
+        ADDED.load(Ordering::SeqCst),
+        5,
+        "the reservation is charged once"
+    );
+    assert_eq!(
+        RELEASED.load(Ordering::SeqCst),
+        0,
+        "nothing is released before the consumer reads"
+    );
+
+    let chunk = stream.next().await.expect("the body yields the chunk");
+    assert!(chunk.is_ok(), "the chunk is not an error");
+    assert_eq!(
+        RELEASED.load(Ordering::SeqCst),
+        5,
+        "consuming the chunk releases its bytes"
+    );
+    assert_eq!(queued.queued(), 0, "the account itself is empty again");
 }
 
 #[tokio::test]
