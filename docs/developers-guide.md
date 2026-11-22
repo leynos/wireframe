@@ -1277,8 +1277,9 @@ interval explicitly and parse the `dropped=` field of each emitted warning.
 Two groups still show as survivors in the ordinary lane because they are
 compiled only under `cfg(loom)`, so no ordinary test can reach them:
 
-- `PushHandle::probe`, `PushHandleProbe::dlq_drop_count` and
-  `PushHandleProbe::dlq_reported_count` in `src/push/queues/handle.rs`.
+- `PushHandle::probe` in `src/push/queues/handle/mod.rs`, and
+  `PushHandleProbe::dlq_drop_count` and `PushHandleProbe::dlq_reported_count` in
+  `src/push/queues/probe.rs`.
 - `DeadLetterState::reported_count` and `DeadLetterState::pending_count` in
   `src/push/queues/dlq.rs`.
 
@@ -1291,17 +1292,20 @@ caught. Reproduce both lanes with:
 <!-- tested-example: developers-guide-015 -->
 ```sh
 cargo mutants --in-place --file src/push/queues/dlq.rs
-RUSTFLAGS="--cfg loom" cargo mutants --in-place --file 'src/push/queues/*.rs' \
+RUSTFLAGS="--cfg loom" cargo mutants --in-place \
+  --file src/push/queues/dlq.rs \
+  --file src/push/queues/probe.rs \
+  --file src/push/queues/handle/mod.rs \
   --re 'dlq_drop_count|dlq_reported_count|reported_count|pending_count|PushHandle<F>::probe' \
   --test-package wireframe-loom
 ```
 
 One survivor is accepted rather than annotated: replacing `>` with `>=` in the
 `elapsed() > log_interval` test of `DeadLetterState::log_if_due`. Equality is
-possible in principle, but the real-clock test cannot reliably force an elapsed
-time exactly equal to the interval to nanosecond precision, so the two
-operators are indistinguishable in any runnable test. It is an accepted
-limitation of the test clock, not an equivalence.
+possible in principle, but a real-clock test cannot reliably force an elapsed
+time exactly equal to the interval to nanosecond precision, so this test cannot
+distinguish the two operators. It is an accepted limitation of this test, not
+an equivalence.
 
 ### Workflow contract tests
 
