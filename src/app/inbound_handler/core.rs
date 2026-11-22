@@ -210,7 +210,7 @@ where
             // starts by purging state it has not buffered.
             read_deadline: None,
         };
-// The sink-owned pipeline runs `before_send` too, so it must know
+        // The sink-owned pipeline runs `before_send` too, so it must know
         // which connection the callback is running for. Installing the value
         // setup observed — rather than rebuilding an equal one — means state
         // setup leaves in the context carries into every later callback.

@@ -26,7 +26,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     app::Envelope,
     codec::FrameCodec,
-connection::{ConnectionActor, ConnectionChannels, PEER_CLOSED_RESPONSE_GRACE},
+    connection::{ConnectionActor, ConnectionChannels, PEER_CLOSED_RESPONSE_GRACE},
     hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueuesBuilder},
     session::{ConnectionId, SessionRegistry},
@@ -182,7 +182,7 @@ where
     let registry_guard = RegistryGuard::new(Arc::clone(registry), connection_id, handle.clone());
 
     let mut connection_context = context.with_published_id(connection_id);
-// Setup runs through the hooks value itself, so the connection still owns
+    // Setup runs through the hooks value itself, so the connection still owns
     // exactly one strong protocol reference while setup is pending. The
     // prepared constructor builds the actor with inert hooks and an empty
     // context: every later callback runs through the connection's
