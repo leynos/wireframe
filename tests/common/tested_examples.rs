@@ -20,9 +20,11 @@ use parsing::{
     fence_info,
     fence_source,
     is_closing_fence,
+    is_marker_like,
     opening_fence,
     parse_marker,
     reject_block_quote_example,
+    reject_list_container_example,
     valid_identifier,
 };
 
@@ -240,6 +242,7 @@ pub fn parse_document(
         }
 
         reject_block_quote_example(document, index)?;
+        reject_list_container_example(document, index)?;
         validate_marker_line(document, index)?;
         open = parse_open_example(document, index, known, &mut parsed)?;
     }
@@ -265,7 +268,7 @@ fn validate_marker_line(document: &PublishedDocument<'_>, index: usize) -> Resul
     let Some(line) = document.line(index) else {
         return Ok(());
     };
-    if !line.trim_start().starts_with("<!-- tested-example") {
+    if !is_marker_like(line) {
         return Ok(());
     }
     let path = document.path();
@@ -276,6 +279,8 @@ fn validate_marker_line(document: &PublishedDocument<'_>, index: usize) -> Resul
         .line(index + 1)
         .ok_or_else(|| format!("{path}:{line_number}: tested-example marker has no fence"))?;
     if opening_fence(SourceLine::new(next_line)).is_none() {
+        // Report a hidden fence on its own line with the container remedy.
+        reject_list_container_example(document, index + 1)?;
         return Err(format!(
             "{path}:{line_number}: tested-example marker must immediately precede a fence"
         ));

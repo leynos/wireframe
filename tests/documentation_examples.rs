@@ -107,6 +107,26 @@ fn malformed_examples_fail_with_a_useful_reason(#[case] source: &str, #[case] ex
     assert!(error.contains(expected), "unexpected loader error: {error}");
 }
 
+/// A fence or marker behind a list marker or an indentation run is invisible
+/// to the top-level walk, so the gate must name the line and the remedy.
+#[rstest]
+#[case(
+    "1. An example:\n\n    ```rust\n    fn main() {}\n    ```",
+    "fixture.md:3: tested examples inside a list item or indented block are not scanned; move the \
+     fence out of the list and indent it by at most three spaces"
+)]
+#[case(
+    "    <!-- tested-example: sample-1 -->\n    ```rust\n    fn main() {}\n    ```",
+    "fixture.md:1: tested examples inside a list item or indented block are not scanned; move the \
+     fence out of the list and indent it by at most three spaces"
+)]
+fn container_hidden_examples_fail_the_loader_gate(#[case] source: &str, #[case] expected: &str) {
+    let error = tested_examples::load_documents(&[("fixture.md", source)])
+        .expect_err("a container-hidden example must fail the gate");
+
+    assert_eq!(error, expected, "unexpected gate diagnostic");
+}
+
 /// A Rustdoc attribute in the info string must not hide the language.
 ///
 /// The negative cases above reject a fence whose *only* info token is a
