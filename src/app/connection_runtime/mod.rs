@@ -88,7 +88,14 @@ mod diagnostics_tests;
 #[path = "dispatch_tests.rs"]
 mod dispatch_tests;
 
-use std::{collections::HashMap, io, net::SocketAddr, panic::AssertUnwindSafe, sync::Arc};
+use std::{
+    collections::HashMap,
+    io,
+    net::SocketAddr,
+    num::NonZeroUsize,
+    panic::AssertUnwindSafe,
+    sync::Arc,
+};
 
 use finalizer::{ConnectionFinalizer, FinalizationOutcome};
 use futures::FutureExt;
@@ -140,6 +147,8 @@ where
     pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
+    /// Optional cap on concurrently in-flight message assemblies.
+    pub(crate) max_concurrent_assemblies: Option<NonZeroUsize>,
     /// Maximum interval to wait for the next inbound frame.
     pub(crate) read_timeout_ms: u64,
     /// Per-connection shutdown signal; cancelling it stops this connection.
@@ -260,6 +269,7 @@ where
             protocol_hooks,
             protocol,
             memory_budgets,
+            max_concurrent_assemblies,
             read_timeout_ms,
             shutdown,
             push_queues,
@@ -277,6 +287,7 @@ where
                 protocol_hooks,
                 protocol,
                 memory_budgets,
+                max_concurrent_assemblies,
                 read_timeout_ms,
                 shutdown,
                 push_queues,

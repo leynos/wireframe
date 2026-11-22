@@ -6,7 +6,11 @@ use log::debug;
 
 use super::core::DeserFailureTracker;
 use crate::{
-    app::{Envelope, builder_defaults::default_fragmentation, memory_budgets::MemoryBudgets},
+    app::{
+        Envelope,
+        builder_defaults::{DEFAULT_MAX_CONCURRENT_ASSEMBLIES, default_fragmentation},
+        memory_budgets::MemoryBudgets,
+    },
     codec::clamp_frame_length,
     fragment::FragmentationConfig,
     message_assembler::{
@@ -48,12 +52,15 @@ impl<'a> AssemblyRuntime<'a> {
 ///
 /// When `memory_budgets` is `Some`, the effective per-message limit is
 /// `min(fragmentation_max, bytes_per_message)` and the connection/in-flight
-/// budgets are forwarded to [`MessageAssemblyState::with_budgets`].
+/// budgets are forwarded to [`MessageAssemblyState::with_budgets`]. The
+/// concurrent-assembly cap is the application's configured value, or
+/// [`DEFAULT_MAX_CONCURRENT_ASSEMBLIES`] when it has no override.
 #[must_use]
 pub(crate) fn new_message_assembly_state(
     fragmentation: Option<FragmentationConfig>,
     frame_budget: usize,
     memory_budgets: Option<MemoryBudgets>,
+    max_concurrent_assemblies: Option<NonZeroUsize>,
 ) -> MessageAssemblyState {
     let config = fragmentation.or_else(|| default_fragmentation(frame_budget));
     let frag_max = config.map_or_else(
@@ -63,8 +70,11 @@ pub(crate) fn new_message_assembly_state(
     let timeout = config.map_or(DEFAULT_MESSAGE_ASSEMBLY_TIMEOUT, |cfg| {
         cfg.reassembly_timeout
     });
+    let cap = max_concurrent_assemblies.unwrap_or_else(|| {
+        NonZeroUsize::new(DEFAULT_MAX_CONCURRENT_ASSEMBLIES).unwrap_or(NonZeroUsize::MIN)
+    });
 
-    memory_budgets.map_or_else(
+    let state = memory_budgets.map_or_else(
         || MessageAssemblyState::new(frag_max, timeout),
         |budgets| {
             let per_message = budgets.bytes_per_message().get();
@@ -76,7 +86,8 @@ pub(crate) fn new_message_assembly_state(
                 Some(budgets.bytes_in_flight().get()),
             )
         },
-    )
+    );
+    state.with_max_concurrent_assemblies(Some(cap))
 }
 
 /// Purge stale in-flight assemblies.

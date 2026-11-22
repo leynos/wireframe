@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use rstest::rstest;
 
 use super::{
+    TWO_ENTRY_BUDGET,
     connection_budgeted_state,
     dual_budgeted_state,
     in_flight_budgeted_state,
@@ -16,6 +17,7 @@ use super::{
 use crate::message_assembler::{
     EnvelopeRouting,
     FirstFrameInput,
+    MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES,
     MessageAssemblyError,
     MessageAssemblyState,
     MessageKey,
@@ -26,8 +28,8 @@ use crate::message_assembler::{
 // Helpers for parameterized budget-dimension tests
 // =============================================================================
 
-/// Build a `MessageAssemblyState` with only the named budget dimension
-/// set to 20 bytes.
+/// Build a `MessageAssemblyState` with only the named budget dimension set to
+/// one entry's fixed charge plus 20 payload bytes.
 fn state_for_dimension(dimension: &str) -> MessageAssemblyState {
     match dimension {
         "connection" => connection_budgeted_state(),
@@ -101,9 +103,15 @@ fn budget_allows_frames_within_limit(#[case] dimension: &str) {
 #[case::in_flight("in_flight")]
 fn budget_rejects_first_frame_exceeding_limit(#[case] dimension: &str) {
     let mut state = state_for_dimension(dimension);
-    // 21 bytes exceeds 20-byte budget
+    // 21 payload bytes plus the entry charge exceeds the 20-byte payload
+    // headroom.
     let err = submit_first(&mut state, 1, &[0u8; 21], false).expect_err("should reject");
-    assert_budget_exceeded(&err, dimension, 1, 21);
+    assert_budget_exceeded(
+        &err,
+        dimension,
+        1,
+        MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 21,
+    );
     assert_eq!(state.buffered_count(), 0, "no message left buffered");
 }
 
@@ -130,15 +138,21 @@ fn budget_rejects_continuation_exceeding_limit(#[case] dimension: &str) {
 // =============================================================================
 
 #[rstest]
-fn connection_budget_frees_partial_on_violation(
-    #[from(connection_budgeted_state)] mut state: MessageAssemblyState,
-) {
-    // Start two assemblies: 8 + 8 = 16 (within 20)
+fn connection_budget_frees_partial_on_violation() {
+    let mut state = MessageAssemblyState::with_budgets(
+        nz!(1024),
+        Duration::from_secs(30),
+        Some(nz!(TWO_ENTRY_BUDGET)),
+        None,
+    );
+
+    // Start two assemblies: two fixed charges plus 8 + 8 payload bytes fit.
     submit_first(&mut state, 1, &[0u8; 8], false).expect("first");
     submit_first(&mut state, 2, &[0u8; 8], false).expect("second");
     assert_eq!(state.buffered_count(), 2, "two assemblies buffered");
 
-    // Continuation on key 1: 5 bytes would bring total to 21
+    // Continuation on key 1: 5 bytes would bring the charged total to 149,
+    // one byte past the 148-byte budget.
     let cont = continuation_header(1, 1, 5, false);
     let err = state
         .accept_continuation_frame(&cont, &[0u8; 5])
@@ -172,12 +186,13 @@ fn dual_budget_in_flight_triggers_before_connection(
 
 #[test]
 fn dual_budget_connection_triggers_when_in_flight_not_exceeded() {
-    // connection=15 < in_flight=20, so connection triggers first.
+    // Connection headroom is 15 payload bytes and in-flight headroom is 20,
+    // so connection triggers first.
     let mut state = MessageAssemblyState::with_budgets(
         nz!(1024),
         Duration::from_secs(30),
-        Some(nz!(15)),
-        Some(nz!(20)),
+        Some(nz!(MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 15)),
+        Some(nz!(MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 20)),
     );
     let err = submit_first(&mut state, 1, &[0u8; 16], false).expect_err("should reject");
     assert!(
@@ -242,14 +257,19 @@ fn budget_violation_does_not_affect_other_assemblies(
 
 #[test]
 fn headroom_reclaimed_after_purge_allows_new_assembly() {
-    let mut state =
-        MessageAssemblyState::with_budgets(nz!(1024), Duration::from_secs(30), Some(nz!(20)), None);
+    let mut state = MessageAssemblyState::with_budgets(
+        nz!(1024),
+        Duration::from_secs(30),
+        Some(nz!(MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 20)),
+        None,
+    );
 
     let now = Instant::now();
     submit_first_at(&mut state, 1, &[0u8; 15], now).expect("first");
     assert_eq!(state.total_buffered_bytes(), 15, "bytes buffered so far");
 
-    // A 6-byte frame would exceed budget (15 + 6 = 21 > 20)
+    // A new entry charging 64 + 6 exceeds the 84-byte budget once the 79
+    // charged for key 1 is counted.
     let err = submit_first(&mut state, 2, &[0u8; 6], false).expect_err("over budget");
     assert!(
         matches!(err, MessageAssemblyError::ConnectionBudgetExceeded { .. }),
@@ -268,8 +288,12 @@ fn headroom_reclaimed_after_purge_allows_new_assembly() {
 
 #[test]
 fn headroom_reclaimed_after_completion_allows_new_frame() {
-    let mut state =
-        MessageAssemblyState::with_budgets(nz!(1024), Duration::from_secs(30), None, Some(nz!(20)));
+    let mut state = MessageAssemblyState::with_budgets(
+        nz!(1024),
+        Duration::from_secs(30),
+        None,
+        Some(nz!(MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES + 20)),
+    );
 
     submit_first(&mut state, 1, &[0u8; 15], false).expect("first");
 

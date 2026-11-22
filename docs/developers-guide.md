@@ -1098,6 +1098,40 @@ that boundary over values near `usize::MAX`, and
 break caused by the three new variants, matching the existing `ClientError`
 fixture.
 
+### Message assembly accounting and expiry
+
+`src/message_assembler/accounting.rs` owns `AssemblyTracker`, which keeps the
+partial-assembly map, the exact retained-payload total, and a start-time
+deadline index together. Every mutation goes through one of its helpers:
+
+- `insert` adds a newly admitted first frame, charges its metadata and body,
+  and records its `(started_at, key)` deadline;
+- `append_body` adds an admitted continuation body and charges its bytes;
+- `take` removes an assembly, releasing its payload and its deadline record;
+  and
+- `purge_expired_at` removes the expired prefix of the deadline index and stops
+  at the first assembly still inside its timeout.
+
+Because the three values change together, `total_buffered_bytes` reads a field
+rather than rescanning, and an idle purge inspects one index entry rather than
+every assembly. `MessageAssemblyState` exposes two totals:
+`total_buffered_bytes` is the exact payload and metadata retained, while
+`total_charged_bytes` adds `MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES` (64) per
+live assembly. Admission and memory-pressure checks use the charged total so an
+empty assembly is not free; the public payload total keeps its previous meaning.
+
+The concurrent-assembly cap is checked in `accept_first_frame_at` after the
+duplicate-key, declared-total, and size-limit checks, and after the
+single-frame return, so those outcomes keep their precedence. A rejection
+produces `MessageAssemblyError::TooManyConcurrentAssemblies`. The server path
+resolves the configured cap or `DEFAULT_MAX_CONCURRENT_ASSEMBLIES` when it
+builds a connection's state; the direct constructors stay uncapped.
+
+Test-only oracles keep the running state honest. `recompute_buffered_bytes`
+scans the map for the payload total, and `indexed_deadlines` reports the index
+length; the property tests in `accounting_property_tests.rs` require both to
+match the public totals after every generated operation.
+
 ### `fill_buf_with_prefix`
 
 The private helper `fill_buf_with_prefix(buf, prefix, endianness)` in

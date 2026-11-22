@@ -236,3 +236,18 @@ mod declared_total_tests;
 
 #[path = "declared_total_property_tests.rs"]
 mod declared_total_property_tests;
+
+// =============================================================================
+// Running-total and expiry-index properties (issue #830) - see
+// accounting_property_tests.rs
+// =============================================================================
+
+#[path = "accounting_property_tests.rs"]
+mod accounting_property_tests;
+
+// =============================================================================
+// Deadline-indexed expiry (issue #830) - see expiry_tests.rs
+// =============================================================================
+
+#[path = "expiry_tests.rs"]
+mod expiry_tests;

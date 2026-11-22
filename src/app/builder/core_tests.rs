@@ -34,6 +34,11 @@ fn app_builder() -> Result<TestApp, Box<dyn Error>> {
     if app.memory_budgets.is_some() {
         return Err(io::Error::other("fixture expects default memory budgets disabled").into());
     }
+    if app.max_concurrent_assemblies.is_some() {
+        return Err(
+            io::Error::other("fixture expects the derived assembly cap, not an override").into(),
+        );
+    }
     Ok(app)
 }
 
@@ -129,5 +134,37 @@ fn memory_budgets_survive_every_reconfiguration(
     check(
         reserialized.memory_budgets == Some(configured),
         "serializer should preserve configured memory budgets",
+    )
+}
+
+#[rstest]
+fn max_concurrent_assemblies_survives_every_reconfiguration(
+    app_builder: Result<TestApp, Box<dyn Error>>,
+) -> Result<(), Box<dyn Error>> {
+    let limit = NonZeroUsize::new(32).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "assembly cap must be non-zero")
+    })?;
+    let stored = app_builder?.max_concurrent_assemblies(limit);
+    check(
+        stored.max_concurrent_assemblies == Some(limit),
+        "max_concurrent_assemblies should store the configured cap",
+    )?;
+
+    let recoded = stored.with_codec(LengthDelimitedFrameCodec::new(4096));
+    check(
+        recoded.max_concurrent_assemblies == Some(limit),
+        "with_codec should preserve the configured cap",
+    )?;
+
+    let reserialized = recoded.serializer(BincodeSerializer);
+    check(
+        reserialized.max_concurrent_assemblies == Some(limit),
+        "serializer should preserve the configured cap",
+    )?;
+
+    let resized = reserialized.buffer_capacity(2048);
+    check(
+        resized.max_concurrent_assemblies == Some(limit),
+        "buffer_capacity should preserve the configured cap",
     )
 }

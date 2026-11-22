@@ -138,6 +138,16 @@ fn message_assertion_helpers_accept_completed_bodies() {
     }
 )]
 #[case(
+    MessageAssemblyError::TooManyConcurrentAssemblies {
+        key: MessageKey(16),
+        attempted: 5,
+        limit: std::num::NonZeroUsize::MIN,
+    },
+    MessageAssemblyErrorExpectation::TooManyConcurrentAssemblies {
+        key: MessageKey(16),
+    }
+)]
+#[case(
     MessageAssemblyError::DeclaredTotalTooSmall {
         key: MessageKey(13),
         declared: 2,

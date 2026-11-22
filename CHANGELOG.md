@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Breaking:** Bound concurrent message assemblies and charge their fixed
+  overhead. `MessageAssemblyState` caps in-flight assemblies at 64 by default
+  on the server path, configurable with
+  `WireframeApp::max_concurrent_assemblies`, and charges
+  `MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES` (64) per entry against the aggregate
+  connection and in-flight budgets, so an empty first frame no longer counts as
+  zero bytes. Admission, completion, and memory-pressure checks read running
+  totals instead of rescanning every assembly, and expiry walks a start-time
+  index rather than the whole map. `total_buffered_bytes` still reports exact
+  payload bytes; `total_charged_bytes` reports the budget figure. A first frame
+  beyond the cap fails with the new
+  `MessageAssemblyError::TooManyConcurrentAssemblies`, which is a compile-time
+  break for exhaustive downstream matches. Directly constructed state remains
+  uncapped unless `with_max_concurrent_assemblies` is called. See
+  [ADR 018](docs/adrs/adr-0018-bound-concurrent-message-assemblies.md) and the
+  [migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#message-assembly-concurrency-and-entry-charges).
+  ([#830](https://github.com/leynos/wireframe/issues/830))
+
 - **Breaking:** Remove the `wireframe::extractor` module, `AppDataStore`, and
   `WireframeApp::app_data`. No dispatch path invoked the extractor traits, so
   handlers could never receive `SharedState<T>`, `Message<T>`,

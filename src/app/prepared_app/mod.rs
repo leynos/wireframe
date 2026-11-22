@@ -3,6 +3,7 @@
 use std::{
     collections::HashMap,
     net::SocketAddr,
+    num::NonZeroUsize,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -87,6 +88,8 @@ pub struct PreparedApp<
     pub(in crate::app) read_timeout_ms: u64,
     /// Optional byte caps protecting message and connection memory usage.
     pub(in crate::app) memory_budgets: Option<MemoryBudgets>,
+    /// Optional cap on concurrently in-flight message assemblies.
+    pub(in crate::app) max_concurrent_assemblies: Option<NonZeroUsize>,
 }
 
 /// Supplies elapsed durations for preparation instrumentation.
@@ -184,6 +187,7 @@ where
             fragmentation: self.fragmentation,
             read_timeout_ms: self.read_timeout_ms,
             memory_budgets: self.memory_budgets,
+            max_concurrent_assemblies: self.max_concurrent_assemblies,
         })
     }
 }
@@ -301,6 +305,7 @@ where
                 protocol_hooks: self.protocol_hooks(),
                 protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
+                max_concurrent_assemblies: self.max_concurrent_assemblies,
                 read_timeout_ms: self.read_timeout_ms,
                 push_queues: self.push_queues(),
                 session_registry: Arc::clone(&self.session_registry),

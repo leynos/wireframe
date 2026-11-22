@@ -50,7 +50,7 @@ mod peer_watch;
 mod push_service;
 mod push_write;
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, num::NonZeroUsize, sync::Arc};
 
 use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
@@ -108,6 +108,8 @@ where
     pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
+    /// Optional cap on concurrently in-flight message assemblies.
+    pub(crate) max_concurrent_assemblies: Option<NonZeroUsize>,
     /// Maximum interval to wait for the next inbound frame.
     pub(crate) read_timeout_ms: u64,
     /// Server shutdown signal; cancelling it stops this connection.
@@ -155,6 +157,7 @@ where
         protocol_hooks,
         protocol,
         memory_budgets,
+        max_concurrent_assemblies,
         read_timeout_ms,
         shutdown,
         push_queues,
@@ -173,6 +176,7 @@ where
             protocol_hooks,
             protocol,
             memory_budgets,
+            max_concurrent_assemblies,
             read_timeout_ms,
             shutdown,
             push_queues,
@@ -265,6 +269,7 @@ where
                 protocol_hooks: self.protocol_hooks(),
                 protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
+                max_concurrent_assemblies: self.max_concurrent_assemblies,
                 read_timeout_ms: self.read_timeout_ms,
                 shutdown: &shutdown,
                 push_queues: with_codec_frame_limit(

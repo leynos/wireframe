@@ -9,6 +9,15 @@ use std::num::NonZeroUsize;
 
 use super::{MessageKey, error::MessageAssemblyError};
 
+/// Fixed per-entry charge applied to aggregate budgets.
+///
+/// An assembly costs memory beyond the bytes it carries: the map entry, its
+/// routing metadata, the ordering state, and the deadline record. Charging a
+/// flat minimum keeps an empty assembly from counting as zero bytes, so a peer
+/// cannot create unbounded in-flight entries while staying below the aggregate
+/// limits.
+pub const MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES: usize = 64;
+
 /// Paired connection and in-flight budget limits.
 ///
 /// Bundled into a struct so call-sites pass a single value instead of two
@@ -49,9 +58,11 @@ pub(super) struct ContinuationLimits {
 /// the connection budget or in-flight budget.
 ///
 /// Both budgets are checked against the same `current_total` because,
-/// at this layer, all buffered bytes are assembly bytes. The dimensions
-/// are kept separate so future work (streaming body buffers, transport
-/// buffering) can diverge them.
+/// at this layer, all charged bytes are assembly bytes. Callers pass charged
+/// totals: retained payload plus [`MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES`] for
+/// every live partial, and a new entry's charge includes one overhead. The
+/// dimensions are kept separate so future work (streaming body buffers,
+/// transport buffering) can diverge them.
 ///
 /// # Errors
 ///

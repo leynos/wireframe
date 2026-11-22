@@ -22,13 +22,16 @@ pub use wireframe_testing::TestResult;
 /// Configuration bundle for `init_budgeted_state`.
 ///
 /// Parsed from the Gherkin step text as
-/// `"max_message_size / timeout_secs / connection_budget / in_flight_budget"`.
+/// `"max_message_size / timeout_secs / connection_budget / in_flight_budget"`
+/// with an optional trailing `"/ max_concurrent_assemblies"`. Omitting the
+/// last segment leaves the state uncapped, matching the direct constructor.
 #[derive(Clone, Copy)]
 pub struct BudgetedStateConfig {
     pub max_message_size: usize,
     pub timeout_secs: u64,
     pub connection_budget: usize,
     pub in_flight_budget: usize,
+    pub max_concurrent_assemblies: Option<usize>,
 }
 
 impl FromStr for BudgetedStateConfig {
@@ -40,6 +43,13 @@ impl FromStr for BudgetedStateConfig {
         let timeout = parts.next().ok_or("missing timeout_secs")?;
         let conn = parts.next().ok_or("missing connection_budget")?;
         let flight = parts.next().ok_or("missing in_flight_budget")?;
+        let assembly_cap = parts
+            .next()
+            .map(|cap| {
+                cap.parse()
+                    .map_err(|e| format!("max_concurrent_assemblies: {e}"))
+            })
+            .transpose()?;
         Ok(Self {
             max_message_size: msg.parse().map_err(|e| format!("max_message_size: {e}"))?,
             timeout_secs: timeout.parse().map_err(|e| format!("timeout_secs: {e}"))?,
@@ -49,6 +59,7 @@ impl FromStr for BudgetedStateConfig {
             in_flight_budget: flight
                 .parse()
                 .map_err(|e| format!("in_flight_budget: {e}"))?,
+            max_concurrent_assemblies: assembly_cap,
         })
     }
 }
@@ -104,12 +115,20 @@ impl BudgetEnforcementWorld {
             NonZeroUsize::new(cfg.connection_budget).ok_or("connection_budget must be non-zero")?;
         let in_flight =
             NonZeroUsize::new(cfg.in_flight_budget).ok_or("in_flight_budget must be non-zero")?;
-        self.state = MessageAssemblyState::with_budgets(
+        let state = MessageAssemblyState::with_budgets(
             max_message_size,
             Duration::from_secs(cfg.timeout_secs),
             Some(connection),
             Some(in_flight),
         );
+        self.state = match cfg.max_concurrent_assemblies {
+            Some(cap) => {
+                let limit =
+                    NonZeroUsize::new(cap).ok_or("max_concurrent_assemblies must be non-zero")?;
+                state.with_max_concurrent_assemblies(Some(limit))
+            }
+            None => state,
+        };
         Ok(())
     }
 
@@ -260,6 +279,9 @@ impl BudgetEnforcementWorld {
         let actual = match err {
             MessageAssemblyError::ConnectionBudgetExceeded { .. } => "ConnectionBudgetExceeded",
             MessageAssemblyError::InFlightBudgetExceeded { .. } => "InFlightBudgetExceeded",
+            MessageAssemblyError::TooManyConcurrentAssemblies { .. } => {
+                "TooManyConcurrentAssemblies"
+            }
             MessageAssemblyError::MessageTooLarge { .. } => "MessageTooLarge",
             MessageAssemblyError::DuplicateFirstFrame { .. } => "DuplicateFirstFrame",
             MessageAssemblyError::DeclaredTotalTooSmall { .. } => "DeclaredTotalTooSmall",

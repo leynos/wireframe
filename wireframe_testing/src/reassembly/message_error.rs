@@ -49,6 +49,11 @@ pub enum MessageAssemblyErrorExpectation {
         /// Message key whose frame triggered the budget guard.
         key: MessageKey,
     },
+    /// Expect a rejection by the concurrent-assembly cap.
+    TooManyConcurrentAssemblies {
+        /// Message key whose first frame was rejected.
+        key: MessageKey,
+    },
 }
 
 pub(super) fn matches_message_error(
@@ -76,6 +81,9 @@ pub(super) fn matches_message_error(
         }
         MessageAssemblyErrorExpectation::InFlightBudgetExceeded { key } => {
             matches_in_flight_budget_exceeded(err, key)
+        }
+        MessageAssemblyErrorExpectation::TooManyConcurrentAssemblies { key } => {
+            matches_too_many_concurrent_assemblies(err, key)
         }
     }
 }
@@ -145,6 +153,14 @@ fn matches_in_flight_budget_exceeded(err: &MessageAssemblyError, key: MessageKey
     matches!(
         err,
         MessageAssemblyError::InFlightBudgetExceeded { key: actual_key, .. }
+            if *actual_key == key
+    )
+}
+
+fn matches_too_many_concurrent_assemblies(err: &MessageAssemblyError, key: MessageKey) -> bool {
+    matches!(
+        err,
+        MessageAssemblyError::TooManyConcurrentAssemblies { key: actual_key, .. }
             if *actual_key == key
     )
 }

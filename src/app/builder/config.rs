@@ -1,5 +1,7 @@
 //! General configuration methods for `WireframeApp`.
 
+use std::num::NonZeroUsize;
+
 use super::WireframeApp;
 use crate::{
     app::{
@@ -48,6 +50,22 @@ where
     #[must_use]
     pub const fn memory_budgets(mut self, budgets: MemoryBudgets) -> Self {
         self.memory_budgets = Some(budgets);
+        self
+    }
+
+    /// Cap the number of message assemblies that may be in flight at once.
+    ///
+    /// Each connection enforces the cap when a first frame would start a new
+    /// assembly. The default is 64, matching the fragment reassembler's
+    /// concurrency cap. A first frame that would exceed the cap is rejected
+    /// through the existing deserialization-failure policy.
+    ///
+    /// `NonZeroUsize::MAX` is effectively unbounded. Directly constructed
+    /// [`MessageAssemblyState`](crate::message_assembler::MessageAssemblyState)
+    /// values remain uncapped unless configured explicitly.
+    #[must_use]
+    pub const fn max_concurrent_assemblies(mut self, limit: NonZeroUsize) -> Self {
+        self.max_concurrent_assemblies = Some(limit);
         self
     }
 

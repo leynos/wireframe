@@ -103,9 +103,9 @@ fn should_not_pause_when_state_is_not_available(budgets: TestResult<MemoryBudget
 }
 
 #[rstest]
-#[case(79, false)]
-#[case(80, true)]
-#[case(95, true)]
+#[case(15, false)]
+#[case(16, true)]
+#[case(31, true)]
 fn soft_limit_pause_threshold_behaviour(
     #[case] buffered_bytes: usize,
     #[case] should_pause: bool,
@@ -129,7 +129,9 @@ fn soft_limit_pause_threshold_behaviour(
 #[rstest]
 fn uses_smallest_aggregate_budget_dimension() -> TestResult {
     let budgets = custom_budgets(1024, 200, 100)?;
-    let state = state_with_buffered_bytes(80)?;
+    // 16 payload bytes plus the entry charge reach the 80% soft threshold of
+    // the smallest dimension.
+    let state = state_with_buffered_bytes(16)?;
     if !should_pause_inbound_reads(Some(&state), Some(budgets), 0) {
         return Err(io::Error::other("expected pause at derived soft limit threshold").into());
     }
@@ -160,9 +162,9 @@ fn hard_cap_not_breached_when_state_is_not_available(
 }
 
 #[rstest]
-#[case(99, false)]
-#[case(100, false)]
-#[case(101, true)]
+#[case(35, false)]
+#[case(36, false)]
+#[case(37, true)]
 fn hard_cap_threshold_behaviour(
     #[case] buffered_bytes: usize,
     #[case] expected_breached: bool,
@@ -186,7 +188,9 @@ fn hard_cap_threshold_behaviour(
 #[rstest]
 fn hard_cap_uses_smallest_aggregate_budget_dimension() -> TestResult {
     let budgets = custom_budgets(1024, 200, 100)?;
-    let state = state_with_buffered_bytes(101)?;
+    // 37 payload bytes plus the entry charge strictly exceed the smallest
+    // dimension's 100-byte cap.
+    let state = state_with_buffered_bytes(37)?;
     if !has_hard_cap_been_breached(Some(&state), Some(budgets), 0) {
         return Err(io::Error::other("expected breach at smallest aggregate dimension").into());
     }
@@ -233,9 +237,9 @@ impl ExpectedAction {
 
 #[rstest]
 #[case::no_budgets_configured(200, false, ExpectedAction::Continue)]
-#[case::below_soft_limit(50, true, ExpectedAction::Continue)]
-#[case::at_soft_limit(80, true, ExpectedAction::Pause)]
-#[case::above_hard_cap_abort_takes_priority(101, true, ExpectedAction::Abort)]
+#[case::below_soft_limit(15, true, ExpectedAction::Continue)]
+#[case::at_soft_limit(16, true, ExpectedAction::Pause)]
+#[case::above_hard_cap_abort_takes_priority(37, true, ExpectedAction::Abort)]
 fn evaluate_memory_pressure_behaviour(
     #[case] buffered_bytes: usize,
     #[case] use_budgets: bool,
@@ -257,7 +261,7 @@ fn evaluate_memory_pressure_behaviour(
 
 #[rstest]
 fn evaluate_pause_uses_expected_duration(budgets: TestResult<MemoryBudgets>) -> TestResult {
-    let state = state_with_buffered_bytes(80)?;
+    let state = state_with_buffered_bytes(16)?;
     let action = evaluate_memory_pressure(Some(&state), Some(budgets?), 0);
     match action {
         MemoryPressureAction::Pause(duration) => {
@@ -339,13 +343,14 @@ fn resolve_derived_budgets_change_with_frame_budget() -> TestResult {
 }
 
 mod async_policy;
+mod entry_overhead;
 
 #[rstest]
 #[case(0, 79, ExpectedAction::Continue)]
 #[case(0, 80, ExpectedAction::Pause)]
-#[case(40, 40, ExpectedAction::Pause)]
-#[case(50, 50, ExpectedAction::Pause)]
-#[case(50, 51, ExpectedAction::Abort)]
+#[case(8, 8, ExpectedAction::Pause)]
+#[case(8, 28, ExpectedAction::Pause)]
+#[case(8, 29, ExpectedAction::Abort)]
 #[case(0, 101, ExpectedAction::Abort)]
 fn fragment_bytes_contribute_to_pressure(
     #[case] assembly_bytes: usize,

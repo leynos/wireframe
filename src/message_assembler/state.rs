@@ -5,7 +5,6 @@
 //! validates continuity, and tracks completion.
 
 use std::{
-    collections::{HashMap, hash_map::Entry},
     num::NonZeroUsize,
     time::{Duration, Instant},
 };
@@ -13,7 +12,13 @@ use std::{
 use super::{
     ContinuationFrameHeader,
     MessageKey,
-    budget::{AggregateBudgets, ContinuationLimits, check_aggregate_budgets},
+    accounting::AssemblyTracker,
+    budget::{
+        AggregateBudgets,
+        ContinuationLimits,
+        MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES,
+        check_aggregate_budgets,
+    },
     error::{MessageAssemblyError, MessageSeriesError, MessageSeriesStatus},
     partial::PartialAssembly,
     types::{AssembledMessage, FirstFrameInput},
@@ -84,27 +89,27 @@ pub struct MessageAssemblyState {
     max_message_size: NonZeroUsize,
     /// Age after which incomplete assemblies are removed.
     timeout: Duration,
-    /// Active assemblies keyed by protocol message key.
-    assemblies: HashMap<MessageKey, PartialAssembly>,
+    /// Active assemblies with their running byte total and deadline index.
+    assemblies: AssemblyTracker,
+    /// Optional cap on the number of concurrently in-flight assemblies.
+    max_concurrent_assemblies: Option<NonZeroUsize>,
     /// Aggregate limits protecting connection and in-flight memory.
     budgets: AggregateBudgets,
 }
 impl MessageAssemblyState {
     /// Create a new assembly state manager.
     ///
-    /// # Arguments
-    ///
-    /// * `max_message_size` - Maximum allowed size for a single assembled message.
-    /// * `timeout` - Duration after which partial assemblies are purged.
+    /// `max_message_size` bounds one assembled message, and `timeout` is the age
+    /// after which partial assemblies are purged.
     #[must_use]
     pub fn new(max_message_size: NonZeroUsize, timeout: Duration) -> Self {
         Self::with_budgets(max_message_size, timeout, None, None)
     }
     /// Create a new assembly state manager with optional aggregate budgets.
     ///
-    /// When `connection_budget` or `in_flight_budget` is `Some`, frames that
-    /// would cause the total buffered bytes across all in-flight assemblies
-    /// to exceed the respective limit are rejected.
+    /// Charged bytes — retained payload plus a fixed per-entry charge — are
+    /// compared against whichever limits are configured, so an empty assembly
+    /// still consumes budget.
     #[must_use]
     pub fn with_budgets(
         max_message_size: NonZeroUsize,
@@ -115,12 +120,24 @@ impl MessageAssemblyState {
         Self {
             max_message_size,
             timeout,
-            assemblies: HashMap::new(),
+            assemblies: AssemblyTracker::new(),
+            max_concurrent_assemblies: None,
             budgets: AggregateBudgets {
                 connection: connection_budget,
                 in_flight: in_flight_budget,
             },
         }
+    }
+
+    /// Cap the number of assemblies that may be in flight at once.
+    ///
+    /// Only a new first frame is capped; continuations are unaffected. `None`
+    /// leaves the count uncapped, the default for [`Self::new`] and
+    /// [`Self::with_budgets`].
+    #[must_use]
+    pub const fn with_max_concurrent_assemblies(mut self, limit: Option<NonZeroUsize>) -> Self {
+        self.max_concurrent_assemblies = limit;
+        self
     }
     /// Process a first frame, starting a new assembly.
     ///
@@ -162,7 +179,7 @@ impl MessageAssemblyState {
         let key = input.header.message_key;
 
         // Check for duplicate first frame
-        if self.assemblies.contains_key(&key) {
+        if self.assemblies.contains_key(key) {
             return Err(MessageAssemblyError::DuplicateFirstFrame { key });
         }
 
@@ -192,14 +209,33 @@ impl MessageAssemblyState {
             )));
         }
 
+        // Enforce the concurrent-assembly cap before charging or retaining
+        // anything. A duplicate key was rejected above, so this only ever
+        // counts a genuinely new assembly; single-frame messages returned
+        // above never enter the map and bypass the cap.
+        if let Some(limit) = self.max_concurrent_assemblies {
+            let attempted = self.buffered_count().saturating_add(1);
+            if attempted > limit.get() {
+                return Err(MessageAssemblyError::TooManyConcurrentAssemblies {
+                    key,
+                    attempted,
+                    limit,
+                });
+            }
+        }
+
         // Check aggregate budgets before buffering.  Single-frame messages
-        // are returned above and never counted.  The O(n) scan is gated on
-        // is_enabled() so the hot path stays O(1) when budgets are absent.
+        // are returned above and never counted.  The running total makes this
+        // O(1); the gate keeps the arithmetic off a path with no budgets.
         if self.budgets.is_enabled() {
-            let incoming_bytes = input.body.len().saturating_add(input.metadata.len());
+            let incoming_bytes = input
+                .body
+                .len()
+                .saturating_add(input.metadata.len())
+                .saturating_add(MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES);
             check_aggregate_budgets(
                 key,
-                self.total_buffered_bytes(),
+                self.total_charged_bytes(),
                 incoming_bytes,
                 &self.budgets,
             )?;
@@ -283,46 +319,48 @@ impl MessageAssemblyState {
             ));
         }
 
-        // Snapshot budget state before the mutable entry borrow.  The O(n)
-        // scan is gated on is_enabled() so it's skipped when budgets are absent.
+        // Snapshot budget state before the mutable borrow.  The running total
+        // makes this O(1); the gate keeps the arithmetic off a path with no
+        // budgets.
         let limits = ContinuationLimits {
             max_message_size: self.max_message_size,
             budgets: self.budgets,
         };
         let buffered_total = if limits.budgets.is_enabled() {
-            self.total_buffered_bytes()
+            self.total_charged_bytes()
         } else {
             0
         };
 
-        let Entry::Occupied(mut entry) = self.assemblies.entry(key) else {
+        let Some(partial) = self.assemblies.get_mut(key) else {
             return Err(MessageAssemblyError::Series(
                 MessageSeriesError::MissingFirstFrame { key },
             ));
         };
 
         // Validate continuity
-        let status = match entry.get_mut().accept_continuation(header) {
+        let status = match partial.accept_continuation(header) {
             Ok(s) => s,
             Err(e) => {
                 if Self::is_unrecoverable_continuity_error(&e) {
-                    entry.remove();
+                    self.assemblies.take(key);
                 }
                 return Err(MessageAssemblyError::Series(e));
             }
         };
 
-        let partial = entry.get_mut();
         if let Err(e) = partial.admit_continuation(body.len(), buffered_total, limits) {
-            entry.remove();
+            self.assemblies.take(key);
             return Err(e);
         }
-        partial.push_body(body);
+        self.assemblies.append_body(key, body);
 
         let MessageSeriesStatus::Complete = status else {
             return Ok(None);
         };
-        entry.remove().into_message()
+        self.assemblies
+            .take(key)
+            .map_or(Ok(None), PartialAssembly::into_message)
     }
 
     /// Remove any partial assemblies that exceeded the configured timeout.
@@ -332,34 +370,31 @@ impl MessageAssemblyState {
 
     /// Remove expired assemblies using an explicit clock reading.
     ///
+    /// Only assemblies whose deadlines have passed are visited, so the cost is
+    /// proportional to the number evicted rather than the number buffered.
     /// Returns the keys of evicted assemblies.
     pub fn purge_expired_at(&mut self, now: Instant) -> Vec<MessageKey> {
-        let mut evicted = Vec::new();
-        let timeout = self.timeout;
-
-        self.assemblies.retain(|key, partial| {
-            let expired = now.saturating_duration_since(partial.started_at) >= timeout;
-            if expired {
-                evicted.push(*key);
-            }
-            !expired
-        });
-
-        evicted
+        self.assemblies.purge_expired_at(now, self.timeout)
     }
 
-    /// Total bytes buffered across all in-flight assemblies.
+    /// Total payload and metadata bytes retained across all in-flight assemblies.
     ///
-    /// Includes both body and metadata bytes for each partial assembly.
+    /// Read from the running total, never recomputed by scanning.
     #[must_use]
-    pub fn total_buffered_bytes(&self) -> usize {
-        self.assemblies
-            .values()
-            .map(PartialAssembly::buffered_bytes)
-            .sum()
-    }
+    pub const fn total_buffered_bytes(&self) -> usize { self.assemblies.total_buffered_bytes() }
+
+    /// Bytes charged against the aggregate budgets.
+    ///
+    /// [`Self::total_buffered_bytes`] plus a fixed per-entry charge, so an
+    /// assembly carrying no payload is not free.
+    #[must_use]
+    pub fn total_charged_bytes(&self) -> usize { self.assemblies.total_charged_bytes() }
 
     /// Number of partial assemblies currently buffered.
     #[must_use]
     pub fn buffered_count(&self) -> usize { self.assemblies.len() }
 }
+
+#[cfg(test)]
+#[path = "state_test_support.rs"]
+mod test_support;

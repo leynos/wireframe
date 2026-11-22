@@ -130,6 +130,20 @@ pub enum MessageAssemblyError {
         limit: NonZeroUsize,
     },
 
+    /// A first frame would start more concurrent assemblies than the cap allows.
+    #[error(
+        "concurrent assembly limit exceeded for key {key}: {attempted} assemblies > {limit} \
+         assemblies"
+    )]
+    TooManyConcurrentAssemblies {
+        /// Message key whose first frame was rejected.
+        key: MessageKey,
+        /// Assembly count that would result from accepting the frame.
+        attempted: usize,
+        /// Configured concurrent-assembly cap.
+        limit: NonZeroUsize,
+    },
+
     /// The first frame declared fewer total body bytes than it carried.
     ///
     /// A declaration smaller than the first frame's own body can never be

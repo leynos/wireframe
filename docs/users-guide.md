@@ -1177,25 +1177,34 @@ is the minimum of the fragmentation `max_message_size` and the configured
 `bytes_per_message`. Single-frame messages that complete immediately are never
 counted against aggregate budgets, since they do not buffer.
 
+Each in-flight assembly is charged a fixed 64-byte entry overhead in addition
+to the metadata and body bytes it retains
+(`MESSAGE_ASSEMBLY_ENTRY_OVERHEAD_BYTES`). An assembly carrying no payload
+therefore still consumes budget, and a new first frame is charged its payload
+plus one overhead. `MessageAssemblyState::total_buffered_bytes` reports the
+exact retained payload, while `total_charged_bytes` reports the payload plus
+one overhead per live assembly; admission and memory-pressure decisions use the
+charged total.
+
 If `memory_budgets(...)` is not configured explicitly, Wireframe derives the
 same three fields from `buffer_capacity`, so the protection model remains
 active even on the default path.
 
-Retained fragment bytes and message-assembly bytes are combined for read pacing
-and hard-cap decisions, including when message assembly is disabled.
+Retained fragment bytes and charged message-assembly bytes are combined for
+read pacing and hard-cap decisions, including when message assembly is disabled.
 
 Wireframe provides a three-tier protection model for inbound memory budgets:
 
-1. **Per-frame enforcement** — frames that would cause total buffered bytes to
+1. **Per-frame enforcement** — frames that would cause the charged total to
    exceed the per-connection or in-flight budget are rejected, the offending
    partial assembly is freed, and the failure is surfaced through the existing
    deserialization-failure policy (`InvalidData`).
-2. **Soft-limit read pacing** — when combined buffered bytes reach the
+2. **Soft-limit read pacing** — when combined charged bytes reach the
    soft-pressure threshold (80% of the smaller aggregate cap from
    `bytes_per_connection` and `bytes_in_flight`), the inbound connection loop
    briefly pauses socket reads before polling the next frame. This propagates
    back-pressure to senders while allowing progress on in-flight assemblies.
-3. **Hard-cap connection abort** — if total buffered bytes strictly exceed the
+3. **Hard-cap connection abort** — if total charged bytes strictly exceed the
    aggregate cap (100% of the smaller of `bytes_per_connection` and
    `bytes_in_flight`), the connection is terminated immediately with
    `InvalidData`. The combined total can exceed this cap even when each
@@ -1218,6 +1227,53 @@ All three protection tiers (per-frame enforcement, soft-limit read pacing, and
 hard-cap connection abort) are active with derived defaults. Changing
 `buffer_capacity` adjusts derived budgets proportionally. Calling
 `.memory_budgets(...)` overrides the derived defaults entirely.
+
+#### Concurrent assembly cap
+
+The number of assemblies in flight at once is capped as well as their bytes.
+The server path defaults to 64 concurrent assemblies per connection, matching
+the fragment reassembler's concurrency cap. Override it on the builder:
+
+<!-- tested-example: users-guide-028a -->
+```rust,no_run
+use std::num::NonZeroUsize;
+use wireframe::{app::WireframeApp, serializer::BincodeSerializer};
+
+let cap = NonZeroUsize::new(8).expect("non-zero assembly cap");
+let _app = WireframeApp::<BincodeSerializer>::new()
+    .expect("builder creation should not fail")
+    .max_concurrent_assemblies(cap);
+```
+
+`NonZeroUsize::MAX` is effectively unbounded. A first frame that would start
+more than the cap allows is rejected with
+`MessageAssemblyError::TooManyConcurrentAssemblies`, which carries the key, the
+attempted count, and the limit. The rejection follows the inbound
+deserialization-failure policy. Duplicate keys report `DuplicateFirstFrame`
+before the cap is consulted, single-frame messages bypass the cap because they
+never buffer, and continuations for an admitted key are unaffected.
+
+Directly constructed `MessageAssemblyState` values remain uncapped. Opt in with
+the chained state method:
+
+<!-- tested-example: users-guide-028b -->
+```rust,ignore
+use std::{num::NonZeroUsize, time::Duration};
+use wireframe::message_assembler::MessageAssemblyState;
+
+let state = MessageAssemblyState::new(
+    NonZeroUsize::new(1_048_576).expect("non-zero size"),
+    Duration::from_secs(30),
+)
+.with_max_concurrent_assemblies(Some(
+    NonZeroUsize::new(8).expect("non-zero assembly cap"),
+));
+```
+
+Expiry is unchanged. An assembly expires once the time elapsed since its first
+frame is at least the configured timeout; `purge_expired` reads the current
+clock and `purge_expired_at` takes an explicit reading. Expired entries release
+their payload and per-entry charge, and their keys may be reused immediately.
 
 #### Message key multiplexing (8.2.3)
 

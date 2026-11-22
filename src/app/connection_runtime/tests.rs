@@ -78,6 +78,7 @@ where
         protocol_hooks: prepared.protocol_hooks(),
         protocol: prepared.protocol.clone(),
         memory_budgets: prepared.memory_budgets,
+        max_concurrent_assemblies: prepared.max_concurrent_assemblies,
         read_timeout_ms: prepared.read_timeout_ms,
         shutdown,
         push_queues: prepared.push_queues(),

@@ -29,6 +29,12 @@ const DEFAULT_MESSAGE_BUDGET_MULTIPLIER: usize = DEFAULT_MESSAGE_SIZE_MULTIPLIER
 const DEFAULT_CONNECTION_BUDGET_MULTIPLIER: usize = 64;
 /// Multiplier limiting bytes retained by concurrent in-flight assemblies.
 const DEFAULT_IN_FLIGHT_BUDGET_MULTIPLIER: usize = 64;
+/// Default cap on concurrently in-flight message assemblies per connection.
+///
+/// Matches the fragment reassembler's default concurrency cap. Callers can
+/// raise it with `WireframeApp::max_concurrent_assemblies`; a direct
+/// `MessageAssemblyState` is uncapped unless configured explicitly.
+pub(super) const DEFAULT_MAX_CONCURRENT_ASSEMBLIES: usize = 64;
 
 /// Derive safe fragmentation defaults from the codec's frame budget.
 pub(super) fn default_fragmentation(frame_budget: usize) -> Option<FragmentationConfig> {
