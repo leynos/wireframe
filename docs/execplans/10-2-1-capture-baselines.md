@@ -467,11 +467,11 @@ Trusted, not verified here:
 - **Measurement of the byte bound**: the bound is enforced over the standard
   sixteen-pass batch for middleware and hooks. `async_trait` boxes one future
   per middleware call at a payload-independent cost of roughly 235 bytes, so a
-  sixteen-pass `Large` batch allocates about 3.7 KiB and stays two orders of
-  magnitude below `P`, while a single payload copy anywhere in the batch would
-  exceed the bound. The earlier 69,264-byte reading on the same batch included
-  the payload buffer itself, which the pre-built-buffer change moved outside
-  the window; the two figures are not comparable.
+  sixteen-pass `Large` batch allocates about 3.7 KiB — roughly eighteen times
+  below `P` — while a single payload copy anywhere in the batch would exceed
+  the bound. The earlier 69,264-byte reading on the same batch included the
+  payload buffer itself, which the pre-built-buffer change moved outside the
+  window; the two figures are not comparable.
 - **Artefact**: `wireframe_testing/tests/pipeline_allocation_invariants.rs`
   and a test in `src/app/frame_handling/`.
 - **Non-vacuity**: a test-only `CopyingPolicy` that replaces the frame with
@@ -933,9 +933,10 @@ for the roadmap edit.
   included the payload buffer itself; the pre-built-buffer change moved that
   allocation outside the window, so the two readings are not comparable.
   Impact: the byte bound is stated over the full 16-iteration batch, where the
-  margin against `P` is more than an order of magnitude, and
-  payload-independence is enforced by the count-equality relation over the same
-  batch.
+  margin against `P` is about eighteen times, and the operation count is shown
+  not to vary with the payload class over the same batch. Those are separate
+  claims: the copying control keeps equal counts while allocating `P` bytes,
+  which is why both the count relation and the byte bound exist.
 
 - Observation: the behavioural layer cannot install the counting allocator for
   one scenario. Evidence: `#[global_allocator]` is per binary, and the `bdd`

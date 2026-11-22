@@ -190,10 +190,11 @@ pub(super) fn read_only_middleware_pass_stays_below_payload() {
 /// A read-only middleware batch allocates less than `P`.
 ///
 /// V-4 states the byte bound over a batch. `async_trait` boxes one future per
-/// call at a payload-independent cost, so a sixteen-pass batch costs a few
-/// kilobytes and stays two orders of magnitude below the large class, while a
-/// single payload copy in the batch would exceed the bound. The count relation
-/// over the same batch proves the cost does not scale with the payload.
+/// call, so a sixteen-pass batch costs a few kilobytes and stays roughly
+/// eighteen times below the large class, while a single payload copy in the
+/// batch would exceed the bound. The count relation over the same batch shows
+/// the operation count does not vary with the payload, which is a separate
+/// claim: the copying control keeps equal counts while allocating `P` bytes.
 pub(super) fn read_only_middleware_batch_stays_below_payload() {
     let traffic = middleware_traffic(
         AccessMode::ReadOnly,
