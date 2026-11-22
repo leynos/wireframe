@@ -108,7 +108,12 @@ async fn prepared_setup_holds_one_protocol_reference() -> TestResult<()> {
         async move { driven.handle_connection_result(server).await }
     });
 
-    entered_rx.recv().await.ok_or("setup should start")?;
+    let started = timeout(Duration::from_secs(2), entered_rx.recv()).await;
+    if !matches!(started, Ok(Some(()))) {
+        // Do not leave the connection task running after the probe fails.
+        connection.abort();
+        return Err("setup did not start".into());
+    }
     check_equal(
         &Arc::strong_count(&probe),
         &3,

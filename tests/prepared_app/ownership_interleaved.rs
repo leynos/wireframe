@@ -4,16 +4,7 @@
 //! connection's reassembly state must stay its own while both connections
 //! reach the one prepared serializer and the one prepared assembler.
 
-use std::{
-    error::Error,
-    sync::{
-        Arc,
-        Mutex,
-        PoisonError,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::Duration,
-};
+use std::{error::Error, sync::Arc, time::Duration};
 
 use tokio::{
     io::{AsyncWriteExt, duplex},
@@ -235,129 +226,8 @@ async fn overlapping_connections_share_one_assembler_and_serializer() -> TestRes
     Ok(())
 }
 
-/// Per-connection state identified so its teardown can be matched.
-struct ConnectionState {
-    /// Identifier assigned by the setup hook.
-    id: u64,
-}
-
-/// Handler that ignores every request; this test only needs live routes.
-fn no_op_handler() -> Handler<Envelope> { Arc::new(|_env: &Envelope| Box::pin(async {})) }
-
-/// Box a preparation or lifecycle error for the test result.
-fn boxed_error(error: impl Error + Send + Sync + 'static) -> Box<dyn Error + Send + Sync> {
-    Box::new(error)
-}
-
-/// Snapshot a lifecycle log.
-fn events(log: &Arc<Mutex<Vec<u64>>>) -> Vec<u64> {
-    log.lock().unwrap_or_else(PoisonError::into_inner).clone()
-}
-
-/// Wait until a lifecycle log holds at least `expected` entries.
-async fn wait_for_events(log: &Arc<Mutex<Vec<u64>>>, expected: usize) -> TestResult<()> {
-    timeout(Duration::from_secs(2), async {
-        while events(log).len() < expected {
-            sleep(Duration::from_millis(5)).await;
-        }
-    })
-    .await
-    .map_err(|_| {
-        format!(
-            "expected {expected} lifecycle events, saw {:?}",
-            events(log)
-        )
-    })?;
-    Ok(())
-}
-
-/// Build the setup hook that gives each connection its own state.
-///
-/// The identifier is assigned when setup runs, and the same call records it so
-/// both setups can be observed before either client closes.
-fn connection_setup(
-    next_id: Arc<AtomicU64>,
-    setups: Arc<Mutex<Vec<u64>>>,
-) -> impl Fn() -> std::future::Ready<ConnectionState> + Send + Sync + 'static {
-    move || {
-        let id = next_id.fetch_add(1, Ordering::SeqCst);
-        setups
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(id);
-        std::future::ready(ConnectionState { id })
-    }
-}
-
-/// Build the teardown hook that records the state it was given.
-fn connection_teardown(
-    teardowns: Arc<Mutex<Vec<u64>>>,
-) -> impl Fn(ConnectionState) -> std::future::Ready<()> + Send + Sync + 'static {
-    move |state| {
-        teardowns
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(state.id);
-        std::future::ready(())
-    }
-}
-
-/// Two live connections receive distinct setup state, each torn down once.
-///
-/// Both setup hooks finish before either client closes, so the two
-/// connections and their lifecycle states genuinely overlap. Teardown for
-/// each connection must then observe that connection's own state exactly
-/// once, rather than sharing one state or running a teardown twice.
-#[tokio::test]
-async fn overlapping_connections_receive_distinct_setup_state() -> TestResult<()> {
-    let setups = Arc::new(Mutex::new(Vec::new()));
-    let teardowns = Arc::new(Mutex::new(Vec::new()));
-    let next_id = Arc::new(AtomicU64::new(1));
-    let prepared = WireframeApp::<BincodeSerializer, (), Envelope>::new()?
-        .on_connection_setup(connection_setup(Arc::clone(&next_id), Arc::clone(&setups)))
-        .map_err(boxed_error)?
-        .on_connection_teardown(connection_teardown(Arc::clone(&teardowns)))
-        .map_err(boxed_error)?
-        .route(1, no_op_handler())?
-        .prepare()
-        .await
-        .map_err(boxed_error)?;
-    let root = Arc::new(prepared);
-
-    let (mut client_a, server_a) = duplex(64);
-    let (mut client_b, server_b) = duplex(64);
-    let task_a = spawn_connection(Arc::clone(&root), server_a);
-    let task_b = spawn_connection(Arc::clone(&root), server_b);
-
-    wait_for_events(&setups, 2).await?;
-    let setup_ids = events(&setups);
-    let mut distinct_setup_ids = sorted(setup_ids.clone());
-    distinct_setup_ids.dedup();
-    check_equal(
-        &distinct_setup_ids.len(),
-        &setup_ids.len(),
-        "each connection received its own setup state",
-    )?;
-
-    client_a.shutdown().await?;
-    finish_connection(task_a).await?;
-    wait_for_events(&teardowns, 1).await?;
-    client_b.shutdown().await?;
-    finish_connection(task_b).await?;
-    wait_for_events(&teardowns, 2).await?;
-
-    let teardown_ids = events(&teardowns);
-    check_equal(
-        &sorted(teardown_ids.clone()),
-        &sorted(setup_ids),
-        "teardown received each setup state exactly once",
-    )?;
-    check_equal(&teardown_ids.len(), &2, "no connection tore down twice")?;
-    Ok(())
-}
-
 /// Spawn one connection task that owns a clone of the shared root.
-fn spawn_connection<S, C>(
+pub(super) fn spawn_connection<S, C>(
     root: Arc<PreparedApp<S, C, Envelope>>,
     stream: tokio::io::DuplexStream,
 ) -> tokio::task::JoinHandle<()>
@@ -380,7 +250,7 @@ async fn recv_payload(receiver: &mut mpsc::UnboundedReceiver<Vec<u8>>) -> TestRe
 }
 
 /// Await a connection task and surface a panic as a test error.
-async fn finish_connection(task: tokio::task::JoinHandle<()>) -> TestResult<()> {
+pub(super) async fn finish_connection(task: tokio::task::JoinHandle<()>) -> TestResult<()> {
     timeout(Duration::from_secs(2), task)
         .await
         .map_err(|_| "connection task did not finish")?

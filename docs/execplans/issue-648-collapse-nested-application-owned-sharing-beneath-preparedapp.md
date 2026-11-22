@@ -120,14 +120,21 @@ owned values while keeping the layers whose independent lifetime is real:
   `ownership_interleaved.rs` (two-connection interleaving). The probe
   identities moved to `ownership_support.rs` so both modules name the same
   values.
-- The benchmark capture ran at a load average of 24–30 on 24 threads, so the
-  timing rows are only meaningful within the capture. The allocation counts are
-  the trustworthy part, and they show that #648 itself cannot move them: every
-  removed layer was an `Arc` clone, and the allocation harness's own control
-  records that a shared-`Arc` clone allocates nothing. The pool rows stayed at
-  2052/2053 across captures while the actor and startup rows moved by hundreds,
-  which attributes that drift to #644/#879 and the toolchain advance rather
-  than to this change.
+- The benchmark capture ran at a load average of 24–30 on 24 threads, so its
+  timing rows are only meaningful within that capture; a reader comparing
+  across captures should treat them as inconclusive.
+- The first allocation conclusion was wrong, and only a controlled pair shows
+  why. Cloning a shared `Arc` allocates nothing, so the per-connection clones
+  this change removed were free — but constructing each `Arc` *did* allocate,
+  and the configured workload installs four zero-sized values whose `Arc::new`
+  allocated a control block that `Box::new` does not. Running the same harness
+  on the parent tree and on this branch, sequentially on one host, shows the
+  configured scopes losing exactly four allocations per preparation while the
+  actor, push, and pool controls stay identical. Those control rows are the
+  evidence that the movement belongs to preparation; the earlier account of
+  cross-capture drift was an inference with no control behind it, so it has
+  been replaced by the controlled result in
+  `docs/runtime-ownership-baselines.md`.
 - The #879 parent branch was rebased after this branch was cut from it. The
   old branch point (`e7f7c6c6`) is no longer an ancestor of the parent tip
   (`fb3c9fe1`), and the merge base had fallen back to `a4064d27`, so a review
