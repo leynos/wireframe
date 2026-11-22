@@ -1257,7 +1257,7 @@ Directly constructed `MessageAssemblyState` values remain uncapped. Opt in with
 the chained state method:
 
 <!-- tested-example: users-guide-028b -->
-```rust,ignore
+```rust
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe::message_assembler::MessageAssemblyState;
 
