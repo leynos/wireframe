@@ -142,15 +142,17 @@ touches this surface, so there is no further history to draw on.
 
 ## Risks
 
-- Risk: `ServerShutdown`'s auto traits are unverified. Its fields suggest
-  `Send + Sync`, but that depends on every payload of `ServerError`, including
-  `PrepareError`, being `Send + Sync`, and no static assertion exists in the
-  repository. If `WireframePair` is `Sync` today and `ServerShutdown` is not,
-  delegation would silently remove a public auto trait. Severity: high.
-  Likelihood: low. Mitigation: Stage A adds a compile-time probe recording
-  `WireframePair`'s current `Send`, `Sync`, and `Unpin` status and asserting
-  the same of `RunningWireframeServer` before any design work proceeds; EP-M3
-  keeps the assertions permanently.
+- Risk: `ServerShutdown`'s auto traits are not pinned. By inspection it is
+  `Send + Sync + Unpin`, because every component is (see the 2026-11-22 entry in
+  `Surprises & discoveries`), so delegation cannot remove an auto trait from
+  `WireframePair`. But `Sync` depends transitively on every payload of
+  `ServerError`, and nothing asserts it, so a future non-`Sync` payload would
+  silently strip `Sync` from `RunningWireframeServer` and `WireframePair`.
+  Severity: medium. Likelihood: low. Mitigation: EP-M3 adds compile-time
+  assertions for `WireframePair` and `RunningWireframeServer` in this plan;
+  [#956](https://github.com/leynos/wireframe/issues/956) adds the matching
+  assertions for `ServerShutdown` and `ServerError` in the root crate. #956 is
+  hardening, not a prerequisite.
 
 - Risk: `wait_for_listener_release` has a fixed one-second budget
   (`wireframe_testing/src/integration_helpers.rs:79-80`). On a heavily loaded
@@ -915,9 +917,9 @@ If `outcome.rs` approaches 400 lines, move its tests to a sibling
 Load the skills. Run `leta workspace add .`. Read `client_pair.rs`,
 `src/server/shutdown.rs`, and `src/server/runtime/server/mod.rs:100-394` in
 full. Record a green baseline of `make check-fmt`, `make lint`, and
-`make test`. Then add a scratch test that asserts, by handwritten generic
-functions, whether `WireframePair` is `Send`, `Sync`, and `Unpin` today, and
-whether `wireframe::server::ServerShutdown` is `Send` and `Sync`:
+`make test`. Then confirm the auto-trait inference with a scratch test that
+asserts, by handwritten generic functions, that `WireframePair` and
+`wireframe::server::ServerShutdown` are `Send` and `Sync`:
 
 ```rust
 const _: fn() = || {
@@ -928,10 +930,11 @@ const _: fn() = || {
 };
 ```
 
-Record which assertions compile in `Surprises & discoveries`. If
-`WireframePair` is `Sync` and `ServerShutdown` is not, stop and escalate: the
-design cannot preserve the pair's auto traits. Otherwise discard the scratch
-test; EP-M3 adds the permanent assertions.
+Inspection predicts that every assertion compiles. If one does not, the
+inference in `Surprises & discoveries` is wrong: stop and escalate, because the
+pair's auto traits might not survive delegation. Otherwise discard the scratch
+test; EP-M3 adds the permanent assertions for the `wireframe_testing` types,
+and #956 covers the server types.
 
 ### Stage B0 — compiling stubs
 
@@ -1337,6 +1340,19 @@ historical.
   conformance check now requires re-verifying every fact, not just every path.
   The file itself omits `crates/wireframe-loom`, raised as
   [#944](https://github.com/leynos/wireframe/issues/944).
+
+- Observation: `ServerShutdown` is `Send + Sync + Unpin` by construction,
+  though nothing asserts it. It is `Arc<ServerShutdownInner>`
+  (`src/server/shutdown.rs:35`), holding a `CancellationToken`, a `DropGuard`,
+  and a `watch::Receiver<Option<ServerTerminal>>`; `ServerTerminal` holds a
+  `String` and `Option<Arc<ServerError>>` (`shutdown.rs:11-24`); `ServerError`
+  holds `io::Error`, `Box<dyn Error + Send + Sync>`, `PrepareError`, and
+  `Option<Arc<Self>>` (`src/server/error.rs:12-37`); `PrepareError` holds
+  `Box<dyn Error + Send + Sync>` and the integer-only `PushConfigError`
+  (`src/app/error.rs:27-45`). `Send` is also exercised by compiled code at
+  `tests/server_shutdown.rs:212`. Impact: the pair's auto traits survive
+  delegation; the missing assertion is raised as
+  [#956](https://github.com/leynos/wireframe/issues/956).
 
 - Observation: `WireframeServer::spawn()` and `ServerShutdown` remove the
   need for a harness-owned task handle, detached cleanup, and abort. Evidence:
