@@ -21,9 +21,10 @@ use super::{
 use crate::{rewind_stream::RewindStream, serializer::Serializer};
 
 /// Initial read-buffer hint bounded by the configured maximum frame length.
-// Equivalent mutant: the value is only a `reserve` hint for the `Framed` read
-// buffer; it neither sets nor enforces frame limits (`build_codec()` does
-// that) and cannot change which frames are decoded.
+// Equivalent mutant: the value only sizes a `reserve` hint on the private
+// `Framed` read buffer. No client API exposes that capacity, and it neither
+// sets nor enforces frame limits (`build_codec()` does that) nor changes which
+// frames are decoded, so no behavioural test can distinguish the mutants.
 #[cfg_attr(test, mutants::skip)]
 const fn initial_read_buffer_capacity() -> usize { 64 * 1024 }
 
