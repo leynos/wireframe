@@ -884,8 +884,10 @@ struct MyFrame {
     payload: Vec<u8>,
 }
 
-/// Decoder for `MyFrame` frames.
-struct MyDecoder;
+/// Decoder for `MyFrame` frames, bounded by a maximum frame length.
+struct MyDecoder {
+    max_frame_length: usize,
+}
 
 impl MyDecoder {
     /// Payload length the buffered header declares.
@@ -904,7 +906,19 @@ impl Decoder for MyDecoder {
             return Ok(None);
         }
         let payload_len = self.declared_payload_len(buffer);
-        if buffer.len() < HEADER_SIZE + payload_len {
+        if payload_len > self.max_frame_length {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "payload too large",
+            ));
+        }
+        let Some(frame_len) = HEADER_SIZE.checked_add(payload_len) else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "frame length overflow",
+            ));
+        };
+        if buffer.len() < frame_len {
             return Ok(None);
         }
         buffer.advance(HEADER_SIZE);
@@ -938,7 +952,9 @@ impl Decoder for MyDecoder {
 }
 
 // A complete frame decodes, and a truncated one reports its condition.
-let mut decoder = MyDecoder;
+let mut decoder = MyDecoder {
+    max_frame_length: 1024,
+};
 let mut complete = BytesMut::from(&[0_u8, 0, 0, 3, 7, 7, 7][..]);
 let frame = decoder
     .decode_eof(&mut complete)
@@ -957,6 +973,13 @@ assert!(matches!(
     codec_error,
     Some(CodecError::Eof(EofError::MidFrame { .. }))
 ));
+
+// A declared length above the limit is rejected before any buffering.
+let mut oversized = BytesMut::from(&[0xff_u8, 0xff, 0xff, 0xff][..]);
+let error = decoder
+    .decode(&mut oversized)
+    .expect_err("an oversized frame must fail");
+assert_eq!(error.kind(), io::ErrorKind::InvalidData);
 ```
 
 <!-- tested-example: users-guide-021 -->

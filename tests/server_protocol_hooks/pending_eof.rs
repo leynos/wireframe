@@ -52,6 +52,8 @@ const STALLED_PUSH_LEN: usize = STALL_CODEC_MAX - LENGTH_HEADER_SIZE;
 const STALLED_PUSH_PREFIX: &[u8] = b"STALLED-PUSH";
 /// How often a bounded wait rechecks the setup handle.
 const HANDLE_POLL: Duration = Duration::from_millis(10);
+/// Window a completing push write is given to surface in the hook log.
+const PENDING_WRITE_WINDOW: Duration = Duration::from_millis(100);
 
 /// A truncation read while a handler is pending reaches `on_eof` once.
 ///
@@ -89,8 +91,10 @@ async fn truncation_during_a_pending_handler_is_reported() -> TestResult {
 /// The peer never reads, so a push of [`STALLED_PUSH_LEN`] bytes cannot be
 /// written: it exceeds the kernel's send buffer. A second push waits behind it
 /// in the one-slot lane, and its acceptance proves the first frame was
-/// dequeued and its write started. The truncation therefore ends the
-/// connection from inside that write, and the second frame is never written.
+/// dequeued and its write started. A bounded window then checks the hook log
+/// still holds only the first frame, so the write is still pending when the
+/// truncation arrives. The truncation therefore ends the connection from
+/// inside that write, and the second frame is never written.
 #[tokio::test]
 async fn truncation_during_a_blocked_push_write_is_reported() -> TestResult {
     let log = Arc::new(HookLog::default());
@@ -104,6 +108,18 @@ async fn truncation_during_a_blocked_push_write_is_reported() -> TestResult {
     // The lane holds one frame, so this push only completes once the
     // connection has taken the stalled frame and started writing it.
     push(&handle, Bytes::from_static(b"QUEUED-BEHIND")).await?;
+    // A write that finished would surface as the second frame's `BeforeSend`
+    // within this window, so this asserts the pending-write precondition
+    // rather than assuming it.
+    tokio::time::sleep(PENDING_WRITE_WINDOW).await;
+    let pending = log.events();
+    ensure(
+        matches!(pending.as_slice(), [Event::Setup, Event::BeforeSend(_)]),
+        format!(
+            "the stalled push write must still be pending: {}",
+            describe(&pending)
+        ),
+    )?;
     client.write_all(&PARTIAL_HEADER).await?;
     client.shutdown().await?;
     await_connection_end(ended_rx).await?;
