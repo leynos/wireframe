@@ -1239,10 +1239,11 @@ the fragment reassembler's concurrency cap. Override it on the builder:
 use std::num::NonZeroUsize;
 use wireframe::{app::WireframeApp, serializer::BincodeSerializer};
 
-let cap = NonZeroUsize::new(8).expect("non-zero assembly cap");
-let _app = WireframeApp::<BincodeSerializer>::new()
-    .expect("builder creation should not fail")
-    .max_concurrent_assemblies(cap);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cap = NonZeroUsize::new(8).ok_or("assembly cap must be non-zero")?;
+    let _app = WireframeApp::<BincodeSerializer>::new()?.max_concurrent_assemblies(cap);
+    Ok(())
+}
 ```
 
 `NonZeroUsize::MAX` is effectively unbounded. A first frame that would start
@@ -1261,13 +1262,17 @@ the chained state method:
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe::message_assembler::MessageAssemblyState;
 
-let state = MessageAssemblyState::new(
-    NonZeroUsize::new(1_048_576).expect("non-zero size"),
-    Duration::from_secs(30),
-)
-.with_max_concurrent_assemblies(Some(
-    NonZeroUsize::new(8).expect("non-zero assembly cap"),
-));
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let state = MessageAssemblyState::new(
+        NonZeroUsize::new(1_048_576).ok_or("message size must be non-zero")?,
+        Duration::from_secs(30),
+    )
+    .with_max_concurrent_assemblies(Some(
+        NonZeroUsize::new(8).ok_or("assembly cap must be non-zero")?,
+    ));
+    let _ = state;
+    Ok(())
+}
 ```
 
 Expiry is unchanged. An assembly expires once the time elapsed since its first

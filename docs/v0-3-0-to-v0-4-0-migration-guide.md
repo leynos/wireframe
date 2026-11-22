@@ -150,10 +150,11 @@ Raise or lower it on the builder; `NonZeroUsize::MAX` is effectively unbounded:
 use std::num::NonZeroUsize;
 use wireframe::{app::WireframeApp, serializer::BincodeSerializer};
 
-let cap = NonZeroUsize::new(16).expect("non-zero assembly cap");
-let _app = WireframeApp::<BincodeSerializer>::new()
-    .expect("builder creation should not fail")
-    .max_concurrent_assemblies(cap);
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cap = NonZeroUsize::new(16).ok_or("assembly cap must be non-zero")?;
+    let _app = WireframeApp::<BincodeSerializer>::new()?.max_concurrent_assemblies(cap);
+    Ok(())
+}
 ```
 
 A directly constructed `MessageAssemblyState::new` or
@@ -165,12 +166,15 @@ behaviour, unless `with_max_concurrent_assemblies` is called:
 use std::{num::NonZeroUsize, time::Duration};
 use wireframe::message_assembler::MessageAssemblyState;
 
-let cap = NonZeroUsize::new(16).expect("non-zero assembly cap");
-let _state = MessageAssemblyState::new(
-    NonZeroUsize::new(1024).expect("non-zero message size"),
-    Duration::from_secs(30),
-)
-.with_max_concurrent_assemblies(Some(cap));
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cap = NonZeroUsize::new(16).ok_or("assembly cap must be non-zero")?;
+    let _state = MessageAssemblyState::new(
+        NonZeroUsize::new(1024).ok_or("message size must be non-zero")?,
+        Duration::from_secs(30),
+    )
+    .with_max_concurrent_assemblies(Some(cap));
+    Ok(())
+}
 ```
 
 Aggregate-budget errors now report charged `attempted` values: retained payload
