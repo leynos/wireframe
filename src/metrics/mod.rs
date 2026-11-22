@@ -101,7 +101,6 @@ pub(crate) use streaming_bodies::{
     add_parked_body,
     add_queued_body_bytes,
     release_parked_bodies,
-    release_parked_body,
     release_queued_body_bytes,
 };
 

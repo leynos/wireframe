@@ -23,7 +23,7 @@ use super::{
         frame_handling,
     },
     stream_dispatch::DispatchContext,
-    stream_parked::{ParkedQueue, parked_bytes},
+    stream_parked::{self, ParkedMessage, ParkedQueue, parked_bytes},
     stream_slot::ConnectionStreams,
 };
 use crate::{
@@ -188,12 +188,45 @@ pub(super) struct ChunkOffer {
     pub(super) is_last: bool,
 }
 
+/// Publication of the parked-message count.
+///
+/// The connection's two parked-count effects go through this pair of function
+/// pointers rather than calling the `metrics` statics directly: production
+/// wires the process-wide gauge once, and a test can build a state whose
+/// effects land in its own tally.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct ParkedAccounting {
+    /// Report one more parked message.
+    add: fn(),
+    /// Report `count` messages that are no longer parked.
+    release: fn(usize),
+}
+
+impl ParkedAccounting {
+    /// Report through the `metrics` crate's process-wide parked gauge.
+    pub(super) const fn process_wide() -> Self {
+        Self {
+            add: crate::metrics::add_parked_body,
+            release: crate::metrics::release_parked_bodies,
+        }
+    }
+
+    /// Report through a caller's own add and release pair.
+    ///
+    /// Only a test builds one of these; production always reports through
+    /// [`Self::process_wide`].
+    #[cfg(test)]
+    pub(super) const fn new(add: fn(), release: fn(usize)) -> Self { Self { add, release } }
+}
+
 /// Mutable state the connection loop owns across frames.
 pub(super) struct LoopState {
     /// The one live streaming exchange, if any.
     pub(super) streams: ConnectionStreams,
     /// Complete messages waiting for the dispatch slot.
     pub(super) parked: ParkedQueue,
+    /// Sink the parked count is reported to.
+    parked_accounting: ParkedAccounting,
     /// Consecutive malformed-frame count.
     pub(super) deser_failures: u32,
     /// Whether the next wait probes the reader before the push lanes.
@@ -206,12 +239,40 @@ pub(super) struct LoopState {
 impl LoopState {
     /// Create loop state for a fresh connection.
     pub(super) const fn new(queued: QueuedBytes) -> Self {
+        Self::with_parked_accounting(queued, ParkedAccounting::process_wide())
+    }
+
+    /// Create loop state that reports its parked count through `accounting`.
+    ///
+    /// The sink is a construction argument rather than a hidden call, so a
+    /// test can assert the parked count without touching the shared gauge.
+    pub(super) const fn with_parked_accounting(
+        queued: QueuedBytes,
+        parked_accounting: ParkedAccounting,
+    ) -> Self {
         Self {
             streams: ConnectionStreams::new(queued),
             parked: ParkedQueue::new(),
+            parked_accounting,
             deser_failures: 0,
             serve_read_first: false,
         }
+    }
+
+    /// Park one message and report the new parked count.
+    pub(super) fn park(&mut self, message: ParkedMessage) -> io::Result<()> {
+        stream_parked::park(&mut self.parked, message)?;
+        (self.parked_accounting.add)();
+        Ok(())
+    }
+
+    /// Take the oldest parked message and report it as no longer parked.
+    pub(super) fn pop_parked(&mut self) -> Option<ParkedMessage> {
+        let message = self.parked.pop_front();
+        if message.is_some() {
+            (self.parked_accounting.release)(1);
+        }
+        message
     }
 }
 
@@ -223,5 +284,5 @@ impl Drop for LoopState {
     /// is the one path every ending takes — normal return, cancellation while
     /// the loop awaits, and unwinding — so the release lives here rather than
     /// at any single exit.
-    fn drop(&mut self) { crate::metrics::release_parked_bodies(self.parked.len()); }
+    fn drop(&mut self) { (self.parked_accounting.release)(self.parked.len()); }
 }

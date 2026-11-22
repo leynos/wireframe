@@ -222,9 +222,6 @@ pub(crate) fn add_parked_body() { PARKED_BODIES.add(1); }
 #[cfg(not(feature = "metrics"))]
 pub(crate) const fn add_parked_body() {}
 
-/// Remove one message from the parked-body total.
-pub(crate) fn release_parked_body() { release_parked_bodies(1); }
-
 /// Remove `count` messages from the parked-body total.
 ///
 /// A connection that ends with messages still parked releases them in one

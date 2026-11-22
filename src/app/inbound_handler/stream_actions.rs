@@ -29,7 +29,6 @@ use crate::{
     codec::FrameCodec,
     message::EncodeWith,
     message_assembler::StreamingAssemblyId,
-    metrics::release_parked_body,
     serializer::Serializer,
 };
 
@@ -154,11 +153,9 @@ where
     Envelope: EncodeWith<S>,
 {
     let mut dispatch = Dispatch::Continue;
-    while let Some(message) = state.parked.pop_front() {
-        // The message is no longer parked the moment it is taken, and the
-        // messages still queued behind it keep their bytes reserved while it
-        // is answered.
-        release_parked_body();
+    while let Some(message) = state.pop_parked() {
+        // The messages still queued behind this one keep their bytes reserved
+        // while it is answered.
         dispatch = dispatch_parked(message, &state.parked, handles.reborrow()).await?;
         if dispatch == Dispatch::Stop {
             break;

@@ -20,7 +20,7 @@ use super::{
     core::{FrameBuildContext, decode_and_assemble},
     stream_diagnostics,
     stream_handles::{ChunkBudget, ChunkOffer, DispatchHandles, FirstChunk, LoopState},
-    stream_parked::{self, ParkedMessage, dispatch_parked},
+    stream_parked::{ParkedMessage, dispatch_parked},
     stream_slot::BodyFailure,
 };
 use crate::{
@@ -147,7 +147,7 @@ where
         FrameOutcome::StreamFallback { parts, body } => {
             let message = ParkedMessage::Stream { parts, body };
             if stream_live {
-                stream_parked::park(&mut state.parked, message)?;
+                state.park(message)?;
                 return Ok(Dispatch::Continue);
             }
             dispatch_parked(message, &state.parked, handles).await
@@ -215,7 +215,7 @@ where
     Envelope: EncodeWith<S>,
 {
     if stream_live {
-        stream_parked::park(&mut state.parked, ParkedMessage::Envelope(env))?;
+        state.park(ParkedMessage::Envelope(env))?;
         return Ok(Dispatch::Continue);
     }
     let Some(service) = handles.ctx.routes.get(&env.id) else {

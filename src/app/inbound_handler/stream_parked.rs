@@ -35,7 +35,7 @@ use super::{
 use crate::{
     codec::FrameCodec,
     message::EncodeWith,
-    metrics::{StreamingBodyOutcome, add_parked_body},
+    metrics::StreamingBodyOutcome,
     request::{
         AccountedBodySender,
         DEFAULT_BODY_CHANNEL_CAPACITY,
@@ -53,6 +53,10 @@ mod tests;
 #[cfg(feature = "metrics")]
 #[path = "stream_outcome_parked_tests.rs"]
 mod outcome_tests;
+
+#[cfg(test)]
+#[path = "stream_parked_accounting_tests.rs"]
+mod accounting_tests;
 
 /// Maximum number of completed messages parked behind a live streaming body.
 ///
@@ -114,6 +118,9 @@ impl ParkedQueue {
 
 /// Park one completed message, refusing to grow the queue past its cap.
 ///
+/// The queue and this command are pure storage: reporting the new parked count
+/// belongs to the connection state that owns the queue and the gauge sink.
+///
 /// # Errors
 ///
 /// Returns an invalid-data error once [`MAX_PARKED_MESSAGES`] entries are
@@ -128,9 +135,6 @@ pub(super) fn park(parked: &mut ParkedQueue, message: ParkedMessage) -> io::Resu
         ));
     }
     parked.push_back(message);
-    // Parking is the command that grows the queue, so it is the boundary that
-    // reports the new total to the process-wide gauge.
-    add_parked_body();
     Ok(())
 }
 
