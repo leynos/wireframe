@@ -68,10 +68,14 @@ fn marked_top_level_fences_accept_up_to_three_leading_spaces(#[case] padding: &s
              {{}}\n{padding}{fence}\n"
         );
         let parsed = parse(&source).expect("a top-level fence may be indented up to three spaces");
+        let expected = format!("{padding}fn main() {{}}\n");
         assert_eq!(parsed.examples.len(), 1);
         assert_eq!(
-            parsed.examples[0].source,
-            format!("{padding}fn main() {{}}\n")
+            parsed
+                .examples
+                .first()
+                .map(|example| example.source.as_str()),
+            Some(expected.as_str())
         );
     }
 }
@@ -86,7 +90,13 @@ fn list_continuations_and_example_bodies_keep_their_source() {
         "  ```\n",
     );
     let parsed = parse(continuation).expect("a two-space continuation is still scanned");
-    assert_eq!(parsed.examples[0].source, "  fn main() {}\n");
+    assert_eq!(
+        parsed
+            .examples
+            .first()
+            .map(|example| example.source.as_str()),
+        Some("  fn main() {}\n")
+    );
 
     let body = concat!(
         "    ```rust\n",
@@ -95,11 +105,17 @@ fn list_continuations_and_example_bodies_keep_their_source() {
         "1. ~~~rust\n",
     );
     let source = format!("<!-- tested-example: guide-001 -->\n```markdown\n{body}```\n");
-    let parsed = parse(&source).expect("an open example hides later lines from the walk");
+    let nested = parse(&source).expect("an open example hides later lines from the walk");
 
-    assert_eq!(parsed.examples.len(), 1);
-    assert_eq!(parsed.examples[0].source, body);
-    assert_eq!(parsed.identifiers, vec![("guide-001".to_owned(), 1)]);
+    assert_eq!(nested.examples.len(), 1);
+    assert_eq!(
+        nested
+            .examples
+            .first()
+            .map(|example| example.source.as_str()),
+        Some(body)
+    );
+    assert_eq!(nested.identifiers, vec![("guide-001".to_owned(), 1)]);
 }
 
 /// Strategies for the prefixes the loader treats as a list container.

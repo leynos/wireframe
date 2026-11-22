@@ -242,16 +242,16 @@ fn strip_container_prefix(line: &str) -> ContainerPrefix<'_> {
     let mut remainder = line;
     let mut hides_example = false;
     loop {
-        let (content, is_indented) = strip_indentation(remainder);
+        let (unindented, is_indented) = strip_indentation(remainder);
         hides_example |= is_indented;
-        remainder = content;
-        if let Some(content) = quote_content(remainder) {
-            remainder = content;
+        remainder = unindented;
+        if let Some(unquoted) = quote_content(remainder) {
+            remainder = unquoted;
             continue;
         }
-        if let Some(content) = list_item_content(remainder) {
+        if let Some(unlisted) = list_item_content(remainder) {
             hides_example = true;
-            remainder = content;
+            remainder = unlisted;
             continue;
         }
         return ContainerPrefix {
@@ -277,7 +277,10 @@ fn strip_indentation(text: &str) -> (&str, bool) {
         }
         consumed += character.len_utf8();
     }
-    (&text[consumed..], has_tab || spaces >= 4)
+    (
+        text.get(consumed..).unwrap_or_default(),
+        has_tab || spaces >= 4,
+    )
 }
 
 /// Remove one block-quote marker and its single optional following space.
