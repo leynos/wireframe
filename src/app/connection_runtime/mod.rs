@@ -106,7 +106,7 @@ use super::{
 use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
-    hooks::{ProtocolHooks, WireframeProtocol},
+    hooks::ProtocolHooks,
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
@@ -136,12 +136,10 @@ where
     /// Fragmentation settings used to initialize the frame pipeline.
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks built for this connection from the installed protocol.
-    pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
-    /// Installed protocol, used only to dispatch `on_connection_setup`.
     ///
-    /// The runtime releases this reference once setup has run, so the
-    /// connection's pipeline remains its single strong protocol owner.
-    pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
+    /// The hooks own the connection's single strong protocol reference and
+    /// dispatch setup themselves before moving into the frame pipeline.
+    pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
@@ -262,7 +260,6 @@ where
             message_assembler,
             fragmentation,
             protocol_hooks,
-            protocol,
             memory_budgets,
             read_timeout_ms,
             shutdown,
@@ -279,7 +276,6 @@ where
                 message_assembler,
                 fragmentation,
                 protocol_hooks,
-                protocol,
                 memory_budgets,
                 read_timeout_ms,
                 shutdown,

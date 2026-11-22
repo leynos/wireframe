@@ -3,8 +3,7 @@
 //! [`HandlerService`] is the prepared form of a route: the handler plus its
 //! transformed middleware chain. It lives in its own module so the middleware
 //! building blocks in the parent module stay under the module size limit, and
-//! so the two ways a route becomes a service — borrowing an unprepared
-//! builder's route and consuming a prepared one — are read side by side.
+//! so building a service from a route is read next to the services it wraps.
 
 use std::{convert::Infallible, sync::Arc};
 
@@ -48,31 +47,13 @@ impl<E: Packet> HandlerService<E> {
         }
     }
 
-    /// Construct a `HandlerService` for whichever route kind is registered.
-    ///
-    /// Used by the compatibility path, which still owns an unprepared builder
-    /// and therefore clones each route's handler `Arc`.
-    #[must_use]
-    pub(crate) fn from_route(id: u32, route: &Route<E>) -> Self {
-        match route {
-            Route::Unit(handler) => Self::new(id, Arc::clone(handler)),
-            Route::Response(handler) => Self::from_service(
-                id,
-                ResponseRouteService {
-                    id,
-                    handler: Arc::clone(handler),
-                    _marker: std::marker::PhantomData,
-                },
-            ),
-        }
-    }
-
     /// Construct a `HandlerService` by consuming a registered route.
     ///
     /// Preparation owns the builder, so the handler `Arc` moves into the
-    /// service instead of being cloned. The public `Handler` and
-    /// `ResponseHandler` aliases stay `Arc`-shaped because a caller may
-    /// legitimately retain a clone of a handler it supplied.
+    /// service instead of being cloned. The compatibility path clones the
+    /// route first, because it only borrows an unprepared builder. The public
+    /// `Handler` and `ResponseHandler` aliases stay `Arc`-shaped because a
+    /// caller may legitimately retain a clone of a handler it supplied.
     #[must_use]
     pub(crate) fn from_owned_route(id: u32, route: Route<E>) -> Self {
         match route {

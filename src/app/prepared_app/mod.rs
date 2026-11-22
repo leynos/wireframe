@@ -333,7 +333,6 @@ where
                 message_assembler: self.message_assembler.as_deref(),
                 fragmentation: self.fragmentation,
                 protocol_hooks: self.protocol_hooks(),
-                protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
                 push_queues: self.push_queues(),

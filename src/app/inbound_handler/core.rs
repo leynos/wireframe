@@ -60,7 +60,7 @@ use crate::{
     codec::FrameCodec,
     connection::PendingPushes,
     frame::FrameMetadata,
-    hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
+    hooks::{ConnectionContext, ProtocolHooks},
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
@@ -87,14 +87,11 @@ where
     /// Fragmentation settings used to initialize the frame pipeline.
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks applied to every outbound frame on this connection.
-    pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
-    /// Installed protocol, used only to dispatch `on_connection_setup`.
     ///
-    /// Setup runs at the connection boundary, where the push handle and
-    /// registry entry come into existence. Every other callback runs through
-    /// the pipeline's hook owner, so this reference is dropped once setup has
-    /// run and the connection keeps exactly one strong protocol reference.
-    pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
+    /// The hooks own the connection's single strong protocol reference. Setup
+    /// dispatches through this value while it is still borrowed, and the same
+    /// value then moves into the frame pipeline.
+    pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
@@ -169,7 +166,6 @@ where
             message_assembler,
             fragmentation,
             protocol_hooks,
-            protocol,
             memory_budgets,
             read_timeout_ms,
             shutdown,
@@ -181,6 +177,24 @@ where
         let requested_frame_length = connection_codec.max_frame_length();
         let budgets =
             frame_handling::resolve_effective_budgets(memory_budgets, requested_frame_length);
+        // A child token so the guard below cancels only this connection, while
+        // a server shutdown still reaches it through the parent.
+        let connection_shutdown = shutdown.child_token();
+        let read_shutdown = connection_shutdown.clone();
+        let peer_eof = CancellationToken::new();
+        // Protocol setup borrows the hooks value that will own this
+        // connection's single protocol reference, then that same value moves
+        // into the pipeline below. Cloning the protocol for setup would give
+        // the connection a second strong reference while setup is pending.
+        let mut protocol_hooks = protocol_hooks;
+        let (response_actor, cancel_on_exit, connection_context) =
+            build_connection_actor(ConnectionActorInit {
+                protocol_hooks: &mut protocol_hooks,
+                shutdown: connection_shutdown,
+                registry: &session_registry,
+                push_queues: &push_queues,
+                context: ConnectionContext::default().with_peer_addr(peer_addr),
+            })?;
         let mut inbound = InboundFrames {
             // A frame read while the previous one was still being handled, so
             // the loop never polls the read half twice for one inbound frame.
@@ -197,20 +211,7 @@ where
             // starts by purging state it has not buffered.
             read_deadline: None,
         };
-        // A child token so the guard below cancels only this connection, while
-        // a server shutdown still reaches it through the parent.
-        let connection_shutdown = shutdown.child_token();
-        let read_shutdown = connection_shutdown.clone();
-        let peer_eof = CancellationToken::new();
-        let (response_actor, cancel_on_exit, connection_context) =
-            build_connection_actor(ConnectionActorInit {
-                protocol: protocol.as_ref(),
-                shutdown: connection_shutdown,
-                registry: &session_registry,
-                push_queues: &push_queues,
-                context: ConnectionContext::default().with_peer_addr(peer_addr),
-            })?;
-        // The sink-owned pipeline runs `before_send` too, so it must know
+// The sink-owned pipeline runs `before_send` too, so it must know
         // which connection the callback is running for. Installing the value
         // setup observed — rather than rebuilding an equal one — means state
         // setup leaves in the context carries into every later callback.

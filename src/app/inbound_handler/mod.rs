@@ -74,7 +74,7 @@ use super::{
 use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
-    hooks::{ProtocolHooks, WireframeProtocol},
+    hooks::ProtocolHooks,
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
@@ -109,14 +109,11 @@ where
     /// Fragmentation settings used to initialize the frame pipeline.
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks built for this connection from the installed protocol.
-    pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
-    /// Installed protocol, used only to dispatch `on_connection_setup`.
     ///
-    /// Setup runs at the connection boundary because that is where the push
-    /// handle and registry entry come into existence. Every other callback runs
-    /// through the pipeline's hook owner, and this reference is dropped once
-    /// setup has run, so a live connection holds one strong reference.
-    pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
+    /// The hooks own the connection's single strong protocol reference. Setup
+    /// dispatches through this value at the connection boundary, where the
+    /// push handle and registry entry come into existence.
+    pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
@@ -164,7 +161,6 @@ where
         message_assembler,
         fragmentation,
         protocol_hooks,
-        protocol,
         memory_budgets,
         read_timeout_ms,
         shutdown,
@@ -182,7 +178,6 @@ where
             message_assembler,
             fragmentation,
             protocol_hooks,
-            protocol,
             memory_budgets,
             read_timeout_ms,
             shutdown,
@@ -230,12 +225,11 @@ pub(crate) async fn build_route_chains<E>(
 where
     E: Packet,
 {
-    let mut routes = HashMap::with_capacity(handlers.len());
-    for (&id, route) in handlers {
-        let service = HandlerService::from_route(id, route);
-        routes.insert(id, fold_middleware(service, middleware).await);
-    }
-    routes
+    let owned = handlers
+        .iter()
+        .map(|(&id, route)| (id, route.clone()))
+        .collect();
+    build_route_chains_owned(owned, middleware).await
 }
 
 /// Construct each route's middleware chain by consuming the builder's routes.
@@ -311,7 +305,6 @@ where
                 message_assembler: self.message_assembler.as_deref(),
                 fragmentation: self.fragmentation,
                 protocol_hooks: self.protocol_hooks(),
-                protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
                 shutdown: &shutdown,

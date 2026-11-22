@@ -76,7 +76,6 @@ where
         message_assembler: prepared.message_assembler.as_deref(),
         fragmentation: prepared.fragmentation,
         protocol_hooks: prepared.protocol_hooks(),
-        protocol: prepared.protocol.clone(),
         memory_budgets: prepared.memory_budgets,
         read_timeout_ms: prepared.read_timeout_ms,
         shutdown,

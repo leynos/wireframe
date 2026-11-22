@@ -26,8 +26,8 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     app::Envelope,
     codec::FrameCodec,
-    connection::{ConnectionActor, ConnectionChannels, PEER_CLOSED_RESPONSE_GRACE},
-    hooks::{ConnectionContext, WireframeProtocol},
+connection::{ConnectionActor, ConnectionChannels, PEER_CLOSED_RESPONSE_GRACE},
+    hooks::{ConnectionContext, ProtocolHooks},
     push::{FrameLike, PushHandle, PushQueuesBuilder},
     session::{ConnectionId, SessionRegistry},
 };
@@ -119,9 +119,12 @@ pub(super) struct ConnectionActorInit<'a, F>
 where
     F: FrameCodec,
 {
-    /// Protocol whose setup and response hooks drive the actor.
-    pub(super) protocol:
-        Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
+    /// Hooks whose setup callback runs once the connection has an identifier.
+    ///
+    /// Borrowed rather than owned so setup dispatches through the one strong
+    /// protocol reference the hooks already hold. The caller moves the same
+    /// value into the connection's pipeline after this call returns.
+    pub(super) protocol_hooks: &'a mut ProtocolHooks<F::Frame, ()>,
     /// Token cancelled when the connection loop exits.
     pub(super) shutdown: CancellationToken,
     /// Registry the connection publishes its push handle to.
@@ -159,7 +162,7 @@ where
     F: FrameCodec,
 {
     let ConnectionActorInit {
-        protocol,
+        protocol_hooks,
         shutdown,
         registry,
         push_queues,
@@ -179,18 +182,17 @@ where
     let registry_guard = RegistryGuard::new(Arc::clone(registry), connection_id, handle.clone());
 
     let mut connection_context = context.with_published_id(connection_id);
-    if let Some(setup_protocol) = protocol {
-        setup_protocol.on_connection_setup(handle.clone(), &mut connection_context);
-    }
-
-    // The prepared constructor builds the actor with inert hooks and an empty
-    // context: every prepared-path callback runs through the connection's
-    // [`FramePipeline`] owner, which holds the connection's single protocol
-    // reference and context. Installing the protocol here as well would give
-    // the connection a second strong reference, and dispatching through both
-    // would run `before_send` twice on the same frame. The actor receives only
-    // the identity it logs with, so no copy of the connection's hook context
-    // exists outside the pipeline.
+// Setup runs through the hooks value itself, so the connection still owns
+    // exactly one strong protocol reference while setup is pending. The
+    // prepared constructor builds the actor with inert hooks and an empty
+    // context: every later callback runs through the connection's
+    // [`FramePipeline`] owner, which holds that same single reference and
+    // context. Installing the protocol here as well would give the connection a
+    // second strong reference, and dispatching through both would run
+    // `before_send` twice on the same frame. The actor receives only the
+    // identity it logs with, so no copy of the connection's hook context exists
+    // outside the pipeline.
+    protocol_hooks.on_connection_setup(handle.clone(), &mut connection_context);
     let mut actor = ConnectionActor::new_prepared_untracked(
         ConnectionChannels::new(queues, handle.clone()),
         shutdown.clone(),
