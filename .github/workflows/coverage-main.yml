@@ -60,11 +60,11 @@ jobs:
       # runner needs the linker before coverage runs. The input installs it
       # and sets no flag; the Cargo configuration does that.
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@cfd51f3d5423cb16155b94e020cdd7eaeebd0833
+        uses: leynos/shared-actions/.github/actions/setup-rust@3551a0bf76fe47d0cc5ff632c7796a8ddb23717e
         with:
           install-mold: 'true'
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@cfd51f3d5423cb16155b94e020cdd7eaeebd0833
+        uses: leynos/shared-actions/.github/actions/generate-coverage@3551a0bf76fe47d0cc5ff632c7796a8ddb23717e
         with:
           output-path: lcov.info
           format: lcov
@@ -102,7 +102,7 @@ jobs:
         # a5765019 is the floor: from it the uploader selects the CodeScene
         # CLI from a committed manifest. Earlier revisions install "latest",
         # which no longer resolves.
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@cfd51f3d5423cb16155b94e020cdd7eaeebd0833
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@3551a0bf76fe47d0cc5ff632c7796a8ddb23717e
         with:
           format: lcov
           # Stated rather than left to the action's default, because this
@@ -132,7 +132,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Publish the ratchet baseline
-        uses: leynos/shared-actions/.github/actions/publish-coverage-baseline@cfd51f3d5423cb16155b94e020cdd7eaeebd0833
+        uses: leynos/shared-actions/.github/actions/publish-coverage-baseline@3551a0bf76fe47d0cc5ff632c7796a8ddb23717e
         with:
           artefact-name: coverage-baseline-handover
           baseline-rust-file: .coverage-baseline-v2.rust
@@ -154,11 +154,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@cfd51f3d5423cb16155b94e020cdd7eaeebd0833
+        uses: leynos/shared-actions/.github/actions/setup-rust@3551a0bf76fe47d0cc5ff632c7796a8ddb23717e
         with:
           install-mold: 'true'
       - name: Compile the instrumented tests
-        uses: leynos/shared-actions/.github/actions/generate-coverage@cfd51f3d5423cb16155b94e020cdd7eaeebd0833
+        uses: leynos/shared-actions/.github/actions/generate-coverage@3551a0bf76fe47d0cc5ff632c7796a8ddb23717e
         with:
           output-path: lcov.info
           format: lcov
